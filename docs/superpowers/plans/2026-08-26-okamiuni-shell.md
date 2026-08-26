@@ -14,7 +14,9 @@
 - O projeto Xcode é **gerado** por `xcodegen` a partir de `project.yml`. O `.xcodeproj` fica no `.gitignore` — nunca editar à mão, nunca versionar.
 - `Packages/UNIDesign` já existe e está pronto: 26 temas, `TokenColor`, `FontFamily`, `FontRegistry`, `ThemeStore`, `EnvironmentValues.theme`. **Não reescrever.** Regenerar temas só via `python3 Tools/generate_themes.py`.
 - **Número de contas ilimitado, provedores abertos.** Nenhum literal de quantidade, nenhuma lista de domínios ou provedores conhecidos em código de produção. Ver "Contas" abaixo.
-- Cores, espaçamentos, raios e pesos vêm **sempre** de `Theme`. Nenhum literal de cor ou tamanho hardcoded numa View. Se falta um token, o caminho é acrescentar ao design e regenerar — não inventar no Swift.
+- **Cor, raio e tipografia vêm sempre de `Theme`** — isto é absoluto. Nenhum literal de cor (`Color.blue`, `#FFF`), nenhum raio solto, nenhuma `Font.system` direta numa View. Se falta um token de cor ou raio, o caminho é acrescentar ao design e regenerar, nunca inventar no Swift.
+- **Espaçamento inline é permitido** (`padding(.horizontal, 24)`, `spacing: 10`, `frame(height: 40)`), porque o protótipo não tokeniza a escala de espaçamento — ele posiciona elemento a elemento. A regra é: **todo número de espaçamento tem de vir do protótipo, não da sua intuição.** Em caso de dúvida, medir no `.dc.html` em vez de arredondar. Os quatro tokens de métrica que existem (`radiusSmall`, `radiusLarge`, `rowPadding`, `capsTracking`) são obrigatórios onde se aplicam.
+- **Dois andaimes temporários são mandados pelo plano e não são defeitos:** o `Color.clear` que segura o lugar do seletor de temas na Task 5 (removido na Task 6) e o `print` do `onAddEvent` na Task 11 (substituído por EventKit no Marco 4). Ambos levam comentário dizendo o que os remove.
 - Todo texto de interface em **português do Brasil**, idêntico ao protótipo (`design/OkamiUNI - Mail + Agenda.dc.html`).
 - Fonte da verdade visual: o protótipo. Quando o plano e o protótipo divergirem, o protótipo vence.
 - Testes com **Swift Testing** (`import Testing`, `@Test`, `#expect`), não XCTest.
