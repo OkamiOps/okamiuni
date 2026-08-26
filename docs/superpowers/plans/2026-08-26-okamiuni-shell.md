@@ -13,6 +13,7 @@
 - Alvo mínimo: **macOS 26.0**. `SWIFT_VERSION` 6.0, `SWIFT_STRICT_CONCURRENCY: complete`.
 - O projeto Xcode é **gerado** por `xcodegen` a partir de `project.yml`. O `.xcodeproj` fica no `.gitignore` — nunca editar à mão, nunca versionar.
 - `Packages/UNIDesign` já existe e está pronto: 26 temas, `TokenColor`, `FontFamily`, `FontRegistry`, `ThemeStore`, `EnvironmentValues.theme`. **Não reescrever.** Regenerar temas só via `python3 Tools/generate_themes.py`.
+- **Número de contas ilimitado, provedores abertos.** Nenhum literal de quantidade, nenhuma lista de domínios ou provedores conhecidos em código de produção. Ver "Contas" abaixo.
 - Cores, espaçamentos, raios e pesos vêm **sempre** de `Theme`. Nenhum literal de cor ou tamanho hardcoded numa View. Se falta um token, o caminho é acrescentar ao design e regenerar — não inventar no Swift.
 - Todo texto de interface em **português do Brasil**, idêntico ao protótipo (`design/OkamiUNI - Mail + Agenda.dc.html`).
 - Fonte da verdade visual: o protótipo. Quando o plano e o protótipo divergirem, o protótipo vence.
@@ -29,18 +30,29 @@ O app inteiro é grande demais para um plano só. Esta é a sequência; **este d
 |---|---|---|
 | 0 | Design baixado, 26 temas em Swift, testes verdes | ✅ feito |
 | **1** | **Shell + Caixa unificada navegável com mock** | **este plano** |
-| 2 | Camada de dados real: Gmail API, Microsoft Graph, IMAP | a planejar |
+| 2 | IMAP/SMTP universal com autodescoberta de servidor; Gmail API e Graph depois, como otimização | a planejar |
 | 3 | Composer (inline, em janela, nova mensagem) | a planejar |
 | 4 | Agenda semanal + EventKit | a planejar |
 | 5 | Detecção de compromisso e resumo no dispositivo (Foundation Models) | a planejar |
 | 6 | Janelas destacadas, atalhos, busca ⌘K | a planejar |
 | 7 | Empacotamento, assinatura, notarização | a planejar |
 
-### O que o protótipo revela sobre as contas
+### Contas: quantas o usuário quiser, de onde ele quiser
 
-As quatro caixas do design são `ricardo@empresa.com` (Zoho), `ricardo@gmail.com`, `contato@meusite.com` (Hostinger) e `ricardo@icloud.com`.
+**O número de contas é ilimitado e os provedores são abertos.** Qualquer provedor, qualquer domínio — servidor próprio, hospedagem compartilhada, provedor regional, o que for. Nada na UI nem no modelo pode presumir uma quantidade, um conjunto de provedores ou uma lista de domínios conhecidos.
 
-Isso é **1 conta Gmail e 3 contas IMAP** — nenhuma Microsoft. A decisão de arquitetura inclui Microsoft Graph, e o protocolo do Marco 2 deve acomodá-lo, mas a prioridade de implementação real é **IMAP primeiro, Gmail depois, Graph por último**. O Marco 1 não depende disso; está registrado aqui para o Marco 2 não inverter a ordem por engano.
+As quatro caixas que aparecem no protótipo (`ricardo@empresa.com`, `ricardo@gmail.com`, `contato@meusite.com`, `ricardo@icloud.com`) são **exemplos que o designer usou para desenhar**, não o escopo do produto. Elas viram fixtures no Marco 1 só para a comparação visual bater com o protótipo.
+
+Consequências concretas, que valem para todas as tarefas deste plano:
+
+- Nenhum literal `4` em código de produção. O texto da busca é `"Buscar nas \(accountCount) caixas…"`.
+- Nenhum `switch` exaustivo sobre contas conhecidas. `Account.id` é opaco.
+- A UI tem de aguentar 0, 1 e 30 contas. A barra lateral rola; a lista não muda de largura.
+- `Account.Provider` classifica **como falar com o servidor**, não quem é o provedor. `.imap` é o caso geral, não a exceção.
+
+**IMAP/SMTP é o caminho universal e a prioridade número um do Marco 2** — é o que faz "qualquer provedor, qualquer domínio" ser verdade. Gmail API e Microsoft Graph entram depois, como otimização para esses dois casos (sync incremental melhor, threading nativo), nunca como pré-requisito para a conta funcionar. Uma conta Gmail tem de funcionar via IMAP mesmo antes de a Gmail API existir no código.
+
+Isso obriga o Marco 2 a incluir **autodescoberta de servidor** — Mozilla ISPDB, `autoconfig.<domínio>`, `autodiscover`, registros SRV — para o usuário digitar email e senha e o app achar host e porta sozinho. Sem isso, "qualquer domínio" vira "qualquer domínio desde que você saiba decorar IMAP/SMTP", que não é a mesma coisa.
 
 ---
 
@@ -453,7 +465,7 @@ struct ModelTests {
         #expect(Contact(name: "Ana Beatriz Silva", address: "a@x.com").initials == "AS")
     }
 
-    @Test("as quatro caixas de triagem batem com o protótipo")
+    @Test("as pastas de triagem batem com o protótipo")
     func triageBuckets() {
         #expect(TriageBucket.allCases.map(\.rawValue) == ["hoje", "depois", "todos", "arquivar"])
         #expect(TriageBucket.today.label == "Hoje")
@@ -521,10 +533,14 @@ public struct Contact: Sendable, Hashable, Identifiable {
 import Foundation
 
 public struct Account: Sendable, Hashable, Identifiable {
-    /// Como o app conversa com o servidor. O design tem uma conta Gmail e três
-    /// IMAP; `microsoft` existe para o Marco 2 não precisar mexer no modelo.
+    /// Como o app conversa com o servidor — não quem é o provedor.
+    ///
+    /// `imap` é o caso geral e cobre qualquer provedor em qualquer domínio.
+    /// `gmail` e `microsoft` existem só onde a API nativa rende sync melhor;
+    /// uma conta desses dois continua funcionando por `imap`. Nunca tratar
+    /// `imap` como exceção nem presumir que a lista de provedores é fechada.
     public enum Provider: String, Sendable, CaseIterable {
-        case gmail, microsoft, imap
+        case imap, gmail, microsoft
     }
 
     public let id: String
@@ -742,22 +758,62 @@ struct StoreTests {
         return store
     }
 
-    @Test("carrega as quatro contas do protótipo")
+    @Test("carrega as contas que a fonte entregar")
     @MainActor
     func loadsAccounts() async {
         let store = await loadedStore()
-        #expect(store.accounts.count == 4)
-        #expect(Set(store.accounts.map(\.id)) == ["zoho", "gmail", "host", "icloud"])
+        #expect(store.accounts.isEmpty == false)
+        // Sem asserção de quantidade: o número de contas é do usuário.
+        #expect(Set(store.accounts.map(\.id)).count == store.accounts.count)
     }
 
-    @Test("exatamente uma conta é Gmail; as outras três são IMAP")
+    /// O produto aceita qualquer quantidade de contas, de qualquer provedor,
+    /// em qualquer domínio. Estes três testes existem para que nenhuma
+    /// mudança futura reintroduza um limite por descuido.
+    @Test("funciona sem nenhuma conta")
     @MainActor
-    func providerMix() async {
-        let store = await loadedStore()
-        let gmail = store.accounts.filter { $0.provider == .gmail }
-        let imap = store.accounts.filter { $0.provider == .imap }
-        #expect(gmail.count == 1)
-        #expect(imap.count == 3)
+    func handlesZeroAccounts() async {
+        let store = MailStore(
+            source: InMemoryMailSource(accounts: [], messages: [], agenda: [])
+        )
+        await store.load()
+        #expect(store.accounts.isEmpty)
+        #expect(store.visibleMessages.isEmpty)
+        #expect(store.selectedMessage == nil)
+        #expect(store.loadError == nil)
+    }
+
+    @Test("funciona com muitas contas em domínios arbitrários")
+    @MainActor
+    func handlesManyAccounts() async {
+        let many = (1...30).map { i in
+            Account(
+                id: "acc\(i)", address: "pessoa@dominio\(i).com.br",
+                displayName: "Conta \(i)", provider: .imap, tintHex: "#3E6FA8"
+            )
+        }
+        let store = MailStore(
+            source: InMemoryMailSource(accounts: many, messages: [], agenda: [])
+        )
+        await store.load()
+        #expect(store.accounts.count == 30)
+        #expect(store.account("acc17")?.address == "pessoa@dominio17.com.br")
+    }
+
+    @Test("uma conta de provedor desconhecido é tratada como IMAP normal")
+    @MainActor
+    func unknownProviderIsOrdinary() async throws {
+        let obscure = Account(
+            id: "servidor-proprio", address: "eu@meuservidor.xyz",
+            displayName: "Servidor próprio", provider: .imap, tintHex: "#2C7D5E"
+        )
+        let store = MailStore(
+            source: InMemoryMailSource(accounts: [obscure], messages: [], agenda: [])
+        )
+        await store.load()
+        let found = try #require(store.account("servidor-proprio"))
+        #expect(found.provider == .imap)
+        #expect(found.host == "servidor-proprio")
     }
 
     @Test("a caixa Tudo mostra mais mensagens que Hoje")
@@ -982,6 +1038,10 @@ Usar a saída desse comando, não os valores acima, se divergirem.
 import Foundation
 
 /// Dados do protótipo, para desenvolver e testar a UI antes dos backends.
+///
+/// As contas aqui são **exemplos** que o designer usou — não o escopo do
+/// produto, que aceita quantas contas o usuário quiser, de qualquer provedor
+/// e qualquer domínio. Nenhum teste deve afirmar a quantidade destas contas.
 public enum Fixtures {
 
     public static let accounts: [Account] = [
@@ -1098,7 +1158,7 @@ public enum Fixtures {
 - [ ] **Step 5: Rodar os testes**
 
 Run: `cd Packages/UNICore && swift test`
-Expected: PASS, 13 testes (5 de modelos + 8 do store).
+Expected: PASS, 15 testes (5 de modelos + 10 do store).
 
 - [ ] **Step 6: Commit**
 
@@ -1171,6 +1231,16 @@ struct TokenModifierTests {
     func trafficLightInset() {
         // Três botões de 12px com 8px de folga, mais a margem da janela.
         #expect(WindowChrome.trafficLightInset >= 68)
+    }
+
+    @Test("o texto da busca concorda com o número de contas", arguments: [
+        (0, "Buscar"),
+        (1, "Buscar na caixa…"),
+        (4, "Buscar nas 4 caixas…"),
+        (37, "Buscar nas 37 caixas…"),
+    ])
+    func searchPlaceholderAgrees(count: Int, expected: String) {
+        #expect(WindowChrome.searchPlaceholder(count) == expected)
     }
 }
 ```
@@ -1251,6 +1321,16 @@ public struct WindowChrome: View {
     public static let height: CGFloat = 58
     /// Espaço à esquerda para os semáforos da janela, que continuam nativos.
     public static let trafficLightInset: CGFloat = 78
+
+    /// O protótipo diz "Buscar nas 4 caixas…" porque tinha quatro contas.
+    /// Como a quantidade é do usuário, o texto concorda com ela.
+    public static func searchPlaceholder(_ accountCount: Int) -> String {
+        switch accountCount {
+        case 0: "Buscar"
+        case 1: "Buscar na caixa…"
+        default: "Buscar nas \(accountCount) caixas…"
+        }
+    }
 
     @Environment(\.theme) private var theme
     @Binding var workspace: Workspace
@@ -1349,7 +1429,7 @@ public struct WindowChrome: View {
             Circle()
                 .strokeBorder(theme.ink4.color, lineWidth: 1.5)
                 .frame(width: 10, height: 10)
-            TextField("Buscar nas \(accountCount) caixas…", text: $query)
+            TextField(Self.searchPlaceholder(accountCount), text: $query)
                 .textFieldStyle(.plain)
                 .font(theme.sans.font(size: 12.5))
                 .foregroundStyle(theme.ink.color)
@@ -1390,7 +1470,7 @@ Em `targets.OkamiUNI.dependencies`:
 - [ ] **Step 7: Rodar os testes**
 
 Run: `cd Packages/UNIShell && swift test`
-Expected: PASS, 3 testes.
+Expected: PASS, 4 testes.
 
 - [ ] **Step 8: Commit**
 
@@ -1610,7 +1690,7 @@ struct ThemePreview: View {
 - [ ] **Step 4: Rodar os testes**
 
 Run: `cd Packages/UNIShell && swift test`
-Expected: PASS, 6 testes.
+Expected: PASS, 7 testes.
 
 - [ ] **Step 5: Ligar o seletor na barra**
 
@@ -1671,12 +1751,22 @@ struct SidebarTests {
         #expect(store.count(for: .today) == store.messages.filter { $0.bucket == .today }.count)
     }
 
-    @Test("a barra lista uma linha por conta")
+    @Test("a barra lista uma linha por conta, seja qual for a quantidade")
     @MainActor
     func oneRowPerAccount() async {
-        let store = MailStore(source: InMemoryMailSource.fixtures)
-        await store.load()
-        #expect(store.accounts.count == 4)
+        for quantidade in [0, 1, 7, 25] {
+            let contas = (0..<quantidade).map { i in
+                Account(
+                    id: "a\(i)", address: "x@d\(i).com",
+                    displayName: "C\(i)", provider: .imap, tintHex: "#3E6FA8"
+                )
+            }
+            let store = MailStore(
+                source: InMemoryMailSource(accounts: contas, messages: [], agenda: [])
+            )
+            await store.load()
+            #expect(store.accounts.count == quantidade)
+        }
     }
 }
 ```
@@ -1704,18 +1794,22 @@ public struct FolderSidebar: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            section("Pastas")
-            ForEach(TriageBucket.allCases, id: \.self) { bucket in
-                bucketRow(bucket)
-            }
+        // ScrollView, não VStack fixa: o usuário pode ter dezenas de contas.
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                section("Pastas")
+                ForEach(TriageBucket.allCases, id: \.self) { bucket in
+                    bucketRow(bucket)
+                }
 
-            section("Caixas").padding(.top, 18)
-            ForEach(store.accounts) { account in
-                accountRow(account)
+                if !store.accounts.isEmpty {
+                    section("Caixas").padding(.top, 18)
+                    ForEach(store.accounts) { account in
+                        accountRow(account)
+                    }
+                }
             }
-
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 14)
         .frame(width: Self.width, alignment: .leading)
@@ -1777,13 +1871,13 @@ public struct FolderSidebar: View {
 - [ ] **Step 4: Rodar os testes**
 
 Run: `cd Packages/UNIShell && swift test`
-Expected: PASS, 8 testes.
+Expected: PASS, 9 testes.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add Packages/UNIShell
-git commit -m "Barra lateral com pastas de triagem e as quatro caixas
+git commit -m "Barra lateral com pastas de triagem e a lista de contas
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
@@ -2064,7 +2158,7 @@ public struct MessageList: View {
 - [ ] **Step 5: Rodar os testes**
 
 Run: `cd Packages/UNIShell && swift test`
-Expected: PASS, 12 testes.
+Expected: PASS, 13 testes.
 
 - [ ] **Step 6: Commit**
 
@@ -2306,7 +2400,7 @@ public struct ReaderPane: View {
 - [ ] **Step 4: Rodar os testes**
 
 Run: `cd Packages/UNIShell && swift test`
-Expected: PASS, 15 testes.
+Expected: PASS, 16 testes.
 
 - [ ] **Step 5: Commit**
 
@@ -2523,7 +2617,7 @@ public struct AgendaRail: View {
 - [ ] **Step 4: Rodar os testes**
 
 Run: `cd Packages/UNIShell && swift test`
-Expected: PASS, 20 testes.
+Expected: PASS, 21 testes.
 
 - [ ] **Step 5: Commit**
 
@@ -2767,7 +2861,7 @@ Abrir `design/OkamiUNI - Mail + Agenda.dc.html` no navegador ao lado e comparar.
 - [ ] Logo trocando entre `uni-lockup-light` e `uni-lockup-dark` ao mudar para um tema escuro
 - [ ] Abas Caixa/Agenda com a ativa em fundo `surface`
 - [ ] Busca dizendo "Buscar nas 4 caixas…" com "⌘K" em mono à direita
-- [ ] Barra lateral com Hoje/Depois/Tudo/Arquivado e as quatro contas com seus pontos coloridos
+- [ ] Barra lateral com Hoje/Depois/Tudo/Arquivado e uma linha por conta das fixtures, cada uma com seu ponto colorido
 - [ ] Lista de 370px, agrupada, com etiquetas coloridas no rodapé de cada linha
 - [ ] Clicar numa linha carrega o leitor e o remetente perde o negrito
 - [ ] O cartão "Resumo no dispositivo" aparece em m1 com a faixa "Compromisso detectado" e o botão "Colocar na agenda"
