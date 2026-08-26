@@ -17,6 +17,10 @@ settings:
 packages:
   UNIDesign:
     path: Packages/UNIDesign
+  UNICore:
+    path: Packages/UNICore
+  UNIShell:
+    path: Packages/UNIShell
 
 targets:
   OkamiUNI:
@@ -31,6 +35,10 @@ targets:
     dependencies:
       - package: UNIDesign
         product: UNIDesign
+      - package: UNICore
+        product: UNICore
+      - package: UNIShell
+        product: UNIShell
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.okamiops.okamiuni
