@@ -18,7 +18,7 @@
 - **Espaçamento inline é permitido** (`padding(.horizontal, 24)`, `spacing: 10`, `frame(height: 40)`), porque o protótipo não tokeniza a escala de espaçamento — ele posiciona elemento a elemento. A regra é: **todo número de espaçamento tem de vir do protótipo, não da sua intuição.** Em caso de dúvida, medir no `.dc.html` em vez de arredondar. Os quatro tokens de métrica que existem (`radiusSmall`, `radiusLarge`, `rowPadding`, `capsTracking`) são obrigatórios onde se aplicam.
 - **Dois andaimes temporários são mandados pelo plano e não são defeitos:** o `Color.clear` que segura o lugar do seletor de temas na Task 5 (removido na Task 6) e o `print` do `onAddEvent` na Task 11 (substituído por EventKit no Marco 4). Ambos levam comentário dizendo o que os remove.
 - Todo texto de interface em **português do Brasil**, idêntico ao protótipo (`design/OkamiUNI - Mail + Agenda.dc.html`).
-- Fonte da verdade visual: o protótipo. Quando o plano e o protótipo divergirem, o protótipo vence.
+- **Fonte da verdade visual: o protótipo.** Quando o plano e o protótipo divergirem, o implementador **NÃO decide**: para, devolve `NEEDS_CONTEXT` descrevendo a divergência (o valor do plano, o valor do protótipo, a linha do `.dc.html`) e espera resposta. Seguir o plano contra o protótipo já produziu retrabalho neste projeto — a barra lateral inteira teve de ser refeita porque um implementador achou a divergência, registrou no relatório, e mesmo assim seguiu o plano.
 - Testes com **Swift Testing** (`import Testing`, `@Test`, `#expect`), não XCTest.
 - Um commit por tarefa concluída, mensagem em português, com trailer `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
 
@@ -1775,165 +1775,168 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 7: Barra lateral de pastas e caixas
+### Task 7: Filtro por conta e barra lateral expandida
+
+O plano original descrevia esta barra errada em quase tudo. Os valores abaixo foram
+extraídos do protótipo e são os corretos.
 
 **Files:**
-- Create: `Packages/UNIShell/Sources/UNIShell/Inbox/FolderSidebar.swift`
-- Test: `Packages/UNIShell/Tests/UNIShellTests/SidebarTests.swift`
+- Modify: `Packages/UNICore/Sources/UNICore/Account.swift`
+- Modify: `Packages/UNICore/Sources/UNICore/MessageStore.swift`
+- Modify: `Packages/UNICore/Sources/UNICore/Fixtures/Fixtures.swift`
+- Modify: `Packages/UNICore/Tests/UNICoreTests/StoreTests.swift`
+- Rewrite: `Packages/UNIShell/Sources/UNIShell/Inbox/FolderSidebar.swift`
+- Modify: `Packages/UNIShell/Tests/UNIShellTests/SidebarTests.swift`
 
 **Interfaces:**
-- Consumes: `MailStore.accounts`, `MailStore.bucket`, `MailStore.count(for:)`, `TriageBucket`
-- Produces: `FolderSidebar`, `FolderSidebar.width` (`CGFloat` = 168)
+- Consumes: `Theme`, `MailStore`, `TriageBucket`, `Account`
+- Produces: `Account.tint(isDark:)`, `MailStore.selectedAccountID`,
+  `MailStore.select(account:)`, `MailStore.count(for:)` sensível ao filtro,
+  `FolderSidebar`, `FolderSidebar.expandedWidth` (= 236)
 
-- [ ] **Step 1: Escrever o teste que falha**
+#### Parte A — o modelo aprende o filtro por conta
 
-```swift
-import Testing
-import UNICore
-@testable import UNIShell
+No protótipo, clicar numa conta filtra a lista, e os contadores das pastas passam a
+contar só aquela conta. Clicar de novo na mesma conta desliga o filtro.
 
-@Suite("FolderSidebar")
-struct SidebarTests {
-
-    @Test("os contadores por caixa batem com o store")
-    @MainActor
-    func counts() async {
-        let store = MailStore(source: InMemoryMailSource.fixtures)
-        await store.load()
-        #expect(store.count(for: .all) == store.messages.count)
-        #expect(store.count(for: .today) == store.messages.filter { $0.bucket == .today }.count)
-    }
-
-    @Test("a barra lista uma linha por conta, seja qual for a quantidade")
-    @MainActor
-    func oneRowPerAccount() async {
-        for quantidade in [0, 1, 7, 25] {
-            let contas = (0..<quantidade).map { i in
-                Account(
-                    id: "a\(i)", address: "x@d\(i).com",
-                    displayName: "C\(i)", provider: .imap, tintHex: "#3E6FA8"
-                )
-            }
-            let store = MailStore(
-                source: InMemoryMailSource(accounts: contas, messages: [], agenda: [])
-            )
-            await store.load()
-            #expect(store.accounts.count == quantidade)
-        }
-    }
-}
+O código do protótipo:
+```js
+onPick: () => this.setState({ account: on ? null : k })
+// e nos contadores:
+MSGS.filter(m => (v.id === 'todos' ? true : bucketOf(m) === v.id) && (!st.account || m.acc === st.account))
 ```
 
-- [ ] **Step 2: Rodar para ver falhar**
+`MailStore` ganha:
+- `public private(set) var selectedAccountID: String?`
+- `public func select(account id: String?)` — passar o id já selecionado desliga o filtro
+- `visibleMessages` passa a aplicar o filtro de conta junto com bucket e busca
+- `count(for:)` passa a respeitar o filtro de conta
 
-Run: `cd Packages/UNIShell && swift test --filter FolderSidebar`
-Expected: FAIL na compilação.
+#### Parte B — cores de conta que se adaptam ao tema
 
-- [ ] **Step 3: Escrever `FolderSidebar.swift`**
+O protótipo troca a cor de cada conta conforme o tema, porque a cor clara não tem
+contraste em fundo escuro:
 
-```swift
-import SwiftUI
-import UNIDesign
-import UNICore
-
-public struct FolderSidebar: View {
-    public static let width: CGFloat = 168
-
-    @Environment(\.theme) private var theme
-    let store: MailStore
-
-    public init(store: MailStore) {
-        self.store = store
-    }
-
-    public var body: some View {
-        // ScrollView, não VStack fixa: o usuário pode ter dezenas de contas.
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                section("Pastas")
-                ForEach(TriageBucket.allCases, id: \.self) { bucket in
-                    bucketRow(bucket)
-                }
-
-                if !store.accounts.isEmpty {
-                    section("Caixas").padding(.top, 18)
-                    ForEach(store.accounts) { account in
-                        accountRow(account)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.vertical, 14)
-        .frame(width: Self.width, alignment: .leading)
-        .background(theme.surface2.color)
-        .hairline(theme.line, edges: .trailing)
-    }
-
-    private func section(_ title: String) -> some View {
-        Text(title)
-            .capsLabel()
-            .padding(.horizontal, 14)
-            .padding(.bottom, 6)
-    }
-
-    private func bucketRow(_ bucket: TriageBucket) -> some View {
-        let active = bucket == store.bucket
-        return Button { store.select(bucket: bucket) } label: {
-            HStack(spacing: 6) {
-                Text(bucket.label)
-                    .font(theme.sans.font(size: 12.5, weight: active ? .semibold : .regular))
-                    .foregroundStyle((active ? theme.ink : theme.ink2).color)
-                Spacer(minLength: 4)
-                Text("\(store.count(for: bucket))")
-                    .font(theme.mono.font(size: 10))
-                    .foregroundStyle(theme.ink4.color)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .contentShape(Rectangle())
-            .background {
-                if active {
-                    RoundedRectangle(cornerRadius: theme.radiusSmall)
-                        .fill(theme.accentSoft.color)
-                }
-            }
-            .padding(.horizontal, 8)
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func accountRow(_ account: Account) -> some View {
-        HStack(spacing: 7) {
-            Circle()
-                .fill(TokenColor(css: account.tintHex)?.color ?? theme.ink4.color)
-                .frame(width: 7, height: 7)
-            Text(account.address)
-                .font(theme.sans.font(size: 11.5))
-                .foregroundStyle(theme.ink2.color)
-                .lineLimit(1)
-                .truncationMode(.middle)
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 4)
-        .help(account.address)
-    }
-}
+```js
+// tema claro:  ACC[k].c        — L ~0.52
+// temas escuros: L sobe para ~0.78-0.80
+DK = { zoho: oklch(0.78 0.10 255), gmail: oklch(0.78 0.11 300),
+       host: oklch(0.80 0.10 155), icloud: oklch(0.80 0.09 200) }
 ```
 
-- [ ] **Step 4: Rodar os testes**
+`Account.tintHex` vira dois campos: `tintLightHex` e `tintDarkHex`, mais
+`public func tint(isDark: Bool) -> String`. Converter os OKLCH acima para hex com
+`Tools/generate_themes.py` (função `oklch_to_srgb`) e usar a saída real.
 
-Run: `cd Packages/UNIShell && swift test`
-Expected: PASS, 9 testes.
+#### Parte C — a barra expandida, com os valores do protótipo
 
-- [ ] **Step 5: Commit**
+Container: largura **236**, fundo `surface2`, borda direita `0.5px line`,
+`padding-top: 14`, e transição de largura de 180ms.
 
-```bash
-git add Packages/UNIShell
-git commit -m "Barra lateral com pastas de triagem e a lista de contas
+Cabeçalho de seção (os dois): mono **9.5px**, caps, tracking `capsTracking`, cor `ink4`.
+- "**Fluxo**" com padding `0 16px 7px`  (o plano antigo dizia "Pastas" — errado)
+- "**Caixas**" com padding `22px 16px 7px`
 
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
-```
+Linha de pasta (`views`): altura **30**, gap **9**, padding `0 8`, raio `radiusSmall`.
+- rótulo 13px peso 500, ocupando o espaço livre
+- contador em mono 10px
+- selecionada: cor `accentInk`, fundo `accentSoft`, contador também `accentInk`
+- não selecionada: cor `ink2`, contador `ink4`, fundo transparente
+
+Linha de conta (`accounts`): altura **32**, gap **8**, padding `0 8`, raio `radiusSmall`.
+- chip do host à esquerda: mono **9px**, tracking 0.06em, caps, padding `2px 6px 1.5px`,
+  raio 4, cor = tint da conta, fundo = tint a 14% (22% quando selecionada),
+  borda `0.5px` do tint a 32%
+- rótulo (endereço) 12.5px, truncado com reticências, ocupando o espaço livre
+- contador em mono 10px, `ink4`
+- selecionada: fundo = tint a 16% e uma barra interna de 2px à esquerda na cor do tint
+  (no CSS é `box-shadow: inset 2px 0 0`; em SwiftUI, um retângulo de 2px alinhado à esquerda)
+
+Rodapé, fixo no fim (`margin-top: auto`), padding 16, borda superior `0.5px line`:
+- um ponto de 5px na cor semântica "ok" (verde), gap 7
+- "**Triagem local ativa**" — 11.5px, peso 590, `ink2`
+- "**Classificação, resumo e busca semântica rodam no Mac. Nada sai daqui.**"
+  — 11px, line-height 1.5, `ink3`
+
+Este rodapé é promessa de produto, não decoração. O texto vai verbatim.
+
+#### Steps
+
+- [ ] **Step 1: Escrever os testes que falham** — no UNICore, cobrindo o filtro por
+  conta: filtrar reduz `visibleMessages`; clicar de novo na mesma conta desliga;
+  `count(for:)` respeita o filtro; filtro por conta e busca se combinam. No UNIShell,
+  os testes de escalabilidade que já existem mais um que fixe `expandedWidth == 236`.
+  Todo teste tem de falhar antes da implementação — rode e confirme.
+
+- [ ] **Step 2: Implementar a Parte A** (filtro no `MailStore`), rodar os testes do
+  UNICore até passarem.
+
+- [ ] **Step 3: Implementar a Parte B** (tint por tema). Converter os OKLCH com o
+  helper e registrar a saída no relatório.
+
+- [ ] **Step 4: Reescrever a `FolderSidebar`** com os valores da Parte C.
+
+- [ ] **Step 5: Verificar contra o protótipo.** Abrir o app e comparar com o
+  `.dc.html`: largura, "Fluxo", chips de host, contadores, seleção de conta com a
+  barrinha à esquerda, rodapé. Trocar para um tema escuro e confirmar que as cores das
+  contas clareiam.
+
+- [ ] **Step 6: Commit.**
+
+---
+
+### Task 7B: Trilha recolhida de 62px
+
+O botão da barra de 58px não esconde a barra lateral: ele a troca por uma trilha
+estreita. O plano original tratava isso como mostrar/esconder — errado.
+
+**Files:**
+- Create: `Packages/UNIShell/Sources/UNIShell/Inbox/SidebarRail.swift`
+- Modify: `Packages/UNIShell/Sources/UNIShell/Inbox/FolderSidebar.swift`
+- Test: `Packages/UNIShell/Tests/UNIShellTests/SidebarRailTests.swift`
+
+**Interfaces:**
+- Consumes: `MailStore`, `Theme`, `TriageBucket`
+- Produces: `SidebarRail`, `SidebarRail.width` (= 62)
+
+Container: largura **62**, fundo `surface2`, borda direita `0.5px line`,
+conteúdo centralizado, padding `14px 0`.
+
+Botão de pasta: **46×40**, raio `radiusSmall`, coluna centralizada, gap 3.
+- abreviação em mono **8.5px**, tracking 0.06em, caps: `hoje`, `dep`, `tudo`, `arq`
+  (nessa ordem, correspondendo a Hoje/Depois/Tudo/Arquivado)
+- contador 13px peso 650
+- selecionado: cor `accentInk`, fundo `accentSoft`, borda `0.5px accentLine`
+- não selecionado: cor `ink3`, fundo transparente
+
+Divisória: 26px de largura, `0.5px line`, margem vertical 8.
+
+Rótulo "caixas": mono **7.5px**, tracking 0.08em, caps, `ink4`, margem inferior 2.
+
+Marca de conta: **40×24**, raio `radiusSmall`, mono 10px peso 500, centralizado.
+- texto = as **3 primeiras letras do host** (`zoh`, `gma`, `hos`, `icl`)
+- cor = tint da conta; fundo = tint a 12% (26% quando selecionada);
+  borda `0.5px` do tint a 26% (70% quando selecionada)
+- cada uma leva o endereço completo num `.help()`
+
+#### Steps
+
+- [ ] **Step 1: Escrever os testes que falham** — `SidebarRail.width == 62`; as
+  abreviações das quatro pastas na ordem certa; a marca de conta são as 3 primeiras
+  letras do host; a trilha aguenta 0 e 25 contas.
+
+- [ ] **Step 2: Rodar e ver falhar.**
+
+- [ ] **Step 3: Implementar `SidebarRail`.**
+
+- [ ] **Step 4: Ligar o toggle.** O botão da barra alterna entre `FolderSidebar`
+  (236px) e `SidebarRail` (62px) — nunca esconde tudo. Animar com a transição de
+  180ms que o protótipo usa.
+
+- [ ] **Step 5: Verificar no app.** Clicar no botão vai e volta entre os dois estados,
+  a seleção de pasta e de conta sobrevive à troca.
+
+- [ ] **Step 6: Commit.**
 
 ---
 
@@ -2708,10 +2711,12 @@ struct InboxScreenTests {
 
     @Test("as larguras dos painéis somam a janela do design")
     func paneWidths() {
-        // 1440 = 168 lateral + 370 lista + leitor + 262 agenda
-        let fixed = FolderSidebar.width + MessageList.width + AgendaRail.width
-        #expect(fixed == 800)
-        #expect(1440 - fixed == 640)  // sobra para o leitor
+        // 1440 = 236 lateral + 370 lista + leitor + 262 agenda
+        let fixed = FolderSidebar.expandedWidth + MessageList.width + AgendaRail.width
+        #expect(fixed == 868)
+        #expect(1440 - fixed == 572)  // sobra para o leitor
+        // recolhida, a lateral vira trilha de 62 — nunca some
+        #expect(SidebarRail.width == 62)
     }
 
     @Test("o store carrega e já tem uma caixa selecionada")
@@ -2740,7 +2745,7 @@ import UNICore
 public struct InboxScreen: View {
     @Environment(\.theme) private var theme
     @State private var workspace: Workspace = .mail
-    @State private var sidebarVisible = true
+    @State private var sidebarExpanded = true
 
     private let store: MailStore
 
@@ -2758,7 +2763,7 @@ public struct InboxScreen: View {
                 accountCount: store.accounts.count,
                 onToggleSidebar: {
                     withAnimation(.easeInOut(duration: 0.18)) {
-                        sidebarVisible.toggle()
+                        sidebarExpanded.toggle()
                     }
                 }
             )
@@ -2774,9 +2779,11 @@ public struct InboxScreen: View {
 
     private var mailPanes: some View {
         HStack(spacing: 0) {
-            if sidebarVisible {
+            // O protótipo nunca esconde a lateral: alterna 236px <-> trilha de 62px.
+            if sidebarExpanded {
                 FolderSidebar(store: store)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
+            } else {
+                SidebarRail(store: store)
             }
             MessageList(store: store)
             ReaderPane(store: store) { event in
