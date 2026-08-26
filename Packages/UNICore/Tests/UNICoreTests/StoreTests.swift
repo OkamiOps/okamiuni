@@ -138,47 +138,79 @@ struct StoreTests {
         #expect(starts == starts.sorted())
     }
 
-    @Test("load() é atômico: falha após accounts() não deixa accounts inconsistente")
+    @Test("load() é atômico: falha após accounts() não deixa o estado anterior inconsistente")
     @MainActor
     func loadAtomicity() async {
-        // Cria um store com dados bons primeiro
-        let store = await loadedStore()
-        let accountsBeforeFail = store.accounts
-        let messagesBeforeFail = store.messages
-        #expect(accountsBeforeFail.isEmpty == false)
-        #expect(messagesBeforeFail.isEmpty == false)
+        // Fonte com estado: sucesso na primeira chamada, falha na segunda.
+        // Isto testa atomicidade NO MESMO STORE, o cenário real.
+        actor TogglableSource: MailSource {
+            private var attemptCount = 0
 
-        // Cria uma fonte que falha em messages() após accounts() retorna com sucesso.
-        // Na versão não-atômica, isto deixaria accounts modificado.
-        // Na versão atômica, accounts não é modificado.
-        struct FailingOnMessagesSource: MailSource {
             func accounts() async throws -> [Account] {
-                // Retorna uma conta diferente para provar que accounts NÃO foi substituído
-                [Account(
-                    id: "novo", address: "novo@teste.com",
-                    displayName: "Nova Conta", provider: .imap, tintHex: "#FFFFFF"
-                )]
+                attemptCount += 1
+                if attemptCount == 2 {
+                    // Na segunda tentativa, devolve uma conta diferente
+                    // (provaria que accounts foi parcialmente escrito, se não-atômico)
+                    return [Account(
+                        id: "replacementacc", address: "replacement@teste.com",
+                        displayName: "Conta de Reposição", provider: .imap, tintHex: "#ABCDEF"
+                    )]
+                }
+                // Primeira tentativa: devolve dados bons
+                return Fixtures.accounts
             }
 
             func messages() async throws -> [Message] {
-                throw NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "Rede indisponível"])
+                if attemptCount == 2 {
+                    // Na segunda tentativa, lança após accounts() ter sucesso
+                    throw NSError(
+                        domain: "test", code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: "Falha de rede no messages()"]
+                    )
+                }
+                // Primeira tentativa: devolve dados bons
+                return Fixtures.messages
             }
 
             func agenda() async throws -> [AgendaItem] {
-                []
+                if attemptCount == 2 {
+                    throw NSError(
+                        domain: "test", code: 1,
+                        userInfo: [NSLocalizedDescriptionKey: "Falha de rede no agenda()"]
+                    )
+                }
+                return Fixtures.agenda
             }
         }
 
-        // Tenta carregar com uma fonte que falha parcialmente
-        // Na versão não-atômica: accounts teria sido substituído antes da falha
-        // Na versão atômica: nada é substituído
-        let failingStore = MailStore(source: FailingOnMessagesSource())
-        await failingStore.load()
+        let source = TogglableSource()
+        let store = MailStore(source: source)
 
-        // Verifica que o estado inicial vazio foi preservado (não foi parcialmente modificado)
-        #expect(failingStore.accounts.isEmpty)  // Store novo, ainda vazio
-        #expect(failingStore.messages.isEmpty)  // Store novo, ainda vazio
-        #expect(failingStore.loadError != nil)
-        #expect(failingStore.loadError?.contains("Rede indisponível") == true)
+        // (a) Carrega com sucesso — o store fica com dados bons
+        await store.load()
+        let accountsAfterFirstLoad = store.accounts
+        let messagesAfterFirstLoad = store.messages
+        let agendaAfterFirstLoad = store.agenda
+        #expect(accountsAfterFirstLoad.isEmpty == false)
+        #expect(messagesAfterFirstLoad.isEmpty == false)
+        #expect(agendaAfterFirstLoad.isEmpty == false)
+        #expect(store.loadError == nil)
+
+        // (b) Tenta carregar de novo com o MESMO STORE (mesmo source, mas segundo estado)
+        // A fonte falhará em messages() APÓS accounts() retornar com sucesso
+        // (Na versão não-atômica, accounts teria sido substituído na segunda tentativa)
+        await store.load()
+
+        // (c) Verifica que o estado bom foi PRESERVADO ATOMICAMENTE
+        // accounts deve continuar exatamente como era, NÃO com a conta de reposição
+        #expect(store.accounts == accountsAfterFirstLoad)
+        #expect(store.messages == messagesAfterFirstLoad)
+        #expect(store.agenda == agendaAfterFirstLoad)
+        // Especificamente, accounts NÃO foi substituído:
+        #expect(store.accounts.contains { $0.id == "replacementacc" } == false)
+
+        // (d) loadError foi preenchido
+        #expect(store.loadError != nil)
+        #expect(store.loadError?.contains("Falha de rede no messages()") == true)
     }
 }
