@@ -33,6 +33,7 @@ public struct WindowChrome: View {
     @Binding var query: String
     let accountCount: Int
     let onToggleSidebar: () -> Void
+    @State private var sidebarHovering = false
 
     public init(
         workspace: Binding<Workspace>,
@@ -52,11 +53,14 @@ public struct WindowChrome: View {
 
             sidebarToggle
 
-            Image(theme.isDark ? "uni-lockup-dark" : "uni-lockup-light")
-                .resizable()
-                .scaledToFit()
-                .frame(height: 38)
-                .accessibilityLabel("OkamiUNI")
+            HStack(spacing: 9) {
+                Image(theme.isDark ? "uni-lockup-dark" : "uni-lockup-light")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(height: 38)
+                    .accessibilityLabel("OkamiUNI")
+            }
+            .padding(.trailing, 6)
 
             workspaceTabs
 
@@ -88,10 +92,13 @@ public struct WindowChrome: View {
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .overlay {
                 RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(theme.btnLine.color, lineWidth: 0.5)
+                    .strokeBorder(sidebarHovering ? theme.accent.color : theme.btnLine.color, lineWidth: 0.5)
             }
+            .shadow(theme.btnShadow)
         }
         .buttonStyle(.plain)
+        .onHover { sidebarHovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: sidebarHovering)
         .accessibilityLabel("Mostrar ou esconder a barra lateral")
     }
 
@@ -101,14 +108,15 @@ public struct WindowChrome: View {
                 let active = tab == workspace
                 Button { workspace = tab } label: {
                     Text(tab.label)
-                        .font(theme.sans.font(size: 12, weight: active ? .semibold : .regular))
+                        .font(theme.sans.font(size: 12.5, weight: .semibold))
                         .foregroundStyle((active ? theme.ink : theme.ink3).color)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 5)
+                        .padding(.horizontal, 13)
+                        .frame(height: 24)
                         .background {
                             if active {
-                                RoundedRectangle(cornerRadius: theme.radiusSmall - 2)
+                                RoundedRectangle(cornerRadius: theme.radiusSmall)
                                     .fill(theme.surface.color)
+                                    .shadow(color: .black.opacity(0.08), radius: 1, x: 0, y: 1)
                             }
                         }
                 }

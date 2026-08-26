@@ -31,4 +31,14 @@ struct TokenModifierTests {
     func searchPlaceholderAgrees(count: Int, expected: String) {
         #expect(WindowChrome.searchPlaceholder(count) == expected)
     }
+
+    @Test("o raio da aba nunca é negativo em nenhum tema")
+    func tabRadiusNeverNegative() {
+        for theme in Theme.all {
+            #expect(
+                theme.radiusSmall >= 0,
+                "radiusSmall é \(theme.radiusSmall) no tema \(theme.name) — aba fica com raio negativo"
+            )
+        }
+    }
 }
