@@ -97,7 +97,7 @@ public struct FolderSidebar: View {
         return Button { store.select(account: account.id) } label: {
             HStack(spacing: 8) {
                 // Chip do host
-                Text(account.host.prefix(3).uppercased())
+                Text(account.host.uppercased())
                     .font(theme.mono.font(size: 9, weight: .medium))
                     .tracking(theme.capsTracking(at: 9))
                     .foregroundStyle(tintTokenColor.color)

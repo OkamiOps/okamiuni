@@ -227,11 +227,21 @@ struct StoreTests {
             Issue.record("Nenhuma conta nos fixtures")
             return
         }
+
+        // Computa o número exato de mensagens dessa conta
+        let expectedFiltered = store.messages.filter { $0.accountID == firstAccount.id }.count
+
         store.select(account: firstAccount.id)
         let filteredCount = store.visibleMessages.count
 
-        // Deve ter reduzido, a menos que todas as mensagens sejam dessa conta
-        #expect(filteredCount <= allCount)
+        // Verifica igualdade exata contra o valor computado
+        #expect(filteredCount == expectedFiltered)
+        // E, se essa conta não tem todas as mensagens, verifica que filtrou
+        if expectedFiltered < allCount {
+            #expect(filteredCount < allCount)
+        }
+        // Verifica que todas as mensagens visíveis pertencem à conta selecionada
+        #expect(store.visibleMessages.allSatisfy { $0.accountID == firstAccount.id })
     }
 
     @Test("clicar de novo na mesma conta desliga o filtro")
@@ -280,24 +290,31 @@ struct StoreTests {
     func accountFilterAndSearchCombine() async {
         let store = await loadedStore()
         store.select(bucket: .all)
-        guard let firstAccount = store.accounts.first else {
-            Issue.record("Nenhuma conta nos fixtures")
-            return
-        }
 
-        let allCount = store.visibleMessages.count
-
-        // Busca por um termo (deve haver resultados)
+        // Busca por "Marina" — nas fixtures, apenas m1 (zoho) contém Marina
         store.query = "Marina"
-        let searchCount = store.visibleMessages.count
-        #expect(searchCount > 0)
-        #expect(searchCount <= allCount)
+        let searchOnlyCount = store.visibleMessages.count
+        #expect(searchOnlyCount == 1) // Exatamente m1
 
-        // Agora filtra por conta
-        store.select(account: firstAccount.id)
-        let combinedCount = store.visibleMessages.count
+        // Filtra para zoho (que tem a mensagem com Marina)
+        store.select(account: "zoho")
+        let marinaPlusZohoCount = store.visibleMessages.count
+        #expect(marinaPlusZohoCount == 1) // Mesma mensagem
 
-        // Deve ser no máximo o resultado da busca
-        #expect(combinedCount <= searchCount)
+        // Limpa busca, verifica que agora há mais mensagens zoho (m1 + m2)
+        store.query = ""
+        let zohoAllCount = store.visibleMessages.count
+        #expect(zohoAllCount == 2) // m1 e m2 são em zoho
+
+        // Busca de novo por Marina, com filtro zoho ainda ativo
+        store.query = "Marina"
+        let marinaPlusZohoAgainCount = store.visibleMessages.count
+        #expect(marinaPlusZohoAgainCount == 1) // Volta a 1
+
+        // Muda para gmail
+        store.query = "Marina"
+        store.select(account: "gmail")
+        let marinaInGmailCount = store.visibleMessages.count
+        #expect(marinaInGmailCount == 0) // gmail não tem Marina
     }
 }
