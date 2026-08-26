@@ -31,6 +31,7 @@ public struct FolderSidebar: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 14)  // padding-top: 14 do container
             }
 
             // Rodapé fixo
@@ -40,15 +41,16 @@ public struct FolderSidebar: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 7) {
                     Circle()
-                        .fill(TokenColor(css: oklchToHex(L: 0.80, C: 0.11, H: 150))?.color ?? theme.ink2.color)
+                        .fill(triageDotColor(isDark: theme.isDark).color)
                         .frame(width: 5, height: 5)
                     Text("Triagem local ativa")
-                        .font(theme.mono.font(size: 11.5, weight: .semibold))
+                        .font(theme.sans.font(size: 11.5, weight: .semibold))
+                        // Peso 590 do protótipo arredondado para .semibold (600) — sem peso intermediário em SwiftUI
                         .foregroundStyle(theme.ink2.color)
                 }
                 Text("Classificação, resumo e busca semântica rodam no Mac. Nada sai daqui.")
-                    .font(theme.mono.font(size: 11))
-                    .lineSpacing(1.5 - 1.0)
+                    .font(theme.sans.font(size: 11))
+                    .lineSpacing(5.5)  // line-height: 1.5 × 11pt − 11pt = 16.5 − 11 = 5.5
                     .foregroundStyle(theme.ink3.color)
             }
             .padding(16)
@@ -155,9 +157,13 @@ public struct FolderSidebar: View {
         return tokenColor.color.opacity(Double(percentage) / 100.0)
     }
 
-    private func oklchToHex(L: Double, C: Double, H: Double) -> String {
-        // For now, return the hardcoded OK (green) color from the prototype
-        // This represents oklch(0.80 0.11 150) which is the "ok" semantic color in dark theme
-        "#9DDB7E"
+    private func triageDotColor(isDark: Bool) -> TokenColor {
+        // Cor semântica "ok" do protótipo (semC('ok') no JavaScript do protótipo).
+        // Adapta conforme o tema para manter contraste e legibilidade.
+        let hexColor = isDark
+            ? "#89D298"  // tema escuro: oklch(0.80 0.11 150)
+            : "#317A45"  // tema claro: oklch(0.52 0.11 150)
+        return TokenColor(css: hexColor) ?? theme.ink2
     }
 }
+
