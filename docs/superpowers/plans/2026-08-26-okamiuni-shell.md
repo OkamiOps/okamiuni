@@ -1171,9 +1171,11 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 5: Modificadores de token e a barra de 58px
+### Task 5: Assets de marca, modificadores de token e a barra de 58px
 
 **Files:**
+- Create: `design/assets/uni-lockup-dark.png`, `uni-mark-light.png`, `uni-mark-dark.png`
+- Create: `App/Resources/Assets.xcassets/` (4 image sets)
 - Create: `Packages/UNIShell/Package.swift`
 - Create: `Packages/UNIShell/Sources/UNIShell/Support/TokenModifiers.swift`
 - Create: `Packages/UNIShell/Sources/UNIShell/Chrome/WindowChrome.swift`
@@ -1185,7 +1187,56 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Consumes: `UNIDesign.Theme`, `UNICore.TriageBucket`, `UNICore.MailStore`
 - Produces: `View.hairline(_:edges:)`, `View.capsLabel(size:)`, `WindowChrome`, `enum Workspace { case mail, calendar }`
 
-- [ ] **Step 1: Escrever `Package.swift`**
+- [ ] **Step 1: Baixar os 3 assets que faltam**
+
+Só o `uni-lockup-light.png` foi baixado no Marco 0. Os outros três estão no projeto do Claude Design `40478c81-e3be-42cc-aad1-f0c2d28d292c`: `uni-lockup-dark.png`, `uni-mark-light.png`, `uni-mark-dark.png`.
+
+Para cada um, chamar a ferramenta `DesignSync` com `method: "get_file"`, esse `projectId` e o `path` do arquivo. A resposta é JSON com `content` em base64 e `isBase64: true`. Quando o resultado for grande demais e for salvo em arquivo, decodificar assim (foi o caminho usado no Marco 0):
+
+```bash
+python3 - <<'PY'
+import json, base64, pathlib
+# trocar pelo caminho que a ferramenta reportou e pelo nome do asset
+src = "<caminho-do-resultado>.txt"
+dest = "design/assets/uni-lockup-dark.png"
+d = json.load(open(src, encoding="utf-8"))
+pathlib.Path(dest).write_bytes(base64.b64decode(d["content"]))
+print("ok", dest)
+PY
+file design/assets/*.png
+```
+
+Expected: `file` reporta os quatro como `PNG image data` com dimensões plausíveis (o lockup claro é 587×162).
+
+Depois criar os image sets. Os nomes têm de ser exatamente `uni-lockup-light`, `uni-lockup-dark`, `uni-mark-light`, `uni-mark-dark` — é o que `WindowChrome` e `ReaderPane` já pedem em `Image(...)`.
+
+```bash
+for n in uni-lockup-light uni-lockup-dark uni-mark-light uni-mark-dark; do
+  dir="App/Resources/Assets.xcassets/$n.imageset"
+  mkdir -p "$dir"
+  cp "design/assets/$n.png" "$dir/$n.png"
+  cat > "$dir/Contents.json" <<JSON
+{
+  "images" : [
+    { "filename" : "$n.png", "idiom" : "universal", "scale" : "1x" },
+    { "idiom" : "universal", "scale" : "2x" },
+    { "idiom" : "universal", "scale" : "3x" }
+  ],
+  "info" : { "author" : "xcode", "version" : 1 }
+}
+JSON
+done
+cat > App/Resources/Assets.xcassets/Contents.json <<'JSON'
+{ "info" : { "author" : "xcode", "version" : 1 } }
+JSON
+ls App/Resources/Assets.xcassets/
+```
+
+Expected: quatro pastas `.imageset` mais o `Contents.json` raiz.
+
+Se o lockup vier em resolução baixa e pixelar a 38pt de altura, pedir ao design uma exportação 2×/3× em vez de escalar o 1× — a barra é a primeira coisa que a pessoa vê.
+
+- [ ] **Step 2: Escrever `Package.swift`**
 
 ```swift
 // swift-tools-version: 6.2
@@ -1206,7 +1257,7 @@ let package = Package(
 )
 ```
 
-- [ ] **Step 2: Escrever o teste que falha**
+- [ ] **Step 3: Escrever o teste que falha**
 
 ```swift
 import Testing
@@ -1245,12 +1296,12 @@ struct TokenModifierTests {
 }
 ```
 
-- [ ] **Step 3: Rodar para ver falhar**
+- [ ] **Step 4: Rodar para ver falhar**
 
 Run: `cd Packages/UNIShell && swift test`
 Expected: FAIL — `cannot find 'Workspace' in scope`.
 
-- [ ] **Step 4: Escrever `TokenModifiers.swift`**
+- [ ] **Step 5: Escrever `TokenModifiers.swift`**
 
 ```swift
 import SwiftUI
@@ -1299,7 +1350,7 @@ extension View {
 }
 ```
 
-- [ ] **Step 5: Escrever `WindowChrome.swift`**
+- [ ] **Step 6: Escrever `WindowChrome.swift`**
 
 ```swift
 import SwiftUI
@@ -1449,7 +1500,7 @@ public struct WindowChrome: View {
 }
 ```
 
-- [ ] **Step 6: Adicionar `UNIShell` ao `project.yml`**
+- [ ] **Step 7: Adicionar `UNIShell` ao `project.yml`**
 
 Em `packages`:
 ```yaml
@@ -1467,12 +1518,12 @@ Em `targets.OkamiUNI.dependencies`:
         product: UNIShell
 ```
 
-- [ ] **Step 7: Rodar os testes**
+- [ ] **Step 8: Rodar os testes**
 
 Run: `cd Packages/UNIShell && swift test`
 Expected: PASS, 4 testes.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add Packages/UNIShell project.yml
@@ -2637,63 +2688,13 @@ O último passo: compor os quatro painéis sob a barra e trocar o `RootView` pro
 **Files:**
 - Create: `Packages/UNIShell/Sources/UNIShell/Inbox/InboxScreen.swift`
 - Modify: `App/OkamiUNIApp.swift`
-- Create: `App/Resources/Assets.xcassets/` (logos)
 - Test: `Packages/UNIShell/Tests/UNIShellTests/InboxScreenTests.swift`
 
 **Interfaces:**
 - Consumes: `WindowChrome`, `FolderSidebar`, `MessageList`, `ReaderPane`, `AgendaRail`, `MailStore`
 - Produces: `InboxScreen`
 
-- [ ] **Step 1: Baixar os 3 assets que faltam**
-
-Só o `uni-lockup-light.png` foi baixado no Marco 0. Os outros três estão no projeto do Claude Design `40478c81-e3be-42cc-aad1-f0c2d28d292c`: `uni-lockup-dark.png`, `uni-mark-light.png`, `uni-mark-dark.png`.
-
-Para cada um, chamar a ferramenta `DesignSync` com `method: "get_file"`, esse `projectId` e o `path` do arquivo. A resposta é JSON com `content` em base64 e `isBase64: true`. Quando o resultado for grande demais e for salvo em arquivo, decodificar assim (foi o caminho usado no Marco 0):
-
-```bash
-python3 - <<'PY'
-import json, base64, pathlib
-# trocar pelo caminho que a ferramenta reportou e pelo nome do asset
-src = "<caminho-do-resultado>.txt"
-dest = "design/assets/uni-lockup-dark.png"
-d = json.load(open(src, encoding="utf-8"))
-pathlib.Path(dest).write_bytes(base64.b64decode(d["content"]))
-print("ok", dest)
-PY
-file design/assets/*.png
-```
-
-Expected: `file` reporta os quatro como `PNG image data` com dimensões plausíveis (o lockup claro é 587×162).
-
-Depois criar os image sets. Os nomes têm de ser exatamente `uni-lockup-light`, `uni-lockup-dark`, `uni-mark-light`, `uni-mark-dark` — é o que `WindowChrome` e `ReaderPane` já pedem em `Image(...)`.
-
-```bash
-for n in uni-lockup-light uni-lockup-dark uni-mark-light uni-mark-dark; do
-  dir="App/Resources/Assets.xcassets/$n.imageset"
-  mkdir -p "$dir"
-  cp "design/assets/$n.png" "$dir/$n.png"
-  cat > "$dir/Contents.json" <<JSON
-{
-  "images" : [
-    { "filename" : "$n.png", "idiom" : "universal", "scale" : "1x" },
-    { "idiom" : "universal", "scale" : "2x" },
-    { "idiom" : "universal", "scale" : "3x" }
-  ],
-  "info" : { "author" : "xcode", "version" : 1 }
-}
-JSON
-done
-cat > App/Resources/Assets.xcassets/Contents.json <<'JSON'
-{ "info" : { "author" : "xcode", "version" : 1 } }
-JSON
-ls App/Resources/Assets.xcassets/
-```
-
-Expected: quatro pastas `.imageset` mais o `Contents.json` raiz.
-
-Se o lockup vier em resolução baixa e pixelar a 38pt de altura, pedir ao design uma exportação 2×/3× em vez de escalar o 1× — a barra é a primeira coisa que a pessoa vê.
-
-- [ ] **Step 2: Escrever o teste que falha**
+- [ ] **Step 1: Escrever o teste que falha**
 
 ```swift
 import Testing
@@ -2722,12 +2723,12 @@ struct InboxScreenTests {
 }
 ```
 
-- [ ] **Step 3: Rodar para ver falhar**
+- [ ] **Step 2: Rodar para ver falhar**
 
 Run: `cd Packages/UNIShell && swift test --filter InboxScreen`
 Expected: FAIL na compilação — `InboxScreen` não existe.
 
-- [ ] **Step 4: Escrever `InboxScreen.swift`**
+- [ ] **Step 3: Escrever `InboxScreen.swift`**
 
 ```swift
 import SwiftUI
@@ -2803,7 +2804,7 @@ public struct InboxScreen: View {
 }
 ```
 
-- [ ] **Step 5: Trocar o `RootView` provisório**
+- [ ] **Step 4: Trocar o `RootView` provisório**
 
 Em `App/OkamiUNIApp.swift`, substituir o `RootView` da Task 1:
 
@@ -2835,7 +2836,7 @@ struct OkamiUNIApp: App {
 }
 ```
 
-- [ ] **Step 6: Rodar todos os testes**
+- [ ] **Step 5: Rodar todos os testes**
 
 Run:
 ```bash
@@ -2846,7 +2847,7 @@ done
 ```
 Expected: os três suites passando, sem falha.
 
-- [ ] **Step 7: Compilar e conferir contra o protótipo**
+- [ ] **Step 6: Compilar e conferir contra o protótipo**
 
 Run:
 ```bash
@@ -2874,7 +2875,7 @@ Abrir `design/OkamiUNI - Mail + Agenda.dc.html` no navegador ao lado e comparar.
 
 Anotar cada divergência com o número da linha do protótipo. Divergências viram tarefas de ajuste — não são para "arrumar depois", são o próximo commit.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add Packages/UNIShell App
