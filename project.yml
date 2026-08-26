@@ -24,6 +24,10 @@ targets:
     platform: macOS
     sources:
       - path: App
+        excludes:
+          - "Resources/Fonts"
+      - path: App/Resources/Fonts
+        type: folder
     dependencies:
       - package: UNIDesign
         product: UNIDesign
