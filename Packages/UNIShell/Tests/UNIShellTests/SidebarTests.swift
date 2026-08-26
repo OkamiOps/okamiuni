@@ -21,7 +21,7 @@ struct SidebarTests {
             let contas = (0..<quantidade).map { i in
                 Account(
                     id: "a\(i)", address: "x@d\(i).com",
-                    displayName: "C\(i)", provider: .imap, tintHex: "#3E6FA8"
+                    displayName: "C\(i)", provider: .imap, tintLightHex: "#3E6FA8", tintDarkHex: "#7BA8D9"
                 )
             }
             let store = MailStore(
@@ -30,5 +30,10 @@ struct SidebarTests {
             await store.load()
             #expect(store.accounts.count == quantidade)
         }
+    }
+
+    @Test("a largura expandida é 236")
+    func expandedWidth() {
+        #expect(FolderSidebar.expandedWidth == 236)
     }
 }

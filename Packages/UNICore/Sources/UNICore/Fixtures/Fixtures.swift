@@ -9,13 +9,13 @@ public enum Fixtures {
 
     public static let accounts: [Account] = [
         Account(id: "zoho", address: "ricardo@empresa.com",
-                displayName: "Empresa", provider: .imap, tintHex: "#3F6AA1"),
+                displayName: "Empresa", provider: .imap, tintLightHex: "#3F6AA1", tintDarkHex: "#8CBAF7"),
         Account(id: "gmail", address: "ricardo@gmail.com",
-                displayName: "Pessoal", provider: .gmail, tintHex: "#725B9A"),
+                displayName: "Pessoal", provider: .gmail, tintLightHex: "#725B9A", tintDarkHex: "#C2A7F4"),
         Account(id: "host", address: "contato@meusite.com",
-                displayName: "Site", provider: .imap, tintHex: "#397852"),
+                displayName: "Site", provider: .imap, tintLightHex: "#397852", tintDarkHex: "#88D1A2"),
         Account(id: "icloud", address: "ricardo@icloud.com",
-                displayName: "iCloud", provider: .imap, tintHex: "#298084"),
+                displayName: "iCloud", provider: .imap, tintLightHex: "#298084", tintDarkHex: "#71D0D5"),
     ]
 
     /// Âncora fixa para os testes não dependerem do relógio.

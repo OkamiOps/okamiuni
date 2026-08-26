@@ -43,6 +43,7 @@ public final class MailStore {
 
     public private(set) var bucket: TriageBucket = .today
     public private(set) var selectedMessageID: String?
+    public private(set) var selectedAccountID: String?
     public var query: String = ""
     public private(set) var loadError: String?
 
@@ -73,9 +74,12 @@ public final class MailStore {
     /// Mensagens da caixa atual que casam com a busca, mais recentes primeiro.
     public var visibleMessages: [Message] {
         let inBucket = messages.filter { bucket.contains($0) }
-        let searched = query.trimmingCharacters(in: .whitespaces).isEmpty
+        let inAccount = selectedAccountID == nil
             ? inBucket
-            : inBucket.filter { matches($0, query) }
+            : inBucket.filter { $0.accountID == selectedAccountID }
+        let searched = query.trimmingCharacters(in: .whitespaces).isEmpty
+            ? inAccount
+            : inAccount.filter { matches($0, query) }
         return searched.sorted { $0.receivedAt > $1.receivedAt }
     }
 
@@ -102,6 +106,20 @@ public final class MailStore {
         }
     }
 
+    public func select(account id: String?) {
+        if selectedAccountID == id {
+            // Clicar de novo na mesma conta desliga o filtro
+            selectedAccountID = nil
+        } else {
+            selectedAccountID = id
+        }
+        // Uma seleção que saiu da visão deixa o leitor mostrando algo que a
+        // lista não contém mais. Melhor limpar.
+        if let selected = selectedMessage, !visibleMessages.contains(selected) {
+            selectedMessageID = nil
+        }
+    }
+
     public func select(message id: String) {
         selectedMessageID = id
         markRead(id)
@@ -119,8 +137,12 @@ public final class MailStore {
         )
     }
 
-    /// Contagem por caixa, para os contadores da barra lateral.
+    /// Contagem por caixa, para os contadores da barra lateral, respeitando o filtro de conta.
     public func count(for bucket: TriageBucket) -> Int {
-        messages.filter { bucket.contains($0) }.count
+        let inBucket = messages.filter { bucket.contains($0) }
+        if let accountID = selectedAccountID {
+            return inBucket.filter { $0.accountID == accountID }.count
+        }
+        return inBucket.count
     }
 }

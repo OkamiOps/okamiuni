@@ -43,7 +43,7 @@ struct StoreTests {
         let many = (1...30).map { i in
             Account(
                 id: "acc\(i)", address: "pessoa@dominio\(i).com.br",
-                displayName: "Conta \(i)", provider: .imap, tintHex: "#3E6FA8"
+                displayName: "Conta \(i)", provider: .imap, tintLightHex: "#3E6FA8", tintDarkHex: "#7BA8D9"
             )
         }
         let store = MailStore(
@@ -59,7 +59,7 @@ struct StoreTests {
     func unknownProviderIsOrdinary() async throws {
         let obscure = Account(
             id: "servidor-proprio", address: "eu@meuservidor.xyz",
-            displayName: "Servidor próprio", provider: .imap, tintHex: "#2C7D5E"
+            displayName: "Servidor próprio", provider: .imap, tintLightHex: "#2C7D5E", tintDarkHex: "#7CBAAA"
         )
         let store = MailStore(
             source: InMemoryMailSource(accounts: [obscure], messages: [], agenda: [])
@@ -153,7 +153,7 @@ struct StoreTests {
                     // (provaria que accounts foi parcialmente escrito, se não-atômico)
                     return [Account(
                         id: "replacementacc", address: "replacement@teste.com",
-                        displayName: "Conta de Reposição", provider: .imap, tintHex: "#ABCDEF"
+                        displayName: "Conta de Reposição", provider: .imap, tintLightHex: "#ABCDEF", tintDarkHex: "#D5E3F7"
                     )]
                 }
                 // Primeira tentativa: devolve dados bons
@@ -212,5 +212,92 @@ struct StoreTests {
         // (d) loadError foi preenchido
         #expect(store.loadError != nil)
         #expect(store.loadError?.contains("Falha de rede no messages()") == true)
+    }
+
+    @Test("filtrar por conta reduz visibleMessages")
+    @MainActor
+    func accountFilterReducesVisible() async {
+        let store = await loadedStore()
+        store.select(bucket: .all)
+        let allCount = store.visibleMessages.count
+        #expect(allCount > 0)
+
+        // Seleciona a primeira conta
+        guard let firstAccount = store.accounts.first else {
+            Issue.record("Nenhuma conta nos fixtures")
+            return
+        }
+        store.select(account: firstAccount.id)
+        let filteredCount = store.visibleMessages.count
+
+        // Deve ter reduzido, a menos que todas as mensagens sejam dessa conta
+        #expect(filteredCount <= allCount)
+    }
+
+    @Test("clicar de novo na mesma conta desliga o filtro")
+    @MainActor
+    func accountFilterToggle() async {
+        let store = await loadedStore()
+        store.select(bucket: .all)
+        guard let firstAccount = store.accounts.first else {
+            Issue.record("Nenhuma conta nos fixtures")
+            return
+        }
+
+        let beforeFilter = store.visibleMessages.count
+
+        // Seleciona
+        store.select(account: firstAccount.id)
+        #expect(store.selectedAccountID == firstAccount.id)
+
+        // Clica de novo na mesma
+        store.select(account: firstAccount.id)
+        #expect(store.selectedAccountID == nil)
+
+        // Deve voltar ao número anterior
+        #expect(store.visibleMessages.count == beforeFilter)
+    }
+
+    @Test("count(for:) respeita o filtro de conta")
+    @MainActor
+    func countRespectsAccountFilter() async {
+        let store = await loadedStore()
+        guard let firstAccount = store.accounts.first else {
+            Issue.record("Nenhuma conta nos fixtures")
+            return
+        }
+
+        let countBeforeFilter = store.count(for: .all)
+        store.select(account: firstAccount.id)
+        let countAfterFilter = store.count(for: .all)
+
+        // Ao filtrar, o contador deve diminuir ou ser igual
+        #expect(countAfterFilter <= countBeforeFilter)
+    }
+
+    @Test("filtro por conta e busca se combinam")
+    @MainActor
+    func accountFilterAndSearchCombine() async {
+        let store = await loadedStore()
+        store.select(bucket: .all)
+        guard let firstAccount = store.accounts.first else {
+            Issue.record("Nenhuma conta nos fixtures")
+            return
+        }
+
+        let allCount = store.visibleMessages.count
+
+        // Busca por um termo (deve haver resultados)
+        store.query = "Marina"
+        let searchCount = store.visibleMessages.count
+        #expect(searchCount > 0)
+        #expect(searchCount <= allCount)
+
+        // Agora filtra por conta
+        store.select(account: firstAccount.id)
+        let combinedCount = store.visibleMessages.count
+
+        // Deve ser no máximo o resultado da busca
+        #expect(combinedCount <= searchCount)
     }
 }

@@ -15,18 +15,26 @@ public struct Account: Sendable, Hashable, Identifiable {
     public let address: String
     public let displayName: String
     public let provider: Provider
-    /// Matiz OKLCH que o design dá a cada caixa, já convertida para sRGB.
-    public let tintHex: String
+    /// Cor em temas claros, já convertida para sRGB.
+    public let tintLightHex: String
+    /// Cor em temas escuros, já convertida para sRGB.
+    public let tintDarkHex: String
 
     public init(
         id: String, address: String, displayName: String,
-        provider: Provider, tintHex: String
+        provider: Provider, tintLightHex: String, tintDarkHex: String
     ) {
         self.id = id
         self.address = address
         self.displayName = displayName
         self.provider = provider
-        self.tintHex = tintHex
+        self.tintLightHex = tintLightHex
+        self.tintDarkHex = tintDarkHex
+    }
+
+    /// Retorna a cor apropriada para o tema.
+    public func tint(isDark: Bool) -> String {
+        isDark ? tintDarkHex : tintLightHex
     }
 
     /// O host que a linha da lista mostra em miúdo: "zoho", "gmail", ...
