@@ -121,9 +121,11 @@ struct ThemePreview: View {
                     RoundedRectangle(cornerRadius: 1)
                         .fill(candidate.ink.color)
                         .opacity(0.75)
+                        // 22pt ≈ 70% da área útil (52 − 14 trilho − 8 padding = 30pt)
                         .frame(width: 22, height: 3)
                     RoundedRectangle(cornerRadius: 1)
                         .fill(candidate.accent.color)
+                        // 15pt ≈ 45% da área útil (52 − 14 trilho − 8 padding = 30pt)
                         .frame(width: 15, height: 3)
                 }
                 .padding(.leading, 4)
@@ -134,7 +136,12 @@ struct ThemePreview: View {
         }
         .frame(width: 52, height: 36)
         .clipShape(RoundedRectangle(cornerRadius: max(2, candidate.radiusSmall)))
-        .shadow(color: .black.opacity(0.28), radius: 0, x: 0, y: 0)
+        .overlay {
+            // Contorno de 0.5px preto 28% — literal do protótipo, não um token.
+            // Stroke always drawn, selection ring overlay on top when active.
+            RoundedRectangle(cornerRadius: max(2, candidate.radiusSmall))
+                .strokeBorder(Color.black.opacity(0.28), lineWidth: 0.5)
+        }
         .overlay {
             if activeTheme.id == candidate.id {
                 RoundedRectangle(cornerRadius: max(2, candidate.radiusSmall))
