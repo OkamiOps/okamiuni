@@ -72,13 +72,13 @@ private struct ThemeRow: View {
     let isCurrent: Bool
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 11) {
             ThemePreview(candidate: candidate)
             VStack(alignment: .leading, spacing: 1) {
                 Text(candidate.name)
                     .font(theme.sans.font(size: 12, weight: isCurrent ? .semibold : .regular))
                     .foregroundStyle(theme.ink.color)
-                Text(candidate.isDark ? "escuro" : "claro")
+                Text(candidate.note)
                     .font(theme.mono.font(size: 9))
                     .foregroundStyle(theme.ink4.color)
             }
@@ -87,7 +87,8 @@ private struct ThemeRow: View {
                 Circle().fill(theme.accent.color).frame(width: 6, height: 6)
             }
         }
-        .padding(6)
+        .padding(.vertical, 8)
+        .padding(.horizontal, 10)
         .contentShape(Rectangle())
         .background {
             RoundedRectangle(cornerRadius: theme.radiusSmall)
@@ -98,40 +99,47 @@ private struct ThemeRow: View {
 
 /// Miniatura da janela no tema candidato.
 struct ThemePreview: View {
+    @Environment(\.theme) private var activeTheme
     let candidate: Theme
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 2) {
-                Circle().fill(candidate.ink4.color).frame(width: 3, height: 3)
-                Circle().fill(candidate.ink4.color).frame(width: 3, height: 3)
+                Circle().fill(candidate.accent.color).frame(width: 3, height: 3)
+                Circle().fill(candidate.accent.color).frame(width: 3, height: 3)
                 Spacer()
             }
-            .padding(.horizontal, 4)
+            .padding(.horizontal, 3)
             .frame(height: 9)
             .background(candidate.surface2.color)
+            .hairline(candidate.line, edges: .bottom)
 
             HStack(spacing: 0) {
-                candidate.surface3.color.frame(width: 12)
+                candidate.surface2.color.frame(width: 14)
+                    .hairline(candidate.line, edges: .trailing)
                 VStack(alignment: .leading, spacing: 3) {
                     RoundedRectangle(cornerRadius: 1)
-                        .fill(candidate.accent.color)
+                        .fill(candidate.ink.color)
+                        .opacity(0.75)
                         .frame(width: 22, height: 3)
                     RoundedRectangle(cornerRadius: 1)
-                        .fill(candidate.ink4.color)
-                        .frame(width: 30, height: 2)
+                        .fill(candidate.accent.color)
+                        .frame(width: 15, height: 3)
                 }
-                .padding(.leading, 5)
+                .padding(.leading, 4)
                 Spacer(minLength: 0)
             }
             .frame(maxHeight: .infinity)
             .background(candidate.surface.color)
         }
-        .frame(width: 54, height: 38)
-        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .frame(width: 52, height: 36)
+        .clipShape(RoundedRectangle(cornerRadius: max(2, candidate.radiusSmall)))
+        .shadow(color: .black.opacity(0.28), radius: 0, x: 0, y: 0)
         .overlay {
-            RoundedRectangle(cornerRadius: 4)
-                .strokeBorder(candidate.line.color, lineWidth: 0.5)
+            if activeTheme.id == candidate.id {
+                RoundedRectangle(cornerRadius: max(2, candidate.radiusSmall))
+                    .strokeBorder(activeTheme.accent.color, lineWidth: 2)
+            }
         }
     }
 }
