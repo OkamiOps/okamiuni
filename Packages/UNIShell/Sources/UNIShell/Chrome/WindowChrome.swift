@@ -74,9 +74,7 @@ public struct WindowChrome: View {
             searchField
                 .frame(maxWidth: .infinity)
 
-            // O seletor de temas entra aqui na Task 6. Até lá, um vazio do
-            // tamanho do botão para o espaçamento da barra já ficar certo.
-            Color.clear.frame(width: 96, height: 26)
+            ThemePicker()
         }
         .padding(.horizontal, 14)
         .frame(height: Self.height)
