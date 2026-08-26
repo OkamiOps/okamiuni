@@ -1,14 +1,14 @@
 .DS_Store
 .claude/settings.local.json
+__pycache__/
+*.pyc
 
 # Xcode
 build/
 DerivedData/
 *.xcuserstate
 xcuserdata/
-*.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
 
 # Swift Package Manager
 .build/
 .swiftpm/
-Packages/
