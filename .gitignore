@@ -15,3 +15,5 @@ xcuserdata/
 
 # Workspace do subagent-driven-development (scratch)
 .superpowers/
+
+*.xcodeproj
