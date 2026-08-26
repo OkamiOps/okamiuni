@@ -21,20 +21,26 @@ public struct SidebarRail: View {
                         bucketButton(bucket)
                     }
 
-                    // Divisória
-                    Rectangle()
-                        .fill(theme.line.color)
-                        .frame(width: 26, height: 0.5)
-                        .padding(.vertical, 8)
+                    // Divisória, rótulo e contas aparecem só se há contas
+                    if !store.accounts.isEmpty {
+                        // Divisória
+                        Rectangle()
+                            .fill(theme.line.color)
+                            .frame(width: 26, height: 0.5)
+                            .padding(.vertical, 8)
 
-                    // Rótulo "caixas"
-                    Text("caixas")
-                        .capsLabel(size: 7.5)
-                        .padding(.bottom, 2)
+                        // Rótulo "caixas" com tracking fixo do protótipo, não do tema
+                        Text("caixas")
+                            .font(theme.mono.font(size: 7.5))
+                            .tracking(0.08 * 7.5)  // Tracking em pontos: 0.08em × 7.5pt = 0.6pt
+                            .textCase(.uppercase)
+                            .foregroundStyle(theme.ink4.color)
+                            .padding(.bottom, 2)
 
-                    // Contas
-                    ForEach(store.accounts) { account in
-                        accountMark(account)
+                        // Contas
+                        ForEach(store.accounts) { account in
+                            accountMark(account)
+                        }
                     }
                 }
             }
@@ -55,7 +61,7 @@ public struct SidebarRail: View {
             VStack(alignment: .center, spacing: 3) {
                 Text(abbr)
                     .font(theme.mono.font(size: 8.5))
-                    .tracking(0.06)  // 0.06em in CSS
+                    .tracking(0.06 * 8.5)  // Tracking em pontos: 0.06em × 8.5pt = 0.51pt
                     .textCase(.uppercase)
 
                 Text("\(store.count(for: bucket))")
