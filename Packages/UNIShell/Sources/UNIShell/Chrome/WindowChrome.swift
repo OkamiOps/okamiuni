@@ -123,6 +123,8 @@ public struct WindowChrome: View {
                             if active {
                                 RoundedRectangle(cornerRadius: Self.tabCornerRadius(for: theme))
                                     .fill(theme.surface.color)
+                                    // Sombra literal do protótipo (`0 1px 2px rgba(0,0,0,0.08)`), não um token do tema.
+                                    // SwiftUI usa metade do blur do CSS — mesma conversão de ShadowToken.radius — então blur 2px vira radius 1.
                                     .shadow(color: .black.opacity(0.08), radius: 1, x: 0, y: 1)
                             }
                         }
