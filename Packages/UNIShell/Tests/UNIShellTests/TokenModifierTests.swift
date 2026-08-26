@@ -32,12 +32,17 @@ struct TokenModifierTests {
         #expect(WindowChrome.searchPlaceholder(count) == expected)
     }
 
-    @Test("o raio da aba nunca é negativo em nenhum tema")
+    @Test("o raio da aba nunca é negativo em nenhum tema e bate com o container")
     func tabRadiusNeverNegative() {
         for theme in Theme.all {
+            let r = WindowChrome.tabCornerRadius(for: theme)
             #expect(
-                theme.radiusSmall >= 0,
-                "radiusSmall é \(theme.radiusSmall) no tema \(theme.name) — aba fica com raio negativo"
+                r >= 0,
+                "tabCornerRadius é \(r) no tema \(theme.name) — aba fica com raio negativo"
+            )
+            #expect(
+                r == theme.radiusSmall,
+                "a aba usa o mesmo raio do container, como no protótipo"
             )
         }
     }

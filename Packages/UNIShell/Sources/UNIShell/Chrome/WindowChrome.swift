@@ -18,6 +18,13 @@ public struct WindowChrome: View {
     /// Espaço à esquerda para os semáforos da janela, que continuam nativos.
     public static let trafficLightInset: CGFloat = 78
 
+    /// Raio dos cantos das abas Caixa/Agenda. O protótipo usa o mesmo `var(--r2)`
+    /// no container e na aba ativa, e alguns temas o definem como 0 — subtrair
+    /// daqui produziria raio negativo.
+    public static func tabCornerRadius(for theme: Theme) -> CGFloat {
+        theme.radiusSmall
+    }
+
     /// O protótipo diz "Buscar nas 4 caixas…" porque tinha quatro contas.
     /// Como a quantidade é do usuário, o texto concorda com ela.
     public static func searchPlaceholder(_ accountCount: Int) -> String {
@@ -114,7 +121,7 @@ public struct WindowChrome: View {
                         .frame(height: 24)
                         .background {
                             if active {
-                                RoundedRectangle(cornerRadius: theme.radiusSmall)
+                                RoundedRectangle(cornerRadius: Self.tabCornerRadius(for: theme))
                                     .fill(theme.surface.color)
                                     .shadow(color: .black.opacity(0.08), radius: 1, x: 0, y: 1)
                             }
@@ -125,7 +132,7 @@ public struct WindowChrome: View {
         }
         .padding(2)
         .background(theme.surface3.color)
-        .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+        .clipShape(RoundedRectangle(cornerRadius: Self.tabCornerRadius(for: theme)))
     }
 
     private var searchField: some View {
