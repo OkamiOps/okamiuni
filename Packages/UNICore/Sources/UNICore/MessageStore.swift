@@ -54,11 +54,18 @@ public final class MailStore {
 
     public func load() async {
         do {
-            accounts = try await source.accounts()
-            messages = try await source.messages()
-            agenda = try await source.agenda().sorted { $0.startMinute < $1.startMinute }
+            // Buscar os três valores em variáveis locais, antes de atualizar o estado.
+            // Isto garante atomicidade: ou todos os três chegam, ou nenhuma propriedade muda.
+            let newAccounts = try await source.accounts()
+            let newMessages = try await source.messages()
+            let newAgenda = try await source.agenda().sorted { $0.startMinute < $1.startMinute }
+            // Só agora, se todos chegaram com sucesso:
+            accounts = newAccounts
+            messages = newMessages
+            agenda = newAgenda
             loadError = nil
         } catch {
+            // Em erro, nenhuma propriedade muda; o estado anterior continua válido.
             loadError = error.localizedDescription
         }
     }

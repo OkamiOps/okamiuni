@@ -137,4 +137,48 @@ struct StoreTests {
         let starts = store.agenda.map(\.startMinute)
         #expect(starts == starts.sorted())
     }
+
+    @Test("load() é atômico: falha após accounts() não deixa accounts inconsistente")
+    @MainActor
+    func loadAtomicity() async {
+        // Cria um store com dados bons primeiro
+        let store = await loadedStore()
+        let accountsBeforeFail = store.accounts
+        let messagesBeforeFail = store.messages
+        #expect(accountsBeforeFail.isEmpty == false)
+        #expect(messagesBeforeFail.isEmpty == false)
+
+        // Cria uma fonte que falha em messages() após accounts() retorna com sucesso.
+        // Na versão não-atômica, isto deixaria accounts modificado.
+        // Na versão atômica, accounts não é modificado.
+        struct FailingOnMessagesSource: MailSource {
+            func accounts() async throws -> [Account] {
+                // Retorna uma conta diferente para provar que accounts NÃO foi substituído
+                [Account(
+                    id: "novo", address: "novo@teste.com",
+                    displayName: "Nova Conta", provider: .imap, tintHex: "#FFFFFF"
+                )]
+            }
+
+            func messages() async throws -> [Message] {
+                throw NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "Rede indisponível"])
+            }
+
+            func agenda() async throws -> [AgendaItem] {
+                []
+            }
+        }
+
+        // Tenta carregar com uma fonte que falha parcialmente
+        // Na versão não-atômica: accounts teria sido substituído antes da falha
+        // Na versão atômica: nada é substituído
+        let failingStore = MailStore(source: FailingOnMessagesSource())
+        await failingStore.load()
+
+        // Verifica que o estado inicial vazio foi preservado (não foi parcialmente modificado)
+        #expect(failingStore.accounts.isEmpty)  // Store novo, ainda vazio
+        #expect(failingStore.messages.isEmpty)  // Store novo, ainda vazio
+        #expect(failingStore.loadError != nil)
+        #expect(failingStore.loadError?.contains("Rede indisponível") == true)
+    }
 }
