@@ -73,6 +73,7 @@ public struct FontFamily: Sendable, Hashable {
 public struct Theme: Sendable, Hashable, Identifiable {
     public let id: String
     public let name: String
+    public let note: String
     public let isDark: Bool
 
     // Surfaces, back to front.
@@ -119,7 +120,7 @@ public struct Theme: Sendable, Hashable, Identifiable {
     public let subjectSize: CGFloat
 
     public init(
-        id: String, name: String, isDark: Bool,
+        id: String, name: String, note: String, isDark: Bool,
         paper: TokenColor, surface: TokenColor, surface2: TokenColor, surface3: TokenColor,
         ink: TokenColor, ink2: TokenColor, ink3: TokenColor, ink4: TokenColor,
         line: TokenColor, line2: TokenColor,
@@ -133,6 +134,7 @@ public struct Theme: Sendable, Hashable, Identifiable {
     ) {
         self.id = id
         self.name = name
+        self.note = note
         self.isDark = isDark
         self.paper = paper
         self.surface = surface

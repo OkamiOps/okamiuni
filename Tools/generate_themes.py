@@ -280,6 +280,7 @@ def main() -> None:
             f"    public static let {prop} = Theme(",
             f'        id: "{theme_id}",',
             f'        name: "{meta["name"]}",',
+            f'        note: "{meta["note"]}",',
             f"        isDark: {is_dark},",
         ]
         for swift_name, css_name in [
