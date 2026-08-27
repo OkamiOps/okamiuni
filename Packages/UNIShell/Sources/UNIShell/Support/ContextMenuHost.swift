@@ -34,6 +34,43 @@ enum Clipboard {
 
 // MARK: - Execução
 
+/// O pedaço de `ContextCommand` que só precisa do `MailStore`.
+///
+/// Existe porque o menu de contexto deixou de ser o único caminho: o arraste
+/// lateral da linha dispara os mesmos comandos, e o **desfazer** dele dispara o
+/// inverso — tudo `.move` ou `.setRead`. Um segundo `switch` num segundo lugar
+/// faria os dois divergirem no primeiro conserto.
+///
+/// Os comandos que abrem janela ou mexem na área de transferência **não**
+/// passam por aqui, e a função devolve `false` em vez de os engolir calada.
+@MainActor
+enum StoreCommand {
+    @discardableResult
+    static func run(_ command: ContextCommand, on store: MailStore) -> Bool {
+        switch command {
+        case .setRead(let messageID, let isRead):
+            store.setRead(isRead, for: messageID)
+            return true
+
+        case .move(let messageID, let bucket):
+            guard let message = store.messages.first(where: { $0.id == messageID }) else {
+                return false
+            }
+            // A seleção andar para a próxima quando a mensagem sai da visão é
+            // trabalho de `move`, e tem teste em `UNICore`. Não se repete aqui.
+            store.move(message, to: bucket)
+            return true
+
+        case .markAllRead(let bucket, let accountID):
+            store.markAllRead(in: bucket, accountID: accountID)
+            return true
+
+        default:
+            return false
+        }
+    }
+}
+
 extension MenuShortcut {
     var keyboardShortcut: KeyboardShortcut {
         var flags: EventModifiers = []
@@ -102,15 +139,8 @@ private struct ContextMenuModifier: ViewModifier {
             store.select(message: messageID)
             openWindow(id: UNIWindow.composer, value: messageID)
 
-        case .setRead(let messageID, let isRead):
-            store.setRead(isRead, for: messageID)
-
-        case .move(let messageID, let bucket):
-            guard let message = store.messages.first(where: { $0.id == messageID }) else { return }
-            store.move(message, to: bucket)
-
-        case .markAllRead(let bucket, let accountID):
-            store.markAllRead(in: bucket, accountID: accountID)
+        case .setRead, .move, .markAllRead:
+            StoreCommand.run(command, on: store)
 
         case .filterAccount(let accountID):
             // `select(account:)` alterna. O item só existe quando o filtro

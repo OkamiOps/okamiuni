@@ -379,3 +379,55 @@ cursor. Cada um sozinho basta para o caso do meio; só o par cobre a borda.
 Lição de método: ao consertar comportamento de tecla, o caso do **meio** e o das **pontas**
 são dois testes, não um. Um conserto que passa nos dois pode ter duas causas independentes,
 e desligar um guarda de cada vez é o que revela qual delas o teste está de fato provando.
+
+## Painel atrás de uma linha é `background`, não irmão de `ZStack`
+
+Mesma família da `Rectangle` irmã num `HStack`, achada de novo no arraste lateral da lista. O
+painel de ações fica **atrás** da linha e precisa preencher a altura dela, o que pede
+`maxHeight: .infinity`. Como irmão num `ZStack`, esse `maxHeight` deixa de descrever "preencha
+a linha" e passa a dizer "tome tudo o que houver": a pilha cresce até o que o pai oferecer e a
+linha só se descobre esticada.
+
+Medido, com um palco de 140pt e uma linha de 106: com o painel irmão, a linha passava a ocupar
+os 140 inteiros, com o conteúdo centrado e 17pt de painel sobrando em cima e embaixo. Em
+lista, isso é a linha **mudando de altura no instante em que o arraste começa** — o "a lista
+não pode pular" do brief, entrando por uma porta que nenhuma medida de largura pega.
+
+Como `.background { … }` o painel é medido pelo conteúdo: ele preenche e não opina. E o
+`.offset` que desliza a linha não mexe no quadro de layout, então o fundo fica parado enquanto
+ela passa por cima — que é exatamente o efeito desejado.
+
+Régua que pega: contar as **colunas de pixel** que são fundo de painel, numa varredura
+horizontal. Com o painel irmão a contagem dá a largura inteira da lista (370) em vez das duas
+colunas (168), porque a varredura cai acima da linha, onde só o painel esticado desenha.
+
+## Folga contra a borda não prova que o rótulo cabe
+
+Num painel de colunas fixas, a tentação é medir a distância entre o glifo mais externo e a
+divisória da coluna. Ela não pega truncamento — `Text` com `lineLimit(1)` corta e escreve as
+reticências **dentro** do quadro, então a folga continua boa com "Arquiva…" na tela.
+
+Pior: a medida de pixel só enxerga os rótulos que **aquela linha** desenha. "Não lida" só
+aparece em mensagem lida; o painel direito de uma mensagem arquivada nunca mostra "Arquivar".
+Provado quebrando, com o corpo do rótulo a 22pt: "Arquivar" passou a pedir 85pt numa coluna de
+84 e o teste de folga do painel **direito** continuou passando, porque nem "Depois" (70) nem
+"Hoje" (46) estouram ali.
+
+O que prova é medir a largura que cada rótulo pede **solto**, sem quadro, contra a literal da
+coluna — e percorrer todos os rótulos que existem, nos dois estados de leitura. As duas
+medidas convivem: a de pixel prova que o rótulo foi desenhado e está centrado, a de largura
+prova que ele cabe.
+
+## Controle desabilitado não é o mesmo cinza que o token diz
+
+`ink4` é `rgb(168,166,158)` e some no meio de qualquer corte de luminância calibrado para
+texto. Mas o `.disabled()` do SwiftUI **escurece de novo** o que já está desenhado: a coluna
+morta do painel de arraste saiu com fundo `rgb(237,235,229)` onde o token `surface2` é
+`rgb(241,239,234)`, e o rótulo em `rgb(202,200,193)` onde `ink4` é `rgb(168,166,158)`.
+
+Consequência para quem mede: um teste que classifique pixel por proximidade a token erra nos
+dois lados num controle desabilitado — o fundo dele cai a 5 níveis de `surface3`, que é o fundo
+de uma coluna **viva**, e a medida passa por acidente. A saída foi tirar o estado desabilitado
+da medida de geometria (usar uma mensagem em que as duas colunas fazem algo) e provar o
+apagamento à parte, comparando o pixel mais escuro de uma coluna com o da vizinha em vez de
+cravar um corte.

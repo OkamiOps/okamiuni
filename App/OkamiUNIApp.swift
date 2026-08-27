@@ -7,6 +7,9 @@ import UNICore
 struct OkamiUNIApp: App {
     @State private var themes = ThemeStore()
     @State private var mailStore = MailStore(source: InMemoryMailSource.fixtures)
+    /// Quais ações o arraste lateral da linha revela de cada lado. Persistido
+    /// em `UserDefaults` como o tema — ver `SwipeSettingsStore`.
+    @State private var swipes = SwipeSettingsStore()
 
     init() {
         FontRegistry.registerBundledFonts()
@@ -22,6 +25,7 @@ struct OkamiUNIApp: App {
         WindowGroup("OkamiUNI") {
             InboxScreen(store: mailStore)
                 .environment(themes)
+                .environment(swipes)
                 .theme(themes.theme)
                 // A barra de 58pt é a barra de título: o conteúdo desenha
                 // debaixo dela, com os semáforos nativos dentro. Sem isto o

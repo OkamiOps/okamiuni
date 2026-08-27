@@ -60,8 +60,29 @@ public struct MessageList: View {
     /// resolveu layout por ele.
     public static let width: CGFloat = 370
 
+    /// Quanto tempo o retorno de uma ação de arraste fica na tela antes de
+    /// sumir sozinho. Longo o bastante para ler a frase e alcançar "Desfazer".
+    static let receiptLifetime: Duration = .seconds(6)
+
     @Environment(\.theme) private var theme
+
+    /// A escolha de quais ações ficam de cada lado.
+    ///
+    /// Opcional de propósito: sem ninguém no ambiente — o harness de
+    /// renderização, uma preview — a lista continua desenhando com o padrão em
+    /// vez de trapar. É o mesmo alcance que o `Theme` tem por `@Entry`.
+    @Environment(SwipeSettingsStore.self) private var swipeSettings: SwipeSettingsStore?
+
     let store: MailStore
+
+    /// Qual linha está com o painel de ações à mostra. Só uma por vez: abrir
+    /// uma fecha a outra.
+    @State private var openSwipeRowID: String?
+
+    /// O que a última ação de arraste fez, e como desfazê-la. Mora aqui, e não
+    /// na linha, porque a linha **some** quando a ação é arquivar — um retorno
+    /// preso a ela morreria junto com o que precisava desfazer.
+    @State private var receipt: SwipeReceipt?
 
     /// A largura resolvida que a janela concedeu — entre 320 e 420 conforme a
     /// faixa. Ao contrário dos outros painéis, esta de fato varia.
@@ -94,6 +115,20 @@ public struct MessageList: View {
         .frame(width: listWidth)
         .background(theme.surface.color)
         .hairline(theme.line, edges: .trailing)
+        // O retorno some sozinho, mas nunca **antes** de dar tempo de desfazer.
+        // A tarefa é reiniciada por `id`: uma segunda ação troca a faixa e
+        // reinicia a contagem em vez de herdar o resto do relógio da primeira.
+        .task(id: receipt?.id) {
+            guard receipt != nil else { return }
+            try? await Task.sleep(for: Self.receiptLifetime)
+            guard !Task.isCancelled else { return }
+            withAnimation(SwipeMotion.transition) { receipt = nil }
+        }
+    }
+
+    /// A configuração viva, ou o padrão quando ninguém a proveu.
+    var swipeConfiguration: SwipeConfiguration {
+        swipeSettings?.configuration ?? .default
     }
 
     /// Protótipo: `height: 40px; padding: 0 16px; align-items: baseline; gap: 8px;
@@ -139,33 +174,7 @@ public struct MessageList: View {
                 ForEach(MessageGroup.build(from: store.visibleMessages)) { group in
                     Section {
                         ForEach(group.messages) { message in
-                            let account = store.account(message.accountID)
-                            Button { store.select(message: message.id) } label: {
-                                MessageRow(
-                                    message: message,
-                                    accountHost: account?.host ?? "",
-                                    accountTint: accountTint(account),
-                                    isSelected: message.id == store.selectedMessageID
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            .focusRing(in: Rectangle())
-                            .help("Duplo clique abre em janela")
-                            // O clique simples continua sendo o do `Button`
-                            // (selecionar); este gesto só acrescenta o duplo,
-                            // como o protótipo, que declara os dois na linha.
-                            .simultaneousGesture(
-                                TapGesture(count: 2).onEnded { onOpenWindow(message) }
-                            )
-                            // Botão direito na linha. O conteúdo é dado —
-                            // `ContextMenus.messageRow` — e muda com o estado
-                            // da mensagem: "Marcar como não lida" só aparece
-                            // em mensagem lida, e "Mover para" não oferece a
-                            // caixa em que ela já está.
-                            .uniContextMenu(
-                                ContextMenus.messageRow(message),
-                                store: store
-                            )
+                            row(message)
                         }
                     } header: {
                         // Protótipo: `padding: 9px 16px 5px;` e `font-size: 9.5px`.
@@ -180,6 +189,96 @@ public struct MessageList: View {
                 }
             }
             footer
+        }
+        .overlay(alignment: .bottom) { undoBand }
+    }
+
+    /// Uma linha da lista, com os quatro gestos que ela responde.
+    ///
+    /// A ordem importa e é esta:
+    ///
+    /// - **arrastar** é do `SwipeRow`, que roda `simultaneousGesture` com a
+    ///   rolagem e só engata quando a horizontal domina a vertical;
+    /// - **clicar** é do `Button`, e enquanto o arraste está em curso ou a
+    ///   linha está aberta ele **fecha** a linha em vez de selecionar;
+    /// - **duplo clique** abre a janela, pelo mesmo `simultaneousGesture` de
+    ///   antes — ele não anda 12pt, então nunca engata o arraste;
+    /// - **botão direito** abre `ContextMenus.messageRow`, que o `DragGesture`
+    ///   nem enxerga: o arraste só acompanha o botão esquerdo.
+    private func row(_ message: Message) -> some View {
+        let account = store.account(message.accountID)
+        return SwipeRow(
+            message: message,
+            configuration: swipeConfiguration,
+            openRowID: $openSwipeRowID,
+            onFire: { fire($0, on: message) }
+        ) { swipe in
+            Button {
+                if swipe.isBlocked { swipe.dismiss() } else { store.select(message: message.id) }
+            } label: {
+                MessageRow(
+                    message: message,
+                    accountHost: account?.host ?? "",
+                    accountTint: accountTint(account),
+                    isSelected: message.id == store.selectedMessageID
+                )
+            }
+            .buttonStyle(.plain)
+            .focusRing(in: Rectangle())
+            .help(swipe.isBlocked
+                  ? "Clique para fechar as ações"
+                  : "Arraste para o lado revela ações · duplo clique abre em janela")
+            // O clique simples continua sendo o do `Button` (selecionar);
+            // este gesto só acrescenta o duplo, como o protótipo, que
+            // declara os dois na linha.
+            .simultaneousGesture(
+                TapGesture(count: 2).onEnded {
+                    guard !swipe.isBlocked else { return }
+                    onOpenWindow(message)
+                }
+            )
+            // Botão direito na linha. O conteúdo é dado —
+            // `ContextMenus.messageRow` — e muda com o estado da mensagem:
+            // "Marcar como não lida" só aparece em mensagem lida, e "Mover
+            // para" não oferece a caixa em que ela já está.
+            .uniContextMenu(ContextMenus.messageRow(message), store: store)
+        }
+    }
+
+    // MARK: - O que uma ação de arraste faz
+
+    /// Dispara a ação e guarda o caminho de volta **no mesmo instante**.
+    ///
+    /// O recibo tem de nascer aqui, antes da mudança: depois de arquivada a
+    /// mensagem não sabe mais de que caixa veio, e um "Desfazer" que
+    /// adivinhasse a caixa seria a versão silenciosa do botão mudo.
+    private func fire(_ action: SwipeAction, on message: Message) {
+        guard let command = action.command(for: message) else { return }
+        let made = SwipeReceipt.of(
+            action,
+            message: message,
+            stamp: Date.now.formatted(date: .omitted, time: .shortened)
+        )
+        StoreCommand.run(command, on: store)
+        withAnimation(SwipeMotion.transition) { receipt = made }
+    }
+
+    private func undo(_ receipt: SwipeReceipt) {
+        StoreCommand.run(receipt.undo, on: store)
+        withAnimation(SwipeMotion.transition) { self.receipt = nil }
+    }
+
+    /// A faixa de retorno, flutuando no pé da lista.
+    ///
+    /// Flutua, e não empurra: a lista não pode pular porque uma ação
+    /// aconteceu. Por isso `overlay`, não uma linha a mais no `VStack`.
+    @ViewBuilder
+    private var undoBand: some View {
+        if let receipt {
+            SwipeUndoBand(receipt: receipt) { undo(receipt) }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 10)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
         }
     }
 
