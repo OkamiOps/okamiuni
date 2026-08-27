@@ -29,5 +29,13 @@ APP=$(xcodebuild -project OkamiUNI.xcodeproj -scheme OkamiUNI -configuration Deb
 
 echo "▸ binário: $(stat -f '%Sm' -t '%Y-%m-%d %H:%M:%S' "$APP/Contents/MacOS/OkamiUNI")"
 echo "▸ commit:  $(git log -1 --format='%h %s')"
+if [[ "$1" == "--capturar" ]]; then
+  ALVO="${2:-/tmp/uni-real.png}"
+  echo "▸ abrindo para fotografar (o app fecha sozinho)"
+  open -W "$APP" --args "--capturar=$ALVO" 2>&1 | tail -3
+  echo "▸ imagem: $ALVO"
+  exit 0
+fi
+
 echo "▸ abrindo"
 open "$APP"

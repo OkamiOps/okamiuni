@@ -39,6 +39,9 @@ struct OkamiUNIApp: App {
                 // app à frente e sem sintetizar tecla nenhuma. Sem a bandeira,
                 // isto não faz nada.
                 .modifier(LaunchWindowOpener())
+                // `--capturar=/caminho.png`: fotografa a própria janela e
+                // encerra. Sem a bandeira, não faz nada.
+                .captureWindowIfRequested(WindowCapture.fromProcess)
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1440, height: 916)
