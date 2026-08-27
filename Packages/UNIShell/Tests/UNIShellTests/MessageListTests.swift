@@ -36,4 +36,19 @@ struct MessageListTests {
     func width() {
         #expect(MessageList.width == 370)
     }
+
+    @Test("o rótulo de contagem usa plural correto")
+    func pluralZero() {
+        #expect(MessageList.messageCountLabel(0) == "0 mensagens")
+    }
+
+    @Test("singular para uma mensagem")
+    func pluralOne() {
+        #expect(MessageList.messageCountLabel(1) == "1 mensagem")
+    }
+
+    @Test("plural para múltiplas mensagens")
+    func pluralMany() {
+        #expect(MessageList.messageCountLabel(42) == "42 mensagens")
+    }
 }

@@ -50,14 +50,20 @@ public struct MessageList: View {
         self.store = store
     }
 
+    /// Formata o rótulo de contagem de mensagens com plural correto.
+    public static func messageCountLabel(_ count: Int) -> String {
+        count == 1 ? "1 mensagem" : "\(count) mensagens"
+    }
+
     public var body: some View {
         VStack(spacing: 0) {
             header
             if store.visibleMessages.isEmpty {
-                empty
+                Spacer()
             } else {
                 list
             }
+            footer
         }
         .frame(width: Self.width)
         .background(theme.surface.color)
@@ -66,11 +72,11 @@ public struct MessageList: View {
 
     private var header: some View {
         HStack {
-            Text(store.bucket.label)
+            Text(headerTitle)
                 .font(theme.sans.font(size: 12.5, weight: .semibold))
                 .foregroundStyle(theme.ink.color)
             Spacer()
-            Text("\(store.visibleMessages.count) mensagens")
+            Text(Self.messageCountLabel(store.visibleMessages.count))
                 .font(theme.mono.font(size: 9.5))
                 .foregroundStyle(theme.ink4.color)
         }
@@ -78,6 +84,14 @@ public struct MessageList: View {
         .frame(height: 40)
         .background(theme.surface2.color)
         .hairline(theme.line, edges: .bottom)
+    }
+
+    private var headerTitle: String {
+        if let selectedAccountID = store.selectedAccountID,
+           let account = store.account(selectedAccountID) {
+            return account.host
+        }
+        return store.bucket.label
     }
 
     private var list: some View {
@@ -108,14 +122,14 @@ public struct MessageList: View {
         }
     }
 
-    private var empty: some View {
-        VStack(spacing: 6) {
-            Spacer()
-            Text(store.query.isEmpty ? "Fim da lista" : "Nada encontrado")
-                .font(theme.sans.font(size: 12))
+    private var footer: some View {
+        VStack(spacing: 0) {
+            Text(store.visibleMessages.isEmpty ? "Nada nesta caixa agora." : "Fim da lista")
+                .font(theme.sans.font(size: 11.5))
                 .foregroundStyle(theme.ink4.color)
-            Spacer()
         }
         .frame(maxWidth: .infinity)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 24)
     }
 }
