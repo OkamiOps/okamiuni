@@ -116,7 +116,7 @@ public struct WeekScreen: View {
     }
 
     private var days: [WeekAgenda.Day] {
-        WeekAgenda.days(from: store.agenda, anchor: anchor)
+        WeekAgenda.days(from: store.visibleAgenda, anchor: anchor)
     }
 
     public var body: some View {

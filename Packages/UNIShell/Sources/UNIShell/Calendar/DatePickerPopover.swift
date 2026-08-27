@@ -27,7 +27,7 @@ struct DatePickerPopover: View {
     let onPickDay: (Int) -> Void
 
     private var weeks: [MonthAgenda.Week] {
-        MonthAgenda.weeks(from: store.agenda, anchor: anchor)
+        MonthAgenda.weeks(from: store.visibleAgenda, anchor: anchor)
     }
 
     var body: some View {

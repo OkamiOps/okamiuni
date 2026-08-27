@@ -113,7 +113,7 @@ public struct DayScreen: View {
     }
 
     private var items: [AgendaItem] {
-        WeekAgenda.items(on: dayOffset, in: store.agenda)
+        WeekAgenda.items(on: dayOffset, in: store.visibleAgenda)
     }
 
     /// O traço de "agora" só existe no dia de hoje. Protótipo:

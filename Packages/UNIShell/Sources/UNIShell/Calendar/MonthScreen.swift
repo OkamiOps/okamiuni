@@ -35,7 +35,7 @@ public struct MonthScreen: View {
     }
 
     private var weeks: [MonthAgenda.Week] {
-        MonthAgenda.weeks(from: store.agenda, anchor: anchor)
+        MonthAgenda.weeks(from: store.visibleAgenda, anchor: anchor)
     }
 
     public var body: some View {

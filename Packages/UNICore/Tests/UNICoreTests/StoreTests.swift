@@ -581,3 +581,54 @@ struct DefaultSelectionTests {
         #expect(store.selectedMessageID == chosen)
     }
 }
+
+@Suite("Filtro de conta na agenda")
+@MainActor
+struct AgendaAccountFilterTests {
+
+    private func loaded() async -> MailStore {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        return store
+    }
+
+    /// O defeito: clicar numa caixa filtrava a lista de mensagens e **não** a
+    /// grade da agenda. Metade da janela mentia sobre o que estava mostrando.
+    @Test("selecionar uma conta tira da agenda os compromissos das outras")
+    func filtersByAccount() async throws {
+        let store = await loaded()
+        let todas = store.visibleAgenda
+        let conta = try #require(todas.first?.accountID)
+        try #require(todas.contains { $0.accountID != conta })   // há mistura
+
+        store.select(account: conta)
+        #expect(store.visibleAgenda.isEmpty == false)
+        #expect(store.visibleAgenda.allSatisfy { $0.accountID == conta })
+        #expect(store.visibleAgenda.count < todas.count)
+    }
+
+    @Test("sem conta selecionada a agenda mostra tudo")
+    func noFilterShowsAll() async {
+        let store = await loaded()
+        #expect(store.visibleAgenda.count == store.agenda.count)
+    }
+
+    @Test("desligar o filtro devolve a agenda inteira")
+    func togglingBack() async throws {
+        let store = await loaded()
+        let total = store.agenda.count
+        let conta = try #require(store.agenda.first?.accountID)
+        store.select(account: conta)
+        #expect(store.visibleAgenda.count < total)
+        store.select(account: conta)   // clicar de novo desliga
+        #expect(store.visibleAgenda.count == total)
+    }
+
+    /// Qualquer provedor, não só as quatro das fixtures.
+    @Test("uma conta que não existe esvazia a agenda em vez de ignorar o filtro")
+    func unknownAccountEmpties() async {
+        let store = await loaded()
+        store.select(account: "conta-de-provedor-qualquer")
+        #expect(store.visibleAgenda.isEmpty)
+    }
+}

@@ -95,6 +95,17 @@ public final class MailStore {
         return searched.sorted { $0.receivedAt > $1.receivedAt }
     }
 
+    /// A agenda depois do filtro de conta.
+    ///
+    /// Clicar numa caixa filtra a lista **e** a grade da agenda. O protótipo
+    /// aplica `st.account` só à lista, mas isso é lacuna dele: uma caixa
+    /// selecionada que não mexe na agenda deixa metade da janela mentindo sobre
+    /// o que está sendo mostrado.
+    public var visibleAgenda: [AgendaItem] {
+        guard let selectedAccountID else { return agenda }
+        return agenda.filter { $0.accountID == selectedAccountID }
+    }
+
     private func matches(_ message: Message, _ term: String) -> Bool {
         [message.from.name, message.from.address, message.subject, message.snippet]
             .contains { $0.localizedCaseInsensitiveContains(term) }

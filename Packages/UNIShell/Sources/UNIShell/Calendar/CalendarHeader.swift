@@ -72,12 +72,12 @@ struct CalendarHeader: View {
         switch mode {
         case .day:
             DayAgenda.blockCountLabel(
-                WeekAgenda.items(on: selectedDayOffset, in: store.agenda).count
+                WeekAgenda.items(on: selectedDayOffset, in: store.visibleAgenda).count
             )
         case .week:
             "semana \(WeekAgenda.weekNumber(for: anchor))"
         case .month:
-            "\(MonthAgenda.eventCount(from: store.agenda, anchor: anchor)) compromissos"
+            "\(MonthAgenda.eventCount(from: store.visibleAgenda, anchor: anchor)) compromissos"
         }
     }
 
