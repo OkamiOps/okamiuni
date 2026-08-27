@@ -43,9 +43,17 @@ enum Render {
         //
         // Isso é inconsistência real do código, registrada para conserto. Até
         // lá, não relate a diferença de idioma aqui como defeito de aparência.
+        // `displayScale` tem de casar com a densidade do bitmap, senão o
+        // parâmetro `scale` é mentira. A janela do harness herda a escala do
+        // monitor da máquina que roda a suíte — nesta, 1× — de modo que
+        // `scale: 2` desenhava o dobro de pixels mas o SwiftUI continuava
+        // achando que estava em 1×. Tudo que decide espessura pela escala da
+        // tela (ver `Hairline.thickness(_:)`) media a tela errada, e o teste de
+        // 2× verificava o desenho de 1× ampliado.
         let root = view
             .theme(theme)
             .environment(\.locale, Locale(identifier: "pt_BR"))
+            .environment(\.displayScale, scale)
             .frame(width: size.width, height: size.height)
 
         let window = NSWindow(

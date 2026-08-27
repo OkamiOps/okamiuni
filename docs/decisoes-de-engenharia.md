@@ -191,6 +191,42 @@ salvamento para o rodapé, nas duas janelas. O teste mede
 `NSHostingView.fittingSize.height` a 820, 1100 e 1440 — e mede também a 420, onde a faixa
 **tem** de crescer, senão o teto passaria com uma medida presa.
 
+## Hairline é um pixel do dispositivo, e `strokeBorder` não arredonda sozinho
+
+O protótipo escreve `0.5px`. O navegador **não desenha meio pixel**: em 1× arredonda para um,
+em 2× meio pixel CSS já *é* um pixel do dispositivo. Nos dois casos o design mostra **uma linha
+cheia de um pixel**. Meio **ponto** ao pé da letra é outra coisa — em 1× é um pixel pintado
+pela metade. Por isso `Hairline.thickness(_ displayScale:)` = `1 / displayScale`, lido do
+ambiente por cada `View` que desenha borda.
+
+O que só apareceu ao medir: **os dois caminhos de desenho não erravam igual.**
+
+- `Rectangle().frame(height: 0.5)` — divisória — já saía **certa**. O SwiftUI alinha o quadro
+  de uma forma cheia à grade de pixels, então ela virava um pixel inteiro mesmo com o número
+  dizendo 0,5. Medida em `tinta`, com o código quebrado: `rgb(235,232,226)`, o token na bica.
+- `strokeBorder(…, lineWidth: 0.5)` — borda — saía **lavada**. O traçado pinta com alfa
+  parcial em vez de arredondar: `rgb(239,237,234)` onde o token é `rgb(218,214,206)`, 28 níveis.
+
+É exatamente a assimetria que o dono relatou quatro vezes: divisória forte, borda fantasma, e
+o olho trocando uma pela outra. A conclusão de método é que **"a hairline está errada" não é
+uma pergunta só** — vale medir cada caminho de desenho, porque o mesmo número dá resultados
+diferentes em forma cheia e em traçado.
+
+Consequências que pegaram testes de carona, ambas por o desenho ter **melhorado**:
+
+- `FocusRingMetrics.inset` tinha de virar função da escala junto com a borda. Recuo cravado em
+  meio ponto contra borda de um ponto põe o anel por baixo dela, não encostado.
+- `ComposerToolbarCapsuleTests` media as cápsulas por luminância e mesclava buracos menores que
+  5px. Com a borda a meio ponto o pixel mais externo dela ficava **debaixo** do limiar de
+  detecção e o buraco entre cápsulas media 5px; com a borda cheia ele passa a contar e o mesmo
+  buraco mede 3. O corte foi para 2px — buraco dentro de cápsula continua 1px, e os dois
+  números nunca se aproximaram. Literal calibrada contra desenho errado envelhece assim.
+
+Armadilha do harness, achada antes de qualquer medida valer: `Render` renderizava em `scale: 2`
+mas o `displayScale` do ambiente continuava o do monitor da máquina (1× nesta). Tudo que decide
+espessura pela escala media a tela errada, e o teste de 2× verificava o desenho de 1× ampliado.
+O `Render` agora injeta `\.displayScale` igual ao `scale` pedido.
+
 ## Integridade de asset binário não se verifica com `file`
 
 Um PNG truncado (6.738 bytes, sem `IEND`) passou por dois agentes que rodaram `file` — que lê

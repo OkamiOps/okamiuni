@@ -61,25 +61,53 @@ struct TokenModifierTests {
 @Suite("Hairline")
 struct HairlineTests {
 
-    /// O defeito: nas bordas de fim o traço de 0.5pt encostava na borda, caía
-    /// na metade de trás do último pixel e o compositor o apagava — as
-    /// divisórias verticais entre barra lateral e lista e entre lista e leitor
-    /// simplesmente não existiam na janela.
-    @Test("as bordas de fim recuam meio ponto para o traço nascer num pixel")
+    /// O defeito: nas bordas de fim o traço encostava na borda, caía na metade
+    /// de trás do último pixel e o compositor o apagava — as divisórias
+    /// verticais entre barra lateral e lista e entre lista e leitor simplesmente
+    /// não existiam na janela.
+    ///
+    /// O recuo é a **espessura desenhada**, não uma constante: em 1× a linha tem
+    /// um ponto e o recuo tem de acompanhar, senão meio ponto dela vaza para
+    /// fora do painel. Literais dos dois lados de propósito — comparar contra
+    /// `Hairline.thickness(escala)` faria a asserção concordar com qualquer
+    /// fórmula que alguém pusesse lá.
+    @Test("o recuo da borda de fim é a espessura que aquela tela desenha")
     func endEdgesAreInset() {
-        #expect(Hairline.inset(for: .trailing) == -Hairline.thickness)
-        #expect(Hairline.inset(for: .bottom) == -Hairline.thickness)
+        #expect(Hairline.inset(for: .trailing, thickness: 1.0) == -1.0)
+        #expect(Hairline.inset(for: .bottom, thickness: 1.0) == -1.0)
+        #expect(Hairline.inset(for: .trailing, thickness: 0.5) == -0.5)
+        #expect(Hairline.inset(for: .bottom, thickness: 0.5) == -0.5)
     }
 
     @Test("as bordas de início não recuam — já nascem alinhadas")
     func startEdgesAreFlush() {
-        #expect(Hairline.inset(for: .leading) == 0)
-        #expect(Hairline.inset(for: .top) == 0)
+        #expect(Hairline.inset(for: .leading, thickness: 1.0) == 0)
+        #expect(Hairline.inset(for: .top, thickness: 1.0) == 0)
     }
 
-    @Test("o traço tem a espessura de 0.5px do protótipo")
-    func thicknessMatchesPrototype() {
-        #expect(Hairline.thickness == 0.5)
+    /// O protótipo escreve `0.5px`, mas o navegador não desenha meio pixel: em
+    /// 1× arredonda para um, em 2× meio pixel CSS já **é** um pixel do
+    /// dispositivo. Nos dois casos o design mostra uma linha cheia de um pixel.
+    ///
+    /// Meio **ponto** ao pé da letra é outra coisa: em 1× é um pixel pintado
+    /// pela metade, e foi o que lavou a borda dos botões para `rgb(227,225,219)`
+    /// onde o design mostra `rgb(218,214,206)`.
+    @Test("a espessura é um pixel do dispositivo em qualquer escala", arguments: [
+        (CGFloat(1), CGFloat(1.0)),
+        (CGFloat(2), CGFloat(0.5)),
+        (CGFloat(3), CGFloat(1.0 / 3.0)),
+    ])
+    func thicknessIsOneDevicePixel(scale: CGFloat, expected: CGFloat) {
+        #expect(abs(Hairline.thickness(scale) - expected) < 1e-9)
+        #expect(abs(Hairline.thickness(scale) * scale - 1) < 1e-9)
+    }
+
+    /// Escala zero ou negativa não existe numa tela, mas chega aqui se alguém
+    /// renderizar num contexto sem tela. Dividir por ela daria infinito.
+    @Test("escala inválida cai num ponto em vez de infinito")
+    func degenerateScaleFallsBack() {
+        #expect(Hairline.thickness(0) == 1)
+        #expect(Hairline.thickness(-2) == 1)
     }
 
     @Test("cada borda desenha do lado certo e no eixo certo")

@@ -34,6 +34,7 @@ public struct TintChip: View {
     }
 
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
 
     public var body: some View {
         Text(label)
@@ -49,7 +50,7 @@ public struct TintChip: View {
             .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
             .overlay {
                 RoundedRectangle(cornerRadius: Self.cornerRadius)
-                    .strokeBorder(tint.opacity(0.32), lineWidth: 0.5)
+                    .strokeBorder(tint.opacity(0.32), lineWidth: Hairline.thickness(displayScale))
             }
             .fixedSize()
     }

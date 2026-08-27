@@ -37,10 +37,18 @@ enum FocusRingMetrics {
     /// Onde o anel começa, medido da borda do controle **para dentro**. É a
     /// espessura da hairline do design: o anel encosta nela em vez de deixar
     /// folga.
-    static let inset: CGFloat = Hairline.thickness
+    ///
+    /// Segue a escala da tela pelo mesmo motivo que a borda segue: se o recuo
+    /// ficasse cravado em meio ponto enquanto a borda passa a um ponto em 1×, o
+    /// anel voltaria a nascer **por baixo** da borda em vez de encostado nela —
+    /// e meio ponto de sobreposição some no antialias, deixando o anel a parecer
+    /// mais fino de um lado. Ver `Hairline.thickness(_:)`.
+    static func inset(_ displayScale: CGFloat) -> CGFloat {
+        Hairline.thickness(displayScale)
+    }
 
     /// Espessura do anel. Um ponto — em 2× dá dois pixels cheios, visível sem
-    /// competir com a borda de 0,5.
+    /// competir com a borda de um pixel.
     static let thickness: CGFloat = 1
 
     /// Quanto o anel cresce **para fora** do controle. Zero por construção, e é
@@ -51,6 +59,7 @@ enum FocusRingMetrics {
 /// Ver `FocusRingMetrics`.
 struct FocusRing<S: InsettableShape>: ViewModifier {
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
     @FocusState private var isFocused: Bool
 
     let shape: S
@@ -65,7 +74,7 @@ struct FocusRing<S: InsettableShape>: ViewModifier {
             .focusEffectDisabled()
             .overlay {
                 shape
-                    .inset(by: FocusRingMetrics.inset)
+                    .inset(by: FocusRingMetrics.inset(displayScale))
                     .strokeBorder(
                         theme[keyPath: tint].color,
                         lineWidth: FocusRingMetrics.thickness

@@ -10,6 +10,7 @@ import UNICore
 /// (Cc) e 448–461 (Cco). O menu é o mesmo cartão nas três.
 struct RecipientField: View {
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
 
     /// Rótulo em versalete à esquerda. `nil` esconde a calha inteira — é o
     /// caso do campo de encaminhar, que não tem rótulo lateral.
@@ -113,7 +114,7 @@ struct RecipientField: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay {
             RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(theme.accentLine.color, lineWidth: 0.5)
+                .strokeBorder(theme.accentLine.color, lineWidth: Hairline.thickness(displayScale))
         }
     }
 
@@ -137,7 +138,7 @@ struct RecipientField: View {
         .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
         .overlay {
             RoundedRectangle(cornerRadius: theme.radiusLarge)
-                .strokeBorder(theme.line.color, lineWidth: 0.5)
+                .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
         }
         // `0 18px 40px rgba(0,0,0,0.24)` — o blur do CSS vale o dobro do raio.
         .shadow(color: .black.opacity(0.24), radius: 20, x: 0, y: 18)

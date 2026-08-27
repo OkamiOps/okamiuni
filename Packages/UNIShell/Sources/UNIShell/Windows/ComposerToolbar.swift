@@ -26,6 +26,7 @@ import UNIDesign
 /// faixa e fazia a barra quebrar em duas linhas na janela de resposta.
 struct ComposerToolbar: View {
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
 
     let reading: BodyReading
     let density: Density
@@ -170,7 +171,7 @@ struct ComposerToolbar: View {
 
             Rectangle()
                 .fill(theme.btnLine.color)
-                .frame(width: 0.5)
+                .frame(width: Hairline.thickness(displayScale))
 
             Picker("Tamanho", selection: Binding(
                 get: { reading.size ?? 0 },
@@ -191,7 +192,7 @@ struct ComposerToolbar: View {
         .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
         .overlay {
             RoundedRectangle(cornerRadius: theme.radiusSmall)
-                .strokeBorder(theme.btnLine.color, lineWidth: 0.5)
+                .strokeBorder(theme.btnLine.color, lineWidth: Hairline.thickness(displayScale))
         }
         .shadow(theme.btnShadow)
         .fixedSize()
@@ -340,14 +341,19 @@ struct ComposerToolbar: View {
     ) -> some View {
         HStack(spacing: 4) {
             ForEach(list, id: \.hex) { swatch in
+                let isSelected = selected == swatch.hex
+                // Os 2pt do selecionado são medida de conteúdo — o realce da
+                // escolha, que o protótipo engrossa de propósito. Só a borda em
+                // repouso é hairline, e só ela segue a escala da tela.
+                let border = isSelected ? 2 : Hairline.thickness(displayScale)
                 Button { pick(swatch.hex) } label: {
                     RoundedRectangle(cornerRadius: theme.radiusSmall)
                         .fill(ComposerFormatting.highlight(swatch.hex) ?? theme.surface.color)
                         .overlay {
                             RoundedRectangle(cornerRadius: theme.radiusSmall)
                                 .strokeBorder(
-                                    selected == swatch.hex ? theme.accent.color : theme.line.color,
-                                    lineWidth: selected == swatch.hex ? 2 : 0.5
+                                    isSelected ? theme.accent.color : theme.line.color,
+                                    lineWidth: border
                                 )
                         }
                         .frame(width: 22, height: 22)
@@ -362,7 +368,7 @@ struct ComposerToolbar: View {
         .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
         .overlay {
             RoundedRectangle(cornerRadius: theme.radiusSmall)
-                .strokeBorder(theme.line.color, lineWidth: 0.5)
+                .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
         }
         .shadow(color: .black.opacity(0.20), radius: 12, x: 0, y: 10)
         .fixedSize()
@@ -374,6 +380,7 @@ struct ComposerToolbar: View {
 /// divisórias entre os itens.
 struct SegmentedRow<Content: View>: View {
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
     @ViewBuilder var content: Content
 
     var body: some View {
@@ -383,7 +390,7 @@ struct SegmentedRow<Content: View>: View {
             .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
             .overlay {
                 RoundedRectangle(cornerRadius: theme.radiusSmall)
-                    .strokeBorder(theme.btnLine.color, lineWidth: 0.5)
+                    .strokeBorder(theme.btnLine.color, lineWidth: Hairline.thickness(displayScale))
             }
             .shadow(theme.btnShadow)
             .fixedSize()
@@ -395,6 +402,7 @@ struct SegmentedRow<Content: View>: View {
 /// desenhada como borda `leading` de cada item, e o primeiro a esconde.
 struct SegmentButton: View {
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
     let label: String
     var title: String = ""
     let on: Bool
@@ -439,7 +447,7 @@ struct SegmentButton: View {
             .overlay(alignment: .leading) {
                 Rectangle()
                     .fill(theme.btnLine.color)
-                    .frame(width: 0.5)
+                    .frame(width: Hairline.thickness(displayScale))
             }
             .contentShape(Rectangle())
         }
@@ -544,6 +552,7 @@ extension Font.Weight {
 /// Protótipo: `width: 30px; height: 26px`.
 struct SoloToolButton: View {
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
     let label: String
     let title: String
     let on: Bool
@@ -561,7 +570,10 @@ struct SoloToolButton: View {
                 .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
                 .overlay {
                     RoundedRectangle(cornerRadius: theme.radiusSmall)
-                        .strokeBorder(on ? theme.accent.color : theme.btnLine.color, lineWidth: 0.5)
+                        .strokeBorder(
+                            on ? theme.accent.color : theme.btnLine.color,
+                            lineWidth: Hairline.thickness(displayScale)
+                        )
                 }
                 .shadow(theme.btnShadow)
                 .contentShape(Rectangle())

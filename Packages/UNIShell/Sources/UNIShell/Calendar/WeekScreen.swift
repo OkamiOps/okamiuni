@@ -90,6 +90,7 @@ public struct WeekScreen: View {
     }
 
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
 
     let store: MailStore
     let layout: Layout
@@ -319,7 +320,7 @@ public struct WeekScreen: View {
                 Spacer(minLength: layout.labelInset - layout.labelWidth)
                 Rectangle()
                     .fill(theme.line2.color)
-                    .frame(height: Hairline.thickness)
+                    .frame(height: Hairline.thickness(displayScale))
             }
             .frame(height: 0, alignment: .center)
             .offset(y: layout.offset(minuteOfDay: hour * 60))

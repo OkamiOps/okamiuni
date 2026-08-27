@@ -1,9 +1,9 @@
 import SwiftUI
 import UNIDesign
 
-/// A divisória de 0.5px que o design usa em toda parte.
+/// A divisória de um pixel que o design usa em toda parte.
 ///
-/// A faixa de 0.5pt precisa **começar num ponto inteiro** para existir: quando
+/// A faixa precisa **começar num ponto inteiro** para existir: quando
 /// ela cai na metade de trás de um pixel, o compositor a apaga. Era o que
 /// acontecia nas bordas `trailing` — as divisórias verticais entre barra
 /// lateral e lista (x=236) e entre lista e leitor (x=606) não desenhavam nada,
@@ -31,11 +31,22 @@ public enum Hairline {
         displayScale > 0 ? 1 / displayScale : 1
     }
 
-    /// Valor de conveniência para contextos sem ambiente. Prefira a função.
+    /// O valor que a função devolve numa tela 2×.
+    ///
+    /// **Não desenhe com isto.** Nenhum caminho de desenho o usa desde a Task
+    /// AC: toda espessura sai de `thickness(_:)`, lida do ambiente. Ele sobrevive
+    /// como referência para código que compara medidas sem ter tela por perto —
+    /// `PaneDivider.hitWidth`, que dimensiona um alvo de mouse contra a linha
+    /// mais fina que o design chega a pintar.
     public static let thickness: CGFloat = 0.5
 
     /// Quanto o traço recua para dentro do painel, por borda.
-    public static func inset(for edges: Edge.Set) -> CGFloat {
+    ///
+    /// Nas bordas de fim o traço recua a própria espessura; nas de início ele já
+    /// nasce alinhado. A espessura entra como argumento porque ela depende da
+    /// tela: cravar a constante aqui devolveria meio ponto de recuo para uma
+    /// linha de um ponto, e a linha vazaria meio ponto para fora do painel.
+    public static func inset(for edges: Edge.Set, thickness: CGFloat) -> CGFloat {
         if edges.contains(.top) { return 0 }
         if edges.contains(.leading) { return 0 }
         return -thickness  // .trailing e .bottom
@@ -91,7 +102,7 @@ private struct HairlineModifier: ViewModifier {
     func body(content: Content) -> some View {
         let vertical = Hairline.isVertical(edges)
         let thickness = Hairline.thickness(displayScale)
-        let inset = edges.contains(.top) || edges.contains(.leading) ? 0 : -thickness
+        let inset = Hairline.inset(for: edges, thickness: thickness)
         return content.overlay(alignment: Hairline.alignment(for: edges)) {
             Rectangle()
                 .fill(color.color)

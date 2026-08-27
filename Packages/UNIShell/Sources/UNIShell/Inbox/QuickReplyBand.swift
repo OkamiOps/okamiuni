@@ -43,6 +43,7 @@ import UNICore
 ///   vira uma etiqueta com × que tira.
 struct QuickReplyBand: View {
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
 
     let store: MailStore
     let message: Message
@@ -210,7 +211,7 @@ struct QuickReplyBand: View {
         .background(theme.surface2.color, in: RoundedRectangle(cornerRadius: theme.radiusLarge))
         .overlay {
             RoundedRectangle(cornerRadius: theme.radiusLarge)
-                .strokeBorder(theme.line.color, lineWidth: 0.5)
+                .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
         }
     }
 
@@ -462,7 +463,10 @@ struct QuickReplyBand: View {
         )
         .overlay {
             RoundedRectangle(cornerRadius: theme.radiusLarge)
-                .strokeBorder((sentAt == nil ? theme.line : theme.accentLine).color, lineWidth: 0.5)
+                .strokeBorder(
+                    (sentAt == nil ? theme.line : theme.accentLine).color,
+                    lineWidth: Hairline.thickness(displayScale)
+                )
         }
     }
 
@@ -637,6 +641,7 @@ struct QuickReplyBand: View {
 /// que é o motivo de ser uma `View` e não um método.
 private struct BandRecipientRow<Trailing: View>: View {
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
 
     let label: String
     let placeholder: String
@@ -743,7 +748,7 @@ private struct BandRecipientRow<Trailing: View>: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay {
             RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(theme.accentLine.color, lineWidth: 0.5)
+                .strokeBorder(theme.accentLine.color, lineWidth: Hairline.thickness(displayScale))
         }
     }
 
@@ -770,7 +775,7 @@ private struct BandRecipientRow<Trailing: View>: View {
         .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
         .overlay {
             RoundedRectangle(cornerRadius: theme.radiusLarge)
-                .strokeBorder(theme.line.color, lineWidth: 0.5)
+                .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
         }
         .shadow(color: .black.opacity(0.24), radius: 20, x: 0, y: 18)
     }
@@ -843,6 +848,7 @@ private struct QuickSuggestionRow: View {
 /// Os quadradinhos de 24×22 da linha "Para" — o "⤢" e o "▾".
 private struct MiniGlyphButton: View {
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
     @State private var hovering = false
     let glyph: String
     let help: String
@@ -860,7 +866,7 @@ private struct MiniGlyphButton: View {
                     RoundedRectangle(cornerRadius: theme.radiusSmall)
                         .strokeBorder(
                             hovering ? theme.accent.color : theme.btnLine.color,
-                            lineWidth: 0.5
+                            lineWidth: Hairline.thickness(displayScale)
                         )
                 }
                 .contentShape(Rectangle())
@@ -876,6 +882,7 @@ private struct MiniGlyphButton: View {
 /// padding: 0 8px; mono 9.5px; letter-spacing: 0.06em`.
 private struct MiniToggleButton: View {
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
     let label: String
     let on: Bool
     let action: () -> Void
@@ -893,7 +900,10 @@ private struct MiniToggleButton: View {
                 .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
                 .overlay {
                     RoundedRectangle(cornerRadius: theme.radiusSmall)
-                        .strokeBorder(on ? theme.accent.color : theme.btnLine.color, lineWidth: 0.5)
+                        .strokeBorder(
+                            on ? theme.accent.color : theme.btnLine.color,
+                            lineWidth: Hairline.thickness(displayScale)
+                        )
                 }
                 .contentShape(Rectangle())
         }
@@ -906,6 +916,7 @@ private struct MiniToggleButton: View {
 /// O 📎 do rodapé da faixa. Protótipo: `width: 30px; height: 30px`.
 private struct AttachGlyphButton: View {
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
     @State private var hovering = false
     let enabled: Bool
     let help: String
@@ -921,7 +932,7 @@ private struct AttachGlyphButton: View {
                 .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
                 .overlay {
                     RoundedRectangle(cornerRadius: theme.radiusSmall)
-                        .strokeBorder(border, lineWidth: 0.5)
+                        .strokeBorder(border, lineWidth: Hairline.thickness(displayScale))
                 }
                 .shadow(enabled ? theme.btnShadow : [])
                 .contentShape(Rectangle())
@@ -948,6 +959,7 @@ private struct AttachGlyphButton: View {
 /// com nome, tamanho em mono e o × que tira.
 private struct BandAttachmentChip: View {
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
     let name: String
     let size: String
     let onRemove: () -> Void
@@ -979,7 +991,7 @@ private struct BandAttachmentChip: View {
         .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
         .overlay {
             RoundedRectangle(cornerRadius: theme.radiusSmall)
-                .strokeBorder(theme.line.color, lineWidth: 0.5)
+                .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
         }
     }
 }
@@ -988,6 +1000,7 @@ private struct BandAttachmentChip: View {
 /// var(--accent-line); background: transparent; color: var(--accent-ink)`.
 private struct SuggestedDraftPicker: View {
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
     let drafts: [SuggestedDraft]
     let pick: (SuggestedDraft) -> Void
 
@@ -1011,7 +1024,10 @@ private struct SuggestedDraftPicker: View {
                 RoundedRectangle(cornerRadius: theme.radiusSmall)
                     .strokeBorder(
                         theme.accentLine.color,
-                        style: StrokeStyle(lineWidth: 0.5, dash: [4, 3])
+                        style: StrokeStyle(
+                            lineWidth: Hairline.thickness(displayScale),
+                            dash: [4, 3]
+                        )
                     )
             }
             .contentShape(RoundedRectangle(cornerRadius: theme.radiusSmall))

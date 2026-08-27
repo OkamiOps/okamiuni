@@ -9,6 +9,7 @@ public struct FolderSidebar: View {
     public static let expandedWidth: CGFloat = PaneLayout.expandedSidebarWidth
 
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
     let store: MailStore
 
     /// A largura resolvida que a janela concedeu. O padrão é a canônica, para
@@ -55,7 +56,7 @@ public struct FolderSidebar: View {
 
             // Rodapé fixo
             Divider()
-                .frame(height: 0.5)
+                .frame(height: Hairline.thickness(displayScale))
                 .background(theme.line.color)
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 7) {

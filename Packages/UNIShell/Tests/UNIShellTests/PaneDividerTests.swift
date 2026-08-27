@@ -6,12 +6,16 @@ import UNICore
 @Suite("PaneDivider")
 struct PaneDividerTests {
 
-    @Test("o alvo de arraste tem pelo menos 6pt, muito além da linha de 0.5pt")
+    @Test("o alvo de arraste é muito mais largo que a linha, em qualquer tela")
     func theTargetIsBigEnoughToHit() {
         #expect(PaneDivider.hitWidth == 6)
-        // A razão de ser da constante: a linha que se vê é doze vezes mais fina
-        // que o alvo que se agarra.
-        #expect(PaneDivider.hitWidth >= Hairline.thickness * 12)
+        // A razão de ser da constante: a linha que se vê é bem mais fina que o
+        // alvo que se agarra. Medido contra a espessura da **tela mais grossa**
+        // — 1×, onde a hairline tem um ponto inteiro. Comparar contra
+        // `Hairline.thickness` (o valor de 2×) diria que a folga é o dobro do
+        // que é na tela do dono do projeto.
+        #expect(PaneDivider.hitWidth >= Hairline.thickness(1) * 6)
+        #expect(Hairline.thickness(1) == 1)
     }
 
     @Test("o alvo fica centrado na linha, alcançável pelos dois painéis")

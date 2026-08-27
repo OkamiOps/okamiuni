@@ -95,6 +95,7 @@ public struct WindowChrome: View {
     public static let searchMinimumWidth: CGFloat = 150
 
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
     @Binding var workspace: Workspace
     @Binding var query: String
     let accountCount: Int
@@ -204,7 +205,7 @@ public struct WindowChrome: View {
                     .fill(theme.ink3.color)
                     .frame(width: 3, height: 11)
                 RoundedRectangle(cornerRadius: 1)
-                    .strokeBorder(theme.ink4.color, lineWidth: 0.5)
+                    .strokeBorder(theme.ink4.color, lineWidth: Hairline.thickness(displayScale))
                     .frame(width: 7, height: 11)
             }
             .frame(width: 26, height: 24)
@@ -212,7 +213,10 @@ public struct WindowChrome: View {
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .overlay {
                 RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(sidebarHovering ? theme.accent.color : theme.btnLine.color, lineWidth: 0.5)
+                    .strokeBorder(
+                        sidebarHovering ? theme.accent.color : theme.btnLine.color,
+                        lineWidth: Hairline.thickness(displayScale)
+                    )
             }
             .shadow(theme.btnShadow)
         }
@@ -233,7 +237,7 @@ public struct WindowChrome: View {
         Button(action: onToggleAgenda) {
             HStack(spacing: 2.5) {
                 RoundedRectangle(cornerRadius: 1)
-                    .strokeBorder(theme.ink4.color, lineWidth: 0.5)
+                    .strokeBorder(theme.ink4.color, lineWidth: Hairline.thickness(displayScale))
                     .frame(width: 7, height: 11)
                 RoundedRectangle(cornerRadius: 1)
                     .fill(theme.ink3.color)
@@ -244,7 +248,10 @@ public struct WindowChrome: View {
             .clipShape(RoundedRectangle(cornerRadius: 6))
             .overlay {
                 RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(agendaHovering ? theme.accent.color : theme.btnLine.color, lineWidth: 0.5)
+                    .strokeBorder(
+                        agendaHovering ? theme.accent.color : theme.btnLine.color,
+                        lineWidth: Hairline.thickness(displayScale)
+                    )
             }
             .shadow(theme.btnShadow)
         }
@@ -308,7 +315,7 @@ public struct WindowChrome: View {
         .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
         .overlay {
             RoundedRectangle(cornerRadius: theme.radiusSmall)
-                .strokeBorder(theme.line.color, lineWidth: 0.5)
+                .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
         }
     }
 }

@@ -7,6 +7,7 @@ public struct SidebarRail: View {
     public static let width: CGFloat = PaneLayout.railWidth
 
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
     let store: MailStore
 
     /// A largura resolvida que a janela concedeu.
@@ -44,7 +45,7 @@ public struct SidebarRail: View {
                         // Divisória
                         Rectangle()
                             .fill(theme.line.color)
-                            .frame(width: 26, height: 0.5)
+                            .frame(width: 26, height: Hairline.thickness(displayScale))
                             .padding(.vertical, 8)
 
                         // Rótulo "caixas" com tracking fixo do protótipo, não do tema
@@ -98,7 +99,7 @@ public struct SidebarRail: View {
                 RoundedRectangle(cornerRadius: theme.radiusSmall)
                     .stroke(
                         active ? theme.accentLine.color : Color.clear,
-                        lineWidth: 0.5
+                        lineWidth: Hairline.thickness(displayScale)
                     )
             }
         }
@@ -125,7 +126,7 @@ public struct SidebarRail: View {
                     RoundedRectangle(cornerRadius: theme.radiusSmall)
                         .stroke(
                             opacityMix(tintColor, active ? 70 : 26),
-                            lineWidth: 0.5
+                            lineWidth: Hairline.thickness(displayScale)
                         )
                 }
                 .help(account.address)

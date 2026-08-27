@@ -6,12 +6,12 @@ import UNICore
 ///
 /// ## Por que ela não desenha a linha
 ///
-/// A linha já existe: cada painel pinta a sua própria `hairline` de 0.5pt na
-/// borda (`MessageList` na `trailing`, `AgendaRail` na `leading`). Esta `View`
-/// não repinta nada em repouso — se pintasse, ficariam duas linhas em cima uma
-/// da outra, e a de 0.5pt do design tem regras de alinhamento de pixel que a
-/// `Hairline` já resolveu. Ela só acrescenta o realce de 2pt quando o ponteiro
-/// chega ou o arraste começa, para o usuário ver o que está agarrando.
+/// A linha já existe: cada painel pinta a sua própria `hairline` na borda
+/// (`MessageList` na `trailing`, `AgendaRail` na `leading`). Esta `View` não
+/// repinta nada em repouso — se pintasse, ficariam duas linhas em cima uma da
+/// outra, e a hairline do design tem regras de espessura e alinhamento de pixel
+/// que a `Hairline` já resolveu. Ela só acrescenta o realce de 2pt quando o
+/// ponteiro chega ou o arraste começa, para o usuário ver o que está agarrando.
 ///
 /// ## Por que ela não ocupa largura
 ///
@@ -22,8 +22,9 @@ import UNICore
 public struct PaneDivider: View {
     /// Largura do alvo de arraste.
     ///
-    /// A linha desenhada tem `Hairline.thickness` — meio ponto. Um alvo de meio
-    /// ponto é impossível de acertar com o mouse: exigiria acertar a coluna de
+    /// A linha desenhada tem **um pixel do dispositivo** — um ponto numa tela
+    /// 1×, meio ponto numa 2× (ver `Hairline.thickness(_:)`). Um alvo de um
+    /// pixel é impossível de acertar com o mouse: exigiria acertar a coluna de
     /// pixels exata, e o ponteiro do macOS nem reporta essa precisão. Seis
     /// pontos é o que o próprio `NSSplitView` usa como zona de agarrar, e é a
     /// menor medida em que o gesto vira confiável.

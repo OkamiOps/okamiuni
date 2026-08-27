@@ -3,6 +3,7 @@ import UNIDesign
 
 public struct ThemePicker: View {
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
     @Environment(ThemeStore.self) private var store
     @State private var open = false
 
@@ -27,7 +28,7 @@ public struct ThemePicker: View {
             .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
             .overlay {
                 RoundedRectangle(cornerRadius: theme.radiusSmall)
-                    .strokeBorder(theme.btnLine.color, lineWidth: 0.5)
+                    .strokeBorder(theme.btnLine.color, lineWidth: Hairline.thickness(displayScale))
             }
         }
         .buttonStyle(.plain)
@@ -102,6 +103,7 @@ private struct ThemeRow: View {
 /// Miniatura da janela no tema candidato.
 struct ThemePreview: View {
     @Environment(\.theme) private var activeTheme
+    @Environment(\.displayScale) private var displayScale
     let candidate: Theme
 
     var body: some View {
@@ -142,7 +144,10 @@ struct ThemePreview: View {
             // Contorno de 0.5px preto 28% — literal do protótipo, não um token.
             // Stroke always drawn, selection ring overlay on top when active.
             RoundedRectangle(cornerRadius: max(2, candidate.radiusSmall))
-                .strokeBorder(Color.black.opacity(0.28), lineWidth: 0.5)
+                .strokeBorder(
+                    Color.black.opacity(0.28),
+                    lineWidth: Hairline.thickness(displayScale)
+                )
         }
         .overlay {
             if activeTheme.id == candidate.id {

@@ -66,6 +66,7 @@ public struct AgendaRail: View {
     }
 
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
     let store: MailStore
     let layout: Layout
     let now: Int  // minutos desde meia-noite, injetado para teste
@@ -171,7 +172,7 @@ public struct AgendaRail: View {
                     .frame(width: layout.labelGutter, alignment: .trailing)
                 Rectangle()
                     .fill(theme.line2.color)
-                    .frame(height: 0.5)
+                    .frame(height: Hairline.thickness(displayScale))
             }
             .frame(height: 0, alignment: .center)
             .offset(y: CGFloat(hour * 60 - 480) * layout.pointsPerMinute)

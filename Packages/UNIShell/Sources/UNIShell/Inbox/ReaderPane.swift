@@ -4,6 +4,7 @@ import UNICore
 
 public struct ReaderPane: View {
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
     let store: MailStore
     let onAddEvent: (DetectedEvent) -> Void
     /// Abre a janela 03 (Composer) com esta mensagem citada.
@@ -134,7 +135,7 @@ public struct ReaderPane: View {
                             RoundedRectangle(cornerRadius: theme.radiusSmall)
                                 .strokeBorder(
                                     isActive ? accentColor : theme.btnLine.color,
-                                    lineWidth: 0.5
+                                    lineWidth: Hairline.thickness(displayScale)
                                 )
                         }
                         .shadow(theme.btnShadow)
@@ -189,7 +190,10 @@ public struct ReaderPane: View {
                 .clipShape(Circle())
                 .overlay(
                     Circle()
-                        .strokeBorder(tint.opacity(0.30), lineWidth: 0.5)
+                        .strokeBorder(
+                            tint.opacity(0.30),
+                            lineWidth: Hairline.thickness(displayScale)
+                        )
                 )
 
             // Protótipo: nome e email na **mesma linha** (nome em `ink`/590,
@@ -249,7 +253,7 @@ public struct ReaderPane: View {
                 // do VStack já responde por 8 dos 14.
                 Rectangle()
                     .fill(theme.accentLine.color)
-                    .frame(height: Hairline.thickness)
+                    .frame(height: Hairline.thickness(displayScale))
                     .padding(.top, 6)   // 8 do spacing + 6 = os 14 do margin-top
                     .padding(.bottom, 5)  // 5 + 8 do spacing = os 13 do padding-top
                 HStack(spacing: 12) {
@@ -287,7 +291,7 @@ public struct ReaderPane: View {
         .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
         .overlay {
             RoundedRectangle(cornerRadius: theme.radiusLarge)
-                .strokeBorder(theme.accentLine.color, lineWidth: 0.5)
+                .strokeBorder(theme.accentLine.color, lineWidth: Hairline.thickness(displayScale))
         }
     }
 

@@ -504,6 +504,7 @@ public struct ComposerWindow: View {
 /// `height: 22px; padding: 0 8px; mono 9.5px; letter-spacing: 0.06em`.
 private struct MiniToggle: View {
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
     let label: String
     let on: Bool
     let action: () -> Void
@@ -521,7 +522,10 @@ private struct MiniToggle: View {
                 .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
                 .overlay {
                     RoundedRectangle(cornerRadius: theme.radiusSmall)
-                        .strokeBorder(on ? theme.accent.color : theme.btnLine.color, lineWidth: 0.5)
+                        .strokeBorder(
+                            on ? theme.accent.color : theme.btnLine.color,
+                            lineWidth: Hairline.thickness(displayScale)
+                        )
                 }
                 .contentShape(Rectangle())
         }
@@ -533,6 +537,7 @@ private struct MiniToggle: View {
 /// Protótipo: `width: 32px; height: 32px`, com o clipe em SVG.
 private struct AttachButton: View {
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
     @State private var hovering = false
     let action: () -> Void
 
@@ -546,7 +551,10 @@ private struct AttachButton: View {
                 .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
                 .overlay {
                     RoundedRectangle(cornerRadius: theme.radiusSmall)
-                        .strokeBorder(hovering ? theme.accent.color : theme.btnLine.color, lineWidth: 0.5)
+                        .strokeBorder(
+                            hovering ? theme.accent.color : theme.btnLine.color,
+                            lineWidth: Hairline.thickness(displayScale)
+                        )
                 }
                 .shadow(theme.btnShadow)
                 .contentShape(Rectangle())
@@ -561,6 +569,7 @@ private struct AttachButton: View {
 /// Protótipo: `height: 28px; padding: 0 6px 0 11px; border-radius: var(--r2)`.
 private struct AttachmentChip: View {
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
     let name: String
     let size: String
     let onRemove: () -> Void
@@ -590,7 +599,7 @@ private struct AttachmentChip: View {
         .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
         .overlay {
             RoundedRectangle(cornerRadius: theme.radiusSmall)
-                .strokeBorder(theme.line.color, lineWidth: 0.5)
+                .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
         }
     }
 }

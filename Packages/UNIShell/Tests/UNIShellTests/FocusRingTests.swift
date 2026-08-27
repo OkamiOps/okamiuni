@@ -298,7 +298,7 @@ struct FocusRingTests {
         // um pixel de folga para cada lado por causa do arredondamento do layout.
         let top = Int(Self.pad * Self.scale)
         let window = (top ..< top + Int(
-            (FocusRingMetrics.inset + FocusRingMetrics.thickness + 1) * Self.scale
+            (FocusRingMetrics.inset(Self.scale) + FocusRingMetrics.thickness + 1) * Self.scale
         ))
         let column = on.width / 2
 

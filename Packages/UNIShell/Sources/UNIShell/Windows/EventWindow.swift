@@ -29,6 +29,7 @@ enum SemanticColor {
 /// 560 de largura). Abre clicando num compromisso da trilha de agenda.
 public struct EventWindow: View {
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
     @Environment(\.dismiss) private var dismiss
 
     let store: MailStore
@@ -196,7 +197,7 @@ public struct EventWindow: View {
         .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
         .overlay {
             RoundedRectangle(cornerRadius: theme.radiusLarge)
-                .strokeBorder(theme.accentLine.color, lineWidth: 0.5)
+                .strokeBorder(theme.accentLine.color, lineWidth: Hairline.thickness(displayScale))
         }
         .padding(.horizontal, 20)
         .padding(.top, 14)
@@ -390,7 +391,7 @@ public struct EventWindow: View {
             .padding(.leading, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .overlay(alignment: .leading) {
-                Rectangle().fill(theme.line.color).frame(width: Hairline.thickness)
+                Rectangle().fill(theme.line.color).frame(width: Hairline.thickness(displayScale))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -469,7 +470,7 @@ public struct EventWindow: View {
         .background {
             RoundedRectangle(cornerRadius: theme.radiusLarge)
                 .fill(theme.surface2.color)
-                .strokeBorder(theme.accent.color, lineWidth: 0.5)
+                .strokeBorder(theme.accent.color, lineWidth: Hairline.thickness(displayScale))
         }
         .shadow(color: .black.opacity(0.10), radius: 9, x: 0, y: 6)
         .padding(.horizontal, 20)
@@ -492,7 +493,7 @@ public struct EventWindow: View {
         .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
         .overlay {
             RoundedRectangle(cornerRadius: theme.radiusLarge)
-                .strokeBorder(theme.accentLine.color, lineWidth: 0.5)
+                .strokeBorder(theme.accentLine.color, lineWidth: Hairline.thickness(displayScale))
         }
         .padding(.horizontal, 20)
         .padding(.top, 18)
@@ -512,7 +513,7 @@ public struct EventWindow: View {
             .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
             .overlay {
                 RoundedRectangle(cornerRadius: theme.radiusLarge)
-                    .strokeBorder(theme.line2.color, lineWidth: 0.5)
+                    .strokeBorder(theme.line2.color, lineWidth: Hairline.thickness(displayScale))
             }
             .padding(.horizontal, 20)
             .padding(.top, 16)

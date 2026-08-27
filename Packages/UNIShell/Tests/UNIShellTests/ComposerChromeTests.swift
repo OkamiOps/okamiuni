@@ -204,12 +204,23 @@ struct ComposerToolbarCapsuleTests {
         if let from = start { runs.append((from, rep.pixelsWide)) }
 
         // O interior do `Picker` nativo tem trechos exatamente da cor da faixa,
-        // então a primeira cápsula sai picada. As folgas entre cápsulas são de
-        // 7pt (protótipo: `gap: 7px`); qualquer buraco menor que isso é dentro
-        // de uma cápsula, não entre duas.
+        // então a primeira cápsula sai picada. Esses buracos são de **1px**; os
+        // de entre cápsulas são bem maiores. O corte fica no meio.
+        //
+        // O corte era 5px e passou a 2px na Task AC, e não por gosto: a folga
+        // do protótipo é de 7pt, mas o que sobra dela na medição é 7 menos a
+        // saia de sombra dos dois vizinhos (`--btn-shadow`, blur 1.5) menos o
+        // antialias da borda. Com a borda desenhada a meio ponto o pixel mais
+        // externo dela saía pela metade, ficava **debaixo** do limiar de
+        // detecção, e o buraco medido era de 5px. Com a borda em um pixel do
+        // dispositivo esse pixel passa a contar, e o mesmo buraco mede 3px.
+        //
+        // Os dois números que importam não se aproximaram: buraco dentro de
+        // cápsula continua 1px e entre cápsulas 3px. Só o corte estava
+        // encostado no valor errado dos dois.
         var merged: [(from: Int, to: Int)] = []
         for run in runs {
-            if let last = merged.last, Double(run.from - last.to) / Double(scale) < 5 {
+            if let last = merged.last, Double(run.from - last.to) / Double(scale) < 2 {
                 merged[merged.count - 1].to = run.to
             } else {
                 merged.append(run)
@@ -228,17 +239,33 @@ struct ComposerToolbarCapsuleTests {
     /// grupo de dois seguido do `⊞`. Antes desta mudança as três últimas
     /// mediam 114, 59 e 32.
     ///
-    /// A medida inclui cerca de 1pt de sombra de cada lado (`--btn-shadow`),
-    /// daí a folga de 3pt. Ela é pequena o bastante para não confundir uma
-    /// cápsula solta de 30pt com o grupo de dois, de 57pt.
+    /// A medida inclui a saia de sombra dos dois lados (`--btn-shadow`) mais o
+    /// antialias da borda, daí a folga. Ela era de 3pt enquanto a borda saía a
+    /// meio ponto; na Task AC, com a borda em um pixel do dispositivo, o pixel
+    /// mais externo dela passou a contar e cada cápsula mede ~2pt a mais.
+    ///
+    /// A folga é grande o bastante para a medida caber e pequena o bastante
+    /// para o teste continuar valendo: o que ele precisa separar é uma cápsula
+    /// solta de 30pt do grupo de dois, que media 57. Com 4pt de folga o teto é
+    /// 34 — bem longe de 57, que é o número que reprovaria. A segunda asserção
+    /// trava isso explicitamente, para que afrouxar a primeira um dia não
+    /// deixe o defeito original passar.
     @Test("o botão de limpar formatação tem cápsula própria")
     func clearFormattingStandsAlone() throws {
         let widths = try capsuleWidths()
         let solos = Array(widths.suffix(3))
         #expect(solos.count == 3, "cápsulas medidas: \(widths)")
         #expect(
-            solos.allSatisfy { abs($0 - 30) <= 3 },
+            solos.allSatisfy { abs($0 - 30) <= 4 },
             "as três últimas cápsulas deviam ter 30pt cada; medidas \(solos) de \(widths)"
+        )
+        #expect(
+            solos.allSatisfy { $0 < 45 },
+            """
+            uma das três últimas cápsulas tem largura de grupo, não de botão \
+            solto: \(solos) de \(widths). O defeito era o `⌫` dividindo moldura \
+            com o `↗`, que está desabilitado — o grupo media 57pt.
+            """
         )
     }
 }

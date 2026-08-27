@@ -8,6 +8,7 @@ import UNICore
 /// em volta: assunto grande, remetente, marcas, resumo no dispositivo e corpo.
 public struct MessageWindow: View {
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openWindow) private var openWindow
 
@@ -68,7 +69,12 @@ public struct MessageWindow: View {
                     .frame(width: 34, height: 34)
                     .background(tint.opacity(0.16))
                     .clipShape(Circle())
-                    .overlay { Circle().strokeBorder(tint.opacity(0.30), lineWidth: 0.5) }
+                    .overlay {
+                        Circle().strokeBorder(
+                            tint.opacity(0.30),
+                            lineWidth: Hairline.thickness(displayScale)
+                        )
+                    }
 
                 VStack(alignment: .leading, spacing: 0) {
                     Text(message.from.name)
@@ -152,7 +158,7 @@ public struct MessageWindow: View {
         .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
         .overlay {
             RoundedRectangle(cornerRadius: theme.radiusLarge)
-                .strokeBorder(theme.accentLine.color, lineWidth: 0.5)
+                .strokeBorder(theme.accentLine.color, lineWidth: Hairline.thickness(displayScale))
         }
     }
 
