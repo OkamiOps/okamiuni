@@ -28,6 +28,11 @@ public enum Fixtures {
         return Calendar(identifier: .gregorian).date(from: c)!
     }()
 
+    /// Minuto do dia das fixtures (horário de parede em São Paulo).
+    /// Não derive de `today` com Calendar.current — a conversão depende do fuso da máquina.
+    /// Este valor é constante: 12:00 = 720 minutos desde a meia-noite.
+    public static let nowMinute: Int = 720
+
     private static func at(_ hour: Int, _ minute: Int) -> Date {
         Calendar.current.date(
             bySettingHour: hour, minute: minute, second: 0, of: today

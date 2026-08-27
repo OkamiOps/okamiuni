@@ -175,4 +175,19 @@ struct AgendaRailTests {
         // 990 - 660 = 330 min = 5h30
         #expect(label == "em 5h30: Evento longe")
     }
+
+    @Test("minuto das fixtures é sempre 720, independente do fuso da máquina")
+    func fixturesNowMinuteIsTimezoneIndependent() {
+        // Fixtures.nowMinute é uma constante (720 = 12:00)
+        #expect(Fixtures.nowMinute == 720)
+
+        // Com esse minuto, o rótulo deve refletir o meio-dia (Almoço em 30 min)
+        let label = AgendaRail.nextUpLabel(for: Fixtures.agenda, now: Fixtures.nowMinute)
+        #expect(label == "em 30 min: Almoço — bloqueado")
+
+        // Mesmo se usarmos Fixtures.today (que é um instante, não um minuto),
+        // a injeção em InboxScreen deve usar nowMinute, não derivar de hoje
+        let headerDate = AgendaRail.headerDateString(Fixtures.today)
+        #expect(headerDate == "Terça-feira, 25 de agosto")
+    }
 }
