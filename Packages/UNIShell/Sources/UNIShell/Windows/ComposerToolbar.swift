@@ -56,7 +56,7 @@ struct ComposerToolbar: View {
         _moreOpen = State(initialValue: moreOpen)
     }
 
-    enum Panel { case color, highlight }
+    enum Panel { case color, highlight, link, table }
 
     /// Onde a barra está desenhada.
     ///
@@ -301,31 +301,50 @@ struct ComposerToolbar: View {
                           on: reading.alignment == .center) { perform(.align(.center)) }
             SegmentButton(label: "⇒", title: "Alinhar à direita",
                           on: reading.alignment == .right) { perform(.align(.right)) }
-            SegmentButton(
-                label: "≡",
-                title: "Justificar — indisponível: o alinhamento de parágrafo deste SDK só tem esquerda, centro e direita",
-                on: false, enabled: false
-            ) {}
+            // Vivo desde a Task AF. O que faltava não era o botão: era o
+            // editor. `AttributedString.TextAlignment`, que o `TextEditor`
+            // usava, tem três casos; `NSParagraphStyle.alignment` tem
+            // `.justified`. Ver `BodyAlignment`.
+            SegmentButton(label: "≡", title: "Justificar",
+                          on: reading.alignment == .justified) { perform(.align(.justified)) }
         }
     }
 
     /// O protótipo põe `↗` e `⌫` na mesma cápsula (`segInsert`, linha 2119 do
-    /// `.dc.html`) porque lá os dois funcionam. Aqui o hyperlink está
-    /// desabilitado neste marco, e uma cápsula com um item apagado e um vivo lê
-    /// como grupo inteiro morto — foi o que o dono do projeto relatou: o botão
-    /// de limpar formatação "parece desabilitado". Um grupo segmentado é uma
-    /// promessa de que os itens são pares; com um deles mudo, a promessa é falsa.
-    ///
-    /// Por isso cada um ganha a própria cápsula, na ordem do protótipo. O `⌫`
-    /// passa a ter a moldura, o fundo e a sombra que os controles vivos têm,
-    /// como o `⊞`, em vez de dividir moldura com o vizinho apagado. Os glifos
-    /// continuam sendo os do protótipo.
+    /// `.dc.html`). Aqui cada um ficou com a própria: quando o `↗` estava
+    /// desabilitado, a cápsula com um item apagado e um vivo lia como grupo
+    /// inteiro morto — foi o que o dono do projeto relatou sobre o `⌫`, que
+    /// "parece desabilitado". Os dois estão vivos desde a Task AF, e a separação
+    /// fica porque o `↗` abre painel e o `⌫` age direto: agrupá-los prometeria
+    /// que são pares, e não são.
     private var linkButton: some View {
         SoloToolButton(
             label: "↗",
-            title: "Inserir hyperlink — indisponível neste marco: falta a folha que pede a URL",
-            on: false, enabled: false
-        ) {}
+            title: reading.hasLink ? "Editar ou remover o hyperlink" : "Inserir hyperlink",
+            on: openPanel == .link
+        ) {
+            openPanel = openPanel == .link ? nil : .link
+        }
+        // **`topTrailing`, não `topLeading`.** O `↗` fica a ~180pt da borda
+        // direita da janela de 820, e um painel de 268 aberto para a direita
+        // sai pela borda: medido no PNG, o botão "Aplicar" ficava decepado ao
+        // meio. Abrir para a esquerda é o mesmo gesto do painel de tabela.
+        .overlay(alignment: .topTrailing) {
+            if openPanel == .link {
+                ComposerLinkPanel(
+                    current: reading.link,
+                    hasSelection: reading.hasSelection,
+                    canRemove: reading.hasLink,
+                    apply: { url, label in
+                        perform(.link(url: url, label: label))
+                        openPanel = nil
+                    },
+                    cancel: { openPanel = nil }
+                )
+                .offset(y: 30)
+            }
+        }
+        .zIndex(29)
     }
 
     private var clearFormattingButton: some View {
@@ -342,12 +361,30 @@ struct ComposerToolbar: View {
         }
     }
 
+    /// Vivo desde a Task AF. `AttributedString` não tem modelo de tabela — o
+    /// `NSTextTable` do AppKit tem, e é ele que desenha a grade. Ver
+    /// `ComposerTextKit`.
     private var tableButton: some View {
         SoloToolButton(
             label: "⊞",
-            title: "Inserir tabela — indisponível neste marco: AttributedString não tem modelo de tabela",
-            on: false, enabled: false
-        ) {}
+            title: reading.inTable
+                ? "Inserir tabela — o cursor já está dentro de uma"
+                : "Inserir tabela",
+            on: openPanel == .table,
+            enabled: !reading.inTable
+        ) {
+            openPanel = openPanel == .table ? nil : .table
+        }
+        .overlay(alignment: .topTrailing) {
+            if openPanel == .table {
+                ComposerTablePanel { rows, columns in
+                    perform(.table(rows: rows, columns: columns))
+                    openPanel = nil
+                }
+                .offset(y: 30)
+            }
+        }
+        .zIndex(28)
     }
 
     /// A paleta do protótipo mais o caminho livre.

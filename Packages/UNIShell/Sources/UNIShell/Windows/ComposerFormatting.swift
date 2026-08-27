@@ -131,7 +131,8 @@ enum ComposerFormatting {
     /// que é justamente o que este `BodyStyle` diz.
     static func project(_ style: BodyStyle, into container: inout AttributeContainer, theme: Theme) {
         container[BodyStyleAttribute.self] = style
-        container[AttributeScopes.CoreTextAttributes.LineHeightAttribute.self] = lineHeight(for: style.size)
+        container[AttributeScopes.CoreTextAttributes.LineHeightAttribute.self] =
+            .exact(points: lineHeight(for: style.size))
         container.font = font(for: style, theme: theme)
         container.foregroundColor = color(style.colorHex, theme: theme)
         container.backgroundColor = highlight(style.highlightHex)
@@ -247,68 +248,18 @@ extension ComposerFormatting {
     /// Protótipo: `line-height: 1.7`.
     static let bodyLineHeight: CGFloat = 1.7
 
-    /// A caixa de linha de um trecho deste corpo.
+    /// A caixa de linha de um trecho deste corpo, em pontos.
     ///
-    /// **`.exact`, não `.multiple`.** `multiple(factor:)` multiplica a caixa
-    /// **natural** da fonte, não o corpo pedido; medido, a caixa natural de uma
-    /// face de 15pt é 18,00pt, então `multiple(factor: 1.7)` daria 30,60pt —
-    /// proporção 2,04 sobre o corpo, e não os 1,7 do CSS. `exact(points:)` a
-    /// partir do tamanho do run dá exatamente a semântica de `line-height`.
-    static func lineHeight(for size: Double) -> AttributedString.LineHeight {
-        .exact(points: CGFloat(size) * bodyLineHeight)
-    }
-}
-
-/// O que o `TextEditor` aplica ao corpo a cada edição.
-///
-/// Precisa ser uma **restrição**, e não só a escrita em `project(_:into:theme:)`,
-/// porque `project` só roda quando a barra manda um comando. Um rascunho
-/// recém-semeado é `AttributedString(texto)` sem atributo nenhum, e o primeiro
-/// caractere digitado numa janela nova também nasce sem — foi exatamente esse o
-/// caso do print do dono. A restrição alcança os dois: o SwiftUI a aplica a
-/// **todo** run, sempre, sem a janela precisar normalizar nada na mão.
-///
-/// Foi por aqui que a altura de linha deixou de ser `NSParagraphStyle`.
-/// `AttributedTextValueConstraint` exige `AttributeKey.Value: Sendable`, e a
-/// conformidade de `NSParagraphStyle` a `Sendable` é **explicitamente
-/// indisponível** no macOS:
-///
-/// ```
-/// error: conformance of 'NSParagraphStyle' to 'Sendable' is unavailable in macOS
-/// ```
-///
-/// `AttributedString.LineHeight` é `Sendable`, mora no mesmo escopo do CoreText
-/// de onde já sai o alinhamento, e diz a mesma coisa. Não há motivo para descer
-/// ao `NSParagraphStyle` — e, se houvesse, a restrição não compilaria.
-struct ComposerBodyFormatting: AttributedTextFormattingDefinition {
-    typealias Scope = AttributeScopes.UNIComposerAttributes
-
-    var body: some AttributedTextFormattingDefinition<Scope> {
-        LineHeight()
-    }
-
-    /// **A restrição é um piso, não uma reescrita.**
+    /// É **exata**, não um fator sobre a caixa natural da fonte: medido, a caixa
+    /// natural de uma face de 15pt é 18,00pt, e multiplicá-la por 1,7 daria
+    /// 30,60pt — proporção 2,04 sobre o corpo, não os 1,7 do CSS. `line-height`
+    /// do CSS multiplica o **corpo pedido**, e é isso que este número é.
     ///
-    /// Medido: o `AttributeContainerProxy` que o `constrain` recebe só enxerga
-    /// o **próprio** atributo. Ler `BodyStyleAttribute` ou a fonte de dentro
-    /// dele devolve `nil` mesmo quando o run os tem — a sonda imprimiu
-    /// `bodyStyle=nil font=nil` sobre um trecho de corpo 32. Ou seja: a
-    /// restrição não tem como calcular a altura a partir do tamanho do trecho.
-    ///
-    /// Por isso ela só escreve quando **não há** altura nenhuma, e o valor que
-    /// escreve é o do corpo padrão. Quem sabe o tamanho é a barra, e é
-    /// `project(_:into:theme:)` que escreve a altura certa quando um comando
-    /// passa. Se a restrição sobrescrevesse, um trecho de corpo 32 perderia a
-    /// caixa de 54,40pt e voltaria para a de 25,50pt a cada tecla — foi o que
-    /// aconteceu na primeira versão, e há teste para isso.
-    struct LineHeight: AttributedTextValueConstraint {
-        typealias Scope = AttributeScopes.UNIComposerAttributes
-        typealias AttributeKey = AttributeScopes.CoreTextAttributes.LineHeightAttribute
-
-        func constrain(_ container: inout Attributes) {
-            guard container[AttributeKey.self] == nil else { return }
-            container[AttributeKey.self] = ComposerFormatting.lineHeight(for: BodyStyle.defaultSize)
-        }
+    /// No `NSTextView` ela vira `minimumLineHeight` **e** `maximumLineHeight`
+    /// do `NSParagraphStyle` — os dois iguais, senão a caixa volta a depender da
+    /// face e o cursor muda de altura de linha para linha. Ver `ComposerTextKit`.
+    static func lineHeight(for size: Double) -> CGFloat {
+        CGFloat(size) * bodyLineHeight
     }
 }
 
@@ -325,23 +276,15 @@ enum ComposerCommand: Equatable, Sendable {
     case highlight(String)
     /// Nulo desliga a lista.
     case list(ListKind?)
-    case align(AttributedString.TextAlignment)
+    /// Os **quatro** do protótipo. O justificado passou a existir quando o
+    /// editor virou `NSTextView`: ver `BodyAlignment`.
+    case align(BodyAlignment)
     /// `+1` recua, `-1` volta.
     case indent(Int)
     case clearFormatting
-}
-
-/// O escopo de atributos do corpo do composer.
-///
-/// Sem isto o `TextEditor` limparia o `BodyStyleAttribute` por não conhecê-lo,
-/// e o modelo se perderia no primeiro caractere digitado.
-///
-/// `lineHeight` entrou pelo mesmo motivo: é nele que mora a altura de linha do
-/// corpo, e um atributo fora do escopo é descartado a cada edição.
-extension AttributeScopes {
-    struct UNIComposerAttributes: AttributeScope {
-        let bodyStyle: BodyStyleAttribute
-        let lineHeight: AttributeScopes.CoreTextAttributes.LineHeightAttribute
-        let swiftUI: AttributeScopes.SwiftUIAttributes
-    }
+    /// Nulo tira o link da seleção. `label` só é usado quando não há seleção —
+    /// aí o texto entra junto com o link, como em qualquer editor.
+    case link(url: URL?, label: String)
+    /// Uma grade `rows`×`columns` depois do parágrafo do cursor.
+    case table(rows: Int, columns: Int)
 }

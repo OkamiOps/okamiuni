@@ -326,21 +326,24 @@ struct QuickReplyBand: View {
     /// `overflow-y: auto` do protótipo faz depois dos 300.
     private var editor: some View {
         ZStack(alignment: .topLeading) {
-            // Fonte, cor, sublinhado, tachado e alinhamento vêm **do texto**,
-            // não de modificadores do editor: é isso que faz a barra pegar só
-            // na seleção. `attributedTextFormattingDefinition` declara o escopo
-            // do corpo — sem ele o `TextEditor` descarta o `BodyStyleAttribute`
-            // e o modelo morre no primeiro caractere digitado.
-            TextEditor(text: bodyBinding, selection: $selection)
-                .attributedTextFormattingDefinition(AttributeScopes.UNIComposerAttributes.self)
-                .textEditorStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .font(theme.serif.font(size: BodyStyle.defaultSize))
-                .lineSpacing(0.65 * BodyStyle.defaultSize)
-                .foregroundStyle(theme.ink.color)
-                .padding(.horizontal, 14 - 5)  // o TextEditor já traz 5pt de calha
-                .padding(.vertical, 14)
-                .frame(height: 110, alignment: .top)
+            // **O mesmo editor da janela**, na mesma densidade de barra. Deixar
+            // a faixa no `TextEditor` depois de a janela virar `NSTextView`
+            // daria dois comportamentos de formatação dentro do mesmo app — que
+            // é pior que o defeito que a Task AF veio consertar.
+            //
+            // A faixa herda junto o ritmo de 1,7 do modelo. Ela usava
+            // `.lineSpacing(0.65 × 15)`, que é o eixo errado: o espaçamento
+            // pendura folga **depois** de cada fragmento e não depois do último,
+            // e reproduzia na faixa o "cursor gigante" que a janela já tinha
+            // consertado. Ver `ComposerTextKit`.
+            ComposerTextView(
+                text: bodyBinding,
+                selection: $selection,
+                theme: theme,
+                // Protótipo: `padding: 14px`.
+                insets: CGSize(width: 14, height: 14)
+            )
+            .frame(height: 110, alignment: .top)
 
             if draft.characters.isEmpty {
                 // Protótipo, linha 1275.

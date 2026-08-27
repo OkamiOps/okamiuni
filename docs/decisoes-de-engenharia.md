@@ -178,9 +178,9 @@ escopo declarado, o `TextEditor` descarta o atributo desconhecido e o modelo mor
 primeiro caractere digitado. Há teste que prova isso chamando `constrain(_:)` — o mesmo que
 o editor aplica — com o escopo certo e com o escopo do SwiftUI puro.
 
-Alinhamento é a exceção e mora no atributo do CoreText, que já tem fronteira de parágrafo.
-Ele só tem `left`, `center` e `right`: **não existe justificar** neste SDK, e o botão "≡"
-fica desabilitado por isso, não por preguiça.
+Alinhamento era a exceção e morava no atributo do CoreText, que já tem fronteira de
+parágrafo. **Isso valia enquanto o editor era o `TextEditor`** — ver a entrada seguinte, que
+o substituiu por um `NSTextView`.
 
 ## Escrever atributo invalida `AttributedTextSelection`
 
@@ -287,3 +287,63 @@ O defeito que o dono relatou como "dropdown do sistema" é do **controle fechado
 Dá para medir sem olhar: o controle do protótipo é chapado, então fora dos glifos todo pixel
 de dentro da cápsula está no token `btn`. Medido — 0,002 com `Picker`, 0,77 com o controle
 nosso.
+
+## O que era "limite do SDK" era limite do `TextEditor`
+
+Tabela, hyperlink e justificado ficaram desabilitados um marco inteiro, com o motivo escrito
+no `help`, e o motivo estava certo **para o tipo em uso**: `AttributedString` não tem modelo
+de tabela, e `AttributeScopes.CoreTextAttributes.TextAlignmentAttribute` tem três casos.
+
+O que não estava certo era a conclusão. Trocado o editor por um `NSTextView`, os três saem
+de `NSParagraphStyle` — `textBlocks` para a tabela, `.justified` para o alinhamento — e o
+link é o `\.link` da Foundation, que o `NSTextView` desenha e clica sozinho.
+
+A mesma correção alcançou a altura de linha. O relato anterior era que `NSParagraphStyle` não
+servia porque a conformidade dele a `Sendable` é indisponível no macOS. Verdade — mas a
+exigência de `Sendable` é da `AttributedTextValueConstraint` **do SwiftUI**. Sem `TextEditor`
+não há restrição, e `minimumLineHeight`/`maximumLineHeight` voltam a ser o caminho normal.
+
+Regra de método que vale além daqui: **"não dá neste SDK" quase sempre quer dizer "não dá
+neste tipo".** Antes de escrever a frase, vale perguntar qual tipo está fechando a porta e se
+ele é obrigatório.
+
+## `NSTextTable` é TextKit 1
+
+O `NSTextView()` de conveniência entrega TextKit 2 (`textLayoutManager` preenchido,
+`layoutManager` nulo), e ali não há `textBlocks`. Montar a vista à mão — `NSTextStorage` +
+`NSLayoutManager` + `NSTextContainer` — devolve TextKit 1, que desenha a grade e, de quebra,
+é o que responde `firstRect(forCharacterRange:)` e `lineFragmentRect(forGlyphAt:)`, que é
+como este projeto mede o cursor sem lançar o app.
+
+## Célula de tabela mora na **quebra** do parágrafo, não no primeiro caractere
+
+Cada célula é um parágrafo, e o atributo que diz "linha 1, coluna 0" precisa de um portador
+estável. O primeiro caractere não serve: o AppKit dá ao texto digitado os atributos do
+caractere **à esquerda** do ponto de inserção, e no começo de uma célula vazia esse caractere
+é a quebra da célula **anterior**. Digitar na célula (1,0) escreveria texto marcado como
+(0,1).
+
+A quebra do próprio parágrafo não sofre disso, e num parágrafo vazio ela é o único caractere
+que existe. Pela mesma razão `RichBody.align` escreve no parágrafo **e** na quebra: escrever
+num intervalo vazio de `AttributedString` não faz nada, e sem a quebra a linha em branco
+entre dois parágrafos ficaria sem alinhamento e sem altura de linha — que é o defeito do
+"cursor gigante" reentrando por outra porta.
+
+## Ponte de ida e volta precisa de uma régua só
+
+`AttributedString.Index` conta caracteres; `NSAttributedString` conta UTF-16. Converter por
+`distance(from:to:)` bate enquanto o texto é ASCII e desalinha no primeiro emoji, e o sintoma
+é a seleção pulando sozinha. A conversão correta passa pela `String` que os dois partilham:
+`String.Index(_:within:)` e `AttributedString.Index(_:within:)`, mais `NSRange(_:in:)`. Há
+teste com `"bom 😀 dia"` justamente para isso.
+
+## Painel que abre perto da borda direita abre para a esquerda
+
+O painel de hyperlink nasceu ancorado em `topLeading`, como as amostras de cor — mas o `↗`
+fica a ~180pt da borda da janela de 820 e o painel mede 268. O botão "Aplicar" saía decepado
+pela borda.
+
+O que isso ensina sobre teste: contar a caixa do painel não pega o defeito — ela continua
+existindo do mesmo tamanho, fora da tela. Pega-se medindo o **bitmap**, e a cor a procurar
+não pode ser a de dentro do campo: em `tinta`, `btn` e `surface` diferem 0,02 e qualquer
+tolerância razoável junta as duas. A borda, em `btn-line`, separa.

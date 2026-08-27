@@ -86,6 +86,13 @@ enum ComposerEditor {
                     RichBody.setList(&text, over: spans, to: kind)
                 case .indent(let delta):
                     RichBody.indent(&text, over: spans, by: delta)
+                case .link(let url, let label):
+                    Self.applyLink(url, label: label, to: &text, over: spans, state: state)
+                case .table(let rows, let columns):
+                    RichBody.insertTable(
+                        &text, at: spans, rows: rows, columns: columns,
+                        style: Self.style(from: state)
+                    )
                 default:
                     break
                 }
@@ -95,6 +102,40 @@ enum ComposerEditor {
             }
             decorate(&text, theme: theme)
         }
+    }
+
+    /// Com trecho selecionado, o link envolve o que está selecionado. Sem
+    /// seleção, o texto do rótulo **entra** já com o link — é o que Gmail e
+    /// Outlook fazem, e é a única alternativa a um botão que não faz nada
+    /// quando não há seleção.
+    private static func applyLink(
+        _ url: URL?,
+        label: String,
+        to text: inout AttributedString,
+        over spans: [Range<AttributedString.Index>],
+        state: BodyReading
+    ) {
+        let filled = spans.filter { !$0.isEmpty }
+        if !filled.isEmpty {
+            RichBody.setLink(&text, over: filled, to: url)
+            return
+        }
+        guard let url, !label.isEmpty, let at = spans.first?.lowerBound else { return }
+        RichBody.insertLink(&text, at: at, label: label, url: url, style: style(from: state))
+    }
+
+    /// O estilo que um trecho novo herda: o que a barra está mostrando.
+    private static func style(from state: BodyReading) -> BodyStyle {
+        BodyStyle(
+            family: state.family ?? BodyStyle.defaultFamily,
+            size: state.size ?? BodyStyle.defaultSize,
+            bold: state.bold,
+            italic: state.italic,
+            underline: state.underline,
+            strike: state.strike,
+            colorHex: state.colorHex ?? BodyStyle.defaultColorHex,
+            highlightHex: state.highlightHex ?? BodyStyle.noHighlight
+        )
     }
 
     /// A transformação de estilo que o comando pede, ou nulo se ele for de
@@ -115,7 +156,7 @@ enum ComposerEditor {
         case .color(let hex): return { $0.colorHex = hex }
         case .highlight(let hex): return { $0.highlightHex = hex }
         case .clearFormatting: return { $0 = .default }
-        case .align, .list, .indent: return nil
+        case .align, .list, .indent, .link, .table: return nil
         }
     }
 

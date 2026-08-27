@@ -319,51 +319,21 @@ struct ComposerSeedBodyTests {
     }
 }
 
-@Suite("Composer — o escopo de atributos do corpo")
-struct ComposerScopeTests {
-
-    /// `constrain` é o que o `TextEditor` aplica ao texto a cada edição:
-    /// atributo fora do escopo declarado é **descartado**. Este teste prova que
-    /// `attributedTextFormattingDefinition(UNIComposerAttributes.self)` no
-    /// editor é carga, não enfeite.
-    @Test("o escopo do composer preserva o BodyStyle que o editor descartaria")
-    func scopeKeepsBodyStyle() {
-        var text = AttributedString("Marina")
-        var sel = selection(text, 0, 6)
-        ComposerEditor.perform(.bold, on: &text, selection: &sel, theme: .tinta)
-        #expect(style(text, at: 0).bold)
-
-        var kept = text
-        AttributedTextFormatting.EmptyDefinition<AttributeScopes.UNIComposerAttributes>()
-            .constrain(&kept)
-        #expect(kept.runs.first?.attributes[BodyStyleAttribute.self]?.bold == true)
-
-        // E sem o escopo do composer o atributo some — que era o destino do
-        // modelo antes desta declaração existir.
-        var dropped = text
-        AttributedTextFormatting.EmptyDefinition<AttributeScopes.SwiftUIAttributes>()
-            .constrain(&dropped)
-        #expect(dropped.runs.first?.attributes[BodyStyleAttribute.self] == nil)
-    }
-}
-
 /// O mesmo editor do composer, com um corpo já formatado, para o harness poder
 /// desenhar texto rico sem a janela inteira em volta — e sem lançar o app.
-private struct BodyProbe: View {
+struct BodyProbe: View {
     @Environment(\.theme) private var theme
     @State var text: AttributedString
     @State private var selection = AttributedTextSelection()
 
     var body: some View {
-        TextEditor(text: $text, selection: $selection)
-            .attributedTextFormattingDefinition(AttributeScopes.UNIComposerAttributes.self)
-            .textEditorStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .font(theme.serif.font(size: BodyStyle.defaultSize))
-            .lineSpacing(BodyStyle.defaultSize * 0.7)
-            .foregroundStyle(theme.ink.color)
-            .padding(17)
-            .background(theme.surface.color)
+        ComposerTextView(
+            text: $text,
+            selection: $selection,
+            theme: theme,
+            insets: CGSize(width: 17, height: 17)
+        )
+        .background(theme.surface.color)
     }
 }
 

@@ -198,10 +198,7 @@ struct RichBodyParagraphTests {
         var text = AttributedString("um\ndois\ntres")
         RichBody.align(&text, over: [cursor(text, 5)], to: .center)
 
-        let alignments = RichBody.paragraphs(of: text).map { paragraph in
-            text[paragraph].runs.first?
-                .attributes[AttributeScopes.CoreTextAttributes.TextAlignmentAttribute.self] ?? .left
-        }
+        let alignments = RichBody.paragraphs(of: text).map { RichBody.alignment(of: text, at: $0) }
         #expect(alignments == [.left, .center, .left])
         #expect(RichBody.reading(of: text, over: [cursor(text, 5)]).alignment == .center)
         #expect(RichBody.reading(of: text, over: [range(text, 0, 12)]).alignment == nil)

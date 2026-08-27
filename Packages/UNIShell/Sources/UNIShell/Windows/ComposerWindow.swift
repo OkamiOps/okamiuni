@@ -472,27 +472,26 @@ public struct ComposerWindow: View {
         ZStack(alignment: .topLeading) {
             // Fonte, cor, sublinhado, tachado e alinhamento vêm **do texto**,
             // não de modificadores do editor: é isso que faz a barra pegar só
-            // na seleção. O `.font` aqui é apenas o padrão de quem começa a
-            // digitar num rascunho ainda sem atributo nenhum.
+            // na seleção.
             //
-            // `attributedTextFormattingDefinition` declara o escopo do corpo.
-            // Sem ele o `TextEditor` descarta o `BodyStyleAttribute`, que é a
-            // única coisa que sabe dizer se um trecho está em negrito.
-            TextEditor(text: $draft, selection: $selection)
-                // A definição carrega o escopo **e** a altura de linha. Ela
-                // ocupa o lugar do `.lineSpacing(corpo * 0.7)` que estava aqui:
-                // medido, aquilo pendurava 10,50pt embaixo de cada fragmento
-                // menos do último, o cursor ficava com 28,50pt no meio do texto
-                // e 18,00pt na última linha, e era o "cursor gigante" que o dono
-                // do projeto relatou. Ver `ComposerBodyFormatting`.
-                .attributedTextFormattingDefinition(ComposerBodyFormatting())
-                .textEditorStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .font(theme.serif.font(size: BodyStyle.defaultSize))
-                .foregroundStyle(theme.ink.color)
-                .padding(.horizontal, 22 - 5)  // o TextEditor já traz 5pt de calha
-                .padding(.vertical, 20)
-                .frame(minHeight: minHeight, alignment: .top)
+            // Era um `TextEditor` até a Task AF. Ele não tinha como desenhar
+            // tabela, hyperlink nem justificado — três limites do **tipo**, não
+            // da implementação — e a altura de linha tinha de passar por um
+            // atributo do CoreText porque a restrição do SwiftUI exige
+            // `Sendable` e `NSParagraphStyle` não o é. No `NSTextView` os quatro
+            // problemas somem de uma vez. Ver `ComposerTextView`.
+            ComposerTextView(
+                text: $draft,
+                selection: $selection,
+                theme: theme,
+                // Protótipo: `padding: 20px 22px`. A folga é do container de
+                // texto, não um `.padding` por fora: clicar na margem tem de
+                // pôr o cursor, e um `.padding` do SwiftUI deixaria essa faixa
+                // morta.
+                insets: CGSize(width: 22, height: 20),
+                scrolls: minHeight == 0
+            )
+            .frame(minHeight: minHeight, alignment: .top)
 
             if draft.characters.isEmpty {
                 Text(placeholder)

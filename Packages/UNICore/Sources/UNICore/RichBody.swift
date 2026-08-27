@@ -1,5 +1,4 @@
 import Foundation
-import CoreText
 
 /// O corpo formatável do composer — **fora de qualquer `View`**.
 ///
@@ -15,9 +14,68 @@ import CoreText
 /// …). Assim ler o estado da seleção é exato: `Font` do SwiftUI é opaca e não
 /// dá para perguntar a ela se está em negrito.
 ///
-/// Alinhamento é a exceção: mora no atributo de parágrafo do CoreText, que já
-/// tem a semântica de parágrafo inteiro que precisamos.
+/// Alinhamento, tabela e hyperlink são de **parágrafo** ou de **trecho** e têm
+/// atributo próprio; ver `BodyAlignment`, `BodyTableCell` e o `\.link` da
+/// Foundation.
 public enum RichBody {}
+
+// MARK: - Alinhamento
+
+/// O alinhamento de um parágrafo do corpo, com os **quatro** do protótipo.
+///
+/// Até a Task AF o alinhamento morava em
+/// `AttributeScopes.CoreTextAttributes.TextAlignmentAttribute`, que tem três
+/// casos — `left`, `center`, `right`. Não havia justificado no tipo, e por isso
+/// o botão "≡" da barra ficava desabilitado com o motivo escrito no `help`.
+///
+/// `NSParagraphStyle.alignment` do AppKit tem `.justified` desde sempre; o que
+/// faltava era o editor ser um `NSTextView`. O modelo guarda este enum — puro,
+/// sem AppKit, testável fora da `View` — e quem desenha projeta em
+/// `NSTextAlignment`.
+public enum BodyAlignment: String, Codable, Hashable, Sendable, CaseIterable {
+    case left
+    case center
+    case right
+    case justified
+}
+
+public enum BodyAlignmentAttribute: CodableAttributedStringKey, Sendable {
+    public typealias Value = BodyAlignment
+    public static let name = "br.okamiuni.bodyAlignment"
+}
+
+// MARK: - Tabela
+
+/// Uma célula de tabela, do ponto de vista do modelo.
+///
+/// O desenho é `NSTextTable` + `NSTextTableBlock` dentro de
+/// `NSParagraphStyle.textBlocks`, mas isso é AppKit e não pode subir para cá.
+/// O que sobe é a **posição**: que tabela, que linha, que coluna, e de que
+/// tamanho é a grade. Quem desenha reconstrói os blocos a partir disto.
+///
+/// `table` é a identidade da tabela dentro deste corpo, e não um índice de
+/// ordem: duas tabelas seguidas precisam de números diferentes para não
+/// virarem uma só de oito linhas.
+public struct BodyTableCell: Codable, Hashable, Sendable {
+    public var table: Int
+    public var row: Int
+    public var column: Int
+    public var rows: Int
+    public var columns: Int
+
+    public init(table: Int, row: Int, column: Int, rows: Int, columns: Int) {
+        self.table = table
+        self.row = row
+        self.column = column
+        self.rows = rows
+        self.columns = columns
+    }
+}
+
+public enum BodyTableAttribute: CodableAttributedStringKey, Sendable {
+    public typealias Value = BodyTableCell
+    public static let name = "br.okamiuni.bodyTable"
+}
 
 // MARK: - O estilo de um trecho
 
@@ -91,10 +149,19 @@ public struct BodyReading: Equatable, Sendable {
     public var strike: Bool
     public var colorHex: String?
     public var highlightHex: String?
-    public var alignment: AttributedString.TextAlignment?
+    public var alignment: BodyAlignment?
     public var list: ListKind?
     /// `true` quando os parágrafos tocados não concordam sobre a lista.
     public var listMixed: Bool
+    /// O hyperlink do intervalo, quando ele é **um só** em toda a seleção.
+    /// Nulo quando não há link ou quando a seleção mistura destinos.
+    public var link: URL?
+    /// `true` quando algum trecho da seleção tem link — inclusive quando eles
+    /// divergem. É o que permite ao botão dizer "remover" sem mentir.
+    public var hasLink: Bool
+    /// `true` quando **todo** parágrafo tocado é célula de tabela. A barra usa
+    /// isso para não oferecer uma tabela dentro de outra.
+    public var inTable: Bool
     /// O menor recuo entre os parágrafos tocados. Zero desabilita o "⇤": não
     /// existe recuo negativo, e botão que não faz nada é defeito.
     public var indent: Int
@@ -110,9 +177,12 @@ public struct BodyReading: Equatable, Sendable {
         strike: Bool = false,
         colorHex: String? = nil,
         highlightHex: String? = nil,
-        alignment: AttributedString.TextAlignment? = nil,
+        alignment: BodyAlignment? = nil,
         list: ListKind? = nil,
         listMixed: Bool = false,
+        link: URL? = nil,
+        hasLink: Bool = false,
+        inTable: Bool = false,
         indent: Int = 0,
         hasSelection: Bool = false
     ) {
@@ -127,6 +197,9 @@ public struct BodyReading: Equatable, Sendable {
         self.alignment = alignment
         self.list = list
         self.listMixed = listMixed
+        self.link = link
+        self.hasLink = hasLink
+        self.inTable = inTable
         self.indent = indent
         self.hasSelection = hasSelection
     }
@@ -165,6 +238,7 @@ extension RichBody {
             var reading = self.reading(fromStyles: [typing ?? collapsedStyle(in: text, at: ranges.first?.lowerBound)])
             reading.hasSelection = false
             applyParagraphReading(&reading, text: text, paragraphs: paragraphs)
+            applyLinkReading(&reading, text: text, over: probe(in: text, at: ranges.first?.lowerBound))
             return reading
         }
 
@@ -179,7 +253,39 @@ extension RichBody {
         var reading = self.reading(fromStyles: styles)
         reading.hasSelection = true
         applyParagraphReading(&reading, text: text, paragraphs: paragraphs)
+        applyLinkReading(&reading, text: text, over: filled)
         return reading
+    }
+
+    /// O caractere à esquerda do cursor, como intervalo — o mesmo que
+    /// `collapsedStyle` usa. Um cursor encostado num link está "dentro" dele
+    /// para efeito de barra, senão editar um link exigiria selecioná-lo inteiro.
+    private static func probe(
+        in text: AttributedString,
+        at index: AttributedString.Index?
+    ) -> [Range<AttributedString.Index>] {
+        guard let index else { return [] }
+        let chars = text.characters
+        guard chars.startIndex < chars.endIndex else { return [] }
+        let start = index > chars.startIndex ? chars.index(before: index) : index
+        guard start < chars.endIndex else { return [] }
+        return [start..<chars.index(after: start)]
+    }
+
+    /// O link do intervalo. `link` só é preenchido quando **todo** o intervalo
+    /// aponta para o mesmo lugar; `hasLink` basta um trecho ter.
+    private static func applyLinkReading(
+        _ reading: inout BodyReading,
+        text: AttributedString,
+        over ranges: [Range<AttributedString.Index>]
+    ) {
+        var links: [URL?] = []
+        for range in ranges {
+            for run in text[range].runs { links.append(run.attributes.link) }
+        }
+        guard !links.isEmpty else { return }
+        reading.hasLink = links.contains { $0 != nil }
+        reading.link = links.allSatisfy { $0 == links[0] } ? links[0] : nil
     }
 
     /// O estilo sob um cursor sem seleção: o do caractere à esquerda, que é o
@@ -224,11 +330,11 @@ extension RichBody {
             reading.alignment = .left
             return
         }
-        let alignments = paragraphs.map { range -> AttributedString.TextAlignment in
-            text[range].runs.first?
-                .attributes[AttributeScopes.CoreTextAttributes.TextAlignmentAttribute.self] ?? .left
-        }
+        let alignments = paragraphs.map { alignment(of: text, at: $0) }
         reading.alignment = alignments.allSatisfy { $0 == alignments[0] } ? alignments[0] : nil
+
+        let cells = paragraphs.map { tableCell(of: text, at: $0) }
+        reading.inTable = cells.allSatisfy { $0 != nil }
 
         let prefixes = paragraphs.map { prefix(of: String(text[$0].characters)) }
         let kinds = prefixes.map(\.list)
@@ -337,16 +443,169 @@ extension RichBody {
         }
     }
 
-    /// Alinha os parágrafos tocados. O atributo do CoreText já tem fronteira de
-    /// parágrafo, então escrevê-lo num trecho vale para o parágrafo inteiro.
+    /// O parágrafo **com** a quebra que o termina, quando ela existe.
+    ///
+    /// É este o intervalo em que atributo de parágrafo se escreve, e não o
+    /// parágrafo nu. Um parágrafo vazio é um intervalo vazio, e escrever num
+    /// intervalo vazio de `AttributedString` não faz nada — foi assim que a
+    /// linha em branco entre dois parágrafos ficava sem alinhamento e sem
+    /// altura de linha, e o cursor mudava de tamanho ao passar por ela.
+    ///
+    /// A quebra também é o **portador estável** da célula de tabela: o texto
+    /// que a pessoa digita dentro de uma célula herda os atributos do caractere
+    /// à esquerda, que numa célula vazia é a quebra da célula **anterior**. A
+    /// quebra do próprio parágrafo, não.
+    public static func span(of paragraph: Range<AttributedString.Index>, in text: AttributedString)
+        -> Range<AttributedString.Index>
+    {
+        let chars = text.characters
+        guard paragraph.upperBound < chars.endIndex else { return paragraph }
+        return paragraph.lowerBound..<chars.index(after: paragraph.upperBound)
+    }
+
+    /// O que a quebra que termina o parágrafo carrega. Nulo no último
+    /// parágrafo do corpo, que não tem quebra.
+    private static func terminator(
+        of paragraph: Range<AttributedString.Index>,
+        in text: AttributedString
+    ) -> AttributeContainer? {
+        let chars = text.characters
+        guard paragraph.upperBound < chars.endIndex else { return nil }
+        let next = chars.index(after: paragraph.upperBound)
+        return text[paragraph.upperBound..<next].runs.first?.attributes
+    }
+
+    /// O alinhamento deste parágrafo. Lê da quebra, que é onde `align` escreve,
+    /// e cai para o começo do parágrafo quando ela não existe.
+    public static func alignment(
+        of text: AttributedString,
+        at paragraph: Range<AttributedString.Index>
+    ) -> BodyAlignment {
+        if let value = terminator(of: paragraph, in: text)?[BodyAlignmentAttribute.self] {
+            return value
+        }
+        return text[paragraph].runs.first?.attributes[BodyAlignmentAttribute.self] ?? .left
+    }
+
+    /// A célula de tabela deste parágrafo, ou nulo quando ele não é célula.
+    public static func tableCell(
+        of text: AttributedString,
+        at paragraph: Range<AttributedString.Index>
+    ) -> BodyTableCell? {
+        terminator(of: paragraph, in: text)?[BodyTableAttribute.self]
+    }
+
+    /// Alinha os parágrafos tocados, nos **quatro** alinhamentos.
+    ///
+    /// Escreve no parágrafo inteiro **e** na quebra que o termina: sem a quebra,
+    /// parágrafo vazio não guardaria alinhamento nenhum.
     public static func align(
         _ text: inout AttributedString,
         over ranges: [Range<AttributedString.Index>],
-        to alignment: AttributedString.TextAlignment
+        to alignment: BodyAlignment
     ) {
         for paragraph in paragraphs(of: text, touchedBy: ranges) {
-            text[paragraph][AttributeScopes.CoreTextAttributes.TextAlignmentAttribute.self] = alignment
+            let span = span(of: paragraph, in: text)
+            guard !span.isEmpty else { continue }
+            text[span][BodyAlignmentAttribute.self] = alignment
         }
+    }
+}
+
+// MARK: - Escrita: hyperlink
+
+extension RichBody {
+
+    /// Põe (ou tira, com `nil`) o hyperlink nos intervalos selecionados.
+    ///
+    /// O atributo é o `\.link` da Foundation — o mesmo que o `NSTextView`
+    /// desenha, clica e arrasta sozinho. Não inventamos chave nova para isto:
+    /// uma chave nossa não seria reconhecida por ninguém que receba o texto.
+    public static func setLink(
+        _ text: inout AttributedString,
+        over ranges: [Range<AttributedString.Index>],
+        to url: URL?
+    ) {
+        for range in ranges where !range.isEmpty {
+            text[range].link = url
+        }
+    }
+
+    /// Escreve um texto novo já com link, no ponto pedido — o caminho de quem
+    /// clicou em "↗" sem nada selecionado. Devolve o intervalo escrito.
+    @discardableResult
+    public static func insertLink(
+        _ text: inout AttributedString,
+        at index: AttributedString.Index,
+        label: String,
+        url: URL,
+        style: BodyStyle
+    ) -> Range<AttributedString.Index> {
+        var piece = AttributedString(label)
+        piece[BodyStyleAttribute.self] = style
+        piece.link = url
+        let offset = text.characters.distance(from: text.startIndex, to: index)
+        text.insert(piece, at: index)
+        let start = text.characters.index(text.startIndex, offsetBy: offset)
+        let end = text.characters.index(start, offsetBy: label.count)
+        return start..<end
+    }
+}
+
+// MARK: - Escrita: tabela
+
+extension RichBody {
+
+    /// O menor número de tabela ainda livre neste corpo.
+    ///
+    /// Duas tabelas seguidas precisam de números diferentes, senão quem desenha
+    /// junta as duas numa grade só — que é exatamente o defeito que aparece
+    /// quando se usa o índice de ordem em vez de identidade.
+    public static func nextTableID(in text: AttributedString) -> Int {
+        var highest = -1
+        for run in text.runs {
+            if let cell = run.attributes[BodyTableAttribute.self] {
+                highest = max(highest, cell.table)
+            }
+        }
+        return highest + 1
+    }
+
+    /// Insere uma grade `rows`×`columns` **depois** do parágrafo em que o
+    /// cursor está.
+    ///
+    /// Cada célula é um parágrafo, e é a **quebra** dele que carrega a posição —
+    /// ver `span(of:in:)`. Uma célula vazia é um parágrafo vazio, e sem a quebra
+    /// não haveria onde pendurar a coordenada dela.
+    ///
+    /// A tabela nunca começa no meio de uma linha: se o parágrafo do cursor tem
+    /// texto, uma quebra entra antes. É o que qualquer editor faz, e evita a
+    /// primeira célula nascer com metade da frase de cima dentro.
+    public static func insertTable(
+        _ text: inout AttributedString,
+        at ranges: [Range<AttributedString.Index>],
+        rows: Int,
+        columns: Int,
+        style: BodyStyle = .default
+    ) {
+        guard rows > 0, columns > 0 else { return }
+        let touched = paragraphs(of: text, touchedBy: ranges)
+        guard let paragraph = touched.first else { return }
+
+        let table = nextTableID(in: text)
+        var piece = AttributedString()
+        if !paragraph.isEmpty { piece += AttributedString("\n") }
+        for row in 0..<rows {
+            for column in 0..<columns {
+                var cell = AttributedString("\n")
+                cell[BodyStyleAttribute.self] = style
+                cell[BodyTableAttribute.self] = BodyTableCell(
+                    table: table, row: row, column: column, rows: rows, columns: columns
+                )
+                piece += cell
+            }
+        }
+        text.insert(piece, at: paragraph.upperBound)
     }
 }
 
