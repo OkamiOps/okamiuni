@@ -129,6 +129,19 @@ public struct WeekScreen: View {
         WeekAgenda.days(from: store.visibleAgenda, anchor: anchor, focusOffset: focusOffset)
     }
 
+    /// Só desenha o traço de "agora" quando hoje está dentro da semana em
+    /// exibição — o mesmo padrão de `DayScreen.showsNow`
+    /// (`Calendar/DayScreen.swift:126`). Sem esta guarda, `nowMarker` entrava
+    /// incondicionalmente na `ZStack` e um `›` continuava mostrando a linha
+    /// vermelha e a pastilha "12:00" sobre a semana seguinte, como se o
+    /// instante atual estivesse nela. `WeekAgenda.Day.isToday` já é
+    /// `offset == 0` relativo à âncora — vale `true` para no máximo um dia da
+    /// semana em exibição, e só quando essa semana de fato contém hoje.
+    ///
+    /// `internal`, não `private`: `WeekScreenTests` precisa ler isto para
+    /// provar a guarda sem depender de renderizar pixel.
+    var showsNow: Bool { days.contains { $0.isToday } }
+
     public var body: some View {
         VStack(spacing: 0) {
             dayHeaderStrip
@@ -184,7 +197,7 @@ public struct WeekScreen: View {
                         columnBackgrounds(columnWidth: columnWidth)
                         hourLines
                         events(columnWidth: columnWidth)
-                        nowMarker
+                        if showsNow { nowMarker }
                         scrollAnchor
                     }
                     .frame(width: geometry.size.width, height: layout.totalHeight, alignment: .topLeading)
