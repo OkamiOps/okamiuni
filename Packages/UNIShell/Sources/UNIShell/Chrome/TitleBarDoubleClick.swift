@@ -28,10 +28,27 @@ private struct DoubleClickCatcher: NSViewRepresentable {
     func updateNSView(_ view: NSView, context: Context) {}
 }
 
-private final class CatcherView: NSView {
-    /// Deixa passar o clique simples: arrastar a janela pela barra continua
-    /// funcionando, e os controles por cima recebem os cliques deles.
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+/// Interno, não `private`: o teste de roteamento chama `hitTest` nela direto.
+/// Ver `TitleBarDoubleClickTests`.
+final class CatcherView: NSView {
+    /// **Tem de responder ao `hitTest`.** Devolvendo `nil` — que era o que ela
+    /// fazia — o AppKit nunca roteia `mouseDown:` para cá, `mouseDown` nunca
+    /// roda e o duplo clique na barra não fazia nada: o recurso inteiro estava
+    /// morto. É `super.hitTest`, e não `self` cravado: assim um `NSView` de
+    /// controle **por cima** dela continua ganhando o ponto, que é a ordem
+    /// normal do AppKit (subviews do topo para baixo).
+    ///
+    /// Os controles da barra são desenhados pelo SwiftUI, que resolve o toque
+    /// pela ordem em que as views se empilham — a `CatcherView` entra como
+    /// `background`, portanto **atrás** de tudo o que a barra desenha. Botão,
+    /// aba e busca continuam recebendo o clique deles; ela só fica com a área
+    /// vazia.
+    ///
+    /// O clique simples também não é engolido: `mouseDown` só age no duplo e
+    /// repassa o resto ao `super`, que o entrega à janela — é assim que
+    /// arrastar a janela pela barra (`isMovableByWindowBackground`) continua
+    /// funcionando.
+    override func hitTest(_ point: NSPoint) -> NSView? { super.hitTest(point) }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()

@@ -1,3 +1,4 @@
+import AppKit
 import Testing
 import CoreGraphics
 @testable import UNIShell
@@ -171,5 +172,53 @@ struct TitleBarDoubleClickTests {
     @Test("um valor desconhecido cai no padrão em vez de não fazer nada")
     func unknownFallsBackToZoom() {
         #expect(DoubleClickAction.forSystemSetting("SomethingElse") == .zoom)
+    }
+
+    // MARK: - Roteamento do clique
+
+    /// O defeito que deixava o recurso inteiro morto: `CatcherView.hitTest`
+    /// devolvia `nil`, então o AppKit nunca roteava `mouseDown:` para ela,
+    /// `mouseDown` nunca rodava e `performSystemAction` nunca era chamada. Os
+    /// testes acima cobriam só a função pura — ela estava certa e ninguém a
+    /// chamava.
+    ///
+    /// Roteamento se verifica com `hitTest` direto, sem lançar o app nem
+    /// sintetizar evento: é a mesma pergunta que o AppKit faz antes de entregar
+    /// o `mouseDown`.
+    @Test("o clique na área vazia da barra chega na view que age")
+    @MainActor
+    func emptyAreaRoutesToTheCatcher() {
+        let bar = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 58))
+        let catcher = CatcherView(frame: bar.bounds)
+        bar.addSubview(catcher)
+
+        #expect(bar.hitTest(NSPoint(x: 420, y: 29)) === catcher)
+    }
+
+    /// A outra metade: pegar o clique não pode significar engolir os controles.
+    /// Um controle **por cima** dela ganha o ponto, que é a ordem normal do
+    /// AppKit — subviews do topo para baixo.
+    @Test("um controle por cima da área continua recebendo o clique dele")
+    @MainActor
+    func controlsOnTopKeepTheirClick() {
+        let bar = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 58))
+        let catcher = CatcherView(frame: bar.bounds)
+        bar.addSubview(catcher)
+        // O primeiro controle da barra nasce em x=84 (ver `firstControlOffset`).
+        let control = NSView(frame: NSRect(x: 84, y: 16, width: 40, height: 26))
+        bar.addSubview(control)
+
+        #expect(bar.hitTest(NSPoint(x: 100, y: 29)) === control)
+        #expect(bar.hitTest(NSPoint(x: 420, y: 29)) === catcher)
+    }
+
+    @Test("fora da barra ela não pega nada")
+    @MainActor
+    func outsideTheBarNothingIsCaught() {
+        let bar = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 58))
+        let catcher = CatcherView(frame: NSRect(x: 0, y: 0, width: 600, height: 58))
+        bar.addSubview(catcher)
+
+        #expect(bar.hitTest(NSPoint(x: 420, y: 120)) == nil)
     }
 }
