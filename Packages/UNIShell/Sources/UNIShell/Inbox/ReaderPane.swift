@@ -8,11 +8,10 @@ public struct ReaderPane: View {
     let onAddEvent: (DetectedEvent) -> Void
     /// Abre a janela 03 (Composer) com esta mensagem citada.
     ///
-    /// No protótipo o leitor tem uma faixa de resposta embutida, e é o botão
-    /// "⤢ Abrir em janela separada" dela que abre a 03. Essa faixa ainda não
-    /// existe aqui, então o gancho é o botão "Responder" da fila de triagem —
-    /// o gatilho que o brief da Task U pede. Quando a faixa embutida chegar,
-    /// o ⤢ dela chama este mesmo fechamento.
+    /// Dois gatilhos chamam este mesmo fechamento: o botão "Responder" da fila
+    /// de triagem e o "⤢" da faixa de resposta rápida. O do "⤢" grava o
+    /// rascunho em `store.replyDraft(for:)` **antes** de chamar, para a janela
+    /// cheia continuar de onde a faixa parou.
     let onReply: (Message) -> Void
 
     public init(
@@ -37,25 +36,39 @@ public struct ReaderPane: View {
         .background(theme.surface.color)
     }
 
+    /// Protótipo: três blocos empilhados, e só o do meio rola — cabeçalho
+    /// `flex: none`, corpo `flex: 1; overflow-y: auto`, faixa de resposta
+    /// `flex: none`. O cabeçalho estava dentro da rolagem aqui, e embaixo do
+    /// corpo sobrava exatamente o vazio que a faixa ocupa.
     private func content(_ message: Message) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                header(message)
+        VStack(spacing: 0) {
+            header(message)
 
-                if let summary = message.summary {
-                    summaryCard(summary, event: message.detectedEvent)
-                        .padding(.horizontal, 28)
-                        // Protótipo: o corpo do leitor tem `padding: 22px 28px 28px`.
-                        .padding(.top, 22)
-                        // Protótipo: `margin-bottom: 24px` no cartão de resumo.
-                        .padding(.bottom, 24)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    if let summary = message.summary {
+                        summaryCard(summary, event: message.detectedEvent)
+                            .padding(.horizontal, 28)
+                            // Protótipo: o corpo do leitor tem `padding: 22px 28px 28px`.
+                            .padding(.top, 22)
+                            // Protótipo: `margin-bottom: 24px` no cartão de resumo.
+                            .padding(.bottom, 24)
+                    }
+
+                    body(message)
+                        .padding(.top, message.summary == nil ? 22 : 0)
+                        .padding(.bottom, 28)
                 }
-
-                body(message)
-                    .padding(.top, message.summary == nil ? 22 : 0)
-                    .padding(.bottom, 28)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            // `.id` porque a faixa guarda o rascunho da mensagem que está
+            // aberta: trocar de mensagem tem de trocar de rascunho, não herdar
+            // o texto da anterior. O que já foi escrito não se perde — fica no
+            // `MailStore`, e volta quando a mensagem voltar.
+            QuickReplyBand(store: store, message: message, onPromote: onReply)
+                .id(message.id)
         }
     }
 

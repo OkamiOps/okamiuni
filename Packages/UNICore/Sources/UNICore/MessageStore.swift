@@ -197,6 +197,39 @@ public final class MailStore {
         )
     }
 
+    // MARK: - Rascunhos de resposta
+
+    /// O que foi escrito na faixa de resposta rápida, por mensagem respondida.
+    ///
+    /// Mora aqui, e não em `@State` da faixa, porque precisa sobreviver a duas
+    /// coisas: a faixa fechar depois de "Responder aqui", e o "⤢" promover a
+    /// resposta para a janela cheia — que é outra cena, com outra hierarquia de
+    /// `View`. Perder o rascunho em qualquer um dos dois casos é pior do que
+    /// não ter o botão.
+    ///
+    /// Marco 1 não tem rede nem disco: isto é memória da sessão, e é tudo o que
+    /// o marco promete.
+    private var replyDrafts: [String: ReplyDraft] = [:]
+
+    /// O rascunho guardado para esta mensagem, se houver.
+    ///
+    /// **Interface para a janela 03 (`ComposerWindow`).** Quando o "⤢" da faixa
+    /// abre a janela cheia, é daqui que ela deve semear "Para" e o corpo, em
+    /// vez de recomeçar do zero.
+    public func replyDraft(for messageID: String) -> ReplyDraft? {
+        replyDrafts[messageID]
+    }
+
+    /// Guarda (ou apaga, com `nil`) o rascunho desta mensagem. Rascunho vazio
+    /// não fica ocupando lugar: some, para "não salvo" voltar a ser verdade.
+    public func setReplyDraft(_ draft: ReplyDraft?, for messageID: String) {
+        guard let draft, !draft.isEmpty else {
+            replyDrafts.removeValue(forKey: messageID)
+            return
+        }
+        replyDrafts[messageID] = draft
+    }
+
     /// Contagem por caixa, para os contadores da barra lateral, respeitando o filtro de conta.
     public func count(for bucket: TriageBucket) -> Int {
         let inBucket = messages.filter { bucket.contains($0) }
