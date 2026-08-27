@@ -120,6 +120,50 @@ nenhuma, então datas saem em inglês ali e em português no app. Injetar `\.loc
 porque esses formatadores não passam pelo ambiente. É inconsistência real, marcada para
 conserto — não relate como defeito de aparência.
 
+## `Font` do SwiftUI é opaca — texto rico precisa de um atributo próprio por baixo
+
+`AttributedString` num `TextEditor` aceita `\.font`, mas `Font` só se **escreve**: não há
+como perguntar a ela se está em negrito, em que corpo, em que família. Uma barra que só
+escrevesse ficaria pela metade — selecionar um trecho já negrito não acenderia o B.
+
+Por isso o corpo do composer guarda `BodyStyleAttribute` (família, corpo, negrito, itálico,
+sublinhado, tachado, cor, realce) como **fonte de verdade**, e os atributos do SwiftUI são
+uma **projeção** dele, reescrita a cada comando. Ler o estado da seleção lê o atributo, não
+a fonte.
+
+Consequência obrigatória: o editor precisa de
+`.attributedTextFormattingDefinition(AttributeScopes.UNIComposerAttributes.self)`. Sem o
+escopo declarado, o `TextEditor` descarta o atributo desconhecido e o modelo morre no
+primeiro caractere digitado. Há teste que prova isso chamando `constrain(_:)` — o mesmo que
+o editor aplica — com o escopo certo e com o escopo do SwiftUI puro.
+
+Alinhamento é a exceção e mora no atributo do CoreText, que já tem fronteira de parágrafo.
+Ele só tem `left`, `center` e `right`: **não existe justificar** neste SDK, e o botão "≡"
+fica desabilitado por isso, não por preguiça.
+
+## Escrever atributo invalida `AttributedTextSelection`
+
+Medido nesta máquina: escrever um atributo num trecho parte os runs, e depois disso
+`AttributedTextSelection.indices(in:)` devolve **ponto de inserção** em vez do intervalo que
+tinha. Não é preciso mexer no texto para perder a seleção.
+
+Efeito prático, se ignorado: o usuário seleciona, clica em **B**, clica em **I** — e o
+itálico cai nos atributos de digitação em vez da seleção. A tela não muda e não há erro
+nenhum. Por isso **toda** mutação do corpo passa por `text.transform(updating: &selection)`,
+inclusive a que só mexe em atributos.
+
+## Rótulo de estado não divide faixa com barra de ferramentas
+
+O protótipo pendura "N palavras · não salvo" no fim da barra de formatação da tela 03. Em
+820pt isso rouba ~150pt, os sete grupos deixam de caber, a `FlowLayout` quebra em duas
+linhas e a moldura da faixa fica com o dobro da altura da borda — o "as box não estão
+certas" que o dono do projeto relatou.
+
+Regra: a faixa da barra é da barra. Contagem foi para a barra de título e carimbo de
+salvamento para o rodapé, nas duas janelas. O teste mede
+`NSHostingView.fittingSize.height` a 820, 1100 e 1440 — e mede também a 420, onde a faixa
+**tem** de crescer, senão o teto passaria com uma medida presa.
+
 ## Integridade de asset binário não se verifica com `file`
 
 Um PNG truncado (6.738 bytes, sem `IEND`) passou por dois agentes que rodaram `file` — que lê

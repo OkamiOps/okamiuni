@@ -14,13 +14,22 @@ import UNICore
 /// |---|---|---|
 /// | título | "Re: {assunto}" | "Nova mensagem" |
 /// | linha "De" | não tem (a conta é o chip da linha "Para") | tem, com seletor de conta |
-/// | contagem do rascunho | no fim da barra de formatação | só na barra de título |
 /// | corpo | rola junto com o histórico citado | ocupa toda a altura livre |
 /// | histórico | tem (mostrar/ocultar a mensagem original) | não tem |
-/// | rodapé | Enviar · Enviar e arquivar · Salvar · Voltar ao painel | Enviar · Salvar · (carimbo) · Descartar |
+/// | rodapé | Enviar · Enviar e arquivar · Salvar · (carimbo) · Voltar ao painel | Enviar · Salvar · (carimbo) · Descartar |
 ///
 /// **Nada é enviado.** Marco 1 não tem rede: "Enviar" fecha a janela e registra
 /// no console.
+///
+/// ## O carimbo do rascunho saiu da barra de formatação
+///
+/// Na 03 o protótipo pendura "N palavras · não salvo" no fim da faixa da barra.
+/// Em 820pt de janela isso rouba ~150pt da faixa, os sete grupos não cabem mais
+/// numa linha, a `FlowLayout` quebra e a moldura da faixa fica com o dobro da
+/// altura que a borda desenha — o "as box não estão certas" do dono do projeto.
+/// A contagem já aparece na barra de título das duas janelas; o carimbo de
+/// salvamento passou para o rodapé, onde a 06 já o tinha. As duas janelas ficam
+/// iguais e a barra cabe numa linha nos dois tamanhos.
 public struct ComposerWindow: View {
     public enum Mode: Hashable, Sendable {
         /// Responder a uma mensagem — a tela 03.
@@ -41,8 +50,11 @@ public struct ComposerWindow: View {
     @State private var ccOpen = false
     @State private var bccOpen = false
     @State private var subject = ""
-    @State private var draft = ""
-    @State private var formatting = ComposerFormatting()
+    /// O corpo é **texto rico**. Era uma `String` até a Task W, e por isso a
+    /// barra de formatação não tinha seleção sobre a qual agir: ela só
+    /// conseguia aplicar `.font(...)` ao editor inteiro.
+    @State private var draft = AttributedString("")
+    @State private var selection = AttributedTextSelection()
     @State private var fromAccountID: String?
     @State private var attachments: [String] = []
     @State private var savedStamp: String?
@@ -74,7 +86,8 @@ public struct ComposerWindow: View {
         account.flatMap { TokenColor(css: $0.tint(isDark: theme.isDark))?.color } ?? theme.accent.color
     }
 
-    private var draftCount: String { DraftMeta.countLabel(draft) }
+    private var plainDraft: String { String(draft.characters) }
+    private var draftCount: String { DraftMeta.countLabel(plainDraft) }
 
     public var body: some View {
         VStack(spacing: 0) {
@@ -87,8 +100,10 @@ public struct ComposerWindow: View {
             subjectRow
 
             ComposerToolbar(
-                formatting: $formatting,
-                trailingNote: isReply ? "\(draftCount) · \(DraftMeta.savedLabel(savedStamp))" : nil
+                reading: ComposerEditor.reading(of: draft, selection: selection),
+                perform: { command in
+                    ComposerEditor.perform(command, on: &draft, selection: &selection, theme: theme)
+                }
             )
 
             if isReply { replyBody } else { newBody }
@@ -288,18 +303,26 @@ public struct ComposerWindow: View {
     /// com o texto-fantasma no mesmo lugar do cursor.
     private func editor(minHeight: CGFloat, placeholder: String) -> some View {
         ZStack(alignment: .topLeading) {
-            TextEditor(text: $draft)
+            // Fonte, cor, sublinhado, tachado e alinhamento vêm **do texto**,
+            // não de modificadores do editor: é isso que faz a barra pegar só
+            // na seleção. O `.font` aqui é apenas o padrão de quem começa a
+            // digitar num rascunho ainda sem atributo nenhum.
+            //
+            // `attributedTextFormattingDefinition` declara o escopo do corpo.
+            // Sem ele o `TextEditor` descarta o `BodyStyleAttribute`, que é a
+            // única coisa que sabe dizer se um trecho está em negrito.
+            TextEditor(text: $draft, selection: $selection)
+                .attributedTextFormattingDefinition(AttributeScopes.UNIComposerAttributes.self)
                 .textEditorStyle(.plain)
                 .scrollContentBackground(.hidden)
-                .font(formatting.editorFont(theme: theme))
-                .lineSpacing(formatting.size * 0.7)  // line-height 1.7
-                .multilineTextAlignment(formatting.align)
+                .font(theme.serif.font(size: BodyStyle.defaultSize))
+                .lineSpacing(BodyStyle.defaultSize * 0.7)  // line-height 1.7
                 .foregroundStyle(theme.ink.color)
                 .padding(.horizontal, 22 - 5)  // o TextEditor já traz 5pt de calha
                 .padding(.vertical, 20)
                 .frame(minHeight: minHeight, alignment: .top)
 
-            if draft.isEmpty {
+            if draft.characters.isEmpty {
                 Text(placeholder)
                     .font(theme.serif.font(size: 16))
                     .foregroundStyle(theme.ink4.color)
@@ -395,15 +418,18 @@ public struct ComposerWindow: View {
 
             ChromeButton("Salvar rascunho", appearance: .outlined) { saveDraft() }
 
+            // O carimbo de salvamento mora no rodapé nas **duas** janelas. Na
+            // 03 ele ficava no fim da barra de formatação e a quebrava em duas
+            // linhas; ver a nota no topo deste arquivo.
+            Spacer(minLength: 8)
+            Text(DraftMeta.savedLabel(savedStamp))
+                .capsLabel(size: 9.5)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+
             if isReply {
-                Spacer(minLength: 8)
                 ChromeButton("Voltar ao painel", appearance: .outlined) { dismiss() }
             } else {
-                Spacer(minLength: 8)
-                Text(DraftMeta.savedLabel(savedStamp))
-                    .capsLabel(size: 9.5)
-                    .lineLimit(1)
-                Spacer(minLength: 8)
                 ChromeButton("Descartar", appearance: .outlined) { dismiss() }
             }
         }
@@ -429,7 +455,7 @@ public struct ComposerWindow: View {
         let recipients = to.map(\.address).joined(separator: ", ")
         UNIWindow.logSend(
             "Enviaria \"\(subject)\" para [\(recipients)] pela conta \(account?.address ?? "—") "
-            + "(\(DraftMeta.wordCount(draft)) palavras, \(attachments.count) anexos)"
+            + "(\(DraftMeta.wordCount(plainDraft)) palavras, \(attachments.count) anexos)"
             + (archiving ? " e arquivaria a original." : ".")
         )
         if archiving, let original = repliedMessage {

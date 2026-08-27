@@ -1,46 +1,52 @@
 import SwiftUI
+import UNICore
 import UNIDesign
 
 /// A barra de formatação das telas 03 e 06 — a única parte que as duas
 /// desenham exatamente igual.
 ///
-/// Protótipo: `padding: 9px 18px; gap: 7px; row-gap: 7px; flex-wrap: wrap;
-/// background: var(--surface2); border-bottom: 0.5px solid var(--line2)`, com
-/// os grupos na ordem fonte/corpo, B I U S, cor e realce, listas, alinhamento,
-/// inserir e tabela. A tela 03 ainda pendura a contagem do rascunho à direita.
+/// Protótipo: `padding: 9px 18px; gap: 7px; background: var(--surface2);
+/// border-bottom: 0.5px solid var(--line2)`, com os grupos na ordem fonte/corpo,
+/// B I U S, cor e realce, listas, alinhamento, inserir e tabela.
+///
+/// Duas regras deste marco moram aqui:
+///
+/// 1. **A barra lê a seleção.** Ela recebe um `BodyReading` e acende o que o
+///    intervalo de fato tem. Selecionar um trecho em negrito acende o B.
+/// 2. **Controle mudo é defeito.** Cada botão ou age sobre a seleção, ou fica
+///    `.disabled` — apagado e não clicável, com o motivo no `help`. Três ficam
+///    desabilitados neste marco: justificar (o atributo de alinhamento do SDK só
+///    tem esquerda, centro e direita), hyperlink (falta a folha que pede a URL)
+///    e tabela (`AttributedString` não tem modelo de tabela e o `TextEditor` não
+///    desenharia uma).
+///
+/// A barra **não** escreve texto: ela emite `ComposerCommand` e o composer
+/// aplica. A contagem do rascunho saiu daqui de propósito — ela disputava a
+/// faixa e fazia a barra quebrar em duas linhas na janela de resposta.
 struct ComposerToolbar: View {
     @Environment(\.theme) private var theme
-    @Binding var formatting: ComposerFormatting
-    /// A tela 03 escreve "3 palavras · não salvo" no fim da barra; a 06 não.
-    var trailingNote: String?
+
+    let reading: BodyReading
+    let perform: (ComposerCommand) -> Void
 
     @State private var openPanel: Panel?
-    @State private var tableHover: (rows: Int, columns: Int)?
 
-    private enum Panel { case color, highlight, table }
+    private enum Panel { case color, highlight }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 8) {
-            // Protótipo: `flex-wrap: wrap; gap: 7px; row-gap: 7px`. Sem a
-            // quebra, os sete grupos somam mais que os 820 da janela e o
-            // conteúdo inteiro transborda para os dois lados.
-            FlowLayout(spacing: 7, rowSpacing: 7) {
-                fontGroup
-                marksGroup
-                colorGroup
-                listGroup
-                alignGroup
-                insertGroup
-                tableButton
-            }
-
-            if let trailingNote {
-                Spacer(minLength: 8)
-                Text(trailingNote)
-                    .capsLabel()
-                    .lineLimit(1)
-                    .fixedSize()
-            }
+        // Protótipo: `flex-wrap: wrap; gap: 7px; row-gap: 7px`. A quebra existe
+        // como rede de segurança para quem arrasta a janela abaixo dos 820 do
+        // protótipo. Nos dois tamanhos de janela deste marco os sete grupos
+        // somam ~695pt e cabem numa linha — o que os empurrava para a segunda
+        // era o carimbo do rascunho, que saiu daqui.
+        FlowLayout(spacing: 7, rowSpacing: 7) {
+            fontGroup
+            marksGroup
+            colorGroup
+            listGroup
+            alignGroup
+            insertGroup
+            tableButton
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 9)
@@ -53,9 +59,17 @@ struct ComposerToolbar: View {
 
     /// Protótipo: os dois `<select>` dentro de um `segWrap` só, separados por
     /// uma divisória vertical de 0.5px.
+    ///
+    /// Os menus mostram o que a seleção tem. Quando ela mistura duas fontes,
+    /// `reading.family` é nulo e o menu fica **sem** escolha marcada, em vez de
+    /// mentir apontando a primeira.
     private var fontGroup: some View {
         HStack(spacing: 0) {
-            Picker("Fonte", selection: $formatting.fontName) {
+            Picker("Fonte", selection: Binding(
+                get: { reading.family ?? "" },
+                set: { perform(.family($0)) }
+            )) {
+                if reading.family == nil { Text("—").tag("") }
                 ForEach(ComposerFormatting.families, id: \.value) { family in
                     Text(family.label).tag(family.value)
                 }
@@ -66,7 +80,11 @@ struct ComposerToolbar: View {
                 .fill(theme.btnLine.color)
                 .frame(width: 0.5)
 
-            Picker("Tamanho", selection: $formatting.size) {
+            Picker("Tamanho", selection: Binding(
+                get: { reading.size ?? 0 },
+                set: { perform(.size($0)) }
+            )) {
+                if reading.size == nil { Text("—").tag(0.0) }
                 ForEach(ComposerFormatting.sizes, id: \.self) { size in
                     Text(String(Int(size))).tag(size)
                 }
@@ -84,21 +102,22 @@ struct ComposerToolbar: View {
                 .strokeBorder(theme.btnLine.color, lineWidth: 0.5)
         }
         .shadow(theme.btnShadow)
+        .fixedSize()
     }
 
     private var marksGroup: some View {
         SegmentedRow {
-            SegmentButton(label: "B", title: "Negrito", on: formatting.bold, weight: .bold) {
-                formatting.bold.toggle()
+            SegmentButton(label: "B", title: "Negrito", on: reading.bold, weight: .bold) {
+                perform(.bold)
             }
-            SegmentButton(label: "I", title: "Itálico", on: formatting.italic, italic: true) {
-                formatting.italic.toggle()
+            SegmentButton(label: "I", title: "Itálico", on: reading.italic, italic: true) {
+                perform(.italic)
             }
-            SegmentButton(label: "U", title: "Sublinhado", on: formatting.underline, underline: true) {
-                formatting.underline.toggle()
+            SegmentButton(label: "U", title: "Sublinhado", on: reading.underline, underline: true) {
+                perform(.underline)
             }
-            SegmentButton(label: "S", title: "Riscado", on: formatting.strike, strike: true) {
-                formatting.strike.toggle()
+            SegmentButton(label: "S", title: "Riscado", on: reading.strike, strike: true) {
+                perform(.strike)
             }
         }
     }
@@ -107,23 +126,21 @@ struct ComposerToolbar: View {
         SegmentedRow {
             SegmentButton(
                 label: "A", title: "Cor da fonte", on: openPanel == .color,
-                bar: TokenColor(css: formatting.colorHex)?.color ?? theme.line.color
+                bar: reading.colorHex.map { ComposerFormatting.color($0, theme: theme) } ?? theme.line.color
             ) {
                 openPanel = openPanel == .color ? nil : .color
             }
             SegmentButton(
                 label: "▨", title: "Realce", on: openPanel == .highlight,
-                bar: formatting.highlightHex == "transparent"
-                    ? theme.line.color
-                    : (TokenColor(css: formatting.highlightHex)?.color ?? theme.line.color)
+                bar: reading.highlightHex.flatMap(ComposerFormatting.highlight) ?? theme.line.color
             ) {
                 openPanel = openPanel == .highlight ? nil : .highlight
             }
         }
         .overlay(alignment: .topLeading) {
             if openPanel == .color {
-                swatches(ComposerFormatting.textColors, selected: formatting.colorHex) {
-                    formatting.colorHex = $0
+                swatches(ComposerFormatting.textColors, selected: reading.colorHex) {
+                    perform(.color($0))
                     openPanel = nil
                 }
                 .offset(y: 30)
@@ -131,8 +148,8 @@ struct ComposerToolbar: View {
         }
         .overlay(alignment: .topTrailing) {
             if openPanel == .highlight {
-                swatches(ComposerFormatting.highlights, selected: formatting.highlightHex) {
-                    formatting.highlightHex = $0
+                swatches(ComposerFormatting.highlights, selected: reading.highlightHex) {
+                    perform(.highlight($0))
                     openPanel = nil
                 }
                 .offset(y: 30)
@@ -144,102 +161,76 @@ struct ComposerToolbar: View {
     private var listGroup: some View {
         SegmentedRow {
             SegmentButton(label: "•—", title: "Lista com marcadores",
-                          on: formatting.list == .bulleted) {
-                formatting.list = formatting.list == .bulleted ? nil : .bulleted
+                          on: reading.list == .bulleted) {
+                perform(.list(reading.list == .bulleted ? nil : .bulleted))
             }
             SegmentButton(label: "1.", title: "Lista numerada",
-                          on: formatting.list == .numbered) {
-                formatting.list = formatting.list == .numbered ? nil : .numbered
+                          on: reading.list == .numbered) {
+                perform(.list(reading.list == .numbered ? nil : .numbered))
             }
-            SegmentButton(label: "⇤", title: "Diminuir indentação", on: false) {}
-            SegmentButton(label: "⇥", title: "Aumentar indentação", on: false) {}
+            SegmentButton(
+                label: "⇤",
+                title: reading.indent > 0
+                    ? "Diminuir indentação"
+                    : "Diminuir indentação — o parágrafo já está na margem",
+                on: false,
+                enabled: reading.indent > 0
+            ) {
+                perform(.indent(-1))
+            }
+            SegmentButton(label: "⇥", title: "Aumentar indentação", on: false) {
+                perform(.indent(1))
+            }
         }
     }
 
     private var alignGroup: some View {
         SegmentedRow {
             SegmentButton(label: "⇐", title: "Alinhar à esquerda",
-                          on: formatting.align == .leading) { formatting.align = .leading }
+                          on: reading.alignment == .left) { perform(.align(.left)) }
             SegmentButton(label: "⇔", title: "Centralizar",
-                          on: formatting.align == .center) { formatting.align = .center }
+                          on: reading.alignment == .center) { perform(.align(.center)) }
             SegmentButton(label: "⇒", title: "Alinhar à direita",
-                          on: formatting.align == .trailing) { formatting.align = .trailing }
-            SegmentButton(label: "≡", title: "Justificar", on: false) {}
+                          on: reading.alignment == .right) { perform(.align(.right)) }
+            SegmentButton(
+                label: "≡",
+                title: "Justificar — indisponível: o alinhamento de parágrafo deste SDK só tem esquerda, centro e direita",
+                on: false, enabled: false
+            ) {}
         }
     }
 
     private var insertGroup: some View {
         SegmentedRow {
-            SegmentButton(label: "↗", title: "Inserir hyperlink na seleção", on: false) {}
-            SegmentButton(label: "⌫", title: "Limpar toda a formatação", on: false) {
-                formatting = ComposerFormatting()
+            SegmentButton(
+                label: "↗",
+                title: "Inserir hyperlink — indisponível neste marco: falta a folha que pede a URL",
+                on: false, enabled: false
+            ) {}
+            SegmentButton(label: "⌫", title: "Limpar a formatação da seleção", on: false) {
+                perform(.clearFormatting)
             }
         }
     }
 
     private var tableButton: some View {
-        SoloToolButton(label: "⊞", title: "Inserir tabela", on: openPanel == .table) {
-            openPanel = openPanel == .table ? nil : .table
-            tableHover = nil
-        }
-        .overlay(alignment: .topLeading) {
-            if openPanel == .table { tablePicker.offset(y: 30) }
-        }
-        .zIndex(30)
-    }
-
-    /// Protótipo: grade de 8 colunas × 6 linhas, células de 14pt com 3 de folga,
-    /// e o rótulo "N × M" embaixo.
-    private var tablePicker: some View {
-        VStack(spacing: 7) {
-            Grid(horizontalSpacing: 3, verticalSpacing: 3) {
-                ForEach(1...6, id: \.self) { row in
-                    GridRow {
-                        ForEach(1...8, id: \.self) { column in
-                            let on = row <= (tableHover?.rows ?? 0) && column <= (tableHover?.columns ?? 0)
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(on ? theme.accent.color : theme.surface3.color)
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 2)
-                                        .strokeBorder(on ? theme.accent.color : theme.line.color, lineWidth: 0.5)
-                                }
-                                .frame(width: 14, height: 14)
-                                .onHover { inside in
-                                    if inside { tableHover = (row, column) }
-                                }
-                                .onTapGesture { openPanel = nil }
-                        }
-                    }
-                }
-            }
-            Text(tableHover.map { "\($0.rows) × \($0.columns)" } ?? "Tabela")
-                .font(theme.mono.font(size: 9.5, weight: .medium))
-                .tracking(theme.capsTracking(at: 9.5))
-                .textCase(.uppercase)
-                .foregroundStyle(theme.ink3.color)
-        }
-        .padding(8)
-        .background(theme.surface.color)
-        .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
-        .overlay {
-            RoundedRectangle(cornerRadius: theme.radiusLarge)
-                .strokeBorder(theme.line.color, lineWidth: 0.5)
-        }
-        .shadow(color: .black.opacity(0.22), radius: 15, x: 0, y: 14)
+        SoloToolButton(
+            label: "⊞",
+            title: "Inserir tabela — indisponível neste marco: AttributedString não tem modelo de tabela",
+            on: false, enabled: false
+        ) {}
     }
 
     private func swatches(
         _ list: [(hex: String, name: String)],
-        selected: String,
+        selected: String?,
         pick: @escaping (String) -> Void
     ) -> some View {
         HStack(spacing: 4) {
             ForEach(list, id: \.hex) { swatch in
                 Button { pick(swatch.hex) } label: {
                     RoundedRectangle(cornerRadius: theme.radiusSmall)
-                        .fill(swatch.hex == "transparent"
-                              ? theme.surface.color
-                              : (TokenColor(css: swatch.hex)?.color ?? theme.surface.color))
+                        .fill(ComposerFormatting.highlight(swatch.hex) ?? theme.surface.color)
                         .overlay {
                             RoundedRectangle(cornerRadius: theme.radiusSmall)
                                 .strokeBorder(
@@ -300,6 +291,9 @@ private struct SegmentButton: View {
     var strike = false
     /// A barrinha de cor sob o "A" e o "▨". Protótipo: 13×3, raio 1.
     var bar: Color?
+    /// Falso deixa o botão **apagado e não clicável**. É a única alternativa
+    /// aceita a agir sobre a seleção: controle mudo é defeito.
+    var enabled = true
     let action: () -> Void
 
     var body: some View {
@@ -316,7 +310,7 @@ private struct SegmentButton: View {
                         .frame(width: 13, height: 3)
                 }
             }
-            .foregroundStyle(on ? theme.accentInk.color : theme.ink2.color)
+            .foregroundStyle(foreground)
             // Protótipo: `min-width: 28px; padding: 0 5px`. A folga é por dentro
             // do mínimo — somá-la por fora dava 38pt por item e fazia a barra
             // inteira quebrar numa segunda linha que o protótipo não tem.
@@ -331,7 +325,13 @@ private struct SegmentButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
         .help(title)
+    }
+
+    private var foreground: Color {
+        if !enabled { return theme.ink4.color.opacity(0.55) }
+        return on ? theme.accentInk.color : theme.ink2.color
     }
 
     private var labelFont: Font {
@@ -346,13 +346,14 @@ private struct SoloToolButton: View {
     let label: String
     let title: String
     let on: Bool
+    var enabled = true
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Text(label)
                 .font(theme.sans.font(size: 12))
-                .foregroundStyle(on ? theme.accentInk.color : theme.ink2.color)
+                .foregroundStyle(foreground)
                 .frame(width: 30, height: 26)
                 .background(on ? theme.accentSoft.color : theme.btn.color)
                 .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
@@ -364,6 +365,12 @@ private struct SoloToolButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
         .help(title)
+    }
+
+    private var foreground: Color {
+        if !enabled { return theme.ink4.color.opacity(0.55) }
+        return on ? theme.accentInk.color : theme.ink2.color
     }
 }
