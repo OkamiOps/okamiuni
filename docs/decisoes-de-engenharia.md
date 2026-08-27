@@ -431,3 +431,25 @@ de uma coluna **viva**, e a medida passa por acidente. A saída foi tirar o esta
 da medida de geometria (usar uma mensagem em que as duas colunas fazem algo) e provar o
 apagamento à parte, comparando o pixel mais escuro de uma coluna com o da vizinha em vez de
 cravar um corte.
+
+## A revisão final provou os defeitos por mutação, não por leitura (2026-08-27)
+
+Cinco frentes revisaram a branch inteira em `ae439e1`: UNICore, caixa de
+entrada, composer/janelas, moldura/agenda, e uma auditoria dedicada aos ~605
+testes. O método da auditoria — introduzir o defeito que o teste diz guardar e
+ver se ele cai — condenou 12 testes e achou 5 defeitos críticos que a suíte
+verde escondia: o negrito que não mudava a face desenhada, o "⤢" que perdia
+cc/anexos, a trilha de agenda sem filtro de caixa, as duas últimas bordas
+`.stroke` borradas em 1×, e o seletor de data que ignorava a navegação.
+
+O padrão que fica: **todo defeito crítico sobrevivente morava atrás de um
+teste decorativo.** A regra derivada, já aplicada nas quatro tasks de conserto
+(AJ, AK, AL, AM): um teste novo só conta depois de confirmado vermelho com o
+defeito reintroduzido. As provas estão nos relatórios em
+`.superpowers/sdd/2026-08-26-okamiuni-shell/` (fora do versionamento).
+
+Duas decisões de produto tomadas no caminho: "Reagendar" saiu da janela de
+compromisso em vez de ficar mudo (volta no Marco 4, com EventKit), e a
+sugestão de contato tem uma máquina só — a do `ContactDirectory`, com dobra
+de acento, que também passou a valer para a busca da lista ("Revisao" acha
+"Revisão").
