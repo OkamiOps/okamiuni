@@ -88,6 +88,11 @@ public struct MessageList: View {
     /// faixa. Ao contrário dos outros painéis, esta de fato varia.
     let listWidth: CGFloat
 
+    /// Como as linhas marcam "não lida". O padrão é o do app inteiro
+    /// (`UnreadEmphasis.standard`); fica fora do `init` porque só o harness de
+    /// comparação troca — é ele que gera os três PNGs de escolha.
+    var unreadEmphasis: UnreadEmphasis = .standard
+
     /// Duplo clique numa linha abre a janela 05. Protótipo: a própria linha tem
     /// `onDoubleClick="{{ m.onOpenWin }}"` e `title="Duplo clique abre em janela"`.
     let onOpenWindow: (Message) -> Void
@@ -225,7 +230,8 @@ public struct MessageList: View {
                     message: message,
                     accountHost: account?.host ?? "",
                     accountTint: accountTint(account),
-                    isSelected: message.id == store.selectedMessageID
+                    isSelected: message.id == store.selectedMessageID,
+                    emphasis: unreadEmphasis
                 )
             }
             .buttonStyle(.plain)

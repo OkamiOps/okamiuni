@@ -26,6 +26,12 @@ struct MessageSwipeTests {
     /// O painel inteiro do padrão: duas colunas de 84.
     static let panel = SwipeMetrics.panelWidth(actions: 2)  // 168
 
+    /// Onde o conteúdo da linha começa na variante corrente do indicador de
+    /// não-lida — 24 na que reserva coluna para o ponto, 16 nas outras.
+    static let contentIndent: CGFloat = UnreadEmphasis.standard.showsDot
+        ? UnreadMetrics.dotColumnWidth + UnreadMetrics.contentInsetWithColumn
+        : theme.rowPadding.leading
+
     // MARK: - Palco
 
     private static func account() -> Account { Fixtures.accounts[0] }
@@ -216,7 +222,11 @@ struct MessageSwipeTests {
     /// a contagem deixa de ser zero.
     @Test("em repouso, a linha não mostra painel nenhum")
     func atRestNoPanel() throws {
-        let message = Self.sample()
+        // **Lida**, pelo mesmo motivo pelo qual o palco não seleciona a linha:
+        // a não lida da variante C pinta o fundo em `accentSoft`, que é o fundo
+        // da coluna de arquivar. Medir o painel contra um fundo que se confunde
+        // com ele daria uma medida sem valor.
+        let message = Self.sample(isRead: true)
         let rep = try Self.render("arraste-repouso-tinta", .zero, message)
         let found = Self.panelColumns(rep, y: 6)
         #expect(found.isEmpty, "painel visível em repouso nas colunas \(found.prefix(12))")
@@ -226,7 +236,8 @@ struct MessageSwipeTests {
     /// colunas e a linha sai de baixo dele.
     @Test("revelada à esquerda, o painel mede as duas colunas e começa na borda")
     func revealedLeading() throws {
-        let message = Self.sample()
+        // Lida: ver `atRestNoPanel`.
+        let message = Self.sample(isRead: true)
         let rep = try Self.render(
             "arraste-esquerda-tinta", CGSize(width: Self.panel, height: 0), message
         )
@@ -247,7 +258,8 @@ struct MessageSwipeTests {
         // coluna "Hoje" sai desabilitada e o `.disabled()` do SwiftUI escurece o
         // fundo dela para `rgb(237,235,229)` — que passa raspando pela mesma
         // tolerância. A medida ficaria certa por acidente.
-        let message = Self.sample(bucket: .archived)
+        // E lida, pelo motivo de `atRestNoPanel`.
+        let message = Self.sample(bucket: .archived, isRead: true)
         let rep = try Self.render(
             "arraste-direita-tinta", CGSize(width: -Self.panel, height: 0), message
         )
@@ -478,9 +490,15 @@ struct MessageSwipeTests {
         let shifted = try #require(
             Self.inkSpan(moved, x: Int(Self.panel)..<Int(Self.listWidth), y: 0..<height, where: Self.isTextInk)
         )
-        // A primeira tinta da linha em repouso está no recuo do protótipo.
-        #expect(atRest.min >= Int(Self.theme.rowPadding.leading) - 2)
-        #expect(atRest.min <= Int(Self.theme.rowPadding.leading) + 8)
+        // A primeira tinta da linha em repouso está no recuo do conteúdo.
+        //
+        // **Mudou nesta tarefa, de propósito.** A variante escolhida do
+        // indicador de não-lida (C) reserva uma coluna de 20pt para o ponto, e
+        // o conteúdo passou a começar em 24 em vez dos 16 de
+        // `rowPadding.leading` — para **toda** linha, lida ou não, senão as
+        // duas dançariam para os lados conforme a caixa se lê.
+        #expect(atRest.min >= Int(Self.contentIndent) - 2)
+        #expect(atRest.min <= Int(Self.contentIndent) + 8)
         // E, deslocada, ela reaparece exatamente 168pt adiante.
         #expect(shifted.min == atRest.min + Int(Self.panel))
     }

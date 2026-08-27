@@ -42,15 +42,24 @@ struct MessageRowTests {
         subject: String = "Assunto",
         snippet: String,
         isSelected: Bool = false,
-        isRead: Bool = true
+        isRead: Bool = true,
+        emphasis: UnreadEmphasis = .standard
     ) -> NSBitmapImageRep? {
-        renderRow(message(subject: subject, snippet: snippet, isRead: isRead), isSelected: isSelected)
+        renderRow(
+            message(subject: subject, snippet: snippet, isRead: isRead),
+            isSelected: isSelected, emphasis: emphasis
+        )
     }
 
-    private func renderRow(_ message: Message, isSelected: Bool = false) -> NSBitmapImageRep? {
+    private func renderRow(
+        _ message: Message,
+        isSelected: Bool = false,
+        emphasis: UnreadEmphasis = .standard
+    ) -> NSBitmapImageRep? {
         let row = MessageRow(
             message: message,
-            accountHost: "host", accountTint: .red, isSelected: isSelected
+            accountHost: "host", accountTint: .red, isSelected: isSelected,
+            emphasis: emphasis
         )
         let staged = row
             .frame(width: Self.width, alignment: .topLeading)
@@ -185,10 +194,15 @@ struct MessageRowTests {
         return found
     }
 
-    /// A goteira: da borda direita da barra da conta até o recuo do texto.
-    /// Fora dela o ponto estaria por cima da barra ou por cima do nome.
-    private static let gutter =
-        Int(MessageRow.accountBarWidth)..<Int(Theme.tinta.rowPadding.leading)
+    /// A coluna do ponto: da borda direita da barra grossa até o fim da
+    /// coluna. Fora dela o ponto estaria por cima da barra ou invadindo o
+    /// conteúdo.
+    ///
+    /// **Mudou nesta tarefa, de propósito.** Antes era a goteira de 3–16pt,
+    /// dividida com o recuo do texto; a variante escolhida (C) dá ao ponto uma
+    /// coluna de 20pt, com a barra da conta engrossada para 6 embaixo dela.
+    private static let dotColumn =
+        Int(UnreadMetrics.loudBarWidth)..<Int(UnreadMetrics.dotColumnWidth)
 
     /// O defeito relatado: "ta muito dificil de saber se a mensagem já foi
     /// lida ou nào (…) eu demorei muito tempo pra perceber o sutil negrito no
@@ -201,22 +215,23 @@ struct MessageRowTests {
         let unread = try #require(renderRow(snippet: "Um trecho comum.", isRead: false))
         let marks = accentPixels(unread, x: 0..<Int(Self.width), y: 0..<60)
 
-        // Área de um círculo de 7pt: ~38px. Metade disso já é um ponto, e um
-        // respingo de 3px não passa.
-        #expect(marks.count >= 20, "o ponto pintou só \(marks.count)px — não é um ponto")
+        // Área de um círculo de 9pt: ~63px. Metade disso já é um ponto, e um
+        // respingo de 3px não passa. O piso subiu junto com o diâmetro: com 20
+        // o ponto de 7pt de antes ainda passaria neste teste.
+        #expect(marks.count >= 40, "o ponto pintou só \(marks.count)px — não é um ponto")
         let xs = marks.map(\.x)
         let ys = marks.map(\.y)
         let minX = try #require(xs.min()), maxX = try #require(xs.max())
         let minY = try #require(ys.min()), maxY = try #require(ys.max())
 
         // Na goteira: depois da barra da conta e antes do recuo do texto.
-        #expect(Self.gutter.contains(minX), "o ponto começa em \(minX), fora da goteira")
-        #expect(Self.gutter.contains(maxX), "o ponto termina em \(maxX), fora da goteira")
+        #expect(Self.dotColumn.contains(minX), "o ponto começa em \(minX), fora da coluna")
+        #expect(Self.dotColumn.contains(maxX), "o ponto termina em \(maxX), fora da coluna")
         // E do tamanho anunciado, com um pixel de folga para a antisserrilha.
-        #expect(maxX - minX + 1 <= Int(MessageRow.unreadDotDiameter))
-        #expect(maxY - minY + 1 <= Int(MessageRow.unreadDotDiameter))
+        #expect(maxX - minX + 1 <= Int(UnreadMetrics.dotDiameter))
+        #expect(maxY - minY + 1 <= Int(UnreadMetrics.dotDiameter))
         // Alinhado com a linha do remetente, não perdido no pé da linha.
-        #expect(abs((minY + maxY) / 2 - Int(MessageRow.unreadDotCenterY)) <= 1)
+        #expect(abs((minY + maxY) / 2 - Int(UnreadMetrics.dotCenterY)) <= 1)
     }
 
     /// A outra metade da sonda: sem ela, um ponto pintado em **toda** linha
@@ -259,10 +274,90 @@ struct MessageRowTests {
     func boldSenderSurvivesTheDot() throws {
         let unread = try #require(renderRow(snippet: "Um trecho comum.", isRead: false))
         let read = try #require(renderRow(snippet: "Um trecho comum.", isRead: true))
-        // Só a faixa do nome, e só à direita da goteira: o ponto fica de fora.
-        let x = Int(Theme.tinta.rowPadding.leading)..<Int(Self.width)
+        // Só a faixa do nome, e só à direita da coluna do ponto — que agora
+        // ocupa layout. `accent` soma 0,96 nos três canais e passaria por
+        // "tinta escura" se a janela o incluísse.
+        let x = Int(UnreadMetrics.dotColumnWidth)..<Int(Self.width)
         #expect(inkCount(unread, x: x, y: 10..<26) > inkCount(read, x: x, y: 10..<26),
                 "o nome não lido não deposita mais tinta que o lido — o negrito sumiu")
+    }
+
+    // MARK: - O campo: barra grossa e fundo próprio (a outra metade da C)
+
+    /// A variante escolhida marca por **dois** sinais, e cada um cai sozinho.
+    /// Este é o segundo: a barra da conta engrossa de 3 para 6 na linha não
+    /// lida — e continua com 3 na lida, senão o sinal não separa nada.
+    ///
+    /// Mutação que derruba: `barWidth` devolvendo `Self.accountBarWidth`
+    /// sempre. A medida da não lida cai para 3 e o primeiro `#expect` falha.
+    @Test("a barra da conta engrossa na linha não lida, e só nela")
+    func unreadRowThickensTheAccountBar() throws {
+        func barWidth(isRead: Bool) throws -> Int {
+            let rep = try #require(renderRow(snippet: "Um trecho comum.", isRead: isRead))
+            var measured = 0
+            for x in 0..<rep.pixelsWide {
+                guard isReddish(rep, x, 10) else { break }
+                measured += 1
+            }
+            return measured
+        }
+        #expect(try barWidth(isRead: false) == Int(UnreadMetrics.loudBarWidth))
+        #expect(try barWidth(isRead: true) == Int(UnreadMetrics.quietBarWidth))
+    }
+
+    /// O terceiro sinal da variante C: o **fundo**. A linha não lida pinta
+    /// `accentSoft` de ponta a ponta; a lida não pinta nada e mostra o
+    /// `surface` do palco.
+    ///
+    /// Medido bem à direita (x = largura − 10), onde nem texto nem chip chegam
+    /// — a mesma sonda que prova a seleção cobrir a linha inteira.
+    ///
+    /// Mutação que derruba: `rowBackground` devolvendo `.clear` para a não
+    /// lida. A contagem cai a zero e o primeiro `#expect` falha, **sem** o
+    /// teste do ponto se mexer — que é o ponto de separar os dois sinais.
+    @Test("a linha não lida pinta o fundo próprio até a borda direita")
+    func unreadRowPaintsItsField() throws {
+        let unread = try #require(renderRow(snippet: "Um trecho comum.", isRead: false))
+        let read = try #require(renderRow(snippet: "Um trecho comum.", isRead: true))
+        let x = Int(Self.width) - 10
+        let y = 0..<barRunLength(unread, x: 1)
+
+        func softPixels(_ rep: NSBitmapImageRep) -> Int {
+            var count = 0
+            guard let wanted = Theme.tinta.accentSoft.nsColor.usingColorSpace(.sRGB)
+            else { return 0 }
+            for row in y {
+                guard let c = rep.colorAt(x: x, y: row)?.usingColorSpace(.sRGB) else { continue }
+                if abs(c.redComponent - wanted.redComponent) < 0.02,
+                   abs(c.greenComponent - wanted.greenComponent) < 0.02,
+                   abs(c.blueComponent - wanted.blueComponent) < 0.02 {
+                    count += 1
+                }
+            }
+            return count
+        }
+
+        #expect(softPixels(unread) > 60, "o fundo da não lida pintou \(softPixels(unread))px")
+        #expect(softPixels(read) == 0, "a linha lida pintou fundo de não lida")
+    }
+
+    // MARK: - As três variantes, para a escolha ser feita olhando
+
+    /// Cada variante acende exatamente os sinais que promete — é o que impede
+    /// que "trocar `UnreadEmphasis.standard`" mude menos do que anuncia.
+    @Test("cada variante acende só os sinais que promete", arguments: UnreadEmphasis.allCases)
+    func eachVariantShowsWhatItPromises(emphasis: UnreadEmphasis) throws {
+        let rep = try #require(
+            renderRow(snippet: "Um trecho comum.", isRead: false, emphasis: emphasis)
+        )
+        let dot = accentPixels(rep, x: 0..<Int(Self.width), y: 0..<60).count
+        var bar = 0
+        for x in 0..<rep.pixelsWide {
+            guard isReddish(rep, x, 10) else { break }
+            bar += 1
+        }
+        #expect((dot >= 40) == emphasis.showsDot, "o ponto de \(emphasis) pintou \(dot)px")
+        #expect(bar == Int(emphasis.barWidth), "a barra de \(emphasis) mede \(bar)")
     }
 
     /// Pixels escuros (tinta de texto) numa janela.

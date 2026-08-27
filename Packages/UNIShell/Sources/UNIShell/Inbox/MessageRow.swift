@@ -6,48 +6,54 @@ public struct MessageRow: View {
     /// A barra colorida da conta na borda esquerda da linha.
     /// Protótipo: `box-shadow: inset 3px 0 0 (on ? a.c : soft(a.c, 45))` —
     /// ela existe em **toda** linha, só muda de opacidade quando selecionada.
-    static let accountBarWidth: CGFloat = 3
-
-    /// O ponto de não-lida.
     ///
-    /// **Por que ele existe.** Até esta tarefa a única diferença entre lida e
-    /// não-lida era o peso da fonte do remetente (`.semibold` contra
-    /// `.regular`). O dono do projeto usou o app e levou tempo demais para
-    /// perceber — e ele tem razão: 13pt de diferença de peso é uma pista para
-    /// quem já sabe onde olhar. Mail, Gmail e Outlook todos marcam com um
-    /// **ponto**, e é a marca que se enxerga sem procurar.
-    ///
-    /// **O protótipo não decide isto.** Conferido: `MSGS`, em
-    /// `design/OkamiUNI - Mail + Agenda.dc.html`, não tem campo de leitura
-    /// nenhum — todas as sete linhas desenham o remetente em `font-weight:
-    /// 650` e nenhuma delas tem ponto. O negrito do app já era invenção nossa.
-    /// Como o protótipo não marca, o desenho é novo, no idioma dele.
-    ///
-    /// **Onde ele fica.** Na goteira à esquerda, entre a barra da conta (0–3pt)
-    /// e o recuo do texto (`rowPadding.leading`, 16pt) — exatamente a coluna em
-    /// que o Mail põe o dele. Entra por `overlay`, **não** no fluxo: assim a
-    /// geometria da linha não muda em ponto nenhum, e as medidas de
-    /// `MessageRowTests` continuam valendo.
-    static let unreadDotDiameter: CGFloat = 7
-    /// O centro do ponto na horizontal: meio da goteira de 13pt, sobrando 3pt
-    /// para a barra da conta e 3pt para o texto.
-    static let unreadDotCenterX: CGFloat = 9.5
-    /// O centro na vertical, alinhado com a linha do remetente: `rowPadding.top`
-    /// (11) mais meia altura de linha de 13pt. Ele marca a mensagem, e o nome
-    /// de quem escreveu é onde o olho entra na linha.
-    static let unreadDotCenterY: CGFloat = 19
+    /// A largura é a fina (`UnreadMetrics.quietBarWidth`) na linha lida. Na
+    /// não lida ela depende da variante: as que marcam pelo campo engrossam.
+    static let accountBarWidth: CGFloat = UnreadMetrics.quietBarWidth
 
     @Environment(\.theme) private var theme
     let message: Message
     let accountHost: String
     let accountTint: Color
     let isSelected: Bool
+    /// Como esta linha marca "não lida". O padrão é o do app inteiro; os
+    /// parâmetros nomeados existem para o harness renderizar as três variantes
+    /// lado a lado sem mexer no app.
+    let emphasis: UnreadEmphasis
 
-    public init(message: Message, accountHost: String, accountTint: Color, isSelected: Bool) {
+    public init(
+        message: Message,
+        accountHost: String,
+        accountTint: Color,
+        isSelected: Bool,
+        emphasis: UnreadEmphasis = .standard
+    ) {
         self.message = message
         self.accountHost = accountHost
         self.accountTint = accountTint
         self.isSelected = isSelected
+        self.emphasis = emphasis
+    }
+
+    /// A marca vale para a mensagem não lida, e só para ela.
+    private var marks: Bool { !message.isRead }
+
+    /// A largura da barra da conta nesta linha.
+    private var barWidth: CGFloat {
+        marks ? emphasis.barWidth : Self.accountBarWidth
+    }
+
+    /// O fundo da linha, antes da seleção.
+    ///
+    /// A seleção continua mandando quando existe — ela é a resposta a um
+    /// clique e não pode ficar atrás de um estado que a pessoa não escolheu.
+    /// Fora dela, a não lida das variantes de campo pinta `accentSoft`: um
+    /// degrau à frente de `surface`, na mesma família do ponto, e nenhuma cor
+    /// de sistema envolvida.
+    private var rowBackground: Color {
+        if isSelected { return accountTint.opacity(0.10) }
+        if marks, emphasis.showsField { return theme.accentSoft.color }
+        return .clear
     }
 
     /// O canto direito da primeira linha. Design (`MSGS`): a mensagem de hoje
@@ -68,6 +74,56 @@ public struct MessageRow: View {
     }
 
     public var body: some View {
+        content
+            // Protótipo: `background: soft(a.c, 10)` quando selecionada — a
+            // cor da conta, não o accent do tema. A não lida das variantes de
+            // campo entra por baixo dessa regra (ver `rowBackground`).
+            .background(rowBackground)
+            .overlay(alignment: .leading) {
+                Rectangle()
+                    .fill(accountTint.opacity(isSelected ? 1 : 0.45))
+                    .frame(width: barWidth)
+            }
+            .overlay(alignment: .topLeading) { unreadDot }
+            .hairline(theme.line2, edges: .bottom)
+            .contentShape(Rectangle())
+    }
+
+    /// O ponto, na coluna que `contentPadding` reservou para ele.
+    ///
+    /// **Por que `overlay` e não um irmão num `HStack`.** Tentei a coluna como
+    /// irmã, e ela é uma irmã gulosa: um `Color.clear` com largura fixa não
+    /// opina sobre largura mas aceita toda a altura oferecida, e a linha de
+    /// 106pt passou a ocupar os 300 do palco — a barra da conta, que mede a
+    /// altura da linha nos testes, foi de 106 para 299. É a mesma família da
+    /// `Rectangle` irmã de `docs/decisoes-de-engenharia.md` e do painel do
+    /// arraste, e a mesma lição: **a lista não pode pular**.
+    ///
+    /// Como `overlay`, o ponto não opina sobre nada. A coluna existe do mesmo
+    /// jeito — ela é o recuo do conteúdo, e ele desloca de verdade — mas quem a
+    /// abre é o `padding`, que é medido pelo conteúdo.
+    ///
+    /// Ele some no instante em que a mensagem vira lida, por qualquer caminho
+    /// — menu de contexto, arraste ou seleção: a linha lê `message.isRead` do
+    /// `MailStore`, que é `@Observable`.
+    @ViewBuilder
+    private var unreadDot: some View {
+        if marks, emphasis.showsDot {
+            Circle()
+                .fill(theme.accent.color)
+                .frame(
+                    width: UnreadMetrics.dotDiameter,
+                    height: UnreadMetrics.dotDiameter
+                )
+                .offset(
+                    x: UnreadMetrics.dotCenterX - UnreadMetrics.dotDiameter / 2,
+                    y: UnreadMetrics.dotCenterY - UnreadMetrics.dotDiameter / 2
+                )
+                .help("Mensagem não lida")
+        }
+    }
+
+    private var content: some View {
         VStack(alignment: .leading, spacing: 3) {  // protótipo: margin-top: 3px
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(message.from.name)
@@ -103,34 +159,23 @@ public struct MessageRow: View {
             }
             .padding(.top, 5)  // 3 do VStack + 5 = os 8 do `margin-top` do protótipo
         }
-        .padding(theme.rowPadding.edgeInsets)
+        .padding(contentPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
-        // Protótipo: `background: soft(a.c, 10)` quando selecionada — a cor da
-        // conta, não o accent do tema.
-        .background(isSelected ? accountTint.opacity(0.10) : .clear)
-        .overlay(alignment: .leading) {
-            Rectangle()
-                .fill(accountTint.opacity(isSelected ? 1 : 0.45))
-                .frame(width: Self.accountBarWidth)
+    }
+
+    /// O recuo do conteúdo — e, nas variantes com ponto, a coluna dele.
+    ///
+    /// O texto começa em 24 (20 de coluna + 4) em vez dos 16 de
+    /// `rowPadding.leading`. É o deslocamento de layout que o brief autoriza, e
+    /// ele vale para **toda** linha da variante, lida ou não: a coluna vazia da
+    /// lida é o que impede lidas e não lidas de dançarem para os lados
+    /// conforme a caixa se lê.
+    private var contentPadding: EdgeInsets {
+        var insets = theme.rowPadding.edgeInsets
+        if emphasis.showsDot {
+            insets.leading = UnreadMetrics.dotColumnWidth + UnreadMetrics.contentInsetWithColumn
         }
-        // O ponto de não-lida, na goteira da esquerda. `accent` do tema, nunca
-        // cor de sistema. Some no instante em que a mensagem vira lida, por
-        // qualquer caminho — menu de contexto, arraste ou seleção: a linha lê
-        // `message.isRead` do `MailStore`, que é `@Observable`.
-        .overlay(alignment: .topLeading) {
-            if !message.isRead {
-                Circle()
-                    .fill(theme.accent.color)
-                    .frame(width: Self.unreadDotDiameter, height: Self.unreadDotDiameter)
-                    .offset(
-                        x: Self.unreadDotCenterX - Self.unreadDotDiameter / 2,
-                        y: Self.unreadDotCenterY - Self.unreadDotDiameter / 2
-                    )
-                    .help("Mensagem não lida")
-            }
-        }
-        .hairline(theme.line2, edges: .bottom)
-        .contentShape(Rectangle())
+        return insets
     }
 }
 
