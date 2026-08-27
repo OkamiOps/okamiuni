@@ -107,6 +107,8 @@ struct SwipeRow<Content: View>: View {
     /// clique que solta o arraste chegaria ao `Button` com a linha já
     /// desbloqueada e selecionaria a mensagem que a pessoa acabou de arrastar.
     @State private var settleTask: Task<Void, Never>?
+    /// O adiamento da carência do clique fantasma — ver `dismiss()`.
+    @State private var graceTask: Task<Void, Never>?
 
     private var context: SwipeContext {
         SwipeContext(configuration: configuration, rowWidth: rowWidth, message: message)
@@ -161,7 +163,12 @@ struct SwipeRow<Content: View>: View {
         }
         // A linha aberta não pode sobreviver a uma troca de mensagem na mesma
         // posição da lista — arquivar a de cima faz a de baixo herdar a linha.
-        .onChange(of: message.id) { _, _ in dismiss() }
+        // `force`: aqui não há clique fantasma a temer, e a carência não pode
+        // deixar a linha herdada aberta.
+        .onChange(of: message.id) { _, _ in
+            settleTask?.cancel()
+            apply(withAnimation(SwipeMotion.transition) { machine.dismiss(force: true) })
+        }
     }
 
     // MARK: - O painel
@@ -267,20 +274,33 @@ struct SwipeRow<Content: View>: View {
                 machine.settle(seal)
             }
         }
+        if let seal = outcome.graceSeal {
+            graceTask?.cancel()
+            graceTask = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(0.24))
+                guard !Task.isCancelled else { return }
+                machine.settleGrace(seal)
+            }
+        }
         if let action = outcome.fired {
             onFire(action)
         }
     }
 
     /// Tocar numa coluna revelada. O mesmo caminho do arraste longo, com o
-    /// mesmo retorno visível.
+    /// mesmo retorno visível. `force`: o toque na coluna é sempre deliberado —
+    /// a carência do clique fantasma não pode segurar o fechamento aqui.
     private func fire(_ action: SwipeAction) {
-        apply(withAnimation(SwipeMotion.transition) { machine.dismiss() })
+        apply(withAnimation(SwipeMotion.transition) { machine.dismiss(force: true) })
         onFire(action)
     }
 
-    /// Fecha na hora — é o clique deliberado numa linha aberta, e ali não há
-    /// arraste em curso para proteger.
+    /// O pedido de fechar que chega pelo clique na linha. **Sem `force`**: é
+    /// exatamente este caminho que o clique fantasma do mouse-up percorre — no
+    /// macOS um `Button` dispara mesmo depois de a mão andar 200pt, desde que
+    /// solte dentro dos limites — e a máquina o ignora enquanto o arraste está
+    /// vivo ou dentro da carência de 0,24s do descanso. O clique deliberado,
+    /// que vem depois, fecha como sempre.
     private func dismiss() {
         settleTask?.cancel()
         apply(withAnimation(SwipeMotion.transition) { machine.dismiss() })

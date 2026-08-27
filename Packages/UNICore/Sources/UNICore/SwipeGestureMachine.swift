@@ -104,6 +104,10 @@ public struct SwipeOutcome: Sendable, Hashable {
     public var releasesOpenRow: Bool
     /// Agende `settle(_:)` com este selo depois da janela de 0,24s.
     public var settleSeal: Int?
+    /// Agende `settleGrace(_:)` com este selo depois da mesma janela — é a
+    /// carência que impede o clique fantasma do mouse-up de fechar a linha
+    /// que o próprio arrasto acabou de deixar aberta.
+    public var graceSeal: Int?
     /// A mudança de posição merece animação (soltura, fechamento, toque) — ao
     /// contrário do acompanhamento sob a mão, que tem de ser instantâneo.
     public var animates: Bool
@@ -113,12 +117,14 @@ public struct SwipeOutcome: Sendable, Hashable {
         claimsOpenRow: Bool = false,
         releasesOpenRow: Bool = false,
         settleSeal: Int? = nil,
+        graceSeal: Int? = nil,
         animates: Bool = false
     ) {
         self.fired = fired
         self.claimsOpenRow = claimsOpenRow
         self.releasesOpenRow = releasesOpenRow
         self.settleSeal = settleSeal
+        self.graceSeal = graceSeal
         self.animates = animates
     }
 
@@ -157,6 +163,10 @@ public struct SwipeGestureMachine: Sendable, Hashable {
     /// `startLocation` diferente é gesto novo, tenha o anterior terminado
     /// direito ou não.
     private var origin: CGPoint?
+
+    /// A carência contra o clique fantasma do mouse-up — ver `dismiss(force:)`.
+    private var dismissGraceArmed = false
+    private var dismissGraceSeal = 0
 
     // MARK: Trava
 
@@ -258,8 +268,23 @@ public struct SwipeGestureMachine: Sendable, Hashable {
     // MARK: - Os outros caminhos
 
     /// O clique deliberado numa linha aberta, ou o toque numa coluna revelada.
-    /// Fecha na hora e destrava — não há arraste em curso para proteger.
-    public mutating func dismiss() -> SwipeOutcome {
+    /// Fecha na hora e destrava.
+    ///
+    /// **A carência é o coração do defeito "não fica parada".** No macOS um
+    /// `Button` dispara no mouse-up mesmo depois de a mão andar 200pt, desde
+    /// que solte dentro dos limites — e a linha inteira é um `Button`. Todo
+    /// arrasto terminava com um clique fantasma, e este método fechava a linha
+    /// que o `dragEnded` tinha acabado de deixar aberta: o descanso era
+    /// **inalcançável por construção**. Visto no ensaio dentro do app
+    /// (`--ensaiar-arraste`): painel aberto no quadro do mouse-up, linha
+    /// fechada 60ms depois.
+    ///
+    /// Então: com um arraste vivo, ou dentro da carência que `rest(open:)`
+    /// arma, o pedido é o eco do próprio gesto e não fecha nada. `force`
+    /// atravessa — é o toque numa coluna (que precisa fechar para disparar) e
+    /// a troca de mensagem na mesma posição da lista.
+    public mutating func dismiss(force: Bool = false) -> SwipeOutcome {
+        guard force || (!isDragging && !dismissGraceArmed) else { return .ignored }
         origin = nil
         isDragging = false
         restSide = nil
@@ -267,12 +292,20 @@ public struct SwipeGestureMachine: Sendable, Hashable {
         side = nil
         magnitude = 0
         latch.release()
+        dismissGraceArmed = false
         return SwipeOutcome(releasesOpenRow: true, animates: true)
     }
 
     /// A janela de 0,24s terminou.
     public mutating func settle(_ seal: Int) {
         latch.settle(seal)
+    }
+
+    /// A carência do clique fantasma terminou. Só desarma se nenhum gesto novo
+    /// a rearmou no meio-tempo — o mesmo idioma de selo do `SwipeLatch`.
+    public mutating func settleGrace(_ seal: Int) {
+        guard seal == dismissGraceSeal else { return }
+        dismissGraceArmed = false
     }
 
     /// `openRowID` mudou. `nil` é o eco do nosso próprio fechamento e não
@@ -285,6 +318,7 @@ public struct SwipeGestureMachine: Sendable, Hashable {
         restMagnitude = 0
         side = nil
         magnitude = 0
+        dismissGraceArmed = false
         return true
     }
 
@@ -342,7 +376,12 @@ public struct SwipeGestureMachine: Sendable, Hashable {
         restMagnitude = context.panelWidth(on: side)
         self.side = side
         magnitude = restMagnitude
-        return SwipeOutcome(claimsOpenRow: true, animates: true)
+        // Arma a carência contra o clique fantasma do mouse-up — ver
+        // `dismiss(force:)`. O selo vai na ordem de serviço para a `View`
+        // agendar `settleGrace` depois da mesma janela de 0,24s.
+        dismissGraceArmed = true
+        dismissGraceSeal &+= 1
+        return SwipeOutcome(claimsOpenRow: true, graceSeal: dismissGraceSeal, animates: true)
     }
 
     /// Fecha e **segura o bloqueio** até o `settle` do selo devolvido.

@@ -52,6 +52,10 @@ struct OkamiUNIApp: App {
                 // `--capturar=/caminho.png`: fotografa a própria janela e
                 // encerra. Sem a bandeira, não faz nada.
                 .captureWindowIfRequested(WindowCapture.fromProcess, store: mailStore)
+                // `--ensaiar-arraste`: arrasta a primeira linha com eventos
+                // sintetizados dentro do processo e fotografa cada fase. Sem a
+                // bandeira, não faz nada.
+                .rehearseSwipeIfRequested(SwipeRehearsal.fromProcess)
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1440, height: 916)

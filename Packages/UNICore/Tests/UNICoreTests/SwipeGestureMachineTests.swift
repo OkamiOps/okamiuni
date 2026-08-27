@@ -49,6 +49,7 @@ struct SwipeGestureMachineTests {
         var offsets: [CGFloat] = []
         var flooded: [Bool] = []
         var fired: [SwipeAction] = []
+        var lastGraceSeal: Int?
 
         var distinctSides: Set<SwipeSide> { Set(sides.compactMap { $0 }) }
     }
@@ -91,6 +92,7 @@ struct SwipeGestureMachineTests {
         trace.offsets.append(resolution.offset)
         trace.flooded.append(resolution.willFire)
         if let action = outcome.fired { trace.fired.append(action) }
+        if let seal = outcome.graceSeal { trace.lastGraceSeal = seal }
     }
 
     /// Uma passada de mão: da origem até `to`, em `steps` amostras, com o
@@ -401,12 +403,17 @@ struct SwipeGestureMachineTests {
     }
 
     /// O clique deliberado numa linha aberta fecha e destrava na hora.
+    ///
+    /// "Deliberado" quer dizer **depois** da carência do clique fantasma — o
+    /// que chega antes é o mouse-up do próprio arrasto e não fecha nada; ver
+    /// `phantomClickDoesNotCloseTheFreshlyOpenRow`.
     @Test("o clique numa linha aberta fecha e destrava")
     func dismissClosesAndReleases() {
         var machine = SwipeGestureMachine()
         var trace = Trace()
         Self.drive(&machine, samples: Self.sweep(to: 120), into: &trace)
         #expect(machine.isBlocked)
+        if let seal = trace.lastGraceSeal { machine.settleGrace(seal) }
 
         let outcome = machine.dismiss()
         #expect(outcome.releasesOpenRow)
@@ -603,5 +610,90 @@ struct LegacySwipeDefectTests {
         // direito pode aparecer — é um gesto novo, e é o que a pessoa está
         // pedindo. O que ele não pode é disparar sem chegar aos 277,5.
         #expect(again.fired.isEmpty, "150pt do zero dispararam \(again.fired)")
+    }
+
+    // MARK: - O clique fantasma do mouse-up
+
+    /// O defeito que três rodadas de conserto não pegaram, visto no ensaio
+    /// dentro do app (`--ensaiar-arraste`): no macOS um `Button` dispara no
+    /// mouse-up mesmo depois de a mão andar 200pt, desde que solte dentro dos
+    /// limites — e a linha inteira é um `Button`. O clique fantasma chegava em
+    /// `dismiss()` logo depois do `dragEnded` e fechava a linha que o próprio
+    /// arrasto tinha deixado aberta: o descanso era inalcançável por
+    /// construção.
+    @Test("o clique fantasma do mouse-up não fecha a linha recém-aberta")
+    func phantomClickDoesNotCloseTheFreshlyOpenRow() {
+        var machine = SwipeGestureMachine()
+        var trace = SwipeGestureMachineTests.Trace()
+        SwipeGestureMachineTests.drive(
+            &machine, samples: SwipeGestureMachineTests.sweep(to: 200), into: &trace
+        )
+        #expect(machine.resolution(SwipeGestureMachineTests.context).offset == 168)
+
+        // O clique fantasma, dentro da carência: ignorado, a linha continua
+        // aberta e nada é liberado.
+        let phantom = machine.dismiss()
+        #expect(phantom == .ignored)
+        #expect(machine.resolution(SwipeGestureMachineTests.context).offset == 168)
+
+        // A carência termina; o clique seguinte é deliberado e fecha.
+        let seal = trace.lastGraceSeal
+        #expect(seal != nil, "rest(open:) tem de armar a carência com selo")
+        if let seal { machine.settleGrace(seal) }
+        let deliberate = machine.dismiss()
+        #expect(deliberate.releasesOpenRow)
+        #expect(machine.resolution(SwipeGestureMachineTests.context) == .idle)
+    }
+
+    /// O clique fantasma também chega com o arraste ainda vivo — a ordem entre
+    /// o `Button` e o `onEnded` no mesmo ciclo de evento não é garantida.
+    @Test("dismiss com o arraste vivo é ignorado")
+    func dismissDuringLiveDragIsIgnored() {
+        var machine = SwipeGestureMachine()
+        var trace = SwipeGestureMachineTests.Trace()
+        SwipeGestureMachineTests.drive(
+            &machine, samples: SwipeGestureMachineTests.sweep(to: 120),
+            into: &trace, end: false
+        )
+        #expect(machine.dismiss() == .ignored)
+        #expect(machine.resolution(SwipeGestureMachineTests.context).side == .leading)
+    }
+
+    /// Os fechamentos deliberados atravessam a carência: o toque numa coluna
+    /// (que precisa fechar para disparar) e a troca de mensagem na posição.
+    @Test("force atravessa a carência")
+    func forcedDismissCrossesTheGrace() {
+        var machine = SwipeGestureMachine()
+        var trace = SwipeGestureMachineTests.Trace()
+        SwipeGestureMachineTests.drive(
+            &machine, samples: SwipeGestureMachineTests.sweep(to: 200), into: &trace
+        )
+        let outcome = machine.dismiss(force: true)
+        #expect(outcome.releasesOpenRow)
+        #expect(machine.resolution(SwipeGestureMachineTests.context) == .idle)
+    }
+
+    /// Um gesto novo no meio da carência rearma o selo: o `settleGrace` velho
+    /// não pode desarmar a carência do descanso seguinte.
+    @Test("o selo velho não desarma a carência nova")
+    func staleGraceSealDoesNotDisarm() {
+        var machine = SwipeGestureMachine()
+        var first = SwipeGestureMachineTests.Trace()
+        SwipeGestureMachineTests.drive(
+            &machine, samples: SwipeGestureMachineTests.sweep(to: 200), into: &first
+        )
+        let old = first.lastGraceSeal
+
+        // Fecha de verdade e abre de novo — carência nova, selo novo.
+        machine.settleGrace(old ?? 0)
+        _ = machine.dismiss()
+        var second = SwipeGestureMachineTests.Trace()
+        SwipeGestureMachineTests.drive(
+            &machine, from: CGPoint(x: 210, y: 70),
+            samples: SwipeGestureMachineTests.sweep(to: 200), into: &second
+        )
+
+        machine.settleGrace(old ?? 0)
+        #expect(machine.dismiss() == .ignored, "o selo velho desarmou a carência nova")
     }
 }
