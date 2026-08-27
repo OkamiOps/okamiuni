@@ -144,6 +144,46 @@ public final class MailStore {
         markRead(id)
     }
 
+    /// Move a **mensagem** de caixa, sem mexer na caixa que a lista está
+    /// mostrando. É o que os botões de triagem do leitor fazem no protótipo:
+    /// `setState({ moved: { [sel.id]: a.id } })` altera a mensagem selecionada,
+    /// não a visão.
+    ///
+    /// Depois de mover, a mensagem costuma sair de `visibleMessages` — mover de
+    /// "Hoje" para "Depois" estando na caixa Hoje tira ela da lista. A seleção
+    /// não pode ficar apontando para fora da visão, então ela passa para a
+    /// próxima mensagem da lista (ou a anterior, se a movida era a última).
+    public func move(_ message: Message, to newBucket: TriageBucket) {
+        guard let index = messages.firstIndex(where: { $0.id == message.id }) else { return }
+        let current = messages[index]
+        guard current.bucket != newBucket else { return }
+
+        // Onde ela estava na lista, para saber quem herda a seleção.
+        let positionBefore = visibleMessages.firstIndex { $0.id == current.id }
+
+        messages[index] = Message(
+            id: current.id, accountID: current.accountID, from: current.from,
+            receivedAt: current.receivedAt, subject: current.subject,
+            snippet: current.snippet, body: current.body, tags: current.tags,
+            bucket: newBucket, isRead: current.isRead, summary: current.summary,
+            detectedEvent: current.detectedEvent
+        )
+
+        guard selectedMessageID == current.id else { return }
+        let remaining = visibleMessages
+        // Se a caixa aberta é "Tudo", a mensagem continua visível e nada muda.
+        guard !remaining.contains(where: { $0.id == current.id }) else { return }
+
+        guard let positionBefore else {
+            selectedMessageID = remaining.first?.id
+            return
+        }
+        // A que ocupou o lugar dela; se era a última, a que ficou acima.
+        selectedMessageID = remaining.indices.contains(positionBefore)
+            ? remaining[positionBefore].id
+            : remaining.last?.id
+    }
+
     private func markRead(_ id: String) {
         guard let index = messages.firstIndex(where: { $0.id == id }),
               !messages[index].isRead else { return }

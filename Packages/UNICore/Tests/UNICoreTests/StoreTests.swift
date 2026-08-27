@@ -184,6 +184,103 @@ struct StoreTests {
         #expect(store.selectedMessageID == other.id)
     }
 
+    // MARK: - Triagem move a mensagem, não a visão (Task P, rodada 1)
+
+    @Test("triar move a mensagem de caixa e não mexe na caixa aberta")
+    @MainActor
+    func triageMovesTheMessageNotTheView() async throws {
+        let store = await loadedStore()
+        let bucketBefore = store.bucket
+        let message = try #require(store.visibleMessages.first)
+        #expect(message.bucket == .today)
+
+        store.move(message, to: .later)
+
+        // A caixa aberta é da lista, não do botão.
+        #expect(store.bucket == bucketBefore)
+        // A mensagem trocou de caixa.
+        let moved = try #require(store.messages.first { $0.id == message.id })
+        #expect(moved.bucket == .later)
+    }
+
+    @Test("depois de mover, a seleção passa para a próxima da lista")
+    @MainActor
+    func movingSelectsTheNextMessage() async throws {
+        let store = await loadedStore()
+        let first = try #require(store.visibleMessages.first)
+        let second = try #require(store.visibleMessages.dropFirst().first)
+        #expect(store.selectedMessageID == first.id)
+
+        store.move(first, to: .later)
+
+        #expect(store.selectedMessageID == second.id)
+        // E continua dentro da visão — a mesma invariante da troca de caixa.
+        #expect(store.visibleMessages.contains { $0.id == store.selectedMessageID })
+    }
+
+    @Test("mover a última da caixa cai na anterior, nunca fora da visão")
+    @MainActor
+    func movingTheLastFallsBackToThePrevious() async throws {
+        let store = await loadedStore()
+        let visible = store.visibleMessages
+        #expect(visible.count >= 2)
+        let last = try #require(visible.last)
+        let previous = try #require(visible.dropLast().last)
+
+        store.select(message: last.id)
+        store.move(last, to: .archived)
+
+        #expect(store.selectedMessageID == previous.id)
+        #expect(store.visibleMessages.contains { $0.id == previous.id })
+    }
+
+    @Test("esvaziar a caixa triando deixa o leitor sem seleção")
+    @MainActor
+    func emptyingTheBucketClearsTheSelection() async {
+        let store = await loadedStore()
+        // Move tudo o que está visível para outra caixa, uma a uma. O limite
+        // existe para o teste falhar em vez de travar se `move` deixar de
+        // esvaziar a caixa — foi o que aconteceu ao rodar contra o código
+        // antigo, que trocava a visão em vez de mover a mensagem.
+        let limit = store.messages.count + 1
+        var moves = 0
+        while let visible = store.visibleMessages.first, moves < limit {
+            store.move(visible, to: .archived)
+            moves += 1
+        }
+        #expect(moves < limit)
+        #expect(store.visibleMessages.isEmpty)
+        #expect(store.selectedMessage == nil)
+    }
+
+    @Test("na caixa Tudo, mover não tira a mensagem do leitor")
+    @MainActor
+    func movingInsideTheAllBucketKeepsTheSelection() async throws {
+        let store = await loadedStore()
+        store.select(bucket: .all)
+        let message = try #require(store.visibleMessages.first)
+        store.select(message: message.id)
+
+        store.move(message, to: .archived)
+
+        // "Tudo" aceita qualquer caixa, então ela continua visível.
+        #expect(store.selectedMessageID == message.id)
+        #expect(store.messages.first { $0.id == message.id }?.bucket == .archived)
+    }
+
+    @Test("mover para a caixa em que a mensagem já está não faz nada")
+    @MainActor
+    func movingToTheSameBucketIsANoOp() async throws {
+        let store = await loadedStore()
+        let message = try #require(store.visibleMessages.first)
+        let selectionBefore = store.selectedMessageID
+
+        store.move(message, to: message.bucket)
+
+        #expect(store.selectedMessageID == selectionBefore)
+        #expect(store.messages.first { $0.id == message.id }?.bucket == message.bucket)
+    }
+
     @Test("a trilha de agenda vem ordenada por horário")
     @MainActor
     func agendaSorted() async {

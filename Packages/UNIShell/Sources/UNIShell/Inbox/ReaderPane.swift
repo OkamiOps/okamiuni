@@ -90,10 +90,12 @@ public struct ReaderPane: View {
                 ("Arquivar", TriageBucket.archived)
             ]
 
+            // Protótipo: `on` é a caixa **da mensagem**, e clicar move a
+            // mensagem — não troca a visão da lista.
             ForEach(triageButtons, id: \.0) { label, bucket in
-                let isActive = store.bucket == bucket
+                let isActive = message.bucket == bucket
                 Button {
-                    store.select(bucket: bucket)
+                    store.move(message, to: bucket)
                 } label: {
                     Text(label)
                         .font(theme.sans.font(size: 11.5, weight: .semibold))
