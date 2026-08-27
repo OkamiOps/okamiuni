@@ -16,10 +16,20 @@ struct TokenModifierTests {
         #expect(WindowChrome.height == 58)
     }
 
-    @Test("o espaço reservado aos semáforos cobre os três botões")
+    @Test("o vazio dos semáforos termina exatamente onde eles terminam")
     func trafficLightInset() {
-        // Três botões de 12px com 8px de folga, mais a margem da janela.
-        #expect(WindowChrome.trafficLightInset >= 68)
+        // Medido por acessibilidade na janela rodando: o botão de tela cheia
+        // ocupa x=54..70. O vazio tem de casar com isso — nem menos, que
+        // sobreporia os botões, nem mais, que abre um vão estranho.
+        #expect(WindowChrome.trafficLightInset == 70)
+    }
+
+    @Test("o primeiro controle nasce 14pt depois dos semáforos, como no protótipo")
+    func firstControlOffset() {
+        // padding horizontal da barra (14) + vazio + spacing do HStack (14)
+        let firstControlX = 14 + (WindowChrome.trafficLightInset - 14) + 14
+        #expect(firstControlX == 84)
+        #expect(firstControlX - WindowChrome.trafficLightInset == 14)
     }
 
     @Test("o texto da busca concorda com o número de contas", arguments: [

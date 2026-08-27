@@ -2895,6 +2895,56 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
+## Task P: Passe de polimento visual — OBRIGATÓRIA antes de fechar o marco
+
+**Pedido explícito do dono do projeto, 27/08/2026:** *"vamos ter que fazer um polimento na
+interface, tem muita coisa desalinhada... essa parte estética conta muito pra mim."*
+
+Esta tarefa **não é opcional** e não pode ser dispensada por "os testes passam". Nenhum teste
+deste projeto mede alinhamento; o olho mede.
+
+### O caso que originou a tarefa
+
+O vão entre os semáforos nativos do macOS e o primeiro controle da barra estava grande demais,
+fazendo a janela parecer amadora ao lado de qualquer app nativo.
+
+Medições reais, feitas via acessibilidade na janela rodando:
+- semáforos nativos: fechar em x=8, minimizar em x=31, tela cheia em x=54 — todos com 16pt de
+  largura, então o **último termina em x=70**
+- o protótipo põe seu primeiro controle **14pt depois** do fim dos semáforos
+- portanto o primeiro controle deve começar em **x=84**
+
+Compare com o Chrome e com o app do Claude: em ambos os controles encostam nos semáforos com
+uma folga curta. É esse o padrão da plataforma.
+
+### O que a passe tem de cobrir
+
+Percorrer a janela inteira **lado a lado com o protótipo**, na mesma escala, e corrigir:
+
+1. **Alinhamento horizontal entre painéis.** Os cabeçalhos de lista, leitor e agenda começam
+   na mesma linha de base? As divisórias verticais caem onde o protótipo põe?
+2. **Alinhamento vertical dentro da barra.** Logo, abas, busca e seletor centrados na mesma
+   linha média dos 58px?
+3. **Ritmo vertical da barra lateral.** O espaço entre "Fluxo" e a primeira pasta é igual ao
+   que há entre "Caixas" e a primeira conta?
+4. **Densidade das linhas de mensagem.** O `rowPadding` do tema está sendo respeitado, ou algum
+   `padding` extra está somando por cima?
+5. **Óptica dos chips e etiquetas.** Alturas, raios e folga interna consistentes entre a barra
+   lateral e a lista.
+6. **Estados vazios.** Os textos reservados estão opticamente centrados no painel, não apenas
+   matematicamente?
+
+### Método
+
+Capturar a janela e o protótipo no mesmo tamanho, sobrepor, e listar cada desvio com a medida.
+Corrigir os desvios. Recapturar. Repetir até o desvio ser imperceptível.
+
+Onde uma medida do protótipo brigar com a convenção do macOS — como o caso dos semáforos, que
+no protótipo são desenhados e no app são nativos — **a convenção da plataforma vence**, e a
+decisão fica registrada no relatório.
+
+---
+
 ## Definição de pronto
 
 O Marco 1 está fechado quando:

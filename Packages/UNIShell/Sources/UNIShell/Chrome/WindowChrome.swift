@@ -15,8 +15,17 @@ public enum Workspace: String, CaseIterable, Sendable {
 
 public struct WindowChrome: View {
     public static let height: CGFloat = 58
-    /// Espaço à esquerda para os semáforos da janela, que continuam nativos.
-    public static let trafficLightInset: CGFloat = 78
+    /// Onde terminam os semáforos nativos da janela, medido por acessibilidade
+    /// numa janela `.hiddenTitleBar`: fechar em x=8, minimizar em x=31, tela cheia
+    /// em x=54, todos com 16pt — o último termina em **x=70**.
+    ///
+    /// O `HStack` acrescenta seu `spacing` de 14 depois deste vazio, então o
+    /// primeiro controle nasce em x=84 — os mesmos 14pt de folga que o protótipo
+    /// deixa entre seus semáforos desenhados e o botão da barra lateral.
+    ///
+    /// Estava 78 e produzia 22pt de vão, largo demais ao lado de qualquer app
+    /// nativo. Não aumente sem medir de novo.
+    public static let trafficLightInset: CGFloat = 70
 
     /// Raio dos cantos das abas Caixa/Agenda. O protótipo usa o mesmo `var(--r2)`
     /// no container e na aba ativa, e alguns temas o definem como 0 — subtrair
