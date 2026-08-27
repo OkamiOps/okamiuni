@@ -61,9 +61,20 @@ public struct ComposerWindow: View {
     @State private var historyOpen = true
     @State private var seeded = false
 
+    /// Só para verificação: abre um painel da barra sem clique, para dar para
+    /// provar fora da tela que as amostras aparecem inteiras.
+    let debugOpenPanel: ComposerToolbar.Panel?
+
     public init(store: MailStore, mode: Mode) {
         self.store = store
         self.mode = mode
+        self.debugOpenPanel = nil
+    }
+
+    init(store: MailStore, mode: Mode, debugOpenPanel: ComposerToolbar.Panel?) {
+        self.store = store
+        self.mode = mode
+        self.debugOpenPanel = debugOpenPanel
     }
 
     private var isReply: Bool {
@@ -101,10 +112,17 @@ public struct ComposerWindow: View {
 
             ComposerToolbar(
                 reading: ComposerEditor.reading(of: draft, selection: selection),
+                openPanel: debugOpenPanel,
                 perform: { command in
                     ComposerEditor.perform(command, on: &draft, selection: &selection, theme: theme)
                 }
             )
+            // Os painéis de cor e realce são `overlay` que descem por cima do
+            // editor. O `zIndex` de dentro da barra só ordena os irmãos dela;
+            // é aqui, no empilhamento da janela, que ela precisa ficar acima do
+            // editor — senão o painel abre e é decepado, e não dá para escolher
+            // cor nenhuma.
+            .zIndex(20)
 
             if isReply { replyBody } else { newBody }
 

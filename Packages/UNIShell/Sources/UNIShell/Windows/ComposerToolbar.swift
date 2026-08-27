@@ -31,7 +31,16 @@ struct ComposerToolbar: View {
 
     @State private var openPanel: Panel?
 
-    private enum Panel { case color, highlight }
+    /// Só para verificação: permite renderizar a barra com um painel já aberto,
+    /// sem clique. Sem isto não há como provar, fora da tela, que as amostras
+    /// de cor aparecem inteiras em vez de ficarem debaixo do editor.
+    init(reading: BodyReading, openPanel: Panel? = nil, perform: @escaping (ComposerCommand) -> Void) {
+        self.reading = reading
+        self.perform = perform
+        _openPanel = State(initialValue: openPanel)
+    }
+
+    enum Panel { case color, highlight }
 
     var body: some View {
         // Protótipo: `flex-wrap: wrap; gap: 7px; row-gap: 7px`. A quebra existe
