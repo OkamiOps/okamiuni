@@ -109,6 +109,68 @@ struct RenderHarnessTests {
         #expect(rep.pixelsWide == 1440)
         #expect(rep.pixelsHigh == 916)
     }
+
+    /// A caixa "Tudo", que é onde as sete mensagens do design aparecem juntas
+    /// nos dois grupos. A caixa que abre por padrão mostra três — o design
+    /// filtra por triagem, não por dia.
+    ///
+    /// Renderizar não prova rótulo (a comparação é humana, olhando o PNG), mas
+    /// prova que a lista inteira desenha sem estourar altura nem sumir. As
+    /// asserções de conteúdo estão em `MessageListTests`.
+    @Test("a caixa Tudo desenha as sete mensagens em dois grupos")
+    func allBucketRenders() async throws {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        store.select(bucket: .all)
+        #expect(store.visibleMessages.count == 7)
+        #expect(MessageGroup.build(from: store.visibleMessages).map(\.label) == ["Hoje", "Ontem"])
+
+        let rep = try #require(
+            Render.snapshot(
+                InboxScreen(store: store).environment(ThemeStore()),
+                named: "inbox-tudo-tinta",
+                size: CGSize(width: 1440, height: 916),
+                theme: .tinta
+            )
+        )
+        #expect(rep.pixelsWide == 1440)
+    }
+
+    /// A trilha recolhida a 62pt, onde "HOSTINGER" não cabe e vira "HOS".
+    /// O PNG é para conferir que a marca curta não estoura os 40pt da pastilha.
+    @Test("a trilha recolhida desenha a marca curta do host")
+    func collapsedRailRenders() async throws {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        #expect(store.accounts.map { HostMark.rail($0.host) } == ["ZOH", "GMA", "HOS", "ICL"])
+
+        let rep = try #require(
+            Render.snapshot(
+                SidebarRail(store: store),
+                named: "trilha-recolhida-tinta",
+                size: CGSize(width: PaneLayout.railWidth, height: 480),
+                theme: .tinta
+            )
+        )
+        #expect(rep.pixelsWide == Int(PaneLayout.railWidth))
+    }
+
+    /// A barra expandida a 236pt, onde o mesmo host aparece por extenso.
+    @Test("a barra expandida desenha o host por extenso")
+    func expandedSidebarRenders() async throws {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+
+        let rep = try #require(
+            Render.snapshot(
+                FolderSidebar(store: store),
+                named: "barra-expandida-tinta",
+                size: CGSize(width: PaneLayout.expandedSidebarWidth, height: 700),
+                theme: .tinta
+            )
+        )
+        #expect(rep.pixelsWide == Int(PaneLayout.expandedSidebarWidth))
+    }
 }
 
 @Suite("Porta de depuração de lançamento")

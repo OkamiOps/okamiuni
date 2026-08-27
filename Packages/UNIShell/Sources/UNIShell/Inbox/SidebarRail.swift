@@ -109,7 +109,7 @@ public struct SidebarRail: View {
         let active = account.id == store.selectedAccountID
         let tintColor = account.tint(isDark: theme.isDark)
         let tintTokenColor = TokenColor(css: tintColor) ?? theme.ink4
-        let mark = account.host.prefix(3).uppercased()
+        let mark = HostMark.rail(account.host)
 
         return Button { store.select(account: account.id) } label: {
             Text(mark)

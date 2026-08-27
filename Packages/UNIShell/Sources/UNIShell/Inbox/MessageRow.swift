@@ -21,6 +21,23 @@ public struct MessageRow: View {
         self.isSelected = isSelected
     }
 
+    /// O canto direito da primeira linha. Design (`MSGS`): a mensagem de hoje
+    /// mostra a hora (`time: '09:42'`), a de ontem mostra o dia
+    /// (`time: 'Ontem'`) — a hora só informa quando o dia já está implícito.
+    ///
+    /// A escolha sai de `dayOffset`, a mesma fonte do cabeçalho de grupo, e não
+    /// de uma comparação com o relógio.
+    @ViewBuilder
+    private var timeStamp: some View {
+        if DayLabel.showsClockTime(forOffset: message.dayOffset) {
+            Text(message.receivedAt, format: .dateTime.hour().minute())
+        } else if let name = DayLabel.name(forOffset: message.dayOffset) {
+            Text(name)
+        } else {
+            Text(message.receivedAt, format: .dateTime.day().month(.abbreviated))
+        }
+    }
+
     public var body: some View {
         VStack(alignment: .leading, spacing: 3) {  // protótipo: margin-top: 3px
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -30,7 +47,7 @@ public struct MessageRow: View {
                     .foregroundStyle(theme.ink.color)
                     .lineLimit(1)
                 Spacer(minLength: 4)
-                Text(message.receivedAt, format: .dateTime.hour().minute())
+                timeStamp
                     .font(theme.mono.font(size: 10))
                     .foregroundStyle(theme.ink4.color)
             }

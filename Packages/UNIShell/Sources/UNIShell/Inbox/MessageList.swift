@@ -4,39 +4,52 @@ import UNICore
 
 /// Um dia de mensagens, com o rótulo que a lista mostra no cabeçalho.
 public struct MessageGroup: Identifiable {
-    public let id: String
+    /// O dia do grupo, em dias a partir de hoje: `0`, `-1`, ...
+    public let dayOffset: Int
     public let label: String
     public let messages: [Message]
 
-    /// Agrupa por dia preservando a ordem que veio (mais recente primeiro).
-    public static func build(
-        from messages: [Message],
-        calendar: Calendar = .current,
-        now: Date = .now
-    ) -> [MessageGroup] {
+    public var id: Int { dayOffset }
+
+    /// Agrupa pelo **dia que a mensagem declara**, preservando a ordem que veio.
+    ///
+    /// Antes agrupava por `calendar.startOfDay(for: message.receivedAt)` e
+    /// rotulava com `isDateInToday` contra `Date.now`. As duas metades tinham o
+    /// mesmo defeito: perguntavam ao relógio da máquina o que é dado da
+    /// mensagem. Com `Fixtures.today` em 25/08/2026, em qualquer outro dia o
+    /// grupo "Hoje" do design saía como "25 DE AGO." — que foi o que o dono do
+    /// projeto viu na janela. É a mesma classe do bug de fuso em
+    /// `docs/decisoes-de-engenharia.md`.
+    ///
+    /// `now` e `calendar` não entram mais porque não há mais nada a perguntar
+    /// a eles: dia é `dayOffset`, e o nome dele é `DayLabel`.
+    public static func build(from messages: [Message]) -> [MessageGroup] {
         guard !messages.isEmpty else { return [] }
 
-        var order: [Date] = []
-        var byDay: [Date: [Message]] = [:]
+        var order: [Int] = []
+        var byDay: [Int: [Message]] = [:]
         for message in messages {
-            let day = calendar.startOfDay(for: message.receivedAt)
-            if byDay[day] == nil { order.append(day) }
-            byDay[day, default: []].append(message)
+            if byDay[message.dayOffset] == nil { order.append(message.dayOffset) }
+            byDay[message.dayOffset, default: []].append(message)
         }
 
-        return order.map { day in
-            MessageGroup(
-                id: ISO8601DateFormatter().string(from: day),
-                label: label(for: day, calendar: calendar, now: now),
-                messages: byDay[day] ?? []
+        return order.map { offset in
+            let inDay = byDay[offset] ?? []
+            return MessageGroup(
+                dayOffset: offset,
+                label: label(forOffset: offset, sample: inDay.first),
+                messages: inDay
             )
         }
     }
 
-    private static func label(for day: Date, calendar: Calendar, now: Date) -> String {
-        if calendar.isDateInToday(day) { return "Hoje" }
-        if calendar.isDateInYesterday(day) { return "Ontem" }
-        return day.formatted(.dateTime.day().month(.abbreviated))
+    /// "Hoje" e "Ontem" saem do offset; um dia mais antigo não tem nome e cai
+    /// na data de uma mensagem dele — a data ali é só formatação, não é ela que
+    /// decide o grupo.
+    private static func label(forOffset offset: Int, sample: Message?) -> String {
+        if let name = DayLabel.name(forOffset: offset) { return name }
+        guard let sample else { return "" }
+        return sample.receivedAt.formatted(.dateTime.day().month(.abbreviated))
     }
 }
 
