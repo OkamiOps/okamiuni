@@ -129,11 +129,18 @@ public struct FolderSidebar: View {
                     .truncationMode(.tail)
                     .help(account.address)
 
+                // Sem isto a linha mede o conteúdo, e como cada endereço tem um
+                // comprimento diferente **cada seleção pintava uma largura
+                // diferente** — e o contador ficava colado no endereço em vez de
+                // alinhado à direita. A linha de pasta sempre teve este `Spacer`.
+                Spacer(minLength: 0)
+
                 // Contador (mensagens da conta)
                 Text("\(store.messages.filter { $0.accountID == account.id }.count)")
                     .font(theme.mono.font(size: 10))
                     .foregroundStyle(theme.ink4.color)
             }
+            .frame(maxWidth: .infinity)
             .frame(height: 32)
             .padding(.horizontal, 8)
             .contentShape(Rectangle())
