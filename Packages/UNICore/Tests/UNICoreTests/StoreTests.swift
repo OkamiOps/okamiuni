@@ -117,9 +117,9 @@ struct StoreTests {
         #expect(store.selectedMessage?.isRead == true)
     }
 
-    @Test("mudar de caixa limpa a seleção que não pertence mais à visão")
+    @Test("mudar de caixa nunca deixa a seleção apontando para fora da visão")
     @MainActor
-    func selectionClearedOnBucketChange() async throws {
+    func selectionNeverEscapesView() async throws {
         let store = await loadedStore()
         store.select(bucket: .all)
         let archived = try #require(
@@ -127,7 +127,15 @@ struct StoreTests {
         )
         store.select(message: archived.id)
         store.select(bucket: .today)
-        #expect(store.selectedMessage == nil)
+
+        // Este teste afirmava `selectedMessage == nil`, escrito quando limpar
+        // era o comportamento pretendido — antes de existir seleção padrão.
+        // A intenção dele continua valendo; a asserção é que era mais forte
+        // que a intenção. O invariante real é este:
+        #expect(store.selectedMessage?.id != archived.id)
+        if let selected = store.selectedMessage {
+            #expect(store.visibleMessages.contains { $0.id == selected.id })
+        }
     }
 
     // MARK: - Seleção padrão (Task P, defeito 2)
@@ -467,5 +475,64 @@ struct StoreTests {
         store.select(account: "gmail")
         let marinaInGmailCount = store.visibleMessages.count
         #expect(marinaInGmailCount == 0) // gmail não tem Marina
+    }
+}
+
+@Suite("Seleção padrão fora do load")
+@MainActor
+struct DefaultSelectionTests {
+
+    private func loaded() async -> MailStore {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        return store
+    }
+
+    /// O defeito: `select(bucket:)` e `select(account:)` limpavam a seleção que
+    /// saiu da visão mas nunca escolhiam outra, então o leitor abria vazio com
+    /// mensagens na lista. `load()` já fazia certo; as outras duas portas não.
+    @Test("trocar para uma caixa que não contém a seleção escolhe outra, não o vazio",
+          arguments: [TriageBucket.later, .archived, .all])
+    func bucketSwitchKeepsAReader(target: TriageBucket) async {
+        let store = await loaded()
+        store.select(bucket: target)
+        try? #require(store.visibleMessages.isEmpty == false)
+        #expect(store.selectedMessageID != nil,
+                "caixa \(target) tem \(store.visibleMessages.count) mensagens e nenhuma selecionada")
+        #expect(store.visibleMessages.contains { $0.id == store.selectedMessageID })
+    }
+
+    @Test("filtrar por uma conta que não tem a mensagem selecionada escolhe outra")
+    func accountFilterKeepsAReader() async {
+        let store = await loaded()
+        store.select(bucket: .all)
+        // uma conta diferente da que dona da mensagem selecionada
+        let selectedAccount = store.selectedMessage?.accountID
+        let other = store.messages.first { $0.accountID != selectedAccount }?.accountID
+        let target = try? #require(other)
+        store.select(account: target)
+        try? #require(store.visibleMessages.isEmpty == false)
+        #expect(store.selectedMessageID != nil,
+                "conta \(target ?? "?") tem \(store.visibleMessages.count) mensagens e nenhuma selecionada")
+        #expect(store.visibleMessages.contains { $0.id == store.selectedMessageID })
+    }
+
+    @Test("numa visão sem mensagens a seleção é nil, para o estado vazio aparecer")
+    func emptyViewHasNoSelection() async {
+        let store = await loaded()
+        store.select(bucket: .all)
+        store.select(account: "conta-que-nao-existe")
+        #expect(store.visibleMessages.isEmpty)
+        #expect(store.selectedMessageID == nil)
+    }
+
+    @Test("trocar de caixa não tira o usuário de uma mensagem que continua visível")
+    func staysOnMessageStillInView() async {
+        let store = await loaded()
+        store.select(bucket: .all)
+        let chosen = store.visibleMessages[1].id
+        store.select(message: chosen)
+        store.select(bucket: .all)   // mesma caixa: nada deve mudar
+        #expect(store.selectedMessageID == chosen)
     }
 }

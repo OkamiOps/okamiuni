@@ -118,11 +118,10 @@ public final class MailStore {
 
     public func select(bucket newBucket: TriageBucket) {
         bucket = newBucket
-        // Uma seleção que saiu da visão deixa o leitor mostrando algo que a
-        // lista não contém mais. Melhor limpar.
-        if let selected = selectedMessage, !newBucket.contains(selected) {
-            selectedMessageID = nil
-        }
+        // Limpar sem reescolher deixava o leitor vazio com mensagens na lista.
+        // `selectDefaultMessage()` só age quando a seleção saiu da visão, então
+        // ele preserva quem continua visível e escolhe a primeira quando não.
+        selectDefaultMessage()
     }
 
     public func select(account id: String?) {
@@ -132,11 +131,7 @@ public final class MailStore {
         } else {
             selectedAccountID = id
         }
-        // Uma seleção que saiu da visão deixa o leitor mostrando algo que a
-        // lista não contém mais. Melhor limpar.
-        if let selected = selectedMessage, !visibleMessages.contains(selected) {
-            selectedMessageID = nil
-        }
+        selectDefaultMessage()
     }
 
     public func select(message id: String) {
