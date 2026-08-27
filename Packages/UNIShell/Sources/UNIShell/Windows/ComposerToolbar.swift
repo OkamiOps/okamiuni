@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import UNICore
 import UNIDesign
@@ -86,7 +87,8 @@ struct ComposerToolbar: View {
             colorGroup
             listGroup
             alignGroup
-            insertGroup
+            linkButton
+            clearFormattingButton
             tableButton
         }
         .padding(.horizontal, 18)
@@ -118,7 +120,8 @@ struct ComposerToolbar: View {
                 FlowLayout(spacing: 7, rowSpacing: 7) {
                     listGroup
                     alignGroup
-                    insertGroup
+                    linkButton
+                    clearFormattingButton
                     tableButton
                 }
                 .padding(.horizontal, 10)
@@ -289,16 +292,36 @@ struct ComposerToolbar: View {
         }
     }
 
-    private var insertGroup: some View {
-        SegmentedRow {
-            SegmentButton(
-                label: "↗",
-                title: "Inserir hyperlink — indisponível neste marco: falta a folha que pede a URL",
-                on: false, enabled: false
-            ) {}
-            SegmentButton(label: "⌫", title: "Limpar a formatação da seleção", on: false) {
-                perform(.clearFormatting)
-            }
+    /// O protótipo põe `↗` e `⌫` na mesma cápsula (`segInsert`, linha 2119 do
+    /// `.dc.html`) porque lá os dois funcionam. Aqui o hyperlink está
+    /// desabilitado neste marco, e uma cápsula com um item apagado e um vivo lê
+    /// como grupo inteiro morto — foi o que o dono do projeto relatou: o botão
+    /// de limpar formatação "parece desabilitado". Um grupo segmentado é uma
+    /// promessa de que os itens são pares; com um deles mudo, a promessa é falsa.
+    ///
+    /// Por isso cada um ganha a própria cápsula, na ordem do protótipo. O `⌫`
+    /// passa a ter a moldura, o fundo e a sombra que os controles vivos têm,
+    /// como o `⊞`, em vez de dividir moldura com o vizinho apagado. Os glifos
+    /// continuam sendo os do protótipo.
+    private var linkButton: some View {
+        SoloToolButton(
+            label: "↗",
+            title: "Inserir hyperlink — indisponível neste marco: falta a folha que pede a URL",
+            on: false, enabled: false
+        ) {}
+    }
+
+    private var clearFormattingButton: some View {
+        SoloToolButton(
+            // O protótipo promete "Limpar toda a formatação (inclui listas,
+            // indentação e alinhamento)"; o comando deste marco zera estilo de
+            // trecho e alinhamento, mas **não** desfaz lista nem recuo. A dica
+            // diz o que o botão faz, não o que o protótipo prometeu.
+            label: "⌫",
+            title: "Limpar a formatação da seleção",
+            on: false
+        ) {
+            perform(.clearFormatting)
         }
     }
 
@@ -348,7 +371,7 @@ struct ComposerToolbar: View {
 /// Protótipo `segWrap`: `height: 26px; border-radius: var(--r2); border: 0.5px
 /// solid var(--btn-line); background: var(--btn); overflow: hidden`, com as
 /// divisórias entre os itens.
-private struct SegmentedRow<Content: View>: View {
+struct SegmentedRow<Content: View>: View {
     @Environment(\.theme) private var theme
     @ViewBuilder var content: Content
 
@@ -369,7 +392,7 @@ private struct SegmentedRow<Content: View>: View {
 /// Um item do grupo. Protótipo: `min-width: 28px; padding: 0 5px; font-size: 12px`,
 /// com a divisória de 0.5px à esquerda de todos menos do primeiro — aqui ela é
 /// desenhada como borda `leading` de cada item, e o primeiro a esconde.
-private struct SegmentButton: View {
+struct SegmentButton: View {
     @Environment(\.theme) private var theme
     let label: String
     var title: String = ""
@@ -388,9 +411,13 @@ private struct SegmentButton: View {
     var body: some View {
         Button(action: action) {
             VStack(spacing: 1) {
-                Text(label)
-                    .font(labelFont)
-                    .italic(italic)
+                OpticalGlyph(
+                    label: label,
+                    family: italic ? theme.serif : theme.sans,
+                    size: 12,
+                    weight: italic ? .regular : weight,
+                    italic: italic
+                )
                     .underline(underline)
                     .strikethrough(strike)
                 if let bar {
@@ -423,15 +450,93 @@ private struct SegmentButton: View {
         return on ? theme.accentInk.color : theme.ink2.color
     }
 
+}
 
-    private var labelFont: Font {
-        italic ? theme.serif.font(size: 12) : theme.sans.font(size: 12, weight: weight)
+/// Um glifo centrado pela **tinta**, não pela caixa de linha.
+///
+/// O `Text` cru ocupa da ascendente à descendente da fonte, e essa caixa não é
+/// simétrica em volta do desenho: centrá-la na cápsula deixa o glifo abaixo do
+/// meio. Medido nesta máquina, a 4 amostras por ponto: as letras assentavam
+/// 0,125pt a 0,25pt abaixo da linha média da cápsula e os glifos de reserva
+/// (`•—`, `≡`, `⇔`, `⇒`) entre 1,125pt e 1,375pt — 3,25pt de dispersão numa
+/// fileira que devia ler como uma linha só. É o afundamento que o dono do
+/// projeto relatou.
+///
+/// Aqui a caixa passa a ser a própria tinta, e a guia de alinhamento pendura o
+/// centro dela no centro da caixa — **sem supor** onde o SwiftUI põe a linha de
+/// base, porque `d[.firstTextBaseline]` responde isso. Depois da mudança todos
+/// os glifos ficam a menos de 0,125pt do centro.
+///
+/// A altura da caixa vira a da tinta de propósito: é o que o protótipo faz com
+/// `line-height: 1`, e é o que faz o par glifo + barrinha de cor ficar centrado
+/// como coluna, com a folga de 1pt que o `gap: 1px` do protótipo pede (antes
+/// eram 4pt, porque a descendente da caixa de linha entrava na conta).
+///
+/// Vale para **qualquer** glifo de barra, não só os do `SegmentButton`: quem
+/// desenhar outra densidade da barra usa isto e já nasce alinhado, em vez de
+/// repetir o defeito. Prefira o `init(label:family:size:weight:italic:)`, que
+/// resolve as duas faces — a que o SwiftUI desenha e a que o CoreText mede — a
+/// partir da mesma `FontFamily`. Pedir uma e medir outra é como o defeito volta.
+struct OpticalGlyph: View {
+    let label: String
+    let font: Font
+    /// A mesma face em `NSFont`, para medir.
+    let metrics: NSFont
+
+    init(label: String, font: Font, metrics: NSFont) {
+        self.label = label
+        self.font = font
+        self.metrics = metrics
+    }
+
+    init(
+        label: String,
+        family: FontFamily,
+        size: CGFloat,
+        weight: Font.Weight = .regular,
+        italic: Bool = false
+    ) {
+        self.label = label
+        let base = family.font(size: size, weight: weight)
+        self.font = italic ? base.italic() : base
+        self.metrics = GlyphMetrics.nsFont(
+            family, size: size, weight: weight.nsWeight, italic: italic
+        )
+    }
+
+    var body: some View {
+        let ink = GlyphMetrics.ink(of: label, font: metrics)
+        Text(label)
+            .font(font)
+            .fixedSize()
+            .alignmentGuide(VerticalAlignment.center) { dimension in
+                guard !ink.isEmpty else { return dimension[VerticalAlignment.center] }
+                return dimension[VerticalAlignment.firstTextBaseline] - ink.middle
+            }
+            .frame(height: ink.isEmpty ? nil : ink.height)
+    }
+}
+
+extension Font.Weight {
+    /// O peso equivalente em AppKit, para pedir a `NSFont` que vai ser medida.
+    var nsWeight: NSFont.Weight {
+        switch self {
+        case .ultraLight: .ultraLight
+        case .thin: .thin
+        case .light: .light
+        case .medium: .medium
+        case .semibold: .semibold
+        case .bold: .bold
+        case .heavy: .heavy
+        case .black: .black
+        default: .regular
+        }
     }
 }
 
 /// O botão da tabela, que fica sozinho fora dos grupos.
 /// Protótipo: `width: 30px; height: 26px`.
-private struct SoloToolButton: View {
+struct SoloToolButton: View {
     @Environment(\.theme) private var theme
     let label: String
     let title: String
@@ -441,8 +546,7 @@ private struct SoloToolButton: View {
 
     var body: some View {
         Button(action: action) {
-            Text(label)
-                .font(theme.sans.font(size: 12))
+            OpticalGlyph(label: label, family: theme.sans, size: 12)
                 .foregroundStyle(foreground)
                 .frame(width: 30, height: 26)
                 .background(on ? theme.accentSoft.color : theme.btn.color)

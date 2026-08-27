@@ -342,11 +342,16 @@ public struct ComposerWindow: View {
             // Sem ele o `TextEditor` descarta o `BodyStyleAttribute`, que é a
             // única coisa que sabe dizer se um trecho está em negrito.
             TextEditor(text: $draft, selection: $selection)
-                .attributedTextFormattingDefinition(AttributeScopes.UNIComposerAttributes.self)
+                // A definição carrega o escopo **e** a altura de linha. Ela
+                // ocupa o lugar do `.lineSpacing(corpo * 0.7)` que estava aqui:
+                // medido, aquilo pendurava 10,50pt embaixo de cada fragmento
+                // menos do último, o cursor ficava com 28,50pt no meio do texto
+                // e 18,00pt na última linha, e era o "cursor gigante" que o dono
+                // do projeto relatou. Ver `ComposerBodyFormatting`.
+                .attributedTextFormattingDefinition(ComposerBodyFormatting())
                 .textEditorStyle(.plain)
                 .scrollContentBackground(.hidden)
                 .font(theme.serif.font(size: BodyStyle.defaultSize))
-                .lineSpacing(BodyStyle.defaultSize * 0.7)  // line-height 1.7
                 .foregroundStyle(theme.ink.color)
                 .padding(.horizontal, 22 - 5)  // o TextEditor já traz 5pt de calha
                 .padding(.vertical, 20)
