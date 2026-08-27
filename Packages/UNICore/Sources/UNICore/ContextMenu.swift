@@ -46,6 +46,8 @@ public enum ContextCommand: Sendable, Hashable {
     case move(messageID: String, to: TriageBucket)
     /// Percorre uma caixa marcando tudo como lido. `accountID` nulo = todas.
     case markAllRead(bucket: TriageBucket, accountID: String?)
+    /// 06 Nova mensagem, com a conta já escolhida na linha "De".
+    case composeFrom(accountID: String)
     /// Liga o filtro de conta.
     case filterAccount(accountID: String)
     /// Desliga o filtro de conta.
@@ -365,6 +367,16 @@ public enum ContextMenus {
         unread: Int
     ) -> [ContextMenuEntry] {
         var entries: [ContextMenuEntry] = [
+            // Primeiro, porque escrever é o que se faz com uma conta —
+            // filtrar é o que se faz com a **lista**. A 06 já recebe o id da
+            // conta; o que faltava era um caminho até ela que não passasse por
+            // abrir a janela e trocar a linha "De" à mão.
+            .item(ContextMenuItem(
+                "Nova mensagem desta conta",
+                .composeFrom(accountID: account.id),
+                help: "Escrever de \(account.address)"
+            )),
+            .separator,
             .item(isFiltered
                 ? ContextMenuItem("Limpar filtro", .clearAccountFilter)
                 : ContextMenuItem("Filtrar só esta conta", .filterAccount(accountID: account.id)))

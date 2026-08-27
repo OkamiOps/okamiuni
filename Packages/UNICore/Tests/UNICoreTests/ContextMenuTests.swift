@@ -197,13 +197,16 @@ struct ContextMenuTests {
     func filterLabelFollowsState() {
         let account = Fixtures.accounts[0]
 
+        // Só um dos dois rótulos existe por vez, e ele é o que o clique na
+        // linha de fato faz — `select(account:)` alterna.
         let idle = ContextMenus.accountRow(account, isFiltered: false, unread: 0)
-        #expect(idle.titles.first == "Filtrar só esta conta")
-        #expect(idle.commands.contains(.filterAccount(accountID: account.id)))
+        #expect(idle.item("Filtrar só esta conta")?.command
+            == .filterAccount(accountID: account.id))
+        #expect(idle.item("Limpar filtro") == nil)
 
         let filtered = ContextMenus.accountRow(account, isFiltered: true, unread: 0)
-        #expect(filtered.titles.first == "Limpar filtro")
-        #expect(filtered.commands.contains(.clearAccountFilter))
+        #expect(filtered.item("Limpar filtro")?.command == .clearAccountFilter)
+        #expect(filtered.item("Filtrar só esta conta") == nil)
     }
 
     @Test("copiar o endereço da conta usa o endereço dela, não o id nem o host")
@@ -480,6 +483,49 @@ struct ContextMenuTests {
             message(to: [Self.eu]), accountAddress: Self.eu.address
         )
         #expect(entries.item("Responder a todos")?.isEnabled == false)
+    }
+}
+
+extension ContextMenuTests {
+
+    // MARK: - Linha de conta
+
+    /// A janela 06 sempre soube abrir numa conta — o valor da cena é o id
+    /// dela. O que faltava era um caminho até isso que não fosse abrir a
+    /// janela pelo ⌘N e trocar a linha "De" à mão.
+    @Test("a linha da conta abre a 06 já naquela conta")
+    func accountRowComposes() {
+        let account = Fixtures.accounts[0]
+        let entries = ContextMenus.accountRow(account, isFiltered: false, unread: 0)
+        let item = entries.item("Nova mensagem desta conta")
+
+        #expect(item?.command == .composeFrom(accountID: account.id))
+        #expect(item?.isEnabled == true)
+        #expect(item?.help == "Escrever de \(account.address)")
+    }
+
+    /// Escrever é o que se faz com uma **conta**; filtrar é o que se faz com a
+    /// lista. A ordem do menu diz isso.
+    @Test("escrever vem antes de filtrar na linha da conta")
+    func composeComesFirst() {
+        let entries = ContextMenus.accountRow(Fixtures.accounts[0], isFiltered: false, unread: 2)
+        #expect(entries.titles == [
+            "Nova mensagem desta conta",
+            "Filtrar só esta conta",
+            "Marcar tudo como lido",
+            "Copiar endereço",
+        ])
+    }
+
+    /// Nenhum `switch` sobre provedor em lugar nenhum: o item sai do que a
+    /// conta declara, e vale para todas.
+    @Test("toda conta ganha o item, seja qual for o provedor")
+    func everyAccountGetsIt() {
+        for account in Fixtures.accounts {
+            let entries = ContextMenus.accountRow(account, isFiltered: false, unread: 0)
+            #expect(entries.item("Nova mensagem desta conta")?.command
+                == .composeFrom(accountID: account.id))
+        }
     }
 }
 

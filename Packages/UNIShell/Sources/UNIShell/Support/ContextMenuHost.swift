@@ -156,6 +156,11 @@ struct MenuCommandRunner {
              .deleteForever, .restoreDeleted, .emptyTrash:
             StoreCommand.run(command, on: store)
 
+        case .composeFrom(let accountID):
+            // A cena 06 já carrega o id da conta como valor — é o mesmo
+            // caminho do ⌘N, que passa `""` e cai na primeira conta.
+            openWindow(id: UNIWindow.newMessage, value: accountID)
+
         case .filterAccount(let accountID):
             // `select(account:)` alterna. O item só existe quando o filtro
             // está desligado, e a guarda impede que um clique repetido o
