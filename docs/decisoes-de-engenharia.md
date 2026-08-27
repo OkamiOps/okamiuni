@@ -54,6 +54,20 @@ teto estourou o timeout de 600s em vez de falhar.
 - `box-shadow` com **spread** é borda, não sombra. `.shadow(radius: 0, x: 0, y: 0)` não desenha
   nada — use `strokeBorder`.
 - `soft(c, p)` no protótipo ≈ `.opacity(p/100)`.
+- **`width` do protótipo nem sempre é a largura da caixa.** Não há
+  `box-sizing: border-box` global: o autor o declara elemento a elemento, e onde não declara
+  vale `content-box` — o `padding` soma **por fora**. `.frame(width:)` do SwiftUI é a caixa
+  toda. Cravar o número do CSS no quadro externo encolhe o conteúdo pelos dois recuos: o
+  seletor de data de `width: 244px; padding: 12px` mede 268, não 244, e com 244 as células de
+  33,1pt viravam 30,3. Leia o `box-sizing` **computado** antes de copiar a largura.
+- **`Rectangle` irmã num `HStack` não tem altura própria** — ela pede o máximo disponível. Como
+  faixa de cor de um cartão isso só passa despercebido enquanto a altura do cartão vem imposta
+  de fora; numa célula com altura de sobra, a mesma faixa esticou uma pastilha de 16pt para
+  mais de 50. Faixa de borda é `.overlay(alignment:)`, não irmã.
+- **`flex: 1` com `min-height: 0` não é `.frame(maxHeight: .infinity)`.** O CSS deixa a linha
+  ignorar o tamanho do conteúdo; o SwiftUI ainda respeita o mínimo intrínseco, e a linha mais
+  cheia rouba altura das outras. Para N linhas iguais, o conteúdo entra por `.overlay` sobre um
+  `Color.clear` — que não tem tamanho próprio — com `.clipped()`.
 
 ## Intenção do usuário é separada do que cabe na janela
 

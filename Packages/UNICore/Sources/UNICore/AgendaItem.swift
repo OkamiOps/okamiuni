@@ -45,28 +45,23 @@ public struct AgendaItem: Sendable, Hashable, Identifiable {
     public var durationMinutes: Int { endMinute - startMinute }
 
     /// "09:30"
-    public var startLabel: String {
-        String(format: "%02d:%02d", startMinute / 60, startMinute % 60)
-    }
+    ///
+    /// A regra em si mora em `MinuteFormat`, que é a mesma que a grade usa nos
+    /// rótulos de hora e o "Livre hoje" usa nas lacunas. Três cópias divergem
+    /// no primeiro ajuste; esta chama a única.
+    public var startLabel: String { MinuteFormat.clock(startMinute) }
 
     /// "10:00"
-    public var endLabel: String {
-        String(format: "%02d:%02d", endMinute / 60, endMinute % 60)
-    }
+    public var endLabel: String { MinuteFormat.clock(endMinute) }
 
     /// "09:30 – 10:00". Protótipo: `fmt(s) + ' – ' + fmt(e)`, com espaço fino
     /// dos dois lados do travessão.
-    public var rangeLabel: String { "\(startLabel) – \(endLabel)" }
+    public var rangeLabel: String { MinuteFormat.range(startMinute, endMinute) }
 
     /// "45min", "1h", "1h30". Protótipo:
     /// `floor(d/60) ? floor(d/60) + 'h' + (d%60 ? d%60 : '') : d + 'min'`.
     /// Repare que a hora cheia não vira "1h00" — vira "1h".
-    public var durationLabel: String {
-        let hours = durationMinutes / 60
-        let minutes = durationMinutes % 60
-        guard hours > 0 else { return "\(durationMinutes)min" }
-        return minutes > 0 ? "\(hours)h\(minutes)" : "\(hours)h"
-    }
+    public var durationLabel: String { MinuteFormat.duration(durationMinutes) }
 }
 
 /// Rótulos de data que mais de uma tela escreve.

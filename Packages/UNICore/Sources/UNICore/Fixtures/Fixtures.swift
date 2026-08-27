@@ -283,6 +283,72 @@ public enum Fixtures {
                    startMinute: 1140, endMinute: 1200, accountID: "icloud", dayOffset: 5),
     ]).sorted { ($0.startMinute, $0.dayOffset, $0.id) < ($1.startMinute, $1.dayOffset, $1.id) }
 
+    // MARK: - O mês
+
+    /// Os horários de cada título recorrente. Protótipo: `TIMES` (linha 1766).
+    ///
+    /// O `MONTH` do protótipo guarda só título e conta em cada célula, e o
+    /// horário vem daqui — é isso que faz "Standup" ser 09:30 nos vinte e tantos
+    /// dias em que ele aparece sem repetir o par em cada um.
+    private static let recurringTimes: [String: (start: Int, end: Int, account: String)] = [
+        "Standup": (570, 600, "zoho"),
+        "Kickoff cliente": (840, 900, "zoho"),
+        "Auditoria LGPD": (600, 720, "host"),
+        "Proposta TransRota": (840, 960, "host"),
+        "Revisão semanal": (960, 1020, "icloud"),
+        "Planejar semana": (1140, 1200, "icloud"),
+        "Renovar domínio": (600, 630, "host"),
+    ]
+
+    /// Os dias do mês **fora** da semana de `week`, em deslocamento a partir de
+    /// `today`. Protótipo: `MONTH` (linha 1637), sem a linha da semana atual.
+    ///
+    /// A linha 4 do `MONTH` — segunda 24 a domingo 30 — não está aqui de
+    /// propósito: ela é `week`, e `week` já resolveu a contradição documentada
+    /// entre `RAIL` e `WEEK` na terça. Repeti-la aqui criaria a **terceira**
+    /// versão do dia 25, que é exatamente o defeito que aquela decisão evitou.
+    private static let outsideWeek: [(dayOffset: Int, titles: [String])] = [
+        // Julho: as pontas cinzas da primeira linha.
+        (-29, ["Standup"]), (-28, ["Standup"]), (-27, ["Standup"]), (-26, ["Standup"]),
+        (-25, []), (-24, []), (-23, []),
+        // Semana de 3 a 9 de agosto.
+        (-22, ["Standup"]), (-21, ["Standup"]),
+        (-20, ["Standup", "Kickoff cliente"]), (-19, ["Standup"]),
+        (-18, ["Revisão semanal"]), (-17, []), (-16, []),
+        // 10 a 16.
+        (-15, ["Standup"]), (-14, ["Standup", "Auditoria LGPD"]),
+        (-13, ["Standup"]), (-12, ["Standup"]),
+        (-11, ["Revisão semanal"]), (-10, []), (-9, []),
+        // 17 a 23.
+        (-8, ["Standup"]), (-7, ["Standup"]),
+        (-6, ["Standup", "Proposta TransRota"]), (-5, ["Standup"]),
+        (-4, ["Revisão semanal"]), (-3, []), (-2, ["Planejar semana"]),
+        // 31 de agosto e a ponta de setembro.
+        (6, ["Standup"]), (7, []), (8, []), (9, []),
+        (10, ["Renovar domínio"]), (11, []), (12, []),
+    ]
+
+    /// Agosto inteiro, das seis linhas da grade: `week` mais os outros 35 dias.
+    ///
+    /// É esta lista que a `InMemoryMailSource` serve, e não `week`, porque a
+    /// visão Mês e o seletor de data de 244pt precisam de mês inteiro para
+    /// terem o que mostrar. As outras visões não notam a diferença: a trilha
+    /// diária pede `dayOffset == 0` e a grade da semana pede sete
+    /// deslocamentos — o que sobra simplesmente não é consultado.
+    public static let month: [AgendaItem] = (week + outsideWeek.flatMap { day in
+        day.titles.enumerated().compactMap { index, title -> AgendaItem? in
+            guard let time = recurringTimes[title] else { return nil }
+            return AgendaItem(
+                // O deslocamento negativo entra no id com o sinal, o que já o
+                // torna único: "m-29.0" nunca colide com "m6.0".
+                id: "m\(day.dayOffset).\(index)",
+                title: title,
+                startMinute: time.start, endMinute: time.end,
+                accountID: time.account, dayOffset: day.dayOffset
+            )
+        }
+    }).sorted { ($0.startMinute, $0.dayOffset, $0.id) < ($1.startMinute, $1.dayOffset, $1.id) }
+
     /// O catálogo por trás dos campos Para/Cc/Cco. Protótipo: `CONTACTS`.
     public static let contacts: [DirectoryContact] = [
         DirectoryContact(name: "Marina Duarte", address: "marina@clientepremium.com",

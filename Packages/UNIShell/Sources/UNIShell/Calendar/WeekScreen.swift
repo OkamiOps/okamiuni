@@ -2,18 +2,13 @@ import SwiftUI
 import UNIDesign
 import UNICore
 
-/// A tela **02 Agenda semanal** (linhas 1394–1531 do protótipo).
+/// A visão **Semana** da tela 02 (protótipo, linhas 1499–1530): a faixa dos
+/// sete dias e a grade de 00:00 a 24:00.
 ///
-/// Autossuficiente de propósito: ela recebe a `MailStore` e desenha a aba
-/// inteira, sem depender da tela da caixa de entrada. Quem liga a aba só
-/// precisa trocar o corpo do `case .calendar`.
-///
-/// **O que ficou fora deste marco.** O protótipo especifica três visões sob o
-/// mesmo cabeçalho: Dia (1463–1497, com a lateral "Livre hoje" de 250pt e o
-/// seletor de data de 244pt) e Mês (1439–1462) além da Semana. Só a Semana
-/// existe aqui. As outras duas abas aparecem **desabilitadas e visivelmente
-/// assim** — uma aba que parece clicável e não faz nada é a mesma falha da aba
-/// vazia, em escala menor.
+/// **Ela não desenha mais o cabeçalho.** Enquanto era a única visão, a faixa de
+/// 46pt morava aqui; agora que Dia e Mês existem, ela mora em `CalendarHeader`,
+/// que a `CalendarScreen` põe acima das três. O cabeçalho é justamente o que
+/// não pode mudar ao trocar de aba, e três cópias dele mudariam.
 public struct WeekScreen: View {
 
     /// Converte minutos do dia em pontos na grade.
@@ -126,92 +121,11 @@ public struct WeekScreen: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            header
             dayHeaderStrip
             grid
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(theme.surface.color)
-    }
-
-    // MARK: - Cabeçalho
-
-    /// Protótipo: `height: 46px; gap: 14px; padding: 0 22px`.
-    private var header: some View {
-        HStack(spacing: 14) {
-            Text(WeekAgenda.monthTitle(for: anchor))
-                .font(theme.serif.font(size: 19, weight: .semibold))
-                .foregroundStyle(theme.ink.color)
-
-            viewTabs
-
-            Text("semana \(WeekAgenda.weekNumber(for: anchor))")
-                .font(theme.mono.font(size: 10))
-                .foregroundStyle(theme.ink4.color)
-                .lineLimit(1)
-
-            Spacer(minLength: 0)
-
-            accountLegend
-        }
-        .padding(.horizontal, 22)
-        .frame(height: 46)
-        .hairline(theme.line2, edges: .bottom)
-    }
-
-    /// As três abas do protótipo. Só "Semana" está viva neste marco; Dia e Mês
-    /// ficam apagadas e não respondem a clique — nem são botões, para não
-    /// oferecerem um alvo que não leva a lugar nenhum.
-    private var viewTabs: some View {
-        HStack(spacing: 2) {
-            tab("Dia", isActive: false, isAvailable: false)
-            tab("Semana", isActive: true, isAvailable: true)
-            tab("Mês", isActive: false, isAvailable: false)
-        }
-        .padding(2)
-        .background(theme.surface3.color)
-        .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-    }
-
-    /// Protótipo: `tab(on)` — `height: 24px; padding: 0 13px; font-size: 12.5px;
-    /// font-weight: 550`, e a ativa com fundo `surface` e sombra leve.
-    private func tab(_ label: String, isActive: Bool, isAvailable: Bool) -> some View {
-        Text(label)
-            .font(theme.sans.font(size: 12.5, weight: .medium))
-            .foregroundStyle(isActive ? theme.ink.color : theme.ink3.color)
-            .padding(.horizontal, 13)
-            .frame(height: 24)
-            .background {
-                if isActive {
-                    RoundedRectangle(cornerRadius: theme.radiusSmall)
-                        .fill(theme.surface.color)
-                        // CSS `0 1px 2px rgba(0,0,0,0.08)`: o raio do SwiftUI é
-                        // metade do blur do CSS.
-                        .shadow(color: .black.opacity(0.08), radius: 1, x: 0, y: 1)
-                }
-            }
-            .opacity(isAvailable ? 1 : 0.45)
-            .help(isAvailable ? "" : "\(label) chega num marco adiante")
-            .accessibilityLabel(isAvailable ? label : "\(label), indisponível")
-    }
-
-    /// Uma entrada por conta, sem teto: a quantidade é do usuário, e qualquer
-    /// provedor em qualquer domínio entra aqui do mesmo jeito.
-    private var accountLegend: some View {
-        HStack(spacing: 14) {
-            ForEach(store.accounts) { account in
-                HStack(spacing: 6) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(tint(of: account.id))
-                        .frame(width: 7, height: 7)
-                    Text(account.host)
-                        .font(theme.sans.font(size: 11.5))
-                        .foregroundStyle(theme.ink2.color)
-                        .lineLimit(1)
-                }
-                .fixedSize()
-            }
-        }
     }
 
     // MARK: - Faixa dos dias

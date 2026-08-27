@@ -122,6 +122,25 @@ public struct PaneLayout: Sendable, Hashable {
         sidebarExpanded ? Self.expandedSidebarWidth : Self.railWidth
     }
 
+    /// A lateral aberta ou recolhida, só isso — intenção cruzada com a largura
+    /// da janela, sem negociar lista nem leitor.
+    ///
+    /// Existe porque a aba Agenda usa a **mesma** lateral do email (no
+    /// protótipo ela é do shell, fora do `sc-if` que separa as duas telas) mas
+    /// não tem lista de mensagens nem leitor para repartir. Chamar `resolve` lá
+    /// obrigaria a inventar painéis que aquela tela não tem só para ler um
+    /// booleano. `resolve` chama esta função, então a fronteira é uma só: mexer
+    /// em `sidebarBreakpoint` move as duas abas juntas.
+    public static func sidebarExpanded(width: CGFloat, wantsSidebar: Bool) -> Bool {
+        wantsSidebar && width >= sidebarBreakpoint
+    }
+
+    /// Largura da lateral para a aba que não reparte mais nada com ela.
+    public static func sidebarWidth(width: CGFloat, wantsSidebar: Bool) -> CGFloat {
+        sidebarExpanded(width: width, wantsSidebar: wantsSidebar)
+            ? expandedSidebarWidth : railWidth
+    }
+
     // MARK: - Onde ficam as divisórias
     //
     // A `View` precisa saber em que x pousar cada alvo de arraste. É a mesma
@@ -169,7 +188,7 @@ public struct PaneLayout: Sendable, Hashable {
         // As fronteiras olham a largura da janela, não a intenção: quem
         // recolheu a lateral de propósito numa janela larga não muda a faixa em
         // que a lista vive, só devolve os 174pt de diferença ao resto.
-        let sidebarExpanded = wantsSidebar && width >= sidebarBreakpoint
+        let sidebarExpanded = self.sidebarExpanded(width: width, wantsSidebar: wantsSidebar)
         let agendaVisible = wantsAgenda && width >= agendaBreakpoint
 
         let sidebar = sidebarExpanded ? expandedSidebarWidth : railWidth

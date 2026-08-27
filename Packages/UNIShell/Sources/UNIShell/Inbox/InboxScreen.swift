@@ -195,11 +195,16 @@ public struct InboxScreen: View {
     /// parecerem a mesma coisa.
     private static let paneTransition: Animation = .easeInOut(duration: 0.18)
 
+    /// A aba Agenda leva a **mesma** barra lateral do email, porque no
+    /// protótipo ela é do shell e não da tela do email — ver `CalendarScreen`.
+    /// Por isso `wantsSidebar` atravessa daqui: é a intenção que o botão da
+    /// barra do topo mexe, e ela tem de valer nas duas abas.
     private var calendarContent: some View {
-        WeekScreen(
+        CalendarScreen(
             store: store,
             now: Fixtures.nowMinute,
             anchor: Fixtures.today,
+            wantsSidebar: wantsSidebar,
             onOpenEvent: openEventWindow
         )
     }
