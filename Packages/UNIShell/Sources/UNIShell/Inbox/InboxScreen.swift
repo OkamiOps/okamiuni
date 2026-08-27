@@ -57,7 +57,7 @@ public struct InboxScreen: View {
             ReaderPane(store: store, onAddEvent: { _ in })
 
             // Trilha de agenda
-            AgendaRail(store: store)
+            AgendaRail(store: store, headerDate: Fixtures.today)
         }
         .frame(maxHeight: .infinity, alignment: .topLeading)
     }
