@@ -19,18 +19,22 @@ public enum Fixtures {
     ]
 
     /// Âncora fixa para os testes não dependerem do relógio.
-    /// Terça, 25 de agosto de 2026 — o "hoje" do protótipo.
+    /// Terça, 25 de agosto de 2026, meio-dia — o "hoje" do protótipo.
+    ///
+    /// Sem fuso explícito, de propósito: tudo que lê esta data (o cabeçalho da
+    /// agenda, os horários das mensagens) formata com `Calendar.current`. Fixá-la
+    /// num fuso faria o dia e a hora renderizados variarem conforme a máquina —
+    /// era esse o bug que trocava o meio-dia por 17:00 em Berlim.
     public static let today: Date = {
         var c = DateComponents()
         c.year = 2026; c.month = 8; c.day = 25
         c.hour = 12; c.minute = 0
-        c.timeZone = TimeZone(identifier: "America/Sao_Paulo")
         return Calendar(identifier: .gregorian).date(from: c)!
     }()
 
-    /// Minuto do dia das fixtures (horário de parede em São Paulo).
-    /// Não derive de `today` com Calendar.current — a conversão depende do fuso da máquina.
-    /// Este valor é constante: 12:00 = 720 minutos desde a meia-noite.
+    /// Meio-dia em minutos desde a meia-noite, como `AgendaItem` modela horário.
+    /// Literal em vez de derivado de `today`: horário de parede não deveria
+    /// precisar de uma conversão que pode errar.
     public static let nowMinute: Int = 720
 
     private static func at(_ hour: Int, _ minute: Int) -> Date {

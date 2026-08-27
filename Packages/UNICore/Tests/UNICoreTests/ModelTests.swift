@@ -39,3 +39,27 @@ struct ModelTests {
         #expect(TriageBucket.archived.contains(m) == false)
     }
 }
+
+@Suite("Fixtures e fuso horário")
+struct FixtureTimeZoneTests {
+
+    /// O bug: `today` era fixado em America/Sao_Paulo e o minuto era derivado
+    /// dele com `Calendar.current`. Numa máquina em Berlim isso dava 1020 em
+    /// vez de 720, e a agenda marcava "agora" às 17:00. Este teste trava as
+    /// duas pontas juntas — ele falha em qualquer fuso onde elas discordem.
+    @Test("o minuto derivado de today bate com nowMinute")
+    func derivedMinuteMatchesConstant() {
+        let cal = Calendar.current
+        let derived = cal.component(.hour, from: Fixtures.today) * 60
+            + cal.component(.minute, from: Fixtures.today)
+        #expect(derived == Fixtures.nowMinute)
+    }
+
+    @Test("today cai no dia do protótipo no calendário local")
+    func todayIsTheProtoypeDay() {
+        let parts = Calendar.current.dateComponents([.year, .month, .day], from: Fixtures.today)
+        #expect(parts.year == 2026)
+        #expect(parts.month == 8)
+        #expect(parts.day == 25)
+    }
+}
