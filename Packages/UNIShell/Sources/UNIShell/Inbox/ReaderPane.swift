@@ -199,7 +199,14 @@ public struct ReaderPane: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             if let event {
-                Divider().overlay(theme.accentLine.color)
+                // Protótipo: `margin-top: 14px; padding-top: 13px;
+                // border-top: 0.5px solid var(--accent-line)`. O `spacing: 8`
+                // do VStack já responde por 8 dos 14.
+                Rectangle()
+                    .fill(theme.accentLine.color)
+                    .frame(height: Hairline.thickness)
+                    .padding(.top, 6)   // 8 do spacing + 6 = os 14 do margin-top
+                    .padding(.bottom, 5)  // 5 + 8 do spacing = os 13 do padding-top
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 0) {
                         // Usa interpolação com AttributedString para evitar deprecação
@@ -214,9 +221,14 @@ public struct ReaderPane: View {
                             .frame(height: 26)
                             .padding(.horizontal, 12)
                             .background(theme.accent.color)
+                            // Raio 8 literal no protótipo, não `var(--r2)`.
                             .clipShape(RoundedRectangle(cornerRadius: 8))
+                            // `box-shadow: 0 1px 2px rgba(0,0,0,0.18)` — o blur
+                            // do CSS vale o dobro do raio do SwiftUI.
+                            .shadow(color: .black.opacity(0.18), radius: 1, x: 0, y: 1)
                     }
                     .buttonStyle(.plain)
+                    .fixedSize()
                 }
             }
         }

@@ -76,7 +76,9 @@ public struct SidebarRail: View {
                     .textCase(.uppercase)
 
                 Text("\(store.count(for: bucket))")
-                    .font(theme.mono.font(size: 13, weight: .semibold))
+                    // O protótipo não declara família nesta contagem, então ela
+                    // herda a sans do corpo — não é mono como a abreviação acima.
+                    .font(theme.sans.font(size: 13, weight: .semibold))
                     // Peso 650 não existe em Font.Weight (enum: 100,300,400,500,600,700,800,900).
                     // Semibold (600) é o vizinho mais próximo, como em Task 7.
                     // Para peso exato, seria preciso Core Text e fonte variável.
