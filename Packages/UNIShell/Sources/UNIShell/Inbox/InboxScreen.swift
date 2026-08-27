@@ -57,7 +57,13 @@ public struct InboxScreen: View {
             ReaderPane(store: store, onAddEvent: { _ in })
 
             // Trilha de agenda
-            AgendaRail(store: store, headerDate: Fixtures.today)
+            // Ambos (data e minuto) vêm de Fixtures.today para coerência durante testes
+            AgendaRail(
+                store: store,
+                now: (Calendar.current.component(.hour, from: Fixtures.today) * 60
+                    + Calendar.current.component(.minute, from: Fixtures.today)),
+                headerDate: Fixtures.today
+            )
         }
         .frame(maxHeight: .infinity, alignment: .topLeading)
     }

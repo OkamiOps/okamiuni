@@ -140,4 +140,39 @@ struct AgendaRailTests {
         // Fixtures.today é terça-feira, 25 de agosto de 2026
         #expect(dateString == "Terça-feira, 25 de agosto")
     }
+
+    @Test("rótulo de duração — minutos para N < 90")
+    func durationMinutes() {
+        let items = Fixtures.agenda
+        // now = 720 (12:00), almoço às 12:30 (750) → 30 min
+        let label = AgendaRail.nextUpLabel(for: items, now: 720)
+        #expect(label == "em 30 min: Almoço — bloqueado")
+    }
+
+    @Test("rótulo de duração — 89 min (limite inferior, sem formato em horas)")
+    func duration89Minutes() {
+        let items = Fixtures.agenda
+        // now = 901 (15:01), foco às 16:30 (990) → 89 min
+        let label = AgendaRail.nextUpLabel(for: items, now: 901)
+        #expect(label == "em 89 min: Foco: proposta TransRota")
+    }
+
+    @Test("rótulo de duração — 90 min (limite superior, formato 1h30)")
+    func duration90Minutes() {
+        let items = Fixtures.agenda
+        // now = 900 (15:00), foco às 16:30 (990) → 90 min = 1h30
+        let label = AgendaRail.nextUpLabel(for: items, now: 900)
+        #expect(label == "em 1h30: Foco: proposta TransRota")
+    }
+
+    @Test("rótulo de duração — 271 min (1:1 14h até Foco 16:30)")
+    func duration271Minutes() {
+        let items = Fixtures.agenda
+        // Usa item customizado para testar número grande de minutos
+        let customItem = AgendaItem(id: "x", title: "Evento longe",
+                                   startMinute: 990, endMinute: 1000, accountID: "z")
+        let label = AgendaRail.nextUpLabel(for: [customItem], now: 660)
+        // 990 - 660 = 330 min = 5h30
+        #expect(label == "em 5h30: Evento longe")
+    }
 }
