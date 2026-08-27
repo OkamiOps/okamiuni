@@ -11,8 +11,15 @@ public struct AgendaRail: View {
         public let pointsPerMinute: CGFloat
 
         /// Largura da calha dos rótulos de hora.
-        /// Protótipo: `<span style="… width: 26px; flex: none;">{{ h.label }}</span>`.
-        public let labelGutter: CGFloat = 26
+        ///
+        /// O protótipo declara `width: 26px` no span, mas escreve `fmt(min)`
+        /// dentro dele — "08:00", cinco caracteres. Em mono 9pt isso mede ~27pt
+        /// e transborda os 26 na própria página; o span só não trunca porque
+        /// tem os 6px de `gap` livres à direita. Aqui a calha recebe os 30pt que
+        /// o texto pede, e a diferença sai da largura do cartão: `eventLeading`
+        /// é derivado da calha, então o cartão continua começando logo depois
+        /// dela. É medida de conteúdo, não de painel — não muda com a janela.
+        public let labelGutter: CGFloat = 30
 
         /// Folga entre a calha e a linha da hora.
         /// Protótipo: `gap: 6px` na linha da hora.
@@ -25,14 +32,16 @@ public struct AgendaRail: View {
             self.pointsPerMinute = pointsPerMinute
         }
 
-        /// Onde os cartões de evento começam. Protótipo: `left: 32px` — que é
-        /// exatamente `labelGutter + gutterGap`. Deixar isto menor que
-        /// `labelGutter` faz o cartão cobrir o rótulo da hora, que foi o defeito
-        /// que esta constante existe para impedir.
+        /// Onde os cartões de evento começam: sempre depois da calha mais a
+        /// folga. No protótipo isso dá `left: 32px` (26 + 6); com a calha de
+        /// 30pt que "08:00" exige, dá 36. Deixar isto menor que `labelGutter`
+        /// faz o cartão cobrir o rótulo da hora, que foi o defeito que esta
+        /// constante existe para impedir.
         public var eventLeading: CGFloat { labelGutter + gutterGap }
 
-        /// Onde o marcador de "agora" começa. Protótipo: `nowStyle … left: 26px` —
-        /// encosta na calha sem atravessá-la.
+        /// Onde o marcador de "agora" começa. Protótipo: `nowStyle … left: 26px`,
+        /// que é a largura da calha — ele encosta nela sem atravessá-la, e
+        /// acompanha a calha quando ela muda.
         public var nowMarkerLeading: CGFloat { labelGutter }
 
         public var totalHeight: CGFloat {
@@ -136,7 +145,7 @@ public struct AgendaRail: View {
     private var hourLines: some View {
         ForEach(8..<19, id: \.self) { hour in
             HStack(spacing: layout.gutterGap) {
-                Text(String(format: "%02d", hour))
+                Text(Self.hourLabel(minuteOfDay: hour * 60))
                     .font(theme.mono.font(size: 9))
                     .foregroundStyle(theme.ink4.color)
                     .frame(width: layout.labelGutter, alignment: .trailing)
@@ -268,6 +277,13 @@ public struct AgendaRail: View {
     /// Delega para `AgendaSummary` que é pura (sem isolamento de ator).
     public nonisolated static func nextUpLabel(for items: [AgendaItem], now: Int) -> String {
         AgendaSummary.nextUpLabel(for: items, now: now)
+    }
+
+    /// O rótulo da calha das horas: "08:00", "09:00", …
+    /// Protótipo: `label: fmt(min)`, com
+    /// `fmt = (m) => pad(floor(m / 60)) + ':' + pad(m % 60)`.
+    public nonisolated static func hourLabel(minuteOfDay: Int) -> String {
+        String(format: "%02d:%02d", minuteOfDay / 60, minuteOfDay % 60)
     }
 
     /// Formata a data do cabeçalho: "Terça-feira, 25 de agosto"

@@ -187,12 +187,34 @@ struct AgendaRailTests {
 
     @Test("a calha e o recuo dos cartões vêm do protótipo")
     func gutterMatchesPrototype() {
-        // Protótipo: span da hora `width: 26px`, linha com `gap: 6px`,
-        // cartão com `left: 32px; right: 2px`.
-        #expect(layout.labelGutter == 26)
+        // Protótipo: linha da hora com `gap: 6px`, cartão com `right: 2px`.
+        // A calha tem 30 e não os 26 declarados no span porque o texto do
+        // protótipo é "08:00", que em mono 9pt não cabe em 26.
         #expect(layout.gutterGap == 6)
-        #expect(layout.eventLeading == 32)
         #expect(layout.eventTrailing == 2)
+        #expect(layout.labelGutter == 30)
+        // O recuo do cartão sai da calha mais a folga: 30 + 6.
+        // (A relação em si está travada em `eventNeverCoversHourLabel`.)
+        #expect(layout.eventLeading == 36)
+    }
+
+    @Test("o rótulo da hora é HH:MM, como o fmt() do protótipo")
+    func hourLabelIsHourAndMinute() {
+        #expect(AgendaRail.hourLabel(minuteOfDay: 480) == "08:00")
+        #expect(AgendaRail.hourLabel(minuteOfDay: 540) == "09:00")
+        #expect(AgendaRail.hourLabel(minuteOfDay: 1080) == "18:00")
+        // O mesmo fmt() serve para qualquer minuto, não só a hora cheia.
+        #expect(AgendaRail.hourLabel(minuteOfDay: 705) == "11:45")
+        #expect(AgendaRail.hourLabel(minuteOfDay: 0) == "00:00")
+    }
+
+    @Test("a calha cabe o rótulo que o protótipo escreve")
+    func gutterFitsTheLabel() {
+        // "08:00" em mono 9pt mede ~27pt: a calha tem de ser maior que isso,
+        // senão o rótulo trunca — foi por medir esse 27 que ela saiu de 26.
+        let widest = AgendaRail.hourLabel(minuteOfDay: 1080)
+        #expect(widest.count == 5)
+        #expect(layout.labelGutter >= 30)
     }
 
     @Test("o marcador de agora encosta na calha em vez de atravessá-la")
