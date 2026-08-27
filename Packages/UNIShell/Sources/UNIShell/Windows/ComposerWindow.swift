@@ -70,6 +70,14 @@ public struct ComposerWindow: View {
     /// então sem esta porta não há como provar que a lista deixou de ser
     /// coberta pela barra de formatação.
     let debugSuggestion: DebugSuggestion?
+    /// Só para verificação: aperta o botão de assinatura no primeiro passe.
+    ///
+    /// Fora da tela ninguém clica em nada — evento sintético é proibido neste
+    /// projeto —, e sem esta porta não havia como provar que o botão **insere**.
+    /// A revisão gutou `insertSignature()` para `return` e a suíte inteira
+    /// continuou verde. O que corre aqui é a ação do botão, a mesma que o
+    /// clique dispara, não uma cópia dela.
+    let debugInsertSignature: Bool
 
     /// Qual campo de destinatário a porta do harness abre.
     enum RecipientSlot: Sendable { case to, cc, bcc }
@@ -88,18 +96,21 @@ public struct ComposerWindow: View {
         self.mode = mode
         self.debugOpenPanel = nil
         self.debugSuggestion = nil
+        self.debugInsertSignature = false
     }
 
     init(
         store: MailStore,
         mode: Mode,
         debugOpenPanel: ComposerToolbar.Panel? = nil,
-        debugSuggestion: DebugSuggestion? = nil
+        debugSuggestion: DebugSuggestion? = nil,
+        debugInsertSignature: Bool = false
     ) {
         self.store = store
         self.mode = mode
         self.debugOpenPanel = debugOpenPanel
         self.debugSuggestion = debugSuggestion
+        self.debugInsertSignature = debugInsertSignature
         // As linhas Cc e Cco nascem fechadas; para desenhar a lista de uma
         // delas o harness precisa da linha aberta desde o primeiro passe.
         _ccOpen = State(initialValue: debugSuggestion?.slot == .cc)
@@ -246,6 +257,10 @@ public struct ComposerWindow: View {
         .task(id: SeedKey(messageCount: store.messages.count, mode: mode)) {
             if store.messages.isEmpty { await store.load() }
             seed()
+            // A porta do harness: dispara a **mesma** ação do botão, depois da
+            // semeadura, para o corpo já estar no estado em que o clique o
+            // encontraria.
+            if debugInsertSignature, canInsertSignature { insertSignature() }
         }
     }
 
