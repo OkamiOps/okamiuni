@@ -12,7 +12,26 @@ import UNIDesign
 /// início (`leading` e `top`) ele já nasce alinhado. Nenhum painel muda de
 /// largura por isso.
 public enum Hairline {
-    /// `0.5px` do protótipo — a espessura de toda divisória do design.
+    /// **Um pixel do dispositivo**, não meio ponto.
+    ///
+    /// O protótipo escreve `0.5px`. O navegador não desenha meio pixel: em tela
+    /// 1× ele arredonda para 1 pixel, e em 2× meio pixel CSS **é** um pixel do
+    /// dispositivo. Nos dois casos o design mostra **uma linha cheia de um
+    /// pixel** — foi isso que o dono viu ao desenhar.
+    ///
+    /// Nós desenhávamos 0,5 **ponto** ao pé da letra. Numa tela 1× isso é um
+    /// pixel pintado pela metade: a borda sai lavada, e às vezes espalhada em
+    /// dois pixels conforme a posição subpixel. Medido na janela real, numa tela
+    /// 1×: a borda do botão saía `rgb(227,225,219)` onde o design mostra
+    /// `rgb(218,214,206)`. É por isso que as caixas "pareciam não estar
+    /// fechadas" e que duas linhas próximas liam como contorno duplo.
+    ///
+    /// `1 / displayScale` dá exatamente um pixel: 1,0pt em 1×, 0,5pt em 2×.
+    public static func thickness(_ displayScale: CGFloat) -> CGFloat {
+        displayScale > 0 ? 1 / displayScale : 1
+    }
+
+    /// Valor de conveniência para contextos sem ambiente. Prefira a função.
     public static let thickness: CGFloat = 0.5
 
     /// Quanto o traço recua para dentro do painel, por borda.
@@ -37,17 +56,7 @@ public enum Hairline {
 extension View {
     /// Ver `Hairline`.
     public func hairline(_ color: TokenColor, edges: Edge.Set = .bottom) -> some View {
-        let vertical = Hairline.isVertical(edges)
-        let inset = Hairline.inset(for: edges)
-        return overlay(alignment: Hairline.alignment(for: edges)) {
-            Rectangle()
-                .fill(color.color)
-                .frame(
-                    width: vertical ? Hairline.thickness : nil,
-                    height: vertical ? nil : Hairline.thickness
-                )
-                .offset(x: vertical ? inset : 0, y: vertical ? 0 : inset)
-        }
+        modifier(HairlineModifier(color: color, edges: edges))
     }
 }
 
@@ -69,5 +78,28 @@ public struct CapsLabel: ViewModifier {
 extension View {
     public func capsLabel(size: CGFloat = 9) -> some View {
         modifier(CapsLabel(size: size))
+    }
+}
+
+
+/// Ver `Hairline.thickness(_:)` para por que a espessura vem da escala da tela.
+private struct HairlineModifier: ViewModifier {
+    @Environment(\.displayScale) private var displayScale
+    let color: TokenColor
+    let edges: Edge.Set
+
+    func body(content: Content) -> some View {
+        let vertical = Hairline.isVertical(edges)
+        let thickness = Hairline.thickness(displayScale)
+        let inset = edges.contains(.top) || edges.contains(.leading) ? 0 : -thickness
+        return content.overlay(alignment: Hairline.alignment(for: edges)) {
+            Rectangle()
+                .fill(color.color)
+                .frame(
+                    width: vertical ? thickness : nil,
+                    height: vertical ? nil : thickness
+                )
+                .offset(x: vertical ? inset : 0, y: vertical ? 0 : inset)
+        }
     }
 }

@@ -21,6 +21,7 @@ struct ChromeButton<Label: View>: View {
     }
 
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
     @State private var hovering = false
 
     let appearance: Appearance
@@ -46,7 +47,11 @@ struct ChromeButton<Label: View>: View {
                 .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
                 .overlay {
                     RoundedRectangle(cornerRadius: theme.radiusSmall)
-                        .strokeBorder(border, lineWidth: 0.5)
+                        // Um pixel do dispositivo — ver `Hairline.thickness(_:)`.
+                        // Meio ponto numa tela 1× vira meio pixel lavado, e a
+                        // borda do botão saía `rgb(227,225,219)` onde o design
+                        // mostra `rgb(218,214,206)`.
+                        .strokeBorder(border, lineWidth: Hairline.thickness(displayScale))
                 }
                 .shadow(shadow)
                 .contentShape(RoundedRectangle(cornerRadius: theme.radiusSmall))

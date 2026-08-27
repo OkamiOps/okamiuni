@@ -10,6 +10,12 @@ struct OkamiUNIApp: App {
 
     init() {
         FontRegistry.registerBundledFonts()
+        // A faixa de resposta lê o rascunho uma vez, na primeira montagem.
+        // Semear depois disso não a alcança — foi o que fez duas capturas
+        // saírem byte a byte idênticas. Aqui é antes de qualquer janela.
+        if WindowCapture.fromProcess != nil {
+            WindowCapture.seedForCapture(mailStore)
+        }
     }
 
     var body: some Scene {

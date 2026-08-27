@@ -62,6 +62,25 @@ public struct WindowCapture: Sendable {
         return nil
     }
 
+    /// Deixa o app no estado que o defeito relatado precisa, **antes** de a
+    /// primeira janela montar: destinatário e texto na faixa de resposta, que é
+    /// o que acende os três botões do rodapé.
+    @MainActor
+    public static func seedForCapture(_ store: MailStore) {
+        // **Síncrono de propósito.** A versão assíncrona (`await store.load()`
+        // e depois semear) perdia a corrida com a montagem da faixa, que lê o
+        // rascunho uma vez só — duas capturas saíram byte a byte idênticas.
+        // `setReplyDraft` só escreve num dicionário por id, então não precisa
+        // das mensagens carregadas: a primeira das fixtures é `m1`.
+        store.setReplyDraft(
+            ReplyDraft(
+                to: [Contact(name: "Marina Duarte", address: "marina@clientepremium.com")],
+                text: "Fechado para quinta às 15h."
+            ),
+            for: "m1"
+        )
+    }
+
     public static var fromProcess: WindowCapture? {
         parse(Array(CommandLine.arguments.dropFirst()))
     }
@@ -96,9 +115,8 @@ private struct WindowCaptureModifier: ViewModifier {
 /// desabilitados, e o defeito que ele relata aparece com eles **ativos**.
 /// Pedir outra rodada por estado não é aceitável.
 public enum CaptureStage: String, CaseIterable, Sendable {
-    /// Como o app abre.
-    case inicial
-    /// Faixa de resposta com destinatário e texto: os três botões acendem.
+    /// Faixa de resposta já com destinatário e texto — semeados antes da
+    /// janela montar, em `seedForCapture`. É o estado do print do dono.
     case faixaAtiva
 
     public var fileSuffix: String { rawValue }
@@ -120,7 +138,6 @@ private struct CaptureProbe: NSViewRepresentable {
         Task { @MainActor in
             for stage in CaptureStage.allCases {
                 try? await Task.sleep(for: .seconds(request.delay))
-                prepare(stage)
                 try? await Task.sleep(for: .seconds(0.4))
                 capture(from: view, to: request.path(for: stage))
             }
@@ -128,17 +145,7 @@ private struct CaptureProbe: NSViewRepresentable {
         }
     }
 
-    @MainActor
-    private func prepare(_ stage: CaptureStage) {
-        guard case .faixaAtiva = stage, let store else { return }
-        // Com destinatário e texto os três botões do rodapé da faixa acendem —
-        // que é o estado do print do dono.
-        guard let message = store.selectedMessage else { return }
-        store.setReplyDraft(
-            ReplyDraft(to: [message.from], text: "Fechado para quinta às 15h."),
-            for: message.id
-        )
-    }
+
 
     private func capture(from view: NSView, to path: String) {
         guard let window = view.window, let content = window.contentView else {
