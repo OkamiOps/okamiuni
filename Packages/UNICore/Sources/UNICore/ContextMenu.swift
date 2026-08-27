@@ -95,6 +95,13 @@ public struct MenuShortcut: Sendable, Hashable {
     public static let replyAll = MenuShortcut(key: "r", modifiers: [.command, .shift])
     /// ⇧⌘F, o "Forward" do Mail.
     public static let forward = MenuShortcut(key: "f", modifiers: [.command, .shift])
+    /// ⌘E, o "Archive" do Mail e do Gmail.
+    public static let archive = MenuShortcut(key: "e")
+    /// ⇧⌘U, o "Mark as Unread" do Mail — e o de ida, pelo mesmo caminho.
+    public static let readToggle = MenuShortcut(key: "u", modifiers: [.command, .shift])
+    /// ⇧⌘D, o adiar deste app. "Depois" é caixa nossa, não do Mail: o atalho
+    /// sai da inicial dela, e é o app que o escuta — ver `MessageShortcuts`.
+    public static let later = MenuShortcut(key: "d", modifiers: [.command, .shift])
 }
 
 // MARK: - Item e entrada
@@ -227,6 +234,7 @@ public enum ContextMenus {
                 "Encaminhar", .forward(messageID: message.id), shortcut: .forward
             )),
             .separator,
+            .item(archiveItem(message)),
             .item(readToggle(message)),
         ]
         if let move = moveSubmenu(message) { entries.append(move) }
@@ -270,11 +278,7 @@ public enum ContextMenus {
         entries.append(.item(ContextMenuItem(
             "Encaminhar", .forward(messageID: message.id), shortcut: .forward
         )))
-        if message.bucket != .archived {
-            entries.append(
-                .item(ContextMenuItem("Arquivar", .move(messageID: message.id, to: .archived)))
-            )
-        }
+        entries.append(.item(archiveItem(message)))
         if let move = moveSubmenu(message) { entries.append(move) }
         entries.append(.separator)
         entries.append(.item(readToggle(message)))
@@ -404,8 +408,36 @@ public enum ContextMenus {
 
     static func readToggle(_ message: Message) -> ContextMenuItem {
         message.isRead
-            ? ContextMenuItem("Marcar como não lida", .setRead(messageID: message.id, isRead: false))
-            : ContextMenuItem("Marcar como lida", .setRead(messageID: message.id, isRead: true))
+            ? ContextMenuItem(
+                "Marcar como não lida", .setRead(messageID: message.id, isRead: false),
+                shortcut: .readToggle
+            )
+            : ContextMenuItem(
+                "Marcar como lida", .setRead(messageID: message.id, isRead: true),
+                shortcut: .readToggle
+            )
+    }
+
+    /// "Arquivar", promovido a item de topo.
+    ///
+    /// Ele existia só dentro de "Mover para ▸" — dois níveis de menu para a
+    /// ação que Gmail, Outlook e Mail põem à mão, todos com atalho próprio.
+    /// "Mover para" continua trazendo Arquivado: quem já sabe o caminho não
+    /// perde o caminho.
+    ///
+    /// Numa mensagem já arquivada ele fica **apagado com explicação**, e não
+    /// fora do menu. É a diferença que a Task AR passou a exigir: o item de
+    /// topo é o mesmo em toda linha, e sumir faria a lista de ações dançar de
+    /// mensagem para mensagem justamente na ação de uso mais frequente.
+    static func archiveItem(_ message: Message) -> ContextMenuItem {
+        let already = message.bucket == .archived
+        return ContextMenuItem(
+            "Arquivar",
+            .move(messageID: message.id, to: .archived),
+            shortcut: .archive,
+            isEnabled: !already,
+            help: already ? "Esta mensagem já está em Arquivado" : "Arquivar esta mensagem"
+        )
     }
 
     /// "Mover para ▸", sem a caixa em que a mensagem já está — `move(_:to:)`
@@ -420,7 +452,13 @@ public enum ContextMenus {
         return .submenu(
             title: "Mover para",
             items: targets.map {
-                ContextMenuItem($0.label, .move(messageID: message.id, to: $0))
+                // Só "Depois" tem atalho, e ele é de verdade: `MessageShortcuts`
+                // o escuta. Escrever um equivalente ao lado de cada caixa seria
+                // a versão tipográfica do botão mudo.
+                ContextMenuItem(
+                    $0.label, .move(messageID: message.id, to: $0),
+                    shortcut: $0 == .later ? .later : nil
+                )
             }
         )
     }

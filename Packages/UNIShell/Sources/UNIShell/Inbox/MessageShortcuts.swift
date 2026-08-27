@@ -50,6 +50,23 @@ struct MessageShortcuts: View {
                 shortcut("Encaminhar", .forward) {
                     runner.run(.forward(messageID: message.id))
                 }
+
+                shortcut("Arquivar", .archive, enabled: message.bucket != .archived) {
+                    runner.run(.move(messageID: message.id, to: .archived))
+                }
+
+                shortcut("Depois", .later, enabled: message.bucket != .later) {
+                    runner.run(.move(messageID: message.id, to: .later))
+                }
+
+                // O rótulo diz o **contrário** do estado, como o item de menu:
+                // numa mensagem lida o atalho marca não lida.
+                shortcut(
+                    message.isRead ? "Marcar como não lida" : "Marcar como lida",
+                    .readToggle
+                ) {
+                    runner.run(.setRead(messageID: message.id, isRead: !message.isRead))
+                }
             }
             .hidden()
             .accessibilityHidden(true)

@@ -80,10 +80,36 @@ struct ContextMenuTests {
         #expect(!targets.contains(.move(messageID: "m1", to: .all)))
     }
 
-    @Test("arquivada não repete «Arquivar» no leitor")
-    func archivedHasNoArchive() {
-        #expect(!ContextMenus.reader(message(bucket: .archived)).titles.contains("Arquivar"))
-        #expect(ContextMenus.reader(message(bucket: .today)).titles.contains("Arquivar"))
+    /// Ele deixou de sumir na Task AR. A lista de ações de topo tem de ser a
+    /// mesma em toda linha: sumir faria o menu dançar de mensagem para
+    /// mensagem justamente na ação de uso mais frequente. Apagado com
+    /// explicação diz a mesma coisa sem mexer no menu.
+    @Test("arquivada mostra «Arquivar» apagado, com o motivo — nunca mudo, nunca ausente")
+    func archivedShowsArchiveDisabled() {
+        for entries in [
+            ContextMenus.reader(message(bucket: .archived)),
+            ContextMenus.messageRow(message(bucket: .archived)),
+        ] {
+            let item = entries.item("Arquivar")
+            #expect(item?.isEnabled == false)
+            #expect(item?.help == "Esta mensagem já está em Arquivado")
+        }
+        for entries in [
+            ContextMenus.reader(message(bucket: .today)),
+            ContextMenus.messageRow(message(bucket: .today)),
+        ] {
+            let item = entries.item("Arquivar")
+            #expect(item?.isEnabled == true)
+            #expect(item?.command == .move(messageID: "m1", to: .archived))
+            #expect(item?.shortcut?.label == "⌘E")
+        }
+    }
+
+    /// Promovido, não movido: quem já sabia o caminho antigo não o perde.
+    @Test("«Arquivar» no topo não tirou Arquivado de «Mover para»")
+    func archiveIsStillInTheSubmenu() {
+        let targets = ContextMenus.messageRow(message()).submenuCommands("Mover para")
+        #expect(targets.contains(.move(messageID: "m1", to: .archived)))
     }
 
     // MARK: - Copiar
@@ -286,10 +312,27 @@ struct ContextMenuTests {
             "Responder": MenuShortcut(key: "r"),
             "Responder a todos": MenuShortcut(key: "r", modifiers: [.command, .shift]),
             "Encaminhar": MenuShortcut(key: "f", modifiers: [.command, .shift]),
+            "Arquivar": MenuShortcut(key: "e"),
+            "Marcar como lida": MenuShortcut(key: "u", modifiers: [.command, .shift]),
         ])
         #expect(shortcuts["Responder"]?.label == "⌘R")
         #expect(shortcuts["Responder a todos"]?.label == "⇧⌘R")
         #expect(shortcuts["Encaminhar"]?.label == "⇧⌘F")
+        #expect(shortcuts["Arquivar"]?.label == "⌘E")
+        #expect(shortcuts["Marcar como lida"]?.label == "⇧⌘U")
+    }
+
+    /// O adiar. É o único item do submenu com atalho — os outros não têm um, e
+    /// escrever equivalente que ninguém escuta seria o botão mudo em tipografia.
+    @Test("«Depois» leva ⇧⌘D dentro de «Mover para», e só ele")
+    func onlyLaterCarriesAShortcutInsideTheSubmenu() {
+        var comAtalho: [String: String] = [:]
+        for case .submenu(_, let items) in ContextMenus.messageRow(message()) {
+            for item in items where item.shortcut != nil {
+                comAtalho[item.title] = item.shortcut?.label
+            }
+        }
+        #expect(comAtalho == ["Depois": "⇧⌘D"])
     }
 
     // MARK: - Encaminhar
