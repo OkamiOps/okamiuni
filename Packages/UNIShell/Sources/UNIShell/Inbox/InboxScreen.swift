@@ -14,6 +14,18 @@ public struct InboxScreen: View {
     @State private var wantsSidebar = true
     @State private var wantsAgenda = true
 
+    /// A terceira e a quarta intenções, e as únicas que sobrevivem ao
+    /// encerramento do app. Como `wantsSidebar`, elas entram na `PaneLayout` e
+    /// saem de lá recortadas pelo que a janela comporta.
+    @State private var paneWidths = PaneWidthStore()
+
+    /// Largura que o painel tinha quando o gesto começou. O `DragGesture`
+    /// reporta translação acumulada, não posição, então a soma precisa de uma
+    /// origem fixa — sem ela, cada quadro somaria em cima do quadro anterior e
+    /// a divisória dispararia para o fim da tela.
+    @State private var listDragOrigin: CGFloat?
+    @State private var agendaDragOrigin: CGFloat?
+
     @State private var workspace: Workspace = .mail
     @State private var query = ""
     let store: MailStore
@@ -58,7 +70,9 @@ public struct InboxScreen: View {
             let layout = PaneLayout.resolve(
                 width: proxy.size.width,
                 wantsSidebar: wantsSidebar,
-                wantsAgenda: wantsAgenda
+                wantsAgenda: wantsAgenda,
+                draggedListWidth: paneWidths.messageList,
+                draggedAgendaWidth: paneWidths.agenda
             )
 
             HStack(spacing: 0) {
@@ -90,7 +104,7 @@ public struct InboxScreen: View {
                         store: store,
                         now: Fixtures.nowMinute,
                         headerDate: Fixtures.today,
-                        width: PaneLayout.agendaWidth,
+                        width: layout.agendaRailWidth,
                         onOpenEvent: openEventWindow
                     )
                     .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -102,7 +116,72 @@ public struct InboxScreen: View {
             // redimensionamento, com 0.18s de atraso a cada quadro.
             .animation(Self.paneTransition, value: layout.sidebarExpanded)
             .animation(Self.paneTransition, value: layout.agendaVisible)
+            // As divisórias vêm por cima, e não dentro do `HStack`: seis pontos
+            // de alvo entre a lista e o leitor empurrariam a tela inteira em
+            // seis pontos e desalinhariam o marco da Task P. Aqui elas custam
+            // zero ao layout.
+            .overlay(alignment: .topLeading) {
+                dividers(layout: layout, windowWidth: proxy.size.width)
+            }
         }
+    }
+
+    // MARK: - As divisórias arrastáveis
+
+    /// As duas calhas de arraste, posicionadas sobre as linhas que os painéis
+    /// já desenham: lista ↔ leitor e leitor ↔ agenda.
+    ///
+    /// A da lateral fica de fora de propósito. A lateral não tem largura
+    /// contínua: ela é aberta (236) ou trilha (62), duas medidas canônicas que
+    /// a `SidebarRail` e a `FolderSidebar` usam para escolher o que desenham em
+    /// cada uma. Torná-la arrastável não é acrescentar um alvo, é trocar o
+    /// modelo dela — e o botão da barra do topo já faz o que ela precisa.
+    @ViewBuilder
+    private func dividers(layout: PaneLayout, windowWidth: CGFloat) -> some View {
+        ZStack(alignment: .topLeading) {
+            divider(
+                at: layout.messageListTrailingEdge,
+                onDrag: { translation in
+                    let origin = listDragOrigin ?? layout.messageListWidth
+                    listDragOrigin = origin
+                    // Puxar para a direita alarga a lista.
+                    paneWidths.setMessageList(origin + translation)
+                },
+                onEnd: { listDragOrigin = nil },
+                onReset: {
+                    withAnimation(Self.paneTransition) { paneWidths.resetMessageList() }
+                }
+            )
+
+            if layout.agendaVisible {
+                divider(
+                    at: layout.agendaLeadingEdge(inWindowOfWidth: windowWidth),
+                    onDrag: { translation in
+                        let origin = agendaDragOrigin ?? layout.agendaRailWidth
+                        agendaDragOrigin = origin
+                        // A agenda cresce para a esquerda: puxar para a direita
+                        // a estreita.
+                        paneWidths.setAgenda(origin - translation)
+                    },
+                    onEnd: { agendaDragOrigin = nil },
+                    onReset: {
+                        withAnimation(Self.paneTransition) { paneWidths.resetAgenda() }
+                    }
+                )
+            }
+        }
+    }
+
+    /// Centra o alvo de 6pt sobre a linha em `x`, para o ponteiro poder chegar
+    /// pelos dois lados.
+    private func divider(
+        at x: CGFloat,
+        onDrag: @escaping (CGFloat) -> Void,
+        onEnd: @escaping () -> Void,
+        onReset: @escaping () -> Void
+    ) -> some View {
+        PaneDivider(onDrag: onDrag, onEnd: onEnd, onReset: onReset)
+            .offset(x: PaneDivider.leadingEdge(centeredOn: x))
     }
 
     /// A mesma curva do toggle manual, para recolher por arraste e por clique
