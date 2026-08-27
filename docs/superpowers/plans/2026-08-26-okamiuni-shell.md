@@ -3262,8 +3262,29 @@ protótipo e são a fonte da verdade:
 Hoje `Workspace.calendar` renderiza vazio — *"a aba de agenda está literalmente vazia"*.
 
 A tela 02 "Agenda semanal" começa na linha **1394** do `.dc.html` e é a fonte da verdade:
-grade da semana, colunas por dia, faixa de horas, blocos de compromisso, e a seção que vem
-do email. Mesmas regras dos outros painéis: cor/raio/tipografia do `Theme`, medidas do
+cabeçalho com as abas Dia/Semana/Mês, grade da semana, colunas por dia, faixa de horas e
+blocos de compromisso.
+
+> **Correção, 27/08:** a primeira versão desta tarefa listava "a seção que vem do email" como
+> parte da tela 02. Errado — "Vindo do email" está na linha 1381, dentro da tela 01, e já está
+> implementada como `AgendaRail.pendingSection`. O implementador achou e devolveu
+> NEEDS_CONTEXT em vez de inventar a seção.
+>
+> **Contradição do próprio protótipo, decidida no produto:** `RAIL` (1617) põe 5 compromissos
+> na terça 25; `WEEK` (1625) põe 3, com títulos encurtados. A regra "o protótipo vence"
+> pressupõe que ele tenha uma resposta; aqui tem duas, então o critério passa a ser o produto —
+> a mesma terça não pode mostrar coisas diferentes em duas visões do mesmo app. A terça sai de
+> `Fixtures.agenda`; os outros seis dias saem do `WEEK`. Os títulos curtos do `WEEK` são
+> renderização para coluna estreita, não dados: encurte ao desenhar, não guarde dois títulos.
+>
+> **`AgendaItem` ganha `dayOffset: Int = 0`**, dias relativos a `Fixtures.today`, aditivo.
+> Não uma `Date`: o tipo modela horário de parede de propósito, e uma data reintroduz a
+> conversão de fuso que já foi bug aqui. O Marco 4 troca por data real com o EventKit.
+> A alternativa (semana num `Fixtures.week` separado) foi recusada por embarcar um defeito
+> conhecido — clicar num evento de quarta abriria a janela 04 vazia.
+>
+> **Dia e Mês** (1439–1497) ficam fora deste marco, desenhadas e **visivelmente desabilitadas**,
+> não inertes: aba que parece clicável e não faz nada é a mesma falha que originou esta tarefa. Mesmas regras dos outros painéis: cor/raio/tipografia do `Theme`, medidas do
 protótipo, nada de limitar contas.
 
 Sem EventKit neste marco — a semana sai das fixtures, como a trilha diária. Estender
