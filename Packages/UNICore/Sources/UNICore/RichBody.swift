@@ -661,16 +661,76 @@ extension RichBody {
 
     /// Aumenta (`+1`) ou diminui (`-1`) o recuo dos parágrafos tocados.
     /// Nunca desce abaixo de zero — a barra desabilita o "⇤" nesse caso.
+    ///
+    /// ## Por que não renumera de 1, como `setList`
+    ///
+    /// Recuar não cria uma lista: continua a mesma, com o item em outro nível.
+    /// Numerar o bloco tocado a partir de 1 dava, com o cursor em "3. tres",
+    /// um "1. tres" e uma lista com **dois "1."**. E o ⇥ seguido de ⇤ não
+    /// devolvia o que estava lá.
+    ///
+    /// A numeração aqui conta os **irmãos**: quantos itens numerados no mesmo
+    /// nível vêm antes dele sem sair do bloco (ver `listNumber(at:in:)`). Com
+    /// isso o ⇥⇤ é redondo — descendo, "tres" vira o primeiro item da sublista
+    /// que nasce sob "2. dois"; voltando, ele reencontra "1. um" e "2. dois"
+    /// como irmãos e volta a ser "3.".
+    ///
+    /// Os prefixos novos de **todos** os parágrafos tocados são resolvidos
+    /// antes de qualquer escrita. A escrita continua de trás para frente, para
+    /// não invalidar índices, mas a contagem de irmãos precisa enxergar os
+    /// níveis **já corrigidos** dos vizinhos tocados — numa seleção de vários
+    /// parágrafos, ler o nível antigo do vizinho de cima quebraria a contagem.
     public static func indent(
         _ text: inout AttributedString,
         over ranges: [Range<AttributedString.Index>],
         by delta: Int
     ) {
-        rewritePrefixes(&text, over: ranges) { existing, position in
-            var next = existing
-            next.indent = max(0, existing.indent + delta)
-            return marker(next, number: position + 1)
+        let all = paragraphs(of: text)
+        let touchedRanges = paragraphs(of: text, touchedBy: ranges)
+        guard !all.isEmpty, !touchedRanges.isEmpty else { return }
+        let touched = all.indices.filter { touchedRanges.contains(all[$0]) }
+
+        let plain = all.map { String(text[$0].characters) }
+        var resolved = plain.map { prefix(of: $0) }
+        for index in touched {
+            resolved[index].indent = max(0, resolved[index].indent + delta)
         }
+
+        for index in touched.reversed() {
+            let existing = prefix(of: plain[index])
+            let replacement = marker(
+                resolved[index], number: listNumber(at: index, in: resolved)
+            )
+            guard replacement != String(plain[index].prefix(existing.length)) else { continue }
+            replacePrefix(&text, of: all[index], length: existing.length, with: replacement)
+        }
+    }
+
+    /// O número que um item numerado ostenta: ele mesmo mais os irmãos que vêm
+    /// antes dele.
+    ///
+    /// Irmão é o item numerado **no mesmo nível** dentro do mesmo bloco. A
+    /// contagem sobe pelos parágrafos anteriores e para no primeiro que não é
+    /// irmão nem sublista de um irmão:
+    ///
+    /// - nível **maior**: é sublista de um irmão acima, pula sem contar;
+    /// - nível **menor**: é o pai, e acima dele já é outro nível — para;
+    /// - mesmo nível com bolinha: outra lista começou ali — para;
+    /// - parágrafo sem lista: o bloco acabou — para.
+    static func listNumber(at index: Int, in prefixes: [Prefix]) -> Int {
+        let mine = prefixes[index]
+        guard mine.list == .numbered else { return 1 }
+        var count = 1
+        var cursor = index - 1
+        while cursor >= 0 {
+            let other = prefixes[cursor]
+            guard other.list != nil else { break }
+            if other.indent > mine.indent { cursor -= 1; continue }
+            guard other.indent == mine.indent, other.list == .numbered else { break }
+            count += 1
+            cursor -= 1
+        }
+        return count
     }
 
     private static func marker(_ prefix: Prefix, number: Int) -> String {
@@ -698,15 +758,25 @@ extension RichBody {
             let replacement = build(existing, offset)
             guard replacement != String(plain.prefix(existing.length)) else { continue }
 
-            let chars = text.characters
-            let cut = chars.index(paragraph.lowerBound, offsetBy: existing.length)
-            var piece = AttributedString(replacement)
-            // O marcador herda o estilo do texto que ele encabeça, senão a
-            // bolinha sai na fonte errada assim que o parágrafo muda de fonte.
-            piece[BodyStyleAttribute.self] = text[paragraph].runs.first?
-                .attributes[BodyStyleAttribute.self] ?? .default
-            text.replaceSubrange(paragraph.lowerBound..<cut, with: piece)
+            replacePrefix(&text, of: paragraph, length: existing.length, with: replacement)
         }
+    }
+
+    /// Troca os primeiros `length` caracteres de um parágrafo pelo marcador novo.
+    private static func replacePrefix(
+        _ text: inout AttributedString,
+        of paragraph: Range<AttributedString.Index>,
+        length: Int,
+        with replacement: String
+    ) {
+        let chars = text.characters
+        let cut = chars.index(paragraph.lowerBound, offsetBy: length)
+        var piece = AttributedString(replacement)
+        // O marcador herda o estilo do texto que ele encabeça, senão a
+        // bolinha sai na fonte errada assim que o parágrafo muda de fonte.
+        piece[BodyStyleAttribute.self] = text[paragraph].runs.first?
+            .attributes[BodyStyleAttribute.self] ?? .default
+        text.replaceSubrange(paragraph.lowerBound..<cut, with: piece)
     }
 }
 

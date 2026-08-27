@@ -257,6 +257,77 @@ struct RichBodyParagraphTests {
         #expect(String(text.characters) == "um\ndois")
     }
 
+    /// O defeito: `indent` renumerava o bloco tocado a partir de 1. Com o
+    /// cursor em "3. tres", o ⇥ devolvia "1. tres" — e o ⇤ de volta também,
+    /// deixando a lista com dois "1.".
+    @Test("recuar o último item o numera pelos irmãos do nível novo, e o ⇥⇤ é redondo")
+    func indentRenumbersBySiblings() {
+        var text = AttributedString("1. um\n2. dois\n3. tres")
+        // Cursor dentro de "3. tres", sem seleção.
+        RichBody.indent(&text, over: [cursor(text, 17)], by: 1)
+        #expect(String(text.characters) == "1. um\n2. dois\n    1. tres")
+
+        RichBody.indent(&text, over: [cursor(text, 21)], by: -1)
+        #expect(String(text.characters) == "1. um\n2. dois\n3. tres")
+    }
+
+    @Test("recuar o item do meio não renumera nem ele nem os irmãos de baixo errado")
+    func indentMiddleItem() {
+        var text = AttributedString("1. um\n2. dois\n3. tres")
+        RichBody.indent(&text, over: [cursor(text, 9)], by: 1)
+        #expect(String(text.characters) == "1. um\n    1. dois\n3. tres")
+
+        RichBody.indent(&text, over: [cursor(text, 13)], by: -1)
+        #expect(String(text.characters) == "1. um\n2. dois\n3. tres")
+    }
+
+    /// O primeiro item não tem irmão acima: ele é "1." nos dois níveis, e é o
+    /// único caso em que a numeração de 1 do código antigo acertava por acaso.
+    @Test("recuar o primeiro item o mantém em 1, e os de baixo não mudam")
+    func indentFirstItem() {
+        var text = AttributedString("1. um\n2. dois\n3. tres")
+        RichBody.indent(&text, over: [cursor(text, 1)], by: 1)
+        #expect(String(text.characters) == "    1. um\n2. dois\n3. tres")
+    }
+
+    /// Vários parágrafos de uma vez: a contagem tem de enxergar o nível **novo**
+    /// dos vizinhos que a mesma chamada mexeu, senão o segundo item recuado
+    /// conta o primeiro como pai e volta a ser "1.".
+    @Test("recuar dois itens juntos numera o par entre si")
+    func indentTwoItemsTogether() {
+        var text = AttributedString("1. um\n2. dois\n3. tres")
+        RichBody.indent(&text, over: [range(text, 9, 21)], by: 1)
+        #expect(String(text.characters) == "1. um\n    1. dois\n    2. tres")
+    }
+
+    /// A sublista entre dois irmãos não entra na conta deles.
+    @Test("a sublista no meio não conta como irmão do nível de cima")
+    func sublistDoesNotCountAsSibling() {
+        var text = AttributedString("1. um\n    1. a\n    2. b\n3. tres")
+        RichBody.indent(&text, over: [cursor(text, 26)], by: 1)
+        #expect(String(text.characters) == "1. um\n    1. a\n    2. b\n    3. tres")
+    }
+
+    /// A contagem pura, sem texto no meio — as fronteiras de uma vez.
+    @Test("a numeração conta irmãos, pula sublista e para no pai ou fora do bloco")
+    func listNumberCountsSiblings() {
+        let level0 = RichBody.Prefix(indent: 0, list: .numbered, length: 3)
+        let level1 = RichBody.Prefix(indent: 1, list: .numbered, length: 7)
+        let bullet0 = RichBody.Prefix(indent: 0, list: .bulleted, length: 2)
+        let plain = RichBody.Prefix(indent: 0, list: nil, length: 0)
+
+        #expect(RichBody.listNumber(at: 0, in: [level0, level0, level0]) == 1)
+        #expect(RichBody.listNumber(at: 2, in: [level0, level0, level0]) == 3)
+        // A sublista no meio não conta.
+        #expect(RichBody.listNumber(at: 3, in: [level0, level1, level1, level0]) == 2)
+        // O primeiro item de uma sublista tem o pai logo acima.
+        #expect(RichBody.listNumber(at: 1, in: [level0, level1]) == 1)
+        // Um parágrafo solto encerra o bloco.
+        #expect(RichBody.listNumber(at: 2, in: [level0, plain, level0]) == 1)
+        // Uma lista de bolinha acima é outra lista.
+        #expect(RichBody.listNumber(at: 1, in: [bullet0, level0]) == 1)
+    }
+
     @Test("recuo preserva o marcador da lista, na ordem recuo-depois-marcador")
     func indentKeepsTheBullet() {
         var text = AttributedString("um")
