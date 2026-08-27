@@ -46,7 +46,6 @@ import UNIDesign
 /// `FontCatalogTests`.
 struct ComposerSelect: View {
     @Environment(\.theme) private var theme
-    @Environment(\.displayScale) private var displayScale
 
     struct Option: Identifiable, Hashable, Sendable {
         var id: String { value }
@@ -144,12 +143,11 @@ struct ComposerSelect: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 2) {
                 ForEach(Array(groups.enumerated()), id: \.offset) { index, group in
-                    if index > 0 {
-                        Rectangle()
-                            .fill(theme.line2.color)
-                            .frame(height: Hairline.thickness(displayScale))
-                            .padding(.vertical, 5)
-                    }
+                    // A divisória e o realce da linha são os mesmos do menu de
+                    // contexto — ver `MenuSurface`. Eram desenhados à mão aqui
+                    // até a Task AN; compartilhados, os dois painéis não têm
+                    // como divergir no primeiro conserto.
+                    if index > 0 { MenuDivider() }
                     if let title = group.title {
                         Text(title)
                             .capsLabel()
@@ -193,8 +191,7 @@ struct ComposerSelect: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(isSelected ? theme.accentSoft.color : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+            .menuRowHighlight(isSelected)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

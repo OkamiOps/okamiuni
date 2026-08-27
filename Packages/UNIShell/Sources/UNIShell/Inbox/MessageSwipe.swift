@@ -19,8 +19,11 @@ import UNICore
 /// - **Duplo clique** continua abrindo a janela, pelo mesmo
 ///   `simultaneousGesture` de antes. Um duplo clique não anda 12pt, então ele
 ///   nunca engata o arraste.
-/// - **Botão direito** é do `contextMenu`, que o `DragGesture` não vê: o
-///   arraste só acompanha o botão esquerdo.
+/// - **Botão direito** abre o painel de menu do app (`RightClickCatcher`), que
+///   o `DragGesture` não vê: o arraste só acompanha o botão esquerdo, e a
+///   `NSView` que pega o clique direito devolve `nil` no teste de acerto para
+///   qualquer outro evento — clique, duplo clique e arraste passam por ela sem
+///   saber que ela existe.
 /// - **Rolagem** ganha por construção. O `DragGesture` entra como
 ///   `simultaneousGesture`, então a `ScrollView` continua recebendo o mesmo
 ///   evento, e o gesto lateral só engata quando a horizontal **domina** a

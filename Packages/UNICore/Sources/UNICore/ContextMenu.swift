@@ -11,12 +11,13 @@ import Foundation
 ///    `AgendaSummary`, `PaneLayout` e `RichBody` viverem em `UNICore`.
 /// 2. A regra do marco é **item morto não entra**: uma ação que não tem como
 ///    funcionar fica **fora** do menu, não desabilitada. Provar isso abrindo
-///    menu não dá — o `NSMenu` que o `contextMenu` do SwiftUI monta não
-///    aparece em renderização fora da tela. Provar sobre a lista de itens dá,
+///    menu não dá — o painel de menu aparece numa janela própria, que a
+///    renderização fora da tela não levanta. Provar sobre a lista de itens dá,
 ///    e é o que os testes fazem.
 ///
-/// A `View` só traduz `[ContextMenuEntry]` para `contextMenu { … }`; nenhuma
-/// decisão de conteúdo acontece lá.
+/// A `View` só traduz `[ContextMenuEntry]` para o painel que o app desenha
+/// (`UNIShell.ContextMenuPanel`, desde a Task AN); nenhuma decisão de conteúdo
+/// acontece lá.
 
 // MARK: - O que um item dispara
 
@@ -92,11 +93,28 @@ public struct ContextMenuItem: Sendable, Hashable {
     public let title: String
     public let command: ContextCommand
     public let shortcut: MenuShortcut?
+    /// Item apagado: sem realce, sem clique.
+    ///
+    /// **Nenhum menu deste arquivo monta um.** A regra do marco continua sendo
+    /// "item morto não entra": uma ação que não tem como funcionar fica fora
+    /// do menu, e é isso que os testes de `ContextMenus` travam.
+    ///
+    /// O campo existe porque o painel que substituiu o `NSMenu` (Task AN)
+    /// precisa **saber desenhar** o estado — o `NSMenu` sabia, e perder o
+    /// desenho na troca fecharia a porta para quem precise dele. Ele nasce
+    /// ligado, então nada do que já existia muda de forma.
+    public let isEnabled: Bool
 
-    public init(_ title: String, _ command: ContextCommand, shortcut: MenuShortcut? = nil) {
+    public init(
+        _ title: String,
+        _ command: ContextCommand,
+        shortcut: MenuShortcut? = nil,
+        isEnabled: Bool = true
+    ) {
         self.title = title
         self.command = command
         self.shortcut = shortcut
+        self.isEnabled = isEnabled
     }
 }
 

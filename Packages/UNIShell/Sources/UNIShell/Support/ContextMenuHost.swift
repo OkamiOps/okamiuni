@@ -4,18 +4,30 @@ import UNICore
 import AppKit
 #endif
 
-/// A ponte entre o modelo de menu (`UNICore.ContextMenus`) e o `contextMenu` do
-/// SwiftUI.
+/// A ponte entre o modelo de menu (`UNICore.ContextMenus`) e o painel que o
+/// app desenha.
 ///
 /// Aqui não se decide **o que** o menu tem — isso é dado, mora em `UNICore` e
-/// tem teste lá. Aqui só se traduz a lista para `Button`, `Menu` e `Divider`, e
-/// se executa o comando que o item carrega.
+/// tem teste lá. Aqui só se liga o clique direito à apresentação e se executa o
+/// comando que o item carrega.
 ///
-/// O `NSMenu` que o macOS monta a partir disto não passa pelo `Theme`: menu de
-/// contexto é do sistema, e o protótipo não desenha nenhum. O que o design
-/// desenha é o painel do seletor de tema, que é outro componente — ver
-/// `docs/decisoes-de-engenharia.md`, "O menu que um `<select>` abre não é do
-/// protótipo".
+/// ## O `NSMenu` saiu (Task AN)
+///
+/// Até esta tarefa isto era um `contextMenu { … }` do SwiftUI, e a decisão
+/// registrada era "menu de contexto é do sistema". O dono do projeto mandou o
+/// print — o painel cinza do macOS, com o realce rosa do sistema, em cima de
+/// uma interface que desenha todos os dropdowns dela — e revogou a decisão.
+///
+/// O que substituiu: `RightClickCatcher` pega o botão direito sem tirar o
+/// clique, o duplo clique nem o arraste lateral de quem está embaixo;
+/// `ContextMenuPresenter` abre um painel `ContextMenuPanel` numa janela
+/// própria; `UNICore.MenuPlacement` decide onde ele cabe. Nenhuma cor do
+/// sistema atravessa: o painel inteiro sai de `Theme`.
+///
+/// **A exceção deliberada é o editor do composer** (`ComposerTextView`): o menu
+/// dele *acrescenta* ao menu de texto do sistema — ortografia, substituições,
+/// serviços —, e redesenhá-lo custaria essas funções. Ver
+/// `docs/decisoes-de-engenharia.md`.
 
 // MARK: - Área de transferência
 
@@ -71,24 +83,20 @@ enum StoreCommand {
     }
 }
 
-extension MenuShortcut {
-    var keyboardShortcut: KeyboardShortcut {
-        var flags: EventModifiers = []
-        if modifiers.contains(.command) { flags.insert(.command) }
-        if modifiers.contains(.shift) { flags.insert(.shift) }
-        if modifiers.contains(.option) { flags.insert(.option) }
-        return KeyboardShortcut(KeyEquivalent(key), modifiers: flags)
-    }
-}
-
 /// O modificador que pendura o menu numa superfície.
 ///
 /// Lê `openWindow` do ambiente em vez de receber fechamentos: as três janelas
 /// que os menus abrem (03, 04, 05) já são cenas com id, e `InboxScreen` chama
 /// exatamente isto. Fechamento sobrou só para `revealMessage`, que precisa
 /// trocar de aba — e só `InboxScreen` sabe qual aba está no ar.
+///
+/// A captura é um `overlay`, e a ordem importa: no AppKit o teste de acerto
+/// corre de frente para trás, e só quem está na frente pode devolver `nil` para
+/// o evento seguir para quem está atrás. Como fundo, a `NSView` ficaria atrás
+/// da hospedeira do SwiftUI e nunca veria o clique direito.
 private struct ContextMenuModifier: ViewModifier {
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.theme) private var theme
 
     let store: MailStore
     let entries: [ContextMenuEntry]
@@ -100,31 +108,14 @@ private struct ContextMenuModifier: ViewModifier {
         if entries.isEmpty {
             content
         } else {
-            content.contextMenu { items(entries) }
-        }
-    }
-
-    @ViewBuilder
-    private func items(_ entries: [ContextMenuEntry]) -> some View {
-        ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
-            switch entry {
-            case .item(let item):
-                button(item)
-            case .submenu(let title, let children):
-                Menu(title) {
-                    ForEach(Array(children.enumerated()), id: \.offset) { _, child in
-                        button(child)
-                    }
+            content.overlay {
+                RightClickCatcher { point, window in
+                    ContextMenuPresenter.shared.present(
+                        entries, at: point, in: window, theme: theme
+                    ) { run($0) }
                 }
-            case .separator:
-                Divider()
             }
         }
-    }
-
-    private func button(_ item: ContextMenuItem) -> some View {
-        Button(item.title) { run(item.command) }
-            .keyboardShortcut(item.shortcut?.keyboardShortcut)
     }
 
     private func run(_ command: ContextCommand) {

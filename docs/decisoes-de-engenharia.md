@@ -288,6 +288,51 @@ Dá para medir sem olhar: o controle do protótipo é chapado, então fora dos g
 de dentro da cápsula está no token `btn`. Medido — 0,002 com `Picker`, 0,77 com o controle
 nosso.
 
+## O menu de contexto deixou de ser do sistema (2026-08-27, Task AN)
+
+**Decisão revogada.** Ficava escrito aqui, e em `ContextMenuHost.swift`, que "menu de contexto
+é do sistema, e o protótipo não desenha nenhum". O dono do projeto mandou o print — o `NSMenu`
+cinza do macOS, com o realce rosa do sistema, em cima de uma interface que desenha todos os
+dropdowns dela — e disse: "as actions estão usando ainda o padrao do sistema ao invés de
+custom". Não vale mais.
+
+O que substituiu o `contextMenu` do SwiftUI, sem mexer numa linha do **conteúdo** dos menus
+(`UNICore.ContextMenus` continua sendo o modelo, com os mesmos testes):
+
+- `RightClickCatcher` — uma `NSView` que **só existe para o mouse quando o evento corrente é de
+  botão direito** (ou Control-clique). Para qualquer outro evento o `hitTest` devolve `nil` e o
+  AppKit segue procurando, caindo na `NSHostingView`. É o que deixa clique, duplo clique e o
+  arraste lateral da linha intactos: o SwiftUI não tem gesto de botão direito, e uma `NSView`
+  opaca por cima roubaria os três. Ela vai de `overlay`, nunca de `background` — o teste de
+  acerto do AppKit corre de frente para trás, e só quem está na frente pode devolver `nil`.
+- `ContextMenuPanel` + `MenuSurface` — o painel, no idioma do `ComposerSelect`: `surface`,
+  raio `--r3`, borda `strokeBorder` de um pixel do dispositivo em `line`, realce `accentSoft`
+  com tinta `accentInk`, divisória `line2`. A divisória e o realce **saem** do `ComposerSelect`
+  e passam a ser compartilhados: duplicar idioma visual é como os dois `.stroke` borrados
+  sobreviveram um marco inteiro.
+- `ContextMenuPresenter` — uma janela sem moldura por nível, um menu aberto por vez no app.
+  Janela e não `overlay` pelo motivo já registrado do `popover`: um `overlay` é recortado pela
+  janela, e um menu aberto na última linha da lista sairia cortado no rodapé.
+- `UNICore.MenuPlacement` — a aritmética de virada e de ancoragem do submenu, em coordenadas
+  de tela do AppKit (y para cima), com testes que medem o ponto de virada **por um ponto**.
+
+**Exceção deliberada: o editor do composer fica no menu do sistema.** `ComposerTextView`
+*acrescenta* itens ao `NSMenu` que o AppKit monta (ver `augment(_:)`), e esse menu traz
+ortografia, substituições e serviços. Redesenhá-lo custaria essas funções, que não têm
+equivalente nosso. Se o dono quiser mexer nele também, é conversa separada.
+
+Duas armadilhas medidas no caminho, ambas do tipo "o sistema decidindo a aparência por baixo do
+pano":
+
+1. **`.disabled` apaga o botão sozinho.** Com ele no lugar, o teste de pixel do item
+   desabilitado continuava passando com a tinta `ink4` **arrancada** do código — a opacidade do
+   SwiftUI apagava o rótulo do mesmo jeito. O clique morre em `allowsHitTesting` e na guarda da
+   ação; o apagado é o token, e aí o teste tem o que afirmar.
+2. **A sombra do tema passa exatamente por `line2`.** Contando o bitmap inteiro, um painel sem
+   separador nenhum acusava 4.454 pixels de divisória em `tinta`: o degradê da sombra sobre
+   `paper` cai dentro da tolerância de 0,02. Toda contagem por token do painel é feita numa
+   janela **dentro** dele.
+
 ## O que era "limite do SDK" era limite do `TextEditor`
 
 Tabela, hyperlink e justificado ficaram desabilitados um marco inteiro, com o motivo escrito

@@ -203,8 +203,9 @@ public struct MessageList: View {
     ///   linha está aberta ele **fecha** a linha em vez de selecionar;
     /// - **duplo clique** abre a janela, pelo mesmo `simultaneousGesture` de
     ///   antes — ele não anda 12pt, então nunca engata o arraste;
-    /// - **botão direito** abre `ContextMenus.messageRow`, que o `DragGesture`
-    ///   nem enxerga: o arraste só acompanha o botão esquerdo.
+    /// - **botão direito** abre `ContextMenus.messageRow` no painel que o app
+    ///   desenha, e o `DragGesture` nem o enxerga: o arraste só acompanha o
+    ///   botão esquerdo.
     private func row(_ message: Message) -> some View {
         let account = store.account(message.accountID)
         return SwipeRow(
