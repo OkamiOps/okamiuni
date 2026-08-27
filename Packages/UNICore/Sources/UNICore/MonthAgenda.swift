@@ -89,7 +89,7 @@ public enum MonthAgenda {
     public static func dayOffsets(
         for anchor: Date, focusOffset: Int = 0, calendar: Calendar = .current
     ) -> [Int] {
-        let focused = calendar.date(byAdding: .day, value: focusOffset, to: anchor) ?? anchor
+        let focused = focusedDate(anchor: anchor, focusOffset: focusOffset, calendar: calendar)
         let start = gridStart(for: focused, calendar: calendar)
         let anchorDay = calendar.startOfDay(for: anchor)
         let first = calendar.dateComponents([.day], from: anchorDay, to: start).day ?? 0
@@ -142,7 +142,7 @@ public enum MonthAgenda {
         from items: [AgendaItem], anchor: Date, focusOffset: Int = 0,
         calendar: Calendar = .current
     ) -> [Week] {
-        let focused = calendar.date(byAdding: .day, value: focusOffset, to: anchor) ?? anchor
+        let focused = focusedDate(anchor: anchor, focusOffset: focusOffset, calendar: calendar)
         let anchorMonth = calendar.component(.month, from: focused)
         let anchorYear = calendar.component(.year, from: focused)
         let byDay = Dictionary(grouping: items, by: \.dayOffset)
@@ -223,6 +223,21 @@ public enum MonthAgenda {
         dayOffset: Int, anchor: Date, calendar: Calendar = .current
     ) -> Date {
         calendar.date(byAdding: .day, value: dayOffset, to: anchor) ?? anchor
+    }
+
+    /// A data em foco: `anchor` deslocado por `focusOffset` dias, sem que
+    /// `anchor` em si se mova.
+    ///
+    /// É o que acha o mês/ano certo para o cabeçalho e a grade do seletor de
+    /// data continuarem a navegação `‹ ›` em vez de sempre mostrar o mês da
+    /// âncora — o defeito era `DatePickerPopover` montar tudo a partir de
+    /// `anchor` puro, ignorando o `focusOffset` acumulado. `dayOffsets(for:)`
+    /// e `weeks(from:anchor:focusOffset:)` já usavam esta conta por dentro;
+    /// aqui ela vira função pública para o seletor não precisar duplicá-la.
+    public static func focusedDate(
+        anchor: Date, focusOffset: Int, calendar: Calendar = .current
+    ) -> Date {
+        calendar.date(byAdding: .day, value: focusOffset, to: anchor) ?? anchor
     }
 }
 

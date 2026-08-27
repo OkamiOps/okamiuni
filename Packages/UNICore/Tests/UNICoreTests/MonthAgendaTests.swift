@@ -161,4 +161,74 @@ struct MonthAgendaTests {
 
         #expect(MonthAgenda.shortDayLabel(dayOffset: 10, anchor: Fixtures.today) == "sex, 4 set")
     }
+
+    // MARK: - Task AJ, conserto 4: `focusedDate`, a base do seletor de data
+
+    /// `DatePickerPopover` montava a grade e o título sempre a partir de
+    /// `anchor`, ignorando o `focusOffset` que o navegador `‹ ›` acumulou —
+    /// abrir o seletor depois de navegar mostrava sempre o mês da âncora, sem
+    /// célula marcada, e escolher um dia teleportava a navegação de volta.
+    /// `focusedDate` é a aritmética pura por trás do conserto: `anchor`
+    /// deslocado por `focusOffset`, sem que `anchor` em si se mova. As quatro
+    /// fronteiras pedidas no brief, cada uma checada de um jeito que não
+    /// depende de `date(byAdding:)` para derivar o esperado — a mesma conta
+    /// que a função usa por dentro provaria só que ela concorda consigo
+    /// mesma.
+    @Suite("focusedDate")
+    struct FocusedDateTests {
+        let calendar = Calendar(identifier: .gregorian)
+
+        /// Fixtures.today é terça 25 de agosto de 2026, ao meio-dia local.
+        var anchor: Date { Fixtures.today }
+
+        @Test("mesma data: focusOffset 0 não move nada")
+        func sameDate() {
+            let result = MonthAgenda.focusedDate(anchor: anchor, focusOffset: 0, calendar: calendar)
+            #expect(calendar.isDate(result, inSameDayAs: anchor))
+        }
+
+        @Test("véspera: focusOffset -1 é um dia antes")
+        func eve() {
+            let result = MonthAgenda.focusedDate(anchor: anchor, focusOffset: -1, calendar: calendar)
+            let comps = calendar.dateComponents([.year, .month, .day], from: result)
+            // 25 de agosto menos um dia: 24 de agosto, mesmo mês e ano —
+            // então esta fronteira por si só não provaria nada se a função
+            // sempre devolvesse `anchor` sem somar: checa o dia mudou.
+            #expect(comps.year == 2026 && comps.month == 8 && comps.day == 24)
+        }
+
+        @Test("virada de mês: o deslocamento até 1º de setembro chega em setembro")
+        func monthTurn() {
+            // Deriva o deslocamento por SUBTRAÇÃO de calendário — mecanismo
+            // diferente do `date(byAdding:)` que `focusedDate` usa por
+            // dentro — para o teste não validar a função contra si mesma.
+            let firstOfSeptember = calendar.date(from: DateComponents(year: 2026, month: 9, day: 1))!
+            let offset = calendar.dateComponents(
+                [.day], from: calendar.startOfDay(for: anchor), to: firstOfSeptember
+            ).day!
+
+            let result = MonthAgenda.focusedDate(anchor: anchor, focusOffset: offset, calendar: calendar)
+            let comps = calendar.dateComponents([.year, .month, .day], from: result)
+            #expect(comps.year == 2026 && comps.month == 9 && comps.day == 1)
+        }
+
+        @Test("virada de ano: o deslocamento até 1º de janeiro chega no ano seguinte")
+        func yearTurn() {
+            let newYearsDay = calendar.date(from: DateComponents(year: 2027, month: 1, day: 1))!
+            let offset = calendar.dateComponents(
+                [.day], from: calendar.startOfDay(for: anchor), to: newYearsDay
+            ).day!
+
+            let result = MonthAgenda.focusedDate(anchor: anchor, focusOffset: offset, calendar: calendar)
+            let comps = calendar.dateComponents([.year, .month, .day], from: result)
+            #expect(comps.year == 2027 && comps.month == 1 && comps.day == 1)
+        }
+
+        /// `anchor` propriamente dito nunca se move — só a data derivada.
+        @Test("a âncora não muda de valor depois de pedir um foco distante")
+        func anchorStaysPut() {
+            _ = MonthAgenda.focusedDate(anchor: anchor, focusOffset: 400, calendar: calendar)
+            #expect(calendar.isDate(anchor, inSameDayAs: Fixtures.today))
+        }
+    }
 }

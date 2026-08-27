@@ -26,8 +26,23 @@ struct DatePickerPopover: View {
     let selectedDayOffset: Int
     let onPickDay: (Int) -> Void
 
-    private var weeks: [MonthAgenda.Week] {
-        MonthAgenda.weeks(from: store.visibleAgenda, anchor: anchor)
+    /// O mês/semana **focado**, não o da âncora: navegar com `‹ ›` antes de
+    /// abrir o seletor não pode fazer a grade voltar para trás. A âncora nunca
+    /// se move — só o `focusOffset` que o navegador acumulou anda.
+    ///
+    /// `internal`, não `private`: `DatePickerPopoverTests` precisa ler isto
+    /// para provar a navegação sem depender de renderizar pixel.
+    var weeks: [MonthAgenda.Week] {
+        MonthAgenda.weeks(from: store.visibleAgenda, anchor: anchor, focusOffset: selectedDayOffset)
+    }
+
+    /// A data que o cabeçalho e a grade devem usar para achar o mês em foco.
+    /// `Day.dayOffset` que a grade produz continua relativo a `anchor` — é o
+    /// que faz `onPickDay` devolver o mesmo tipo de deslocamento que
+    /// `selectedDayOffset` já é, sem teleportar a navegação de volta para a
+    /// âncora ao escolher um dia.
+    var focusedDate: Date {
+        MonthAgenda.focusedDate(anchor: anchor, focusOffset: selectedDayOffset)
     }
 
     var body: some View {
@@ -60,7 +75,7 @@ struct DatePickerPopover: View {
     /// Protótipo: `margin-bottom: 9px`, o mês em serif 14 e o rótulo em mono 9.
     private var header: some View {
         HStack(spacing: 8) {
-            Text(WeekAgenda.monthTitle(for: anchor))
+            Text(WeekAgenda.monthTitle(for: focusedDate))
                 .font(theme.serif.font(size: 14, weight: .semibold))
                 .foregroundStyle(theme.ink.color)
             Spacer(minLength: 0)
