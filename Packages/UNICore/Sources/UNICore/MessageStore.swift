@@ -21,11 +21,17 @@ public struct InMemoryMailSource: MailSource {
         self._agenda = agenda
     }
 
+    /// A agenda entra pela **semana inteira**, não só por hoje.
+    ///
+    /// Uma lista só é o que faz a janela 04 achar qualquer compromisso pelo
+    /// `id`, inclusive o de quarta. Quem mostra um dia filtra por `dayOffset`:
+    /// a trilha diária pede 0, a grade da semana agrupa. `Fixtures.week`
+    /// contém `Fixtures.agenda`, então a terça é a mesma nos dois lugares.
     public static var fixtures: InMemoryMailSource {
         InMemoryMailSource(
             accounts: Fixtures.accounts,
             messages: Fixtures.messages,
-            agenda: Fixtures.agenda
+            agenda: Fixtures.week
         )
     }
 

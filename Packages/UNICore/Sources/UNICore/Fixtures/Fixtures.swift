@@ -111,7 +111,11 @@ public enum Fixtures {
         ),
     ]
 
-    /// A trilha de "Terça, 25 de agosto" do protótipo, em minutos desde a meia-noite.
+    /// A trilha de "Terça, 25 de agosto" do protótipo, em minutos desde a
+    /// meia-noite. Todos com `dayOffset` 0: é o dia de `today`.
+    ///
+    /// Esta é a **única** definição da terça. A grade da semana não tem uma
+    /// segunda cópia dela: `week` inclui estes mesmos itens.
     public static let agenda: [AgendaItem] = [
         AgendaItem(id: "e1", title: "Standup produto",
                    startMinute: 570, endMinute: 600, accountID: "zoho"),
@@ -124,6 +128,50 @@ public enum Fixtures {
         AgendaItem(id: "e5", title: "Foco: proposta TransRota",
                    startMinute: 990, endMinute: 1080, accountID: "host"),
     ]
+
+    /// A semana de segunda 24 a domingo 30 de agosto, ancorada em `today`.
+    /// Protótipo: `WEEK` (linha 1625), com uma correção deliberada.
+    ///
+    /// **A terça sai de `agenda`, não do `WEEK`.** O protótipo se contradiz no
+    /// dia 25: `RAIL` lista cinco blocos e `WEEK` lista três, com títulos
+    /// encurtados. Onde ele tem duas respostas, "o protótipo vence" não decide,
+    /// e o critério passa a ser o produto: a mesma terça não pode mostrar
+    /// coisas diferentes na trilha e na grade, no mesmo app, na mesma sessão.
+    /// Os títulos curtos do `WEEK` não são outro dado — são o mesmo
+    /// compromisso com rótulo menor, porque a coluna é estreita. Isso se
+    /// resolve ao desenhar (uma linha, com reticências), não guardando dois
+    /// títulos. Os outros seis dias vêm do `WEEK` sem alteração.
+    ///
+    /// Sábado não tem compromisso, como no protótipo — a coluna vazia é parte
+    /// do desenho, não um dado faltando.
+    public static let week: [AgendaItem] = (agenda + [
+        // segunda, 24
+        AgendaItem(id: "w1", title: "Standup",
+                   startMinute: 570, endMinute: 600, accountID: "zoho", dayOffset: -1),
+        AgendaItem(id: "w2", title: "Retro do sprint",
+                   startMinute: 900, endMinute: 960, accountID: "zoho", dayOffset: -1),
+        // quarta, 26
+        AgendaItem(id: "w3", title: "Bloco: proposta",
+                   startMinute: 540, endMinute: 660, accountID: "host", dayOffset: 1),
+        AgendaItem(id: "w4", title: "Standup",
+                   startMinute: 660, endMinute: 690, accountID: "zoho", dayOffset: 1),
+        // quinta, 27
+        AgendaItem(id: "w5", title: "Standup",
+                   startMinute: 570, endMinute: 600, accountID: "zoho", dayOffset: 2),
+        AgendaItem(id: "w6", title: "Call do contrato",
+                   startMinute: 900, endMinute: 960, accountID: "zoho", dayOffset: 2),
+        // sexta, 28
+        AgendaItem(id: "w7", title: "Revisão semanal",
+                   startMinute: 960, endMinute: 1020, accountID: "icloud", dayOffset: 3),
+        // sábado, 29 — sem compromisso
+        // domingo, 30
+        //
+        // O protótipo escreve "Planejar a semana" no `WEEK` e "Planejar semana"
+        // em `TIMES`/`EV_META`. Vale a segunda: é a que tem metadados, e é ela
+        // que faz a janela 04 abrir com conteúdo em vez do padrão genérico.
+        AgendaItem(id: "w8", title: "Planejar semana",
+                   startMinute: 1140, endMinute: 1200, accountID: "icloud", dayOffset: 5),
+    ]).sorted { ($0.startMinute, $0.dayOffset, $0.id) < ($1.startMinute, $1.dayOffset, $1.id) }
 
     /// O catálogo por trás dos campos Para/Cc/Cco. Protótipo: `CONTACTS`.
     public static let contacts: [DirectoryContact] = [

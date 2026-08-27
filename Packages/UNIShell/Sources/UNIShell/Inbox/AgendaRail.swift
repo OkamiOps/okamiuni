@@ -99,6 +99,14 @@ public struct AgendaRail: View {
         return d.hour * 60 + d.minute
     }
 
+    /// Só o dia de hoje. Desde que a semana entrou, `store.agenda` carrega os
+    /// sete dias numa lista só — é isso que deixa a janela 04 achar um
+    /// compromisso de quarta pelo `id`. A trilha mostra um dia, então filtra:
+    /// sem isto ela empilharia a semana inteira sobre hoje.
+    private var todayItems: [AgendaItem] {
+        WeekAgenda.items(on: 0, in: store.agenda)
+    }
+
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
@@ -106,7 +114,7 @@ public struct AgendaRail: View {
                 ZStack(alignment: .topLeading) {
                     hourLines
                     nowMarker
-                    ForEach(store.agenda) { item in
+                    ForEach(todayItems) { item in
                         eventBlock(item)
                             .offset(y: layout.offset(for: item))
                     }
@@ -133,7 +141,7 @@ public struct AgendaRail: View {
                 Circle()
                     .fill(liveColor())
                     .frame(width: 5, height: 5)
-                Text(Self.nextUpLabel(for: store.agenda, now: now))
+                Text(Self.nextUpLabel(for: todayItems, now: now))
                     .font(theme.mono.font(size: 10))
                     .foregroundStyle(theme.ink2.color)
                     .lineLimit(1)
@@ -198,8 +206,7 @@ public struct AgendaRail: View {
     }
 
     private func liveColor() -> Color {
-        let hex = theme.isDark ? "#FF7972" : "#D73337"
-        return TokenColor(css: hex)?.color ?? theme.accent.color
+        SemanticColor.live(isDark: theme.isDark)
     }
 
     private func eventBlock(_ item: AgendaItem) -> some View {

@@ -16,6 +16,13 @@ enum SemanticColor {
     static func warn(isDark: Bool) -> Color {
         TokenColor(css: isDark ? "#F6B669" : "#945500")?.color ?? .orange
     }
+
+    /// O vermelho do marcador de "agora" — `semC('live')` do protótipo. Uma
+    /// definição só, usada pela trilha diária e pela grade da semana: eram duas
+    /// cópias do mesmo par de hex.
+    static func live(isDark: Bool) -> Color {
+        TokenColor(css: isDark ? "#FF7972" : "#D73337")?.color ?? .red
+    }
 }
 
 /// A tela **04 Detalhe do compromisso** (linhas 588–742 do protótipo,
