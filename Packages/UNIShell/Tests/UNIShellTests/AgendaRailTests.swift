@@ -178,23 +178,22 @@ struct AgendaRailTests {
 
     // MARK: - Calha das horas (Task P, defeito 1 e 3)
 
-    @Test("o cartão de evento nunca invade a calha dos rótulos de hora")
-    func eventNeverCoversHourLabel() {
-        // O defeito medido: o cartão começava em 24pt, dentro da calha de 26pt,
-        // e escondia "10", "11", "13", "14" e "17" atrás do bloco.
-        #expect(layout.eventLeading >= layout.labelGutter + layout.gutterGap)
-    }
-
     @Test("a calha e o recuo dos cartões vêm do protótipo")
     func gutterMatchesPrototype() {
+        // O defeito da Task P: o cartão começava em 24pt, dentro da calha de
+        // 26pt, e escondia "10", "11", "13", "14" e "17" atrás do bloco.
+        //
+        // O que trava o defeito são estas literais, não uma relação entre elas:
+        // `eventLeading` é *definido* como `labelGutter + gutterGap`, então
+        // qualquer asserção ligando os três é verdadeira por construção e
+        // passaria com a calha de volta em 2pt e os rótulos cobertos.
+        //
         // Protótipo: linha da hora com `gap: 6px`, cartão com `right: 2px`.
         // A calha tem 30 e não os 26 declarados no span porque o texto do
         // protótipo é "08:00", que em mono 9pt não cabe em 26.
         #expect(layout.gutterGap == 6)
         #expect(layout.eventTrailing == 2)
         #expect(layout.labelGutter == 30)
-        // O recuo do cartão sai da calha mais a folga: 30 + 6.
-        // (A relação em si está travada em `eventNeverCoversHourLabel`.)
         #expect(layout.eventLeading == 36)
     }
 
