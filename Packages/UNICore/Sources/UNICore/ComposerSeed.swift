@@ -8,6 +8,19 @@ import Foundation
 /// base; ver `docs/decisoes-de-engenharia.md`.
 public struct ComposerSeed: Sendable, Hashable {
     public let to: [Contact]
+    /// Cópia e cópia oculta, e os anexos.
+    ///
+    /// Existem aqui porque a faixa de resposta do leitor captura os três — os
+    /// botões "Cc"/"Cco" e o 📎 gravam em `ReplyDraft` — e a janela cheia
+    /// desenha os três. Enquanto o seed não os carregava, promover pelo "⤢"
+    /// apagava em silêncio quem estava em cópia e o anexo escolhido: a pessoa
+    /// apertava Enviar achando que o jurídico estava na linha. É a mesma classe
+    /// de perda que `body` documenta para a formatação, pela outra porta.
+    public let cc: [Contact]
+    public let bcc: [Contact]
+    /// Os anexos, pelo nome — o Marco 1 não copia arquivo nenhum, é a mesma
+    /// lista de exemplo que a janela 03 usa.
+    public let attachments: [String]
     public let subject: String
     /// O corpo em texto simples — a projeção de `rich`.
     ///
@@ -22,12 +35,32 @@ public struct ComposerSeed: Sendable, Hashable {
     /// perda acima.
     public let rich: AttributedString
 
-    public init(to: [Contact], subject: String, body: String) {
-        self.init(to: to, subject: subject, rich: AttributedString(body))
+    public init(
+        to: [Contact],
+        cc: [Contact] = [],
+        bcc: [Contact] = [],
+        attachments: [String] = [],
+        subject: String,
+        body: String
+    ) {
+        self.init(
+            to: to, cc: cc, bcc: bcc, attachments: attachments,
+            subject: subject, rich: AttributedString(body)
+        )
     }
 
-    public init(to: [Contact], subject: String, rich: AttributedString) {
+    public init(
+        to: [Contact],
+        cc: [Contact] = [],
+        bcc: [Contact] = [],
+        attachments: [String] = [],
+        subject: String,
+        rich: AttributedString
+    ) {
         self.to = to
+        self.cc = cc
+        self.bcc = bcc
+        self.attachments = attachments
         self.subject = subject
         self.rich = rich
         self.body = String(rich.characters)
@@ -53,6 +86,9 @@ public struct ComposerSeed: Sendable, Hashable {
         }
         return ComposerSeed(
             to: draft.to.isEmpty ? [message.from] : draft.to,
+            cc: draft.cc,
+            bcc: draft.bcc,
+            attachments: draft.attachments,
             subject: subject,
             rich: draft.body
         )

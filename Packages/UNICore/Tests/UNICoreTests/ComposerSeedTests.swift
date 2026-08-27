@@ -91,4 +91,56 @@ struct ComposerSeedTests {
         let seed = ComposerSeed.reply(to: Self.message(subject: ""), draft: nil)
         #expect(seed.subject == "")
     }
+
+    /// Promover pela "⤢" não pode perder nada do que a faixa capturou.
+    ///
+    /// A faixa grava `to`, `cc`, `bcc`, corpo e anexos (`QuickReplyBand`
+    /// .currentDraft), e a janela 03 desenha os cinco. Enquanto o seed só
+    /// carregava `to`, `subject` e o corpo, promover apagava em silêncio quem
+    /// estava em cópia e o anexo escolhido — a pessoa apertava Enviar achando
+    /// que o jurídico estava na linha.
+    @Test("a promoção carrega cc, cco e anexos, e não só o destinatário e o corpo")
+    func carriesEverythingTheBandCaptures() {
+        let juridico = Contact(name: "Jurídico", address: "juridico@empresa.com")
+        let financeiro = Contact(name: "Financeiro", address: "fin@empresa.com")
+        let draft = ReplyDraft(
+            to: [Self.outro],
+            cc: [juridico],
+            bcc: [financeiro],
+            body: AttributedString("texto"),
+            attachments: ["contrato-v4.docx", "anexo-2.pdf"]
+        )
+        let seed = ComposerSeed.reply(to: Self.message(), draft: draft)
+
+        #expect(seed.to == [Self.outro])
+        #expect(seed.cc == [juridico])
+        #expect(seed.bcc == [financeiro])
+        #expect(seed.attachments == ["contrato-v4.docx", "anexo-2.pdf"])
+        #expect(seed.body == "texto")
+    }
+
+    /// Um rascunho **só** com gente em cópia e um anexo não tem texto nenhum, e
+    /// mesmo assim não pode ser tratado como "sem rascunho": `ReplyDraft.isEmpty`
+    /// já conta cc, cco e anexo, e o seed tem de concordar com ele.
+    @Test("rascunho sem texto, só com cópia e anexo, ainda atravessa")
+    func copiesSurviveWithoutText() {
+        let juridico = Contact(name: "Jurídico", address: "juridico@empresa.com")
+        let draft = ReplyDraft(to: [], cc: [juridico], attachments: ["contrato-v4.docx"])
+        #expect(draft.isEmpty == false)
+
+        let seed = ComposerSeed.reply(to: Self.message(), draft: draft)
+        // Sem destinatário no rascunho o remetente da mensagem continua valendo.
+        #expect(seed.to == [Self.message().from])
+        #expect(seed.cc == [juridico])
+        #expect(seed.attachments == ["contrato-v4.docx"])
+    }
+
+    /// Sem rascunho não há cópia nem anexo para inventar.
+    @Test("sem rascunho, cc, cco e anexos nascem vazios")
+    func withoutDraftThereAreNoCopies() {
+        let seed = ComposerSeed.reply(to: Self.message(), draft: nil)
+        #expect(seed.cc.isEmpty)
+        #expect(seed.bcc.isEmpty)
+        #expect(seed.attachments.isEmpty)
+    }
 }

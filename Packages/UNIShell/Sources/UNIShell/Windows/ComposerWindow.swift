@@ -282,6 +282,14 @@ public struct ComposerWindow: View {
                 draft: store.replyDraft(for: repliedMessage.id)
             )
             to = seed.to
+            // Cc, Cco e anexos vêm junto, e as linhas nascem **abertas** quando
+            // têm gente: uma linha Cc recolhida com endereço dentro é a mesma
+            // perda em silêncio, só que visível depois do Enviar.
+            cc = seed.cc
+            bcc = seed.bcc
+            ccOpen = ccOpen || !seed.cc.isEmpty
+            bccOpen = bccOpen || !seed.bcc.isEmpty
+            attachments = seed.attachments
             subject = seed.subject
             // `seed.rich` e não `seed.body`: por `String` a formatação que a
             // pessoa aplicou na faixa do leitor se perderia ao promover para cá
