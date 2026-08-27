@@ -189,18 +189,12 @@ public struct InboxScreen: View {
     private static let paneTransition: Animation = .easeInOut(duration: 0.18)
 
     private var calendarContent: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Agenda semanal")
-                .font(theme.sans.font(size: 13, weight: .medium))
-                .foregroundStyle(theme.ink.color)
-            Text("Previsto para Marco 4")
-                .font(theme.sans.font(size: 11))
-                .foregroundStyle(theme.ink4.color)
-            Spacer(minLength: 0)
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(theme.surface.color)
+        WeekScreen(
+            store: store,
+            now: Fixtures.nowMinute,
+            anchor: Fixtures.today,
+            onOpenEvent: openEventWindow
+        )
     }
 
     // MARK: - Janelas
