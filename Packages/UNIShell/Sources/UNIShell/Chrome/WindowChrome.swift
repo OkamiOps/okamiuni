@@ -137,6 +137,10 @@ public struct WindowChrome: View {
         .frame(height: TrafficLightLayout.contentCenterFromTop * 2)
         .frame(height: Self.height, alignment: .top)
         .background(theme.surface2.color)
+        // Numa janela `.hiddenTitleBar` a barra nativa fica atrás do nosso
+        // conteúdo, então o duplo clique não chegava nela e a janela ignorava o
+        // ajuste do sistema. Ver `TitleBarDoubleClick`.
+        .titleBarDoubleClick()
         .hairline(theme.line, edges: .bottom)
         // Sobe os semáforos nativos para a linha média da barra. Tamanho zero e
         // sem hit test: não participa do layout nem come clique.

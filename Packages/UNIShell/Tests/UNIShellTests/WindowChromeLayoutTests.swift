@@ -151,3 +151,25 @@ struct WindowChromeLayoutTests {
         #expect(TrafficLightLayout.containerFrame(windowSize: size, barHeight: 58) == expected)
     }
 }
+
+@Suite("Duplo clique na barra")
+struct TitleBarDoubleClickTests {
+
+    /// O ajuste do sistema tem três valores e os três importam: cravar zoom
+    /// ignoraria quem escolheu minimizar, e quem escolheu "nada" veria a janela
+    /// se mexer sem ter pedido.
+    @Test("cada valor do ajuste do sistema mapeia para a sua ação", arguments: [
+        ("Maximize", DoubleClickAction.zoom),
+        ("Minimize", DoubleClickAction.miniaturize),
+        ("None", DoubleClickAction.none),
+        (nil as String?, DoubleClickAction.zoom),   // padrão de fábrica
+    ])
+    func actionForSetting(setting: String?, expected: DoubleClickAction) {
+        #expect(DoubleClickAction.forSystemSetting(setting) == expected)
+    }
+
+    @Test("um valor desconhecido cai no padrão em vez de não fazer nada")
+    func unknownFallsBackToZoom() {
+        #expect(DoubleClickAction.forSystemSetting("SomethingElse") == .zoom)
+    }
+}
