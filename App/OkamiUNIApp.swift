@@ -34,6 +34,11 @@ struct OkamiUNIApp: App {
                 // inteiro comprime até 100. Então 600 aqui é 600 de conteúdo,
                 // 632 de janela.
                 .frame(minWidth: 860, minHeight: 600)
+                // Porta de depuração: `open -g --args --nova-mensagem` abre a
+                // janela auxiliar pelo mesmo `openWindow` do menu, sem trazer o
+                // app à frente e sem sintetizar tecla nenhuma. Sem a bandeira,
+                // isto não faz nada.
+                .modifier(LaunchWindowOpener())
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1440, height: 916)
@@ -85,6 +90,23 @@ struct OkamiUNIApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(UNIWindow.Size.event)
+    }
+}
+
+/// Abre a janela auxiliar pedida na linha de comando, uma vez só.
+///
+/// `openWindow` é chave de ambiente e precisa de um `View` para ser lida — daí
+/// o modificador em vez de uma chamada dentro do `App`.
+private struct LaunchWindowOpener: ViewModifier {
+    @Environment(\.openWindow) private var openWindow
+    @State private var done = false
+
+    func body(content: Content) -> some View {
+        content.task {
+            guard !done, let request = LaunchWindowRequest.fromProcess else { return }
+            done = true
+            openWindow(id: request.windowID, value: request.value)
+        }
     }
 }
 

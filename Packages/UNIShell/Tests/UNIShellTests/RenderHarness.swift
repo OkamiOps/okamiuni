@@ -110,3 +110,58 @@ struct RenderHarnessTests {
         #expect(rep.pixelsHigh == 916)
     }
 }
+
+@Suite("Porta de depuração de lançamento")
+struct LaunchWindowRequestTests {
+
+    @Test("sem bandeira, lançamento normal não abre janela nenhuma")
+    func noFlagNoWindow() {
+        #expect(LaunchWindowRequest.parse([]) == nil)
+        #expect(LaunchWindowRequest.parse(["-NSDocumentRevisionsDebugMode", "YES"]) == nil)
+    }
+
+    @Test("cada bandeira mapeia para a cena dela", arguments: [
+        ("--nova-mensagem", UNIWindow.newMessage),
+        ("--responder", UNIWindow.composer),
+        ("--mensagem", UNIWindow.message),
+        ("--compromisso", UNIWindow.event),
+    ])
+    func flagMapsToScene(flag: String, expected: String) throws {
+        let request = try #require(LaunchWindowRequest.parse([flag]))
+        #expect(request.windowID == expected)
+    }
+
+    @Test("o valor vem colado ou separado")
+    func valueForms() throws {
+        let inline = try #require(LaunchWindowRequest.parse(["--mensagem=m2"]))
+        #expect(inline.value == "m2")
+        let separate = try #require(LaunchWindowRequest.parse(["--mensagem", "m2"]))
+        #expect(separate.value == "m2")
+    }
+
+    @Test("uma bandeira seguida de outra não engole a seguinte como valor")
+    func flagIsNotAValue() throws {
+        let request = try #require(LaunchWindowRequest.parse(["--mensagem", "--responder"]))
+        #expect(request.windowID == UNIWindow.message)
+        #expect(request.value == "")
+    }
+
+    @Test("só a primeira bandeira vale")
+    func firstFlagWins() throws {
+        let request = try #require(
+            LaunchWindowRequest.parse(["--compromisso", "a1", "--nova-mensagem"])
+        )
+        #expect(request.windowID == UNIWindow.event)
+        #expect(request.value == "a1")
+    }
+
+    @Test("bandeira desconhecida é ignorada, não confundida com as nossas")
+    func unknownFlagIgnored() throws {
+        #expect(LaunchWindowRequest.parse(["--nova-mensagem-falsa"]) == nil)
+        let request = try #require(
+            LaunchWindowRequest.parse(["--qualquer", "coisa", "--responder", "m1"])
+        )
+        #expect(request.windowID == UNIWindow.composer)
+        #expect(request.value == "m1")
+    }
+}
