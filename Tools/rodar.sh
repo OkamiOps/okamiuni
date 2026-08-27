@@ -33,18 +33,23 @@ if [[ "$1" == "--capturar" ]]; then
   ALVO="${2:-/tmp/uni-real.png}"
   # O app é sandboxed: ele só consegue escrever dentro do próprio contêiner.
   # A foto sai de lá e é copiada para onde o usuário pediu.
-  CONTAINER=~/Library/Containers/com.okamiops.okamiuni/Data/tmp/uni-real.png
-  rm -f "$CONTAINER" "$ALVO" 2>/dev/null || true
+  DIR=~/Library/Containers/com.okamiops.okamiuni/Data/tmp
+  DEST=$(dirname "$ALVO")
+  rm -f "$DIR"/uni-real-*.png 2>/dev/null || true
 
-  echo "▸ abrindo para fotografar (o app fecha sozinho)"
+  echo "▸ abrindo para fotografar os estados (o app fecha sozinho)"
   open -W "$APP" --args --capturar
 
-  if [[ -f "$CONTAINER" ]]; then
-    cp "$CONTAINER" "$ALVO"
-    echo "▸ imagem: $ALVO  ($(sips -g pixelWidth -g pixelHeight "$ALVO" | tail -2 | tr -d ' \n'))"
-  else
-    echo "▸ FALHOU: nada em $CONTAINER"
-    echo "  veja o log do app:  log show --last 2m --predicate 'process == \"OkamiUNI\"' | grep captura"
+  N=0
+  for F in "$DIR"/uni-real-*.png(N); do
+    cp "$F" "$DEST/$(basename $F)"
+    echo "▸ $DEST/$(basename $F)  ($(sips -g pixelWidth -g pixelHeight "$F" | tail -2 | tr -d ' \n'))"
+    N=$((N+1))
+  done
+
+  if [[ $N -eq 0 ]]; then
+    echo "▸ FALHOU: nenhuma imagem em $DIR"
+    echo "  log do app:  log show --last 2m --predicate 'process == \"OkamiUNI\"' | grep captura"
     exit 1
   fi
   exit 0

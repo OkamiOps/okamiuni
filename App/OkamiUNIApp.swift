@@ -41,7 +41,7 @@ struct OkamiUNIApp: App {
                 .modifier(LaunchWindowOpener())
                 // `--capturar=/caminho.png`: fotografa a própria janela e
                 // encerra. Sem a bandeira, não faz nada.
-                .captureWindowIfRequested(WindowCapture.fromProcess)
+                .captureWindowIfRequested(WindowCapture.fromProcess, store: mailStore)
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1440, height: 916)

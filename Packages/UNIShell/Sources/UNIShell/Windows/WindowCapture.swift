@@ -1,4 +1,5 @@
 import SwiftUI
+import UNICore
 
 /// Fotografa a própria janela e encerra o app.
 ///
@@ -27,6 +28,15 @@ public struct WindowCapture: Sendable {
     public init(path: String, delay: Double = 1.2) {
         self.path = path
         self.delay = delay
+    }
+
+    /// Um arquivo por estado, no mesmo diretório do caminho base.
+    public func path(for stage: CaptureStage) -> String {
+        let url = URL(fileURLWithPath: path)
+        let base = url.deletingPathExtension().lastPathComponent
+        return url.deletingLastPathComponent()
+            .appendingPathComponent("\(base)-\(stage.fileSuffix).png")
+            .path
     }
 
     /// Onde a foto pode ser escrita.
@@ -59,25 +69,45 @@ public struct WindowCapture: Sendable {
 
 extension View {
     /// Liga a captura quando a bandeira estiver presente. Sem ela, não faz nada.
-    public func captureWindowIfRequested(_ request: WindowCapture?) -> some View {
-        modifier(WindowCaptureModifier(request: request))
+    public func captureWindowIfRequested(
+        _ request: WindowCapture?,
+        store: MailStore? = nil
+    ) -> some View {
+        modifier(WindowCaptureModifier(request: request, store: store))
     }
 }
 
 private struct WindowCaptureModifier: ViewModifier {
     let request: WindowCapture?
+    let store: MailStore?
     @State private var done = false
 
     func body(content: Content) -> some View {
         content.background(
-            CaptureProbe(request: request, done: $done).frame(width: 0, height: 0)
+            CaptureProbe(request: request, store: store, done: $done).frame(width: 0, height: 0)
         )
     }
+}
+
+/// Os estados que a captura percorre numa passada só.
+///
+/// Existe porque cada ida e volta custa uma rodada do dono do projeto: a
+/// primeira foto pegou a faixa de resposta **vazia**, com os botões
+/// desabilitados, e o defeito que ele relata aparece com eles **ativos**.
+/// Pedir outra rodada por estado não é aceitável.
+public enum CaptureStage: String, CaseIterable, Sendable {
+    /// Como o app abre.
+    case inicial
+    /// Faixa de resposta com destinatário e texto: os três botões acendem.
+    case faixaAtiva
+
+    public var fileSuffix: String { rawValue }
 }
 
 /// Precisa de uma `NSView` para alcançar a `NSWindow` de verdade.
 private struct CaptureProbe: NSViewRepresentable {
     let request: WindowCapture?
+    let store: MailStore?
     @Binding var done: Bool
 
     func makeNSView(context: Context) -> NSView { NSView() }
@@ -85,10 +115,29 @@ private struct CaptureProbe: NSViewRepresentable {
     func updateNSView(_ view: NSView, context: Context) {
         guard let request, !done else { return }
         done = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + request.delay) {
-            capture(from: view, to: request.path)
+        // Percorre os estados numa passada: fotografa, muda, espera assentar,
+        // fotografa de novo, e só então encerra.
+        Task { @MainActor in
+            for stage in CaptureStage.allCases {
+                try? await Task.sleep(for: .seconds(request.delay))
+                prepare(stage)
+                try? await Task.sleep(for: .seconds(0.4))
+                capture(from: view, to: request.path(for: stage))
+            }
             NSApp.terminate(nil)
         }
+    }
+
+    @MainActor
+    private func prepare(_ stage: CaptureStage) {
+        guard case .faixaAtiva = stage, let store else { return }
+        // Com destinatário e texto os três botões do rodapé da faixa acendem —
+        // que é o estado do print do dono.
+        guard let message = store.selectedMessage else { return }
+        store.setReplyDraft(
+            ReplyDraft(to: [message.from], text: "Fechado para quinta às 15h."),
+            for: message.id
+        )
     }
 
     private func capture(from view: NSView, to path: String) {
