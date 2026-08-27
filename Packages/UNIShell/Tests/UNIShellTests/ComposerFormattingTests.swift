@@ -270,9 +270,12 @@ struct ComposerToolbarLayoutTests {
 @Suite("Composer — o rascunho da faixa sobe sem formatação")
 struct ComposerSeedBodyTests {
 
-    /// `ReplyDraft.text` é `String` porque a faixa do leitor é de texto
-    /// simples. Ao subir para a janela ele vira `AttributedString` **sem
-    /// atributo nenhum**: o texto sobrevive e a formatação começa do zero.
+    /// Desde a Task Z o corpo da faixa é `AttributedString` e a formatação
+    /// atravessa em `ComposerSeed.rich`. Este teste trava a **outra** metade,
+    /// que é a que a janela ainda lê: `ComposerSeed.body` é a projeção em
+    /// `String`, e por ela o texto sobrevive e a formatação começa do zero.
+    /// Fechar a perda é uma linha em `ComposerWindow.seed()` — ver o relatório
+    /// da Task Z.
     @Test("o texto da faixa chega inteiro e sem estilo carimbado")
     func seededBodyHasNoStyle() {
         let seed = ComposerSeed.reply(

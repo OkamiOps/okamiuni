@@ -179,8 +179,11 @@ public struct ComposerWindow: View {
             )
             to = seed.to
             subject = seed.subject
-            if !seed.body.isEmpty {
-                draft = AttributedString(seed.body)
+            // `seed.rich` e não `seed.body`: por `String` a formatação que a
+            // pessoa aplicou na faixa do leitor se perderia ao promover para cá
+            // com o "⤢", e ela não teria como saber por quê.
+            if !seed.rich.characters.isEmpty {
+                draft = seed.rich
             }
         case .new(let accountID):
             guard !store.accounts.isEmpty else { return }

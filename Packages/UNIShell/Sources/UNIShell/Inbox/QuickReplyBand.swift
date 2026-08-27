@@ -5,22 +5,42 @@ import UNICore
 /// A faixa de resposta rápida embutida no leitor — protótipo, tela **01 Caixa
 /// unificada**, a partir da linha 1128.
 ///
-/// É o "mini composer" do leitor: campo "Para" com etiquetas e menu de
-/// sugestões, área de escrita, e as duas saídas — "Responder aqui", que resolve
-/// a resposta sem sair da tela, e "⤢", que promove o que já foi escrito para a
-/// janela cheia.
+/// De cima para baixo, como o protótipo desenha:
 ///
-/// **O que ela não tem, e por quê.** O protótipo põe também Cc/Cco, barra de
-/// formatação, anexos e seletor de rascunho sugerido dentro desta mesma faixa.
-/// Nada disso está aqui: a faixa é o caminho curto, e quem precisa dos dois
-/// primeiros tem o "⤢" a um clique. A janela 03 já traz todos eles.
+/// 1. linha `PARA` com etiquetas, campo de busca, **Cc**, **Cco** e o **⤢**;
+/// 2. as linhas Cc e Cco, quando abertas;
+/// 3. a **barra de formatação**, na variante compacta de `ComposerToolbar` —
+///    fonte, corpo, `B I U S`, cor, realce e o `⋯` que abre listas,
+///    alinhamento, link e tabela numa segunda linha;
+/// 4. a área de escrita, que agora é **texto rico**;
+/// 5. os anexos, quando houver;
+/// 6. o rodapé: 📎, **Enviar**, **Enviar e arquivar**, **Salvar**;
+/// 7. a linha final: **Rascunho sugerido ▾** e `{contagem} · {carimbo}`.
 ///
-/// **Sobre o botão "Responder aqui".** O protótipo desenha, nesta faixa, uma
-/// fila "Enviar · Enviar e arquivar · Salvar" (linha 1319), e o botão
-/// "Responder aqui" com esta aparência vive na tela 02 (linha 777). O Marco 1
-/// não tem rede: um botão escrito "Enviar" mentiria. "Responder aqui" é o que
-/// a faixa de fato faz — guarda a resposta e fecha — com a forma do botão da
-/// linha 777. A divergência está registrada no relatório da tarefa.
+/// ## Uma barra só, em dois formatos
+///
+/// A barra daqui é a **mesma** de `ComposerToolbar` — mesma leitura da seleção,
+/// mesmos `ComposerCommand`, mesmo `ComposerEditor` aplicando. A faixa só pede
+/// a densidade `.band`, que é o que o protótipo mostra aqui: menos grupos e um
+/// `⋯` para o resto. Escrever uma segunda barra faria a faixa e a janela
+/// divergirem no primeiro conserto.
+///
+/// ## Nenhum botão é mudo
+///
+/// Marco 1 não tem rede. Cada ação faz o que o marco permite **com retorno
+/// visível**, ou fica desabilitada com o motivo no `help`:
+///
+/// - **Enviar** carimba a resposta como pronta, guarda tudo no `MailStore` e
+///   fecha a faixa na confirmação — que diz, por escrito, que nada saiu pela
+///   rede. Desabilitado sem destinatário ou sem texto.
+/// - **Enviar e arquivar** faz o mesmo **e arquiva a original de verdade**, com
+///   `store.move(_:to:.archived)`. Essa metade não é simulada: a mensagem sai
+///   da caixa e a lista escolhe a próxima.
+/// - **Salvar** carimba o rascunho e deixa a faixa aberta; a linha de baixo
+///   passa de "não salvo" a "rascunho salvo HH:MM". Desabilitado quando não há
+///   nada novo para salvar.
+/// - **📎** anexa da mesma lista de exemplo que a janela 03 usa, e cada anexo
+///   vira uma etiqueta com × que tira.
 struct QuickReplyBand: View {
     @Environment(\.theme) private var theme
 
@@ -30,19 +50,30 @@ struct QuickReplyBand: View {
     /// encontra o rascunho em `store.replyDraft(for:)`.
     let onPromote: (Message) -> Void
 
-    /// Porta do harness de renderização. Ele desenha fora da tela e nunca
-    /// entrega foco a ninguém, então sem isto não há como verificar a aparência
-    /// do menu de sugestões. Não muda nada no app: o padrão é `nil`.
+    /// Portas do harness de renderização. Ele desenha fora da tela e nunca
+    /// entrega foco a ninguém, então sem elas não há como verificar a aparência
+    /// do menu de sugestões nem dos painéis da barra. Não mudam nada no app:
+    /// os padrões são `nil`/`false`.
     var seededQuery: String?
+    var debugOpenPanel: ComposerToolbar.Panel?
+    var debugMoreFormatting = false
+    var debugCopiesOpen = false
 
     @State private var open = true
     @State private var to: [Contact] = []
-    @State private var text = ""
-    @State private var query = ""
+    @State private var cc: [Contact] = []
+    @State private var bcc: [Contact] = []
+    @State private var ccOpen = false
+    @State private var bccOpen = false
+    /// O corpo é **texto rico**. Era `String`, e por isso a faixa não podia ter
+    /// barra: uma barra que age sobre a seleção precisa de atributo por trecho.
+    @State private var draft = AttributedString("")
+    @State private var selection = AttributedTextSelection()
+    @State private var attachments: [String] = []
     @State private var savedAt: Date?
+    @State private var sentAt: Date?
+    @State private var archivedOriginal = false
     @State private var seeded = false
-    @State private var fieldHeight: CGFloat = 22
-    @FocusState private var queryFocused: Bool
 
     // MARK: - Catálogo
 
@@ -52,13 +83,7 @@ struct QuickReplyBand: View {
         QuickReply.directory(messages: store.messages, catalog: Fixtures.contacts)
     }
 
-    private var suggestions: [DirectoryContact] {
-        QuickReply.suggestions(matching: query, excluding: to, in: pool)
-    }
-
-    private var menuOpen: Bool {
-        (queryFocused || seededQuery != nil) && !suggestions.isEmpty
-    }
+    private var plainText: String { String(draft.characters) }
 
     private var savedLabel: String {
         DraftMeta.savedLabel(savedAt?.formatted(date: .omitted, time: .shortened))
@@ -84,12 +109,23 @@ struct QuickReplyBand: View {
     /// já escreveu e fechou a faixa reabre no ponto em que parou.
     private func seed() {
         guard !seeded else { return }
-        let draft = store.replyDraft(for: message.id)
-        to = Self.seededRecipients(draft: draft, sender: message.from)
-        text = draft?.text ?? ""
-        savedAt = draft?.savedAt
-        open = Self.opensExpanded(for: draft)
-        if let seededQuery { query = seededQuery }
+        let stored = store.replyDraft(for: message.id)
+        to = Self.seededRecipients(draft: stored, sender: message.from)
+        cc = stored?.cc ?? []
+        bcc = stored?.bcc ?? []
+        ccOpen = debugCopiesOpen || !(stored?.cc.isEmpty ?? true)
+        bccOpen = debugCopiesOpen || !(stored?.bcc.isEmpty ?? true)
+        attachments = stored?.attachments ?? []
+        savedAt = stored?.savedAt
+        sentAt = stored?.sentAt
+        archivedOriginal = stored?.archivedOriginal ?? false
+        if var body = stored?.body {
+            // O tema pode ter mudado desde que o rascunho foi guardado; a
+            // projeção do `BodyStyle` em atributos do SwiftUI é reescrita aqui.
+            ComposerEditor.decorate(&body, theme: theme)
+            draft = body
+        }
+        open = Self.opensExpanded(for: stored)
         seeded = true
     }
 
@@ -104,32 +140,70 @@ struct QuickReplyBand: View {
     }
 
     /// A faixa nasce aberta — é o estado do protótipo, e é o que preenche o
-    /// vazio embaixo da mensagem. A exceção é a resposta que já foi guardada
-    /// por "Responder aqui": ali a faixa fechada é o **retorno** daquele
-    /// clique, e reabrir sozinha apagaria a única confirmação que existe.
+    /// vazio embaixo da mensagem. A exceção é a resposta que já passou pelo
+    /// "Enviar": ali a faixa fechada é o **retorno** daquele clique, e reabrir
+    /// sozinha apagaria a única confirmação que existe.
+    ///
+    /// "Salvar" **não** fecha: quem salvou continua escrevendo. Por isso
+    /// `sentAt` e `savedAt` são campos distintos em `ReplyDraft`.
     nonisolated static func opensExpanded(for draft: ReplyDraft?) -> Bool {
-        guard let draft, draft.hasText, draft.savedAt != nil else { return true }
+        guard let draft, draft.sentAt != nil else { return true }
         return false
     }
 
-    private func persist() {
-        store.setReplyDraft(
-            ReplyDraft(to: to, text: text, savedAt: savedAt),
-            for: message.id
+    /// O que a faixa tem agora, no formato que atravessa a fronteira.
+    private var currentDraft: ReplyDraft {
+        ReplyDraft(
+            to: to, cc: cc, bcc: bcc, body: draft, attachments: attachments,
+            savedAt: savedAt, sentAt: sentAt, archivedOriginal: archivedOriginal
         )
+    }
+
+    /// Traz de volta para o `@State` o que uma das ações decidiu.
+    private func absorb(_ updated: ReplyDraft) {
+        to = updated.to
+        cc = updated.cc
+        bcc = updated.bcc
+        draft = updated.body
+        attachments = updated.attachments
+        savedAt = updated.savedAt
+        sentAt = updated.sentAt
+        archivedOriginal = updated.archivedOriginal
+    }
+
+    private func persist() {
+        store.setReplyDraft(currentDraft, for: message.id)
+    }
+
+    /// Toda escrita no corpo passa por aqui: guarda, e apaga os carimbos, que
+    /// deixaram de ser verdade no instante em que o texto mudou.
+    private func bodyChanged() {
+        absorb(QuickReply.edited(currentDraft))
+        persist()
     }
 
     // MARK: - Faixa aberta
 
     /// Protótipo: `border: 0.5px solid var(--line); border-radius: var(--r3);
-    /// background: var(--surface2)`. Sem `clipShape`: o menu de sugestões
-    /// precisa poder passar por cima da área de escrita, e recortar o cartão
-    /// recortaria o menu junto.
+    /// background: var(--surface2)`. Sem `clipShape`: o menu de sugestões e os
+    /// painéis de cor precisam poder passar por cima da área de escrita, e
+    /// recortar o cartão recortaria os dois junto.
     private var card: some View {
         VStack(spacing: 0) {
             toRow
                 .zIndex(9)
+            if ccOpen {
+                copyRow(label: "Cc", placeholder: "quem mais acompanha; ", chips: $cc)
+                    .zIndex(8)
+            }
+            if bccOpen {
+                copyRow(label: "Cco", placeholder: "cópia oculta; ", chips: $bcc)
+                    .zIndex(7)
+            }
+            toolbar
+                .zIndex(6)
             editor
+            if !attachments.isEmpty { attachmentRow }
             actionRow
             metaRow
         }
@@ -143,18 +217,24 @@ struct QuickReplyBand: View {
     /// Protótipo: `padding: 7px 10px 7px 14px; gap: 10px;
     /// border-bottom: 0.5px solid var(--line2)`.
     private var toRow: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Text("Para")
-                .capsLabel()
-                .padding(.top, 5)
-                .fixedSize()
-
-            recipients
-
+        BandRecipientRow(
+            label: "Para",
+            placeholder: "nome ou email; ",
+            chips: $to,
+            pool: pool,
+            seededQuery: seededQuery,
+            onChange: persist
+        ) {
+            MiniToggleButton(label: "Cc", on: ccOpen) {
+                ccOpen.toggle()
+                if !ccOpen { cc = []; persist() }
+            }
+            MiniToggleButton(label: "Cco", on: bccOpen) {
+                bccOpen.toggle()
+                if !bccOpen { bcc = []; persist() }
+            }
             collapseButton
-                .padding(.top, 1)
             promoteButton
-                .padding(.top, 1)
         }
         .padding(.leading, 14)
         .padding(.trailing, 10)
@@ -162,30 +242,467 @@ struct QuickReplyBand: View {
         .hairline(theme.line2, edges: .bottom)
     }
 
-    private var recipients: some View {
+    /// Protótipo: `padding: 7px 14px` nas linhas Cc e Cco.
+    private func copyRow(
+        label: String, placeholder: String, chips: Binding<[Contact]>
+    ) -> some View {
+        BandRecipientRow(
+            label: label,
+            placeholder: placeholder,
+            chips: chips,
+            pool: pool,
+            seededQuery: nil,
+            onChange: persist
+        ) {
+            EmptyView()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .hairline(theme.line2, edges: .bottom)
+    }
+
+    /// A barra da janela, na densidade da faixa. Ela lê a seleção do editor e
+    /// emite comandos; quem aplica é `ComposerEditor`, o mesmo das telas 03 e
+    /// 06 — a faixa não sabe editar texto.
+    private var toolbar: some View {
+        ComposerToolbar(
+            reading: ComposerEditor.reading(of: draft, selection: selection),
+            density: .band,
+            openPanel: debugOpenPanel,
+            moreOpen: debugMoreFormatting,
+            perform: { command in
+                ComposerEditor.perform(
+                    command, on: &draft, selection: &selection, theme: theme
+                )
+                bodyChanged()
+            }
+        )
+    }
+
+    /// Protótipo: `padding: 14px; min-height: 110px; max-height: 300px;
+    /// serif 15px; line-height: 1.65`.
+    ///
+    /// A altura é **fixa** em 110, não uma faixa de 110 a 300: o `TextEditor`
+    /// do SwiftUI não tem altura intrínseca de conteúdo — ele aceita toda a
+    /// altura que lhe oferecem — e num `maxHeight` de 300 a faixa comia o corpo
+    /// da mensagem. Texto mais longo rola dentro do editor, que é o que o
+    /// `overflow-y: auto` do protótipo faz depois dos 300.
+    private var editor: some View {
+        ZStack(alignment: .topLeading) {
+            // Fonte, cor, sublinhado, tachado e alinhamento vêm **do texto**,
+            // não de modificadores do editor: é isso que faz a barra pegar só
+            // na seleção. `attributedTextFormattingDefinition` declara o escopo
+            // do corpo — sem ele o `TextEditor` descarta o `BodyStyleAttribute`
+            // e o modelo morre no primeiro caractere digitado.
+            TextEditor(text: bodyBinding, selection: $selection)
+                .attributedTextFormattingDefinition(AttributeScopes.UNIComposerAttributes.self)
+                .textEditorStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .font(theme.serif.font(size: BodyStyle.defaultSize))
+                .lineSpacing(0.65 * BodyStyle.defaultSize)
+                .foregroundStyle(theme.ink.color)
+                .padding(.horizontal, 14 - 5)  // o TextEditor já traz 5pt de calha
+                .padding(.vertical, 14)
+                .frame(height: 110, alignment: .top)
+
+            if draft.characters.isEmpty {
+                // Protótipo, linha 1275.
+                Text("Escreva a resposta… selecione o texto para formatar · ⌘⏎ envia")
+                    .font(theme.serif.font(size: 15))
+                    .foregroundStyle(theme.ink4.color)
+                    .padding(14)
+                    .allowsHitTesting(false)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    /// A escrita do corpo passa toda por este `Binding`, e não por um
+    /// `.onChange`: assim a semeadura não conta como edição e não apaga o
+    /// carimbo do rascunho que acabou de ser lido do `MailStore`.
+    private var bodyBinding: Binding<AttributedString> {
+        Binding(
+            get: { draft },
+            set: { newValue in
+                guard newValue != draft else { return }
+                draft = newValue
+                bodyChanged()
+            }
+        )
+    }
+
+    /// Protótipo: `padding: 8px 12px; gap: 6px; border-top: 0.5px solid var(--line2)`.
+    private var attachmentRow: some View {
+        FlowLayout(spacing: 6, rowSpacing: 6) {
+            ForEach(attachments, id: \.self) { name in
+                BandAttachmentChip(name: name, size: Self.sizeLabel(for: name)) {
+                    attachments.removeAll { $0 == name }
+                    persist()
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .hairline(theme.line2, edges: .top)
+    }
+
+    /// Protótipo: `padding: 10px 12px 8px; gap: 8px;
+    /// border-top: 0.5px solid var(--line2)`, com 📎, "Enviar ⌘⏎",
+    /// "Enviar e arquivar" e "Salvar".
+    private var actionRow: some View {
+        HStack(spacing: 8) {
+            AttachGlyphButton(enabled: canAttach, help: attachHelp) { attach() }
+
+            ChromeButton(
+                appearance: canSend ? .accent : .muted,
+                height: 30, horizontalPadding: 16,
+                labelSize: nil, action: { send(archiving: false) }
+            ) {
+                HStack(spacing: 8) {
+                    Text("Enviar")
+                        .font(theme.sans.font(size: 12.5, weight: .semibold))
+                    Text("⌘⏎")
+                        .font(theme.mono.font(size: 9.5))
+                        .opacity(0.75)
+                }
+            }
+            .disabled(!canSend)
+            .keyboardShortcut(.return, modifiers: .command)
+            .help(sendHelp)
+
+            ChromeButton(
+                "Enviar e arquivar",
+                appearance: canSend ? .outlined : .muted,
+                size: 12.5, height: 30, horizontalPadding: 14
+            ) {
+                send(archiving: true)
+            }
+            .disabled(!canSend)
+            .help(archiveHelp)
+
+            ChromeButton(
+                "Salvar",
+                appearance: canSave ? .outlined : .muted,
+                size: 12.5, height: 30, horizontalPadding: 12
+            ) {
+                saveDraft()
+            }
+            .disabled(!canSave)
+            .help(saveHelp)
+
+            Spacer(minLength: 8)
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 10)
+        .padding(.bottom, 8)
+        .hairline(theme.line2, edges: .top)
+    }
+
+    /// Protótipo: `padding: 0 12px 11px`, com o seletor de rascunho sugerido à
+    /// esquerda e `{{ draftCount }} · {{ savedLabel }}` à direita.
+    private var metaRow: some View {
+        HStack(spacing: 10) {
+            SuggestedDraftPicker(drafts: QuickReply.suggestedDrafts(for: message)) { suggested in
+                use(suggested)
+            }
+            Spacer(minLength: 8)
+            Text("\(DraftMeta.countLabel(plainText)) · \(savedLabel)")
+                .capsLabel()
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 11)
+    }
+
+    // MARK: - Faixa fechada
+
+    /// O que fica no lugar da faixa depois de "Enviar" — e o estado em que ela
+    /// pode ser recolhida para devolver altura ao corpo da mensagem.
+    ///
+    /// Nunca é um beco: diz o que aconteceu com o rascunho e traz o botão que
+    /// reabre exatamente onde parou.
+    private var closedCard: some View {
+        HStack(spacing: 10) {
+            if let sentAt {
+                Text("✓")
+                    .font(theme.sans.font(size: 12, weight: .semibold))
+                    .foregroundStyle(theme.accentInk.color)
+                Text(Self.sentNote(
+                    words: DraftMeta.countLabel(plainText),
+                    stamp: sentAt.formatted(date: .omitted, time: .shortened),
+                    archived: archivedOriginal
+                ))
+                .font(theme.sans.font(size: 12.5))
+                .foregroundStyle(theme.ink2.color)
+                .lineLimit(1)
+            } else {
+                Text("Responder a \(message.from.name.isEmpty ? message.from.address : message.from.name)…")
+                    .font(theme.sans.font(size: 12.5))
+                    .foregroundStyle(theme.ink3.color)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            ChromeButton(
+                sentAt == nil ? "Responder" : "Retomar",
+                appearance: .outlined, size: 12.5
+            ) {
+                open = true
+            }
+            promoteButton
+        }
+        .padding(.leading, 14)
+        .padding(.trailing, 10)
+        .padding(.vertical, 9)
+        .background(
+            (sentAt == nil ? theme.surface2 : theme.accentSoft).color,
+            in: RoundedRectangle(cornerRadius: theme.radiusLarge)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: theme.radiusLarge)
+                .strokeBorder((sentAt == nil ? theme.line : theme.accentLine).color, lineWidth: 0.5)
+        }
+    }
+
+    /// O retorno visível do "Enviar", e a única coisa na tela que diz o que o
+    /// marco de fato fez. Fora da `View` não dá para testar: um `static` dentro
+    /// de uma `View` herda o `@MainActor` dela e trapa quando um teste
+    /// nonisolated o chama — por isso este fica `nonisolated`.
+    nonisolated static func sentNote(words: String, stamp: String, archived: Bool) -> String {
+        let head = archived
+            ? "Pronta para envio, original arquivada"
+            : "Pronta para envio"
+        return "\(head) — \(words) · \(stamp) · sem rede neste marco"
+    }
+
+    /// A etiqueta de tamanho do anexo, da mesma lista da janela 03.
+    nonisolated static func sizeLabel(for name: String) -> String {
+        Fixtures.attachments.first { $0.name == name }?.size ?? ""
+    }
+
+    // MARK: - Botões pequenos
+
+    /// Protótipo: `width: 24px; height: 22px; border-radius: var(--r2);
+    /// border: 0.5px solid var(--btn-line); background: var(--btn); 11px; ink3`.
+    private var promoteButton: some View {
+        MiniGlyphButton(glyph: "⤢", help: promoteHelp) {
+            promote()
+        }
+    }
+
+    private var collapseButton: some View {
+        MiniGlyphButton(glyph: "▾", help: "Recolher a faixa de resposta") {
+            persist()
+            open = false
+        }
+    }
+
+    // MARK: - Estado dos botões
+
+    private var hasRecipient: Bool { !to.isEmpty }
+
+    private var hasBody: Bool {
+        !plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var canSend: Bool { QuickReply.canSend(currentDraft) }
+
+    private var sendHelp: String {
+        if !hasBody { return "Enviar — indisponível: a resposta ainda está vazia." }
+        if !hasRecipient { return "Enviar — indisponível: escolha pelo menos um destinatário." }
+        return "Marco 1 não tem rede. Carimba a resposta como pronta, guarda tudo "
+            + "e fecha a faixa na confirmação."
+    }
+
+    private var archiveHelp: String {
+        guard canSend else { return sendHelp }
+        return message.bucket == .archived
+            ? "A original já está arquivada; a resposta fica pronta para envio."
+            : "Arquiva a original de verdade e deixa a resposta pronta para envio."
+    }
+
+    private var canSave: Bool { QuickReply.canSave(currentDraft) }
+
+    private var saveHelp: String {
+        if let savedAt {
+            return "Rascunho já salvo às \(savedAt.formatted(date: .omitted, time: .shortened))."
+        }
+        guard hasBody || !attachments.isEmpty else {
+            return "Salvar — indisponível: não há nada escrito nem anexado."
+        }
+        return "Guarda o rascunho com carimbo e deixa a faixa aberta."
+    }
+
+    private var canAttach: Bool { attachments.count < Fixtures.attachments.count }
+
+    private var attachHelp: String {
+        canAttach
+            ? "Anexar arquivo"
+            : "Anexar — indisponível: a lista de exemplo do Marco 1 acabou."
+    }
+
+    private var promoteHelp: String {
+        "Abrir em janela separada. O texto vai junto; a formatação ainda não — ver o relatório."
+    }
+
+    // MARK: - Ações
+
+    /// "Enviar" e "Enviar e arquivar".
+    ///
+    /// Marco 1 não tem rede, então isto **não envia**: carimba, guarda, fecha a
+    /// faixa e escreve na confirmação que nada saiu. Quando `archiving`, a
+    /// metade que o marco consegue fazer acontece de verdade —
+    /// `store.move(_:to:.archived)` tira a mensagem da caixa.
+    private func send(archiving: Bool) {
+        let updated = Self.send(
+            currentDraft, for: message, in: store, archiving: archiving, at: .now
+        )
+        guard updated.sentAt != nil else { return }
+        absorb(updated)
+        open = false
+    }
+
+    /// O que os dois botões de envio de fato fazem, num lugar que o teste
+    /// alcança sem clique — o `@MainActor` é do `MailStore`, não da `View`.
+    ///
+    /// A metade real do "Enviar e arquivar" está aqui: `store.move(_:to:)`
+    /// arquiva a original de verdade, tira a mensagem da caixa e a lista
+    /// escolhe a próxima. A outra metade, a rede, não existe neste marco — e
+    /// por isso o retorno é o carimbo que a faixa fechada mostra por escrito.
+    ///
+    /// Devolve o rascunho carimbado. Devolve o **original**, sem carimbo,
+    /// quando faltava destinatário ou texto: aí o botão está desabilitado e
+    /// nada deveria ter chegado até aqui.
+    @MainActor
+    static func send(
+        _ draft: ReplyDraft,
+        for message: Message,
+        in store: MailStore,
+        archiving: Bool,
+        at now: Date
+    ) -> ReplyDraft {
+        guard QuickReply.canSend(draft) else { return draft }
+        let stamped = QuickReply.sent(draft, archiving: archiving, at: now)
+        store.setReplyDraft(stamped, for: message.id)
+        UNIWindow.logSend(
+            "Enviaria \"\(message.subject)\" para "
+            + "[\(stamped.to.map(\.address).joined(separator: ", "))] "
+            + "(\(DraftMeta.wordCount(stamped.text)) palavras, "
+            + "\(stamped.attachments.count) anexos)"
+            + (archiving ? " e arquivaria a original." : ".")
+        )
+        // Depois de gravar e registrar: mover a mensagem troca a seleção do
+        // leitor, e a faixa some antes de terminar o que estava fazendo.
+        if archiving {
+            store.move(message, to: .archived)
+        }
+        return stamped
+    }
+
+    private func saveDraft() {
+        absorb(QuickReply.saved(currentDraft, at: .now))
+        persist()
+    }
+
+    private func attach() {
+        absorb(QuickReply.attaching(currentDraft, from: Fixtures.attachments.map(\.name)))
+        persist()
+    }
+
+    /// O "Rascunho sugerido": escreve o texto no corpo, com o estilo padrão.
+    /// Substitui o que estiver escrito — é o que o protótipo faz
+    /// (`setDraftHtml`), e o menu só aparece com um rótulo por vez.
+    private func use(_ suggested: SuggestedDraft) {
+        var body = AttributedString(suggested.text)
+        body[BodyStyleAttribute.self] = .default
+        ComposerEditor.decorate(&body, theme: theme)
+        draft = body
+        selection = AttributedTextSelection()
+        bodyChanged()
+    }
+
+    /// "⤢". A janela cheia lê `store.replyDraft(for:)` — por isso o rascunho é
+    /// gravado **antes** de pedir a janela.
+    private func promote() {
+        persist()
+        onPromote(message)
+    }
+}
+
+/// Uma linha de destinatário da faixa: rótulo, etiquetas, campo e o menu de
+/// sugestões. As três linhas (Para, Cc, Cco) são a mesma coisa com pool e
+/// rótulo diferentes — e cada uma precisa do próprio foco e da própria busca,
+/// que é o motivo de ser uma `View` e não um método.
+private struct BandRecipientRow<Trailing: View>: View {
+    @Environment(\.theme) private var theme
+
+    let label: String
+    let placeholder: String
+    @Binding var chips: [Contact]
+    let pool: [DirectoryContact]
+    /// Porta do harness: sem foco não há menu, e fora da tela ninguém tem foco.
+    var seededQuery: String?
+    let onChange: () -> Void
+    @ViewBuilder var trailing: Trailing
+
+    @State private var query = ""
+    @State private var seeded = false
+    @State private var fieldHeight: CGFloat = 22
+    @FocusState private var focused: Bool
+
+    private var suggestions: [DirectoryContact] {
+        QuickReply.suggestions(matching: query, excluding: chips, in: pool)
+    }
+
+    private var menuOpen: Bool {
+        (focused || seededQuery != nil) && !suggestions.isEmpty
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text(label)
+                .capsLabel()
+                .padding(.top, 5)
+                .fixedSize()
+
+            field
+
+            trailing
+                .padding(.top, 1)
+        }
+        .task {
+            guard !seeded else { return }
+            if let seededQuery { query = seededQuery }
+            seeded = true
+        }
+    }
+
+    private var field: some View {
         FlowLayout(spacing: 5, rowSpacing: 5, stretchesLast: true) {
-            ForEach(to) { contact in
+            ForEach(chips) { contact in
                 chip(contact)
             }
             // Protótipo: `min-width: 110px; height: 22px; sans 12.5px`.
-            TextField("nome ou email; ", text: $query)
+            TextField(placeholder, text: $query)
                 .textFieldStyle(.plain)
                 .font(theme.sans.font(size: 12.5))
                 .foregroundStyle(theme.ink.color)
                 .frame(minWidth: 110, maxWidth: .infinity)
                 .frame(height: 22)
-                .focused($queryFocused)
+                .focused($focused)
                 .onSubmit { commitFirstSuggestion() }
                 .onChange(of: query) { _, new in resolveSeparator(new) }
                 .onKeyPress(.delete) {
-                    guard query.isEmpty, !to.isEmpty else { return .ignored }
-                    to = Array(to.dropLast())
-                    persist()
+                    guard query.isEmpty, !chips.isEmpty else { return .ignored }
+                    chips = Array(chips.dropLast())
+                    onChange()
                     return .handled
                 }
                 .onKeyPress(.escape) {
-                    guard queryFocused else { return .ignored }
-                    queryFocused = false
+                    guard focused else { return .ignored }
+                    focused = false
                     return .handled
                 }
         }
@@ -206,8 +723,8 @@ struct QuickReplyBand: View {
                 .foregroundStyle(theme.accentInk.color)
                 .lineLimit(1)
             Button {
-                to = QuickReply.removing(contact, from: to)
-                persist()
+                chips = QuickReply.removing(contact, from: chips)
+                onChange()
             } label: {
                 Text("×")
                     .font(theme.sans.font(size: 11))
@@ -257,167 +774,10 @@ struct QuickReplyBand: View {
         .shadow(color: .black.opacity(0.24), radius: 20, x: 0, y: 18)
     }
 
-    /// Protótipo: `padding: 14px; min-height: 110px; max-height: 300px;
-    /// serif 15px; line-height: 1.65`.
-    ///
-    /// A altura é **fixa** em 110, não uma faixa de 110 a 300: o `TextEditor`
-    /// do SwiftUI não tem altura intrínseca de conteúdo — ele aceita toda a
-    /// altura que lhe oferecem — e num `maxHeight` de 300 a faixa comia o corpo
-    /// da mensagem, que é exatamente o defeito que esta tarefa existe para
-    /// corrigir. Texto mais longo rola dentro do editor, que é o que o
-    /// `overflow-y: auto` do protótipo faz depois dos 300.
-    private var editor: some View {
-        ZStack(alignment: .topLeading) {
-            TextEditor(text: $text)
-                .textEditorStyle(.plain)
-                .scrollContentBackground(.hidden)
-                .font(theme.serif.font(size: 15))
-                .lineSpacing(0.65 * 15)
-                .foregroundStyle(theme.ink.color)
-                .padding(.horizontal, 14 - 5)  // o TextEditor já traz 5pt de calha
-                .padding(.vertical, 14)
-                .frame(height: 110, alignment: .top)
-
-            if text.isEmpty {
-                Text("Escreva a resposta… ⌘⏎ responde aqui")
-                    .font(theme.serif.font(size: 15))
-                    .foregroundStyle(theme.ink4.color)
-                    .padding(14)
-                    .allowsHitTesting(false)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .onChange(of: text) { _, _ in
-            savedAt = nil
-            persist()
-        }
-    }
-
-    /// Protótipo: `padding: 10px 12px 8px; gap: 8px;
-    /// border-top: 0.5px solid var(--line2)`.
-    private var actionRow: some View {
-        HStack(spacing: 8) {
-            // Linha 777: `height: 32px; padding: 0 16px; border-radius: var(--r2);
-            // background: var(--accent); color: var(--on-accent); 13px/600`.
-            ChromeButton(
-                appearance: .accent, height: 32, horizontalPadding: 16,
-                labelSize: 13, labelWeight: .semibold,
-                action: { replyHere() }
-            ) {
-                HStack(spacing: 8) {
-                    Text("Responder aqui")
-                    Text("⌘⏎")
-                        .font(theme.mono.font(size: 9.5))
-                        .opacity(0.75)
-                }
-            }
-            .keyboardShortcut(.return, modifiers: .command)
-            .help("Guarda a resposta e fecha a faixa. O Marco 1 não envia pela rede.")
-
-            ChromeButton("Descartar", appearance: .outlined, size: 12.5) { discard() }
-
-            Spacer(minLength: 8)
-        }
-        .padding(.horizontal, 12)
-        .padding(.top, 10)
-        .padding(.bottom, 8)
-        .hairline(theme.line2, edges: .top)
-    }
-
-    /// Protótipo: `padding: 0 12px 11px`, com `{{ draftCount }} · {{ savedLabel }}`.
-    private var metaRow: some View {
-        HStack(spacing: 10) {
-            Text("\(DraftMeta.countLabel(text)) · \(savedLabel)")
-                .capsLabel()
-                .lineLimit(1)
-            Spacer(minLength: 8)
-        }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 11)
-    }
-
-    // MARK: - Faixa fechada
-
-    /// O que fica no lugar da faixa depois de "Responder aqui" — e o estado em
-    /// que ela pode ser recolhida para devolver altura ao corpo da mensagem.
-    ///
-    /// Nunca é um beco: diz o que aconteceu com o rascunho e traz o botão que
-    /// reabre exatamente onde parou.
-    private var closedCard: some View {
-        HStack(spacing: 10) {
-            if let savedAt {
-                Text("✓")
-                    .font(theme.sans.font(size: 12, weight: .semibold))
-                    .foregroundStyle(theme.accentInk.color)
-                Text(Self.savedNote(
-                    words: DraftMeta.countLabel(text),
-                    stamp: savedAt.formatted(date: .omitted, time: .shortened)
-                ))
-                .font(theme.sans.font(size: 12.5))
-                .foregroundStyle(theme.ink2.color)
-                .lineLimit(1)
-            } else {
-                Text("Responder a \(message.from.name.isEmpty ? message.from.address : message.from.name)…")
-                    .font(theme.sans.font(size: 12.5))
-                    .foregroundStyle(theme.ink3.color)
-                    .lineLimit(1)
-            }
-
-            Spacer(minLength: 8)
-
-            ChromeButton(
-                savedAt == nil ? "Responder" : "Retomar",
-                appearance: .outlined, size: 12.5
-            ) {
-                open = true
-            }
-            promoteButton
-        }
-        .padding(.leading, 14)
-        .padding(.trailing, 10)
-        .padding(.vertical, 9)
-        .background(
-            (savedAt == nil ? theme.surface2 : theme.accentSoft).color,
-            in: RoundedRectangle(cornerRadius: theme.radiusLarge)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: theme.radiusLarge)
-                .strokeBorder((savedAt == nil ? theme.line : theme.accentLine).color, lineWidth: 0.5)
-        }
-    }
-
-    /// "Resposta guardada — 12 palavras · 14:32". Fora da `View` não dá para
-    /// testar: um `static` dentro de uma `View` herda o `@MainActor` dela e
-    /// trapa quando um teste nonisolated o chama — por isso este fica
-    /// `nonisolated`.
-    nonisolated static func savedNote(words: String, stamp: String) -> String {
-        "Resposta guardada — \(words) · \(stamp)"
-    }
-
-    // MARK: - Botões pequenos
-
-    /// Protótipo: `width: 24px; height: 22px; border-radius: var(--r2);
-    /// border: 0.5px solid var(--btn-line); background: var(--btn); 11px; ink3`.
-    private var promoteButton: some View {
-        MiniGlyphButton(glyph: "⤢", help: "Abrir em janela separada") {
-            promote()
-        }
-    }
-
-    private var collapseButton: some View {
-        MiniGlyphButton(glyph: "▾", help: "Recolher a faixa de resposta") {
-            savedAt = nil
-            persist()
-            open = false
-        }
-    }
-
-    // MARK: - Ações
-
     private func add(_ contact: Contact) {
-        to = QuickReply.adding(contact, to: to)
+        chips = QuickReply.adding(contact, to: chips)
         query = ""
-        persist()
+        onChange()
     }
 
     private func commitFirstSuggestion() {
@@ -434,39 +794,6 @@ struct QuickReplyBand: View {
             return
         }
         add(resolved.contact)
-    }
-
-    /// "Responder aqui". Marco 1 não tem rede, então isto **não envia**: guarda
-    /// o rascunho, fecha a faixa e devolve o estado guardado por escrito, com o
-    /// caminho de volta ("Retomar"). Um botão que parecesse enviar e não
-    /// enviasse seria pior do que não existir.
-    private func replyHere() {
-        let stamp = Date.now
-        savedAt = stamp
-        persist()
-        queryFocused = false
-        open = false
-        UNIWindow.logSend(
-            "Responderia \"\(message.subject)\" para "
-            + "[\(to.map(\.address).joined(separator: ", "))] "
-            + "(\(DraftMeta.wordCount(text)) palavras). O rascunho ficou guardado na sessão."
-        )
-    }
-
-    /// "⤢". A janela cheia lê `store.replyDraft(for:)` — por isso o rascunho é
-    /// gravado **antes** de pedir a janela.
-    private func promote() {
-        persist()
-        queryFocused = false
-        onPromote(message)
-    }
-
-    private func discard() {
-        to = [message.from]
-        text = ""
-        savedAt = nil
-        query = ""
-        store.setReplyDraft(nil, for: message.id)
     }
 }
 
@@ -539,5 +866,157 @@ private struct MiniGlyphButton: View {
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .help(help)
+    }
+}
+
+/// O "Cc"/"Cco" da linha "Para". Protótipo `miniBtn(on)`: `height: 22px;
+/// padding: 0 8px; mono 9.5px; letter-spacing: 0.06em`.
+private struct MiniToggleButton: View {
+    @Environment(\.theme) private var theme
+    let label: String
+    let on: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(theme.mono.font(size: 9.5, weight: .medium))
+                .tracking(0.06 * 9.5)
+                .textCase(.uppercase)
+                .foregroundStyle(on ? theme.accentInk.color : theme.ink3.color)
+                .frame(height: 22)
+                .padding(.horizontal, 8)
+                .background(on ? theme.accentSoft.color : theme.btn.color)
+                .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+                .overlay {
+                    RoundedRectangle(cornerRadius: theme.radiusSmall)
+                        .strokeBorder(on ? theme.accent.color : theme.btnLine.color, lineWidth: 0.5)
+                }
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(on ? "Fechar a linha \(label)" : "Abrir a linha \(label)")
+    }
+}
+
+/// O 📎 do rodapé da faixa. Protótipo: `width: 30px; height: 30px`.
+private struct AttachGlyphButton: View {
+    @Environment(\.theme) private var theme
+    @State private var hovering = false
+    let enabled: Bool
+    let help: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "paperclip")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(foreground)
+                .frame(width: 30, height: 30)
+                .background(enabled ? theme.btn.color : theme.surface3.color)
+                .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+                .overlay {
+                    RoundedRectangle(cornerRadius: theme.radiusSmall)
+                        .strokeBorder(border, lineWidth: 0.5)
+                }
+                .shadow(enabled ? theme.btnShadow : [])
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .onHover { hovering = $0 }
+        .help(help)
+    }
+
+    private var foreground: Color {
+        guard enabled else { return theme.ink4.color.opacity(0.55) }
+        return hovering ? theme.accentInk.color : theme.ink2.color
+    }
+
+    private var border: Color {
+        guard enabled else { return theme.line.color }
+        return hovering ? theme.accent.color : theme.btnLine.color
+    }
+}
+
+/// Protótipo: `height: 26px; padding: 0 6px 0 10px; border-radius: var(--r2)`,
+/// com nome, tamanho em mono e o × que tira.
+private struct BandAttachmentChip: View {
+    @Environment(\.theme) private var theme
+    let name: String
+    let size: String
+    let onRemove: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(name)
+                .font(theme.sans.font(size: 11.5))
+                .foregroundStyle(theme.ink.color)
+                .lineLimit(1)
+            Text(size)
+                .font(theme.mono.font(size: 9.5))
+                .foregroundStyle(theme.ink4.color)
+            Button(action: onRemove) {
+                Text("×")
+                    .font(theme.sans.font(size: 11.5))
+                    .foregroundStyle(theme.ink3.color)
+                    .frame(width: 16, height: 16)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Tirar \(name)")
+        }
+        .frame(height: 26)
+        .padding(.leading, 10)
+        .padding(.trailing, 6)
+        .background(theme.surface.color)
+        .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+        .overlay {
+            RoundedRectangle(cornerRadius: theme.radiusSmall)
+                .strokeBorder(theme.line.color, lineWidth: 0.5)
+        }
+    }
+}
+
+/// "Rascunho sugerido ▾". Protótipo: `height: 30px; border: 0.5px dashed
+/// var(--accent-line); background: transparent; color: var(--accent-ink)`.
+private struct SuggestedDraftPicker: View {
+    @Environment(\.theme) private var theme
+    let drafts: [SuggestedDraft]
+    let pick: (SuggestedDraft) -> Void
+
+    var body: some View {
+        Menu {
+            ForEach(drafts) { draft in
+                Button(draft.label) { pick(draft) }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Text("Rascunho sugerido")
+                    .font(theme.sans.font(size: 12, weight: .medium))  // CSS 550
+                Text("▾")
+                    .font(theme.sans.font(size: 8))
+            }
+            .foregroundStyle(theme.accentInk.color)
+            .frame(height: 30)
+            .padding(.leading, 11)
+            .padding(.trailing, 11)
+            .overlay {
+                RoundedRectangle(cornerRadius: theme.radiusSmall)
+                    .strokeBorder(
+                        theme.accentLine.color,
+                        style: StrokeStyle(lineWidth: 0.5, dash: [4, 3])
+                    )
+            }
+            .contentShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+        }
+        // `.borderlessButton` redesenha o rótulo com a tinta e a moldura dele:
+        // a borda tracejada some e o texto sai em `ink`, não no acento.
+        // `.button` + `.plain` deixa o rótulo passar como está escrito.
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Preencher a resposta com um rascunho sugerido")
     }
 }

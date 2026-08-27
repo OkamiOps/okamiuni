@@ -27,27 +27,59 @@ struct ComposerToolbar: View {
     @Environment(\.theme) private var theme
 
     let reading: BodyReading
+    let density: Density
     let perform: (ComposerCommand) -> Void
 
     @State private var openPanel: Panel?
+    @State private var moreOpen: Bool
 
     /// Só para verificação: permite renderizar a barra com um painel já aberto,
     /// sem clique. Sem isto não há como provar, fora da tela, que as amostras
     /// de cor aparecem inteiras em vez de ficarem debaixo do editor.
-    init(reading: BodyReading, openPanel: Panel? = nil, perform: @escaping (ComposerCommand) -> Void) {
+    /// `moreOpen` existe pelo mesmo motivo, para a variante compacta.
+    init(
+        reading: BodyReading,
+        density: Density = .window,
+        openPanel: Panel? = nil,
+        moreOpen: Bool = false,
+        perform: @escaping (ComposerCommand) -> Void
+    ) {
         self.reading = reading
+        self.density = density
         self.perform = perform
         _openPanel = State(initialValue: openPanel)
+        _moreOpen = State(initialValue: moreOpen)
     }
 
     enum Panel { case color, highlight }
 
+    /// Onde a barra está desenhada.
+    ///
+    /// **Não são duas barras.** São os mesmos grupos, os mesmos comandos e a
+    /// mesma leitura da seleção, arrumados em dois formatos: a janela tem
+    /// largura para os sete grupos numa linha; a faixa do leitor não tem, e o
+    /// protótipo (tela 01, linha 1207) mostra ali só fonte, corpo, B I U S, cor
+    /// e realce, com um `⋯` que abre a segunda linha com o resto.
+    enum Density {
+        /// Telas 03 e 06, `padding: 9px 18px`, tudo à mostra.
+        case window
+        /// Tela 01, dentro da faixa de resposta: `padding: 6px 10px`, com `⋯`.
+        case band
+    }
+
     var body: some View {
-        // Protótipo: `flex-wrap: wrap; gap: 7px; row-gap: 7px`. A quebra existe
-        // como rede de segurança para quem arrasta a janela abaixo dos 820 do
-        // protótipo. Nos dois tamanhos de janela deste marco os sete grupos
-        // somam ~695pt e cabem numa linha — o que os empurrava para a segunda
-        // era o carimbo do rascunho, que saiu daqui.
+        switch density {
+        case .window: windowBar
+        case .band: bandBar
+        }
+    }
+
+    /// Protótipo: `flex-wrap: wrap; gap: 7px; row-gap: 7px`. A quebra existe
+    /// como rede de segurança para quem arrasta a janela abaixo dos 820 do
+    /// protótipo. Nos dois tamanhos de janela deste marco os sete grupos
+    /// somam ~695pt e cabem numa linha — o que os empurrava para a segunda
+    /// era o carimbo do rascunho, que saiu daqui.
+    private var windowBar: some View {
         FlowLayout(spacing: 7, rowSpacing: 7) {
             fontGroup
             marksGroup
@@ -62,6 +94,54 @@ struct ComposerToolbar: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(theme.surface2.color)
         .hairline(theme.line2, edges: .bottom)
+    }
+
+    /// Protótipo, tela 01: primeira linha `padding: 6px 10px; gap: 7px;
+    /// border-bottom: 0.5px solid var(--line2)`; a segunda, quando o `⋯` está
+    /// ligado, repete a medida com `background: var(--surface3)`.
+    private var bandBar: some View {
+        VStack(spacing: 0) {
+            FlowLayout(spacing: 7, rowSpacing: 7) {
+                fontGroup
+                marksGroup
+                colorGroup
+                moreButton
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .hairline(theme.line2, edges: .bottom)
+            // Os painéis de cor e realce descem por cima da segunda linha.
+            .zIndex(2)
+
+            if moreOpen {
+                FlowLayout(spacing: 7, rowSpacing: 7) {
+                    listGroup
+                    alignGroup
+                    insertGroup
+                    tableButton
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(theme.surface3.color)
+                .hairline(theme.line2, edges: .bottom)
+            }
+        }
+    }
+
+    /// Protótipo `moreBtnStyle`: `height: 26px; min-width: 30px`, com borda e
+    /// fundo no acento enquanto a segunda linha está aberta.
+    private var moreButton: some View {
+        SoloToolButton(
+            label: "⋯",
+            title: moreOpen
+                ? "Fechar listas, alinhamento, link e tabela"
+                : "Listas, alinhamento, link, tabela",
+            on: moreOpen
+        ) {
+            moreOpen.toggle()
+        }
     }
 
     // MARK: - Grupos
@@ -342,6 +422,7 @@ private struct SegmentButton: View {
         if !enabled { return theme.ink4.color.opacity(0.55) }
         return on ? theme.accentInk.color : theme.ink2.color
     }
+
 
     private var labelFont: Font {
         italic ? theme.serif.font(size: 12) : theme.sans.font(size: 12, weight: weight)

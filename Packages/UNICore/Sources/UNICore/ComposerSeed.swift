@@ -9,14 +9,28 @@ import Foundation
 public struct ComposerSeed: Sendable, Hashable {
     public let to: [Contact]
     public let subject: String
-    /// Texto simples: a faixa de resposta rápida é de texto simples, e o corpo
-    /// rico da janela começa sem atributo nenhum a partir daqui.
+    /// O corpo em texto simples — a projeção de `rich`.
+    ///
+    /// Continua existindo porque é o que `ComposerWindow` lê hoje. Enquanto
+    /// for **este** campo que a janela usa, promover uma resposta formatada
+    /// pelo "⤢" chega lá **sem** negrito, sem cor e sem realce: `String` não
+    /// carrega atributo nenhum. Ver o relatório da Task Z.
     public let body: String
+    /// O corpo **rico**, que é o que a faixa de resposta de fato guarda desde
+    /// que ela ganhou barra de formatação. Uma linha em `ComposerWindow.seed()`
+    /// (`draft = seed.rich` no lugar de `AttributedString(seed.body)`) fecha a
+    /// perda acima.
+    public let rich: AttributedString
 
     public init(to: [Contact], subject: String, body: String) {
+        self.init(to: to, subject: subject, rich: AttributedString(body))
+    }
+
+    public init(to: [Contact], subject: String, rich: AttributedString) {
         self.to = to
         self.subject = subject
-        self.body = body
+        self.rich = rich
+        self.body = String(rich.characters)
     }
 
     /// Resolve o estado inicial de uma resposta.
@@ -40,7 +54,7 @@ public struct ComposerSeed: Sendable, Hashable {
         return ComposerSeed(
             to: draft.to.isEmpty ? [message.from] : draft.to,
             subject: subject,
-            body: draft.text
+            rich: draft.body
         )
     }
 }
