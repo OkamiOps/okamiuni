@@ -267,6 +267,55 @@ struct ComposerToolbarLayoutTests {
     }
 }
 
+@Suite("Composer — o rascunho da faixa sobe sem formatação")
+struct ComposerSeedBodyTests {
+
+    /// `ReplyDraft.text` é `String` porque a faixa do leitor é de texto
+    /// simples. Ao subir para a janela ele vira `AttributedString` **sem
+    /// atributo nenhum**: o texto sobrevive e a formatação começa do zero.
+    @Test("o texto da faixa chega inteiro e sem estilo carimbado")
+    func seededBodyHasNoStyle() {
+        let seed = ComposerSeed.reply(
+            to: Message(
+                id: "m1", accountID: "c",
+                from: Contact(name: "Yuki Tanaka", address: "yuki@example.co.jp"),
+                receivedAt: Date(timeIntervalSince1970: 0),
+                subject: "Contrato", snippet: "", body: [], tags: [],
+                bucket: .today, isRead: true, summary: nil, detectedEvent: nil
+            ),
+            draft: ReplyDraft(to: [], text: "Ana, fechado para quinta.")
+        )
+        let body = AttributedString(seed.body)
+
+        #expect(String(body.characters) == "Ana, fechado para quinta.")
+        #expect(body.runs.allSatisfy { $0.attributes[BodyStyleAttribute.self] == nil })
+
+        // E a barra abre nos padrões do protótipo, não num estado herdado.
+        let reading = ComposerEditor.reading(
+            of: body,
+            selection: AttributedTextSelection(insertionPoint: body.startIndex)
+        )
+        #expect(reading.bold == false)
+        #expect(reading.family == "Newsreader")
+        #expect(reading.size == 15)
+        #expect(reading.alignment == .left)
+    }
+
+    /// O caminho inverso não existe: corpo rico não se rebaixa para caber no
+    /// tipo do rascunho. Se alguém tentar, o teste mostra o que se perde.
+    @Test("formatar o corpo herdado não vaza para fora da seleção")
+    func formattingTheSeededBodyStaysScoped() {
+        var body = AttributedString("Ana, fechado para quinta.")
+        var sel = selection(body, 5, 12)
+        ComposerEditor.perform(.bold, on: &body, selection: &sel, theme: .tinta)
+
+        #expect(String(body.characters) == "Ana, fechado para quinta.")
+        #expect(style(body, at: 5).bold)
+        #expect(style(body, at: 0).bold == false)
+        #expect(style(body, at: 13).bold == false)
+    }
+}
+
 @Suite("Composer — o escopo de atributos do corpo")
 struct ComposerScopeTests {
 

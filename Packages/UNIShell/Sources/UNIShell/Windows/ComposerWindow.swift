@@ -153,8 +153,17 @@ public struct ComposerWindow: View {
             // Sem a mensagem em mãos não há o que semear — e marcar como feito
             // aqui deixaria a janela restaurada sem destinatário nem assunto.
             guard let repliedMessage else { return }
-            to = [repliedMessage.from]
-            subject = "Re: \(repliedMessage.subject)"
+            // A faixa de resposta rápida do leitor grava o que já foi escrito
+            // antes de promover para cá; `ComposerSeed` decide quem vence.
+            let seed = ComposerSeed.reply(
+                to: repliedMessage,
+                draft: store.replyDraft(for: repliedMessage.id)
+            )
+            to = seed.to
+            subject = seed.subject
+            if !seed.body.isEmpty {
+                draft = AttributedString(seed.body)
+            }
         case .new(let accountID):
             guard !store.accounts.isEmpty else { return }
             fromAccountID = accountID.flatMap { $0.isEmpty ? nil : $0 } ?? store.accounts.first?.id
