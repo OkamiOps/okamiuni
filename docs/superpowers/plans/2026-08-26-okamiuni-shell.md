@@ -3144,6 +3144,134 @@ ponto, não em cima dele. Recapturar em 1440 e comparar com a captura da Task P.
 
 ---
 
+## Marco 1.5 — o que o dono do projeto pediu em 27/08 para conseguir validar
+
+Palavras dele, na íntegra:
+
+> "varias coisas, primeiro a gente ta sem modal nehum eu nem consigo testar escrever email,
+> responder, agenda e etc, outra coisa a barra superior está bem ruim nao está conforme eu
+> falei ou seja os icones do mac ainda estao desalinhados da nossa ferramenta, recomendo
+> colocar o logo ao lado do seletor de tema e ajustar a barra porque está bem ruim, terceiro
+> ponto, tem uma barra entre a lista de email e o email em si porém eu nao consigo
+> redimensionar para direita e esquerda para deixar o composer maior ou menor, isso também
+> deveria se repetir com a barra de calendário outro ponto a aba de agenda está literalmente
+> vazia"
+
+Três destes itens estavam **fora do Marco 1 por decisão minha**, registrada na seção "o que
+este marco deliberadamente não faz": composer, aba Agenda e janelas destacadas. A decisão
+estava errada pelo motivo que importa — ela deixou o app impossível de validar por quem
+encomendou. O escopo passa a incluí-los.
+
+---
+
+## Task S: Barra superior — alinhamento com os controles nativos
+
+**Files:** `Packages/UNIShell/Sources/UNIShell/Chrome/WindowChrome.swift`, `App/OkamiUNIApp.swift`
+
+O dono reclamou disto **duas vezes**. A Task P reduziu o vão de 45pt para 13pt corrigindo a
+área segura, mas o resíduo vertical continua: os semáforos nativos têm centro em y=16 e os
+nossos controles em y=29, numa barra de 58pt.
+
+O relatório da Task P registra que `NSTitlebarAccessoryViewController` não teve efeito em
+janela `.hiddenTitleBar`. Isso não esgota as opções. Tentar, nesta ordem:
+
+1. **Reposicionar os botões nativos.** `window.standardWindowButton(.closeButton)` devolve um
+   `NSButton` real; dá para mover cada um, ou mover a superview deles, para o centro vertical
+   da barra de 58pt. É API pública e é como apps de barra alta fazem.
+2. Se (1) não funcionar, **alinhar os nossos controles aos deles** — a primeira fileira da
+   barra passa a ter centro em y=16 em vez de y=29.
+
+Uma das duas tem de resolver. "Não dá" não é resultado aceitável aqui: existem apps de
+terceiros nesta máquina com barra alta e semáforos centrados, e o dono citou dois deles.
+
+**Layout que o dono pediu:** o lockup do logo sai da esquerda e vai **ao lado do seletor de
+temas**, à direita. A esquerda fica com os semáforos, o botão da lateral e as abas —
+encostados, no ritmo do Chrome e do app do Claude, que foram as referências que ele deu.
+
+Isso é divergência deliberada do protótipo, pedida pelo dono. Registrar no relatório.
+
+- [ ] Medir as posições atuais por acessibilidade e registrar antes/depois de cada controle
+- [ ] Aplicar (1) ou, falhando, (2)
+- [ ] Mover o lockup para a direita, ao lado do seletor
+- [ ] Recapturar em 880, 1200 e 1440 — a barra não pode estourar em nenhuma
+- [ ] Teste travando as posições/ordem dos controles como função pura (fora de `View`)
+
+---
+
+## Task T: Divisórias arrastáveis entre painéis
+
+**Files:** `Packages/UNICore/Sources/UNICore/PaneLayout.swift`,
+`Packages/UNIShell/Sources/UNIShell/Inbox/InboxScreen.swift`, novo `Inbox/PaneDivider.swift`
+
+Pedido: *"tem uma barra entre a lista de email e o email em si porém eu nao consigo
+redimensionar para direita e esquerda... isso também deveria se repetir com a barra de
+calendário"*.
+
+Duas divisórias arrastáveis: **lista ↔ leitor** e **leitor ↔ agenda**. A da lateral também,
+se sair de graça.
+
+Regras:
+
+- O arraste ajusta a largura **dentro das faixas que a `PaneLayout` já define** (lista
+  320–420 hoje; a faixa pode ser alargada se o arraste pedir, mas o leitor nunca abaixo de
+  420). A `PaneLayout` continua sendo quem decide o que cabe — o arraste vira mais uma
+  entrada dela, ao lado de `wantsSidebar`/`wantsAgenda`, e **não** um bypass.
+- A largura escolhida **persiste** entre execuções (`UserDefaults`, como o `ThemeStore`).
+- Estreitar a janela até a faixa não caber mais não pode apagar a preferência: mesma regra de
+  intenção-versus-cabimento da Task R.
+- Cursor de redimensionamento horizontal ao passar por cima; alvo de arraste com pelo menos
+  6pt de largura mesmo que a linha desenhada tenha 0,5pt.
+- Duplo clique na divisória volta à largura canônica.
+
+O núcleo (clamp, persistência, resolução com as faixas) é aritmética pura → vai na
+`PaneLayout`, em UNICore, com testes. A `View` só traduz o gesto.
+
+---
+
+## Task U: Janelas — composer, resposta, email destacado, detalhe do compromisso
+
+**Files:** novo diretório `Packages/UNIShell/Sources/UNIShell/Windows/`, mais os ganchos em
+`ReaderPane.swift`, `AgendaRail.swift`, `InboxScreen.swift`
+
+Sem isto o dono não consegue testar nada do fluxo de escrita. As quatro telas estão no
+protótipo e são a fonte da verdade:
+
+| tela | linha do `.dc.html` | tamanho |
+|---|---|---|
+| 03 Composer em janela | 788–1059 | 820×660 |
+| 04 Detalhe do compromisso | 588–742 | 560 × até 86% |
+| 05 Email em janela | 743–787 | 800×600 |
+| 06 Nova mensagem | 368–587 | 820×620 |
+
+- Cada uma é uma janela de verdade (`Window`/`WindowGroup` ou `NSWindow`), não uma folha
+  dentro da janela principal — o protótipo as chama de "em janela" e desenha sombra e raio
+  próprios.
+- Gatilhos: "Responder" no leitor abre 03; duplo clique numa mensagem abre 05; "Nova
+  mensagem" (⌘N e um botão na barra) abre 06; clicar num compromisso da trilha abre 04.
+- **Não envia nada.** Marco 1 não tem rede. "Enviar" fecha a janela e registra no console.
+  Isso é limite de marco, não de fidelidade: a janela tem de ficar visualmente completa.
+- O tema atual atravessa para as janelas novas (`.theme(...)` e o `ThemeStore` no ambiente).
+
+---
+
+## Task V: Aba Agenda — a tela 02 do protótipo
+
+**Files:** novo `Packages/UNIShell/Sources/UNIShell/Calendar/WeekScreen.swift`,
+`InboxScreen.swift` (troca de aba)
+
+Hoje `Workspace.calendar` renderiza vazio — *"a aba de agenda está literalmente vazia"*.
+
+A tela 02 "Agenda semanal" começa na linha **1394** do `.dc.html` e é a fonte da verdade:
+grade da semana, colunas por dia, faixa de horas, blocos de compromisso, e a seção que vem
+do email. Mesmas regras dos outros painéis: cor/raio/tipografia do `Theme`, medidas do
+protótipo, nada de limitar contas.
+
+Sem EventKit neste marco — a semana sai das fixtures, como a trilha diária. Estender
+`Fixtures` com uma semana de compromissos, mantendo `Fixtures.today` como âncora e sem
+refixar fuso (ver a nota da Task 10).
+
+---
+
 ## Definição de pronto
 
 O Marco 1 está fechado quando:
