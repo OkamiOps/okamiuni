@@ -146,6 +146,10 @@ def parse_shadows(css: str) -> list[str]:
         if not color_match:
             raise ValueError(f"shadow layer without a color: {layer!r}")
         color = color_match.group(1)
+        # `inset` muda a natureza da camada: brilho interno, não sombra externa.
+        # Sem isto a camada saía como sombra e virava um anel em volta do botão.
+        is_inset = "inset" in layer.split("(")[0]
+        layer = layer.replace("inset", " ")
         # Lengths in order. A unitless `0` is valid CSS, so match the bare
         # number too — dropping it would shift x/y/blur by one position.
         lengths = [
@@ -160,7 +164,8 @@ def parse_shadows(css: str) -> list[str]:
         spread = lengths[3] if len(lengths) > 3 else 0.0
         out.append(
             f"ShadowToken(x: {x}, y: {y}, blur: {blur}, spread: {spread}, "
-            f"color: {swift_color(color)})"
+            f"color: {swift_color(color)}"
+            + (", isInset: true)" if is_inset else ")")
         )
     return out
 

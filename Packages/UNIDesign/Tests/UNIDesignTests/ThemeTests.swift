@@ -199,3 +199,49 @@ struct TokenColorTests {
         #expect(abs(black.luminance) < 0.001)
     }
 }
+
+@Suite("Sombras inset")
+struct InsetShadowTests {
+
+    /// O defeito: o gerador jogava fora a palavra `inset` e emitia a camada
+    /// como sombra externa. `.shadow()` do SwiftUI só pinta para fora, então
+    /// o brilho interno virava um anel em volta do botão — o "contorno errado"
+    /// que apareceu em todos os botões dos temas afetados.
+    @Test("os temas que o design manda inset chegam marcados", arguments: [
+        "okami", "neon", "sinal", "blackbox", "magenta", "neural", "comando", "override",
+    ])
+    func insetThemesAreMarked(id: String) throws {
+        let theme = try #require(Theme.named(id))
+        #expect(theme.btnShadow.contains { $0.isInset },
+                "\(id): o design pede inset e o token não marcou")
+    }
+
+    @Test("os temas que o design manda sombra externa não vêm marcados", arguments: [
+        "tinta", "linho", "barro", "noite", "grafite", "papel", "clinico", "nexus",
+        "aura", "whitex", "reboot", "ambar", "vapor",
+    ])
+    func outerThemesAreNotMarked(id: String) throws {
+        let theme = try #require(Theme.named(id))
+        #expect(theme.btnShadow.allSatisfy { !$0.isInset },
+                "\(id): sombra externa marcada como inset")
+    }
+
+    @Test("corsa e corsaluz não têm sombra de botão nenhuma")
+    func noneMeansEmpty() throws {
+        for id in ["corsa", "corsaluz"] {
+            let theme = try #require(Theme.named(id))
+            #expect(theme.btnShadow.isEmpty, "\(id)")
+        }
+    }
+
+    /// `inset 0 1px 0` tem desfoque zero: é uma linha, não um borrão. Se o
+    /// gerador voltar a confundir a ordem dos comprimentos, isto acusa.
+    @Test("o inset dos temas escuros é uma linha de 1pt sem desfoque")
+    func insetGeometry() throws {
+        let okami = try #require(Theme.named("okami"))
+        let layer = try #require(okami.btnShadow.first { $0.isInset })
+        #expect(layer.x == 0)
+        #expect(layer.y == 1)
+        #expect(layer.blur == 0)
+    }
+}
