@@ -678,3 +678,270 @@ struct ComposerEditorThemeTests {
         #expect(editor.textLayoutManager == nil)
     }
 }
+
+// MARK: - As teclas dentro da tabela
+
+/// O editor sozinho, com um corpo dado, para as teclas serem exercitadas pelo
+/// **mesmo caminho** que o teclado usa — `insertNewline(_:)`, `insertTab(_:)`,
+/// `insertBacktab(_:)` — sem sintetizar evento nenhum e sem lançar o app.
+struct TableKeyProbe: View {
+    @Environment(\.theme) private var theme
+    @State var text: AttributedString
+    @State private var selection = AttributedTextSelection()
+
+    var body: some View {
+        ComposerTextView(
+            text: $text, selection: $selection, theme: theme,
+            insets: CGSize(width: 10, height: 10)
+        )
+        .background(theme.surface.color)
+    }
+}
+
+@MainActor
+extension EditorProbe {
+    /// O `NSTextView` da hierarquia, sem precisar de texto para procurar: uma
+    /// tabela recém-inserida é só quebras de linha.
+    static func anyTextView(in view: NSView) -> ComposerNSTextView? {
+        if let text = view as? ComposerNSTextView { return text }
+        for sub in view.subviews {
+            if let found = anyTextView(in: sub) { return found }
+        }
+        return nil
+    }
+}
+
+@Suite("Composer — as teclas dentro da tabela")
+@MainActor
+struct ComposerTableKeysTests {
+
+    /// Uma grade 2×2 com uma palavra em cada célula.
+    static func filled() -> AttributedString {
+        var text = AttributedString("")
+        var sel = AttributedTextSelection(insertionPoint: text.startIndex)
+        ComposerEditor.perform(.table(rows: 2, columns: 2), on: &text, selection: &sel, theme: .tinta)
+        // Do fim para o começo: escrever na primeira célula moveria as outras.
+        for (offset, word) in [(0, "um"), (1, "dois"), (2, "tres"), (3, "quatro")].reversed() {
+            var piece = AttributedString(word)
+            piece[BodyStyleAttribute.self] = .default
+            text.insert(piece, at: text.characters.index(text.startIndex, offsetBy: offset))
+        }
+        return text
+    }
+
+    /// A grade **como ela é desenhada**: quantas colunas, quantas linhas, e
+    /// onde cada fragmento caiu. É a régua que já pegou a tabela na primeira
+    /// vez, e é a que pega esta.
+    static func grid(_ model: AttributedString, width: CGFloat = 460)
+        -> (columns: [CGFloat], rows: [CGFloat], fragments: [CGRect])
+    {
+        let result = LayoutProbe.layout(
+            ComposerTextKit.nsAttributed(model, theme: .tinta), width: width
+        )
+        return (
+            Set(result.fragments.map(\.minX)).sorted(),
+            Set(result.fragments.map(\.minY)).sorted(),
+            result.fragments
+        )
+    }
+
+    /// Roda uma tecla no editor de verdade e devolve o modelo que sobrou.
+    ///
+    /// O cursor é posto **depois** da palavra pedida, ou **antes** dela com
+    /// `caretBefore`. A espera entre pôr o cursor e apertar a tecla não é
+    /// enfeite: é ela que deixa o SwiftUI reescrever os atributos de digitação,
+    /// que é onde metade deste conserto mora.
+    static func press(
+        _ body: AttributedString, _ key: (ComposerNSTextView) -> Void,
+        caretAfter needle: String? = nil, caretBefore before: String? = nil
+    ) -> (model: AttributedString, caret: Int, plain: String) {
+        var model = body
+        var caret = -1
+        var plain = ""
+        EditorProbe.withHostedView(
+            TableKeyProbe(text: body),
+            size: CGSize(width: 480, height: 380), theme: .tinta
+        ) { content in
+            guard let view = EditorProbe.anyTextView(in: content) else { return }
+            let text = view.string as NSString
+            let at = text.range(of: needle ?? before ?? "")
+            guard at.location != NSNotFound else { return }
+            let location = needle != nil ? at.location + at.length : at.location
+            view.setSelectedRange(NSRange(location: location, length: 0))
+            RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+
+            key(view)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.15))
+
+            caret = view.selectedRange().location
+            plain = view.string
+            if let storage = view.textStorage { model = ComposerTextKit.model(storage) }
+        }
+        return (model, caret, plain)
+    }
+
+    // MARK: Enter
+
+    /// **O defeito que o dono relatou usando.** Medido antes do conserto, com
+    /// esta grade e uma quebra no meio de "dois": o redesenho saía com
+    /// **quatro** colunas — `minX` em 9, 162, 239 e 315 — no lugar de duas
+    /// (9 e 239). A linha de cima virava três células e o `NSTextTable`
+    /// recalculava as larguras. A causa era um `NSTextTableBlock` novo por
+    /// parágrafo; o `NSTextTable` só junta numa célula os parágrafos que
+    /// partilham a **mesma instância** de bloco.
+    @Test("Enter dentro de uma célula não desmonta a grade")
+    func enterKeepsTheGrid() {
+        let before = Self.grid(Self.filled())
+        #expect(before.columns.count == 2, "colunas antes: \(before.columns)")
+        #expect(before.rows.count == 2, "linhas antes: \(before.rows)")
+
+        let after = Self.press(Self.filled(), { $0.insertNewline(nil) }, caretAfter: "do")
+
+        #expect(after.plain == "um\ndo\nis\ntres\nquatro\n", "texto: \(after.plain.debugDescription)")
+
+        let grid = Self.grid(after.model)
+        // Continuam **duas** colunas. É esta a asserção que falhava.
+        #expect(grid.columns.count == 2, "colunas depois: \(grid.columns)")
+        #expect(grid.columns == before.columns, "as colunas mudaram de lugar: \(grid.columns)")
+
+        // E a célula editada ficou mais alta: a segunda linha da grade desceu.
+        #expect(grid.rows.count == 3, "alturas depois: \(grid.rows)")
+        let rowTwoBefore = before.rows[1]
+        let rowTwoAfter = grid.rows[2]
+        #expect(
+            rowTwoAfter > rowTwoBefore,
+            "a linha de baixo devia descer: \(rowTwoBefore) → \(rowTwoAfter)"
+        )
+        // As duas células da linha de baixo continuam lado a lado, na mesma altura.
+        let bottom = grid.fragments.filter { $0.minY == rowTwoAfter }
+        #expect(Set(bottom.map(\.minX)).count == 2, "linha de baixo: \(bottom.map(\.minX))")
+    }
+
+    @Test("Enter dentro da célula mantém os dois parágrafos na mesma célula")
+    func enterStaysInTheSameCell() {
+        let after = Self.press(Self.filled(), { $0.insertNewline(nil) }, caretAfter: "do")
+        let cells = RichBody.paragraphs(of: after.model).map {
+            RichBody.tableCell(of: after.model, at: $0)
+        }
+        // 6 parágrafos: quatro células, uma delas partida em duas, mais o
+        // parágrafo que vem depois da tabela.
+        #expect(cells.map { $0.map { [$0.row, $0.column] } ?? [] }
+            == [[0, 0], [0, 1], [0, 1], [1, 0], [1, 1], []], "células: \(cells)")
+    }
+
+    /// **O caso que separa os dois consertos.** Com o cursor no meio da
+    /// célula, o `NSTextStorage` já herdava o bloco do parágrafo ao arrumar os
+    /// atributos, e só o bloco partilhado bastava. No **começo** da célula não:
+    /// medido sem os guardas, o parágrafo novo saía sem célula nenhuma e ia
+    /// para a largura toda da coluna — `[0,0], [], [0,1], …` com as colunas em
+    /// `0, 9, 239` no lugar de `9, 239`. A tabela partida em duas, que é
+    /// exatamente o relato.
+    @Test("Enter no começo da célula também fica dentro dela")
+    func enterAtCellStartStaysInside() {
+        let after = Self.press(Self.filled(), { $0.insertNewline(nil) }, caretBefore: "dois")
+
+        let cells = RichBody.paragraphs(of: after.model).map {
+            RichBody.tableCell(of: after.model, at: $0)
+        }
+        #expect(cells.map { $0.map { [$0.row, $0.column] } ?? [] }
+            == [[0, 0], [0, 1], [0, 1], [1, 0], [1, 1], []], "células: \(cells)")
+
+        let grid = Self.grid(after.model)
+        #expect(grid.columns.count == 2, "colunas: \(grid.columns)")
+        // Nada encostado na margem: um parágrafo fora da tabela desenharia em 0.
+        #expect(grid.columns.allSatisfy { $0 > 0 }, "colunas: \(grid.columns)")
+    }
+
+    @Test("fora da tabela, Enter continua sendo Enter")
+    func enterOutsideIsUnchanged() {
+        let after = Self.press(
+            AttributedString("primeira linha\nsegunda"), { $0.insertNewline(nil) },
+            caretAfter: "primeira"
+        )
+        #expect(after.plain == "primeira\n linha\nsegunda", "texto: \(after.plain.debugDescription)")
+        #expect(RichBody.paragraphs(of: after.model).count == 3)
+    }
+
+    // MARK: Tab
+
+    @Test("Tab vai para a próxima célula")
+    func tabMovesForward() {
+        let after = Self.press(Self.filled(), { $0.insertTab(nil) }, caretAfter: "um")
+        #expect(after.plain == "um\ndois\ntres\nquatro\n", "Tab não pode escrever tabulação")
+        // "um\n" ocupa 0..2; a célula (0,1) começa em 3.
+        #expect(after.caret == 3, "cursor em \(after.caret), esperado 3 (começo de \"dois\")")
+    }
+
+    @Test("Shift-Tab volta para a célula anterior")
+    func backtabMovesBack() {
+        let after = Self.press(Self.filled(), { $0.insertBacktab(nil) }, caretAfter: "dois")
+        #expect(after.plain == "um\ndois\ntres\nquatro\n")
+        #expect(after.caret == 0, "cursor em \(after.caret), esperado 0 (começo de \"um\")")
+    }
+
+    @Test("Shift-Tab na primeira célula não sai da tabela nem escreve nada")
+    func backtabOnFirstCellHoldsStill() {
+        let after = Self.press(Self.filled(), { $0.insertBacktab(nil) }, caretAfter: "um")
+        #expect(after.plain == "um\ndois\ntres\nquatro\n")
+        #expect(after.caret == 2, "cursor em \(after.caret), esperado 2 (onde estava)")
+    }
+
+    /// Tab na última célula cria linha — é o que Mail, Outlook e Gmail fazem, e
+    /// é como se cresce uma tabela sem voltar ao botão da barra.
+    @Test("Tab na última célula cria uma linha nova")
+    func tabOnLastCellAddsARow() {
+        let after = Self.press(Self.filled(), { $0.insertTab(nil) }, caretAfter: "quatro")
+
+        #expect(after.plain == "um\ndois\ntres\nquatro\n\n\n", "texto: \(after.plain.debugDescription)")
+
+        let cells = RichBody.paragraphs(of: after.model).compactMap {
+            RichBody.tableCell(of: after.model, at: $0)
+        }
+        #expect(cells.count == 6, "células: \(cells.map { [$0.row, $0.column] })")
+        #expect(cells.map { [$0.row, $0.column] }
+            == [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [2, 1]])
+        // E **todas** passam a saber que a grade tem três linhas.
+        #expect(cells.allSatisfy { $0.rows == 3 }, "rows: \(cells.map(\.rows))")
+        #expect(Set(cells.map(\.table)).count == 1)
+
+        // O cursor foi para a primeira célula nova.
+        #expect(after.caret == 20, "cursor em \(after.caret)")
+
+        // E o desenho tem três linhas de duas colunas.
+        let grid = Self.grid(after.model)
+        #expect(grid.columns.count == 2, "colunas: \(grid.columns)")
+        #expect(grid.rows.count == 3, "linhas: \(grid.rows)")
+    }
+
+    @Test("fora da tabela, Tab continua sendo Tab")
+    func tabOutsideIsUnchanged() {
+        let after = Self.press(
+            AttributedString("sem tabela"), { $0.insertTab(nil) }, caretAfter: "sem"
+        )
+        #expect(after.plain.contains("\t"), "texto: \(after.plain.debugDescription)")
+    }
+
+    /// O PNG para olhar: a grade depois de um Enter numa célula e de um Tab que
+    /// criou a terceira linha. A medida está nos testes acima; isto é para o
+    /// olho conferir que a borda fecha e que a célula alta não empurra a
+    /// vizinha.
+    @Test("a grade editada desenha inteira")
+    func editedGridRenders() throws {
+        var body = Self.press(Self.filled(), { $0.insertNewline(nil) }, caretAfter: "do").model
+        RichBody.appendTableRow(&body, table: 0)
+
+        let rep = try #require(
+            Render.snapshot(
+                BodyProbe(text: body).environment(ThemeStore()),
+                named: "composer-tabela-editada",
+                size: CGSize(width: 520, height: 260),
+                theme: .tinta
+            )
+        )
+        #expect(rep.pixelsWide == 520)
+
+        let grid = Self.grid(body, width: 520 - 34)
+        #expect(grid.columns.count == 2, "colunas: \(grid.columns)")
+        #expect(grid.rows.count == 4, "linhas: \(grid.rows)")
+    }
+}

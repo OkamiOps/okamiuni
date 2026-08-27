@@ -347,3 +347,35 @@ O que isso ensina sobre teste: contar a caixa do painel não pega o defeito — 
 existindo do mesmo tamanho, fora da tela. Pega-se medindo o **bitmap**, e a cor a procurar
 não pode ser a de dentro do campo: em `tinta`, `btn` e `surface` diferem 0,02 e qualquer
 tolerância razoável junta as duas. A borda, em `btn-line`, separa.
+
+## Uma célula de tabela é uma **instância** de `NSTextTableBlock`, não uma coordenada
+
+O `NSTextTable` junta numa célula só os parágrafos que partilham a **mesma instância** de
+`NSTextTableBlock`. Dois blocos com `startingRow` e `startingColumn` iguais não são a mesma
+célula: são duas células empilhadas na mesma coordenada, e a linha inteira recalcula as
+larguras.
+
+Isso não aparece enquanto cada célula tem um parágrafo só. Aparece no primeiro Enter dentro
+de uma célula — que é o gesto mais comum que existe numa tabela. Medido, com uma grade 2×2 e
+uma quebra no meio de uma célula: o desenho saía com **quatro** colunas (`minX` em 9, 162,
+239, 315) no lugar de duas (9, 239). Foi o "ao dar enter ele quebra a tabela toda" que o dono
+relatou usando.
+
+O conserto é cachear o bloco por (tabela, linha, coluna) na hora de projetar. O modelo já
+estava certo o tempo todo — dois parágrafos com a mesma coordenada — e é por isso que um
+teste sobre o **atributo** teria passado com o defeito no lugar. Só a régua do desenho pega.
+
+## Enter dentro de uma célula tem dois caminhos, e eles falham em lugares diferentes
+
+Depois do bloco partilhado, Enter **no meio** de uma célula já funcionava: o
+`NSTextStorage` uniformiza o estilo de parágrafo ao arrumar os atributos e o parágrafo novo
+herda os blocos do vizinho. **No começo** da célula, não: medido, o parágrafo novo saía sem
+célula nenhuma e ia para a largura toda (`colunas` em 0, 9, 239), partindo a tabela em duas.
+
+Por isso existem dois guardas, e não um: `insertNewline(_:)` força o estilo de parágrafo
+corrente na quebra, e os atributos de digitação carregam os `textBlocks` do parágrafo do
+cursor. Cada um sozinho basta para o caso do meio; só o par cobre a borda.
+
+Lição de método: ao consertar comportamento de tecla, o caso do **meio** e o das **pontas**
+são dois testes, não um. Um conserto que passa nos dois pode ter duas causas independentes,
+e desligar um guarda de cada vez é o que revela qual delas o teste está de fato provando.

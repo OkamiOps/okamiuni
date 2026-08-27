@@ -279,3 +279,125 @@ struct RichBodyParagraphTests {
         #expect(sizes(text) == [24, 24, 24, 24])
     }
 }
+
+/// A tabela como **modelo**, sem editor por perto.
+///
+/// Aqui mora o que o desenho esconde: `ComposerTextKit.model(_:)` recompõe
+/// `BodyTableCell.rows` a partir das células que enxerga, então um corpo que
+/// atravessa o `NSTextView` sai coerente mesmo que o modelo estivesse errado.
+/// Só um teste puro pega isso.
+@Suite("RichBody — a tabela como modelo")
+struct RichBodyTableTests {
+
+    private func twoByTwo() -> AttributedString {
+        var text = AttributedString("")
+        RichBody.insertTable(&text, at: [cursor(text, 0)], rows: 2, columns: 2)
+        return text
+    }
+
+    @Test("as células vêm na ordem de leitura")
+    func cellsAreInReadingOrder() {
+        let text = twoByTwo()
+        let cells = RichBody.cells(of: text, table: 0).map { [$0.cell.row, $0.cell.column] }
+        #expect(cells == [[0, 0], [0, 1], [1, 0], [1, 1]])
+    }
+
+    @Test("dois parágrafos com a mesma coordenada são uma célula só")
+    func twoParagraphsAreOneCell() {
+        var text = twoByTwo()
+        // Uma quebra dentro da segunda célula, carregando a coordenada dela —
+        // é o que o editor faz quando alguém aperta Enter ali.
+        let cell = RichBody.cells(of: text, table: 0)[1].cell
+        var piece = AttributedString("\n")
+        piece[BodyTableAttribute.self] = cell
+        text.insert(piece, at: text.characters.index(text.startIndex, offsetBy: 1))
+
+        #expect(RichBody.cells(of: text, table: 0).count == 5)
+
+        func step(from index: AttributedString.Index, _ delta: Int) -> [Int]? {
+            RichBody.neighbouringCell(of: text, at: index, by: delta)
+                .flatMap { RichBody.tableCell(of: text, at: $0) }
+                .map { [$0.row, $0.column] }
+        }
+
+        // Tab continua vendo quatro células.
+        #expect(step(from: text.startIndex, 1) == [0, 1])
+
+        // E — o que separa contar células de contar parágrafos — Tab **de
+        // dentro** da célula partida vai para a próxima célula, não para o
+        // outro parágrafo dela. Sem isso a tecla pareceria não fazer nada.
+        let split = RichBody.cells(of: text, table: 0)
+        let second = split[2].paragraph.lowerBound
+        #expect(step(from: second, 1) == [1, 0])
+        #expect(step(from: second, -1) == [0, 0])
+    }
+
+    @Test("Tab e Shift-Tab andam uma célula, e param nas pontas")
+    func neighbourWalksOneCell() {
+        let text = twoByTwo()
+        let cells = RichBody.cells(of: text, table: 0)
+
+        func step(_ from: Int, _ delta: Int) -> [Int]? {
+            RichBody.neighbouringCell(of: text, at: cells[from].paragraph.lowerBound, by: delta)
+                .flatMap { RichBody.tableCell(of: text, at: $0) }
+                .map { [$0.row, $0.column] }
+        }
+
+        #expect(step(0, 1) == [0, 1])
+        #expect(step(1, 1) == [1, 0])
+        #expect(step(3, -1) == [1, 0])
+        // As pontas não têm vizinha: quem chama decide (Tab cria linha).
+        #expect(step(0, -1) == nil)
+        #expect(step(3, 1) == nil)
+    }
+
+    @Test("fora de tabela não há vizinha nenhuma")
+    func noNeighbourOutsideATable() {
+        let text = AttributedString("sem tabela\noutra linha")
+        #expect(RichBody.neighbouringCell(of: text, at: text.startIndex, by: 1) == nil)
+        #expect(RichBody.cell(of: text, at: text.startIndex) == nil)
+    }
+
+    /// **A linha nova entra depois da quebra da última célula.**
+    ///
+    /// Inserir em `paragraph.upperBound`, que é onde `insertTable` insere,
+    /// cairia **dentro** da última célula: a linha nova nasceria como mais
+    /// parágrafos dela, e a grade continuaria com duas linhas.
+    @Test("Tab na última célula acrescenta uma linha inteira")
+    func appendRowAddsAWholeRow() {
+        var text = twoByTwo()
+        let offset = RichBody.appendTableRow(&text, table: 0)
+
+        #expect(offset == 4, "a primeira célula nova devia começar em 4, começou em \(offset ?? -1)")
+        let cells = RichBody.cells(of: text, table: 0).map { $0.cell }
+        #expect(cells.map { [$0.row, $0.column] }
+            == [[0, 0], [0, 1], [1, 0], [1, 1], [2, 0], [2, 1]])
+        // E **todas** as células passam a dizer que a grade tem três linhas —
+        // inclusive as antigas. Sem isso, a mesma tabela responde 2 e 3 conforme
+        // a célula que se pergunta.
+        #expect(cells.allSatisfy { $0.rows == 3 }, "rows: \(cells.map(\.rows))")
+        #expect(cells.allSatisfy { $0.columns == 2 })
+        #expect(Set(cells.map(\.table)).count == 1)
+    }
+
+    @Test("acrescentar linha numa tabela que não existe não mexe no corpo")
+    func appendRowOnNothingDoesNothing() {
+        var text = AttributedString("sem tabela")
+        #expect(RichBody.appendTableRow(&text, table: 0) == nil)
+        #expect(String(text.characters) == "sem tabela")
+    }
+
+    @Test("a linha nova herda o estilo pedido")
+    func appendedRowCarriesTheStyle() {
+        var text = twoByTwo()
+        RichBody.appendTableRow(&text, table: 0, style: BodyStyle(size: 24, bold: true))
+
+        let fresh = RichBody.cells(of: text, table: 0).filter { $0.cell.row == 2 }
+        #expect(fresh.count == 2)
+        for entry in fresh {
+            let style = RichBody.reading(of: text, over: [RichBody.span(of: entry.paragraph, in: text)])
+            #expect(style.size == 24)
+            #expect(style.bold)
+        }
+    }
+}

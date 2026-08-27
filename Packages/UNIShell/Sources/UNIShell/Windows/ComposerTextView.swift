@@ -101,6 +101,10 @@ struct ComposerTextView: NSViewRepresentable {
         scroll.autohidesScrollers = true
         scroll.documentView = view
 
+        view.stepCell = { [weak coordinator = context.coordinator] delta in
+            coordinator?.stepCell(by: delta) ?? false
+        }
+
         context.coordinator.textView = view
         context.coordinator.push(text, theme: theme, into: view)
         context.coordinator.applySelection(selection, in: text, to: view)
@@ -274,8 +278,68 @@ struct ComposerTextView: NSViewRepresentable {
             let box = ComposerFormatting.lineHeight(for: style.size)
             paragraph.minimumLineHeight = box
             paragraph.maximumLineHeight = box
+            // **Os blocos de tabela vêm junto.** O que se digita herda estes
+            // atributos, e o `NSTextStorage` uniformiza o estilo de parágrafo
+            // ao arrumar os atributos — um estilo sem `textBlocks` entrando por
+            // aqui arrancaria a célula de dentro da grade na primeira tecla.
+            paragraph.textBlocks = view.tableBlocksAtCaret()
             attributes[.paragraphStyle] = paragraph
             view.typingAttributes = attributes
+        }
+
+        // MARK: Tabela
+
+        /// Tab (`+1`) e Shift-Tab (`-1`) dentro da tabela.
+        ///
+        /// Devolve `false` fora de tabela, e aí o `NSTextView` faz o que sempre
+        /// fez com a tecla — inserir tabulação, ou passar o foco adiante.
+        func stepCell(by delta: Int) -> Bool {
+            guard let view = textView, let storage = view.textStorage else { return false }
+            let model = settled ?? ComposerTextKit.model(storage)
+            let plain = String(model.characters)
+            guard let caret = ComposerTextKit.modelRange(
+                view.selectedRange(), in: model, plain: plain
+            )?.lowerBound else { return false }
+            guard let cell = RichBody.cell(of: model, at: caret) else { return false }
+
+            // Há vizinha: só o cursor anda.
+            if let target = RichBody.neighbouringCell(of: model, at: caret, by: delta) {
+                if let range = ComposerTextKit.nsRange(
+                    target.lowerBound..<target.lowerBound, in: model, plain: plain
+                ) {
+                    view.setSelectedRange(range)
+                }
+                return true
+            }
+
+            // Shift-Tab na primeira célula não faz nada — sair da tabela por
+            // aqui seria surpresa. Tab na última cria uma linha, que é o que
+            // Mail, Outlook e Gmail fazem.
+            guard delta > 0 else { return true }
+
+            var grown = model
+            guard let offset = RichBody.appendTableRow(
+                &grown, table: cell.table, style: RichBody.style(of: caretAttributes(model, at: caret))
+            ) else { return true }
+
+            let start = grown.characters.index(grown.startIndex, offsetBy: offset)
+            parent.text = grown
+            parent.selection = AttributedTextSelection(insertionPoint: start)
+            parent.onEdit?()
+            return true
+        }
+
+        /// Os atributos sob o cursor, para a linha nova nascer com o estilo da
+        /// célula de onde se veio.
+        private func caretAttributes(
+            _ model: AttributedString, at index: AttributedString.Index
+        ) -> AttributeContainer {
+            let characters = model.characters
+            guard characters.startIndex < characters.endIndex else { return AttributeContainer() }
+            let probe = index > characters.startIndex ? characters.index(before: index) : index
+            guard probe < characters.endIndex else { return AttributeContainer() }
+            return model[probe..<characters.index(after: probe)].runs.first?.attributes
+                ?? AttributeContainer()
         }
 
         // MARK: NSTextViewDelegate
@@ -309,4 +373,64 @@ struct ComposerTextView: NSViewRepresentable {
 /// app — cor vem do `Theme`, nunca de literal.
 final class ComposerNSTextView: NSTextView {
     override var acceptsFirstResponder: Bool { isEditable }
+
+    /// Tab e Shift-Tab dentro da tabela. Ligado pelo `Coordinator`; devolve
+    /// `false` quando o cursor não está numa célula, e aí vale o comportamento
+    /// padrão do `NSTextView`.
+    var stepCell: ((Int) -> Bool)?
+
+    /// Os blocos de tabela do parágrafo em que o cursor está.
+    func tableBlocksAtCaret() -> [NSTextBlock] {
+        guard let storage = textStorage, storage.length > 0 else { return [] }
+        let at = min(max(0, selectedRange().location), storage.length - 1)
+        let style = storage.attribute(.paragraphStyle, at: at, effectiveRange: nil)
+        return (style as? NSParagraphStyle)?.textBlocks ?? []
+    }
+
+    /// **Enter dentro de uma célula cria linha na célula, não fora dela.**
+    ///
+    /// O padrão do `NSTextView` é inserir um parágrafo que **não** herda os
+    /// `textBlocks` do anterior: a partir dali o conteúdo sai da tabela e a
+    /// grade se desmonta. Foi o defeito que o dono do projeto relatou usando —
+    /// *"na tabela ao dar enter ele quebra a tabela toda"*.
+    ///
+    /// A quebra passa a carregar o estilo de parágrafo do parágrafo corrente,
+    /// blocos inclusive. Quem junta os dois parágrafos numa célula só é o
+    /// `ComposerTextKit`, que partilha um `NSTextTableBlock` por coordenada.
+    ///
+    /// Para **sair** da tabela o caminho é mover o cursor para fora dela, como
+    /// em Mail, Outlook e Gmail. Enter nunca foi a porta de saída.
+    override func insertNewline(_ sender: Any?) {
+        let blocks = tableBlocksAtCaret()
+        guard !blocks.isEmpty, let storage = textStorage else {
+            super.insertNewline(sender)
+            return
+        }
+        let at = min(max(0, selectedRange().location), storage.length - 1)
+        guard let current = storage.attribute(.paragraphStyle, at: at, effectiveRange: nil)
+            as? NSParagraphStyle else {
+            super.insertNewline(sender)
+            return
+        }
+
+        let range = selectedRange()
+        guard shouldChangeText(in: range, replacementString: "\n") else { return }
+        var attributes = typingAttributes
+        attributes[.paragraphStyle] = current
+        storage.replaceCharacters(
+            in: range, with: NSAttributedString(string: "\n", attributes: attributes)
+        )
+        setSelectedRange(NSRange(location: range.location + 1, length: 0))
+        didChangeText()
+    }
+
+    override func insertTab(_ sender: Any?) {
+        if stepCell?(1) == true { return }
+        super.insertTab(sender)
+    }
+
+    override func insertBacktab(_ sender: Any?) {
+        if stepCell?(-1) == true { return }
+        super.insertBacktab(sender)
+    }
 }

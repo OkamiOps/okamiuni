@@ -709,3 +709,116 @@ extension RichBody {
         }
     }
 }
+
+// MARK: - Navegação e crescimento da tabela
+
+extension RichBody {
+
+    /// O parágrafo em que este índice está.
+    public static func paragraph(
+        of text: AttributedString, containing index: AttributedString.Index
+    ) -> Range<AttributedString.Index> {
+        paragraphs(of: text, touchedBy: [index..<index]).first
+            ?? (text.startIndex..<text.startIndex)
+    }
+
+    /// Os parágrafos da tabela `table`, na ordem do texto.
+    ///
+    /// **Uma célula pode ter mais de um parágrafo.** Enter dentro dela cria
+    /// linha nova *na célula*, como Mail, Outlook e Gmail — não uma célula
+    /// nova, e muito menos um parágrafo solto que desmonta a grade.
+    public static func cells(
+        of text: AttributedString, table: Int
+    ) -> [(cell: BodyTableCell, paragraph: Range<AttributedString.Index>)] {
+        paragraphs(of: text).compactMap { paragraph in
+            guard let cell = tableCell(of: text, at: paragraph), cell.table == table
+            else { return nil }
+            return (cell, paragraph)
+        }
+    }
+
+    /// Duas coordenadas apontam para a mesma célula.
+    public static func sameCell(_ a: BodyTableCell, _ b: BodyTableCell) -> Bool {
+        a.table == b.table && a.row == b.row && a.column == b.column
+    }
+
+    /// As células da tabela, uma vez cada, na ordem de leitura.
+    private static func cellOrder(
+        of text: AttributedString, table: Int
+    ) -> [(cell: BodyTableCell, paragraph: Range<AttributedString.Index>)] {
+        var order: [(cell: BodyTableCell, paragraph: Range<AttributedString.Index>)] = []
+        for entry in cells(of: text, table: table) {
+            if let last = order.last, sameCell(last.cell, entry.cell) { continue }
+            order.append(entry)
+        }
+        return order
+    }
+
+    /// O primeiro parágrafo da célula vizinha — Tab (`+1`) e Shift-Tab (`-1`).
+    ///
+    /// Nulo fora de tabela e nas pontas: na última célula quem decide o que
+    /// fazer é quem chama (Tab cria linha; Shift-Tab não faz nada).
+    public static func neighbouringCell(
+        of text: AttributedString, at index: AttributedString.Index, by delta: Int
+    ) -> Range<AttributedString.Index>? {
+        let here = paragraph(of: text, containing: index)
+        guard let cell = tableCell(of: text, at: here) else { return nil }
+        let order = cellOrder(of: text, table: cell.table)
+        guard let position = order.firstIndex(where: { sameCell($0.cell, cell) }) else { return nil }
+        let target = position + delta
+        guard order.indices.contains(target) else { return nil }
+        return order[target].paragraph
+    }
+
+    /// A célula em que este índice está, ou nulo fora de tabela.
+    public static func cell(
+        of text: AttributedString, at index: AttributedString.Index
+    ) -> BodyTableCell? {
+        tableCell(of: text, at: paragraph(of: text, containing: index))
+    }
+
+    /// Acrescenta uma linha ao fim da tabela. Devolve o deslocamento, em
+    /// caracteres, da primeira célula nova — onde o cursor vai parar.
+    ///
+    /// É o que Tab faz na última célula, em qualquer editor de email.
+    ///
+    /// A inserção é **depois da quebra** da última célula, não antes: inserir
+    /// em `paragraph.upperBound` cairia dentro da célula que já existe, e a
+    /// linha nova nasceria como mais parágrafos da última.
+    @discardableResult
+    public static func appendTableRow(
+        _ text: inout AttributedString, table: Int, style: BodyStyle = .default
+    ) -> Int? {
+        let existing = cells(of: text, table: table)
+        guard let last = existing.last else { return nil }
+        let columns = max(1, last.cell.columns)
+        let newRow = (existing.map(\.cell.row).max() ?? 0) + 1
+        let anchor = span(of: last.paragraph, in: text).upperBound
+        let offset = text.characters.distance(from: text.startIndex, to: anchor)
+
+        var piece = AttributedString()
+        for column in 0..<columns {
+            var cell = AttributedString("\n")
+            cell[BodyStyleAttribute.self] = style
+            cell[BodyTableAttribute.self] = BodyTableCell(
+                table: table, row: newRow, column: column,
+                rows: newRow + 1, columns: columns
+            )
+            piece += cell
+        }
+        text.insert(piece, at: anchor)
+
+        // As células antigas passam a saber que a grade cresceu. Escrever
+        // atributo não move índice, então as faixas colhidas aqui continuam
+        // válidas durante a volta.
+        let older = cells(of: text, table: table).filter { $0.cell.row < newRow }
+        for entry in older {
+            var updated = entry.cell
+            updated.rows = newRow + 1
+            let range = span(of: entry.paragraph, in: text)
+            guard !range.isEmpty else { continue }
+            text[range][BodyTableAttribute.self] = updated
+        }
+        return offset
+    }
+}

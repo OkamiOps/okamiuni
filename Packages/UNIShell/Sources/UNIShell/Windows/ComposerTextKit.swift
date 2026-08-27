@@ -115,6 +115,16 @@ enum ComposerTextKit {
         theme: Theme
     ) {
         var tables: [Int: NSTextTable] = [:]
+        // **Um bloco por célula, não por parágrafo.**
+        //
+        // O `NSTextTable` junta numa célula só os parágrafos que partilham a
+        // **mesma instância** de `NSTextTableBlock`. Criar um bloco por
+        // parágrafo faz com que uma célula de duas linhas — que é o que Enter
+        // dentro dela produz — vire duas células lado a lado, e a linha inteira
+        // recalcule as larguras. Medido: uma grade 2×2 com uma quebra dentro de
+        // uma célula desenhava em **quatro** colunas (minX 9, 162, 239, 315) no
+        // lugar de duas (9, 239). Era o "ao dar enter ele quebra a tabela toda".
+        var blocks: [Blocks: NSTextTableBlock] = [:]
 
         for paragraph in RichBody.paragraphs(of: model) {
             let span = RichBody.span(of: paragraph, in: model)
@@ -134,7 +144,13 @@ enum ComposerTextKit {
                     tables[cell.table] = fresh
                     return fresh
                 }()
-                style.textBlocks = [block(table: table, cell: cell, theme: theme)]
+                let key = Blocks(table: cell.table, row: cell.row, column: cell.column)
+                let shared = blocks[key] ?? {
+                    let fresh = block(table: table, cell: cell, theme: theme)
+                    blocks[key] = fresh
+                    return fresh
+                }()
+                style.textBlocks = [shared]
             }
 
             result.addAttribute(.paragraphStyle, value: style, range: range)
@@ -158,6 +174,14 @@ enum ComposerTextKit {
             largest = max(largest, RichBody.style(of: terminator.attributes).size)
         }
         return ComposerFormatting.lineHeight(for: largest)
+    }
+
+    /// A identidade de uma célula no desenho. Dois parágrafos com esta mesma
+    /// chave partilham um `NSTextTableBlock` e são uma célula só.
+    private struct Blocks: Hashable {
+        let table: Int
+        let row: Int
+        let column: Int
     }
 
     /// Protótipo `tblStyle` (linha 2143 do `.dc.html`): borda de 1px em
