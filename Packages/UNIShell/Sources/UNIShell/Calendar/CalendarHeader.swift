@@ -37,9 +37,9 @@ struct CalendarHeader: View {
 
             viewTabs
 
-            if mode == .day {
-                dayNavigator
-            }
+            // Nas três visões. Antes só a Dia tinha, e semana e mês ficavam
+            // presas na semana e no mês da âncora.
+            dayNavigator
 
             Text(meta)
                 .font(theme.mono.font(size: 10))
@@ -61,7 +61,14 @@ struct CalendarHeader: View {
     private var title: String {
         mode == .day
             ? MonthAgenda.longDayTitle(dayOffset: selectedDayOffset, anchor: anchor)
-            : WeekAgenda.monthTitle(for: anchor)
+            : WeekAgenda.monthTitle(for: focusedDate)
+    }
+
+    /// O dia em que a navegação está parada. Título, número da semana e
+    /// contagem do mês saem daqui — antes saíam da âncora fixa, e por isso não
+    /// mudavam ao navegar.
+    private var focusedDate: Date {
+        Calendar.current.date(byAdding: .day, value: selectedDayOffset, to: anchor) ?? anchor
     }
 
     /// Protótipo: `calMeta` (linha 2360).
@@ -75,9 +82,9 @@ struct CalendarHeader: View {
                 WeekAgenda.items(on: selectedDayOffset, in: store.visibleAgenda).count
             )
         case .week:
-            "semana \(WeekAgenda.weekNumber(for: anchor))"
+            "semana \(WeekAgenda.weekNumber(for: focusedDate))"
         case .month:
-            "\(MonthAgenda.eventCount(from: store.visibleAgenda, anchor: anchor)) compromissos"
+            "\(MonthAgenda.eventCount(from: store.visibleAgenda, anchor: anchor, focusOffset: selectedDayOffset)) compromissos"
         }
     }
 

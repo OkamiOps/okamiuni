@@ -121,7 +121,7 @@ public struct CalendarScreen: View {
                 selectedDayOffset: selectedDayOffset,
                 pickerOpen: pickerOpen,
                 onPick: pick(_:),
-                onStepDay: stepDay(_:),
+                onStepDay: step(_:),
                 onGoToday: goToday,
                 onTogglePicker: { pickerOpen.toggle() },
                 onPickDay: pickDay(_:)
@@ -147,10 +147,13 @@ public struct CalendarScreen: View {
                 dayOffset: selectedDayOffset, onOpenEvent: onOpenEvent
             )
         case .week:
-            WeekScreen(store: store, now: now, anchor: anchor, onOpenEvent: onOpenEvent)
+            WeekScreen(
+                store: store, now: now, anchor: anchor,
+                focusOffset: selectedDayOffset, onOpenEvent: onOpenEvent
+            )
         case .month:
             MonthScreen(
-                store: store, anchor: anchor,
+                store: store, anchor: anchor, focusOffset: selectedDayOffset,
                 onOpenEvent: onOpenEvent,
                 onOpenDay: { offset in
                     selectedDayOffset = offset
@@ -171,10 +174,17 @@ public struct CalendarScreen: View {
         pickerOpen = false
     }
 
-    /// Protótipo: `stepDay(dir)`, que trava nas pontas da grade do mês em vez
-    /// de trocar de mês.
-    private func stepDay(_ direction: Int) {
-        selectedDayOffset = MonthAgenda.step(selectedDayOffset, by: direction, anchor: anchor)
+    /// O passo de navegação, no tamanho da visão: um dia, uma semana, um mês.
+    ///
+    /// Antes só a visão Dia tinha `‹ ›`, e ela andava travada nas pontas da
+    /// grade do mês, como o protótipo faz. O dono cobrou o óbvio: semana e mês
+    /// também se navegam. Travar nas pontas deixou de fazer sentido quando o
+    /// mês passou a poder virar — agora o foco anda livre.
+    private func step(_ direction: Int) {
+        selectedDayOffset = MonthAgenda.navigationStep(
+            days: mode.navigationScope, from: selectedDayOffset,
+            anchor: anchor, direction: direction
+        )
         pickerOpen = false
     }
 

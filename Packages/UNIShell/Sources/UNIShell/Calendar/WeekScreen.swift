@@ -93,6 +93,9 @@ public struct WeekScreen: View {
     let now: Int
     /// O "hoje" do app: de onde saem os números dos dias e o `dayOffset` 0.
     let anchor: Date
+    /// Qual semana/mês mostrar, em dias a partir de `anchor`. Ver
+    /// `CalendarViewMode.navigationScope`.
+    var focusOffset: Int = 0
     /// Clicar num compromisso abre a janela 04.
     let onOpenEvent: (AgendaItem) -> Void
 
@@ -101,12 +104,14 @@ public struct WeekScreen: View {
         layout: Layout = Layout(),
         now: Int? = nil,
         anchor: Date? = nil,
+        focusOffset: Int = 0,
         onOpenEvent: @escaping (AgendaItem) -> Void = { _ in }
     ) {
         self.store = store
         self.layout = layout
         self.now = now ?? Self.minutesNow()
         self.anchor = anchor ?? Date.now
+        self.focusOffset = focusOffset
         self.onOpenEvent = onOpenEvent
     }
 
@@ -116,7 +121,7 @@ public struct WeekScreen: View {
     }
 
     private var days: [WeekAgenda.Day] {
-        WeekAgenda.days(from: store.visibleAgenda, anchor: anchor)
+        WeekAgenda.days(from: store.visibleAgenda, anchor: anchor, focusOffset: focusOffset)
     }
 
     public var body: some View {

@@ -15,6 +15,9 @@ public struct MonthScreen: View {
 
     let store: MailStore
     let anchor: Date
+    /// Qual semana/mês mostrar, em dias a partir de `anchor`. Ver
+    /// `CalendarViewMode.navigationScope`.
+    var focusOffset: Int = 0
     let onOpenEvent: (AgendaItem) -> Void
     /// Clicar no número do dia leva para a visão Dia naquele dia. É o que a
     /// visão Mês precisa para não ser um beco: o protótipo só dá clique no
@@ -25,17 +28,19 @@ public struct MonthScreen: View {
     public init(
         store: MailStore,
         anchor: Date,
+        focusOffset: Int = 0,
         onOpenEvent: @escaping (AgendaItem) -> Void = { _ in },
         onOpenDay: @escaping (Int) -> Void = { _ in }
     ) {
         self.store = store
         self.anchor = anchor
+        self.focusOffset = focusOffset
         self.onOpenEvent = onOpenEvent
         self.onOpenDay = onOpenDay
     }
 
     private var weeks: [MonthAgenda.Week] {
-        MonthAgenda.weeks(from: store.visibleAgenda, anchor: anchor)
+        MonthAgenda.weeks(from: store.visibleAgenda, anchor: anchor, focusOffset: focusOffset)
     }
 
     public var body: some View {

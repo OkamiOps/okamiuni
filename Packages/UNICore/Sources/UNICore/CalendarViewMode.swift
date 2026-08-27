@@ -22,3 +22,18 @@ public enum CalendarViewMode: String, Sendable, Hashable, CaseIterable, Identifi
         }
     }
 }
+
+extension CalendarViewMode {
+    /// Quanto um passo de `‹ ›` percorre nesta visão.
+    ///
+    /// Antes só a visão Dia tinha navegador. Semana e mês ficavam presas na
+    /// semana e no mês da âncora, o que o dono do projeto apontou como falta de
+    /// lógica — e é.
+    public var navigationScope: MonthAgenda.NavigationScope {
+        switch self {
+        case .day: .day
+        case .week: .week
+        case .month: .month
+        }
+    }
+}

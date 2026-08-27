@@ -217,3 +217,60 @@ struct FixtureContentTests {
         #expect(Fixtures.week.filter { $0.dayOffset == 0 }.count == 5)
     }
 }
+
+@Suite("Navegação da agenda")
+struct AgendaNavigationTests {
+
+    private var anchor: Date { Fixtures.today }   // terça, 25/08/2026
+
+    /// O defeito: só a visão Dia tinha `‹ ›`. Semana e mês ficavam presas no
+    /// mês da âncora, sem como avançar.
+    @Test("o passo do dia anda um dia")
+    func dayStep() {
+        #expect(MonthAgenda.navigationStep(days: .day, from: 0, anchor: anchor, direction: 1) == 1)
+        #expect(MonthAgenda.navigationStep(days: .day, from: 3, anchor: anchor, direction: -1) == 2)
+    }
+
+    @Test("o passo da semana anda sete dias")
+    func weekStep() {
+        #expect(MonthAgenda.navigationStep(days: .week, from: 0, anchor: anchor, direction: 1) == 7)
+        #expect(MonthAgenda.navigationStep(days: .week, from: 7, anchor: anchor, direction: -1) == 0)
+    }
+
+    /// Um mês não tem passo fixo: de 25/08 para setembro são 31 dias, de
+    /// setembro para outubro são 30. Somar 30 ou 31 cravado erraria em metade
+    /// do ano.
+    @Test("o passo do mês respeita o tamanho de cada mês")
+    func monthStep() {
+        let umMes = MonthAgenda.navigationStep(days: .month, from: 0, anchor: anchor, direction: 1)
+        #expect(umMes == 31)   // 25/08 -> 25/09
+        let dois = MonthAgenda.navigationStep(days: .month, from: umMes, anchor: anchor, direction: 1)
+        #expect(dois - umMes == 30)   // 25/09 -> 25/10
+    }
+
+    @Test("avançar e voltar devolve ao ponto de partida", arguments: [
+        MonthAgenda.NavigationScope.day, .week, .month,
+    ])
+    func roundTrip(scope: MonthAgenda.NavigationScope) {
+        let ida = MonthAgenda.navigationStep(days: scope, from: 0, anchor: anchor, direction: 1)
+        let volta = MonthAgenda.navigationStep(days: scope, from: ida, anchor: anchor, direction: -1)
+        #expect(volta == 0)
+    }
+
+    @Test("a semana mostrada acompanha o foco")
+    func weekFollowsFocus() {
+        let atual = WeekAgenda.weekOffsets(for: anchor)
+        let seguinte = WeekAgenda.weekOffsets(for: anchor, focusOffset: 7)
+        #expect(seguinte.count == 7)
+        #expect(seguinte.allSatisfy { !atual.contains($0) })
+        #expect(seguinte.min()! == atual.min()! + 7)
+    }
+
+    @Test("o mês mostrado acompanha o foco")
+    func monthFollowsFocus() {
+        let atual = MonthAgenda.dayOffsets(for: anchor)
+        let seguinte = MonthAgenda.dayOffsets(for: anchor, focusOffset: 31)
+        #expect(seguinte.count == atual.count)
+        #expect(seguinte.min()! > atual.min()!)
+    }
+}

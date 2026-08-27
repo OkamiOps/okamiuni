@@ -82,8 +82,15 @@ public enum MonthAgenda {
     ///
     /// Sai do calendário e não de uma lista fixa: o protótipo só tem um mês
     /// para desenhar, o app tem todos.
-    public static func dayOffsets(for anchor: Date, calendar: Calendar = .current) -> [Int] {
-        let start = gridStart(for: anchor, calendar: calendar)
+    /// As 42 células da grade, **em offsets relativos ao `anchor`**.
+    ///
+    /// `focusOffset` escolhe o mês: 0 é o do `anchor`. Ver a nota em
+    /// `WeekAgenda.weekOffsets` para por que o `anchor` não se move.
+    public static func dayOffsets(
+        for anchor: Date, focusOffset: Int = 0, calendar: Calendar = .current
+    ) -> [Int] {
+        let focused = calendar.date(byAdding: .day, value: focusOffset, to: anchor) ?? anchor
+        let start = gridStart(for: focused, calendar: calendar)
         let anchorDay = calendar.startOfDay(for: anchor)
         let first = calendar.dateComponents([.day], from: anchorDay, to: start).day ?? 0
         return (0..<(weekCount * 7)).map { first + $0 }
@@ -132,14 +139,16 @@ public enum MonthAgenda {
     /// Compromissos fora das 42 células simplesmente não aparecem — a lista da
     /// store carrega o que quiser sem que a grade precise saber.
     public static func weeks(
-        from items: [AgendaItem], anchor: Date, calendar: Calendar = .current
+        from items: [AgendaItem], anchor: Date, focusOffset: Int = 0,
+        calendar: Calendar = .current
     ) -> [Week] {
-        let anchorMonth = calendar.component(.month, from: anchor)
-        let anchorYear = calendar.component(.year, from: anchor)
+        let focused = calendar.date(byAdding: .day, value: focusOffset, to: anchor) ?? anchor
+        let anchorMonth = calendar.component(.month, from: focused)
+        let anchorYear = calendar.component(.year, from: focused)
         let byDay = Dictionary(grouping: items, by: \.dayOffset)
         let anchorDay = calendar.startOfDay(for: anchor)
 
-        let cells: [Day] = dayOffsets(for: anchor, calendar: calendar).map { offset in
+        let cells: [Day] = dayOffsets(for: anchor, focusOffset: focusOffset, calendar: calendar).map { offset in
             let date = calendar.date(byAdding: .day, value: offset, to: anchorDay) ?? anchorDay
             let parts = calendar.dateComponents([.day, .month, .year], from: date)
             return Day(
@@ -167,9 +176,10 @@ public enum MonthAgenda {
     /// o mesmo motivo pelo qual `WeekAgenda.monthTitle` deriva "Agosto 2026"
     /// em vez de cravar.
     public static func eventCount(
-        from items: [AgendaItem], anchor: Date, calendar: Calendar = .current
+        from items: [AgendaItem], anchor: Date, focusOffset: Int = 0,
+        calendar: Calendar = .current
     ) -> Int {
-        weeks(from: items, anchor: anchor, calendar: calendar)
+        weeks(from: items, anchor: anchor, focusOffset: focusOffset, calendar: calendar)
             .flatMap(\.days)
             .filter { !$0.isOutsideMonth }
             .reduce(0) { $0 + $1.events.count }
@@ -214,4 +224,31 @@ public enum MonthAgenda {
     ) -> Date {
         calendar.date(byAdding: .day, value: dayOffset, to: anchor) ?? anchor
     }
+}
+
+extension MonthAgenda {
+    /// Quantos dias um passo de navegação anda, por visão.
+    ///
+    /// O dono do projeto: *"porque só o dia tem a opção de avançar e o mês e
+    /// semana não?"*. Navegar é navegar — o passo é que muda de tamanho.
+    /// O mês não tem passo fixo (28 a 31), então ele é calculado.
+    public static func navigationStep(
+        days mode: NavigationScope, from focusOffset: Int, anchor: Date,
+        direction: Int, calendar: Calendar = .current
+    ) -> Int {
+        switch mode {
+        case .day: return focusOffset + direction
+        case .week: return focusOffset + 7 * direction
+        case .month:
+            let focused = calendar.date(byAdding: .day, value: focusOffset, to: anchor) ?? anchor
+            let moved = calendar.date(byAdding: .month, value: direction, to: focused) ?? focused
+            let anchorDay = calendar.startOfDay(for: anchor)
+            return calendar.dateComponents(
+                [.day], from: anchorDay, to: calendar.startOfDay(for: moved)
+            ).day ?? focusOffset
+        }
+    }
+
+    /// O alcance que um passo de navegação percorre.
+    public enum NavigationScope: Sendable { case day, week, month }
 }

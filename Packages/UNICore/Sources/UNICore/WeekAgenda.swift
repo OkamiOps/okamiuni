@@ -23,12 +23,21 @@ public enum WeekAgenda {
     /// domingo 30, que é a semana que o protótipo desenha. Sai do dia da semana
     /// e não de uma lista fixa, então uma âncora em qualquer outro dia continua
     /// produzindo a semana certa.
-    public static func weekOffsets(for date: Date, calendar: Calendar = .current) -> [Int] {
+    /// Os sete dias da semana visível, **em offsets relativos ao `anchor`**.
+    ///
+    /// `focusOffset` diz qual semana mostrar: 0 é a do `anchor`, 7 a seguinte,
+    /// −7 a anterior. Os offsets continuam contados do `anchor` porque é assim
+    /// que `AgendaItem.dayOffset` é medido — deslocar o próprio `anchor` faria
+    /// os compromissos escorregarem junto com a grade.
+    public static func weekOffsets(
+        for date: Date, focusOffset: Int = 0, calendar: Calendar = .current
+    ) -> [Int] {
+        let focused = calendar.date(byAdding: .day, value: focusOffset, to: date) ?? date
         // `weekday` do Calendar: 1 = domingo … 7 = sábado.
         // A grade começa na segunda, então segunda precisa virar 0 e domingo 6.
-        let weekday = calendar.component(.weekday, from: date)
+        let weekday = calendar.component(.weekday, from: focused)
         let indexInWeek = (weekday + 5) % 7
-        return (0..<7).map { $0 - indexInWeek }
+        return (0..<7).map { focusOffset + $0 - indexInWeek }
     }
 
     /// O número ISO da semana — o "semana 35" do cabeçalho.
@@ -169,9 +178,10 @@ public enum WeekAgenda {
     /// simplesmente não aparecem — a lista da store pode carregar mais do que
     /// sete dias sem que a grade precise saber disso.
     public static func days(
-        from items: [AgendaItem], anchor: Date, calendar: Calendar = .current
+        from items: [AgendaItem], anchor: Date, focusOffset: Int = 0,
+        calendar: Calendar = .current
     ) -> [Day] {
-        weekOffsets(for: anchor, calendar: calendar).map { offset in
+        weekOffsets(for: anchor, focusOffset: focusOffset, calendar: calendar).map { offset in
             let date = calendar.date(byAdding: .day, value: offset, to: anchor) ?? anchor
             let weekday = calendar.component(.weekday, from: date)
             return Day(
