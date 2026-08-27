@@ -61,30 +61,6 @@ struct TokenModifierTests {
 @Suite("Hairline")
 struct HairlineTests {
 
-    /// O defeito: nas bordas de fim o traço encostava na borda, caía na metade
-    /// de trás do último pixel e o compositor o apagava — as divisórias
-    /// verticais entre barra lateral e lista e entre lista e leitor simplesmente
-    /// não existiam na janela.
-    ///
-    /// O recuo é a **espessura desenhada**, não uma constante: em 1× a linha tem
-    /// um ponto e o recuo tem de acompanhar, senão meio ponto dela vaza para
-    /// fora do painel. Literais dos dois lados de propósito — comparar contra
-    /// `Hairline.thickness(escala)` faria a asserção concordar com qualquer
-    /// fórmula que alguém pusesse lá.
-    @Test("o recuo da borda de fim é a espessura que aquela tela desenha")
-    func endEdgesAreInset() {
-        #expect(Hairline.inset(for: .trailing, thickness: 1.0) == -1.0)
-        #expect(Hairline.inset(for: .bottom, thickness: 1.0) == -1.0)
-        #expect(Hairline.inset(for: .trailing, thickness: 0.5) == -0.5)
-        #expect(Hairline.inset(for: .bottom, thickness: 0.5) == -0.5)
-    }
-
-    @Test("as bordas de início não recuam — já nascem alinhadas")
-    func startEdgesAreFlush() {
-        #expect(Hairline.inset(for: .leading, thickness: 1.0) == 0)
-        #expect(Hairline.inset(for: .top, thickness: 1.0) == 0)
-    }
-
     /// O protótipo escreve `0.5px`, mas o navegador não desenha meio pixel: em
     /// 1× arredonda para um, em 2× meio pixel CSS já **é** um pixel do
     /// dispositivo. Nos dois casos o design mostra uma linha cheia de um pixel.

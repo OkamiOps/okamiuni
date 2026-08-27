@@ -96,8 +96,15 @@ public struct SidebarRail: View {
                     .fill(active ? theme.accentSoft.color : Color.clear)
             }
             .overlay {
+                // `strokeBorder`, não `stroke`: o traçado do `stroke` fica
+                // **em cima** da borda, metade para dentro e metade para fora,
+                // e em 1× essa metade cai entre dois pixels — a borda do botão
+                // ativo saía espalhada em `rgb(224,227,231)` + `rgb(219,226,235)`,
+                // nenhum dos dois o `accentLine` do token. `strokeBorder`
+                // desenha para dentro da forma e entrega o token exato. Era o
+                // último resquício das "bordas falhadas" do relato.
                 RoundedRectangle(cornerRadius: theme.radiusSmall)
-                    .stroke(
+                    .strokeBorder(
                         active ? theme.accentLine.color : Color.clear,
                         lineWidth: Hairline.thickness(displayScale)
                     )
@@ -134,8 +141,10 @@ public struct SidebarRail: View {
                         .fill(opacityMix(tintColor, active ? 26 : 12))
                 }
                 .overlay {
+                    // Ver a borda do botão de pasta acima: `strokeBorder`
+                    // desenha para dentro da forma, `stroke` monta em cima dela.
                     RoundedRectangle(cornerRadius: theme.radiusSmall)
-                        .stroke(
+                        .strokeBorder(
                             opacityMix(tintColor, active ? 70 : 26),
                             lineWidth: Hairline.thickness(displayScale)
                         )

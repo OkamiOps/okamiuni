@@ -55,9 +55,13 @@ public struct FolderSidebar: View {
             }
 
             // Rodapé fixo
-            Divider()
+            // `Divider()` não é a divisória deste design: ele pinta a cor do
+            // separador do sistema (medido, `rgb(202,199,192)`) por baixo do
+            // fundo pedido, e sai 22 níveis mais escuro que `--line`. Era o
+            // único traço da tela fora do idioma da hairline.
+            Rectangle()
+                .fill(theme.line.color)
                 .frame(height: Hairline.thickness(displayScale))
-                .background(theme.line.color)
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 7) {
                     Circle()

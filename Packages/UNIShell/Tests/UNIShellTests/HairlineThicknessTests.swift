@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import Testing
+import UNICore
 import UNIDesign
 @testable import UNIShell
 
@@ -17,6 +18,7 @@ let hairlineProbeIDs = [
     "grupo-da-barra",
     "seletor-de-tema",
     "divisoria-inferior",
+    "botao-ativo-da-trilha",
     "divisoria-lateral",
 ]
 
@@ -214,6 +216,25 @@ struct HairlineThicknessTests {
         ),
         // Support/TokenModifiers.swift — a divisória vertical entre painéis, que
         // é a que recua para dentro para nascer num pixel.
+        // Inbox/SidebarRail.swift — a borda do botão de pasta **ativo**, o
+        // último `.stroke(` do módulo. `stroke` monta o traçado em cima da
+        // borda, metade para cada lado: em 1× a borda saía espalhada em
+        // `rgb(224,227,231)` + `rgb(219,226,235)`, e nenhum dos dois é o
+        // `accentLine` `rgb(207,216,229)` que o token pede. Com `strokeBorder`
+        // ela cai dentro da forma e chega no token.
+        //
+        // A varredura corta a linha média do primeiro botão ("hoje", que é a
+        // pasta ativa por padrão): a trilha tem 62 de largura e o botão 46,
+        // então a borda esquerda dele está em `pad + 8`; a altura começa no
+        // `padding(.vertical, 14)` da trilha e o botão tem 40.
+        Probe(
+            id: "botao-ativo-da-trilha",
+            size: CGSize(width: SidebarRail.width + 2 * pad, height: 240),
+            token: \.accentLine,
+            scan: { _ in
+                stride(from: 0.0, to: pad + 12, by: 0.25).map { ($0, pad + 14 + 20) }
+            }
+        ),
         Probe(
             id: "divisoria-lateral",
             size: CGSize(width: 60 + 2 * pad, height: 20 + 2 * pad),
@@ -251,6 +272,11 @@ struct HairlineThicknessTests {
             Color.clear
                 .frame(width: 60, height: 20)
                 .hairline(theme.line, edges: .trailing)
+        case "botao-ativo-da-trilha":
+            // Sem `load()`: as contas não entram, e as quatro pastas — que é
+            // o que se mede — não dependem delas. `.today` é a pasta que o
+            // store abre, e é a que desenha a borda de acento.
+            SidebarRail(store: MailStore(source: InMemoryMailSource.fixtures))
         default:
             EmptyView()
         }
@@ -362,6 +388,145 @@ struct HairlineThicknessTests {
             """
             a divisória \(Self.describe(divider)) desenha mais forte que a borda \
             \(Self.describe(border)) — foi assim que o dono leu uma pela outra.
+            """
+        )
+    }
+}
+
+/// **Onde** a divisória cai, não só de que cor ela é.
+///
+/// A sonda de cor não pega este defeito: ela varre a faixa toda e pergunta pelo
+/// pixel mais escuro, que é `--line` esteja ele encostado na borda ou um pixel
+/// para dentro. Estes testes perguntam pela coluna exata.
+///
+/// O defeito: `HairlineModifier` deslocava a faixa de `-thickness` nas bordas de
+/// fim, resto da época em que a espessura era meio ponto. Medido em 1× na barra
+/// lateral, x=234 era `--line` e x=235 — o último pixel do painel — era
+/// `surface2`: a divisória descolava do vizinho, onde o protótipo a encosta.
+@Suite("Posição da hairline")
+@MainActor
+struct HairlinePositionTests {
+
+    typealias Pixels = HairlineThicknessTests.Pixels
+    static let pad = HairlineThicknessTests.pad
+    static let maxLevels = HairlineThicknessTests.maxLevels
+
+    static let panel = CGSize(width: 60, height: 20)
+
+    /// O painel encostado no canto superior esquerdo da folga, sobre fundo
+    /// chapado: assim "o último pixel do painel" é uma coluna sabida —
+    /// `pad + largura - 1`.
+    static func stage(_ edges: Edge.Set, theme: Theme) -> some View {
+        Color.clear
+            .frame(width: panel.width, height: panel.height)
+            .hairline(theme.line, edges: edges)
+            .padding(pad)
+            .frame(
+                width: panel.width + 2 * pad,
+                height: panel.height + 2 * pad,
+                alignment: .topLeading
+            )
+            .background(theme.surface.color)
+    }
+
+    static func pixels(_ edges: Edge.Set, named name: String, theme: Theme) throws -> Pixels {
+        let size = CGSize(width: panel.width + 2 * pad, height: panel.height + 2 * pad)
+        return Pixels(rep: try #require(
+            Render.snapshot(stage(edges, theme: theme), named: name, size: size, theme: theme)
+        ))
+    }
+
+    @Test("a divisória vertical é o último pixel do painel, não o penúltimo")
+    func trailingSitsOnTheLastPixel() throws {
+        let theme = Theme.tinta
+        let pixels = try Self.pixels(.trailing, named: "hairline-pos-trailing", theme: theme)
+        let y = Int(Self.pad + Self.panel.height / 2)
+        let last = Int(Self.pad + Self.panel.width) - 1
+
+        let onLast = pixels.color(last, y)
+        let before = pixels.color(last - 1, y)
+        #expect(
+            HairlineThicknessTests.levels(onLast, theme.line) <= Self.maxLevels,
+            """
+            o último pixel do painel (x=\(last)) é \
+            \(HairlineThicknessTests.describe(onLast)) e devia ser a divisória \
+            \(HairlineThicknessTests.describe(theme.line)) — a faixa está recuada \
+            para dentro e descolou do vizinho.
+            """
+        )
+        #expect(
+            HairlineThicknessTests.levels(before, theme.surface) <= Self.maxLevels,
+            """
+            x=\(last - 1) é \(HairlineThicknessTests.describe(before)) — a divisória \
+            engordou para dois pixels em vez de andar um para fora.
+            """
+        )
+    }
+
+    @Test("a divisória horizontal é a última linha do painel, não a penúltima")
+    func bottomSitsOnTheLastPixel() throws {
+        let theme = Theme.tinta
+        let pixels = try Self.pixels(.bottom, named: "hairline-pos-bottom", theme: theme)
+        let x = Int(Self.pad + Self.panel.width / 2)
+        let last = Int(Self.pad + Self.panel.height) - 1
+
+        #expect(
+            HairlineThicknessTests.levels(pixels.color(x, last), theme.line) <= Self.maxLevels,
+            "a última linha do painel (y=\(last)) não é a divisória"
+        )
+        #expect(
+            HairlineThicknessTests.levels(pixels.color(x, last - 1), theme.surface)
+                <= Self.maxLevels,
+            "y=\(last - 1) devia continuar sendo o painel"
+        )
+    }
+}
+
+/// O rodapé da barra de pastas era o único traço da tela fora do idioma da
+/// hairline: um `Divider()` do sistema, que pinta a cor de separador dele
+/// (medido, `rgb(202,199,192)`) onde `--line` é `rgb(224,221,213)` — 22 níveis
+/// mais escuro, e o `.background` pedido fica **atrás** do traço em vez de
+/// substituí-lo.
+@Suite("Divisória do rodapé da barra de pastas")
+@MainActor
+struct FolderSidebarFooterTests {
+
+    /// Varre de baixo para cima numa coluna que só o fundo e a divisória
+    /// ocupam: o rodapé tem `padding(16)`, então em x=8 não há texto nem
+    /// bolinha. O primeiro pixel que não é `surface2` subindo do fundo é a
+    /// divisória do rodapé.
+    @Test("a divisória do rodapé pinta o token da linha, não o separador do sistema")
+    func footerDividerUsesTheToken() async throws {
+        let theme = Theme.tinta
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        let size = CGSize(width: PaneLayout.expandedSidebarWidth, height: 700)
+        let pixels = HairlineThicknessTests.Pixels(rep: try #require(
+            Render.snapshot(
+                FolderSidebar(store: store),
+                named: "barra-rodape-divisoria", size: size, theme: theme
+            )
+        ))
+
+        var found: (y: Int, color: TokenColor)?
+        for y in stride(from: pixels.height - 1, through: 0, by: -1) {
+            let c = pixels.color(8, y)
+            guard c.opacity > 0.99 else { continue }
+            if HairlineThicknessTests.levels(c, theme.surface2) > 2 {
+                found = (y, c)
+                break
+            }
+        }
+
+        let hit = try #require(found, "nada além do fundo na coluna x=8 — a divisória sumiu")
+        #expect(
+            HairlineThicknessTests.levels(hit.color, theme.line)
+                <= HairlineThicknessTests.maxLevels,
+            """
+            a divisória do rodapé (y=\(hit.y)) é \
+            \(HairlineThicknessTests.describe(hit.color)) e o token `--line` é \
+            \(HairlineThicknessTests.describe(theme.line)) — é o `Divider()` do \
+            sistema pintando a cor dele.
             """
         )
     }

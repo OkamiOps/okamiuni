@@ -3,14 +3,21 @@ import UNIDesign
 
 /// A divisória de um pixel que o design usa em toda parte.
 ///
-/// A faixa precisa **começar num ponto inteiro** para existir: quando
-/// ela cai na metade de trás de um pixel, o compositor a apaga. Era o que
-/// acontecia nas bordas `trailing` — as divisórias verticais entre barra
-/// lateral e lista (x=236) e entre lista e leitor (x=606) não desenhavam nada,
-/// enquanto a `leading` da trilha de agenda (x=1178) aparecia. Nas bordas de
-/// fim (`trailing` e `bottom`) o traço recua meio ponto para dentro; nas de
-/// início (`leading` e `top`) ele já nasce alinhado. Nenhum painel muda de
-/// largura por isso.
+/// A faixa precisa **começar num ponto inteiro** para existir: quando ela cai
+/// na metade de trás de um pixel, o compositor a apaga. Era o que acontecia
+/// nas bordas `trailing` quando a espessura era meio **ponto** cravado — as
+/// divisórias verticais entre barra lateral e lista (x=236) e entre lista e
+/// leitor (x=606) não desenhavam nada. O conserto foi a espessura virar um
+/// pixel do dispositivo (`thickness(_:)`): a faixa encostada na borda de fim
+/// já nasce alinhada à grade em qualquer escala, e não precisa recuar.
+///
+/// O recuo de uma espessura que existia aqui era o resto daquela época, e
+/// atrasado ele **desalinhava**: o traço ia parar um pixel para dentro do
+/// painel, o último pixel voltava a ser o fundo, e a divisória descolava do
+/// vizinho. Medido em 1× na barra lateral: x=234 era `--line` e x=235, o
+/// último pixel do painel, era `surface2`. Agora a divisória é o último pixel
+/// do painel — que é onde o protótipo a encosta. Nenhum painel muda de largura
+/// por isso: a faixa é `overlay`, não ocupa lugar no layout.
 public enum Hairline {
     /// **Um pixel do dispositivo**, não meio ponto.
     ///
@@ -39,18 +46,6 @@ public enum Hairline {
     /// `PaneDivider.hitWidth`, que dimensiona um alvo de mouse contra a linha
     /// mais fina que o design chega a pintar.
     public static let thickness: CGFloat = 0.5
-
-    /// Quanto o traço recua para dentro do painel, por borda.
-    ///
-    /// Nas bordas de fim o traço recua a própria espessura; nas de início ele já
-    /// nasce alinhado. A espessura entra como argumento porque ela depende da
-    /// tela: cravar a constante aqui devolveria meio ponto de recuo para uma
-    /// linha de um ponto, e a linha vazaria meio ponto para fora do painel.
-    public static func inset(for edges: Edge.Set, thickness: CGFloat) -> CGFloat {
-        if edges.contains(.top) { return 0 }
-        if edges.contains(.leading) { return 0 }
-        return -thickness  // .trailing e .bottom
-    }
 
     public static func alignment(for edges: Edge.Set) -> Alignment {
         if edges.contains(.top) { return .top }
@@ -102,7 +97,9 @@ private struct HairlineModifier: ViewModifier {
     func body(content: Content) -> some View {
         let vertical = Hairline.isVertical(edges)
         let thickness = Hairline.thickness(displayScale)
-        let inset = Hairline.inset(for: edges, thickness: thickness)
+        // Sem deslocamento: o alinhamento do `overlay` já encosta a faixa na
+        // borda pedida, e é ali que ela tem de ficar — o último pixel do painel
+        // é a divisória. Ver `Hairline`.
         return content.overlay(alignment: Hairline.alignment(for: edges)) {
             Rectangle()
                 .fill(color.color)
@@ -110,7 +107,6 @@ private struct HairlineModifier: ViewModifier {
                     width: vertical ? thickness : nil,
                     height: vertical ? nil : thickness
                 )
-                .offset(x: vertical ? inset : 0, y: vertical ? 0 : inset)
         }
     }
 }
