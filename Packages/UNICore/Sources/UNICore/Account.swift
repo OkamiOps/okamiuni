@@ -34,9 +34,23 @@ public struct Account: Sendable, Hashable, Identifiable {
     /// Cor em temas escuros, já convertida para sRGB.
     public let tintDarkHex: String
 
+    /// A assinatura desta conta, em texto simples, com as linhas separadas por
+    /// `\n`.
+    ///
+    /// **É da conta, não do app.** O design escreve isso na linha "De" da tela
+    /// 06: *"a assinatura muda com a conta"*. Uma assinatura só, guardada em
+    /// preferência global, contradiria a única frase que o protótipo tem sobre
+    /// o assunto — quem escreve pela conta do trabalho e pela pessoal assina
+    /// diferente, e é justamente por isso que a legenda está ali.
+    ///
+    /// Vazia é ausência de assinatura, não uma assinatura em branco: o botão
+    /// fica desabilitado e diz por quê, em vez de inserir duas linhas vazias.
+    public let signature: String
+
     public init(
         id: String, address: String, displayName: String,
-        provider: Provider, host: String, tintLightHex: String, tintDarkHex: String
+        provider: Provider, host: String, tintLightHex: String, tintDarkHex: String,
+        signature: String = ""
     ) {
         self.id = id
         self.address = address
@@ -45,6 +59,7 @@ public struct Account: Sendable, Hashable, Identifiable {
         self.host = host
         self.tintLightHex = tintLightHex
         self.tintDarkHex = tintDarkHex
+        self.signature = signature
     }
 
     /// Retorna a cor apropriada para o tema.

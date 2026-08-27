@@ -22,17 +22,69 @@ import os
 enum ComposerFormatting {
 
     /// Protótipo: `FONT_VALUES`, com os rótulos que o `<select>` mostra.
-    static let families: [(value: String, label: String)] = [
-        ("Newsreader", "Newsreader"),
-        ("-apple-system", "SF Pro"),
-        ("Space Grotesk", "Space Grotesk"),
-        ("Georgia", "Georgia"),
-        ("Helvetica", "Helvetica"),
-        ("JetBrains Mono", "JetBrains Mono"),
-    ]
+    ///
+    /// Continuam sendo **a escolha rápida** — o menu as põe no topo, num bloco
+    /// separado. O que deixou de existir é a limitação: abaixo delas vêm as
+    /// instaladas na máquina. Ver `familyGroups`.
+    ///
+    /// A lista em si mora em `UNICore`, onde o teste a alcança sem `View` por
+    /// perto; aqui fica só a forma antiga do par, que o resto do arquivo usa.
+    static let families: [(value: String, label: String)] =
+        FontCatalog.design.map { (value: $0.value, label: $0.label) }
 
     /// Protótipo: as sete opções de `SIZE_MAP`.
-    static let sizes: [Double] = [11, 13, 15, 17, 20, 24, 32]
+    static let sizes: [Double] = FontCatalog.sizes
+
+    /// As famílias instaladas nesta máquina, peneiradas e ordenadas.
+    ///
+    /// `static let` e não propriedade calculada de propósito:
+    /// `availableFontFamilies` enumera o catálogo do sistema inteiro, e o
+    /// `body` da barra reavalia a cada leitura da seleção. Calculada, a barra
+    /// pagaria essa varredura a cada tecla.
+    static let installedFamilies: [FontCatalog.Family] =
+        FontCatalog.installed(from: NSFontManager.shared.availableFontFamilies)
+
+    /// Os dois blocos do menu de fonte: as seis do design em cima, um
+    /// separador, e as instaladas embaixo.
+    ///
+    /// **Somar, não trocar.** Uma lista alfabética de trezentas entradas
+    /// esconde as seis do design no meio das outras, e escolher a fonte do
+    /// design deixaria de ser um gesto para virar uma busca.
+    static let familyGroups: [ComposerSelect.Group] = {
+        var groups: [ComposerSelect.Group] = [
+            ComposerSelect.Group(
+                title: "Do design",
+                options: FontCatalog.design.map {
+                    ComposerSelect.Option(value: $0.value, label: $0.label, previewFamily: $0.value)
+                }
+            )
+        ]
+        // Uma máquina sem nenhuma família além das seis do design não ganha um
+        // cabeçalho "Instaladas" seguido de nada.
+        if !installedFamilies.isEmpty {
+            groups.append(
+                ComposerSelect.Group(
+                    title: "Instaladas",
+                    options: installedFamilies.map {
+                        ComposerSelect.Option(
+                            value: $0.value, label: $0.label, previewFamily: $0.value
+                        )
+                    }
+                )
+            )
+        }
+        return groups
+    }()
+
+    /// O único bloco do menu de corpo. Protótipo: os sete de `SIZE_MAP`.
+    static let sizeGroups: [ComposerSelect.Group] = [
+        ComposerSelect.Group(
+            title: nil,
+            options: sizes.map {
+                ComposerSelect.Option(value: String(Int($0)), label: String(Int($0)))
+            }
+        )
+    ]
 
     static let textColors: [(hex: String, name: String)] = [
         ("#241F18", "Texto"), ("#B4562A", "Terracota"), ("#8E2020", "Vermelho"),

@@ -56,6 +56,10 @@ struct QuickReplyBand: View {
     /// do menu de sugestões nem dos painéis da barra. Não mudam nada no app:
     /// os padrões são `nil`/`false`.
     var seededQuery: String?
+    /// A mesma porta, para as linhas Cc e Cco: sem ela não há como provar que
+    /// a lista **delas** também passa por cima da barra de formatação, e um
+    /// empilhamento consertado só no campo "Para" volta no próximo print.
+    var seededCopyQuery: String?
     var debugOpenPanel: ComposerToolbar.Panel?
     var debugMoreFormatting = false
     var debugCopiesOpen = false
@@ -85,6 +89,38 @@ struct QuickReplyBand: View {
     }
 
     private var plainText: String { String(draft.characters) }
+
+    // MARK: - Assinatura
+
+    /// A conta que responde é a que recebeu a mensagem — a faixa não tem
+    /// seletor de "De", e o protótipo também não põe um aqui.
+    private var account: Account? { store.account(message.accountID) }
+
+    private var signature: String { account?.signature ?? "" }
+
+    private var canInsertSignature: Bool {
+        Signature.canInsert(signature, into: plainText)
+    }
+
+    /// Controle mudo é defeito: ou ele age, ou diz por que não.
+    private var signatureHelp: String {
+        if signature.isEmpty {
+            return "Inserir assinatura — indisponível: a conta \(account?.host ?? "") não tem assinatura"
+        }
+        if !canInsertSignature {
+            return "Inserir assinatura — a assinatura desta conta já está no fim da resposta"
+        }
+        return "Inserir a assinatura de \(account?.host ?? "") no fim da resposta"
+    }
+
+    private func insertSignature() {
+        let style = Signature.style(endingIn: draft)
+        draft.transform(updating: &selection) { text in
+            Signature.insert(signature, into: &text, style: style)
+            ComposerEditor.decorate(&text, theme: theme)
+        }
+        bodyChanged()
+    }
 
     private var savedLabel: String {
         DraftMeta.savedLabel(savedAt?.formatted(date: .omitted, time: .shortened))
@@ -252,7 +288,7 @@ struct QuickReplyBand: View {
             placeholder: placeholder,
             chips: chips,
             pool: pool,
-            seededQuery: nil,
+            seededQuery: seededCopyQuery,
             onChange: persist
         ) {
             EmptyView()
@@ -354,6 +390,14 @@ struct QuickReplyBand: View {
     private var actionRow: some View {
         HStack(spacing: 8) {
             AttachGlyphButton(enabled: canAttach, help: attachHelp) { attach() }
+
+            // Divergência do protótipo, a pedido do dono do projeto: o botão de
+            // assinatura não existe no `.dc.html`. Ver `Signature`.
+            AttachGlyphButton(
+                symbol: "signature", enabled: canInsertSignature, help: signatureHelp
+            ) {
+                insertSignature()
+            }
 
             ChromeButton(
                 appearance: canSend ? .accent : .muted,
@@ -918,13 +962,16 @@ private struct AttachGlyphButton: View {
     @Environment(\.theme) private var theme
     @Environment(\.displayScale) private var displayScale
     @State private var hovering = false
+    /// O 📎 é o padrão; a assinatura reusa o mesmo botão com outro glifo, em
+    /// vez de um controle novo ao lado que leria como enxerto.
+    var symbol: String = "paperclip"
     let enabled: Bool
     let help: String
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: "paperclip")
+            Image(systemName: symbol)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(foreground)
                 .frame(width: 30, height: 30)
@@ -1004,12 +1051,10 @@ private struct SuggestedDraftPicker: View {
     let drafts: [SuggestedDraft]
     let pick: (SuggestedDraft) -> Void
 
+    @State private var open = false
+
     var body: some View {
-        Menu {
-            ForEach(drafts) { draft in
-                Button(draft.label) { pick(draft) }
-            }
-        } label: {
+        Button { open.toggle() } label: {
             HStack(spacing: 8) {
                 Text("Rascunho sugerido")
                     .font(theme.sans.font(size: 12, weight: .medium))  // CSS 550
@@ -1032,14 +1077,39 @@ private struct SuggestedDraftPicker: View {
             }
             .contentShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
         }
-        // `.borderlessButton` redesenha o rótulo com a tinta e a moldura dele:
-        // a borda tracejada some e o texto sai em `ink`, não no acento.
-        // `.button` + `.plain` deixa o rótulo passar como está escrito.
-        .menuStyle(.button)
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall)
-        .menuIndicator(.hidden)
         .fixedSize()
         .help("Preencher a resposta com um rascunho sugerido")
+        .popover(isPresented: $open, arrowEdge: .top) { panel }
+    }
+
+    /// Era um `Menu` do SwiftUI, que é um `NSMenu`: a moldura tracejada e a
+    /// tinta do acento ficavam no gatilho, mas a lista que abria era a do
+    /// sistema. Agora ela é desenhada aqui, no mesmo painel dos outros menus da
+    /// barra — ver `ComposerSelect`, que documenta a decisão inteira.
+    private var panel: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(drafts) { draft in
+                Button {
+                    pick(draft)
+                    open = false
+                } label: {
+                    Text(draft.label)
+                        .font(theme.sans.font(size: 12.5))
+                        .foregroundStyle(theme.ink.color)
+                        .multilineTextAlignment(.leading)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .focusRing(cornerRadius: theme.radiusSmall)
+            }
+        }
+        .padding(8)
+        .frame(width: 280)
+        .background(theme.surface.color)
     }
 }

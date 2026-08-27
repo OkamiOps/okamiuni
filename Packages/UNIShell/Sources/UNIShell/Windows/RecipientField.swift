@@ -24,8 +24,14 @@ struct RecipientField: View {
     var menuWidth: CGFloat = 340
     let pool: [DirectoryContact]
     @Binding var chips: [Contact]
+    /// Porta do harness: o menu só abre com foco, e a renderização fora da tela
+    /// nunca entrega foco a ninguém. Semear a busca abre o menu sem clique — é
+    /// a mesma porta que `BandRecipientRow` já tem na faixa do leitor. Nula no
+    /// app.
+    var seededQuery: String?
 
     @State private var query = ""
+    @State private var seeded = false
     @State private var fieldHeight: CGFloat = 24
     @FocusState private var focused: Bool
 
@@ -33,7 +39,7 @@ struct RecipientField: View {
         ContactDirectory.suggestions(matching: query, excluding: chips, in: pool)
     }
 
-    private var menuOpen: Bool { focused && !suggestions.isEmpty }
+    private var menuOpen: Bool { (focused || seededQuery != nil) && !suggestions.isEmpty }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -46,6 +52,11 @@ struct RecipientField: View {
                     .frame(width: labelWidth, alignment: .leading)
             }
             field
+        }
+        .task {
+            guard !seeded else { return }
+            if let seededQuery { query = seededQuery }
+            seeded = true
         }
     }
 

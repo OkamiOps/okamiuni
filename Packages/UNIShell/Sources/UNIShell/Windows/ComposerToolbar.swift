@@ -34,6 +34,9 @@ struct ComposerToolbar: View {
 
     @State private var openPanel: Panel?
     @State private var moreOpen: Bool
+    /// A identidade desta barra perante o `NSColorPanel`, que é do app inteiro.
+    /// Ver `FreeColorPanel`.
+    @State private var colorPanelOwner = UUID()
 
     /// Só para verificação: permite renderizar a barra com um painel já aberto,
     /// sem clique. Sem isto não há como provar, fora da tela, que as amostras
@@ -97,6 +100,7 @@ struct ComposerToolbar: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(theme.surface2.color)
         .hairline(theme.line2, edges: .bottom)
+        .releasesColorPanel(colorPanelOwner)
     }
 
     /// Protótipo, tela 01: primeira linha `padding: 6px 10px; gap: 7px;
@@ -132,6 +136,7 @@ struct ComposerToolbar: View {
                 .hairline(theme.line2, edges: .bottom)
             }
         }
+        .releasesColorPanel(colorPanelOwner)
     }
 
     /// Protótipo `moreBtnStyle`: `height: 26px; min-width: 30px`, com borda e
@@ -151,42 +156,43 @@ struct ComposerToolbar: View {
     // MARK: - Grupos
 
     /// Protótipo: os dois `<select>` dentro de um `segWrap` só, separados por
-    /// uma divisória vertical de 0.5px.
+    /// uma divisória vertical de 0.5px, com `width: 112px` e `width: 54px`.
     ///
     /// Os menus mostram o que a seleção tem. Quando ela mistura duas fontes,
-    /// `reading.family` é nulo e o menu fica **sem** escolha marcada, em vez de
-    /// mentir apontando a primeira.
+    /// `reading.family` é nulo e o controle escreve "—", em vez de mentir
+    /// apontando a primeira.
+    ///
+    /// **Deixou de ser `Picker`.** `pickerStyle(.menu)` é um `NSPopUpButton`: o
+    /// controle fechado vinha com a moldura e a seta do macOS por cima do
+    /// `segWrap`, o que o dono do projeto relatou como "dropdown usando o
+    /// padrao do sistema em vez de custom". `ComposerSelect` desenha o controle
+    /// do protótipo e abre um menu nosso. Os 62pt de largura do corpo eram
+    /// folga para a seta do sistema; sem ela valem os 54 do protótipo.
     private var fontGroup: some View {
         HStack(spacing: 0) {
-            Picker("Fonte", selection: Binding(
-                get: { reading.family ?? "" },
-                set: { perform(.family($0)) }
-            )) {
-                if reading.family == nil { Text("—").tag("") }
-                ForEach(ComposerFormatting.families, id: \.value) { family in
-                    Text(family.label).tag(family.value)
-                }
-            }
-            .frame(width: 112)
+            ComposerSelect(
+                title: "Fonte",
+                selected: reading.family,
+                width: 112,
+                groups: ComposerFormatting.familyGroups,
+                pick: { perform(.family($0)) }
+            )
 
             Rectangle()
                 .fill(theme.btnLine.color)
                 .frame(width: Hairline.thickness(displayScale))
 
-            Picker("Tamanho", selection: Binding(
-                get: { reading.size ?? 0 },
-                set: { perform(.size($0)) }
-            )) {
-                if reading.size == nil { Text("—").tag(0.0) }
-                ForEach(ComposerFormatting.sizes, id: \.self) { size in
-                    Text(String(Int(size))).tag(size)
-                }
-            }
-            .frame(width: 62)
+            ComposerSelect(
+                title: "Tamanho",
+                selected: reading.size.map { String(Int($0)) },
+                width: 54,
+                groups: ComposerFormatting.sizeGroups,
+                // O menu guarda o corpo como texto para as duas listas terem a
+                // mesma forma; a volta para número é aqui, e um valor que não
+                // seja número cai no padrão em vez de zerar o corpo.
+                pick: { perform(.size(Double($0) ?? BodyStyle.defaultSize)) }
+            )
         }
-        .pickerStyle(.menu)
-        .labelsHidden()
-        .font(theme.sans.font(size: 11.5, weight: .medium))
         .frame(height: 26)
         .background(theme.btn.color)
         .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
@@ -232,7 +238,12 @@ struct ComposerToolbar: View {
         }
         .overlay(alignment: .topLeading) {
             if openPanel == .color {
-                swatches(ComposerFormatting.textColors, selected: reading.colorHex) {
+                swatches(
+                    ComposerFormatting.textColors,
+                    selected: reading.colorHex,
+                    freeTitle: "Outra cor…",
+                    pickFree: { perform(.color($0)) }
+                ) {
                     perform(.color($0))
                     openPanel = nil
                 }
@@ -241,7 +252,12 @@ struct ComposerToolbar: View {
         }
         .overlay(alignment: .topTrailing) {
             if openPanel == .highlight {
-                swatches(ComposerFormatting.highlights, selected: reading.highlightHex) {
+                swatches(
+                    ComposerFormatting.highlights,
+                    selected: reading.highlightHex,
+                    freeTitle: "Outro realce…",
+                    pickFree: { perform(.highlight($0)) }
+                ) {
                     perform(.highlight($0))
                     openPanel = nil
                 }
@@ -334,7 +350,56 @@ struct ComposerToolbar: View {
         ) {}
     }
 
+    /// A paleta do protótipo mais o caminho livre.
+    ///
+    /// As seis amostras são as do design, com o mesmo desenho e a mesma ordem.
+    /// O que vem depois da divisória é a parte pedida pelo dono do projeto: o
+    /// item que abre o seletor do sistema, onde qualquer cor é escolhível. Ver
+    /// `FreeColorPanel`.
     private func swatches(
+        _ list: [(hex: String, name: String)],
+        selected: String?,
+        freeTitle: String,
+        pickFree: @escaping (String) -> Void,
+        pick: @escaping (String) -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            swatchRow(list, selected: selected, pick: pick)
+
+            Rectangle()
+                .fill(theme.line2.color)
+                .frame(height: Hairline.thickness(displayScale))
+
+            FreeColorRow(
+                title: freeTitle,
+                current: selected.flatMap { ComposerFormatting.highlight($0) },
+                // Acende quando a cor que está valendo não é nenhuma das seis:
+                // sem isso o painel abriria sem nada marcado e a pessoa não
+                // saberia de onde veio a cor aplicada.
+                isActive: ColorHex.isCustom(selected ?? "", among: list.map(\.hex))
+            ) {
+                FreeColorPanel.shared.present(
+                    current: selected ?? BodyStyle.defaultColorHex,
+                    owner: colorPanelOwner,
+                    deliver: pickFree
+                )
+                openPanel = nil
+            }
+        }
+        .padding(6)
+        .frame(width: 6 * 22 + 5 * 4 + 12)
+        .background(theme.surface.color)
+        .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+        .overlay {
+            RoundedRectangle(cornerRadius: theme.radiusSmall)
+                .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
+        }
+        .shadow(color: .black.opacity(0.20), radius: 12, x: 0, y: 10)
+        .fixedSize()
+    }
+
+    /// A fileira das seis do protótipo, exatamente como estava.
+    private func swatchRow(
         _ list: [(hex: String, name: String)],
         selected: String?,
         pick: @escaping (String) -> Void
@@ -363,15 +428,6 @@ struct ComposerToolbar: View {
                 .help(swatch.name)
             }
         }
-        .padding(6)
-        .background(theme.surface.color)
-        .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-        .overlay {
-            RoundedRectangle(cornerRadius: theme.radiusSmall)
-                .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
-        }
-        .shadow(color: .black.opacity(0.20), radius: 12, x: 0, y: 10)
-        .fixedSize()
     }
 }
 
@@ -587,5 +643,17 @@ struct SoloToolButton: View {
     private var foreground: Color {
         if !enabled { return theme.ink4.color.opacity(0.55) }
         return on ? theme.accentInk.color : theme.ink2.color
+    }
+}
+
+
+extension View {
+    /// Desliga a entrega do `NSColorPanel` quando esta barra sai de cena.
+    ///
+    /// O painel é do app inteiro e sobrevive à janela que o abriu. Sem isto,
+    /// fechar o composer e mexer na roda depois mandaria cor para um rascunho
+    /// que não existe mais.
+    func releasesColorPanel(_ owner: UUID) -> some View {
+        onDisappear { FreeColorPanel.shared.stop(owner: owner) }
     }
 }

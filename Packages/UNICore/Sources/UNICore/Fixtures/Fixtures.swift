@@ -13,19 +13,27 @@ public enum Fixtures {
     /// casa mensagem com conta e nasceu abreviada no protótipo; o `host` é o
     /// nome do provedor que a tela mostra. Eram a mesma coisa aqui, e por isso
     /// o chip escrevia HOST onde o design escreve HOSTINGER.
+    ///
+    /// A assinatura é **por conta**, como a linha "De" da tela 06 promete: cada
+    /// uma destas escreve a sua. São exemplos, como o resto das fixtures — o
+    /// campo aceita qualquer texto, de qualquer conta.
     public static let accounts: [Account] = [
         Account(id: "zoho", address: "ricardo@empresa.com",
                 displayName: "Empresa", provider: .imap, host: "zoho",
-                tintLightHex: "#3F6AA1", tintDarkHex: "#8CBAF7"),
+                tintLightHex: "#3F6AA1", tintDarkHex: "#8CBAF7",
+                signature: "Ricardo Alves\nEmpresa · ricardo@empresa.com"),
         Account(id: "gmail", address: "ricardo@gmail.com",
                 displayName: "Pessoal", provider: .gmail, host: "gmail",
-                tintLightHex: "#725B9A", tintDarkHex: "#C2A7F4"),
+                tintLightHex: "#725B9A", tintDarkHex: "#C2A7F4",
+                signature: "Ricardo"),
         Account(id: "host", address: "contato@meusite.com",
                 displayName: "Site", provider: .imap, host: "hostinger",
-                tintLightHex: "#397852", tintDarkHex: "#88D1A2"),
+                tintLightHex: "#397852", tintDarkHex: "#88D1A2",
+                signature: "Ricardo Alves\nmeusite.com · contato@meusite.com"),
         Account(id: "icloud", address: "ricardo@icloud.com",
                 displayName: "iCloud", provider: .imap, host: "icloud",
-                tintLightHex: "#298084", tintDarkHex: "#71D0D5"),
+                tintLightHex: "#298084", tintDarkHex: "#71D0D5",
+                signature: "Ricardo Alves"),
     ]
 
     /// Âncora fixa para os testes não dependerem do relógio.

@@ -39,6 +39,7 @@ public struct ComposerWindow: View {
     }
 
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
     @Environment(\.dismiss) private var dismiss
 
     let store: MailStore
@@ -64,17 +65,74 @@ public struct ComposerWindow: View {
     /// Só para verificação: abre um painel da barra sem clique, para dar para
     /// provar fora da tela que as amostras aparecem inteiras.
     let debugOpenPanel: ComposerToolbar.Panel?
+    /// Só para verificação: abre a lista de sugestões de um dos campos, também
+    /// sem clique. Fora da tela ninguém recebe foco, e sem foco não há lista —
+    /// então sem esta porta não há como provar que a lista deixou de ser
+    /// coberta pela barra de formatação.
+    let debugSuggestion: DebugSuggestion?
+
+    /// Qual campo de destinatário a porta do harness abre.
+    enum RecipientSlot: Sendable { case to, cc, bcc }
+
+    struct DebugSuggestion: Sendable {
+        var slot: RecipientSlot
+        /// Nula abre a **linha** sem abrir a lista. É a referência que a
+        /// comparação precisa: abrir Cc muda a altura de tudo que vem depois,
+        /// e medir contra a janela de linha fechada acusaria a diferença de
+        /// layout como se fosse a lista.
+        var query: String?
+    }
 
     public init(store: MailStore, mode: Mode) {
         self.store = store
         self.mode = mode
         self.debugOpenPanel = nil
+        self.debugSuggestion = nil
     }
 
-    init(store: MailStore, mode: Mode, debugOpenPanel: ComposerToolbar.Panel?) {
+    init(
+        store: MailStore,
+        mode: Mode,
+        debugOpenPanel: ComposerToolbar.Panel? = nil,
+        debugSuggestion: DebugSuggestion? = nil
+    ) {
         self.store = store
         self.mode = mode
         self.debugOpenPanel = debugOpenPanel
+        self.debugSuggestion = debugSuggestion
+        // As linhas Cc e Cco nascem fechadas; para desenhar a lista de uma
+        // delas o harness precisa da linha aberta desde o primeiro passe.
+        _ccOpen = State(initialValue: debugSuggestion?.slot == .cc)
+        _bccOpen = State(initialValue: debugSuggestion?.slot == .bcc)
+    }
+
+    /// A busca semeada neste campo, ou nula — que é o caso do app.
+    private func seededQuery(_ slot: RecipientSlot) -> String? {
+        guard let debugSuggestion, debugSuggestion.slot == slot else { return nil }
+        return debugSuggestion.query
+    }
+
+    /// O empilhamento da janela, de cima para baixo.
+    ///
+    /// **`zIndex` só ordena irmãos do mesmo contêiner.** Toda lista que desce
+    /// por cima da linha seguinte — as sugestões de contato, os menus de fonte
+    /// e corpo, as amostras de cor — abre num `overlay` de dentro do próprio
+    /// componente, e lá dentro ela já está por cima de tudo. Isso não diz nada
+    /// sobre a ordem em que a `VStack` da janela desenha as linhas: a barra de
+    /// formatação vinha com 20 e as linhas de destinatário com 8 e 7, então a
+    /// barra era desenhada **depois** e decepava a lista de contatos ao meio.
+    /// Foi o defeito do print do dono do projeto, em Cc.
+    ///
+    /// A regra que impede a volta dele é: **quem vem antes na coluna desenha
+    /// por cima**, sempre, sem exceção. Uma linha nova entra com um número
+    /// entre os vizinhos, nunca com um número maior que o de quem está acima.
+    private enum Depth {
+        static let from: Double = 60
+        static let to: Double = 50
+        static let cc: Double = 40
+        static let bcc: Double = 30
+        static let subject: Double = 25
+        static let toolbar: Double = 20
     }
 
     private var isReply: Bool {
@@ -100,14 +158,57 @@ public struct ComposerWindow: View {
     private var plainDraft: String { String(draft.characters) }
     private var draftCount: String { DraftMeta.countLabel(plainDraft) }
 
+    // MARK: - Assinatura
+
+    /// A assinatura da conta que está enviando. Trocar a conta na linha "De"
+    /// troca esta — é o que a legenda do protótipo promete.
+    private var signature: String { account?.signature ?? "" }
+
+    private var canInsertSignature: Bool {
+        Signature.canInsert(signature, into: plainDraft)
+    }
+
+    /// A legenda da linha "De". Ela dizia sempre a mesma frase; agora diz de
+    /// quem é a assinatura que o botão vai inserir, porque a partir daqui isso
+    /// é um fato verificável e não uma promessa.
+    private var signatureNote: String {
+        guard !signature.isEmpty else { return "esta conta não tem assinatura" }
+        let firstLine = signature.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? ""
+        return "assinatura: \(firstLine)"
+    }
+
+    /// Protótipo: não tem este botão — é a parte pedida pelo dono do projeto,
+    /// registrada como divergência no relatório da tarefa.
+    ///
+    /// Escrever no corpo passa por `transform(updating:)` como qualquer outra
+    /// escrita: sem isso a seleção da pessoa se perde no meio da inserção. Ver
+    /// a nota de `ComposerEditor`.
+    private func insertSignature() {
+        let style = Signature.style(endingIn: draft)
+        draft.transform(updating: &selection) { text in
+            Signature.insert(signature, into: &text, style: style)
+            ComposerEditor.decorate(&text, theme: theme)
+        }
+    }
+
     public var body: some View {
         VStack(spacing: 0) {
             WindowTitleBar(title: title) { WindowBarNote(text: draftCount) }
 
             if !isReply { fromRow }
             toRow
-            if ccOpen { copyRow(label: "Cc", placeholder: "quem mais acompanha; ", chips: $cc) }
-            if bccOpen { copyRow(label: "Cco", placeholder: "cópia oculta; ", chips: $bcc) }
+            if ccOpen {
+                copyRow(
+                    label: "Cc", placeholder: "quem mais acompanha; ",
+                    chips: $cc, slot: .cc, depth: Depth.cc
+                )
+            }
+            if bccOpen {
+                copyRow(
+                    label: "Cco", placeholder: "cópia oculta; ",
+                    chips: $bcc, slot: .bcc, depth: Depth.bcc
+                )
+            }
             subjectRow
 
             ComposerToolbar(
@@ -117,12 +218,15 @@ public struct ComposerWindow: View {
                     ComposerEditor.perform(command, on: &draft, selection: &selection, theme: theme)
                 }
             )
-            // Os painéis de cor e realce são `overlay` que descem por cima do
-            // editor. O `zIndex` de dentro da barra só ordena os irmãos dela;
-            // é aqui, no empilhamento da janela, que ela precisa ficar acima do
-            // editor — senão o painel abre e é decepado, e não dá para escolher
-            // cor nenhuma.
-            .zIndex(20)
+            // Os painéis de cor e realce e os menus de fonte e corpo são
+            // `overlay` que descem por cima do editor. O `zIndex` de dentro da
+            // barra só ordena os irmãos dela; é aqui, no empilhamento da
+            // janela, que ela precisa ficar acima do editor — senão o painel
+            // abre e é decepado, e não dá para escolher cor nenhuma.
+            //
+            // E **abaixo** das linhas de destinatário, que descem por cima
+            // dela. Ver `Depth`.
+            .zIndex(Depth.toolbar)
 
             if isReply { replyBody } else { newBody }
 
@@ -201,24 +305,47 @@ public struct ComposerWindow: View {
                 .capsLabel()
                 .frame(width: 52, alignment: .leading)
 
-            Picker("Conta que envia", selection: Binding(
-                get: { account?.id ?? "" },
-                set: { fromAccountID = $0 }
-            )) {
-                ForEach(store.accounts) { account in
-                    Text("\(account.displayName) · \(account.host)").tag(account.id)
-                }
+            // Protótipo `fromSelect`: `height: 26px; border-radius: var(--r2);
+            // border: 0.5px solid var(--btn-line); background: var(--btn);
+            // box-shadow: var(--btn-shadow); sans 12.5px/550;
+            // padding: 0 26px 0 10px`. Era um `Picker(.menu)`, e por isso
+            // desenhava a moldura do macOS em cima dessa — o mesmo desencontro
+            // dos menus de fonte e corpo.
+            ComposerSelect(
+                title: "Conta que envia",
+                selected: account?.id,
+                groups: [
+                    ComposerSelect.Group(
+                        title: nil,
+                        options: store.accounts.map {
+                            ComposerSelect.Option(
+                                value: $0.id, label: "\($0.displayName) · \($0.host)"
+                            )
+                        }
+                    )
+                ],
+                pick: { fromAccountID = $0 },
+                labelSize: 12.5,
+                leadingPadding: 10
+            )
+            .frame(height: 26)
+            .background(theme.btn.color)
+            .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+            .overlay {
+                RoundedRectangle(cornerRadius: theme.radiusSmall)
+                    .strokeBorder(theme.btnLine.color, lineWidth: Hairline.thickness(displayScale))
             }
-            .pickerStyle(.menu)
-            .labelsHidden()
-            .font(theme.sans.font(size: 12.5, weight: .medium))
+            .shadow(theme.btnShadow)
             .fixedSize()
 
             TintChip(label: account?.host ?? "", tint: accountTint, emphasized: true)
 
             Spacer(minLength: 8)
 
-            Text("a assinatura muda com a conta")
+            // Protótipo, linha 389. A legenda deixou de ser só uma promessa: a
+            // assinatura é campo de `Account`, e o botão do rodapé insere a
+            // desta conta. Ver `Signature`.
+            Text(signatureNote)
                 .font(theme.sans.font(size: 11.5))
                 .foregroundStyle(theme.ink4.color)
                 .lineLimit(1)
@@ -227,6 +354,7 @@ public struct ComposerWindow: View {
         .padding(.vertical, 11)
         .background(theme.surface2.color)
         .hairline(theme.line2, edges: .bottom)
+        .zIndex(Depth.from)
     }
 
     private var toRow: some View {
@@ -237,7 +365,8 @@ public struct ComposerWindow: View {
                 inputMinWidth: isReply ? 140 : 160,
                 menuWidth: 340,
                 pool: Fixtures.contacts,
-                chips: $to
+                chips: $to,
+                seededQuery: seededQuery(.to)
             )
 
             MiniToggle(label: "Cc", on: ccOpen) { ccOpen.toggle() }
@@ -255,22 +384,29 @@ public struct ComposerWindow: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 9)
         .hairline(theme.line2, edges: .bottom)
-        .zIndex(8)
+        .zIndex(Depth.to)
     }
 
-    private func copyRow(label: String, placeholder: String, chips: Binding<[Contact]>) -> some View {
+    private func copyRow(
+        label: String,
+        placeholder: String,
+        chips: Binding<[Contact]>,
+        slot: RecipientSlot,
+        depth: Double
+    ) -> some View {
         RecipientField(
             label: label,
             placeholder: placeholder,
             inputMinWidth: 140,
             menuWidth: 330,
             pool: Fixtures.contacts,
-            chips: chips
+            chips: chips,
+            seededQuery: seededQuery(slot)
         )
         .padding(.horizontal, 18)
         .padding(.vertical, 9)
         .hairline(theme.line2, edges: .bottom)
-        .zIndex(7)
+        .zIndex(depth)
     }
 
     /// Protótipo: `padding: 10px 18px`, com o assunto no serifado de 15pt.
@@ -287,6 +423,7 @@ public struct ComposerWindow: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 10)
         .hairline(theme.line2, edges: .bottom)
+        .zIndex(Depth.subject)
     }
 
     // MARK: - Corpo
@@ -431,6 +568,10 @@ public struct ComposerWindow: View {
         HStack(spacing: 8) {
             AttachButton { addAttachment() }
 
+            SignatureButton(enabled: canInsertSignature, reason: signatureHelp) {
+                insertSignature()
+            }
+
             ChromeButton(
                 appearance: .accent, horizontalPadding: 18,
                 labelSize: nil, action: { send(archiving: false) }
@@ -482,6 +623,18 @@ public struct ComposerWindow: View {
         attachments.append(next.name)
     }
 
+    /// O motivo, quando o botão está apagado. Controle mudo é defeito: ou ele
+    /// age, ou diz por que não.
+    private var signatureHelp: String {
+        if signature.isEmpty {
+            return "Inserir assinatura — indisponível: a conta \(account?.host ?? "") não tem assinatura"
+        }
+        if !canInsertSignature {
+            return "Inserir assinatura — a assinatura desta conta já está no fim do rascunho"
+        }
+        return "Inserir a assinatura de \(account?.host ?? "") no fim do rascunho"
+    }
+
     private func saveDraft() {
         savedStamp = Date.now.formatted(date: .omitted, time: .shortened)
     }
@@ -531,6 +684,59 @@ private struct MiniToggle: View {
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall)
+    }
+}
+
+/// O botão de assinatura.
+///
+/// **Divergência do protótipo, a pedido do dono do projeto.** O `.dc.html` não
+/// tem este botão: a única coisa que ele diz sobre assinatura é a legenda da
+/// linha "De" da tela 06, *"a assinatura muda com a conta"* (linha 389). O dono
+/// relatou "falta um botao para adicionar a assinatura", e é isto. Está
+/// registrado no relatório da tarefa, como já foi feito com o botão da agenda
+/// na barra.
+///
+/// O desenho **não** é invenção: é o mesmo do 📎 ao lado, a outra ação que
+/// mexe no rascunho a partir do rodapé — 32×32, `--btn`, borda `--btn-line`,
+/// raio `--r2`. Um botão novo com desenho novo leria como enxerto.
+private struct SignatureButton: View {
+    @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
+    @State private var hovering = false
+    let enabled: Bool
+    /// O que o `help` diz — inclusive quando o botão está apagado, que é
+    /// quando a pessoa mais precisa saber por quê.
+    let reason: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "signature")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(foreground)
+                .frame(width: 32, height: 32)
+                .background(theme.btn.color)
+                .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+                .overlay {
+                    RoundedRectangle(cornerRadius: theme.radiusSmall)
+                        .strokeBorder(
+                            hovering && enabled ? theme.accent.color : theme.btnLine.color,
+                            lineWidth: Hairline.thickness(displayScale)
+                        )
+                }
+                .shadow(theme.btnShadow)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
+        .disabled(!enabled)
+        .onHover { hovering = $0 }
+        .help(reason)
+    }
+
+    private var foreground: Color {
+        if !enabled { return theme.ink4.color.opacity(0.55) }
+        return hovering ? theme.accentInk.color : theme.ink2.color
     }
 }
 

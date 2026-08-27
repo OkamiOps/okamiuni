@@ -248,3 +248,42 @@ só os 33 bytes do cabeçalho. O SwiftUI renderiza `Image` ausente como **nada**
 
 Verifique o marcador final e o tamanho. E base64 de ~50k caracteres não sobrevive ao
 transporte entre agentes: baixe da origem.
+
+## Comparar a caixa inteira esconde defeito de empilhamento
+
+O harness **enxerga** ordem de desenho: tirar o `zIndex` da barra de formatação faz
+`ToolbarPanelTests` cair na hora. Ele só não enxerga quando a **medida** está errada, e o
+jeito errado é natural o bastante para ter passado por mim.
+
+A lista de contatos mede ~280pt e a barra que a cobria, ~50. Coberta, ela continua desenhando
+inteira **acima** da barra (na própria linha do campo) e **abaixo** dela (por cima do editor,
+que a linha ganha por ser desenhada depois). A caixa que envolve a diferença media 312pt nos
+dois casos, e o teste passava com o defeito no lugar. Medido na fatia da barra: **0** pixels
+contra 13.718.
+
+Regra: quando o que cobre é uma **faixa** e o que é coberto atravessa ela, meça **dentro da
+faixa**, não a caixa toda. E localize a faixa no próprio desenho — cravar a coordenada faz o
+teste passar a medir outro lugar assim que uma linha nova entra no cabeçalho. A âncora usada
+lá é a cápsula de fonte e corpo, o único pedaço da barra pintado em `btn`.
+
+Corolário da mesma família, achado no cartão da paleta: **sombra não é cartão**. O cartão tem
+`box-shadow: 0 10px 12px`, e a sombra estica a caixa da diferença em ~30pt — o bastante para
+"o cartão cresceu" passar com o item de cor livre arrancado (80pt contra 117). Conte as linhas
+**opacas** numa coluna que atravessa o cartão: 38 sem o item, 66 com ele.
+
+## O menu que um `<select>` abre não é do protótipo
+
+Vale antes de alguém especificar "desenhe o menu como o protótipo": os quatro `<select>` do
+`.dc.html` — fonte, corpo, conta e rascunho sugerido — têm o **controle fechado** estilizado
+(`appearance: none`) e o menu **do sistema**. `appearance: none` não alcança o popup em
+navegador nenhum.
+
+O menu próprio do design é outro: o seletor de tema (linha 328), um gatilho `div` com o mesmo
+`▼` e um painel absoluto de `max-height: 420px; overflow-y: auto`. É dele que se copia painel,
+e é ele que dá o teto de rolagem para uma lista de centenas de fontes.
+
+O defeito que o dono relatou como "dropdown do sistema" é do **controle fechado**: um
+`Picker(.menu)` é um `NSPopUpButton` e pinta a moldura do macOS por cima da cápsula do design.
+Dá para medir sem olhar: o controle do protótipo é chapado, então fora dos glifos todo pixel
+de dentro da cápsula está no token `btn`. Medido — 0,002 com `Picker`, 0,77 com o controle
+nosso.
