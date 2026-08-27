@@ -90,18 +90,54 @@ struct StoreTests {
         #expect(all >= today)
     }
 
-    @Test("a busca casa remetente, assunto e trecho, ignorando acento e caixa")
+    /// Uma conta e quatro mensagens que só casam por UM campo cada — nome,
+    /// endereço, assunto ou trecho — mais uma que não casa em campo nenhum.
+    /// Isto prova que a busca de fato olha os quatro campos que promete:
+    /// reduzir `matches` a um só campo (como `[message.from.name]`) faz
+    /// exatamente três das quatro sumirem, e o teste cai.
     @MainActor
-    func searchMatches() async {
+    private func searchFixtureStore() -> MailStore {
+        let account = Account(
+            id: "acc1", address: "acc1@example.com", displayName: "Conta 1",
+            provider: .imap, host: "acc1host", tintLightHex: "#000000", tintDarkHex: "#FFFFFF"
+        )
+        func message(_ id: String, name: String, address: String, subject: String, snippet: String) -> Message {
+            Message(
+                id: id, accountID: account.id,
+                from: Contact(name: name, address: address),
+                receivedAt: Date(), subject: subject, snippet: snippet, body: [],
+                tags: [], bucket: .today, isRead: false, summary: nil, detectedEvent: nil
+            )
+        }
+        let messages = [
+            message("byName", name: "Marina Alves", address: "outro@x.com", subject: "assunto qualquer", snippet: "trecho qualquer"),
+            message("byAddress", name: "Fulano", address: "marina@x.com", subject: "assunto qualquer", snippet: "trecho qualquer"),
+            message("bySubject", name: "Fulano", address: "outro@x.com", subject: "falar com Marina amanhã", snippet: "trecho qualquer"),
+            message("bySnippet", name: "Fulano", address: "outro@x.com", subject: "assunto qualquer", snippet: "combinei com a Marina"),
+            message("noMatch", name: "Fulano", address: "outro@x.com", subject: "assunto qualquer", snippet: "trecho qualquer"),
+        ]
+        let source = InMemoryMailSource(accounts: [account], messages: messages, agenda: [], pendingItems: [])
+        return MailStore(source: source)
+    }
+
+    @Test("a busca casa remetente, endereço, assunto e trecho — os quatro campos")
+    @MainActor
+    func searchMatchesEveryPromisedField() async {
+        let store = searchFixtureStore()
+        await store.load()
+        store.select(bucket: .all)
+        store.query = "Marina"
+        let ids = Set(store.visibleMessages.map(\.id))
+        #expect(ids == ["byName", "byAddress", "bySubject", "bySnippet"])
+    }
+
+    @Test("a busca dobra acento: \"Revisao\" acha \"Revisão\"")
+    @MainActor
+    func searchFoldsAccents() async {
         let store = await loadedStore()
         store.select(bucket: .all)
-        store.query = "MARINA"
-        #expect(store.visibleMessages.allSatisfy {
-            $0.from.name.localizedCaseInsensitiveContains("marina")
-                || $0.subject.localizedCaseInsensitiveContains("marina")
-                || $0.snippet.localizedCaseInsensitiveContains("marina")
-        })
-        #expect(store.visibleMessages.isEmpty == false)
+        store.query = "Revisao"
+        #expect(store.visibleMessages.contains { $0.subject.contains("Revisão") })
     }
 
     @Test("busca sem resultado devolve lista vazia, não a lista inteira")
@@ -333,11 +369,27 @@ struct StoreTests {
         #expect(store.messages.first { $0.id == message.id }?.bucket == message.bucket)
     }
 
+    /// `Fixtures.month` já nasce ordenado, então carregar ele não prova que
+    /// `load()` ordena nada — passa igual sem o `.sorted` em `MessageStore`.
+    /// Embaralha a entrada na fonte para forçar `load()` a de fato ordenar.
     @Test("a trilha de agenda vem ordenada por horário")
     @MainActor
     func agendaSorted() async {
-        let store = await loadedStore()
+        let account = Account(
+            id: "acc1", address: "acc1@example.com", displayName: "Conta 1",
+            provider: .imap, host: "acc1host", tintLightHex: "#000000", tintDarkHex: "#FFFFFF"
+        )
+        let shuffled = [
+            AgendaItem(id: "a", title: "C", startMinute: 900, endMinute: 930, accountID: account.id),
+            AgendaItem(id: "b", title: "A", startMinute: 60, endMinute: 90, accountID: account.id),
+            AgendaItem(id: "c", title: "D", startMinute: 1200, endMinute: 1230, accountID: account.id),
+            AgendaItem(id: "d", title: "B", startMinute: 480, endMinute: 510, accountID: account.id),
+        ]
+        let source = InMemoryMailSource(accounts: [account], messages: [], agenda: shuffled, pendingItems: [])
+        let store = MailStore(source: source)
+        await store.load()
         let starts = store.agenda.map(\.startMinute)
+        #expect(starts == [60, 480, 900, 1200])
         #expect(starts == starts.sorted())
     }
 

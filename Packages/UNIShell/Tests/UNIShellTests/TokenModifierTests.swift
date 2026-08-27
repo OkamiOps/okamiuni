@@ -1,3 +1,4 @@
+import AppKit
 import Testing
 import SwiftUI
 import UNIDesign
@@ -24,12 +25,57 @@ struct TokenModifierTests {
         #expect(WindowChrome.trafficLightInset == 70)
     }
 
+    /// A conta com os literais do próprio teste (`14 + (inset - 14) + 14`) é
+    /// verdadeira por construção — mudar o padding real da barra, o spacing do
+    /// `HStack` ou o vazio do espaçador não move um único valor desta soma,
+    /// porque nenhum deles é lido de `WindowChrome.body`. Prova de verdade:
+    /// renderizar a barra e medir onde o primeiro controle (o botão da
+    /// lateral) de fato começa a pintar.
     @Test("o primeiro controle nasce 14pt depois dos semáforos, como no protótipo")
-    func firstControlOffset() {
-        // padding horizontal da barra (14) + vazio + spacing do HStack (14)
-        let firstControlX = 14 + (WindowChrome.trafficLightInset - 14) + 14
-        #expect(firstControlX == 84)
-        #expect(firstControlX - WindowChrome.trafficLightInset == 14)
+    @MainActor
+    func firstControlOffset() throws {
+        let rep = try #require(
+            Render.bitmap(
+                WindowChrome(
+                    workspace: .constant(.mail),
+                    query: .constant(""),
+                    accountCount: 1,
+                    onToggleSidebar: {},
+                    onToggleAgenda: {}
+                )
+                .environment(ThemeStore()),
+                size: CGSize(width: 1000, height: WindowChrome.height),
+                theme: .tinta
+            )
+        )
+
+        // A linha média da barra, onde o botão da lateral desenha a caixa
+        // inteira (26×24) sem a curva do canto atrapalhar — ver `centerY`.
+        let y = Int(WindowChrome.centerY)
+        let background = Theme.tinta.surface2
+
+        var firstControlX: Int?
+        for x in 0..<rep.pixelsWide {
+            guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), c.alphaComponent > 0.99
+            else { continue }
+            let pixel = TokenColor(
+                red: Double(c.redComponent), green: Double(c.greenComponent),
+                blue: Double(c.blueComponent), opacity: Double(c.alphaComponent)
+            )
+            if HairlineThicknessTests.levels(pixel, background) > 6 {
+                firstControlX = x
+                break
+            }
+        }
+
+        let x = try #require(
+            firstControlX,
+            "nenhum pixel diferente do fundo apareceu na linha média da barra"
+        )
+        #expect(
+            abs(x - 84) <= 2,
+            "o primeiro controle começou a pintar em x=\(x), não perto de 84"
+        )
     }
 
     @Test("o texto da busca concorda com o número de contas", arguments: [

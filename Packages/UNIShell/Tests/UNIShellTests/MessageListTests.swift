@@ -1,6 +1,9 @@
+import AppKit
+import SwiftUI
 import Testing
 import Foundation
 import UNICore
+import UNIDesign
 @testable import UNIShell
 
 @Suite("MessageList")
@@ -146,17 +149,45 @@ struct MessageListTests {
         #expect(groups[1].messages.map(\.id) == ["m6"])
     }
 
-    @Test("o chip da linha escreve o nome do provedor, não a chave da conta")
+    /// `account?.host == "hostinger"` provado por leitura de dado não prova o
+    /// que a linha desenha — trocar `account?.host` por `account?.id` em
+    /// `MessageList.swift` continua batendo com essa asserção porque as duas
+    /// propriedades existem, ambas em `Account`; só o texto na tela muda.
+    ///
+    /// Prova de verdade: uma conta com `id` ≠ `host`, renderizada duas vezes —
+    /// uma vez com o `host` real, outra com um `host` diferente mas o mesmo
+    /// `id`. Se a linha lê `account.host`, os dois desenhos do chip divergem;
+    /// se lê `account.id` (a mutação), o `id` não mudou entre as duas rodadas
+    /// e o desenho sai idêntico — pixel a pixel — mesmo o `host` tendo mudado.
     @MainActor
-    func rowChipShowsProviderName() async throws {
-        let store = MailStore(source: InMemoryMailSource.fixtures)
+    private func renderChip(host: String) async -> NSBitmapImageRep? {
+        let account = Account(
+            id: "a", address: "conta@dominio.com", displayName: "Conta",
+            provider: .imap, host: host, tintLightHex: "#3E6FA8", tintDarkHex: "#7BA8D9"
+        )
+        let msg = message("m1", dayOffset: 0)
+        let source = InMemoryMailSource(accounts: [account], messages: [msg], agenda: [])
+        let store = MailStore(source: source)
         await store.load()
         store.select(bucket: .all)
+        return Render.bitmap(
+            MessageList(store: store), size: CGSize(width: MessageList.width, height: 200),
+            theme: .tinta
+        )
+    }
 
-        let fromHostinger = try #require(store.visibleMessages.first { $0.accountID == "host" })
-        let account = try #require(store.account(fromHostinger.accountID))
-        #expect(account.host == "hostinger")
-        #expect(account.id == "host")
+    @Test("o chip da linha escreve o host da conta, e muda se o host mudar")
+    @MainActor
+    func rowChipShowsProviderName() async throws {
+        let a = try #require(await renderChip(host: "hostinger"))
+        let b = try #require(await renderChip(host: "algumoutroprovedor"))
+
+        #expect(a.pixelsWide == b.pixelsWide)
+        #expect(a.pixelsHigh == b.pixelsHigh)
+        #expect(
+            a.pixelsDiffering(from: b) > 0,
+            "o chip não mudou quando só o host da conta mudou — a linha não está lendo account.host"
+        )
     }
 
     // MARK: - Medidas e rótulos da moldura

@@ -184,8 +184,9 @@ public final class MailStore {
     }
 
     private func matches(_ message: Message, _ term: String) -> Bool {
-        [message.from.name, message.from.address, message.subject, message.snippet]
-            .contains { $0.localizedCaseInsensitiveContains(term) }
+        let needle = ContactDirectory.fold(term)
+        return [message.from.name, message.from.address, message.subject, message.snippet]
+            .contains { ContactDirectory.fold($0).contains(needle) }
     }
 
     /// Aponta o leitor para a primeira mensagem da visão atual.
