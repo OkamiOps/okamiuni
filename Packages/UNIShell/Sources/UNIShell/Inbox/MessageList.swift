@@ -211,6 +211,10 @@ public struct MessageList: View {
         return SwipeRow(
             message: message,
             configuration: swipeConfiguration,
+            // A linha tem a largura da lista, e é dela que sai o limiar do
+            // arraste longo: disparar a três quartos da linha só significa
+            // alguma coisa se a linha souber quanto mede.
+            rowWidth: listWidth,
             openRowID: $openSwipeRowID,
             onFire: { fire($0, on: message) }
         ) { swipe in

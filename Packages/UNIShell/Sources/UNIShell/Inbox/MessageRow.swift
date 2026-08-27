@@ -8,6 +8,35 @@ public struct MessageRow: View {
     /// ela existe em **toda** linha, só muda de opacidade quando selecionada.
     static let accountBarWidth: CGFloat = 3
 
+    /// O ponto de não-lida.
+    ///
+    /// **Por que ele existe.** Até esta tarefa a única diferença entre lida e
+    /// não-lida era o peso da fonte do remetente (`.semibold` contra
+    /// `.regular`). O dono do projeto usou o app e levou tempo demais para
+    /// perceber — e ele tem razão: 13pt de diferença de peso é uma pista para
+    /// quem já sabe onde olhar. Mail, Gmail e Outlook todos marcam com um
+    /// **ponto**, e é a marca que se enxerga sem procurar.
+    ///
+    /// **O protótipo não decide isto.** Conferido: `MSGS`, em
+    /// `design/OkamiUNI - Mail + Agenda.dc.html`, não tem campo de leitura
+    /// nenhum — todas as sete linhas desenham o remetente em `font-weight:
+    /// 650` e nenhuma delas tem ponto. O negrito do app já era invenção nossa.
+    /// Como o protótipo não marca, o desenho é novo, no idioma dele.
+    ///
+    /// **Onde ele fica.** Na goteira à esquerda, entre a barra da conta (0–3pt)
+    /// e o recuo do texto (`rowPadding.leading`, 16pt) — exatamente a coluna em
+    /// que o Mail põe o dele. Entra por `overlay`, **não** no fluxo: assim a
+    /// geometria da linha não muda em ponto nenhum, e as medidas de
+    /// `MessageRowTests` continuam valendo.
+    static let unreadDotDiameter: CGFloat = 7
+    /// O centro do ponto na horizontal: meio da goteira de 13pt, sobrando 3pt
+    /// para a barra da conta e 3pt para o texto.
+    static let unreadDotCenterX: CGFloat = 9.5
+    /// O centro na vertical, alinhado com a linha do remetente: `rowPadding.top`
+    /// (11) mais meia altura de linha de 13pt. Ele marca a mensagem, e o nome
+    /// de quem escreveu é onde o olho entra na linha.
+    static let unreadDotCenterY: CGFloat = 19
+
     @Environment(\.theme) private var theme
     let message: Message
     let accountHost: String
@@ -83,6 +112,22 @@ public struct MessageRow: View {
             Rectangle()
                 .fill(accountTint.opacity(isSelected ? 1 : 0.45))
                 .frame(width: Self.accountBarWidth)
+        }
+        // O ponto de não-lida, na goteira da esquerda. `accent` do tema, nunca
+        // cor de sistema. Some no instante em que a mensagem vira lida, por
+        // qualquer caminho — menu de contexto, arraste ou seleção: a linha lê
+        // `message.isRead` do `MailStore`, que é `@Observable`.
+        .overlay(alignment: .topLeading) {
+            if !message.isRead {
+                Circle()
+                    .fill(theme.accent.color)
+                    .frame(width: Self.unreadDotDiameter, height: Self.unreadDotDiameter)
+                    .offset(
+                        x: Self.unreadDotCenterX - Self.unreadDotDiameter / 2,
+                        y: Self.unreadDotCenterY - Self.unreadDotDiameter / 2
+                    )
+                    .help("Mensagem não lida")
+            }
         }
         .hairline(theme.line2, edges: .bottom)
         .contentShape(Rectangle())

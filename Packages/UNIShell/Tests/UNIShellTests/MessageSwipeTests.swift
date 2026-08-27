@@ -257,6 +257,69 @@ struct MessageSwipeTests {
         #expect(found.count == Int(Self.panel), "painel com \(found.count)px, esperados 168")
     }
 
+    // MARK: - O estado de armado
+
+    /// As colunas de pixel pintadas no `accent` do tema, numa faixa.
+    private static func accentColumns(_ rep: NSBitmapImageRep, y: Int) -> [Int] {
+        (0..<rep.pixelsWide).filter { levels(color(rep, $0, y), theme.accent) <= tolerance }
+    }
+
+    /// O que faltava por completo: **um sinal de que soltar vai disparar**.
+    ///
+    /// Antes desta tarefa o único aviso era a coluna armada trocando de fundo —
+    /// 84pt de um painel de 168, e o dono do projeto atravessava o limiar tão
+    /// rápido que nunca via. Agora o painel inteiro inunda em `accent`.
+    ///
+    /// Os dois estados, no mesmo teste, porque um sozinho não prova nada: uma
+    /// inundação permanente passaria no de cima, e um painel que nunca inunda
+    /// passaria no de baixo.
+    ///
+    /// Mutação que derruba: trocar `flooded ? theme.accent.color` de volta por
+    /// `theme.surface3.color` no fundo do painel e devolver `isFlooded` ao
+    /// antigo `willFire` só da coluna armada — a contagem de `hot` cai de 185
+    /// para 84 e o `>= 168` falha.
+    @Test("cruzado o limiar de disparo, o painel inteiro inunda; aquém, não")
+    func armedStateFloodsThePanel() throws {
+        let message = Self.sample(isRead: true)
+        // O limiar a 370 com duas colunas é 277,5.
+        let below = try Self.render(
+            "arraste-desarmado-tinta", CGSize(width: 240, height: 0), message
+        )
+        let above = try Self.render(
+            "arraste-armado-tinta", CGSize(width: 300, height: 0), message
+        )
+
+        let cold = Self.accentColumns(below, y: 6)
+        let hot = Self.accentColumns(above, y: 6)
+
+        #expect(cold.isEmpty,
+                "aquém do limiar o painel já inundou nas colunas \(cold.prefix(12))")
+        #expect(hot.first == 0, "a inundação não começa na borda da linha")
+        #expect(hot.count >= Int(Self.panel),
+                "a inundação cobriu só \(hot.count)px — não é o painel inteiro")
+        // E ela para onde a linha começa: 168 + (300 − 168) × 0,125 = 184,5.
+        #expect(hot.count <= Int(Self.panel) + 20)
+    }
+
+    /// O mesmo do outro lado, e a prova de que desarmar é visível: recuar do
+    /// limiar apaga a inundação inteira.
+    @Test("recuar aquém do limiar desarma o painel visivelmente")
+    func disarmingIsVisible() throws {
+        let message = Self.sample(bucket: .archived, isRead: true)
+        let armed = try Self.render(
+            "arraste-direita-armado-tinta", CGSize(width: -300, height: 0), message
+        )
+        let disarmed = try Self.render(
+            "arraste-direita-desarmado-tinta", CGSize(width: -240, height: 0), message
+        )
+        let hot = Self.accentColumns(armed, y: 6)
+        #expect(hot.count >= Int(Self.panel))
+        // 368, não 369: a última coluna leva a divisória de `line2` na borda
+        // de fora (`.hairline(edges: .trailing)`), e ela pinta o pixel final.
+        #expect(hot.last == Int(Self.listWidth) - 2, "a inundação não encosta na borda direita")
+        #expect(Self.accentColumns(disarmed, y: 6).isEmpty)
+    }
+
     // MARK: - Os rótulos cabem inteiros
 
     /// Cada coluna tem tinta, e a tinta não encosta na borda da coluna.
@@ -395,9 +458,15 @@ struct MessageSwipeTests {
     /// repouso ela começa perto do recuo da linha (16pt), revelada ela começa
     /// 168pt depois. Sem isso, um `.clipped()` no lugar errado passaria
     /// despercebido — o painel mediria certo e a linha estaria vazia.
+    ///
+    /// A mensagem entra **lida** de propósito. O ponto de não-lida desta tarefa
+    /// mora na goteira da esquerda (centro em 9,5pt) e é `accent` — que soma
+    /// 0,96 de 3 em `tinta` e portanto passa no crivo de `isTextInk`. Numa
+    /// mensagem não lida a primeira "tinta" da linha seria o ponto, aos 6pt, e
+    /// esta medida deixaria de falar do recuo do texto, que é o que ela nomeia.
     @Test("a linha desliza inteira, sem perder conteúdo")
     func contentSlidesWhole() throws {
-        let message = Self.sample()
+        let message = Self.sample(isRead: true)
         let height = Int(Self.rowHeight(message))
 
         let rest = try Self.render("arraste-conteudo-repouso-tinta", .zero, message)

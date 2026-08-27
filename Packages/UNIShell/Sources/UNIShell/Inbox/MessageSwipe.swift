@@ -131,6 +131,13 @@ struct SwipeRow<Content: View>: View {
 
     let message: Message
     let configuration: SwipeConfiguration
+    /// A largura da linha, que é a da lista — e ela varia de 320 a 420.
+    ///
+    /// Entra porque o limiar do arraste longo depende dela: disparar a três
+    /// quartos da linha é uma promessa que só se pode cumprir sabendo o
+    /// tamanho da linha (ver `SwipeMetrics.commitThreshold`). O padrão é a
+    /// largura de referência, para previews e harness desenharem.
+    var rowWidth: CGFloat = SwipeMetrics.referenceRowWidth
     /// Só uma linha aberta por vez: abrir uma fecha a outra.
     @Binding var openRowID: String?
     let onFire: (SwipeAction) -> Void
@@ -168,7 +175,7 @@ struct SwipeRow<Content: View>: View {
     private var resolution: SwipeResolution {
         SwipeGesture.resolve(
             translation: effectiveTranslation, locked: locked,
-            configuration: configuration, message: message
+            configuration: configuration, message: message, rowWidth: rowWidth
         )
     }
 
@@ -226,13 +233,25 @@ struct SwipeRow<Content: View>: View {
             ? configuration.leading
             : configuration.trailing.reversed().map { $0 }
 
+        // **O estado de armado.** Enquanto o arraste está aquém do limiar, o
+        // painel é o de sempre. Cruzado o limiar, ele **inunda**: as colunas
+        // inteiras passam a `accent` com tinta `onAccent`, e a armada empurra
+        // ícone e rótulo para a ponta de fora. Antes desta tarefa o único
+        // sinal era a coluna armada mudando de fundo — 84pt de um painel de
+        // 168, atrás da linha que desliza — e o dono do projeto não via nada.
+        //
+        // Inundar o painel inteiro é o que torna o sinal inequívoco: a metade
+        // da lista que está debaixo da mão muda de cor de uma vez.
+        let flooded = resolution.willFire
+
         return HStack(spacing: 0) {
             ForEach(actions) { action in
                 SwipeActionColumn(
                     action: action,
                     message: message,
+                    side: side,
                     isArmed: action == resolution.armed,
-                    willFire: resolution.willFire && action == resolution.armed,
+                    isFlooded: flooded,
                     onTap: { fire($0) }
                 )
             }
@@ -242,7 +261,9 @@ struct SwipeRow<Content: View>: View {
             maxHeight: .infinity,
             alignment: side == .leading ? .leading : .trailing
         )
-        .background(theme.surface3.color)
+        // O sobrante do painel — o pedaço além das colunas, que aparece quando
+        // a resistência ainda deixa a linha andar — acompanha a inundação.
+        .background(flooded ? theme.accent.color : theme.surface3.color)
     }
 
     // MARK: - O gesto
@@ -274,7 +295,8 @@ struct SwipeRow<Content: View>: View {
                 }
                 switch SwipeGesture.release(
                     translation: value.translation, locked: locked,
-                    configuration: configuration, message: message
+                    configuration: configuration, message: message,
+                    rowWidth: rowWidth
                 ) {
                 case .closed:
                     snapShut()
@@ -355,13 +377,29 @@ struct SwipeActionColumn: View {
 
     let action: SwipeAction
     let message: Message
+    /// De que lado o painel está. Só serve para saber para onde é "a ponta de
+    /// fora" quando a coluna armada salta.
+    let side: SwipeSide
     /// É esta que o arraste longo dispara.
     let isArmed: Bool
-    /// O arraste já passou do limiar: soltar agora dispara.
-    let willFire: Bool
+    /// O arraste passou do limiar: o painel inteiro está inundado e soltar
+    /// dispara a armada.
+    let isFlooded: Bool
     let onTap: (SwipeAction) -> Void
 
+    /// Quanto a coluna armada empurra ícone e rótulo para a ponta de fora
+    /// quando o painel inunda. O Mail faz o mesmo: o ícone salta para a borda
+    /// no instante em que soltar passa a disparar.
+    static let armNudge: CGFloat = 5
+
     private var isNoOp: Bool { action.isNoOp(for: message) }
+
+    /// A ponta de fora é a borda da lista: à esquerda no painel `leading`, à
+    /// direita no `trailing`.
+    private var nudge: CGFloat {
+        guard isFlooded, isArmed else { return 0 }
+        return side == .leading ? -Self.armNudge : Self.armNudge
+    }
 
     var body: some View {
         Button { onTap(action) } label: {
@@ -372,6 +410,7 @@ struct SwipeActionColumn: View {
                     .font(theme.sans.font(size: Self.labelSize, weight: .semibold))
                     .lineLimit(1)
             }
+            .offset(x: nudge)
             .foregroundStyle(foreground)
             .frame(width: SwipeMetrics.actionWidth)
             .frame(maxHeight: .infinity)
@@ -387,15 +426,20 @@ struct SwipeActionColumn: View {
         .hairline(theme.line2, edges: .trailing)
     }
 
+    /// Inundado, tudo escreve em `onAccent`; a coluna muda escreve na mesma
+    /// tinta a meio tom, para continuar legível como desabilitada sem sair do
+    /// idioma da inundação.
     private var foreground: Color {
+        if isFlooded {
+            return isNoOp ? theme.onAccent.color.opacity(0.45) : theme.onAccent.color
+        }
         if isNoOp { return theme.ink4.color }
-        if willFire { return theme.onAccent.color }
         return action.tint == .strong ? theme.accentInk.color : theme.ink2.color
     }
 
     private var background: Color {
+        if isFlooded { return theme.accent.color }
         if isNoOp { return theme.surface2.color }
-        if willFire { return theme.accent.color }
         return action.tint == .strong ? theme.accentSoft.color : theme.surface3.color
     }
 }

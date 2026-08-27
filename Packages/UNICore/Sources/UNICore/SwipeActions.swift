@@ -251,24 +251,71 @@ public enum SwipeMetrics {
     /// Meia coluna: passou da metade do primeiro botão, abre.
     public static let openThreshold: CGFloat = actionWidth / 2
 
-    /// Quanto além do painel inteiro o arraste tem de ir para disparar sozinho.
-    public static let commitMargin: CGFloat = 60
+    /// A largura de linha que vale quando quem resolve o gesto não sabe a
+    /// largura de verdade — previews, harness, e as chamadas de teste que só
+    /// querem a aritmética.
+    ///
+    /// É a largura que `PaneLayout` concede à lista na janela de fidelidade
+    /// (`MessageList.width`, 370). A faixa real vai de 320 a 420, e é por isso
+    /// que o limiar de disparo recebe a largura em vez de assumir esta.
+    public static let referenceRowWidth: CGFloat = 370
 
-    /// O quanto o painel resiste depois de aberto por inteiro. Sem isto o
-    /// arraste longo joga a linha para fora da lista antes de disparar.
-    public static let resistance: CGFloat = 0.35
+    /// A fração da largura da linha além da qual o arraste longo dispara.
+    ///
+    /// **Por que era baixo demais.** O limiar era absoluto — painel (168) mais
+    /// 60 — e dava 228pt numa lista de 370: 62% do caminho, com o painel
+    /// descansando em 168 (45%). Sobravam 60pt entre "aberto" e "disparou", e
+    /// num **mouse**, que não tem o atrito do dedo, um puxão natural atravessa
+    /// os 60 sem que a mão perceba. Era o que o dono do projeto via: a linha
+    /// nunca parava no meio, ela sempre chegava ao fim e arquivava.
+    ///
+    /// Agora o disparo é **três quartos da linha**. A 370 são 277,5pt: bem
+    /// além do painel de 168, e longe o bastante para que parar em cima dele
+    /// seja o resultado normal do gesto, não uma pontaria. `0,75` é exato em
+    /// binário — as fronteiras deste arquivo só valem cravadas, e um `0,7`
+    /// daria 258,99999… numa comparação de igualdade.
+    public static let commitFraction: CGFloat = 0.75
+
+    /// O piso: quanto além do painel inteiro o arraste tem de ir, quando a
+    /// fração da largura ficaria perto demais do painel.
+    ///
+    /// Duas situações onde só a fração não bastaria:
+    ///
+    /// - **lista estreita** (320, o mínimo de `PaneLayout`): 75% dão 240, e o
+    ///   painel de duas colunas termina em 168 — 72pt de folga, o mesmo aperto
+    ///   de antes. O piso leva a 258.
+    /// - **três colunas** (252 de painel): 75% de 370 dão 277,5, a 25pt do fim
+    ///   do painel. O piso leva a 342.
+    ///
+    /// Nas larguras de trabalho com o padrão de duas colunas (370 e acima)
+    /// quem manda é a fração; o piso é a rede.
+    public static let commitMargin: CGFloat = 90
+
+    /// O quanto o painel resiste depois de aberto por inteiro.
+    ///
+    /// Era 0,35 — um freio. Agora é **um oitavo**: oito pontos de mão para um
+    /// ponto de painel. É a parede do Mail, e é ela que faz o ponto de
+    /// descanso aberto ser um lugar onde o gesto **para** em vez de um ponto
+    /// por onde ele passa. Um oitavo é exato em binário, pela mesma razão de
+    /// `commitFraction`.
+    public static let resistance: CGFloat = 0.125
 
     public static func panelWidth(actions: Int) -> CGFloat {
         actionWidth * CGFloat(max(0, actions))
     }
 
-    /// O limiar do arraste longo: o painel inteiro **mais** a margem.
+    /// O limiar do arraste longo, em **deslocamento da mão** (não no painel
+    /// revelado, que a resistência encolhe).
     ///
-    /// É derivado do painel de propósito. Um número cravado ficaria menor que o
-    /// painel numa configuração de três ações, e a linha dispararia antes de
-    /// terminar de abrir.
-    public static func commitThreshold(actions: Int) -> CGFloat {
-        panelWidth(actions: actions) + commitMargin
+    /// O maior entre a fração da largura da linha e o painel mais a margem.
+    /// Nenhum dos dois sozinho serve: a fração ignora quantas colunas há, e o
+    /// piso ignora o tamanho da lista — que é justamente o que decide se 228pt
+    /// é "metade do caminho" ou "quase tudo".
+    public static func commitThreshold(
+        actions: Int,
+        rowWidth: CGFloat = referenceRowWidth
+    ) -> CGFloat {
+        max(commitFraction * rowWidth, panelWidth(actions: actions) + commitMargin)
     }
 
     /// Quanto revelar para um deslocamento, com a resistência já aplicada.
@@ -351,11 +398,15 @@ public enum SwipeGesture {
         return candidate
     }
 
+    /// `rowWidth` é a largura da linha em pontos — a lista varia de 320 a 420 e
+    /// o limiar de disparo acompanha (ver `SwipeMetrics.commitThreshold`). Quem
+    /// não sabe a largura cai na de referência.
     public static func resolve(
         translation: CGSize,
         locked: SwipeSide? = nil,
         configuration: SwipeConfiguration = .default,
-        message: Message
+        message: Message,
+        rowWidth: CGFloat = SwipeMetrics.referenceRowWidth
     ) -> SwipeResolution {
         guard let side = side(
             translation: translation, locked: locked, configuration: configuration
@@ -381,7 +432,9 @@ public enum SwipeGesture {
             // até o fim e a mensagem não mudar de estado é pior do que nada
             // acontecer.
             willFire: armed != nil
-                && magnitude >= SwipeMetrics.commitThreshold(actions: actions.count)
+                && magnitude >= SwipeMetrics.commitThreshold(
+                    actions: actions.count, rowWidth: rowWidth
+                )
         )
     }
 
@@ -389,11 +442,12 @@ public enum SwipeGesture {
         translation: CGSize,
         locked: SwipeSide? = nil,
         configuration: SwipeConfiguration = .default,
-        message: Message
+        message: Message,
+        rowWidth: CGFloat = SwipeMetrics.referenceRowWidth
     ) -> SwipeRelease {
         let resolution = resolve(
             translation: translation, locked: locked,
-            configuration: configuration, message: message
+            configuration: configuration, message: message, rowWidth: rowWidth
         )
         guard let side = resolution.side else { return .closed }
         if resolution.willFire, let armed = resolution.armed { return .fire(armed, side) }

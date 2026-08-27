@@ -34,10 +34,75 @@ struct SwipeActionTests {
         #expect(SwipeMetrics.actionWidth == 84)
         #expect(SwipeMetrics.openThreshold == 42)
         #expect(SwipeMetrics.panelWidth(actions: 2) == 168)
-        #expect(SwipeMetrics.commitThreshold(actions: 2) == 228)
+        #expect(SwipeMetrics.commitFraction == 0.75)
+        #expect(SwipeMetrics.commitMargin == 90)
+        #expect(SwipeMetrics.resistance == 0.125)
+        #expect(SwipeMetrics.referenceRowWidth == 370)
+        // Na lista de referência com o padrão de duas colunas quem manda é a
+        // fração: 75% de 370. O piso (168 + 90 = 258) fica abaixo.
+        #expect(SwipeMetrics.commitThreshold(actions: 2) == 277.5)
         // Três colunas empurram o limiar de disparo junto. Um número cravado
         // ficaria **abaixo** do painel, e a linha dispararia antes de abrir.
-        #expect(SwipeMetrics.commitThreshold(actions: 3) == 312)
+        #expect(SwipeMetrics.commitThreshold(actions: 3) == 342)
+    }
+
+    // MARK: - O limiar de disparo segue a largura da linha
+
+    /// O defeito que o dono do projeto relatou: com **mouse**, o arraste nunca
+    /// parava no painel aberto, ele atravessava e disparava. O limiar era
+    /// absoluto — 228pt numa lista de 370, 62% do caminho, com o painel
+    /// descansando em 168 (45%). Sobravam 60pt entre "aberto" e "disparou".
+    ///
+    /// Agora ele é três quartos da linha: 277,5 a 370. Entre o painel e o
+    /// disparo há 109,5pt de arraste, com a resistência a um oitavo — que é o
+    /// que faz o ponto de descanso ser um lugar onde o gesto para.
+    @Test("o limiar de disparo acompanha a largura da linha")
+    func commitFollowsRowWidth() {
+        #expect(SwipeMetrics.commitThreshold(actions: 2, rowWidth: 420) == 315)
+        #expect(SwipeMetrics.commitThreshold(actions: 2, rowWidth: 370) == 277.5)
+        // Na lista mais estreita que `PaneLayout` concede, 75% dariam 240 —
+        // 72pt além do painel, o mesmo aperto de antes. O piso assume.
+        #expect(SwipeMetrics.commitThreshold(actions: 2, rowWidth: 320) == 258)
+    }
+
+    /// A folga entre o painel aberto e o disparo, nas larguras reais. Ela é o
+    /// número que o relato do dono do projeto media: 60pt não bastavam para um
+    /// mouse.
+    @Test("entre o painel aberto e o disparo sobra sempre a margem inteira")
+    func restingBandIsAlwaysGenerous() {
+        for width in [CGFloat(320), 370, 420] {
+            let gap = SwipeMetrics.commitThreshold(actions: 2, rowWidth: width)
+                - SwipeMetrics.panelWidth(actions: 2)
+            #expect(gap >= SwipeMetrics.commitMargin,
+                    "a \(width) sobram só \(gap)pt entre aberto e disparo")
+        }
+    }
+
+    /// Numa lista larga o piso não pode virar o limiar: seria voltar ao número
+    /// absoluto que causou o defeito.
+    @Test("a fração manda na lista larga; o piso, na estreita e nas três colunas")
+    func fractionAndFloorEachTakeTheirTurn() {
+        // Larga: 75% de 420 = 315 > 258.
+        #expect(SwipeMetrics.commitThreshold(actions: 2, rowWidth: 420)
+                == SwipeMetrics.commitFraction * 420)
+        // Estreita: o piso.
+        #expect(SwipeMetrics.commitThreshold(actions: 2, rowWidth: 320)
+                == SwipeMetrics.panelWidth(actions: 2) + SwipeMetrics.commitMargin)
+        // Três colunas na largura de referência: o piso de novo, porque 277,5
+        // ficaria a 25pt do fim de um painel de 252.
+        #expect(SwipeMetrics.commitThreshold(actions: 3, rowWidth: 370)
+                == SwipeMetrics.panelWidth(actions: 3) + SwipeMetrics.commitMargin)
+    }
+
+    /// O disparo por arraste longo fica **além** de 70% da linha em qualquer
+    /// largura da faixa — a referência do brief, medida e não prometida.
+    @Test("em toda a faixa de largura, o disparo só vem além de 70% da linha")
+    func commitIsAlwaysPastSeventyPercent() {
+        for width in [CGFloat(320), 340, 370, 400, 420] {
+            let threshold = SwipeMetrics.commitThreshold(actions: 2, rowWidth: width)
+            #expect(threshold >= 0.7 * width,
+                    "a \(width) o disparo vem a \(threshold), aquém de 70%")
+        }
     }
 
     // MARK: - Fronteira 1: o gesto ainda é clique
@@ -131,7 +196,7 @@ struct SwipeActionTests {
     @Test("um ponto antes do disparo, soltar só deixa aberta")
     func beforeCommit() {
         let target = message()
-        let short = CGSize(width: 227.9, height: 0)
+        let short = CGSize(width: 277.4, height: 0)
         #expect(SwipeGesture.resolve(translation: short, message: target).willFire == false)
         #expect(SwipeGesture.release(translation: short, message: target) == .open(.leading))
     }
@@ -139,7 +204,7 @@ struct SwipeActionTests {
     @Test("no limiar do disparo, a primeira ação do lado vai sozinha")
     func atCommit() {
         let target = message()
-        let long = CGSize(width: 228, height: 0)
+        let long = CGSize(width: 277.5, height: 0)
         #expect(SwipeGesture.resolve(translation: long, message: target).willFire)
         #expect(SwipeGesture.release(translation: long, message: target)
                 == .fire(.archive, .leading))
@@ -148,10 +213,49 @@ struct SwipeActionTests {
     @Test("o mesmo limiar, do outro lado, dispara a primeira do outro lado")
     func atCommitTrailing() {
         let target = message(bucket: .today)
-        #expect(SwipeGesture.release(translation: CGSize(width: -227.9, height: 0),
+        #expect(SwipeGesture.release(translation: CGSize(width: -277.4, height: 0),
                                      message: target) == .open(.trailing))
-        #expect(SwipeGesture.release(translation: CGSize(width: -228, height: 0),
+        #expect(SwipeGesture.release(translation: CGSize(width: -277.5, height: 0),
                                      message: target) == .fire(.later, .trailing))
+    }
+
+    /// A mesma fronteira, uma linha mais estreita: o mesmo deslocamento que
+    /// dispara a 370 ainda só abre — não, ao contrário: a 320 o limiar é
+    /// **menor** (258, o piso), então quem dispara antes é a lista estreita.
+    /// O que não pode acontecer é o limiar ignorar a largura.
+    @Test("a fronteira do disparo se move com a largura passada")
+    func commitBoundaryMovesWithWidth() {
+        let target = message()
+        // A 420 o limiar é 315: 277,5 já não dispara mais.
+        #expect(SwipeGesture.release(translation: CGSize(width: 277.5, height: 0),
+                                     message: target, rowWidth: 420) == .open(.leading))
+        #expect(SwipeGesture.release(translation: CGSize(width: 314.9, height: 0),
+                                     message: target, rowWidth: 420) == .open(.leading))
+        #expect(SwipeGesture.release(translation: CGSize(width: 315, height: 0),
+                                     message: target, rowWidth: 420)
+                == .fire(.archive, .leading))
+        // A 320 o limiar é o piso, 258.
+        #expect(SwipeGesture.release(translation: CGSize(width: 257.9, height: 0),
+                                     message: target, rowWidth: 320) == .open(.leading))
+        #expect(SwipeGesture.release(translation: CGSize(width: 258, height: 0),
+                                     message: target, rowWidth: 320)
+                == .fire(.archive, .leading))
+    }
+
+    /// O ponto de descanso aberto tem de ser **alcançável e estável**: entre o
+    /// limiar de abertura e o de disparo, soltar deixa a linha aberta em
+    /// qualquer ponto. É essa faixa que o dono do projeto não conseguia achar.
+    @Test("a faixa de descanso aberto vai do painel meio revelado até o disparo")
+    func theOpenRestingBandIsWide() {
+        let target = message()
+        for magnitude in [CGFloat(42), 84, 168, 200, 240, 277.4] {
+            #expect(
+                SwipeGesture.release(
+                    translation: CGSize(width: magnitude, height: 0), message: target
+                ) == .open(.leading),
+                "soltar a \(magnitude) não deixou a linha aberta"
+            )
+        }
     }
 
     /// Com três colunas o limiar sobe junto, e o mesmo deslocamento que
@@ -160,10 +264,13 @@ struct SwipeActionTests {
     func commitFollowsPanel() {
         let config = SwipeConfiguration(leading: [.archive, .toggleRead, .later], trailing: [])
         let target = message()
-        #expect(SwipeGesture.release(translation: CGSize(width: 228, height: 0),
+        #expect(SwipeGesture.release(translation: CGSize(width: 277.5, height: 0),
                                      configuration: config, message: target)
                 == .open(.leading))
-        #expect(SwipeGesture.release(translation: CGSize(width: 312, height: 0),
+        #expect(SwipeGesture.release(translation: CGSize(width: 341.9, height: 0),
+                                     configuration: config, message: target)
+                == .open(.leading))
+        #expect(SwipeGesture.release(translation: CGSize(width: 342, height: 0),
                                      configuration: config, message: target)
                 == .fire(.archive, .leading))
     }
@@ -234,11 +341,35 @@ struct SwipeActionTests {
     @Test("além do painel, a linha resiste")
     func revealResistsPastThePanel() {
         let resolution = SwipeGesture.resolve(
-            translation: CGSize(width: 268, height: 0), message: message()
+            translation: CGSize(width: 296, height: 0), message: message()
         )
-        // 168 + (268 − 168) × 0.35 = 203
-        #expect(resolution.offset == 203)
-        #expect(resolution.offset < 268)
+        // 168 + (296 − 168) × 0.125 = 184
+        #expect(resolution.offset == 184)
+        #expect(resolution.offset < 296)
+    }
+
+    /// A resistência tem de ser **parede**, não freio. Com 0,35 (o valor de
+    /// antes) os 109,5pt entre o painel e o disparo viravam 38pt de painel
+    /// andando — a linha continuava escorregando e o gesto não tinha onde
+    /// parar. Com um oitavo são 13,7pt: o painel praticamente trava no lugar
+    /// de descanso, e o que muda de lá em diante é a cor, não a posição.
+    @Test("a resistência além do painel é parede: oito de mão para um de painel")
+    func resistanceIsAWall() {
+        let target = message()
+        let panel = SwipeMetrics.panelWidth(actions: 2)
+        let atCommit = SwipeGesture.resolve(
+            translation: CGSize(width: SwipeMetrics.commitThreshold(actions: 2), height: 0),
+            message: target
+        )
+        let travelled = atCommit.offset - panel
+        #expect(travelled > 0, "o painel não anda nada além do fim — isso é trava, não parede")
+        #expect(travelled < 16,
+                "do painel ao disparo o painel andou \(travelled)pt — é freio, não parede")
+
+        // E oito pontos de mão viram um de painel, medido.
+        let a = SwipeGesture.resolve(translation: CGSize(width: 200, height: 0), message: target)
+        let b = SwipeGesture.resolve(translation: CGSize(width: 208, height: 0), message: target)
+        #expect(b.offset - a.offset == 1)
     }
 
     @Test("o painel do outro lado revela para o negativo")
