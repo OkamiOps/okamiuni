@@ -13,8 +13,40 @@ public enum Workspace: String, CaseIterable, Sendable {
     }
 }
 
+/// Os controles da barra, na ordem em que aparecem da esquerda para a direita.
+///
+/// Isto não é documentação: `WindowChrome.body` percorre `controlOrder` para
+/// montar o `HStack`, então mudar a lista muda o que a janela desenha — e o
+/// teste que trava a lista trava a barra.
+public enum ChromeControl: String, CaseIterable, Sendable {
+    case sidebarToggle, tabs, search, agendaToggle, lockup, themePicker
+}
+
 public struct WindowChrome: View {
     public static let height: CGFloat = 58
+
+    /// **Divergência deliberada do protótipo, pedida pelo dono do projeto.** No
+    /// protótipo o lockup abre a barra, à esquerda dos semáforos para dentro.
+    /// Aqui ele fecha a barra, encostado no seletor de temas: a esquerda fica
+    /// só com os semáforos, o botão da lateral e as abas, encostados, no ritmo
+    /// do Chrome e do app do Claude — as duas referências que ele deu.
+    public static let controlOrder: [ChromeControl] = [
+        .sidebarToggle,
+        .tabs,
+        .search,
+        .agendaToggle,
+        .lockup,
+        .themePicker,
+    ]
+
+    /// O único controle que cede largura. Os outros medem o que precisam; este
+    /// come a folga em janela larga e é o primeiro a encolher em janela
+    /// estreita.
+    public static let flexibleControl: ChromeControl = .search
+
+    /// A linha média da barra, onde tudo o que ela desenha fica centrado — e,
+    /// desde a Task S, também os semáforos nativos.
+    public static let centerY: CGFloat = 29
     /// Onde terminam os semáforos nativos da janela, medido por acessibilidade
     /// numa janela `.hiddenTitleBar`: fechar em x=8, minimizar em x=31, tela cheia
     /// em x=54, todos com 16pt — o último termina em **x=70**.
@@ -79,34 +111,47 @@ public struct WindowChrome: View {
         HStack(spacing: 14) {
             Color.clear.frame(width: Self.trafficLightInset - 14, height: 1)
 
-            sidebarToggle
-
-            HStack(spacing: 9) {
-                Image(theme.isDark ? "uni-lockup-dark" : "uni-lockup-light", bundle: Bundle.main)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(height: 38)
-                    .accessibilityLabel("OkamiUNI")
+            ForEach(Self.controlOrder, id: \.self) { control in
+                view(for: control)
             }
-            .padding(.trailing, 6)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: Self.height)
+        .background(theme.surface2.color)
+        .hairline(theme.line, edges: .bottom)
+        // Sobe os semáforos nativos para a linha média da barra. Tamanho zero e
+        // sem hit test: não participa do layout nem come clique.
+        .overlay(alignment: .topLeading) {
+            TrafficLightAlignment(barHeight: Self.height)
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+        }
+    }
 
-            workspaceTabs
-
+    @ViewBuilder
+    private func view(for control: ChromeControl) -> some View {
+        switch control {
+        case .sidebarToggle: sidebarToggle
+        case .tabs: workspaceTabs
+        case .search:
             searchField
                 // Protótipo: `flex: 1; justify-content: center` em volta do
                 // campo. O campo em si tem uma faixa, não uma largura: em 1440
                 // ele bate no teto de 400 e fica idêntico ao protótipo; numa
                 // janela estreita ele cede antes de espremer as abas.
                 .frame(maxWidth: .infinity)
-
-            agendaToggle
-
-            ThemePicker()
+        case .agendaToggle: agendaToggle
+        case .lockup: lockup
+        case .themePicker: ThemePicker()
         }
-        .padding(.horizontal, 14)
-        .frame(height: Self.height)
-        .background(theme.surface2.color)
-        .hairline(theme.line, edges: .bottom)
+    }
+
+    private var lockup: some View {
+        Image(theme.isDark ? "uni-lockup-dark" : "uni-lockup-light", bundle: Bundle.main)
+            .resizable()
+            .scaledToFit()
+            .frame(height: 38)
+            .accessibilityLabel("OkamiUNI")
     }
 
     private var sidebarToggle: some View {
