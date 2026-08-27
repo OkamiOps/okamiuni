@@ -55,76 +55,19 @@ enum SwipeMotion {
     static let transition: Animation = .easeInOut(duration: 0.18)
 }
 
-/// A trava que segura o clique de soltura depois do arraste.
+
+/// A linha arrastável — e **só** a linha arrastável.
 ///
-/// ## Por que ela existe fora da `View`
+/// Desde esta tarefa ela não decide mais nada sobre o gesto. Onde a linha
+/// está, de que lado, o que está armado, o que soltar significa e quando a
+/// trava cai são perguntas de `UNICore.SwipeGestureMachine`, que se dirige por
+/// sequência de eventos num teste. Aqui só se traduz `DragGesture` em chamadas
+/// e `SwipeOutcome` em animação.
 ///
-/// Ela guarda o lado engatado (`side`) e um **selo** que diz qual fechamento
-/// está em curso. Estado de `View` não se lê num teste, e o defeito que ela
-/// conserta é de sequência, não de aparência: só uma máquina que se possa
-/// dirigir passo a passo prova que o clique de soltura não seleciona.
-///
-/// ## O defeito
-///
-/// `snapShut()` zerava o `openRowID` compartilhado, e isso reentrava no
-/// `onChange` da **própria linha**: a guarda de lá só perguntava
-/// `opened != message.id`, e `nil` passa nessa pergunta. A linha que acabou de
-/// fechar cancelava o próprio adiamento e se destravava no mesmo ciclo — a
-/// proteção de 0,24s nunca valia para quem a pediu, e na caixa "Tudo" o clique
-/// que solta o arraste selecionava a mensagem arrastada.
-///
-/// A guarda agora distingue as duas coisas: `nil` é o **eco do próprio
-/// fechamento** e não destrava ninguém; só o `id` de **outra** linha destrava.
-/// O selo cobre o resto — um settle atrasado que chegue depois de um novo
-/// engate não tem mais o selo vigente e não destrava nada.
-struct SwipeLatch: Equatable {
-    /// O lado em que o gesto nasceu, ou `nil` se a linha está livre.
-    private(set) var side: SwipeSide?
-    /// Muda a cada transição. O settle adiado só age se o selo ainda for o dele.
-    private(set) var seal: Int = 0
-
-    /// O arraste está em curso ou a linha está aberta — o clique fecha em vez
-    /// de selecionar.
-    var isBlocked: Bool { side != nil }
-
-    /// O gesto engatou de um lado.
-    mutating func engage(_ side: SwipeSide) {
-        self.side = side
-        seal &+= 1
-    }
-
-    /// Fechou por conta própria. **Continua travada** até o `settle` do selo
-    /// devolvido — é essa a janela de 0,24s.
-    mutating func snapShut() -> Int {
-        seal &+= 1
-        return seal
-    }
-
-    /// A janela terminou. Só destrava se nada tiver acontecido no meio-tempo.
-    mutating func settle(_ seal: Int) {
-        guard seal == self.seal else { return }
-        side = nil
-    }
-
-    /// Destrava na hora — o clique deliberado numa linha aberta, ou outra linha
-    /// tomando a vez.
-    mutating func release() {
-        seal &+= 1
-        side = nil
-    }
-
-    /// `openRowID` mudou. Devolve se a linha destravou, para quem chama
-    /// cancelar o adiamento e animar o fechamento.
-    ///
-    /// `nil` é o eco do nosso próprio `snapShut()` e não pode destravar nada:
-    /// era exatamente por aí que a janela de 0,24s se cancelava sozinha.
-    mutating func openRowChanged(to opened: String?, rowID: String) -> Bool {
-        guard let opened, opened != rowID, isBlocked else { return false }
-        release()
-        return true
-    }
-}
-
+/// O defeito que motivou a mudança está documentado na máquina: a view
+/// escrevia `translation = value.translation` cru, e `translation` é medida da
+/// origem **do gesto**, não da posição da linha. Numa linha aberta as duas
+/// deixam de coincidir e todo evento passa a mentir.
 struct SwipeRow<Content: View>: View {
 
     @Environment(\.theme) private var theme
@@ -150,39 +93,40 @@ struct SwipeRow<Content: View>: View {
     /// `docs/decisoes-de-engenharia.md`). É o mesmo recurso de `debugFocused`
     /// em `ChromeButton` e de `debugOpenPanel`: um parâmetro interno que põe a
     /// `View` no estado a medir. Zero — o padrão — deixa o gesto no comando.
+    ///
+    /// Ele entra pela **mesma porta** que o mouse: uma máquina zerada recebe um
+    /// `onChanged` com esta translação. Não há mais um caminho de desenho que o
+    /// gesto de verdade não percorra.
     var debugTranslation: CGSize = .zero
 
     @ViewBuilder let content: (SwipeRowContext) -> Content
 
-    /// O lado em que o gesto **nasceu** e a trava que sobrevive ao fechamento.
-    /// Uma vez lateral, sempre lateral até soltar — ver
-    /// `SwipeGesture.side(translation:locked:configuration:)` e `SwipeLatch`.
-    @State private var latch = SwipeLatch()
-    @State private var translation: CGSize = .zero
+    /// Toda a máquina de estados do gesto, num só lugar e testável fora daqui.
+    @State private var machine = SwipeGestureMachine()
     /// Segura a trava até a animação de fechamento terminar. Sem isso o
     /// clique que solta o arraste chegaria ao `Button` com a linha já
     /// desbloqueada e selecionaria a mensagem que a pessoa acabou de arrastar.
     @State private var settleTask: Task<Void, Never>?
 
-    /// O lado engatado, para quem só quer perguntar isso.
-    private var locked: SwipeSide? { latch.side }
-
-    /// O deslocamento que vale para o desenho. Ver `debugTranslation`.
-    private var effectiveTranslation: CGSize {
-        debugTranslation == .zero ? translation : debugTranslation
+    private var context: SwipeContext {
+        SwipeContext(configuration: configuration, rowWidth: rowWidth, message: message)
     }
 
+    /// O que desenhar agora. Com `debugTranslation` a resolução sai de uma
+    /// máquina descartável dirigida por aquele único evento.
     private var resolution: SwipeResolution {
-        SwipeGesture.resolve(
-            translation: effectiveTranslation, locked: locked,
-            configuration: configuration, message: message, rowWidth: rowWidth
+        guard debugTranslation != .zero else { return machine.resolution(context) }
+        var probe = SwipeGestureMachine()
+        _ = probe.dragChanged(
+            translation: debugTranslation, startLocation: .zero, context
         )
+        return probe.resolution(context)
     }
 
-    private var isBlocked: Bool { latch.isBlocked }
+    private var isBlocked: Bool { machine.isBlocked }
 
     var body: some View {
-        content(SwipeRowContext(isBlocked: isBlocked, dismiss: close))
+        content(SwipeRowContext(isBlocked: isBlocked, dismiss: dismiss))
             // O painel fica atrás; sem fundo opaco ele apareceria através da
             // linha, que só pinta fundo quando está selecionada.
             .background(theme.surface.color)
@@ -208,16 +152,16 @@ struct SwipeRow<Content: View>: View {
             .clipped()
         // O arraste roda **junto** com a rolagem, não no lugar dela.
         .simultaneousGesture(drag)
-        // Quem decide se este `onChange` destrava é `SwipeLatch`: `nil` aqui é o
-        // eco do nosso próprio fechamento, não outra linha tomando a vez.
+        // Quem decide se este `onChange` destrava é a máquina, por
+        // `SwipeLatch`: `nil` aqui é o eco do nosso próprio fechamento, não
+        // outra linha tomando a vez.
         .onChange(of: openRowID) { _, opened in
-            guard latch.openRowChanged(to: opened, rowID: message.id) else { return }
+            guard machine.openRowChanged(to: opened, rowID: message.id) else { return }
             settleTask?.cancel()
-            withAnimation(SwipeMotion.transition) { translation = .zero }
         }
         // A linha aberta não pode sobreviver a uma troca de mensagem na mesma
         // posição da lista — arquivar a de cima faz a de baixo herdar a linha.
-        .onChange(of: message.id) { _, _ in close() }
+        .onChange(of: message.id) { _, _ in dismiss() }
     }
 
     // MARK: - O painel
@@ -269,86 +213,77 @@ struct SwipeRow<Content: View>: View {
     // MARK: - O gesto
 
     /// `minimumDistance: 1` é de propósito baixo: quem decide se o gesto é
-    /// nosso é `SwipeGesture.side`, com o engate e a razão de domínio que os
-    /// testes travam. Deixar o `DragGesture` decidir por distância total
-    /// engataria numa rolagem vertical de 12pt.
+    /// nosso é a máquina, com o engate e a razão de domínio que os testes
+    /// travam. Deixar o `DragGesture` decidir por distância total engataria
+    /// numa rolagem vertical de 12pt.
+    ///
+    /// `startLocation` vai junto porque é ela que distingue um gesto novo de
+    /// uma continuação — a `ScrollView` pode levar o gesto sem que `onEnded`
+    /// chegue, e sem essa marca o primeiro evento do gesto seguinte seria lido
+    /// como continuação do anterior.
     private var drag: some Gesture {
         DragGesture(minimumDistance: 1)
             .onChanged { value in
-                guard let side = SwipeGesture.side(
+                // Sem animação: o painel tem de andar colado na mão.
+                apply(machine.dragChanged(
                     translation: value.translation,
-                    locked: locked,
-                    configuration: configuration
-                ) else { return }
-
-                if latch.side == nil {
-                    settleTask?.cancel()
-                    latch.engage(side)
-                    openRowID = message.id
-                }
-                translation = value.translation
+                    startLocation: value.startLocation,
+                    context
+                ))
             }
+            // Soltar, sim: o repouso — aberto ou fechado — é um destino, e ele
+            // se alcança animado.
             .onEnded { value in
-                guard locked != nil else {
-                    translation = .zero
-                    return
-                }
-                switch SwipeGesture.release(
-                    translation: value.translation, locked: locked,
-                    configuration: configuration, message: message,
-                    rowWidth: rowWidth
-                ) {
-                case .closed:
-                    snapShut()
-
-                case .open(let side):
-                    let width = SwipeMetrics.panelWidth(
-                        actions: configuration.actions(on: side).count
+                apply(withAnimation(SwipeMotion.transition) {
+                    machine.dragEnded(
+                        translation: value.translation,
+                        startLocation: value.startLocation,
+                        context
                     )
-                    withAnimation(SwipeMotion.transition) {
-                        translation = CGSize(
-                            width: side == .leading ? width : -width, height: 0
-                        )
-                    }
-
-                case .fire(let action, _):
-                    snapShut()
-                    onFire(action)
-                }
+                })
             }
+    }
+
+    /// Executa a ordem de serviço que a máquina deixou.
+    ///
+    /// A mutação da máquina já aconteceu quando isto roda; o que sobra é o que
+    /// mora fora dela — a animação, o `openRowID` compartilhado, o adiamento
+    /// de 0,24s e a ação disparada. Ordem importa: o selo já saiu da máquina
+    /// **antes** de mexermos em `openRowID`, e é por isso que o eco do nosso
+    /// próprio fechamento não destrava ninguém.
+    private func apply(_ outcome: SwipeOutcome) {
+        if outcome.claimsOpenRow {
+            settleTask?.cancel()
+            if openRowID != message.id { openRowID = message.id }
+        }
+        if outcome.releasesOpenRow, openRowID == message.id {
+            openRowID = nil
+        }
+        if let seal = outcome.settleSeal {
+            settleTask?.cancel()
+            settleTask = Task { @MainActor in
+                try? await Task.sleep(for: .seconds(0.24))
+                guard !Task.isCancelled else { return }
+                machine.settle(seal)
+            }
+        }
+        if let action = outcome.fired {
+            onFire(action)
+        }
     }
 
     /// Tocar numa coluna revelada. O mesmo caminho do arraste longo, com o
     /// mesmo retorno visível.
     private func fire(_ action: SwipeAction) {
-        snapShut()
+        apply(withAnimation(SwipeMotion.transition) { machine.dismiss() })
         onFire(action)
-    }
-
-    /// Fecha e **segura o bloqueio** até a animação terminar, para o clique que
-    /// solta o arraste não virar seleção.
-    private func snapShut() {
-        withAnimation(SwipeMotion.transition) { translation = .zero }
-        settleTask?.cancel()
-        let seal = latch.snapShut()
-        // Zerar o `openRowID` reentra no `onChange` desta mesma linha. É por
-        // isso que o selo sai **antes**: quando o eco chega, a trava já sabe
-        // que o fechamento é dela e o ignora.
-        if openRowID == message.id { openRowID = nil }
-        settleTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(0.24))
-            guard !Task.isCancelled else { return }
-            latch.settle(seal)
-        }
     }
 
     /// Fecha na hora — é o clique deliberado numa linha aberta, e ali não há
     /// arraste em curso para proteger.
-    private func close() {
+    private func dismiss() {
         settleTask?.cancel()
-        withAnimation(SwipeMotion.transition) { translation = .zero }
-        latch.release()
-        if openRowID == message.id { openRowID = nil }
+        apply(withAnimation(SwipeMotion.transition) { machine.dismiss() })
     }
 }
 
