@@ -72,6 +72,9 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
     /// fora de vez não pode ficar a um gesto de distância, e por isso essa
     /// ação existe só no menu, dentro da Lixeira.
     case trash = "lixeira"
+    /// Sinalizar e tirar a sinalização. Como a de leitura, ela é **uma** ação
+    /// com dois rótulos: o botão diz o contrário do estado corrente.
+    case toggleFlag = "sinal"
 
     public var id: String { rawValue }
 
@@ -86,7 +89,7 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
         case .later: .later
         case .today: .today
         case .trash: .trash
-        case .toggleRead: nil
+        case .toggleRead, .toggleFlag: nil
         }
     }
 
@@ -99,6 +102,7 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
         case .later: "Depois"
         case .today: "Hoje"
         case .trash: "Apagar"
+        case .toggleFlag: "Sinalizar / tirar a sinalização"
         }
     }
 
@@ -115,6 +119,7 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
         case .later: "Depois"
         case .today: "Hoje"
         case .trash: "Apagar"
+        case .toggleFlag: message.isFlagged ? "Tirar" : "Sinalizar"
         }
     }
 
@@ -127,6 +132,7 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
         case .later: "clock"
         case .today: "tray.and.arrow.down"
         case .trash: "trash"
+        case .toggleFlag: message.isFlagged ? "star.slash" : "star"
         }
     }
 
@@ -137,7 +143,7 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
     public var tint: SwipeTint {
         switch self {
         case .archive, .trash: .strong
-        case .toggleRead, .later, .today: .quiet
+        case .toggleRead, .toggleFlag, .later, .today: .quiet
         }
     }
 
@@ -149,7 +155,7 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
     /// caixa corrente, e sumir com uma coluna mudaria a largura do painel de
     /// linha para linha — mas ele não dispara e não pode ser a ação armada.
     public func isNoOp(for message: Message) -> Bool {
-        guard let target else { return false }  // a de leitura sempre faz algo
+        guard let target else { return false }  // leitura e estrela sempre fazem algo
         return message.bucket == target
     }
 
@@ -157,6 +163,9 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
     public func command(for message: Message) -> ContextCommand? {
         guard !isNoOp(for: message) else { return nil }
         if let target { return .move(messageID: message.id, to: target) }
+        if self == .toggleFlag {
+            return .setFlagged(messageID: message.id, isFlagged: !message.isFlagged)
+        }
         return .setRead(messageID: message.id, isRead: !message.isRead)
     }
 
@@ -168,6 +177,9 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
     public func undo(for message: Message) -> ContextCommand? {
         guard !isNoOp(for: message) else { return nil }
         if target != nil { return .move(messageID: message.id, to: message.bucket) }
+        if self == .toggleFlag {
+            return .setFlagged(messageID: message.id, isFlagged: message.isFlagged)
+        }
         return .setRead(messageID: message.id, isRead: message.isRead)
     }
 
@@ -180,6 +192,7 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
         case .later: "Adiada para depois"
         case .today: "Trazida para hoje"
         case .trash: "Movida para a Lixeira"
+        case .toggleFlag: message.isFlagged ? "Sinalização retirada" : "Sinalizada"
         }
     }
 
@@ -195,6 +208,8 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
         case .later: return "Mover para Depois"
         case .today: return "Mover para Hoje"
         case .trash: return "Mover esta mensagem para a Lixeira"
+        case .toggleFlag:
+            return message.isFlagged ? "Tirar a sinalização" : "Sinalizar esta mensagem"
         }
     }
 }

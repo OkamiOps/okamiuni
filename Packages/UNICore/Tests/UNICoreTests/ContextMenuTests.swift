@@ -21,7 +21,8 @@ struct ContextMenuTests {
         isRead: Bool = false,
         body: [String] = ["Primeiro", "Segundo"],
         to: [Contact] = [],
-        cc: [Contact] = []
+        cc: [Contact] = [],
+        isFlagged: Bool = false
     ) -> Message {
         Message(
             id: id, accountID: "zoho",
@@ -29,7 +30,7 @@ struct ContextMenuTests {
             receivedAt: Fixtures.today, subject: subject,
             snippet: "trecho", body: body, tags: [],
             bucket: bucket, isRead: isRead, summary: nil, detectedEvent: nil,
-            to: to, cc: cc
+            to: to, cc: cc, isFlagged: isFlagged
         )
     }
 
@@ -315,6 +316,7 @@ struct ContextMenuTests {
             "Arquivar": MenuShortcut(key: "e"),
             "Marcar como lida": MenuShortcut(key: "u", modifiers: [.command, .shift]),
             "Apagar": MenuShortcut(key: BareKey.delete.character, modifiers: []),
+            "Sinalizar": MenuShortcut(key: "l", modifiers: [.command, .shift]),
         ])
         #expect(shortcuts["Responder"]?.label == "⌘R")
         #expect(shortcuts["Responder a todos"]?.label == "⇧⌘R")
@@ -324,6 +326,40 @@ struct ContextMenuTests {
         // A tecla sem letra sai pelo símbolo do teclado, não pelo caractere de
         // controle cru — que sairia invisível no meio do menu.
         #expect(shortcuts["Apagar"]?.label == "⌫")
+        #expect(shortcuts["Sinalizar"]?.label == "⇧⌘L")
+    }
+
+    // MARK: - Sinalizar
+
+    /// A mesma regra do par lida/não lida: o rótulo é o contrário do estado, e
+    /// só um dos dois existe por vez.
+    @Test("o rótulo da estrela é o contrário do estado, nas duas superfícies")
+    func flagLabelMirrorsTheState() {
+        for entries in [
+            ContextMenus.messageRow(message()), ContextMenus.reader(message()),
+        ] {
+            #expect(entries.item("Sinalizar")?.command
+                == .setFlagged(messageID: "m1", isFlagged: true))
+            #expect(entries.item("Tirar a sinalização") == nil)
+        }
+        for entries in [
+            ContextMenus.messageRow(message(isFlagged: true)),
+            ContextMenus.reader(message(isFlagged: true)),
+        ] {
+            #expect(entries.item("Tirar a sinalização")?.command
+                == .setFlagged(messageID: "m1", isFlagged: false))
+            #expect(entries.item("Sinalizar") == nil)
+        }
+    }
+
+    /// Sinalizar é ortogonal à triagem: uma mensagem arquivada, na Lixeira ou
+    /// adiada continua podendo ser sinalizada.
+    @Test("a estrela existe em toda caixa, inclusive na Lixeira")
+    func flagWorksInEveryBucket() {
+        for bucket in TriageBucket.allCases where bucket != .all {
+            let entries = ContextMenus.messageRow(message(bucket: bucket))
+            #expect(entries.item("Sinalizar")?.isEnabled == true)
+        }
     }
 
     // MARK: - Lixeira

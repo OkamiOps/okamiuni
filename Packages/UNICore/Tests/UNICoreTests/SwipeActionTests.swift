@@ -12,6 +12,7 @@ struct SwipeActionTests {
         id: String = "m1",
         bucket: TriageBucket = .today,
         isRead: Bool = false,
+        isFlagged: Bool = false,
         name: String = "Marina Duarte",
         address: String = "marina@clientepremium.com"
     ) -> Message {
@@ -21,8 +22,64 @@ struct SwipeActionTests {
             receivedAt: Date(timeIntervalSince1970: 0),
             subject: "Assunto", snippet: "Trecho", body: ["Corpo"],
             tags: [], bucket: bucket, isRead: isRead,
-            summary: nil, detectedEvent: nil
+            summary: nil, detectedEvent: nil, isFlagged: isFlagged
         )
+    }
+
+    // MARK: - As duas colunas novas
+
+    /// Elas entram no rol configurável, e não no padrão: quem já escolheu os
+    /// lados dele não vê a escolha mudar sozinha.
+    @Test("apagar e sinalizar entram no rol de escolha, e o padrão continua o mesmo")
+    func newActionsAreOfferedButNotImposed() {
+        #expect(SwipeAction.allCases.contains(.trash))
+        #expect(SwipeAction.allCases.contains(.toggleFlag))
+        #expect(SwipeConfiguration.default.leading == [.archive, .toggleRead])
+        #expect(SwipeConfiguration.default.trailing == [.later, .today])
+    }
+
+    /// O arraste apaga **para a Lixeira**, e nunca de vez: jogar fora sem volta
+    /// não pode ficar a um gesto de distância. E o caminho de volta é a caixa
+    /// de onde ela veio, como em toda ação de triagem.
+    @Test("a coluna de apagar leva à Lixeira, com volta para a caixa de origem")
+    func trashColumnGoesToTheTrashAndBack() {
+        let vinda = message(bucket: .later)
+        #expect(SwipeAction.trash.command(for: vinda) == .move(messageID: "m1", to: .trash))
+        #expect(SwipeAction.trash.undo(for: vinda) == .move(messageID: "m1", to: .later))
+        #expect(SwipeAction.trash.receiptTitle(for: vinda) == "Movida para a Lixeira")
+
+        // Já na Lixeira ela não faria nada, e o botão diz por quê.
+        let dentro = message(bucket: .trash)
+        #expect(SwipeAction.trash.isNoOp(for: dentro))
+        #expect(SwipeAction.trash.command(for: dentro) == nil)
+        #expect(SwipeAction.trash.help(for: dentro) == "Esta mensagem já está em Lixeira")
+    }
+
+    /// Como a de leitura: uma ação com dois rótulos, e nunca muda.
+    @Test("a coluna da estrela diz o contrário do estado, e sempre faz algo")
+    func flagColumnMirrorsTheState() {
+        let semEstrela = message()
+        #expect(!SwipeAction.toggleFlag.isNoOp(for: semEstrela))
+        #expect(SwipeAction.toggleFlag.title(for: semEstrela) == "Sinalizar")
+        #expect(SwipeAction.toggleFlag.command(for: semEstrela)
+            == .setFlagged(messageID: "m1", isFlagged: true))
+        #expect(SwipeAction.toggleFlag.receiptTitle(for: semEstrela) == "Sinalizada")
+
+        let comEstrela = message(isFlagged: true)
+        #expect(SwipeAction.toggleFlag.title(for: comEstrela) == "Tirar")
+        #expect(SwipeAction.toggleFlag.command(for: comEstrela)
+            == .setFlagged(messageID: "m1", isFlagged: false))
+        // O caminho de volta é o estado **anterior**, não o negado do atual.
+        #expect(SwipeAction.toggleFlag.undo(for: comEstrela)
+            == .setFlagged(messageID: "m1", isFlagged: true))
+    }
+
+    /// Arquivar e apagar tiram a mensagem da triagem inteira; adiar, trazer
+    /// para hoje, ler e sinalizar são movimentos dentro dela. Um painel todo
+    /// forte não teria hierarquia nenhuma.
+    @Test("só as duas que tiram a mensagem da lista pintam forte")
+    func onlyTheRemovingActionsAreStrong() {
+        #expect(SwipeAction.allCases.filter { $0.tint == .strong } == [.archive, .trash])
     }
 
     /// Os números que os testes de fronteira citam. Se algum mudar, o teste

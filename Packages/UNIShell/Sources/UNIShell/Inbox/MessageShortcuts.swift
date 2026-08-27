@@ -67,6 +67,15 @@ struct MessageShortcuts: View {
                 ) {
                     runner.run(.setRead(messageID: message.id, isRead: !message.isRead))
                 }
+
+                shortcut(
+                    message.isFlagged ? "Tirar a sinalização" : "Sinalizar",
+                    .flag
+                ) {
+                    runner.run(
+                        .setFlagged(messageID: message.id, isFlagged: !message.isFlagged)
+                    )
+                }
             }
             .hidden()
             .accessibilityHidden(true)

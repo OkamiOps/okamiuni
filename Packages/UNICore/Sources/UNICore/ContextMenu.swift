@@ -38,6 +38,8 @@ public enum ContextCommand: Sendable, Hashable {
     /// 03 Composer com o conteúdo citado e "Para" vazio. O seed é
     /// `ComposerSeed.forward(of:dateLabel:)`.
     case forward(messageID: String)
+    /// Liga (`true`) ou desliga (`false`) a estrela.
+    case setFlagged(messageID: String, isFlagged: Bool)
     /// Marca lida (`true`) ou não lida (`false`).
     case setRead(messageID: String, isRead: Bool)
     /// Triagem: move a mensagem de caixa.
@@ -122,6 +124,8 @@ public struct MenuShortcut: Sendable, Hashable {
     /// é o monitor local do `UNIShell.BareKeyMonitor`, que só age quando o
     /// primeiro respondedor não é campo de texto.
     public static let delete = MenuShortcut(key: BareKey.delete.character, modifiers: [])
+    /// ⇧⌘L, o "Flag" do Mail.
+    public static let flag = MenuShortcut(key: "l", modifiers: [.command, .shift])
     /// ⇧⌘D, o adiar deste app. "Depois" é caixa nossa, não do Mail: o atalho
     /// sai da inicial dela, e é o app que o escuta — ver `MessageShortcuts`.
     public static let later = MenuShortcut(key: "d", modifiers: [.command, .shift])
@@ -260,6 +264,7 @@ public enum ContextMenus {
             .item(archiveItem(message)),
             .item(deleteItem(message)),
             .item(readToggle(message)),
+            .item(flagToggle(message)),
         ]
         if let move = moveSubmenu(message) { entries.append(move) }
         entries.append(.separator)
@@ -307,6 +312,7 @@ public enum ContextMenus {
         if let move = moveSubmenu(message) { entries.append(move) }
         entries.append(.separator)
         entries.append(.item(readToggle(message)))
+        entries.append(.item(flagToggle(message)))
         return entries.tidied
     }
 
@@ -471,6 +477,20 @@ public enum ContextMenus {
                 "Apagar", .move(messageID: message.id, to: .trash),
                 shortcut: .delete,
                 help: "Mover esta mensagem para a Lixeira"
+            )
+    }
+
+    /// A estrela, e o rótulo que é sempre o **contrário** do estado corrente —
+    /// a mesma regra do par lida/não lida.
+    static func flagToggle(_ message: Message) -> ContextMenuItem {
+        message.isFlagged
+            ? ContextMenuItem(
+                "Tirar a sinalização", .setFlagged(messageID: message.id, isFlagged: false),
+                shortcut: .flag
+            )
+            : ContextMenuItem(
+                "Sinalizar", .setFlagged(messageID: message.id, isFlagged: true),
+                shortcut: .flag
             )
     }
 

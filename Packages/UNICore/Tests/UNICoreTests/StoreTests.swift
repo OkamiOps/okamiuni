@@ -949,3 +949,65 @@ struct TrashTests {
         #expect(store.unreadCount(in: .trash) == 1)
     }
 }
+
+/// A estrela no store. É estado da mensagem, e não da caixa.
+@Suite("Sinalizar")
+@MainActor
+struct FlagTests {
+
+    private func store() async -> MailStore {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        return store
+    }
+
+    @Test("sinalizar liga e desliga, e não mexe na caixa nem na seleção")
+    func flaggingIsOrthogonalToTriage() async {
+        let store = await store()
+        store.select(message: "m1")
+        let caixa = store.messages.first { $0.id == "m1" }?.bucket
+
+        store.setFlagged(true, for: "m1")
+        #expect(store.messages.first { $0.id == "m1" }?.isFlagged == true)
+        #expect(store.messages.first { $0.id == "m1" }?.bucket == caixa)
+        #expect(store.selectedMessageID == "m1")
+
+        store.setFlagged(false, for: "m1")
+        #expect(store.messages.first { $0.id == "m1" }?.isFlagged == false)
+    }
+
+    /// Arquivar não apaga a estrela: são dois estados independentes, e a
+    /// reconstrução da mensagem em `move` tem de carregar os dois.
+    @Test("a estrela sobrevive à triagem")
+    func flagSurvivesAMove() async {
+        let store = await store()
+        store.setFlagged(true, for: "m1")
+        store.move(store.messages.first { $0.id == "m1" }!, to: .archived)
+
+        #expect(store.messages.first { $0.id == "m1" }?.isFlagged == true)
+        #expect(store.messages.first { $0.id == "m1" }?.bucket == .archived)
+    }
+
+    /// E ela sobrevive à ida e volta da Lixeira — que é onde o cofre guarda a
+    /// mensagem inteira, não uma casca.
+    @Test("a estrela volta com a mensagem apagada de vez e restaurada")
+    func flagSurvivesDeleteAndRestore() async {
+        let store = await store()
+        store.setFlagged(true, for: "m1")
+        store.move(store.messages.first { $0.id == "m1" }!, to: .trash)
+        store.deleteForever("m1")
+        store.restoreDeleted("m1")
+
+        #expect(store.messages.first { $0.id == "m1" }?.isFlagged == true)
+    }
+
+    @Test("marcar como lida não apaga a estrela")
+    func readingDoesNotClearTheFlag() async {
+        let store = await store()
+        store.setFlagged(true, for: "m1")
+        store.setRead(true, for: "m1")
+
+        #expect(store.messages.first { $0.id == "m1" }?.isFlagged == true)
+        #expect(store.messages.first { $0.id == "m1" }?.isRead == true)
+    }
+}

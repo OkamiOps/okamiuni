@@ -425,6 +425,22 @@ public final class MailStore {
         messages[index] = messages[index].withRead(isRead)
     }
 
+    /// Liga e desliga a estrela.
+    ///
+    /// Não mexe na caixa nem na seleção: sinalizar é um estado **da mensagem**,
+    /// ortogonal à triagem — uma mensagem arquivada continua sinalizada, e a
+    /// linha continua onde estava. É o contrário de arquivar, que a tira da
+    /// lista, e é por isso que as duas ações podem conviver no mesmo menu sem
+    /// se atrapalharem.
+    ///
+    /// Não há caixa "Sinalizadas" neste marco — dívida registrada no relatório
+    /// da Task AR.
+    public func setFlagged(_ isFlagged: Bool, for messageID: String) {
+        guard let index = messages.firstIndex(where: { $0.id == messageID }),
+              messages[index].isFlagged != isFlagged else { return }
+        messages[index] = messages[index].withFlagged(isFlagged)
+    }
+
     /// Percorre uma caixa marcando tudo como lido. `accountID` nulo abrange
     /// todas as contas; com um id, só a daquela conta.
     ///

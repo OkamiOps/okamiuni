@@ -76,6 +76,10 @@ enum StoreCommand {
             store.setRead(isRead, for: messageID)
             return true
 
+        case .setFlagged(let messageID, let isFlagged):
+            store.setFlagged(isFlagged, for: messageID)
+            return true
+
         case .move(let messageID, let bucket):
             guard let message = store.messages.first(where: { $0.id == messageID }) else {
                 return false
@@ -148,7 +152,7 @@ struct MenuCommandRunner {
                 value: ComposerRoute.forward(messageID: messageID).value
             )
 
-        case .setRead, .move, .markAllRead,
+        case .setRead, .setFlagged, .move, .markAllRead,
              .deleteForever, .restoreDeleted, .emptyTrash:
             StoreCommand.run(command, on: store)
 

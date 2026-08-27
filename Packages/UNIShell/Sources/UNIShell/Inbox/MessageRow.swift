@@ -73,6 +73,27 @@ public struct MessageRow: View {
         }
     }
 
+    /// A estrela da mensagem sinalizada.
+    ///
+    /// Fica à **direita**, antes do carimbo de horário, que é onde o Mail põe a
+    /// bandeira dele. E fica longe da coluna do ponto de não-lida de propósito:
+    /// são dois estados independentes — uma mensagem pode ser lida e
+    /// sinalizada, ou não lida e não sinalizada — e empilhar as duas marcas na
+    /// mesma coluna faria uma parecer variação da outra.
+    ///
+    /// Some no instante em que a estrela é desligada, por qualquer caminho:
+    /// a linha lê `message.isFlagged` do `MailStore`, que é `@Observable`.
+    @ViewBuilder
+    private var flagStar: some View {
+        if message.isFlagged {
+            Image(systemName: "star.fill")
+                .font(.system(size: 9.5))
+                .foregroundStyle(theme.accent.color)
+                .help("Mensagem sinalizada")
+                .accessibilityLabel("Sinalizada")
+        }
+    }
+
     public var body: some View {
         content
             // Protótipo: `background: soft(a.c, 10)` quando selecionada — a
@@ -132,6 +153,7 @@ public struct MessageRow: View {
                     .foregroundStyle(theme.ink.color)
                     .lineLimit(1)
                 Spacer(minLength: 4)
+                flagStar
                 timeStamp
                     .font(theme.mono.font(size: 10))
                     .foregroundStyle(theme.ink4.color)
