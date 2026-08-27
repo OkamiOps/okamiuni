@@ -123,6 +123,13 @@ public struct InboxScreen: View {
             .overlay(alignment: .topLeading) {
                 dividers(layout: layout, windowWidth: proxy.size.width)
             }
+            // O referencial em que o arraste é medido, e o motivo de ele vir
+            // **depois** do `.overlay`: assim as divisórias são descendentes
+            // dele. O retângulo que ele nomeia é o do conteúdo da janela, preso
+            // ao `proxy` — o único ancestral por aqui que não se mexe enquanto a
+            // divisória se mexe. Medir no espaço local da própria calha fazia a
+            // divisória andar metade do cursor; ver `PaneDivider.coordinateSpace`.
+            .coordinateSpace(.named(PaneDivider.coordinateSpace))
         }
     }
 

@@ -29,6 +29,21 @@ public struct PaneDivider: View {
     /// menor medida em que o gesto vira confiável.
     public nonisolated static let hitWidth: CGFloat = 6
 
+    /// Nome do espaço de coordenadas em que a translação do arraste é medida.
+    ///
+    /// Sem isto o `DragGesture` mede no espaço **local**, que é o da própria
+    /// calha — e a calha é desenhada exatamente sobre a borda que o arraste
+    /// está movendo. Ela corre atrás do cursor, o referencial corre junto, e a
+    /// translação medida vira a metade da real: arrastar 120pt movia a
+    /// divisória 60, arrastar −150 movia −72. Na mão isso é a divisória
+    /// "resistindo" ao ponteiro e descolando dele.
+    ///
+    /// O `InboxScreen` ancora este nome no retângulo do conteúdo da janela, que
+    /// não se mexe durante o gesto. Quem mudar isso precisa conferir que o
+    /// ancestral escolhido de fato está parado: ancorar num que também se
+    /// desloca traz o defeito de volta, só que menor e mais difícil de ver.
+    public nonisolated static let coordinateSpace = "okamiuni.panes"
+
     /// Onde a calha de 6pt começa para ficar **centrada** na linha em
     /// `boundaryX`. Centrada, e não encostada de um lado: o ponteiro chega à
     /// divisória pelos dois painéis, e um alvo colado só no painel da esquerda
@@ -83,7 +98,10 @@ public struct PaneDivider: View {
             // que zero deixa o duplo clique passar.
             .onTapGesture(count: 2, perform: onReset)
             .gesture(
-                DragGesture(minimumDistance: 1)
+                // O espaço nomeado é obrigatório aqui, não um refinamento: ver
+                // `coordinateSpace` acima. No espaço local a divisória anda
+                // metade do que o cursor anda.
+                DragGesture(minimumDistance: 1, coordinateSpace: .named(Self.coordinateSpace))
                     .onChanged { value in
                         isDragging = true
                         onDrag(value.translation.width)
