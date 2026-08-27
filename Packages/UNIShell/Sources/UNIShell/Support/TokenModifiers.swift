@@ -1,24 +1,53 @@
 import SwiftUI
 import UNIDesign
 
-extension View {
-    /// A divisória de 0.5px que o design usa em toda parte.
-    public func hairline(_ color: TokenColor, edges: Edge.Set = .bottom) -> some View {
-        overlay(alignment: alignment(for: edges)) {
-            Rectangle()
-                .fill(color.color)
-                .frame(
-                    width: edges.contains(.leading) || edges.contains(.trailing) ? 0.5 : nil,
-                    height: edges.contains(.top) || edges.contains(.bottom) ? 0.5 : nil
-                )
-        }
+/// A divisória de 0.5px que o design usa em toda parte.
+///
+/// A faixa de 0.5pt precisa **começar num ponto inteiro** para existir: quando
+/// ela cai na metade de trás de um pixel, o compositor a apaga. Era o que
+/// acontecia nas bordas `trailing` — as divisórias verticais entre barra
+/// lateral e lista (x=236) e entre lista e leitor (x=606) não desenhavam nada,
+/// enquanto a `leading` da trilha de agenda (x=1178) aparecia. Nas bordas de
+/// fim (`trailing` e `bottom`) o traço recua meio ponto para dentro; nas de
+/// início (`leading` e `top`) ele já nasce alinhado. Nenhum painel muda de
+/// largura por isso.
+public enum Hairline {
+    /// `0.5px` do protótipo — a espessura de toda divisória do design.
+    public static let thickness: CGFloat = 0.5
+
+    /// Quanto o traço recua para dentro do painel, por borda.
+    public static func inset(for edges: Edge.Set) -> CGFloat {
+        if edges.contains(.top) { return 0 }
+        if edges.contains(.leading) { return 0 }
+        return -thickness  // .trailing e .bottom
     }
 
-    private func alignment(for edges: Edge.Set) -> Alignment {
+    public static func alignment(for edges: Edge.Set) -> Alignment {
         if edges.contains(.top) { return .top }
         if edges.contains(.leading) { return .leading }
         if edges.contains(.trailing) { return .trailing }
         return .bottom
+    }
+
+    public static func isVertical(_ edges: Edge.Set) -> Bool {
+        edges.contains(.leading) || edges.contains(.trailing)
+    }
+}
+
+extension View {
+    /// Ver `Hairline`.
+    public func hairline(_ color: TokenColor, edges: Edge.Set = .bottom) -> some View {
+        let vertical = Hairline.isVertical(edges)
+        let inset = Hairline.inset(for: edges)
+        return overlay(alignment: Hairline.alignment(for: edges)) {
+            Rectangle()
+                .fill(color.color)
+                .frame(
+                    width: vertical ? Hairline.thickness : nil,
+                    height: vertical ? nil : Hairline.thickness
+                )
+                .offset(x: vertical ? inset : 0, y: vertical ? 0 : inset)
+        }
     }
 }
 

@@ -57,3 +57,41 @@ struct TokenModifierTests {
         }
     }
 }
+
+@Suite("Hairline")
+struct HairlineTests {
+
+    /// O defeito: nas bordas de fim o traço de 0.5pt encostava na borda, caía
+    /// na metade de trás do último pixel e o compositor o apagava — as
+    /// divisórias verticais entre barra lateral e lista e entre lista e leitor
+    /// simplesmente não existiam na janela.
+    @Test("as bordas de fim recuam meio ponto para o traço nascer num pixel")
+    func endEdgesAreInset() {
+        #expect(Hairline.inset(for: .trailing) == -Hairline.thickness)
+        #expect(Hairline.inset(for: .bottom) == -Hairline.thickness)
+    }
+
+    @Test("as bordas de início não recuam — já nascem alinhadas")
+    func startEdgesAreFlush() {
+        #expect(Hairline.inset(for: .leading) == 0)
+        #expect(Hairline.inset(for: .top) == 0)
+    }
+
+    @Test("o traço tem a espessura de 0.5px do protótipo")
+    func thicknessMatchesPrototype() {
+        #expect(Hairline.thickness == 0.5)
+    }
+
+    @Test("cada borda desenha do lado certo e no eixo certo")
+    func alignmentAndAxis() {
+        #expect(Hairline.alignment(for: .leading) == .leading)
+        #expect(Hairline.alignment(for: .trailing) == .trailing)
+        #expect(Hairline.alignment(for: .top) == .top)
+        #expect(Hairline.alignment(for: .bottom) == .bottom)
+
+        #expect(Hairline.isVertical(.leading))
+        #expect(Hairline.isVertical(.trailing))
+        #expect(Hairline.isVertical(.top) == false)
+        #expect(Hairline.isVertical(.bottom) == false)
+    }
+}
