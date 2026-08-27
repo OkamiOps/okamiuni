@@ -367,11 +367,11 @@ struct ComposerToolbar: View {
     private var tableButton: some View {
         SoloToolButton(
             label: "⊞",
-            title: reading.inTable
-                ? "Inserir tabela — o cursor já está dentro de uma"
-                : "Inserir tabela",
+            // A guarda é a **mesma** que o item do menu de contexto usa, vinda
+            // de um lugar só: ver `ComposerTableCommand`.
+            title: ComposerTableCommand.title(reading),
             on: openPanel == .table,
-            enabled: !reading.inTable
+            enabled: ComposerTableCommand.isEnabled(reading)
         ) {
             openPanel = openPanel == .table ? nil : .table
         }

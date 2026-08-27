@@ -315,3 +315,30 @@ enum ComposerCommand: Equatable, Sendable {
     /// Uma grade `rows`×`columns` depois do parágrafo do cursor.
     case table(rows: Int, columns: Int)
 }
+
+// MARK: - A guarda de "Inserir tabela", numa definição só
+
+/// Quem pode inserir tabela, e o que dizer quando não pode.
+///
+/// Existe porque a decisão tem **duas** portas — o `⊞` da barra e o item
+/// "Inserir tabela" do menu de contexto — e a segunda nasceu sem guarda: com o
+/// cursor dentro de uma célula, `RichBody.insertTable` insere em
+/// `paragraph.upperBound`, antes da quebra que carrega a coordenada da célula,
+/// e a grade 2×2 vira 3×6 com o parágrafo corrente fora da tabela. A barra já
+/// recusava; o menu não.
+///
+/// A regra mora aqui, e não copiada nos dois lugares, para não divergirem no
+/// primeiro ajuste — é a mesma razão de `menuLabel` ter sido unificado.
+enum ComposerTableCommand {
+    /// Tabela dentro de tabela não existe neste editor: `NSTextTable` aninhada
+    /// pede um modelo que `RichBody` não tem.
+    static func isEnabled(_ reading: BodyReading) -> Bool { !reading.inTable }
+
+    /// O motivo, que vai para o `help` do botão e para o `toolTip` do item.
+    /// Recusa muda é tão defeito quanto botão mudo.
+    static func title(_ reading: BodyReading) -> String {
+        reading.inTable
+            ? "Inserir tabela — o cursor já está dentro de uma"
+            : "Inserir tabela"
+    }
+}

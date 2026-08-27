@@ -382,8 +382,20 @@ struct ComposerTextView: NSViewRepresentable {
             paste.target = self
             menu.insertItem(paste, at: index); index += 1
 
+            // A mesma guarda do `⊞` da barra, pela mesma expressão: com o
+            // cursor dentro de uma célula, inserir aqui parte a grade (a 2×2
+            // virava 3×6, com o parágrafo do cursor fora da tabela). O item
+            // fica apagado com o motivo no `toolTip`, em vez de sumir — a
+            // recusa tem de se explicar.
+            let reading = ComposerEditor.reading(of: parent.text, selection: parent.selection)
+            let allowed = ComposerTableCommand.isEnabled(reading)
             let table = NSMenuItem(title: "Inserir tabela", action: nil, keyEquivalent: "")
+            table.isEnabled = allowed
+            table.toolTip = ComposerTableCommand.title(reading)
             let sizes = NSMenu(title: "Inserir tabela")
+            // `NSMenu` reabilita item por item sozinho quando o alvo responde
+            // ao seletor; desligar o automatismo é o que faz `isEnabled` valer.
+            sizes.autoenablesItems = false
             // Sem painel de escolha aqui: o `↗`/grade da barra é que tem o
             // seletor por arraste. O menu oferece as medidas que se pede na
             // prática, e cada uma insere de verdade.
@@ -395,6 +407,7 @@ struct ComposerTextView: NSViewRepresentable {
                 )
                 entry.tag = side
                 entry.target = self
+                entry.isEnabled = allowed
                 sizes.addItem(entry)
             }
             table.submenu = sizes
@@ -421,6 +434,11 @@ struct ComposerTextView: NSViewRepresentable {
         }
 
         @objc func insertTableFromMenu(_ sender: NSMenuItem) {
+            // O item já nasce apagado dentro de uma célula; esta é a mesma
+            // guarda no caminho de ação, para um menu montado antes de o cursor
+            // entrar na tabela não conseguir parti-la mesmo assim.
+            let reading = ComposerEditor.reading(of: parent.text, selection: parent.selection)
+            guard ComposerTableCommand.isEnabled(reading) else { return }
             let side = max(1, sender.tag)
             run(.table(rows: side, columns: side))
         }
