@@ -41,13 +41,22 @@ public struct MessageGroup: Identifiable {
 }
 
 public struct MessageList: View {
+    /// A largura que a lista tem no ponto de fidelidade da Task P (1440 com
+    /// tudo visível). Não é mais uma largura aplicada: é o que `PaneLayout`
+    /// devolve naquela largura de janela, e o que este `View` usa quando ninguém
+    /// resolveu layout por ele.
     public static let width: CGFloat = 370
 
     @Environment(\.theme) private var theme
     let store: MailStore
 
-    public init(store: MailStore) {
+    /// A largura resolvida que a janela concedeu — entre 320 e 420 conforme a
+    /// faixa. Ao contrário dos outros painéis, esta de fato varia.
+    let listWidth: CGFloat
+
+    public init(store: MailStore, width: CGFloat = MessageList.width) {
         self.store = store
+        self.listWidth = width
     }
 
     /// Formata o rótulo de contagem de mensagens com plural correto.
@@ -60,7 +69,7 @@ public struct MessageList: View {
             header
             list
         }
-        .frame(width: Self.width)
+        .frame(width: listWidth)
         .background(theme.surface.color)
         .hairline(theme.line, edges: .trailing)
     }

@@ -7,49 +7,37 @@ import UNICore
 @Suite("InboxScreen")
 struct InboxScreenTests {
 
-    @Test("soma das larguras dos painéis está correta: 236 + 370 + 262 = 868, deixando 572 para leitor")
-    func panelWidthsSum() {
-        let folderSidebarWidth: CGFloat = 236
-        let messageListWidth: CGFloat = 370
-        let agendaPlaceholderWidth: CGFloat = 262
-        let windowWidth: CGFloat = 1440
+    // Estes testes existiam comparando literal com literal — declaravam
+    // `let messageListWidth: CGFloat = 370` e conferiam se era 370. Passavam com
+    // qualquer coisa na tela. Agora eles atravessam as constantes reais dos
+    // painéis e a `PaneLayout` que os distribui, que é o que pode quebrar.
 
-        let readerWidth = windowWidth - folderSidebarWidth - messageListWidth - agendaPlaceholderWidth
-
-        let totalWidth = folderSidebarWidth + messageListWidth + agendaPlaceholderWidth + readerWidth
-
-        #expect(
-            totalWidth == 1440,
-            "soma das larguras (236 + 370 + 262 + 572) deve ser 1440, obteve \(totalWidth)"
-        )
-
-        #expect(
-            readerWidth == 572,
-            "largura do leitor deve ser 572, obteve \(readerWidth)"
-        )
+    @Test("as constantes dos painéis são as canônicas da PaneLayout")
+    func panelConstantsComeFromPaneLayout() {
+        #expect(FolderSidebar.expandedWidth == PaneLayout.expandedSidebarWidth)
+        #expect(SidebarRail.width == PaneLayout.railWidth)
+        #expect(AgendaRail.width == PaneLayout.agendaWidth)
     }
 
-    @Test("trilha recolhida tem a largura correta: 62")
-    func sidebarRailWidth() {
-        let railWidth: CGFloat = 62
-        #expect(railWidth == 62, "largura da trilha deve ser 62")
+    @Test("em 1440 os quatro painéis somam a janela inteira, com 572 no leitor")
+    func panelWidthsSumAt1440() {
+        let layout = PaneLayout.resolve(width: 1440, wantsSidebar: true, wantsAgenda: true)
+
+        #expect(layout.sidebarExpanded)
+        #expect(layout.agendaVisible)
+
+        let taken = FolderSidebar.expandedWidth
+            + layout.messageListWidth
+            + AgendaRail.width
+        let reader = 1440 - taken
+
+        #expect(taken == 868, "236 + 370 + 262 devem somar 868, obteve \(taken)")
+        #expect(reader == 572, "o leitor deve ficar com 572, obteve \(reader)")
     }
 
-    @Test("barra lateral expandida tem a largura correta: 236")
-    func folderSidebarWidth() {
-        let sidebarWidth: CGFloat = 236
-        #expect(sidebarWidth == 236, "largura da barra lateral expandida deve ser 236")
-    }
-
-    @Test("lista de mensagens tem a largura correta: 370")
-    func messageListWidthTest() {
-        let messageWidth: CGFloat = 370
-        #expect(messageWidth == 370, "largura da lista de mensagens deve ser 370")
-    }
-
-    @Test("agenda placeholder tem a largura correta: 262")
-    func agendaPlaceholderWidthTest() {
-        let agendaWidth: CGFloat = 262
-        #expect(agendaWidth == 262, "largura do placeholder da agenda deve ser 262")
+    @Test("recolhida, a lateral devolve exatamente 174pt ao resto da janela")
+    func railGivesBackTheDifference() {
+        let difference = PaneLayout.expandedSidebarWidth - PaneLayout.railWidth
+        #expect(difference == 174, "236 − 62 = 174, obteve \(difference)")
     }
 }

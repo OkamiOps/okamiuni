@@ -44,23 +44,35 @@ public struct WindowChrome: View {
         }
     }
 
+    /// A largura do campo de busca no protótipo. Aqui é um teto, não uma
+    /// largura: em 1440 sobra espaço e o campo o alcança, ficando idêntico.
+    public static let searchIdealWidth: CGFloat = 400
+
+    /// Abaixo disto o campo deixa de ser usável — o placeholder trunca e o
+    /// "⌘K" encosta no cursor. A partir daqui quem cede é a folga do `HStack`.
+    public static let searchMinimumWidth: CGFloat = 150
+
     @Environment(\.theme) private var theme
     @Binding var workspace: Workspace
     @Binding var query: String
     let accountCount: Int
     let onToggleSidebar: () -> Void
+    let onToggleAgenda: () -> Void
     @State private var sidebarHovering = false
+    @State private var agendaHovering = false
 
     public init(
         workspace: Binding<Workspace>,
         query: Binding<String>,
         accountCount: Int,
-        onToggleSidebar: @escaping () -> Void
+        onToggleSidebar: @escaping () -> Void,
+        onToggleAgenda: @escaping () -> Void
     ) {
         self._workspace = workspace
         self._query = query
         self.accountCount = accountCount
         self.onToggleSidebar = onToggleSidebar
+        self.onToggleAgenda = onToggleAgenda
     }
 
     public var body: some View {
@@ -81,7 +93,13 @@ public struct WindowChrome: View {
             workspaceTabs
 
             searchField
+                // Protótipo: `flex: 1; justify-content: center` em volta do
+                // campo. O campo em si tem uma faixa, não uma largura: em 1440
+                // ele bate no teto de 400 e fica idêntico ao protótipo; numa
+                // janela estreita ele cede antes de espremer as abas.
                 .frame(maxWidth: .infinity)
+
+            agendaToggle
 
             ThemePicker()
         }
@@ -114,6 +132,37 @@ public struct WindowChrome: View {
         .onHover { sidebarHovering = $0 }
         .animation(.easeOut(duration: 0.12), value: sidebarHovering)
         .accessibilityLabel("Mostrar ou esconder a barra lateral")
+    }
+
+    /// O protótipo não tem este controle: nele a agenda está sempre visível
+    /// porque a página só existe em 1440. Aqui ela sai sozinha abaixo de 1360,
+    /// e sem um botão o usuário perderia a função sem meio de recuperá-la.
+    /// O desenho é o do botão da lateral espelhado — mesma caixa de 26×24, mesma
+    /// borda, mesma sombra —, com a barra cheia do lado direito porque é do lado
+    /// direito que a trilha vive.
+    private var agendaToggle: some View {
+        Button(action: onToggleAgenda) {
+            HStack(spacing: 2.5) {
+                RoundedRectangle(cornerRadius: 1)
+                    .strokeBorder(theme.ink4.color, lineWidth: 0.5)
+                    .frame(width: 7, height: 11)
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(theme.ink3.color)
+                    .frame(width: 3, height: 11)
+            }
+            .frame(width: 26, height: 24)
+            .background(theme.btn.color)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(agendaHovering ? theme.accent.color : theme.btnLine.color, lineWidth: 0.5)
+            }
+            .shadow(theme.btnShadow)
+        }
+        .buttonStyle(.plain)
+        .onHover { agendaHovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: agendaHovering)
+        .accessibilityLabel("Mostrar ou esconder a trilha da agenda")
     }
 
     private var workspaceTabs: some View {
@@ -158,7 +207,12 @@ public struct WindowChrome: View {
                 .foregroundStyle(theme.ink4.color)
         }
         .padding(.horizontal, 10)
-        .frame(width: 400, height: 28)
+        // Era `.frame(width: 400)`. Uma largura cravada aqui não encolhe: numa
+        // janela estreita ela empurra as abas e o seletor de tema para fora da
+        // barra. Como faixa, o campo é o primeiro a ceder — e em 1440 sobra
+        // folga de sobra, então ele bate nos 400 do protótipo e não se move.
+        .frame(minWidth: Self.searchMinimumWidth, maxWidth: Self.searchIdealWidth)
+        .frame(height: 28)
         .background(theme.surface.color)
         .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
         .overlay {

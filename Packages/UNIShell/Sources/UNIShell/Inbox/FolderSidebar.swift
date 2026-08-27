@@ -3,13 +3,21 @@ import UNIDesign
 import UNICore
 
 public struct FolderSidebar: View {
-    public static let expandedWidth: CGFloat = 236
+    /// A largura canônica mora em `PaneLayout`, que é quem decide o que cabe.
+    /// Este nome continua existindo porque o resto do shell já o usa — mas ele
+    /// agora é um apelido, não uma segunda fonte da verdade.
+    public static let expandedWidth: CGFloat = PaneLayout.expandedSidebarWidth
 
     @Environment(\.theme) private var theme
     let store: MailStore
 
-    public init(store: MailStore) {
+    /// A largura resolvida que a janela concedeu. O padrão é a canônica, para
+    /// que previews e testes não precisem calcular layout.
+    let width: CGFloat
+
+    public init(store: MailStore, width: CGFloat = PaneLayout.expandedSidebarWidth) {
         self.store = store
+        self.width = width
     }
 
     public var body: some View {
@@ -66,7 +74,7 @@ public struct FolderSidebar: View {
             }
             .padding(16)
         }
-        .frame(width: Self.expandedWidth, alignment: .leading)
+        .frame(width: width, alignment: .leading)
         .background(theme.surface2.color)
         .hairline(theme.line, edges: .trailing)
     }

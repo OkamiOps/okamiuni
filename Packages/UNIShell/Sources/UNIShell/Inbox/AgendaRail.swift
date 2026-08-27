@@ -3,7 +3,8 @@ import UNIDesign
 import UNICore
 
 public struct AgendaRail: View {
-    public static let width: CGFloat = 262
+    /// Apelido da largura canônica, que mora em `PaneLayout`.
+    public static let width: CGFloat = PaneLayout.agendaWidth
 
     /// Converte minutos do dia em pontos na trilha.
     /// Faixa: 480 (08:00) a 1140 (19:00) = 660 minutos = 514.8 pontos
@@ -70,16 +71,21 @@ public struct AgendaRail: View {
     let now: Int  // minutos desde meia-noite, injetado para teste
     let headerDate: Date  // injetado para teste; default é hoje
 
+    /// A largura resolvida que a janela concedeu.
+    let railWidth: CGFloat
+
     public init(
         store: MailStore,
         layout: Layout = Layout(),
         now: Int? = nil,
-        headerDate: Date? = nil
+        headerDate: Date? = nil,
+        width: CGFloat = PaneLayout.agendaWidth
     ) {
         self.store = store
         self.layout = layout
         self.now = now ?? Self.minutesNow()
         self.headerDate = headerDate ?? Date.now
+        self.railWidth = width
     }
 
     private static func minutesNow() -> Int {
@@ -107,7 +113,7 @@ public struct AgendaRail: View {
             }
             pendingSection
         }
-        .frame(width: Self.width)
+        .frame(width: railWidth)
         .background(theme.surface2.color)
         .hairline(theme.line, edges: .leading)
     }

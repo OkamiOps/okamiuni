@@ -3,13 +3,18 @@ import UNIDesign
 import UNICore
 
 public struct SidebarRail: View {
-    public static let width: CGFloat = 62
+    /// Apelido da largura canônica, que mora em `PaneLayout`.
+    public static let width: CGFloat = PaneLayout.railWidth
 
     @Environment(\.theme) private var theme
     let store: MailStore
 
-    public init(store: MailStore) {
+    /// A largura resolvida que a janela concedeu.
+    let railWidth: CGFloat
+
+    public init(store: MailStore, width: CGFloat = PaneLayout.railWidth) {
         self.store = store
+        self.railWidth = width
     }
 
     /// Abreviação de três a quatro letras que a trilha usa no lugar do rótulo
@@ -58,7 +63,7 @@ public struct SidebarRail: View {
                 }
             }
         }
-        .frame(width: Self.width, alignment: .center)
+        .frame(width: railWidth, alignment: .center)
         .padding(.vertical, 14)
         .background(theme.surface2.color)
         .hairline(theme.line, edges: .trailing)
