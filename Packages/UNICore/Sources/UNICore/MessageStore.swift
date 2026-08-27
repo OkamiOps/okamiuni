@@ -8,17 +8,23 @@ public protocol MailSource: Sendable {
     func accounts() async throws -> [Account]
     func messages() async throws -> [Message]
     func agenda() async throws -> [AgendaItem]
+    func pendingItems() async throws -> [PendingItem]
 }
 
 public struct InMemoryMailSource: MailSource {
     private let _accounts: [Account]
     private let _messages: [Message]
     private let _agenda: [AgendaItem]
+    private let _pendingItems: [PendingItem]
 
-    public init(accounts: [Account], messages: [Message], agenda: [AgendaItem]) {
+    public init(
+        accounts: [Account], messages: [Message], agenda: [AgendaItem],
+        pendingItems: [PendingItem] = []
+    ) {
         self._accounts = accounts
         self._messages = messages
         self._agenda = agenda
+        self._pendingItems = pendingItems
     }
 
     /// A agenda entra pelo **mês inteiro**, não só por hoje nem só pela semana.
@@ -33,13 +39,15 @@ public struct InMemoryMailSource: MailSource {
         InMemoryMailSource(
             accounts: Fixtures.accounts,
             messages: Fixtures.messages,
-            agenda: Fixtures.month
+            agenda: Fixtures.month,
+            pendingItems: Fixtures.pendingItems
         )
     }
 
     public func accounts() async throws -> [Account] { _accounts }
     public func messages() async throws -> [Message] { _messages }
     public func agenda() async throws -> [AgendaItem] { _agenda }
+    public func pendingItems() async throws -> [PendingItem] { _pendingItems }
 }
 
 @MainActor
@@ -48,6 +56,7 @@ public final class MailStore {
     public private(set) var accounts: [Account] = []
     public private(set) var messages: [Message] = []
     public private(set) var agenda: [AgendaItem] = []
+    public private(set) var pendingItems: [PendingItem] = []
 
     public private(set) var bucket: TriageBucket = .today
     public private(set) var selectedMessageID: String?
@@ -68,10 +77,12 @@ public final class MailStore {
             let newAccounts = try await source.accounts()
             let newMessages = try await source.messages()
             let newAgenda = try await source.agenda().sorted { $0.startMinute < $1.startMinute }
+            let newPendingItems = try await source.pendingItems()
             // Só agora, se todos chegaram com sucesso:
             accounts = newAccounts
             messages = newMessages
             agenda = newAgenda
+            pendingItems = newPendingItems
             loadError = nil
             // O protótipo abre com uma mensagem já aberta no leitor
             // (`state = { … selected: 'm1' … }`, a primeira da caixa "hoje").
@@ -104,6 +115,15 @@ public final class MailStore {
     public var visibleAgenda: [AgendaItem] {
         guard let selectedAccountID else { return agenda }
         return agenda.filter { $0.accountID == selectedAccountID }
+    }
+
+    /// `pendingItems` depois do mesmo filtro de conta que `visibleAgenda`
+    /// aplica. É o que a seção "Vindo do email" da trilha deve ler: seguindo
+    /// o padrão de `visibleAgenda`, uma caixa selecionada não pode deixar a
+    /// seção citando um item de outra conta.
+    public var visiblePendingItems: [PendingItem] {
+        guard let selectedAccountID else { return pendingItems }
+        return pendingItems.filter { $0.accountID == selectedAccountID }
     }
 
     // MARK: - Agenda a partir de um email

@@ -385,6 +385,10 @@ struct StoreTests {
                 }
                 return Fixtures.agenda
             }
+
+            func pendingItems() async throws -> [PendingItem] {
+                Fixtures.pendingItems
+            }
         }
 
         let source = TogglableSource()

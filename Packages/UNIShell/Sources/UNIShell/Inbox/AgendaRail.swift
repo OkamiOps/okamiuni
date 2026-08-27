@@ -106,12 +106,18 @@ public struct AgendaRail: View {
         return d.hour * 60 + d.minute
     }
 
-    /// Só o dia de hoje. Desde que a semana entrou, `store.agenda` carrega os
-    /// sete dias numa lista só — é isso que deixa a janela 04 achar um
-    /// compromisso de quarta pelo `id`. A trilha mostra um dia, então filtra:
-    /// sem isto ela empilharia a semana inteira sobre hoje.
-    private var todayItems: [AgendaItem] {
-        WeekAgenda.items(on: 0, in: store.agenda)
+    /// Só o dia de hoje, na conta selecionada. Desde que a semana entrou,
+    /// `store.agenda` carrega os sete dias numa lista só — é isso que deixa a
+    /// janela 04 achar um compromisso de quarta pelo `id`. A trilha mostra um
+    /// dia, então filtra por dia; e como toda superfície de agenda,
+    /// `store.visibleAgenda` já filtra por conta antes disso — sem isto a
+    /// trilha continuaria citando compromissos de outra caixa depois de
+    /// clicar numa conta na barra lateral (`MessageStore.swift:98-103`).
+    ///
+    /// `internal`, não `private`: `AgendaRailTests` precisa ler isto para
+    /// provar o filtro sem depender de renderizar pixel.
+    var todayItems: [AgendaItem] {
+        WeekAgenda.items(on: 0, in: store.visibleAgenda)
     }
 
     public var body: some View {
@@ -286,7 +292,10 @@ public struct AgendaRail: View {
         .padding(.trailing, layout.eventTrailing)
     }
 
-    private var pendingSection: some View {
+    /// `internal`, não `private`: `AgendaRailTests` precisa renderizar isto
+    /// isoladamente para medir a folga entre os itens, sem o ruído da trilha
+    /// de horas acima.
+    var pendingSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Vindo do email")
                 .font(theme.mono.font(size: 9.5))
@@ -297,23 +306,31 @@ public struct AgendaRail: View {
                 .padding(.top, 13)
                 .padding(.bottom, 9)
 
-            ForEach(Fixtures.pendingItems, id: \.id) { item in
-                let tint = store.account(item.accountID)
-                    .flatMap { TokenColor(css: theme.isDark ? $0.tintDarkHex : $0.tintLightHex) } ?? theme.ink2
+            // O `.padding(.bottom, 15)` tem de envolver a lista inteira, não o
+            // `ForEach`: um modificador aplicado a um `ForEach` vale **por
+            // elemento** no SwiftUI, não uma vez. Com dois itens isso somava
+            // 15pt de folga extra a cada um — a distância entre "Confirmar
+            // call…" e "Renovar domínio…" media 23pt em vez dos 8pt do
+            // protótipo (`4px` de cada item + os `15px` da seção, uma vez só).
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(store.visiblePendingItems, id: \.id) { item in
+                    let tint = store.account(item.accountID)
+                        .flatMap { TokenColor(css: theme.isDark ? $0.tintDarkHex : $0.tintLightHex) } ?? theme.ink2
 
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Circle()
-                        .fill(tint.color)
-                        .frame(width: 5, height: 5)
-                        .padding(.top, 2)
-                    Text(item.text)
-                        .font(theme.sans.font(size: 11.5))
-                        .lineSpacing(5.175)  // line-height 1.45 × 11.5 − 11.5 = 5.175
-                        .foregroundStyle(theme.ink2.color)
-                    Spacer(minLength: 0)
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Circle()
+                            .fill(tint.color)
+                            .frame(width: 5, height: 5)
+                            .padding(.top, 2)
+                        Text(item.text)
+                            .font(theme.sans.font(size: 11.5))
+                            .lineSpacing(5.175)  // line-height 1.45 × 11.5 − 11.5 = 5.175
+                            .foregroundStyle(theme.ink2.color)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 4)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 4)
             }
             .padding(.bottom, 15)
         }
