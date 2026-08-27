@@ -103,6 +103,7 @@ public struct SidebarRail: View {
             }
         }
         .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
     }
 
     private func accountMark(_ account: Account) -> some View {
@@ -130,6 +131,7 @@ public struct SidebarRail: View {
                 .help(account.address)
         }
         .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
     }
 
     private func opacityMix(_ hexColor: String, _ percentage: Int) -> Color {

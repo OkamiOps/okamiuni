@@ -149,6 +149,7 @@ public struct MessageList: View {
                                 )
                             }
                             .buttonStyle(.plain)
+                            .focusRing(in: Rectangle())
                             .help("Duplo clique abre em janela")
                             // O clique simples continua sendo o do `Button`
                             // (selecionar); este gesto só acrescenta o duplo,

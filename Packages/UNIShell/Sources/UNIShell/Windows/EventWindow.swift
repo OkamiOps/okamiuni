@@ -586,6 +586,7 @@ private struct CloseCross: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
         .onHover { hovering = $0 }
     }
 }

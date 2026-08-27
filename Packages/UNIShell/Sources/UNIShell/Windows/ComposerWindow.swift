@@ -526,6 +526,7 @@ private struct MiniToggle: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
     }
 }
 
@@ -551,6 +552,7 @@ private struct AttachButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
         .onHover { hovering = $0 }
         .help("Anexar arquivo")
     }
@@ -579,6 +581,7 @@ private struct AttachmentChip: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .focusRing(in: Rectangle())
         }
         .frame(height: 28)
         .padding(.leading, 11)

@@ -174,6 +174,7 @@ public struct WindowChrome: View {
             .contentShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
         }
         .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall, tint: \.onAccent)
         .accessibilityLabel("Escrever uma nova mensagem")
         .help("Nova mensagem (⌘N)")
     }
@@ -206,6 +207,7 @@ public struct WindowChrome: View {
             .shadow(theme.btnShadow)
         }
         .buttonStyle(.plain)
+        .focusRing(cornerRadius: 6)
         .onHover { sidebarHovering = $0 }
         .animation(.easeOut(duration: 0.12), value: sidebarHovering)
         .accessibilityLabel("Mostrar ou esconder a barra lateral")
@@ -237,6 +239,7 @@ public struct WindowChrome: View {
             .shadow(theme.btnShadow)
         }
         .buttonStyle(.plain)
+        .focusRing(cornerRadius: 6)
         .onHover { agendaHovering = $0 }
         .animation(.easeOut(duration: 0.12), value: agendaHovering)
         .accessibilityLabel("Mostrar ou esconder a trilha da agenda")
@@ -263,6 +266,7 @@ public struct WindowChrome: View {
                         }
                 }
                 .buttonStyle(.plain)
+                .focusRing(cornerRadius: Self.tabCornerRadius(for: theme))
             }
         }
         .padding(2)

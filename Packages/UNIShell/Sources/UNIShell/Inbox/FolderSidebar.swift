@@ -108,6 +108,7 @@ public struct FolderSidebar: View {
             }
         }
         .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
     }
 
     private func accountRow(_ account: Account) -> some View {
@@ -151,6 +152,7 @@ public struct FolderSidebar: View {
             }
         }
         .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
     }
 
     private func opacityMix(_ hexColor: String, _ percentage: Int) -> Color {

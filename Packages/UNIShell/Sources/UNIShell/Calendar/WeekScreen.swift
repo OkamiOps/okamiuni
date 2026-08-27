@@ -350,6 +350,12 @@ public struct WeekScreen: View {
             eventCard(item)
         }
         .buttonStyle(.plain)
+        .focusRing(in: UnevenRoundedRectangle(
+            topLeadingRadius: 0,
+            bottomLeadingRadius: 0,
+            bottomTrailingRadius: theme.radiusSmall,
+            topTrailingRadius: theme.radiusSmall
+        ))
         .help("Abre o compromisso")
     }
 

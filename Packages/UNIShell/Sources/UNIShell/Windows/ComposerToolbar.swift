@@ -353,6 +353,7 @@ struct ComposerToolbar: View {
                         .frame(width: 22, height: 22)
                 }
                 .buttonStyle(.plain)
+                .focusRing(cornerRadius: theme.radiusSmall)
                 .help(swatch.name)
             }
         }
@@ -406,6 +407,8 @@ struct SegmentButton: View {
     /// Falso deixa o botão **apagado e não clicável**. É a única alternativa
     /// aceita a agir sobre a seleção: controle mudo é defeito.
     var enabled = true
+    /// Força o anel de foco. Só para verificação fora da tela — ver `FocusRing`.
+    var debugFocused = false
     let action: () -> Void
 
     var body: some View {
@@ -441,6 +444,9 @@ struct SegmentButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        // O item do grupo não tem cápsula própria: a curva é do grupo inteiro,
+        // que recorta as pontas. O anel acompanha — retângulo, recortado junto.
+        .focusRing(in: Rectangle(), forced: debugFocused)
         .disabled(!enabled)
         .help(title)
     }
@@ -542,6 +548,8 @@ struct SoloToolButton: View {
     let title: String
     let on: Bool
     var enabled = true
+    /// Força o anel de foco. Só para verificação fora da tela — ver `FocusRing`.
+    var debugFocused = false
     let action: () -> Void
 
     var body: some View {
@@ -559,6 +567,7 @@ struct SoloToolButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall, forced: debugFocused)
         .disabled(!enabled)
         .help(title)
     }

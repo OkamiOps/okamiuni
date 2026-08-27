@@ -733,6 +733,7 @@ private struct BandRecipientRow<Trailing: View>: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
+            .focusRing(in: Circle())
             .help("Tirar \(contact.display)")
         }
         .frame(height: 22)
@@ -834,6 +835,7 @@ private struct QuickSuggestionRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .focusRing(in: Rectangle())
         .onHover { hovering = $0 }
     }
 }
@@ -864,6 +866,7 @@ private struct MiniGlyphButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
         .onHover { hovering = $0 }
         .help(help)
     }
@@ -895,6 +898,7 @@ private struct MiniToggleButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
         .help(on ? "Fechar a linha \(label)" : "Abrir a linha \(label)")
     }
 }
@@ -923,6 +927,7 @@ private struct AttachGlyphButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
         .disabled(!enabled)
         .onHover { hovering = $0 }
         .help(help)
@@ -964,6 +969,7 @@ private struct BandAttachmentChip: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .focusRing(in: Rectangle())
             .help("Tirar \(name)")
         }
         .frame(height: 26)
@@ -1015,6 +1021,7 @@ private struct SuggestedDraftPicker: View {
         // `.button` + `.plain` deixa o rótulo passar como está escrito.
         .menuStyle(.button)
         .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
         .menuIndicator(.hidden)
         .fixedSize()
         .help("Preencher a resposta com um rascunho sugerido")

@@ -140,6 +140,7 @@ public struct ReaderPane: View {
                         .shadow(theme.btnShadow)
                 }
                 .buttonStyle(.plain)
+                .focusRing(cornerRadius: theme.radiusSmall)
             }
 
             // O gancho para a janela 03. Fica junto da fila de triagem porque é
@@ -155,6 +156,7 @@ public struct ReaderPane: View {
                     .contentShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
             }
             .buttonStyle(.plain)
+            .focusRing(cornerRadius: theme.radiusSmall, tint: \.onAccent)
             .keyboardShortcut("r", modifiers: .command)
 
             Spacer(minLength: 8)
@@ -271,6 +273,8 @@ public struct ReaderPane: View {
                             .shadow(color: .black.opacity(0.18), radius: 1, x: 0, y: 1)
                     }
                     .buttonStyle(.plain)
+                    // Raio 8 literal, o mesmo do `clipShape` acima.
+                    .focusRing(cornerRadius: 8, tint: \.onAccent)
                     .fixedSize()
                 }
             }

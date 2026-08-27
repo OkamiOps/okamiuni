@@ -29,6 +29,8 @@ struct ChromeButton<Label: View>: View {
     /// Corpo do rótulo, do protótipo. `nil` deixa o rótulo escolher o próprio.
     var labelSize: CGFloat? = 12.5
     var labelWeight: Font.Weight = .medium  // CSS 550
+    /// Força o anel de foco. Só para verificação fora da tela — ver `FocusRing`.
+    var debugFocused = false
     let action: () -> Void
     @ViewBuilder var label: Label
 
@@ -50,7 +52,14 @@ struct ChromeButton<Label: View>: View {
                 .contentShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
         }
         .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall, forced: debugFocused, tint: focusTint)
         .onHover { hovering = $0 }
+    }
+
+    /// Sobre o acento cheio, um anel no próprio acento seria invisível: ali o
+    /// contraste é a tinta que o design já usa em cima dele.
+    private var focusTint: KeyPath<Theme, TokenColor> {
+        appearance == .accent ? \.onAccent : \.accent
     }
 
     private var foreground: Color {
@@ -100,6 +109,7 @@ extension ChromeButton where Label == Text {
         weight: Font.Weight = .medium,
         height: CGFloat = 32,
         horizontalPadding: CGFloat = 14,
+        debugFocused: Bool = false,
         action: @escaping () -> Void
     ) {
         self.appearance = appearance
@@ -107,6 +117,7 @@ extension ChromeButton where Label == Text {
         self.horizontalPadding = horizontalPadding
         self.labelSize = size
         self.labelWeight = weight
+        self.debugFocused = debugFocused
         self.action = action
         self.label = Text(title)
     }

@@ -120,6 +120,33 @@ nenhuma, então datas saem em inglês ali e em português no app. Injetar `\.loc
 porque esses formatadores não passam pelo ambiente. É inconsistência real, marcada para
 conserto — não relate como defeito de aparência.
 
+## O anel de foco do sistema é invisível no harness, por construção
+
+Três relatos de "contorno duplo" nos botões, com print: borda nítida, **folga**,
+segundo anel, nos quatro lados. Uma causa era sombra `inset` desenhada por fora
+(`4993e2e`). A que sobrava é o **anel de foco do macOS**, que o AppKit desenha
+justamente com folga em volta do controle.
+
+Ele nunca apareceu em renderização nenhuma nossa, e não por descuido: o AppKit só
+desenha o anel quando a janela é a **janela-chave** de um app **ativo**. A janela
+do `Render` fica a 50.000pt fora da tela e nunca é nem uma coisa nem outra.
+
+**Consequência de método:** "não reproduzi no harness" não é evidência de que o
+defeito não existe quando o estado que o dispara depende de foco, de janela-chave
+ou de app ativo. Nesses casos o caminho é o mesmo de `debugOpenPanel`: um
+parâmetro interno que força o estado, e comparar os dois desenhos.
+
+O protótipo não tem anel de foco (`cursor: default`, nenhum `outline`), mas
+apagar sem repor cega quem navega por teclado. `Support/FocusRing.swift` mata o
+do sistema com `focusEffectDisabled()` e desenha o nosso **dentro** da forma do
+controle, encostado na borda — a folga é a assinatura do defeito, não a segunda
+linha.
+
+Armadilha achada quebrando o teste de propósito: em `tinta`, `surface` e `btn`
+diferem 0,02. Um teste que procure "o fundo reaparece entre a borda e o anel"
+passa com 3pt de folga, porque as duas cores caem na mesma tolerância. Meça
+**distância**, não igualdade de cor.
+
 ## `Font` do SwiftUI é opaca — texto rico precisa de um atributo próprio por baixo
 
 `AttributedString` num `TextEditor` aceita `\.font`, mas `Font` só se **escreve**: não há

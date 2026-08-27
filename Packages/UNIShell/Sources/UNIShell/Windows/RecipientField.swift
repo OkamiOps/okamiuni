@@ -102,6 +102,7 @@ struct RecipientField: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
+            .focusRing(in: Circle())
         }
         .frame(height: 24)
         .padding(.leading, 9)
@@ -208,6 +209,7 @@ private struct SuggestionRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .focusRing(in: Rectangle())
         .onHover { hovering = $0 }
     }
 }

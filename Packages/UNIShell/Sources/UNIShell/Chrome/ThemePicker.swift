@@ -31,6 +31,7 @@ public struct ThemePicker: View {
             }
         }
         .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
         .accessibilityLabel("Escolher tema, atual \(theme.name)")
         .popover(isPresented: $open, arrowEdge: .bottom) {
             popoverBody
@@ -55,6 +56,7 @@ public struct ThemePicker: View {
                             )
                         }
                         .buttonStyle(.plain)
+                        .focusRing(cornerRadius: theme.radiusSmall)
                     }
                 }
             }
