@@ -53,8 +53,8 @@ public struct InboxScreen: View {
             // Lista de mensagens
             MessageList(store: store)
 
-            // Espaço para o leitor (placeholder discreto)
-            ReaderPlaceholder()
+            // Painel de leitura
+            ReaderPane(store: store, onAddEvent: { _ in })
 
             // Espaço para a agenda (placeholder discreto)
             AgendaPlaceholder()
