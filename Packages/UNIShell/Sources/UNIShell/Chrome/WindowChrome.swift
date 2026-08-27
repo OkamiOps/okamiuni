@@ -50,7 +50,13 @@ public struct WindowChrome: View {
 
     /// A linha média da barra, onde tudo o que ela desenha fica centrado — e,
     /// desde a Task S, também os semáforos nativos.
-    public static let centerY: CGFloat = 29
+    /// A linha média da fileira de controles, contada do topo da janela.
+    ///
+    /// **22, a convenção da plataforma**, e não 29, que seria o centro da barra
+    /// de 58pt e é o que o protótipo desenha. Chrome, Claude, VSCode e Codex
+    /// põem em 22; medido no Chrome desta máquina: 22. A barra continua com 58
+    /// e a folga fica embaixo.
+    public static let centerY: CGFloat = TrafficLightLayout.contentCenterFromTop
     /// Onde terminam os semáforos nativos da janela, medido por acessibilidade
     /// numa janela `.hiddenTitleBar`: fechar em x=8, minimizar em x=31, tela cheia
     /// em x=54, todos com 16pt — o último termina em **x=70**.
@@ -124,7 +130,11 @@ public struct WindowChrome: View {
             }
         }
         .padding(.horizontal, 14)
-        .frame(height: Self.height)
+        // O conteúdo vive numa faixa de `2 × 22` no topo da barra, para o
+        // centro de cada controle cair em 22 — a mesma linha dos semáforos.
+        // Ver `TrafficLightLayout.contentCenterFromTop`.
+        .frame(height: TrafficLightLayout.contentCenterFromTop * 2)
+        .frame(height: Self.height, alignment: .top)
         .background(theme.surface2.color)
         .hairline(theme.line, edges: .bottom)
         // Sobe os semáforos nativos para a linha média da barra. Tamanho zero e

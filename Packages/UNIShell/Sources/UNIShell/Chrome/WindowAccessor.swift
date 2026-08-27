@@ -35,8 +35,23 @@ enum TrafficLightLayout {
     /// `origin.y` do botão dentro da barra de título. A barra de título **não**
     /// é invertida — y cresce para cima —, mas como o botão fica centrado o
     /// número é o mesmo contado de qualquer um dos lados.
+    /// Onde a plataforma põe a fileira de controles, contado do topo da janela.
+    ///
+    /// **22, e não o centro da barra.** Centrar numa barra de 58 dá 29, que é o
+    /// que o protótipo desenha — mas o dono do projeto apontou que Chrome,
+    /// Claude, VSCode, Codex e outros põem em 22, e que a nossa ficava
+    /// visivelmente baixa ao lado deles. Medido no Chrome desta máquina: 22.
+    ///
+    /// A regra deste projeto para este caso já estava escrita: onde a medida do
+    /// protótipo brigar com a convenção do macOS, **a plataforma vence**. Os
+    /// semáforos são o exemplo canônico dela.
+    ///
+    /// A barra continua com 58pt; o conteúdo ocupa a faixa de cima e a folga
+    /// fica embaixo, como nesses apps.
+    static let contentCenterFromTop: CGFloat = 22
+
     static func buttonOriginY(barHeight: CGFloat, buttonHeight: CGFloat) -> CGFloat {
-        (barHeight - buttonHeight) / 2
+        barHeight - contentCenterFromTop - buttonHeight / 2
     }
 
     /// Onde o centro do botão cai, contado do topo da janela — a mesma

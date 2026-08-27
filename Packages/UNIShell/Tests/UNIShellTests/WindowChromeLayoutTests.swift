@@ -75,10 +75,10 @@ struct WindowChromeLayoutTests {
     /// Os botões que `NSWindow.standardWindowButton` devolve têm 14pt de lado —
     /// medido na hierarquia de views. O quadro de acessibilidade é maior (16pt),
     /// mas quem posiciona é o `frame`.
-    @Test("na barra de 58pt o semáforo nasce em y=22 e fica com centro em y=29")
+    @Test("na barra de 58pt o semáforo nasce em y=29 e fica com centro em y=22")
     func trafficLightLandsOnTheBarsMidline() {
-        #expect(TrafficLightLayout.buttonOriginY(barHeight: 58, buttonHeight: 14) == 22)
-        #expect(TrafficLightLayout.centerFromTop(barHeight: 58, buttonHeight: 14) == 29)
+        #expect(TrafficLightLayout.buttonOriginY(barHeight: 58, buttonHeight: 14) == 29)
+        #expect(TrafficLightLayout.centerFromTop(barHeight: 58, buttonHeight: 14) == 22)
     }
 
     /// Duas literais independentes que têm de se encontrar: a linha média que a
@@ -86,7 +86,7 @@ struct WindowChromeLayoutTests {
     /// do semáforo produz a partir da altura da barra.
     @Test("o semáforo cai na mesma linha média que os nossos controles")
     func trafficLightMeetsOurControls() {
-        #expect(WindowChrome.centerY == 29)
+        #expect(WindowChrome.centerY == 22)
         #expect(WindowChrome.height == 58)
         let semaphore = TrafficLightLayout.centerFromTop(
             barHeight: WindowChrome.height, buttonHeight: 14
@@ -97,24 +97,30 @@ struct WindowChromeLayoutTests {
         )
     }
 
-    @Test("o resíduo que o dono reclamou era de 13pt")
-    func residualWasThirteenPoints() {
+    /// O semáforo nativo nasce com centro em 16 numa barra de título comum.
+    /// Nós o movemos para 22, que é onde Chrome, Claude, VSCode e Codex põem a
+    /// fileira de controles — e é para lá que a nossa também foi.
+    @Test("o semáforo desce 6pt do padrão nativo para a linha da plataforma")
+    func movesToThePlatformLine() {
         let before = TrafficLightLayout.nativeCenterFromTop
         let after = TrafficLightLayout.centerFromTop(barHeight: 58, buttonHeight: 14)
         #expect(before == 16)
-        #expect(after == 29)
-        #expect(after - before == 13)
+        #expect(after == 22)
+        #expect(after - before == 6)
     }
 
-    /// É por isto que o `NSTitlebarContainerView` precisa crescer junto: um
-    /// `NSView` desenha fora dos próprios limites mas não recebe clique fora
-    /// deles. Empurrado para y=29 dentro da barra nativa de 32pt, o semáforo
-    /// terminaria em y=36 — 4pt fora — e ficaria visível e morto.
-    @Test("empurrar o botão sem crescer a barra o deixaria fora dos limites")
-    func buttonWouldOverflowTheNativeBar() {
+    /// O `NSTitlebarContainerView` ainda precisa crescer junto: um `NSView`
+    /// desenha fora dos próprios limites mas não recebe clique fora deles. Com
+    /// centro em 22, o semáforo termina em y=29 — dentro dos 32pt da barra
+    /// nativa por pouco, mas o container cresce porque os **nossos** controles
+    /// ocupam a faixa inteira e precisam receber clique.
+    @Test("o semáforo cabe na barra nativa, mas a faixa de controles não")
+    func containerMustGrowForOurControls() {
         let bottom = TrafficLightLayout.centerFromTop(barHeight: 58, buttonHeight: 14) + 7
-        #expect(bottom == 36)
-        #expect(bottom > TrafficLightLayout.nativeBarHeight)
+        #expect(bottom == 29)
+        #expect(bottom <= TrafficLightLayout.nativeBarHeight)
+        // A faixa de conteúdo vai até 44 (2 × 22) e passa dos 32 nativos.
+        #expect(TrafficLightLayout.contentCenterFromTop * 2 > TrafficLightLayout.nativeBarHeight)
 
         let originIn58 = TrafficLightLayout.buttonOriginY(barHeight: 58, buttonHeight: 14)
         #expect(originIn58 >= 0)
