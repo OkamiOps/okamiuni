@@ -105,7 +105,8 @@ public struct InboxScreen: View {
                         now: Fixtures.nowMinute,
                         headerDate: Fixtures.today,
                         width: layout.agendaRailWidth,
-                        onOpenEvent: openEventWindow
+                        onOpenEvent: openEventWindow,
+                        onRevealMessage: reveal
                     )
                     .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
@@ -205,7 +206,8 @@ public struct InboxScreen: View {
             now: Fixtures.nowMinute,
             anchor: Fixtures.today,
             wantsSidebar: wantsSidebar,
-            onOpenEvent: openEventWindow
+            onOpenEvent: openEventWindow,
+            onRevealMessage: reveal
         )
     }
 
@@ -224,6 +226,22 @@ public struct InboxScreen: View {
     /// 04 Detalhe do compromisso. Gancho do clique na trilha de agenda.
     private func openEventWindow(_ item: AgendaItem) {
         openWindow(id: UNIWindow.event, value: item.id)
+    }
+
+    /// "Ir para o email de origem", do menu de contexto de um compromisso.
+    ///
+    /// Precisa trocar de aba, e é por isso que ele mora aqui e não no menu:
+    /// `workspace` é estado desta tela. Sem a troca, o item clicado da aba
+    /// Agenda selecionaria a mensagem numa lista que não está na tela — a
+    /// definição de botão mudo.
+    private func reveal(_ messageID: String) {
+        workspace = .mail
+        store.reveal(messageID)
+        // O campo de busca é `@State` daqui e o `MailStore` é a outra ponta do
+        // mesmo valor. `reveal` pode ter limpado a busca do lado de lá; sem
+        // esta linha o campo continuaria escrito com o termo que já não filtra
+        // nada.
+        query = store.query
     }
 
     /// 06 Nova mensagem. Chega por ⌘N (menu do app) e, quando a barra do topo

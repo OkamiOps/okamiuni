@@ -39,6 +39,9 @@ public struct CalendarScreen: View {
     /// regra do email, em `PaneLayout.sidebarExpanded(width:wantsSidebar:)`.
     let wantsSidebar: Bool
     let onOpenEvent: (AgendaItem) -> Void
+    /// "Ir para o email de origem", do menu de contexto do cartão. Sai da aba
+    /// Agenda: quem sabe voltar para o email é o `InboxScreen`.
+    let onRevealMessage: (String) -> Void
 
     /// Qual visão está no ar. Protótipo: `st.calView`, que abre em `'semana'`.
     @State private var mode: CalendarViewMode = .week
@@ -53,11 +56,13 @@ public struct CalendarScreen: View {
         now: Int,
         anchor: Date,
         wantsSidebar: Bool = true,
-        onOpenEvent: @escaping (AgendaItem) -> Void = { _ in }
+        onOpenEvent: @escaping (AgendaItem) -> Void = { _ in },
+        onRevealMessage: @escaping (String) -> Void = { _ in }
     ) {
         self.init(
             store: store, now: now, anchor: anchor, wantsSidebar: wantsSidebar,
-            initialMode: .week, initialPickerOpen: false, onOpenEvent: onOpenEvent
+            initialMode: .week, initialPickerOpen: false, onOpenEvent: onOpenEvent,
+            onRevealMessage: onRevealMessage
         )
     }
 
@@ -77,13 +82,15 @@ public struct CalendarScreen: View {
         wantsSidebar: Bool = true,
         initialMode: CalendarViewMode,
         initialPickerOpen: Bool = false,
-        onOpenEvent: @escaping (AgendaItem) -> Void = { _ in }
+        onOpenEvent: @escaping (AgendaItem) -> Void = { _ in },
+        onRevealMessage: @escaping (String) -> Void = { _ in }
     ) {
         self.store = store
         self.now = now
         self.anchor = anchor
         self.wantsSidebar = wantsSidebar
         self.onOpenEvent = onOpenEvent
+        self.onRevealMessage = onRevealMessage
         _mode = State(initialValue: initialMode)
         _pickerOpen = State(initialValue: initialPickerOpen)
     }
@@ -144,12 +151,14 @@ public struct CalendarScreen: View {
         case .day:
             DayScreen(
                 store: store, now: now, anchor: anchor,
-                dayOffset: selectedDayOffset, onOpenEvent: onOpenEvent
+                dayOffset: selectedDayOffset, onOpenEvent: onOpenEvent,
+                onRevealMessage: onRevealMessage
             )
         case .week:
             WeekScreen(
                 store: store, now: now, anchor: anchor,
-                focusOffset: selectedDayOffset, onOpenEvent: onOpenEvent
+                focusOffset: selectedDayOffset, onOpenEvent: onOpenEvent,
+                onRevealMessage: onRevealMessage
             )
         case .month:
             MonthScreen(
@@ -158,7 +167,8 @@ public struct CalendarScreen: View {
                 onOpenDay: { offset in
                     selectedDayOffset = offset
                     mode = .day
-                }
+                },
+                onRevealMessage: onRevealMessage
             )
         }
     }

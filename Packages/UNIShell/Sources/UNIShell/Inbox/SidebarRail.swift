@@ -105,6 +105,17 @@ public struct SidebarRail: View {
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall)
+        // A trilha é a mesma barra lateral, recolhida — e o menu tem de ser o
+        // mesmo. Um menu que só existisse na versão larga faria a ação sumir
+        // exatamente quando a janela aperta e o rótulo já não cabe.
+        .uniContextMenu(
+            ContextMenus.bucketRow(
+                bucket,
+                unread: store.unreadCount(in: bucket, accountID: store.selectedAccountID),
+                accountID: store.selectedAccountID
+            ),
+            store: store
+        )
     }
 
     private func accountMark(_ account: Account) -> some View {
@@ -133,6 +144,14 @@ public struct SidebarRail: View {
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall)
+        .uniContextMenu(
+            ContextMenus.accountRow(
+                account,
+                isFiltered: active,
+                unread: store.unreadCount(in: .all, accountID: account.id)
+            ),
+            store: store
+        )
     }
 
     private func opacityMix(_ hexColor: String, _ percentage: Int) -> Color {

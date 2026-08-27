@@ -157,6 +157,15 @@ public struct MessageList: View {
                             .simultaneousGesture(
                                 TapGesture(count: 2).onEnded { onOpenWindow(message) }
                             )
+                            // Botão direito na linha. O conteúdo é dado —
+                            // `ContextMenus.messageRow` — e muda com o estado
+                            // da mensagem: "Marcar como não lida" só aparece
+                            // em mensagem lida, e "Mover para" não oferece a
+                            // caixa em que ela já está.
+                            .uniContextMenu(
+                                ContextMenus.messageRow(message),
+                                store: store
+                            )
                         }
                     } header: {
                         // Protótipo: `padding: 9px 16px 5px;` e `font-size: 9.5px`.

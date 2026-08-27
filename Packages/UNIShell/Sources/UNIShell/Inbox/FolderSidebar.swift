@@ -110,6 +110,17 @@ public struct FolderSidebar: View {
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall)
+        // O menu da caixa tem um item só, e ele some quando não há o que
+        // marcar — caixa toda lida não abre menu nenhum, em vez de abrir um
+        // com a linha desabilitada dizendo o contrário do contador ao lado.
+        .uniContextMenu(
+            ContextMenus.bucketRow(
+                bucket,
+                unread: store.unreadCount(in: bucket, accountID: store.selectedAccountID),
+                accountID: store.selectedAccountID
+            ),
+            store: store
+        )
     }
 
     private func accountRow(_ account: Account) -> some View {
@@ -161,6 +172,16 @@ public struct FolderSidebar: View {
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall)
+        .uniContextMenu(
+            ContextMenus.accountRow(
+                account,
+                isFiltered: active,
+                // A conta inteira, não a caixa aberta: a linha da conta não
+                // pertence a caixa nenhuma.
+                unread: store.unreadCount(in: .all, accountID: account.id)
+            ),
+            store: store
+        )
     }
 
     private func opacityMix(_ hexColor: String, _ percentage: Int) -> Color {

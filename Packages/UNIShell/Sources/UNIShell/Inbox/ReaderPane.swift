@@ -61,6 +61,15 @@ public struct ReaderPane: View {
                         .padding(.bottom, 28)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
+                // Botão direito no corpo. Fica no bloco que rola, não no
+                // cabeçalho: lá em cima cada botão da fila de triagem já tem
+                // o seu alvo, e um menu por cima deles roubaria o clique.
+                //
+                // `contentShape` porque a coluna do texto mede 500pt e o
+                // painel mede mais: sem ela o clique fora do parágrafo cai no
+                // fundo e não acha menu nenhum.
+                .contentShape(Rectangle())
+                .uniContextMenu(ContextMenus.reader(message), store: store)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 

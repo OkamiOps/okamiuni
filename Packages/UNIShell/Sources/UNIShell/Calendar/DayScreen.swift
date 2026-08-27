@@ -95,6 +95,9 @@ public struct DayScreen: View {
     /// Qual dia está no ar, em dias a partir de `anchor`.
     let dayOffset: Int
     let onOpenEvent: (AgendaItem) -> Void
+    /// "Ir para o email de origem", do menu de contexto do cartão. Recebe o id
+    /// da mensagem; quem sabe levar o leitor até ela é o `InboxScreen`.
+    let onRevealMessage: (String) -> Void
 
     public init(
         store: MailStore,
@@ -102,7 +105,8 @@ public struct DayScreen: View {
         now: Int,
         anchor: Date,
         dayOffset: Int,
-        onOpenEvent: @escaping (AgendaItem) -> Void = { _ in }
+        onOpenEvent: @escaping (AgendaItem) -> Void = { _ in },
+        onRevealMessage: @escaping (String) -> Void = { _ in }
     ) {
         self.store = store
         self.layout = layout
@@ -110,6 +114,7 @@ public struct DayScreen: View {
         self.anchor = anchor
         self.dayOffset = dayOffset
         self.onOpenEvent = onOpenEvent
+        self.onRevealMessage = onRevealMessage
     }
 
     private var items: [AgendaItem] {
@@ -256,6 +261,11 @@ public struct DayScreen: View {
         // hoje — num outro dia "já passou" não quer dizer nada.
         .opacity(showsNow && item.endMinute < now ? 0.5 : 1)
         .help("Abre o compromisso")
+        .uniContextMenu(
+            AgendaContextMenu.entries(for: item, store: store, anchor: anchor),
+            store: store,
+            onReveal: onRevealMessage
+        )
     }
 
     /// O host da conta, como o protótipo escreve (`acc: ACC[e.a].host`). Conta

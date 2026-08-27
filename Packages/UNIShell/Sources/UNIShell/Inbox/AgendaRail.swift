@@ -79,13 +79,18 @@ public struct AgendaRail: View {
     /// `onOpen: () => this.openEvent(...)`.
     let onOpenEvent: (AgendaItem) -> Void
 
+    /// "Ir para o email de origem", do menu de contexto do cartão. Recebe o id
+    /// da mensagem; quem sabe levar o leitor até ela é o `InboxScreen`.
+    let onRevealMessage: (String) -> Void
+
     public init(
         store: MailStore,
         layout: Layout = Layout(),
         now: Int? = nil,
         headerDate: Date? = nil,
         width: CGFloat = PaneLayout.agendaWidth,
-        onOpenEvent: @escaping (AgendaItem) -> Void = { _ in }
+        onOpenEvent: @escaping (AgendaItem) -> Void = { _ in },
+        onRevealMessage: @escaping (String) -> Void = { _ in }
     ) {
         self.store = store
         self.layout = layout
@@ -93,6 +98,7 @@ public struct AgendaRail: View {
         self.headerDate = headerDate ?? Date.now
         self.railWidth = width
         self.onOpenEvent = onOpenEvent
+        self.onRevealMessage = onRevealMessage
     }
 
     private static func minutesNow() -> Int {
@@ -222,6 +228,13 @@ public struct AgendaRail: View {
             topTrailingRadius: theme.radiusSmall
         ))
         .help("Abre o compromisso")
+        // O mesmo menu das três visões da agenda. A trilha mostra sempre
+        // hoje, então o dia do compromisso é o do cabeçalho.
+        .uniContextMenu(
+            AgendaContextMenu.entries(for: item, store: store, anchor: headerDate),
+            store: store,
+            onReveal: onRevealMessage
+        )
     }
 
     private func eventCard(_ item: AgendaItem) -> some View {

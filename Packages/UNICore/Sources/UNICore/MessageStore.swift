@@ -158,6 +158,33 @@ public final class MailStore {
         markRead(id)
     }
 
+    /// Traz uma mensagem para a tela, custe o que custar em filtros.
+    ///
+    /// É o destino de "Ir para o email de origem", no menu de um compromisso.
+    /// Selecionar sozinho não bastaria: o leitor mostraria a mensagem e a lista
+    /// ao lado não a teria, porque a caixa aberta, o filtro de conta ou a busca
+    /// a escondem. "Ir para" que deixa a lista noutro lugar é meia ação.
+    ///
+    /// Desfaz só o que **de fato** esconde a mensagem — filtro de outra conta,
+    /// caixa que não a contém, busca que não casa. Um filtro que já a mostrava
+    /// permanece, para a pessoa não perder o recorte em que estava.
+    ///
+    /// `id` desconhecido não mexe em nada.
+    public func reveal(_ messageID: String) {
+        guard let message = messages.first(where: { $0.id == messageID }) else { return }
+
+        if let filtered = selectedAccountID, filtered != message.accountID {
+            selectedAccountID = nil
+        }
+        if !bucket.contains(message) {
+            bucket = message.bucket
+        }
+        if !query.trimmingCharacters(in: .whitespaces).isEmpty, !matches(message, query) {
+            query = ""
+        }
+        select(message: messageID)
+    }
+
     /// Move a **mensagem** de caixa, sem mexer na caixa que a lista está
     /// mostrando. É o que os botões de triagem do leitor fazem no protótipo:
     /// `setState({ moved: { [sel.id]: a.id } })` altera a mensagem selecionada,
@@ -204,17 +231,57 @@ public final class MailStore {
     }
 
     private func markRead(_ id: String) {
-        guard let index = messages.firstIndex(where: { $0.id == id }),
-              !messages[index].isRead else { return }
-        let m = messages[index]
-        messages[index] = Message(
-            id: m.id, accountID: m.accountID, from: m.from, receivedAt: m.receivedAt,
-            subject: m.subject, snippet: m.snippet, body: m.body, tags: m.tags,
-            bucket: m.bucket, isRead: true, summary: m.summary,
-            detectedEvent: m.detectedEvent,
-            // Idem: ler não muda o dia em que ela chegou nem o que ela diz.
-            dayOffset: m.dayOffset, replyHints: m.replyHints
-        )
+        setRead(true, for: id)
+    }
+
+    // MARK: - Estado de leitura
+
+    /// Marca uma mensagem como lida ou **não lida**.
+    ///
+    /// A metade "não lida" é a única ação dos menus de contexto que não tinha
+    /// caminho nenhum no app antes — `markRead` era privado e só chegava por
+    /// `select(message:)`, que é de mão única. Ler dava para desfazer em
+    /// lugar nenhum.
+    ///
+    /// Não mexe na seleção de propósito: no macOS marcar a mensagem aberta
+    /// como não lida a deixa não lida na lista sem tirá-la da tela. E como
+    /// `select(message:)` só marca lida ao **trocar** de seleção, a mensagem
+    /// que já estava aberta continua não lida até você sair dela.
+    public func setRead(_ isRead: Bool, for messageID: String) {
+        guard let index = messages.firstIndex(where: { $0.id == messageID }),
+              messages[index].isRead != isRead else { return }
+        messages[index] = messages[index].withRead(isRead)
+    }
+
+    /// Percorre uma caixa marcando tudo como lido. `accountID` nulo abrange
+    /// todas as contas; com um id, só a daquela conta.
+    ///
+    /// **Ignora a busca**, ao contrário de `visibleMessages`. "Marcar tudo
+    /// como lido" numa caixa com filtro de texto ativo marcaria só o que
+    /// coube na tela e diria "tudo" — e o contador da barra lateral, que não
+    /// olha a busca, continuaria acusando não lidas logo abaixo do item que
+    /// acabou de dizer que não havia mais.
+    public func markAllRead(in bucket: TriageBucket, accountID: String? = nil) {
+        for index in messages.indices where !messages[index].isRead {
+            let message = messages[index]
+            guard bucket.contains(message) else { continue }
+            if let accountID, message.accountID != accountID { continue }
+            messages[index] = message.withRead(true)
+        }
+    }
+
+    /// Quantas não lidas há numa caixa, com o mesmo recorte de
+    /// `markAllRead(in:accountID:)`.
+    ///
+    /// É o que decide se "Marcar tudo como lido" **entra** no menu: com zero
+    /// não lidas o item some, em vez de aparecer desabilitado dizendo que a
+    /// caixa tem o que marcar.
+    public func unreadCount(in bucket: TriageBucket, accountID: String? = nil) -> Int {
+        messages.filter { message in
+            guard !message.isRead, bucket.contains(message) else { return false }
+            guard let accountID else { return true }
+            return message.accountID == accountID
+        }.count
     }
 
     // MARK: - Rascunhos de resposta

@@ -24,19 +24,24 @@ public struct MonthScreen: View {
     /// cartão do compromisso, e um mês inteiro sem caminho para o dia obriga a
     /// voltar pelo seletor de data.
     let onOpenDay: (Int) -> Void
+    /// "Ir para o email de origem", do menu de contexto do cartão. Recebe o id
+    /// da mensagem; quem sabe levar o leitor até ela é o `InboxScreen`.
+    let onRevealMessage: (String) -> Void
 
     public init(
         store: MailStore,
         anchor: Date,
         focusOffset: Int = 0,
         onOpenEvent: @escaping (AgendaItem) -> Void = { _ in },
-        onOpenDay: @escaping (Int) -> Void = { _ in }
+        onOpenDay: @escaping (Int) -> Void = { _ in },
+        onRevealMessage: @escaping (String) -> Void = { _ in }
     ) {
         self.store = store
         self.anchor = anchor
         self.focusOffset = focusOffset
         self.onOpenEvent = onOpenEvent
         self.onOpenDay = onOpenDay
+        self.onRevealMessage = onRevealMessage
     }
 
     private var weeks: [MonthAgenda.Week] {
@@ -170,6 +175,11 @@ public struct MonthScreen: View {
         .focusRing(in: shape)
         .help("\(event.title) · \(event.rangeLabel)")
         .accessibilityLabel("\(event.title), \(event.rangeLabel)")
+        .uniContextMenu(
+            AgendaContextMenu.entries(for: event, store: store, anchor: anchor),
+            store: store,
+            onReveal: onRevealMessage
+        )
     }
 
     private func numberColor(_ day: MonthAgenda.Day) -> Color {

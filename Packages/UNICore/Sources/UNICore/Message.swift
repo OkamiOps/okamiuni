@@ -105,6 +105,24 @@ public struct Message: Sendable, Hashable, Identifiable {
 }
 
 extension Message {
+    /// A mesma mensagem com outro estado de leitura.
+    ///
+    /// Existe porque `Message` é imutável e reconstruí-la à mão em cada ponto
+    /// que mexe em `isRead` já foi armadilha aqui: `dayOffset` e `replyHints`
+    /// têm valor padrão no `init`, então esquecer de passá-los **compila** —
+    /// e devolve uma mensagem de ontem sob o cabeçalho "Hoje", sem sugestões
+    /// de resposta. Com três chamadores (abrir, marcar não lida, marcar a
+    /// caixa inteira) a chance de repetir o esquecimento triplica.
+    public func withRead(_ isRead: Bool) -> Message {
+        Message(
+            id: id, accountID: accountID, from: from, receivedAt: receivedAt,
+            subject: subject, snippet: snippet, body: body, tags: tags,
+            bucket: bucket, isRead: isRead, summary: summary,
+            detectedEvent: detectedEvent,
+            dayOffset: dayOffset, replyHints: replyHints
+        )
+    }
+
     /// Só para testes e previews.
     public static func preview(
         id: String = "m1",

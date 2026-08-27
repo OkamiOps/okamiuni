@@ -98,6 +98,9 @@ public struct WeekScreen: View {
     var focusOffset: Int = 0
     /// Clicar num compromisso abre a janela 04.
     let onOpenEvent: (AgendaItem) -> Void
+    /// "Ir para o email de origem", do menu de contexto do cartão. Recebe o id
+    /// da mensagem; quem sabe levar o leitor até ela é o `InboxScreen`.
+    let onRevealMessage: (String) -> Void
 
     public init(
         store: MailStore,
@@ -105,7 +108,8 @@ public struct WeekScreen: View {
         now: Int? = nil,
         anchor: Date? = nil,
         focusOffset: Int = 0,
-        onOpenEvent: @escaping (AgendaItem) -> Void = { _ in }
+        onOpenEvent: @escaping (AgendaItem) -> Void = { _ in },
+        onRevealMessage: @escaping (String) -> Void = { _ in }
     ) {
         self.store = store
         self.layout = layout
@@ -113,6 +117,7 @@ public struct WeekScreen: View {
         self.anchor = anchor ?? Date.now
         self.focusOffset = focusOffset
         self.onOpenEvent = onOpenEvent
+        self.onRevealMessage = onRevealMessage
     }
 
     private static func minutesNow() -> Int {
@@ -277,6 +282,11 @@ public struct WeekScreen: View {
             topTrailingRadius: theme.radiusSmall
         ))
         .help("Abre o compromisso")
+        .uniContextMenu(
+            AgendaContextMenu.entries(for: item, store: store, anchor: anchor),
+            store: store,
+            onReveal: onRevealMessage
+        )
     }
 
     private func eventCard(_ item: AgendaItem) -> some View {
