@@ -65,6 +65,10 @@ public final class MailStore {
             messages = newMessages
             agenda = newAgenda
             loadError = nil
+            // O protótipo abre com uma mensagem já aberta no leitor
+            // (`state = { … selected: 'm1' … }`, a primeira da caixa "hoje").
+            // O estado vazio fica reservado para uma caixa de fato vazia.
+            selectDefaultMessage()
         } catch {
             // Em erro, nenhuma propriedade muda; o estado anterior continua válido.
             loadError = error.localizedDescription
@@ -86,6 +90,21 @@ public final class MailStore {
     private func matches(_ message: Message, _ term: String) -> Bool {
         [message.from.name, message.from.address, message.subject, message.snippet]
             .contains { $0.localizedCaseInsensitiveContains(term) }
+    }
+
+    /// Aponta o leitor para a primeira mensagem da visão atual.
+    ///
+    /// Só age quando a seleção corrente não está mais na visão (ou não existe),
+    /// então recarregar não tira o usuário da mensagem que ele estava lendo.
+    /// A escolha sai sempre de `visibleMessages`, então a seleção padrão nunca
+    /// aponta para fora do que a lista mostra — e numa caixa vazia ela é `nil`,
+    /// que é quando o estado vazio do leitor deve aparecer.
+    private func selectDefaultMessage() {
+        let visible = visibleMessages
+        if let current = selectedMessageID, visible.contains(where: { $0.id == current }) {
+            return
+        }
+        selectedMessageID = visible.first?.id
     }
 
     public var selectedMessage: Message? {

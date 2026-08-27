@@ -18,16 +18,27 @@ public struct FolderSidebar: View {
                 VStack(alignment: .leading, spacing: 0) {
                     // Seção "Fluxo"
                     sectionHeader("Fluxo", padding: EdgeInsets(top: 0, leading: 16, bottom: 7, trailing: 16))
-                    ForEach(TriageBucket.allCases, id: \.self) { bucket in
-                        bucketRow(bucket)
+                    // Protótipo: a lista tem `padding: 0 8px; gap: 1px`, e cada
+                    // linha tem os seus próprios `padding: 0 8px`. É essa soma
+                    // que põe o rótulo da pasta na mesma coluna do "FLUXO", em
+                    // 16pt — sem ela a linha nasce em 8 e o realce sangra até a
+                    // borda da barra.
+                    VStack(alignment: .leading, spacing: 1) {
+                        ForEach(TriageBucket.allCases, id: \.self) { bucket in
+                            bucketRow(bucket)
+                        }
                     }
+                    .padding(.horizontal, 8)
 
                     // Seção "Caixas"
                     if !store.accounts.isEmpty {
                         sectionHeader("Caixas", padding: EdgeInsets(top: 22, leading: 16, bottom: 7, trailing: 16))
-                        ForEach(store.accounts) { account in
-                            accountRow(account)
+                        VStack(alignment: .leading, spacing: 2) {  // protótipo: gap: 2px
+                            ForEach(store.accounts) { account in
+                                accountRow(account)
+                            }
                         }
+                        .padding(.horizontal, 8)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -98,22 +109,8 @@ public struct FolderSidebar: View {
 
         return Button { store.select(account: account.id) } label: {
             HStack(spacing: 8) {
-                // Chip do host
-                Text(account.host.uppercased())
-                    .font(theme.mono.font(size: 9, weight: .medium))
-                    .tracking(theme.capsTracking(at: 9))
-                    .foregroundStyle(tintTokenColor.color)
-                    .frame(height: 14)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 1.5)
-                    .background {
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(opacityMix(tintColor, active ? 22 : 14))
-                    }
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 4)
-                            .stroke(opacityMix(tintColor, 32), lineWidth: 0.5)
-                    }
+                // Chip do host — o mesmo `chip()` do protótipo que a lista usa.
+                TintChip(label: account.host, tint: tintTokenColor.color, emphasized: active)
 
                 // Endereço
                 Text(account.address)

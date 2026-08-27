@@ -65,20 +65,33 @@ public struct MessageList: View {
         .hairline(theme.line, edges: .trailing)
     }
 
+    /// Protótipo: `height: 40px; padding: 0 16px; align-items: baseline; gap: 8px;
+    /// border-bottom: 0.5px solid var(--line2)` sobre `var(--surface)`, com o
+    /// título em `var(--serif)` 16/600 e a contagem em `var(--mono)` 10.
     private var header: some View {
-        HStack {
+        HStack(spacing: 8) {
             Text(headerTitle)
-                .font(theme.sans.font(size: 12.5, weight: .semibold))
+                .font(theme.serif.font(size: 16, weight: .semibold))
                 .foregroundStyle(theme.ink.color)
-            Spacer()
+                .lineLimit(1)
+            Spacer(minLength: 8)
             Text(Self.messageCountLabel(store.visibleMessages.count))
-                .font(theme.mono.font(size: 9.5))
+                .font(theme.mono.font(size: 10))
                 .foregroundStyle(theme.ink4.color)
+                .fixedSize()
         }
         .padding(.horizontal, 16)
         .frame(height: 40)
-        .background(theme.surface2.color)
-        .hairline(theme.line, edges: .bottom)
+        .background(theme.surface.color)
+        .hairline(theme.line2, edges: .bottom)
+    }
+
+    /// A cor da conta, que a linha usa na barra da borda e no chip do host.
+    /// Sem `switch` sobre provedores: vem do que a conta declarar.
+    private func accountTint(_ account: Account?) -> Color {
+        account
+            .flatMap { TokenColor(css: $0.tint(isDark: theme.isDark))?.color }
+            ?? theme.ink3.color
     }
 
     private var headerTitle: String {
@@ -95,21 +108,25 @@ public struct MessageList: View {
                 ForEach(MessageGroup.build(from: store.visibleMessages)) { group in
                     Section {
                         ForEach(group.messages) { message in
+                            let account = store.account(message.accountID)
                             Button { store.select(message: message.id) } label: {
                                 MessageRow(
                                     message: message,
-                                    accountHost: store.account(message.accountID)?.host ?? "",
+                                    accountHost: account?.host ?? "",
+                                    accountTint: accountTint(account),
                                     isSelected: message.id == store.selectedMessageID
                                 )
                             }
                             .buttonStyle(.plain)
                         }
                     } header: {
+                        // Protótipo: `padding: 9px 16px 5px;` e `font-size: 9.5px`.
                         Text(group.label)
-                            .capsLabel()
+                            .capsLabel(size: 9.5)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 16)
-                            .padding(.vertical, 6)
+                            .padding(.top, 9)
+                            .padding(.bottom, 5)
                             .background(theme.surface.color)
                     }
                 }

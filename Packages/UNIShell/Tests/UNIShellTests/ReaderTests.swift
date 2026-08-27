@@ -5,12 +5,19 @@ import UNICore
 @Suite("ReaderPane")
 struct ReaderTests {
 
-    @Test("sem seleção não há o que ler")
+    /// O estado vazio do leitor ("Nada aqui. Bom sinal.") é para uma caixa
+    /// vazia, não para a abertura do app: o protótipo abre em `selected: 'm1'`.
+    /// Este teste trocou de sentido na Task P junto com esse defeito.
+    @Test("o leitor só fica vazio quando a caixa está vazia")
     @MainActor
-    func noSelection() async {
-        let store = MailStore(source: InMemoryMailSource.fixtures)
-        await store.load()
-        #expect(store.selectedMessage == nil)
+    func emptyOnlyWhenBoxIsEmpty() async {
+        let full = MailStore(source: InMemoryMailSource.fixtures)
+        await full.load()
+        #expect(full.selectedMessage != nil)
+
+        let empty = MailStore(source: InMemoryMailSource(accounts: [], messages: [], agenda: []))
+        await empty.load()
+        #expect(empty.selectedMessage == nil)
     }
 
     @Test("a mensagem m1 traz resumo e compromisso detectado")

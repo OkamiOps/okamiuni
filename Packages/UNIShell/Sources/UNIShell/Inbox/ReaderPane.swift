@@ -27,31 +27,63 @@ public struct ReaderPane: View {
     private func content(_ message: Message) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                triageBar(message)
-                subject(message)
-                sender(message)
+                header(message)
 
                 if let summary = message.summary {
                     summaryCard(summary, event: message.detectedEvent)
                         .padding(.horizontal, 28)
-                        .padding(.top, 14)
+                        // Protótipo: o corpo do leitor tem `padding: 22px 28px 28px`.
+                        .padding(.top, 22)
+                        // Protótipo: `margin-bottom: 24px` no cartão de resumo.
+                        .padding(.bottom, 24)
                 }
 
                 body(message)
-                    .padding(.top, 18)
+                    .padding(.top, message.summary == nil ? 22 : 0)
                     .padding(.bottom, 28)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    private func triageBar(_ message: Message) -> some View {
-        let account = store.account(message.accountID)
-        let accentColor = account
+    /// Protótipo: um bloco só — `padding: 16px 28px 16px;
+    /// border-bottom: 0.5px solid var(--line2); border-left: 3px solid selColor` —
+    /// com a fila de triagem, o assunto e o remetente dentro dele. Aqui isso
+    /// estava partido em três, com a barra colorida e a divisória cercando só a
+    /// fila de triagem e um fundo `surface2` que o protótipo não tem.
+    private func header(_ message: Message) -> some View {
+        let accentColor = accountTint(message)
+
+        return VStack(alignment: .leading, spacing: 0) {
+            triageBar(message)
+                .padding(.bottom, 12)  // protótipo: margin-bottom: 12px
+            subject(message)
+            sender(message)
+                .padding(.top, 10)  // protótipo: margin-top: 10px
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 28)
+        .padding(.vertical, 16)
+        .background(theme.surface.color)
+        .hairline(theme.line2, edges: .bottom)
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(accentColor)
+                .frame(width: 3)
+        }
+    }
+
+    private func accountTint(_ message: Message) -> Color {
+        store.account(message.accountID)
             .flatMap { TokenColor(css: $0.tint(isDark: theme.isDark))?.color }
             ?? theme.accent.color
+    }
 
-        return HStack(spacing: 6) {
+    private func triageBar(_ message: Message) -> some View {
+        let account = store.account(message.accountID)
+        let accentColor = accountTint(message)
+
+        return HStack(spacing: 7) {  // protótipo: gap: 7px
             let triageButtons = [
                 ("Hoje", TriageBucket.today),
                 ("Depois", TriageBucket.later),
@@ -77,50 +109,31 @@ public struct ReaderPane: View {
                                     lineWidth: 0.5
                                 )
                         }
+                        .shadow(theme.btnShadow)
                 }
                 .buttonStyle(.plain)
             }
 
-            Spacer()
+            Spacer(minLength: 8)
 
-            Text(account?.host ?? "")
-                .font(theme.sans.font(size: 11))
-                .foregroundStyle(theme.ink2.color)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 4)
-                .background(theme.btn.color)
-                .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-                .overlay {
-                    RoundedRectangle(cornerRadius: theme.radiusSmall)
-                        .strokeBorder(theme.btnLine.color, lineWidth: 0.5)
-                }
-        }
-        .padding(.horizontal, 28)
-        .padding(.vertical, 16)
-        .background(theme.surface2.color)
-        .hairline(theme.line2, edges: .bottom)
-        .overlay(alignment: .leading) {
-            Rectangle()
-                .fill(accentColor)
-                .frame(width: 3)
+            // Protótipo: `selChipStyle: this.chip(selAcc.c, true)` — o mesmo
+            // chip da barra lateral e da lista, na cor da conta.
+            TintChip(label: account?.host ?? "", tint: accentColor, emphasized: true)
         }
     }
 
     private func subject(_ message: Message) -> some View {
         Text(message.subject)
             .font(theme.serif.font(size: 26, weight: .medium))
-            .tracking(-0.26)
-            .lineSpacing(5.72)
+            .tracking(-0.01 * 26)   // letter-spacing: -0.01em a 26pt = -0.26pt
+            .lineSpacing(0.22 * 26)  // line-height: 1.22 × 26 − 26 = 5.72
             .foregroundStyle(theme.ink.color)
-            .padding(.horizontal, 28)
-            .padding(.top, 16)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func sender(_ message: Message) -> some View {
-        let account = store.account(message.accountID)
-        let tint = account
-            .flatMap { TokenColor(css: $0.tint(isDark: theme.isDark))?.color }
-            ?? theme.accent.color
+        let tint = accountTint(message)
 
         return HStack(spacing: 10) {
             Text(message.from.initials)
@@ -134,18 +147,46 @@ public struct ReaderPane: View {
                         .strokeBorder(tint.opacity(0.30), lineWidth: 0.5)
                 )
 
-            VStack(alignment: .leading, spacing: 1) {
-                Text(message.from.display)
-                    .font(theme.sans.font(size: 12.5, weight: .semibold))
-                    .foregroundStyle(theme.ink.color)
-                Text(message.receivedAt, format: .dateTime.day().month(.abbreviated).hour().minute())
-                    .font(theme.mono.font(size: 10.5))
-                    .foregroundStyle(theme.ink4.color)
-            }
-            Spacer()
+            // Protótipo: nome e email na **mesma linha** (nome em `ink`/590,
+            // email em `ink3`), com o carimbo empurrado para a direita por
+            // `margin-left: auto`. Aqui o carimbo estava embaixo do nome.
+            Text(Self.senderLine(
+                name: message.from.name,
+                address: message.from.address,
+                ink: theme.ink.color,
+                ink3: theme.ink3.color
+            ))
+            .font(theme.sans.font(size: 12.5))
+            .lineLimit(1)
+
+            Spacer(minLength: 10)
+
+            Text(message.receivedAt, format: .dateTime.day().month(.abbreviated).hour().minute())
+                .font(theme.mono.font(size: 10.5))
+                .foregroundStyle(theme.ink4.color)
+                .fixedSize()
         }
-        .padding(.horizontal, 28)
-        .padding(.top, 10)
+    }
+
+    /// "Marina Duarte · marina@clientepremium.com" com o nome em `ink` e o
+    /// endereço em `ink3`, como o protótipo faz com dois `<span>`.
+    nonisolated static func senderLine(
+        name: String,
+        address: String,
+        ink: Color,
+        ink3: Color
+    ) -> AttributedString {
+        var line = AttributedString(name)
+        line.foregroundColor = ink
+        var strong = AttributeContainer()
+        strong.inlinePresentationIntent = .stronglyEmphasized
+        line.mergeAttributes(strong)
+
+        guard !address.isEmpty else { return line }
+        var tail = AttributedString(" · \(address)")
+        tail.foregroundColor = ink3
+        line.append(tail)
+        return line
     }
 
     private func summaryCard(_ summary: String, event: DetectedEvent?) -> some View {
@@ -179,7 +220,9 @@ public struct ReaderPane: View {
                 }
             }
         }
-        .padding(15)
+        // Protótipo: `padding: 15px 17px`.
+        .padding(.vertical, 15)
+        .padding(.horizontal, 17)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(theme.accentSoft.color)
         .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))

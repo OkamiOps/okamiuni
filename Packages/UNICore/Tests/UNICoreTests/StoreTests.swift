@@ -130,6 +130,60 @@ struct StoreTests {
         #expect(store.selectedMessage == nil)
     }
 
+    // MARK: - Seleção padrão (Task P, defeito 2)
+
+    @Test("load() abre a primeira mensagem da caixa, como o protótipo")
+    @MainActor
+    func loadSelectsFirstVisibleMessage() async throws {
+        let store = await loadedStore()
+        let first = try #require(store.visibleMessages.first)
+        #expect(store.selectedMessageID == first.id)
+        // O protótipo abre em `selected: 'm1'` — Marina Duarte, a primeira de "hoje".
+        #expect(store.selectedMessage?.from.name == "Marina Duarte")
+    }
+
+    @Test("a seleção padrão nunca aponta para fora de visibleMessages")
+    @MainActor
+    func defaultSelectionStaysInsideTheView() async throws {
+        let store = await loadedStore()
+        let selected = try #require(store.selectedMessage)
+        #expect(store.visibleMessages.contains { $0.id == selected.id })
+    }
+
+    @Test("caixa vazia continua sem seleção, para o leitor mostrar o estado vazio")
+    @MainActor
+    func emptyBucketHasNoDefaultSelection() async {
+        // A fonte entrega mensagens, mas nenhuma delas cai na caixa aberta
+        // (o padrão é "Hoje" e todas estão arquivadas). A lista fica vazia,
+        // então o leitor deve mostrar "Nada aqui. Bom sinal." — e não uma
+        // mensagem que a lista não está mostrando.
+        let archivedOnly = Fixtures.messages.filter { $0.bucket == .archived }
+        #expect(archivedOnly.isEmpty == false)  // a premissa do teste
+
+        let store = MailStore(
+            source: InMemoryMailSource(
+                accounts: Fixtures.accounts,
+                messages: archivedOnly,
+                agenda: Fixtures.agenda
+            )
+        )
+        await store.load()
+        #expect(store.bucket == .today)
+        #expect(store.messages.isEmpty == false)  // há mensagem, só não nesta caixa
+        #expect(store.visibleMessages.isEmpty)
+        #expect(store.selectedMessage == nil)
+    }
+
+    @Test("recarregar não tira o usuário da mensagem que ele já tinha aberto")
+    @MainActor
+    func reloadKeepsAnExistingSelection() async throws {
+        let store = await loadedStore()
+        let other = try #require(store.visibleMessages.dropFirst().first)
+        store.select(message: other.id)
+        await store.load()
+        #expect(store.selectedMessageID == other.id)
+    }
+
     @Test("a trilha de agenda vem ordenada por horário")
     @MainActor
     func agendaSorted() async {
