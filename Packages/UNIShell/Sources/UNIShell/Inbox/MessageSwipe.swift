@@ -52,6 +52,76 @@ enum SwipeMotion {
     static let transition: Animation = .easeInOut(duration: 0.18)
 }
 
+/// A trava que segura o clique de soltura depois do arraste.
+///
+/// ## Por que ela existe fora da `View`
+///
+/// Ela guarda o lado engatado (`side`) e um **selo** que diz qual fechamento
+/// está em curso. Estado de `View` não se lê num teste, e o defeito que ela
+/// conserta é de sequência, não de aparência: só uma máquina que se possa
+/// dirigir passo a passo prova que o clique de soltura não seleciona.
+///
+/// ## O defeito
+///
+/// `snapShut()` zerava o `openRowID` compartilhado, e isso reentrava no
+/// `onChange` da **própria linha**: a guarda de lá só perguntava
+/// `opened != message.id`, e `nil` passa nessa pergunta. A linha que acabou de
+/// fechar cancelava o próprio adiamento e se destravava no mesmo ciclo — a
+/// proteção de 0,24s nunca valia para quem a pediu, e na caixa "Tudo" o clique
+/// que solta o arraste selecionava a mensagem arrastada.
+///
+/// A guarda agora distingue as duas coisas: `nil` é o **eco do próprio
+/// fechamento** e não destrava ninguém; só o `id` de **outra** linha destrava.
+/// O selo cobre o resto — um settle atrasado que chegue depois de um novo
+/// engate não tem mais o selo vigente e não destrava nada.
+struct SwipeLatch: Equatable {
+    /// O lado em que o gesto nasceu, ou `nil` se a linha está livre.
+    private(set) var side: SwipeSide?
+    /// Muda a cada transição. O settle adiado só age se o selo ainda for o dele.
+    private(set) var seal: Int = 0
+
+    /// O arraste está em curso ou a linha está aberta — o clique fecha em vez
+    /// de selecionar.
+    var isBlocked: Bool { side != nil }
+
+    /// O gesto engatou de um lado.
+    mutating func engage(_ side: SwipeSide) {
+        self.side = side
+        seal &+= 1
+    }
+
+    /// Fechou por conta própria. **Continua travada** até o `settle` do selo
+    /// devolvido — é essa a janela de 0,24s.
+    mutating func snapShut() -> Int {
+        seal &+= 1
+        return seal
+    }
+
+    /// A janela terminou. Só destrava se nada tiver acontecido no meio-tempo.
+    mutating func settle(_ seal: Int) {
+        guard seal == self.seal else { return }
+        side = nil
+    }
+
+    /// Destrava na hora — o clique deliberado numa linha aberta, ou outra linha
+    /// tomando a vez.
+    mutating func release() {
+        seal &+= 1
+        side = nil
+    }
+
+    /// `openRowID` mudou. Devolve se a linha destravou, para quem chama
+    /// cancelar o adiamento e animar o fechamento.
+    ///
+    /// `nil` é o eco do nosso próprio `snapShut()` e não pode destravar nada:
+    /// era exatamente por aí que a janela de 0,24s se cancelava sozinha.
+    mutating func openRowChanged(to opened: String?, rowID: String) -> Bool {
+        guard let opened, opened != rowID, isBlocked else { return false }
+        release()
+        return true
+    }
+}
+
 struct SwipeRow<Content: View>: View {
 
     @Environment(\.theme) private var theme
@@ -74,14 +144,18 @@ struct SwipeRow<Content: View>: View {
 
     @ViewBuilder let content: (SwipeRowContext) -> Content
 
-    /// O lado em que o gesto **nasceu**. Uma vez lateral, sempre lateral até
-    /// soltar — ver `SwipeGesture.side(translation:locked:configuration:)`.
-    @State private var locked: SwipeSide?
+    /// O lado em que o gesto **nasceu** e a trava que sobrevive ao fechamento.
+    /// Uma vez lateral, sempre lateral até soltar — ver
+    /// `SwipeGesture.side(translation:locked:configuration:)` e `SwipeLatch`.
+    @State private var latch = SwipeLatch()
     @State private var translation: CGSize = .zero
-    /// Segura o `locked` até a animação de fechamento terminar. Sem isso o
+    /// Segura a trava até a animação de fechamento terminar. Sem isso o
     /// clique que solta o arraste chegaria ao `Button` com a linha já
     /// desbloqueada e selecionaria a mensagem que a pessoa acabou de arrastar.
     @State private var settleTask: Task<Void, Never>?
+
+    /// O lado engatado, para quem só quer perguntar isso.
+    private var locked: SwipeSide? { latch.side }
 
     /// O deslocamento que vale para o desenho. Ver `debugTranslation`.
     private var effectiveTranslation: CGSize {
@@ -95,7 +169,7 @@ struct SwipeRow<Content: View>: View {
         )
     }
 
-    private var isBlocked: Bool { locked != nil }
+    private var isBlocked: Bool { latch.isBlocked }
 
     var body: some View {
         content(SwipeRowContext(isBlocked: isBlocked, dismiss: close))
@@ -124,11 +198,12 @@ struct SwipeRow<Content: View>: View {
             .clipped()
         // O arraste roda **junto** com a rolagem, não no lugar dela.
         .simultaneousGesture(drag)
+        // Quem decide se este `onChange` destrava é `SwipeLatch`: `nil` aqui é o
+        // eco do nosso próprio fechamento, não outra linha tomando a vez.
         .onChange(of: openRowID) { _, opened in
-            guard opened != message.id, isBlocked else { return }
+            guard latch.openRowChanged(to: opened, rowID: message.id) else { return }
             settleTask?.cancel()
             withAnimation(SwipeMotion.transition) { translation = .zero }
-            locked = nil
         }
         // A linha aberta não pode sobreviver a uma troca de mensagem na mesma
         // posição da lista — arquivar a de cima faz a de baixo herdar a linha.
@@ -182,9 +257,9 @@ struct SwipeRow<Content: View>: View {
                     configuration: configuration
                 ) else { return }
 
-                if locked == nil {
+                if latch.side == nil {
                     settleTask?.cancel()
-                    locked = side
+                    latch.engage(side)
                     openRowID = message.id
                 }
                 translation = value.translation
@@ -229,12 +304,16 @@ struct SwipeRow<Content: View>: View {
     /// solta o arraste não virar seleção.
     private func snapShut() {
         withAnimation(SwipeMotion.transition) { translation = .zero }
-        if openRowID == message.id { openRowID = nil }
         settleTask?.cancel()
+        let seal = latch.snapShut()
+        // Zerar o `openRowID` reentra no `onChange` desta mesma linha. É por
+        // isso que o selo sai **antes**: quando o eco chega, a trava já sabe
+        // que o fechamento é dela e o ignora.
+        if openRowID == message.id { openRowID = nil }
         settleTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(0.24))
             guard !Task.isCancelled else { return }
-            locked = nil
+            latch.settle(seal)
         }
     }
 
@@ -243,7 +322,7 @@ struct SwipeRow<Content: View>: View {
     private func close() {
         settleTask?.cancel()
         withAnimation(SwipeMotion.transition) { translation = .zero }
-        locked = nil
+        latch.release()
         if openRowID == message.id { openRowID = nil }
     }
 }

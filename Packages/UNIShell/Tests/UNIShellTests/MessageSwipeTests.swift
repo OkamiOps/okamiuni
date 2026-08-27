@@ -571,3 +571,82 @@ struct MessageSwipeTests {
         #expect(MessageList(store: store).swipeConfiguration == .default)
     }
 }
+
+/// A trava de 0,24s que segura o clique de soltura.
+///
+/// ## O defeito
+///
+/// `snapShut()` zera o `openRowID` compartilhado, e isso reentra no `onChange`
+/// da **própria linha**. A guarda de lá só perguntava `opened != message.id`, e
+/// `nil` passa nessa pergunta: a linha cancelava o próprio adiamento e se
+/// destravava no mesmo ciclo. A proteção nunca valia para quem a pediu, e na
+/// caixa "Tudo" o clique que solta o arraste selecionava a mensagem arrastada.
+///
+/// Aqui a sequência é dirigida passo a passo — arraste engata, `snapShut`
+/// fecha, o eco do próprio fechamento chega, e dentro da janela a linha tem de
+/// continuar travada. Com a guarda antiga de volta (`nil` destravando), o
+/// terceiro `#expect` cai.
+@Suite("Trava pós-arraste")
+struct SwipeLatchTests {
+
+    @Test("o eco do próprio fechamento não cancela a janela de 0,24s")
+    func selfCloseDoesNotCancelTheWindow() {
+        var latch = SwipeLatch()
+        latch.engage(.trailing)
+        #expect(latch.isBlocked)
+
+        // snapShut() → o `openRowID` vira nil → o `onChange` da própria linha
+        // recebe esse nil.
+        let seal = latch.snapShut()
+        // `#expect` não chama membro `mutating` no lugar: o resultado sai antes.
+        let releasedByOwnEcho = latch.openRowChanged(to: nil, rowID: "m1")
+        #expect(releasedByOwnEcho == false)
+        #expect(
+            latch.isBlocked,
+            "dentro da janela a linha tem de continuar travada — o clique fecha, não seleciona"
+        )
+
+        // Passada a janela, o adiamento destrava.
+        latch.settle(seal)
+        #expect(latch.isBlocked == false)
+    }
+
+    @Test("outra linha abrindo destrava esta na hora")
+    func anotherRowOpeningReleasesThisOne() {
+        var latch = SwipeLatch()
+        latch.engage(.leading)
+        let released = latch.openRowChanged(to: "m2", rowID: "m1")
+        #expect(released)
+        #expect(latch.isBlocked == false)
+    }
+
+    @Test("a própria linha aparecendo como aberta não destrava nada")
+    func ownIDDoesNotRelease() {
+        var latch = SwipeLatch()
+        latch.engage(.leading)
+        let released = latch.openRowChanged(to: "m1", rowID: "m1")
+        #expect(released == false)
+        #expect(latch.isBlocked)
+    }
+
+    /// O selo cobre o resto: um adiamento que chegue atrasado, depois de a
+    /// pessoa ter arrastado de novo, não pode destravar o arraste novo.
+    @Test("um adiamento atrasado não destrava o arraste seguinte")
+    func staleSettleIsIgnored() {
+        var latch = SwipeLatch()
+        latch.engage(.trailing)
+        let stale = latch.snapShut()
+        latch.engage(.leading)
+
+        latch.settle(stale)
+        #expect(latch.isBlocked, "o selo velho não vale para o engate novo")
+    }
+
+    @Test("o clique deliberado numa linha aberta destrava na hora")
+    func deliberateCloseReleases() {
+        var latch = SwipeLatch()
+        latch.engage(.trailing)
+        latch.release()
+        #expect(latch.isBlocked == false)
+    }
+}
