@@ -115,4 +115,23 @@ public enum Fixtures {
         AgendaItem(id: "e5", title: "Foco: proposta TransRota",
                    startMinute: 990, endMinute: 1080, accountID: "host"),
     ]
+
+    /// Itens pendentes detectados nos emails, para a seção "Vindo do email" da trilha.
+    public static let pendingItems: [PendingItem] = [
+        PendingItem(id: "p1", text: "Confirmar call de contrato com Marina — quinta 15h", accountID: "zoho"),
+        PendingItem(id: "p2", text: "Renovar domínio meusite.com antes de 06/09", accountID: "host"),
+    ]
+}
+
+/// Um item pendente detectado num email, para agendamento ou follow-up.
+public struct PendingItem: Sendable, Hashable, Identifiable {
+    public let id: String
+    public let text: String
+    public let accountID: String
+
+    public init(id: String, text: String, accountID: String) {
+        self.id = id
+        self.text = text
+        self.accountID = accountID
+    }
 }

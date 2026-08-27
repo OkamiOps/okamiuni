@@ -1,0 +1,136 @@
+import Testing
+import UNICore
+@testable import UNIShell
+
+@Suite("AgendaRail")
+struct AgendaRailTests {
+
+    private let layout = AgendaRail.Layout(
+        pointsPerMinute: 0.78
+    )
+
+    @Test("a trilha tem a largura do design")
+    func width() {
+        #expect(AgendaRail.width == 262)
+    }
+
+    @Test("um compromisso das 09:30 às 10:00 cai na posição certa")
+    func placesEvent() {
+        let standup = AgendaItem(
+            id: "e1", title: "Standup produto",
+            startMinute: 570, endMinute: 600, accountID: "zoho"
+        )
+        // 09:30 é 90 minutos depois das 08:00 (480) -> 90 × 0.78 = 70.2pt
+        #expect(layout.offset(for: standup) == 70.2)
+        // 30 min × 0.78 - 3 = 23.4 - 3 = 20.4pt
+        #expect(layout.height(for: standup) == 20.4)
+    }
+
+    @Test("compromissos curtos ainda têm altura clicável")
+    func minimumHeight() {
+        let tiny = AgendaItem(
+            id: "x", title: "Rápido",
+            startMinute: 600, endMinute: 605, accountID: "zoho"
+        )
+        // 5 min × 0.78 - 3 = 3.9 - 3 = 0.9pt, deve subir para 42 (tight threshold)
+        #expect(layout.height(for: tiny) == 42)
+    }
+
+    @Test("a trilha cobre a faixa inteira do dia (480 a 1140)")
+    func totalHeight() {
+        // 1140 - 480 = 660 min × 0.78 = 514.8pt
+        #expect(layout.totalHeight == 514.8)
+    }
+
+    @Test("o rótulo de início é HH:MM")
+    func startLabel() {
+        let item = AgendaItem(id: "e", title: "T", startMinute: 570, endMinute: 600, accountID: "z")
+        #expect(item.startLabel == "09:30")
+    }
+
+    @Test("nextUpLabel mostra o compromisso em andamento")
+    func nextUpLabelRunning() {
+        let items = Fixtures.agenda
+        let now = 600  // 10:00, meio do Standup (570-600) e 1:1 (660-705)
+        // Standup rodando, termina às 10:00
+        let label = AgendaRail.nextUpLabel(for: items, now: now)
+        #expect(label == "agora: Standup produto · termina 10:00")
+    }
+
+    @Test("nextUpLabel mostra o próximo compromisso")
+    func nextUpLabelUpcoming() {
+        let items = Fixtures.agenda
+        let now = 630  // 10:30, depois do Standup, antes da 1:1 (660-705)
+        // Próximo em 30 min
+        let label = AgendaRail.nextUpLabel(for: items, now: now)
+        #expect(label == "em 30 min: 1:1 Marina Duarte")
+    }
+
+    @Test("nextUpLabel diz 'nada mais hoje' quando sem eventos restantes")
+    func nextUpLabelNone() {
+        let items = Fixtures.agenda
+        let now = 1100  // 18:20, depois do último (990-1080)
+        let label = AgendaRail.nextUpLabel(for: items, now: now)
+        #expect(label == "nada mais hoje")
+    }
+
+    @Test("nextUpLabel com agenda vazia")
+    func nextUpLabelEmpty() {
+        let items: [AgendaItem] = []
+        let now = 600
+        let label = AgendaRail.nextUpLabel(for: items, now: now)
+        #expect(label == "nada mais hoje")
+    }
+
+    @Test("nextUpLabel no exato início de um compromisso")
+    func nextUpLabelExactStart() {
+        let items = Fixtures.agenda
+        let now = 570  // exatamente 09:30, início do Standup
+        let label = AgendaRail.nextUpLabel(for: items, now: now)
+        #expect(label == "agora: Standup produto · termina 10:00")
+    }
+
+    @Test("nextUpLabel no exato fim de um compromisso")
+    func nextUpLabelExactEnd() {
+        let items = Fixtures.agenda
+        let now = 600  // exatamente 10:00, fim do Standup
+        let label = AgendaRail.nextUpLabel(for: items, now: now)
+        // Já terminou, próximo é 1:1 em 60 min
+        #expect(label == "em 60 min: 1:1 Marina Duarte")
+    }
+
+    @Test("altura mínima é 42 para modo tight")
+    func tightThreshold() {
+        // Evento que dá exatamente na borda: 54 min × 0.78 - 3 = 42.12 - 3 = 39.12 < 42
+        let item = AgendaItem(
+            id: "x", title: "T",
+            startMinute: 500, endMinute: 554, accountID: "z"
+        )
+        #expect(layout.height(for: item) == 42)
+
+        // Evento que não ativa tight: 55 min × 0.78 - 3 = 42.9 - 3 = 39.9 < 42 ainda
+        let item2 = AgendaItem(
+            id: "x", title: "T",
+            startMinute: 500, endMinute: 555, accountID: "z"
+        )
+        #expect(layout.height(for: item2) == 42)
+
+        // Evento maior que 42: 60 min × 0.78 - 3 = 46.8 - 3 = 43.8 > 42
+        let item3 = AgendaItem(
+            id: "x", title: "T",
+            startMinute: 500, endMinute: 560, accountID: "z"
+        )
+        #expect(layout.height(for: item3) == 43.8)
+    }
+
+    @Test("posição não desenha fora da faixa (480-1140)")
+    func offsetOutsideRail() {
+        let early = AgendaItem(id: "x", title: "Cedo", startMinute: 300, endMinute: 400, accountID: "z")
+        let late = AgendaItem(id: "x", title: "Tarde", startMinute: 1200, endMinute: 1300, accountID: "z")
+
+        // Fora da faixa: a lógica de offset continua funcionando, mas a View não desenha
+        // (isso é responsabilidade da View, não do Layout)
+        #expect(layout.offset(for: early) < 0)
+        #expect(layout.offset(for: late) > layout.totalHeight)
+    }
+}

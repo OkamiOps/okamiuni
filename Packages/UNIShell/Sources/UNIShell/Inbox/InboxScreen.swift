@@ -56,8 +56,8 @@ public struct InboxScreen: View {
             // Painel de leitura
             ReaderPane(store: store, onAddEvent: { _ in })
 
-            // Espaço para a agenda (placeholder discreto)
-            AgendaPlaceholder()
+            // Trilha de agenda
+            AgendaRail(store: store)
         }
         .frame(maxHeight: .infinity, alignment: .topLeading)
     }
