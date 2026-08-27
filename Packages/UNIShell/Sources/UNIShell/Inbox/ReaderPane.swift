@@ -161,12 +161,9 @@ public struct ReaderPane: View {
                 Divider().overlay(theme.accentLine.color)
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 0) {
-                        (Text("Compromisso detectado — ")
+                        // Usa interpolação com AttributedString para evitar deprecação
+                        Text(Self.eventLabelFormatted(event.label, ink2: theme.ink2.color, ink: theme.ink.color))
                             .font(theme.sans.font(size: 12.5))
-                            .foregroundStyle(theme.ink2.color)
-                        + Text(event.label)
-                            .font(theme.sans.font(size: 12.5, weight: .semibold))
-                            .foregroundStyle(theme.ink.color))
                     }
                     Spacer(minLength: 8)
                     Button { onAddEvent(event) } label: {
@@ -219,6 +216,27 @@ public struct ReaderPane: View {
                 .foregroundStyle(theme.ink4.color)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+
+    /// Formata o rótulo do evento com cores diferentes para cada parte.
+    /// "Compromisso detectado — " em ink2, seguido de título em ink (semibold).
+    nonisolated private static func eventLabelFormatted(
+        _ label: String,
+        ink2: Color,
+        ink: Color
+    ) -> AttributedString {
+        var result = AttributedString("Compromisso detectado — ")
+        result.foregroundColor = ink2
+
+        var titlePart = AttributedString(label)
+        titlePart.foregroundColor = ink
+        // Aplicar semibold via attributes
+        var attributes = AttributeContainer()
+        attributes.inlinePresentationIntent = .stronglyEmphasized
+        titlePart.mergeAttributes(attributes)
+
+        result.append(titlePart)
+        return result
     }
 }
 

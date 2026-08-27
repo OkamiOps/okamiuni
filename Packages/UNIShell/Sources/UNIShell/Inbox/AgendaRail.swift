@@ -38,15 +38,18 @@ public struct AgendaRail: View {
     let store: MailStore
     let layout: Layout
     let now: Int  // minutos desde meia-noite, injetado para teste
+    let headerDate: Date  // injetado para teste; default é hoje
 
     public init(
         store: MailStore,
         layout: Layout = Layout(),
-        now: Int? = nil
+        now: Int? = nil,
+        headerDate: Date? = nil
     ) {
         self.store = store
         self.layout = layout
         self.now = now ?? Self.minutesNow()
+        self.headerDate = headerDate ?? Date.now
     }
 
     private static func minutesNow() -> Int {
@@ -79,7 +82,7 @@ public struct AgendaRail: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(Date.now, format: .dateTime.weekday(.wide).day().month(.wide))
+            Text(Self.headerDateString(headerDate))
                 .font(theme.serif.font(size: 15, weight: .semibold))
                 .foregroundStyle(theme.ink.color)
             HStack(spacing: 6) {
@@ -221,6 +224,16 @@ public struct AgendaRail: View {
     /// Delega para `AgendaSummary` que é pura (sem isolamento de ator).
     public nonisolated static func nextUpLabel(for items: [AgendaItem], now: Int) -> String {
         AgendaSummary.nextUpLabel(for: items, now: now)
+    }
+
+    /// Formata a data do cabeçalho: "Terça-feira, 25 de agosto"
+    public nonisolated static func headerDateString(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "pt_BR")
+        formatter.dateFormat = "EEEE, d 'de' MMMM"
+        let result = formatter.string(from: date)
+        // Capitalizar a primeira letra do dia da semana
+        return result.prefix(1).uppercased() + result.dropFirst()
     }
 }
 

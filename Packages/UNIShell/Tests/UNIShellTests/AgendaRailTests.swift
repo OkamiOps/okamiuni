@@ -133,4 +133,11 @@ struct AgendaRailTests {
         #expect(layout.offset(for: early) < 0)
         #expect(layout.offset(for: late) > layout.totalHeight)
     }
+
+    @Test("cabeçalho da agenda formata a data corretamente")
+    func headerDateFormatting() {
+        let dateString = AgendaRail.headerDateString(Fixtures.today)
+        // Fixtures.today é terça-feira, 25 de agosto de 2026
+        #expect(dateString == "Terça-feira, 25 de agosto")
+    }
 }
