@@ -39,11 +39,37 @@ public enum ContactDirectory {
         query.trimmingCharacters(in: .whitespaces).isEmpty ? "Mais usados" : "Contatos"
     }
 
+    /// Dobra caixa **e** acento: "marina" acha "Marina", "márina" também, e
+    /// "Cláudia" é achada digitando "claudia".
+    ///
+    /// `locale: nil` de propósito — dobrar contra `Locale.current` faria a
+    /// busca mudar de resultado conforme a máquina, que é a mesma classe de
+    /// defeito do fuso fixado numa fixture.
+    ///
+    /// Era exclusividade da máquina de sugestões da faixa de resposta; a do
+    /// campo de destinatário não dobrava, e as duas conviviam na mesma janela
+    /// discordando. A dobra é o comportamento certo, e agora é o único.
+    public static func fold(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+    }
+
+    /// O contato casa com o trecho digitado?
+    ///
+    /// Procura em **nome, endereço e organização**: digitar "Interno" tem de
+    /// achar quem é do time interno, que é a coluna que o menu mostra à direita
+    /// da linha. Trecho vazio casa com todo mundo — é o estado "Mais usados".
+    ///
+    /// **Esta é a única definição.** `QuickReply.matches` delega para cá.
+    public static func matches(_ contact: DirectoryContact, query: String) -> Bool {
+        let needle = fold(query.trimmingCharacters(in: .whitespaces))
+        guard !needle.isEmpty else { return true }
+        return fold("\(contact.name) \(contact.address) \(contact.org)").contains(needle)
+    }
+
     /// As até cinco linhas do menu.
     ///
-    /// Sem busca, os mais escritos primeiro. Com busca, o trecho é procurado em
-    /// nome, endereço e organização, e a ordem do catálogo é preservada — é o
-    /// que o protótipo faz (`pool.filter(...)`, sem reordenar).
+    /// Sem busca, os mais escritos primeiro. Com busca, a ordem do catálogo é
+    /// preservada — é o que o protótipo faz (`pool.filter(...)`, sem reordenar).
     /// Quem já virou etiqueta no campo sai do menu.
     public static func suggestions(
         matching query: String,
@@ -52,28 +78,25 @@ public enum ContactDirectory {
     ) -> [DirectoryContact] {
         let taken = Set(chosen.map { $0.address.lowercased() })
         let available = pool.filter { !taken.contains($0.address.lowercased()) }
-        let term = query.trimmingCharacters(in: .whitespaces).lowercased()
+        let term = query.trimmingCharacters(in: .whitespaces)
 
         let matched: [DirectoryContact]
         if term.isEmpty {
             matched = available.sorted { $0.frequency > $1.frequency }
         } else {
-            matched = available.filter {
-                "\($0.name) \($0.address) \($0.org)".lowercased().contains(term)
-            }
+            matched = available.filter { matches($0, query: term) }
         }
         return Array(matched.prefix(suggestionLimit))
     }
 
     /// O que "; " ou ", " no fim do texto vira: o primeiro contato que casa com
-    /// o que foi digitado, ou o próprio texto como endereço solto.
+    /// o que foi digitado, ou o próprio texto como endereço solto — um
+    /// destinatário de fora do catálogo tem de poder entrar.
     /// Protótipo: `CONTACTS.find(c => (c.name + ' ' + c.email).includes(raw))`.
     public static func resolve(typed raw: String, in pool: [DirectoryContact]) -> DirectoryContact? {
         let term = raw.trimmingCharacters(in: .whitespaces)
         guard !term.isEmpty else { return nil }
-        let needle = term.lowercased()
-        let hit = pool.first { "\($0.name) \($0.address)".lowercased().contains(needle) }
-        return hit ?? .typed(term)
+        return pool.first { matches($0, query: term) } ?? .typed(term)
     }
 }
 

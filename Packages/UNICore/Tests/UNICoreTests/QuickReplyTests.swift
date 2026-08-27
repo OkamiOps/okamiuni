@@ -122,24 +122,65 @@ struct QuickReplySearchTests {
         )
     }
 
-    @Test("a busca é por nome e email — a organização não conta")
-    func organisationIsNotSearched() {
-        #expect(QuickReply.suggestions(matching: "Parceiro", excluding: [], in: Self.pool).isEmpty)
-        // E o mesmo trecho, quando está no endereço, acha.
+    /// Este teste afirmava o **contrário** — "a organização não conta" — e era
+    /// o par que travava a segunda máquina de sugestão contra a primeira: o
+    /// campo de destinatário da janela cheia procurava na organização e a faixa
+    /// do leitor não, cada uma com um teste exigindo a sua regra. Com
+    /// `ContactDirectory` como única, a faixa passou a procurar na organização
+    /// também, e o teste diz agora o que o app faz.
+    @Test("a busca conta a organização, como no campo de destinatário")
+    func organisationIsSearched() {
+        // "Parceiro" não está no nome nem no endereço do João: só na coluna da
+        // organização, que é o que o menu mostra à direita da linha.
+        #expect(
+            QuickReply.suggestions(matching: "Parceiro", excluding: [], in: Self.pool)
+                .map(\.address) == ["joao@exemplo.pt"]
+        )
+        // E o mesmo trecho, quando está no endereço, continua achando.
         #expect(
             QuickReply.suggestions(matching: "transrota", excluding: [], in: Self.pool)
                 .map(\.address) == ["claudia@transrota.com.br"]
         )
     }
 
-    @Test("sem busca, o menu mostra o catálogo inteiro, na ordem que veio")
+    /// Trecho vazio é o estado "Mais usados" — e agora ele de fato ordena por
+    /// frequência nas duas superfícies. A faixa devolvia a ordem crua do pool.
+    @Test("sem busca, o menu mostra o catálogo inteiro, do mais escrito para o menos")
     func emptyQueryShowsEverything() {
         #expect(
             QuickReply.suggestions(matching: "   ", excluding: [], in: Self.pool)
-                .map(\.address) == Self.pool.map(\.address)
+                .map(\.address) == Self.pool.sorted { $0.frequency > $1.frequency }.map(\.address)
+        )
+        // E a ordem é mesmo por frequência, não a de chegada: Marina (42) vem
+        // antes de Cláudia (19), que no pool está escrita primeiro.
+        #expect(
+            QuickReply.suggestions(matching: "   ", excluding: [], in: Self.pool)
+                .first?.address == "marina@clientepremium.com"
         )
         #expect(QuickReply.menuLabel(query: "   ") == "Mais usados")
         #expect(QuickReply.menuLabel(query: "ma") == "Contatos")
+    }
+
+    /// A dobra de acento era exclusividade desta máquina; agora é a das duas.
+    /// Provado pelo caminho do **campo de destinatário**, que antes não dobrava.
+    @Test("o campo de destinatário passou a dobrar acento, como a faixa")
+    func directoryFoldsAccentsToo() {
+        #expect(
+            ContactDirectory.suggestions(matching: "claudia", excluding: [], in: Self.pool)
+                .map(\.address) == ["claudia@transrota.com.br"]
+        )
+        #expect(
+            ContactDirectory.suggestions(matching: "Luís Inácio", excluding: [], in: Self.pool)
+                .map(\.address) == ["luis.inacio@exemplo.com"]
+        )
+        // E as duas superfícies respondem a mesma coisa para o mesmo trecho.
+        for term in ["claudia", "Luís Inácio", "Parceiro", "transrota", "MARINA"] {
+            #expect(
+                ContactDirectory.suggestions(matching: term, excluding: [], in: Self.pool)
+                    == QuickReply.suggestions(matching: term, excluding: [], in: Self.pool),
+                "as duas máquinas discordam em \(term)"
+            )
+        }
     }
 
     @Test("quem já é etiqueta sai do menu")

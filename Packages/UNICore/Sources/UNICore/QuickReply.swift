@@ -110,23 +110,30 @@ public struct SuggestedDraft: Sendable, Hashable, Identifiable {
 /// morarem aqui.
 public enum QuickReply {
     /// Protótipo: o menu da faixa mostra no máximo cinco linhas.
-    public static let suggestionLimit = 5
+    ///
+    /// Mesmo teto do campo de destinatário, e por delegação: o número estava
+    /// escrito duas vezes, e dois tetos que têm de ser iguais divergem no
+    /// primeiro ajuste.
+    public static var suggestionLimit: Int { ContactDirectory.suggestionLimit }
 
-    /// Dobra caixa **e** acento: "claudia" acha "Cláudia", "MARINA" acha
-    /// "Marina". `locale: nil` de propósito — dobrar contra `Locale.current`
-    /// faria a busca mudar de resultado conforme a máquina, que é a mesma
-    /// classe de defeito do fuso fixado na fixture de "hoje".
+    /// Ver `ContactDirectory.fold`.
     public static func fold(_ text: String) -> String {
-        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+        ContactDirectory.fold(text)
     }
 
-    /// O contato casa com o trecho digitado? Procura em **nome e endereço**,
-    /// os dois campos que o protótipo mostra na linha do menu. Trecho vazio
-    /// casa com todo mundo — é o estado "Mais usados".
+    /// Ver `ContactDirectory.matches`.
+    ///
+    /// Havia aqui uma **segunda** máquina de sugestão, com regras opostas às do
+    /// campo de destinatário da janela cheia: ela dobrava acento e a outra não,
+    /// ela ignorava a organização e a outra procurava nela, e cada uma estava
+    /// travada por um teste que contradizia o da outra. Duas respostas
+    /// diferentes para a mesma pergunta, na mesma janela — digitar "Interno"
+    /// listava quatro contatos na 03 e nenhum na faixa do leitor.
+    ///
+    /// `ContactDirectory` é a canônica. O que sobrou aqui é a delegação, para
+    /// os call sites da faixa não terem de mudar de nome.
     public static func matches(_ contact: DirectoryContact, query: String) -> Bool {
-        let needle = fold(query.trimmingCharacters(in: .whitespaces))
-        guard !needle.isEmpty else { return true }
-        return fold(contact.name).contains(needle) || fold(contact.address).contains(needle)
+        ContactDirectory.matches(contact, query: query)
     }
 
     /// Os contatos que o app conhece, montados a partir do que existe.
@@ -185,16 +192,14 @@ public enum QuickReply {
         }
     }
 
-    /// As até cinco linhas do menu, na ordem do catálogo (que já vem por
-    /// frequência). Quem já virou etiqueta sai da lista.
+    /// As até cinco linhas do menu. Ver `ContactDirectory.suggestions` — é a
+    /// mesma decisão, e agora a mesma implementação.
     public static func suggestions(
         matching query: String,
         excluding chosen: [Contact],
         in pool: [DirectoryContact]
     ) -> [DirectoryContact] {
-        let taken = Set(chosen.map(\.id))
-        let hits = pool.filter { !taken.contains($0.id) && matches($0, query: query) }
-        return Array(hits.prefix(suggestionLimit))
+        ContactDirectory.suggestions(matching: query, excluding: chosen, in: pool)
     }
 
     /// Protótipo: `label: q ? 'Contatos' : 'Mais usados'`.
@@ -202,13 +207,10 @@ public enum QuickReply {
         ContactDirectory.menuLabel(query: query)
     }
 
-    /// O que "; " ou ", " no fim do texto vira: o primeiro contato que casa,
-    /// ou o próprio texto como endereço solto — um destinatário de fora do
-    /// catálogo tem de poder entrar.
+    /// Ver `ContactDirectory.resolve(typed:in:)` — era o segundo par da mesma
+    /// divergência.
     public static func resolve(typed raw: String, in pool: [DirectoryContact]) -> DirectoryContact? {
-        let term = raw.trimmingCharacters(in: .whitespaces)
-        guard !term.isEmpty else { return nil }
-        return pool.first { matches($0, query: term) } ?? .typed(term)
+        ContactDirectory.resolve(typed: raw, in: pool)
     }
 
     /// Acrescenta sem duplicar. Devolve a lista nova em vez de mutar, para a
