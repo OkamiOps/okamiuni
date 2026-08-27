@@ -106,6 +106,49 @@ public final class MailStore {
         return agenda.filter { $0.accountID == selectedAccountID }
     }
 
+    // MARK: - Agenda a partir de um email
+
+    /// "Colocar na agenda", no cartão de resumo do leitor: cria o
+    /// `AgendaItem` que `DetectedEventConversion` deriva do `DetectedEvent`
+    /// da mensagem, e o acrescenta a `agenda`.
+    ///
+    /// `accountID` é sempre o da mensagem de origem, nunca o da conta
+    /// selecionada no momento. Sem isso o compromisso escaparia do filtro que
+    /// `visibleAgenda` aplica: filtrar pela conta errada o esconderia, mesmo
+    /// tendo nascido do email daquela conta — e o filtro por caixa foi pedido
+    /// explicitamente.
+    ///
+    /// O `id` é determinístico
+    /// (`DetectedEventConversion.agendaID(forMessageID:)`), não `UUID()`: um
+    /// segundo clique no mesmo botão recalcula o **mesmo** `id`, e a guarda
+    /// abaixo o recusa em vez de duplicar o compromisso na trilha, no Dia, na
+    /// Semana e no Mês — as quatro superfícies leem esta mesma `agenda`.
+    ///
+    /// Devolve o item criado, ou `nil` quando ele já existia. É o sinal que
+    /// diz ao chamador se há retorno visível **novo** para mostrar; um
+    /// segundo clique não ganha uma segunda confirmação.
+    @discardableResult
+    public func addToAgenda(_ event: DetectedEvent, from message: Message) -> AgendaItem? {
+        let id = DetectedEventConversion.agendaID(forMessageID: message.id)
+        guard !agenda.contains(where: { $0.id == id }) else { return nil }
+
+        let item = DetectedEventConversion.agendaItem(
+            from: event, id: id, accountID: message.accountID, referenceDay: Fixtures.today
+        )
+        agenda.append(item)
+        agenda.sort { $0.startMinute < $1.startMinute }
+        return item
+    }
+
+    /// O "Desfazer" de `addToAgenda`. Tira o item pelo `id` que ela devolveu.
+    ///
+    /// Sem guarda contra `id` ausente: desfazer o que já não está lá — outra
+    /// pessoa apagou por outro caminho, ou "Desfazer" foi clicado duas vezes
+    /// — não é erro, é o mesmo estado a que se pretendia chegar.
+    public func removeFromAgenda(_ id: String) {
+        agenda.removeAll { $0.id == id }
+    }
+
     private func matches(_ message: Message, _ term: String) -> Bool {
         [message.from.name, message.from.address, message.subject, message.snippet]
             .contains { $0.localizedCaseInsensitiveContains(term) }

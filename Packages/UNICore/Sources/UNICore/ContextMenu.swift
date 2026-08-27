@@ -202,10 +202,12 @@ public enum ContextMenus {
     /// - **Copiar link / Copiar endereço de email** — `Message.body` é
     ///   `[String]` de parágrafos sem marcação, e nenhuma das mensagens tem
     ///   URL. Não há o que o clique acerte.
-    /// - **Colocar na agenda** — o `onAddEvent` do leitor é `{ _ in }` no
-    ///   `InboxScreen`: o botão que já existe no cartão de resumo não faz
-    ///   nada, e não há API de escrita na agenda neste marco. Repetir um
-    ///   controle mudo dentro do menu é pior do que não ter o item.
+    /// - **Colocar na agenda** — já é um botão de verdade no cartão de
+    ///   resumo (`ReaderPane.addToAgendaButton`, sobre `MailStore.addToAgenda`).
+    ///   Fica de fora do menu porque o menu não tem onde mostrar a
+    ///   confirmação com "Desfazer" que o clique do cartão devolve — repetir
+    ///   a ação aqui sem o retorno visível seria trocar um botão mudo por um
+    ///   item de menu que finge ter voltado.
     public static func reader(_ message: Message) -> [ContextMenuEntry] {
         var entries: [ContextMenuEntry] = [
             .item(ContextMenuItem("Copiar texto da mensagem", .copy(bodyText(message)))),

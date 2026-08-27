@@ -6,7 +6,6 @@ public struct ReaderPane: View {
     @Environment(\.theme) private var theme
     @Environment(\.displayScale) private var displayScale
     let store: MailStore
-    let onAddEvent: (DetectedEvent) -> Void
     /// Abre a janela 03 (Composer) com esta mensagem citada.
     ///
     /// Dois gatilhos chamam este mesmo fechamento: o botão "Responder" da fila
@@ -15,13 +14,22 @@ public struct ReaderPane: View {
     /// cheia continuar de onde a faixa parou.
     let onReply: (Message) -> Void
 
+    /// O retorno de "Colocar na agenda": qual mensagem, qual item criado, e a
+    /// nota que a confirmação mostra. `nil` a maior parte do tempo — só existe
+    /// enquanto a confirmação está na tela.
+    ///
+    /// Mora aqui, e não como fechamento para fora (como `onReply`), porque
+    /// "Colocar na agenda" não abre janela nem precisa de nada que só o
+    /// `InboxScreen` tenha: é uma mutação de `store`, do mesmo jeito que a
+    /// fila de triagem chama `store.move(_:to:)` direto, sem passar por um
+    /// closure.
+    @State private var agendaReceipt: AgendaAddReceipt?
+
     public init(
         store: MailStore,
-        onAddEvent: @escaping (DetectedEvent) -> Void,
         onReply: @escaping (Message) -> Void = { _ in }
     ) {
         self.store = store
-        self.onAddEvent = onAddEvent
         self.onReply = onReply
     }
 
@@ -35,6 +43,18 @@ public struct ReaderPane: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(theme.surface.color)
+        // O retorno de "Colocar na agenda" some sozinho, mas nunca **antes**
+        // de dar tempo de "Desfazer" — mesma vida útil e mesma reinicialização
+        // por `id` que o retorno de arraste da lista já usa
+        // (`MessageList.receiptLifetime`): uma segunda confirmação troca a
+        // faixa e reinicia a contagem em vez de herdar o resto do relógio da
+        // primeira.
+        .task(id: agendaReceipt?.id) {
+            guard agendaReceipt != nil else { return }
+            try? await Task.sleep(for: MessageList.receiptLifetime)
+            guard !Task.isCancelled else { return }
+            agendaReceipt = nil
+        }
     }
 
     /// Protótipo: três blocos empilhados, e só o do meio rola — cabeçalho
@@ -48,7 +68,7 @@ public struct ReaderPane: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     if let summary = message.summary {
-                        summaryCard(summary, event: message.detectedEvent)
+                        summaryCard(summary, event: message.detectedEvent, message: message)
                             .padding(.horizontal, 28)
                             // Protótipo: o corpo do leitor tem `padding: 22px 28px 28px`.
                             .padding(.top, 22)
@@ -247,7 +267,7 @@ public struct ReaderPane: View {
         return line
     }
 
-    private func summaryCard(_ summary: String, event: DetectedEvent?) -> some View {
+    private func summaryCard(_ summary: String, event: DetectedEvent?, message: Message) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Resumo no dispositivo").capsLabel()
             Text(summary)
@@ -272,23 +292,11 @@ public struct ReaderPane: View {
                             .font(theme.sans.font(size: 12.5))
                     }
                     Spacer(minLength: 8)
-                    Button { onAddEvent(event) } label: {
-                        Text("Colocar na agenda")
-                            .font(theme.sans.font(size: 11.5, weight: .semibold))
-                            .foregroundStyle(theme.onAccent.color)
-                            .frame(height: 26)
-                            .padding(.horizontal, 12)
-                            .background(theme.accent.color)
-                            // Raio 8 literal no protótipo, não `var(--r2)`.
-                            .clipShape(RoundedRectangle(cornerRadius: 8))
-                            // `box-shadow: 0 1px 2px rgba(0,0,0,0.18)` — o blur
-                            // do CSS vale o dobro do raio do SwiftUI.
-                            .shadow(color: .black.opacity(0.18), radius: 1, x: 0, y: 1)
+                    if let agendaReceipt, agendaReceipt.messageID == message.id {
+                        agendaConfirmation(agendaReceipt)
+                    } else {
+                        addToAgendaButton(event, for: message)
                     }
-                    .buttonStyle(.plain)
-                    // Raio 8 literal, o mesmo do `clipShape` acima.
-                    .focusRing(cornerRadius: 8, tint: \.onAccent)
-                    .fixedSize()
                 }
             }
         }
@@ -302,6 +310,104 @@ public struct ReaderPane: View {
             RoundedRectangle(cornerRadius: theme.radiusLarge)
                 .strokeBorder(theme.accentLine.color, lineWidth: Hairline.thickness(displayScale))
         }
+    }
+
+    // MARK: - Colocar na agenda
+
+    /// O compromisso desta mensagem já está em `store.agenda` — não só "o
+    /// clique aconteceu nesta sessão", mas o estado de fato. É contra isto, e
+    /// não contra `agendaReceipt`, que o botão decide se ainda tem o que
+    /// fazer: a confirmação some sozinha depois de
+    /// `MessageList.receiptLifetime`, mas o compromisso continua lá, e um
+    /// terceiro clique — depois da confirmação já ter sumido — não pode
+    /// voltar a parecer um botão comum.
+    private func isOnAgenda(_ message: Message) -> Bool {
+        let id = DetectedEventConversion.agendaID(forMessageID: message.id)
+        return store.agenda.contains { $0.id == id }
+    }
+
+    /// "Colocar na agenda". Protótipo: botão de acento, raio 8 literal,
+    /// `box-shadow: 0 1px 2px rgba(0,0,0,0.18)`.
+    ///
+    /// **A decisão do segundo clique**, e de qualquer clique depois dele:
+    /// desabilitado, com o rótulo trocado para "Na agenda" e o `help`
+    /// dizendo por quê — a mesma dupla que `SwipeActionColumn.isNoOp` usa
+    /// para uma ação que não faria nada. Um botão que continuasse com a
+    /// mesma cara e recusasse em silêncio seria o próprio defeito que esta
+    /// tarefa veio consertar, só que adiado para o segundo clique.
+    private func addToAgendaButton(_ event: DetectedEvent, for message: Message) -> some View {
+        let onAgenda = isOnAgenda(message)
+        return Button { addEvent(event, for: message) } label: {
+            Text(onAgenda ? "Na agenda" : "Colocar na agenda")
+                .font(theme.sans.font(size: 11.5, weight: .semibold))
+                .foregroundStyle(onAgenda ? theme.ink4.color : theme.onAccent.color)
+                .frame(height: 26)
+                .padding(.horizontal, 12)
+                .background(onAgenda ? theme.surface3.color : theme.accent.color)
+                // Raio 8 literal no protótipo, não `var(--r2)`.
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay {
+                    if onAgenda {
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
+                    }
+                }
+                // `box-shadow: 0 1px 2px rgba(0,0,0,0.18)` — o blur do CSS
+                // vale o dobro do raio do SwiftUI. Some junto com o acento:
+                // um botão apagado não pede a mesma sombra de um botão vivo.
+                .shadow(color: onAgenda ? .clear : .black.opacity(0.18), radius: 1, x: 0, y: 1)
+        }
+        .buttonStyle(.plain)
+        .disabled(onAgenda)
+        // Raio 8 literal, o mesmo do `clipShape` acima.
+        .focusRing(cornerRadius: 8, tint: \.onAccent)
+        .fixedSize()
+        .help(onAgenda
+              ? "Colocar na agenda — indisponível: este compromisso já está na agenda"
+              : "Cria o compromisso na agenda, a partir do que a mensagem detectou")
+    }
+
+    /// O retorno de "Colocar na agenda", no idioma da faixa de resposta
+    /// (`QuickReplyBand.closedCard`, "Retomar") e do arraste da lista
+    /// (`SwipeUndoBand`, "Desfazer"): "✓ nota" com um botão que desfaz.
+    private func agendaConfirmation(_ receipt: AgendaAddReceipt) -> some View {
+        HStack(spacing: 8) {
+            Text("✓")
+                .font(theme.sans.font(size: 11.5, weight: .semibold))
+                .foregroundStyle(theme.accentInk.color)
+            Text(receipt.note)
+                .font(theme.sans.font(size: 11.5))
+                .foregroundStyle(theme.ink2.color)
+                .lineLimit(1)
+            ChromeButton(
+                "Desfazer", appearance: .outlined,
+                size: 11.5, height: 26, horizontalPadding: 10
+            ) {
+                undoAddEvent(receipt)
+            }
+            .help("Desfazer: \(receipt.note)")
+        }
+    }
+
+    /// O que o clique faz de verdade: `store.addToAgenda` decide se há
+    /// compromisso novo (devolve o item) ou se é repetição (devolve `nil`,
+    /// primeira e única guarda contra duplicar). Só no primeiro caso nasce
+    /// uma confirmação — um clique que não fez nada não ganha um "✓".
+    private func addEvent(_ event: DetectedEvent, for message: Message) {
+        guard let item = store.addToAgenda(event, from: message) else { return }
+        let stamp = Date.now.formatted(date: .omitted, time: .shortened)
+        withAnimation(SwipeMotion.transition) {
+            agendaReceipt = AgendaAddReceipt(
+                messageID: message.id,
+                itemID: item.id,
+                note: AgendaAddReceipt.note(eventLabel: event.label, stamp: stamp)
+            )
+        }
+    }
+
+    private func undoAddEvent(_ receipt: AgendaAddReceipt) {
+        store.removeFromAgenda(receipt.itemID)
+        withAnimation(SwipeMotion.transition) { agendaReceipt = nil }
     }
 
     private func body(_ message: Message) -> some View {
@@ -357,7 +463,7 @@ public struct ReaderPane: View {
 
 #if os(macOS)
 #Preview {
-    ReaderPane(store: MailStore(source: InMemoryMailSource.fixtures), onAddEvent: { _ in })
+    ReaderPane(store: MailStore(source: InMemoryMailSource.fixtures))
         .environment(ThemeStore())
         .frame(width: 600, height: 600)
 }

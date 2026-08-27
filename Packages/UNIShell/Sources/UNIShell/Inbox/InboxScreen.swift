@@ -94,7 +94,7 @@ public struct InboxScreen: View {
                 )
 
                 // Painel de leitura: fica com tudo o que sobrar.
-                ReaderPane(store: store, onAddEvent: { _ in }, onReply: openComposer)
+                ReaderPane(store: store, onReply: openComposer)
 
                 // Trilha de agenda — o primeiro painel a sair quando aperta.
                 // Ambos (data e minuto) vêm de Fixtures para coerência durante testes

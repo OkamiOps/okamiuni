@@ -431,7 +431,7 @@ struct QuickReplyBandRenderTests {
     }
 
     private func reader(_ store: MailStore) -> some View {
-        ReaderPane(store: store, onAddEvent: { _ in }, onReply: { _ in })
+        ReaderPane(store: store, onReply: { _ in })
             .environment(ThemeStore())
     }
 

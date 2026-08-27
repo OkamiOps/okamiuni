@@ -115,7 +115,9 @@ struct ContextMenuTests {
     func readerHasNoDeadItems() {
         let titles = ContextMenus.reader(message()).titles
 
-        // `onAddEvent` do leitor é `{ _ in }` no `InboxScreen`.
+        // O botão do cartão de resumo existe (`ReaderPane.addToAgendaButton`),
+        // mas o menu não tem onde mostrar a confirmação com "Desfazer" que
+        // ele devolve — ver o comentário de `ContextMenus.reader`.
         #expect(!titles.contains("Colocar na agenda"))
         // `Message.body` é `[String]` sem marcação: não há link a acertar.
         #expect(!titles.contains("Copiar link"))

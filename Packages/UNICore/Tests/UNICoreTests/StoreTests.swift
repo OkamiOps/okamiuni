@@ -632,3 +632,130 @@ struct AgendaAccountFilterTests {
         #expect(store.visibleAgenda.isEmpty)
     }
 }
+
+@Suite("Colocar na agenda")
+@MainActor
+struct AddToAgendaTests {
+
+    private func loaded() async -> MailStore {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        return store
+    }
+
+    /// m1 (Marina Duarte, conta zoho) é a mensagem com `detectedEvent` que o
+    /// design nomeia: "Call de contrato · qui 27, 15:00", 27/08 15:00–16:00.
+    private func messageWithEvent(_ store: MailStore) throws -> (Message, DetectedEvent) {
+        let message = try #require(store.messages.first { $0.id == "m1" })
+        let event = try #require(message.detectedEvent)
+        return (message, event)
+    }
+
+    @Test("cria o compromisso com a conta da mensagem de origem")
+    func usesMessageAccount() async throws {
+        let store = await loaded()
+        let (message, event) = try messageWithEvent(store)
+        #expect(message.accountID == "zoho")
+
+        let item = try #require(store.addToAgenda(event, from: message))
+        #expect(item.accountID == "zoho")
+        #expect(store.agenda.contains { $0.id == item.id })
+    }
+
+    /// É o filtro por caixa que o dono do projeto pediu explicitamente
+    /// (`MailStore.visibleAgenda`): sem `accountID` certo, o item some ao
+    /// filtrar pela própria conta que o criou.
+    @Test("o compromisso continua visível quando a conta de origem é filtrada")
+    func staysVisibleUnderItsOwnAccountFilter() async throws {
+        let store = await loaded()
+        let (message, event) = try messageWithEvent(store)
+        let item = try #require(store.addToAgenda(event, from: message))
+
+        store.select(account: message.accountID)
+        #expect(store.visibleAgenda.contains { $0.id == item.id })
+
+        store.select(account: message.accountID)  // desliga o filtro
+        let otherAccount = try #require(store.accounts.first { $0.id != message.accountID })
+        store.select(account: otherAccount.id)
+        #expect(store.visibleAgenda.contains { $0.id == item.id } == false)
+    }
+
+    /// A conversão bate com a que `DetectedEventConversionTests` trava em
+    /// isolamento — aqui é a integração com o `MailStore` de verdade.
+    @Test("o horário do item bate com o que a mensagem detectou")
+    func matchesDetectedSchedule() async throws {
+        let store = await loaded()
+        let (message, event) = try messageWithEvent(store)
+        let item = try #require(store.addToAgenda(event, from: message))
+
+        #expect(item.dayOffset == 2)      // 25/08 -> 27/08
+        #expect(item.startMinute == 900)  // 15:00
+        #expect(item.endMinute == 960)    // 16:00
+        #expect(item.title == event.label)
+    }
+
+    // MARK: - O segundo clique
+
+    @Test("um segundo clique no mesmo botão não duplica o compromisso")
+    func secondClickDoesNotDuplicate() async throws {
+        let store = await loaded()
+        let (message, event) = try messageWithEvent(store)
+        let before = store.agenda.count
+
+        let first = store.addToAgenda(event, from: message)
+        #expect(first != nil)
+        #expect(store.agenda.count == before + 1)
+
+        let second = store.addToAgenda(event, from: message)
+        #expect(second == nil)
+        #expect(store.agenda.count == before + 1)  // continua em +1, não +2
+    }
+
+    @Test("o id do item criado é o id determinístico da mensagem")
+    func idIsDeterministic() async throws {
+        let store = await loaded()
+        let (message, event) = try messageWithEvent(store)
+        let item = try #require(store.addToAgenda(event, from: message))
+        #expect(item.id == DetectedEventConversion.agendaID(forMessageID: message.id))
+    }
+
+    // MARK: - Desfazer
+
+    @Test("desfazer tira o compromisso da agenda")
+    func undoRemoves() async throws {
+        let store = await loaded()
+        let (message, event) = try messageWithEvent(store)
+        let item = try #require(store.addToAgenda(event, from: message))
+        #expect(store.agenda.contains { $0.id == item.id })
+
+        store.removeFromAgenda(item.id)
+        #expect(store.agenda.contains { $0.id == item.id } == false)
+    }
+
+    /// Desfazer o que já não está lá — clique duplo em "Desfazer", ou alguém
+    /// tirou por outro caminho — não é erro, e devolve ao estado de antes: um
+    /// novo clique em "Colocar na agenda" volta a criar o compromisso.
+    @Test("desfazer duas vezes não é erro, e o compromisso pode voltar a ser criado")
+    func undoTwiceThenRecreate() async throws {
+        let store = await loaded()
+        let (message, event) = try messageWithEvent(store)
+        let item = try #require(store.addToAgenda(event, from: message))
+
+        store.removeFromAgenda(item.id)
+        store.removeFromAgenda(item.id)  // segunda vez: nada para tirar
+        #expect(store.agenda.contains { $0.id == item.id } == false)
+
+        let recreated = try #require(store.addToAgenda(event, from: message))
+        #expect(recreated.id == item.id)
+        #expect(store.agenda.filter { $0.id == item.id }.count == 1)
+    }
+
+    @Test("a agenda continua ordenada por horário depois de um compromisso novo")
+    func staysSorted() async throws {
+        let store = await loaded()
+        let (message, event) = try messageWithEvent(store)
+        _ = store.addToAgenda(event, from: message)
+        let starts = store.agenda.map(\.startMinute)
+        #expect(starts == starts.sorted())
+    }
+}

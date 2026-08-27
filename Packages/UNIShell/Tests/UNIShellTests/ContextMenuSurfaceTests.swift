@@ -94,7 +94,7 @@ struct ContextMenuSurfaceTests {
 
         let surfaces: [(String, AnyView, CGSize)] = [
             ("lista", AnyView(MessageList(store: store)), CGSize(width: 370, height: 600)),
-            ("leitor", AnyView(ReaderPane(store: store, onAddEvent: { _ in })),
+            ("leitor", AnyView(ReaderPane(store: store)),
              CGSize(width: 560, height: 600)),
             ("lateral", AnyView(FolderSidebar(store: store)), CGSize(width: 236, height: 600)),
             ("trilha", AnyView(
