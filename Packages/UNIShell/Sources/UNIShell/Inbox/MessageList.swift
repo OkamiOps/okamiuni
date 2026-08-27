@@ -252,7 +252,10 @@ public struct MessageList: View {
             // `ContextMenus.messageRow` — e muda com o estado da mensagem:
             // "Marcar como não lida" só aparece em mensagem lida, e "Mover
             // para" não oferece a caixa em que ela já está.
-            .uniContextMenu(ContextMenus.messageRow(message), store: store)
+            .uniContextMenu(
+                ContextMenus.messageRow(message, accountAddress: account?.address ?? ""),
+                store: store
+            )
         }
     }
 

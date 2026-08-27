@@ -13,15 +13,23 @@ struct ComposerSeedTests {
 
     /// Remetente de um domínio que não existe nas fixtures: se alguma regra
     /// filtrasse por conta ou provedor, este sumiria.
-    private static func message(subject: String = "Revisão do contrato") -> Message {
+    private static func message(
+        subject: String = "Revisão do contrato",
+        to: [Contact] = [],
+        cc: [Contact] = []
+    ) -> Message {
         Message(
             id: "m-origem", accountID: "qualquer",
             from: Contact(name: "Yuki Tanaka", address: "yuki@example.co.jp"),
             receivedAt: Date(timeIntervalSince1970: 0),
             subject: subject, snippet: "", body: [], tags: [],
-            bucket: .today, isRead: true, summary: nil, detectedEvent: nil
+            bucket: .today, isRead: true, summary: nil, detectedEvent: nil,
+            to: to, cc: cc
         )
     }
+
+    private static let eu = Contact(name: "Ricardo", address: "Ricardo@Empresa.com")
+    private static let time = Contact(name: "Time", address: "time@example.co.jp")
 
     private static let outro = Contact(name: "Ana Ø", address: "ana@nordisk.no")
 
@@ -142,5 +150,90 @@ struct ComposerSeedTests {
         #expect(seed.cc.isEmpty)
         #expect(seed.bcc.isEmpty)
         #expect(seed.attachments.isEmpty)
+    }
+
+    // MARK: - Responder a todos
+
+    @Test("responder a todos abre com remetente, «para» e cópia — menos a conta dona")
+    func replyAllGathersEveryone() {
+        let seed = ComposerSeed.replyAll(
+            to: Self.message(to: [Self.eu, Self.time], cc: [Self.outro]),
+            accountAddress: "ricardo@empresa.com"
+        )
+
+        #expect(seed.to.map(\.address) == [
+            "yuki@example.co.jp",   // o remetente abre a lista
+            "time@example.co.jp",
+            "ana@nordisk.no",
+        ])
+        #expect(seed.subject == "Re: Revisão do contrato")
+    }
+
+    /// O endereço da conta chega em minúsculas do `Account`, mas o `to` da
+    /// mensagem vem escrito como o remetente escreveu. Comparar sem dobrar a
+    /// caixa devolveria o próprio usuário na linha "Para".
+    @Test("a conta dona sai mesmo escrita com maiúsculas diferentes")
+    func replyAllDropsOwnAddressCaseInsensitively() {
+        let seed = ComposerSeed.replyAll(
+            to: Self.message(to: [Self.eu]),
+            accountAddress: "RICARDO@empresa.COM"
+        )
+        #expect(seed.to.map(\.address) == ["yuki@example.co.jp"])
+    }
+
+    @Test("quem aparece duas vezes entra uma só, na primeira posição")
+    func replyAllDeduplicates() {
+        let remetente = Contact(name: "Yuki", address: "YUKI@example.co.jp")
+        let seed = ComposerSeed.replyAll(
+            to: Self.message(to: [remetente, Self.time], cc: [Self.time]),
+            accountAddress: "ricardo@empresa.com"
+        )
+        #expect(seed.to.count == 2)
+        #expect(seed.to.first?.address == "yuki@example.co.jp")
+    }
+
+    /// A pergunta que decide se o item de menu acende. Zero quer dizer que
+    /// responder a todos daria exatamente a mesma janela que responder.
+    @Test("«quantos a mais» é zero numa mensagem que só tem remetente")
+    func replyAllExtrasCountsTheDifference() {
+        let sozinha = Self.message()
+        #expect(ComposerSeed.replyAllExtras(sozinha, accountAddress: "ricardo@empresa.com") == 0)
+
+        let acompanhada = Self.message(to: [Self.eu, Self.time], cc: [Self.outro])
+        #expect(
+            ComposerSeed.replyAllExtras(acompanhada, accountAddress: "ricardo@empresa.com") == 2
+        )
+    }
+
+    @Test("um endereço vazio no `to` não vira destinatário fantasma")
+    func replyAllSkipsEmptyAddresses() {
+        let vazio = Contact(name: "Sem endereço", address: "")
+        let seed = ComposerSeed.replyAll(
+            to: Self.message(to: [vazio]), accountAddress: ""
+        )
+        #expect(seed.to.map(\.address) == ["yuki@example.co.jp"])
+    }
+}
+
+@Suite("A intenção que a cena da janela 03 carrega")
+struct ComposerRouteTests {
+    @Test("responder não tem prefixo: todo valor antigo continua significando o mesmo")
+    func replyKeepsTheBareID() {
+        #expect(ComposerRoute.reply(messageID: "m1").value == "m1")
+        #expect(ComposerRoute.parse("m1") == .reply(messageID: "m1"))
+    }
+
+    @Test("responder a todos e responder à mesma mensagem são duas janelas")
+    func replyAllHasItsOwnValue() {
+        let todos = ComposerRoute.replyAll(messageID: "m1")
+        #expect(todos.value != ComposerRoute.reply(messageID: "m1").value)
+        #expect(ComposerRoute.parse(todos.value) == todos)
+        #expect(todos.messageID == "m1")
+    }
+
+    /// Uma cena restaurada pelo sistema pode chegar sem valor nenhum.
+    @Test("valor vazio é uma resposta simples sem mensagem, nunca um travamento")
+    func emptyValueParsesAsReply() {
+        #expect(ComposerRoute.parse("") == .reply(messageID: ""))
     }
 }

@@ -32,6 +32,9 @@ public enum ContextCommand: Sendable, Hashable {
     /// 03 Composer, respondendo esta mensagem. O mesmo caminho do botão
     /// "Responder" da fila de triagem e do ⌘R.
     case reply(messageID: String)
+    /// 03 Composer com **todo mundo** na linha "Para": remetente, `to` e `cc`
+    /// menos a conta dona. O seed é `ComposerSeed.replyAll`.
+    case replyAll(messageID: String)
     /// Marca lida (`true`) ou não lida (`false`).
     case setRead(messageID: String, isRead: Bool)
     /// Triagem: move a mensagem de caixa.
@@ -85,6 +88,8 @@ public struct MenuShortcut: Sendable, Hashable {
 
     /// O ⌘R que o botão "Responder" do leitor já declara.
     public static let reply = MenuShortcut(key: "r")
+    /// ⇧⌘R, como Mail e Outlook escrevem "Responder a todos".
+    public static let replyAll = MenuShortcut(key: "r", modifiers: [.command, .shift])
 }
 
 // MARK: - Item e entrada
@@ -105,16 +110,26 @@ public struct ContextMenuItem: Sendable, Hashable {
     /// ligado, então nada do que já existia muda de forma.
     public let isEnabled: Bool
 
+    /// O texto do balão de ajuda. Existe por causa da regra que a Task AR
+    /// tornou explícita: **item desabilitado diz por quê**. Um rótulo apagado
+    /// sem explicação é o botão mudo com outra roupa — só que mais frustrante,
+    /// porque parece um defeito do app.
+    ///
+    /// Item aceso normalmente não precisa dele, e por isso ele é opcional.
+    public let help: String?
+
     public init(
         _ title: String,
         _ command: ContextCommand,
         shortcut: MenuShortcut? = nil,
-        isEnabled: Bool = true
+        isEnabled: Bool = true,
+        help: String? = nil
     ) {
         self.title = title
         self.command = command
         self.shortcut = shortcut
         self.isEnabled = isEnabled
+        self.help = help
     }
 }
 
@@ -194,10 +209,14 @@ public enum ContextMenus {
     /// "Encaminhar" **não entra**: a janela 03 só tem os modos `.reply` e
     /// `.new`, e um item que abrisse uma resposta chamada "encaminhar" seria
     /// exatamente o botão mentiroso que a regra do marco proíbe.
-    public static func messageRow(_ message: Message) -> [ContextMenuEntry] {
+    public static func messageRow(
+        _ message: Message,
+        accountAddress: String = ""
+    ) -> [ContextMenuEntry] {
         var entries: [ContextMenuEntry] = [
             .item(ContextMenuItem("Abrir em janela", .openMessageWindow(messageID: message.id))),
             .item(ContextMenuItem("Responder", .reply(messageID: message.id), shortcut: .reply)),
+            .item(replyAllItem(message, accountAddress: accountAddress)),
             .separator,
             .item(readToggle(message)),
         ]
@@ -226,7 +245,10 @@ public enum ContextMenus {
     ///   confirmação com "Desfazer" que o clique do cartão devolve — repetir
     ///   a ação aqui sem o retorno visível seria trocar um botão mudo por um
     ///   item de menu que finge ter voltado.
-    public static func reader(_ message: Message) -> [ContextMenuEntry] {
+    public static func reader(
+        _ message: Message,
+        accountAddress: String = ""
+    ) -> [ContextMenuEntry] {
         var entries: [ContextMenuEntry] = [
             .item(ContextMenuItem("Copiar texto da mensagem", .copy(bodyText(message)))),
         ]
@@ -235,6 +257,7 @@ public enum ContextMenus {
         entries.append(
             .item(ContextMenuItem("Responder", .reply(messageID: message.id), shortcut: .reply))
         )
+        entries.append(.item(replyAllItem(message, accountAddress: accountAddress)))
         if message.bucket != .archived {
             entries.append(
                 .item(ContextMenuItem("Arquivar", .move(messageID: message.id, to: .archived)))
@@ -342,6 +365,31 @@ public enum ContextMenus {
     /// estado corrente: numa mensagem lida o menu oferece "Marcar como não
     /// lida". É a sinalização que o brief pede, e é o que dá para provar sem
     /// abrir menu nenhum.
+    /// "Responder a todos", e a única regra que decide se ele acende.
+    ///
+    /// Ele **não some** quando não há mais ninguém: some seria mentir por
+    /// omissão numa mensagem em que o item é esperado, e o dono do projeto
+    /// pediu paridade com Gmail e Outlook, que sempre o mostram. Aqui ele
+    /// aparece apagado e o `help` diz o motivo — a mensagem não traz mais
+    /// ninguém além do remetente, que é o caso das fixtures antigas (a
+    /// newsletter, o recibo) e de toda mensagem que só foi para você.
+    ///
+    /// A conta dona sai da conta: um menu de superfície que não a conheça
+    /// passa `""`, que não casa com endereço nenhum — nunca com um endereço
+    /// inventado.
+    static func replyAllItem(_ message: Message, accountAddress: String) -> ContextMenuItem {
+        let extras = ComposerSeed.replyAllExtras(message, accountAddress: accountAddress)
+        return ContextMenuItem(
+            "Responder a todos",
+            .replyAll(messageID: message.id),
+            shortcut: .replyAll,
+            isEnabled: extras > 0,
+            help: extras > 0
+                ? "Responder ao remetente e a mais \(extras) \(extras == 1 ? "pessoa" : "pessoas")"
+                : "Esta mensagem não tem mais ninguém além do remetente"
+        )
+    }
+
     static func readToggle(_ message: Message) -> ContextMenuItem {
         message.isRead
             ? ContextMenuItem("Marcar como não lida", .setRead(messageID: message.id, isRead: false))

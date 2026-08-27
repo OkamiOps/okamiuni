@@ -105,6 +105,12 @@ public enum Fixtures {
             ),
             dayOffset: 0,
             replyHints: ["Confirmar quinta 15h", "Pedir mais um dia"]
+            ,
+            // O corpo já diz quem está na conversa: a mensagem é para o
+            // Ricardo e o jurídico dela está em cópia. É o que "Responder a
+            // todos" alcança.
+            to: [Contact(name: "Ricardo Alves", address: "ricardo@empresa.com")],
+            cc: [Contact(name: "Jurídico Cliente Premium", address: "juridico@clientepremium.com")]
         ),
         Message(
             id: "m4", accountID: "zoho",
@@ -126,6 +132,12 @@ public enum Fixtures {
             detectedEvent: nil,
             dayOffset: 0,
             replyHints: ["Aprovar migração", "Renovar 1 ano"]
+            ,
+            to: [Contact(name: "Ricardo Alves", address: "ricardo@empresa.com")],
+            cc: [
+                Contact(name: "Time de Infra", address: "infra@empresa.com"),
+                Contact(name: "Paula Nunes", address: "paula@empresa.com"),
+            ]
         ),
         Message(
             id: "m6", accountID: "host",
@@ -153,6 +165,8 @@ public enum Fixtures {
             ),
             dayOffset: -1,
             replyHints: ["Agendar diagnóstico", "Enviar proposta padrão"]
+            ,
+            to: [Contact(name: "Contato do site", address: "contato@meusite.com")]
         ),
         Message(
             id: "m2", accountID: "host",
@@ -177,6 +191,8 @@ public enum Fixtures {
             ),
             dayOffset: 0,
             replyHints: ["Criar lembrete"]
+            ,
+            to: [Contact(name: "Contato do site", address: "contato@meusite.com")]
         ),
         Message(
             id: "m3", accountID: "gmail",
@@ -195,6 +211,9 @@ public enum Fixtures {
             detectedEvent: nil,
             dayOffset: -1,
             replyHints: ["Responder depois"]
+            ,
+            to: [Contact(name: "Ricardo", address: "ricardo@gmail.com")],
+            cc: [Contact(name: "Camila Sato", address: "camila.sato@gmail.com")]
         ),
         Message(
             id: "m7", accountID: "gmail",

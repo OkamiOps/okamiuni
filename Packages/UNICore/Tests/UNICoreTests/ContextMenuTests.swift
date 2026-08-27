@@ -19,16 +19,22 @@ struct ContextMenuTests {
         address: String = "marina@clientepremium.com",
         bucket: TriageBucket = .today,
         isRead: Bool = false,
-        body: [String] = ["Primeiro", "Segundo"]
+        body: [String] = ["Primeiro", "Segundo"],
+        to: [Contact] = [],
+        cc: [Contact] = []
     ) -> Message {
         Message(
             id: id, accountID: "zoho",
             from: Contact(name: "Marina Duarte", address: address),
             receivedAt: Fixtures.today, subject: subject,
             snippet: "trecho", body: body, tags: [],
-            bucket: bucket, isRead: isRead, summary: nil, detectedEvent: nil
+            bucket: bucket, isRead: isRead, summary: nil, detectedEvent: nil,
+            to: to, cc: cc
         )
     }
+
+    private static let eu = Contact(name: "Ricardo", address: "ricardo@empresa.com")
+    private static let outro = Contact(name: "Jurídico", address: "juridico@cliente.com")
 
     // MARK: - Estado de leitura no rótulo
 
@@ -270,7 +276,7 @@ struct ContextMenuTests {
 
     // MARK: - Atalho
 
-    @Test("o único atalho escrito é o ⌘R que o botão «Responder» já declara")
+    @Test("todo atalho escrito no menu é um atalho que o app de fato escuta")
     func onlyRealShortcutsAreShown() {
         let all = ContextMenus.messageRow(message()) + ContextMenus.reader(message())
         var shortcuts: [String: MenuShortcut] = [:]
@@ -278,8 +284,60 @@ struct ContextMenuTests {
             if let shortcut = item.shortcut { shortcuts[item.title] = shortcut }
         }
 
-        #expect(shortcuts == ["Responder": MenuShortcut(key: "r")])
+        #expect(shortcuts == [
+            "Responder": MenuShortcut(key: "r"),
+            "Responder a todos": MenuShortcut(key: "r", modifiers: [.command, .shift]),
+        ])
         #expect(shortcuts["Responder"]?.label == "⌘R")
+        #expect(shortcuts["Responder a todos"]?.label == "⇧⌘R")
+    }
+
+    // MARK: - Responder a todos
+
+    @Test("«Responder a todos» acende quando há mais alguém além do remetente")
+    func replyAllEnabledWithOthers() {
+        let entries = ContextMenus.messageRow(
+            message(to: [Self.eu], cc: [Self.outro]),
+            accountAddress: Self.eu.address
+        )
+        let item = entries.item("Responder a todos")
+
+        #expect(item?.isEnabled == true)
+        #expect(item?.command == .replyAll(messageID: "m1"))
+        #expect(item?.help == "Responder ao remetente e a mais 1 pessoa")
+    }
+
+    @Test("sem `to` nem `cc` o item aparece apagado — e diz por quê, nunca mudo")
+    func replyAllDisabledWhenAlone() {
+        for entries in [
+            ContextMenus.messageRow(message(), accountAddress: Self.eu.address),
+            ContextMenus.reader(message(), accountAddress: Self.eu.address),
+        ] {
+            let item = entries.item("Responder a todos")
+            // Ele **está** no menu: some seria mentir por omissão num item que
+            // Gmail e Outlook sempre mostram.
+            #expect(item != nil)
+            #expect(item?.isEnabled == false)
+            #expect(item?.help == "Esta mensagem não tem mais ninguém além do remetente")
+        }
+    }
+
+    @Test("uma mensagem só para a própria conta não conta como «todos»")
+    func replyAllIgnoresOwnAddress() {
+        let entries = ContextMenus.messageRow(
+            message(to: [Self.eu]), accountAddress: Self.eu.address
+        )
+        #expect(entries.item("Responder a todos")?.isEnabled == false)
+    }
+}
+
+extension Array where Element == ContextMenuEntry {
+    /// O item de primeiro nível com este rótulo. Existe para os testes lerem o
+    /// menu como quem o lê na tela — e para distinguir "está apagado" de
+    /// "não está lá", que é a diferença que a Task AR passou a exigir.
+    func item(_ title: String) -> ContextMenuItem? {
+        for case .item(let item) in self where item.title == title { return item }
+        return nil
     }
 }
 

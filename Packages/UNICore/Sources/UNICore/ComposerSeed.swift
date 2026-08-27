@@ -93,4 +93,54 @@ public struct ComposerSeed: Sendable, Hashable {
             rich: draft.body
         )
     }
+
+    /// "Responder a todos": o remetente **mais** todo mundo que estava em
+    /// `to` e `cc`, menos a conta que respondeu.
+    ///
+    /// - A conta dona sai por endereço, sem distinguir maiúsculas (`Contact.id`
+    ///   já é o endereço em minúsculas). Responder a todos e mandar um email
+    ///   para si mesmo é o defeito clássico desta ação.
+    /// - Repetido entra uma vez só, e a **primeira** posição vence: o remetente
+    ///   abre a lista, como em qualquer cliente.
+    /// - `cc` do seed fica vazio de propósito. Gmail e Mail devolvem os
+    ///   copiados na linha Cc; aqui a janela 03 só tem uma linha aberta por
+    ///   padrão, e esconder metade dos destinatários numa linha recolhida é a
+    ///   perda em silêncio que `ComposerSeed.cc` documenta. Todos ficam
+    ///   visíveis em "Para".
+    ///
+    /// Sem `to` nem `cc` a lista resultante é só o remetente — igual a
+    /// "Responder". É por isso que quem monta o menu **não** oferece o item
+    /// nesse caso: ver `ContextMenus.replyAllItem`.
+    public static func replyAll(
+        to message: Message,
+        accountAddress: String,
+        draft: ReplyDraft? = nil
+    ) -> ComposerSeed {
+        let base = reply(to: message, draft: draft)
+        let mine = accountAddress.lowercased()
+        var seen: Set<String> = []
+        var everyone: [Contact] = []
+        for person in [message.from] + message.to + message.cc + base.to {
+            guard person.id != mine, !person.address.isEmpty else { continue }
+            guard seen.insert(person.id).inserted else { continue }
+            everyone.append(person)
+        }
+        return ComposerSeed(
+            to: everyone,
+            cc: base.cc,
+            bcc: base.bcc,
+            attachments: base.attachments,
+            subject: base.subject,
+            rich: base.rich
+        )
+    }
+
+    /// Quanta gente "Responder a todos" alcançaria além do remetente.
+    ///
+    /// É a pergunta que decide se o item entra aceso ou apagado, e ela é do
+    /// modelo — não da tela. Zero quer dizer que responder a todos e responder
+    /// dariam a mesma janela.
+    public static func replyAllExtras(_ message: Message, accountAddress: String) -> Int {
+        max(0, replyAll(to: message, accountAddress: accountAddress).to.count - 1)
+    }
 }

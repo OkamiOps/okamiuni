@@ -83,42 +83,29 @@ enum StoreCommand {
     }
 }
 
-/// O modificador que pendura o menu numa superfície.
+/// Executa um `ContextCommand` inteiro — inclusive os que abrem janela e os que
+/// mexem na área de transferência.
 ///
-/// Lê `openWindow` do ambiente em vez de receber fechamentos: as três janelas
-/// que os menus abrem (03, 04, 05) já são cenas com id, e `InboxScreen` chama
-/// exatamente isto. Fechamento sobrou só para `revealMessage`, que precisa
-/// trocar de aba — e só `InboxScreen` sabe qual aba está no ar.
+/// Existe porque o menu de contexto deixou de ser o único chamador: os atalhos
+/// de teclado da Task AR (`MessageShortcuts`) disparam **os mesmos comandos**,
+/// e um segundo `switch` num segundo lugar faria o atalho e o item de menu
+/// divergirem no primeiro conserto — que é exatamente o defeito que
+/// `StoreCommand` já existia para evitar, um nível abaixo.
 ///
-/// A captura é um `overlay`, e a ordem importa: no AppKit o teste de acerto
-/// corre de frente para trás, e só quem está na frente pode devolver `nil` para
-/// o evento seguir para quem está atrás. Como fundo, a `NSView` ficaria atrás
-/// da hospedeira do SwiftUI e nunca veria o clique direito.
-private struct ContextMenuModifier: ViewModifier {
-    @Environment(\.openWindow) private var openWindow
-    @Environment(\.theme) private var theme
-
+/// `openWindow` e `onReveal` entram como valores porque nenhum dos dois é
+/// alcançável daqui: o primeiro é chave de ambiente, o segundo precisa trocar
+/// de aba e só `InboxScreen` sabe qual está no ar.
+@MainActor
+struct MenuCommandRunner {
     let store: MailStore
-    let entries: [ContextMenuEntry]
-    let onReveal: (String) -> Void
+    let openWindow: OpenWindowAction
+    var onReveal: (String) -> Void = { _ in }
+    /// Quem quiser dar retorno visível a um comando o intercepta antes.
+    /// Devolver `true` quer dizer "já cuidei disto"; o runner não repete.
+    var intercept: (ContextCommand) -> Bool = { _ in false }
 
-    func body(content: Content) -> some View {
-        // Menu vazio não é menu: numa superfície sem ação disponível o clique
-        // com o botão direito não deve abrir uma caixa em branco.
-        if entries.isEmpty {
-            content
-        } else {
-            content.overlay {
-                RightClickCatcher { point, window in
-                    ContextMenuPresenter.shared.present(
-                        entries, at: point, in: window, theme: theme
-                    ) { run($0) }
-                }
-            }
-        }
-    }
-
-    private func run(_ command: ContextCommand) {
+    func run(_ command: ContextCommand) {
+        if intercept(command) { return }
         switch command {
         case .openMessageWindow(let messageID):
             openWindow(id: UNIWindow.message, value: messageID)
@@ -128,7 +115,17 @@ private struct ContextMenuModifier: ViewModifier {
             // mensagem no leitor (com a faixa de resposta nela) e a marca como
             // lida, que é o que responder significa em qualquer cliente.
             store.select(message: messageID)
-            openWindow(id: UNIWindow.composer, value: messageID)
+            openWindow(
+                id: UNIWindow.composer,
+                value: ComposerRoute.reply(messageID: messageID).value
+            )
+
+        case .replyAll(let messageID):
+            store.select(message: messageID)
+            openWindow(
+                id: UNIWindow.composer,
+                value: ComposerRoute.replyAll(messageID: messageID).value
+            )
 
         case .setRead, .move, .markAllRead:
             StoreCommand.run(command, on: store)
@@ -156,6 +153,43 @@ private struct ContextMenuModifier: ViewModifier {
     }
 }
 
+/// O modificador que pendura o menu numa superfície.
+///
+/// A captura é um `overlay`, e a ordem importa: no AppKit o teste de acerto
+/// corre de frente para trás, e só quem está na frente pode devolver `nil` para
+/// o evento seguir para quem está atrás. Como fundo, a `NSView` ficaria atrás
+/// da hospedeira do SwiftUI e nunca veria o clique direito.
+private struct ContextMenuModifier: ViewModifier {
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.theme) private var theme
+
+    let store: MailStore
+    let entries: [ContextMenuEntry]
+    let onReveal: (String) -> Void
+    let intercept: (ContextCommand) -> Bool
+
+    func body(content: Content) -> some View {
+        // Menu vazio não é menu: numa superfície sem ação disponível o clique
+        // com o botão direito não deve abrir uma caixa em branco.
+        if entries.isEmpty {
+            content
+        } else {
+            content.overlay {
+                RightClickCatcher { point, window in
+                    ContextMenuPresenter.shared.present(
+                        entries, at: point, in: window, theme: theme
+                    ) { command in
+                        MenuCommandRunner(
+                            store: store, openWindow: openWindow,
+                            onReveal: onReveal, intercept: intercept
+                        ).run(command)
+                    }
+                }
+            }
+        }
+    }
+}
+
 extension View {
     /// Pendura um menu de contexto vindo do modelo.
     ///
@@ -164,9 +198,12 @@ extension View {
     func uniContextMenu(
         _ entries: [ContextMenuEntry],
         store: MailStore,
-        onReveal: @escaping (String) -> Void = { _ in }
+        onReveal: @escaping (String) -> Void = { _ in },
+        intercept: @escaping (ContextCommand) -> Bool = { _ in false }
     ) -> some View {
-        modifier(ContextMenuModifier(store: store, entries: entries, onReveal: onReveal))
+        modifier(ContextMenuModifier(
+            store: store, entries: entries, onReveal: onReveal, intercept: intercept
+        ))
     }
 }
 

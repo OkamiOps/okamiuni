@@ -34,8 +34,20 @@ public struct ComposerWindow: View {
     public enum Mode: Hashable, Sendable {
         /// Responder a uma mensagem — a tela 03.
         case reply(messageID: String)
+        /// Responder ao remetente **e a todo mundo** que estava na mensagem —
+        /// a mesma tela 03, com a linha "Para" cheia. Ver `ComposerSeed.replyAll`.
+        case replyAll(messageID: String)
         /// Escrever do zero — a tela 06. `accountID` nulo abre na primeira conta.
         case new(accountID: String?)
+
+        /// A intenção que a cena carregou. Uma tradução, não uma segunda
+        /// decisão: `ComposerRoute` é quem sabe ler o valor.
+        public init(_ route: ComposerRoute) {
+            switch route {
+            case .reply(let id): self = .reply(messageID: id)
+            case .replyAll(let id): self = .replyAll(messageID: id)
+            }
+        }
     }
 
     @Environment(\.theme) private var theme
@@ -146,13 +158,23 @@ public struct ComposerWindow: View {
         static let toolbar: Double = 20
     }
 
+    /// A 03, em qualquer das suas intenções: responder e responder a todos
+    /// desenham a mesma janela — histórico citado, sem linha "De" — e diferem
+    /// só em quem já está na linha "Para".
     private var isReply: Bool {
-        if case .reply = mode { return true }
-        return false
+        switch mode {
+        case .reply, .replyAll: true
+        case .new: false
+        }
     }
 
+    /// A mensagem de origem, quando a janela tem uma.
     private var repliedMessage: Message? {
-        guard case .reply(let id) = mode else { return nil }
+        let id: String
+        switch mode {
+        case .reply(let value), .replyAll(let value): id = value
+        case .new: return nil
+        }
         return store.messages.first { $0.id == id }
     }
 
@@ -286,16 +308,26 @@ public struct ComposerWindow: View {
     private func seed() {
         guard !seeded else { return }
         switch mode {
-        case .reply:
+        case .reply, .replyAll:
             // Sem a mensagem em mãos não há o que semear — e marcar como feito
             // aqui deixaria a janela restaurada sem destinatário nem assunto.
             guard let repliedMessage else { return }
             // A faixa de resposta rápida do leitor grava o que já foi escrito
             // antes de promover para cá; `ComposerSeed` decide quem vence.
-            let seed = ComposerSeed.reply(
-                to: repliedMessage,
-                draft: store.replyDraft(for: repliedMessage.id)
-            )
+            // Uma janela só, dois seeds. O de "todos" põe remetente, `to` e
+            // `cc` na linha "Para", menos a conta que responde — e a conta sai
+            // da mensagem, não de um endereço cravado aqui.
+            let saved = store.replyDraft(for: repliedMessage.id)
+            let seed: ComposerSeed
+            if case .replyAll = mode {
+                seed = ComposerSeed.replyAll(
+                    to: repliedMessage,
+                    accountAddress: store.account(repliedMessage.accountID)?.address ?? "",
+                    draft: saved
+                )
+            } else {
+                seed = ComposerSeed.reply(to: repliedMessage, draft: saved)
+            }
             to = seed.to
             // Cc, Cco e anexos vêm junto, e as linhas nascem **abertas** quando
             // têm gente: uma linha Cc recolhida com endereço dentro é a mesma

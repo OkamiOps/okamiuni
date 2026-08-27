@@ -281,18 +281,11 @@ public final class MailStore {
         // Onde ela estava na lista, para saber quem herda a seleção.
         let positionBefore = visibleMessages.firstIndex { $0.id == current.id }
 
-        messages[index] = Message(
-            id: current.id, accountID: current.accountID, from: current.from,
-            receivedAt: current.receivedAt, subject: current.subject,
-            snippet: current.snippet, body: current.body, tags: current.tags,
-            bucket: newBucket, isRead: current.isRead, summary: current.summary,
-            detectedEvent: current.detectedEvent,
-            // `dayOffset` e `replyHints` têm default: omitir aqui não daria
-            // erro de compilação, daria uma mensagem de ontem reaparecendo sob
-            // "Hoje" e as sugestões de resposta sumindo depois de mudar de
-            // caixa. Triagem não muda quando ela chegou nem o que ela diz.
-            dayOffset: current.dayOffset, replyHints: current.replyHints
-        )
+        // `withBucket` e não um `Message(...)` à mão: reconstruir aqui já
+        // significou uma mensagem de ontem reaparecendo sob "Hoje", porque os
+        // campos com default no `init` **compilam** quando esquecidos. Com
+        // `to`, `cc` e `isFlagged` no modelo são cinco campos nessa condição.
+        messages[index] = current.withBucket(newBucket)
 
         guard selectedMessageID == current.id else { return }
         let remaining = visibleMessages

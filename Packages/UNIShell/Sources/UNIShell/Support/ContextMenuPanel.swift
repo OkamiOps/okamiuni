@@ -86,7 +86,8 @@ struct ContextMenuPanel: View {
                 title: item.title,
                 trailing: item.shortcut?.label,
                 isSubmenu: false,
-                isEnabled: item.isEnabled
+                isEnabled: item.isEnabled,
+                help: item.help
             )
         case .submenu(let title, let children):
             line(
@@ -94,7 +95,8 @@ struct ContextMenuPanel: View {
                 title: title,
                 trailing: nil,
                 isSubmenu: true,
-                isEnabled: !children.isEmpty
+                isEnabled: !children.isEmpty,
+                help: nil
             )
         }
     }
@@ -122,7 +124,8 @@ struct ContextMenuPanel: View {
         title: String,
         trailing: String?,
         isSubmenu: Bool,
-        isEnabled: Bool
+        isEnabled: Bool,
+        help: String?
     ) -> some View {
         let isHot = isEnabled && level.highlighted == index
         return Button {
@@ -155,6 +158,14 @@ struct ContextMenuPanel: View {
         }
         .buttonStyle(.plain)
         .allowsHitTesting(isEnabled)
+        // O balão do item apagado. Sem ele o rótulo em `ink4` é só um item
+        // quebrado aos olhos de quem lê — e "item desabilitado diz por quê" é
+        // a regra que a Task AR tornou explícita.
+        //
+        // `allowsHitTesting(false)` não desliga o `help`: o balão do AppKit
+        // sai da área de rastreio da `NSView`, não do teste de acerto do
+        // SwiftUI. Medido no app.
+        .help(help ?? "")
         .focusRing(cornerRadius: theme.radiusSmall)
         // Item apagado não recebe realce nem por ponteiro: `onHover` só avisa
         // quando há o que realçar.

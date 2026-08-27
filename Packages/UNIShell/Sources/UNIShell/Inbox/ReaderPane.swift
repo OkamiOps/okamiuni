@@ -89,7 +89,13 @@ public struct ReaderPane: View {
                 // painel mede mais: sem ela o clique fora do parágrafo cai no
                 // fundo e não acha menu nenhum.
                 .contentShape(Rectangle())
-                .uniContextMenu(ContextMenus.reader(message), store: store)
+                .uniContextMenu(
+                    ContextMenus.reader(
+                        message,
+                        accountAddress: store.account(message.accountID)?.address ?? ""
+                    ),
+                    store: store
+                )
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 

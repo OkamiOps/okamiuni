@@ -38,6 +38,20 @@ public struct Message: Sendable, Hashable, Identifiable {
     public let id: String
     public let accountID: String
     public let from: Contact
+
+    /// Para quem a mensagem veio, e quem estava em cópia.
+    ///
+    /// Existem por causa do "Responder a todos", que sem eles não teria a quem
+    /// responder: o seed é remetente + `to` + `cc` menos a conta dona. É dado
+    /// da mensagem, como `from` — não da tela que a desenha.
+    ///
+    /// Aditivos (`[]` no `init`), e a lista vazia é **legítima**: a newsletter
+    /// e o recibo das fixtures não trazem destinatário nenhum, e é sobre elas
+    /// que o item "Responder a todos" aparece desabilitado em vez de sumir.
+    /// Ver `ContextMenus.replyAllItem`.
+    public let to: [Contact]
+    public let cc: [Contact]
+
     public let receivedAt: Date
 
     /// Em que dia a mensagem chegou, em dias inteiros a partir do dia de
@@ -67,6 +81,16 @@ public struct Message: Sendable, Hashable, Identifiable {
     public let tags: [Tag]
     public let bucket: TriageBucket
     public let isRead: Bool
+
+    /// A estrela do Gmail, a bandeira do Mail. Estado da mensagem, e não da
+    /// caixa: uma mensagem arquivada continua sinalizada.
+    ///
+    /// Aditivo (`false` no `init`). **Não há caixa "Sinalizadas" neste
+    /// marco** — dívida registrada no relatório da Task AR: o campo existe, a
+    /// linha desenha a estrela e o menu a liga e desliga, mas filtrar por ela
+    /// é de outra tarefa.
+    public let isFlagged: Bool
+
     /// Resumo gerado no dispositivo. `nil` enquanto não houver.
     public let summary: String?
     public let detectedEvent: DetectedEvent?
@@ -85,8 +109,12 @@ public struct Message: Sendable, Hashable, Identifiable {
         subject: String, snippet: String, body: [String],
         tags: [Tag], bucket: TriageBucket, isRead: Bool,
         summary: String?, detectedEvent: DetectedEvent?,
-        dayOffset: Int = 0, replyHints: [String] = []
+        dayOffset: Int = 0, replyHints: [String] = [],
+        to: [Contact] = [], cc: [Contact] = [], isFlagged: Bool = false
     ) {
+        self.to = to
+        self.cc = cc
+        self.isFlagged = isFlagged
         self.replyHints = replyHints
         self.id = id
         self.accountID = accountID
@@ -114,12 +142,39 @@ extension Message {
     /// de resposta. Com três chamadores (abrir, marcar não lida, marcar a
     /// caixa inteira) a chance de repetir o esquecimento triplica.
     public func withRead(_ isRead: Bool) -> Message {
+        copy(isRead: isRead)
+    }
+
+    /// A mesma mensagem noutra caixa. É o que `MailStore.move(_:to:)` usa.
+    public func withBucket(_ bucket: TriageBucket) -> Message {
+        copy(bucket: bucket)
+    }
+
+    /// A mesma mensagem com a estrela ligada ou desligada.
+    public func withFlagged(_ isFlagged: Bool) -> Message {
+        copy(isFlagged: isFlagged)
+    }
+
+    /// O único lugar que reconstrói uma `Message`.
+    ///
+    /// Cada campo novo com default no `init` é uma armadilha a mais para quem
+    /// copia à mão — `dayOffset` e `replyHints` já custaram uma mensagem de
+    /// ontem reaparecendo sob "Hoje". Com `to`, `cc` e `isFlagged` são cinco.
+    /// Aqui a lista é escrita uma vez, e os três copiadores acima passam por
+    /// ela; acrescentar um campo ao modelo quebra **este** arquivo, que é onde
+    /// se quer que quebre.
+    private func copy(
+        bucket: TriageBucket? = nil,
+        isRead: Bool? = nil,
+        isFlagged: Bool? = nil
+    ) -> Message {
         Message(
             id: id, accountID: accountID, from: from, receivedAt: receivedAt,
             subject: subject, snippet: snippet, body: body, tags: tags,
-            bucket: bucket, isRead: isRead, summary: summary,
-            detectedEvent: detectedEvent,
-            dayOffset: dayOffset, replyHints: replyHints
+            bucket: bucket ?? self.bucket, isRead: isRead ?? self.isRead,
+            summary: summary, detectedEvent: detectedEvent,
+            dayOffset: dayOffset, replyHints: replyHints,
+            to: to, cc: cc, isFlagged: isFlagged ?? self.isFlagged
         )
     }
 
@@ -127,14 +182,18 @@ extension Message {
     public static func preview(
         id: String = "m1",
         bucket: TriageBucket = .today,
-        dayOffset: Int = 0
+        dayOffset: Int = 0,
+        to: [Contact] = [],
+        cc: [Contact] = [],
+        isFlagged: Bool = false
     ) -> Message {
         Message(
             id: id, accountID: "zoho",
             from: Contact(name: "Marina Duarte", address: "marina@clientepremium.com"),
             receivedAt: .now, subject: "Assunto", snippet: "Trecho",
             body: ["Corpo"], tags: [], bucket: bucket, isRead: false,
-            summary: nil, detectedEvent: nil, dayOffset: dayOffset
+            summary: nil, detectedEvent: nil, dayOffset: dayOffset,
+            to: to, cc: cc, isFlagged: isFlagged
         )
     }
 }

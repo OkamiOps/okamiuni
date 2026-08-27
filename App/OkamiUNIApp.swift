@@ -85,8 +85,12 @@ struct OkamiUNIApp: App {
         // `Codable & Hashable` — e porque a janela deve reler do `MailStore`,
         // não carregar uma cópia congelada da mensagem.
 
-        WindowGroup(id: UNIWindow.composer, for: String.self) { $messageID in
-            ComposerWindow(store: mailStore, mode: .reply(messageID: messageID ?? ""))
+        // O valor da cena carrega a **intenção** junto do id — responder ou
+        // responder a todos —, e é `ComposerRoute` quem a lê. Um valor antigo,
+        // sem prefixo, continua sendo uma resposta simples: nenhuma janela
+        // restaurada muda de significado.
+        WindowGroup(id: UNIWindow.composer, for: String.self) { $route in
+            ComposerWindow(store: mailStore, mode: .init(ComposerRoute.parse(route ?? "")))
                 .themed(themes)
                 .frame(minWidth: 620, minHeight: 460)
         }
