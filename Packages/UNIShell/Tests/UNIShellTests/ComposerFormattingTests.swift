@@ -371,13 +371,51 @@ struct ComposerRenderTests {
                 theme: .tinta
             )
         )
-        #expect(rep.pixelsWide == 620)
+
+        // A asserção era `rep.pixelsWide == 620` — o número passado ao `Render`
+        // na linha de cima, verdadeiro por construção. Ele não olhava um pixel,
+        // e com `ComposerTextKit` forçado a `BodyStyle.default` (todo estilo de
+        // trecho some) este teste continuava verde.
+        //
+        // O que se mede agora é o desenho: o realce amarelo é um bloco pintado
+        // atrás de "horario", e a cor vermelha é a tinta de "SLA fica".
+        let mesmo = "o estilo de trecho não chegou ao desenho"
+        #expect(rep.pixels(matching: "#FBEFA6") > 100, "realce: \(mesmo)")
+        #expect(rep.pixels(matching: "#8E2020") > 20, "cor do texto: \(mesmo)")
+        // E o corpo de 24 desenha mais alto que o de 15: a linha que recebeu
+        // `.size(24)` empurra o texto seguinte para baixo. Com o estilo perdido
+        // as três linhas saem na mesma altura.
+        let padrao = try #require(
+            Render.snapshot(
+                BodyProbe(text: AttributedString(String(text.characters)))
+                    .environment(ThemeStore()),
+                named: "composer-corpo-sem-formatacao",
+                size: CGSize(width: 620, height: 200),
+                theme: .tinta
+            )
+        )
+        #expect(
+            rep.pixelsDiffering(from: padrao) > 2_000,
+            "o corpo formatado desenha igual ao corpo cru"
+        )
     }
 
     @Test("as duas janelas renderizam no tamanho do protótipo")
     func bothWindowsRender() async throws {
         let store = MailStore(source: InMemoryMailSource.fixtures)
         await store.load()
+
+        // A 03 nasce com o rascunho da faixa do leitor. Semear um trecho
+        // **realçado** é o que dá a esta renderização algo para afirmar: as
+        // asserções antigas (`pixelsWide == 820`, `pixelsHigh == 620`) eram os
+        // números passados ao `Render` na linha de cima, e o teste passava com
+        // o desenho inteiro sem estilo nenhum.
+        var body = AttributedString("Marina, fechado quinta.")
+        var marcado = selection(body, 0, 6)
+        ComposerEditor.perform(
+            .highlight("#FBEFA6"), on: &body, selection: &marcado, theme: .tinta
+        )
+        store.setReplyDraft(ReplyDraft(to: [], body: body), for: "m1")
 
         let reply = try #require(
             Render.snapshot(
@@ -388,7 +426,10 @@ struct ComposerRenderTests {
                 theme: .tinta
             )
         )
-        #expect(reply.pixelsWide == 820)
+        #expect(
+            reply.pixels(matching: "#FBEFA6") > 100,
+            "o realce do rascunho não saiu no desenho da 03"
+        )
 
         let new = try #require(
             Render.snapshot(
@@ -399,6 +440,107 @@ struct ComposerRenderTests {
                 theme: .tinta
             )
         )
-        #expect(new.pixelsHigh == 620)
+        // A 06 não tem rascunho, mas tem de desenhar: fundo, linhas, barra e
+        // rodapé. Uma janela em branco tem uma cor só.
+        #expect(new.pixels(matching: "#FBEFA6") == 0, "a 06 nasce sem realce nenhum")
+        #expect(
+            new.pixels(matching: Theme.tinta.surface) < 820 * 620,
+            "a 06 desenhou só o fundo"
+        )
+    }
+}
+
+/// O negrito **na face desenhada**, e não no modelo.
+///
+/// A suíte inteira passava com o defeito: `GlyphMetrics.nsFont` só usava o
+/// `weight` no ramo de reserva, então para toda família nomeada —
+/// `Newsreader`, `Georgia`, `Helvetica`, as 184 instaladas — `NSFont(name:size:)`
+/// devolvia a face regular e o peso era descartado em silêncio. O B acendia,
+/// `BodyReading.bold` voltava verdadeiro e o texto na tela não mudava.
+///
+/// Os testes que existiam olhavam o **modelo** (`BodyStyle`) ou a `Font` do
+/// SwiftUI, que é opaca. Estes medem a `NSFont` que entra no `NSTextStorage` e
+/// a largura que ela desenha, que é o que muda quando a face muda.
+@Suite("Composer — o negrito chega à face desenhada")
+@MainActor
+struct BoldFaceTests {
+
+    /// As famílias nomeadas que esta máquina tem. `-apple-system` fica de fora
+    /// de propósito: ali `FontFamily.name` é nulo e o caminho já funcionava —
+    /// era o único caso que funcionava.
+    private static var namedFamilies: [String] {
+        ["Georgia", "Helvetica", "Times New Roman", "Courier"]
+            .filter { FontRegistry.isAvailable($0) }
+    }
+
+    private func face(_ family: String, bold: Bool) -> NSFont {
+        ComposerTextKit.nsFont(
+            for: BodyStyle(family: family, size: 16, bold: bold), theme: .tinta
+        )
+    }
+
+    /// A largura de uma linha desenhada com esta fonte. Georgia regular dava
+    /// 150,607pt e a "negrito" dava exatamente os mesmos 150,607pt — mesma
+    /// face, mesmo desenho.
+    private func width(_ font: NSFont) -> CGFloat {
+        let line = CTLineCreateWithAttributedString(
+            NSAttributedString(string: "Marina, fechado quinta.", attributes: [.font: font])
+        )
+        return CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+    }
+
+    @Test("a face negrito de uma família nomeada tem o traço de negrito")
+    func namedFamilyGetsTheBoldTrait() throws {
+        try #require(!Self.namedFamilies.isEmpty, "nenhuma das famílias de teste está instalada")
+        for family in Self.namedFamilies {
+            let bold = face(family, bold: true)
+            let traits = NSFontManager.shared.traits(of: bold)
+            #expect(
+                traits.contains(.boldFontMask),
+                "\(family): a face desenhada é \(bold.fontName), que não é negrito"
+            )
+        }
+    }
+
+    @Test("o texto em negrito desenha mais largo que o regular, na mesma família")
+    func boldDrawsWider() throws {
+        try #require(!Self.namedFamilies.isEmpty)
+        for family in Self.namedFamilies {
+            let regular = width(face(family, bold: false))
+            let bold = width(face(family, bold: true))
+            #expect(
+                bold > regular,
+                "\(family): regular=\(regular) negrito=\(bold) — a face não mudou"
+            )
+        }
+    }
+
+    /// E o mesmo pelo caminho de verdade: um corpo com um trecho em negrito,
+    /// projetado no `NSTextStorage` que o editor desenha. É a fonte que
+    /// `ComposerTextKit.characterAttributes` põe no atributo `.font`.
+    @Test("no NSTextStorage o trecho em negrito sai numa face diferente do resto")
+    func storageCarriesTheBoldFace() throws {
+        let family = try #require(Self.namedFamilies.first)
+        var text = AttributedString("Marina, fechado quinta.")
+        // A família inteira primeiro, para os dois trechos partirem da mesma
+        // face; o negrito só nas seis primeiras letras.
+        var whole = selection(text, 0, 23)
+        ComposerEditor.perform(.family(family), on: &text, selection: &whole, theme: .tinta)
+        var sel = selection(text, 0, 6)
+        ComposerEditor.perform(.bold, on: &text, selection: &sel, theme: .tinta)
+        #expect(style(text, at: 0).bold, "o modelo nem gravou o negrito")
+
+        let storage = NSTextStorage(attributedString: ComposerTextKit.nsAttributed(text, theme: .tinta))
+        let boldFace = try #require(
+            storage.attribute(.font, at: 0, effectiveRange: nil) as? NSFont
+        )
+        let plainFace = try #require(
+            storage.attribute(.font, at: 20, effectiveRange: nil) as? NSFont
+        )
+        #expect(
+            boldFace.fontName != plainFace.fontName,
+            "os dois trechos saem na mesma face \(boldFace.fontName): o negrito não chegou ao desenho"
+        )
+        #expect(NSFontManager.shared.traits(of: boldFace).contains(.boldFontMask))
     }
 }

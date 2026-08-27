@@ -397,6 +397,15 @@ struct ComposerRichRenderTests {
         var justify = span("Marina") ?? AttributedTextSelection(insertionPoint: text.startIndex)
         ComposerEditor.perform(.align(.justified), on: &text, selection: &justify, theme: .tinta)
 
+        // Um trecho realçado. Não é enfeite: é a única coisa deste corpo que
+        // dá para **contar** no PNG. Sem ele a renderização desta suíte não
+        // tinha nada para afirmar além do tamanho que ela mesma pediu.
+        if var marked = span("numeros fechados") {
+            ComposerEditor.perform(
+                .highlight("#FBEFA6"), on: &text, selection: &marked, theme: .tinta
+            )
+        }
+
         if var link = span(linkLabel) {
             ComposerEditor.perform(
                 .link(url: URL(string: "https://okamiuni.com.br/contrato")!, label: ""),
@@ -463,7 +472,14 @@ struct ComposerRichRenderTests {
                 theme: .tinta
             )
         )
-        #expect(rep.pixelsWide == 820)
+        // A asserção era `rep.pixelsWide == 820`: o número da linha de cima.
+        // O realce do corpo é o que prova que o estilo de trecho chegou ao
+        // desenho — com `ComposerTextKit` forçado a `BodyStyle.default` este
+        // bloco amarelo desaparece e o resto da janela fica igual.
+        #expect(
+            rep.pixels(matching: "#FBEFA6") > 100,
+            "o realce do corpo não saiu no desenho da janela"
+        )
     }
 
     /// A barra com o painel de tabela aberto e com o de link aberto — as duas
@@ -475,6 +491,21 @@ struct ComposerRichRenderTests {
         let store = MailStore(source: InMemoryMailSource.fixtures)
         await store.load()
         let id = try #require(store.messages.first?.id)
+
+        // O mesmo corpo realçado da outra renderização: o painel abre **por
+        // cima** do editor, e o que o teste tem de dizer é que o editor
+        // continua desenhando o que desenhava, com o painel inteiro em cima.
+        store.setReplyDraft(ReplyDraft(to: [], body: Self.body()), for: id)
+
+        let semPainel = try #require(
+            Render.snapshot(
+                ComposerWindow(store: store, mode: .reply(messageID: id))
+                    .environment(ThemeStore()),
+                named: "composer-sem-painel",
+                size: CGSize(width: 820, height: 660),
+                theme: .tinta
+            )
+        )
 
         for (panel, name) in [
             (ComposerToolbar.Panel.table, "composer-painel-tabela"),
@@ -489,7 +520,28 @@ struct ComposerRichRenderTests {
                     theme: .tinta
                 )
             )
-            #expect(rep.pixelsWide == 820)
+            // A asserção era `rep.pixelsWide == 820` — o número da linha de
+            // cima —, e com todo o estilo de trecho apagado ela continuava
+            // verdadeira. O realce do corpo é o que cai junto com o estilo.
+            #expect(
+                rep.pixels(matching: "#FBEFA6") > 100,
+                "\(name): o corpo perdeu o realce por trás do painel"
+            )
+            // E o painel de fato aparece: ele pinta uma área que a janela sem
+            // painel não tem.
+            #expect(
+                rep.pixelsDiffering(from: semPainel) > 2_000,
+                "\(name): o painel não mudou nada no desenho"
+            )
+            // Inteiro dentro da janela: a coluna da direita não pode ter sido
+            // pintada pelo painel, que é o sintoma de painel decepado na borda.
+            var tocaABorda = false
+            for y in 0..<rep.pixelsHigh
+            where rep.colorAt(x: rep.pixelsWide - 1, y: y)
+                != semPainel.colorAt(x: rep.pixelsWide - 1, y: y) {
+                tocaABorda = true
+            }
+            #expect(!tocaABorda, "\(name): o painel encosta na borda direita da janela")
         }
     }
 

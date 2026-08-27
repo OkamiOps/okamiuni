@@ -253,3 +253,53 @@ struct LaunchWindowRequestTests {
         #expect(request.value == "m1")
     }
 }
+
+// MARK: - Ler cor no bitmap
+
+extension NSBitmapImageRep {
+    /// Quantos pixels desta imagem são desta cor.
+    ///
+    /// Existe porque um punhado de testes de render afirmava só
+    /// `rep.pixelsWide == <o número passado ao Render>` — o valor da linha de
+    /// cima, verdadeiro por construção. Com `ComposerTextKit` forçado a
+    /// `BodyStyle.default` (todo estilo de trecho some do desenho) os cinco
+    /// continuavam passando. Contar os pixels de um realce é a medida que cai
+    /// junto com o estilo.
+    ///
+    /// A tolerância é apertada de propósito: em `tinta`, `btn` e `surface`
+    /// diferem 0,02, e uma folga que aceite ruído aceita as duas como iguais.
+    func pixels(matching css: String, tolerance: Double = 0.02) -> Int {
+        guard let token = TokenColor(css: css) else { return 0 }
+        return pixels(matching: token, tolerance: tolerance)
+    }
+
+    func pixels(matching token: TokenColor, tolerance: Double = 0.02) -> Int {
+        guard let wanted = token.nsColor.usingColorSpace(.sRGB) else { return 0 }
+        var count = 0
+        for y in 0..<pixelsHigh {
+            for x in 0..<pixelsWide {
+                guard let c = colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                guard c.alphaComponent > 0.9 else { continue }
+                if abs(c.redComponent - wanted.redComponent) < tolerance,
+                   abs(c.greenComponent - wanted.greenComponent) < tolerance,
+                   abs(c.blueComponent - wanted.blueComponent) < tolerance {
+                    count += 1
+                }
+            }
+        }
+        return count
+    }
+
+    /// Quantos pixels diferem entre dois desenhos do mesmo tamanho.
+    func pixelsDiffering(from other: NSBitmapImageRep) -> Int {
+        guard pixelsWide == other.pixelsWide, pixelsHigh == other.pixelsHigh else { return -1 }
+        var count = 0
+        for y in 0..<pixelsHigh {
+            for x in 0..<pixelsWide where colorAt(x: x, y: y) != other.colorAt(x: x, y: y) {
+                count += 1
+            }
+        }
+        return count
+    }
+}
+

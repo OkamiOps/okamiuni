@@ -216,6 +216,17 @@ enum GlyphMetrics {
         if let name = family.name, FontRegistry.isAvailable(name),
            let custom = NSFont(name: name, size: size) {
             font = custom
+            // `NSFont(name:size:)` devolve a **face regular** da família: o
+            // `weight` não entra por aqui. Sem a conversão abaixo o B acendia,
+            // o modelo gravava `bold: true` e a face desenhada não mudava —
+            // botão mudo com a luz acesa, para as 184 famílias instaladas e
+            // para a padrão (`Newsreader`) do app. Só `-apple-system` escapava,
+            // porque ali `family.name` é nulo e o caminho cai no `else`.
+            //
+            // O itálico já fazia isto; é a chamada equivalente para o peso.
+            if weight.rawValue >= NSFont.Weight.semibold.rawValue {
+                font = bolded(font, size: size, weight: weight)
+            }
         } else {
             font = .systemFont(ofSize: size, weight: weight)
         }
@@ -223,6 +234,22 @@ enum GlyphMetrics {
             font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)
         }
         return font
+    }
+
+    /// A face negrito da mesma família, com queda são.
+    ///
+    /// `NSFontManager.convert(toHaveTrait: .boldFontMask)` devolve **a própria
+    /// fonte** quando a família não tem face bold — não devolve nulo e não
+    /// trapa. Nesse caso o peso ainda tem de aparecer no desenho, senão o botão
+    /// volta a ser mudo para essa família; a saída é a fonte do sistema no peso
+    /// pedido, que é o que o ramo de reserva já fazia.
+    private static func bolded(
+        _ font: NSFont, size: CGFloat, weight: NSFont.Weight
+    ) -> NSFont {
+        let converted = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+        let traits = NSFontManager.shared.traits(of: converted)
+        if traits.contains(.boldFontMask) { return converted }
+        return .systemFont(ofSize: size, weight: weight)
     }
 }
 
