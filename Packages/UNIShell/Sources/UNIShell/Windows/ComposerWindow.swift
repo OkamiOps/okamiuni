@@ -37,6 +37,9 @@ public struct ComposerWindow: View {
         /// Responder ao remetente **e a todo mundo** que estava na mensagem —
         /// a mesma tela 03, com a linha "Para" cheia. Ver `ComposerSeed.replyAll`.
         case replyAll(messageID: String)
+        /// Encaminhar — a mesma tela 03 com "Para" vazio e o conteúdo citado.
+        /// Ver `ComposerSeed.forward(of:dateLabel:)`.
+        case forward(messageID: String)
         /// Escrever do zero — a tela 06. `accountID` nulo abre na primeira conta.
         case new(accountID: String?)
 
@@ -46,6 +49,7 @@ public struct ComposerWindow: View {
             switch route {
             case .reply(let id): self = .reply(messageID: id)
             case .replyAll(let id): self = .replyAll(messageID: id)
+            case .forward(let id): self = .forward(messageID: id)
             }
         }
     }
@@ -163,7 +167,7 @@ public struct ComposerWindow: View {
     /// só em quem já está na linha "Para".
     private var isReply: Bool {
         switch mode {
-        case .reply, .replyAll: true
+        case .reply, .replyAll, .forward: true
         case .new: false
         }
     }
@@ -172,7 +176,7 @@ public struct ComposerWindow: View {
     private var repliedMessage: Message? {
         let id: String
         switch mode {
-        case .reply(let value), .replyAll(let value): id = value
+        case .reply(let value), .replyAll(let value), .forward(let value): id = value
         case .new: return nil
         }
         return store.messages.first { $0.id == id }
@@ -287,7 +291,10 @@ public struct ComposerWindow: View {
     }
 
     private var title: String {
-        Self.windowTitle(replyingTo: repliedMessage)
+        if case .forward = mode {
+            return Self.windowTitle(forwarding: repliedMessage)
+        }
+        return Self.windowTitle(replyingTo: repliedMessage)
     }
 
     /// O título da barra. Protótipo: "Re: {sel.subject}" na 03 e o literal
@@ -296,6 +303,14 @@ public struct ComposerWindow: View {
     nonisolated static func windowTitle(replyingTo message: Message?) -> String {
         guard let message, !message.subject.isEmpty else { return "Nova mensagem" }
         return "Re: \(message.subject)"
+    }
+
+    /// A mesma regra do título, do outro lado: "Enc: {assunto}". O campo
+    /// Assunto escreve exatamente isto (`ComposerSeed.forward`), e os dois têm
+    /// de concordar dentro da mesma janela.
+    nonisolated static func windowTitle(forwarding message: Message?) -> String {
+        guard let message, !message.subject.isEmpty else { return "Nova mensagem" }
+        return "Enc: \(message.subject)"
     }
 
     /// Preenche o rascunho na primeira vez. Não repete: reabrir a mesma janela
@@ -308,7 +323,7 @@ public struct ComposerWindow: View {
     private func seed() {
         guard !seeded else { return }
         switch mode {
-        case .reply, .replyAll:
+        case .reply, .replyAll, .forward:
             // Sem a mensagem em mãos não há o que semear — e marcar como feito
             // aqui deixaria a janela restaurada sem destinatário nem assunto.
             guard let repliedMessage else { return }
@@ -319,7 +334,17 @@ public struct ComposerWindow: View {
             // da mensagem, não de um endereço cravado aqui.
             let saved = store.replyDraft(for: repliedMessage.id)
             let seed: ComposerSeed
-            if case .replyAll = mode {
+            if case .forward = mode {
+                // O rascunho da faixa de resposta **não** entra num
+                // encaminhamento: ele foi escrito para responder ao remetente,
+                // e trazê-lo para cá mandaria o texto errado para a pessoa
+                // errada. `DateLabels` é a mesma regra que o convite copiado da
+                // agenda usa — data não se formata em dois lugares.
+                seed = ComposerSeed.forward(
+                    of: repliedMessage,
+                    dateLabel: DateLabels.eventDate(repliedMessage.receivedAt)
+                )
+            } else if case .replyAll = mode {
                 seed = ComposerSeed.replyAll(
                     to: repliedMessage,
                     accountAddress: store.account(repliedMessage.accountID)?.address ?? "",

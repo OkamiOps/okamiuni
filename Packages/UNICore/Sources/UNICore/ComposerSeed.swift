@@ -143,4 +143,49 @@ public struct ComposerSeed: Sendable, Hashable {
     public static func replyAllExtras(_ message: Message, accountAddress: String) -> Int {
         max(0, replyAll(to: message, accountAddress: accountAddress).to.count - 1)
     }
+
+    /// "Encaminhar": o mesmo conteúdo, para quem a pessoa ainda vai escolher.
+    ///
+    /// Era a dívida registrada desde a revisão AG — a janela 03 só tinha
+    /// `.reply` e `.new`, e um item chamado "Encaminhar" que abrisse uma
+    /// resposta seria o botão mentiroso que a regra do marco proíbe.
+    ///
+    /// Três decisões, e cada uma é o contrário de uma resposta:
+    ///
+    /// - **"Para" nasce vazio.** Encaminhar sem escolher para quem é a metade
+    ///   que a pessoa faz; adivinhar um destinatário aqui mandaria a mensagem
+    ///   de volta para quem já a tem.
+    /// - **O assunto é "Enc: "**, não "Re: " — e assunto vazio não vira "Enc: "
+    ///   pendurado, pela mesma razão que `reply` documenta.
+    /// - **O corpo já vem citado**, com remetente, data e assunto no cabeçalho,
+    ///   porque encaminhar sem o conteúdo é encaminhar nada.
+    ///
+    /// `dateLabel` entra pronto, como em `AgendaAddReceipt.note`: formatar data
+    /// aqui reintroduziria a conversão de fuso que esta base já pagou duas
+    /// vezes. Quem chama usa `DateLabels.eventDate`, que é a mesma regra que o
+    /// convite copiado da agenda usa.
+    public static func forward(of message: Message, dateLabel: String) -> ComposerSeed {
+        let subject = message.subject.isEmpty ? "" : "Enc: \(message.subject)"
+        return ComposerSeed(to: [], subject: subject, body: quoted(message, dateLabel: dateLabel))
+    }
+
+    /// O corpo citado de um encaminhamento.
+    ///
+    /// Duas linhas em branco antes do cabeçalho: é onde o cursor começa a
+    /// escrever, e sem elas o texto novo nasce colado na citação.
+    ///
+    /// Linha sem conteúdo não é escrita em branco — a mesma regra do convite
+    /// copiado da agenda (`ContextMenus.inviteText`).
+    static func quoted(_ message: Message, dateLabel: String) -> String {
+        var lines = ["", "", "---------- Mensagem encaminhada ----------"]
+        lines.append("De: \(message.from.display)")
+        if !dateLabel.isEmpty { lines.append("Data: \(dateLabel)") }
+        if !message.subject.isEmpty { lines.append("Assunto: \(message.subject)") }
+        if !message.to.isEmpty {
+            lines.append("Para: \(message.to.map(\.display).joined(separator: ", "))")
+        }
+        lines.append("")
+        lines.append(contentsOf: message.body)
+        return lines.joined(separator: "\n")
+    }
 }

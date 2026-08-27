@@ -35,6 +35,9 @@ public enum ContextCommand: Sendable, Hashable {
     /// 03 Composer com **todo mundo** na linha "Para": remetente, `to` e `cc`
     /// menos a conta dona. O seed é `ComposerSeed.replyAll`.
     case replyAll(messageID: String)
+    /// 03 Composer com o conteúdo citado e "Para" vazio. O seed é
+    /// `ComposerSeed.forward(of:dateLabel:)`.
+    case forward(messageID: String)
     /// Marca lida (`true`) ou não lida (`false`).
     case setRead(messageID: String, isRead: Bool)
     /// Triagem: move a mensagem de caixa.
@@ -90,6 +93,8 @@ public struct MenuShortcut: Sendable, Hashable {
     public static let reply = MenuShortcut(key: "r")
     /// ⇧⌘R, como Mail e Outlook escrevem "Responder a todos".
     public static let replyAll = MenuShortcut(key: "r", modifiers: [.command, .shift])
+    /// ⇧⌘F, o "Forward" do Mail.
+    public static let forward = MenuShortcut(key: "f", modifiers: [.command, .shift])
 }
 
 // MARK: - Item e entrada
@@ -206,9 +211,10 @@ public enum ContextMenus {
     /// Protótipo de referência: Mail.app, Gmail e Outlook trazem, nesta ordem,
     /// abrir · responder · estado de leitura · mover · copiar.
     ///
-    /// "Encaminhar" **não entra**: a janela 03 só tem os modos `.reply` e
-    /// `.new`, e um item que abrisse uma resposta chamada "encaminhar" seria
-    /// exatamente o botão mentiroso que a regra do marco proíbe.
+    /// "Encaminhar" **entra desde a Task AR**. A objeção antiga era real e foi
+    /// resolvida na raiz, não contornada: a janela 03 ganhou o modo `.forward`
+    /// e `ComposerSeed.forward(of:dateLabel:)`, então o item abre um
+    /// encaminhamento de verdade — assunto "Enc: ", corpo citado, "Para" vazio.
     public static func messageRow(
         _ message: Message,
         accountAddress: String = ""
@@ -217,6 +223,9 @@ public enum ContextMenus {
             .item(ContextMenuItem("Abrir em janela", .openMessageWindow(messageID: message.id))),
             .item(ContextMenuItem("Responder", .reply(messageID: message.id), shortcut: .reply)),
             .item(replyAllItem(message, accountAddress: accountAddress)),
+            .item(ContextMenuItem(
+                "Encaminhar", .forward(messageID: message.id), shortcut: .forward
+            )),
             .separator,
             .item(readToggle(message)),
         ]
@@ -258,6 +267,9 @@ public enum ContextMenus {
             .item(ContextMenuItem("Responder", .reply(messageID: message.id), shortcut: .reply))
         )
         entries.append(.item(replyAllItem(message, accountAddress: accountAddress)))
+        entries.append(.item(ContextMenuItem(
+            "Encaminhar", .forward(messageID: message.id), shortcut: .forward
+        )))
         if message.bucket != .archived {
             entries.append(
                 .item(ContextMenuItem("Arquivar", .move(messageID: message.id, to: .archived)))

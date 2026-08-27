@@ -1,4 +1,5 @@
 import Foundation
+import UNICore
 
 /// Uma janela auxiliar pedida pela linha de comando do lançamento.
 ///
@@ -25,11 +26,15 @@ public struct LaunchWindowRequest: Sendable, Hashable {
     ///
     /// `--mensagem=m2` e `--mensagem m2` funcionam igual: o `open --args` do
     /// macOS entrega os dois formatos conforme quem escreve a linha.
-    public static let flags: [(flag: String, windowID: String)] = [
-        ("--nova-mensagem", UNIWindow.newMessage),
-        ("--responder", UNIWindow.composer),
-        ("--mensagem", UNIWindow.message),
-        ("--compromisso", UNIWindow.event),
+    /// `prefix` é a intenção que a cena carrega junto do id — ver
+    /// `ComposerRoute`. Só a janela 03 tem mais de uma; as outras usam `""`.
+    public static let flags: [(flag: String, windowID: String, prefix: String)] = [
+        ("--nova-mensagem", UNIWindow.newMessage, ""),
+        ("--responder", UNIWindow.composer, ""),
+        ("--responder-todos", UNIWindow.composer, ComposerRoute.replyAllPrefix),
+        ("--encaminhar", UNIWindow.composer, ComposerRoute.forwardPrefix),
+        ("--mensagem", UNIWindow.message, ""),
+        ("--compromisso", UNIWindow.event, ""),
     ]
 
     /// Lê a linha de comando. Devolve `nil` quando nenhuma bandeira aparece —
@@ -56,7 +61,7 @@ public struct LaunchWindowRequest: Sendable, Hashable {
             }()
             return LaunchWindowRequest(
                 windowID: match.windowID,
-                value: inlineValue ?? nextValue ?? ""
+                value: match.prefix + (inlineValue ?? nextValue ?? "")
             )
         }
         return nil

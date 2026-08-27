@@ -213,6 +213,57 @@ struct ComposerSeedTests {
         )
         #expect(seed.to.map(\.address) == ["yuki@example.co.jp"])
     }
+
+    // MARK: - Encaminhar
+
+    @Test("encaminhar abre sem destinatário: para quem vai é a metade que a pessoa faz")
+    func forwardHasNoRecipient() {
+        let seed = ComposerSeed.forward(of: Self.message(to: [Self.eu]), dateLabel: "Terça")
+        #expect(seed.to.isEmpty)
+        #expect(seed.cc.isEmpty)
+    }
+
+    @Test("o assunto é «Enc: », e assunto vazio não vira «Enc: » pendurado")
+    func forwardSubject() {
+        #expect(ComposerSeed.forward(of: Self.message(), dateLabel: "").subject
+            == "Enc: Revisão do contrato")
+        #expect(ComposerSeed.forward(of: Self.message(subject: ""), dateLabel: "").subject == "")
+    }
+
+    /// Encaminhar sem o conteúdo é encaminhar nada.
+    @Test("o corpo vem citado, com remetente, data e assunto no cabeçalho")
+    func forwardQuotesTheBody() {
+        let original = Message(
+            id: "m-origem", accountID: "qualquer",
+            from: Contact(name: "Yuki Tanaka", address: "yuki@example.co.jp"),
+            receivedAt: Date(timeIntervalSince1970: 0),
+            subject: "Revisão", snippet: "", body: ["Primeiro", "Segundo"], tags: [],
+            bucket: .today, isRead: true, summary: nil, detectedEvent: nil,
+            to: [Self.eu]
+        )
+        let lines = ComposerSeed.forward(of: original, dateLabel: "Terça, 25 de agosto")
+            .body.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+
+        // Duas linhas em branco antes da citação: é onde o cursor escreve.
+        #expect(lines[0] == "")
+        #expect(lines[1] == "")
+        #expect(lines[2] == "---------- Mensagem encaminhada ----------")
+        #expect(lines[3] == "De: Yuki Tanaka · yuki@example.co.jp")
+        #expect(lines[4] == "Data: Terça, 25 de agosto")
+        #expect(lines[5] == "Assunto: Revisão")
+        #expect(lines[6] == "Para: Ricardo · Ricardo@Empresa.com")
+        #expect(lines.last == "Segundo")
+    }
+
+    /// Linha sem conteúdo não é escrita em branco — a mesma regra do convite
+    /// copiado da agenda.
+    @Test("sem data e sem «para», o cabeçalho não ganha linhas vazias")
+    func forwardSkipsEmptyHeaderLines() {
+        let text = ComposerSeed.forward(of: Self.message(subject: ""), dateLabel: "").body
+        #expect(!text.contains("Data:"))
+        #expect(!text.contains("Para:"))
+        #expect(!text.contains("Assunto:"))
+    }
 }
 
 @Suite("A intenção que a cena da janela 03 carrega")
@@ -235,5 +286,17 @@ struct ComposerRouteTests {
     @Test("valor vazio é uma resposta simples sem mensagem, nunca um travamento")
     func emptyValueParsesAsReply() {
         #expect(ComposerRoute.parse("") == .reply(messageID: ""))
+    }
+
+    @Test("as três intenções vão e voltam sem se confundirem")
+    func everyRouteSurvivesTheRoundTrip() {
+        let rotas: [ComposerRoute] = [
+            .reply(messageID: "m1"), .replyAll(messageID: "m1"), .forward(messageID: "m1"),
+        ]
+        #expect(Set(rotas.map(\.value)).count == 3)
+        for rota in rotas {
+            #expect(ComposerRoute.parse(rota.value) == rota)
+            #expect(rota.messageID == "m1")
+        }
     }
 }

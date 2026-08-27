@@ -127,6 +127,15 @@ struct MenuCommandRunner {
                 value: ComposerRoute.replyAll(messageID: messageID).value
             )
 
+        case .forward(let messageID):
+            // Encaminhar **não** marca como lida, ao contrário de responder:
+            // repassar uma mensagem não é tê-la lido. `select` é o que marca,
+            // e por isso ele fica de fora aqui.
+            openWindow(
+                id: UNIWindow.composer,
+                value: ComposerRoute.forward(messageID: messageID).value
+            )
+
         case .setRead, .move, .markAllRead:
             StoreCommand.run(command, on: store)
 

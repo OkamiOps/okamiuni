@@ -127,8 +127,6 @@ struct ContextMenuTests {
         #expect(!titles.contains("Colocar na agenda"))
         // `Message.body` é `[String]` sem marcação: não há link a acertar.
         #expect(!titles.contains("Copiar link"))
-        // A janela 03 só tem `.reply` e `.new`.
-        #expect(!titles.contains("Encaminhar"))
     }
 
     @Test("nenhum menu abre, fecha ou repete separador")
@@ -287,9 +285,28 @@ struct ContextMenuTests {
         #expect(shortcuts == [
             "Responder": MenuShortcut(key: "r"),
             "Responder a todos": MenuShortcut(key: "r", modifiers: [.command, .shift]),
+            "Encaminhar": MenuShortcut(key: "f", modifiers: [.command, .shift]),
         ])
         #expect(shortcuts["Responder"]?.label == "⌘R")
         #expect(shortcuts["Responder a todos"]?.label == "⇧⌘R")
+        #expect(shortcuts["Encaminhar"]?.label == "⇧⌘F")
+    }
+
+    // MARK: - Encaminhar
+
+    /// A dívida da revisão AG: enquanto a janela 03 não sabia encaminhar, o
+    /// item ficava fora. Agora ela sabe, e ele entra aceso nas duas superfícies
+    /// — inclusive na mensagem que não tem mais ninguém além do remetente, que
+    /// é justamente onde "Responder a todos" apaga.
+    @Test("«Encaminhar» entra aceso na linha e no leitor, sem depender de destinatário")
+    func forwardIsAlwaysThere() {
+        for entries in [
+            ContextMenus.messageRow(message()), ContextMenus.reader(message()),
+        ] {
+            let item = entries.item("Encaminhar")
+            #expect(item?.isEnabled == true)
+            #expect(item?.command == .forward(messageID: "m1"))
+        }
     }
 
     // MARK: - Responder a todos

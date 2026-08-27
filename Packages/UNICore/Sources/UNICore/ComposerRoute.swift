@@ -23,24 +23,27 @@ import Foundation
 public enum ComposerRoute: Sendable, Hashable {
     case reply(messageID: String)
     case replyAll(messageID: String)
+    case forward(messageID: String)
 
     /// O prefixo de cada intenção. Responder **não tem** prefixo: assim todo
     /// valor que já existia — o `openWindow(id:value:messageID)` do leitor, o
     /// `--responder m1` da linha de comando, uma janela restaurada pelo
     /// sistema — continua significando exatamente o que significava.
-    static let replyAllPrefix = "todos:"
+    public static let replyAllPrefix = "todos:"
+    public static let forwardPrefix = "enc:"
 
     /// O texto que a cena carrega.
     public var value: String {
         switch self {
         case .reply(let id): id
         case .replyAll(let id): Self.replyAllPrefix + id
+        case .forward(let id): Self.forwardPrefix + id
         }
     }
 
     public var messageID: String {
         switch self {
-        case .reply(let id), .replyAll(let id): id
+        case .reply(let id), .replyAll(let id), .forward(let id): id
         }
     }
 
@@ -50,6 +53,9 @@ public enum ComposerRoute: Sendable, Hashable {
     public static func parse(_ value: String) -> ComposerRoute {
         if value.hasPrefix(replyAllPrefix) {
             return .replyAll(messageID: String(value.dropFirst(replyAllPrefix.count)))
+        }
+        if value.hasPrefix(forwardPrefix) {
+            return .forward(messageID: String(value.dropFirst(forwardPrefix.count)))
         }
         return .reply(messageID: value)
     }

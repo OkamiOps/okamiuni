@@ -46,6 +46,10 @@ struct MessageShortcuts: View {
                         message, accountAddress: account?.address ?? ""
                     ) > 0
                 ) { runner.run(.replyAll(messageID: message.id)) }
+
+                shortcut("Encaminhar", .forward) {
+                    runner.run(.forward(messageID: message.id))
+                }
             }
             .hidden()
             .accessibilityHidden(true)
