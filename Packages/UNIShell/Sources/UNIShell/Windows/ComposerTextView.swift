@@ -342,6 +342,103 @@ struct ComposerTextView: NSViewRepresentable {
                 ?? AttributeContainer()
         }
 
+        // MARK: Menu de contexto do editor
+
+        /// **Acrescenta ao menu do sistema; nunca o substitui.**
+        ///
+        /// O `NSTextView` já traz recortar, copiar, colar, ortografia,
+        /// transformações, fala e serviços — é metade do motivo de ter trocado
+        /// o `TextEditor` por ele. Devolver um `NSMenu` novo jogaria tudo isso
+        /// fora. Aqui o menu que chega é o do AppKit, e os nossos itens entram
+        /// **no topo**, seguidos de um separador: um comando do editor
+        /// enterrado depois de "Serviços" não seria achado por ninguém.
+        ///
+        /// "Inserir link…" ficou **de fora**. O painel de link é `@State` de
+        /// `ComposerToolbar`, uma `View` irmã desta — não há como abri-lo
+        /// daqui sem mudar a interface da barra e das duas telas que a
+        /// hospedam. Um item que não abrisse o painel seria botão mudo.
+        func textView(
+            _ view: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int
+        ) -> NSMenu? {
+            augment(menu)
+        }
+
+        /// A montagem, separada do `NSEvent` que o `NSTextViewDelegate` exige.
+        ///
+        /// A separação não é estética: assim o teste chama isto com um `NSMenu`
+        /// e nada mais. Construir um `NSEvent` só para chamar o delegado
+        /// pareceria evento sintético num projeto cuja regra é não ter nenhum,
+        /// e o evento não entra em decisão nenhuma aqui.
+        @discardableResult
+        func augment(_ menu: NSMenu) -> NSMenu {
+            var index = 0
+
+            let paste = NSMenuItem(
+                title: "Colar sem formatação",
+                action: #selector(pastePlainFromMenu(_:)),
+                keyEquivalent: "v"
+            )
+            paste.keyEquivalentModifierMask = [.command, .shift]
+            paste.target = self
+            menu.insertItem(paste, at: index); index += 1
+
+            let table = NSMenuItem(title: "Inserir tabela", action: nil, keyEquivalent: "")
+            let sizes = NSMenu(title: "Inserir tabela")
+            // Sem painel de escolha aqui: o `↗`/grade da barra é que tem o
+            // seletor por arraste. O menu oferece as medidas que se pede na
+            // prática, e cada uma insere de verdade.
+            for side in [2, 3, 4] {
+                let entry = NSMenuItem(
+                    title: "\(side) × \(side)",
+                    action: #selector(insertTableFromMenu(_:)),
+                    keyEquivalent: ""
+                )
+                entry.tag = side
+                entry.target = self
+                sizes.addItem(entry)
+            }
+            table.submenu = sizes
+            menu.insertItem(table, at: index); index += 1
+
+            let clear = NSMenuItem(
+                title: "Limpar formatação",
+                action: #selector(clearFormattingFromMenu(_:)),
+                keyEquivalent: ""
+            )
+            clear.target = self
+            menu.insertItem(clear, at: index); index += 1
+
+            menu.insertItem(.separator(), at: index)
+            return menu
+        }
+
+        @objc func pastePlainFromMenu(_ sender: Any?) {
+            textView?.pasteAsPlainText(sender)
+        }
+
+        @objc func clearFormattingFromMenu(_ sender: Any?) {
+            run(.clearFormatting)
+        }
+
+        @objc func insertTableFromMenu(_ sender: NSMenuItem) {
+            let side = max(1, sender.tag)
+            run(.table(rows: side, columns: side))
+        }
+
+        /// O mesmo caminho que a barra de formatação usa. Nada de uma segunda
+        /// implementação: o menu e a barra têm de aplicar o mesmo comando, ou
+        /// divergem no primeiro conserto.
+        func run(_ command: ComposerCommand) {
+            var text = parent.text
+            var selection = parent.selection
+            ComposerEditor.perform(
+                command, on: &text, selection: &selection, theme: parent.theme
+            )
+            parent.text = text
+            parent.selection = selection
+            parent.onEdit?()
+        }
+
         // MARK: NSTextViewDelegate
 
         func textDidChange(_ notification: Notification) {
@@ -422,6 +519,25 @@ final class ComposerNSTextView: NSTextView {
         )
         setSelectedRange(NSRange(location: range.location + 1, length: 0))
         didChangeText()
+    }
+
+    /// ⇧⌘V cola sem formatação.
+    ///
+    /// O equivalente escrito no item do menu de contexto não basta: `NSMenu` de
+    /// contexto só dispara equivalente enquanto está **aberto**. Sem isto o
+    /// item mostraria um atalho que o app não escuta — a versão tipográfica do
+    /// botão mudo, e a regra deste marco vale para o atalho também.
+    ///
+    /// Só intercepta a combinação exata. Qualquer outra segue para o AppKit,
+    /// que é quem responde por ⌘C, ⌘V, ⌘Z e o resto.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let relevant: NSEvent.ModifierFlags = [.command, .shift, .option, .control]
+        if event.modifierFlags.intersection(relevant) == [.command, .shift],
+           event.charactersIgnoringModifiers?.lowercased() == "v" {
+            pasteAsPlainText(nil)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
     }
 
     override func insertTab(_ sender: Any?) {
