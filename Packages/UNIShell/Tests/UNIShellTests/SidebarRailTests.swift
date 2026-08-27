@@ -13,16 +13,16 @@ struct SidebarRailTests {
     }
 
     @Test("as abreviações das quatro pastas estão na ordem certa", arguments: [
-        (0, "hoje"),
-        (1, "dep"),
-        (2, "tudo"),
-        (3, "arq"),
+        (TriageBucket.today, "hoje"),
+        (TriageBucket.later, "dep"),
+        (TriageBucket.all, "tudo"),
+        (TriageBucket.archived, "arq"),
     ])
-    func bucketAbbreviations(index: Int, expected: String) {
-        let abbreviations = ["hoje", "dep", "tudo", "arq"]
+    func bucketAbbreviations(bucket: TriageBucket, expected: String) {
+        let abbr = SidebarRail.abbreviation(for: bucket)
         #expect(
-            abbreviations[index] == expected,
-            "abreviação \(index) deve ser '\(expected)'"
+            abbr == expected,
+            "abreviação para \(bucket) deve ser '\(expected)', obteve '\(abbr)'"
         )
     }
 

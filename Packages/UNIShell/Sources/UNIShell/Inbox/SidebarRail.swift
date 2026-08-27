@@ -12,17 +12,30 @@ public struct SidebarRail: View {
         self.store = store
     }
 
+    /// Abreviação de três a quatro letras que a trilha usa no lugar do rótulo
+    /// completo. Vem do protótipo: `short: ['hoje', 'dep', 'tudo', 'arq']`.
+    public static func abbreviation(for bucket: TriageBucket) -> String {
+        switch bucket {
+        case .today: "hoje"
+        case .later: "dep"
+        case .all: "tudo"
+        case .archived: "arq"
+        }
+    }
+
     public var body: some View {
         VStack(alignment: .center, spacing: 4) {
-            ScrollView {
-                VStack(alignment: .center, spacing: 4) {
-                    // Pastas (Fluxo)
-                    ForEach(TriageBucket.allCases, id: \.self) { bucket in
-                        bucketButton(bucket)
-                    }
+            // Pastas (Fluxo) — fixas no topo
+            VStack(alignment: .center, spacing: 4) {
+                ForEach(TriageBucket.allCases, id: \.self) { bucket in
+                    bucketButton(bucket)
+                }
+            }
 
-                    // Divisória, rótulo e contas aparecem só se há contas
-                    if !store.accounts.isEmpty {
+            // Contas com scroll (divisória, rótulo e marcas)
+            if !store.accounts.isEmpty {
+                ScrollView {
+                    VStack(alignment: .center, spacing: 4) {
                         // Divisória
                         Rectangle()
                             .fill(theme.line.color)
@@ -53,9 +66,7 @@ public struct SidebarRail: View {
 
     private func bucketButton(_ bucket: TriageBucket) -> some View {
         let active = bucket == store.bucket
-        let abbreviations = ["hoje", "dep", "tudo", "arq"]
-        let index = TriageBucket.allCases.firstIndex(of: bucket) ?? 0
-        let abbr = index < abbreviations.count ? abbreviations[index] : ""
+        let abbr = Self.abbreviation(for: bucket)
 
         return Button { store.select(bucket: bucket) } label: {
             VStack(alignment: .center, spacing: 3) {
@@ -65,7 +76,10 @@ public struct SidebarRail: View {
                     .textCase(.uppercase)
 
                 Text("\(store.count(for: bucket))")
-                    .font(theme.mono.font(size: 13, weight: .semibold))  // 650 ≈ semibold
+                    .font(theme.mono.font(size: 13, weight: .semibold))
+                    // Peso 650 não existe em Font.Weight (enum: 100,300,400,500,600,700,800,900).
+                    // Semibold (600) é o vizinho mais próximo, como em Task 7.
+                    // Para peso exato, seria preciso Core Text e fonte variável.
             }
             .foregroundStyle((active ? theme.accentInk : theme.ink3).color)
             .frame(width: 46, height: 40)
