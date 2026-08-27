@@ -2945,6 +2945,194 @@ decisão fica registrada no relatório.
 
 ---
 
+## Task R: Layout responsivo — OBRIGATÓRIA antes de fechar o marco
+
+**Pedido explícito do dono do projeto, 27/08/2026:** *"tem mais polimento, primeiro que voce
+deixou tudo fixo, e eu quero responsividade eu nao consigo redimensionar o app e isso é
+fundamental."*
+
+### O estado medido
+
+A janela **redimensiona**, mas trava num piso de 1100pt de largura (`App/OkamiUNIApp.swift:20`,
+`minWidth: 1100`) e a altura trava em 732 mesmo pedindo 700. Medido via acessibilidade na
+janela rodando: pedi 900×700, recebi 1100×732.
+
+O piso é sintoma. A causa é que três dos quatro painéis têm largura cravada:
+
+| painel | largura | onde |
+|---|---|---|
+| `FolderSidebar` | 236 fixa | `FolderSidebar.swift:6,58` |
+| `MessageList` | 370 fixa | `MessageList.swift:44,63` |
+| `AgendaRail` | 262 fixa | `AgendaRail.swift:6,101` |
+| `ReaderPane` | `maxWidth: .infinity` | `ReaderPane.swift:23` |
+
+São 868pt cravados. Só o leitor estica. A 1100 sobram **232pt para o leitor** — mais estreito
+que a lista de mensagens, e muito abaixo da medida de 64ch que a Task 9 estabeleceu para o
+corpo serif 16. O layout não tem como funcionar em janela pequena porque nada cede.
+
+A busca em `WindowChrome.swift:161` também é `.frame(width: 400, height: 28)` fixa e é
+candidata a estourar a barra em janela estreita.
+
+### O modelo
+
+Painéis somem por faixa de largura, e a **intenção do usuário é preservada**. O erro clássico
+aqui é o recolhimento automático sobrescrever o toggle manual: o usuário abre a lateral, a
+janela encolhe, a lateral fecha sozinha, a janela cresce de novo e a lateral **não volta**.
+
+Evita-se separando as duas coisas: `sidebarExpanded` e `agendaVisible` são **intenção**, e o
+que é renderizado é intenção **E** largura suficiente. Quando a janela cresce de novo, a
+intenção original volta a valer sozinha.
+
+Faixas:
+
+| largura da janela | lateral | lista | leitor | agenda |
+|---|---|---|---|---|
+| ≥ 1360 | 236 expandida | flexível 340–420 | resto (≥ 568) | 262 |
+| 1120–1360 | 236 expandida | flexível 340–420 | resto | **oculta** |
+| 920–1120 | **trilha de 62** | flexível 320–380 | resto | oculta |
+| < 920 | trilha de 62 | 320 | resto (≥ 420) | oculta |
+
+Piso da janela: `minWidth` cai de 1100 para **860**, `minHeight` de 700 para **600**.
+
+A lateral **nunca some por completo** — recolhida ela é a trilha de 62pt da Task 7B, que já
+existe. Esse comportamento já está especificado e testado; a Task R só o dispara por largura
+além de por clique.
+
+### O núcleo testável
+
+A decisão é aritmética pura e não pode morar numa `View` — um `View` do SwiftUI é
+implicitamente `@MainActor` no Swift 6, e uma `static` dentro dele herda o isolamento e
+**trapa em runtime** quando chamada de teste nonisolated. Isso já aconteceu nesta base
+(`AgendaRail`, resolvido criando `AgendaSummary` em UNICore).
+
+Portanto: criar `Packages/UNICore/Sources/UNICore/PaneLayout.swift`.
+
+```swift
+/// Quais painéis cabem numa janela desta largura, dada a intenção do usuário.
+public struct PaneLayout: Sendable, Hashable {
+    public let sidebarExpanded: Bool
+    public let agendaVisible: Bool
+    public let messageListWidth: CGFloat
+
+    /// `wantsSidebar` e `wantsAgenda` são a intenção do usuário, não o resultado.
+    /// A janela pode negar as duas; quando ela cresce, a intenção volta a valer.
+    public static func resolve(
+        width: CGFloat,
+        wantsSidebar: Bool,
+        wantsAgenda: Bool
+    ) -> PaneLayout
+}
+```
+
+- [ ] **Step 1: Escrever os testes que falham**
+
+```swift
+import Testing
+import UNICore
+
+@Suite("PaneLayout")
+struct PaneLayoutTests {
+
+    @Test("em janela larga tudo aparece se o usuário quiser")
+    func wideShowsEverything() {
+        let l = PaneLayout.resolve(width: 1440, wantsSidebar: true, wantsAgenda: true)
+        #expect(l.sidebarExpanded)
+        #expect(l.agendaVisible)
+    }
+
+    @Test("a agenda é o primeiro painel a sair")
+    func agendaGoesFirst() {
+        let l = PaneLayout.resolve(width: 1200, wantsSidebar: true, wantsAgenda: true)
+        #expect(l.sidebarExpanded)
+        #expect(l.agendaVisible == false)
+    }
+
+    @Test("abaixo de 1120 a lateral recolhe para a trilha")
+    func sidebarCollapses() {
+        let l = PaneLayout.resolve(width: 1000, wantsSidebar: true, wantsAgenda: true)
+        #expect(l.sidebarExpanded == false)
+        #expect(l.agendaVisible == false)
+    }
+
+    @Test("a janela nega, mas não apaga a intenção: ao crescer, volta")
+    func intentSurvivesShrinking() {
+        // o mesmo `wants` atravessa as três larguras
+        let narrow = PaneLayout.resolve(width: 900, wantsSidebar: true, wantsAgenda: true)
+        let wide = PaneLayout.resolve(width: 1440, wantsSidebar: true, wantsAgenda: true)
+        #expect(narrow.sidebarExpanded == false)
+        #expect(wide.sidebarExpanded)      // sem estado persistido entre as duas chamadas
+    }
+
+    @Test("quem não quer a lateral não a ganha de volta ao alargar")
+    func refusalIsRespected() {
+        let l = PaneLayout.resolve(width: 1440, wantsSidebar: false, wantsAgenda: false)
+        #expect(l.sidebarExpanded == false)
+        #expect(l.agendaVisible == false)
+    }
+
+    @Test("a lista fica dentro da faixa em qualquer largura", arguments: [
+        860.0, 920.0, 1000.0, 1120.0, 1280.0, 1440.0, 1920.0, 2560.0,
+    ])
+    func listStaysInRange(width: CGFloat) {
+        let l = PaneLayout.resolve(width: width, wantsSidebar: true, wantsAgenda: true)
+        #expect(l.messageListWidth >= 320)
+        #expect(l.messageListWidth <= 420)
+    }
+
+    @Test("o leitor nunca fica abaixo do mínimo legível")
+    func readerNeverStarves() {
+        for width in stride(from: 860.0, through: 2560.0, by: 20.0) {
+            let l = PaneLayout.resolve(width: width, wantsSidebar: true, wantsAgenda: true)
+            let taken = (l.sidebarExpanded ? 236 : 62)
+                + l.messageListWidth
+                + (l.agendaVisible ? 262 : 0)
+            #expect(width - taken >= 420, "leitor espremido em \(width)pt")
+        }
+    }
+}
+```
+
+- [ ] **Step 2: Rodar para ver falhar**
+
+`cd Packages/UNICore && swift test --filter PaneLayout` → FAIL, `PaneLayout` não existe.
+
+- [ ] **Step 3: Implementar `PaneLayout`**, **Step 4: ver passar**, **Step 5: commit**
+
+- [ ] **Step 6: Ligar na `InboxScreen`**
+
+`InboxScreen` lê a largura com `GeometryReader` (ou `containerRelativeFrame`), chama
+`PaneLayout.resolve`, e passa o resultado adiante. `FolderSidebar`, `MessageList` e
+`AgendaRail` param de cravar `.frame(width:)` e passam a receber a largura resolvida.
+As constantes `expandedWidth` / `width` viram os valores **canônicos** que `PaneLayout`
+usa, não larguras aplicadas direto na View.
+
+Animar a transição com o mesmo `easeInOut(duration: 0.18)` que o toggle manual já usa, para
+recolher por arraste e por clique parecerem a mesma coisa.
+
+- [ ] **Step 7: Baixar o piso da janela**
+
+`App/OkamiUNIApp.swift`: `minWidth: 860, minHeight: 600`. Verificar que a altura de fato
+desce até 600 — hoje ela trava em 732 mesmo com `minHeight: 700`, o que significa que algum
+conteúdo tem altura intrínseca grande demais. Achar e corrigir.
+
+- [ ] **Step 8: A busca da barra**
+
+`WindowChrome.swift:161` sai de `.frame(width: 400, height: 28)` para uma faixa que encolhe
+em janela estreita sem colidir com as abas nem com o seletor de temas.
+
+- [ ] **Step 9: Verificar com a janela na mão**
+
+Redimensionar de 860 até a tela cheia observando as três transições. Capturar em 880, 1000,
+1200 e 1440. Nenhuma transição pode cortar texto, sobrepor painel, ou fazer a barra estourar.
+
+### O que não muda
+
+A fidelidade em 1440×916 que a Task P estabeleceu. Depois da Task R, a janela em 1440×916
+tem de continuar idêntica ao que a Task P entregou — a responsividade acontece **fora** desse
+ponto, não em cima dele. Recapturar em 1440 e comparar com a captura da Task P.
+
+---
+
 ## Definição de pronto
 
 O Marco 1 está fechado quando:
