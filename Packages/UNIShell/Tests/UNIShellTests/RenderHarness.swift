@@ -64,7 +64,24 @@ enum Render {
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         content.layoutSubtreeIfNeeded()
 
-        guard let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds) else { return nil }
+        // Em `scale: 2` o bitmap tem o dobro de pixels mas o mesmo tamanho em
+        // pontos — é assim que uma tela Retina desenha. Importa: uma borda de
+        // 0,5pt vira meio pixel lavado em 1× e um pixel nítido em 2×, e
+        // defeito de contorno só aparece na segunda. Verificar em 1× e concluir
+        // que está limpo já me enganou uma vez.
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(size.width * scale),
+            pixelsHigh: Int(size.height * scale),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else { return nil }
+        rep.size = size
         content.cacheDisplay(in: content.bounds, to: rep)
         window.close()
         return rep
@@ -77,9 +94,10 @@ enum Render {
         _ view: V,
         named name: String,
         size: CGSize,
-        theme: Theme
+        theme: Theme,
+        scale: CGFloat = 1
     ) -> NSBitmapImageRep? {
-        guard let rep = bitmap(view, size: size, theme: theme) else { return nil }
+        guard let rep = bitmap(view, size: size, theme: theme, scale: scale) else { return nil }
         if let dir = outputDirectory {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             if let png = rep.representation(using: .png, properties: [:]) {
