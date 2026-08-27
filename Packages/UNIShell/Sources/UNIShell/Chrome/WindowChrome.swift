@@ -61,7 +61,7 @@ public struct WindowChrome: View {
             sidebarToggle
 
             HStack(spacing: 9) {
-                Image(theme.isDark ? "uni-lockup-dark" : "uni-lockup-light")
+                Image(theme.isDark ? "uni-lockup-dark" : "uni-lockup-light", bundle: Bundle.main)
                     .resizable()
                     .scaledToFit()
                     .frame(height: 38)
