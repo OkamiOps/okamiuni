@@ -58,12 +58,7 @@ public struct MessageList: View {
     public var body: some View {
         VStack(spacing: 0) {
             header
-            if store.visibleMessages.isEmpty {
-                Spacer()
-            } else {
-                list
-            }
-            footer
+            list
         }
         .frame(width: Self.width)
         .background(theme.surface.color)
@@ -119,6 +114,7 @@ public struct MessageList: View {
                     }
                 }
             }
+            footer
         }
     }
 
@@ -130,6 +126,7 @@ public struct MessageList: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 16)
-        .padding(.vertical, 24)
+        .padding(.top, 24)
+        .padding(.bottom, 44)
     }
 }
