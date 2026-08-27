@@ -488,6 +488,76 @@ struct ContextMenuTests {
 
 extension ContextMenuTests {
 
+    // MARK: - Agenda
+
+    /// Uma linha só, e é essa a diferença para "Copiar convite": este é o
+    /// texto que se cola numa conversa quando alguém pergunta "quando é?".
+    @Test("o resumo copiado é título, dia e horário numa linha")
+    func agendaSummaryIsOneLine() {
+        let item = AgendaItem(
+            id: "e1", title: "Standup produto",
+            startMinute: 570, endMinute: 600, accountID: "zoho"
+        )
+        let texto = ContextMenus.summaryText(item, date: Fixtures.today)
+
+        #expect(texto == "Standup produto — Terça, 25 de agosto · 09:30 – 10:00")
+        #expect(!texto.contains("\n"))
+    }
+
+    /// Sem data, escreve o horário — nunca um dia inventado. É a mesma regra
+    /// de `inviteText`.
+    @Test("sem data, o resumo sai só com o horário")
+    func agendaSummaryWithoutADate() {
+        let item = AgendaItem(
+            id: "e1", title: "Foco", startMinute: 600, endMinute: 690, accountID: "zoho"
+        )
+        #expect(ContextMenus.summaryText(item, date: nil) == "Foco — 10:00 – 11:30")
+    }
+
+    /// No Marco 1 não há escrita na agenda de verdade: tirar um compromisso de
+    /// fixture duraria só a sessão e ele voltaria sozinho no próximo
+    /// lançamento. O item aparece apagado com o motivo, e não some — a lista de
+    /// ações de um cartão tem de ser a mesma nos quatro lugares que o desenham.
+    @Test("«Tirar da agenda» só age no que veio de um email, e diz por quê quando não")
+    func removeFromAgendaOnlyForEmailItems() {
+        let detail = Fixtures.eventDetail(for: "Standup produto")
+
+        let doEmail = AgendaItem(
+            id: DetectedEventConversion.agendaID(forMessageID: "m1"),
+            title: "Call", startMinute: 900, endMinute: 960, accountID: "zoho"
+        )
+        let aceso = ContextMenus
+            .agendaBlock(doEmail, detail: detail, date: Fixtures.today, originMessageID: nil)
+            .item("Tirar da agenda")
+        #expect(aceso?.isEnabled == true)
+        #expect(aceso?.command == .removeFromAgenda(itemID: doEmail.id))
+
+        let deFixture = AgendaItem(
+            id: "e1", title: "Standup", startMinute: 570, endMinute: 600, accountID: "zoho"
+        )
+        let apagado = ContextMenus
+            .agendaBlock(deFixture, detail: detail, date: Fixtures.today, originMessageID: nil)
+            .item("Tirar da agenda")
+        #expect(apagado != nil)
+        #expect(apagado?.isEnabled == false)
+        #expect(apagado?.help
+            == "Só dá para tirar o que o app pôs na agenda a partir de um email")
+    }
+
+    /// O prefixo não é decoração do `id`: é a única coisa que distingue o que o
+    /// app criou do que veio da agenda.
+    @Test("o prefixo «email-» diz de que mensagem o compromisso veio")
+    func agendaIDCarriesItsOrigin() {
+        let id = DetectedEventConversion.agendaID(forMessageID: "m1")
+        #expect(DetectedEventConversion.isFromEmail(id))
+        #expect(DetectedEventConversion.messageID(forAgendaID: id) == "m1")
+        #expect(!DetectedEventConversion.isFromEmail("e1"))
+        #expect(DetectedEventConversion.messageID(forAgendaID: "e1") == nil)
+        // O prefixo sozinho não é um id de mensagem.
+        #expect(!DetectedEventConversion.isFromEmail("email-"))
+    }
+
+
     // MARK: - Linha de conta
 
     /// A janela 06 sempre soube abrir numa conta — o valor da cena é o id

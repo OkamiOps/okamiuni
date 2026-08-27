@@ -103,3 +103,66 @@ struct ShellTrashTests {
         #expect(SidebarRail.abbreviation(for: .trash) == "lixo")
     }
 }
+
+/// O retorno com "Desfazer" de "Tirar da agenda", e a razão de ele ser um
+/// segundo recibo e não o mesmo.
+@Suite("Recibo da agenda")
+@MainActor
+struct AgendaReceiptTests {
+
+    private func store() async -> MailStore {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        return store
+    }
+
+    @Test("tirar da agenda deixa recibo, e desfazer devolve o compromisso")
+    func removingLeavesAnUndo() async {
+        let store = await store()
+        let receipts = ActionReceipts()
+        let message = store.messages.first { $0.id == "m1" }!
+        let criado = store.addToAgenda(message.detectedEvent!, from: message)!
+
+        let agiu = receipts.interceptAgenda(
+            .removeFromAgenda(itemID: criado.id), on: store, stamp: "14:32"
+        )
+
+        #expect(agiu)
+        #expect(!store.agenda.contains { $0.id == criado.id })
+        #expect(receipts.agenda?.note == "Tirada da agenda — \(criado.title) · 14:32")
+        #expect(receipts.agenda?.undo == .restoreToAgenda(itemID: criado.id))
+
+        StoreCommand.run(receipts.agenda!.undo, on: store)
+        #expect(store.agenda.contains(criado))
+    }
+
+    /// Duas faixas porque são duas superfícies. Uma só faria "Tirar da agenda"
+    /// na aba Agenda desenhar o recibo no pé de uma lista que não está na tela.
+    @Test("o recibo da agenda não escreve no recibo das mensagens, e vice-versa")
+    func theTwoReceiptsDoNotOverwriteEachOther() async {
+        let store = await store()
+        let receipts = ActionReceipts()
+        let message = store.messages.first { $0.id == "m1" }!
+        let criado = store.addToAgenda(message.detectedEvent!, from: message)!
+
+        receipts.intercept(.move(messageID: "m4", to: .trash), on: store, stamp: "14:00")
+        receipts.interceptAgenda(
+            .removeFromAgenda(itemID: criado.id), on: store, stamp: "14:32"
+        )
+
+        #expect(receipts.current?.messageID == "m4")
+        #expect(receipts.agenda?.messageID == criado.id)
+    }
+
+    /// Um compromisso que não está na agenda não pode virar uma faixa dizendo
+    /// que algo aconteceu.
+    @Test("tirar o que não está lá não produz recibo")
+    func unknownItemProducesNoReceipt() async {
+        let store = await store()
+        let receipts = ActionReceipts()
+        #expect(!receipts.interceptAgenda(
+            .removeFromAgenda(itemID: "email-nao-existe"), on: store, stamp: "x"
+        ))
+        #expect(receipts.agenda == nil)
+    }
+}

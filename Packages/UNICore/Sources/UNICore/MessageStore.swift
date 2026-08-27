@@ -180,7 +180,22 @@ public final class MailStore {
     /// pessoa apagou por outro caminho, ou "Desfazer" foi clicado duas vezes
     /// — não é erro, é o mesmo estado a que se pretendia chegar.
     public func removeFromAgenda(_ id: String) {
+        if let item = agenda.first(where: { $0.id == id }) { removedFromAgenda[id] = item }
         agenda.removeAll { $0.id == id }
+    }
+
+    /// O que saiu da agenda, para "Desfazer" ter o que devolver — o mesmo
+    /// cofre de sessão que `deleteForever` usa, e pelo mesmo motivo: fora da
+    /// lista, o compromisso não sabe mais o horário nem a conta dele.
+    private var removedFromAgenda: [String: AgendaItem] = [:]
+
+    /// O "Desfazer" de "Tirar da agenda". Devolve o compromisso à ordenação
+    /// por horário em que a trilha e as três grades o esperam.
+    public func restoreToAgenda(_ id: String) {
+        guard let item = removedFromAgenda.removeValue(forKey: id) else { return }
+        guard !agenda.contains(where: { $0.id == id }) else { return }
+        agenda.append(item)
+        agenda.sort { $0.startMinute < $1.startMinute }
     }
 
     private func matches(_ message: Message, _ term: String) -> Bool {

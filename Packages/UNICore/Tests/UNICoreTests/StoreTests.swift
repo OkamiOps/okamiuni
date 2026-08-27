@@ -1011,3 +1011,54 @@ struct FlagTests {
         #expect(store.messages.first { $0.id == "m1" }?.isRead == true)
     }
 }
+
+/// Tirar da agenda o que o app pôs lá — o inverso de "Colocar na agenda".
+@Suite("Tirar da agenda")
+@MainActor
+struct RemoveFromAgendaTests {
+
+    private func store() async -> MailStore {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        return store
+    }
+
+    @Test("tirar e desfazer devolvem o compromisso inteiro, na ordem de horário")
+    func removingIsUndoable() async {
+        let store = await store()
+        let message = store.messages.first { $0.id == "m1" }!
+        let criado = store.addToAgenda(message.detectedEvent!, from: message)!
+
+        store.removeFromAgenda(criado.id)
+        #expect(!store.agenda.contains { $0.id == criado.id })
+
+        store.restoreToAgenda(criado.id)
+        #expect(store.agenda.contains(criado))
+        // A trilha e as três grades esperam a lista ordenada por horário.
+        let inicios = store.agenda.map(\.startMinute)
+        #expect(inicios == inicios.sorted())
+    }
+
+    /// A mesma regra de `restoreDeleted`: desfazer o que já voltou não é erro,
+    /// e não pode duplicar o compromisso nas quatro superfícies que o desenham.
+    @Test("desfazer duas vezes não põe o compromisso duas vezes na agenda")
+    func restoringTwiceIsHarmless() async {
+        let store = await store()
+        let message = store.messages.first { $0.id == "m1" }!
+        let criado = store.addToAgenda(message.detectedEvent!, from: message)!
+
+        store.removeFromAgenda(criado.id)
+        store.restoreToAgenda(criado.id)
+        store.restoreToAgenda(criado.id)
+
+        #expect(store.agenda.filter { $0.id == criado.id }.count == 1)
+    }
+
+    @Test("desfazer um id que nunca saiu não inventa compromisso nenhum")
+    func restoringAnUnknownIDDoesNothing() async {
+        let store = await store()
+        let antes = store.agenda.count
+        store.restoreToAgenda("email-nao-existe")
+        #expect(store.agenda.count == antes)
+    }
+}

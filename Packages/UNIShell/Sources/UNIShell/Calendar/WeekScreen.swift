@@ -85,6 +85,9 @@ public struct WeekScreen: View {
     }
 
     @Environment(\.theme) private var theme
+    /// O recibo com "Desfazer" de "Tirar da agenda". Opcional no ambiente,
+    /// como em toda superfície: harness e preview não precisam prover nada.
+    @Environment(ActionReceipts.self) private var receipts: ActionReceipts?
     @Environment(\.displayScale) private var displayScale
 
     let store: MailStore
@@ -298,7 +301,15 @@ public struct WeekScreen: View {
         .uniContextMenu(
             AgendaContextMenu.entries(for: item, store: store, anchor: anchor),
             store: store,
-            onReveal: onRevealMessage
+            onReveal: onRevealMessage,
+            // "Tirar da agenda" para aqui primeiro, para o recibo com
+            // "Desfazer" nascer antes da mudança — ver `ActionReceipts`.
+            intercept: { command in
+                guard let receipts else { return false }
+                return withAnimation(SwipeMotion.transition) {
+                    receipts.interceptAgenda(command, on: store, stamp: ActionReceipts.stamp)
+                }
+            }
         )
     }
 

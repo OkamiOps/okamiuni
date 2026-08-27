@@ -31,7 +31,27 @@ public enum DetectedEventConversion {
     /// `MailStore.addToAgenda` reconhecer o segundo clique como repetição —
     /// em vez de duplicar o compromisso na trilha, no Dia, na Semana e no Mês.
     public static func agendaID(forMessageID messageID: String) -> String {
-        "email-\(messageID)"
+        prefix + messageID
+    }
+
+    /// O prefixo que marca um compromisso **nascido de um email**.
+    ///
+    /// Ele não é decoração do `id`: é a única coisa que distingue o que o app
+    /// criou do que veio da agenda. E é essa distinção que decide se "Tirar da
+    /// agenda" pode existir — tirar um compromisso de fixture não teria efeito
+    /// nenhum além da sessão, porque no Marco 1 não há escrita na agenda de
+    /// verdade.
+    public static let prefix = "email-"
+
+    /// Este compromisso foi criado a partir de um email?
+    public static func isFromEmail(_ itemID: String) -> Bool {
+        itemID.hasPrefix(prefix) && itemID.count > prefix.count
+    }
+
+    /// De qual mensagem ele veio, se veio de alguma.
+    public static func messageID(forAgendaID itemID: String) -> String? {
+        guard isFromEmail(itemID) else { return nil }
+        return String(itemID.dropFirst(prefix.count))
     }
 
     /// O `AgendaItem` que este `DetectedEvent` vira, contado contra

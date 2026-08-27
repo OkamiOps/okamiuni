@@ -52,6 +52,11 @@ public enum ContextCommand: Sendable, Hashable {
     case filterAccount(accountID: String)
     /// Desliga o filtro de conta.
     case clearAccountFilter
+    /// Tira da agenda um compromisso que o app criou a partir de um email —
+    /// o inverso de "Colocar na agenda".
+    case removeFromAgenda(itemID: String)
+    /// O "Desfazer" de `removeFromAgenda`.
+    case restoreToAgenda(itemID: String)
     /// 04 Detalhe do compromisso.
     case openEvent(itemID: String)
     /// Leva o leitor até a mensagem que originou o compromisso, trocando de
@@ -423,6 +428,10 @@ public enum ContextMenus {
             "Copiar convite",
             .copy(inviteText(item, detail: detail, date: date))
         )))
+        entries.append(.item(ContextMenuItem(
+            "Copiar resumo",
+            .copy(summaryText(item, date: date))
+        )))
         entries.append(.separator)
         if let originMessageID {
             entries.append(.item(ContextMenuItem(
@@ -430,6 +439,7 @@ public enum ContextMenus {
                 .revealMessage(messageID: originMessageID)
             )))
         }
+        entries.append(.item(removeFromAgendaItem(item)))
         return entries.tidied
     }
 
@@ -618,6 +628,43 @@ public enum ContextMenus {
             }
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// "Tirar da agenda" — o inverso do "Colocar na agenda" do cartão de resumo.
+    ///
+    /// Só age em compromisso **criado a partir de um email**
+    /// (`DetectedEventConversion.isFromEmail`). Num compromisso de fixture ele
+    /// aparece **apagado, com o motivo**: no Marco 1 não há escrita na agenda
+    /// de verdade, então tirá-lo de lá duraria só a sessão e voltaria sozinho
+    /// no próximo lançamento — um botão que desfaz o que fez sem avisar é pior
+    /// que um botão ausente.
+    ///
+    /// Some não é opção aqui pela razão de sempre: a lista de ações de um
+    /// cartão tem de ser a mesma nos quatro lugares que desenham cartão.
+    static func removeFromAgendaItem(_ item: AgendaItem) -> ContextMenuItem {
+        let doEmail = DetectedEventConversion.isFromEmail(item.id)
+        return ContextMenuItem(
+            "Tirar da agenda",
+            .removeFromAgenda(itemID: item.id),
+            isEnabled: doEmail,
+            help: doEmail
+                ? "Desfazer o «Colocar na agenda» deste email"
+                : "Só dá para tirar o que o app pôs na agenda a partir de um email"
+        )
+    }
+
+    /// "Standup produto — Terça, 25 de agosto · 09:00 – 09:30".
+    ///
+    /// Uma linha só, e é essa a diferença para "Copiar convite": este é o texto
+    /// que se cola numa conversa quando alguém pergunta "quando é?". O convite
+    /// tem local, link e participantes e ocupa um parágrafo.
+    ///
+    /// Sem formatação nova: o dia é `DateLabels.eventDate` e o horário é
+    /// `AgendaItem.rangeLabel`, que já sai de `MinuteFormat`. `date` nula
+    /// escreve só o horário, em vez de inventar um dia.
+    public static func summaryText(_ item: AgendaItem, date: Date?) -> String {
+        guard let date else { return "\(item.title) — \(item.rangeLabel)" }
+        return "\(item.title) — \(DateLabels.eventDate(date)) · \(item.rangeLabel)"
     }
 
     /// Qual mensagem gerou este compromisso.

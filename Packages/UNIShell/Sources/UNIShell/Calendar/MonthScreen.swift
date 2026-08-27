@@ -12,6 +12,9 @@ import UNICore
 public struct MonthScreen: View {
 
     @Environment(\.theme) private var theme
+    /// O recibo com "Desfazer" de "Tirar da agenda". Opcional no ambiente,
+    /// como em toda superfície: harness e preview não precisam prover nada.
+    @Environment(ActionReceipts.self) private var receipts: ActionReceipts?
 
     let store: MailStore
     let anchor: Date
@@ -178,7 +181,15 @@ public struct MonthScreen: View {
         .uniContextMenu(
             AgendaContextMenu.entries(for: event, store: store, anchor: anchor),
             store: store,
-            onReveal: onRevealMessage
+            onReveal: onRevealMessage,
+            // "Tirar da agenda" para aqui primeiro, para o recibo com
+            // "Desfazer" nascer antes da mudança — ver `ActionReceipts`.
+            intercept: { command in
+                guard let receipts else { return false }
+                return withAnimation(SwipeMotion.transition) {
+                    receipts.interceptAgenda(command, on: store, stamp: ActionReceipts.stamp)
+                }
+            }
         )
     }
 

@@ -26,7 +26,37 @@ import UNICore
 public final class ActionReceipts {
     public var current: SwipeReceipt?
 
+    /// O retorno das ações **da agenda**, separado do das mensagens.
+    ///
+    /// Duas faixas porque são duas superfícies: a das mensagens vive no pé da
+    /// lista, a da agenda vive no pé da trilha e da grade. Uma faixa só faria
+    /// "Tirar da agenda" na aba Agenda desenhar o recibo num painel que não
+    /// está na tela — a definição de retorno invisível.
+    public var agenda: SwipeReceipt?
+
     public init() {}
+
+    /// Dá a "Tirar da agenda" o mesmo retorno com "Desfazer" que "Colocar na
+    /// agenda" já tem no cartão de resumo do leitor.
+    ///
+    /// Como nos outros, o recibo nasce **antes** da mudança: fora da lista, o
+    /// compromisso não sabe mais o título nem o horário dele.
+    @discardableResult
+    public func interceptAgenda(
+        _ command: ContextCommand, on store: MailStore, stamp: String
+    ) -> Bool {
+        guard case .removeFromAgenda(let itemID) = command,
+              let item = store.agenda.first(where: { $0.id == itemID })
+        else { return false }
+
+        agenda = SwipeReceipt(
+            messageID: itemID,
+            note: "Tirada da agenda — \(item.title) · \(stamp)",
+            undo: .restoreToAgenda(itemID: itemID)
+        )
+        store.removeFromAgenda(itemID)
+        return true
+    }
 
     /// Dá a "Apagar" e a "Apagar definitivamente" o retorno com "Desfazer" que
     /// o arraste já tem, venham eles do menu da linha, do menu do leitor ou da

@@ -112,7 +112,10 @@ public struct CalendarScreen: View {
                     SidebarRail(store: store, width: sidebarWidth)
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 }
-                calendarColumn
+                // A faixa de retorno pende da coluna da agenda, e não da
+                // tela inteira: a barra lateral tem o menu de caixa dela e
+                // não produz recibo nenhum.
+                calendarColumn.agendaUndoBand(store: store)
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
             .animation(.easeInOut(duration: 0.18), value: expanded)

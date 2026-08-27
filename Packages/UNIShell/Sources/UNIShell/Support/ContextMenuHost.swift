@@ -89,6 +89,14 @@ enum StoreCommand {
             store.move(message, to: bucket)
             return true
 
+        case .removeFromAgenda(let itemID):
+            store.removeFromAgenda(itemID)
+            return true
+
+        case .restoreToAgenda(let itemID):
+            store.restoreToAgenda(itemID)
+            return true
+
         case .markAllRead(let bucket, let accountID):
             store.markAllRead(in: bucket, accountID: accountID)
             return true
@@ -153,7 +161,8 @@ struct MenuCommandRunner {
             )
 
         case .setRead, .setFlagged, .move, .markAllRead,
-             .deleteForever, .restoreDeleted, .emptyTrash:
+             .deleteForever, .restoreDeleted, .emptyTrash,
+             .removeFromAgenda, .restoreToAgenda:
             StoreCommand.run(command, on: store)
 
         case .composeFrom(let accountID):
