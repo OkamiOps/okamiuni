@@ -31,9 +31,22 @@ echo "▸ binário: $(stat -f '%Sm' -t '%Y-%m-%d %H:%M:%S' "$APP/Contents/MacOS/
 echo "▸ commit:  $(git log -1 --format='%h %s')"
 if [[ "$1" == "--capturar" ]]; then
   ALVO="${2:-/tmp/uni-real.png}"
+  # O app é sandboxed: ele só consegue escrever dentro do próprio contêiner.
+  # A foto sai de lá e é copiada para onde o usuário pediu.
+  CONTAINER=~/Library/Containers/com.okamiops.okamiuni/Data/tmp/uni-real.png
+  rm -f "$CONTAINER" "$ALVO" 2>/dev/null || true
+
   echo "▸ abrindo para fotografar (o app fecha sozinho)"
-  open -W "$APP" --args "--capturar=$ALVO" 2>&1 | tail -3
-  echo "▸ imagem: $ALVO"
+  open -W "$APP" --args --capturar
+
+  if [[ -f "$CONTAINER" ]]; then
+    cp "$CONTAINER" "$ALVO"
+    echo "▸ imagem: $ALVO  ($(sips -g pixelWidth -g pixelHeight "$ALVO" | tail -2 | tr -d ' \n'))"
+  else
+    echo "▸ FALHOU: nada em $CONTAINER"
+    echo "  veja o log do app:  log show --last 2m --predicate 'process == \"OkamiUNI\"' | grep captura"
+    exit 1
+  fi
   exit 0
 fi
 

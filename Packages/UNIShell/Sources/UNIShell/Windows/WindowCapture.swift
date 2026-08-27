@@ -29,13 +29,25 @@ public struct WindowCapture: Sendable {
         self.delay = delay
     }
 
-    /// `--capturar=/caminho.png`, ou `--capturar` sozinho para o padrão.
+    /// Onde a foto pode ser escrita.
+    ///
+    /// **O app é sandboxed** (`com.apple.security.app-sandbox`), então `/tmp` e
+    /// qualquer caminho fora do contêiner são negados — silenciosamente, do
+    /// ponto de vista de quem só olha se o arquivo apareceu. A primeira versão
+    /// deste instrumento escrevia em `/tmp` e não produziu nada.
+    ///
+    /// `NSTemporaryDirectory()` dentro do sandbox aponta para o contêiner do
+    /// app, que é escrevível. O caminho absoluto vai para o stderr, e o script
+    /// copia de lá para onde o usuário pediu.
+    public static var containerFile: String {
+        (NSTemporaryDirectory() as NSString).appendingPathComponent("uni-real.png")
+    }
+
+    /// `--capturar` liga a captura. O caminho de destino é resolvido pelo
+    /// script, fora do sandbox — aqui a foto vai sempre para o contêiner.
     public static func parse(_ arguments: [String]) -> WindowCapture? {
         for argument in arguments where argument.hasPrefix("--capturar") {
-            let value = argument.contains("=")
-                ? String(argument.drop { $0 != "=" }.dropFirst())
-                : ""
-            return WindowCapture(path: value.isEmpty ? "/tmp/uni-real.png" : value)
+            return WindowCapture(path: containerFile)
         }
         return nil
     }
@@ -89,8 +101,18 @@ private struct CaptureProbe: NSViewRepresentable {
             return
         }
         content.cacheDisplay(in: content.bounds, to: rep)
-        guard let png = rep.representation(using: .png, properties: [:]) else { return }
-        try? png.write(to: URL(fileURLWithPath: path))
+        guard let png = rep.representation(using: .png, properties: [:]) else {
+            FileHandle.standardError.write(Data("captura: PNG falhou\n".utf8))
+            return
+        }
+        let url = URL(fileURLWithPath: path)
+        do {
+            try png.write(to: url)
+        } catch {
+            // O sandbox nega sem avisar quem só verifica se o arquivo existe.
+            FileHandle.standardError.write(Data("captura: escrita negada em \(path) — \(error)\n".utf8))
+            return
+        }
         let scale = window.backingScaleFactor
         FileHandle.standardError.write(Data(
             "captura: \(rep.pixelsWide)x\(rep.pixelsHigh) px, escala \(scale), chave \(window.isKeyWindow) -> \(path)\n".utf8
