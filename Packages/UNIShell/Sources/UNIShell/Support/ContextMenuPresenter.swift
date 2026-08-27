@@ -84,6 +84,20 @@ final class ContextMenuPresenter {
 
     var isOpen: Bool { !panels.isEmpty }
 
+    /// O estado do menu em uma linha, para o ensaio no app real aferir o que a
+    /// tecla fez. Só leitura, e só isto: `KeyboardRehearsal` precisa saber
+    /// quantos níveis estão abertos e qual linha está realçada no mais fundo.
+    var rehearsalState: String {
+        guard let level = panels.last?.level else { return "fechado" }
+        let title: String
+        switch level.highlightedEntry {
+        case .item(let item): title = item.title
+        case .submenu(let name, _): title = name
+        case .separator, .none: title = "—"
+        }
+        return "níveis=\(panels.count) realce=\(level.highlighted.map(String.init) ?? "nenhum") “\(title)”"
+    }
+
     private init() {}
 
     // MARK: - Abrir
@@ -245,11 +259,7 @@ final class ContextMenuPresenter {
         guard level.entries.indices.contains(row) else { return }
         switch level.entries[row] {
         case .submenu:
-            openSubmenu(row, at: depth)
-            if panels.count > depth + 1 {
-                let child = panels[depth + 1].level
-                child.highlighted = MenuKeyNavigation.first(in: child.entries)
-            }
+            enterSubmenu(row, at: depth)
         case .item(let item):
             guard item.isEnabled else { return }
             let action = run
@@ -321,23 +331,41 @@ final class ContextMenuPresenter {
         return event.type != .rightMouseDown
     }
 
+    /// Abre o submenu da linha e leva o realce para dentro dele.
+    ///
+    /// É o que `→` faz e o que `⏎` faz numa linha de submenu. Um caminho só
+    /// para os dois: quando eram dois, `→` acabou caindo no de executar item.
+    private func enterSubmenu(_ row: Int, at depth: Int) {
+        openSubmenu(row, at: depth)
+        guard panels.count > depth + 1 else { return }
+        let child = panels[depth + 1].level
+        child.highlighted = MenuKeyNavigation.first(in: child.entries)
+    }
+
+    /// A tecla não decide nada aqui: `MenuKeyNavigation.action` decide, e este
+    /// método só executa. A decisão mora em `UNICore` porque é onde ela pode
+    /// ser provada sem abrir janela — ver `MenuKeyActionTests`.
     private func key(_ event: NSEvent) -> Bool {
         guard let deepest = panels.indices.last else { return false }
         let level = panels[deepest].level
-        switch event.keyCode {
-        case 53:  // esc
+        let action = MenuKeyNavigation.action(
+            forKeyCode: event.keyCode,
+            highlighted: level.highlighted,
+            in: level.entries,
+            depth: deepest
+        )
+        switch action {
+        case .close:
             dismiss()
-        case 125:  // ↓
-            level.move(1)
-        case 126:  // ↑
-            level.move(-1)
-        case 36, 76:  // ⏎ / enter
-            if let row = level.highlighted { activate(row, at: deepest) }
-        case 124:  // →
-            if let row = level.highlighted { activate(row, at: deepest) }
-        case 123:  // ←
-            if deepest > 0 { closeLevels(deeperThan: deepest - 1) }
-        default:
+        case .move(let step):
+            level.move(step)
+        case .activate(let row):
+            activate(row, at: deepest)
+        case .enterSubmenu(let row):
+            enterSubmenu(row, at: deepest)
+        case .leaveSubmenu:
+            closeLevels(deeperThan: deepest - 1)
+        case .nothing:
             break
         }
         // Nada de tecla vaza para a janela de baixo enquanto o menu está

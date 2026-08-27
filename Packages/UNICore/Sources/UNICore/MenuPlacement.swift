@@ -220,4 +220,83 @@ public enum MenuKeyNavigation {
         _ = includeStart
         return nil
     }
+
+    // MARK: - O que cada tecla faz
+
+    /// Os códigos de tecla virtuais que o menu escuta. São os do
+    /// `Carbon.HIToolbox.Events`, escritos aqui para `UNICore` continuar sem
+    /// AppKit — é o que deixa a decisão inteira testável sem abrir janela.
+    public enum KeyCode {
+        public static let escape: UInt16 = 53
+        public static let left: UInt16 = 123
+        public static let right: UInt16 = 124
+        public static let down: UInt16 = 125
+        public static let up: UInt16 = 126
+        public static let ret: UInt16 = 36
+        public static let enter: UInt16 = 76
+    }
+
+    /// A decisão de uma tecla num menu aberto.
+    public enum KeyAction: Equatable, Sendable {
+        case close
+        /// Anda o realce em `step` (+1 para ↓, -1 para ↑).
+        case move(Int)
+        /// Executa o item realçado e fecha o menu.
+        case activate(Int)
+        /// Abre o submenu da linha realçada e leva o realce para dentro dele.
+        case enterSubmenu(Int)
+        /// Fecha o nível corrente e volta o realce ao pai.
+        case leaveSubmenu
+        case nothing
+    }
+
+    /// Traduz uma tecla na decisão do menu.
+    ///
+    /// ## A distinção que o ensaio cobrou
+    ///
+    /// `→` **não é** `⏎`. Numa linha comum a seta direita não faz nada — no
+    /// `NSMenu` ela nunca executou item nenhum. O painel custom da Task AN
+    /// mandava as duas para o mesmo lugar, e o ensaio no app real mostrou o
+    /// resultado: apertar `→` sobre "Abrir em janela" abria a janela e fechava
+    /// o menu. Quem navegasse com as setas disparava a primeira linha em que
+    /// tropeçasse.
+    ///
+    /// `⏎` sobre um submenu **abre** o submenu em vez de executar: é o que o
+    /// `NSMenu` faz, e não há o que executar numa linha que só tem filhos.
+    public static func action(
+        forKeyCode code: UInt16,
+        highlighted: Int?,
+        in entries: [ContextMenuEntry],
+        depth: Int
+    ) -> KeyAction {
+        switch code {
+        case KeyCode.escape:
+            return .close
+
+        case KeyCode.down:
+            return .move(1)
+
+        case KeyCode.up:
+            return .move(-1)
+
+        case KeyCode.ret, KeyCode.enter:
+            guard let row = highlighted, entries.indices.contains(row) else { return .nothing }
+            if case .submenu = entries[row] {
+                return isSelectable(entries[row]) ? .enterSubmenu(row) : .nothing
+            }
+            return isSelectable(entries[row]) ? .activate(row) : .nothing
+
+        case KeyCode.right:
+            guard let row = highlighted, entries.indices.contains(row),
+                  case .submenu = entries[row], isSelectable(entries[row])
+            else { return .nothing }
+            return .enterSubmenu(row)
+
+        case KeyCode.left:
+            return depth > 0 ? .leaveSubmenu : .nothing
+
+        default:
+            return .nothing
+        }
+    }
 }

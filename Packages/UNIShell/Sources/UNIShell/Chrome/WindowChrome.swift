@@ -105,6 +105,15 @@ public struct WindowChrome: View {
     let onCompose: () -> Void
     @State private var sidebarHovering = false
     @State private var agendaHovering = false
+    /// O destino do ⌘K. Ver `searchShortcut`.
+    @FocusState private var searchFocused: Bool
+    /// Onde cada controle da barra ficou. Só a captura do duplo clique lê isto
+    /// — ver `TitleBarDoubleClick`.
+    @State private var controlFrames: [CGRect] = []
+
+    /// O espaço em que as molduras dos controles são medidas: a própria barra,
+    /// com origem no canto superior esquerdo dela.
+    static let barSpace = "uni.chrome.bar"
 
     public init(
         workspace: Binding<Workspace>,
@@ -136,11 +145,22 @@ public struct WindowChrome: View {
         // Ver `TrafficLightLayout.contentCenterFromTop`.
         .frame(height: TrafficLightLayout.contentCenterFromTop * 2)
         .frame(height: Self.height, alignment: .top)
+        // O referencial em que as molduras dos controles são medidas. Tem de
+        // ficar aqui, sobre a barra já com a altura final: é este retângulo que
+        // a captura do duplo clique cobre, e os dois precisam ter a mesma
+        // origem para as molduras significarem a mesma coisa dos dois lados.
+        .coordinateSpace(.named(Self.barSpace))
+        .onPreferenceChange(ChromeControlFrames.self) { frames in
+            MainActor.assumeIsolated { controlFrames = frames }
+        }
         .background(theme.surface2.color)
+        // ⌘K. Ver `searchShortcut` — o campo escreve o atalho dentro de si
+        // desde a Task S e ninguém escutava.
+        .background(searchShortcut)
         // Numa janela `.hiddenTitleBar` a barra nativa fica atrás do nosso
         // conteúdo, então o duplo clique não chegava nela e a janela ignorava o
         // ajuste do sistema. Ver `TitleBarDoubleClick`.
-        .titleBarDoubleClick()
+        .titleBarDoubleClick(controls: controlFrames, barHeight: Self.height)
         .hairline(theme.line, edges: .bottom)
         // Sobe os semáforos nativos para a linha média da barra. Tamanho zero e
         // sem hit test: não participa do layout nem come clique.
@@ -151,22 +171,28 @@ public struct WindowChrome: View {
         }
     }
 
+    /// Cada controle publica a moldura **do que ele desenha**, e é por isso que
+    /// `.chromeControlFrame` entra aqui dentro e não em volta do `ForEach`: a
+    /// busca vem embrulhada num `frame(maxWidth: .infinity)` que come toda a
+    /// folga da barra, e medir o embrulho apagaria a área vazia inteira — a
+    /// captura do duplo clique não teria onde cair.
     @ViewBuilder
     private func view(for control: ChromeControl) -> some View {
         switch control {
-        case .sidebarToggle: sidebarToggle
-        case .tabs: workspaceTabs
+        case .sidebarToggle: sidebarToggle.chromeControlFrame(in: Self.barSpace)
+        case .tabs: workspaceTabs.chromeControlFrame(in: Self.barSpace)
         case .search:
             searchField
+                .chromeControlFrame(in: Self.barSpace)
                 // Protótipo: `flex: 1; justify-content: center` em volta do
                 // campo. O campo em si tem uma faixa, não uma largura: em 1440
                 // ele bate no teto de 400 e fica idêntico ao protótipo; numa
                 // janela estreita ele cede antes de espremer as abas.
                 .frame(maxWidth: .infinity)
-        case .agendaToggle: agendaToggle
-        case .lockup: lockup
-        case .themePicker: ThemePicker()
-        case .compose: composeButton
+        case .agendaToggle: agendaToggle.chromeControlFrame(in: Self.barSpace)
+        case .lockup: lockup.chromeControlFrame(in: Self.barSpace)
+        case .themePicker: ThemePicker().chromeControlFrame(in: Self.barSpace)
+        case .compose: composeButton.chromeControlFrame(in: Self.barSpace)
         }
     }
 
@@ -295,6 +321,24 @@ public struct WindowChrome: View {
         .clipShape(RoundedRectangle(cornerRadius: Self.tabCornerRadius(for: theme)))
     }
 
+    /// O ⌘K que o campo de busca promete por escrito.
+    ///
+    /// O campo desenha "⌘K" no canto direito desde a Task S. Até a Task AQ
+    /// **nada no app escutava essa tecla**: era um botão mudo em forma de
+    /// atalho, e o ensaio no app real (`--ensaiar-teclado`) mediu exatamente
+    /// isso — o primeiro respondedor não mudava.
+    ///
+    /// Um `Button` escondido, e não `onKeyPress`: `keyboardShortcut` é o que
+    /// entra no `performKeyEquivalent` da janela, que é por onde um atalho com
+    /// ⌘ chega. `.hidden()` tira o botão do desenho sem o tirar da hierarquia —
+    /// e como ele vem por `background`, não ocupa lugar no layout da barra.
+    private var searchShortcut: some View {
+        Button("Buscar") { searchFocused = true }
+            .keyboardShortcut("k", modifiers: .command)
+            .hidden()
+            .accessibilityHidden(true)
+    }
+
     private var searchField: some View {
         HStack(spacing: 8) {
             Circle()
@@ -304,6 +348,7 @@ public struct WindowChrome: View {
                 .textFieldStyle(.plain)
                 .font(theme.sans.font(size: 12.5))
                 .foregroundStyle(theme.ink.color)
+                .focused($searchFocused)
             Text("⌘K")
                 .font(theme.mono.font(size: 10))
                 .foregroundStyle(theme.ink4.color)

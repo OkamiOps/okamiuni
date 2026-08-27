@@ -176,49 +176,50 @@ struct TitleBarDoubleClickTests {
 
     // MARK: - Roteamento do clique
 
-    /// O defeito que deixava o recurso inteiro morto: `CatcherView.hitTest`
-    /// devolvia `nil`, então o AppKit nunca roteava `mouseDown:` para ela,
-    /// `mouseDown` nunca rodava e `performSystemAction` nunca era chamada. Os
-    /// testes acima cobriam só a função pura — ela estava certa e ninguém a
-    /// chamava.
+    /// ## Por que os três testes de roteamento que estavam aqui saíram
     ///
-    /// Roteamento se verifica com `hitTest` direto, sem lançar o app nem
-    /// sintetizar evento: é a mesma pergunta que o AppKit faz antes de entregar
-    /// o `mouseDown`.
-    @Test("o clique na área vazia da barra chega na view que age")
+    /// Eles montavam uma `NSView` de barra, punham a `CatcherView` dentro e
+    /// afirmavam que `bar.hitTest(ponto)` devolvia a captura. Passavam. E o
+    /// recurso continuou morto na tela do dono do projeto por duas tarefas
+    /// inteiras.
+    ///
+    /// O ensaio no app real (`--ensaiar-barra`) mediu o que eles não podiam
+    /// medir. Perguntado quem responde ao ponto da barra **no app**, o AppKit
+    /// respondeu `AppKitWindowHostingView`: a hospedeira do SwiftUI responde por
+    /// si e nunca alcança uma `NSView` pendurada como fundo. E quando a captura
+    /// foi para cima e passou a ser devolvida pelo `hitTest`, `mouseDown`
+    /// continuou não sendo chamado — o SwiftUI consulta o `hitTest` da view
+    /// hospedada e entrega o evento à máquina de gestos dele mesmo assim.
+    ///
+    /// Uma barra de mentira num teste nunca teria dito isso. O que ficou no
+    /// lugar é o que um teste consegue afirmar de verdade: a captura **não
+    /// disputa** o clique de ninguém (abaixo), a decisão de onde a barra é
+    /// vazia é `TitleBarHitZone` (`UNICore`, `TitleBarHitZoneTests`), e o
+    /// caminho do evento é provado rodando o app.
+
+    /// A `CatcherView` é âncora de medida, não captura de clique. Devolver
+    /// qualquer coisa que não seja `nil` a poria por cima dos controles da
+    /// barra — e o duplo clique não chega por aqui de qualquer forma.
+    @Test("a âncora do duplo clique nunca rouba o clique de ninguém")
     @MainActor
-    func emptyAreaRoutesToTheCatcher() {
+    func theAnchorNeverStealsAClick() {
         let bar = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 58))
         let catcher = CatcherView(frame: bar.bounds)
+        catcher.barHeight = 58
         bar.addSubview(catcher)
 
-        #expect(bar.hitTest(NSPoint(x: 420, y: 29)) === catcher)
+        #expect(catcher.hitTest(NSPoint(x: 420, y: 48)) == nil)
+        #expect(catcher.hitTest(NSPoint(x: 100, y: 22)) == nil)
+        #expect(bar.hitTest(NSPoint(x: 420, y: 48)) === bar)
     }
 
-    /// A outra metade: pegar o clique não pode significar engolir os controles.
-    /// Um controle **por cima** dela ganha o ponto, que é a ordem normal do
-    /// AppKit — subviews do topo para baixo.
-    @Test("um controle por cima da área continua recebendo o clique dele")
+    /// A âncora fala o idioma do SwiftUI: y para baixo, origem no canto
+    /// superior esquerdo. É o que faz `convert(_:from: nil)` devolver um ponto
+    /// comparável às molduras que o `WindowChrome` mede — sem isso a decisão
+    /// leria a barra de cabeça para baixo e trocaria vazio por controle.
+    @Test("a âncora mede no mesmo sentido em que o SwiftUI desenha")
     @MainActor
-    func controlsOnTopKeepTheirClick() {
-        let bar = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 58))
-        let catcher = CatcherView(frame: bar.bounds)
-        bar.addSubview(catcher)
-        // O primeiro controle da barra nasce em x=84 (ver `firstControlOffset`).
-        let control = NSView(frame: NSRect(x: 84, y: 16, width: 40, height: 26))
-        bar.addSubview(control)
-
-        #expect(bar.hitTest(NSPoint(x: 100, y: 29)) === control)
-        #expect(bar.hitTest(NSPoint(x: 420, y: 29)) === catcher)
-    }
-
-    @Test("fora da barra ela não pega nada")
-    @MainActor
-    func outsideTheBarNothingIsCaught() {
-        let bar = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 58))
-        let catcher = CatcherView(frame: NSRect(x: 0, y: 0, width: 600, height: 58))
-        bar.addSubview(catcher)
-
-        #expect(bar.hitTest(NSPoint(x: 420, y: 120)) == nil)
+    func theAnchorIsFlippedLikeSwiftUI() {
+        #expect(CatcherView(frame: .zero).isFlipped)
     }
 }

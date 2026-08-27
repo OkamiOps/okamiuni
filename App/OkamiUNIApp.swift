@@ -16,7 +16,10 @@ struct OkamiUNIApp: App {
         // A faixa de resposta lê o rascunho uma vez, na primeira montagem.
         // Semear depois disso não a alcança — foi o que fez duas capturas
         // saírem byte a byte idênticas. Aqui é antes de qualquer janela.
-        if WindowCapture.fromProcess != nil {
+        // O ensaio de teclado precisa do mesmo estado: sem destinatário nem
+        // texto na faixa, o "Enviar" nasce desabilitado e o ⌘⏎ não teria como
+        // provar nada.
+        if WindowCapture.fromProcess != nil || KeyboardRehearsal.fromProcess != nil {
             WindowCapture.seedForCapture(mailStore)
         }
     }
@@ -56,6 +59,12 @@ struct OkamiUNIApp: App {
                 // sintetizados dentro do processo e fotografa cada fase. Sem a
                 // bandeira, não faz nada.
                 .rehearseSwipeIfRequested(SwipeRehearsal.fromProcess)
+                // `--ensaiar-teclado`: sintetiza ⌘R, ⌘N, ⌘⏎ e as setas do menu
+                // de contexto dentro do processo e afere o efeito de cada uma.
+                .rehearseKeyboardIfRequested(KeyboardRehearsal.fromProcess, store: mailStore)
+                // `--ensaiar-barra`: dois cliques na área vazia da barra de
+                // título e a moldura da janela antes e depois.
+                .rehearseTitleBarIfRequested(TitleBarRehearsal.fromProcess)
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1440, height: 916)
