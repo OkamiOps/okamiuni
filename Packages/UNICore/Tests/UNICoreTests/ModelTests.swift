@@ -22,13 +22,30 @@ struct ModelTests {
         #expect(Contact(name: "Ana Beatriz Silva", address: "a@x.com").initials == "AS")
     }
 
-    @Test("as pastas de triagem batem com o protótipo")
+    /// A ordem é a que a barra lateral desenha, e a Lixeira entra **depois de
+    /// Arquivado** — é a ordem de Gmail, Outlook e Mail, e é onde a mão a
+    /// procura.
+    @Test("as pastas de triagem batem com o protótipo, com a Lixeira ao fim")
     func triageBuckets() {
-        #expect(TriageBucket.allCases.map(\.rawValue) == ["hoje", "depois", "todos", "arquivar"])
+        #expect(TriageBucket.allCases.map(\.rawValue)
+            == ["hoje", "depois", "todos", "arquivar", "lixeira"])
         #expect(TriageBucket.today.label == "Hoje")
         #expect(TriageBucket.later.label == "Depois")
         #expect(TriageBucket.all.label == "Tudo")
         #expect(TriageBucket.archived.label == "Arquivado")
+        #expect(TriageBucket.trash.label == "Lixeira")
+    }
+
+    /// Sem isto, apagar não pareceria apagar: a caixa que a pessoa deixa aberta
+    /// continuaria mostrando — e contando — o que ela acabou de jogar fora.
+    @Test("«Tudo» mostra tudo menos a Lixeira")
+    func allExcludesTrash() {
+        #expect(TriageBucket.all.contains(Message.preview(bucket: .today)))
+        #expect(TriageBucket.all.contains(Message.preview(bucket: .archived)))
+        #expect(!TriageBucket.all.contains(Message.preview(bucket: .trash)))
+        // E a Lixeira continua sendo uma caixa como as outras para o que é dela.
+        #expect(TriageBucket.trash.contains(Message.preview(bucket: .trash)))
+        #expect(!TriageBucket.trash.contains(Message.preview(bucket: .today)))
     }
 
     @Test("a caixa Tudo aceita qualquer mensagem; as outras filtram")

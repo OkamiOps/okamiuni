@@ -18,6 +18,10 @@ public enum TriageBucket: String, Sendable, CaseIterable {
     case later = "depois"
     case all = "todos"
     case archived = "arquivar"
+    /// A lixeira. É um lugar de verdade, e não um sumiço: a mensagem continua
+    /// no store, na caixa Lixeira, até alguém a apagar definitivamente ou
+    /// esvaziar a caixa.
+    case trash = "lixeira"
 
     public var label: String {
         switch self {
@@ -25,12 +29,22 @@ public enum TriageBucket: String, Sendable, CaseIterable {
         case .later: "Depois"
         case .all: "Tudo"
         case .archived: "Arquivado"
+        case .trash: "Lixeira"
         }
     }
 
-    /// `all` é uma visão, não um estado: aceita tudo.
+    /// `all` é uma visão, não um estado — mas ela **não** mostra a lixeira.
+    ///
+    /// É como Gmail, Outlook e Mail se comportam, e não é cosmético: "Tudo"
+    /// com a lixeira dentro faria apagar não ter efeito visível nenhum na
+    /// caixa que a pessoa costuma deixar aberta, e o contador dela continuaria
+    /// somando o que ela acabou de jogar fora. Apagar tem de parecer apagar.
+    ///
+    /// O mesmo vale para os contadores e para `markAllRead`, que passam por
+    /// aqui: eles herdam a regra em vez de a repetirem.
     public func contains(_ message: Message) -> Bool {
-        self == .all || message.bucket == self
+        if self == .all { return message.bucket != .trash }
+        return message.bucket == self
     }
 }
 

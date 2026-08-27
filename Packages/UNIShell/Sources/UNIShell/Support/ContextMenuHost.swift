@@ -60,6 +60,18 @@ enum StoreCommand {
     @discardableResult
     static func run(_ command: ContextCommand, on store: MailStore) -> Bool {
         switch command {
+        case .deleteForever(let messageID):
+            store.deleteForever(messageID)
+            return true
+
+        case .restoreDeleted(let messageID):
+            store.restoreDeleted(messageID)
+            return true
+
+        case .emptyTrash(let accountID):
+            store.emptyTrash(accountID: accountID)
+            return true
+
         case .setRead(let messageID, let isRead):
             store.setRead(isRead, for: messageID)
             return true
@@ -136,7 +148,8 @@ struct MenuCommandRunner {
                 value: ComposerRoute.forward(messageID: messageID).value
             )
 
-        case .setRead, .move, .markAllRead:
+        case .setRead, .move, .markAllRead,
+             .deleteForever, .restoreDeleted, .emptyTrash:
             StoreCommand.run(command, on: store)
 
         case .filterAccount(let accountID):

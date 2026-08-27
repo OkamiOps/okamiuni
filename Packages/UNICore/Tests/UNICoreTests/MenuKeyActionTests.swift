@@ -154,3 +154,33 @@ struct MenuKeyActionTests {
         ) == .nothing)
     }
 }
+
+/// A metade da tecla sem modificador que dá para provar sem app: qual tecla é,
+/// e quando ela vale. A outra metade — quem é o primeiro respondedor agora —
+/// mora em `UNIShell.BareKeyMonitor` e se prova por ensaio no app real.
+@Suite("Tecla de atalho sem modificador")
+struct BareKeyTests {
+
+    @Test("⌫ é a tecla 51, e ela sai no menu como símbolo, não como caractere de controle")
+    func deleteIsTheBackspaceKey() {
+        #expect(BareKey.delete.keyCode == 51)
+        #expect(BareKey.delete.symbol == "⌫")
+        #expect(MenuShortcut.delete.label == "⌫")
+    }
+
+    /// ⌘⌫ é "mover para a lixeira" do Finder e ⌥⌫ apaga a palavra num campo de
+    /// texto. Só o ⌫ puro é nosso — reivindicar os outros roubaria teclas que
+    /// já significam outra coisa.
+    @Test("qualquer modificador desqualifica a tecla")
+    func modifiersDisqualify() {
+        #expect(BareKey.match(keyCode: 51, hasModifier: false) == .delete)
+        #expect(BareKey.match(keyCode: 51, hasModifier: true) == nil)
+    }
+
+    @Test("outra tecla qualquer não vira ⌫ por engano")
+    func otherKeysDoNotMatch() {
+        #expect(BareKey.match(keyCode: 36, hasModifier: false) == nil)  // ⏎
+        #expect(BareKey(character: "r") == nil)
+        #expect(BareKey(character: BareKey.delete.character) == .delete)
+    }
+}

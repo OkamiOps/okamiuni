@@ -16,6 +16,13 @@ public struct FolderSidebar: View {
     /// que previews e testes não precisem calcular layout.
     let width: CGFloat
 
+    /// Qual caixa está esperando a confirmação de "Esvaziar lixeira".
+    ///
+    /// É o **único** destrutivo sem volta do app, e o único que pergunta antes.
+    /// Arquivar, apagar e apagar definitivamente têm "Desfazer"; este não tem,
+    /// e a pergunta é o que fica no lugar dele.
+    @State private var confirmingEmptyTrash = false
+
     public init(store: MailStore, width: CGFloat = PaneLayout.expandedSidebarWidth) {
         self.store = store
         self.width = width
@@ -94,6 +101,16 @@ public struct FolderSidebar: View {
         let active = bucket == store.bucket
         return Button { store.select(bucket: bucket) } label: {
             HStack(spacing: 9) {
+                // A Lixeira é a única caixa com símbolo, e ele não é enfeite:
+                // ela é a única cujo conteúdo se perde, e o ícone é o que a
+                // distingue à primeira vista de "Arquivado", logo acima. As
+                // outras quatro continuam só com o nome, como no protótipo.
+                if let symbol = Self.symbol(for: bucket) {
+                    Image(systemName: symbol)
+                        .font(.system(size: 11))
+                        .foregroundStyle((active ? theme.accentInk : theme.ink3).color)
+                        .accessibilityHidden(true)
+                }
                 Text(bucket.label)
                     .font(theme.sans.font(size: 13, weight: .medium))
                     .foregroundStyle((active ? theme.accentInk : theme.ink2).color)
@@ -114,17 +131,34 @@ public struct FolderSidebar: View {
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall)
-        // O menu da caixa tem um item só, e ele some quando não há o que
-        // marcar — caixa toda lida não abre menu nenhum, em vez de abrir um
-        // com a linha desabilitada dizendo o contrário do contador ao lado.
+        // Os itens da caixa somem quando não há o que fazer: caixa toda lida
+        // não oferece "Marcar tudo como lido", Lixeira vazia não oferece
+        // "Esvaziar lixeira". Aqui sumir é certo — ao contrário do menu da
+        // mensagem, onde a lista de ações de topo tem de ser estável, o menu da
+        // caixa existe só pelo que ela tem agora; uma linha apagada diria o
+        // contrário do contador ao lado dela.
         .uniContextMenu(
             ContextMenus.bucketRow(
                 bucket,
                 unread: store.unreadCount(in: bucket, accountID: store.selectedAccountID),
-                accountID: store.selectedAccountID
+                accountID: store.selectedAccountID,
+                trash: store.trashCount(accountID: store.selectedAccountID)
             ),
-            store: store
+            store: store,
+            // "Esvaziar lixeira" não vai direto ao store: ele para aqui e
+            // pergunta. É a troca que o item faz por não ter "Desfazer".
+            intercept: { command in
+                guard case .emptyTrash = command else { return false }
+                confirmingEmptyTrash = true
+                return true
+            }
         )
+        .modifier(EmptyTrashConfirmation(store: store, isPresented: $confirmingEmptyTrash))
+    }
+
+    /// O símbolo de uma caixa, quando ela tem um.
+    static func symbol(for bucket: TriageBucket) -> String? {
+        bucket == .trash ? "trash" : nil
     }
 
     private func accountRow(_ account: Account) -> some View {

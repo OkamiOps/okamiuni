@@ -68,6 +68,10 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
     case toggleRead = "leitura"
     case later = "depois"
     case today = "hoje"
+    /// Apagar — mover para a Lixeira. **Não** é "apagar definitivamente": jogar
+    /// fora de vez não pode ficar a um gesto de distância, e por isso essa
+    /// ação existe só no menu, dentro da Lixeira.
+    case trash = "lixeira"
 
     public var id: String { rawValue }
 
@@ -81,6 +85,7 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
         case .archive: .archived
         case .later: .later
         case .today: .today
+        case .trash: .trash
         case .toggleRead: nil
         }
     }
@@ -93,6 +98,7 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
         case .toggleRead: "Marcar como lida / não lida"
         case .later: "Depois"
         case .today: "Hoje"
+        case .trash: "Apagar"
         }
     }
 
@@ -108,6 +114,7 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
         case .toggleRead: message.isRead ? "Não lida" : "Lida"
         case .later: "Depois"
         case .today: "Hoje"
+        case .trash: "Apagar"
         }
     }
 
@@ -119,14 +126,19 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
         case .toggleRead: message.isRead ? "envelope.badge" : "envelope.open"
         case .later: "clock"
         case .today: "tray.and.arrow.down"
+        case .trash: "trash"
         }
     }
 
-    /// Arquivar é a única que tira a mensagem da triagem inteira, e é a que o
-    /// dedo alcança primeiro no lado esquerdo. Ela pinta forte; o resto é
-    /// discreto.
+    /// Arquivar e apagar tiram a mensagem da triagem inteira, e são as que o
+    /// dedo alcança primeiro em cada lado. Elas pintam forte; o resto é
+    /// discreto — adiar e trazer para hoje são movimentos entre caixas, e um
+    /// painel todo forte não teria hierarquia nenhuma.
     public var tint: SwipeTint {
-        self == .archive ? .strong : .quiet
+        switch self {
+        case .archive, .trash: .strong
+        case .toggleRead, .later, .today: .quiet
+        }
     }
 
     /// Esta ação não faria nada com esta mensagem.
@@ -167,6 +179,7 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
         case .toggleRead: message.isRead ? "Marcada como não lida" : "Marcada como lida"
         case .later: "Adiada para depois"
         case .today: "Trazida para hoje"
+        case .trash: "Movida para a Lixeira"
         }
     }
 
@@ -181,6 +194,7 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
         case .toggleRead: return message.isRead ? "Marcar como não lida" : "Marcar como lida"
         case .later: return "Mover para Depois"
         case .today: return "Mover para Hoje"
+        case .trash: return "Mover esta mensagem para a Lixeira"
         }
     }
 }
@@ -468,14 +482,18 @@ public enum SwipeGesture {
 /// adivinhasse a caixa seria a versão silenciosa do botão mudo.
 public struct SwipeReceipt: Sendable, Hashable, Identifiable {
     public let id: UUID
-    public let action: SwipeAction
+    /// Qual ação de arraste gerou o recibo. **Opcional** desde a Task AR: o
+    /// mesmo retorno visível passou a servir a "Apagar definitivamente", que
+    /// não é uma coluna do arraste e nunca vai ser — jogar fora de vez não
+    /// pode ficar a um gesto de distância.
+    public let action: SwipeAction?
     public let messageID: String
     public let note: String
     public let undo: ContextCommand
 
     public init(
         id: UUID = UUID(),
-        action: SwipeAction,
+        action: SwipeAction? = nil,
         messageID: String,
         note: String,
         undo: ContextCommand
@@ -514,6 +532,26 @@ public struct SwipeReceipt: Sendable, Hashable, Identifiable {
     /// Quem é a mensagem vem do nome do remetente e, na falta dele, do
     /// endereço. Assunto não serve: ele já é longo demais na primeira linha da
     /// própria lista.
+    /// O recibo de "Apagar definitivamente", que não vem de coluna nenhuma.
+    ///
+    /// O caminho de volta é `restoreDeleted`, e ele só funciona porque o
+    /// `MailStore` guardou a mensagem inteira ao apagá-la — pela mesma razão
+    /// que este recibo nasce **antes** da mudança nos outros casos.
+    public static func ofDeleteForever(
+        message: Message,
+        stamp: String,
+        id: UUID = UUID()
+    ) -> SwipeReceipt {
+        let who = message.from.name.isEmpty ? message.from.address : message.from.name
+        let head = "Apagada de vez"
+        return SwipeReceipt(
+            id: id,
+            messageID: message.id,
+            note: who.isEmpty ? "\(head) · \(stamp)" : "\(head) — \(who) · \(stamp)",
+            undo: .restoreDeleted(messageID: message.id)
+        )
+    }
+
     public static func note(
         _ action: SwipeAction,
         message: Message,

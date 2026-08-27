@@ -302,6 +302,106 @@ public final class MailStore {
             : remaining.last?.id
     }
 
+    // MARK: - Lixeira
+
+    /// O que `deleteForever` tirou do store, para "Desfazer" ter o que
+    /// devolver.
+    ///
+    /// Guardar a **mensagem inteira** e não só o id é o que faz o caminho de
+    /// volta existir: uma vez fora de `messages`, nada mais sabe o assunto, o
+    /// corpo, a caixa de onde ela veio. É a mesma razão pela qual o recibo do
+    /// arraste nasce **antes** da mudança.
+    ///
+    /// Memória da sessão, como os rascunhos de resposta: Marco 1 não tem disco.
+    /// `esvaziar` limpa este cofre junto — é o que faz dele o único destrutivo
+    /// sem volta, e o motivo de ele perguntar antes.
+    private var deleted: [String: Message] = [:]
+
+    /// Tira a mensagem do store. Só faz sentido na Lixeira, e é quem monta o
+    /// menu que garante isso — aqui a guarda é a de sempre: id desconhecido não
+    /// mexe em nada.
+    ///
+    /// A seleção anda como em `move(_:to:)`, e pelo mesmo motivo: ela não pode
+    /// ficar apontando para uma mensagem que não está mais na lista.
+    public func deleteForever(_ messageID: String) {
+        guard let index = messages.firstIndex(where: { $0.id == messageID }) else { return }
+        let going = messages[index]
+        let positionBefore = visibleMessages.firstIndex { $0.id == messageID }
+
+        deleted[messageID] = going
+        messages.remove(at: index)
+
+        guard selectedMessageID == messageID else { return }
+        let remaining = visibleMessages
+        guard let positionBefore else {
+            selectedMessageID = remaining.first?.id
+            return
+        }
+        selectedMessageID = remaining.indices.contains(positionBefore)
+            ? remaining[positionBefore].id
+            : remaining.last?.id
+    }
+
+    /// O "Desfazer" de `deleteForever`. Devolve a mensagem à caixa de onde ela
+    /// saiu, na posição que a ordenação de `visibleMessages` lhe der.
+    ///
+    /// Sem guarda contra id ausente, como `removeFromAgenda`: desfazer o que já
+    /// voltou não é erro, é o mesmo estado a que se pretendia chegar.
+    ///
+    /// E não há segunda guarda contra duplicar: `removeValue` **tira** a
+    /// mensagem do cofre ao devolvê-la, então a segunda chamada não acha nada e
+    /// sai. Uma guarda a mais aqui seria código morto — provado por mutação:
+    /// arrancá-la não faz teste nenhum falhar.
+    public func restoreDeleted(_ messageID: String) {
+        guard let message = deleted.removeValue(forKey: messageID) else { return }
+        messages.append(message)
+    }
+
+    /// Esvazia a Lixeira. `accountID` nulo abrange todas as contas.
+    ///
+    /// **É o único caminho sem volta do app.** Ele limpa o cofre de
+    /// `deleteForever` junto, senão "esvaziar" deixaria mensagens restauráveis
+    /// atrás de si e a palavra mentiria.
+    ///
+    /// Ignora a busca, como `markAllRead(in:accountID:)` e pela mesma razão:
+    /// "esvaziar" com filtro de texto ligado apagaria só o que coube na tela.
+    ///
+    /// Devolve quantas foram, para o retorno visível poder dizer o número em
+    /// vez de uma frase genérica.
+    @discardableResult
+    public func emptyTrash(accountID: String? = nil) -> Int {
+        let scope: (Message) -> Bool = { message in
+            guard let accountID else { return true }
+            return message.accountID == accountID
+        }
+        let doomed = messages.filter { $0.bucket == .trash && scope($0) }
+
+        let ids = Set(doomed.map(\.id))
+        messages.removeAll { ids.contains($0.id) }
+        // O cofre inteiro do recorte, e não só o das que acabaram de sair: uma
+        // mensagem apagada definitivamente segundos antes ainda tinha
+        // "Desfazer" na tela, e deixá-lo funcionar faria "esvaziar" mentir.
+        // Depois desta linha, nada da Lixeira volta.
+        deleted = deleted.filter { !scope($0.value) }
+
+        if let selectedMessageID, ids.contains(selectedMessageID) {
+            self.selectedMessageID = visibleMessages.first?.id
+        }
+        return doomed.count
+    }
+
+    /// Quantas mensagens a Lixeira tem, com o mesmo recorte de conta que
+    /// `emptyTrash` usa. É o que decide se "Esvaziar lixeira" entra no menu:
+    /// com a lixeira vazia o item some, em vez de aparecer prometendo esvaziar
+    /// o que já não está lá.
+    public func trashCount(accountID: String? = nil) -> Int {
+        messages.filter { message in
+            guard message.bucket == .trash else { return false }
+            guard let accountID else { return true }
+            return message.accountID == accountID
+        }.count
+    }
+
     private func markRead(_ id: String) {
         setRead(true, for: id)
     }

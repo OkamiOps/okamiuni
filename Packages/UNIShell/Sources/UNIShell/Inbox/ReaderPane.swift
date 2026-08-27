@@ -25,6 +25,12 @@ public struct ReaderPane: View {
     /// closure.
     @State private var agendaReceipt: AgendaAddReceipt?
 
+    /// O mesmo retorno com "Desfazer" que a lista desenha. O leitor **posta**
+    /// nele e não o desenha: apagar daqui tira a mensagem do leitor, e uma
+    /// faixa presa a ele iria embora junto com o que precisava desfazer. Quem
+    /// sobrevive à ação é a lista — ver `ActionReceipts`.
+    @Environment(ActionReceipts.self) private var receipts: ActionReceipts?
+
     public init(
         store: MailStore,
         onReply: @escaping (Message) -> Void = { _ in }
@@ -94,7 +100,13 @@ public struct ReaderPane: View {
                         message,
                         accountAddress: store.account(message.accountID)?.address ?? ""
                     ),
-                    store: store
+                    store: store,
+                    intercept: { command in
+                        guard let receipts else { return false }
+                        return receipts.intercept(
+                            command, on: store, stamp: ActionReceipts.stamp
+                        )
+                    }
                 )
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

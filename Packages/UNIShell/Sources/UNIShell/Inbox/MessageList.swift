@@ -79,10 +79,20 @@ public struct MessageList: View {
     /// uma fecha a outra.
     @State private var openSwipeRowID: String?
 
-    /// O que a última ação de arraste fez, e como desfazê-la. Mora aqui, e não
-    /// na linha, porque a linha **some** quando a ação é arquivar — um retorno
-    /// preso a ela morreria junto com o que precisava desfazer.
-    @State private var receipt: SwipeReceipt?
+    /// O que a última ação fez, e como desfazê-la.
+    ///
+    /// Vem do ambiente porque o menu do leitor e a tecla ⌫ produzem o mesmo
+    /// retorno — ver `ActionReceipts`. Sem ninguém no ambiente (harness,
+    /// preview) a lista usa o objeto próprio, em vez de trapar.
+    @Environment(ActionReceipts.self) private var sharedReceipts: ActionReceipts?
+    @State private var ownReceipts = ActionReceipts()
+
+    var receipts: ActionReceipts { sharedReceipts ?? ownReceipts }
+
+    private var receipt: SwipeReceipt? {
+        get { receipts.current }
+        nonmutating set { receipts.current = newValue }
+    }
 
     /// A largura resolvida que a janela concedeu — entre 320 e 420 conforme a
     /// faixa. Ao contrário dos outros painéis, esta de fato varia.
@@ -120,6 +130,14 @@ public struct MessageList: View {
         .frame(width: listWidth)
         .background(theme.surface.color)
         .hairline(theme.line, edges: .trailing)
+        // O ⌫. Não é `keyboardShortcut` porque tecla sem modificador seria
+        // roubada do campo de busca e do editor do composer — ver
+        // `BareKeyMonitor`.
+        .bareKeyShortcuts { key in
+            switch key {
+            case .delete: deleteSelected()
+            }
+        }
         // O retorno some sozinho, mas nunca **antes** de dar tempo de desfazer.
         // A tarefa é reiniciada por `id`: uma segunda ação troca a faixa e
         // reinicia a contagem em vez de herdar o resto do relógio da primeira.
@@ -254,7 +272,8 @@ public struct MessageList: View {
             // para" não oferece a caixa em que ela já está.
             .uniContextMenu(
                 ContextMenus.messageRow(message, accountAddress: account?.address ?? ""),
-                store: store
+                store: store,
+                intercept: { receipted($0) }
             )
         }
     }
@@ -268,13 +287,31 @@ public struct MessageList: View {
     /// adivinhasse a caixa seria a versão silenciosa do botão mudo.
     private func fire(_ action: SwipeAction, on message: Message) {
         guard let command = action.command(for: message) else { return }
-        let made = SwipeReceipt.of(
-            action,
-            message: message,
-            stamp: Date.now.formatted(date: .omitted, time: .shortened)
-        )
+        let made = SwipeReceipt.of(action, message: message, stamp: ActionReceipts.stamp)
         StoreCommand.run(command, on: store)
         withAnimation(SwipeMotion.transition) { receipt = made }
+    }
+
+    /// O retorno visível de uma ação destrutiva, com a animação da faixa.
+    /// A decisão de **o que** ganha recibo é de `ActionReceipts`; aqui só se
+    /// anima a chegada dela.
+    func receipted(_ command: ContextCommand) -> Bool {
+        var acted = false
+        withAnimation(SwipeMotion.transition) {
+            acted = receipts.intercept(command, on: store, stamp: ActionReceipts.stamp)
+        }
+        return acted
+    }
+
+    /// O ⌫ da lista: apaga a mensagem selecionada, ou apaga de vez quando ela
+    /// já está na Lixeira — a mesma decisão que `ContextMenus.deleteItem`
+    /// escreve no rótulo do menu, e por isso ela sai de lá.
+    ///
+    /// `false` quando não há o que apagar: aí a tecla segue o caminho dela em
+    /// vez de ser engolida por um atalho que não fez nada.
+    func deleteSelected() -> Bool {
+        guard let message = store.selectedMessage else { return false }
+        return receipted(ContextMenus.deleteItem(message).command)
     }
 
     private func undo(_ receipt: SwipeReceipt) {

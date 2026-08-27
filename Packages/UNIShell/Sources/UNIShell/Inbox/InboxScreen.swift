@@ -26,6 +26,10 @@ public struct InboxScreen: View {
     @State private var listDragOrigin: CGFloat?
     @State private var agendaDragOrigin: CGFloat?
 
+    /// O retorno com "Desfazer" das ações destrutivas, partilhado entre a
+    /// lista, o leitor e a tecla ⌫ — ver `ActionReceipts`.
+    @State private var receipts = ActionReceipts()
+
     @State private var workspace: Workspace = .mail
     @State private var query = ""
     let store: MailStore
@@ -57,6 +61,7 @@ public struct InboxScreen: View {
         // Os atalhos que agem sobre a mensagem selecionada. Por `background`
         // para não ocuparem lugar nenhum no layout — ver `MessageShortcuts`.
         .background(MessageShortcuts(store: store))
+        .environment(receipts)
         .task {
             await store.load()
         }

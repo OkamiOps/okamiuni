@@ -314,12 +314,68 @@ struct ContextMenuTests {
             "Encaminhar": MenuShortcut(key: "f", modifiers: [.command, .shift]),
             "Arquivar": MenuShortcut(key: "e"),
             "Marcar como lida": MenuShortcut(key: "u", modifiers: [.command, .shift]),
+            "Apagar": MenuShortcut(key: BareKey.delete.character, modifiers: []),
         ])
         #expect(shortcuts["Responder"]?.label == "⌘R")
         #expect(shortcuts["Responder a todos"]?.label == "⇧⌘R")
         #expect(shortcuts["Encaminhar"]?.label == "⇧⌘F")
         #expect(shortcuts["Arquivar"]?.label == "⌘E")
         #expect(shortcuts["Marcar como lida"]?.label == "⇧⌘U")
+        // A tecla sem letra sai pelo símbolo do teclado, não pelo caractere de
+        // controle cru — que sairia invisível no meio do menu.
+        #expect(shortcuts["Apagar"]?.label == "⌫")
+    }
+
+    // MARK: - Lixeira
+
+    @Test("fora da Lixeira o item apaga para a Lixeira; dentro dela, de vez")
+    func deleteChangesMeaningInsideTheTrash() {
+        let fora = ContextMenus.messageRow(message(bucket: .today))
+        #expect(fora.item("Apagar")?.command == .move(messageID: "m1", to: .trash))
+        #expect(fora.item("Apagar definitivamente") == nil)
+
+        let dentro = ContextMenus.messageRow(message(bucket: .trash))
+        #expect(dentro.item("Apagar") == nil)
+        #expect(dentro.item("Apagar definitivamente")?.command == .deleteForever(messageID: "m1"))
+        // A mesma tecla nos dois estados: o que muda é o lugar, e o rótulo avisa.
+        #expect(dentro.item("Apagar definitivamente")?.shortcut?.label == "⌫")
+    }
+
+    /// "Apagar" é item de topo, com o nome que a ação tem em qualquer cliente.
+    /// Repeti-la dois níveis abaixo com um nome que ninguém usa seria ruído.
+    @Test("«Mover para» não oferece a Lixeira — e continua oferecendo a saída dela")
+    func moveSubmenuHasNoTrash() {
+        let deFora = ContextMenus.messageRow(message()).submenuCommands("Mover para")
+        #expect(!deFora.contains(.move(messageID: "m1", to: .trash)))
+
+        let deDentro = ContextMenus.messageRow(message(bucket: .trash))
+            .submenuCommands("Mover para")
+        #expect(deDentro.contains(.move(messageID: "m1", to: .today)))
+    }
+
+    @Test("«Esvaziar lixeira» só existe na Lixeira, e só com o que esvaziar")
+    func emptyTrashOnlyWhereItMeansSomething() {
+        #expect(ContextMenus.bucketRow(.trash, unread: 0, accountID: nil, trash: 3)
+            .item("Esvaziar lixeira")?.command == .emptyTrash(accountID: nil))
+        // Vazia, o item some: prometer esvaziar o que já não está lá é ruído.
+        #expect(ContextMenus.bucketRow(.trash, unread: 0, accountID: nil, trash: 0).isEmpty)
+        // E ele não vaza para as outras caixas.
+        #expect(ContextMenus.bucketRow(.archived, unread: 1, accountID: nil, trash: 3)
+            .titles == ["Marcar tudo como lido"])
+    }
+
+    /// É o único destrutivo sem volta do app; o `help` tem de dizer isso antes
+    /// de a pessoa clicar, não depois.
+    @Test("«Esvaziar lixeira» diz quantas e diz que não dá para desfazer")
+    func emptyTrashSaysWhatItCosts() {
+        let item = ContextMenus.bucketRow(.trash, unread: 0, accountID: "zoho", trash: 3)
+            .item("Esvaziar lixeira")
+        #expect(item?.help == "Apagar de vez 3 mensagens — sem desfazer")
+        #expect(item?.command == .emptyTrash(accountID: "zoho"))
+
+        let uma = ContextMenus.bucketRow(.trash, unread: 0, accountID: nil, trash: 1)
+            .item("Esvaziar lixeira")
+        #expect(uma?.help == "Apagar de vez 1 mensagem — sem desfazer")
     }
 
     /// O adiar. É o único item do submenu com atalho — os outros não têm um, e

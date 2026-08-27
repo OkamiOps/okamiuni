@@ -53,6 +53,17 @@ public enum ContextCommand: Sendable, Hashable {
     /// Leva o leitor até a mensagem que originou o compromisso, trocando de
     /// aba se for preciso.
     case revealMessage(messageID: String)
+    /// Manda a mensagem para fora do store, de vez. Só existe na Lixeira, e é
+    /// a única ação com `restoreDeleted` como caminho de volta.
+    case deleteForever(messageID: String)
+    /// O "Desfazer" de `deleteForever`: devolve a mensagem ao lugar de onde ela
+    /// saiu.
+    case restoreDeleted(messageID: String)
+    /// Esvazia a Lixeira. `accountID` nulo abrange todas as contas.
+    ///
+    /// **É o único destrutivo sem volta do app**, e por isso quem o dispara
+    /// pergunta antes — ver `FolderSidebar.emptyTrashConfirmation`.
+    case emptyTrash(accountID: String?)
     /// Área de transferência. O texto já vem pronto — quem executa não formata
     /// nada, e por isso o teste consegue afirmar o conteúdo copiado.
     case copy(String)
@@ -81,11 +92,16 @@ public struct MenuShortcut: Sendable, Hashable {
     }
 
     /// "⌘R". Ordem dos símbolos como o macOS escreve: ⌥ ⇧ ⌘.
+    ///
+    /// A tecla que não tem letra sai pelo símbolo que o teclado do Mac desenha
+    /// — ⌫ para apagar. Escrever a letra de controle crua aqui poria um
+    /// caractere invisível no menu.
     public var label: String {
         var text = ""
         if modifiers.contains(.option) { text += "⌥" }
         if modifiers.contains(.shift) { text += "⇧" }
         if modifiers.contains(.command) { text += "⌘" }
+        if let bare = BareKey(character: key) { return text + bare.symbol }
         return text + String(key).uppercased()
     }
 
@@ -99,6 +115,13 @@ public struct MenuShortcut: Sendable, Hashable {
     public static let archive = MenuShortcut(key: "e")
     /// ⇧⌘U, o "Mark as Unread" do Mail — e o de ida, pelo mesmo caminho.
     public static let readToggle = MenuShortcut(key: "u", modifiers: [.command, .shift])
+    /// ⌫, sem modificador — como Mail e Gmail.
+    ///
+    /// Tecla sem modificador **não** pode ir por `performKeyEquivalent`: ela
+    /// seria roubada do campo de busca e do editor do composer. Quem a escuta
+    /// é o monitor local do `UNIShell.BareKeyMonitor`, que só age quando o
+    /// primeiro respondedor não é campo de texto.
+    public static let delete = MenuShortcut(key: BareKey.delete.character, modifiers: [])
     /// ⇧⌘D, o adiar deste app. "Depois" é caixa nossa, não do Mail: o atalho
     /// sai da inicial dela, e é o app que o escuta — ver `MessageShortcuts`.
     public static let later = MenuShortcut(key: "d", modifiers: [.command, .shift])
@@ -235,6 +258,7 @@ public enum ContextMenus {
             )),
             .separator,
             .item(archiveItem(message)),
+            .item(deleteItem(message)),
             .item(readToggle(message)),
         ]
         if let move = moveSubmenu(message) { entries.append(move) }
@@ -279,6 +303,7 @@ public enum ContextMenus {
             "Encaminhar", .forward(messageID: message.id), shortcut: .forward
         )))
         entries.append(.item(archiveItem(message)))
+        entries.append(.item(deleteItem(message)))
         if let move = moveSubmenu(message) { entries.append(move) }
         entries.append(.separator)
         entries.append(.item(readToggle(message)))
@@ -290,18 +315,33 @@ public enum ContextMenus {
     /// "Marcar tudo como lido" só aparece quando há o que marcar. Com a caixa
     /// inteira já lida o item some — desabilitado ele diria que a caixa tem
     /// não lidas.
+    /// "Esvaziar lixeira" só aparece na Lixeira, e só quando há o que esvaziar
+    /// — pela mesma razão que "Marcar tudo como lido" some na caixa toda lida.
+    ///
+    /// `trash` é a contagem da Lixeira com o mesmo recorte de conta; quem
+    /// chama de outra caixa passa zero e nada muda.
     public static func bucketRow(
         _ bucket: TriageBucket,
         unread: Int,
-        accountID: String?
+        accountID: String?,
+        trash: Int = 0
     ) -> [ContextMenuEntry] {
-        guard unread > 0 else { return [] }
-        return [
-            .item(ContextMenuItem(
+        var entries: [ContextMenuEntry] = []
+        if unread > 0 {
+            entries.append(.item(ContextMenuItem(
                 "Marcar tudo como lido",
                 .markAllRead(bucket: bucket, accountID: accountID)
-            ))
-        ]
+            )))
+        }
+        if bucket == .trash, trash > 0 {
+            entries.append(.separator)
+            entries.append(.item(ContextMenuItem(
+                "Esvaziar lixeira",
+                .emptyTrash(accountID: accountID),
+                help: "Apagar de vez \(trash) \(trash == 1 ? "mensagem" : "mensagens") — sem desfazer"
+            )))
+        }
+        return entries.tidied
     }
 
     // MARK: Linha de conta da barra lateral
@@ -406,6 +446,34 @@ public enum ContextMenus {
         )
     }
 
+    /// "Apagar", ou "Apagar definitivamente" quando a mensagem já está na
+    /// Lixeira.
+    ///
+    /// Os dois têm o mesmo atalho (⌫) de propósito: é a mesma tecla que Mail e
+    /// Gmail usam nos dois estados, e o que muda é o **lugar** em que ela é
+    /// apertada. O rótulo é que avisa qual dos dois vai acontecer — como o par
+    /// lida/não lida faz.
+    ///
+    /// Nenhum dos dois é sem volta: apagar leva à Lixeira, apagar
+    /// definitivamente tira do store **com recibo de Desfazer**. O único sem
+    /// volta é "Esvaziar lixeira", e ele pergunta antes.
+    /// Público porque a tecla ⌫ pergunta a **ele** o que apagar quer dizer
+    /// agora: o atalho e o item de menu não podem discordar sobre em que
+    /// estado a mensagem está.
+    public static func deleteItem(_ message: Message) -> ContextMenuItem {
+        message.bucket == .trash
+            ? ContextMenuItem(
+                "Apagar definitivamente", .deleteForever(messageID: message.id),
+                shortcut: .delete,
+                help: "Tirar esta mensagem da Lixeira de vez"
+            )
+            : ContextMenuItem(
+                "Apagar", .move(messageID: message.id, to: .trash),
+                shortcut: .delete,
+                help: "Mover esta mensagem para a Lixeira"
+            )
+    }
+
     static func readToggle(_ message: Message) -> ContextMenuItem {
         message.isRead
             ? ContextMenuItem(
@@ -447,7 +515,13 @@ public enum ContextMenus {
     /// `.all` também fica de fora: é uma **visão**, não um estado de triagem.
     /// Mover para "Tudo" não quer dizer nada.
     static func moveSubmenu(_ message: Message) -> ContextMenuEntry? {
-        let targets = TriageBucket.allCases.filter { $0 != .all && $0 != message.bucket }
+        // `.trash` também fica de fora: "Apagar" é item de topo, com o nome
+        // que a ação tem em qualquer cliente e com o ⌫ ao lado. Oferecer
+        // "Mover para ▸ Lixeira" seria a mesma ação com um nome que ninguém
+        // usa, dois níveis abaixo — e o mesmo vale na volta: quem está na
+        // Lixeira tira de lá por "Mover para ▸ Hoje", que continua ali.
+        let targets = TriageBucket.allCases
+            .filter { $0 != .all && $0 != .trash && $0 != message.bucket }
         guard !targets.isEmpty else { return nil }
         return .submenu(
             title: "Mover para",

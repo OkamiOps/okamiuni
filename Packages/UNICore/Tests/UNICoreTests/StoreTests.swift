@@ -815,3 +815,137 @@ struct AddToAgendaTests {
         #expect(starts == starts.sorted())
     }
 }
+
+/// A lixeira como **lugar**, e não como sumiço.
+@Suite("Lixeira")
+@MainActor
+struct TrashTests {
+
+    private func store() async -> MailStore {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        return store
+    }
+
+    /// Apagar é um `move` como outro qualquer: a mensagem continua no store, e
+    /// "Desfazer" é o mesmo `move` de volta que o arraste já usa.
+    @Test("apagar move para a Lixeira sem tirar a mensagem do store")
+    func deleteMovesToTrash() async {
+        let store = await store()
+        let antes = store.messages.count
+        let message = store.messages.first { $0.id == "m1" }!
+
+        store.move(message, to: .trash)
+
+        #expect(store.messages.count == antes)
+        #expect(store.messages.first { $0.id == "m1" }?.bucket == .trash)
+        #expect(store.trashCount() == 1)
+    }
+
+    /// O que a caixa aberta deixa de mostrar é a metade visível de "apagar
+    /// pareceu apagar".
+    @Test("a apagada some de «Tudo» e do contador dela")
+    func trashedMessageLeavesTheAllView() async {
+        let store = await store()
+        let antes = store.count(for: .all)
+        store.move(store.messages.first { $0.id == "m1" }!, to: .trash)
+
+        #expect(store.count(for: .all) == antes - 1)
+        #expect(store.count(for: .trash) == 1)
+        store.select(bucket: .all)
+        #expect(!store.visibleMessages.contains { $0.id == "m1" })
+    }
+
+    @Test("apagar definitivamente tira do store — e «Desfazer» a devolve inteira")
+    func deleteForeverIsUndoable() async {
+        let store = await store()
+        let original = store.messages.first { $0.id == "m1" }!
+        store.move(original, to: .trash)
+        let antes = store.messages.count
+
+        store.deleteForever("m1")
+        #expect(store.messages.count == antes - 1)
+        #expect(store.messages.first { $0.id == "m1" } == nil)
+
+        store.restoreDeleted("m1")
+        #expect(store.messages.first { $0.id == "m1" }?.bucket == .trash)
+        // Volta **inteira**: o corpo, as sugestões, o dia. Guardar só o id
+        // teria devolvido uma casca.
+        #expect(store.messages.first { $0.id == "m1" }?.body == original.body)
+        #expect(store.messages.first { $0.id == "m1" }?.replyHints == original.replyHints)
+    }
+
+    /// A mesma regra de `removeFromAgenda`: desfazer o que já voltou não é
+    /// erro, e não pode duplicar a mensagem na lista.
+    @Test("desfazer duas vezes não cria uma segunda cópia")
+    func restoringTwiceIsHarmless() async {
+        let store = await store()
+        store.move(store.messages.first { $0.id == "m1" }!, to: .trash)
+        store.deleteForever("m1")
+        store.restoreDeleted("m1")
+        store.restoreDeleted("m1")
+
+        #expect(store.messages.filter { $0.id == "m1" }.count == 1)
+    }
+
+    @Test("a seleção anda para a próxima quando a apagada era a que estava aberta")
+    func selectionMovesOnAfterDeleteForever() async {
+        let store = await store()
+        store.select(bucket: .trash)
+        for id in ["m1", "m4"] {
+            store.move(store.messages.first { $0.id == id }!, to: .trash)
+        }
+        store.select(message: "m1")
+
+        store.deleteForever("m1")
+
+        #expect(store.selectedMessageID == "m4")
+    }
+
+    @Test("esvaziar leva só a Lixeira, e só a da conta pedida")
+    func emptyTrashRespectsTheAccountFilter() async {
+        let store = await store()
+        store.move(store.messages.first { $0.id == "m1" }!, to: .trash)   // zoho
+        store.move(store.messages.first { $0.id == "m2" }!, to: .trash)   // host
+        let antes = store.messages.count
+
+        #expect(store.emptyTrash(accountID: "zoho") == 1)
+        #expect(store.messages.count == antes - 1)
+        #expect(store.messages.first { $0.id == "m2" }?.bucket == .trash)
+        #expect(store.trashCount() == 1)
+    }
+
+    /// É o que faz "esvaziar" ser a palavra certa: depois dele não há cofre
+    /// nenhum guardando o que foi jogado fora.
+    @Test("esvaziar é sem volta: nem o «Desfazer» de apagar definitivamente sobrevive")
+    func emptyTrashClearsTheUndoVault() async {
+        let store = await store()
+        store.move(store.messages.first { $0.id == "m1" }!, to: .trash)
+        store.deleteForever("m1")
+
+        #expect(store.emptyTrash() == 0)  // a m1 já não está na Lixeira
+        store.restoreDeleted("m1")
+        #expect(store.messages.first { $0.id == "m1" } == nil)
+    }
+
+    @Test("lixeira vazia não é esvaziada duas vezes")
+    func emptyingAnEmptyTrashDoesNothing() async {
+        let store = await store()
+        let antes = store.messages.count
+        #expect(store.emptyTrash() == 0)
+        #expect(store.messages.count == antes)
+    }
+
+    /// "Marcar tudo como lido" em "Tudo" não pode alcançar o que foi apagado:
+    /// ele herda a regra de `TriageBucket.contains`, e não a repete.
+    @Test("«Marcar tudo como lido» em «Tudo» não toca na Lixeira")
+    func markAllReadSkipsTheTrash() async {
+        let store = await store()
+        store.move(store.messages.first { $0.id == "m1" }!, to: .trash)
+
+        store.markAllRead(in: .all)
+
+        #expect(store.messages.first { $0.id == "m1" }?.isRead == false)
+        #expect(store.unreadCount(in: .trash) == 1)
+    }
+}

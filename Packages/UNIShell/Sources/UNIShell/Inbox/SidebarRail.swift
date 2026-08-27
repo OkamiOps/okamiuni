@@ -13,6 +13,11 @@ public struct SidebarRail: View {
     /// A largura resolvida que a janela concedeu.
     let railWidth: CGFloat
 
+    /// Ver `FolderSidebar.confirmingEmptyTrash`: a trilha é a mesma barra
+    /// lateral, recolhida, e a ação destrutiva não pode perder a pergunta só
+    /// porque a janela apertou.
+    @State private var confirmingEmptyTrash = false
+
     public init(store: MailStore, width: CGFloat = PaneLayout.railWidth) {
         self.store = store
         self.railWidth = width
@@ -20,12 +25,14 @@ public struct SidebarRail: View {
 
     /// Abreviação de três a quatro letras que a trilha usa no lugar do rótulo
     /// completo. Vem do protótipo: `short: ['hoje', 'dep', 'tudo', 'arq']`.
+    /// A Lixeira, que o protótipo não tinha, segue a regra: "lixo".
     public static func abbreviation(for bucket: TriageBucket) -> String {
         switch bucket {
         case .today: "hoje"
         case .later: "dep"
         case .all: "tudo"
         case .archived: "arq"
+        case .trash: "lixo"
         }
     }
 
@@ -76,6 +83,14 @@ public struct SidebarRail: View {
 
         return Button { store.select(bucket: bucket) } label: {
             VStack(alignment: .center, spacing: 3) {
+                // A abreviação da Lixeira vem com o símbolo à frente, como na
+                // barra larga: 62pt de trilha e quatro letras não distinguem
+                // "arq" de "lixo" no canto do olho.
+                if let symbol = FolderSidebar.symbol(for: bucket) {
+                    Image(systemName: symbol)
+                        .font(.system(size: 9))
+                        .accessibilityHidden(true)
+                }
                 Text(abbr)
                     .font(theme.mono.font(size: 8.5))
                     .tracking(0.06 * 8.5)  // Tracking em pontos: 0.06em × 8.5pt = 0.51pt
@@ -119,10 +134,17 @@ public struct SidebarRail: View {
             ContextMenus.bucketRow(
                 bucket,
                 unread: store.unreadCount(in: bucket, accountID: store.selectedAccountID),
-                accountID: store.selectedAccountID
+                accountID: store.selectedAccountID,
+                trash: store.trashCount(accountID: store.selectedAccountID)
             ),
-            store: store
+            store: store,
+            intercept: { command in
+                guard case .emptyTrash = command else { return false }
+                confirmingEmptyTrash = true
+                return true
+            }
         )
+        .modifier(EmptyTrashConfirmation(store: store, isPresented: $confirmingEmptyTrash))
     }
 
     private func accountMark(_ account: Account) -> some View {
