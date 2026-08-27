@@ -54,9 +54,18 @@ public struct MessageList: View {
     /// faixa. Ao contrário dos outros painéis, esta de fato varia.
     let listWidth: CGFloat
 
-    public init(store: MailStore, width: CGFloat = MessageList.width) {
+    /// Duplo clique numa linha abre a janela 05. Protótipo: a própria linha tem
+    /// `onDoubleClick="{{ m.onOpenWin }}"` e `title="Duplo clique abre em janela"`.
+    let onOpenWindow: (Message) -> Void
+
+    public init(
+        store: MailStore,
+        width: CGFloat = MessageList.width,
+        onOpenWindow: @escaping (Message) -> Void = { _ in }
+    ) {
         self.store = store
         self.listWidth = width
+        self.onOpenWindow = onOpenWindow
     }
 
     /// Formata o rótulo de contagem de mensagens com plural correto.
@@ -127,6 +136,13 @@ public struct MessageList: View {
                                 )
                             }
                             .buttonStyle(.plain)
+                            .help("Duplo clique abre em janela")
+                            // O clique simples continua sendo o do `Button`
+                            // (selecionar); este gesto só acrescenta o duplo,
+                            // como o protótipo, que declara os dois na linha.
+                            .simultaneousGesture(
+                                TapGesture(count: 2).onEnded { onOpenWindow(message) }
+                            )
                         }
                     } header: {
                         // Protótipo: `padding: 9px 16px 5px;` e `font-size: 9.5px`.

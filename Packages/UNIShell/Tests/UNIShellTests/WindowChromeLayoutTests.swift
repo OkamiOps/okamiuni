@@ -21,6 +21,9 @@ struct WindowChromeLayoutTests {
                 .agendaToggle,
                 .lockup,
                 .themePicker,
+                // Task U: "+ Escrever" entra no fim, como no protótipo, sem
+                // desencostar o lockup do seletor de temas.
+                .compose,
             ]
         )
     }
@@ -28,7 +31,7 @@ struct WindowChromeLayoutTests {
     @Test("todo controle aparece uma vez só, e nenhum some da barra")
     func everyControlAppearsExactlyOnce() {
         let order = WindowChrome.controlOrder
-        #expect(order.count == 6)
+        #expect(order.count == 7)
         #expect(Set(order) == Set(ChromeControl.allCases))
         #expect(order.count == Set(order).count)
     }

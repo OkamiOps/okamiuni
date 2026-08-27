@@ -19,7 +19,7 @@ public enum Workspace: String, CaseIterable, Sendable {
 /// montar o `HStack`, então mudar a lista muda o que a janela desenha — e o
 /// teste que trava a lista trava a barra.
 public enum ChromeControl: String, CaseIterable, Sendable {
-    case sidebarToggle, tabs, search, agendaToggle, lockup, themePicker
+    case sidebarToggle, tabs, search, agendaToggle, lockup, themePicker, compose
 }
 
 public struct WindowChrome: View {
@@ -37,6 +37,10 @@ public struct WindowChrome: View {
         .agendaToggle,
         .lockup,
         .themePicker,
+        // "+ Escrever" fecha a barra, como no protótipo (linha 359), onde ele é
+        // o último item do grupo da direita. Entra depois do seletor de temas
+        // para não desencostar o lockup dele — a posição que a Task S fixou.
+        .compose,
     ]
 
     /// O único controle que cede largura. Os outros medem o que precisam; este
@@ -90,6 +94,8 @@ public struct WindowChrome: View {
     let accountCount: Int
     let onToggleSidebar: () -> Void
     let onToggleAgenda: () -> Void
+    /// Abre a janela 06 (Nova mensagem). O mesmo caminho do ⌘N.
+    let onCompose: () -> Void
     @State private var sidebarHovering = false
     @State private var agendaHovering = false
 
@@ -98,13 +104,15 @@ public struct WindowChrome: View {
         query: Binding<String>,
         accountCount: Int,
         onToggleSidebar: @escaping () -> Void,
-        onToggleAgenda: @escaping () -> Void
+        onToggleAgenda: @escaping () -> Void,
+        onCompose: @escaping () -> Void = {}
     ) {
         self._workspace = workspace
         self._query = query
         self.accountCount = accountCount
         self.onToggleSidebar = onToggleSidebar
         self.onToggleAgenda = onToggleAgenda
+        self.onCompose = onCompose
     }
 
     public var body: some View {
@@ -143,7 +151,31 @@ public struct WindowChrome: View {
         case .agendaToggle: agendaToggle
         case .lockup: lockup
         case .themePicker: ThemePicker()
+        case .compose: composeButton
         }
+    }
+
+    /// Protótipo, linha 359: `height: 27px; padding: 0 12px; border-radius:
+    /// var(--r2); background: var(--accent); color: var(--on-accent);
+    /// font-size: 12.5px; font-weight: 590`, com o "+" de 14px e `gap: 6px`.
+    private var composeButton: some View {
+        Button(action: onCompose) {
+            HStack(spacing: 6) {
+                Text("+")
+                    .font(theme.sans.font(size: 14))
+                Text("Escrever")
+                    .font(theme.sans.font(size: 12.5, weight: .semibold))
+            }
+            .foregroundStyle(theme.onAccent.color)
+            .frame(height: 27)
+            .padding(.horizontal, 12)
+            .background(theme.accent.color)
+            .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+            .contentShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Escrever uma nova mensagem")
+        .help("Nova mensagem (⌘N)")
     }
 
     private var lockup: some View {

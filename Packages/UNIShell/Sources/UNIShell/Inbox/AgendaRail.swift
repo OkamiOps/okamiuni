@@ -74,18 +74,24 @@ public struct AgendaRail: View {
     /// A largura resolvida que a janela concedeu.
     let railWidth: CGFloat
 
+    /// Clicar num cartão abre a janela 04. Protótipo: cada evento da trilha tem
+    /// `onOpen: () => this.openEvent(...)`.
+    let onOpenEvent: (AgendaItem) -> Void
+
     public init(
         store: MailStore,
         layout: Layout = Layout(),
         now: Int? = nil,
         headerDate: Date? = nil,
-        width: CGFloat = PaneLayout.agendaWidth
+        width: CGFloat = PaneLayout.agendaWidth,
+        onOpenEvent: @escaping (AgendaItem) -> Void = { _ in }
     ) {
         self.store = store
         self.layout = layout
         self.now = now ?? Self.minutesNow()
         self.headerDate = headerDate ?? Date.now
         self.railWidth = width
+        self.onOpenEvent = onOpenEvent
     }
 
     private static func minutesNow() -> Int {
@@ -197,6 +203,14 @@ public struct AgendaRail: View {
     }
 
     private func eventBlock(_ item: AgendaItem) -> some View {
+        Button { onOpenEvent(item) } label: {
+            eventCard(item)
+        }
+        .buttonStyle(.plain)
+        .help("Abre o compromisso")
+    }
+
+    private func eventCard(_ item: AgendaItem) -> some View {
         let tint = store.account(item.accountID)
             .flatMap { TokenColor(css: theme.isDark ? $0.tintDarkHex : $0.tintLightHex) } ?? theme.accent
         let tight = layout.isTight(for: item)
@@ -237,6 +251,8 @@ public struct AgendaRail: View {
                 topTrailingRadius: theme.radiusSmall
             )
         )
+        // Só o cartão clica; a calha da hora à esquerda continua livre.
+        .contentShape(Rectangle())
         // Protótipo: `left: 32px; right: 2px`. O 32 é a calha de 26 mais a folga
         // de 6 — é o que impede o cartão de cobrir o rótulo da hora.
         .padding(.leading, layout.eventLeading)

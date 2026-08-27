@@ -6,10 +6,23 @@ public struct ReaderPane: View {
     @Environment(\.theme) private var theme
     let store: MailStore
     let onAddEvent: (DetectedEvent) -> Void
+    /// Abre a janela 03 (Composer) com esta mensagem citada.
+    ///
+    /// No protótipo o leitor tem uma faixa de resposta embutida, e é o botão
+    /// "⤢ Abrir em janela separada" dela que abre a 03. Essa faixa ainda não
+    /// existe aqui, então o gancho é o botão "Responder" da fila de triagem —
+    /// o gatilho que o brief da Task U pede. Quando a faixa embutida chegar,
+    /// o ⤢ dela chama este mesmo fechamento.
+    let onReply: (Message) -> Void
 
-    public init(store: MailStore, onAddEvent: @escaping (DetectedEvent) -> Void) {
+    public init(
+        store: MailStore,
+        onAddEvent: @escaping (DetectedEvent) -> Void,
+        onReply: @escaping (Message) -> Void = { _ in }
+    ) {
         self.store = store
         self.onAddEvent = onAddEvent
+        self.onReply = onReply
     }
 
     public var body: some View {
@@ -115,6 +128,21 @@ public struct ReaderPane: View {
                 }
                 .buttonStyle(.plain)
             }
+
+            // O gancho para a janela 03. Fica junto da fila de triagem porque é
+            // a mesma decisão: o que fazer com esta mensagem agora.
+            Button { onReply(message) } label: {
+                Text("Responder")
+                    .font(theme.sans.font(size: 11.5, weight: .semibold))
+                    .foregroundStyle(theme.onAccent.color)
+                    .frame(height: 26)
+                    .padding(.horizontal, 12)
+                    .background(theme.accent.color)
+                    .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+                    .contentShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("r", modifiers: .command)
 
             Spacer(minLength: 8)
 

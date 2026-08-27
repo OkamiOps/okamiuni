@@ -4,6 +4,8 @@ import UNICore
 
 public struct InboxScreen: View {
     @Environment(\.theme) private var theme
+    /// As quatro janelas da Task U são cenas de verdade, abertas por aqui.
+    @Environment(\.openWindow) private var openWindow
 
     // Intenção do usuário, não resultado. Quem decide o que aparece é
     // `PaneLayout`, cruzando isto com a largura que a janela tem agora. Guardar
@@ -28,7 +30,8 @@ public struct InboxScreen: View {
                 query: $query,
                 accountCount: store.accounts.count,
                 onToggleSidebar: toggleSidebar,
-                onToggleAgenda: toggleAgenda
+                onToggleAgenda: toggleAgenda,
+                onCompose: openNewMessage
             )
 
             // Conteúdo principal
@@ -70,10 +73,14 @@ public struct InboxScreen: View {
                 }
 
                 // Lista de mensagens — o único painel cuja largura de fato varia.
-                MessageList(store: store, width: layout.messageListWidth)
+                MessageList(
+                    store: store,
+                    width: layout.messageListWidth,
+                    onOpenWindow: openMessageWindow
+                )
 
                 // Painel de leitura: fica com tudo o que sobrar.
-                ReaderPane(store: store, onAddEvent: { _ in })
+                ReaderPane(store: store, onAddEvent: { _ in }, onReply: openComposer)
 
                 // Trilha de agenda — o primeiro painel a sair quando aperta.
                 // Ambos (data e minuto) vêm de Fixtures para coerência durante testes
@@ -83,7 +90,8 @@ public struct InboxScreen: View {
                         store: store,
                         now: Fixtures.nowMinute,
                         headerDate: Fixtures.today,
-                        width: PaneLayout.agendaWidth
+                        width: PaneLayout.agendaWidth,
+                        onOpenEvent: openEventWindow
                     )
                     .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
@@ -114,6 +122,30 @@ public struct InboxScreen: View {
         .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(theme.surface.color)
+    }
+
+    // MARK: - Janelas
+
+    /// 03 Composer. Gancho do "Responder" no leitor.
+    private func openComposer(_ message: Message) {
+        openWindow(id: UNIWindow.composer, value: message.id)
+    }
+
+    /// 05 Email em janela. Gancho do duplo clique na lista.
+    private func openMessageWindow(_ message: Message) {
+        openWindow(id: UNIWindow.message, value: message.id)
+    }
+
+    /// 04 Detalhe do compromisso. Gancho do clique na trilha de agenda.
+    private func openEventWindow(_ item: AgendaItem) {
+        openWindow(id: UNIWindow.event, value: item.id)
+    }
+
+    /// 06 Nova mensagem. Chega por ⌘N (menu do app) e, quando a barra do topo
+    /// ganhar o botão "Escrever", por ele — é este o fechamento que o
+    /// `WindowChrome` precisa receber.
+    public func openNewMessage() {
+        openWindow(id: UNIWindow.newMessage, value: store.selectedAccountID ?? "")
     }
 
     private func toggleSidebar() {
