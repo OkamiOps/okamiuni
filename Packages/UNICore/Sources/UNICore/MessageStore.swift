@@ -58,6 +58,20 @@ public final class MailStore {
     public private(set) var agenda: [AgendaItem] = []
     public private(set) var pendingItems: [PendingItem] = []
 
+    /// Quantas vezes `reveal(_:)` de fato revelou alguma coisa.
+    ///
+    /// Existe porque "ir para o email de origem" também é pedido de **fora** da
+    /// janela principal — o botão "Email" da janela 04 mora noutra cena e não
+    /// alcança o `@State` da `InboxScreen`, que é quem sabe trocar para a aba
+    /// Email. Selecionar a mensagem sem trocar de aba deixaria o clique sem
+    /// retorno visível quando a janela principal está na aba Agenda: a
+    /// definição de botão mudo.
+    ///
+    /// É um contador, e não um `messageID?`, porque revelar duas vezes a
+    /// **mesma** mensagem tem de acordar quem observa nas duas.
+    /// `id` desconhecido não incrementa: `reveal` sai antes.
+    public private(set) var revealCount = 0
+
     public private(set) var bucket: TriageBucket = .today
     public private(set) var selectedMessageID: String?
     public private(set) var selectedAccountID: String?
@@ -235,6 +249,7 @@ public final class MailStore {
     /// `id` desconhecido não mexe em nada.
     public func reveal(_ messageID: String) {
         guard let message = messages.first(where: { $0.id == messageID }) else { return }
+        revealCount += 1
 
         if let filtered = selectedAccountID, filtered != message.accountID {
             selectedAccountID = nil

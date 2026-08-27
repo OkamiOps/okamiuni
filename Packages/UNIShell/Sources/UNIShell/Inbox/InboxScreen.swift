@@ -60,6 +60,14 @@ public struct InboxScreen: View {
         .onChange(of: query) { _, newQuery in
             store.query = newQuery
         }
+        // Revelar uma mensagem pode vir de **fora** desta tela: o botão "Email"
+        // da janela 04 é outra cena e só alcança o `MailStore`. `revealCount`
+        // é o único caminho que ele tem até a aba, e sem a troca o clique
+        // selecionaria uma mensagem numa lista que não está na tela.
+        .onChange(of: store.revealCount) { _, _ in
+            workspace = .mail
+            query = store.query
+        }
     }
 
     /// O `GeometryReader` existe por um motivo só: dar a largura real da janela

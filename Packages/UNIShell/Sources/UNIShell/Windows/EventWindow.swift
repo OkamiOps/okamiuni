@@ -58,6 +58,19 @@ public struct EventWindow: View {
         item.flatMap { store.account($0.accountID) }
     }
 
+    /// A mensagem que gerou este compromisso, se ela ainda existe na caixa.
+    ///
+    /// Mesma regra dos menus de contexto — `ContextMenus.originMessageID` casa
+    /// a linha `.email` da seção "o que gerou este compromisso" com o assunto
+    /// de uma mensagem. Uma segunda regra aqui divergiria da do menu no
+    /// primeiro ajuste, e o botão e o item levariam a lugares diferentes.
+    ///
+    /// `internal`: `WindowTests` lê isto para provar o destino do botão sem
+    /// clicar em nada.
+    var originMessageID: String? {
+        ContextMenus.originMessageID(for: detail, in: store.messages)
+    }
+
     private var tint: Color {
         account.flatMap { TokenColor(css: $0.tint(isDark: theme.isDark))?.color } ?? theme.accent.color
     }
@@ -541,10 +554,31 @@ public struct EventWindow: View {
             }
             .help("Encaminhar o convite para outras pessoas")
 
+            // "Email" leva ao mesmo lugar que "Ir para o email de origem" dos
+            // menus de contexto: `MailStore.reveal` desfaz o filtro, a caixa e
+            // a busca que escondem a mensagem e a seleciona na janela
+            // principal. Sem mensagem casada o botão apaga com o motivo no
+            // `help` — controle que existe faz alguma coisa, e recusa muda é o
+            // mesmo defeito de outra cor.
+            //
+            // O botão "Reagendar" **foi removido**: não há edição de agenda
+            // neste marco, e um botão que abre uma tela inexistente é pior que
+            // a ausência dele. Volta no Marco 4, com o EventKit.
             if detail.hasThread {
-                ChromeButton("Email", appearance: .outlined, height: 30, horizontalPadding: 13) {}
+                ChromeButton(
+                    "Email",
+                    appearance: originMessageID == nil ? .muted : .outlined,
+                    height: 30, horizontalPadding: 13
+                ) {
+                    revealOriginMessage()
+                }
+                .disabled(originMessageID == nil)
+                .help(
+                    originMessageID == nil
+                        ? "O email que gerou este compromisso não está mais na caixa"
+                        : "Mostrar na janela principal o email que gerou este compromisso"
+                )
             }
-            ChromeButton("Reagendar", appearance: .outlined, height: 30, horizontalPadding: 13) {}
 
             Spacer(minLength: 8)
             ChromeButton("Fechar", appearance: .quiet, height: 30) { dismiss() }
@@ -554,6 +588,22 @@ public struct EventWindow: View {
         .padding(.bottom, 15)
         .background(theme.surface2.color)
         .hairline(theme.line2, edges: .top)
+    }
+
+    /// O que o botão "Email" faz.
+    ///
+    /// `MailStore.reveal` desfaz o filtro de conta, a caixa e a busca que
+    /// escondam a mensagem e a seleciona; a janela principal segue o
+    /// `revealCount` para voltar à aba Email. Depois disso a janela 04 fecha:
+    /// o pedido foi "me leve até o email", e deixá-la aberta por cima do
+    /// destino esconderia justamente o que se pediu para ver.
+    ///
+    /// `internal` para `WindowTests` provar o destino sem clique nenhum —
+    /// evento sintético é proibido neste projeto.
+    func revealOriginMessage() {
+        guard let id = originMessageID else { return }
+        store.reveal(id)
+        dismiss()
     }
 
     private func copy(_ link: String) {
