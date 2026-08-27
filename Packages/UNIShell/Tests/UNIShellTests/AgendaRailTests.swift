@@ -176,6 +176,33 @@ struct AgendaRailTests {
         #expect(label == "em 5h30: Evento longe")
     }
 
+    // MARK: - Calha das horas (Task P, defeito 1 e 3)
+
+    @Test("o cartão de evento nunca invade a calha dos rótulos de hora")
+    func eventNeverCoversHourLabel() {
+        // O defeito medido: o cartão começava em 24pt, dentro da calha de 26pt,
+        // e escondia "10", "11", "13", "14" e "17" atrás do bloco.
+        #expect(layout.eventLeading >= layout.labelGutter + layout.gutterGap)
+    }
+
+    @Test("a calha e o recuo dos cartões vêm do protótipo")
+    func gutterMatchesPrototype() {
+        // Protótipo: span da hora `width: 26px`, linha com `gap: 6px`,
+        // cartão com `left: 32px; right: 2px`.
+        #expect(layout.labelGutter == 26)
+        #expect(layout.gutterGap == 6)
+        #expect(layout.eventLeading == 32)
+        #expect(layout.eventTrailing == 2)
+    }
+
+    @Test("o marcador de agora encosta na calha em vez de atravessá-la")
+    func nowMarkerStartsAfterGutter() {
+        // Protótipo: `nowStyle … left: 26px`. Zero faria o traço vermelho passar
+        // por cima do rótulo "12", que era o defeito 3.
+        #expect(layout.nowMarkerLeading == layout.labelGutter)
+        #expect(layout.nowMarkerLeading > 0)
+    }
+
     @Test("minuto das fixtures é sempre 720, independente do fuso da máquina")
     func fixturesNowMinuteIsTimezoneIndependent() {
         // Fixtures.nowMinute é uma constante (720 = 12:00)

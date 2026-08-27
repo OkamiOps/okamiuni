@@ -10,9 +10,30 @@ public struct AgendaRail: View {
     public struct Layout: Sendable {
         public let pointsPerMinute: CGFloat
 
+        /// Largura da calha dos rótulos de hora.
+        /// Protótipo: `<span style="… width: 26px; flex: none;">{{ h.label }}</span>`.
+        public let labelGutter: CGFloat = 26
+
+        /// Folga entre a calha e a linha da hora.
+        /// Protótipo: `gap: 6px` na linha da hora.
+        public let gutterGap: CGFloat = 6
+
+        /// Recuo à direita dos cartões. Protótipo: `right: 2px`.
+        public let eventTrailing: CGFloat = 2
+
         public init(pointsPerMinute: CGFloat = 0.78) {
             self.pointsPerMinute = pointsPerMinute
         }
+
+        /// Onde os cartões de evento começam. Protótipo: `left: 32px` — que é
+        /// exatamente `labelGutter + gutterGap`. Deixar isto menor que
+        /// `labelGutter` faz o cartão cobrir o rótulo da hora, que foi o defeito
+        /// que esta constante existe para impedir.
+        public var eventLeading: CGFloat { labelGutter + gutterGap }
+
+        /// Onde o marcador de "agora" começa. Protótipo: `nowStyle … left: 26px` —
+        /// encosta na calha sem atravessá-la.
+        public var nowMarkerLeading: CGFloat { labelGutter }
 
         public var totalHeight: CGFloat {
             660 * pointsPerMinute  // 1140 - 480 = 660 minutos
@@ -70,8 +91,10 @@ public struct AgendaRail: View {
                     }
                 }
                 .frame(height: layout.totalHeight, alignment: .top)
+                // Protótipo: `padding: 12px 14px 18px` na calha da trilha.
                 .padding(.horizontal, 14)
-                .padding(.vertical, 10)
+                .padding(.top, 12)
+                .padding(.bottom, 18)
             }
             pendingSection
         }
@@ -81,7 +104,7 @@ public struct AgendaRail: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 3) {  // protótipo: margin-top: 3px
             Text(Self.headerDateString(headerDate))
                 .font(theme.serif.font(size: 15, weight: .semibold))
                 .foregroundStyle(theme.ink.color)
@@ -96,48 +119,54 @@ public struct AgendaRail: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Protótipo: `padding: 12px 16px 11px` no cabeçalho da trilha.
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.top, 12)
+        .padding(.bottom, 11)
         .hairline(theme.line2, edges: .bottom)
     }
 
+    /// Uma linha por hora, cada uma posicionada pelo minuto do dia — como o
+    /// protótipo, que usa `position: absolute; top: (min - 480) * 0.78`.
+    ///
+    /// O quadro de altura zero deixa o rótulo transbordar simetricamente, então
+    /// ele fica **centrado na linha** (o `align-items: center` do protótipo) em
+    /// vez de pendurado abaixo dela. A linha continua no minuto exato da hora,
+    /// que é o que mantém os cartões alinhados com a hora que dizem começar.
     private var hourLines: some View {
-        VStack(spacing: 0) {
-            ForEach(8..<19, id: \.self) { hour in
-                HStack(alignment: .top, spacing: 6) {
-                    Text(String(format: "%02d", hour))
-                        .font(theme.mono.font(size: 9))
-                        .foregroundStyle(theme.ink4.color)
-                        .frame(width: 26, alignment: .trailing)
-                    Rectangle()
-                        .fill(theme.line2.color)
-                        .frame(height: 0.5)
-                    Spacer(minLength: 0)
-                }
-                .frame(height: 60 * layout.pointsPerMinute, alignment: .top)
+        ForEach(8..<19, id: \.self) { hour in
+            HStack(spacing: layout.gutterGap) {
+                Text(String(format: "%02d", hour))
+                    .font(theme.mono.font(size: 9))
+                    .foregroundStyle(theme.ink4.color)
+                    .frame(width: layout.labelGutter, alignment: .trailing)
+                Rectangle()
+                    .fill(theme.line2.color)
+                    .frame(height: 0.5)
             }
+            .frame(height: 0, alignment: .center)
+            .offset(y: CGFloat(hour * 60 - 480) * layout.pointsPerMinute)
         }
     }
 
+    /// O traço de "agora". Protótipo: `left: 26px; right: 0` — ele encosta na
+    /// calha dos rótulos e não a atravessa.
     private var nowMarker: some View {
         Group {
             if now >= 480 && now <= 1140 {
-                VStack(spacing: 0) {
-                    HStack(spacing: 0) {
+                HStack(spacing: 0) {
+                    Color.clear
+                        .frame(width: layout.nowMarkerLeading, height: 0)
+                    ZStack(alignment: .leading) {
+                        Rectangle()
+                            .fill(liveColor())
+                            .frame(height: 1.5)
                         nowDot
                             .frame(width: 4, height: 4)
-                        Spacer(minLength: 0)
                     }
-                    .frame(height: 0, alignment: .center)
-                    .offset(x: 26)
-
-                    Divider()
-                        .frame(height: 1.5)
-                        .background(liveColor())
-                        .offset(y: -0.75)
                 }
-                .frame(height: 0, alignment: .top)
-                .offset(y: layout.offset(for: AgendaItem(id: "", title: "", startMinute: now, endMinute: now + 1, accountID: "")))
+                .frame(height: 0, alignment: .center)
+                .offset(y: CGFloat(now - 480) * layout.pointsPerMinute)
             }
         }
     }
@@ -159,29 +188,44 @@ public struct AgendaRail: View {
         let softColor = soft(tint.color, theme.isDark ? 0.18 : 0.10)
 
         return HStack(spacing: 0) {
+            // Protótipo: `border-left: 2px solid c`.
             Rectangle()
                 .fill(tint.color)
-                .frame(width: 2.5)
+                .frame(width: 2)
+            // Protótipo: `padding: 5px 8px` (ou `0 8px` quando apertado) e
+            // `justify-content: center` — conteúdo centrado na altura do cartão.
             VStack(alignment: .leading, spacing: tight ? 0 : 2) {
                 Text(tight ? "\(item.title) · \(item.startLabel)" : item.title)
-                    .font(theme.sans.font(size: 11, weight: .medium))
+                    .font(theme.sans.font(size: 11.5, weight: .semibold))
                     .foregroundStyle(tint.color)
                     .lineLimit(1)
                 if !tight {
                     Text("\(item.startLabel)–\(item.endLabel)")
                         .font(theme.mono.font(size: 9))
-                        .foregroundStyle(theme.ink3.color.opacity(0.7))
+                        .foregroundStyle(tint.color.opacity(0.7))
                         .lineLimit(1)
                 }
             }
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
+            .padding(.horizontal, 8)
+            .padding(.vertical, tight ? 0 : 5)
             Spacer(minLength: 0)
         }
-        .frame(height: layout.height(for: item), alignment: .top)
+        .frame(height: layout.height(for: item), alignment: .leading)
         .background(softColor)
-        .clipShape(RoundedRectangle(cornerRadius: 4))
-        .padding(.leading, 24)
+        // Protótipo: `border-radius: 0 var(--r2) var(--r2) 0` — quadrado do lado
+        // da barra colorida, arredondado do lado de fora.
+        .clipShape(
+            UnevenRoundedRectangle(
+                topLeadingRadius: 0,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: theme.radiusSmall,
+                topTrailingRadius: theme.radiusSmall
+            )
+        )
+        // Protótipo: `left: 32px; right: 2px`. O 32 é a calha de 26 mais a folga
+        // de 6 — é o que impede o cartão de cobrir o rótulo da hora.
+        .padding(.leading, layout.eventLeading)
+        .padding(.trailing, layout.eventTrailing)
     }
 
     private var pendingSection: some View {
@@ -205,8 +249,8 @@ public struct AgendaRail: View {
                         .frame(width: 5, height: 5)
                         .padding(.top, 2)
                     Text(item.text)
-                        .font(.system(size: 11.5, weight: .regular, design: .default))
-                        .lineSpacing(0.45)  // 11.5 × 1.45 - 11.5 = 5.175 ≈ 0.45
+                        .font(theme.sans.font(size: 11.5))
+                        .lineSpacing(5.175)  // line-height 1.45 × 11.5 − 11.5 = 5.175
                         .foregroundStyle(theme.ink2.color)
                     Spacer(minLength: 0)
                 }
