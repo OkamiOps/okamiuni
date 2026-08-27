@@ -2987,12 +2987,23 @@ Faixas:
 
 | largura da janela | lateral | lista | leitor | agenda |
 |---|---|---|---|---|
-| ≥ 1360 | 236 expandida | flexível 340–420 | resto (≥ 568) | 262 |
+| ≥ 1360 | 236 expandida | flexível 340–420 | resto (≥ 478) | 262 |
 | 1120–1360 | 236 expandida | flexível 340–420 | resto | **oculta** |
 | 920–1120 | **trilha de 62** | flexível 320–380 | resto | oculta |
 | < 920 | trilha de 62 | 320 | resto (≥ 420) | oculta |
 
 Piso da janela: `minWidth` cai de 1100 para **860**, `minHeight` de 700 para **600**.
+
+> **Correção, 27/08:** a primeira versão desta tabela anotava "resto (≥ 568)" na faixa ≥1360.
+> É impossível com os próprios números da tabela: em 1360, `236 + 340 + 262 = 838`, sobrando
+> 522 no melhor caso. O implementador da Task R achou o erro e implementou contra a invariante
+> que de fato importa e que os testes travam — o leitor nunca abaixo de 420. Medido, o mínimo
+> real é 478.
+>
+> **`minHeight: 600` significa 600 de conteúdo, 632 de quadro.** Os 32pt são a barra de título
+> que a janela `.hiddenTitleBar` reserva no quadro, e não conteúdo que se recusa a comprimir —
+> com `minHeight: 100` o shell inteiro comprime até 100. Fica 600, porque é o conteúdo que a
+> constante deve descrever.
 
 A lateral **nunca some por completo** — recolhida ela é a trilha de 62pt da Task 7B, que já
 existe. Esse comportamento já está especificado e testado; a Task R só o dispara por largura
