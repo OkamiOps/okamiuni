@@ -167,7 +167,12 @@ public final class MailStore {
             receivedAt: current.receivedAt, subject: current.subject,
             snippet: current.snippet, body: current.body, tags: current.tags,
             bucket: newBucket, isRead: current.isRead, summary: current.summary,
-            detectedEvent: current.detectedEvent
+            detectedEvent: current.detectedEvent,
+            // `dayOffset` e `replyHints` têm default: omitir aqui não daria
+            // erro de compilação, daria uma mensagem de ontem reaparecendo sob
+            // "Hoje" e as sugestões de resposta sumindo depois de mudar de
+            // caixa. Triagem não muda quando ela chegou nem o que ela diz.
+            dayOffset: current.dayOffset, replyHints: current.replyHints
         )
 
         guard selectedMessageID == current.id else { return }
@@ -193,7 +198,9 @@ public final class MailStore {
             id: m.id, accountID: m.accountID, from: m.from, receivedAt: m.receivedAt,
             subject: m.subject, snippet: m.snippet, body: m.body, tags: m.tags,
             bucket: m.bucket, isRead: true, summary: m.summary,
-            detectedEvent: m.detectedEvent
+            detectedEvent: m.detectedEvent,
+            // Idem: ler não muda o dia em que ela chegou nem o que ela diz.
+            dayOffset: m.dayOffset, replyHints: m.replyHints
         )
     }
 

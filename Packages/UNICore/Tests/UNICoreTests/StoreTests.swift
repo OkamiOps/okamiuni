@@ -43,7 +43,8 @@ struct StoreTests {
         let many = (1...30).map { i in
             Account(
                 id: "acc\(i)", address: "pessoa@dominio\(i).com.br",
-                displayName: "Conta \(i)", provider: .imap, tintLightHex: "#3E6FA8", tintDarkHex: "#7BA8D9"
+                displayName: "Conta \(i)", provider: .imap, host: "dominio\(i)",
+                tintLightHex: "#3E6FA8", tintDarkHex: "#7BA8D9"
             )
         }
         let store = MailStore(
@@ -59,7 +60,8 @@ struct StoreTests {
     func unknownProviderIsOrdinary() async throws {
         let obscure = Account(
             id: "servidor-proprio", address: "eu@meuservidor.xyz",
-            displayName: "Servidor próprio", provider: .imap, tintLightHex: "#2C7D5E", tintDarkHex: "#7CBAAA"
+            displayName: "Servidor próprio", provider: .imap, host: "meuservidor",
+            tintLightHex: "#2C7D5E", tintDarkHex: "#7CBAAA"
         )
         let store = MailStore(
             source: InMemoryMailSource(accounts: [obscure], messages: [], agenda: [])
@@ -67,7 +69,12 @@ struct StoreTests {
         await store.load()
         let found = try #require(store.account("servidor-proprio"))
         #expect(found.provider == .imap)
-        #expect(found.host == "servidor-proprio")
+        // Afirmava `host == "servidor-proprio"`, o próprio `id` — verdadeiro
+        // por construção enquanto `host` era `var host { id }`, e passava com
+        // o defeito que o dono do projeto viu na tela. O `host` é o nome que
+        // se lê; o `id` é a chave interna, e eles não têm de coincidir.
+        #expect(found.host == "meuservidor")
+        #expect(found.host != found.id)
     }
 
     @Test("a caixa Tudo mostra mais mensagens que Hoje")
@@ -136,6 +143,43 @@ struct StoreTests {
         if let selected = store.selectedMessage {
             #expect(store.visibleMessages.contains { $0.id == selected.id })
         }
+    }
+
+    // MARK: - O dia sobrevive à triagem
+
+    /// `dayOffset` e `replyHints` têm valor padrão no `init`, e o `move` e o
+    /// `markRead` **reconstroem** a mensagem. Esquecer de passá-los adiante ali
+    /// não daria erro de compilação: daria uma mensagem de ontem reaparecendo
+    /// sob o cabeçalho "Hoje" depois de arquivar, e as sugestões de resposta
+    /// sumindo depois de abrir. Nenhum dos dois é visível num diff.
+    @Test("mover de caixa não muda o dia em que a mensagem chegou")
+    @MainActor
+    func movePreservesTheDay() async throws {
+        let store = await loadedStore()
+        store.select(bucket: .all)
+        let yesterday = try #require(store.messages.first { $0.dayOffset == -1 })
+
+        store.move(yesterday, to: .archived)
+
+        let after = try #require(store.messages.first { $0.id == yesterday.id })
+        #expect(after.bucket == .archived)
+        #expect(after.dayOffset == -1)
+        #expect(after.replyHints == yesterday.replyHints)
+    }
+
+    @Test("marcar como lida não muda o dia nem as sugestões")
+    @MainActor
+    func readingPreservesTheDay() async throws {
+        let store = await loadedStore()
+        store.select(bucket: .all)
+        let before = try #require(store.messages.first { $0.dayOffset == -1 && !$0.replyHints.isEmpty })
+
+        store.select(message: before.id)
+
+        let after = try #require(store.messages.first { $0.id == before.id })
+        #expect(after.isRead)
+        #expect(after.dayOffset == -1)
+        #expect(after.replyHints == before.replyHints)
     }
 
     // MARK: - Seleção padrão (Task P, defeito 2)
@@ -312,7 +356,8 @@ struct StoreTests {
                     // (provaria que accounts foi parcialmente escrito, se não-atômico)
                     return [Account(
                         id: "replacementacc", address: "replacement@teste.com",
-                        displayName: "Conta de Reposição", provider: .imap, tintLightHex: "#ABCDEF", tintDarkHex: "#D5E3F7"
+                        displayName: "Conta de Reposição", provider: .imap, host: "reposicao",
+                        tintLightHex: "#ABCDEF", tintDarkHex: "#D5E3F7"
                     )]
                 }
                 // Primeira tentativa: devolve dados bons

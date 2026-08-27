@@ -7,15 +7,25 @@ import Foundation
 /// e qualquer domínio. Nenhum teste deve afirmar a quantidade destas contas.
 public enum Fixtures {
 
+    /// Protótipo: `const ACC` (linha 1539), na ordem de `ORDER`.
+    ///
+    /// Repare em `id: "host"` com `host: "hostinger"`. O `id` é a chave que
+    /// casa mensagem com conta e nasceu abreviada no protótipo; o `host` é o
+    /// nome do provedor que a tela mostra. Eram a mesma coisa aqui, e por isso
+    /// o chip escrevia HOST onde o design escreve HOSTINGER.
     public static let accounts: [Account] = [
         Account(id: "zoho", address: "ricardo@empresa.com",
-                displayName: "Empresa", provider: .imap, tintLightHex: "#3F6AA1", tintDarkHex: "#8CBAF7"),
+                displayName: "Empresa", provider: .imap, host: "zoho",
+                tintLightHex: "#3F6AA1", tintDarkHex: "#8CBAF7"),
         Account(id: "gmail", address: "ricardo@gmail.com",
-                displayName: "Pessoal", provider: .gmail, tintLightHex: "#725B9A", tintDarkHex: "#C2A7F4"),
+                displayName: "Pessoal", provider: .gmail, host: "gmail",
+                tintLightHex: "#725B9A", tintDarkHex: "#C2A7F4"),
         Account(id: "host", address: "contato@meusite.com",
-                displayName: "Site", provider: .imap, tintLightHex: "#397852", tintDarkHex: "#88D1A2"),
+                displayName: "Site", provider: .imap, host: "hostinger",
+                tintLightHex: "#397852", tintDarkHex: "#88D1A2"),
         Account(id: "icloud", address: "ricardo@icloud.com",
-                displayName: "iCloud", provider: .imap, tintLightHex: "#298084", tintDarkHex: "#71D0D5"),
+                displayName: "iCloud", provider: .imap, host: "icloud",
+                tintLightHex: "#298084", tintDarkHex: "#71D0D5"),
     ]
 
     /// Âncora fixa para os testes não dependerem do relógio.
@@ -43,6 +53,24 @@ public enum Fixtures {
         ) ?? today
     }
 
+    /// Ontem — segunda, 24 de agosto — na mesma hora de parede.
+    ///
+    /// Só o `receivedAt`, que a linha usa para escrever o horário. Quem decide
+    /// sob qual cabeçalho a mensagem cai é o `dayOffset`, que é `-1` e não
+    /// depende de calendário nenhum.
+    private static func yesterdayAt(_ hour: Int, _ minute: Int) -> Date {
+        Calendar.current.date(byAdding: .day, value: -1, to: at(hour, minute)) ?? at(hour, minute)
+    }
+
+    /// As sete mensagens do design, na ordem em que ele as escreve.
+    /// Protótipo: `const MSGS` (linha 1547).
+    ///
+    /// Eram quatro, e nenhuma das três que faltavam era decorativa: sem elas a
+    /// lista tinha um grupo só ("Hoje"), a caixa "Depois" tinha uma mensagem, e
+    /// as contas `gmail` e `icloud` não apareciam com o que as justifica.
+    ///
+    /// Repare que `bucket` e `dayOffset` são independentes: `m6` chegou ontem e
+    /// está na caixa "Hoje". A caixa é triagem, o dia é quando chegou.
     public static let messages: [Message] = [
         Message(
             id: "m1", accountID: "zoho",
@@ -53,7 +81,8 @@ public enum Fixtures {
             body: [
                 "Ricardo, tudo bem?",
                 "Revisei as cláusulas 4 e 7 com o jurídico. A única pendência real é o escopo de suporte — queremos deixar claro o SLA de resposta em horário comercial.",
-                "Consigo assinar ainda esta semana se conseguirmos uma call na quinta às 15h.",
+                "Consigo assinar ainda esta semana se conseguirmos uma call na quinta às 15h para alinhar isso. Sexta já entro em viagem.",
+                "Abraço, Marina",
             ],
             tags: [
                 Tag(name: "Precisa resposta", tintHex: "#A8722B"),
@@ -65,49 +94,130 @@ public enum Fixtures {
                 label: "Call de contrato · qui 27, 15:00",
                 start: Calendar.current.date(byAdding: .day, value: 2, to: at(15, 0))!,
                 duration: 3600
-            )
+            ),
+            dayOffset: 0,
+            replyHints: ["Confirmar quinta 15h", "Pedir mais um dia"]
         ),
         Message(
-            id: "m2", accountID: "zoho",
+            id: "m4", accountID: "zoho",
             from: Contact(name: "Equipe Produto", address: "produto@empresa.com"),
-            receivedAt: at(8, 30),
-            subject: "Notas do standup — bloqueio no deploy",
-            snippet: "Deu problema no certificado SSL de madrugada. Precisamos de uma decisão sua hoje.",
+            receivedAt: at(8, 40),
+            subject: "Notas do standup + bloqueio no deploy",
+            snippet: "Deploy travado no certificado SSL do ambiente novo. Precisamos de uma decisão sua hoje.",
             body: [
-                "Bom dia,",
-                "O certificado SSL expirou às 03h. Subimos o provisório, mas a renovação definitiva precisa da sua aprovação.",
+                "Resumo do standup:",
+                "O deploy está parado no certificado SSL do ambiente novo. Temos duas saídas: renovar o certificado atual por um ano ou migrar para o provedor gerenciado agora.",
+                "A segunda custa mais, mas resolve de vez. Precisamos da sua decisão para desbloquear a release.",
             ],
             tags: [
                 Tag(name: "Precisa resposta", tintHex: "#A8722B"),
                 Tag(name: "Equipe", tintHex: "#3F6AA1"),
             ],
-            bucket: .today, isRead: false, summary: nil, detectedEvent: nil
+            bucket: .today, isRead: false,
+            summary: "O deploy está bloqueado por um certificado SSL. Duas saídas: renovar o atual por um ano ou migrar para o provedor gerenciado. A equipe espera sua decisão hoje.",
+            detectedEvent: nil,
+            dayOffset: 0,
+            replyHints: ["Aprovar migração", "Renovar 1 ano"]
         ),
         Message(
-            id: "m3", accountID: "host",
-            from: Contact(name: "Formulário do site", address: "contato@meusite.com"),
-            receivedAt: at(7, 15),
+            id: "m6", accountID: "host",
+            from: Contact(name: "Formulário do site", address: "form@meusite.com"),
+            receivedAt: yesterdayAt(11, 7),
             subject: "Novo lead: consultoria para 40 pessoas",
-            snippet: "Empresa de logística, 40 funcionários, quer proposta de consultoria até o fim do mês.",
+            snippet: "Empresa de logística, 40 funcionários, quer proposta de consultoria até o fim do mês. Orçamento aprovado.",
             body: [
-                "Nome: Transportadora TransRota",
-                "Mensagem: Precisamos de uma proposta de consultoria em segurança para 40 funcionários.",
+                "Nome: Cláudia Rocha",
+                "Empresa: TransRota Logística — 40 funcionários.",
+                "Mensagem: precisamos de uma proposta de consultoria em processos internos até o fim do mês. Orçamento já aprovado internamente.",
             ],
             tags: [
                 Tag(name: "Lead", tintHex: "#397852"),
                 Tag(name: "Prazo", tintHex: "#A8722B"),
             ],
-            bucket: .later, isRead: true, summary: nil, detectedEvent: nil
+            bucket: .today, isRead: false,
+            summary: "Lead qualificado: logística, 40 pessoas, proposta pedida até o fim do mês com orçamento já aprovado. Vale reservar um bloco de foco antes de responder.",
+            detectedEvent: DetectedEvent(
+                label: "Bloco de foco · qua 26, 09:00",
+                // Quarta 26, 09:00–11:00 — o `Bloco: proposta` de `TIMES`
+                // ([540, 660]), que é o mesmo bloco que a grade da semana mostra.
+                start: Calendar.current.date(byAdding: .day, value: 1, to: at(9, 0))!,
+                duration: 7200
+            ),
+            dayOffset: -1,
+            replyHints: ["Agendar diagnóstico", "Enviar proposta padrão"]
         ),
         Message(
-            id: "m4", accountID: "gmail",
-            from: Contact(name: "Boletim Swift", address: "news@swiftweekly.dev"),
-            receivedAt: at(6, 0),
-            subject: "Swift 6.3 e o que mudou em concorrência",
-            snippet: "Resumo das mudanças de isolamento e o que quebra em projetos existentes.",
-            body: ["Edição desta semana."],
+            id: "m2", accountID: "host",
+            from: Contact(name: "Hostinger", address: "billing@hostinger.com"),
+            receivedAt: at(8, 15),
+            subject: "Renovação do domínio meusite.com em 12 dias",
+            snippet: "Seu domínio expira em 06/09/2026. A renovação automática está desativada para este item.",
+            body: [
+                "Olá,",
+                "O domínio meusite.com está registrado até 06 de setembro de 2026. A renovação automática está desativada para este item.",
+                "Renove pelo painel para evitar a suspensão do DNS.",
+            ],
+            tags: [Tag(name: "Prazo", tintHex: "#A8722B")],
+            bucket: .later, isRead: false,
+            summary: "meusite.com expira em 06/09 e a renovação automática está desligada. Ação de dois minutos, mas com data dura.",
+            detectedEvent: DetectedEvent(
+                label: "Renovar domínio · 04 set, 10:00",
+                // 10 dias depois de 25/08 é 04/09; 10:00–10:30 vem de
+                // `TIMES['Renovar domínio'] = [600, 630]`.
+                start: Calendar.current.date(byAdding: .day, value: 10, to: at(10, 0))!,
+                duration: 1800
+            ),
+            dayOffset: 0,
+            replyHints: ["Criar lembrete"]
+        ),
+        Message(
+            id: "m3", accountID: "gmail",
+            from: Contact(name: "Bruno Sato", address: "bruno.sato@gmail.com"),
+            receivedAt: yesterdayAt(19, 22),
+            subject: "Fotos da viagem + aquele orçamento",
+            snippet: "Mandei as fotos no link. E o orçamento do freela que te falei — sem pressa, olha quando der.",
+            body: [
+                "Fala Ricardo!",
+                "Subi as fotos da viagem naquele link do drive, dá uma olhada quando puder.",
+                "E o orçamento do freela que comentei está anexo — sem pressa, só queria sua opinião sobre o valor.",
+            ],
+            tags: [Tag(name: "Pessoal", tintHex: "#725B9A")],
+            bucket: .later, isRead: false,
+            summary: "Duas coisas soltas: link de fotos (nenhuma ação) e um orçamento de freela sem prazo.",
+            detectedEvent: nil,
+            dayOffset: -1,
+            replyHints: ["Responder depois"]
+        ),
+        Message(
+            id: "m7", accountID: "gmail",
+            from: Contact(name: "Newsletter Ofício", address: "oficio@substack.com"),
+            receivedAt: yesterdayAt(6, 0),
+            subject: "Edição 118 — o custo real de uma reunião",
+            snippet: "Três leituras da semana e um cálculo simples de quanto custa a agenda cheia.",
+            body: [
+                "Boletim da semana com três leituras e um cálculo sobre o custo de reuniões recorrentes.",
+            ],
+            // `BADGE['Leitura'] = var(--ink3)`: sem cor própria, cai no ink3 do tema.
             tags: [Tag(name: "Leitura", tintHex: nil)],
-            bucket: .archived, isRead: true, summary: nil, detectedEvent: nil
+            bucket: .later, isRead: false,
+            summary: "Newsletter. Agrupada em Leitura, sem ação — cai no digest das 18h.",
+            detectedEvent: nil,
+            dayOffset: -1,
+            replyHints: []
+        ),
+        Message(
+            id: "m5", accountID: "icloud",
+            from: Contact(name: "Apple", address: "no-reply@apple.com"),
+            receivedAt: yesterdayAt(14, 20),
+            subject: "Seu recibo — assinatura anual",
+            snippet: "Recibo de compra disponível. Nenhuma ação necessária.",
+            body: ["Recibo da sua assinatura anual. Nenhuma ação necessária."],
+            tags: [Tag(name: "Recibo", tintHex: nil)],  // `BADGE['Recibo'] = var(--ink3)`
+            bucket: .archived, isRead: false,
+            summary: "Recibo sem ação, arquivado automaticamente como registro financeiro.",
+            detectedEvent: nil,
+            dayOffset: -1,
+            replyHints: []
         ),
     ]
 

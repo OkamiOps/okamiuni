@@ -15,6 +15,20 @@ public struct Account: Sendable, Hashable, Identifiable {
     public let address: String
     public let displayName: String
     public let provider: Provider
+
+    /// O nome do provedor que os chips mostram em versalete: "zoho", "gmail",
+    /// "hostinger", "icloud".
+    ///
+    /// **É dado da conta, não a chave interna.** Já foi `var host { id }`, e a
+    /// janela mostrava HOST onde o design mostra HOSTINGER — o `id` é o que o
+    /// app usa para casar mensagem com conta, e não tem por que coincidir com
+    /// o nome que o usuário lê. Nada de tabela dos quatro exemplos aqui:
+    /// qualquer conta, de qualquer provedor, traz o seu.
+    ///
+    /// Quem tem pouca largura encurta **ao desenhar** (`HostMark.rail`), nunca
+    /// guardando uma segunda versão curta do nome.
+    public let host: String
+
     /// Cor em temas claros, já convertida para sRGB.
     public let tintLightHex: String
     /// Cor em temas escuros, já convertida para sRGB.
@@ -22,12 +36,13 @@ public struct Account: Sendable, Hashable, Identifiable {
 
     public init(
         id: String, address: String, displayName: String,
-        provider: Provider, tintLightHex: String, tintDarkHex: String
+        provider: Provider, host: String, tintLightHex: String, tintDarkHex: String
     ) {
         self.id = id
         self.address = address
         self.displayName = displayName
         self.provider = provider
+        self.host = host
         self.tintLightHex = tintLightHex
         self.tintDarkHex = tintDarkHex
     }
@@ -36,7 +51,4 @@ public struct Account: Sendable, Hashable, Identifiable {
     public func tint(isDark: Bool) -> String {
         isDark ? tintDarkHex : tintLightHex
     }
-
-    /// O host que a linha da lista mostra em miúdo: "zoho", "gmail", ...
-    public var host: String { id }
 }
