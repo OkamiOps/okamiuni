@@ -1,9 +1,12 @@
 import SwiftUI
 import UNIDesign
+import UNIShell
+import UNICore
 
 @main
 struct OkamiUNIApp: App {
     @State private var themes = ThemeStore()
+    @State private var mailStore = MailStore(source: InMemoryMailSource.fixtures)
 
     init() {
         FontRegistry.registerBundledFonts()
@@ -11,25 +14,12 @@ struct OkamiUNIApp: App {
 
     var body: some Scene {
         WindowGroup("OkamiUNI") {
-            RootView()
+            InboxScreen(store: mailStore)
                 .environment(themes)
                 .theme(themes.theme)
                 .frame(minWidth: 1100, minHeight: 700)
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1440, height: 916)
-    }
-}
-
-struct RootView: View {
-    @Environment(\.theme) private var theme
-
-    var body: some View {
-        ZStack {
-            theme.paper.color.ignoresSafeArea()
-            Text("OkamiUNI")
-                .font(theme.serif.font(size: 28, weight: .medium))
-                .foregroundStyle(theme.ink.color)
-        }
     }
 }
