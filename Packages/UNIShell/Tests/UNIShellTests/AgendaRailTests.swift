@@ -22,8 +22,8 @@ struct AgendaRailTests {
         )
         // 09:30 é 90 minutos depois das 08:00 (480) -> 90 × 0.78 = 70.2pt
         #expect(layout.offset(for: standup) == 70.2)
-        // 30 min × 0.78 - 3 = 23.4 - 3 = 20.4pt
-        #expect(layout.height(for: standup) == 20.4)
+        // 30 min × 0.78 - 3 = 23.4 - 3 = 20.4pt, mas mínimo é 42 para modo tight
+        #expect(layout.height(for: standup) == 42)
     }
 
     @Test("compromissos curtos ainda têm altura clicável")
@@ -38,8 +38,8 @@ struct AgendaRailTests {
 
     @Test("a trilha cobre a faixa inteira do dia (480 a 1140)")
     func totalHeight() {
-        // 1140 - 480 = 660 min × 0.78 = 514.8pt
-        #expect(layout.totalHeight == 514.8)
+        // 1140 - 480 = 660 min × 0.78 = 514.8pt (com tolerância de floating point)
+        #expect(abs(layout.totalHeight - 514.8) < 0.01)
     }
 
     @Test("o rótulo de início é HH:MM")
@@ -51,7 +51,7 @@ struct AgendaRailTests {
     @Test("nextUpLabel mostra o compromisso em andamento")
     func nextUpLabelRunning() {
         let items = Fixtures.agenda
-        let now = 600  // 10:00, meio do Standup (570-600) e 1:1 (660-705)
+        let now = 580  // 09:40, meio do Standup (570-600)
         // Standup rodando, termina às 10:00
         let label = AgendaRail.nextUpLabel(for: items, now: now)
         #expect(label == "agora: Standup produto · termina 10:00")
@@ -120,7 +120,7 @@ struct AgendaRailTests {
             id: "x", title: "T",
             startMinute: 500, endMinute: 560, accountID: "z"
         )
-        #expect(layout.height(for: item3) == 43.8)
+        #expect(abs(layout.height(for: item3) - 43.8) < 0.01)
     }
 
     @Test("posição não desenha fora da faixa (480-1140)")

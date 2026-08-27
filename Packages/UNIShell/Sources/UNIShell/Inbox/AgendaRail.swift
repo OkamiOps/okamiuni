@@ -24,7 +24,7 @@ public struct AgendaRail: View {
 
         public func height(for item: AgendaItem) -> CGFloat {
             let computed = CGFloat(item.durationMinutes) * pointsPerMinute - 3
-            // Altura mínima 42 para modo "tight"
+            // Altura mínima 42 para garantir clicabilidade em modo "tight"
             return max(42, computed)
         }
 
@@ -217,24 +217,10 @@ public struct AgendaRail: View {
         .hairline(theme.line2, edges: .top)
     }
 
-    /// Lógica pura e testável para o rótulo dinâmico de "próximo".
-    public static func nextUpLabel(for items: [AgendaItem], now: Int) -> String {
-        let fmt = { (m: Int) -> String in
-            String(format: "%02d:%02d", m / 60, m % 60)
-        }
-
-        let running = items.first { now >= $0.startMinute && now < $0.endMinute }
-        if let running = running {
-            return "agora: \(running.title) · termina \(fmt(running.endMinute))"
-        }
-
-        let upcoming = items.first { $0.startMinute > now }
-        if let upcoming = upcoming {
-            let minLeft = upcoming.startMinute - now
-            return "em \(minLeft) min: \(upcoming.title)"
-        }
-
-        return "nada mais hoje"
+    /// Rótulo dinâmico para o próximo compromisso.
+    /// Delega para `AgendaSummary` que é pura (sem isolamento de ator).
+    public nonisolated static func nextUpLabel(for items: [AgendaItem], now: Int) -> String {
+        AgendaSummary.nextUpLabel(for: items, now: now)
     }
 }
 
