@@ -96,6 +96,30 @@ conteúdo correto, histórico enganoso.
 Todo dispatch paralelo tem de instruir: caminhos explícitos, nunca `-A` nem `.`, e
 `git status --short` antes de cada commit.
 
+## Nunca dirigir a interface com eventos sintéticos
+
+O app roda no computador de **trabalho** do dono. `CGEvent`, `keystroke` do System Events e
+qualquer coisa que mova o ponteiro **tomam a máquina dele** enquanto ele está usando. Isso não
+é uma questão de gosto; foi feito, ele reclamou, e não se repete.
+
+O que usar no lugar:
+
+- **Aparência e layout:** `Render` em `UNIShellTests/RenderHarness.swift`. Ele desenha a
+  hierarquia SwiftUI numa `NSWindow` a 50.000pt fora da área visível, nunca trazida à frente.
+  O AppKit renderiza tudo — `ScrollView`, `TextField`, o que tiver respaldo nativo. Nada
+  aparece em tela, nada recebe foco. Com `UNI_RENDER_DIR=<pasta>` grava PNGs para inspeção.
+  (`ImageRenderer` sozinho **não** serve: deixa lista e campo de texto em branco.)
+- **Comportamento:** exercite o `MailStore` e os tipos puros direto. Quase toda pergunta de
+  "isso funciona?" é pergunta de modelo, não de pixel.
+- **Geometria de janela**, quando for inevitável: `open -g` lança **sem** trazer à frente, e
+  leitura por acessibilidade não mexe em nada. Ler pode; sintetizar evento, não.
+
+Armadilha do harness: parte do código formata data com `pt_BR` fixo e parte com
+`Locale.current`, que resolve contra as localizações do bundle. No bundle de teste não há
+nenhuma, então datas saem em inglês ali e em português no app. Injetar `\.locale` não corrige,
+porque esses formatadores não passam pelo ambiente. É inconsistência real, marcada para
+conserto — não relate como defeito de aparência.
+
 ## Integridade de asset binário não se verifica com `file`
 
 Um PNG truncado (6.738 bytes, sem `IEND`) passou por dois agentes que rodaram `file` — que lê
