@@ -16,6 +16,9 @@ sleep 1
 echo "▸ descartando janelas que o macOS guardou da sessão anterior"
 rm -rf ~/Library/"Saved Application State/com.okamiops.okamiuni.savedState" 2>/dev/null || true
 
+echo "▸ garantindo o xcconfig do Google (vazio é legítimo — ver docs/oauth-google.md)"
+test -f Config/Google.xcconfig || cp Config/Google.example.xcconfig Config/Google.xcconfig
+
 echo "▸ regerando o projeto"
 xcodegen generate >/dev/null
 

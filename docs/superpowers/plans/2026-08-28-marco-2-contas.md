@@ -318,7 +318,7 @@ isso no meio de uma tarefa de `ImapSession` custa o dobro.
 - Modify: `Packages/UNIShell/Package.swift`
 
 **Interfaces:**
-- Consumes: `Config/Google.example.xcconfig` da Task 1 (só a chave `OKAMIUNI_GOOGLE_CLIENT_ID`; o arquivo pode ainda não existir — o `configFiles` do XcodeGen aceita ausência com aviso, e o `Info.plist` grava string vazia).
+- Consumes: `Config/Google.example.xcconfig` da Task 1 (só a chave `OKAMIUNI_GOOGLE_CLIENT_ID`). **O XcodeGen 2.46 trata `configFiles` ausente como erro, não aviso** — por isso todo caminho que roda `xcodegen generate` primeiro garante o arquivo: `test -f Config/Google.xcconfig || cp Config/Google.example.xcconfig Config/Google.xcconfig` (a cópia é o exemplo com o ID vazio, que é legítimo). `Tools/rodar.sh` ganha essa linha nesta tarefa.
 - Produces: o produto `UNISync`, importável por `UNIShell` e pelo alvo do app; `UNISync.wiringCheck() -> String`, que só existe para provar que os dois pacotes de terceiros linkam.
 
 - [ ] **Step 1: Escrever o teste que falha**
@@ -329,7 +329,7 @@ isso no meio de uma tarefa de `ImapSession` custa o dobro.
 import Foundation
 import Testing
 import GRDB
-import NIOIMAPCore
+import NIOIMAP
 @testable import UNISync
 
 @Suite("Wiring das dependências novas")
@@ -407,7 +407,6 @@ let package = Package(
                 "UNICore",
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "NIOIMAP", package: "swift-nio-imap"),
-                .product(name: "NIOIMAPCore", package: "swift-nio-imap"),
                 .product(name: "NIOCore", package: "swift-nio"),
                 .product(name: "NIOPosix", package: "swift-nio"),
                 .product(name: "NIOSSL", package: "swift-nio-ssl"),
@@ -441,7 +440,7 @@ Acrescente essa linha ao array `dependencies` acima, depois de `swift-nio`.
 ```swift
 import Foundation
 import GRDB
-import NIOIMAPCore
+import NIOIMAP
 
 /// O espaço de nomes do pacote, e a prova de que as duas dependências novas
 /// linkam.
@@ -4361,7 +4360,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ### Task 9: O servidor IMAP falso e a sessão que conecta, autentica e sai
 
 > **Regra de divergência, obrigatória nesta tarefa e na Task 10.** O código
-> abaixo é escrito contra `NIOIMAPCore.ResponseDecoder` — o decodificador de
+> abaixo é escrito contra `ResponseDecoder` (do produto `NIOIMAP`, que reexporta o núcleo) — o decodificador de
 > respostas do `swift-nio-imap`, usado dentro de um `ByteToMessageHandler`. Se
 > a versão que o SPM resolver tiver nome ou forma diferentes para esse tipo, o
 > implementador **NÃO decide sozinho**: para, devolve `NEEDS_CONTEXT`
@@ -5066,7 +5065,7 @@ final class ImapChannelHandler: ChannelInboundHandler, @unchecked Sendable {
 > Sobre a regra de divergência do topo desta tarefa: o `ImapChannelHandler`
 > acima junta linhas cruas. Quando a Task 10 precisar de `ENVELOPE` — que é
 > gramática de verdade, com literais `{123}` e continuação —, é o
-> `NIOIMAPCore.ResponseDecoder` que entra no lugar do `LineBasedFrameDecoder`,
+> `ResponseDecoder` (do produto `NIOIMAP`, que reexporta o núcleo) que entra no lugar do `LineBasedFrameDecoder`,
 > e o `untagged: [String]` vira `untagged: [Response]`. Esta tarefa para no
 > ponto em que linha crua ainda é suficiente, de propósito: é o menor pedaço
 > que dá para provar sozinho.
@@ -5513,7 +5512,7 @@ public enum ImapUidValidity {
 ```swift
 import Foundation
 import NIOCore
-import NIOIMAPCore
+import NIOIMAP
 
 /// A fronteira com o `swift-nio-imap`. **É o único arquivo do app que conhece
 /// os tipos de resposta da biblioteca.**
