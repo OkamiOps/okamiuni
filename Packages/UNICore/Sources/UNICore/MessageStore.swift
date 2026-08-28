@@ -9,6 +9,82 @@ public protocol MailSource: Sendable {
     func messages() async throws -> [Message]
     func agenda() async throws -> [AgendaItem]
     func pendingItems() async throws -> [PendingItem]
+
+    // As três abaixo são **requisitos com implementação padrão**, e não
+    // membros só de extensão. A diferença é despacho: o `MailStore` guarda
+    // um `any MailSource`, e um membro que existe apenas na extensão do
+    // protocolo é resolvido estaticamente — a fonte do banco sobrescreveria
+    // `snapshots()` e a chamada continuaria caindo na padrão, entregando um
+    // retrato só e nunca acordando a lista. Declarados aqui, o despacho passa
+    // pela tabela de testemunhas e a sobrescrita vale. Ter padrão na extensão
+    // é o que faz `InMemoryMailSource` continuar conformando sem uma linha.
+    func snapshot() async throws -> MailSnapshot
+    func snapshots() -> AsyncThrowingStream<MailSnapshot, any Error>
+    func bodyMatches(_ term: String, accountID: String?) async throws -> Set<String>?
+}
+
+/// Tudo o que a UI precisa, num valor só.
+///
+/// Existe porque a fonte deixou de ser um puxão e virou uma assinatura: com
+/// quatro chamadas separadas, o `MailStore` teria de sincronizar quatro
+/// sequências e decidir o que fazer quando três chegam e uma não. Um valor só
+/// é atômico por construção.
+public struct MailSnapshot: Sendable, Hashable {
+    public let accounts: [Account]
+    public let messages: [Message]
+    public let agenda: [AgendaItem]
+    public let pendingItems: [PendingItem]
+
+    public init(
+        accounts: [Account], messages: [Message],
+        agenda: [AgendaItem], pendingItems: [PendingItem]
+    ) {
+        self.accounts = accounts
+        self.messages = messages
+        self.agenda = agenda
+        self.pendingItems = pendingItems
+    }
+}
+
+extension MailSource {
+    /// Um retrato, agora.
+    public func snapshot() async throws -> MailSnapshot {
+        MailSnapshot(
+            accounts: try await accounts(),
+            messages: try await messages(),
+            agenda: try await agenda(),
+            pendingItems: try await pendingItems()
+        )
+    }
+
+    /// A sequência de retratos.
+    ///
+    /// **A implementação padrão entrega um e termina** — é isso que faz
+    /// `InMemoryMailSource` e todos os testes do Marco 1 continuarem valendo
+    /// sem uma linha de mudança. Quem observa de verdade (o banco) sobrescreve.
+    public func snapshots() -> AsyncThrowingStream<MailSnapshot, any Error> {
+        AsyncThrowingStream { continuation in
+            let tarefa = Task {
+                do {
+                    continuation.yield(try await snapshot())
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            // Quem para de consumir para o trabalho junto: sem isto, fechar a
+            // janela deixaria o retrato sendo montado para ninguém.
+            continuation.onTermination = { _ in tarefa.cancel() }
+        }
+    }
+
+    /// Os ids das mensagens cujo **corpo** casa com o termo.
+    ///
+    /// `nil` significa "esta fonte não sabe procurar no corpo" — e não "não
+    /// achou nada". A diferença importa: com `nil`, o `MailStore` fica com a
+    /// busca do Marco 1 (remetente, assunto, prévia) em vez de esvaziar a
+    /// lista achando que a fonte respondeu.
+    public func bodyMatches(_ term: String, accountID: String?) async throws -> Set<String>? { nil }
 }
 
 public struct InMemoryMailSource: MailSource {
@@ -78,6 +154,13 @@ public final class MailStore {
     public var query: String = ""
     public private(set) var loadError: String?
 
+    /// Os ids que a fonte achou pelo **corpo**, para a busca corrente.
+    ///
+    /// Vive aqui e não em `matches` porque procurar no corpo é `async` (é
+    /// consulta ao índice do banco) e `visibleMessages` é síncrono — a lista
+    /// não pode esperar disco a cada redesenho.
+    private var bodyHits: Set<String> = []
+
     private let source: MailSource
 
     public init(source: MailSource) {
@@ -86,26 +169,60 @@ public final class MailStore {
 
     public func load() async {
         do {
-            // Buscar os três valores em variáveis locais, antes de atualizar o estado.
-            // Isto garante atomicidade: ou todos os três chegam, ou nenhuma propriedade muda.
-            let newAccounts = try await source.accounts()
-            let newMessages = try await source.messages()
-            let newAgenda = try await source.agenda().sorted { $0.startMinute < $1.startMinute }
-            let newPendingItems = try await source.pendingItems()
-            // Só agora, se todos chegaram com sucesso:
-            accounts = newAccounts
-            messages = newMessages
-            agenda = newAgenda
-            pendingItems = newPendingItems
-            loadError = nil
-            // O protótipo abre com uma mensagem já aberta no leitor
-            // (`state = { … selected: 'm1' … }`, a primeira da caixa "hoje").
-            // O estado vazio fica reservado para uma caixa de fato vazia.
-            selectDefaultMessage()
+            // O retrato é buscado inteiro antes de qualquer propriedade mudar.
+            // Isto garante atomicidade: ou as quatro listas chegam, ou nenhuma
+            // propriedade muda.
+            apply(try await source.snapshot())
         } catch {
             // Em erro, nenhuma propriedade muda; o estado anterior continua válido.
-            loadError = error.localizedDescription
+            report(error)
         }
+    }
+
+    /// Assina a fonte e aplica cada retrato que chegar.
+    ///
+    /// É o que substitui `load()` quando a fonte é o banco: uma carga inicial
+    /// que grava enquanto baixa acorda a lista sozinha, sem ninguém pedir
+    /// "recarregar". Fontes que não observam entregam um retrato e terminam,
+    /// então chamar isto nelas é exatamente `load()`.
+    public func observe() async {
+        do {
+            for try await snapshot in source.snapshots() {
+                apply(snapshot)
+            }
+        } catch {
+            // O que já foi aplicado fica: a lista não pode esvaziar porque a
+            // observação caiu. O erro aparece, com ação, na janela de Contas.
+            report(error)
+        }
+    }
+
+    /// Aplica um retrato inteiro, de uma vez.
+    ///
+    /// Atômico de propósito, como o `load()` do Marco 1 já era: ou as quatro
+    /// listas mudam, ou nenhuma muda.
+    private func apply(_ snapshot: MailSnapshot) {
+        accounts = snapshot.accounts
+        messages = snapshot.messages
+        agenda = snapshot.agenda.sorted { $0.startMinute < $1.startMinute }
+        pendingItems = snapshot.pendingItems
+        loadError = nil
+        // O protótipo abre com uma mensagem já aberta no leitor
+        // (`state = { … selected: 'm1' … }`, a primeira da caixa "hoje").
+        // O estado vazio fica reservado para uma caixa de fato vazia.
+        selectDefaultMessage()
+    }
+
+    /// Põe o erro na tela — **a não ser** que ele seja um cancelamento.
+    ///
+    /// A lição da Task 12: cancelar é o caminho normal de saída de uma
+    /// observação (a janela fechou, a conta saiu, a tecla seguinte chegou), e
+    /// escrever estado de recuperação nele deixaria a janela de Contas
+    /// anunciando "A operação foi cancelada" como se algo tivesse falhado.
+    /// Cancelamento não é falha, e quem cancelou não pediu aviso nenhum.
+    private func report(_ error: any Error) {
+        guard !(error is CancellationError), !Task.isCancelled else { return }
+        loadError = error.localizedDescription
     }
 
     /// Mensagens da caixa atual que casam com a busca, mais recentes primeiro.
@@ -199,9 +316,40 @@ public final class MailStore {
     }
 
     private func matches(_ message: Message, _ term: String) -> Bool {
+        // O acerto de corpo **soma** à busca do Marco 1, não a substitui: uma
+        // fonte que não sabe procurar no corpo devolve `nil`, `bodyHits` fica
+        // vazio, e remetente/assunto/prévia continuam sendo o que decide.
+        if bodyHits.contains(message.id) { return true }
         let needle = ContactDirectory.fold(term)
         return [message.from.name, message.from.address, message.subject, message.snippet]
             .contains { ContactDirectory.fold($0).contains(needle) }
+    }
+
+    /// Pergunta à fonte quais mensagens casam **pelo corpo** com a busca atual.
+    ///
+    /// Quem chama é a tela, quando a busca muda. Termo vazio limpa os acertos
+    /// em vez de perguntar: consultar o índice com string vazia devolveria a
+    /// caixa inteira.
+    public func refreshBodyMatches() async {
+        let termo = query.trimmingCharacters(in: .whitespaces)
+        guard !termo.isEmpty else {
+            bodyHits = []
+            return
+        }
+        do {
+            // `?? []` e não `?? algo`: `nil` ("não sei procurar no corpo") e
+            // conjunto vazio ("procurei e não achei") chegam aqui iguais só
+            // porque `matches` usa `bodyHits` como **acréscimo**. Trocar o
+            // acréscimo por substituição faria os dois divergirem — e a busca
+            // sobre as fixtures esvaziaria a lista a cada tecla.
+            bodyHits = try await source.bodyMatches(termo, accountID: selectedAccountID) ?? []
+        } catch {
+            // A busca no corpo falhar não pode apagar a lista: a busca do
+            // Marco 1 continua valendo, e o erro aparece na janela de Contas —
+            // exceto quando o que houve foi cancelamento, ver `report`.
+            bodyHits = []
+            report(error)
+        }
     }
 
     /// Aponta o leitor para a primeira mensagem da visão atual.
