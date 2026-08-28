@@ -11,7 +11,9 @@ import UNICore
 /// Escrever de volta no servidor é do Marco 3. Aqui a estrada é de mão única.
 public enum TriageProjection {
     /// O nome que a pasta/rótulo de "Depois" tem no servidor.
-    public static let laterLabelName = "OkamiUNI/Depois"
+    // A MESMA constante da pasta IMAP — uma fonte só, para o nome nunca
+    // divergir entre o rótulo do Gmail e a pasta `OkamiUNI/Depois`.
+    public static let laterLabelName = FolderRoles.laterFolderName
 
     public static func bucket(role: FolderRole) -> TriageBucket? {
         switch role {
