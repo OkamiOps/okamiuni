@@ -48,6 +48,17 @@ public struct InitialLoader: Sendable {
     /// e o cancelamento demorado.
     public static let defaultBatchSize = 50
 
+    /// Quantas mensagens do Gmail podem estar em voo ao mesmo tempo.
+    ///
+    /// Quatro, e não "o lote inteiro": a etapa que busca as mensagens era
+    /// estritamente sequencial, e a 50 mil mensagens com um ida-e-volta de
+    /// 50 ms isso é 42 minutos de latência quase toda ociosa. Mas soltar as 50
+    /// de um lote de uma vez é o caminho mais curto para o `429` que o
+    /// `GmailClient` traduz como `.quota` — a Gmail API cobra por unidade de
+    /// tempo, e quem estoura espera. Quatro reduz a latência ociosa a um quarto
+    /// e continua sendo um número que qualquer conta suporta.
+    public static let janelaDoGmail = 4
+
     private let database: SyncDatabase
     private let calendar: Calendar
     /// Configurável **para poder ser testado**: a promessa "parar no meio
@@ -150,7 +161,22 @@ public struct InitialLoader: Sendable {
             progress(LoadProgress(accountID: account.id, done: 0, total: ids.count))
 
             // 2. As mensagens, em lotes, com corpo cheio só nas primeiras.
-            var lote: [(GmailMessage, Bool)] = []
+            //
+            // **Um lote por transação, e a busca do lote em paralelo.** Era uma
+            // requisição de cada vez, estritamente em série: a 50 mil mensagens
+            // e um ida-e-volta otimista de 50 ms são 2 500 s — 42 minutos de
+            // latência de rede quase toda ociosa, e o teto de páginas planeja
+            // para 250 mil, onde seriam 3,5 h.
+            //
+            // O que a janela **não** pode mudar, e por isso ela é por lote:
+            // - a transação continua sendo por lote, que é o que faz "parar no
+            //   meio" deixar o que já entrou;
+            // - a ordem de gravação dentro do lote continua sendo a da
+            //   listagem — os resultados voltam fora de ordem e são recolocados
+            //   por índice antes de a transação abrir;
+            // - o corpo cheio continua sendo das `fullBodyCount` primeiras da
+            //   **listagem**, e não das primeiras que responderem;
+            // - o progresso continua contando o percorrido, um relato por lote.
             /// Quantas linhas de fato entraram no banco, e o primeiro erro de
             /// mensagem. O mesmo par que a carga IMAP guarda por pasta, e pela
             /// mesma razão: uma mensagem que falha não derruba as outras, mas
@@ -158,34 +184,75 @@ public struct InitialLoader: Sendable {
             /// bem-sucedida de caixa nenhuma.
             var gravadas = 0
             var primeiroErroDeMensagem: SyncError?
-            for (indice, id) in ids.enumerated() {
+            for inicioDoLote in stride(from: 0, to: ids.count, by: batchSize) {
                 try Task.checkCancellation()
-                let comCorpo = indice < Self.fullBodyCount
-                do {
-                    lote.append((try await gmail.message(id: id, format: comCorpo ? .full : .metadata), comCorpo))
-                } catch let erro as SyncError where !Self.derrubaACarga(erro) {
-                    // Uma mensagem defeituosa não pode custar as outras
-                    // oitenta e nove. Ela fica de fora, com o id no relato —
-                    // o mesmo princípio do teto da carga IMAP: o que é da
-                    // mensagem morre na mensagem, o que é da sessão morre na
-                    // sessão.
-                    log.error("A mensagem \(id, privacy: .public) ficou de fora da carga: \(erro.mensagem)")
-                    if primeiroErroDeMensagem == nil { primeiroErroDeMensagem = erro }
+                let fimDoLote = min(inicioDoLote + batchSize, ids.count)
+
+                // O resultado de cada posição do lote. `nil` é "esta ficou de
+                // fora" — a mensagem defeituosa não pode custar as outras
+                // oitenta e nove, o mesmo princípio do teto da carga IMAP: o que
+                // é da mensagem morre na mensagem, o que é da sessão morre na
+                // sessão.
+                var obtidas = [Int: (GmailMessage, Bool)]()
+                var erroDeMensagem: SyncError?
+
+                try await withThrowingTaskGroup(of: (Int, GmailMessage?, SyncError?, Bool).self) { grupo in
+                    var proximo = inicioDoLote
+                    /// Põe mais uma no ar, se ainda houver. O grupo nunca passa
+                    /// de `janelaDoGmail` em voo: sem teto, um lote de 50 viraria
+                    /// 50 requisições simultâneas, que é o caminho mais curto
+                    /// para o 429 que a etapa 9 deste mesmo arquivo trata.
+                    func agenda() -> Bool {
+                        guard proximo < fimDoLote else { return false }
+                        let indice = proximo
+                        let id = ids[indice]
+                        let comCorpo = indice < Self.fullBodyCount
+                        proximo += 1
+                        grupo.addTask {
+                            do {
+                                let mensagem = try await gmail.message(
+                                    id: id, format: comCorpo ? .full : .metadata
+                                )
+                                return (indice, mensagem, nil, comCorpo)
+                            } catch let erro as SyncError {
+                                return (indice, nil, erro, comCorpo)
+                            }
+                        }
+                        return true
+                    }
+
+                    for _ in 0..<Self.janelaDoGmail where agenda() {}
+
+                    while let (indice, mensagem, erro, comCorpo) = try await grupo.next() {
+                        if let mensagem {
+                            obtidas[indice] = (mensagem, comCorpo)
+                        } else if let erro {
+                            // Erro da sessão derruba a carga inteira, e o
+                            // `throw` daqui cancela as irmãs em voo junto.
+                            guard !Self.derrubaACarga(erro) else { throw erro }
+                            log.error(
+                                "A mensagem \(ids[indice], privacy: .public) ficou de fora da carga: \(erro.mensagem)"
+                            )
+                            if erroDeMensagem == nil { erroDeMensagem = erro }
+                        }
+                        _ = agenda()
+                    }
                 }
 
-                if lote.count >= batchSize || indice == ids.count - 1 {
-                    if !lote.isEmpty {
-                        gravadas += try await grava(
-                            lote, account: account, folderID: folderID, laterLabelID: idDoDepois
-                        )
-                        lote = []
-                    }
-                    // O progresso conta o que foi **percorrido**, não o que foi
-                    // gravado: uma mensagem pulada não pode deixar a barra
-                    // parada a 3/4 para sempre, e uma Enviada — que nunca vira
-                    // linha — muito menos.
-                    progress(LoadProgress(accountID: account.id, done: indice + 1, total: ids.count))
+                if primeiroErroDeMensagem == nil { primeiroErroDeMensagem = erroDeMensagem }
+
+                // De volta à ordem da listagem, antes de a transação abrir.
+                let lote = (inicioDoLote..<fimDoLote).compactMap { obtidas[$0] }
+                if !lote.isEmpty {
+                    gravadas += try await grava(
+                        lote, account: account, folderID: folderID, laterLabelID: idDoDepois
+                    )
                 }
+                // O progresso conta o que foi **percorrido**, não o que foi
+                // gravado: uma mensagem pulada não pode deixar a barra parada a
+                // 3/4 para sempre, e uma Enviada — que nunca vira linha — muito
+                // menos.
+                progress(LoadProgress(accountID: account.id, done: fimDoLote, total: ids.count))
             }
 
             // Nenhuma mensagem entrou e houve falhas: a carga FALHOU, e o

@@ -294,8 +294,29 @@ struct InitialLoaderGmailTests {
         // O espelho do 404. Autorização retirada não melhora na próxima
         // mensagem: insistir gastaria oitenta e nove requisições para chegar
         // ao mesmo lugar, mais tarde.
-        var roteiro = roteiroPadrao()
-        roteiro["/gmail/v1/users/me/messages/m2"] = [
+        //
+        // Quarenta ids e uma janela de quatro: a falha cai na primeira, e o que
+        // se afirma é que o laço **para** — a carga não gasta as outras trinta e
+        // nove requisições para chegar ao mesmo lugar. Afirmar "a segunda nunca
+        // foi pedida" seria afirmar que a busca é sequencial, que é justamente o
+        // que ela deixou de ser: as quatro da janela partem juntas, de propósito,
+        // e cada resposta consumida solta mais uma até o erro chegar.
+        let quantas = 40
+        var roteiro: [String: [StubURLProtocol.Reply]] = [
+            "/gmail/v1/users/me/profile": [.json(
+                "{\"emailAddress\":\"ricardo@gmail.com\",\"historyId\":\"9928471\"}"
+            )],
+            "/gmail/v1/users/me/labels": [.json("{\"labels\":[{\"id\":\"INBOX\",\"name\":\"INBOX\"}]}")],
+            "/gmail/v1/users/me/messages": [.json(
+                "{\"messages\":[" + (1...quantas).map { "{\"id\":\"m\($0)\"}" }.joined(separator: ",") + "]}"
+            )],
+        ]
+        for numero in 1...quantas {
+            roteiro["/gmail/v1/users/me/messages/m\(numero)"] = [.json(mensagemJSON(
+                id: "m\(numero)", rotulos: ["INBOX"], assunto: "Assunto \(numero)", corpo: "Corpo."
+            ))]
+        }
+        roteiro["/gmail/v1/users/me/messages/m1"] = [
             .json("{\"error\":{\"code\":403,\"message\":\"Insufficient Permission\"}}", status: 403)
         ]
 
@@ -309,9 +330,11 @@ struct InitialLoaderGmailTests {
             )
         }
         #expect(try await estado(db) == .erroDeAutenticacao)
-        // Abortou de verdade: `m3` e `m4` nunca foram pedidos.
-        let pedidos = StubURLProtocol.requests(for: session).map(\.path)
-        #expect(!pedidos.contains { $0.hasSuffix("/messages/m4") })
+        // Abortou de verdade: a carga parou logo, em vez de gastar as quarenta.
+        let deMensagem = StubURLProtocol.requests(for: session)
+            .map(\.path)
+            .filter { $0.contains("/messages/m") }
+        #expect(deMensagem.count < quantas / 2, "pediu \(deMensagem.count) de \(quantas)")
         // E nada de `historyId`: a carga não terminou, e o Marco 3 não pode
         // partir de um ponto que nunca foi alcançado.
         let sync = try await db.pool.read { conexao in
@@ -378,6 +401,115 @@ struct InitialLoaderGmailTests {
         #expect(relatos.last?.fraction == 1.0)
         // Conta vazia terminou de carregar — não ficou a 0%.
         #expect(LoadProgress(accountID: "x", done: 0, total: 0).fraction == 1)
+    }
+
+    // MARK: A janela de concorrência
+
+    @Test("A busca não é mais em série — e não passa da janela de quatro")
+    func buscaConcorrenteComTeto() async throws {
+        // Era uma requisição de cada vez: a 50 mil mensagens e um ida-e-volta
+        // otimista de 50 ms são 42 minutos de latência de rede quase toda
+        // ociosa, e o teto de páginas planeja para 250 mil, onde seriam 3,5 h.
+        //
+        // As duas metades da afirmação, e a segunda importa tanto quanto a
+        // primeira: soltar o lote inteiro de uma vez seriam 50 requisições
+        // simultâneas — o caminho mais curto para o 429 que o `GmailClient`
+        // traduz como `.quota`.
+        //
+        // O atraso no roteiro é o que torna a observação possível: com resposta
+        // instantânea, uma busca sequencial e uma concorrente registram os
+        // mesmos pedidos na mesma ordem, e nada distingue as duas.
+        //
+        // MUTAÇÃO QUE ISTO PEGA: `janelaDoGmail = 1` derruba o piso (pico == 1,
+        // que é a definição de sequencial); `janelaDoGmail = 50` derruba o teto.
+        let quantas = 12
+        var roteiro: [String: [StubURLProtocol.Reply]] = [
+            "/gmail/v1/users/me/profile": [.json(
+                "{\"emailAddress\":\"ricardo@gmail.com\",\"historyId\":\"9928471\"}"
+            )],
+            "/gmail/v1/users/me/labels": [.json("{\"labels\":[{\"id\":\"INBOX\",\"name\":\"INBOX\"}]}")],
+            "/gmail/v1/users/me/messages": [.json(
+                "{\"messages\":[" + (1...quantas).map { "{\"id\":\"m\($0)\"}" }.joined(separator: ",") + "]}"
+            )],
+        ]
+        for numero in 1...quantas {
+            roteiro["/gmail/v1/users/me/messages/m\(numero)"] = [.json(
+                mensagemJSON(
+                    id: "m\(numero)", rotulos: ["INBOX"],
+                    assunto: "Assunto \(numero)", corpo: "Corpo de m\(numero)."
+                ),
+                delay: 0.05
+            )]
+        }
+
+        let db = try SyncDatabase.temporary()
+        try await contaNoBanco(db)
+        let session = StubURLProtocol.session(routes: roteiro)
+        try await InitialLoader(database: db).loadGmail(
+            account: conta, client: cliente(session), now: agora, progress: { _ in }
+        )
+
+        let pico = StubURLProtocol.maxConcurrent(for: session)
+        #expect(pico > 1, "pico de \(pico): a busca continua sequencial")
+        // O teto é afirmado contra o número **literal**, e não contra
+        // `InitialLoader.janelaDoGmail`: comparar a constante com ela mesma
+        // moveria o alvo junto com a mutação, e a metade do teto passaria a
+        // ser verdadeira por construção — que é a definição do teste inútil
+        // que a auditoria deste marco encontrou três vezes.
+        #expect(pico <= 4, "pico de \(pico)")
+        #expect(InitialLoader.janelaDoGmail == 4)
+        // E as doze entraram: concorrência que perde mensagem não é ganho.
+        #expect(try await servidorIDs(db).count == quantas)
+    }
+
+    @Test("A ordem de gravação do lote é a da listagem, mesmo com as respostas fora de ordem")
+    func ordemDeGravacaoPreservada() async throws {
+        // As tarefas voltam na ordem em que **respondem**, e não na ordem em que
+        // partiram. Gravar nessa ordem faria a ordem das linhas no banco depender
+        // da latência de cada requisição — e o `rowid` é o que a busca FTS
+        // percorre. Os resultados são recolocados por índice antes de a
+        // transação abrir.
+        //
+        // O roteiro inverte a latência: a primeira da listagem é a que demora
+        // mais. Em série isso não muda nada; em paralelo, a última a responder é
+        // a que tem de ser gravada primeiro.
+        //
+        // MUTAÇÃO QUE ISTO PEGA: gravar na ordem de chegada (usar o array
+        // acumulado pelo `grupo.next()` em vez do `compactMap` por índice)
+        // inverte as linhas.
+        let quantas = 8
+        var roteiro: [String: [StubURLProtocol.Reply]] = [
+            "/gmail/v1/users/me/profile": [.json(
+                "{\"emailAddress\":\"ricardo@gmail.com\",\"historyId\":\"9928471\"}"
+            )],
+            "/gmail/v1/users/me/labels": [.json("{\"labels\":[{\"id\":\"INBOX\",\"name\":\"INBOX\"}]}")],
+            "/gmail/v1/users/me/messages": [.json(
+                "{\"messages\":[" + (1...quantas).map { "{\"id\":\"m\($0)\"}" }.joined(separator: ",") + "]}"
+            )],
+        ]
+        for numero in 1...quantas {
+            roteiro["/gmail/v1/users/me/messages/m\(numero)"] = [.json(
+                mensagemJSON(
+                    id: "m\(numero)", rotulos: ["INBOX"],
+                    assunto: "Assunto \(numero)", corpo: "Corpo de m\(numero)."
+                ),
+                delay: 0.02 * Double(quantas - numero + 1)
+            )]
+        }
+
+        let db = try SyncDatabase.temporary()
+        try await contaNoBanco(db)
+        let session = StubURLProtocol.session(routes: roteiro)
+        try await InitialLoader(database: db, batchSize: 4).loadGmail(
+            account: conta, client: cliente(session), now: agora, progress: { _ in }
+        )
+
+        // `rowid` é a ordem física de inserção — a mesma que o índice FTS
+        // percorre quando ninguém manda ordenar.
+        let naOrdemGravada = try await db.pool.read { conexao in
+            try String.fetchAll(conexao, sql: "SELECT serverID FROM message ORDER BY rowid")
+        }
+        #expect(naOrdemGravada == (1...quantas).map { "m\($0)" })
     }
 
     // MARK: A carga que não carregou nada

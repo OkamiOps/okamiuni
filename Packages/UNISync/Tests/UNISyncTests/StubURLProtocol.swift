@@ -9,15 +9,31 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         var status: Int
         var body: Data
         var headers: [String: String]
+        /// Quanto tempo o "servidor" segura a resposta antes de a entregar.
+        ///
+        /// Zero — o padrão — responde **de forma síncrona**, dentro do próprio
+        /// `startLoading`, que é como este stub sempre se comportou: nenhum
+        /// teste antigo muda de caminho por causa deste campo.
+        ///
+        /// Existe para o único tipo de afirmação que precisa de tempo passando:
+        /// a de que duas requisições estão em voo **ao mesmo tempo**. Com
+        /// resposta instantânea, uma busca sequencial e uma concorrente são
+        /// indistinguíveis — as duas registram os mesmos pedidos na mesma ordem.
+        var delay: TimeInterval
 
-        init(status: Int = 200, body: Data = Data(), headers: [String: String] = ["Content-Type": "application/json"]) {
+        init(
+            status: Int = 200, body: Data = Data(),
+            headers: [String: String] = ["Content-Type": "application/json"],
+            delay: TimeInterval = 0
+        ) {
             self.status = status
             self.body = body
             self.headers = headers
+            self.delay = delay
         }
 
-        static func json(_ text: String, status: Int = 200) -> Reply {
-            Reply(status: status, body: Data(text.utf8))
+        static func json(_ text: String, status: Int = 200, delay: TimeInterval = 0) -> Reply {
+            Reply(status: status, body: Data(text.utf8), delay: delay)
         }
     }
 
@@ -44,6 +60,11 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     private static let lock = NSLock()
     nonisolated(unsafe) private static var routesByID: [UUID: [String: [Reply]]] = [:]
     nonisolated(unsafe) private static var recordedByID: [UUID: [Recorded]] = [:]
+    /// Quantas requisições desta sessão estão em voo agora, e quantas já
+    /// estiveram ao mesmo tempo. É a observação determinística de
+    /// concorrência: uma busca sequencial nunca passa de 1.
+    nonisolated(unsafe) private static var emVooByID: [UUID: Int] = [:]
+    nonisolated(unsafe) private static var picoByID: [UUID: Int] = [:]
 
     /// Uma requisição como ela chegou.
     ///
@@ -69,6 +90,8 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         lock.lock()
         routesByID[id] = routes
         recordedByID[id] = []
+        emVooByID[id] = 0
+        picoByID[id] = 0
         lock.unlock()
 
         let config = URLSessionConfiguration.ephemeral
@@ -90,6 +113,15 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return recordedByID[id] ?? []
+    }
+
+    /// O maior número de requisições que esta sessão teve em voo ao mesmo
+    /// tempo. Um significa "estritamente sequencial".
+    static func maxConcurrent(for session: URLSession) -> Int {
+        guard let id = sessionID(of: session) else { return 0 }
+        lock.lock()
+        defer { lock.unlock() }
+        return picoByID[id] ?? 0
     }
 
     private static func sessionID(of session: URLSession) -> UUID? {
@@ -149,9 +181,15 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         } else {
             resposta = nil
         }
+        if let sessaoID {
+            let agora = (Self.emVooByID[sessaoID] ?? 0) + 1
+            Self.emVooByID[sessaoID] = agora
+            Self.picoByID[sessaoID] = max(Self.picoByID[sessaoID] ?? 0, agora)
+        }
         Self.lock.unlock()
 
         guard let resposta, let url = request.url else {
+            Self.saiDeVoo(sessaoID)
             client?.urlProtocol(self, didFailWithError: URLError(
                 .unsupportedURL,
                 userInfo: [NSLocalizedDescriptionKey: "Nenhuma resposta no roteiro para \(caminho)"]
@@ -159,6 +197,20 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
 
+        // Sem atraso, a entrega é síncrona — o comportamento de sempre.
+        guard resposta.delay > 0 else {
+            Self.saiDeVoo(sessaoID)
+            entrega(resposta, url: url)
+            return
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + resposta.delay) { [weak self] in
+            Self.saiDeVoo(sessaoID)
+            guard let self, !self.parado else { return }
+            self.entrega(resposta, url: url)
+        }
+    }
+
+    private func entrega(_ resposta: Reply, url: URL) {
         let http = HTTPURLResponse(
             url: url, statusCode: resposta.status,
             httpVersion: "HTTP/1.1", headerFields: resposta.headers
@@ -168,5 +220,24 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         client?.urlProtocolDidFinishLoading(self)
     }
 
-    override func stopLoading() {}
+    private static func saiDeVoo(_ sessaoID: UUID?) {
+        guard let sessaoID else { return }
+        lock.lock()
+        emVooByID[sessaoID] = max(0, (emVooByID[sessaoID] ?? 1) - 1)
+        lock.unlock()
+    }
+
+    private let parouLock = NSLock()
+    private var parouMesmo = false
+    private var parado: Bool {
+        parouLock.lock()
+        defer { parouLock.unlock() }
+        return parouMesmo
+    }
+
+    override func stopLoading() {
+        parouLock.lock()
+        parouMesmo = true
+        parouLock.unlock()
+    }
 }
