@@ -81,6 +81,31 @@ public enum TriageProjection {
         gmailLabelIDs.contains("STARRED")
     }
 
+    /// As mesmas duas bandeiras, pelas flags do IMAP.
+    ///
+    /// **Mesmo tipo, e não uma segunda regra.** O IMAP diz o contrário do
+    /// Gmail — ele tem `\Seen` para lida, onde o Gmail tem `UNREAD` para não
+    /// lida — e é exatamente por isso que as duas traduções moram lado a lado:
+    /// escritas em arquivos diferentes, uma seria invertida em relação à outra
+    /// sem que ninguém percebesse, e a caixa IMAP abriria toda lida enquanto a
+    /// do Gmail abria toda não lida.
+    ///
+    /// A comparação é em caixa baixa porque `\SEEN`, `\Seen` e `\seen` são a
+    /// mesma flag no RFC 3501, e servidor que manda em maiúsculas existe.
+    public static func isRead(imapFlags: [String]) -> Bool {
+        dobra(imapFlags).contains("\\seen")
+    }
+
+    /// `\Flagged` é a bandeira do IMAP — a mesma coisa que a estrela do Gmail
+    /// e que a bandeira desta ferramenta.
+    public static func isFlagged(imapFlags: [String]) -> Bool {
+        dobra(imapFlags).contains("\\flagged")
+    }
+
+    private static func dobra(_ flags: [String]) -> Set<String> {
+        Set(flags.map { $0.lowercased() })
+    }
+
     /// O id do rótulo "Depois", se ele já existir na conta.
     ///
     /// Ausente é o normal numa instalação nova, e não é erro: neste marco a

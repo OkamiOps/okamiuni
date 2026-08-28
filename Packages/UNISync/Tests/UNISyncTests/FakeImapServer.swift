@@ -22,21 +22,44 @@ final class FakeImapServer: @unchecked Sendable {
         /// `TAG ` tem a tag substituída pela do comando recebido. Lista vazia =
         /// o servidor recebe o comando e não responde nada.
         var replies: [String: [String]]
+        /// Respostas que **mudam a cada chamada** do mesmo verbo, na ordem: a
+        /// n-ésima chamada usa a n-ésima entrada, e a última se repete daí em
+        /// diante. É o que deixa um teste encenar "o primeiro corpo estoura o
+        /// teto do literal, o segundo desce inteiro" — sem isso o roteiro é
+        /// estático e a mesma falha se repetiria para sempre.
+        ///
+        /// A contagem é do **servidor**, não da conexão: reconectar depois de
+        /// uma falha não pode rebobinar o roteiro, senão o teste que prova a
+        /// reconexão gira em círculos.
+        var rounds: [String: [[String]]]
 
         init(
             greeting: String = "* OK [CAPABILITY IMAP4rev1 STARTTLS] OkamiUNI falso pronto",
-            replies: [String: [String]]
+            replies: [String: [String]],
+            rounds: [String: [[String]]] = [:]
         ) {
             self.greeting = greeting
             self.replies = replies
+            self.rounds = rounds
         }
     }
+
+    /// A chave que separa o `FETCH` de corpo do `FETCH` de envelope.
+    ///
+    /// Os dois usam o mesmo verbo (`UID FETCH`), e um roteiro com uma chave só
+    /// não consegue dar respostas diferentes a eles. Quando esta chave existe
+    /// no roteiro, ela vale para os comandos que pedem `BODY.PEEK`; quando não
+    /// existe, tudo continua caindo em `UID FETCH`, como nos testes da Task 10.
+    static let chaveDeCorpo = "UID FETCH BODY"
 
     private let group: MultiThreadedEventLoopGroup
     private var channel: (any Channel)?
     private let script: Script
     private let lock = NSLock()
     private var received: [String] = []
+    /// Quantas vezes cada chave de roteiro já foi servida. Vive no servidor, e
+    /// não no handler, para sobreviver a uma reconexão.
+    private var rodadas: [String: Int] = [:]
 
     init(script: Script) {
         self.script = script
@@ -52,6 +75,14 @@ final class FakeImapServer: @unchecked Sendable {
             self.received.append(linha)
             self.lock.unlock()
         }
+        let proximaRodada: @Sendable (String) -> Int = { [weak self] chave in
+            guard let self else { return 0 }
+            self.lock.lock()
+            defer { self.lock.unlock() }
+            let atual = self.rodadas[chave] ?? 0
+            self.rodadas[chave] = atual + 1
+            return atual
+        }
         let bootstrap = ServerBootstrap(group: group)
             .serverChannelOption(.backlog, value: 8)
             .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
@@ -61,7 +92,9 @@ final class FakeImapServer: @unchecked Sendable {
                 canal.eventLoop.makeCompletedFuture {
                     try canal.pipeline.syncOperations.addHandlers([
                         ByteToMessageHandler(CRLFLineDecoder()),
-                        ScriptedHandler(script: script, registrar: registrar),
+                        ScriptedHandler(
+                            script: script, registrar: registrar, proximaRodada: proximaRodada
+                        ),
                     ])
                 }
             }
@@ -100,10 +133,16 @@ final class FakeImapServer: @unchecked Sendable {
 
         private let script: Script
         private let registrar: @Sendable (String) -> Void
+        private let proximaRodada: @Sendable (String) -> Int
 
-        init(script: Script, registrar: @escaping @Sendable (String) -> Void) {
+        init(
+            script: Script,
+            registrar: @escaping @Sendable (String) -> Void,
+            proximaRodada: @escaping @Sendable (String) -> Int
+        ) {
             self.script = script
             self.registrar = registrar
+            self.proximaRodada = proximaRodada
         }
 
         func channelActive(context: ChannelHandlerContext) {
@@ -129,7 +168,23 @@ final class FakeImapServer: @unchecked Sendable {
                 return palavras.first ?? ""
             }()
 
-            guard let linhas = script.replies[verbo] else {
+            // A chave mais específica primeiro: o `FETCH` de corpo pede
+            // `BODY.PEEK`, e o roteiro pode querer respondê-lo de outro jeito.
+            let chave: String = {
+                let corpo = FakeImapServer.chaveDeCorpo
+                guard verbo == "UID FETCH", resto.uppercased().contains("BODY.PEEK"),
+                      script.replies[corpo] != nil || script.rounds[corpo] != nil
+                else { return verbo }
+                return corpo
+            }()
+
+            let linhasDoRoteiro: [String]? = {
+                if let rodadas = script.rounds[chave], !rodadas.isEmpty {
+                    return rodadas[min(proximaRodada(chave), rodadas.count - 1)]
+                }
+                return script.replies[chave]
+            }()
+            guard let linhas = linhasDoRoteiro else {
                 escreve(context, "\(tag) BAD comando fora do roteiro: \(verbo)")
                 return
             }

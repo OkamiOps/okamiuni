@@ -202,7 +202,6 @@ public enum ImapWire {
             // Sem data não entra: datar com `agora` jogaria toda mensagem
             // quebrada para o topo da lista, acima do que chegou hoje.
             guard let data = linha.internalDate else { return nil }
-            let flags = linha.flags.map { $0.lowercased() }
             return ImapEnvelope(
                 uid: linha.uid,
                 from: MailAddress.parse(linha.from ?? "")
@@ -211,8 +210,12 @@ public enum ImapWire {
                 cc: MailAddress.parseList(linha.cc ?? ""),
                 subject: MailAddress.decodeRFC2047(linha.subject ?? ""),
                 date: data,
-                isRead: flags.contains("\\seen"),
-                isFlagged: flags.contains("\\flagged")
+                // As bandeiras são projeção, e a regra mora em
+                // `TriageProjection` junto da variante do Gmail — não escrita
+                // à mão aqui, onde ela viraria a segunda resposta para a
+                // mesma pergunta e divergiria da primeira.
+                isRead: TriageProjection.isRead(imapFlags: linha.flags),
+                isFlagged: TriageProjection.isFlagged(imapFlags: linha.flags)
             )
         }
     }

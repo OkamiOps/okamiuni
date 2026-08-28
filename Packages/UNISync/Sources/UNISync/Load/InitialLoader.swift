@@ -259,21 +259,278 @@ public struct InitialLoader: Sendable {
                 // idempotente, que é o que faz "parar no meio" ser seguro.
                 try MessageRecord(nossa, folderID: folderID).save(db)
                 if temCorpo, !mensagem.body.isEmpty {
-                    // O corpo tem chave própria (`messageID` é UNIQUE, não a
-                    // chave física): recarregar tem de **atualizar** a linha
-                    // que já existe, senão a segunda carga esbarra no índice
-                    // único e derruba a transação inteira do lote.
-                    if var existente = try MessageBodyRecord.filter(Column("messageID") == id).fetchOne(db) {
-                        let novo = MessageBodyRecord(messageID: id, paragraphs: mensagem.body)
-                        existente.paragraphs = novo.paragraphs
-                        existente.plain = novo.plain
-                        try existente.update(db)
-                    } else {
-                        var corpo = MessageBodyRecord(messageID: id, paragraphs: mensagem.body)
-                        try corpo.insert(db)
-                    }
+                    try Self.gravaCorpo(db, id: id, paragrafos: mensagem.body)
                 }
             }
+        }
+    }
+
+    /// O corpo, gravado de forma idempotente.
+    ///
+    /// O corpo tem chave própria (`messageID` é UNIQUE, não a chave física):
+    /// recarregar tem de **atualizar** a linha que já existe, senão a segunda
+    /// carga esbarra no índice único e derruba a transação inteira do lote.
+    ///
+    /// Uma função só para os dois provedores: `save` num `MutablePersistableRecord`
+    /// com o `rowid` nulo é sempre um `insert`, e a armadilha é a mesma no
+    /// Gmail e no IMAP — escrita duas vezes, seria consertada uma vez.
+    static func gravaCorpo(_ db: Database, id: String, paragrafos: [String]) throws {
+        if var existente = try MessageBodyRecord.filter(Column("messageID") == id).fetchOne(db) {
+            let novo = MessageBodyRecord(messageID: id, paragraphs: paragrafos)
+            existente.paragraphs = novo.paragraphs
+            existente.plain = novo.plain
+            try existente.update(db)
+        } else {
+            var corpo = MessageBodyRecord(messageID: id, paragraphs: paragrafos)
+            try corpo.insert(db)
+        }
+    }
+
+    // MARK: IMAP
+
+    /// A carga inicial de uma conta IMAP: as pastas com papel de triagem, os
+    /// envelopes dos últimos 90 dias em lote, e o corpo das mais recentes de
+    /// cada pasta.
+    ///
+    /// - Parameter reconnect: como abrir **outra** sessão, já autenticada,
+    ///   contra o mesmo servidor. É o que permite sobreviver a um corpo que
+    ///   derruba a conexão — ver `corposDe(_:)`. Nulo é aceito e degrada com
+    ///   honestidade: o corpo continua sendo pulado, e se a conexão de fato
+    ///   tiver morrido o comando seguinte diz isso em voz alta, em vez de a
+    ///   carga fingir que terminou.
+    public func loadImap(
+        account: Account,
+        session: ImapSession,
+        now: Date,
+        reconnect: (@Sendable () async throws -> ImapSession)? = nil,
+        progress: @Sendable (LoadProgress) -> Void
+    ) async throws {
+        // `var` porque a sessão é substituível: um corpo acima do teto do
+        // literal mata a conexão, e a carga continua na próxima.
+        var sessao = session
+        do {
+            try await marca(account.id, estado: .carregando)
+
+            // Só as pastas com papel de triagem. Enviados fica de fora (a
+            // caixa não existe neste marco) e `other` também: carregar toda
+            // pasta que a pessoa criou baixaria a caixa inteira sob o nome de
+            // "90 dias".
+            let comPapel = try await sessao.folders().filter { pasta in
+                TriageProjection.bucket(role: pasta.role) != nil && pasta.role != .other
+            }
+
+            let desde = since(now: now)
+            var totalEstimado = 0
+            var feitas = 0
+            var porPasta: [(ImapFolder, ImapMailboxStatus, [Int64])] = []
+            /// O primeiro erro de pasta. Guardado porque uma pasta que falha
+            /// não derruba as outras — mas **todas** falharem não é uma carga
+            /// bem-sucedida de caixa nenhuma, e terminar `ativa` ali diria à
+            /// pessoa que está tudo certo com a caixa vazia na tela.
+            var primeiroErroDePasta: SyncError?
+            var pastasQueFalharam = 0
+
+            // 1. Selecionar cada pasta e descobrir o que existe na janela.
+            //    Duas passadas — descobrir tudo, depois baixar — para o
+            //    progresso ter denominador de verdade desde o primeiro relato,
+            //    em vez de uma barra que anda para trás quando a pasta seguinte
+            //    aparece.
+            for pasta in comPapel {
+                try Task.checkCancellation()
+                do {
+                    let status = try await sessao.select(pasta)
+                    let uids = try await sessao.uids(since: desde, calendar: calendar)
+                    totalEstimado += uids.count
+                    porPasta.append((pasta, status, uids))
+                } catch let erro as SyncError where !Self.derrubaAConta(erro) {
+                    // Uma pasta que sumiu entre o `LIST` e o `SELECT`, ou que
+                    // o servidor recusa por qualquer motivo local, não pode
+                    // custar a caixa de entrada.
+                    anota(erro, pasta: pasta.name, em: &primeiroErroDePasta, contando: &pastasQueFalharam)
+                }
+            }
+            progress(LoadProgress(accountID: account.id, done: 0, total: totalEstimado))
+
+            // 2. Baixar, pasta a pasta.
+            for (pasta, status, uids) in porPasta {
+                try Task.checkCancellation()
+                let folderID = FolderRecord.id(accountID: account.id, serverName: pasta.name)
+                let bucket = TriageProjection.bucket(role: pasta.role) ?? .archived
+
+                do {
+                    let anterior = try await database.pool.read { db in
+                        try SyncStateRecord.fetchOne(
+                            db, key: ["accountID": account.id, "folderID": folderID]
+                        )
+                    }
+                    let trocou = ImapUidValidity.changed(
+                        previous: anterior?.uidValidity, current: status.uidValidity
+                    )
+
+                    try await database.pool.write { db in
+                        try FolderRecord(
+                            id: folderID, accountID: account.id, serverName: pasta.name,
+                            role: pasta.role, displayName: pasta.name
+                        ).save(db)
+                        if trocou {
+                            // Os UIDs foram reciclados: a geração velha não
+                            // casa com nada. Deixá-la ali faria a lista mostrar
+                            // cada mensagem duas vezes, com assuntos diferentes
+                            // sob o mesmo UID.
+                            try db.execute(
+                                sql: "DELETE FROM message WHERE folderID = ? AND uidValidity IS NOT ?",
+                                arguments: [folderID, status.uidValidity]
+                            )
+                        }
+                    }
+
+                    // Reselecionar: a primeira passada deixou outra pasta
+                    // selecionada, e `UID FETCH` age sobre a pasta corrente.
+                    _ = try await sessao.select(pasta)
+                    let envelopes = try await sessao.envelopes(uids: uids)
+
+                    // Os corpos das mais recentes desta pasta.
+                    let corpos = try await corposDe(
+                        envelopes, pasta: pasta, sessao: &sessao, reconnect: reconnect
+                    )
+
+                    for lote in stride(from: 0, to: envelopes.count, by: batchSize) {
+                        try Task.checkCancellation()
+                        let fatia = Array(envelopes[lote..<min(lote + batchSize, envelopes.count)])
+                        try await gravaImap(
+                            fatia, account: account, folderID: folderID,
+                            uidValidity: status.uidValidity, bucket: bucket, corpos: corpos
+                        )
+                        feitas += fatia.count
+                        progress(LoadProgress(accountID: account.id, done: feitas, total: totalEstimado))
+                    }
+
+                    // O ponto de partida do Marco 3 para esta pasta.
+                    try await database.pool.write { db in
+                        try SyncStateRecord(
+                            accountID: account.id, folderID: folderID,
+                            uidValidity: status.uidValidity,
+                            highestUID: uids.max(), syncedAt: now
+                        ).save(db)
+                    }
+                } catch let erro as SyncError where !Self.derrubaAConta(erro) {
+                    anota(erro, pasta: pasta.name, em: &primeiroErroDePasta, contando: &pastasQueFalharam)
+                }
+            }
+
+            // Todas as pastas falharam: não há carga nenhuma para chamar de
+            // concluída.
+            if let primeiroErroDePasta, pastasQueFalharam == comPapel.count, !comPapel.isEmpty {
+                throw primeiroErroDePasta
+            }
+
+            try await conclui(account.id, em: now)
+            log.info("Carga IMAP de \(account.address, privacy: .private) terminou: \(feitas) mensagens.")
+        } catch is CancellationError {
+            await recupera(account.id, estado: .ativa)
+            throw CancellationError()
+        } catch let erro as SyncError {
+            await recupera(account.id, estado: Self.estadoPara(erro))
+            log.error("Carga IMAP de \(account.address, privacy: .private) falhou: \(erro.mensagem)")
+            throw erro
+        } catch {
+            await recupera(account.id, estado: .ativa)
+            log.error("Carga IMAP de \(account.address, privacy: .private) falhou: \(error)")
+            throw error
+        }
+    }
+
+    private func anota(
+        _ erro: SyncError, pasta: String,
+        em primeiro: inout SyncError?, contando quantas: inout Int
+    ) {
+        if primeiro == nil { primeiro = erro }
+        quantas += 1
+        log.error("A pasta \(pasta, privacy: .public) ficou de fora da carga: \(erro.mensagem)")
+    }
+
+    /// Os corpos das `fullBodyCount` mensagens mais recentes da pasta.
+    ///
+    /// **Um corpo que falha custa aquele corpo, e nada mais.** O caso que dá
+    /// nome a este método é o teto de 8 MiB do literal (`CRLFLineDecoder`):
+    /// ele estoura dentro do decodificador, e por construção é fatal para a
+    /// **sessão** — depois de recusar o literal ninguém sabe mais onde a
+    /// resposta acaba e o protocolo começa, então a conexão cai em vez de
+    /// seguir dessincronizada. Fatal para a sessão não é fatal para a carga: o
+    /// envelope daquela mensagem já está gravado, o corpo dela fica para o
+    /// acesso por demanda, o tamanho e o UID vão para o log (é para isso que o
+    /// decodificador os escreve na mensagem de erro), e a sessão é **refeita**
+    /// para as mensagens seguintes.
+    ///
+    /// A pasta é reselecionada logo depois de reconectar: `UID FETCH` age
+    /// sobre a pasta corrente, e a conexão nova nasce sem nenhuma selecionada
+    /// — sem isto o resto dos corpos viria da caixa errada, calado.
+    private func corposDe(
+        _ envelopes: [ImapEnvelope],
+        pasta: ImapFolder,
+        sessao: inout ImapSession,
+        reconnect: (@Sendable () async throws -> ImapSession)?
+    ) async throws -> [Int64: [String]] {
+        let maisRecentes = envelopes.sorted { $0.date > $1.date }.prefix(Self.fullBodyCount)
+        var corpos: [Int64: [String]] = [:]
+        for envelope in maisRecentes {
+            try Task.checkCancellation()
+            do {
+                corpos[envelope.uid] = try await sessao.bodyText(uid: envelope.uid)
+            } catch let erro as SyncError where !Self.derrubaACarga(erro) {
+                log.error(
+                    "O corpo do UID \(envelope.uid, privacy: .public) ficou de fora da carga: \(erro.mensagem)"
+                )
+                guard let reconnect else { continue }
+                sessao = try await reconnect()
+                _ = try await sessao.select(pasta)
+            }
+        }
+        return corpos
+    }
+
+    private func gravaImap(
+        _ envelopes: [ImapEnvelope], account: Account, folderID: String,
+        uidValidity: Int64, bucket: TriageBucket, corpos: [Int64: [String]]
+    ) async throws {
+        try await database.pool.write { db in
+            for envelope in envelopes {
+                let id = MessageIdentity.imap(
+                    accountID: account.id, folderID: folderID,
+                    uidValidity: uidValidity, uid: envelope.uid
+                )
+                let corpo = corpos[envelope.uid] ?? []
+                let nossa = Message(
+                    id: id, accountID: account.id, from: envelope.from,
+                    receivedAt: envelope.date,
+                    subject: envelope.subject,
+                    // Sem corpo baixado, a prévia é o assunto: melhor do que
+                    // uma linha vazia onde o design desenha o trecho.
+                    snippet: corpo.first ?? envelope.subject,
+                    body: corpo, tags: [], bucket: bucket,
+                    isRead: envelope.isRead, summary: nil, detectedEvent: nil,
+                    to: envelope.to, cc: envelope.cc, isFlagged: envelope.isFlagged,
+                    serverID: String(envelope.uid), uidValidity: uidValidity
+                )
+                try MessageRecord(nossa, folderID: folderID).save(db)
+                if !corpo.isEmpty {
+                    try Self.gravaCorpo(db, id: id, paragrafos: corpo)
+                }
+            }
+        }
+    }
+
+    /// O erro de **uma pasta** derruba a conta inteira?
+    ///
+    /// Credencial recusada e TLS quebrado valem para todas as pastas: insistir
+    /// nas outras gasta viagens para chegar ao mesmo lugar. O resto — pasta que
+    /// sumiu, `NO` de uma caixa só — é daquela pasta, e derrubar a carga por
+    /// causa dela entregaria uma caixa de entrada vazia por causa de uma pasta
+    /// de arquivo.
+    static func derrubaAConta(_ erro: SyncError) -> Bool {
+        switch erro {
+        case .autenticacao, .autorizacaoRevogada, .semClientID, .tls: true
+        default: false
         }
     }
 

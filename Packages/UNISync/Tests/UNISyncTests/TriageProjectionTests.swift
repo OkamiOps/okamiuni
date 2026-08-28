@@ -67,6 +67,23 @@ struct TriageProjectionTests {
         #expect(TriageProjection.isFlagged(gmailLabelIDs: ["UNREAD", "STARRED"]))
     }
 
+    @Test("No IMAP a regra é a inversa — e é a mesma função que responde")
+    func bandeirasDoImap() {
+        // O IMAP diz o contrário do Gmail: `\Seen` marca lida, onde o Gmail
+        // marca `UNREAD` para não lida. Escritas em arquivos diferentes, as
+        // duas traduções acabariam invertidas uma em relação à outra sem
+        // ninguém perceber.
+        #expect(TriageProjection.isRead(imapFlags: ["\\Seen"]))
+        #expect(!TriageProjection.isRead(imapFlags: []))
+        #expect(!TriageProjection.isRead(imapFlags: ["\\Flagged"]))
+        #expect(TriageProjection.isFlagged(imapFlags: ["\\Seen", "\\Flagged"]))
+        #expect(!TriageProjection.isFlagged(imapFlags: ["\\Seen"]))
+        // `\SEEN`, `\Seen` e `\seen` são a mesma flag no RFC 3501, e servidor
+        // que manda em maiúsculas existe.
+        #expect(TriageProjection.isRead(imapFlags: ["\\SEEN"]))
+        #expect(TriageProjection.isFlagged(imapFlags: ["\\flagged"]))
+    }
+
     @Test("O id do rótulo `Depois` sai da lista de rótulos, quando existir")
     func acharORotuloDepois() {
         let rotulos = [
