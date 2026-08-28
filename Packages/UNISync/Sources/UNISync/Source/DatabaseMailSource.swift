@@ -72,21 +72,41 @@ public struct DatabaseMailSource: MailSource, Sendable {
     }
 
     /// A observação: um retrato agora, e outro a cada escrita que mexa no que
-    /// a UI mostra.
+    /// a UI mostra — mas **coalescida**.
     ///
     /// `ValueObservation` observa as tabelas que a consulta toca, então uma
     /// escrita em `sync_state` não acorda a lista à toa, e um lote da carga
     /// inicial acorda.
+    ///
+    /// **Por que a observação é partida em duas.** O retrato inteiro custa caro
+    /// — 0,585 s medidos sobre 50 mil mensagens, quase tudo em decodificar cinco
+    /// JSONs por linha. Enquanto o retrato caro era o *corpo* da
+    /// `ValueObservation`, o GRDB o refazia uma vez por transação, e a carga
+    /// inicial fecha uma transação por lote: 20 lotes davam 21 retratos, cada um
+    /// sobre uma tabela maior que a do anterior. Extrapolando para a carga real
+    /// de 50 mil com lotes de 50 — mil lotes —, a soma das linhas materializadas
+    /// passa de 25 milhões, uns 290 s de CPU só reconstruindo retratos.
+    ///
+    /// Agora quem observa é um gatilho **barato** (`marcaDeMudanca`), e o
+    /// retrato caro é feito por quem consome. Com `bufferingNewest(1)`, os
+    /// gatilhos que chegam enquanto um retrato está sendo montado colapsam num
+    /// só: os lotes do meio da carga deixam de virar retratos. A leitura sai
+    /// numa transação sua, depois do gatilho — então ela é sempre **igual ou
+    /// mais nova** que a mudança que a acordou, e o último gatilho sempre tem um
+    /// retrato depois dele. Nada se perde, só a repetição.
     public func snapshots() -> AsyncThrowingStream<MailSnapshot, any Error> {
         let pool = database.pool
         return AsyncThrowingStream { continuation in
             let tarefa = Task {
                 do {
-                    let observacao = ValueObservation.tracking { db in
-                        try Self.snapshot(in: db)
+                    let gatilho = ValueObservation.tracking { db in
+                        try Self.marcaDeMudanca(in: db)
                     }
-                    for try await snapshot in observacao.values(in: pool) {
-                        continuation.yield(try await resolvido(snapshot))
+                    for try await _ in gatilho.values(
+                        in: pool, bufferingPolicy: .bufferingNewest(1)
+                    ) {
+                        let retrato = try await pool.read { db in try Self.snapshot(in: db) }
+                        continuation.yield(try await resolvido(retrato))
                     }
                     continuation.finish()
                 } catch {
@@ -113,6 +133,25 @@ public struct DatabaseMailSource: MailSource, Sendable {
     }
 
     // MARK: A leitura, num lugar só
+
+    /// O gatilho barato: só `count(*)` das quatro tabelas que o retrato lê.
+    ///
+    /// O **valor** não interessa e nunca é olhado — uma mensagem marcada como
+    /// lida não muda contagem nenhuma. O que interessa é a *região* observada:
+    /// ler estas quatro tabelas faz a `ValueObservation` acordar exatamente nas
+    /// escritas em que o retrato mudaria, e em nenhuma outra. É a mesma região
+    /// de antes, pelo preço de quatro contagens em vez de cinquenta mil
+    /// decodificações de JSON.
+    ///
+    /// Sem `removeDuplicates()`, de propósito: o `ValueObservation.tracking`
+    /// avisa a cada mudança da região, e é disso que precisamos — filtrar por
+    /// igualdade de contagem perderia a mensagem que virou lida.
+    private static func marcaDeMudanca(in db: Database) throws -> Int {
+        try AccountRecord.fetchCount(db)
+            &+ MessageRecord.fetchCount(db)
+            &+ MessageBodyRecord.fetchCount(db)
+            &+ AgendaItemRecord.fetchCount(db)
+    }
 
     private static func snapshot(in db: Database) throws -> MailSnapshot {
         MailSnapshot(

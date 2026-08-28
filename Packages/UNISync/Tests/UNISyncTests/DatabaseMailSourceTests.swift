@@ -94,6 +94,63 @@ struct DatabaseMailSourceTests {
         #expect(vistos == [1, 2])
     }
 
+    @Test("Vinte lotes não viram vinte e um retratos: a observação coalesce")
+    func observacaoCoalesce() async throws {
+        // Medido antes do conserto: 20 lotes de 50 davam **21 disparos**, com
+        // contagens 0, 50, 100 … 1000 — um retrato por lote, cada um refazendo
+        // a tabela inteira, que estava crescendo. A 50 mil mensagens e lotes de
+        // 50 isso é mil retratos e mais de 25 milhões de linhas materializadas,
+        // uns 290 s de CPU só reconstruindo retratos durante a carga.
+        //
+        // MUTAÇÃO QUE ISTO PEGA: voltar o retrato caro para dentro da
+        // `ValueObservation` (ou trocar `bufferingNewest(1)` por `.unbounded`)
+        // faz os disparos voltarem a acompanhar os lotes um a um.
+        let db = try SyncDatabase.temporary()
+        try await db.pool.write { conexao in
+            try AccountRecord(self.conta, createdAt: Date(timeIntervalSince1970: 1)).insert(conexao)
+            try FolderRecord(
+                id: "conta-a/INBOX", accountID: "conta-a",
+                serverName: "INBOX", role: .inbox, displayName: "INBOX"
+            ).insert(conexao)
+        }
+        let fonte = DatabaseMailSource(database: db)
+        let lotes = 20
+        let porLote = 50
+
+        let vistos = Contagens()
+        let consumo = Task {
+            for try await snapshot in fonte.snapshots() {
+                vistos.registra(snapshot.messages.count)
+                if snapshot.messages.count >= lotes * porLote { break }
+            }
+        }
+
+        for lote in 0..<lotes {
+            try await db.pool.write { conexao in
+                for indice in 0..<porLote {
+                    let numero = lote * porLote + indice
+                    let mensagem = Message(
+                        id: "m\(numero)", accountID: "conta-a",
+                        from: Contact(name: "Marina", address: "marina@x.com"),
+                        receivedAt: Date(timeIntervalSince1970: 1_800_000_000 + Double(numero)),
+                        subject: "Assunto", snippet: "Trecho", body: [],
+                        tags: [], bucket: .today, isRead: false,
+                        summary: nil, detectedEvent: nil
+                    )
+                    try MessageRecord(mensagem, folderID: "conta-a/INBOX").insert(conexao)
+                }
+            }
+        }
+        try await consumo.value
+
+        // A metade que importa tanto quanto a economia: **nada se perde**. O
+        // último gatilho sempre tem um retrato depois dele, e a leitura sai numa
+        // transação sua — então o retrato final é o estado final.
+        #expect(vistos.todas.last == lotes * porLote)
+        // E a economia: bem menos que um retrato por lote.
+        #expect(vistos.todas.count <= 17, "retratos: \(vistos.todas)")
+    }
+
     @Test("Banco vazio devolve snapshot vazio, e não erro")
     func bancoVazio() async throws {
         // É o estado do app antes da primeira conta: sem conta, a composição
@@ -124,5 +181,25 @@ struct DatabaseMailSourceTests {
         }
         let snapshot = try await DatabaseMailSource(database: db).snapshot()
         #expect(snapshot.messages.map(\.id) == ["m1", "m0"])
+    }
+}
+
+/// As contagens dos retratos que chegaram, guardadas de fora da tarefa que os
+/// consome. Caixa com cadeado, e não `actor`: quem lê é o corpo do teste,
+/// síncrono, depois de a tarefa terminar.
+private final class Contagens: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lista: [Int] = []
+
+    func registra(_ quantas: Int) {
+        lock.lock()
+        lista.append(quantas)
+        lock.unlock()
+    }
+
+    var todas: [Int] {
+        lock.lock()
+        defer { lock.unlock() }
+        return lista
     }
 }
