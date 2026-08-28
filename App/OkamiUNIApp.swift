@@ -72,6 +72,11 @@ struct OkamiUNIApp: App {
             // ⌘N abre a 06. O botão "Escrever" da barra do topo chama o mesmo
             // caminho — ele mora no `WindowChrome`, que é de outra tarefa.
             CommandGroup(replacing: .newItem) { NewMessageCommand() }
+            // O menu Mensagem, e a casa dos atalhos que agem sobre a mensagem
+            // selecionada. Eles precisam estar **no menu principal**: é ele que
+            // `NSApplication.sendEvent` consulta antes da janela, e ⌘E já é
+            // "Use Selection for Find" lá. Ver `MessageCommands`.
+            MessageCommands(store: mailStore)
         }
 
         // As quatro janelas da Task U. Cenas de verdade, não folhas: o protótipo

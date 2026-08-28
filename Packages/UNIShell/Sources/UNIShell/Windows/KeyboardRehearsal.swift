@@ -88,18 +88,36 @@ private final class KeyboardDriver {
         await settle()
         RehearsalStage.log("partida — \(RehearsalWindows.census())")
         RehearsalStage.log(
+            "menu principal: "
+            + (NSApp.mainMenu?.items.map { menu -> String in
+                let filhos = menu.submenu?.items
+                    .filter { !$0.keyEquivalent.isEmpty }
+                    .map { "\($0.title)[\($0.keyEquivalentModifierMask.rawValue):\($0.keyEquivalent)]\($0.isEnabled ? "" : "×")" }
+                    ?? []
+                return "\(menu.title)(\(filhos.joined(separator: ",")))"
+            }.joined(separator: " | ") ?? "nenhum")
+        )
+        RehearsalStage.log(
             "seleção natural: \(store.selectedMessageID ?? "nenhuma") · "
             + "respondedor: \(responder())"
         )
 
         await cmdR(rótulo: "⌘R no estado natural")
         await cmdN()
+        await shiftCmdF()
         await cmdReturnNaFaixa()
         await cmdReturnNoComposer()
         await cmdK()
         await teclaEmCampoDeTexto()
         await cmdR(rótulo: "⌘R com o foco na busca")
         await menuDeContexto()
+        // As duas destrutivas vêm por último, e a ordem não é arbitrária:
+        // arquivar e apagar **tiram a mensagem da lista**, e a seleção anda.
+        // Medidas no meio do ensaio, elas deixavam a faixa de resposta semeada
+        // noutra mensagem e o ⏎ do menu medindo a caixa errada — os dois
+        // passaram a acusar "MORTO" por causa do vizinho, não de si.
+        await cmdE()
+        await apagar()
     }
 
     // MARK: - ⌘R
@@ -134,6 +152,125 @@ private final class KeyboardDriver {
             + "\(nova ? "ABRIU" : "MORTO")"
         )
         await closeExtras(keeping: antes)
+    }
+
+    // MARK: - ⇧⌘F
+
+    /// Encaminhar. O efeito aferível é a janela 03 abrir **com a intenção de
+    /// encaminhar** — a cena carrega `enc:` no valor, e é isso que distingue
+    /// esta janela da que o ⌘R abre. Sem olhar o valor, o ensaio não saberia
+    /// dizer se ⇧⌘F caiu no ⌘R.
+    private func shiftCmdF() async {
+        await focar()
+        let antes = RehearsalWindows.visible().count
+        driver.send(key: RehearsalKey.f, characters: "f", modifiers: [.command, .shift])
+        await settle(0.9)
+        let abertas = RehearsalWindows.visible()
+        let composer = abertas.first {
+            $0.identifier?.rawValue.hasPrefix(UNIWindow.composer) == true
+        }
+        // O título da janela é o que separa "Enc:" de "Re:" sem ler estado
+        // interno nenhum — é o mesmo texto que a pessoa lê na barra.
+        let titulo = composer.map { RehearsalWindows.title(of: $0) } ?? ""
+        RehearsalStage.log(
+            "⇧⌘F [\(estado)]: janelas \(antes) → \(abertas.count), título=\"\(titulo)\" — "
+            + "\(titulo.hasPrefix("Enc:") ? "ENCAMINHOU" : "MORTO")"
+        )
+        await closeExtras(keeping: antes)
+    }
+
+    // MARK: - ⌘E
+
+    /// Arquivar. O efeito aferível é a caixa da mensagem selecionada.
+    ///
+    /// **Duas medidas**, e a segunda é a que separa ⌘E do ⌫: um atalho **com
+    /// ⌘** vale também enquanto se digita — é assim que ⌘W fecha a janela e ⌘Q
+    /// encerra o app no meio de um campo de texto. Quem tem de ceder ao campo é
+    /// a tecla **sem** modificador, e essa é o ⌫.
+    ///
+    /// A segunda medida existe porque o caminho é outro: no campo de texto o
+    /// evento passa por um primeiro respondedor que tem opinião sobre teclas, e
+    /// só a medida diz se o atalho sobreviveu a ele.
+    private func cmdE() async {
+        await focar()
+        window.makeFirstResponder(nil)
+        await settle(0.3)
+        guard let id = store.selectedMessageID else {
+            RehearsalStage.log("⌘E: sem mensagem selecionada, não pôde ser ensaiado")
+            return
+        }
+        let antes = store.messages.first { $0.id == id }?.bucket
+        driver.send(key: RehearsalKey.e, characters: "e", modifiers: .command)
+        await settle(0.8)
+        let depois = store.messages.first { $0.id == id }?.bucket
+        RehearsalStage.log(
+            "⌘E [\(estado)]: \(id) \(antes.map(String.init(describing:)) ?? "—") → "
+            + "\(depois.map(String.init(describing:)) ?? "—") — "
+            + "\(depois == .archived ? "ARQUIVOU" : "MORTO")"
+        )
+
+        // A segunda metade: com o cursor na busca, a tecla é do sistema.
+        driver.click(at: driver.point(x: 480, fromTop: 22))
+        await settle(0.5)
+        guard let outro = store.selectedMessageID else { return }
+        let antesNaBusca = store.messages.first { $0.id == outro }?.bucket
+        driver.send(key: RehearsalKey.e, characters: "e", modifiers: .command)
+        await settle(0.7)
+        let depoisNaBusca = store.messages.first { $0.id == outro }?.bucket
+        RehearsalStage.log(
+            "⌘E na busca: respondedor=\(responder()) \(outro) "
+            + "\(antesNaBusca.map(String.init(describing:)) ?? "—") → "
+            + "\(depoisNaBusca.map(String.init(describing:)) ?? "—") — "
+            + "\(depoisNaBusca == .archived ? "ARQUIVOU também com o cursor na busca" : "MORTO")"
+        )
+    }
+
+    // MARK: - ⌫
+
+    /// Apagar, e a metade que importa: **a tecla não pode ser roubada do campo
+    /// de texto**.
+    ///
+    /// Duas medidas na mesma passagem. Primeiro com o foco na lista: a mensagem
+    /// tem de ir para a Lixeira. Depois com o foco na busca: a mesma tecla tem
+    /// de apagar uma letra do campo e **não** mexer em mensagem nenhuma.
+    private func apagar() async {
+        await focar()
+        window.makeFirstResponder(nil)
+        // Os passos anteriores podem ter esvaziado a caixa aberta — arquivar
+        // tira a mensagem dela. "Tudo" sempre tem alguém, e é de lá que sai a
+        // seleção para esta medida.
+        if store.selectedMessageID == nil { store.select(bucket: .all) }
+        await settle(0.3)
+        guard let id = store.selectedMessageID else {
+            RehearsalStage.log("⌫: sem mensagem selecionada, não pôde ser ensaiado")
+            return
+        }
+        let antes = store.messages.first { $0.id == id }?.bucket
+        driver.send(key: RehearsalKey.delete, characters: "\u{8}")
+        await settle(0.8)
+        let depois = store.messages.first { $0.id == id }?.bucket
+        RehearsalStage.log(
+            "⌫ [\(estado)]: \(id) \(antes.map(String.init(describing:)) ?? "—") → "
+            + "\(depois.map(String.init(describing:)) ?? "—") — "
+            + "\(depois == .trash ? "APAGOU para a Lixeira" : "MORTO")"
+        )
+
+        // A segunda metade: com o foco num campo de texto, o ⌫ é do campo.
+        driver.click(at: driver.point(x: 480, fromTop: 22))
+        await settle(0.5)
+        store.query = "arq"
+        await settle(0.4)
+        let caixasAntes = store.messages.map(\.bucket)
+        driver.send(key: RehearsalKey.delete, characters: "\u{8}")
+        await settle(0.7)
+        let intacto = store.messages.map(\.bucket) == caixasAntes
+        RehearsalStage.log(
+            "⌫ na busca: respondedor=\(responder()) query=\"\(store.query)\" "
+            + "caixas intactas=\(intacto) — "
+            + "\(intacto ? "NÃO roubou a tecla do campo" : "DEFEITO (apagou uma mensagem)")"
+        )
+        store.query = ""
+        driver.shoot("teclado-apagar")
     }
 
     // MARK: - ⌘⏎ na faixa de resposta

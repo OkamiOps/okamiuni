@@ -272,6 +272,11 @@ public struct ComposerWindow: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(theme.surface.color)
+        // O título vai também para a `NSWindow`, embora a barra escondida não o
+        // desenhe: é o que o menu Janela ▸ e o Mission Control mostram, e sem
+        // ele três janelas 03 abertas aparecem lá como três "OkamiUNI" iguais.
+        // A barra que a gente desenha continua sendo a que se lê na tela.
+        .navigationTitle(title)
         // A janela pode nascer antes da principal (o macOS restaura as janelas
         // da sessão anterior), e aí o `MailStore` ainda está vazio. Carregar
         // primeiro não basta: a tarefa pode ser cancelada no meio da

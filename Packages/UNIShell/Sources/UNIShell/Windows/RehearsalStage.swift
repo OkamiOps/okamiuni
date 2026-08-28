@@ -39,7 +39,12 @@ enum RehearsalKey {
     static let n: UInt16 = 45
     static let k: UInt16 = 40
     static let ret: UInt16 = 36
+    static let e: UInt16 = 14
+    static let f: UInt16 = 3
     static let escape: UInt16 = 53
+    /// A tecla de apagar, sem modificador. É a única do ensaio que **não** vai
+    /// por `performKeyEquivalent` — ver `UNIShell.BareKeyMonitor`.
+    static let delete: UInt16 = 51
     static let left: UInt16 = 123
     static let right: UInt16 = 124
     static let down: UInt16 = 125
@@ -184,6 +189,11 @@ enum RehearsalWindows {
     static func visible() -> [NSWindow] {
         NSApp.windows.filter { $0.isVisible && !($0 is MenuPanelWindow) }
     }
+
+    /// O título que a janela declara ao sistema. É o que o menu Janela ▸ mostra
+    /// — e, no ensaio, o que separa uma janela de resposta de uma de
+    /// encaminhamento sem ler estado interno nenhum.
+    static func title(of window: NSWindow) -> String { window.title }
 
     static func census() -> String {
         let titles = visible().map { window in

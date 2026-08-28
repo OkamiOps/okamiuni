@@ -58,9 +58,6 @@ public struct InboxScreen: View {
                 calendarContent
             }
         }
-        // Os atalhos que agem sobre a mensagem selecionada. Por `background`
-        // para não ocuparem lugar nenhum no layout — ver `MessageShortcuts`.
-        .background(MessageShortcuts(store: store))
         .environment(receipts)
         .task {
             await store.load()
