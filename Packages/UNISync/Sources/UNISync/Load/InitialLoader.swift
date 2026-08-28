@@ -356,6 +356,9 @@ public struct InitialLoader: Sendable {
                 try Task.checkCancellation()
                 let folderID = FolderRecord.id(accountID: account.id, serverName: pasta.name)
                 let bucket = TriageProjection.bucket(role: pasta.role) ?? .archived
+                /// Quantas desta pasta já foram percorridas. Vive fora do `do`
+                /// porque o `catch` precisa saber quantas **faltavam**.
+                var percorridasAqui = 0
 
                 do {
                     let anterior = try await database.pool.read { db in
@@ -402,6 +405,7 @@ public struct InitialLoader: Sendable {
                             uidValidity: status.uidValidity, bucket: bucket, corpos: corpos
                         )
                         feitas += fatia.count
+                        percorridasAqui += fatia.count
                         progress(LoadProgress(accountID: account.id, done: feitas, total: totalEstimado))
                     }
 
@@ -415,6 +419,19 @@ public struct InitialLoader: Sendable {
                     }
                 } catch let erro as SyncError where !Self.derrubaAConta(erro) {
                     anota(erro, pasta: pasta.name, em: &primeiroErroDePasta, contando: &pastasQueFalharam)
+                    // O denominador foi fechado na primeira passada, com os
+                    // UIDs desta pasta dentro dele. Uma pasta que morre agora
+                    // levaria esses UIDs para o buraco: a barra pararia em 0,5
+                    // com a conta dizendo "pronto" — o pior dos dois mundos,
+                    // porque nada mais vai chegar para movê-la.
+                    //
+                    // Elas contam como **percorridas**, e não como gravadas: é
+                    // a mesma regra do Gmail, onde uma mensagem pulada não pode
+                    // deixar a barra parada a 3/4 para sempre. O que a pessoa
+                    // saberá da pasta que falhou está no log e no fato de a
+                    // caixa dela estar vazia, não numa barra emperrada.
+                    feitas += max(0, uids.count - percorridasAqui)
+                    progress(LoadProgress(accountID: account.id, done: feitas, total: totalEstimado))
                 }
             }
 
@@ -449,7 +466,12 @@ public struct InitialLoader: Sendable {
         log.error("A pasta \(pasta, privacy: .public) ficou de fora da carga: \(erro.mensagem)")
     }
 
-    /// Os corpos das `fullBodyCount` mensagens mais recentes da pasta.
+    /// Os corpos das `fullBodyCount` mensagens mais recentes **desta pasta**.
+    ///
+    /// Por pasta, e não por conta: as caixas são contextos independentes, e um
+    /// teto por conta gasto na primeira pasta deixaria Arquivado sem corpo
+    /// nenhum só porque a Entrada veio antes na listagem — a ordem do `LIST`
+    /// decidindo o que fica legível offline.
     ///
     /// **Um corpo que falha custa aquele corpo, e nada mais.** O caso que dá
     /// nome a este método é o teto de 8 MiB do literal (`CRLFLineDecoder`):

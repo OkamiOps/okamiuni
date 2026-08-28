@@ -65,14 +65,24 @@ struct InitialLoaderImapTests {
         ])
     }
 
+    /// Os comandos que o servidor recebeu, sem a tag na frente.
+    private func semTag(_ comandos: [String]) -> [String] {
+        comandos.map { linha in
+            linha.split(separator: " ", maxSplits: 1).last.map(String.init) ?? ""
+        }
+    }
+
     /// Uma carga completa contra um roteiro, do começo ao fim.
     ///
-    /// Devolve os relatos de progresso e quantas vezes a sessão precisou ser
-    /// refeita — é por este contador que o teto do literal se prova.
+    /// Devolve os relatos de progresso, quantas vezes a sessão precisou ser
+    /// refeita — é por este contador que o teto do literal se prova — e o log
+    /// de comandos do servidor, que é onde a **ordem** se prova: o servidor
+    /// falso responde `UID FETCH` igual em qualquer pasta, então buscar na
+    /// pasta errada não aparece em nenhuma asserção sobre o banco.
     @discardableResult
     private func carrega(
         _ db: SyncDatabase, script: FakeImapServer.Script, reconectando: Bool = true
-    ) async throws -> (relatos: [LoadProgress], reconexoes: Int) {
+    ) async throws -> (relatos: [LoadProgress], reconexoes: Int, comandos: [String]) {
         let servidor = FakeImapServer(script: script)
         let porta = try servidor.start()
         defer { servidor.stop() }
@@ -109,7 +119,7 @@ struct InitialLoaderImapTests {
             progress: { p in recebidos.registra(p) }
         )
         await sessao.logout()
-        return (recebidos.todos, contador.total)
+        return (recebidos.todos, contador.total, semTag(servidor.commands))
     }
 
     // MARK: As pastas
@@ -180,6 +190,25 @@ struct InitialLoaderImapTests {
         }
         #expect(naoLida?.isRead == false)
         #expect(naoLida?.isFlagged == false)
+    }
+
+    @Test("A segunda passada reseleciona a pasta antes de buscar nela")
+    func segundaPassadaReseleciona() async throws {
+        // `UID FETCH` age sobre a pasta corrente, e a primeira passada termina
+        // com a **última** pasta selecionada. Sem reselecionar, os envelopes da
+        // Entrada viriam do Arquivo — e o servidor não avisaria: as mensagens
+        // entrariam no banco, com a pasta errada gravada ao lado. É um defeito
+        // que nenhuma asserção sobre o banco enxerga, só a ordem do fio.
+        let db = try SyncDatabase.temporary()
+        let (_, _, comandos) = try await carrega(db, script: roteiro())
+
+        let primeiroEnvelope = try #require(comandos.firstIndex {
+            $0.hasPrefix("UID FETCH") && !$0.contains("BODY.PEEK")
+        })
+        let selectAnterior = try #require(comandos[..<primeiroEnvelope].lastIndex {
+            $0.hasPrefix("SELECT ")
+        })
+        #expect(comandos[selectAnterior] == "SELECT \"INBOX\"")
     }
 
     @Test("A caixa de arquivo cai em `arquivar`, e não em `hoje`")
@@ -275,12 +304,25 @@ struct InitialLoaderImapTests {
         ]
 
         let db = try SyncDatabase.temporary()
-        let (relatos, reconexoes) = try await carrega(db, script: script)
+        let (relatos, reconexoes, comandos) = try await carrega(db, script: script)
 
         // A sessão morreu uma vez, e foi refeita uma vez. Sem a reconexão, o
         // comando seguinte cairia em `.rede` e derrubaria a conta inteira.
         #expect(reconexoes == 1)
         #expect(relatos.last?.fraction == 1.0)
+
+        // A conexão nova nasce sem pasta selecionada: entre o segundo LOGIN e
+        // o primeiro corpo pedido depois dele tem de haver um SELECT da pasta.
+        // Sem ele o resto dos corpos viria da caixa errada, calado — e o banco
+        // ficaria idêntico, porque o servidor falso responde igual em qualquer
+        // pasta. É por isso que a prova mora na ordem dos comandos.
+        let logins = comandos.indices.filter { comandos[$0].hasPrefix("LOGIN ") }
+        #expect(logins.count == 2)
+        let segundoLogin = try #require(logins.last)
+        let corpoDepois = try #require(comandos.indices.first {
+            $0 > segundoLogin && comandos[$0].contains("BODY.PEEK")
+        })
+        #expect(comandos[segundoLogin..<corpoDepois].contains("SELECT \"INBOX\""))
 
         let devolvida = try await db.pool.read { try AccountRecord.fetchOne($0, key: "conta-i")?.account }
         #expect(devolvida?.state == .ativa)
@@ -324,6 +366,64 @@ struct InitialLoaderImapTests {
         #expect(devolvida?.state == .ativa)
     }
 
+    @Test("Pasta que morre na segunda passada não deixa a barra parada no meio")
+    func pastaQueFalhaDepoisDoDenominadorFechado() async throws {
+        // O denominador é fechado na primeira passada, com os UIDs de todas as
+        // pastas dentro. Uma pasta que morre **depois** disso levaria os UIDs
+        // dela para o buraco: a barra pararia em 0,5 com a conta dizendo
+        // "pronto", e nada mais chegaria para movê-la.
+        var script = roteiro()
+        // Passada 1: INBOX e Arquivo passam. Passada 2: INBOX morre.
+        script.rounds["SELECT"] = [
+            selectOK(), selectOK(),
+            ["TAG NO [NONEXISTENT] Mailbox doesn't exist"],
+            selectOK(),
+        ]
+
+        let db = try SyncDatabase.temporary()
+        let (relatos, _, _) = try await carrega(db, script: script)
+
+        #expect(relatos.last?.fraction == 1.0)
+        let devolvida = try await db.pool.read { try AccountRecord.fetchOne($0, key: "conta-i")?.account }
+        #expect(devolvida?.state == .ativa)
+        // A pasta que morreu não gravou mensagem nenhuma — é isso, e não a
+        // barra, que conta a história dela.
+        let buckets = try await db.pool.read { try String.fetchSet($0, sql: "SELECT DISTINCT bucket FROM message") }
+        #expect(buckets == ["arquivar"])
+    }
+
+    // MARK: Sem reconexão
+
+    @Test("Sem fecho de reconexão, o corpo é pulado e ninguém tenta entrar de novo")
+    func semReconexaoOCorpoEhPuladoEmSilencio() async throws {
+        // `reconnect` é opcional, e o que ele faz quando é nulo tem de ser
+        // dito: o corpo continua sendo pulado, e a carga **não** abre conexão
+        // nenhuma pelas costas de quem não pediu.
+        var script = roteiro()
+        script.rounds[FakeImapServer.chaveDeCorpo] = [
+            ["* 1 FETCH (UID 9002 BODY[TEXT] {9000000}"],
+            [
+                "* 1 FETCH (UID 9001 BODY[TEXT] {36}\r\nA revisão do contrato ficou pronta.)",
+                "TAG OK UID FETCH completed",
+            ],
+        ]
+
+        let db = try SyncDatabase.temporary()
+        let (relatos, reconexoes, comandos) = try await carrega(db, script: script, reconectando: false)
+
+        #expect(reconexoes == 0)
+        #expect(comandos.filter { $0.hasPrefix("LOGIN ") }.count == 1)
+
+        // A Entrada gravou os envelopes que já tinha em mãos; o Arquivo veio
+        // depois da conexão morta e ficou de fora — e a barra ainda assim
+        // fecha, pelo desconto do erro por pasta.
+        #expect(relatos.last?.fraction == 1.0)
+        let devolvida = try await db.pool.read { try AccountRecord.fetchOne($0, key: "conta-i")?.account }
+        #expect(devolvida?.state == .ativa)
+        #expect(try await db.pool.read { try MessageRecord.fetchCount($0) } == 2)
+        #expect(try await db.pool.read { try MessageBodyRecord.fetchCount($0) } == 0)
+    }
+
     @Test("Todas as pastas recusadas é carga falhada — não uma conta ativa com a caixa vazia")
     func todasAsPastasFalhando() async throws {
         var script = roteiro()
@@ -343,7 +443,7 @@ struct InitialLoaderImapTests {
     @Test("A conta termina `ativa`, com carimbo, e o progresso chega ao fim")
     func terminaAtiva() async throws {
         let db = try SyncDatabase.temporary()
-        let (relatos, _) = try await carrega(db, script: roteiro())
+        let (relatos, _, _) = try await carrega(db, script: roteiro())
 
         let devolvida = try await db.pool.read { try AccountRecord.fetchOne($0, key: "conta-i")?.account }
         #expect(devolvida?.state == .ativa)
