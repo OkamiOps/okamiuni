@@ -583,6 +583,10 @@ extension ContextMenuTests {
             "Nova mensagem desta conta",
             "Filtrar só esta conta",
             "Marcar tudo como lido",
+            // "Contas…" entrou na Task 16 do Marco 2, entre o que se faz com a
+            // lista e o que se copia: é daqui que se chega à janela que explica
+            // uma conta parada.
+            "Contas…",
             "Copiar endereço",
         ])
     }

@@ -184,6 +184,11 @@ struct MenuCommandRunner {
         case .openEvent(let itemID):
             openWindow(id: UNIWindow.event, value: itemID)
 
+        case .openAccounts:
+            // Cena sem valor: a janela de Contas é uma só, e abri-la de novo
+            // traz a que já está aberta.
+            openWindow(id: UNIWindow.accounts)
+
         case .revealMessage(let messageID):
             onReveal(messageID)
 

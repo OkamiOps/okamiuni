@@ -179,6 +179,19 @@ public struct FolderSidebar: View {
                     .truncationMode(.tail)
                     .help(account.address)
 
+                // O estado da conta na lateral, sem tirar espaço do endereço:
+                // um ponto, com o `help` dizendo o que ele significa. Conta
+                // parada sem sinal nenhum foi o defeito que a janela de Contas
+                // existe para não repetir.
+                if account.state != .ativa {
+                    Circle()
+                        .fill(account.state == .carregando ? theme.ink4.color : theme.accent.color)
+                        .frame(width: 6, height: 6)
+                        .help(account.state == .carregando
+                            ? "Carregando as mensagens desta conta…"
+                            : "Esta conta precisa ser reconectada. Abra Contas…")
+                }
+
                 // Sem isto a linha mede o conteúdo, e como cada endereço tem um
                 // comprimento diferente **cada seleção pintava uma largura
                 // diferente** — e o contador ficava colado no endereço em vez de

@@ -21,6 +21,8 @@ public enum UNIWindow {
     public static let message = "uni.message"
     /// 04 Detalhe do compromisso — 560 de largura. Valor: id do compromisso.
     public static let event = "uni.event"
+    /// A janela de Contas do Marco 2. Sem valor: ela é uma só.
+    public static let accounts = "uni.accounts"
 
     /// Tamanhos do protótipo, na linha citada no brief.
     public enum Size {
@@ -32,6 +34,11 @@ public enum UNIWindow {
         /// A largura é literal; a altura vira o padrão de abertura e o usuário
         /// redimensiona. 86% de 916 (a altura padrão da principal) = 788.
         public static let event = CGSize(width: 560, height: 788)
+
+        /// A lista mede pelo endereço mais largo que cabe sem truncar
+        /// (`contato@meusite.com.br` a 12,5pt) mais o chip, o estado e o botão
+        /// remover: 720. A altura mostra seis contas sem rolar.
+        public static let accounts = CGSize(width: 720, height: 560)
     }
 
     /// Marco 1 não tem rede. Enviar fecha a janela e registra no console —
