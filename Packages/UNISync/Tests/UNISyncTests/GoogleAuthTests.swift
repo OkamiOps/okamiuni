@@ -73,7 +73,13 @@ struct GoogleAuthTests {
         func valor(_ nome: String) -> String? { itens.first { $0.name == nome }?.value }
 
         #expect(valor("client_id") == config.clientID)
-        #expect(valor("redirect_uri") == "com.okamiops.okamiuni:/oauth")
+        // O redirect é DERIVADO do client ID — a forma que o client Desktop do
+        // Google aceita (o esquema custom fixo era recusado com
+        // redirect_uri_mismatch na tela de consentimento, no mundo real).
+        #expect(valor("redirect_uri") == "com.googleusercontent.apps.cliente-de-teste:/oauth")
+        #expect(GoogleAuthConfig.reversedScheme(
+            forClientID: "297014925436-abc.apps.googleusercontent.com"
+        ) == "com.googleusercontent.apps.297014925436-abc")
         #expect(valor("response_type") == "code")
         #expect(valor("code_challenge_method") == "S256")
         #expect(valor("code_challenge") == par.challenge)

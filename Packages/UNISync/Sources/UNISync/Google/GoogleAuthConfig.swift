@@ -23,18 +23,35 @@ public struct GoogleAuthConfig: Sendable, Hashable {
         "https://www.googleapis.com/auth/userinfo.email",
     ]
 
+    /// O esquema que o Google de fato aceita para client de app desktop.
+    ///
+    /// O `redirect_uri_mismatch` do mundo real ensinou: um client *Desktop* do
+    /// Google **não** aceita esquema custom arbitrário (o nosso
+    /// `com.okamiops.okamiuni:/oauth` era recusado na tela de consentimento).
+    /// O que ele aceita é o esquema derivado do próprio client ID — o
+    /// "reverso": `com.googleusercontent.apps.<id-sem-sufixo>`. Derivar aqui
+    /// significa que funciona para o client de QUALQUER pessoa, sem registrar
+    /// nada além do próprio client: o esquema nasce do ID.
+    public static func reversedScheme(forClientID clientID: String) -> String {
+        let semSufixo = clientID.hasSuffix(".apps.googleusercontent.com")
+            ? String(clientID.dropLast(".apps.googleusercontent.com".count))
+            : clientID
+        return "com.googleusercontent.apps.\(semSufixo)"
+    }
+
     public init(
         clientID: String,
-        redirectURI: String = "com.okamiops.okamiuni:/oauth",
-        callbackScheme: String = "com.okamiops.okamiuni",
+        redirectURI: String? = nil,
+        callbackScheme: String? = nil,
         scopes: [String] = GoogleAuthConfig.defaultScopes,
         authorizationEndpoint: URL = URL(string: "https://accounts.google.com/o/oauth2/v2/auth")!,
         tokenEndpoint: URL = URL(string: "https://oauth2.googleapis.com/token")!,
         revocationEndpoint: URL = URL(string: "https://oauth2.googleapis.com/revoke")!
     ) {
         self.clientID = clientID
-        self.redirectURI = redirectURI
-        self.callbackScheme = callbackScheme
+        let esquema = callbackScheme ?? Self.reversedScheme(forClientID: clientID)
+        self.redirectURI = redirectURI ?? "\(esquema):/oauth"
+        self.callbackScheme = esquema
         self.scopes = scopes
         self.authorizationEndpoint = authorizationEndpoint
         self.tokenEndpoint = tokenEndpoint
