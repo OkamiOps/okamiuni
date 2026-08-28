@@ -372,15 +372,44 @@ struct ImapSessionTests {
         await sessao.logout()
     }
 
-    @Test("Dois comandos concorrentes: um espera o outro, nada vaza, nada trava")
+    @Test("Dois comandos concorrentes: o segundo ESPERA a vez, e os dois dão certo")
     func comandosConcorrentes() async throws {
         // Um ator não é fila: `await` solta a isolação, e o segundo comando
         // sobrescrevia a continuation do primeiro — que vazava
         // (`SWIFT TASK CONTINUATION MISUSE`) e travava a sessão para sempre.
-        let servidor = FakeImapServer(script: .init(replies: [
-            "LOGIN": [], // recebe e não responde
-            "LOGOUT": ["TAG OK LOGOUT completed"],
-        ]))
+        //
+        // A VERSÃO ANTERIOR DESTE TESTE ERA INÚTIL, e a auditoria por mutação
+        // deste marco provou: ela mandava um `login` que o roteiro nunca
+        // respondia e só afirmava que **os dois terminavam** — o `logout` sem
+        // lançar e o `login` lançando qualquer `SyncError`. Removida a fila
+        // inteira (`adquire`/`libera`), os 206 testes passavam: sem fila o
+        // segundo comando não espera, ele é **recusado** pelo cinto-e-suspensório
+        // do handler com `.rede("Já havia um comando IMAP em voo nesta
+        // conexão.")` — que é um `SyncError`, exatamente o que o teste aceitava.
+        // Nada nele distinguia "esperou a vez" de "tomou erro na cara".
+        //
+        // Esta versão afirma as três coisas que faltavam: o primeiro comando
+        // ainda está em voo quando o segundo é pedido (o atraso do roteiro
+        // garante), o segundo **dá certo** em vez de ser recusado, e a ordem no
+        // fio é a de chegada.
+        //
+        // MUTAÇÃO QUE ISTO PEGA: remover `await adquire()` / `defer { libera() }`
+        // de `ImapSession.send` faz o segundo comando voltar com "Já havia um
+        // comando IMAP em voo nesta conexão."
+        let servidor = FakeImapServer(script: .init(
+            replies: [
+                "LOGIN": ["TAG OK LOGIN completed"],
+                "LIST": [
+                    "* LIST (\\HasNoChildren) \"/\" \"INBOX\"",
+                    "TAG OK LIST completed",
+                ],
+                "LOGOUT": ["TAG OK LOGOUT completed"],
+            ],
+            // O LOGIN fica em voo tempo suficiente para o LIST ser pedido
+            // enquanto ele ainda não voltou. Sem isto os dois nunca se
+            // sobrepõem, e o teste voltaria a não medir nada.
+            atrasos: ["LOGIN": 0.2]
+        ))
         let porta = try servidor.start()
         defer { servidor.stop() }
 
@@ -389,18 +418,27 @@ struct ImapSessionTests {
 
         let sessao = try await ImapSession.connect(
             endpoint: endpoint(porta: porta), group: grupo,
-            allowInsecure: true, teto: .milliseconds(200)
+            allowInsecure: true, teto: .seconds(5)
         )
 
         let entrada = Task { try await sessao.login(user: "eu@x.com", password: "senha") }
-        let saida = Task { await sessao.logout() }
+        // Uma folga curta para o `login` chegar ao fio primeiro. Ela decide só
+        // a ORDEM dos dois; a sobreposição quem garante é o atraso de 0,2 s do
+        // roteiro, que é uma ordem de grandeza maior.
+        try await Task.sleep(nanoseconds: 20_000_000)
+        let pastas = Task { try await sessao.folders() }
 
-        // O `logout` termina (não lança) e o `login` termina com erro. O que
-        // não pode acontecer é nenhum dos dois terminar — que é o que
-        // acontecia quando o segundo comando atropelava a continuation do
-        // primeiro.
-        await saida.value
-        await #expect(throws: SyncError.self) { try await entrada.value }
+        // Os dois dão certo. O segundo não foi recusado: ele esperou.
+        try await entrada.value
+        #expect(try await pastas.value.map(\.name) == ["INBOX"])
+
+        // E a ordem no fio é a de chegada — o LIST só foi escrito depois de o
+        // LOGIN ter sido respondido.
+        let verbos = servidor.commands.compactMap {
+            $0.split(separator: " ").dropFirst().first.map(String.init)
+        }
+        #expect(verbos == ["LOGIN", "LIST"], "ordem no fio: \(verbos)")
+        await sessao.logout()
     }
 
     @Test("Cancelar a tarefa acorda a espera em vez de deixá-la pendurada")

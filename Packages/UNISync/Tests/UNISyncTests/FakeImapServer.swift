@@ -32,15 +32,25 @@ final class FakeImapServer: @unchecked Sendable {
         /// uma falha não pode rebobinar o roteiro, senão o teste que prova a
         /// reconexão gira em círculos.
         var rounds: [String: [[String]]]
+        /// Verbo → quanto o servidor **segura** a resposta antes de escrever.
+        ///
+        /// Zero (a ausência) responde na hora, como sempre. Existe para o
+        /// único tipo de afirmação que precisa de um comando ainda em voo
+        /// quando o seguinte chega: a da fila do ator. Com resposta instantânea
+        /// os dois comandos nunca se sobrepõem, e "esperou a vez" e "não
+        /// precisou esperar" ficam indistinguíveis.
+        var atrasos: [String: TimeInterval]
 
         init(
             greeting: String = "* OK [CAPABILITY IMAP4rev1 STARTTLS] OkamiUNI falso pronto",
             replies: [String: [String]],
-            rounds: [String: [[String]]] = [:]
+            rounds: [String: [[String]]] = [:],
+            atrasos: [String: TimeInterval] = [:]
         ) {
             self.greeting = greeting
             self.replies = replies
             self.rounds = rounds
+            self.atrasos = atrasos
         }
     }
 
@@ -188,18 +198,32 @@ final class FakeImapServer: @unchecked Sendable {
                 escreve(context, "\(tag) BAD comando fora do roteiro: \(verbo)")
                 return
             }
-            for modelo in linhas {
-                let texto = modelo.replacingOccurrences(of: "TAG ", with: "\(tag) ")
-                // `CRU:` manda os bytes **sem** terminador. É o que deixa um
-                // teste encenar meia linha no fio — o caso que a fronteira do
-                // STARTTLS precisa enxergar e que nenhuma linha inteira produz.
-                if texto.hasPrefix("CRU:") {
-                    escreve(context, String(texto.dropFirst(4)), terminador: false)
-                } else {
-                    escreve(context, texto)
+            // Sem `@Sendable`: o `scheduleTask` desta event loop roda no mesmo
+            // fio, e é por isso que o `context` pode atravessar.
+            let escrever: () -> Void = { [weak self] in
+                guard let self else { return }
+                for modelo in linhas {
+                    let texto = modelo.replacingOccurrences(of: "TAG ", with: "\(tag) ")
+                    // `CRU:` manda os bytes **sem** terminador. É o que deixa um
+                    // teste encenar meia linha no fio — o caso que a fronteira do
+                    // STARTTLS precisa enxergar e que nenhuma linha inteira produz.
+                    if texto.hasPrefix("CRU:") {
+                        self.escreve(context, String(texto.dropFirst(4)), terminador: false)
+                    } else {
+                        self.escreve(context, texto)
+                    }
                 }
+                if verbo == "LOGOUT" { context.close(promise: nil) }
             }
-            if verbo == "LOGOUT" { context.close(promise: nil) }
+            // O atraso corre na própria event loop do canal: nada bloqueia, e a
+            // ordem das escritas continua sendo a do roteiro.
+            if let atraso = script.atrasos[chave], atraso > 0 {
+                context.eventLoop.scheduleTask(
+                    in: .nanoseconds(Int64(atraso * 1_000_000_000)), escrever
+                )
+            } else {
+                escrever()
+            }
         }
 
         private func escreve(

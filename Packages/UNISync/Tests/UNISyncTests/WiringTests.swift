@@ -4,13 +4,22 @@ import GRDB
 import NIOCore
 @testable import UNISync
 
+/// As dependências novas, provadas **pelo trabalho que fazem**.
+///
+/// Havia um quarto teste aqui, `wiring`, e ele era inútil por construção:
+/// `#expect(UNISync.wiringCheck() == "GRDB+NIO")` comparava um literal com o
+/// literal que a função devolvia. Nenhum defeito de produção podia derrubá-lo —
+/// tirar GRDB ou SwiftNIO do `Package.swift` quebra a **compilação**, que
+/// nenhum teste observa, e é uma prova mais forte do que qualquer asserção
+/// daqui. O doc-comment do `Wiring.swift` já previa a própria saída ("se um dia
+/// alguém o apagar e nada quebrar, ele terá cumprido o papel"); ele saiu junto,
+/// porque o teste era o único chamador que lhe restava.
+///
+/// Os três que ficam fazem o trabalho de verdade: abrem banco, exigem o FTS5
+/// com o tokenizer que dobra acento — que é o que a busca do Marco 2 depende e
+/// que uma compilação bem-sucedida NÃO garante —, e movem bytes pelo NIO.
 @Suite("Wiring das dependências novas")
 struct WiringTests {
-    @Test("O pacote existe e nomeia as dependências novas")
-    func wiring() {
-        #expect(UNISync.wiringCheck() == "GRDB+NIO")
-    }
-
     @Test("GRDB abre um banco em memória e responde SQL")
     func grdbAbre() throws {
         let queue = try DatabaseQueue()

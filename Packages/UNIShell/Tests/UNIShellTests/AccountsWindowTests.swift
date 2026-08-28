@@ -188,9 +188,26 @@ struct AccountsWindowTests {
         return corridas
     }
 
-    @Test("A lista aguenta zero, uma e trinta contas sem mudar de largura")
+    @Test("A lista desenha zero, uma e trinta contas — e o conteúdo cresce com elas")
     func quantidadesExtremas() throws {
+        // A VERSÃO ANTERIOR DESTE TESTE ERA INÚTIL, e a auditoria por mutação
+        // deste marco provou: a única asserção era `bitmap.pixelsWide == 720`,
+        // e 720 é o número que o próprio teste passou ao `Render` — verdadeira
+        // por construção. Fazendo a `AccountsList` não desenhar conta nenhuma,
+        // ela passava sozinha, enquanto cinco outros testes de pixel da mesma
+        // suíte caíam. O "sem mudar de largura" do título não era medido em
+        // lugar nenhum.
+        //
+        // O que se afirma agora é o conteúdo: a lista vazia não pinta linha
+        // nenhuma, uma conta pinta, e trinta pintam mais que uma. A largura
+        // continua sendo a mesma nas três — mas medida como **igualdade entre
+        // os três desenhos**, e não contra a constante que o teste escolheu.
+        //
+        // MUTAÇÃO QUE ISTO PEGA: a mesma que a versão antiga deixava passar —
+        // a `AccountsList` parar de desenhar as contas.
         let tema = try #require(Theme.named("tinta"))
+        var larguras: Set<Int> = []
+        var tinta: [Int: Int] = [:]
         for quantas in [0, 1, 30] {
             let lista = (0..<quantas).map { indice in
                 AccountStatus(
@@ -203,8 +220,18 @@ struct AccountsWindowTests {
                 AccountsList(statuses: lista, onReconnect: { _ in }, onRetry: { _ in }, onRemove: { _ in }),
                 size: CGSize(width: 720, height: 400), theme: tema
             ))
-            #expect(bitmap.pixelsWide == 720)
+            larguras.insert(bitmap.pixelsWide)
+            // O texto das linhas é `--ink`: contar esse tom é contar conteúdo,
+            // e não a moldura.
+            tinta[quantas] = bitmap.pixels(matching: tema.ink)
         }
+        // A largura é a mesma nas três — afirmada por igualdade entre os
+        // desenhos, que é o que o título promete.
+        #expect(larguras.count == 1, "a largura mudou com a quantidade: \(larguras)")
+        // Vazia não desenha conta nenhuma; uma desenha; trinta desenham mais.
+        #expect(tinta[0] == 0, "a lista vazia pintou texto: \(tinta[0] ?? -1)")
+        #expect((tinta[1] ?? 0) > 0, "uma conta não desenhou nada")
+        #expect((tinta[30] ?? 0) > (tinta[1] ?? 0), "trinta contas não desenharam mais que uma")
     }
 
     /// Os três estados da linha desenham **diferente**.
