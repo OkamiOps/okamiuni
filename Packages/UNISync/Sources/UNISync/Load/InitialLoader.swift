@@ -427,7 +427,32 @@ public struct InitialLoader: Sendable {
 
                     // Reselecionar: a primeira passada deixou outra pasta
                     // selecionada, e `UID FETCH` age sobre a pasta corrente.
-                    _ = try await sessao.select(pasta)
+                    //
+                    // E **conferir** o UIDVALIDITY que volta, em vez de o jogar
+                    // fora. A janela entre as duas leituras não é instantânea:
+                    // cabem nela a primeira passada inteira (um SELECT e um UID
+                    // SEARCH por pasta) mais o download completo de todas as
+                    // pastas anteriores — minutos, numa conta com várias pastas.
+                    // Um servidor que reciclou os UIDs no meio faria esta
+                    // passada baixar a geração nova e gravá-la com o número da
+                    // velha, em `MessageIdentity` e na coluna `uidValidity`: o
+                    // banco com conteúdo de uma geração carimbado com o número
+                    // de outra, que é exatamente o defeito que pôr o UIDVALIDITY
+                    // no id existe para impedir.
+                    let relido = try await sessao.select(pasta)
+                    guard !ImapUidValidity.changed(
+                        previous: status.uidValidity, current: relido.uidValidity
+                    ) else {
+                        // Abortar **esta pasta**, e não a conta: o `sync_state`
+                        // ainda guarda a geração velha, então a próxima carga
+                        // detecta a troca, apaga e recomeça a pasta do zero. É a
+                        // mesma saída do `trocou` acima, adiada por uma carga.
+                        throw SyncError.resposta(
+                            "A pasta \(pasta.name) reciclou os UIDs no meio da carga "
+                            + "(UIDVALIDITY \(status.uidValidity ?? 0) → \(relido.uidValidity ?? 0)) "
+                            + "— ela será recarregada do zero."
+                        )
+                    }
                     let envelopes = try await sessao.envelopes(uids: uids)
 
                     // Os corpos das mais recentes desta pasta.

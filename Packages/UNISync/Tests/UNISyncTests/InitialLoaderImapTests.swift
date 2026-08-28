@@ -260,6 +260,64 @@ struct InitialLoaderImapTests {
         #expect(try await db.pool.read { try MessageRecord.fetchCount($0) } == 4)
     }
 
+    @Test("UIDVALIDITY que troca DENTRO da carga aborta a pasta em vez de carimbar errado")
+    func uidValidityTrocadaNoMeioDaCarga() async throws {
+        // O `uidValidityTrocadaLimpa` acima cobre a troca **entre duas cargas**.
+        // Esta é a troca **dentro de uma**: o `select` da segunda passada
+        // devolvia um status novo e o `_ =` o jogava fora, então tudo — o id da
+        // mensagem, a coluna `uidValidity`, o `sync_state` — continuava vindo do
+        // status da primeira passada.
+        //
+        // A janela não é instantânea: entre as duas leituras cabem a primeira
+        // passada inteira e o download completo de todas as pastas anteriores.
+        // Minutos, numa conta com várias pastas.
+        //
+        // Sem conferir, a segunda passada baixa a geração NOVA e a grava com o
+        // número da VELHA: o banco fica com o assunto certo sob o UID errado,
+        // que é exatamente o defeito que pôr o UIDVALIDITY no `MessageIdentity`
+        // existe para impedir.
+        //
+        // MUTAÇÃO QUE ISTO PEGA: voltar o `_ = try await sessao.select(pasta)`
+        // faz a carga terminar sem erro nenhum e gravar quatro mensagens
+        // carimbadas com a geração velha.
+        var script = roteiro()
+        // A ordem dos SELECT é: INBOX e Arquivo na primeira passada, INBOX e
+        // Arquivo na segunda. O terceiro — o reselect da INBOX — recicla.
+        let velho = selectOK()
+        let reciclado = [
+            "* 2 EXISTS",
+            "* OK [UIDVALIDITY 1999999999] UIDs valid",
+            "* OK [UIDNEXT 9003] Predicted next UID",
+            "TAG OK [READ-WRITE] SELECT completed",
+        ]
+        script.rounds["SELECT"] = [velho, velho, reciclado, velho]
+
+        let db = try SyncDatabase.temporary()
+        _ = try await carrega(db, script: script)
+
+        // A INBOX foi abortada; o Arquivo, cujo reselect devolveu a geração de
+        // sempre, entrou inteiro. Nenhuma linha com a geração velha e conteúdo
+        // da nova: a INBOX simplesmente não tem linha.
+        let porPasta = try await db.pool.read { conexao in
+            try Row.fetchAll(conexao, sql: "SELECT folderID, count(*) AS quantas FROM message GROUP BY folderID")
+                .map { ($0["folderID"] as String, $0["quantas"] as Int) }
+        }
+        #expect(porPasta.map(\.0) == ["conta-i/Arquivo"])
+        #expect(porPasta.first?.1 == 2)
+
+        // E o `sync_state` da INBOX não foi carimbado: é ele que faz a próxima
+        // carga detectar a troca, apagar e recomeçar a pasta do zero.
+        let daInbox = try await db.pool.read { conexao in
+            try SyncStateRecord.fetchOne(
+                conexao, key: ["accountID": "conta-i", "folderID": "conta-i/INBOX"]
+            )
+        }
+        #expect(daInbox == nil)
+        // A conta não é derrubada por causa de uma pasta: o Arquivo entrou.
+        let estado = try await db.pool.read { try AccountRecord.fetchOne($0, key: "conta-i")?.account.state }
+        #expect(estado == .ativa)
+    }
+
     // MARK: Os corpos
 
     @Test("Os corpos das mais recentes descem, e a busca acha por dentro deles")
