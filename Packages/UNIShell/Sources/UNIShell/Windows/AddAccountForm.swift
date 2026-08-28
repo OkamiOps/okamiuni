@@ -1,12 +1,63 @@
+import AppKit
 import SwiftUI
 import UNICore
 import UNIDesign
 import UNISync
 
+/// Os roteiros que a janela de Contas abre, embarcados no aplicativo.
+///
+/// **Arquivo, não URL.** Um link para o GitHub depende de rede, de branch e de
+/// o arquivo não ter sido renomeado — três maneiras de o botão virar um 404, e
+/// botão que abre um 404 é botão mudo com um passo a mais. Os dois `.md` entram
+/// como recurso do alvo do app (ver `project.yml`) e abrem no aplicativo que o
+/// usuário usa para Markdown.
+public enum AccountsDocs {
+    /// O roteiro do OAuth do Google — o que fazer quando falta o Client ID.
+    public static let oauthGoogle = "oauth-google"
+    /// O que é uma senha de app, e onde gerar uma em cada provedor.
+    public static let senhaDeApp = "senha-de-app"
+
+    /// Os nomes dos dois recursos, para quem verifica o empacotamento.
+    public static let all = [oauthGoogle, senhaDeApp]
+
+    /// O arquivo dentro do bundle. Nulo quando o app não foi empacotado com ele
+    /// — o que acontece num alvo de teste, e é por isso que o botão que o abre
+    /// pergunta antes de se acender.
+    public static func url(_ name: String, in bundle: Bundle = .main) -> URL? {
+        bundle.url(forResource: name, withExtension: "md")
+    }
+
+    /// Abre o roteiro. Devolve `false` quando não havia o que abrir — quem
+    /// chama já desabilitou o botão nesse caso; isto é a segunda tranca.
+    @discardableResult
+    public static func open(_ name: String) -> Bool {
+        guard let url = url(name) else { return false }
+        return NSWorkspace.shared.open(url)
+    }
+}
+
 /// Endereço → rota → OAuth ou formulário IMAP.
+///
+/// ## De onde vêm os números
+///
+/// Como a lista, **este formulário não tem protótipo**, e o design não tem
+/// campo de formulário nenhum para copiar: o que a 06 chama de campo é uma
+/// calha de 24pt dentro de uma linha de texto (`RecipientField`), não uma caixa
+/// que se preenche.
+///
+/// O que é herdado: o `padding(20)` da caixa e o `spacing: 12` entre os blocos
+/// são o recuo de corpo da 04 (`EventWindow`, linha 176) e o respiro entre os
+/// blocos dela; os corpos 12,5pt sans (valor) e 11,5pt (apoio) são os mesmos da
+/// lista de contas e da 04; o `ComposerSelect` é o dropdown do design, e não um
+/// `Picker` do sistema.
+///
+/// O que é **desta tela, e não veio de lugar nenhum**: os 32pt de altura do
+/// campo e os 10pt de recuo interno dele. Uma caixa de formulário precisa ser
+/// maior que a calha de 24 da 06, que vive apertada dentro de uma linha; 32 é o
+/// menor valor em que o campo e o `ComposerSelect` ao lado ficam da mesma
+/// altura. Fica registrado como escolha, não como medida do design.
 public struct AddAccountForm: View {
     @Environment(\.theme) private var theme
-    @Environment(\.openURL) private var openURL
 
     private let model: AccountsModel
 
@@ -89,12 +140,15 @@ public struct AddAccountForm: View {
                         .fixedSize(horizontal: false, vertical: true)
                     if case .semClientID = erro {
                         Button("Ver o roteiro") {
-                            openURL(Self.roteiroDoOAuth)
+                            AccountsDocs.open(AccountsDocs.oauthGoogle)
                         }
                         .buttonStyle(.plain)
                         .font(theme.sans.font(size: 11.5, weight: .medium))
                         .foregroundStyle(theme.accent.color)
-                        .help("Abrir docs/oauth-google.md, que diz o que falta")
+                        .disabled(AccountsDocs.url(AccountsDocs.oauthGoogle) == nil)
+                        .help(AccountsDocs.url(AccountsDocs.oauthGoogle) == nil
+                            ? "Este aplicativo não trouxe o roteiro; ele está em docs/oauth-google.md, no repositório."
+                            : "Abrir docs/oauth-google.md, que diz o que falta")
                         .focusRing(cornerRadius: theme.radiusSmall)
                     }
                 }
@@ -120,12 +174,15 @@ public struct AddAccountForm: View {
             .background(theme.surface2.color, in: RoundedRectangle(cornerRadius: theme.radiusSmall))
 
         Button("O que é uma senha de app?") {
-            openURL(Self.roteiroDaSenhaDeApp)
+            AccountsDocs.open(AccountsDocs.senhaDeApp)
         }
         .buttonStyle(.plain)
         .font(theme.sans.font(size: 11))
         .foregroundStyle(theme.ink4.color)
-        .help("Provedores com verificação em duas etapas recusam a senha da conta; a senha de app é a que o IMAP aceita.")
+        .disabled(AccountsDocs.url(AccountsDocs.senhaDeApp) == nil)
+        .help(AccountsDocs.url(AccountsDocs.senhaDeApp) == nil
+            ? "Este aplicativo não trouxe a explicação; ela está em docs/senha-de-app.md, no repositório."
+            : "Provedores com verificação em duas etapas recusam a senha da conta; a senha de app é a que o IMAP aceita.")
         .focusRing(cornerRadius: theme.radiusSmall)
 
         HStack(spacing: 8) {
@@ -238,13 +295,4 @@ public struct AddAccountForm: View {
         }
     }
 
-    /// Os dois roteiros do repositório. Vão pela web porque o app instalado não
-    /// carrega a árvore de `docs/` dentro do bundle — apontar para um caminho
-    /// local abriria um "arquivo não encontrado" na máquina de quem instalou.
-    static let roteiroDoOAuth = URL(
-        string: "https://github.com/OkamiOps/okamiuni/blob/main/docs/oauth-google.md"
-    )!
-    static let roteiroDaSenhaDeApp = URL(
-        string: "https://github.com/OkamiOps/okamiuni/blob/main/docs/senha-de-app.md"
-    )!
 }

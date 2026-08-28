@@ -38,6 +38,15 @@ targets:
           - "Resources/Fonts"
       - path: App/Resources/Fonts
         type: folder
+      # Os dois roteiros que a janela de Contas abre ("Ver o roteiro" e "O que
+      # é uma senha de app?"). Vão **dentro do app**, e não como link para o
+      # GitHub: link depende de branch, de rede e de o arquivo não ter sido
+      # renomeado — três formas de o botão virar um 404. Embarcados, ele abre
+      # offline e sempre na versão que o app conhece.
+      - path: docs/oauth-google.md
+        buildPhase: resources
+      - path: docs/senha-de-app.md
+        buildPhase: resources
     dependencies:
       - package: UNIDesign
         product: UNIDesign

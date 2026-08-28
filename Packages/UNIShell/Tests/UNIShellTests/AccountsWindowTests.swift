@@ -116,12 +116,21 @@ struct AccountsWindowTests {
     /// Só medir `pixelsWide` seria repetir o número passado ao `Render` — uma
     /// asserção verdadeira por construção. Esta conta os pixels que batem com
     /// `--line`: uma divisória desenhada com opacidade, com `Divider()` ou com
-    /// qualquer mistura sai lavada e não chega a nenhum. Registrado do que ela
-    /// **não** pega: `frame(height: 0.5)` cravado passa aqui, porque numa
-    /// superfície chapada o AppKit arredonda o retângulo para o pixel inteiro.
-    /// Quem pega meio ponto é `HairlineThicknessTests`, nas bordas em
-    /// `strokeBorder`, onde a metade não tem para onde arredondar.
-    @Test("A divisória entre contas chega na cor do token, em 1× e em 2×")
+    /// qualquer mistura sai lavada e não chega a nenhum.
+    ///
+    /// A **espessura** é medida junto, varrendo uma coluna que só a divisória
+    /// atravessa: a corrida de pixels diferentes do papel tem de ter exatamente
+    /// 1, em 1× e em 2×. É o que impede alguém de engordar a linha para 2pt
+    /// "para ficar visível".
+    ///
+    /// Registrado, com prova: `frame(height: 0.5)` cravado **não** é pego aqui,
+    /// e não é pego por teste nenhum — os PNGs de 1× e de 2× saem byte a byte
+    /// idênticos aos do código correto (MD5 conferido nas duas escalas). Numa
+    /// superfície chapada o AppKit arredonda o retângulo de meio ponto para o
+    /// pixel inteiro, e não sobra diferença para observar. Quem pega meio ponto
+    /// é `HairlineThicknessTests`, nas bordas em `strokeBorder`, onde a metade
+    /// não tem para onde arredondar.
+    @Test("A divisória entre contas chega na cor do token e tem 1 pixel, em 1× e em 2×")
     func hairlineDeUmPixel() throws {
         let tema = try #require(Theme.named("tinta"))
         for escala in [CGFloat(1), CGFloat(2)] {
@@ -142,7 +151,41 @@ struct AccountsWindowTests {
                 cheios >= Int(600 * escala),
                 "a divisória saiu lavada em \(escala)×: \(cheios) pixels no token"
             )
+
+            // A coluna a 700pt está no recuo direito da linha: nenhum texto,
+            // nenhum botão, só a divisória a atravessa.
+            let corridas = corridasVerticais(
+                em: bitmap, x: Int(700 * escala), fundo: tema.paper
+            )
+            #expect(
+                corridas.allSatisfy { $0 == 1 } && !corridas.isEmpty,
+                "a divisória não tem 1 pixel em \(escala)×: corridas \(corridas)"
+            )
         }
+    }
+
+    /// Os comprimentos das sequências verticais de pixels que **não** são o
+    /// fundo, na coluna `x`. Numa coluna atravessada só por divisórias, cada
+    /// sequência é uma divisória e o comprimento dela é a espessura em pixels
+    /// de dispositivo.
+    private func corridasVerticais(
+        em bitmap: NSBitmapImageRep, x: Int, fundo: TokenColor
+    ) -> [Int] {
+        guard let papel = fundo.nsColor.usingColorSpace(.sRGB) else { return [] }
+        var corridas: [Int] = []
+        var atual = 0
+        for y in 0..<bitmap.pixelsHigh {
+            let cor = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB)
+            let diferente = cor.map { abs($0.redComponent - papel.redComponent) > 0.005 } ?? false
+            if diferente {
+                atual += 1
+            } else if atual > 0 {
+                corridas.append(atual)
+                atual = 0
+            }
+        }
+        if atual > 0 { corridas.append(atual) }
+        return corridas
     }
 
     @Test("A lista aguenta zero, uma e trinta contas sem mudar de largura")
@@ -208,6 +251,114 @@ struct AccountsWindowTests {
         let comRede = AccountsCopy.actions(for: status(erro: .rede("tempo esgotado")))
         #expect(comRede == [.retry(.rede("tempo esgotado")), .remove])
         #expect(comRede.first?.label == "Tentar de novo")
+    }
+
+    /// **A conta que volta quebrada do banco também tem saída.**
+    ///
+    /// O erro detalhado vive num dicionário de memória do `AccountDirector` e
+    /// morre com o processo; `state` é coluna do banco. Reabrir o app com uma
+    /// conta que perdeu o token na sessão passada dá exatamente este par —
+    /// `state: .erroDeAutenticacao`, `error: nil` — e a versão anterior desta
+    /// janela escrevia a causa inteira na tela e não oferecia botão nenhum.
+    @Test("Conta reaberta em erro de autenticação, sem erro em memória, ainda oferece Reconectar")
+    func erroPersistidoSemErroEmMemoria() {
+        let persistida = status(state: .erroDeAutenticacao, erro: nil)
+
+        #expect(AccountsCopy.isFailing(persistida))
+        #expect(AccountsCopy.cause(of: persistida) == .autenticacao)
+        #expect(AccountsCopy.actions(for: persistida) == [.reconnect(.autenticacao), .remove])
+        // A frase já vinha do estado; o que faltava era a saída.
+        #expect(AccountsCopy.status(persistida, now: agora, calendar: calendario)
+            .contains(SyncError.autenticacao.mensagem))
+    }
+
+    /// A mesma conta, no pixel: a causa sai no realce e a ação é desenhada.
+    @Test("A conta reaberta em erro desenha o realce e o botão, como a que errou agora")
+    func erroPersistidoNoPixel() throws {
+        let tema = try #require(Theme.named("tinta"))
+        let sa = try realce(of: status(), tema: tema)
+        let persistida = try realce(of: status(state: .erroDeAutenticacao, erro: nil), tema: tema)
+        let daSessao = try realce(of: status(state: .erroDeAutenticacao, erro: .autenticacao), tema: tema)
+
+        #expect(sa.faixaDosBotoes == 0, "a linha sã pintou realce na faixa dos botões")
+        #expect(sa.total == 0, "a linha sã pintou realce onde não devia")
+        #expect(persistida.total > 40, "a causa persistida não saiu no realce")
+        #expect(persistida.faixaDosBotoes > 0, "a conta reaberta em erro não desenhou a ação")
+        // As duas contam a mesma história e por isso desenham a mesma coisa.
+        #expect(persistida.total == daSessao.total)
+    }
+
+    /// **A fiação entre a lista pura e os botões desenhados.**
+    ///
+    /// A regra virou função pura, e o `body` pode largá-la em silêncio: filtrar
+    /// o `ForEach` para só "Remover" deixaria toda a parte pura verde. Aqui as
+    /// duas etiquetas são contadas no bitmap, cada uma pela cor que lhe cabe —
+    /// "Reconectar" em `--accent`, "Remover" em `--ink3` — na faixa da direita,
+    /// onde nenhum texto da linha chega (medido: a linha sã tem 0 pixels de
+    /// realce ali, e 68 de `--ink3`, que são o "Remover").
+    @Test("Os dois botões da conta em erro chegam ao desenho, não só à lista pura")
+    func fiacaoDaListaAteOsBotoes() throws {
+        let tema = try #require(Theme.named("tinta"))
+        let comErro = try realce(of: status(state: .erroDeAutenticacao, erro: .autenticacao), tema: tema)
+        let sa = try realce(of: status(), tema: tema)
+
+        #expect(comErro.faixaDosBotoes > 0, "'Reconectar' não foi desenhado")
+        #expect(comErro.removerNaFaixa > 0, "'Remover' sumiu da linha em erro")
+        #expect(sa.removerNaFaixa > 0, "'Remover' sumiu da linha sã")
+        #expect(sa.faixaDosBotoes == 0, "a linha sã desenhou uma ação que não existe")
+    }
+
+    private struct Realce {
+        /// Pixels de `--accent` na linha inteira.
+        let total: Int
+        /// Pixels de `--accent` na faixa dos botões: à direita de 600pt e na
+        /// altura da **primeira linha** da linha da conta.
+        ///
+        /// As duas restrições são necessárias, e a segunda foi aprendida
+        /// quebrando: só a horizontal deixava passar a mutação que apaga o
+        /// botão, porque sem ele a coluna de texto se alarga e a frase do erro
+        /// — que também é `--accent` — chega sozinha ao mesmo lugar. Na altura
+        /// da primeira linha só existem o endereço (à esquerda, em `--ink`) e
+        /// os botões; a frase do erro é a segunda linha.
+        let faixaDosBotoes: Int
+        /// Pixels de `--ink3` na mesma faixa: o "Remover".
+        let removerNaFaixa: Int
+    }
+
+    private func realce(of s: AccountStatus, tema: Theme) throws -> Realce {
+        let bitmap = try #require(Render.bitmap(
+            AccountsList(statuses: [s], onReconnect: { _ in }, onRetry: { _ in }, onRemove: { _ in }),
+            size: CGSize(width: 720, height: 120), theme: tema
+        ))
+        return Realce(
+            total: bitmap.pixels(matching: tema.accent, tolerance: 0.06),
+            faixaDosBotoes: conta(tema.accent, em: bitmap, aPartirDe: 600, linhas: Self.primeiraLinha),
+            removerNaFaixa: conta(tema.ink3, em: bitmap, aPartirDe: 600, linhas: Self.primeiraLinha)
+        )
+    }
+
+    /// A altura da primeira linha da linha da conta: 14pt de recuo superior
+    /// mais os ~18pt que o corpo de 12,5pt ocupa.
+    private static let primeiraLinha = 14..<32
+
+    private func conta(
+        _ token: TokenColor, em bitmap: NSBitmapImageRep,
+        aPartirDe minX: Int, linhas: Range<Int>
+    ) -> Int {
+        guard let alvo = token.nsColor.usingColorSpace(.sRGB) else { return 0 }
+        var total = 0
+        for y in linhas.clamped(to: 0..<bitmap.pixelsHigh) {
+            for x in minX..<bitmap.pixelsWide {
+                guard let c = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
+                      c.alphaComponent > 0.9 else { continue }
+                if abs(c.redComponent - alvo.redComponent) < 0.06,
+                   abs(c.greenComponent - alvo.greenComponent) < 0.06,
+                   abs(c.blueComponent - alvo.blueComponent) < 0.06 {
+                    total += 1
+                }
+            }
+        }
+        return total
     }
 
     /// A causa do erro é desenhada em `--accent`; a linha sã não tem nada nesse
@@ -303,3 +454,123 @@ struct AccountsWindowTests {
             && abs(a.blueComponent - b.blueComponent) < 0.02
     }
 }
+
+/// O ponto de estado na linha da conta da lateral.
+///
+/// Conta parada sem sinal nenhum é o defeito que a janela de Contas existe para
+/// não repetir — mas quem passa o dia na caixa de entrada olha a lateral, não a
+/// janela de Contas. O desenho real, afirmado aqui: conta **ativa não tem
+/// ponto**; conta **carregando** tem um ponto de 6pt em `--ink4`; conta em
+/// **erro** tem o mesmo ponto em `--accent`.
+@Suite("O ponto de estado da lateral")
+@MainActor
+struct SidebarAccountStateDotTests {
+
+    private func store(_ state: Account.State) async -> MailStore {
+        let conta = Account(
+            id: "a0", address: "contato@meusite.com", displayName: "Site",
+            provider: .imap, host: "meusite",
+            tintLightHex: "#3E6FA8", tintDarkHex: "#7BA8D9",
+            state: state
+        )
+        let store = MailStore(
+            source: InMemoryMailSource(accounts: [conta], messages: [], agenda: [])
+        )
+        await store.load()
+        return store
+    }
+
+    private func desenho(_ state: Account.State) async throws -> NSBitmapImageRep {
+        let store = await store(state)
+        return try #require(Render.bitmap(
+            FolderSidebar(store: store),
+            size: CGSize(width: FolderSidebar.expandedWidth, height: 700),
+            theme: .tinta
+        ))
+    }
+
+    @Test("Ativa não tem ponto; carregando e erro têm, e não são o mesmo ponto")
+    func oPontoSegueOEstado() async throws {
+        let ativa = try await desenho(.ativa)
+        let carregando = try await desenho(.carregando)
+        let erro = try await desenho(.erroDeAutenticacao)
+
+        #expect(ativa.pixelsDiffering(from: carregando) > 0, "a conta carregando desenhou igual à ativa")
+        #expect(ativa.pixelsDiffering(from: erro) > 0, "a conta em erro desenhou igual à ativa")
+        #expect(
+            carregando.pixelsDiffering(from: erro) > 0,
+            "carregando e erro desenharam o mesmo ponto — a cor não segue o estado"
+        )
+    }
+
+    /// A cor de cada ponto, e não só "mudou alguma coisa": o de erro é
+    /// `--accent`, o de carregando é `--ink4`, e a conta ativa não acrescenta
+    /// nem um nem outro.
+    @Test("O ponto de erro é o realce do tema; o de carregando, não")
+    func aCorDoPonto() async throws {
+        let tema = Theme.tinta
+        let ativa = try await desenho(.ativa)
+        let carregando = try await desenho(.carregando)
+        let erro = try await desenho(.erroDeAutenticacao)
+
+        #expect(erro.pixels(matching: tema.accent) > ativa.pixels(matching: tema.accent))
+        #expect(carregando.pixels(matching: tema.accent) == ativa.pixels(matching: tema.accent))
+        #expect(carregando.pixels(matching: tema.ink4) > ativa.pixels(matching: tema.ink4))
+    }
+}
+
+/// Os dois roteiros que a janela abre são **arquivos do aplicativo**.
+///
+/// A verificação é do empacotamento, e por isso olha o `project.yml`: o bundle
+/// que roda a suíte é o do `xctest`, e nele os recursos do app não existem —
+/// afirmar `Bundle.main.url(...) != nil` aqui seria afirmar o contrário do
+/// esperado. O que trava o defeito real (renomear ou mover um `.md` e deixar o
+/// botão apontando para o vazio) é exigir que o arquivo exista no repositório
+/// **e** esteja declarado como recurso do alvo do app.
+@Suite("Os roteiros embarcados")
+struct AccountsDocsTests {
+
+    /// A raiz do repositório, a partir deste arquivo:
+    /// `<raiz>/Packages/UNIShell/Tests/UNIShellTests/<este arquivo>`.
+    private var raiz: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()  // UNIShellTests
+            .deletingLastPathComponent()  // Tests
+            .deletingLastPathComponent()  // UNIShell
+            .deletingLastPathComponent()  // Packages
+            .deletingLastPathComponent()  // raiz
+    }
+
+    @Test("Os dois roteiros existem no repositório com o nome que o código pede")
+    func arquivosExistem() {
+        for nome in AccountsDocs.all {
+            let caminho = raiz.appendingPathComponent("docs/\(nome).md").path
+            #expect(FileManager.default.fileExists(atPath: caminho), "faltou docs/\(nome).md")
+        }
+    }
+
+    @Test("Os dois entram no app como recurso, e não como link para a web")
+    func declaradosComoRecurso() throws {
+        let projeto = try String(contentsOf: raiz.appendingPathComponent("project.yml"), encoding: .utf8)
+        for nome in AccountsDocs.all {
+            #expect(
+                projeto.contains("path: docs/\(nome).md"),
+                "docs/\(nome).md não está declarado no project.yml"
+            )
+        }
+        // Declarado como fonte compilável não serviria: o arquivo tem de ir
+        // para a fase de recursos para existir dentro do `.app`.
+        #expect(projeto.contains("buildPhase: resources"))
+    }
+
+    @Test("Sem bundle que os contenha, quem procura recebe nulo — e não um caminho inventado")
+    func semBundleNaoInventa() {
+        // É o caso do alvo de teste, e é por isso que os botões que abrem os
+        // roteiros nascem desabilitados aqui, com o `help` dizendo onde está o
+        // arquivo — em vez de abrirem um "arquivo não encontrado".
+        #expect(AccountsDocs.url(AccountsDocs.oauthGoogle, in: Bundle(for: SondaDeBundle.self)) == nil)
+    }
+}
+
+/// Só para pegar um `Bundle` que comprovadamente não tem os roteiros.
+private final class SondaDeBundle {}
