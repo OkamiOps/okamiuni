@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import UNISync
 
-@Suite("OAuth do Google, contra servidor local", .serialized)
+@Suite("OAuth do Google, contra servidor local")
 struct GoogleAuthTests {
     private let config = GoogleAuthConfig(
         clientID: "cliente-de-teste.apps.googleusercontent.com",
@@ -10,19 +10,25 @@ struct GoogleAuthTests {
         revocationEndpoint: URL(string: "https://oauth2.example/revoke")!
     )
 
+    /// Monta um `GoogleAuth` sobre uma `URLSession` isolada — seu próprio
+    /// roteiro, seu próprio log de requisições — para poder rodar ao mesmo
+    /// tempo que `GmailClientTests` sem uma pisar no roteiro da outra.
     private func auth(
         secrets: any SecretStore,
+        routes: [String: [StubURLProtocol.Reply]] = [:],
         redirect: @Sendable @escaping (URL) throws -> URL = { url in
             URL(string: "com.okamiops.okamiuni:/oauth?code=codigo-devolvido&state="
                 + (URLComponents(url: url, resolvingAgainstBaseURL: false)?
                     .queryItems?.first { $0.name == "state" }?.value ?? ""))!
         },
         now: @Sendable @escaping () -> Date = { Date(timeIntervalSince1970: 10_000) }
-    ) -> GoogleAuth {
-        GoogleAuth(
-            config: config, session: StubURLProtocol.session(), secrets: secrets,
+    ) -> (auth: GoogleAuth, session: URLSession) {
+        let session = StubURLProtocol.session(routes: routes)
+        let auth = GoogleAuth(
+            config: config, session: session, secrets: secrets,
             presenter: StubAuthorizationPresenter(redirect: redirect), now: now
         )
+        return (auth, session)
     }
 
     // MARK: PKCE e a URL de autorização
@@ -121,22 +127,21 @@ struct GoogleAuthTests {
 
     @Test("Conectar troca o código por tokens e os guarda no cofre")
     func trocaGuardaTokens() async throws {
-        StubURLProtocol.install([
+        let cofre = InMemorySecretStore()
+        let (login, http) = auth(secrets: cofre, routes: [
             "/token": [.json("""
                 {"access_token":"at-1","refresh_token":"rt-1","expires_in":3600,"token_type":"Bearer"}
                 """)],
         ])
-        defer { StubURLProtocol.reset() }
 
-        let cofre = InMemorySecretStore()
-        let tokens = try await auth(secrets: cofre).connect(accountID: "conta-g", loginHint: "eu@gmail.com")
+        let tokens = try await login.connect(accountID: "conta-g", loginHint: "eu@gmail.com")
 
         #expect(tokens.accessToken == "at-1")
         #expect(tokens.refreshToken == "rt-1")
         #expect(tokens.expiresAt == Date(timeIntervalSince1970: 13_600))
         #expect(try cofre.secret(for: "conta-g") == .oauth(tokens))
 
-        let pedido = try #require(StubURLProtocol.requests.first)
+        let pedido = try #require(StubURLProtocol.requests(for: http).first)
         #expect(pedido.body.contains("grant_type=authorization_code"))
         #expect(pedido.body.contains("code=codigo-devolvido"))
         #expect(pedido.body.contains("code_verifier="))
@@ -146,35 +151,32 @@ struct GoogleAuthTests {
 
     @Test("Token válido é devolvido sem tocar a rede")
     func tokenValidoNaoRenova() async throws {
-        StubURLProtocol.install([:])
-        defer { StubURLProtocol.reset() }
-
         let cofre = InMemorySecretStore()
         try cofre.store(.oauth(OAuthTokens(
             accessToken: "at-vivo", refreshToken: "rt",
             expiresAt: Date(timeIntervalSince1970: 99_999)
         )), for: "conta-g")
 
-        #expect(try await auth(secrets: cofre).accessToken(for: "conta-g") == "at-vivo")
-        #expect(StubURLProtocol.requests.isEmpty)
+        let (login, http) = auth(secrets: cofre)
+        #expect(try await login.accessToken(for: "conta-g") == "at-vivo")
+        #expect(StubURLProtocol.requests(for: http).isEmpty)
     }
 
     @Test("Token vencido é renovado, e o refresh antigo é preservado quando o Google não manda um novo")
     func refreshPreservaRefreshToken() async throws {
-        StubURLProtocol.install([
-            "/token": [.json("""
-                {"access_token":"at-2","expires_in":3600,"token_type":"Bearer"}
-                """)],
-        ])
-        defer { StubURLProtocol.reset() }
-
         let cofre = InMemorySecretStore()
         try cofre.store(.oauth(OAuthTokens(
             accessToken: "at-velho", refreshToken: "rt-guardado",
             expiresAt: Date(timeIntervalSince1970: 1)
         )), for: "conta-g")
 
-        #expect(try await auth(secrets: cofre).accessToken(for: "conta-g") == "at-2")
+        let (login, _) = auth(secrets: cofre, routes: [
+            "/token": [.json("""
+                {"access_token":"at-2","expires_in":3600,"token_type":"Bearer"}
+                """)],
+        ])
+
+        #expect(try await login.accessToken(for: "conta-g") == "at-2")
 
         // O Google só devolve `refresh_token` no primeiro consentimento.
         // Sobrescrevê-lo com vazio derrubaria a conta na renovação seguinte.
@@ -187,21 +189,20 @@ struct GoogleAuthTests {
 
     @Test("Refresh recusado marca `autorizacaoRevogada` — e não deixa token morto no cofre")
     func refreshRecusado() async throws {
-        StubURLProtocol.install([
-            "/token": [.json("""
-                {"error":"invalid_grant","error_description":"Token has been expired or revoked."}
-                """, status: 400)],
-        ])
-        defer { StubURLProtocol.reset() }
-
         let cofre = InMemorySecretStore()
         try cofre.store(.oauth(OAuthTokens(
             accessToken: "at-velho", refreshToken: "rt-morto",
             expiresAt: Date(timeIntervalSince1970: 1)
         )), for: "conta-g")
 
+        let (login, _) = auth(secrets: cofre, routes: [
+            "/token": [.json("""
+                {"error":"invalid_grant","error_description":"Token has been expired or revoked."}
+                """, status: 400)],
+        ])
+
         await #expect(throws: SyncError.autorizacaoRevogada) {
-            _ = try await self.auth(secrets: cofre).accessToken(for: "conta-g")
+            _ = try await login.accessToken(for: "conta-g")
         }
 
         // O nome promete que não fica token morto no cofre — a asserção que
@@ -217,7 +218,12 @@ struct GoogleAuthTests {
         // fica pendurada no dicionário para sempre, e todo pedido seguinte
         // reusaria — e repetiria — o erro de uma corrida que já morreu, em
         // vez de tentar de novo.
-        StubURLProtocol.install([
+        let cofre = InMemorySecretStore()
+        try cofre.store(.oauth(OAuthTokens(
+            accessToken: "at-velho", refreshToken: "rt",
+            expiresAt: Date(timeIntervalSince1970: 1)
+        )), for: "conta-g")
+        let (login, http) = auth(secrets: cofre, routes: [
             "/token": [
                 .json("{\"error\":\"internal_failure\"}", status: 500),
                 .json("""
@@ -225,22 +231,14 @@ struct GoogleAuthTests {
                     """),
             ],
         ])
-        defer { StubURLProtocol.reset() }
-
-        let cofre = InMemorySecretStore()
-        try cofre.store(.oauth(OAuthTokens(
-            accessToken: "at-velho", refreshToken: "rt",
-            expiresAt: Date(timeIntervalSince1970: 1)
-        )), for: "conta-g")
-        let sessao = auth(secrets: cofre)
 
         await #expect(throws: SyncError.self) {
-            _ = try await sessao.accessToken(for: "conta-g")
+            _ = try await login.accessToken(for: "conta-g")
         }
 
-        let token = try await sessao.accessToken(for: "conta-g")
+        let token = try await login.accessToken(for: "conta-g")
         #expect(token == "at-segunda-tentativa")
-        #expect(StubURLProtocol.requests.filter { $0.path == "/token" }.count == 2)
+        #expect(StubURLProtocol.requests(for: http).filter { $0.path == "/token" }.count == 2)
     }
 
     @Test("Falha de rede no refresh vira `.rede`, e o refresh token continua no cofre")
@@ -250,17 +248,16 @@ struct GoogleAuthTests {
         // A distinção importa: `.rede` manda tentar de novo, e
         // `.autorizacaoRevogada` mandaria reconectar — a pessoa perderia a
         // conta por causa de uma rede instável, não de um token morto.
-        StubURLProtocol.install([:])
-        defer { StubURLProtocol.reset() }
-
         let cofre = InMemorySecretStore()
         try cofre.store(.oauth(OAuthTokens(
             accessToken: "at-velho", refreshToken: "rt-preservado",
             expiresAt: Date(timeIntervalSince1970: 1)
         )), for: "conta-g")
 
+        let (login, _) = auth(secrets: cofre)
+
         do {
-            _ = try await self.auth(secrets: cofre).accessToken(for: "conta-g")
+            _ = try await login.accessToken(for: "conta-g")
             Issue.record("esperava erro de rede")
         } catch SyncError.rede {
             // esperado
@@ -276,18 +273,17 @@ struct GoogleAuthTests {
 
     @Test("Quota do servidor de token não vira erro genérico")
     func refreshComQuota() async throws {
-        StubURLProtocol.install([
-            "/token": [.json("{\"error\":\"rateLimitExceeded\"}", status: 429)],
-        ])
-        defer { StubURLProtocol.reset() }
-
         let cofre = InMemorySecretStore()
         try cofre.store(.oauth(OAuthTokens(
             accessToken: "at", refreshToken: "rt", expiresAt: Date(timeIntervalSince1970: 1)
         )), for: "conta-g")
 
+        let (login, _) = auth(secrets: cofre, routes: [
+            "/token": [.json("{\"error\":\"rateLimitExceeded\"}", status: 429)],
+        ])
+
         await #expect(throws: SyncError.quota) {
-            _ = try await self.auth(secrets: cofre).accessToken(for: "conta-g")
+            _ = try await login.accessToken(for: "conta-g")
         }
     }
 
@@ -296,53 +292,48 @@ struct GoogleAuthTests {
         // A prova de que o single-flight existe. Sem ele, dez chamadas
         // disparariam dez POSTs, e o Google invalida o refresh token quando
         // ele é usado em paralelo — a conta cairia sozinha em erro.
-        StubURLProtocol.install([
-            "/token": [.json("""
-                {"access_token":"at-unico","expires_in":3600,"token_type":"Bearer"}
-                """)],
-        ])
-        defer { StubURLProtocol.reset() }
-
         let cofre = InMemorySecretStore()
         try cofre.store(.oauth(OAuthTokens(
             accessToken: "at-velho", refreshToken: "rt",
             expiresAt: Date(timeIntervalSince1970: 1)
         )), for: "conta-g")
-        let auth = auth(secrets: cofre)
+        let (login, http) = auth(secrets: cofre, routes: [
+            "/token": [.json("""
+                {"access_token":"at-unico","expires_in":3600,"token_type":"Bearer"}
+                """)],
+        ])
 
         let tokens = try await withThrowingTaskGroup(of: String.self) { grupo in
-            for _ in 0..<10 { grupo.addTask { try await auth.accessToken(for: "conta-g") } }
+            for _ in 0..<10 { grupo.addTask { try await login.accessToken(for: "conta-g") } }
             var todos: [String] = []
             for try await token in grupo { todos.append(token) }
             return todos
         }
 
         #expect(tokens == Array(repeating: "at-unico", count: 10))
-        #expect(StubURLProtocol.requests.count == 1)
+        #expect(StubURLProtocol.requests(for: http).count == 1)
     }
 
     @Test("Conta sem segredo nenhum pede autenticação em vez de estourar")
     func semSegredo() async {
-        StubURLProtocol.install([:])
-        defer { StubURLProtocol.reset() }
+        let (login, _) = auth(secrets: InMemorySecretStore())
         await #expect(throws: SyncError.autenticacao) {
-            _ = try await self.auth(secrets: InMemorySecretStore()).accessToken(for: "fantasma")
+            _ = try await login.accessToken(for: "fantasma")
         }
     }
 
     @Test("Revogar avisa o Google e limpa o cofre")
     func revogar() async throws {
-        StubURLProtocol.install(["/revoke": [.init(status: 200)]])
-        defer { StubURLProtocol.reset() }
-
         let cofre = InMemorySecretStore()
         try cofre.store(.oauth(OAuthTokens(
             accessToken: "at", refreshToken: "rt", expiresAt: Date(timeIntervalSince1970: 99_999)
         )), for: "conta-g")
 
-        try await auth(secrets: cofre).revoke(accountID: "conta-g")
+        let (login, http) = auth(secrets: cofre, routes: ["/revoke": [.init(status: 200)]])
+
+        try await login.revoke(accountID: "conta-g")
         #expect(try cofre.secret(for: "conta-g") == nil)
-        #expect(StubURLProtocol.requests.contains { $0.path == "/revoke" })
+        #expect(StubURLProtocol.requests(for: http).contains { $0.path == "/revoke" })
     }
 
     @Test("Sem client ID no bundle, a configuração diz o que falta")

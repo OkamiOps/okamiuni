@@ -3,16 +3,20 @@ import Testing
 import UNICore
 @testable import UNISync
 
-@Suite("Gmail API", .serialized)
+@Suite("Gmail API")
 struct GmailClientTests {
     private func fixture(_ nome: String) throws -> Data {
         let url = try #require(Bundle.module.url(forResource: "Fixtures/\(nome)", withExtension: "json"))
         return try Data(contentsOf: url)
     }
 
-    private func cliente() -> GmailClient {
+    /// Um `GmailClient` sobre uma `URLSession` isolada, com o roteiro já
+    /// instalado na criação — cada teste tem seu próprio `UUID` de sessão, e
+    /// pode rodar ao mesmo tempo que qualquer outro (`GoogleAuthTests`
+    /// incluído) sem um `install()` pisar no roteiro do outro.
+    private func cliente(routes: [String: [StubURLProtocol.Reply]] = [:]) -> GmailClient {
         GmailClient(
-            session: StubURLProtocol.session(),
+            session: StubURLProtocol.session(routes: routes),
             accessToken: { "at-de-teste" },
             baseURL: URL(string: "https://gmail.example/gmail/v1/users/me")!
         )
@@ -74,6 +78,17 @@ struct GmailClientTests {
         #expect(!mensagem.body.contains { $0.contains("<p>") })
     }
 
+    @Test("Mensagem só de HTML sai sem corpo — o Marco 3 é quem resolve isso")
+    func mensagemSoDeHTML() throws {
+        // Sem `text/plain` em lugar nenhum da árvore MIME, `plainText(in:)`
+        // não tem o que devolver. `[]` é a resposta honesta: inventar texto a
+        // partir do HTML aqui seria decisão de renderização, e essa decisão é
+        // do leitor (Marco 3), não do parser.
+        let mensagem = try GmailMessageParser.parse(fixture("gmail-message-html-only"))
+        #expect(mensagem.body.isEmpty)
+        #expect(mensagem.subject == "Só HTML")
+    }
+
     @Test("A mensagem em formato `metadata` vem sem corpo, e isso não é erro")
     func mensagemSemCorpo() throws {
         let mensagem = try GmailMessageParser.parse(fixture("gmail-message-metadata"))
@@ -110,22 +125,20 @@ struct GmailClientTests {
 
     @Test("O perfil traz o endereço e o historyId que o Marco 3 vai usar")
     func perfil() async throws {
-        StubURLProtocol.install(["/gmail/v1/users/me/profile": [.init(body: try fixture("gmail-profile"))]])
-        defer { StubURLProtocol.reset() }
-
-        let perfil = try await cliente().profile()
+        let perfil = try await cliente(routes: [
+            "/gmail/v1/users/me/profile": [.init(body: try fixture("gmail-profile"))],
+        ]).profile()
         #expect(perfil.emailAddress == "ricardo@gmail.com")
         #expect(perfil.historyID == "9928471")
     }
 
     @Test("Toda requisição leva o Bearer, e o token é pedido na hora")
     func bearerEmToda() async throws {
-        StubURLProtocol.install(["/gmail/v1/users/me/profile": [.init(body: try fixture("gmail-profile"))]])
-        defer { StubURLProtocol.reset() }
-
         let pedidos = Contador()
         let cliente = GmailClient(
-            session: StubURLProtocol.session(),
+            session: StubURLProtocol.session(routes: [
+                "/gmail/v1/users/me/profile": [.init(body: try fixture("gmail-profile"))],
+            ]),
             accessToken: { await pedidos.incrementaEDevolve() },
             baseURL: URL(string: "https://gmail.example/gmail/v1/users/me")!
         )
@@ -138,20 +151,18 @@ struct GmailClientTests {
 
     @Test("Os rótulos vêm com a pasta Depois quando ela existe")
     func rotulos() async throws {
-        StubURLProtocol.install(["/gmail/v1/users/me/labels": [.init(body: try fixture("gmail-labels"))]])
-        defer { StubURLProtocol.reset() }
-
-        let rotulos = try await cliente().labels()
+        let rotulos = try await cliente(routes: [
+            "/gmail/v1/users/me/labels": [.init(body: try fixture("gmail-labels"))],
+        ]).labels()
         #expect(rotulos.count == 6)
         #expect(rotulos.first { $0.name == "OkamiUNI/Depois" }?.id == "Label_7")
     }
 
     @Test("A lista devolve ids e o token da próxima página")
     func lista() async throws {
-        StubURLProtocol.install(["/gmail/v1/users/me/messages": [.init(body: try fixture("gmail-list"))]])
-        defer { StubURLProtocol.reset() }
-
-        let pagina = try await cliente().messageIDs(query: "newer_than:90d", pageToken: nil)
+        let pagina = try await cliente(routes: [
+            "/gmail/v1/users/me/messages": [.init(body: try fixture("gmail-list"))],
+        ]).messageIDs(query: "newer_than:90d", pageToken: nil)
         #expect(pagina.ids == ["18f0a1b2c3", "18f0a1b2c4"])
         #expect(pagina.nextPageToken == "pagina-2")
     }
@@ -161,12 +172,9 @@ struct GmailClientTests {
         // Uma conta nova, ou uma janela de 90 dias sem nada: `messages` some
         // do JSON inteiro. Tratar ausência como erro faria a conta parecer
         // quebrada quando ela só está vazia.
-        StubURLProtocol.install([
+        let pagina = try await cliente(routes: [
             "/gmail/v1/users/me/messages": [.json("{\"resultSizeEstimate\":0}")],
-        ])
-        defer { StubURLProtocol.reset() }
-
-        let pagina = try await cliente().messageIDs(query: "newer_than:90d", pageToken: nil)
+        ]).messageIDs(query: "newer_than:90d", pageToken: nil)
         #expect(pagina.ids.isEmpty)
         #expect(pagina.nextPageToken == nil)
     }
@@ -179,14 +187,13 @@ struct GmailClientTests {
             (429, SyncError.quota),
             (503, SyncError.servidor(codigo: 503, mensagem: "Service Unavailable")),
         ] {
-            StubURLProtocol.install([
+            let cliente = cliente(routes: [
                 "/gmail/v1/users/me/profile": [.json(
                     "{\"error\":{\"code\":\(status),\"message\":\"Service Unavailable\"}}",
                     status: status
                 )],
             ])
-            await #expect(throws: esperado) { _ = try await self.cliente().profile() }
-            StubURLProtocol.reset()
+            await #expect(throws: esperado) { _ = try await cliente.profile() }
         }
     }
 }

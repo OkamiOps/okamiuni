@@ -21,46 +21,80 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         }
     }
 
-    /// O que cada caminho responde, e o que foi pedido — protegidos por lock
-    /// porque o `URLSession` chama isto de outra fila.
+    /// O cabeçalho que carrega o identificador da sessão em toda requisição.
+    /// `httpAdditionalHeaders` da configuração o adiciona sozinho a cada
+    /// pedido — o código de produção (`GmailClient`, `GoogleAuth`) nunca
+    /// precisa saber que o stub existe.
+    private static let sessionHeader = "X-StubURLProtocol-Session"
+    /// A chave da propriedade carimbada em `canonicalRequest(for:)` e lida de
+    /// volta em `startLoading()`. É o mecanismo documentado do `URLProtocol`
+    /// para amarrar dado próprio a uma requisição que sobrevive até o
+    /// `startLoading` da instância.
+    private static let sessionPropertyKey = "StubURLProtocol.sessionID"
+
+    /// Uma tabela **por sessão**, e não uma tabela única para o processo
+    /// inteiro. Antes disto era `static var routes`/`recorded` compartilhados:
+    /// duas suítes (`GoogleAuthTests`, `GmailClientTests`) rodando em
+    /// paralelo faziam o `install()` de uma apagar o roteiro da outra
+    /// enquanto ela tinha uma requisição em voo — `.serialized` no `@Suite`
+    /// só serializa os testes *dentro* da própria suíte, nunca entre suítes.
+    /// Isolando por `UUID` de sessão, duas suítes podem rodar ao mesmo tempo
+    /// sem uma pisar no roteiro da outra, e o `.serialized` das duas suítes
+    /// pôde sair.
     private static let lock = NSLock()
-    nonisolated(unsafe) private static var routes: [String: [Reply]] = [:]
-    nonisolated(unsafe) private static var recorded: [(path: String, body: String)] = []
+    nonisolated(unsafe) private static var routesByID: [UUID: [String: [Reply]]] = [:]
+    nonisolated(unsafe) private static var recordedByID: [UUID: [(path: String, body: String)]] = [:]
 
-    /// Instala um roteiro. Cada caminho tem uma **fila** de respostas: a
-    /// primeira chamada consome a primeira, e é assim que se testa "o refresh
-    /// falha, e o seguinte funciona".
-    static func install(_ routes: [String: [Reply]]) {
+    /// Uma `URLSession` isolada, com o roteiro já instalado na criação: cada
+    /// chamada tem seu próprio `UUID`, seu próprio roteiro e seu próprio log
+    /// de requisições, sem tocar o de nenhuma outra sessão rodando junto.
+    static func session(routes: [String: [Reply]] = [:]) -> URLSession {
+        let id = UUID()
         lock.lock()
-        defer { lock.unlock() }
-        self.routes = routes
-        recorded = []
-    }
+        routesByID[id] = routes
+        recordedByID[id] = []
+        lock.unlock()
 
-    static func reset() {
-        lock.lock()
-        defer { lock.unlock() }
-        routes = [:]
-        recorded = []
-    }
-
-    /// O que o cliente pediu, na ordem. É como o teste afirma que o corpo do
-    /// POST levou `grant_type=refresh_token` e não outra coisa.
-    static var requests: [(path: String, body: String)] {
-        lock.lock()
-        defer { lock.unlock() }
-        return recorded
-    }
-
-    /// Uma `URLSession` que só fala com este stub.
-    static func session() -> URLSession {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [StubURLProtocol.self]
+        // `httpAdditionalHeaders` é aplicado pelo `URLSession` a toda
+        // requisição feita por esta sessão — é assim que o identificador
+        // chega ao `canonicalRequest(for:)` sem que quem monta o
+        // `URLRequest` (o `GmailClient`, o `GoogleAuth`) precise participar.
+        config.httpAdditionalHeaders = [sessionHeader: id.uuidString]
         return URLSession(configuration: config)
     }
 
+    /// O que uma sessão específica pediu, na ordem. É como o teste afirma que
+    /// o corpo do POST levou `grant_type=refresh_token` e não outra coisa —
+    /// sem risco de ler o que outra sessão, de outra suíte, gravou ao mesmo
+    /// tempo.
+    static func requests(for session: URLSession) -> [(path: String, body: String)] {
+        guard let id = sessionID(of: session) else { return [] }
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedByID[id] ?? []
+    }
+
+    private static func sessionID(of session: URLSession) -> UUID? {
+        (session.configuration.httpAdditionalHeaders?[sessionHeader] as? String)
+            .flatMap(UUID.init(uuidString:))
+    }
+
     override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    /// Carimba o `UUID` da sessão como propriedade da requisição canônica.
+    /// O `URLProtocol` garante que essa propriedade sobrevive até
+    /// `startLoading()` ler `self.request` — é o ponto de entrada oficial
+    /// para dado próprio de protocolo, e não uma convenção informal.
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest {
+        guard let idString = request.value(forHTTPHeaderField: sessionHeader),
+              let id = UUID(uuidString: idString),
+              let mutable = (request as NSURLRequest).mutableCopy() as? NSMutableURLRequest
+        else { return request }
+        URLProtocol.setProperty(id, forKey: sessionPropertyKey, in: mutable)
+        return mutable as URLRequest
+    }
 
     override func startLoading() {
         let caminho = request.url?.path ?? ""
@@ -82,12 +116,16 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
                 return String(data: dados, encoding: .utf8) ?? ""
             } ?? ""
 
+        let sessaoID = URLProtocol.property(forKey: Self.sessionPropertyKey, in: request) as? UUID
+
         Self.lock.lock()
-        Self.recorded.append((path: caminho, body: corpo))
+        if let sessaoID {
+            Self.recordedByID[sessaoID, default: []].append((path: caminho, body: corpo))
+        }
         let resposta: Reply?
-        if var fila = Self.routes[caminho], !fila.isEmpty {
+        if let sessaoID, var fila = Self.routesByID[sessaoID]?[caminho], !fila.isEmpty {
             resposta = fila.removeFirst()
-            Self.routes[caminho] = fila
+            Self.routesByID[sessaoID]?[caminho] = fila
         } else {
             resposta = nil
         }
