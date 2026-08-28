@@ -211,12 +211,29 @@ struct LaunchWindowRequestTests {
     @Test("cada bandeira mapeia para a cena dela", arguments: [
         ("--nova-mensagem", UNIWindow.newMessage),
         ("--responder", UNIWindow.composer),
+        ("--responder-todos", UNIWindow.composer),
+        ("--encaminhar", UNIWindow.composer),
         ("--mensagem", UNIWindow.message),
         ("--compromisso", UNIWindow.event),
     ])
     func flagMapsToScene(flag: String, expected: String) throws {
         let request = try #require(LaunchWindowRequest.parse([flag]))
         #expect(request.windowID == expected)
+    }
+
+    /// Três bandeiras abrem a **mesma** cena, e o que as distingue é a
+    /// intenção que o valor carrega — a mesma que o menu manda por
+    /// `openWindow`. Sem isso, `--encaminhar m1` abriria uma resposta.
+    @Test("as três intenções da janela 03 chegam pelo valor, não pela cena")
+    func composerFlagsCarryTheirIntent() throws {
+        let responder = try #require(LaunchWindowRequest.parse(["--responder", "m1"]))
+        #expect(ComposerRoute.parse(responder.value) == .reply(messageID: "m1"))
+
+        let todos = try #require(LaunchWindowRequest.parse(["--responder-todos", "m1"]))
+        #expect(ComposerRoute.parse(todos.value) == .replyAll(messageID: "m1"))
+
+        let encaminhar = try #require(LaunchWindowRequest.parse(["--encaminhar=m1"]))
+        #expect(ComposerRoute.parse(encaminhar.value) == .forward(messageID: "m1"))
     }
 
     @Test("o valor vem colado ou separado")
