@@ -67,6 +67,42 @@ struct InitialLoaderGmailTests {
         ]
     }
 
+    /// Seis mensagens de entrada numa página só — o roteiro do teste de
+    /// retomada de verdade. `falhandoEm` troca a resposta de uma delas por um
+    /// 401, que é erro **da sessão**: a carga para ali.
+    private func roteiroDeSeis(falhandoEm falha: String? = nil) -> [String: [StubURLProtocol.Reply]] {
+        var roteiro: [String: [StubURLProtocol.Reply]] = [
+            "/gmail/v1/users/me/profile": [.json(
+                "{\"emailAddress\":\"ricardo@gmail.com\",\"historyId\":\"9928471\"}"
+            )],
+            "/gmail/v1/users/me/labels": [.json("{\"labels\":[{\"id\":\"INBOX\",\"name\":\"INBOX\"}]}")],
+            "/gmail/v1/users/me/messages": [.json(
+                "{\"messages\":[" + (1...6).map { "{\"id\":\"m\($0)\"}" }.joined(separator: ",") + "]}"
+            )],
+        ]
+        for numero in 1...6 {
+            let id = "m\(numero)"
+            roteiro["/gmail/v1/users/me/messages/\(id)"] = id == falha
+                ? [.json("{\"error\":{\"code\":401}}", status: 401)]
+                : [.json(mensagemJSON(
+                    id: id, rotulos: ["INBOX"], assunto: "Assunto \(numero)", corpo: "Corpo de \(id)."
+                ))]
+        }
+        return roteiro
+    }
+
+    private func servidorIDs(_ db: SyncDatabase) async throws -> Set<String> {
+        try await db.pool.read { conexao in
+            Set(try MessageRecord.fetchAll(conexao).compactMap(\.serverID))
+        }
+    }
+
+    private func estado(_ db: SyncDatabase) async throws -> Account.State? {
+        try await db.pool.read { conexao in
+            try AccountRecord.fetchOne(conexao, key: "conta-g")?.account.state
+        }
+    }
+
     private func cliente(_ session: URLSession, token: @Sendable @escaping () -> String = { "at" }) -> GmailClient {
         GmailClient(
             session: session,
@@ -201,6 +237,89 @@ struct InitialLoaderGmailTests {
         #expect(corpos == 3)
     }
 
+    @Test("Interromper no meio commita os lotes fechados e retomar completa a caixa")
+    func retomaDepoisDeInterromper() async throws {
+        // O teste de retomada de verdade — duas cargas completas provam
+        // idempotência, não interrupção. Aqui a primeira passada morre no meio
+        // de um lote: os três primeiros já estão commitados, e a quarta
+        // mensagem, que estava no lote aberto, vai embora com ele.
+        let db = try SyncDatabase.temporary()
+        try await contaNoBanco(db)
+        let primeira = StubURLProtocol.session(routes: roteiroDeSeis(falhandoEm: "m5"))
+
+        await #expect(throws: SyncError.autenticacao) {
+            try await InitialLoader(database: db, batchSize: 3).loadGmail(
+                account: self.conta, client: self.cliente(primeira), now: self.agora, progress: { _ in }
+            )
+        }
+        // O lote fechado ficou; o lote aberto não — ou entra tudo, ou nada.
+        #expect(try await servidorIDs(db) == ["m1", "m2", "m3"])
+        #expect(try await estado(db) == .erroDeAutenticacao)
+
+        // Reabrir continua de onde parou: nada duplicado, nada faltando.
+        let segunda = StubURLProtocol.session(routes: roteiroDeSeis())
+        try await InitialLoader(database: db, batchSize: 3).loadGmail(
+            account: conta, client: cliente(segunda), now: agora, progress: { _ in }
+        )
+        #expect(try await servidorIDs(db) == ["m1", "m2", "m3", "m4", "m5", "m6"])
+        #expect(try await db.pool.read { try MessageRecord.fetchCount($0) } == 6)
+        #expect(try await db.pool.read { try MessageBodyRecord.fetchCount($0) } == 6)
+        #expect(try await estado(db) == .ativa)
+    }
+
+    @Test("Uma mensagem apagada entre a listagem e a leitura (404) não custa as outras")
+    func quatrocentosEQuatroNoMeio() async throws {
+        // O 404 é real e comum: a listagem devolveu o id, a pessoa apagou a
+        // mensagem no navegador, e o `get` chega tarde. É erro **daquela**
+        // mensagem — a carga segue e termina bem.
+        var roteiro = roteiroPadrao()
+        roteiro["/gmail/v1/users/me/messages/m2"] = [
+            .json("{\"error\":{\"code\":404,\"message\":\"Requested entity was not found.\"}}", status: 404)
+        ]
+
+        let db = try SyncDatabase.temporary()
+        try await carrega(db, roteiro: roteiro)
+
+        // `m3` é Enviada e nunca vira linha; sobram `m1` e `m4`.
+        #expect(try await servidorIDs(db) == ["m1", "m4"])
+        #expect(try await estado(db) == .ativa)
+        let sync = try await db.pool.read { conexao in
+            try SyncStateRecord.fetchOne(conexao, key: ["accountID": "conta-g", "folderID": ""])
+        }
+        #expect(sync?.historyID == "9928471")
+    }
+
+    @Test("Um 403 no meio é da sessão: aborta e a conta pede reconexão")
+    func quatrocentosETresAborta() async throws {
+        // O espelho do 404. Autorização retirada não melhora na próxima
+        // mensagem: insistir gastaria oitenta e nove requisições para chegar
+        // ao mesmo lugar, mais tarde.
+        var roteiro = roteiroPadrao()
+        roteiro["/gmail/v1/users/me/messages/m2"] = [
+            .json("{\"error\":{\"code\":403,\"message\":\"Insufficient Permission\"}}", status: 403)
+        ]
+
+        let db = try SyncDatabase.temporary()
+        try await contaNoBanco(db)
+        let session = StubURLProtocol.session(routes: roteiro)
+
+        await #expect(throws: SyncError.autorizacaoRevogada) {
+            try await InitialLoader(database: db).loadGmail(
+                account: self.conta, client: self.cliente(session), now: self.agora, progress: { _ in }
+            )
+        }
+        #expect(try await estado(db) == .erroDeAutenticacao)
+        // Abortou de verdade: `m3` e `m4` nunca foram pedidos.
+        let pedidos = StubURLProtocol.requests(for: session).map(\.path)
+        #expect(!pedidos.contains { $0.hasSuffix("/messages/m4") })
+        // E nada de `historyId`: a carga não terminou, e o Marco 3 não pode
+        // partir de um ponto que nunca foi alcançado.
+        let sync = try await db.pool.read { conexao in
+            try SyncStateRecord.fetchOne(conexao, key: ["accountID": "conta-g", "folderID": ""])
+        }
+        #expect(sync == nil)
+    }
+
     @Test("O corpo desce e a busca acha por dentro dele, com acento dobrado")
     func corpoIndexado() async throws {
         let db = try SyncDatabase.temporary()
@@ -215,13 +334,24 @@ struct InitialLoaderGmailTests {
     @Test("O historyId do profile é guardado para o Marco 3 começar incremental")
     func historyIDGuardado() async throws {
         let db = try SyncDatabase.temporary()
-        try await carrega(db)
+        let (_, session) = try await carrega(db)
 
-        let estado = try await db.pool.read { conexao in
+        let sync = try await db.pool.read { conexao in
             try SyncStateRecord.fetchOne(conexao, key: ["accountID": "conta-g", "folderID": ""])
         }
-        #expect(estado?.historyID == "9928471")
-        #expect(estado?.syncedAt != nil)
+        #expect(sync?.historyID == "9928471")
+        #expect(sync?.syncedAt != nil)
+
+        // **Lido antes, guardado depois.** É a ordem que importa, e ela não
+        // aparece em nenhum dado do banco: mover o `profile()` para depois da
+        // paginação deixaria tudo acima verde e abriria o vão em que uma
+        // mensagem chegada durante a carga nunca apareceria — nem aqui (a
+        // listagem já passou) nem no incremental do Marco 3 (o `historyId`
+        // já a inclui). A prova é a ordem no log de requisições.
+        let caminhos = StubURLProtocol.requests(for: session).map(\.path)
+        let perfil = try #require(caminhos.firstIndex { $0.hasSuffix("/profile") })
+        let listagem = try #require(caminhos.firstIndex { $0.hasSuffix("/messages") })
+        #expect(perfil < listagem)
     }
 
     @Test("A conta termina `ativa` e com carimbo de sincronização")
@@ -352,11 +482,12 @@ struct InitialLoaderGmailTests {
         // migração continua íntegra e a contagem é legível.
         let quantas = try await db.pool.read { try MessageRecord.fetchCount($0) }
         #expect(quantas >= 0)
-        let estado = try await db.pool.read { conexao in
-            try AccountRecord.fetchOne(conexao, key: "conta-g")?.account.state
-        }
-        // Cancelar não é defeito de credencial.
-        #expect(estado != .erroDeAutenticacao)
+        // E a conta **volta de `carregando`**. Afirmar só
+        // `!= .erroDeAutenticacao` passava com o defeito: a escrita de
+        // recuperação rodava dentro da tarefa já cancelada, o GRDB lançava
+        // `CancellationError` antes de tocar o banco, o `try?` engolia, e a
+        // conta ficava presa girando a roda para sempre.
+        #expect(try await estado(db) == .ativa)
     }
 
     // MARK: O replay pós-401
@@ -437,6 +568,72 @@ struct InitialLoaderGmailTests {
         // E o que já tinha entrado continua lá.
         let quantas = try await db.pool.read { try MessageRecord.fetchCount($0) }
         #expect(quantas > 0)
+    }
+
+    @Test("O 401 na SEGUNDA página repete a página certa, não a primeira")
+    func replayNaPaginacao() async throws {
+        // O replay tem de repetir a chamada **como ela era** — com o
+        // `pageToken`. Repetida sem ele, a listagem devolveria a primeira
+        // página de novo: metade da caixa some, e nada no relato diz por quê.
+        var roteiro = roteiroPadrao()
+        roteiro["/gmail/v1/users/me/messages"] = [
+            .json("{\"messages\":[{\"id\":\"m1\"},{\"id\":\"m2\"}],\"nextPageToken\":\"p2\"}"),
+            .json("{\"error\":{\"code\":401}}", status: 401),
+            .json("{\"messages\":[{\"id\":\"m3\"},{\"id\":\"m4\"}]}"),
+        ]
+
+        let db = try SyncDatabase.temporary()
+        try await contaNoBanco(db)
+        let cofre = Cofre("at-velho")
+        let session = StubURLProtocol.session(routes: roteiro)
+
+        try await InitialLoader(database: db).loadGmail(
+            account: conta,
+            client: cliente(session, token: { cofre.token }),
+            renewAccessToken: { cofre.renova(para: "at-novo") },
+            now: agora, progress: { _ in }
+        )
+
+        // As duas páginas entraram inteiras.
+        #expect(try await servidorIDs(db) == ["m1", "m2", "m4"])
+        #expect(try await estado(db) == .ativa)
+
+        let listagens = StubURLProtocol.requests(for: session).filter { $0.path.hasSuffix("/messages") }
+        #expect(listagens.count == 3)
+        // Byte a byte a mesma query — só o Bearer muda.
+        #expect(listagens[1].query == listagens[2].query)
+        #expect((listagens[1].query.removingPercentEncoding ?? "").contains("pageToken=p2"))
+        #expect(listagens[1].authorization == "Bearer at-velho")
+        #expect(listagens[2].authorization == "Bearer at-novo")
+        #expect(cofre.renovacoes == 1)
+    }
+
+    @Test("Token de página repetido aborta com explicação, em vez de girar para sempre")
+    func paginacaoQueNaoAvanca() async throws {
+        // Um servidor (ou um proxy no meio) que devolve sempre o mesmo
+        // `nextPageToken` prenderia a carga num laço: `ids` enchendo de
+        // repetidos, a segunda etapa nunca começando, a roda girando sem nada
+        // no relato. A guarda transforma isso num erro que se lê.
+        var roteiro = roteiroPadrao()
+        roteiro["/gmail/v1/users/me/messages"] = Array(repeating: .json(
+            "{\"messages\":[{\"id\":\"m1\"}],\"nextPageToken\":\"sempre-o-mesmo\"}"
+        ), count: 4)
+
+        let db = try SyncDatabase.temporary()
+        try await contaNoBanco(db)
+        let session = StubURLProtocol.session(routes: roteiro)
+
+        await #expect(throws: SyncError.self) {
+            try await InitialLoader(database: db).loadGmail(
+                account: self.conta, client: self.cliente(session), now: self.agora, progress: { _ in }
+            )
+        }
+        // Parou na segunda: o token repetido é detectado assim que reaparece.
+        #expect(StubURLProtocol.requests(for: session).filter { $0.path.hasSuffix("/messages") }.count == 2)
+        // Não é erro de credencial — a conta não pode oferecer "Reconectar"
+        // para um defeito de paginação do servidor.
+        #expect(try await estado(db) == .ativa)
+        #expect(InitialLoader.maxPages == 500)
     }
 
     @Test("Sem quem renove, o primeiro 401 continua terminal")

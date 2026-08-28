@@ -37,6 +37,12 @@ public struct InitialLoader: Sendable {
     /// abrir custa tempo e disco para nada.
     public static let fullBodyCount = 50
 
+    /// O teto de páginas da listagem. A `messages.list` pede 500 ids por
+    /// página, então 500 páginas são 250 mil mensagens — quarenta e cinco dias
+    /// de folga sobre a caixa mais movimentada que uma janela de 90 dias
+    /// produz. Quem passar disso não é uma caixa grande: é um laço.
+    public static let maxPages = 500
+
     /// Quantas mensagens por transação. Lote pequeno demais paga o preço da
     /// transação a toda hora; grande demais deixa o progresso mentindo parado
     /// e o cancelamento demorado.
@@ -110,12 +116,34 @@ public struct InitialLoader: Sendable {
             }
 
             // 1. Os ids, paginados.
+            //
+            // O laço tem duas guardas, e nenhuma delas é decorativa: um
+            // servidor que devolve sempre o mesmo `nextPageToken` (por defeito
+            // dele ou por um proxy no meio) faria a carga girar para sempre,
+            // enchendo `ids` de repetidos e sem nunca chegar à segunda etapa —
+            // uma roda de progresso que nunca anda, sem nada no relato.
             var ids: [String] = []
             var token: String?
+            var tokensVistos: Set<String> = []
+            var paginas = 0
             repeat {
                 try Task.checkCancellation()
                 let pagina = try await gmail.messageIDs(query: Self.gmailQuery, pageToken: token)
                 ids.append(contentsOf: pagina.ids)
+                paginas += 1
+
+                if let proximo = pagina.nextPageToken {
+                    guard tokensVistos.insert(proximo).inserted else {
+                        throw SyncError.resposta(
+                            "A listagem do Gmail devolveu a mesma página de novo (token repetido) — a paginação não avança."
+                        )
+                    }
+                    guard paginas < Self.maxPages else {
+                        throw SyncError.resposta(
+                            "A listagem do Gmail passou de \(Self.maxPages) páginas sem terminar."
+                        )
+                    }
+                }
                 token = pagina.nextPageToken
             } while token != nil
 
@@ -162,19 +190,43 @@ public struct InitialLoader: Sendable {
         } catch is CancellationError {
             // Cancelamento não é defeito: a conta volta a `ativa` com o que
             // baixou, e a próxima abertura continua de onde parou.
-            try? await marca(account.id, estado: .ativa)
+            await recupera(account.id, estado: .ativa)
             throw CancellationError()
         } catch let erro as SyncError {
-            try? await marca(account.id, estado: Self.estadoPara(erro))
+            await recupera(account.id, estado: Self.estadoPara(erro))
             log.error("Carga inicial de \(account.address, privacy: .private) falhou: \(erro.mensagem)")
             throw erro
         } catch {
             // Banco, GRDB, o que for: o que não pode acontecer é a conta ficar
             // presa em `carregando` para sempre, girando uma roda que nunca
             // mais vai parar.
-            try? await marca(account.id, estado: .ativa)
+            await recupera(account.id, estado: .ativa)
             log.error("Carga inicial de \(account.address, privacy: .private) falhou: \(error)")
             throw error
+        }
+    }
+
+    /// A escrita de recuperação — a que tira a conta de `carregando` quando a
+    /// carga termina mal.
+    ///
+    /// **Fora da tarefa cancelada, sempre.** O GRDB honra o cancelamento: uma
+    /// `pool.write` chamada de dentro de um `Task` já cancelado lança
+    /// `CancellationError` antes de tocar o banco. Escrita direta aqui, com o
+    /// erro engolido por um `try?`, deixava a conta presa em `carregando` para
+    /// sempre — girando a roda que o comentário acima jura que para. É o
+    /// caminho **exato** do cancelamento, o mais provável dos três.
+    ///
+    /// `Task.detached` porque ele não herda o cancelamento do chamador; e
+    /// `try?` continua ali porque, se nem esta escrita passar, o que resta é
+    /// registrar — lançar daqui trocaria o erro real da carga por um erro de
+    /// banco na limpeza.
+    private func recupera(_ accountID: String, estado: Account.State) async {
+        do {
+            try await Task.detached { [self] in
+                try await marca(accountID, estado: estado)
+            }.value
+        } catch {
+            log.error("Não foi possível tirar a conta de `carregando`: \(error)")
         }
     }
 

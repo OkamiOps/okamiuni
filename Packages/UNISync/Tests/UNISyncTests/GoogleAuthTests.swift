@@ -272,6 +272,32 @@ struct GoogleAuthTests {
         #expect(guardados.accessToken == "at-renovado")
     }
 
+    @Test("Dez renovações forçadas ao mesmo tempo fazem UMA requisição ao `/token`")
+    func renovacaoForcadaEhUmaSoCorrida() async throws {
+        // O Google invalida um refresh token usado em paralelo: dez refreshes
+        // simultâneos derrubariam a conta em `erroDeAutenticacao` sem ninguém
+        // ter feito nada errado. A rota tem **uma** resposta só — uma segunda
+        // requisição não acharia rota e viraria erro de rede, que é como este
+        // teste ficaria vermelho se a corrida deixasse de existir.
+        let cofre = InMemorySecretStore()
+        try cofre.store(.oauth(OAuthTokens(
+            accessToken: "at-recusado", refreshToken: "rt",
+            expiresAt: Date(timeIntervalSince1970: 999_999)
+        )), for: "conta-g")
+        let (login, http) = auth(secrets: cofre, routes: [
+            "/token": [.json("{\"access_token\":\"at-renovado\",\"expires_in\":3600}")],
+        ])
+
+        try await withThrowingTaskGroup(of: String.self) { grupo in
+            for _ in 0..<10 {
+                grupo.addTask { try await login.renewedAccessToken(for: "conta-g") }
+            }
+            for try await token in grupo { #expect(token == "at-renovado") }
+        }
+
+        #expect(StubURLProtocol.requests(for: http).filter { $0.path == "/token" }.count == 1)
+    }
+
     @Test("Falha de rede no refresh vira `.rede`, e o refresh token continua no cofre")
     func refreshComFalhaDeRede() async throws {
         // Nenhuma rota para `/token`: o `StubURLProtocol` dispara um

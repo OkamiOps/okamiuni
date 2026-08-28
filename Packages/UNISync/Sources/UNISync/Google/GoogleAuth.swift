@@ -82,9 +82,12 @@ public actor GoogleAuth {
     /// pós-401 reenviaria exatamente o mesmo token e tomaria o mesmo 401: uma
     /// carga de 90 dias morreria por diferença de relógio.
     ///
-    /// Passa pela mesma corrida por conta de `refresh`: dez 401 simultâneos
-    /// (a carga é concorrente por natureza) disparam **um** refresh, não dez —
-    /// e o Google invalida refresh token usado em paralelo.
+    /// Passa pela mesma corrida por conta de `refresh`: N chamadas simultâneas
+    /// disparam **um** refresh, não N — e o Google invalida refresh token usado
+    /// em paralelo. O laço da carga inicial é sequencial e sozinho nunca
+    /// produziria esse aperto; quem produz é o resto do app em volta dele —
+    /// duas contas do mesmo Google, a leitura de corpo por demanda enquanto a
+    /// carga roda, o sync incremental do Marco 3.
     public func renewedAccessToken(for accountID: String) async throws -> String {
         guard case .oauth(let guardados)? = try secrets.secret(for: accountID) else {
             throw SyncError.autenticacao
