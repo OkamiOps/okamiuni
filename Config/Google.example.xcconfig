@@ -1,0 +1,6 @@
+// Copie para Config/Google.xcconfig (que está no .gitignore) e cole o seu
+// client ID de app desktop. Ver docs/oauth-google.md.
+//
+// Vazio é legítimo: sem client ID a rota Google da janela de Contas explica o
+// que falta e aponta para o roteiro, e a rota IMAP continua inteira.
+OKAMIUNI_GOOGLE_CLIENT_ID =
