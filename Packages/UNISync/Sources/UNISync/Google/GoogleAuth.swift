@@ -36,7 +36,9 @@ public actor GoogleAuth {
     /// Abre o consentimento, troca o código por tokens e os guarda.
     public func connect(accountID: String, loginHint: String?) async throws -> OAuthTokens {
         let pkce = PKCEPair.random()
-        let state = UUID().uuidString
+        // Mesma fonte de aleatoriedade do `verifier` — não `UUID`, que é
+        // pensado para unicidade e não para imprevisibilidade criptográfica.
+        let state = PKCEPair.randomToken()
         let url = config.authorizationURL(pkce: pkce, state: state, loginHint: loginHint)
 
         let callback = try await presenter.authorize(url: url, callbackScheme: config.callbackScheme)
@@ -75,13 +77,23 @@ public actor GoogleAuth {
         if let emVoo = inFlight[accountID] { return try await emVoo.value }
 
         let tarefa = Task<OAuthTokens, any Error> { [config, secrets] in
-            let novos = try await self.postToken([
-                "grant_type": "refresh_token",
-                "refresh_token": guardados.refreshToken,
-                "client_id": config.clientID,
-            ], keepingRefreshToken: guardados.refreshToken)
-            try secrets.store(.oauth(novos), for: accountID)
-            return novos
+            do {
+                let novos = try await self.postToken([
+                    "grant_type": "refresh_token",
+                    "refresh_token": guardados.refreshToken,
+                    "client_id": config.clientID,
+                ], keepingRefreshToken: guardados.refreshToken)
+                try secrets.store(.oauth(novos), for: accountID)
+                return novos
+            } catch SyncError.autorizacaoRevogada {
+                // O refresh token morreu no servidor (revogado, senha
+                // trocada, 6 meses parado): deixá-lo no cofre é lixo que só
+                // seria descoberto na próxima tentativa de uso — ou nunca,
+                // se a conta for removida antes. Reconectar já assume que
+                // não há nada válido guardado, então tira agora.
+                try? secrets.remove(for: accountID)
+                throw SyncError.autorizacaoRevogada
+            }
         }
         inFlight[accountID] = tarefa
         defer { inFlight[accountID] = nil }

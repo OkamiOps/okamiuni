@@ -20,14 +20,27 @@ public struct PKCEPair: Sendable, Hashable {
     }
 
     public static func random() -> PKCEPair {
-        var bytes = [UInt8](repeating: 0, count: 32)
-        // 32 bytes viram 43 caracteres em base64url — o piso do RFC.
-        // `SecRandomCopyBytes` só falha se o gerador do sistema falhar; se
-        // falhar, não há como continuar com segurança, e mascarar com
-        // `arc4random` seria fingir que houve entropia.
+        make(from: randomBytes(count: 32))
+    }
+
+    /// Um token opaco aleatório em base64url — a mesma fonte de entropia do
+    /// `verifier`, para o `state` do fluxo OAuth (`GoogleAuth.connect`) não
+    /// abrir uma segunda rota de aleatoriedade no pacote com `UUID`, que é
+    /// pensado para unicidade e não para imprevisibilidade criptográfica.
+    public static func randomToken(byteCount: Int = 16) -> String {
+        base64URL(Data(randomBytes(count: byteCount)))
+    }
+
+    /// Bytes do gerador aleatório do sistema.
+    ///
+    /// `SecRandomCopyBytes` só falha se o gerador do sistema falhar; se
+    /// falhar, não há como continuar com segurança, e mascarar com
+    /// `arc4random` seria fingir que houve entropia.
+    private static func randomBytes(count: Int) -> [UInt8] {
+        var bytes = [UInt8](repeating: 0, count: count)
         let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
         precondition(status == errSecSuccess, "O gerador aleatório do sistema falhou (\(status)).")
-        return make(from: bytes)
+        return bytes
     }
 
     /// base64 com o alfabeto de URL e sem `=` — o RFC exige os três ajustes.

@@ -29,18 +29,21 @@ struct GoogleAuthTests {
 
     @Test("O challenge é o SHA-256 do verifier em base64url sem padding")
     func pkceS256() {
-        // Vetor do RFC 7636, apêndice B: os octetos por trás do
-        // `code_verifier` de exemplo "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wOOSRe9x2xI4".
+        // Vetor OFICIAL do RFC 7636, apêndice B.1 — os octetos, o verifier e o
+        // challenge são os três publicados no RFC, não recalculados a partir
+        // de um deles. (A rodada de conserto 1 corrigiu um typo aqui: o array
+        // de octetos original não hasheava para o verifier/challenge que o
+        // teste afirmava, e a correção anterior tinha "consertado" isso
+        // recalculando os dois lados a partir do array errado — um vetor
+        // autoconsistente, mas que já não era o do RFC.)
         let bytes: [UInt8] = [
             116, 24, 223, 180, 151, 153, 224, 37, 79, 250, 96, 125, 216, 173,
-            187, 186, 22, 212, 37, 77, 105, 214, 191, 240, 56, 228, 145, 123,
-            220, 118, 196, 142,
+            187, 186, 22, 212, 37, 77, 105, 214, 191, 240, 91, 88, 5, 88, 83,
+            132, 141, 121,
         ]
         let par = PKCEPair.make(from: bytes)
-        #expect(par.verifier == "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wOOSRe9x2xI4")
-        // O challenge é o SHA-256 do verifier (ASCII), em base64url — conferido
-        // por computação direta, não copiado de memória.
-        #expect(par.challenge == "YC06DhXdyn4Kzvyq-2ZtWGVQCXJSWSv9jvwFjK_cRr8")
+        #expect(par.verifier == "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk")
+        #expect(par.challenge == "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
         // base64url: sem '+', sem '/', sem '='.
         #expect(!par.challenge.contains("+"))
         #expect(!par.challenge.contains("/"))
@@ -200,6 +203,75 @@ struct GoogleAuthTests {
         await #expect(throws: SyncError.autorizacaoRevogada) {
             _ = try await self.auth(secrets: cofre).accessToken(for: "conta-g")
         }
+
+        // O nome promete que não fica token morto no cofre — a asserção que
+        // prova isso, não só o erro certo. `invalid_grant` significa que o
+        // `rt-morto` nunca mais vai funcionar; deixá-lo no cofre é lixo que
+        // só a Task 15 (ou o próximo refresh) descobriria de novo.
+        #expect(try cofre.secret(for: "conta-g") == nil)
+    }
+
+    @Test("Refresh falho não deixa a corrida presa: o próximo pedido tenta de novo, não repete o erro velho")
+    func refreshFalhoLiberaAVaga() async throws {
+        // Sem o `defer { inFlight[accountID] = nil }`, a tarefa fracassada
+        // fica pendurada no dicionário para sempre, e todo pedido seguinte
+        // reusaria — e repetiria — o erro de uma corrida que já morreu, em
+        // vez de tentar de novo.
+        StubURLProtocol.install([
+            "/token": [
+                .json("{\"error\":\"internal_failure\"}", status: 500),
+                .json("""
+                    {"access_token":"at-segunda-tentativa","expires_in":3600,"token_type":"Bearer"}
+                    """),
+            ],
+        ])
+        defer { StubURLProtocol.reset() }
+
+        let cofre = InMemorySecretStore()
+        try cofre.store(.oauth(OAuthTokens(
+            accessToken: "at-velho", refreshToken: "rt",
+            expiresAt: Date(timeIntervalSince1970: 1)
+        )), for: "conta-g")
+        let sessao = auth(secrets: cofre)
+
+        await #expect(throws: SyncError.self) {
+            _ = try await sessao.accessToken(for: "conta-g")
+        }
+
+        let token = try await sessao.accessToken(for: "conta-g")
+        #expect(token == "at-segunda-tentativa")
+        #expect(StubURLProtocol.requests.filter { $0.path == "/token" }.count == 2)
+    }
+
+    @Test("Falha de rede no refresh vira `.rede`, e o refresh token continua no cofre")
+    func refreshComFalhaDeRede() async throws {
+        // Nenhuma rota para `/token`: o `StubURLProtocol` dispara um
+        // `URLError`, que é falha de transporte — não recusa do servidor.
+        // A distinção importa: `.rede` manda tentar de novo, e
+        // `.autorizacaoRevogada` mandaria reconectar — a pessoa perderia a
+        // conta por causa de uma rede instável, não de um token morto.
+        StubURLProtocol.install([:])
+        defer { StubURLProtocol.reset() }
+
+        let cofre = InMemorySecretStore()
+        try cofre.store(.oauth(OAuthTokens(
+            accessToken: "at-velho", refreshToken: "rt-preservado",
+            expiresAt: Date(timeIntervalSince1970: 1)
+        )), for: "conta-g")
+
+        do {
+            _ = try await self.auth(secrets: cofre).accessToken(for: "conta-g")
+            Issue.record("esperava erro de rede")
+        } catch SyncError.rede {
+            // esperado
+        } catch {
+            Issue.record("esperava .rede, veio \(error)")
+        }
+
+        guard case .oauth(let guardados)? = try cofre.secret(for: "conta-g") else {
+            Issue.record("erro de rede não pode apagar o refresh token do cofre"); return
+        }
+        #expect(guardados.refreshToken == "rt-preservado")
     }
 
     @Test("Quota do servidor de token não vira erro genérico")
