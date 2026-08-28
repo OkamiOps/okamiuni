@@ -362,6 +362,90 @@ struct AccountDirectorTests {
         #expect(try cofre.secret(for: conta.id) == nil)
     }
 
+    @Test("O segredo sai ANTES da linha: cofre que falha deixa a conta visível")
+    func ordemDoRemove() async throws {
+        // LACUNA DA AUDITORIA (G-c): inverter a ordem das duas escritas deixava
+        // os 206 testes verdes.
+        //
+        // A ordem é escolhida, e o comentário da produção diz por quê: as duas
+        // escritas não estão na mesma transação (uma é o Keychain, a outra é
+        // SQLite), então uma delas vai ser a que falha sozinha. Falhando o
+        // cofre primeiro, a conta fica na lista **com** o segredo dela — a
+        // pessoa vê e manda remover de novo. Na ordem inversa, o `DELETE`
+        // passaria e o Keychain falharia depois: a conta some da tela e a senha
+        // fica no chaveiro, sem nada na interface que ainda saiba que ela
+        // existe.
+        //
+        // MUTAÇÃO QUE ISTO PEGA: trocar as duas escritas de lugar.
+        let servidor = FakeImapServer(script: roteiroImap())
+        let porta = try servidor.start()
+        defer { servidor.stop() }
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+
+        let db = try SyncDatabase.temporary()
+        let cofre = CofreQueRecusaApagar()
+        let director = diretor(db: db, secrets: cofre, grupo: grupo, porta: porta)
+        let conta = try await director.addImapAccount(
+            address: "contato@meusite.com", password: "senha-de-app",
+            endpoint: endpoint(porta), hostMark: "meusite", displayName: "Site"
+        )
+        #expect(try cofre.secret(for: conta.id) != nil)
+
+        cofre.recusa = true
+        await #expect(throws: SyncError.self) { try await director.remove(accountID: conta.id) }
+
+        // A linha continua lá — é isso que dá à pessoa a chance de tentar de
+        // novo. O segredo também: nada foi apagado, e nada foi escondido.
+        #expect(try await db.pool.read { try AccountRecord.fetchCount($0) } == 1)
+        #expect(try cofre.secret(for: conta.id) != nil)
+    }
+
+    @Test("Relato de uma carga já morta não move a barra da carga nova")
+    func relatoDeGeracaoVelhaEhDescartado() async throws {
+        // LACUNA DA AUDITORIA (G-d): apagar o `guard generations[...] == geracao`
+        // de `registra` deixava os 206 testes verdes. A Task 15 declarou o token
+        // **sem teste**, por não querer abrir porta de teste; a auditoria mediu
+        // o preço, e a porta mínima (`registra`, `geracaoCorrente`,
+        // `progressoCorrente` como `internal`) está aberta agora, justificada.
+        //
+        // O relato de progresso viaja num `Task` próprio, disparado de fora do
+        // ator: o de uma carga já morta pode chegar **depois** de a seguinte
+        // ter começado e mandar a barra para trás. Não há como encenar esse
+        // atraso pela API pública sem depender de tempo — o único jeito honesto
+        // de provar a regra é chamar `registra` com uma geração que não é a
+        // corrente, que é exatamente o que a carga morta faria.
+        //
+        // MUTAÇÃO QUE ISTO PEGA: apagar esse `guard`.
+        let servidor = FakeImapServer(script: roteiroImap())
+        let porta = try servidor.start()
+        defer { servidor.stop() }
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+
+        let db = try SyncDatabase.temporary()
+        let director = diretor(db: db, secrets: InMemorySecretStore(), grupo: grupo, porta: porta)
+        let conta = try await director.addImapAccount(
+            address: "contato@meusite.com", password: "senha-de-app",
+            endpoint: endpoint(porta), hostMark: "meusite", displayName: "Site"
+        )
+        await director.loadInitial(accountID: conta.id)
+
+        let corrente = try #require(await director.geracaoCorrente(de: conta.id))
+        // O relato da carga corrente entra.
+        await director.registra(
+            LoadProgress(accountID: conta.id, done: 7, total: 10), geracao: corrente
+        )
+        #expect(await director.progressoCorrente(de: conta.id)?.done == 7)
+
+        // O da carga morta — outra geração — é descartado, e a barra fica onde
+        // estava em vez de voltar para trás.
+        await director.registra(
+            LoadProgress(accountID: conta.id, done: 1, total: 10), geracao: UUID()
+        )
+        #expect(await director.progressoCorrente(de: conta.id)?.done == 7)
+    }
+
     @Test("Adicionar duas contas dá duas cores diferentes e nenhuma quantidade máxima")
     func duasContas() async throws {
         let servidor = FakeImapServer(script: roteiroImap())
@@ -684,5 +768,41 @@ struct AccountDirectorTests {
         #expect(StubURLProtocol.requests(for: sessaoAuth).contains { $0.path == "/revoke" })
         #expect(try await db.pool.read { try AccountRecord.fetchCount($0) } == 0)
         #expect(try cofre.secret(for: conta.id) == nil)
+    }
+}
+
+/// Um cofre que guarda e lê normalmente, mas pode ser mandado **recusar** o
+/// apagamento. É o único jeito de observar a ordem das duas escritas do
+/// `remove`: elas não estão na mesma transação, então a prova é fazer uma
+/// falhar e olhar o que sobrou.
+private final class CofreQueRecusaApagar: SecretStore, @unchecked Sendable {
+    private let lock = NSLock()
+    private var guardados: [String: Secret] = [:]
+    /// `nonisolated(unsafe)` seria mentira: quem escreve é o teste, antes de
+    /// chamar o `remove`. O cadeado cobre as leituras do ator.
+    var recusa: Bool {
+        get { lock.lock(); defer { lock.unlock() }; return recusaInterna }
+        set { lock.lock(); recusaInterna = newValue; lock.unlock() }
+    }
+    private var recusaInterna = false
+
+    func store(_ secret: Secret, for accountID: String) throws {
+        lock.lock(); defer { lock.unlock() }
+        guardados[accountID] = secret
+    }
+
+    func secret(for accountID: String) throws -> Secret? {
+        lock.lock(); defer { lock.unlock() }
+        return guardados[accountID]
+    }
+
+    func remove(for accountID: String) throws {
+        lock.lock()
+        let vaiRecusar = recusaInterna
+        lock.unlock()
+        // O caso real: Keychain travado, item em uso, permissão negada.
+        if vaiRecusar { throw SyncError.keychain(status: -25_308) }
+        lock.lock(); defer { lock.unlock() }
+        guardados[accountID] = nil
     }
 }

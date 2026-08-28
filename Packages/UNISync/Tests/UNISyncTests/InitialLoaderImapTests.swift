@@ -366,6 +366,57 @@ struct InitialLoaderImapTests {
 
     // MARK: Os corpos
 
+    @Test("Só os 50 corpos mais recentes da pasta descem — não a pasta inteira")
+    func tetoDeCorposNoImap() async throws {
+        // LACUNA DA AUDITORIA (G-b): remover o `prefix(Self.fullBodyCount)` de
+        // `corposDe` deixava os 206 testes verdes. Numa pasta de 90 dias isso é
+        // um `UID FETCH BODY.PEEK` por mensagem, em série, com o corpo inteiro
+        // atravessando o fio.
+        //
+        // A prova é no **fio**: quantos comandos de corpo o servidor recebeu.
+        // Contar corpos no banco não bastaria — o roteiro responde o mesmo bloco
+        // a todos, e o `bodyText` filtra pelo uid pedido.
+        //
+        // MUTAÇÃO QUE ISTO PEGA: tirar o `prefix(Self.fullBodyCount)`.
+        let quantas = InitialLoader.fullBodyCount + 10
+        var script = roteiro()
+        // Uma pasta só, para a contagem ser da pasta e não da conta.
+        script.replies["LIST"] = [
+            "* LIST (\\HasNoChildren) \"/\" \"INBOX\"",
+            "TAG OK LIST completed",
+        ]
+        script.replies["UID SEARCH"] = [
+            "* SEARCH " + (1...quantas).map { String(9_000 + $0) }.joined(separator: " "),
+            "TAG OK UID SEARCH completed",
+        ]
+        script.replies["UID FETCH"] = (1...quantas).map { numero in
+            fetchLine(
+                uid: Int64(9_000 + numero), assunto: "Assunto \(numero)", flags: "",
+                // A hora decide quais são "as mais recentes"; o roteiro faz a
+                // ordem de data ser o contrário da ordem de UID, para o teste
+                // não passar por acidente de ordenação.
+                hora: String(format: "%02d", 23 - (numero % 24))
+            )
+        } + ["TAG OK UID FETCH completed"]
+        // A chave de corpo separada: é ela que o `bodyText` aciona.
+        script.replies[FakeImapServer.chaveDeCorpo] = [
+            "* 1 FETCH (UID 9001 BODY[TEXT] \"Um corpo qualquer.\")",
+            "TAG OK UID FETCH completed",
+        ]
+
+        let db = try SyncDatabase.temporary()
+        let (_, _, comandos) = try await carrega(db, script: script)
+
+        let pedidosDeCorpo = comandos.filter { $0.uppercased().contains("BODY.PEEK") }
+        #expect(
+            pedidosDeCorpo.count == InitialLoader.fullBodyCount,
+            "pediu \(pedidosDeCorpo.count) corpos de \(quantas) mensagens"
+        )
+        // E todas as mensagens entraram: o teto é dos corpos, não dos envelopes.
+        #expect(try await db.pool.read { try MessageRecord.fetchCount($0) } == quantas)
+    }
+
+
     @Test("Os corpos das mais recentes descem, e a busca acha por dentro deles")
     func corposDescem() async throws {
         var script = roteiro()

@@ -442,10 +442,31 @@ public actor AccountDirector {
         }
     }
 
-    private func registra(_ progresso: LoadProgress, geracao: UUID) async {
+    /// `internal`, e não `private`: é a porta mínima que deixa o teste provar o
+    /// token de geração.
+    ///
+    /// A Task 15 evitou esta porta e declarou o token **sem teste**; a auditoria
+    /// por mutação deste marco mediu o preço — apagar o `guard` abaixo deixava
+    /// os 206 testes verdes. O relato de progresso viaja num `Task` próprio,
+    /// disparado de fora do ator, e não há como fazer um relato de carga morta
+    /// chegar atrasado a partir da API pública sem depender de tempo: o único
+    /// jeito honesto de provar a regra é chamar isto com uma geração que não é
+    /// a corrente. A porta não abre nada que já não estivesse aberto ao
+    /// `@testable` — ela só dá nome ao que provar.
+    func registra(_ progresso: LoadProgress, geracao: UUID) async {
         // Relato de carga que já não é a corrente não move a barra de ninguém.
         guard generations[progresso.accountID] == geracao else { return }
         progresses[progresso.accountID] = progresso
         await refresh()
     }
+
+    /// A geração corrente de uma conta. A outra metade da porta acima: sem ela
+    /// o teste não teria como distinguir "a geração certa" de "uma qualquer".
+    func geracaoCorrente(de accountID: String) -> UUID? { generations[accountID] }
+
+    /// O progresso que a janela veria agora. Sem isto, provar que o relato
+    /// velho **não** moveu a barra dependeria de reconstruir o `AccountStatus`
+    /// inteiro pelo fluxo de assinatura, e o teste passaria a medir o fluxo em
+    /// vez da regra.
+    func progressoCorrente(de accountID: String) -> LoadProgress? { progresses[accountID] }
 }

@@ -43,6 +43,17 @@ private actor Freio {
         presos = []
     }
 
+    /// Solta **um** dos presos, sem abrir o freio para quem vier depois.
+    ///
+    /// É o que permite parar o relógio exatamente entre duas ações: a primeira
+    /// termina, a segunda chega e fica presa, e o teste observa o `isBusy`
+    /// naquele instante — em vez de o observar no fim, quando ele é falso das
+    /// duas maneiras.
+    func liberaUm() {
+        guard !presos.isEmpty else { return }
+        presos.removeFirst().resume()
+    }
+
     func quantasChegaram() -> Int { chegadas }
 }
 
@@ -64,6 +75,38 @@ private actor Batidas {
     func espera(_ alvo: Int) async {
         if quantas >= alvo { return }
         await withCheckedContinuation { vigias.append((alvo, $0)) }
+    }
+
+    /// Quantas até agora. É por ela que se afirma que uma re-adição **não**
+    /// disparou carga nenhuma.
+    func total() -> Int { quantas }
+}
+
+/// As transições de `isBusy` observadas, na ordem, **depois** de o observador
+/// entrar. Guarda o valor NOVO de cada mudança.
+private actor Transicoes {
+    private(set) var todas: [Bool] = []
+    func registra(_ valor: Bool) { todas.append(valor) }
+}
+
+extension AccountsModel {
+    /// Passa a acompanhar `isBusy` e anota cada mudança.
+    ///
+    /// `withObservationTracking` avisa **antes** da escrita e vale por uma
+    /// mudança só, então o observador se re-registra de dentro do próprio aviso
+    /// e lê o valor já escrito num salto seguinte. É a forma de observar uma
+    /// sequência de mudanças sem sondar em laço — sondar seria correr com o
+    /// escalonador, que é exatamente o que este teste não pode fazer.
+    fileprivate func observaOcupado(em destino: Transicoes) {
+        withObservationTracking {
+            _ = isBusy
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                await destino.registra(self.isBusy)
+                self.observaOcupado(em: destino)
+            }
+        }
     }
 }
 
@@ -278,6 +321,131 @@ struct AccountsModelTests {
         #expect(await segunda.value)
         #expect(await freio.quantasChegaram() == 2)
         #expect(await modelo.isBusy == false)
+    }
+
+    @Test("`isBusy` só desliga na ÚLTIMA da fila, e não na primeira que termina")
+    func ocupadoSegueAteAUltima() async throws {
+        // LACUNA DA AUDITORIA (G-e): trocar `if pendentes == 0 { isBusy = false }`
+        // por `isBusy = false` incondicional deixava os 206 testes verdes. O
+        // `acoesEmFila` acima só olha o `isBusy` **no fim de tudo**, quando ele é
+        // falso das duas maneiras.
+        //
+        // O que se afirma aqui é o meio: no instante em que a primeira ação
+        // termina e a segunda ainda está na fila, o ocupado continua ligado —
+        // senão o botão para de girar no meio do trabalho.
+        //
+        // MUTAÇÃO QUE ISTO PEGA: `isBusy = false` incondicional.
+        let servidor = FakeImapServer(script: roteiro())
+        let porta = try servidor.start()
+        defer { servidor.stop() }
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+
+        let freio = Freio()
+        let director = diretor(
+            db: try SyncDatabase.temporary(), secrets: InMemorySecretStore(),
+            grupo: grupo, porta: porta
+        ) { _, grupo in
+            await freio.passa()
+            return try await ImapSession.connect(
+                endpoint: ImapEndpoint(host: "127.0.0.1", port: porta, security: .startTLS),
+                group: grupo, allowInsecure: true, teto: .seconds(5)
+            )
+        }
+        let modelo = await AccountsModel(director: director)
+
+        let primeira = Task {
+            await modelo.testImap(
+                address: "a@meusite.com", password: "s", endpoint: self.endpoint(porta)
+            )
+        }
+        await freio.esperaChegada(1)
+        // A segunda entra na fila enquanto a primeira está presa no freio.
+        let segunda = Task {
+            await modelo.testImap(
+                address: "b@meusite.com", password: "s", endpoint: self.endpoint(porta)
+            )
+        }
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(await modelo.isBusy)
+
+        // O instante que separa as duas versões é **um salto do MainActor**:
+        // entre a primeira ação escrever o seu último `isBusy` e a segunda
+        // retomar. Ler `isBusy` de fora ali é uma corrida com o escalonador — e
+        // foi assim que a primeira versão deste teste passou verde com a
+        // mutação aplicada. O que não é corrida é contar as **transições**: a
+        // `@Observable` avisa em toda escrita que muda o valor.
+        //
+        // Correto:  false→true (primeira entra) … true→false (última sai) = 2.
+        // Mutado:   false→true, true→false, false→true, true→false      = 4.
+        let transicoes = Transicoes()
+        await modelo.observaOcupado(em: transicoes)
+
+        await freio.libera()
+        _ = await primeira.value
+        _ = await segunda.value
+        #expect(await modelo.isBusy == false)
+
+        // A ordem importa mais que o número: o ocupado não pode ter passado por
+        // `false` no meio, com ação ainda na fila.
+        let vistas = await transicoes.todas
+        #expect(vistas == [false], "o ocupado piscou com a fila ainda andando: \(vistas)")
+    }
+
+    @Test("Re-adicionar uma conta que já existe NÃO rebaixa 90 dias de novo")
+    func readicionarNaoRecarrega() async throws {
+        // LACUNA DA AUDITORIA (G-a): apagar o `guard conta.state == .carregando`
+        // de `carregaEmSegundoPlano` deixava os 206 testes verdes. Quem só
+        // trocou a senha de app não pediu para baixar tudo outra vez — e numa
+        // caixa grande isso são minutos de rede e a barra voltando ao começo.
+        //
+        // MUTAÇÃO QUE ISTO PEGA: apagar esse `guard`.
+        let servidor = FakeImapServer(script: roteiro())
+        let porta = try servidor.start()
+        defer { servidor.stop() }
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+
+        let db = try SyncDatabase.temporary()
+        let batidas = Batidas()
+        let director = diretor(
+            db: db, secrets: InMemorySecretStore(), grupo: grupo, porta: porta
+        ) { _, grupo in
+            _ = await batidas.bate()
+            return try await ImapSession.connect(
+                endpoint: ImapEndpoint(host: "127.0.0.1", port: porta, security: .startTLS),
+                group: grupo, allowInsecure: true, teto: .seconds(5)
+            )
+        }
+        let modelo = await AccountsModel(director: director)
+
+        // Primeira adição: conta nova, nasce `carregando`, e a carga corre.
+        await modelo.addImap(
+            address: "contato@meusite.com", password: "senha-de-app",
+            endpoint: endpoint(porta), hostMark: "meusite", displayName: "Site"
+        )
+        try await esperaAte {
+            let quantas = (try? await db.pool.read { try MessageRecord.fetchCount($0) }) ?? 0
+            return quantas > 0
+        }
+        let depoisDaPrimeira = await batidas.total()
+
+        // Re-adição: a conta volta com o estado que já tinha (`.ativa`).
+        await modelo.addImap(
+            address: "contato@meusite.com", password: "outra-senha",
+            endpoint: endpoint(porta), hostMark: "meusite", displayName: "Site"
+        )
+        // Uma folga generosa: a carga é solta num `Task`, e afirmar "não
+        // aconteceu" sem dar tempo de acontecer não afirma nada.
+        try await Task.sleep(for: .milliseconds(300))
+
+        // A conexão do `addImapAccount` (o teste da senha nova) conta uma;
+        // a da carga contaria outra. É a segunda que não pode existir.
+        let depoisDaSegunda = await batidas.total()
+        #expect(
+            depoisDaSegunda == depoisDaPrimeira + 1,
+            "a re-adição disparou carga: \(depoisDaPrimeira) → \(depoisDaSegunda)"
+        )
     }
 
     /// Espera uma condição virar verdadeira, com teto — a assinatura do fluxo

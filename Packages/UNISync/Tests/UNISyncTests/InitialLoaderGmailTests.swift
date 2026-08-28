@@ -512,6 +512,53 @@ struct InitialLoaderGmailTests {
         #expect(naOrdemGravada == (1...quantas).map { "m\($0)" })
     }
 
+    // MARK: O teto de corpos
+
+    @Test("Só as 50 primeiras da listagem descem com corpo cheio")
+    func tetoDeCorposNoGmail() async throws {
+        // LACUNA DA AUDITORIA (G-b): trocar `indice < Self.fullBodyCount` por
+        // `true` deixava os 206 testes verdes. Baixar o corpo de milhares de
+        // mensagens que ninguém vai abrir custa tempo de rede e disco para nada
+        // — e numa caixa de 90 dias é a diferença entre a carga terminar e a
+        // carga parecer travada.
+        //
+        // A prova é no **fio**: `format=full` pede o corpo, `format=metadata`
+        // não. Contar linhas de corpo no banco não serviria — uma mensagem sem
+        // corpo e uma com corpo vazio são indistinguíveis lá.
+        //
+        // MUTAÇÃO QUE ISTO PEGA: `let comCorpo = true`.
+        let quantas = InitialLoader.fullBodyCount + 10
+        var roteiro: [String: [StubURLProtocol.Reply]] = [
+            "/gmail/v1/users/me/profile": [.json(
+                "{\"emailAddress\":\"ricardo@gmail.com\",\"historyId\":\"9928471\"}"
+            )],
+            "/gmail/v1/users/me/labels": [.json("{\"labels\":[{\"id\":\"INBOX\",\"name\":\"INBOX\"}]}")],
+            "/gmail/v1/users/me/messages": [.json(
+                "{\"messages\":[" + (1...quantas).map { "{\"id\":\"m\($0)\"}" }.joined(separator: ",") + "]}"
+            )],
+        ]
+        for numero in 1...quantas {
+            roteiro["/gmail/v1/users/me/messages/m\(numero)"] = [.json(mensagemJSON(
+                id: "m\(numero)", rotulos: ["INBOX"], assunto: "Assunto \(numero)", corpo: "Corpo."
+            ))]
+        }
+
+        let db = try SyncDatabase.temporary()
+        let (_, session) = try await carrega(db, roteiro: roteiro)
+
+        let pedidos = StubURLProtocol.requests(for: session)
+            .filter { $0.path.contains("/messages/m") }
+        #expect(pedidos.count == quantas)
+        let comCorpo = pedidos.filter { $0.query.contains("format=full") }
+        let semCorpo = pedidos.filter { $0.query.contains("format=metadata") }
+        #expect(comCorpo.count == InitialLoader.fullBodyCount, "com corpo: \(comCorpo.count)")
+        #expect(semCorpo.count == quantas - InitialLoader.fullBodyCount)
+        // E são as 50 **primeiras da listagem**, não as 50 primeiras que
+        // responderem: a janela de concorrência não pode decidir quem tem corpo.
+        let corpudas = Set(comCorpo.compactMap { $0.path.split(separator: "/").last.map(String.init) })
+        #expect(corpudas == Set((1...InitialLoader.fullBodyCount).map { "m\($0)" }))
+    }
+
     // MARK: A carga que não carregou nada
 
     @Test("Todas as mensagens falhando é carga FALHA: sem `ativa`, sem historyId")
