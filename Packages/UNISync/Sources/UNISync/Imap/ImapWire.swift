@@ -91,6 +91,154 @@ public enum ImapWire {
     }
 
     public static func logout(tag: String) -> String { "\(tag) LOGOUT" }
+
+    // MARK: Respostas, do nosso lado
+
+    /// Uma linha untagged, já traduzida para os nossos termos.
+    ///
+    /// **Este é o contrato entre a biblioteca e o resto do app.** Tudo daqui
+    /// para dentro é puro e testado sem NIO; tudo daqui para fora é
+    /// `ImapResponseAdapter`, que é um arquivo só. Se o `swift-nio-imap` mudar
+    /// de forma, quebra um arquivo.
+    public enum Untagged: Sendable, Hashable {
+        case list(name: String, attributes: [String])
+        case search([Int64])
+        case exists(Int)
+        /// `* OK [UIDVALIDITY 1755000000] …` → `code: "UIDVALIDITY"`, `value: "1755000000"`.
+        case ok(code: String, value: String)
+        case fetch(FetchLine)
+        /// O que não interessa a esta versão. Guardado como texto para o log
+        /// poder mostrar, em vez de sumir.
+        case outra(String)
+    }
+
+    /// Uma resposta de `FETCH`, com os campos que a gente pediu.
+    ///
+    /// Os endereços chegam como texto de cabeçalho porque é assim que eles
+    /// saem do `ENVELOPE`, e porque o parser deles já existe e é um só:
+    /// `MailAddress`. Uma segunda implementação para IMAP divergiria da do
+    /// Gmail no primeiro caso esquisito.
+    public struct FetchLine: Sendable, Hashable {
+        public let uid: Int64
+        public let flags: [String]
+        public let internalDate: Date?
+        public let from: String?
+        public let to: String?
+        public let cc: String?
+        public let subject: String?
+        public let text: String?
+
+        public init(
+            uid: Int64, flags: [String], internalDate: Date?,
+            from: String?, to: String?, cc: String?, subject: String?, text: String?
+        ) {
+            self.uid = uid
+            self.flags = flags
+            self.internalDate = internalDate
+            self.from = from
+            self.to = to
+            self.cc = cc
+            self.subject = subject
+            self.text = text
+        }
+    }
+
+    /// Duzentos envelopes por ida e volta.
+    ///
+    /// Não é chute: um `FETCH` por mensagem custaria uma viagem por mensagem
+    /// numa caixa de milhares, e um `FETCH 1:*` traria a caixa inteira numa
+    /// resposta que não cabe em memória nem dá para interromper. Duzentos é
+    /// grande o bastante para a viagem valer e pequeno o bastante para o lote
+    /// caber numa transação e o "parar no meio" custar pouco.
+    public static let fetchBatchSize = 200
+
+    public static func folders(from respostas: [Untagged]) -> [Folder] {
+        respostas.compactMap { resposta in
+            guard case .list(let nome, let atributos) = resposta else { return nil }
+            // `\Noselect` é nó da árvore, não pasta. `SELECT` nele devolve NO,
+            // e um NO no meio da carga derrubaria tudo por causa de um
+            // separador de hierarquia.
+            let dobrados = atributos.map { $0.lowercased() }
+            guard !dobrados.contains("\\noselect") else { return nil }
+            let especial = atributos.first { atributo in
+                ["\\inbox", "\\archive", "\\all", "\\trash", "\\sent", "\\drafts", "\\junk"]
+                    .contains(atributo.lowercased())
+            }
+            return Folder(name: nome, specialUse: especial)
+        }
+    }
+
+    public static func status(from respostas: [Untagged]) -> ImapMailboxStatus? {
+        var uidValidity: Int64?
+        var uidNext: Int64 = 0
+        var exists = 0
+        for resposta in respostas {
+            switch resposta {
+            case .exists(let quantas): exists = quantas
+            case .ok(let codigo, let valor) where codigo.uppercased() == "UIDVALIDITY":
+                uidValidity = Int64(valor)
+            case .ok(let codigo, let valor) where codigo.uppercased() == "UIDNEXT":
+                uidNext = Int64(valor) ?? 0
+            default: continue
+            }
+        }
+        // Sem UIDVALIDITY não há identidade estável para UID nenhum. Inventar
+        // zero faria o Marco 3 casar UID reciclado com mensagem errada.
+        guard let uidValidity else { return nil }
+        return ImapMailboxStatus(uidValidity: uidValidity, uidNext: uidNext, exists: exists)
+    }
+
+    public static func uids(from respostas: [Untagged]) -> [Int64] {
+        var todos: Set<Int64> = []
+        for resposta in respostas {
+            if case .search(let lista) = resposta { todos.formUnion(lista) }
+        }
+        return todos.sorted()
+    }
+
+    public static func envelopes(from respostas: [Untagged]) -> [ImapEnvelope] {
+        respostas.compactMap { resposta in
+            guard case .fetch(let linha) = resposta else { return nil }
+            // Sem data não entra: datar com `agora` jogaria toda mensagem
+            // quebrada para o topo da lista, acima do que chegou hoje.
+            guard let data = linha.internalDate else { return nil }
+            let flags = linha.flags.map { $0.lowercased() }
+            return ImapEnvelope(
+                uid: linha.uid,
+                from: MailAddress.parse(linha.from ?? "")
+                    ?? Contact(name: "Remetente desconhecido", address: ""),
+                to: MailAddress.parseList(linha.to ?? ""),
+                cc: MailAddress.parseList(linha.cc ?? ""),
+                subject: MailAddress.decodeRFC2047(linha.subject ?? ""),
+                date: data,
+                isRead: flags.contains("\\seen"),
+                isFlagged: flags.contains("\\flagged")
+            )
+        }
+    }
+
+    public static func bodyText(from respostas: [Untagged], uid: Int64) -> [String] {
+        for resposta in respostas {
+            guard case .fetch(let linha) = resposta, linha.uid == uid, let texto = linha.text else { continue }
+            // O mesmo caminho do Gmail: uma segunda regra de parágrafo
+            // divergiria da primeira no primeiro corpo esquisito.
+            return GmailMessageParser.paragraphs(from: texto)
+        }
+        return []
+    }
+}
+
+/// A troca de `UIDVALIDITY` — o sinal de que os UIDs da pasta foram reciclados.
+///
+/// Aqui ela só é **detectada**; refazer a pasta é do Marco 3. Detectar já vale
+/// porque é o que faz a carga inicial gravar o par certo em `sync_state`, e é
+/// o que o Marco 3 vai comparar.
+public enum ImapUidValidity {
+    /// Primeira vez **não** é troca: `nil` significa "nunca vimos esta pasta".
+    public static func changed(previous: Int64?, current: Int64) -> Bool {
+        guard let previous else { return false }
+        return previous != current
+    }
 }
 
 public typealias ImapFolder = ImapWire.Folder

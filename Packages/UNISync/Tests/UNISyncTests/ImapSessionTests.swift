@@ -6,14 +6,17 @@ import Testing
 import UNICore
 @testable import UNISync
 
-/// Desligar o grupo de event loops fora do contexto assíncrono.
+/// Desligar o grupo de event loops **sem bloquear** a thread do teste.
 ///
-/// `syncShutdownGracefully()` é indisponível de dentro de uma função `async`
-/// nesta versão do NIO — ela bloqueia a thread —, e `defer` não pode `await`.
-/// A função síncrona é o desvio mínimo que mantém o desligamento no `defer`,
-/// que é onde ele precisa estar para valer também no caminho de erro.
+/// `syncShutdownGracefully()` bloqueia até o grupo morrer, e uma função de
+/// teste `async` roda no pool cooperativo do Swift, que tem uma thread por
+/// núcleo e não cresce. Com poucos testes de IMAP dava para não notar; com
+/// mais alguns, todas as threads do pool ficam paradas nesse bloqueio ao mesmo
+/// tempo e a suíte inteira trava sem falhar — o pior dos dois mundos.
+/// A versão de callback pede o desligamento e volta na hora; num processo de
+/// teste que já vai terminar, esperar por ele não prova nada.
 private func encerra(_ grupo: MultiThreadedEventLoopGroup) {
-    try? grupo.syncShutdownGracefully()
+    grupo.shutdownGracefully { _ in }
 }
 
 /// Um contador que sobrevive a fronteira de isolação — é o que deixa o teste

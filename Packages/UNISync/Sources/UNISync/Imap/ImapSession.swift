@@ -1,5 +1,6 @@
 import Foundation
 import NIOCore
+import NIOIMAP
 import NIOPosix
 import NIOSSL
 import UNICore
@@ -82,7 +83,16 @@ public actor ImapSession {
                         // primeiro byte já é do handshake.
                         handlers.append(try Self.tlsHandler(host: endpoint.host))
                     }
-                    handlers.append(ByteToMessageHandler(CRLFLineDecoder()))
+                    // O quadro é da biblioteca, e não do nosso
+                    // `CRLFLineDecoder`: o literal `{n}` é contado em bytes e
+                    // tem CRLF dentro, e cortar por linha o partiria em
+                    // pedaços que o parser leria como respostas soltas. O teto
+                    // é o mesmo dos nossos cortes por linha — 64 KiB —, e ele
+                    // vale para a linha, não para o literal, que atravessa em
+                    // pedaços sem encher o buffer.
+                    handlers.append(ByteToMessageHandler(
+                        FrameDecoder(frameSizeLimit: CRLFLineDecoder.tetoDaLinha)
+                    ))
                     handlers.append(handler)
                     try canal.pipeline.syncOperations.addHandlers(handlers)
                 }
@@ -281,6 +291,55 @@ public actor ImapSession {
         _ = try await run { ImapWire.login(tag: $0, user: user, password: password) }
     }
 
+    /// As pastas do servidor, com o papel já resolvido.
+    public func folders() async throws -> [ImapFolder] {
+        let resultado = try await run { ImapWire.list(tag: $0) }
+        return ImapWire.folders(from: resultado.untagged)
+    }
+
+    /// Seleciona a pasta e devolve `UIDVALIDITY`, `UIDNEXT` e o total.
+    ///
+    /// Lança quando o servidor não manda `UIDVALIDITY`: sem ele não existe
+    /// identidade estável para UID nenhum, e seguir em frente gravaria
+    /// mensagens que o Marco 3 não conseguiria casar de volta.
+    public func select(_ folder: ImapFolder) async throws -> ImapMailboxStatus {
+        let resultado = try await run { ImapWire.select(tag: $0, mailbox: folder.name) }
+        guard let status = ImapWire.status(from: resultado.untagged) else {
+            throw SyncError.resposta("O servidor selecionou \(folder.name) sem informar UIDVALIDITY.")
+        }
+        return status
+    }
+
+    /// Os UIDs da pasta selecionada desde uma data.
+    public func uids(since: Date, calendar: Calendar) async throws -> [Int64] {
+        let resultado = try await run {
+            ImapWire.uidSearchSince(tag: $0, date: since, calendar: calendar)
+        }
+        return ImapWire.uids(from: resultado.untagged)
+    }
+
+    /// Envelopes em lotes de `ImapWire.fetchBatchSize`.
+    ///
+    /// O laço é cancelável: `Task.checkCancellation()` a cada lote é o que faz
+    /// "fechar o app no meio da carga" parar em segundos em vez de segurar a
+    /// conexão até a caixa acabar.
+    public func envelopes(uids: [Int64]) async throws -> [ImapEnvelope] {
+        var todos: [ImapEnvelope] = []
+        for lote in stride(from: 0, to: uids.count, by: ImapWire.fetchBatchSize) {
+            try Task.checkCancellation()
+            let fatia = Array(uids[lote..<min(lote + ImapWire.fetchBatchSize, uids.count)])
+            let resultado = try await run { ImapWire.uidFetchEnvelopes(tag: $0, uids: fatia) }
+            todos.append(contentsOf: ImapWire.envelopes(from: resultado.untagged))
+        }
+        return todos
+    }
+
+    /// O corpo em texto de uma mensagem, por demanda.
+    public func bodyText(uid: Int64) async throws -> [String] {
+        let resultado = try await run { ImapWire.uidFetchBody(tag: $0, uid: uid) }
+        return ImapWire.bodyText(from: resultado.untagged, uid: uid)
+    }
+
     /// Sai e fecha. Idempotente: sair duas vezes é o mesmo estado.
     ///
     /// Não lança, e é de propósito: encerrar já é o caminho de saída, e um erro
@@ -305,9 +364,10 @@ struct ImapCommandResult: Sendable {
     let status: Status
     /// O texto depois de `OK`/`NO`/`BAD`.
     let text: String
-    /// As linhas `*` que chegaram enquanto o comando estava em voo. É onde
-    /// moram `LIST`, `SEARCH`, `FETCH`, `EXISTS` e os códigos de `SELECT`.
-    let untagged: [String]
+    /// As linhas `*` que chegaram enquanto o comando estava em voo, já
+    /// traduzidas por `ImapResponseAdapter`. É onde moram `LIST`, `SEARCH`,
+    /// `FETCH`, `EXISTS` e os códigos de `SELECT`.
+    let untagged: [ImapWire.Untagged]
 }
 
 /// Corta o fluxo de bytes em linhas de protocolo.
@@ -360,7 +420,7 @@ struct CRLFLineDecoder: ByteToMessageDecoder {
 /// some no primeiro refactor. O `continuation` é o que transforma o callback do
 /// NIO em `await`.
 final class ImapChannelHandler: ChannelInboundHandler, @unchecked Sendable {
-    typealias InboundIn = ByteBuffer
+    typealias InboundIn = FramingResult
     typealias OutboundOut = ByteBuffer
 
     private let lock = NSLock()
@@ -369,7 +429,11 @@ final class ImapChannelHandler: ChannelInboundHandler, @unchecked Sendable {
     private var greetingFailure: (any Error)?
     private var pendingTag: String?
     private var pending: CheckedContinuation<ImapCommandResult, any Error>?
-    private var collected: [String] = []
+    private var collected: [ImapWire.Untagged] = []
+    /// A costura dos quadros da biblioteca em linhas lógicas. Só é tocada na
+    /// event loop — em `channelRead` e no bloco que sobe o TLS —, e por isso
+    /// não entra no `lock`.
+    private var costura = ImapFrameJoiner()
     private var falhaFinal: (any Error)?
     private var relogio: Scheduled<Void>?
     private var cancelamentoPendente = false
@@ -457,7 +521,9 @@ final class ImapChannelHandler: ChannelInboundHandler, @unchecked Sendable {
     /// TLS. Chamada **na event loop**, junto com a inserção do handler.
     func verificaFronteiraLimpa() throws {
         lock.lock()
-        let sujo = !collected.isEmpty || linhasOrfas > 0 || pending != nil
+        // `costura.montando` entra na conta: uma linha lógica pela metade é
+        // conversa em claro pendurada tanto quanto uma linha inteira.
+        let sujo = !collected.isEmpty || linhasOrfas > 0 || pending != nil || costura.montando
         lock.unlock()
         if sujo {
             throw SyncError.tls(
@@ -469,10 +535,16 @@ final class ImapChannelHandler: ChannelInboundHandler, @unchecked Sendable {
     // MARK: Leitura
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-        var buffer = unwrapInboundIn(data)
-        let linha = (buffer.readString(length: buffer.readableBytes) ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !linha.isEmpty else { return }
+        let quadro = unwrapInboundIn(data)
+        let linha: String
+        do {
+            guard let completa = try costura.junta(quadro) else { return }
+            linha = completa
+        } catch {
+            falha(Self.traduz(error))
+            context.close(promise: nil)
+            return
+        }
 
         lock.lock()
         if let continuation = greeting {
@@ -508,7 +580,7 @@ final class ImapChannelHandler: ChannelInboundHandler, @unchecked Sendable {
             lock.unlock()
             continuation?.resume(returning: resultado)
         } else {
-            collected.append(linha)
+            collected.append(ImapResponseAdapter.untagged(fromLogicalLine: linha))
             lock.unlock()
         }
     }

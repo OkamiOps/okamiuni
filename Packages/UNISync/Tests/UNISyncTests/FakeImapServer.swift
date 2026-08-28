@@ -81,9 +81,17 @@ final class FakeImapServer: @unchecked Sendable {
         return received
     }
 
+    /// Fecha **sem bloquear** a thread de quem chama.
+    ///
+    /// `close().wait()` e `syncShutdownGracefully()` param a thread até o NIO
+    /// terminar, e o `defer` que chama isto roda no pool cooperativo do Swift
+    /// — uma thread por núcleo, que não cresce. Alguns testes de IMAP em
+    /// paralelo bastam para todas ficarem paradas aqui ao mesmo tempo, e aí a
+    /// suíte trava sem falhar. Pedir e sair é o que o teste precisa: o processo
+    /// termina logo depois de qualquer jeito.
     func stop() {
-        try? channel?.close().wait()
-        try? group.syncShutdownGracefully()
+        channel?.close(promise: nil)
+        group.shutdownGracefully { _ in }
     }
 
     private final class ScriptedHandler: ChannelInboundHandler, @unchecked Sendable {
