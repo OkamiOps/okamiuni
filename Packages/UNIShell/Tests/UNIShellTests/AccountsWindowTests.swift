@@ -431,6 +431,49 @@ struct AccountsWindowTests {
         )
     }
 
+    @Test("Host em endereço numérico ganha a nota visível; nome de servidor não")
+    func notaDoEnderecoNumerico() throws {
+        // Conectar por IP continua permitido — servidor interno acessível só
+        // por endereço existe. O que ele deixa de ser é silencioso: SNI não
+        // aceita IP, e sem SNI o NIOSSL valida a cadeia mas não confere se o
+        // certificado é **deste** servidor. Quem estiver no caminho apresenta
+        // qualquer certificado válido emitido para um domínio dele, e a senha
+        // de app da pessoa vai no LOGIN seguinte.
+        //
+        // A nota é medida em pixel de texto, e não por um `contains` numa
+        // string: o que se promete é que ela **aparece na tela**.
+        //
+        // MUTAÇÃO QUE ISTO PEGA: apagar o `if ImapEndpoint.ehIPLiteral(host)`
+        // do formulário iguala os dois desenhos.
+        let tema = try #require(Theme.named("tinta"))
+        let modelo = AccountsModel(director: try Self.diretorDeTeste())
+        let medida = CGSize(width: 720, height: 300)
+
+        let comNome = try #require(Render.bitmap(
+            AddAccountForm(
+                model: modelo, initialAddress: "eu@dominio-proprio.com.br",
+                initialHost: "imap.dominio-proprio.com.br"
+            ),
+            size: medida, theme: tema
+        ))
+        let comIP = try #require(Render.bitmap(
+            AddAccountForm(
+                model: modelo, initialAddress: "eu@dominio-proprio.com.br",
+                initialHost: "203.0.113.5"
+            ),
+            size: medida, theme: tema
+        ))
+
+        // A nota é desenhada em `--ink4`, o mesmo tom das outras legendas do
+        // formulário — então o que a distingue é haver **mais** desse tom.
+        let semNota = comNome.pixels(matching: tema.ink4)
+        let comNota = comIP.pixels(matching: tema.ink4)
+        #expect(
+            comNota > semNota + 200,
+            "a nota do endereço numérico não apareceu: \(semNota) contra \(comNota)"
+        )
+    }
+
     /// Um diretor que não fala com ninguém: banco descartável, cofre em
     /// memória, sem OAuth e com o IMAP recusando. Serve só para o formulário
     /// ter um modelo para desenhar — nenhum teste daqui dispara ação nenhuma.

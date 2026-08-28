@@ -72,13 +72,18 @@ public struct AddAccountForm: View {
     /// desenha fora da tela e não digita, e o ensaio do app (`--ensaiar-contas`)
     /// precisa chegar num estado sem sintetizar tecla. Vazio é o caso normal,
     /// e é o que a janela usa.
-    public init(model: AccountsModel, initialAddress: String = "") {
+    ///
+    /// `initialHost` é a mesma porta, pela mesma razão, para o único estado que
+    /// o endereço não alcança: a nota do endereço numérico depende do que está
+    /// no campo de **host**, e a rota nunca sugere um IP. Nulo — o caso normal,
+    /// e o que a janela usa — deixa o palpite da rota falar.
+    public init(model: AccountsModel, initialAddress: String = "", initialHost: String? = nil) {
         self.model = model
         _address = State(initialValue: initialAddress)
         // Os campos nascem já preenchidos pela rota, pela mesma razão que
         // `preenche(_:)` os preenche a cada tecla: palpite, não veredito.
         let palpite = Self.route(for: initialAddress)
-        _host = State(initialValue: Self.host(of: palpite))
+        _host = State(initialValue: initialHost ?? Self.host(of: palpite))
         _port = State(initialValue: Self.port(of: palpite))
         _security = State(initialValue: Self.security(of: palpite))
     }
@@ -215,6 +220,27 @@ public struct AddAccountForm: View {
                     port = security == .tls ? "993" : "143"
                 }
             )
+        }
+
+        // A nota do IP literal. Ela **não** impede nada: servidor interno
+        // acessível só por endereço existe, e recusá-lo trocaria um
+        // enfraquecimento por uma impossibilidade. O que ela impede é o
+        // enfraquecimento acontecer em silêncio — SNI não aceita IP, e sem SNI
+        // o NIOSSL valida a cadeia mas não confere se o certificado é **deste**
+        // servidor. Quem decide se o host é literal é a mesma função que a
+        // sessão usa (`ImapEndpoint.ehIPLiteral`): escritas em dois lugares,
+        // as duas divergiriam, e a nota apareceria onde não há perda ou faltaria
+        // onde há.
+        if ImapEndpoint.ehIPLiteral(host) {
+            Text("Endereço numérico: o certificado do servidor não é conferido pelo nome.")
+                .font(theme.sans.font(size: 11))
+                .foregroundStyle(theme.ink4.color)
+                .fixedSize(horizontal: false, vertical: true)
+                .help("""
+                    O SNI do TLS não aceita endereço numérico, então o app não tem \
+                    contra que nome conferir o certificado. A cadeia continua validada. \
+                    Prefira o nome do servidor quando ele existir.
+                    """)
         }
 
         HStack(spacing: 10) {

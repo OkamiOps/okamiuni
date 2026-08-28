@@ -431,6 +431,46 @@ struct ImapSessionTests {
     }
 }
 
+@Suite("IMAP: o host em endereço literal")
+struct ImapHostLiteralTests {
+    @Test("Endereço numérico é reconhecido como literal; nome de host não")
+    func reconheceLiteral() {
+        // Esta é a pergunta que decide DUAS coisas ao mesmo tempo: se o SNI
+        // (e com ele a verificação de nome do certificado) some, e se a janela
+        // de Contas mostra a nota. Escrita em dois lugares, as duas divergiriam
+        // — e a nota apareceria onde não há perda, ou faltaria onde há.
+        #expect(ImapEndpoint.ehIPLiteral("203.0.113.5"))
+        #expect(ImapEndpoint.ehIPLiteral("127.0.0.1"))
+        #expect(ImapEndpoint.ehIPLiteral("::1"))
+        #expect(ImapEndpoint.ehIPLiteral("[2001:db8::1]"))
+        #expect(ImapEndpoint.ehIPLiteral(" 203.0.113.5 "))
+        #expect(!ImapEndpoint.ehIPLiteral("imap.servidor.com"))
+        #expect(!ImapEndpoint.ehIPLiteral("localhost"))
+        // Quatro partes, mas nem todas numéricas: é nome, e nome tem SNI.
+        #expect(!ImapEndpoint.ehIPLiteral("mail.203.0.com"))
+    }
+
+    @Test("O SNI segue a mesma resposta: nome vai, endereço literal não")
+    func sniSegueOLiteral() {
+        // IP continua **permitido** — servidor interno acessível só por
+        // endereço existe, e recusá-lo trocaria um enfraquecimento por uma
+        // impossibilidade. O que ele deixa de ser é silencioso: a sessão registra
+        // o aviso e a janela mostra a nota.
+        //
+        // MUTAÇÃO QUE ISTO PEGA: fazer `sni` devolver o host sempre (o que
+        // "consertaria" a verificação) faz o `NIOSSLClientHandler` lançar antes
+        // de tocar a rede — SNI não aceita IP.
+        #expect(ImapSession.sni("imap.servidor.com") == "imap.servidor.com")
+        #expect(ImapSession.sni("203.0.113.5") == nil)
+        #expect(ImapSession.sni("::1") == nil)
+        // As duas funções respondem à mesma pergunta, e é isso que se afirma:
+        // uma é a negação da outra, sempre.
+        for host in ["imap.servidor.com", "203.0.113.5", "::1", "localhost", "mail.203.0.com"] {
+            #expect((ImapSession.sni(host) == nil) == ImapEndpoint.ehIPLiteral(host), "host: \(host)")
+        }
+    }
+}
+
 @Suite("IMAP: o corte de linhas")
 struct CRLFLineDecoderTests {
     private func canal(_ pendencia: PendenciaDeBytes = PendenciaDeBytes()) -> EmbeddedChannel {

@@ -14,6 +14,26 @@ extension ImapEndpoint {
         ["127.0.0.1", "::1", "[::1]", "localhost"]
             .contains(host.trimmingCharacters(in: .whitespaces).lowercased())
     }
+
+    /// O host é um **endereço literal**, e não um nome?
+    ///
+    /// Uma pergunta, uma resposta, dois consumidores: `ImapSession.sni` — que
+    /// devolve `nil` aqui, e com isso perde a verificação de nome do certificado
+    /// — e o `AddAccountForm`, que mostra a nota dizendo isso à pessoa. Escritas
+    /// em dois lugares, as duas divergiriam, e a nota apareceria onde não há
+    /// perda ou (pior) faltaria onde há.
+    ///
+    /// IP literal continua sendo host **permitido**: servidor interno acessível
+    /// só por endereço existe, e recusá-lo trocaria um enfraquecimento por uma
+    /// impossibilidade. O que ele deixa de ser é silencioso.
+    public static func ehIPLiteral(_ host: String) -> Bool {
+        let limpo = host.trimmingCharacters(in: .whitespaces)
+        // IPv6 vem com dois-pontos, com ou sem colchetes; nome de host nunca
+        // tem dois-pontos (a porta viaja em campo próprio).
+        if limpo.contains(":") { return true }
+        let partes = limpo.split(separator: ".", omittingEmptySubsequences: false)
+        return partes.count == 4 && partes.allSatisfy { !$0.isEmpty && $0.allSatisfy(\.isNumber) }
+    }
 }
 
 // A porta insegura **não existe em Release**.

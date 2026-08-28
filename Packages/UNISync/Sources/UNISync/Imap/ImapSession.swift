@@ -3,6 +3,7 @@ import NIOCore
 import NIOPosix
 import NIOSSL
 import UNICore
+import os
 
 /// Uma sessão IMAP, sobre NIO.
 ///
@@ -200,10 +201,26 @@ public actor ImapSession {
     }
 
     /// O handler de TLS do cliente.
+    ///
+    /// Host em IP literal **continua permitido** — servidor interno acessível só
+    /// por endereço existe, e recusá-lo trocaria um enfraquecimento por uma
+    /// impossibilidade. O que ele deixa de ser é **silencioso**: a perda da
+    /// verificação de nome vai para o log aqui, e a janela de Contas mostra a
+    /// nota ao lado do campo (`AddAccountForm`, pela mesma
+    /// `ImapEndpoint.ehIPLiteral`).
     private static func tlsHandler(host: String) throws -> NIOSSLClientHandler {
         let contexto = try NIOSSLContext(configuration: .makeClientConfiguration())
+        if ImapEndpoint.ehIPLiteral(host) {
+            log.warning("""
+                TLS para \(host, privacy: .private) sem verificação de nome do certificado: \
+                o host é um endereço literal, e SNI não aceita IP. A cadeia continua validada \
+                contra as âncoras do sistema, mas ninguém confere se o certificado é deste servidor.
+                """)
+        }
         return try NIOSSLClientHandler(context: contexto, serverHostname: Self.sni(host))
     }
+
+    private static let log = Logger(subsystem: "com.okamiops.okamiuni", category: "ImapSession")
 
     /// O nome que vai no SNI, ou `nil` quando o host é um endereço literal.
     ///
@@ -213,14 +230,14 @@ public actor ImapSession {
     /// acontece** — o NIOSSL continua validando a cadeia contra as âncoras do
     /// sistema, mas ninguém confere se o certificado é *daquele* servidor.
     /// Conectar a IMAP por IP literal é, por isso, mais fraco do que conectar
-    /// por nome; a interface de contas deve pedir nome de host.
+    /// por nome.
+    ///
+    /// A decisão de quem é literal mora em `ImapEndpoint.ehIPLiteral`, e não
+    /// aqui: quem avisa a pessoa (a janela de Contas) e quem perde a verificação
+    /// (esta função) têm de responder a mesma coisa, senão o aviso aparece onde
+    /// não há perda, ou — pior — não aparece onde há.
     static func sni(_ host: String) -> String? {
-        if host.contains(":") { return nil } // IPv6 literal
-        let partes = host.split(separator: ".", omittingEmptySubsequences: false)
-        if partes.count == 4, partes.allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isNumber) }) {
-            return nil // IPv4 literal
-        }
-        return host
+        ImapEndpoint.ehIPLiteral(host) ? nil : host
     }
 
     // MARK: Comandos
