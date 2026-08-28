@@ -151,6 +151,13 @@ public struct InitialLoader: Sendable {
 
             // 2. As mensagens, em lotes, com corpo cheio só nas primeiras.
             var lote: [(GmailMessage, Bool)] = []
+            /// Quantas linhas de fato entraram no banco, e o primeiro erro de
+            /// mensagem. O mesmo par que a carga IMAP guarda por pasta, e pela
+            /// mesma razão: uma mensagem que falha não derruba as outras, mas
+            /// **nenhuma** ter entrado com falhas presentes não é uma carga
+            /// bem-sucedida de caixa nenhuma.
+            var gravadas = 0
+            var primeiroErroDeMensagem: SyncError?
             for (indice, id) in ids.enumerated() {
                 try Task.checkCancellation()
                 let comCorpo = indice < Self.fullBodyCount
@@ -163,11 +170,14 @@ public struct InitialLoader: Sendable {
                     // mensagem morre na mensagem, o que é da sessão morre na
                     // sessão.
                     log.error("A mensagem \(id, privacy: .public) ficou de fora da carga: \(erro.mensagem)")
+                    if primeiroErroDeMensagem == nil { primeiroErroDeMensagem = erro }
                 }
 
                 if lote.count >= batchSize || indice == ids.count - 1 {
                     if !lote.isEmpty {
-                        try await grava(lote, account: account, folderID: folderID, laterLabelID: idDoDepois)
+                        gravadas += try await grava(
+                            lote, account: account, folderID: folderID, laterLabelID: idDoDepois
+                        )
                         lote = []
                     }
                     // O progresso conta o que foi **percorrido**, não o que foi
@@ -176,6 +186,26 @@ public struct InitialLoader: Sendable {
                     // linha — muito menos.
                     progress(LoadProgress(accountID: account.id, done: indice + 1, total: ids.count))
                 }
+            }
+
+            // Nenhuma mensagem entrou e houve falhas: a carga FALHOU, e o
+            // simétrico disto é o guarda da carga IMAP logo abaixo
+            // (`pastasQueFalharam == comPapel.count`).
+            //
+            // O que faz disto perda de dados, e não só um relato ruim: o
+            // `historyId` gravado três linhas abaixo é **o ponto de partida do
+            // Marco 3**. Carimbá-lo depois de zero gravações faz o incremental
+            // partir dali e nunca reconsiderar nada anterior — as mensagens que
+            // falharam ficam permanentemente fora do banco, sem gatilho nenhum
+            // que as traga de volta, e a pessoa vê "pronto" sobre uma caixa
+            // vazia. A entrada mais provável nem é 404: é uma mudança de formato
+            // na API do Gmail, que reprova TODA mensagem com `.resposta` —
+            // classificado como não-fatal aqui em cima, de propósito.
+            //
+            // A conta sem nenhuma mensagem de verdade (só Enviadas, ou caixa
+            // vazia) não é atingida: sem falhas, o guarda não fecha.
+            if let primeiroErroDeMensagem, gravadas == 0, !ids.isEmpty {
+                throw primeiroErroDeMensagem
             }
 
             // 3. O ponto de partida do Marco 3, guardado agora.
@@ -231,10 +261,16 @@ public struct InitialLoader: Sendable {
     }
 
     /// Um lote inteiro numa transação: ou entra tudo, ou nada.
+    ///
+    /// Devolve **quantas linhas entraram** — que não é `lote.count`: as
+    /// Enviadas ficam fora da triagem. Quem chama usa isso para saber se a
+    /// carga produziu alguma coisa.
+    @discardableResult
     private func grava(
         _ lote: [(GmailMessage, Bool)], account: Account, folderID: String, laterLabelID: String?
-    ) async throws {
+    ) async throws -> Int {
         try await database.pool.write { db in
+            var entraram = 0
             for (mensagem, temCorpo) in lote {
                 guard let bucket = TriageProjection.bucket(
                     gmailLabelIDs: mensagem.labelIDs, laterLabelID: laterLabelID
@@ -258,10 +294,12 @@ public struct InitialLoader: Sendable {
                 // `save` é upsert: id determinístico + upsert = recarga
                 // idempotente, que é o que faz "parar no meio" ser seguro.
                 try MessageRecord(nossa, folderID: folderID).save(db)
+                entraram += 1
                 if temCorpo, !mensagem.body.isEmpty {
                     try Self.gravaCorpo(db, id: id, paragrafos: mensagem.body)
                 }
             }
+            return entraram
         }
     }
 

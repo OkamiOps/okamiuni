@@ -380,6 +380,78 @@ struct InitialLoaderGmailTests {
         #expect(LoadProgress(accountID: "x", done: 0, total: 0).fraction == 1)
     }
 
+    // MARK: A carga que não carregou nada
+
+    @Test("Todas as mensagens falhando é carga FALHA: sem `ativa`, sem historyId")
+    func todasAsMensagensFalhandoNaoConclui() async throws {
+        // O simétrico do guarda da carga IMAP (`pastasQueFalharam ==
+        // comPapel.count`). Sem ele, o laço engolia todo erro "da mensagem" —
+        // que inclui `.resposta` e todo 4xx —, e depois gravava o `sync_state`
+        // com o `historyId` do perfil e punha a conta em `.ativa`, sem nenhuma
+        // condição.
+        //
+        // O que faz disto perda de dados: o `historyId` é o ponto de partida do
+        // Marco 3. Carimbado sobre uma caixa vazia, o incremental parte dali e
+        // as mensagens que falharam ficam permanentemente fora do banco.
+        var roteiro = roteiroDeSeis()
+        for numero in 1...6 {
+            roteiro["/gmail/v1/users/me/messages/m\(numero)"] = [
+                .json("{\"error\":{\"code\":404,\"message\":\"Requested entity was not found.\"}}", status: 404)
+            ]
+        }
+
+        let db = try SyncDatabase.temporary()
+        try await contaNoBanco(db)
+        let session = StubURLProtocol.session(routes: roteiro)
+        await #expect(throws: SyncError.self) {
+            try await InitialLoader(database: db).loadGmail(
+                account: conta, client: cliente(session), now: agora, progress: { _ in }
+            )
+        }
+
+        // Nada gravado, e nada carimbado: nem o estado, nem o carimbo de
+        // sincronização, nem o ponto de partida do Marco 3.
+        #expect(try await servidorIDs(db).isEmpty)
+        let devolvida = try await db.pool.read { conexao in
+            try AccountRecord.fetchOne(conexao, key: "conta-g")?.account
+        }
+        // `.ativa`, e não `erroDeAutenticacao` — a mesma resposta que o irmão
+        // IMAP dá em `todasAsPastasFalhando`: a credencial não tem nada com
+        // isso, e oferecer "Reconectar" seria a ação errada com convicção. O
+        // que diz que a carga falhou é o erro que sobe até quem chamou, e a
+        // ausência dos dois carimbos abaixo.
+        #expect(devolvida?.state == .ativa)
+        #expect(devolvida?.lastSyncedAt == nil)
+        let sync = try await db.pool.read { conexao in
+            try SyncStateRecord.fetchOne(conexao, key: ["accountID": "conta-g", "folderID": ""])
+        }
+        #expect(sync == nil)
+    }
+
+    @Test("Uma que entra basta: com cinco falhas e uma boa, a carga conclui")
+    func umaMensagemBoaBastaParaConcluir() async throws {
+        // O contrapeso. O guarda é sobre "nenhuma entrou", e não sobre "alguma
+        // falhou" — senão ele engoliria o caso que o `quatrocentosEQuatroNoMeio`
+        // já protege, e uma mensagem apagada no navegador passaria a derrubar a
+        // carga inteira.
+        var roteiro = roteiroDeSeis()
+        for numero in 1...5 {
+            roteiro["/gmail/v1/users/me/messages/m\(numero)"] = [
+                .json("{\"error\":{\"code\":404}}", status: 404)
+            ]
+        }
+
+        let db = try SyncDatabase.temporary()
+        try await carrega(db, roteiro: roteiro)
+
+        #expect(try await servidorIDs(db) == ["m6"])
+        #expect(try await estado(db) == .ativa)
+        let sync = try await db.pool.read { conexao in
+            try SyncStateRecord.fetchOne(conexao, key: ["accountID": "conta-g", "folderID": ""])
+        }
+        #expect(sync?.historyID == "9928471")
+    }
+
     // MARK: Falha, cancelamento e o que sobrevive
 
     @Test("Falha no meio deixa `erroDeAutenticacao` e o que já baixou fica")
