@@ -288,7 +288,14 @@ public actor AccountDirector {
             // local — mas o erro fica registrado para a janela mostrar.
             do { try await auth.revoke(accountID: accountID) } catch let erro as SyncError {
                 errors[accountID] = erro
-                log.error("Revogação de \(accountID, privacy: .public) falhou: \(erro.mensagem)")
+                // `.private`, e não `.public`: `accountID(for:)` só passa o
+                // endereço para caixa baixa e troca o que não for
+                // alfanumérico/`@.-_` por `-` — para `marina@clientepremium.com`
+                // o id **é** o endereço. `.public` o gravava em claro no log
+                // unificado do sistema, visível em `log show` e recolhido em
+                // qualquer sysdiagnose. O `InitialLoader` já respondia
+                // `.private` para o mesmo dado; as duas respostas conviviam.
+                log.error("Revogação de \(accountID, privacy: .private) falhou: \(erro.mensagem)")
             }
         }
         // O segredo sai **antes** da linha, e a ordem é escolhida: as duas
@@ -401,7 +408,7 @@ public actor AccountDirector {
             await restaura(accountID)
         } catch let erro as SyncError {
             errors[accountID] = erro
-            log.error("Carga de \(accountID, privacy: .public) falhou: \(erro.mensagem)")
+            log.error("Carga de \(accountID, privacy: .private) falhou: \(erro.mensagem)")
         } catch {
             errors[accountID] = .rede(error.localizedDescription)
         }

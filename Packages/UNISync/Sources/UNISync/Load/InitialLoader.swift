@@ -605,7 +605,11 @@ public struct InitialLoader: Sendable {
     ) {
         if primeiro == nil { primeiro = erro }
         quantas += 1
-        log.error("A pasta \(pasta, privacy: .public) ficou de fora da carga: \(erro.mensagem)")
+        // O nome da pasta vem do servidor e é dado da caixa da pessoa: uma
+        // pasta chamada "Advogado — divórcio" no log do sistema diz mais do que
+        // o endereço. O UID e o id do Gmail continuam `.public` de propósito —
+        // são opacos, e são o que torna a linha do log acionável.
+        log.error("A pasta \(pasta, privacy: .private) ficou de fora da carga: \(erro.mensagem)")
     }
 
     /// Os corpos das `fullBodyCount` mensagens mais recentes **desta pasta**.
