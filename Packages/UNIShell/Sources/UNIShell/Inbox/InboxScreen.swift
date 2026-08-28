@@ -34,8 +34,18 @@ public struct InboxScreen: View {
     @State private var query = ""
     let store: MailStore
 
-    public init(store: MailStore) {
+    /// De onde vem o "agora" da trilha e das três visões da agenda.
+    ///
+    /// O padrão é `.fixed(Fixtures.nowMinute)` de propósito: é o que mantém
+    /// `RenderHarness`, as capturas e os testes deste pacote — que chamam
+    /// `InboxScreen(store:)` sem este parâmetro — byte a byte iguais a antes.
+    /// Só quem quer o relógio vivo (o app de verdade, com conta real) passa
+    /// `.live` explicitamente — ver `OkamiUNIApp`.
+    let clock: AgendaClock
+
+    public init(store: MailStore, clock: AgendaClock = .fixed(Fixtures.nowMinute)) {
         self.store = store
+        self.clock = clock
     }
 
     public var body: some View {
@@ -143,17 +153,21 @@ public struct InboxScreen: View {
                 ReaderPane(store: store, onReply: openComposer)
 
                 // Trilha de agenda — o primeiro painel a sair quando aperta.
-                // Ambos (data e minuto) vêm de Fixtures para coerência durante testes
-                // nowMinute é constante e não depende do fuso da máquina
+                // A data do cabeçalho continua vindo de Fixtures — o "hoje" do
+                // app é `anchor`/`Fixtures.today` em toda parte, e mudar isso
+                // não é o que este defeito pediu. O minuto é que segue `clock`:
+                // fixo nos testes e nas capturas, vivo com conta real.
                 if layout.agendaVisible {
-                    AgendaRail(
-                        store: store,
-                        now: Fixtures.nowMinute,
-                        headerDate: Fixtures.today,
-                        width: layout.agendaRailWidth,
-                        onOpenEvent: openEventWindow,
-                        onRevealMessage: reveal
-                    )
+                    AgendaClockReader(clock) { now in
+                        AgendaRail(
+                            store: store,
+                            now: now,
+                            headerDate: Fixtures.today,
+                            width: layout.agendaRailWidth,
+                            onOpenEvent: openEventWindow,
+                            onRevealMessage: reveal
+                        )
+                    }
                     .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
@@ -247,14 +261,16 @@ public struct InboxScreen: View {
     /// Por isso `wantsSidebar` atravessa daqui: é a intenção que o botão da
     /// barra do topo mexe, e ela tem de valer nas duas abas.
     private var calendarContent: some View {
-        CalendarScreen(
-            store: store,
-            now: Fixtures.nowMinute,
-            anchor: Fixtures.today,
-            wantsSidebar: wantsSidebar,
-            onOpenEvent: openEventWindow,
-            onRevealMessage: reveal
-        )
+        AgendaClockReader(clock) { now in
+            CalendarScreen(
+                store: store,
+                now: now,
+                anchor: Fixtures.today,
+                wantsSidebar: wantsSidebar,
+                onOpenEvent: openEventWindow,
+                onRevealMessage: reveal
+            )
+        }
     }
 
     // MARK: - Janelas

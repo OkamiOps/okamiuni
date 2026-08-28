@@ -7,7 +7,12 @@ public struct AgendaRail: View {
     public static let width: CGFloat = PaneLayout.agendaWidth
 
     /// Converte minutos do dia em pontos na trilha.
-    /// Faixa: 480 (08:00) a 1140 (19:00) = 660 minutos = 514.8 pontos
+    ///
+    /// Faixa: 00:00 a 24:00 — o dia inteiro, rolável, como a Dia/Semana já
+    /// eram. Antes era 480 (08:00) a 1140 (19:00): o dono conectou uma conta
+    /// real e viu compromissos depois das 19h somem da trilha — "o dia não
+    /// acaba às 18" foi a fala dele. `pointsPerMinute` continua 0,78: o que
+    /// muda é só onde a régua começa e termina, não a densidade dela.
     public struct Layout: Sendable {
         public let pointsPerMinute: CGFloat
 
@@ -46,11 +51,20 @@ public struct AgendaRail: View {
         public var nowMarkerLeading: CGFloat { labelGutter }
 
         public var totalHeight: CGFloat {
-            660 * pointsPerMinute  // 1140 - 480 = 660 minutos
+            1_440 * pointsPerMinute  // o dia inteiro, 00:00 a 24:00
         }
 
         public func offset(for item: AgendaItem) -> CGFloat {
-            CGFloat(item.startMinute - 480) * pointsPerMinute
+            CGFloat(item.startMinute) * pointsPerMinute
+        }
+
+        /// Onde a rolagem inicial deixa a trilha: a manhã (~08:00) visível,
+        /// não a meia-noite. Mesma ideia do `scrollTarget` de `DayScreen`/
+        /// `WeekScreen`, mas fixa em 08:00 em vez de seguir "agora" — a trilha
+        /// é o resumo do dia inteiro, e abrir nele é sempre útil, esteja
+        /// "agora" de manhã, de tarde ou de madrugada.
+        public var initialScrollTarget: CGFloat {
+            480 * pointsPerMinute
         }
 
         public func height(for item: AgendaItem) -> CGFloat {
@@ -126,20 +140,24 @@ public struct AgendaRail: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            ScrollView {
-                ZStack(alignment: .topLeading) {
-                    hourLines
-                    nowMarker
-                    ForEach(todayItems) { item in
-                        eventBlock(item)
-                            .offset(y: layout.offset(for: item))
+            ScrollViewReader { proxy in
+                ScrollView {
+                    ZStack(alignment: .topLeading) {
+                        hourLines
+                        nowMarker
+                        scrollAnchor
+                        ForEach(todayItems) { item in
+                            eventBlock(item)
+                                .offset(y: layout.offset(for: item))
+                        }
                     }
+                    .frame(height: layout.totalHeight, alignment: .top)
+                    // Protótipo: `padding: 12px 14px 18px` na calha da trilha.
+                    .padding(.horizontal, 14)
+                    .padding(.top, 12)
+                    .padding(.bottom, 18)
                 }
-                .frame(height: layout.totalHeight, alignment: .top)
-                // Protótipo: `padding: 12px 14px 18px` na calha da trilha.
-                .padding(.horizontal, 14)
-                .padding(.top, 12)
-                .padding(.bottom, 18)
+                .onAppear { proxy.scrollTo(Self.scrollAnchorID, anchor: .top) }
             }
             pendingSection
         }
@@ -147,6 +165,20 @@ public struct AgendaRail: View {
         .background(theme.surface2.color)
         .agendaUndoBand(store: store)
         .hairline(theme.line, edges: .leading)
+    }
+
+    private static let scrollAnchorID = "agendaRail.scroll.morning"
+
+    /// Ver `DayScreen.scrollAnchor`: o alvo precisa ser altura de verdade,
+    /// não `.offset`, senão `scrollTo` não o encontra e a trilha abre na
+    /// meia-noite em vez das 08:00.
+    private var scrollAnchor: some View {
+        VStack(spacing: 0) {
+            Color.clear.frame(height: layout.initialScrollTarget)
+            Color.clear.frame(height: 1).id(Self.scrollAnchorID)
+            Spacer(minLength: 0)
+        }
+        .allowsHitTesting(false)
     }
 
     private var header: some View {
@@ -180,7 +212,7 @@ public struct AgendaRail: View {
     /// vez de pendurado abaixo dela. A linha continua no minuto exato da hora,
     /// que é o que mantém os cartões alinhados com a hora que dizem começar.
     private var hourLines: some View {
-        ForEach(8..<19, id: \.self) { hour in
+        ForEach(0...24, id: \.self) { hour in
             HStack(spacing: layout.gutterGap) {
                 Text(Self.hourLabel(minuteOfDay: hour * 60))
                     .font(theme.mono.font(size: 9))
@@ -191,30 +223,30 @@ public struct AgendaRail: View {
                     .frame(height: Hairline.thickness(displayScale))
             }
             .frame(height: 0, alignment: .center)
-            .offset(y: CGFloat(hour * 60 - 480) * layout.pointsPerMinute)
+            .offset(y: CGFloat(hour * 60) * layout.pointsPerMinute)
         }
     }
 
     /// O traço de "agora". Protótipo: `left: 26px; right: 0` — ele encosta na
     /// calha dos rótulos e não a atravessa.
+    ///
+    /// A trilha cobre o dia inteiro agora, então "agora" está sempre dentro
+    /// da faixa (0...1440) — a checagem que existia aqui era o resquício da
+    /// faixa 480-1140 e sumiu junto com ela.
     private var nowMarker: some View {
-        Group {
-            if now >= 480 && now <= 1140 {
-                HStack(spacing: 0) {
-                    Color.clear
-                        .frame(width: layout.nowMarkerLeading, height: 0)
-                    ZStack(alignment: .leading) {
-                        Rectangle()
-                            .fill(liveColor())
-                            .frame(height: 1.5)
-                        nowDot
-                            .frame(width: 4, height: 4)
-                    }
-                }
-                .frame(height: 0, alignment: .center)
-                .offset(y: CGFloat(now - 480) * layout.pointsPerMinute)
+        HStack(spacing: 0) {
+            Color.clear
+                .frame(width: layout.nowMarkerLeading, height: 0)
+            ZStack(alignment: .leading) {
+                Rectangle()
+                    .fill(liveColor())
+                    .frame(height: 1.5)
+                nowDot
+                    .frame(width: 4, height: 4)
             }
         }
+        .frame(height: 0, alignment: .center)
+        .offset(y: CGFloat(now) * layout.pointsPerMinute)
     }
 
     private var nowDot: some View {
