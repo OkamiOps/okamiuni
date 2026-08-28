@@ -192,6 +192,30 @@ struct InitialLoaderImapTests {
         #expect(naoLida?.isFlagged == false)
     }
 
+    /// A ponta a ponta do primeiro teste com conta real: `\Seen` sai do
+    /// servidor, atravessa `ImapWire`, `InitialLoader` grava, `SyncDatabase`
+    /// guarda, `DatabaseMailSource` lê de volta e `MailStore.unreadCount`
+    /// enxerga a diferença entre lida e não lida.
+    ///
+    /// Esta é a mutação vermelha do item 1: se `TriageProjection.isRead
+    /// (imapFlags:)` voltasse a inverter a regra (ou se `InitialLoader`
+    /// deixasse de gravar `envelope.isRead`), as duas mensagens nasceriam
+    /// com o mesmo `isRead`, `unreadCount` bateria com `count(for:)` e este
+    /// teste veria 2 em vez de 1.
+    @Test("o contador de não lidas do MailStore reflete o \\Seen que veio do servidor")
+    @MainActor
+    func naoLidasAtravessamOFioAteOMailStore() async throws {
+        let db = try SyncDatabase.temporary()
+        _ = try await carrega(db, script: roteiro())
+
+        let source = DatabaseMailSource(database: db)
+        let store = MailStore(source: source)
+        await store.load()
+
+        #expect(store.count(for: .today) == 2)
+        #expect(store.unreadCount(in: .today) == 1)
+    }
+
     @Test("A segunda passada reseleciona a pasta antes de buscar nela")
     func segundaPassadaReseleciona() async throws {
         // `UID FETCH` age sobre a pasta corrente, e a primeira passada termina

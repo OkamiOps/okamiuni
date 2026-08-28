@@ -14,18 +14,26 @@ struct SidebarTests {
     /// que o define (`messages.filter { … }.count`) — verdadeiras por
     /// construção, e passavam com as quatro mensagens erradas que estavam nas
     /// fixtures. O que precisa bater é o número que se lê na tela.
+    ///
+    /// Desde o primeiro teste com contas reais: o dono quer NÃO LIDAS aqui,
+    /// não o total — "Hoje" mostrava 44 (total) contra 6 não lidas no webmail.
+    /// `FolderSidebar`/`SidebarRail` agora chamam `unreadCount(in:accountID:)`,
+    /// e é isso que este teste passa a proxiar. Os literais não mudam porque
+    /// as sete mensagens das fixtures nascem todas não lidas — `unreadCount`
+    /// e `count(for:)` coincidem aqui por acaso, não por serem a mesma coisa;
+    /// `bucketUnreadDiffersFromTotal` abaixo é quem prova a diferença.
     @Test("os contadores por caixa são os do design")
     @MainActor
     func counts() async {
         let store = MailStore(source: InMemoryMailSource.fixtures)
         await store.load()
-        #expect(store.count(for: .today) == 3)
-        #expect(store.count(for: .later) == 3)
-        #expect(store.count(for: .all) == 7)
-        #expect(store.count(for: .archived) == 1)
+        #expect(store.unreadCount(in: .today) == 3)
+        #expect(store.unreadCount(in: .later) == 3)
+        #expect(store.unreadCount(in: .all) == 7)
+        #expect(store.unreadCount(in: .archived) == 1)
         // "Tudo" é uma visão, não um estado: nenhuma mensagem fica de fora dela.
-        #expect(store.count(for: .today) + store.count(for: .later)
-            + store.count(for: .archived) == store.count(for: .all))
+        #expect(store.unreadCount(in: .today) + store.unreadCount(in: .later)
+            + store.unreadCount(in: .archived) == store.unreadCount(in: .all))
     }
 
     /// O contador respeita o filtro de conta — é o que a barra mostra depois de
@@ -37,10 +45,24 @@ struct SidebarTests {
         let store = MailStore(source: InMemoryMailSource.fixtures)
         await store.load()
         store.select(account: "host")
-        #expect(store.count(for: .all) == 2)
-        #expect(store.count(for: .today) == 1)
-        #expect(store.count(for: .later) == 1)
-        #expect(store.count(for: .archived) == 0)
+        #expect(store.unreadCount(in: .all, accountID: store.selectedAccountID) == 2)
+        #expect(store.unreadCount(in: .today, accountID: store.selectedAccountID) == 1)
+        #expect(store.unreadCount(in: .later, accountID: store.selectedAccountID) == 1)
+        #expect(store.unreadCount(in: .archived, accountID: store.selectedAccountID) == 0)
+    }
+
+    /// A prova de que a troca importa: com uma mensagem marcada como lida,
+    /// `unreadCount` cai e `count(for:)` (o total) não se move. É a mutação
+    /// vermelha do item 1 — se `FolderSidebar`/`SidebarRail` voltassem a
+    /// chamar `count(for:)`, este teste continuaria vendo 3, não 2.
+    @Test("uma mensagem lida sai do contador de não lidas, mas não do total")
+    @MainActor
+    func bucketUnreadDiffersFromTotal() async {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        store.setRead(true, for: "m1") // m1 é "Hoje", conta zoho.
+        #expect(store.count(for: .today) == 3)
+        #expect(store.unreadCount(in: .today) == 2)
     }
 
     /// `store.accounts.count == quantidade` é verdade mesmo se o desenho só

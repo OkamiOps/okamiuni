@@ -115,7 +115,7 @@ public struct FolderSidebar: View {
                     .font(theme.sans.font(size: 13, weight: .medium))
                     .foregroundStyle((active ? theme.accentInk : theme.ink2).color)
                 Spacer(minLength: 0)
-                Text("\(store.count(for: bucket))")
+                Text("\(store.unreadCount(in: bucket, accountID: store.selectedAccountID))")
                     .font(theme.mono.font(size: 10))
                     .foregroundStyle((active ? theme.accentInk : theme.ink4).color)
             }

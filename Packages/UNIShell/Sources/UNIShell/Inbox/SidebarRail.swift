@@ -96,7 +96,7 @@ public struct SidebarRail: View {
                     .tracking(0.06 * 8.5)  // Tracking em pontos: 0.06em × 8.5pt = 0.51pt
                     .textCase(.uppercase)
 
-                Text("\(store.count(for: bucket))")
+                Text("\(store.unreadCount(in: bucket, accountID: store.selectedAccountID))")
                     // O protótipo não declara família nesta contagem, então ela
                     // herda a sans do corpo — não é mono como a abreviação acima.
                     .font(theme.sans.font(size: 13, weight: .semibold))
