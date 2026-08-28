@@ -1,0 +1,375 @@
+import AppKit
+import SwiftUI
+import Testing
+import UNICore
+import UNIDesign
+@testable import UNIShell
+
+/// A lacuna que a auditoria nomeou: `MessageRow` não tinha medida nenhuma.
+/// `.fixedSize`, `.lineLimit(2)` e `accountBarWidth` podiam mudar de valor, ou
+/// sumir, sem que suíte nenhuma reclamasse — nada aqui olhava para o que a
+/// linha de fato desenha, só para os dados que ela recebe.
+///
+/// Sem harness de texto (não há OCR), a técnica é a mesma da suíte de
+/// hairline: ler pixel do bitmap renderizado e comparar contra o que o token
+/// e a constante preveem. A barra colorida da conta (`accountBarWidth`) é o
+/// instrumento — ela cobre a altura inteira da linha (`.overlay(alignment:
+/// .leading)` sem `.frame(height:)` próprio, então herda o da `VStack`), e por
+/// isso serve tanto para medir a própria largura quanto, por extensão, a
+/// altura da linha inteira.
+@Suite("MessageRow")
+@MainActor
+struct MessageRowTests {
+    private static let width: CGFloat = 370
+    private static let canvasHeight: CGFloat = 300
+
+    private func message(
+        subject: String = "Assunto", snippet: String, isRead: Bool = true
+    ) -> Message {
+        Message(
+            id: "m", accountID: "a",
+            from: Contact(name: "Quem Escreveu", address: "quem@exemplo.com"),
+            receivedAt: .now, subject: subject, snippet: snippet, body: [],
+            tags: [], bucket: .today, isRead: isRead, summary: nil, detectedEvent: nil
+        )
+    }
+
+    /// Vermelho puro como cor da conta: satura os três canais ao extremo, o
+    /// que sobrevive tanto à opacidade cheia da barra (linha selecionada)
+    /// quanto aos 45% da linha comum e aos 10% do fundo de seleção — nos três
+    /// casos o canal vermelho fica bem acima do verde e do azul.
+    private func renderRow(
+        subject: String = "Assunto",
+        snippet: String,
+        isSelected: Bool = false,
+        isRead: Bool = true,
+        emphasis: UnreadEmphasis = .standard
+    ) -> NSBitmapImageRep? {
+        renderRow(
+            message(subject: subject, snippet: snippet, isRead: isRead),
+            isSelected: isSelected, emphasis: emphasis
+        )
+    }
+
+    private func renderRow(
+        _ message: Message,
+        isSelected: Bool = false,
+        emphasis: UnreadEmphasis = .standard
+    ) -> NSBitmapImageRep? {
+        let row = MessageRow(
+            message: message,
+            accountHost: "host", accountTint: .red, isSelected: isSelected,
+            emphasis: emphasis
+        )
+        let staged = row
+            .frame(width: Self.width, alignment: .topLeading)
+            .frame(height: Self.canvasHeight, alignment: .top)
+            .background(Theme.tinta.surface.color)
+        return Render.bitmap(staged, size: CGSize(width: Self.width, height: Self.canvasHeight), theme: .tinta)
+    }
+
+    /// Vermelho domina claramente verde e azul, em qualquer das opacidades que
+    /// a linha usa (10%, 45%, 100% sobre o fundo do tema `tinta`) — a conta
+    /// entre parênteses na descrição de cada teste mostra a folga real.
+    private func isReddish(_ rep: NSBitmapImageRep, _ x: Int, _ y: Int) -> Bool {
+        guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), c.alphaComponent > 0.99
+        else { return false }
+        let r = Double(c.redComponent), g = Double(c.greenComponent), b = Double(c.blueComponent)
+        return r - max(g, b) > 0.04
+    }
+
+    /// Quantas linhas, a partir do topo, a barra da conta pinta na coluna
+    /// `x`. A barra não tem `.frame(height:)` — herda o da `VStack` via
+    /// `.overlay(alignment: .leading)` — então esta contagem É a altura da
+    /// linha inteira, em pontos (escala 1×, como todo o harness).
+    private func barRunLength(_ rep: NSBitmapImageRep, x: Int) -> Int {
+        var count = 0
+        for y in 0..<rep.pixelsHigh {
+            guard isReddish(rep, x, y) else { break }
+            count += 1
+        }
+        return count
+    }
+
+    // MARK: - Altura da linha segue o conteúdo, até o limite de 2 linhas
+
+    /// Duas quebras de linha literais (`\n`) forçam três linhas *lógicas* no
+    /// trecho; com `.lineLimit(2)` só duas podem aparecer. Uma quebra só
+    /// força duas linhas, que cabem inteiras. Se as duas alturas saem iguais,
+    /// o limite está de fato cortando a terceira — apagar `.lineLimit(2)` (a
+    /// mutação que a auditoria citou) deixaria a versão de três linhas mais
+    /// alta que a de duas, e o teste cairia.
+    @Test("o trecho de três linhas para no limite de duas, não cresce mais")
+    func snippetHeightCapsAtTwoLines() throws {
+        let oneLine = try #require(renderRow(snippet: "Uma linha só, sem quebra nenhuma."))
+        let twoLines = try #require(
+            renderRow(snippet: "Primeira linha do trecho.\nSegunda linha do trecho.")
+        )
+        let threeLinesForced = try #require(
+            renderRow(snippet: "Primeira linha do trecho.\nSegunda linha do trecho.\nTerceira linha, que o limite deve esconder.")
+        )
+
+        let h1 = barRunLength(oneLine, x: 1)
+        let h2 = barRunLength(twoLines, x: 1)
+        let h3 = barRunLength(threeLinesForced, x: 1)
+
+        #expect(h1 > 0, "a barra da conta não pintou nada — a sonda não está medindo a linha")
+        #expect(h2 > h1, "duas linhas de trecho não ficaram mais altas que uma — a linha não segue o conteúdo")
+        #expect(
+            h3 == h2,
+            "três linhas de trecho (h=\(h3)) ficaram mais altas que duas (h=\(h2)) — o limite de 2 linhas não está cortando"
+        )
+    }
+
+    // MARK: - Largura da barra da conta
+
+    /// `accountBarWidth` é `3`. Medir a largura de fato pintada, não repetir
+    /// a constante: uma `.frame(width:)` trocada no `overlay` continuaria
+    /// compilando e a constante continuaria dizendo 3 sem que o desenho
+    /// concordasse.
+    @Test("a barra da conta pinta exatamente accountBarWidth pontos de largura")
+    func accountBarWidthMatchesDrawing() throws {
+        let rep = try #require(renderRow(snippet: "Um trecho comum, de uma linha."))
+        // Meio da primeira linha (cabeçalho), longe de qualquer borda inferior.
+        let y = 10
+        var measuredWidth = 0
+        for x in 0..<rep.pixelsWide {
+            guard isReddish(rep, x, y) else { break }
+            measuredWidth += 1
+        }
+        #expect(measuredWidth == Int(MessageRow.accountBarWidth))
+    }
+
+    // MARK: - Seleção pinta a linha inteira
+
+    /// Requisito explícito do dono do projeto: a linha inteira pinta na
+    /// seleção, não só embaixo do texto ou do chip. Medido bem à direita da
+    /// linha (x=360 de 370), onde nem texto nem chip chegam — só o fundo.
+    @Test("selecionar a linha pinta até a borda direita, não só o texto")
+    func selectionPaintsTheFullRow() throws {
+        let snippet = "Um trecho comum, de uma linha."
+        let selected = try #require(renderRow(snippet: snippet, isSelected: true))
+        let notSelected = try #require(renderRow(snippet: snippet, isSelected: false))
+
+        let rowHeight = barRunLength(selected, x: 1)
+        #expect(rowHeight > 20, "a sonda de altura não achou uma linha de verdade para escolher um y no meio dela")
+        let y = rowHeight / 2
+        let x = Int(Self.width) - 10
+
+        #expect(
+            isReddish(selected, x, y),
+            "a linha selecionada não pintou perto da borda direita (x=\(x), y=\(y)) — a seleção não cobre a linha inteira"
+        )
+        #expect(
+            isReddish(notSelected, x, y) == false,
+            "a linha NÃO selecionada já aparece pintada perto da borda direita — falso positivo da sonda"
+        )
+    }
+
+    // MARK: - O ponto de não-lida
+
+    /// Os pixels que são o `accent` do tema, dentro de uma janela.
+    ///
+    /// A cor da conta neste harness é vermelho puro e a barra dela mora nos
+    /// 3pt da esquerda; `accent` em `tinta` é `rgb(47,75,124)`, azul, e não
+    /// existe em lugar nenhum da linha fora do ponto. Contar em vez de olhar
+    /// um pixel: um ponto de 7pt tem uns 38px de área, e um único pixel
+    /// certeiro passaria mesmo com o ponto reduzido a um respingo.
+    private func accentPixels(
+        _ rep: NSBitmapImageRep, x: Range<Int>, y: Range<Int>
+    ) -> [(x: Int, y: Int)] {
+        guard let wanted = Theme.tinta.accent.nsColor.usingColorSpace(.sRGB) else { return [] }
+        var found: [(x: Int, y: Int)] = []
+        for column in x where column < rep.pixelsWide {
+            for row in y where row < rep.pixelsHigh {
+                guard let c = rep.colorAt(x: column, y: row)?.usingColorSpace(.sRGB),
+                      c.alphaComponent > 0.9 else { continue }
+                if abs(c.redComponent - wanted.redComponent) < 0.02,
+                   abs(c.greenComponent - wanted.greenComponent) < 0.02,
+                   abs(c.blueComponent - wanted.blueComponent) < 0.02 {
+                    found.append((column, row))
+                }
+            }
+        }
+        return found
+    }
+
+    /// A coluna do ponto: da borda direita da barra grossa até o fim da
+    /// coluna. Fora dela o ponto estaria por cima da barra ou invadindo o
+    /// conteúdo.
+    ///
+    /// **Mudou nesta tarefa, de propósito.** Antes era a goteira de 3–16pt,
+    /// dividida com o recuo do texto; a variante escolhida (C) dá ao ponto uma
+    /// coluna de 20pt, com a barra da conta engrossada para 6 embaixo dela.
+    private static let dotColumn =
+        Int(UnreadMetrics.loudBarWidth)..<Int(UnreadMetrics.dotColumnWidth)
+
+    /// O defeito relatado: "ta muito dificil de saber se a mensagem já foi
+    /// lida ou nào (…) eu demorei muito tempo pra perceber o sutil negrito no
+    /// titulo". O negrito continua; o ponto é a marca que se vê sem procurar.
+    ///
+    /// Mutação que derruba: apagar o `overlay` do ponto em `MessageRow` — a
+    /// contagem da linha não lida cai a zero e o primeiro `#expect` falha.
+    @Test("a linha não lida marca um ponto de accent na goteira da esquerda")
+    func unreadRowShowsTheDot() throws {
+        let unread = try #require(renderRow(snippet: "Um trecho comum.", isRead: false))
+        let marks = accentPixels(unread, x: 0..<Int(Self.width), y: 0..<60)
+
+        // Área de um círculo de 9pt: ~63px. Metade disso já é um ponto, e um
+        // respingo de 3px não passa. O piso subiu junto com o diâmetro: com 20
+        // o ponto de 7pt de antes ainda passaria neste teste.
+        #expect(marks.count >= 40, "o ponto pintou só \(marks.count)px — não é um ponto")
+        let xs = marks.map(\.x)
+        let ys = marks.map(\.y)
+        let minX = try #require(xs.min()), maxX = try #require(xs.max())
+        let minY = try #require(ys.min()), maxY = try #require(ys.max())
+
+        // Na goteira: depois da barra da conta e antes do recuo do texto.
+        #expect(Self.dotColumn.contains(minX), "o ponto começa em \(minX), fora da coluna")
+        #expect(Self.dotColumn.contains(maxX), "o ponto termina em \(maxX), fora da coluna")
+        // E do tamanho anunciado, com um pixel de folga para a antisserrilha.
+        #expect(maxX - minX + 1 <= Int(UnreadMetrics.dotDiameter))
+        #expect(maxY - minY + 1 <= Int(UnreadMetrics.dotDiameter))
+        // Alinhado com a linha do remetente, não perdido no pé da linha.
+        #expect(abs((minY + maxY) / 2 - Int(UnreadMetrics.dotCenterY)) <= 1)
+    }
+
+    /// A outra metade da sonda: sem ela, um ponto pintado em **toda** linha
+    /// passaria no teste de cima.
+    @Test("a linha lida não tem nada na goteira")
+    func readRowHasNoDot() throws {
+        let read = try #require(renderRow(snippet: "Um trecho comum.", isRead: true))
+        let marks = accentPixels(read, x: 0..<Int(Self.width), y: 0..<60)
+        #expect(marks.isEmpty, "a linha lida pintou \(marks.count)px de accent")
+    }
+
+    /// O ponto tem de sumir **na hora**, por qualquer caminho que marque lida.
+    /// Aqui o caminho é o de verdade: o mesmo `ContextCommand` que o menu de
+    /// contexto e o arraste emitem, executado pelo `StoreCommand` sobre o
+    /// `MailStore`. A linha relê `message.isRead` e o ponto vai embora.
+    @Test("marcar como lida pelo comando do app apaga o ponto")
+    func markingReadClearsTheDot() async throws {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        let unread = try #require(store.messages.first { !$0.isRead })
+
+        let before = try #require(renderRow(unread))
+        #expect(accentPixels(before, x: 0..<Int(Self.width), y: 0..<60).count >= 20)
+
+        #expect(StoreCommand.run(.setRead(messageID: unread.id, isRead: true), on: store))
+        let marked = try #require(store.messages.first { $0.id == unread.id })
+        #expect(marked.isRead)
+
+        let after = try #require(renderRow(marked))
+        #expect(
+            accentPixels(after, x: 0..<Int(Self.width), y: 0..<60).isEmpty,
+            "o ponto sobreviveu à marcação de lida"
+        )
+    }
+
+    /// O negrito continua sendo parte da distinção — o ponto é **adição**, não
+    /// troca. Medido pela tinta que o nome do remetente deposita: em
+    /// `.semibold` ela é mais grossa que em `.regular`.
+    @Test("o ponto não substituiu o negrito do remetente")
+    func boldSenderSurvivesTheDot() throws {
+        let unread = try #require(renderRow(snippet: "Um trecho comum.", isRead: false))
+        let read = try #require(renderRow(snippet: "Um trecho comum.", isRead: true))
+        // Só a faixa do nome, e só à direita da coluna do ponto — que agora
+        // ocupa layout. `accent` soma 0,96 nos três canais e passaria por
+        // "tinta escura" se a janela o incluísse.
+        let x = Int(UnreadMetrics.dotColumnWidth)..<Int(Self.width)
+        #expect(inkCount(unread, x: x, y: 10..<26) > inkCount(read, x: x, y: 10..<26),
+                "o nome não lido não deposita mais tinta que o lido — o negrito sumiu")
+    }
+
+    // MARK: - O campo: barra grossa e fundo próprio (a outra metade da C)
+
+    /// A variante escolhida marca por **dois** sinais, e cada um cai sozinho.
+    /// Este é o segundo: a barra da conta engrossa de 3 para 6 na linha não
+    /// lida — e continua com 3 na lida, senão o sinal não separa nada.
+    ///
+    /// Mutação que derruba: `barWidth` devolvendo `Self.accountBarWidth`
+    /// sempre. A medida da não lida cai para 3 e o primeiro `#expect` falha.
+    @Test("a barra da conta engrossa na linha não lida, e só nela")
+    func unreadRowThickensTheAccountBar() throws {
+        func barWidth(isRead: Bool) throws -> Int {
+            let rep = try #require(renderRow(snippet: "Um trecho comum.", isRead: isRead))
+            var measured = 0
+            for x in 0..<rep.pixelsWide {
+                guard isReddish(rep, x, 10) else { break }
+                measured += 1
+            }
+            return measured
+        }
+        #expect(try barWidth(isRead: false) == Int(UnreadMetrics.loudBarWidth))
+        #expect(try barWidth(isRead: true) == Int(UnreadMetrics.quietBarWidth))
+    }
+
+    /// O terceiro sinal da variante C: o **fundo**. A linha não lida pinta
+    /// `accentSoft` de ponta a ponta; a lida não pinta nada e mostra o
+    /// `surface` do palco.
+    ///
+    /// Medido bem à direita (x = largura − 10), onde nem texto nem chip chegam
+    /// — a mesma sonda que prova a seleção cobrir a linha inteira.
+    ///
+    /// Mutação que derruba: `rowBackground` devolvendo `.clear` para a não
+    /// lida. A contagem cai a zero e o primeiro `#expect` falha, **sem** o
+    /// teste do ponto se mexer — que é o ponto de separar os dois sinais.
+    @Test("a linha não lida pinta o fundo próprio até a borda direita")
+    func unreadRowPaintsItsField() throws {
+        let unread = try #require(renderRow(snippet: "Um trecho comum.", isRead: false))
+        let read = try #require(renderRow(snippet: "Um trecho comum.", isRead: true))
+        let x = Int(Self.width) - 10
+        let y = 0..<barRunLength(unread, x: 1)
+
+        func softPixels(_ rep: NSBitmapImageRep) -> Int {
+            var count = 0
+            guard let wanted = Theme.tinta.accentSoft.nsColor.usingColorSpace(.sRGB)
+            else { return 0 }
+            for row in y {
+                guard let c = rep.colorAt(x: x, y: row)?.usingColorSpace(.sRGB) else { continue }
+                if abs(c.redComponent - wanted.redComponent) < 0.02,
+                   abs(c.greenComponent - wanted.greenComponent) < 0.02,
+                   abs(c.blueComponent - wanted.blueComponent) < 0.02 {
+                    count += 1
+                }
+            }
+            return count
+        }
+
+        #expect(softPixels(unread) > 60, "o fundo da não lida pintou \(softPixels(unread))px")
+        #expect(softPixels(read) == 0, "a linha lida pintou fundo de não lida")
+    }
+
+    // MARK: - As três variantes, para a escolha ser feita olhando
+
+    /// Cada variante acende exatamente os sinais que promete — é o que impede
+    /// que "trocar `UnreadEmphasis.standard`" mude menos do que anuncia.
+    @Test("cada variante acende só os sinais que promete", arguments: UnreadEmphasis.allCases)
+    func eachVariantShowsWhatItPromises(emphasis: UnreadEmphasis) throws {
+        let rep = try #require(
+            renderRow(snippet: "Um trecho comum.", isRead: false, emphasis: emphasis)
+        )
+        let dot = accentPixels(rep, x: 0..<Int(Self.width), y: 0..<60).count
+        var bar = 0
+        for x in 0..<rep.pixelsWide {
+            guard isReddish(rep, x, 10) else { break }
+            bar += 1
+        }
+        #expect((dot >= 40) == emphasis.showsDot, "o ponto de \(emphasis) pintou \(dot)px")
+        #expect(bar == Int(emphasis.barWidth), "a barra de \(emphasis) mede \(bar)")
+    }
+
+    /// Pixels escuros (tinta de texto) numa janela.
+    private func inkCount(_ rep: NSBitmapImageRep, x: Range<Int>, y: Range<Int>) -> Int {
+        var count = 0
+        for column in x where column < rep.pixelsWide {
+            for row in y where row < rep.pixelsHigh {
+                guard let c = rep.colorAt(x: column, y: row)?.usingColorSpace(.sRGB),
+                      c.alphaComponent > 0.5 else { continue }
+                if c.redComponent + c.greenComponent + c.blueComponent < 1.6 { count += 1 }
+            }
+        }
+        return count
+    }
+}

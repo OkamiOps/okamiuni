@@ -14,9 +14,11 @@
 - O projeto Xcode é **gerado** por `xcodegen` a partir de `project.yml`. O `.xcodeproj` fica no `.gitignore` — nunca editar à mão, nunca versionar.
 - `Packages/UNIDesign` já existe e está pronto: 26 temas, `TokenColor`, `FontFamily`, `FontRegistry`, `ThemeStore`, `EnvironmentValues.theme`. **Não reescrever.** Regenerar temas só via `python3 Tools/generate_themes.py`.
 - **Número de contas ilimitado, provedores abertos.** Nenhum literal de quantidade, nenhuma lista de domínios ou provedores conhecidos em código de produção. Ver "Contas" abaixo.
-- Cores, espaçamentos, raios e pesos vêm **sempre** de `Theme`. Nenhum literal de cor ou tamanho hardcoded numa View. Se falta um token, o caminho é acrescentar ao design e regenerar — não inventar no Swift.
+- **Cor, raio e tipografia vêm sempre de `Theme`** — isto é absoluto. Nenhum literal de cor (`Color.blue`, `#FFF`), nenhum raio solto, nenhuma `Font.system` direta numa View. Se falta um token de cor ou raio, o caminho é acrescentar ao design e regenerar, nunca inventar no Swift.
+- **Espaçamento inline é permitido** (`padding(.horizontal, 24)`, `spacing: 10`, `frame(height: 40)`), porque o protótipo não tokeniza a escala de espaçamento — ele posiciona elemento a elemento. A regra é: **todo número de espaçamento tem de vir do protótipo, não da sua intuição.** Em caso de dúvida, medir no `.dc.html` em vez de arredondar. Os quatro tokens de métrica que existem (`radiusSmall`, `radiusLarge`, `rowPadding`, `capsTracking`) são obrigatórios onde se aplicam.
+- **Dois andaimes temporários são mandados pelo plano e não são defeitos:** o `Color.clear` que segura o lugar do seletor de temas na Task 5 (removido na Task 6) e o `print` do `onAddEvent` na Task 11 (substituído por EventKit no Marco 4). Ambos levam comentário dizendo o que os remove.
 - Todo texto de interface em **português do Brasil**, idêntico ao protótipo (`design/OkamiUNI - Mail + Agenda.dc.html`).
-- Fonte da verdade visual: o protótipo. Quando o plano e o protótipo divergirem, o protótipo vence.
+- **Fonte da verdade visual: o protótipo.** Quando o plano e o protótipo divergirem, o implementador **NÃO decide**: para, devolve `NEEDS_CONTEXT` descrevendo a divergência (o valor do plano, o valor do protótipo, a linha do `.dc.html`) e espera resposta. Seguir o plano contra o protótipo já produziu retrabalho neste projeto — a barra lateral inteira teve de ser refeita porque um implementador achou a divergência, registrou no relatório, e mesmo assim seguiu o plano.
 - Testes com **Swift Testing** (`import Testing`, `@Test`, `#expect`), não XCTest.
 - Um commit por tarefa concluída, mensagem em português, com trailer `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
 
@@ -1171,9 +1173,11 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 5: Modificadores de token e a barra de 58px
+### Task 5: Assets de marca, modificadores de token e a barra de 58px
 
 **Files:**
+- Create: `design/assets/uni-lockup-dark.png`, `uni-mark-light.png`, `uni-mark-dark.png`
+- Create: `App/Resources/Assets.xcassets/` (4 image sets)
 - Create: `Packages/UNIShell/Package.swift`
 - Create: `Packages/UNIShell/Sources/UNIShell/Support/TokenModifiers.swift`
 - Create: `Packages/UNIShell/Sources/UNIShell/Chrome/WindowChrome.swift`
@@ -1185,7 +1189,56 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Consumes: `UNIDesign.Theme`, `UNICore.TriageBucket`, `UNICore.MailStore`
 - Produces: `View.hairline(_:edges:)`, `View.capsLabel(size:)`, `WindowChrome`, `enum Workspace { case mail, calendar }`
 
-- [ ] **Step 1: Escrever `Package.swift`**
+- [ ] **Step 1: Baixar os 3 assets que faltam**
+
+Só o `uni-lockup-light.png` foi baixado no Marco 0. Os outros três estão no projeto do Claude Design `40478c81-e3be-42cc-aad1-f0c2d28d292c`: `uni-lockup-dark.png`, `uni-mark-light.png`, `uni-mark-dark.png`.
+
+Para cada um, chamar a ferramenta `DesignSync` com `method: "get_file"`, esse `projectId` e o `path` do arquivo. A resposta é JSON com `content` em base64 e `isBase64: true`. Quando o resultado for grande demais e for salvo em arquivo, decodificar assim (foi o caminho usado no Marco 0):
+
+```bash
+python3 - <<'PY'
+import json, base64, pathlib
+# trocar pelo caminho que a ferramenta reportou e pelo nome do asset
+src = "<caminho-do-resultado>.txt"
+dest = "design/assets/uni-lockup-dark.png"
+d = json.load(open(src, encoding="utf-8"))
+pathlib.Path(dest).write_bytes(base64.b64decode(d["content"]))
+print("ok", dest)
+PY
+file design/assets/*.png
+```
+
+Expected: `file` reporta os quatro como `PNG image data` com dimensões plausíveis (o lockup claro é 587×162).
+
+Depois criar os image sets. Os nomes têm de ser exatamente `uni-lockup-light`, `uni-lockup-dark`, `uni-mark-light`, `uni-mark-dark` — é o que `WindowChrome` e `ReaderPane` já pedem em `Image(...)`.
+
+```bash
+for n in uni-lockup-light uni-lockup-dark uni-mark-light uni-mark-dark; do
+  dir="App/Resources/Assets.xcassets/$n.imageset"
+  mkdir -p "$dir"
+  cp "design/assets/$n.png" "$dir/$n.png"
+  cat > "$dir/Contents.json" <<JSON
+{
+  "images" : [
+    { "filename" : "$n.png", "idiom" : "universal", "scale" : "1x" },
+    { "idiom" : "universal", "scale" : "2x" },
+    { "idiom" : "universal", "scale" : "3x" }
+  ],
+  "info" : { "author" : "xcode", "version" : 1 }
+}
+JSON
+done
+cat > App/Resources/Assets.xcassets/Contents.json <<'JSON'
+{ "info" : { "author" : "xcode", "version" : 1 } }
+JSON
+ls App/Resources/Assets.xcassets/
+```
+
+Expected: quatro pastas `.imageset` mais o `Contents.json` raiz.
+
+Se o lockup vier em resolução baixa e pixelar a 38pt de altura, pedir ao design uma exportação 2×/3× em vez de escalar o 1× — a barra é a primeira coisa que a pessoa vê.
+
+- [ ] **Step 2: Escrever `Package.swift`**
 
 ```swift
 // swift-tools-version: 6.2
@@ -1206,7 +1259,7 @@ let package = Package(
 )
 ```
 
-- [ ] **Step 2: Escrever o teste que falha**
+- [ ] **Step 3: Escrever o teste que falha**
 
 ```swift
 import Testing
@@ -1245,12 +1298,12 @@ struct TokenModifierTests {
 }
 ```
 
-- [ ] **Step 3: Rodar para ver falhar**
+- [ ] **Step 4: Rodar para ver falhar**
 
 Run: `cd Packages/UNIShell && swift test`
 Expected: FAIL — `cannot find 'Workspace' in scope`.
 
-- [ ] **Step 4: Escrever `TokenModifiers.swift`**
+- [ ] **Step 5: Escrever `TokenModifiers.swift`**
 
 ```swift
 import SwiftUI
@@ -1299,7 +1352,7 @@ extension View {
 }
 ```
 
-- [ ] **Step 5: Escrever `WindowChrome.swift`**
+- [ ] **Step 6: Escrever `WindowChrome.swift`**
 
 ```swift
 import SwiftUI
@@ -1449,7 +1502,7 @@ public struct WindowChrome: View {
 }
 ```
 
-- [ ] **Step 6: Adicionar `UNIShell` ao `project.yml`**
+- [ ] **Step 7: Adicionar `UNIShell` ao `project.yml`**
 
 Em `packages`:
 ```yaml
@@ -1467,12 +1520,12 @@ Em `targets.OkamiUNI.dependencies`:
         product: UNIShell
 ```
 
-- [ ] **Step 7: Rodar os testes**
+- [ ] **Step 8: Rodar os testes**
 
 Run: `cd Packages/UNIShell && swift test`
 Expected: PASS, 4 testes.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add Packages/UNIShell project.yml
@@ -1722,165 +1775,168 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 7: Barra lateral de pastas e caixas
+### Task 7: Filtro por conta e barra lateral expandida
+
+O plano original descrevia esta barra errada em quase tudo. Os valores abaixo foram
+extraídos do protótipo e são os corretos.
 
 **Files:**
-- Create: `Packages/UNIShell/Sources/UNIShell/Inbox/FolderSidebar.swift`
-- Test: `Packages/UNIShell/Tests/UNIShellTests/SidebarTests.swift`
+- Modify: `Packages/UNICore/Sources/UNICore/Account.swift`
+- Modify: `Packages/UNICore/Sources/UNICore/MessageStore.swift`
+- Modify: `Packages/UNICore/Sources/UNICore/Fixtures/Fixtures.swift`
+- Modify: `Packages/UNICore/Tests/UNICoreTests/StoreTests.swift`
+- Rewrite: `Packages/UNIShell/Sources/UNIShell/Inbox/FolderSidebar.swift`
+- Modify: `Packages/UNIShell/Tests/UNIShellTests/SidebarTests.swift`
 
 **Interfaces:**
-- Consumes: `MailStore.accounts`, `MailStore.bucket`, `MailStore.count(for:)`, `TriageBucket`
-- Produces: `FolderSidebar`, `FolderSidebar.width` (`CGFloat` = 168)
+- Consumes: `Theme`, `MailStore`, `TriageBucket`, `Account`
+- Produces: `Account.tint(isDark:)`, `MailStore.selectedAccountID`,
+  `MailStore.select(account:)`, `MailStore.count(for:)` sensível ao filtro,
+  `FolderSidebar`, `FolderSidebar.expandedWidth` (= 236)
 
-- [ ] **Step 1: Escrever o teste que falha**
+#### Parte A — o modelo aprende o filtro por conta
 
-```swift
-import Testing
-import UNICore
-@testable import UNIShell
+No protótipo, clicar numa conta filtra a lista, e os contadores das pastas passam a
+contar só aquela conta. Clicar de novo na mesma conta desliga o filtro.
 
-@Suite("FolderSidebar")
-struct SidebarTests {
-
-    @Test("os contadores por caixa batem com o store")
-    @MainActor
-    func counts() async {
-        let store = MailStore(source: InMemoryMailSource.fixtures)
-        await store.load()
-        #expect(store.count(for: .all) == store.messages.count)
-        #expect(store.count(for: .today) == store.messages.filter { $0.bucket == .today }.count)
-    }
-
-    @Test("a barra lista uma linha por conta, seja qual for a quantidade")
-    @MainActor
-    func oneRowPerAccount() async {
-        for quantidade in [0, 1, 7, 25] {
-            let contas = (0..<quantidade).map { i in
-                Account(
-                    id: "a\(i)", address: "x@d\(i).com",
-                    displayName: "C\(i)", provider: .imap, tintHex: "#3E6FA8"
-                )
-            }
-            let store = MailStore(
-                source: InMemoryMailSource(accounts: contas, messages: [], agenda: [])
-            )
-            await store.load()
-            #expect(store.accounts.count == quantidade)
-        }
-    }
-}
+O código do protótipo:
+```js
+onPick: () => this.setState({ account: on ? null : k })
+// e nos contadores:
+MSGS.filter(m => (v.id === 'todos' ? true : bucketOf(m) === v.id) && (!st.account || m.acc === st.account))
 ```
 
-- [ ] **Step 2: Rodar para ver falhar**
+`MailStore` ganha:
+- `public private(set) var selectedAccountID: String?`
+- `public func select(account id: String?)` — passar o id já selecionado desliga o filtro
+- `visibleMessages` passa a aplicar o filtro de conta junto com bucket e busca
+- `count(for:)` passa a respeitar o filtro de conta
 
-Run: `cd Packages/UNIShell && swift test --filter FolderSidebar`
-Expected: FAIL na compilação.
+#### Parte B — cores de conta que se adaptam ao tema
 
-- [ ] **Step 3: Escrever `FolderSidebar.swift`**
+O protótipo troca a cor de cada conta conforme o tema, porque a cor clara não tem
+contraste em fundo escuro:
 
-```swift
-import SwiftUI
-import UNIDesign
-import UNICore
-
-public struct FolderSidebar: View {
-    public static let width: CGFloat = 168
-
-    @Environment(\.theme) private var theme
-    let store: MailStore
-
-    public init(store: MailStore) {
-        self.store = store
-    }
-
-    public var body: some View {
-        // ScrollView, não VStack fixa: o usuário pode ter dezenas de contas.
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                section("Pastas")
-                ForEach(TriageBucket.allCases, id: \.self) { bucket in
-                    bucketRow(bucket)
-                }
-
-                if !store.accounts.isEmpty {
-                    section("Caixas").padding(.top, 18)
-                    ForEach(store.accounts) { account in
-                        accountRow(account)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.vertical, 14)
-        .frame(width: Self.width, alignment: .leading)
-        .background(theme.surface2.color)
-        .hairline(theme.line, edges: .trailing)
-    }
-
-    private func section(_ title: String) -> some View {
-        Text(title)
-            .capsLabel()
-            .padding(.horizontal, 14)
-            .padding(.bottom, 6)
-    }
-
-    private func bucketRow(_ bucket: TriageBucket) -> some View {
-        let active = bucket == store.bucket
-        return Button { store.select(bucket: bucket) } label: {
-            HStack(spacing: 6) {
-                Text(bucket.label)
-                    .font(theme.sans.font(size: 12.5, weight: active ? .semibold : .regular))
-                    .foregroundStyle((active ? theme.ink : theme.ink2).color)
-                Spacer(minLength: 4)
-                Text("\(store.count(for: bucket))")
-                    .font(theme.mono.font(size: 10))
-                    .foregroundStyle(theme.ink4.color)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .contentShape(Rectangle())
-            .background {
-                if active {
-                    RoundedRectangle(cornerRadius: theme.radiusSmall)
-                        .fill(theme.accentSoft.color)
-                }
-            }
-            .padding(.horizontal, 8)
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func accountRow(_ account: Account) -> some View {
-        HStack(spacing: 7) {
-            Circle()
-                .fill(TokenColor(css: account.tintHex)?.color ?? theme.ink4.color)
-                .frame(width: 7, height: 7)
-            Text(account.address)
-                .font(theme.sans.font(size: 11.5))
-                .foregroundStyle(theme.ink2.color)
-                .lineLimit(1)
-                .truncationMode(.middle)
-        }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 4)
-        .help(account.address)
-    }
-}
+```js
+// tema claro:  ACC[k].c        — L ~0.52
+// temas escuros: L sobe para ~0.78-0.80
+DK = { zoho: oklch(0.78 0.10 255), gmail: oklch(0.78 0.11 300),
+       host: oklch(0.80 0.10 155), icloud: oklch(0.80 0.09 200) }
 ```
 
-- [ ] **Step 4: Rodar os testes**
+`Account.tintHex` vira dois campos: `tintLightHex` e `tintDarkHex`, mais
+`public func tint(isDark: Bool) -> String`. Converter os OKLCH acima para hex com
+`Tools/generate_themes.py` (função `oklch_to_srgb`) e usar a saída real.
 
-Run: `cd Packages/UNIShell && swift test`
-Expected: PASS, 9 testes.
+#### Parte C — a barra expandida, com os valores do protótipo
 
-- [ ] **Step 5: Commit**
+Container: largura **236**, fundo `surface2`, borda direita `0.5px line`,
+`padding-top: 14`, e transição de largura de 180ms.
 
-```bash
-git add Packages/UNIShell
-git commit -m "Barra lateral com pastas de triagem e a lista de contas
+Cabeçalho de seção (os dois): mono **9.5px**, caps, tracking `capsTracking`, cor `ink4`.
+- "**Fluxo**" com padding `0 16px 7px`  (o plano antigo dizia "Pastas" — errado)
+- "**Caixas**" com padding `22px 16px 7px`
 
-Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
-```
+Linha de pasta (`views`): altura **30**, gap **9**, padding `0 8`, raio `radiusSmall`.
+- rótulo 13px peso 500, ocupando o espaço livre
+- contador em mono 10px
+- selecionada: cor `accentInk`, fundo `accentSoft`, contador também `accentInk`
+- não selecionada: cor `ink2`, contador `ink4`, fundo transparente
+
+Linha de conta (`accounts`): altura **32**, gap **8**, padding `0 8`, raio `radiusSmall`.
+- chip do host à esquerda: mono **9px**, tracking 0.06em, caps, padding `2px 6px 1.5px`,
+  raio 4, cor = tint da conta, fundo = tint a 14% (22% quando selecionada),
+  borda `0.5px` do tint a 32%
+- rótulo (endereço) 12.5px, truncado com reticências, ocupando o espaço livre
+- contador em mono 10px, `ink4`
+- selecionada: fundo = tint a 16% e uma barra interna de 2px à esquerda na cor do tint
+  (no CSS é `box-shadow: inset 2px 0 0`; em SwiftUI, um retângulo de 2px alinhado à esquerda)
+
+Rodapé, fixo no fim (`margin-top: auto`), padding 16, borda superior `0.5px line`:
+- um ponto de 5px na cor semântica "ok" (verde), gap 7
+- "**Triagem local ativa**" — 11.5px, peso 590, `ink2`
+- "**Classificação, resumo e busca semântica rodam no Mac. Nada sai daqui.**"
+  — 11px, line-height 1.5, `ink3`
+
+Este rodapé é promessa de produto, não decoração. O texto vai verbatim.
+
+#### Steps
+
+- [ ] **Step 1: Escrever os testes que falham** — no UNICore, cobrindo o filtro por
+  conta: filtrar reduz `visibleMessages`; clicar de novo na mesma conta desliga;
+  `count(for:)` respeita o filtro; filtro por conta e busca se combinam. No UNIShell,
+  os testes de escalabilidade que já existem mais um que fixe `expandedWidth == 236`.
+  Todo teste tem de falhar antes da implementação — rode e confirme.
+
+- [ ] **Step 2: Implementar a Parte A** (filtro no `MailStore`), rodar os testes do
+  UNICore até passarem.
+
+- [ ] **Step 3: Implementar a Parte B** (tint por tema). Converter os OKLCH com o
+  helper e registrar a saída no relatório.
+
+- [ ] **Step 4: Reescrever a `FolderSidebar`** com os valores da Parte C.
+
+- [ ] **Step 5: Verificar contra o protótipo.** Abrir o app e comparar com o
+  `.dc.html`: largura, "Fluxo", chips de host, contadores, seleção de conta com a
+  barrinha à esquerda, rodapé. Trocar para um tema escuro e confirmar que as cores das
+  contas clareiam.
+
+- [ ] **Step 6: Commit.**
+
+---
+
+### Task 7B: Trilha recolhida de 62px
+
+O botão da barra de 58px não esconde a barra lateral: ele a troca por uma trilha
+estreita. O plano original tratava isso como mostrar/esconder — errado.
+
+**Files:**
+- Create: `Packages/UNIShell/Sources/UNIShell/Inbox/SidebarRail.swift`
+- Modify: `Packages/UNIShell/Sources/UNIShell/Inbox/FolderSidebar.swift`
+- Test: `Packages/UNIShell/Tests/UNIShellTests/SidebarRailTests.swift`
+
+**Interfaces:**
+- Consumes: `MailStore`, `Theme`, `TriageBucket`
+- Produces: `SidebarRail`, `SidebarRail.width` (= 62)
+
+Container: largura **62**, fundo `surface2`, borda direita `0.5px line`,
+conteúdo centralizado, padding `14px 0`.
+
+Botão de pasta: **46×40**, raio `radiusSmall`, coluna centralizada, gap 3.
+- abreviação em mono **8.5px**, tracking 0.06em, caps: `hoje`, `dep`, `tudo`, `arq`
+  (nessa ordem, correspondendo a Hoje/Depois/Tudo/Arquivado)
+- contador 13px peso 650
+- selecionado: cor `accentInk`, fundo `accentSoft`, borda `0.5px accentLine`
+- não selecionado: cor `ink3`, fundo transparente
+
+Divisória: 26px de largura, `0.5px line`, margem vertical 8.
+
+Rótulo "caixas": mono **7.5px**, tracking 0.08em, caps, `ink4`, margem inferior 2.
+
+Marca de conta: **40×24**, raio `radiusSmall`, mono 10px peso 500, centralizado.
+- texto = as **3 primeiras letras do host** (`zoh`, `gma`, `hos`, `icl`)
+- cor = tint da conta; fundo = tint a 12% (26% quando selecionada);
+  borda `0.5px` do tint a 26% (70% quando selecionada)
+- cada uma leva o endereço completo num `.help()`
+
+#### Steps
+
+- [ ] **Step 1: Escrever os testes que falham** — `SidebarRail.width == 62`; as
+  abreviações das quatro pastas na ordem certa; a marca de conta são as 3 primeiras
+  letras do host; a trilha aguenta 0 e 25 contas.
+
+- [ ] **Step 2: Rodar e ver falhar.**
+
+- [ ] **Step 3: Implementar `SidebarRail`.**
+
+- [ ] **Step 4: Ligar o toggle.** O botão da barra alterna entre `FolderSidebar`
+  (236px) e `SidebarRail` (62px) — nunca esconde tudo. Animar com a transição de
+  180ms que o protótipo usa.
+
+- [ ] **Step 5: Verificar no app.** Clicar no botão vai e volta entre os dois estados,
+  a seleção de pasta e de conta sobrevive à troca.
+
+- [ ] **Step 6: Commit.**
 
 ---
 
@@ -2637,63 +2693,13 @@ O último passo: compor os quatro painéis sob a barra e trocar o `RootView` pro
 **Files:**
 - Create: `Packages/UNIShell/Sources/UNIShell/Inbox/InboxScreen.swift`
 - Modify: `App/OkamiUNIApp.swift`
-- Create: `App/Resources/Assets.xcassets/` (logos)
 - Test: `Packages/UNIShell/Tests/UNIShellTests/InboxScreenTests.swift`
 
 **Interfaces:**
 - Consumes: `WindowChrome`, `FolderSidebar`, `MessageList`, `ReaderPane`, `AgendaRail`, `MailStore`
 - Produces: `InboxScreen`
 
-- [ ] **Step 1: Baixar os 3 assets que faltam**
-
-Só o `uni-lockup-light.png` foi baixado no Marco 0. Os outros três estão no projeto do Claude Design `40478c81-e3be-42cc-aad1-f0c2d28d292c`: `uni-lockup-dark.png`, `uni-mark-light.png`, `uni-mark-dark.png`.
-
-Para cada um, chamar a ferramenta `DesignSync` com `method: "get_file"`, esse `projectId` e o `path` do arquivo. A resposta é JSON com `content` em base64 e `isBase64: true`. Quando o resultado for grande demais e for salvo em arquivo, decodificar assim (foi o caminho usado no Marco 0):
-
-```bash
-python3 - <<'PY'
-import json, base64, pathlib
-# trocar pelo caminho que a ferramenta reportou e pelo nome do asset
-src = "<caminho-do-resultado>.txt"
-dest = "design/assets/uni-lockup-dark.png"
-d = json.load(open(src, encoding="utf-8"))
-pathlib.Path(dest).write_bytes(base64.b64decode(d["content"]))
-print("ok", dest)
-PY
-file design/assets/*.png
-```
-
-Expected: `file` reporta os quatro como `PNG image data` com dimensões plausíveis (o lockup claro é 587×162).
-
-Depois criar os image sets. Os nomes têm de ser exatamente `uni-lockup-light`, `uni-lockup-dark`, `uni-mark-light`, `uni-mark-dark` — é o que `WindowChrome` e `ReaderPane` já pedem em `Image(...)`.
-
-```bash
-for n in uni-lockup-light uni-lockup-dark uni-mark-light uni-mark-dark; do
-  dir="App/Resources/Assets.xcassets/$n.imageset"
-  mkdir -p "$dir"
-  cp "design/assets/$n.png" "$dir/$n.png"
-  cat > "$dir/Contents.json" <<JSON
-{
-  "images" : [
-    { "filename" : "$n.png", "idiom" : "universal", "scale" : "1x" },
-    { "idiom" : "universal", "scale" : "2x" },
-    { "idiom" : "universal", "scale" : "3x" }
-  ],
-  "info" : { "author" : "xcode", "version" : 1 }
-}
-JSON
-done
-cat > App/Resources/Assets.xcassets/Contents.json <<'JSON'
-{ "info" : { "author" : "xcode", "version" : 1 } }
-JSON
-ls App/Resources/Assets.xcassets/
-```
-
-Expected: quatro pastas `.imageset` mais o `Contents.json` raiz.
-
-Se o lockup vier em resolução baixa e pixelar a 38pt de altura, pedir ao design uma exportação 2×/3× em vez de escalar o 1× — a barra é a primeira coisa que a pessoa vê.
-
-- [ ] **Step 2: Escrever o teste que falha**
+- [ ] **Step 1: Escrever o teste que falha**
 
 ```swift
 import Testing
@@ -2705,10 +2711,12 @@ struct InboxScreenTests {
 
     @Test("as larguras dos painéis somam a janela do design")
     func paneWidths() {
-        // 1440 = 168 lateral + 370 lista + leitor + 262 agenda
-        let fixed = FolderSidebar.width + MessageList.width + AgendaRail.width
-        #expect(fixed == 800)
-        #expect(1440 - fixed == 640)  // sobra para o leitor
+        // 1440 = 236 lateral + 370 lista + leitor + 262 agenda
+        let fixed = FolderSidebar.expandedWidth + MessageList.width + AgendaRail.width
+        #expect(fixed == 868)
+        #expect(1440 - fixed == 572)  // sobra para o leitor
+        // recolhida, a lateral vira trilha de 62 — nunca some
+        #expect(SidebarRail.width == 62)
     }
 
     @Test("o store carrega e já tem uma caixa selecionada")
@@ -2722,12 +2730,12 @@ struct InboxScreenTests {
 }
 ```
 
-- [ ] **Step 3: Rodar para ver falhar**
+- [ ] **Step 2: Rodar para ver falhar**
 
 Run: `cd Packages/UNIShell && swift test --filter InboxScreen`
 Expected: FAIL na compilação — `InboxScreen` não existe.
 
-- [ ] **Step 4: Escrever `InboxScreen.swift`**
+- [ ] **Step 3: Escrever `InboxScreen.swift`**
 
 ```swift
 import SwiftUI
@@ -2737,7 +2745,7 @@ import UNICore
 public struct InboxScreen: View {
     @Environment(\.theme) private var theme
     @State private var workspace: Workspace = .mail
-    @State private var sidebarVisible = true
+    @State private var sidebarExpanded = true
 
     private let store: MailStore
 
@@ -2755,7 +2763,7 @@ public struct InboxScreen: View {
                 accountCount: store.accounts.count,
                 onToggleSidebar: {
                     withAnimation(.easeInOut(duration: 0.18)) {
-                        sidebarVisible.toggle()
+                        sidebarExpanded.toggle()
                     }
                 }
             )
@@ -2771,9 +2779,11 @@ public struct InboxScreen: View {
 
     private var mailPanes: some View {
         HStack(spacing: 0) {
-            if sidebarVisible {
+            // O protótipo nunca esconde a lateral: alterna 236px <-> trilha de 62px.
+            if sidebarExpanded {
                 FolderSidebar(store: store)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
+            } else {
+                SidebarRail(store: store)
             }
             MessageList(store: store)
             ReaderPane(store: store) { event in
@@ -2803,7 +2813,7 @@ public struct InboxScreen: View {
 }
 ```
 
-- [ ] **Step 5: Trocar o `RootView` provisório**
+- [ ] **Step 4: Trocar o `RootView` provisório**
 
 Em `App/OkamiUNIApp.swift`, substituir o `RootView` da Task 1:
 
@@ -2835,7 +2845,7 @@ struct OkamiUNIApp: App {
 }
 ```
 
-- [ ] **Step 6: Rodar todos os testes**
+- [ ] **Step 5: Rodar todos os testes**
 
 Run:
 ```bash
@@ -2846,7 +2856,7 @@ done
 ```
 Expected: os três suites passando, sem falha.
 
-- [ ] **Step 7: Compilar e conferir contra o protótipo**
+- [ ] **Step 6: Compilar e conferir contra o protótipo**
 
 Run:
 ```bash
@@ -2874,7 +2884,7 @@ Abrir `design/OkamiUNI - Mail + Agenda.dc.html` no navegador ao lado e comparar.
 
 Anotar cada divergência com o número da linha do protótipo. Divergências viram tarefas de ajuste — não são para "arrumar depois", são o próximo commit.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add Packages/UNIShell App
@@ -2882,6 +2892,404 @@ git commit -m "Caixa unificada montada: quatro painéis sob a barra
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
+
+---
+
+## Task P: Passe de polimento visual — OBRIGATÓRIA antes de fechar o marco
+
+**Pedido explícito do dono do projeto, 27/08/2026:** *"vamos ter que fazer um polimento na
+interface, tem muita coisa desalinhada... essa parte estética conta muito pra mim."*
+
+Esta tarefa **não é opcional** e não pode ser dispensada por "os testes passam". Nenhum teste
+deste projeto mede alinhamento; o olho mede.
+
+### O caso que originou a tarefa
+
+O vão entre os semáforos nativos do macOS e o primeiro controle da barra estava grande demais,
+fazendo a janela parecer amadora ao lado de qualquer app nativo.
+
+Medições reais, feitas via acessibilidade na janela rodando:
+- semáforos nativos: fechar em x=8, minimizar em x=31, tela cheia em x=54 — todos com 16pt de
+  largura, então o **último termina em x=70**
+- o protótipo põe seu primeiro controle **14pt depois** do fim dos semáforos
+- portanto o primeiro controle deve começar em **x=84**
+
+Compare com o Chrome e com o app do Claude: em ambos os controles encostam nos semáforos com
+uma folga curta. É esse o padrão da plataforma.
+
+### O que a passe tem de cobrir
+
+Percorrer a janela inteira **lado a lado com o protótipo**, na mesma escala, e corrigir:
+
+1. **Alinhamento horizontal entre painéis.** Os cabeçalhos de lista, leitor e agenda começam
+   na mesma linha de base? As divisórias verticais caem onde o protótipo põe?
+2. **Alinhamento vertical dentro da barra.** Logo, abas, busca e seletor centrados na mesma
+   linha média dos 58px?
+3. **Ritmo vertical da barra lateral.** O espaço entre "Fluxo" e a primeira pasta é igual ao
+   que há entre "Caixas" e a primeira conta?
+4. **Densidade das linhas de mensagem.** O `rowPadding` do tema está sendo respeitado, ou algum
+   `padding` extra está somando por cima?
+5. **Óptica dos chips e etiquetas.** Alturas, raios e folga interna consistentes entre a barra
+   lateral e a lista.
+6. **Estados vazios.** Os textos reservados estão opticamente centrados no painel, não apenas
+   matematicamente?
+
+### Método
+
+Capturar a janela e o protótipo no mesmo tamanho, sobrepor, e listar cada desvio com a medida.
+Corrigir os desvios. Recapturar. Repetir até o desvio ser imperceptível.
+
+Onde uma medida do protótipo brigar com a convenção do macOS — como o caso dos semáforos, que
+no protótipo são desenhados e no app são nativos — **a convenção da plataforma vence**, e a
+decisão fica registrada no relatório.
+
+---
+
+## Task R: Layout responsivo — OBRIGATÓRIA antes de fechar o marco
+
+**Pedido explícito do dono do projeto, 27/08/2026:** *"tem mais polimento, primeiro que voce
+deixou tudo fixo, e eu quero responsividade eu nao consigo redimensionar o app e isso é
+fundamental."*
+
+### O estado medido
+
+A janela **redimensiona**, mas trava num piso de 1100pt de largura (`App/OkamiUNIApp.swift:20`,
+`minWidth: 1100`) e a altura trava em 732 mesmo pedindo 700. Medido via acessibilidade na
+janela rodando: pedi 900×700, recebi 1100×732.
+
+O piso é sintoma. A causa é que três dos quatro painéis têm largura cravada:
+
+| painel | largura | onde |
+|---|---|---|
+| `FolderSidebar` | 236 fixa | `FolderSidebar.swift:6,58` |
+| `MessageList` | 370 fixa | `MessageList.swift:44,63` |
+| `AgendaRail` | 262 fixa | `AgendaRail.swift:6,101` |
+| `ReaderPane` | `maxWidth: .infinity` | `ReaderPane.swift:23` |
+
+São 868pt cravados. Só o leitor estica. A 1100 sobram **232pt para o leitor** — mais estreito
+que a lista de mensagens, e muito abaixo da medida de 64ch que a Task 9 estabeleceu para o
+corpo serif 16. O layout não tem como funcionar em janela pequena porque nada cede.
+
+A busca em `WindowChrome.swift:161` também é `.frame(width: 400, height: 28)` fixa e é
+candidata a estourar a barra em janela estreita.
+
+### O modelo
+
+Painéis somem por faixa de largura, e a **intenção do usuário é preservada**. O erro clássico
+aqui é o recolhimento automático sobrescrever o toggle manual: o usuário abre a lateral, a
+janela encolhe, a lateral fecha sozinha, a janela cresce de novo e a lateral **não volta**.
+
+Evita-se separando as duas coisas: `sidebarExpanded` e `agendaVisible` são **intenção**, e o
+que é renderizado é intenção **E** largura suficiente. Quando a janela cresce de novo, a
+intenção original volta a valer sozinha.
+
+Faixas:
+
+| largura da janela | lateral | lista | leitor | agenda |
+|---|---|---|---|---|
+| ≥ 1360 | 236 expandida | flexível 340–420 | resto (≥ 478) | 262 |
+| 1120–1360 | 236 expandida | flexível 340–420 | resto | **oculta** |
+| 920–1120 | **trilha de 62** | flexível 320–380 | resto | oculta |
+| < 920 | trilha de 62 | 320 | resto (≥ 420) | oculta |
+
+Piso da janela: `minWidth` cai de 1100 para **860**, `minHeight` de 700 para **600**.
+
+> **Correção, 27/08:** a primeira versão desta tabela anotava "resto (≥ 568)" na faixa ≥1360.
+> É impossível com os próprios números da tabela: em 1360, `236 + 340 + 262 = 838`, sobrando
+> 522 no melhor caso. O implementador da Task R achou o erro e implementou contra a invariante
+> que de fato importa e que os testes travam — o leitor nunca abaixo de 420. Medido, o mínimo
+> real é 478.
+>
+> **`minHeight: 600` significa 600 de conteúdo, 632 de quadro.** Os 32pt são a barra de título
+> que a janela `.hiddenTitleBar` reserva no quadro, e não conteúdo que se recusa a comprimir —
+> com `minHeight: 100` o shell inteiro comprime até 100. Fica 600, porque é o conteúdo que a
+> constante deve descrever.
+
+A lateral **nunca some por completo** — recolhida ela é a trilha de 62pt da Task 7B, que já
+existe. Esse comportamento já está especificado e testado; a Task R só o dispara por largura
+além de por clique.
+
+### O núcleo testável
+
+A decisão é aritmética pura e não pode morar numa `View` — um `View` do SwiftUI é
+implicitamente `@MainActor` no Swift 6, e uma `static` dentro dele herda o isolamento e
+**trapa em runtime** quando chamada de teste nonisolated. Isso já aconteceu nesta base
+(`AgendaRail`, resolvido criando `AgendaSummary` em UNICore).
+
+Portanto: criar `Packages/UNICore/Sources/UNICore/PaneLayout.swift`.
+
+```swift
+/// Quais painéis cabem numa janela desta largura, dada a intenção do usuário.
+public struct PaneLayout: Sendable, Hashable {
+    public let sidebarExpanded: Bool
+    public let agendaVisible: Bool
+    public let messageListWidth: CGFloat
+
+    /// `wantsSidebar` e `wantsAgenda` são a intenção do usuário, não o resultado.
+    /// A janela pode negar as duas; quando ela cresce, a intenção volta a valer.
+    public static func resolve(
+        width: CGFloat,
+        wantsSidebar: Bool,
+        wantsAgenda: Bool
+    ) -> PaneLayout
+}
+```
+
+- [ ] **Step 1: Escrever os testes que falham**
+
+```swift
+import Testing
+import UNICore
+
+@Suite("PaneLayout")
+struct PaneLayoutTests {
+
+    @Test("em janela larga tudo aparece se o usuário quiser")
+    func wideShowsEverything() {
+        let l = PaneLayout.resolve(width: 1440, wantsSidebar: true, wantsAgenda: true)
+        #expect(l.sidebarExpanded)
+        #expect(l.agendaVisible)
+    }
+
+    @Test("a agenda é o primeiro painel a sair")
+    func agendaGoesFirst() {
+        let l = PaneLayout.resolve(width: 1200, wantsSidebar: true, wantsAgenda: true)
+        #expect(l.sidebarExpanded)
+        #expect(l.agendaVisible == false)
+    }
+
+    @Test("abaixo de 1120 a lateral recolhe para a trilha")
+    func sidebarCollapses() {
+        let l = PaneLayout.resolve(width: 1000, wantsSidebar: true, wantsAgenda: true)
+        #expect(l.sidebarExpanded == false)
+        #expect(l.agendaVisible == false)
+    }
+
+    @Test("a janela nega, mas não apaga a intenção: ao crescer, volta")
+    func intentSurvivesShrinking() {
+        // o mesmo `wants` atravessa as três larguras
+        let narrow = PaneLayout.resolve(width: 900, wantsSidebar: true, wantsAgenda: true)
+        let wide = PaneLayout.resolve(width: 1440, wantsSidebar: true, wantsAgenda: true)
+        #expect(narrow.sidebarExpanded == false)
+        #expect(wide.sidebarExpanded)      // sem estado persistido entre as duas chamadas
+    }
+
+    @Test("quem não quer a lateral não a ganha de volta ao alargar")
+    func refusalIsRespected() {
+        let l = PaneLayout.resolve(width: 1440, wantsSidebar: false, wantsAgenda: false)
+        #expect(l.sidebarExpanded == false)
+        #expect(l.agendaVisible == false)
+    }
+
+    @Test("a lista fica dentro da faixa em qualquer largura", arguments: [
+        860.0, 920.0, 1000.0, 1120.0, 1280.0, 1440.0, 1920.0, 2560.0,
+    ])
+    func listStaysInRange(width: CGFloat) {
+        let l = PaneLayout.resolve(width: width, wantsSidebar: true, wantsAgenda: true)
+        #expect(l.messageListWidth >= 320)
+        #expect(l.messageListWidth <= 420)
+    }
+
+    @Test("o leitor nunca fica abaixo do mínimo legível")
+    func readerNeverStarves() {
+        for width in stride(from: 860.0, through: 2560.0, by: 20.0) {
+            let l = PaneLayout.resolve(width: width, wantsSidebar: true, wantsAgenda: true)
+            let taken = (l.sidebarExpanded ? 236 : 62)
+                + l.messageListWidth
+                + (l.agendaVisible ? 262 : 0)
+            #expect(width - taken >= 420, "leitor espremido em \(width)pt")
+        }
+    }
+}
+```
+
+- [ ] **Step 2: Rodar para ver falhar**
+
+`cd Packages/UNICore && swift test --filter PaneLayout` → FAIL, `PaneLayout` não existe.
+
+- [ ] **Step 3: Implementar `PaneLayout`**, **Step 4: ver passar**, **Step 5: commit**
+
+- [ ] **Step 6: Ligar na `InboxScreen`**
+
+`InboxScreen` lê a largura com `GeometryReader` (ou `containerRelativeFrame`), chama
+`PaneLayout.resolve`, e passa o resultado adiante. `FolderSidebar`, `MessageList` e
+`AgendaRail` param de cravar `.frame(width:)` e passam a receber a largura resolvida.
+As constantes `expandedWidth` / `width` viram os valores **canônicos** que `PaneLayout`
+usa, não larguras aplicadas direto na View.
+
+Animar a transição com o mesmo `easeInOut(duration: 0.18)` que o toggle manual já usa, para
+recolher por arraste e por clique parecerem a mesma coisa.
+
+- [ ] **Step 7: Baixar o piso da janela**
+
+`App/OkamiUNIApp.swift`: `minWidth: 860, minHeight: 600`. Verificar que a altura de fato
+desce até 600 — hoje ela trava em 732 mesmo com `minHeight: 700`, o que significa que algum
+conteúdo tem altura intrínseca grande demais. Achar e corrigir.
+
+- [ ] **Step 8: A busca da barra**
+
+`WindowChrome.swift:161` sai de `.frame(width: 400, height: 28)` para uma faixa que encolhe
+em janela estreita sem colidir com as abas nem com o seletor de temas.
+
+- [ ] **Step 9: Verificar com a janela na mão**
+
+Redimensionar de 860 até a tela cheia observando as três transições. Capturar em 880, 1000,
+1200 e 1440. Nenhuma transição pode cortar texto, sobrepor painel, ou fazer a barra estourar.
+
+### O que não muda
+
+A fidelidade em 1440×916 que a Task P estabeleceu. Depois da Task R, a janela em 1440×916
+tem de continuar idêntica ao que a Task P entregou — a responsividade acontece **fora** desse
+ponto, não em cima dele. Recapturar em 1440 e comparar com a captura da Task P.
+
+---
+
+## Marco 1.5 — o que o dono do projeto pediu em 27/08 para conseguir validar
+
+Palavras dele, na íntegra:
+
+> "varias coisas, primeiro a gente ta sem modal nehum eu nem consigo testar escrever email,
+> responder, agenda e etc, outra coisa a barra superior está bem ruim nao está conforme eu
+> falei ou seja os icones do mac ainda estao desalinhados da nossa ferramenta, recomendo
+> colocar o logo ao lado do seletor de tema e ajustar a barra porque está bem ruim, terceiro
+> ponto, tem uma barra entre a lista de email e o email em si porém eu nao consigo
+> redimensionar para direita e esquerda para deixar o composer maior ou menor, isso também
+> deveria se repetir com a barra de calendário outro ponto a aba de agenda está literalmente
+> vazia"
+
+Três destes itens estavam **fora do Marco 1 por decisão minha**, registrada na seção "o que
+este marco deliberadamente não faz": composer, aba Agenda e janelas destacadas. A decisão
+estava errada pelo motivo que importa — ela deixou o app impossível de validar por quem
+encomendou. O escopo passa a incluí-los.
+
+---
+
+## Task S: Barra superior — alinhamento com os controles nativos
+
+**Files:** `Packages/UNIShell/Sources/UNIShell/Chrome/WindowChrome.swift`, `App/OkamiUNIApp.swift`
+
+O dono reclamou disto **duas vezes**. A Task P reduziu o vão de 45pt para 13pt corrigindo a
+área segura, mas o resíduo vertical continua: os semáforos nativos têm centro em y=16 e os
+nossos controles em y=29, numa barra de 58pt.
+
+O relatório da Task P registra que `NSTitlebarAccessoryViewController` não teve efeito em
+janela `.hiddenTitleBar`. Isso não esgota as opções. Tentar, nesta ordem:
+
+1. **Reposicionar os botões nativos.** `window.standardWindowButton(.closeButton)` devolve um
+   `NSButton` real; dá para mover cada um, ou mover a superview deles, para o centro vertical
+   da barra de 58pt. É API pública e é como apps de barra alta fazem.
+2. Se (1) não funcionar, **alinhar os nossos controles aos deles** — a primeira fileira da
+   barra passa a ter centro em y=16 em vez de y=29.
+
+Uma das duas tem de resolver. "Não dá" não é resultado aceitável aqui: existem apps de
+terceiros nesta máquina com barra alta e semáforos centrados, e o dono citou dois deles.
+
+**Layout que o dono pediu:** o lockup do logo sai da esquerda e vai **ao lado do seletor de
+temas**, à direita. A esquerda fica com os semáforos, o botão da lateral e as abas —
+encostados, no ritmo do Chrome e do app do Claude, que foram as referências que ele deu.
+
+Isso é divergência deliberada do protótipo, pedida pelo dono. Registrar no relatório.
+
+- [ ] Medir as posições atuais por acessibilidade e registrar antes/depois de cada controle
+- [ ] Aplicar (1) ou, falhando, (2)
+- [ ] Mover o lockup para a direita, ao lado do seletor
+- [ ] Recapturar em 880, 1200 e 1440 — a barra não pode estourar em nenhuma
+- [ ] Teste travando as posições/ordem dos controles como função pura (fora de `View`)
+
+---
+
+## Task T: Divisórias arrastáveis entre painéis
+
+**Files:** `Packages/UNICore/Sources/UNICore/PaneLayout.swift`,
+`Packages/UNIShell/Sources/UNIShell/Inbox/InboxScreen.swift`, novo `Inbox/PaneDivider.swift`
+
+Pedido: *"tem uma barra entre a lista de email e o email em si porém eu nao consigo
+redimensionar para direita e esquerda... isso também deveria se repetir com a barra de
+calendário"*.
+
+Duas divisórias arrastáveis: **lista ↔ leitor** e **leitor ↔ agenda**. A da lateral também,
+se sair de graça.
+
+Regras:
+
+- O arraste ajusta a largura **dentro das faixas que a `PaneLayout` já define** (lista
+  320–420 hoje; a faixa pode ser alargada se o arraste pedir, mas o leitor nunca abaixo de
+  420). A `PaneLayout` continua sendo quem decide o que cabe — o arraste vira mais uma
+  entrada dela, ao lado de `wantsSidebar`/`wantsAgenda`, e **não** um bypass.
+- A largura escolhida **persiste** entre execuções (`UserDefaults`, como o `ThemeStore`).
+- Estreitar a janela até a faixa não caber mais não pode apagar a preferência: mesma regra de
+  intenção-versus-cabimento da Task R.
+- Cursor de redimensionamento horizontal ao passar por cima; alvo de arraste com pelo menos
+  6pt de largura mesmo que a linha desenhada tenha 0,5pt.
+- Duplo clique na divisória volta à largura canônica.
+
+O núcleo (clamp, persistência, resolução com as faixas) é aritmética pura → vai na
+`PaneLayout`, em UNICore, com testes. A `View` só traduz o gesto.
+
+---
+
+## Task U: Janelas — composer, resposta, email destacado, detalhe do compromisso
+
+**Files:** novo diretório `Packages/UNIShell/Sources/UNIShell/Windows/`, mais os ganchos em
+`ReaderPane.swift`, `AgendaRail.swift`, `InboxScreen.swift`
+
+Sem isto o dono não consegue testar nada do fluxo de escrita. As quatro telas estão no
+protótipo e são a fonte da verdade:
+
+| tela | linha do `.dc.html` | tamanho |
+|---|---|---|
+| 03 Composer em janela | 788–1059 | 820×660 |
+| 04 Detalhe do compromisso | 588–742 | 560 × até 86% |
+| 05 Email em janela | 743–787 | 800×600 |
+| 06 Nova mensagem | 368–587 | 820×620 |
+
+- Cada uma é uma janela de verdade (`Window`/`WindowGroup` ou `NSWindow`), não uma folha
+  dentro da janela principal — o protótipo as chama de "em janela" e desenha sombra e raio
+  próprios.
+- Gatilhos: "Responder" no leitor abre 03; duplo clique numa mensagem abre 05; "Nova
+  mensagem" (⌘N e um botão na barra) abre 06; clicar num compromisso da trilha abre 04.
+- **Não envia nada.** Marco 1 não tem rede. "Enviar" fecha a janela e registra no console.
+  Isso é limite de marco, não de fidelidade: a janela tem de ficar visualmente completa.
+- O tema atual atravessa para as janelas novas (`.theme(...)` e o `ThemeStore` no ambiente).
+
+---
+
+## Task V: Aba Agenda — a tela 02 do protótipo
+
+**Files:** novo `Packages/UNIShell/Sources/UNIShell/Calendar/WeekScreen.swift`,
+`InboxScreen.swift` (troca de aba)
+
+Hoje `Workspace.calendar` renderiza vazio — *"a aba de agenda está literalmente vazia"*.
+
+A tela 02 "Agenda semanal" começa na linha **1394** do `.dc.html` e é a fonte da verdade:
+cabeçalho com as abas Dia/Semana/Mês, grade da semana, colunas por dia, faixa de horas e
+blocos de compromisso.
+
+> **Correção, 27/08:** a primeira versão desta tarefa listava "a seção que vem do email" como
+> parte da tela 02. Errado — "Vindo do email" está na linha 1381, dentro da tela 01, e já está
+> implementada como `AgendaRail.pendingSection`. O implementador achou e devolveu
+> NEEDS_CONTEXT em vez de inventar a seção.
+>
+> **Contradição do próprio protótipo, decidida no produto:** `RAIL` (1617) põe 5 compromissos
+> na terça 25; `WEEK` (1625) põe 3, com títulos encurtados. A regra "o protótipo vence"
+> pressupõe que ele tenha uma resposta; aqui tem duas, então o critério passa a ser o produto —
+> a mesma terça não pode mostrar coisas diferentes em duas visões do mesmo app. A terça sai de
+> `Fixtures.agenda`; os outros seis dias saem do `WEEK`. Os títulos curtos do `WEEK` são
+> renderização para coluna estreita, não dados: encurte ao desenhar, não guarde dois títulos.
+>
+> **`AgendaItem` ganha `dayOffset: Int = 0`**, dias relativos a `Fixtures.today`, aditivo.
+> Não uma `Date`: o tipo modela horário de parede de propósito, e uma data reintroduz a
+> conversão de fuso que já foi bug aqui. O Marco 4 troca por data real com o EventKit.
+> A alternativa (semana num `Fixtures.week` separado) foi recusada por embarcar um defeito
+> conhecido — clicar num evento de quarta abriria a janela 04 vazia.
+>
+> **Dia e Mês** (1439–1497) ficam fora deste marco, desenhadas e **visivelmente desabilitadas**,
+> não inertes: aba que parece clicável e não faz nada é a mesma falha que originou esta tarefa. Mesmas regras dos outros painéis: cor/raio/tipografia do `Theme`, medidas do
+protótipo, nada de limitar contas.
+
+Sem EventKit neste marco — a semana sai das fixtures, como a trilha diária. Estender
+`Fixtures` com uma semana de compromissos, mantendo `Fixtures.today` como âncora e sem
+refixar fuso (ver a nota da Task 10).
 
 ---
 

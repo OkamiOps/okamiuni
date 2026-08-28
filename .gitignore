@@ -12,3 +12,8 @@ xcuserdata/
 # Swift Package Manager
 .build/
 .swiftpm/
+
+# Workspace do subagent-driven-development (scratch)
+.superpowers/
+
+*.xcodeproj

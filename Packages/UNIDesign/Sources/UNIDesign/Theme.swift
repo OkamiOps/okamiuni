@@ -8,12 +8,23 @@ public struct ShadowToken: Sendable, Hashable {
     public let spread: CGFloat
     public let color: TokenColor
 
-    public init(x: CGFloat, y: CGFloat, blur: CGFloat, spread: CGFloat = 0, color: TokenColor) {
+    /// `box-shadow: inset ...` — brilho **interno**, na aresta de dentro da
+    /// forma. Não é sombra externa e não pode ser desenhado como uma: o CSS
+    /// pinta por dentro, e `.shadow()` do SwiftUI pinta por fora, virando um
+    /// anel em volta do botão. Nove dos 26 temas usam `inset` no botão, e era
+    /// exatamente esse anel que aparecia como "contorno errado".
+    public let isInset: Bool
+
+    public init(
+        x: CGFloat, y: CGFloat, blur: CGFloat, spread: CGFloat = 0,
+        color: TokenColor, isInset: Bool = false
+    ) {
         self.x = x
         self.y = y
         self.blur = blur
         self.spread = spread
         self.color = color
+        self.isInset = isInset
     }
 
     /// SwiftUI blurs with a radius roughly half the CSS blur value.
@@ -73,6 +84,7 @@ public struct FontFamily: Sendable, Hashable {
 public struct Theme: Sendable, Hashable, Identifiable {
     public let id: String
     public let name: String
+    public let note: String
     public let isDark: Bool
 
     // Surfaces, back to front.
@@ -119,7 +131,7 @@ public struct Theme: Sendable, Hashable, Identifiable {
     public let subjectSize: CGFloat
 
     public init(
-        id: String, name: String, isDark: Bool,
+        id: String, name: String, note: String, isDark: Bool,
         paper: TokenColor, surface: TokenColor, surface2: TokenColor, surface3: TokenColor,
         ink: TokenColor, ink2: TokenColor, ink3: TokenColor, ink4: TokenColor,
         line: TokenColor, line2: TokenColor,
@@ -133,6 +145,7 @@ public struct Theme: Sendable, Hashable, Identifiable {
     ) {
         self.id = id
         self.name = name
+        self.note = note
         self.isDark = isDark
         self.paper = paper
         self.surface = surface

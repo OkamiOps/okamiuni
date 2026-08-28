@@ -8,6 +8,7 @@ extension Theme {
     public static let tinta = Theme(
         id: "tinta",
         name: "Tinta",
+        note: "papel + azul-tinta",
         isDark: false,
         paper: TokenColor(red: 244 / 255, green: 242 / 255, blue: 238 / 255, opacity: 1),
         surface: TokenColor(red: 253 / 255, green: 252 / 255, blue: 250 / 255, opacity: 1),
@@ -44,6 +45,7 @@ extension Theme {
     public static let linho = Theme(
         id: "linho",
         name: "Linho",
+        note: "papel + oliva",
         isDark: false,
         paper: TokenColor(red: 246 / 255, green: 243 / 255, blue: 234 / 255, opacity: 1),
         surface: TokenColor(red: 254 / 255, green: 252 / 255, blue: 246 / 255, opacity: 1),
@@ -80,6 +82,7 @@ extension Theme {
     public static let barro = Theme(
         id: "barro",
         name: "Barro",
+        note: "papel + terracota",
         isDark: false,
         paper: TokenColor(red: 251 / 255, green: 248 / 255, blue: 242 / 255, opacity: 1),
         surface: TokenColor(red: 255 / 255, green: 253 / 255, blue: 249 / 255, opacity: 1),
@@ -116,6 +119,7 @@ extension Theme {
     public static let noite = Theme(
         id: "noite",
         name: "Noite",
+        note: "escuro quente",
         isDark: true,
         paper: TokenColor(red: 25 / 255, green: 23 / 255, blue: 20 / 255, opacity: 1),
         surface: TokenColor(red: 33 / 255, green: 30 / 255, blue: 25 / 255, opacity: 1),
@@ -152,6 +156,7 @@ extension Theme {
     public static let grafite = Theme(
         id: "grafite",
         name: "Grafite",
+        note: "escuro frio",
         isDark: true,
         paper: TokenColor(red: 20 / 255, green: 22 / 255, blue: 24 / 255, opacity: 1),
         surface: TokenColor(red: 27 / 255, green: 30 / 255, blue: 33 / 255, opacity: 1),
@@ -188,6 +193,7 @@ extension Theme {
     public static let okami = Theme(
         id: "okami",
         name: "Okami",
+        note: "onyx + laranja",
         isDark: true,
         paper: TokenColor(red: 6 / 255, green: 6 / 255, blue: 9 / 255, opacity: 1),
         surface: TokenColor(red: 11 / 255, green: 11 / 255, blue: 18 / 255, opacity: 1),
@@ -206,7 +212,7 @@ extension Theme {
         onAccent: TokenColor(red: 6 / 255, green: 6 / 255, blue: 9 / 255, opacity: 1),
         btn: TokenColor(red: 20 / 255, green: 20 / 255, blue: 30 / 255, opacity: 1),
         btnLine: TokenColor(red: 42 / 255, green: 42 / 255, blue: 56 / 255, opacity: 1),
-        btnShadow: [ShadowToken(x: 0.0, y: 1.0, blur: 0.0, spread: 0.0, color: TokenColor(red: 244 / 255, green: 244 / 255, blue: 248 / 255, opacity: 0.04))],
+        btnShadow: [ShadowToken(x: 0.0, y: 1.0, blur: 0.0, spread: 0.0, color: TokenColor(red: 244 / 255, green: 244 / 255, blue: 248 / 255, opacity: 0.04), isInset: true)],
         shadow: [ShadowToken(x: 0.0, y: 30.0, blur: 90.0, spread: 0.0, color: TokenColor(red: 0 / 255, green: 0 / 255, blue: 0 / 255, opacity: 0.8)), ShadowToken(x: 0.0, y: 0.0, blur: 0.0, spread: 0.5, color: TokenColor(red: 244 / 255, green: 244 / 255, blue: 248 / 255, opacity: 0.14))],
         serif: FontFamily(name: "Space Grotesk", design: .default),
         sans: FontFamily(name: "Space Grotesk", design: .default),
@@ -224,6 +230,7 @@ extension Theme {
     public static let brutal = Theme(
         id: "brutal",
         name: "Brutal",
+        note: "grotesk, sem raio",
         isDark: false,
         paper: TokenColor(red: 232 / 255, green: 232 / 255, blue: 228 / 255, opacity: 1),
         surface: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 1),
@@ -260,6 +267,7 @@ extension Theme {
     public static let vapor = Theme(
         id: "vapor",
         name: "Vapor",
+        note: "lilás, cantos macios",
         isDark: true,
         paper: TokenColor(red: 22 / 255, green: 18 / 255, blue: 31 / 255, opacity: 1),
         surface: TokenColor(red: 30 / 255, green: 24 / 255, blue: 48 / 255, opacity: 1),
@@ -296,6 +304,7 @@ extension Theme {
     public static let papel = Theme(
         id: "papel",
         name: "Papel",
+        note: "serif, espaçoso",
         isDark: false,
         paper: TokenColor(red: 242 / 255, green: 237 / 255, blue: 225 / 255, opacity: 1),
         surface: TokenColor(red: 251 / 255, green: 247 / 255, blue: 236 / 255, opacity: 1),
@@ -332,6 +341,7 @@ extension Theme {
     public static let neon = Theme(
         id: "neon",
         name: "Neon",
+        note: "terminal ciano",
         isDark: true,
         paper: TokenColor(red: 5 / 255, green: 7 / 255, blue: 10 / 255, opacity: 1),
         surface: TokenColor(red: 10 / 255, green: 14 / 255, blue: 20 / 255, opacity: 1),
@@ -350,7 +360,7 @@ extension Theme {
         onAccent: TokenColor(red: 5 / 255, green: 7 / 255, blue: 10 / 255, opacity: 1),
         btn: TokenColor(red: 16 / 255, green: 23 / 255, blue: 31 / 255, opacity: 1),
         btnLine: TokenColor(red: 30 / 255, green: 42 / 255, blue: 53 / 255, opacity: 1),
-        btnShadow: [ShadowToken(x: 0.0, y: 1.0, blur: 0.0, spread: 0.0, color: TokenColor(red: 120 / 255, green: 240 / 255, blue: 230 / 255, opacity: 0.06))],
+        btnShadow: [ShadowToken(x: 0.0, y: 1.0, blur: 0.0, spread: 0.0, color: TokenColor(red: 120 / 255, green: 240 / 255, blue: 230 / 255, opacity: 0.06), isInset: true)],
         shadow: [ShadowToken(x: 0.0, y: 40.0, blur: 100.0, spread: 0.0, color: TokenColor(red: 0 / 255, green: 0 / 255, blue: 0 / 255, opacity: 0.85)), ShadowToken(x: 0.0, y: 0.0, blur: 0.0, spread: 0.5, color: TokenColor(red: 53 / 255, green: 224 / 255, blue: 212 / 255, opacity: 0.22))],
         serif: FontFamily(name: "Space Grotesk", design: .default),
         sans: FontFamily(name: "Space Grotesk", design: .default),
@@ -368,6 +378,7 @@ extension Theme {
     public static let clinico = Theme(
         id: "clinico",
         name: "Clínico",
+        note: "compacto, frio",
         isDark: false,
         paper: TokenColor(red: 238 / 255, green: 241 / 255, blue: 244 / 255, opacity: 1),
         surface: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 1),
@@ -404,6 +415,7 @@ extension Theme {
     public static let nexus = Theme(
         id: "nexus",
         name: "Nexus",
+        note: "técnico, azul elétrico",
         isDark: false,
         paper: TokenColor(red: 235 / 255, green: 238 / 255, blue: 243 / 255, opacity: 1),
         surface: TokenColor(red: 252 / 255, green: 253 / 255, blue: 254 / 255, opacity: 1),
@@ -440,6 +452,7 @@ extension Theme {
     public static let sinal = Theme(
         id: "sinal",
         name: "Sinal",
+        note: "console, verde-sinal",
         isDark: true,
         paper: TokenColor(red: 6 / 255, green: 15 / 255, blue: 24 / 255, opacity: 1),
         surface: TokenColor(red: 11 / 255, green: 23 / 255, blue: 35 / 255, opacity: 1),
@@ -458,7 +471,7 @@ extension Theme {
         onAccent: TokenColor(red: 6 / 255, green: 16 / 255, blue: 24 / 255, opacity: 1),
         btn: TokenColor(red: 17 / 255, green: 32 / 255, blue: 47 / 255, opacity: 1),
         btnLine: TokenColor(red: 31 / 255, green: 51 / 255, blue: 70 / 255, opacity: 1),
-        btnShadow: [ShadowToken(x: 0.0, y: 1.0, blur: 0.0, spread: 0.0, color: TokenColor(red: 200 / 255, green: 240 / 255, blue: 255 / 255, opacity: 0.05))],
+        btnShadow: [ShadowToken(x: 0.0, y: 1.0, blur: 0.0, spread: 0.0, color: TokenColor(red: 200 / 255, green: 240 / 255, blue: 255 / 255, opacity: 0.05), isInset: true)],
         shadow: [ShadowToken(x: 0.0, y: 40.0, blur: 96.0, spread: 0.0, color: TokenColor(red: 0 / 255, green: 0 / 255, blue: 0 / 255, opacity: 0.7)), ShadowToken(x: 0.0, y: 0.0, blur: 0.0, spread: 0.5, color: TokenColor(red: 124 / 255, green: 227 / 255, blue: 139 / 255, opacity: 0.18))],
         serif: FontFamily(name: "Space Grotesk", design: .default),
         sans: FontFamily(name: "Space Grotesk", design: .default),
@@ -476,6 +489,7 @@ extension Theme {
     public static let aura = Theme(
         id: "aura",
         name: "Aura",
+        note: "lavanda, cantos macios",
         isDark: false,
         paper: TokenColor(red: 241 / 255, green: 237 / 255, blue: 250 / 255, opacity: 1),
         surface: TokenColor(red: 253 / 255, green: 251 / 255, blue: 255 / 255, opacity: 1),
@@ -512,6 +526,7 @@ extension Theme {
     public static let whitex = Theme(
         id: "whitex",
         name: "WhiteX",
+        note: "branco puro, mono",
         isDark: false,
         paper: TokenColor(red: 245 / 255, green: 245 / 255, blue: 245 / 255, opacity: 1),
         surface: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 1),
@@ -548,6 +563,7 @@ extension Theme {
     public static let blackbox = Theme(
         id: "blackbox",
         name: "BlackBox",
+        note: "preto puro, mono",
         isDark: true,
         paper: TokenColor(red: 0 / 255, green: 0 / 255, blue: 0 / 255, opacity: 1),
         surface: TokenColor(red: 11 / 255, green: 11 / 255, blue: 11 / 255, opacity: 1),
@@ -566,7 +582,7 @@ extension Theme {
         onAccent: TokenColor(red: 0 / 255, green: 0 / 255, blue: 0 / 255, opacity: 1),
         btn: TokenColor(red: 19 / 255, green: 19 / 255, blue: 19 / 255, opacity: 1),
         btnLine: TokenColor(red: 38 / 255, green: 38 / 255, blue: 38 / 255, opacity: 1),
-        btnShadow: [ShadowToken(x: 0.0, y: 1.0, blur: 0.0, spread: 0.0, color: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 0.04))],
+        btnShadow: [ShadowToken(x: 0.0, y: 1.0, blur: 0.0, spread: 0.0, color: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 0.04), isInset: true)],
         shadow: [ShadowToken(x: 0.0, y: 40.0, blur: 100.0, spread: 0.0, color: TokenColor(red: 0 / 255, green: 0 / 255, blue: 0 / 255, opacity: 0.9)), ShadowToken(x: 0.0, y: 0.0, blur: 0.0, spread: 0.5, color: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 0.12))],
         serif: FontFamily(name: "Space Grotesk", design: .default),
         sans: FontFamily(name: "Space Grotesk", design: .default),
@@ -584,6 +600,7 @@ extension Theme {
     public static let magenta = Theme(
         id: "magenta",
         name: "Magenta",
+        note: "Atmospheric Command · #D946EF",
         isDark: true,
         paper: TokenColor(red: 0 / 255, green: 0 / 255, blue: 0 / 255, opacity: 1),
         surface: TokenColor(red: 14 / 255, green: 14 / 255, blue: 16 / 255, opacity: 1),
@@ -602,7 +619,7 @@ extension Theme {
         onAccent: TokenColor(red: 18 / 255, green: 0 / 255, blue: 26 / 255, opacity: 1),
         btn: TokenColor(red: 24 / 255, green: 24 / 255, blue: 27 / 255, opacity: 1),
         btnLine: TokenColor(red: 44 / 255, green: 44 / 255, blue: 48 / 255, opacity: 1),
-        btnShadow: [ShadowToken(x: 0.0, y: 1.0, blur: 0.0, spread: 0.0, color: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 0.04))],
+        btnShadow: [ShadowToken(x: 0.0, y: 1.0, blur: 0.0, spread: 0.0, color: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 0.04), isInset: true)],
         shadow: [ShadowToken(x: 0.0, y: 40.0, blur: 100.0, spread: 0.0, color: TokenColor(red: 0 / 255, green: 0 / 255, blue: 0 / 255, opacity: 0.9)), ShadowToken(x: 0.0, y: 0.0, blur: 0.0, spread: 0.5, color: TokenColor(red: 217 / 255, green: 70 / 255, blue: 239 / 255, opacity: 0.24))],
         serif: FontFamily(name: "Inter", design: .default),
         sans: FontFamily(name: "Inter", design: .default),
@@ -620,6 +637,7 @@ extension Theme {
     public static let neural = Theme(
         id: "neural",
         name: "Reality",
+        note: "Choose Your Reality · violeta",
         isDark: true,
         paper: TokenColor(red: 3 / 255, green: 3 / 255, blue: 3 / 255, opacity: 1),
         surface: TokenColor(red: 16 / 255, green: 16 / 255, blue: 19 / 255, opacity: 1),
@@ -638,7 +656,7 @@ extension Theme {
         onAccent: TokenColor(red: 13 / 255, green: 3 / 255, blue: 24 / 255, opacity: 1),
         btn: TokenColor(red: 24 / 255, green: 24 / 255, blue: 27 / 255, opacity: 1),
         btnLine: TokenColor(red: 44 / 255, green: 44 / 255, blue: 48 / 255, opacity: 1),
-        btnShadow: [ShadowToken(x: 0.0, y: 1.0, blur: 0.0, spread: 0.0, color: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 0.04))],
+        btnShadow: [ShadowToken(x: 0.0, y: 1.0, blur: 0.0, spread: 0.0, color: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 0.04), isInset: true)],
         shadow: [ShadowToken(x: 0.0, y: 40.0, blur: 100.0, spread: 0.0, color: TokenColor(red: 0 / 255, green: 0 / 255, blue: 0 / 255, opacity: 0.88)), ShadowToken(x: 0.0, y: 0.0, blur: 0.0, spread: 0.5, color: TokenColor(red: 168 / 255, green: 85 / 255, blue: 247 / 255, opacity: 0.22))],
         serif: FontFamily(name: "Inter", design: .default),
         sans: FontFamily(name: "Inter", design: .default),
@@ -656,6 +674,7 @@ extension Theme {
     public static let corsa = Theme(
         id: "corsa",
         name: "Corsa",
+        note: "Ferrari · Rosso Corsa, raio 0",
         isDark: true,
         paper: TokenColor(red: 24 / 255, green: 24 / 255, blue: 24 / 255, opacity: 1),
         surface: TokenColor(red: 32 / 255, green: 32 / 255, blue: 32 / 255, opacity: 1),
@@ -692,6 +711,7 @@ extension Theme {
     public static let corsaluz = Theme(
         id: "corsaluz",
         name: "Corsa Luz",
+        note: "Ferrari · banda editorial clara",
         isDark: false,
         paper: TokenColor(red: 235 / 255, green: 235 / 255, blue: 235 / 255, opacity: 1),
         surface: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 1),
@@ -728,6 +748,7 @@ extension Theme {
     public static let brutalnoite = Theme(
         id: "brutalnoite",
         name: "Brutal Noite",
+        note: "brutalist escuro, borda branca",
         isDark: true,
         paper: TokenColor(red: 18 / 255, green: 18 / 255, blue: 18 / 255, opacity: 1),
         surface: TokenColor(red: 26 / 255, green: 26 / 255, blue: 26 / 255, opacity: 1),
@@ -764,6 +785,7 @@ extension Theme {
     public static let contraste = Theme(
         id: "contraste",
         name: "Contraste",
+        note: "preto/branco + amarelo, AAA",
         isDark: true,
         paper: TokenColor(red: 0 / 255, green: 0 / 255, blue: 0 / 255, opacity: 1),
         surface: TokenColor(red: 0 / 255, green: 0 / 255, blue: 0 / 255, opacity: 1),
@@ -800,6 +822,7 @@ extension Theme {
     public static let reboot = Theme(
         id: "reboot",
         name: "Reboot",
+        note: "Network Reboot · laranja em branco",
         isDark: false,
         paper: TokenColor(red: 243 / 255, green: 244 / 255, blue: 246 / 255, opacity: 1),
         surface: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 1),
@@ -836,6 +859,7 @@ extension Theme {
     public static let comando = Theme(
         id: "comando",
         name: "Comando",
+        note: "Autonomous Infra · brasa suave",
         isDark: true,
         paper: TokenColor(red: 5 / 255, green: 5 / 255, blue: 5 / 255, opacity: 1),
         surface: TokenColor(red: 12 / 255, green: 12 / 255, blue: 13 / 255, opacity: 1),
@@ -854,7 +878,7 @@ extension Theme {
         onAccent: TokenColor(red: 18 / 255, green: 6 / 255, blue: 2 / 255, opacity: 1),
         btn: TokenColor(red: 20 / 255, green: 20 / 255, blue: 22 / 255, opacity: 1),
         btnLine: TokenColor(red: 44 / 255, green: 44 / 255, blue: 48 / 255, opacity: 1),
-        btnShadow: [ShadowToken(x: 0.0, y: 1.0, blur: 0.0, spread: 0.0, color: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 0.04))],
+        btnShadow: [ShadowToken(x: 0.0, y: 1.0, blur: 0.0, spread: 0.0, color: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 0.04), isInset: true)],
         shadow: [ShadowToken(x: 0.0, y: 40.0, blur: 100.0, spread: 0.0, color: TokenColor(red: 0 / 255, green: 0 / 255, blue: 0 / 255, opacity: 0.85)), ShadowToken(x: 0.0, y: 0.0, blur: 0.0, spread: 0.5, color: TokenColor(red: 210 / 255, green: 88 / 255, blue: 47 / 255, opacity: 0.14))],
         serif: FontFamily(name: "Inter Tight", design: .default),
         sans: FontFamily(name: "Inter", design: .default),
@@ -872,6 +896,7 @@ extension Theme {
     public static let override = Theme(
         id: "override",
         name: "Override",
+        note: "System Focus · vermelho puro",
         isDark: true,
         paper: TokenColor(red: 0 / 255, green: 0 / 255, blue: 0 / 255, opacity: 1),
         surface: TokenColor(red: 13 / 255, green: 13 / 255, blue: 15 / 255, opacity: 1),
@@ -890,7 +915,7 @@ extension Theme {
         onAccent: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 1),
         btn: TokenColor(red: 24 / 255, green: 24 / 255, blue: 27 / 255, opacity: 1),
         btnLine: TokenColor(red: 44 / 255, green: 44 / 255, blue: 48 / 255, opacity: 1),
-        btnShadow: [ShadowToken(x: 0.0, y: 1.0, blur: 0.0, spread: 0.0, color: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 0.04))],
+        btnShadow: [ShadowToken(x: 0.0, y: 1.0, blur: 0.0, spread: 0.0, color: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 0.04), isInset: true)],
         shadow: [ShadowToken(x: 0.0, y: 40.0, blur: 100.0, spread: 0.0, color: TokenColor(red: 0 / 255, green: 0 / 255, blue: 0 / 255, opacity: 0.9)), ShadowToken(x: 0.0, y: 0.0, blur: 0.0, spread: 0.5, color: TokenColor(red: 255 / 255, green: 11 / 255, blue: 11 / 255, opacity: 0.22))],
         serif: FontFamily(name: "Inter", design: .default),
         sans: FontFamily(name: "Inter", design: .default),
@@ -908,6 +933,7 @@ extension Theme {
     public static let ambar = Theme(
         id: "ambar",
         name: "Âmbar",
+        note: "laranja em papel",
         isDark: false,
         paper: TokenColor(red: 251 / 255, green: 241 / 255, blue: 228 / 255, opacity: 1),
         surface: TokenColor(red: 255 / 255, green: 250 / 255, blue: 242 / 255, opacity: 1),
