@@ -393,7 +393,7 @@ let package = Package(
         .package(path: "../UNICore"),
         // As duas únicas dependências novas do marco.
         .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
-        .package(url: "https://github.com/apple/swift-nio-imap.git", from: "0.7.0"),
+        .package(url: "https://github.com/apple/swift-nio-imap.git", .upToNextMinor(from: "0.4.0")),
         // O SwiftNIO que o swift-nio-imap já traz. Declarado aqui só para o
         // alvo de teste poder nomear NIOCore/NIOPosix/NIOEmbedded ao montar o
         // servidor IMAP falso — não é uma terceira dependência, é a mesma
