@@ -59,7 +59,7 @@ Cliente de email é o app que mais horas passa aberto — e o que menos respeito
 
 ## Como rodar
 
-Pré-requisitos: **Xcode 26.6+** (Swift 6.3) e [XcodeGen](https://github.com/yonas/XcodeGen) (`brew install xcodegen`).
+Pré-requisitos: **Xcode 26.6+** (Swift 6.3) e [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`).
 
 ```bash
 git clone https://github.com/OkamiOps/okamiuni.git
