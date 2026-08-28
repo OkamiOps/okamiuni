@@ -32,6 +32,11 @@ public enum SyncError: Error, Sendable, Hashable, LocalizedError {
     /// A resposta chegou e não dá para entender — JSON fora do contrato,
     /// `BAD` do IMAP, redirect sem `code` nem `error`.
     case resposta(String)
+    /// Abrir ou migrar o banco local falhou — arquivo corrompido, disco
+    /// cheio, permissão de sandbox negada. Caso próprio, e não `.resposta`:
+    /// aquele é para respostas de servidor que não fazem sentido, e isto
+    /// aqui nunca viu rede nenhuma.
+    case banco(String)
 
     /// A frase que o usuário lê. Uma por caso, nenhuma genérica: "erro de
     /// rede" e "senha recusada" pedem ações diferentes, e uma frase só para as
@@ -56,6 +61,8 @@ public enum SyncError: Error, Sendable, Hashable, LocalizedError {
             "Falta o OAuth Client ID do Google. Siga docs/oauth-google.md e rode xcodegen generate."
         case .resposta(let detalhe):
             "Resposta inesperada do servidor: \(detalhe)."
+        case .banco(let detalhe):
+            "Não foi possível abrir o banco local: \(detalhe)."
         }
     }
 

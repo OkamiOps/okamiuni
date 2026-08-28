@@ -19,15 +19,25 @@ public enum MessageSearch {
     /// Devolver `nil` em vez de uma string vazia não é preciosismo: `MATCH ''`
     /// e `MATCH '"'` são erro de sintaxe no SQLite, e um erro de sintaxe no
     /// caminho da digitação derruba a busca a cada tecla.
+    ///
+    /// A última palavra também tem piso de dois caracteres: é ela quem ganha
+    /// `*` de prefixo, e um prefixo de uma letra só (a primeira tecla
+    /// digitada) casaria com uma fração enorme do índice — sem seletividade
+    /// nenhuma, no caminho que roda a cada tecla.
     public static func ftsQuery(_ term: String) -> String? {
         let palavras = term
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
             .filter { !$0.isEmpty }
-        guard !palavras.isEmpty else { return nil }
+        guard let ultima = palavras.last, ultima.count >= 2 else { return nil }
         var partes = palavras.map { "\"\($0)\"" }
         partes[partes.count - 1] += "*"
         return partes.joined(separator: " ")
     }
+
+    /// Limite de resultados de uma busca. Digitando por tecla, ninguém rola
+    /// além disto antes de refinar o termo — e sem teto, um termo comum sobre
+    /// uma caixa grande devolveria milhares de ids para a UI descartar.
+    private static let limiteDeResultados = 200
 
     /// Os ids das mensagens cujo corpo casa. `accountID` nulo abrange todas.
     public static func matchingBodyIDs(
@@ -46,6 +56,7 @@ public enum MessageSearch {
             sql += " AND m.accountID = ?"
             argumentos.append(accountID)
         }
+        sql += " LIMIT \(limiteDeResultados)"
         return try String.fetchSet(db, sql: sql, arguments: StatementArguments(argumentos))
     }
 }

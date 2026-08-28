@@ -40,6 +40,20 @@ public struct AccountRecord: Codable, FetchableRecord, PersistableRecord, Sendab
     public var lastSyncedAt: Date?
     public var createdAt: Date
 
+    /// Datas gravadas como epoch UTC (`Double`), não como o texto
+    /// "AAAA-MM-DD HH:MM:SS.SSS" que `.deferredToDate` (o padrão do GRDB)
+    /// produziria. A coluna já é `DOUBLE` na migração — sem esta estratégia,
+    /// SQLite recebe um texto que não conforma à afinidade da coluna e grava
+    /// TEXT mesmo assim, e `ORDER BY receivedAt` deixa de ser ordem por
+    /// tempo para virar ordem lexicográfica.
+    public static func databaseDateEncodingStrategy(for column: String) -> DatabaseDateEncodingStrategy {
+        .timeIntervalSince1970
+    }
+
+    public static func databaseDateDecodingStrategy(for column: String) -> DatabaseDateDecodingStrategy {
+        .timeIntervalSince1970
+    }
+
     public init(_ account: Account, createdAt: Date) {
         id = account.id
         address = account.address
@@ -128,6 +142,30 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
     public var isRead: Bool
     public var isFlagged: Bool
     public var bucket: String
+    /// As etiquetas do protótipo ("Precisa resposta", "Lead"...). Sem esta
+    /// coluna a linha reaberta do banco perde os chips — eles renderizam de
+    /// `Message.tags`, e `message(body:)` cravava `[]`.
+    public var tagsJSON: String
+    /// O resumo gerado no dispositivo. `nil` até existir — é o mesmo "nulo
+    /// até existir" que `Message.summary` já documenta.
+    public var summary: String?
+    /// O compromisso que o app achou dentro do corpo, se achou algum.
+    public var detectedEventJSON: String?
+    /// As sugestões de resposta de um toque. Sem esta coluna, a faixa de
+    /// sugestões da mensagem reaberta vem sempre vazia, mensagem nenhuma
+    /// tendo sugestão nenhuma — o cartão de resumo do leitor depende disto.
+    public var replyHintsJSON: String
+
+    /// Datas gravadas como epoch UTC (`Double`) — ver
+    /// `AccountRecord.databaseDateEncodingStrategy`. `ORDER BY receivedAt
+    /// DESC` (a lista "Tudo") depende de a coluna ser numérica de verdade.
+    public static func databaseDateEncodingStrategy(for column: String) -> DatabaseDateEncodingStrategy {
+        .timeIntervalSince1970
+    }
+
+    public static func databaseDateDecodingStrategy(for column: String) -> DatabaseDateDecodingStrategy {
+        .timeIntervalSince1970
+    }
 
     public init(_ message: Message, folderID: String) {
         id = message.id
@@ -146,6 +184,10 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
         isRead = message.isRead
         isFlagged = message.isFlagged
         bucket = message.bucket.rawValue
+        tagsJSON = Self.encodeTags(message.tags)
+        summary = message.summary
+        detectedEventJSON = Self.encodeDetectedEvent(message.detectedEvent)
+        replyHintsJSON = Self.encodeStrings(message.replyHints)
     }
 
     /// O corpo vem de fora porque mora noutra tabela: a lista mostra centenas
@@ -157,9 +199,9 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
             from: Contact(name: fromName, address: fromAddress),
             receivedAt: receivedAt,
             subject: subject, snippet: snippet, body: body,
-            tags: [], bucket: TriageBucket(rawValue: bucket) ?? .archived,
-            isRead: isRead, summary: nil, detectedEvent: nil,
-            dayOffset: dayOffset, replyHints: [],
+            tags: Self.decodeTags(tagsJSON), bucket: TriageBucket(rawValue: bucket) ?? .archived,
+            isRead: isRead, summary: summary, detectedEvent: Self.decodeDetectedEvent(detectedEventJSON),
+            dayOffset: dayOffset, replyHints: Self.decodeStrings(replyHintsJSON),
             to: Self.decode(toJSON), cc: Self.decode(ccJSON),
             isFlagged: isFlagged,
             serverID: serverID, uidValidity: uidValidity
@@ -181,11 +223,69 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
               let fio = try? JSONDecoder().decode([Wire].self, from: dados) else { return [] }
         return fio.map { Contact(name: $0.name, address: $0.address) }
     }
+
+    private static func encodeStrings(_ items: [String]) -> String {
+        guard let dados = try? JSONEncoder().encode(items),
+              let texto = String(data: dados, encoding: .utf8) else { return "[]" }
+        return texto
+    }
+
+    private static func decodeStrings(_ json: String) -> [String] {
+        guard let dados = json.data(using: .utf8),
+              let lista = try? JSONDecoder().decode([String].self, from: dados) else { return [] }
+        return lista
+    }
+
+    /// Uma etiqueta serializada.
+    private struct TagWire: Codable { var name: String; var tintHex: String? }
+
+    private static func encodeTags(_ tags: [Tag]) -> String {
+        let fio = tags.map { TagWire(name: $0.name, tintHex: $0.tintHex) }
+        guard let dados = try? JSONEncoder().encode(fio),
+              let texto = String(data: dados, encoding: .utf8) else { return "[]" }
+        return texto
+    }
+
+    private static func decodeTags(_ json: String) -> [Tag] {
+        guard let dados = json.data(using: .utf8),
+              let fio = try? JSONDecoder().decode([TagWire].self, from: dados) else { return [] }
+        return fio.map { Tag(name: $0.name, tintHex: $0.tintHex) }
+    }
+
+    /// Um evento detectado serializado. `start` como epoch UTC, pela mesma
+    /// regra das colunas de data — ver `databaseDateEncodingStrategy`.
+    private struct DetectedEventWire: Codable { var label: String; var start: Double; var duration: Double }
+
+    private static func encodeDetectedEvent(_ event: DetectedEvent?) -> String? {
+        guard let event else { return nil }
+        let fio = DetectedEventWire(
+            label: event.label, start: event.start.timeIntervalSince1970, duration: event.duration
+        )
+        guard let dados = try? JSONEncoder().encode(fio),
+              let texto = String(data: dados, encoding: .utf8) else { return nil }
+        return texto
+    }
+
+    private static func decodeDetectedEvent(_ json: String?) -> DetectedEvent? {
+        guard let json,
+              let dados = json.data(using: .utf8),
+              let fio = try? JSONDecoder().decode(DetectedEventWire.self, from: dados) else { return nil }
+        return DetectedEvent(
+            label: fio.label, start: Date(timeIntervalSince1970: fio.start), duration: fio.duration
+        )
+    }
 }
 
-public struct MessageBodyRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Equatable {
+public struct MessageBodyRecord: Codable, FetchableRecord, MutablePersistableRecord, Sendable, Equatable {
     public static let databaseTableName = "message_body"
 
+    /// O `rowid` físico da linha — `nil` até o `insert` de verdade, que o
+    /// preenche via `didInsert`. Ele é a chave primária da tabela desde a
+    /// rodada de conserto 1: `content_rowid='rowid'` do FTS5 externo precisa
+    /// de um rowid que sobreviva a um `VACUUM`, e só o rowid declarado como
+    /// chave primária sobrevive. `messageID` continua único (é por ele que o
+    /// app busca), mas deixou de ser a chave física.
+    public var rowid: Int64?
     public var messageID: String
     /// Os parágrafos, como JSON — é assim que `Message.body` é modelado.
     public var paragraphs: String
@@ -195,6 +295,7 @@ public struct MessageBodyRecord: Codable, FetchableRecord, PersistableRecord, Se
     public var plain: String
 
     public init(messageID: String, paragraphs: [String]) {
+        self.rowid = nil
         self.messageID = messageID
         let dados = (try? JSONEncoder().encode(paragraphs)) ?? Data("[]".utf8)
         self.paragraphs = String(data: dados, encoding: .utf8) ?? "[]"
@@ -205,6 +306,10 @@ public struct MessageBodyRecord: Codable, FetchableRecord, PersistableRecord, Se
         guard let dados = paragraphs.data(using: .utf8),
               let lista = try? JSONDecoder().decode([String].self, from: dados) else { return [] }
         return lista
+    }
+
+    public mutating func didInsert(_ inserted: InsertionSuccess) {
+        rowid = inserted.rowID
     }
 }
 
@@ -249,6 +354,16 @@ public struct SyncStateRecord: Codable, FetchableRecord, PersistableRecord, Send
     public var uidValidity: Int64?
     public var highestUID: Int64?
     public var syncedAt: Date?
+
+    /// Datas gravadas como epoch UTC (`Double`) — ver
+    /// `AccountRecord.databaseDateEncodingStrategy`.
+    public static func databaseDateEncodingStrategy(for column: String) -> DatabaseDateEncodingStrategy {
+        .timeIntervalSince1970
+    }
+
+    public static func databaseDateDecodingStrategy(for column: String) -> DatabaseDateDecodingStrategy {
+        .timeIntervalSince1970
+    }
 
     public init(
         accountID: String, folderID: String,

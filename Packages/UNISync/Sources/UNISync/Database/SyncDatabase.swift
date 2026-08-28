@@ -10,6 +10,12 @@ import GRDB
 public struct SyncDatabase: Sendable {
     public let pool: DatabasePool
 
+    /// Segura o diretório descartável de `temporary()` vivo enquanto este
+    /// `SyncDatabase` existir, e o apaga quando a última cópia sai de cena.
+    /// `nil` para um banco de verdade — `defaultPath()` não é apagado por
+    /// ninguém.
+    private let temporaryDirectory: TemporaryDatabaseDirectory?
+
     /// Abre (criando se preciso) e migra.
     ///
     /// Migrar na abertura, e não sob demanda, é o que garante que nenhum
@@ -20,17 +26,27 @@ public struct SyncDatabase: Sendable {
         // junto pastas, mensagens, corpos, agenda e estado de sync, em vez de
         // deixar órfãos que a lista mostraria sem dono.
         config.foreignKeysEnabled = true
+        temporaryDirectory = nil
         do {
-            pool = try DatabasePool(path: path, configuration: config)
+            let opened = try DatabasePool(path: path, configuration: config)
+            try Self.migrator.migrate(opened)
+            pool = opened
         } catch {
-            throw SyncError.resposta("Não foi possível abrir o banco em \(path): \(error)")
+            // Nem "abrir" nem "migrar" são erro de servidor — `.resposta` é
+            // para respostas que não fazem sentido vindas de rede; isto aqui
+            // nunca viu rede nenhuma. `.banco` é o caso próprio.
+            throw SyncError.banco("Não foi possível abrir ou migrar o banco em \(path): \(error)")
         }
-        try Self.migrator.migrate(pool)
     }
 
-    private init(pool: DatabasePool) throws {
+    private init(pool: DatabasePool, temporaryDirectory: TemporaryDatabaseDirectory?) throws {
+        self.temporaryDirectory = temporaryDirectory
+        do {
+            try Self.migrator.migrate(pool)
+        } catch {
+            throw SyncError.banco("Não foi possível migrar o banco: \(error)")
+        }
         self.pool = pool
-        try Self.migrator.migrate(pool)
     }
 
     /// Um banco de teste, descartável, com o mesmo esquema do de verdade.
@@ -41,19 +57,22 @@ public struct SyncDatabase: Sendable {
     /// activate WAL Mode`), mesmo com `cache=shared`. É por isso que o
     /// próprio pacote de testes do GRDB nunca abre um `DatabasePool` em
     /// memória: sempre um arquivo novo num diretório temporário
-    /// (`GRDBTestCase.makeDatabasePool`). Um nome próprio por instância, aqui
-    /// via `UUID`, é o que evita dois testes em paralelo compartilharem o
-    /// mesmo arquivo e um ver a escrita do outro. `DatabaseQueue` teria
-    /// `:memory:` de verdade, mas então esta função devolveria um banco que
-    /// não fala WAL — divergindo do de produção no que mais importa testar.
-    public static func inMemory() throws -> SyncDatabase {
+    /// (`GRDBTestCase.makeDatabasePool`). `DatabaseQueue` teria `:memory:` de
+    /// verdade, mas então esta função devolveria um banco que não fala WAL —
+    /// divergindo do de produção no que mais importa testar. Daí o nome:
+    /// `temporary()`, não `inMemory()` — este banco mora em disco.
+    ///
+    /// Cada instância ganha seu próprio diretório (nome único por `UUID`, o
+    /// que também evita dois testes em paralelo compartilharem arquivo e um
+    /// ver a escrita do outro), e o diretório morre com ela: nada de 33
+    /// arquivos acumulados em `$TMPDIR` depois de rodar a suíte.
+    public static func temporary() throws -> SyncDatabase {
+        let diretorio = try TemporaryDatabaseDirectory()
         var config = Configuration()
         config.foreignKeysEnabled = true
-        let path = FileManager.default.temporaryDirectory
-            .appendingPathComponent("okamiuni-\(UUID().uuidString).sqlite")
-            .path
+        let path = diretorio.url.appendingPathComponent("mail.sqlite").path
         let pool = try DatabasePool(path: path, configuration: config)
-        return try SyncDatabase(pool: pool)
+        return try SyncDatabase(pool: pool, temporaryDirectory: diretorio)
     }
 
     /// `Application Support/OkamiUNI/mail.sqlite`, dentro do contêiner do
@@ -120,16 +139,30 @@ public struct SyncDatabase: Sendable {
                   dayOffset INTEGER NOT NULL DEFAULT 0,
                   isRead BOOLEAN NOT NULL DEFAULT 0,
                   isFlagged BOOLEAN NOT NULL DEFAULT 0,
-                  bucket TEXT NOT NULL
+                  bucket TEXT NOT NULL,
+                  tagsJSON TEXT NOT NULL DEFAULT '[]',
+                  summary TEXT,
+                  detectedEventJSON TEXT,
+                  replyHintsJSON TEXT NOT NULL DEFAULT '[]'
                 )
                 """)
             try db.execute(sql: """
                 CREATE INDEX message_on_account_received
                 ON message(accountID, receivedAt DESC)
                 """)
+            // A lista "Tudo" e a ValueObservation por trás dela ordenam por
+            // data sem filtro de conta — sem este índice, `ORDER BY
+            // receivedAt DESC` vira `SCAN + TEMP B-TREE`, refeito a cada
+            // disparo da observação.
+            try db.execute(sql: "CREATE INDEX message_on_received ON message(receivedAt DESC)")
+            // O `WHERE folderID = ?` da Task 13 e a cascata folder→message da
+            // remoção de conta — sem índice, os dois viram scan da tabela
+            // inteira.
+            try db.execute(sql: "CREATE INDEX message_on_folder ON message(folderID)")
             try db.execute(sql: """
                 CREATE TABLE message_body (
-                  messageID TEXT PRIMARY KEY NOT NULL REFERENCES message(id) ON DELETE CASCADE,
+                  rowid INTEGER PRIMARY KEY,
+                  messageID TEXT UNIQUE NOT NULL REFERENCES message(id) ON DELETE CASCADE,
                   paragraphs TEXT NOT NULL,
                   plain TEXT NOT NULL
                 )
@@ -142,6 +175,13 @@ public struct SyncDatabase: Sendable {
             // `remove_diacritics 2` (e não 1) porque o 1 deixa de fora os
             // caracteres compostos por múltiplos code points — "ã" digitado
             // como "a" + U+0303 não casaria.
+            //
+            // `content_rowid='rowid'` aponta para o `rowid` **declarado**
+            // acima (`INTEGER PRIMARY KEY`), não para um rowid implícito: um
+            // `VACUUM` só preserva o rowid de uma tabela quando ele é a
+            // chave primária de verdade — um rowid implícito seria
+            // renumerado, e o índice do FTS passaria a apontar para a linha
+            // errada sem nenhum erro visível.
             try db.execute(sql: """
                 CREATE VIRTUAL TABLE message_fts USING fts5(
                   plain,
@@ -152,7 +192,9 @@ public struct SyncDatabase: Sendable {
                 """)
             // Os três gatilhos que mantêm o índice em dia. Sem o de UPDATE, a
             // troca da prévia pelo corpo cheio (que a carga inicial faz) deixa
-            // o índice apontando para o texto velho.
+            // o índice apontando para o texto velho. Sem o de DELETE, apagar
+            // uma conta deixa o índice indexando corpos de mensagens que não
+            // existem mais — achável por busca, ilegível ao abrir.
             try db.execute(sql: """
                 CREATE TRIGGER message_body_ai AFTER INSERT ON message_body BEGIN
                   INSERT INTO message_fts(rowid, plain) VALUES (new.rowid, new.plain);
@@ -198,5 +240,26 @@ public struct SyncDatabase: Sendable {
                 """)
         }
         return migrator
+    }
+}
+
+/// Um diretório de trabalho descartável, apagado quando a última cópia do
+/// `SyncDatabase` que o segura sai de cena.
+///
+/// Classe, e não struct, de propósito: é o `deinit` que dá a `temporary()`
+/// seu apagamento automático — um `SyncDatabase` é um `struct`, que não tem
+/// `deinit` próprio, então quem carrega o "apague-me ao sumir" tem de ser um
+/// tipo de referência escondido dentro dele.
+private final class TemporaryDatabaseDirectory: @unchecked Sendable {
+    let url: URL
+
+    init() throws {
+        url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("okamiuni-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    }
+
+    deinit {
+        try? FileManager.default.removeItem(at: url)
     }
 }

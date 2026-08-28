@@ -16,6 +16,7 @@ struct SyncErrorTests {
             .keychain(status: -25300),
             .semClientID,
             .resposta("BAD comando desconhecido"),
+            .banco("disco cheio"),
         ]
         let mensagens = casos.map(\.mensagem)
         #expect(mensagens.allSatisfy { !$0.isEmpty })

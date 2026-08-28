@@ -6,7 +6,7 @@ import UNICore
 
 @Suite("O banco da v1")
 struct SyncDatabaseTests {
-    private func banco() throws -> SyncDatabase { try SyncDatabase.inMemory() }
+    private func banco() throws -> SyncDatabase { try SyncDatabase.temporary() }
 
     private let conta = Account(
         id: "conta-a", address: "eu@meudominio.com.br", displayName: "Meu",
@@ -76,6 +76,49 @@ struct SyncDatabaseTests {
         }
     }
 
+    @Test("As colunas de data são REAL de verdade, não texto")
+    func datasSaoNumericas() throws {
+        // `.deferredToDate` (o padrão do GRDB) grava "AAAA-MM-DD HH:MM:SS.SSS"
+        // — texto que cabe numa coluna DOUBLE sem erro nenhum, e que
+        // continuaria voltando igual num teste de ida-e-volta (o mesmo
+        // `.deferredToDate` decodifica de volta), escondendo o problema até
+        // alguém tentar `ORDER BY` numa coluna que hoje é ordenada como
+        // string.
+        let db = try banco()
+        try db.pool.write { conexao in
+            try AccountRecord(conta, createdAt: Date(timeIntervalSince1970: 1)).insert(conexao)
+            try FolderRecord(
+                id: "conta-a/INBOX", accountID: "conta-a",
+                serverName: "INBOX", role: .inbox, displayName: "Caixa de entrada"
+            ).insert(conexao)
+            try MessageRecord(mensagem("m1"), folderID: "conta-a/INBOX").insert(conexao)
+        }
+        try db.pool.read { conexao in
+            let tipoDaConta = try String.fetchOne(conexao, sql: "SELECT typeof(createdAt) FROM account WHERE id = 'conta-a'")
+            let tipoDaMensagem = try String.fetchOne(conexao, sql: "SELECT typeof(receivedAt) FROM message WHERE id = 'm1'")
+            #expect(tipoDaConta == "real")
+            #expect(tipoDaMensagem == "real")
+        }
+    }
+
+    @Test("Os índices de mensagem são usados pelas consultas que as Tasks 13/14 fazem")
+    func indicesDeMensagemSaoUsados() throws {
+        let db = try banco()
+        try db.pool.read { conexao in
+            // A asserção é o plano usar o índice — não que a consulta devolva
+            // linha nenhuma. Um banco vazio ainda assim compila um plano, e é
+            // o plano que prova o índice existe e é o escolhido.
+            let planoPorData = try Row.fetchAll(
+                conexao, sql: "EXPLAIN QUERY PLAN SELECT * FROM message ORDER BY receivedAt DESC"
+            ).map { $0["detail"] as String }.joined(separator: " | ")
+            let planoPorPasta = try Row.fetchAll(
+                conexao, sql: "EXPLAIN QUERY PLAN SELECT * FROM message WHERE folderID = 'conta-a/INBOX'"
+            ).map { $0["detail"] as String }.joined(separator: " | ")
+            #expect(planoPorData.contains("message_on_received"), "plano: \(planoPorData)")
+            #expect(planoPorPasta.contains("message_on_folder"), "plano: \(planoPorPasta)")
+        }
+    }
+
     @Test("A mensagem vai e volta inteira, corpo incluído")
     func mensagemVaiEVolta() throws {
         let db = try banco()
@@ -87,12 +130,55 @@ struct SyncDatabaseTests {
                 serverName: "INBOX", role: .inbox, displayName: "Caixa de entrada"
             ).insert(conexao)
             try MessageRecord(original, folderID: "conta-a/INBOX").insert(conexao)
-            try MessageBodyRecord(messageID: "m1", paragraphs: original.body).insert(conexao)
+            var corpo = MessageBodyRecord(messageID: "m1", paragraphs: original.body)
+            try corpo.insert(conexao)
         }
         let devolvida = try db.pool.read { conexao -> Message in
             let registro = try #require(try MessageRecord.fetchOne(conexao, key: "m1"))
-            let corpo = try MessageBodyRecord.fetchOne(conexao, key: "m1")
+            // A chave física de `message_body` é o `rowid` desde a rodada de
+            // conserto 1 — `messageID` continua única, mas a busca por ela
+            // passa pela forma de dicionário (qualquer chave com índice
+            // único, não só a primária).
+            let corpo = try MessageBodyRecord.fetchOne(conexao, key: ["messageID": "m1"])
             return registro.message(body: corpo?.body ?? [])
+        }
+        #expect(devolvida == original)
+    }
+
+    @Test("Tags, resumo, evento detectado e sugestões de resposta também vão e voltam")
+    func mensagemComExtrasVaiEVolta() throws {
+        // A fixture `mensagem(_:)` traz os quatro campos vazios — é assim que
+        // o teste original não expunha o buraco: `[]`/`nil` cravados em
+        // `message(body:)` batiam com `[]`/`nil` vindos da fixture por
+        // coincidência. Este teste usa valores de verdade nos quatro.
+        let db = try banco()
+        let original = Message(
+            id: "m1", accountID: "conta-a",
+            from: Contact(name: "Marina Duarte", address: "marina@clientepremium.com"),
+            receivedAt: Date(timeIntervalSince1970: 1_800_000_000),
+            subject: "Assunto", snippet: "Trecho", body: ["Corpo"],
+            tags: [Tag(name: "Precisa resposta", tintHex: "#FF6B6B"), Tag(name: "Lead")],
+            bucket: .today, isRead: false,
+            summary: "Resumo gerado no dispositivo.",
+            detectedEvent: DetectedEvent(
+                label: "Call de contrato · qui 27, 15:00",
+                start: Date(timeIntervalSince1970: 1_800_100_000),
+                duration: 1_800
+            ),
+            replyHints: ["Confirmar quinta 15h", "Pedir mais um dia"],
+            serverID: "9001", uidValidity: 42
+        )
+        try db.pool.write { conexao in
+            try AccountRecord(conta, createdAt: Date(timeIntervalSince1970: 1)).insert(conexao)
+            try FolderRecord(
+                id: "conta-a/INBOX", accountID: "conta-a",
+                serverName: "INBOX", role: .inbox, displayName: "Caixa de entrada"
+            ).insert(conexao)
+            try MessageRecord(original, folderID: "conta-a/INBOX").insert(conexao)
+        }
+        let devolvida = try db.pool.read { conexao -> Message in
+            let registro = try #require(try MessageRecord.fetchOne(conexao, key: "m1"))
+            return registro.message(body: original.body)
         }
         #expect(devolvida == original)
     }
@@ -107,7 +193,8 @@ struct SyncDatabaseTests {
                 serverName: "INBOX", role: .inbox, displayName: "Caixa de entrada"
             ).insert(conexao)
             try MessageRecord(mensagem("m1"), folderID: "conta-a/INBOX").insert(conexao)
-            try MessageBodyRecord(messageID: "m1", paragraphs: ["Corpo"]).insert(conexao)
+            var corpo = MessageBodyRecord(messageID: "m1", paragraphs: ["Corpo"])
+            try corpo.insert(conexao)
             try AgendaItemRecord(
                 AgendaItem(id: "a1", title: "Reunião", startMinute: 570, endMinute: 600, accountID: "conta-a")
             ).insert(conexao)
@@ -128,14 +215,30 @@ struct SyncDatabaseTests {
             let corpos = try MessageBodyRecord.fetchCount(conexao)
             let itens = try AgendaItemRecord.fetchCount(conexao)
             let estados = try SyncStateRecord.fetchCount(conexao)
-            // O gatilho do FTS tem de ter desfeito o índice junto com o corpo.
-            let noIndice = try Int.fetchOne(conexao, sql: "SELECT count(*) FROM message_fts")
+            // O gatilho de DELETE tem de ter desfeito o índice junto com o
+            // corpo. Nem `SELECT count(*) FROM message_fts` nem
+            // `MessageSearch.matchingBodyIDs` provam isso: os dois fazem
+            // — direta ou indiretamente (via JOIN com `message_body`) —
+            // uma consulta que só enxerga linhas que ainda têm conteúdo
+            // vivo, e a linha de conteúdo já foi embora na cascata. Um
+            // índice sujo (gatilho de DELETE ausente) fica invisível para
+            // as duas, e a rodada de conserto 1 provou isso na prática:
+            // removendo só esse gatilho, as duas continuavam devolvendo 0.
+            // A prova honesta é MATCH direto contra `message_fts`, sem
+            // JOIN nenhum — é o que realmente pergunta "o índice ainda tem
+            // esta linha?".
+            let consulta = try #require(MessageSearch.ftsQuery("corpo"))
+            let indexado = try Int.fetchOne(
+                conexao,
+                sql: "SELECT count(*) FROM (SELECT rowid FROM message_fts WHERE message_fts MATCH ?)",
+                arguments: [consulta]
+            )
             #expect(pastas == 0)
             #expect(mensagens == 0)
             #expect(corpos == 0)
             #expect(itens == 0)
             #expect(estados == 0)
-            #expect(noIndice == 0)
+            #expect(indexado == 0)
         }
     }
 
@@ -149,10 +252,11 @@ struct SyncDatabaseTests {
                 serverName: "INBOX", role: .inbox, displayName: "Caixa de entrada"
             ).insert(conexao)
             try MessageRecord(mensagem("m1"), folderID: "conta-a/INBOX").insert(conexao)
-            try MessageBodyRecord(
+            var corpo = MessageBodyRecord(
                 messageID: "m1",
                 paragraphs: ["A revisão do contrato ficou pronta.", "Abraço."]
-            ).insert(conexao)
+            )
+            try corpo.insert(conexao)
         }
         try db.pool.read { conexao in
             let semAcento = try MessageSearch.matchingBodyIDs(conexao, term: "Revisao", accountID: nil)
@@ -188,7 +292,8 @@ struct SyncDatabaseTests {
                 var registro = MessageRecord(mensagem(id), folderID: "\(accountID)/INBOX")
                 registro.accountID = accountID
                 try registro.insert(conexao)
-                try MessageBodyRecord(messageID: id, paragraphs: ["A revisão saiu."]).insert(conexao)
+                var corpo = MessageBodyRecord(messageID: id, paragraphs: ["A revisão saiu."])
+                try corpo.insert(conexao)
             }
         }
         try db.pool.read { conexao in
@@ -199,15 +304,21 @@ struct SyncDatabaseTests {
         }
     }
 
-    @Test("Termo que só tem pontuação não vira consulta — MATCH com sintaxe inválida derruba o SQLite")
+    @Test("Termo curto demais, ou que só tem pontuação, não vira consulta — MATCH com sintaxe inválida derruba o SQLite")
     func termoVazioNaoConsulta() throws {
         #expect(MessageSearch.ftsQuery("   ") == nil)
         #expect(MessageSearch.ftsQuery("\"") == nil)
+        // Piso de dois caracteres na última palavra: é ela quem ganha `*` de
+        // prefixo, e uma letra só casaria com uma fração enorme do índice a
+        // cada primeira tecla digitada.
+        #expect(MessageSearch.ftsQuery("r") == nil)
         #expect(MessageSearch.ftsQuery("revisão do contrato") == "\"revisão\" \"do\" \"contrato\"*")
         let db = try banco()
         try db.pool.read { conexao in
             let vazio = try MessageSearch.matchingBodyIDs(conexao, term: "  ", accountID: nil)
+            let curto = try MessageSearch.matchingBodyIDs(conexao, term: "r", accountID: nil)
             #expect(vazio.isEmpty)
+            #expect(curto.isEmpty)
         }
     }
 
@@ -221,10 +332,18 @@ struct SyncDatabaseTests {
                 serverName: "INBOX", role: .inbox, displayName: "Caixa de entrada"
             ).insert(conexao)
             try MessageRecord(mensagem("m1"), folderID: "conta-a/INBOX").insert(conexao)
-            try MessageBodyRecord(messageID: "m1", paragraphs: ["Prévia curta."]).insert(conexao)
+            var corpo = MessageBodyRecord(messageID: "m1", paragraphs: ["Prévia curta."])
+            try corpo.insert(conexao)
             // A carga inicial baixa a prévia primeiro e o corpo cheio depois:
-            // é exatamente este UPDATE que roda no meio da Task 12.
-            try MessageBodyRecord(messageID: "m1", paragraphs: ["Corpo inteiro com orçamento."]).update(conexao)
+            // é exatamente este UPDATE que roda no meio da Task 12. A busca
+            // é por `messageID` (a chave única de aplicação); a chave física
+            // agora é o `rowid`, por isso o fetch antes de mutar, em vez de
+            // um `update` cego num registro novo em folha sem `rowid` nenhum.
+            var existente = try #require(try MessageBodyRecord.fetchOne(conexao, key: ["messageID": "m1"]))
+            let atualizado = MessageBodyRecord(messageID: "m1", paragraphs: ["Corpo inteiro com orçamento."])
+            existente.paragraphs = atualizado.paragraphs
+            existente.plain = atualizado.plain
+            try existente.update(conexao)
         }
         try db.pool.read { conexao in
             let previa = try MessageSearch.matchingBodyIDs(conexao, term: "previa", accountID: nil)
