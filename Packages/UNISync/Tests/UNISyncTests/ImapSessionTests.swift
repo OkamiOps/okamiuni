@@ -485,15 +485,67 @@ struct CRLFLineDecoderTests {
         _ = try? canal.finish()
     }
 
-    @Test("Literal anunciado acima do teto é recusado antes de reservar memória")
+    @Test("O teto de linha não conta os bytes do literal")
+    func tetoDaLinhaIgnoraOLiteral() throws {
+        // 68 KiB de corpo, entregues em duas leituras cortadas **exatamente**
+        // no fim do literal. Se a contagem do teto de linha incluir o corpo, a
+        // segunda varredura vê 68 KiB "sem terminador" e a conexão morre — uma
+        // falha que depende da segmentação TCP, acusa o servidor de algo que
+        // ele não fez, e de quebra torna o teto de literal inalcançável.
+        let corpo = String(repeating: "x", count: 68 * 1024)
+        let cabeca = Array("* 1 FETCH (UID 9001 BODY[TEXT] {\(corpo.utf8.count)}\r\n".utf8)
+            + Array(corpo.utf8)
+        let saida = try linhas([cabeca, Array(")\r\n".utf8)])
+        #expect(saida.count == 1)
+        #expect(saida.first?.hasSuffix("xxx)") == true)
+        #expect(saida.first?.utf8.count == cabeca.count + 1)
+    }
+
+    @Test("Literal anunciado acima do teto é recusado, dizendo o tamanho e o UID")
     func tetoDoLiteral() throws {
         // O tamanho vem declarado pelo servidor. Aceitar `{9999999999}` é
         // entregar a memória do processo a quem estiver do outro lado; o corpo
         // de texto mais gordo que existe cabe em oito mebibytes.
+        //
+        // A mensagem carrega tamanho e UID porque quem carrega (Task 13) pula
+        // o corpo desta mensagem e segue com as outras — e um log sem o UID não
+        // diz qual foi pulada.
         let canal = canal()
         var entrada = canal.allocator.buffer(capacity: 64)
-        entrada.writeString("* 1 FETCH (BODY[TEXT] {99999999}\r\n")
-        #expect(throws: SyncError.self) { try canal.writeInbound(entrada) }
+        entrada.writeString("* 1 FETCH (UID 9001 BODY[TEXT] {99999999}\r\n")
+        do {
+            try canal.writeInbound(entrada)
+            Issue.record("O literal gigante deveria ter sido recusado.")
+        } catch let erro as SyncError {
+            guard case .resposta(let detalhe) = erro else {
+                Issue.record("Esperava `.resposta`, veio \(erro).")
+                return
+            }
+            #expect(detalhe.contains("99999999"))
+            #expect(detalhe.contains("UID 9001"))
+        }
+        _ = try? canal.finish()
+    }
+
+    @Test("Tamanho de literal absurdo derruba a conexão em vez de dessincronizar calado")
+    func tamanhoAbsurdo() throws {
+        // Treze dígitos não é um corpo, é uma conexão que não dá mais para
+        // acompanhar. Seguir lendo a linha como se o literal não existisse faz
+        // o conteúdo passar a ser interpretado como protocolo — errado e mudo,
+        // que é a pior combinação.
+        let canal = canal()
+        var entrada = canal.allocator.buffer(capacity: 64)
+        entrada.writeString("* 1 FETCH (BODY[TEXT] {12345678901234}\r\n")
+        do {
+            try canal.writeInbound(entrada)
+            Issue.record("O tamanho absurdo deveria ter derrubado a conexão.")
+        } catch let erro as SyncError {
+            guard case .resposta(let detalhe) = erro else {
+                Issue.record("Esperava `.resposta`, veio \(erro).")
+                return
+            }
+            #expect(detalhe.contains("sincronia"))
+        }
         _ = try? canal.finish()
     }
 

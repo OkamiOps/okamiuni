@@ -195,6 +195,26 @@ struct ImapFetchTests {
         #expect(fetch.to == "Ricardo <ricardo@empresa.com>")
     }
 
+    @Test("`{4}` no meio da linha, sem CRLF, é texto — e não cabeçalho de literal")
+    func chavesSemCRLFNaoSaoLiteral() throws {
+        // Um assunto pode conter `{4}`: é texto de outra pessoa. Sem exigir o
+        // CRLF, o mapa de literais mascararia os quatro bytes seguintes — aqui,
+        // o " NIL" do campo `from` — e voltaria a deslocar os campos, que é
+        // exatamente o defeito que o mapa existe para impedir. É também o que
+        // alinha esta leitura com a do `CRLFLineDecoder`, que só reconhece
+        // literal no fim da linha.
+        let linha = "1 FETCH (UID 9001 ENVELOPE (NIL {4} NIL NIL NIL "
+            + "((\"Ricardo\" NIL \"ricardo\" \"empresa.com\")) NIL NIL NIL NIL))"
+        guard case .fetch(let fetch) = ImapResponseAdapter.untagged(fromLogicalLine: linha) else {
+            Issue.record("Esperava um `.fetch`.")
+            return
+        }
+        #expect(fetch.uid == 9_001)
+        #expect(fetch.subject == "{4}")
+        #expect(fetch.from == nil)
+        #expect(fetch.to == "Ricardo <ricardo@empresa.com>")
+    }
+
     @Test("Um `UID 999` escrito dentro do corpo não vira o UID da resposta")
     func uidEscritoNoCorpo() throws {
         // O corpo é texto de outra pessoa; procurar chave de protocolo dentro
@@ -309,9 +329,9 @@ struct ImapFetchTests {
     @Test("O corpo chega como literal `{n}` e mesmo assim vira uma linha só")
     func corpoComLiteralDePontaAPonta() async throws {
         // Este é o caso que o corte por CRLF sozinho **não** resolve: o corpo
-        // vem contado em bytes e tem CRLF dentro. Sem o quadro do
-        // `swift-nio-imap` juntando o literal, cada parágrafo chegaria como uma
-        // resposta solta e o corpo sairia vazio.
+        // vem contado em bytes e tem CRLF dentro. Sem o `CRLFLineDecoder`
+        // juntar o literal à linha, cada parágrafo chegaria como uma resposta
+        // solta e o corpo sairia vazio.
         let servidor = FakeImapServer(script: .init(replies: [
             "LOGIN": ["TAG OK LOGIN completed"],
             "UID FETCH": [

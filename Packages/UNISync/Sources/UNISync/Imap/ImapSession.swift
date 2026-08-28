@@ -449,6 +449,9 @@ struct CRLFLineDecoder: ByteToMessageDecoder {
                 varrido += pega
                 restanteDoLiteral -= pega
                 if restanteDoLiteral > 0 { return pare(&buffer) }
+                // O literal acabou: daqui para a frente é parte-de-linha de
+                // novo, e a contagem do teto recomeça do zero.
+                inicioDaParteCorrente = varrido
                 continue
             }
 
@@ -456,7 +459,13 @@ struct CRLFLineDecoder: ByteToMessageDecoder {
                 .firstIndex(of: UInt8(ascii: "\n"))
             else {
                 varrido = visao.count
-                if varrido > Self.tetoDaLinha {
+                // **Só a parte-de-linha** conta para o teto. Somar os bytes do
+                // literal aqui faria um corpo de 68 KiB estourar um teto que
+                // não é dele — e só quando a leitura do socket terminasse no
+                // fim do literal, ou seja, uma falha intermitente que depende
+                // da segmentação TCP e culpa o servidor. Também deixaria o teto
+                // de literal inalcançável: o de linha dispararia antes.
+                if varrido - inicioDaParteCorrente > Self.tetoDaLinha {
                     throw SyncError.resposta(
                         "O servidor IMAP mandou uma linha maior que \(Self.tetoDaLinha) bytes sem terminador."
                     )
@@ -470,14 +479,21 @@ struct CRLFLineDecoder: ByteToMessageDecoder {
             // Tamanho zero não abre nada: o conteúdo é vazio e o resto da linha
             // vem logo em seguida, na mesma varredura. É exatamente o caso em
             // que o framer da biblioteca prendia a resposta tagueada.
-            if let tamanho = Self.tamanhoDoLiteral(visao, ate: depoisDoLF - 1) {
+            if let tamanho = try Self.tamanhoDoLiteral(visao, ate: depoisDoLF - 1) {
                 guard tamanho <= Self.tetoDoLiteral else {
+                    // O tamanho e o UID entram na mensagem de propósito: quem
+                    // carrega (Task 13) registra a falha desta mensagem e segue
+                    // com as outras, e um log sem o UID não diz qual pular.
+                    let uid = Self.uidDaParte(visao, de: inicioDaParteCorrente, ate: depoisDoLF)
                     throw SyncError.resposta(
-                        "O servidor IMAP anunciou um literal de \(tamanho) bytes, acima do teto de \(Self.tetoDoLiteral)."
+                        "O servidor IMAP anunciou um literal de \(tamanho) bytes"
+                        + (uid.map { " para o UID \($0)" } ?? "")
+                        + ", acima do teto de \(Self.tetoDoLiteral)."
                     )
                 }
                 restanteDoLiteral = tamanho
                 varrido = depoisDoLF
+                inicioDaParteCorrente = depoisDoLF
                 continue
             }
 
@@ -487,6 +503,7 @@ struct CRLFLineDecoder: ByteToMessageDecoder {
                 linha = linha.readSlice(length: linha.readableBytes - 1)!
             }
             varrido = 0
+            inicioDaParteCorrente = 0
             pendencia.bytes = buffer.readableBytes
             context.fireChannelRead(wrapInboundOut(linha))
             return .continue
@@ -498,7 +515,12 @@ struct CRLFLineDecoder: ByteToMessageDecoder {
     ///
     /// A leitura é para trás, em bytes: `\r\n` é um grafema só para o Swift, e
     /// o cabeçalho é ASCII puro.
-    static func tamanhoDoLiteral(_ visao: ByteBufferView, ate fimExclusivo: Int) -> Int? {
+    ///
+    /// Lança quando o cabeçalho **é** um cabeçalho mas o tamanho é absurdo.
+    /// Devolver `nil` ali seria seguir lendo a linha como se o literal não
+    /// existisse, e o que vem depois é conteúdo sendo interpretado como
+    /// protocolo — dessincronia silenciosa, que é o pior jeito de errar.
+    static func tamanhoDoLiteral(_ visao: ByteBufferView, ate fimExclusivo: Int) throws -> Int? {
         let base = visao.startIndex
         var i = fimExclusivo
         func byte(_ posicao: Int) -> UInt8? {
@@ -511,24 +533,65 @@ struct CRLFLineDecoder: ByteToMessageDecoder {
         if let anterior = byte(i - 1), anterior == UInt8(ascii: "+") || anterior == UInt8(ascii: "-") {
             i -= 1 // LITERAL+ / LITERAL-
         }
-        var tamanho = 0
-        var escala = 1
-        var digitos = 0
+        var digitos: [UInt8] = []
         while let digito = byte(i - 1), digito >= UInt8(ascii: "0"), digito <= UInt8(ascii: "9") {
-            tamanho += Int(digito - UInt8(ascii: "0")) * escala
-            escala *= 10
-            digitos += 1
+            digitos.append(digito)
             i -= 1
-            if digitos > 12 { return nil } // tamanho absurdo: não é cabeçalho
+            // Além disto não é número, é despejo: pare de ler e deixe o `{`
+            // faltando decidir que não era cabeçalho nenhum.
+            if digitos.count > 30 { return nil }
         }
-        guard digitos > 0 else { return nil }
+        guard !digitos.isEmpty else { return nil }
         if byte(i - 1) == UInt8(ascii: "~") { i -= 1 } // literal binário
         guard byte(i - 1) == UInt8(ascii: "{") else { return nil }
+        // Daqui para baixo é cabeçalho de verdade: um tamanho impossível não é
+        // "não era literal", é uma conexão que não dá mais para acompanhar.
+        guard digitos.count <= 12, let tamanho = Int(String(decoding: digitos.reversed(), as: UTF8.self))
+        else {
+            throw SyncError.resposta(
+                "O servidor IMAP anunciou um literal com \(digitos.count) dígitos de tamanho — "
+                + "a sincronia da conexão se perdeu."
+            )
+        }
         return tamanho
+    }
+
+    /// O `UID` escrito na parte-de-linha corrente, para a mensagem de erro.
+    ///
+    /// Só a parte corrente: procurar na linha lógica inteira acharia um
+    /// `UID 999` escrito dentro do corpo de outra mensagem.
+    static func uidDaParte(_ visao: ByteBufferView, de inicio: Int, ate fim: Int) -> Int64? {
+        let base = visao.startIndex
+        let alvo = Array("UID ".utf8)
+        var i = max(0, inicio)
+        let limite = min(fim, visao.count)
+        while i + alvo.count <= limite {
+            var casou = true
+            for j in 0..<alvo.count where visao[visao.index(base, offsetBy: i + j)] != alvo[j] {
+                casou = false
+                break
+            }
+            if casou {
+                var digitos = ""
+                var k = i + alvo.count
+                while k < limite {
+                    let byte = visao[visao.index(base, offsetBy: k)]
+                    guard byte >= UInt8(ascii: "0"), byte <= UInt8(ascii: "9") else { break }
+                    digitos.append(Character(UnicodeScalar(byte)))
+                    k += 1
+                }
+                return Int64(digitos)
+            }
+            i += 1
+        }
+        return nil
     }
 
     private var varrido = 0
     private var restanteDoLiteral = 0
+    /// Onde a parte-de-linha corrente começa, dentro da linha lógica. Zero no
+    /// começo da linha; logo depois de cada literal, onde ele terminou.
+    private var inicioDaParteCorrente = 0
 
     private mutating func pare(_ buffer: inout ByteBuffer) -> DecodingState {
         pendencia.bytes = buffer.readableBytes

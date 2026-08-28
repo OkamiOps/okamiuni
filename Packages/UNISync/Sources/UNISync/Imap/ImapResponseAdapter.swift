@@ -40,6 +40,15 @@ enum ImapResponseAdapter {
     /// vira o UID da resposta; e um assunto mandado em literal — o que Dovecot
     /// e Courier fazem com cabeçalho 8-bit ou longo — desloca **todos** os
     /// campos do `ENVELOPE`, deixando remetente e destinatários nulos.
+    ///
+    /// **O que custa:** um `[Bool]` do tamanho da linha lógica, ou seja, cerca
+    /// de um byte por byte de resposta. Para envelope é nada; para um corpo de
+    /// um mebibyte é um mebibyte a mais, vivo só enquanto aquela resposta é
+    /// interpretada. O caminho de corpo é `bodyText`, uma mensagem por vez e
+    /// por demanda — não é o laço de lotes —, então o pico é de uma resposta e
+    /// não do lote. Se um dia isso apertar, o corte é mapear só a parte-de-linha
+    /// e tratar o conteúdo do literal como opaco; não vale a complexidade
+    /// enquanto o pico for este.
     struct Analise {
         let bytes: [UInt8]
         /// `true` onde o byte pertence a um literal — cabeçalho `{n}` incluído.
@@ -104,8 +113,17 @@ enum ImapResponseAdapter {
             if i < bytes.count, bytes[i] == UInt8(ascii: "+") || bytes[i] == UInt8(ascii: "-") { i += 1 }
             guard i < bytes.count, bytes[i] == UInt8(ascii: "}") else { return nil }
             i += 1
+            // O CRLF é **obrigatório**, e não opcional: sem ele o `{4}` de um
+            // assunto — texto de outra pessoa, no meio da linha — passaria por
+            // cabeçalho e mascararia os quatro bytes seguintes, deslocando os
+            // campos exatamente como o defeito que este mapa existe para
+            // impedir. É também o que alinha esta leitura com a do
+            // `CRLFLineDecoder`, que só reconhece literal no fim da linha:
+            // duas respostas diferentes para a mesma pergunta é um defeito
+            // esperando data.
             if i < bytes.count, bytes[i] == UInt8(ascii: "\r") { i += 1 }
-            if i < bytes.count, bytes[i] == UInt8(ascii: "\n") { i += 1 }
+            guard i < bytes.count, bytes[i] == UInt8(ascii: "\n") else { return nil }
+            i += 1
             return (tamanho, i)
         }
 

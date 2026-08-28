@@ -2,14 +2,13 @@ import Foundation
 import Testing
 import GRDB
 import NIOCore
-import NIOIMAP
 @testable import UNISync
 
 @Suite("Wiring das dependências novas")
 struct WiringTests {
-    @Test("O pacote existe e nomeia as duas dependências")
+    @Test("O pacote existe e nomeia as dependências novas")
     func wiring() {
-        #expect(UNISync.wiringCheck() == "GRDB+NIOIMAP")
+        #expect(UNISync.wiringCheck() == "GRDB+NIO")
     }
 
     @Test("GRDB abre um banco em memória e responde SQL")
@@ -36,9 +35,14 @@ struct WiringTests {
         #expect(achou == 1)
     }
 
-    @Test("swift-nio-imap está linkado e monta um nome de caixa")
-    func nioImapExiste() {
-        let caixa = MailboxName(ByteBuffer(string: "INBOX"))
-        #expect(caixa.bytes.count == 5)
+    @Test("SwiftNIO está linkado e move bytes")
+    func nioExiste() {
+        // Era o `swift-nio-imap` que este teste afirmava. Ele saiu do pacote na
+        // rodada de conserto 2 da Task 10, e quem ficou sustentando a sessão
+        // IMAP inteira é o SwiftNIO — que é o que precisa linkar.
+        var buffer = ByteBuffer()
+        buffer.writeString("INBOX")
+        #expect(buffer.readableBytes == 5)
+        #expect(String(buffer: buffer) == "INBOX")
     }
 }
