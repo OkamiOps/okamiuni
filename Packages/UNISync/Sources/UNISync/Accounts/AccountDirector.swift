@@ -32,6 +32,12 @@ public actor AccountDirector {
     /// senão a escrita seguinte do carregador ressuscita a linha que a remoção
     /// acabou de apagar.
     private var loads: [String: Task<Void, Never>] = [:]
+    /// Qual carga é a **corrente** de cada conta. Um relato de progresso é
+    /// assíncrono por natureza — ele viaja num `Task` próprio, disparado de
+    /// fora do ator —, então o relato de uma carga já morta pode chegar depois
+    /// de a seguinte ter começado e mandar a barra para trás. O token diz de
+    /// quem é o relato, e o que não é da geração corrente é descartado.
+    private var generations: [String: UUID] = [:]
 
     public init(
         database: SyncDatabase,
@@ -194,12 +200,36 @@ public actor AccountDirector {
         }
     }
 
+    /// Grava a conta — nova, ou **atualizada** se ela já existia.
+    ///
+    /// Adicionar de novo uma conta que já está na lista não é um engano a
+    /// recusar: é o caminho normal de quem trocou a senha de app ou precisou
+    /// reautenticar. Por isso a re-adição atualiza o que veio do formulário
+    /// (endereço, nome, marca do host, servidor) e **preserva** o que é
+    /// história da conta: estado, último sync, cor e assinatura — e, por
+    /// tabela, as mensagens, que ninguém tocou. Recriar a linha do zero
+    /// devolveria a conta a `carregando`, apagaria o carimbo de sincronização
+    /// e trocaria a cor por baixo de quem já a reconhece pela cor.
     private func grava(
         id: String, address: String, displayName: String,
         provider: Account.Provider, hostMark: String, endpoint: ImapEndpoint?
     ) async throws -> Account {
-        let quantasJa = try await database.pool.read { try AccountRecord.fetchCount($0) }
-        let cores = AccountTints.pair(forIndex: quantasJa)
+        if let existente = try await database.pool.read({ try AccountRecord.fetchOne($0, key: id) }) {
+            let velha = existente.account
+            let atualizada = Account(
+                id: id, address: address, displayName: displayName,
+                provider: provider, host: hostMark,
+                tintLightHex: velha.tintLightHex, tintDarkHex: velha.tintDarkHex,
+                signature: velha.signature, imap: endpoint,
+                state: velha.state, lastSyncedAt: velha.lastSyncedAt
+            )
+            try await database.pool.write { db in
+                try AccountRecord(atualizada, createdAt: existente.createdAt).update(db)
+            }
+            return atualizada
+        }
+
+        let cores = AccountTints.pair(forIndex: try await indiceDeCorLivre())
         let conta = Account(
             id: id, address: address, displayName: displayName,
             provider: provider, host: hostMark,
@@ -210,9 +240,30 @@ public actor AccountDirector {
         // do ator, e a closure da escrita corre fora da isolação dele.
         let criadaEm = now()
         try await database.pool.write { db in
-            try AccountRecord(conta, createdAt: criadaEm).save(db)
+            try AccountRecord(conta, createdAt: criadaEm).insert(db)
         }
         return conta
+    }
+
+    /// O menor índice de cor que **nenhuma** conta está usando.
+    ///
+    /// Contar quantas contas existem não serve: remover a primeira de duas
+    /// devolve a contagem a 1, e a próxima conta nasceria com a cor da que
+    /// ficou — duas linhas da mesma cor na lateral, que é exatamente o que a
+    /// cor existe para evitar.
+    ///
+    /// Quando as oito estão ocupadas o laço para no fim e o índice cai fora da
+    /// lista, onde `pair` cicla: a nona conta repete uma cor, que é incômodo
+    /// visual — e nunca recusa, que seria defeito.
+    private func indiceDeCorLivre() async throws -> Int {
+        let usadas = try await database.pool.read { db in
+            try Set(String.fetchAll(db, sql: "SELECT tintLightHex FROM account"))
+        }
+        var indice = 0
+        while indice < AccountTints.count, usadas.contains(AccountTints.pair(forIndex: indice).light) {
+            indice += 1
+        }
+        return indice
     }
 
     // MARK: Remover
@@ -240,6 +291,13 @@ public actor AccountDirector {
                 log.error("Revogação de \(accountID, privacy: .public) falhou: \(erro.mensagem)")
             }
         }
+        // O segredo sai **antes** da linha, e a ordem é escolhida: as duas
+        // escritas não estão na mesma transação (uma é o Keychain, a outra é
+        // SQLite), então uma delas vai ser a que falha sozinha. Falhar aqui
+        // deixa a conta na lista com o segredo dela — visível, e a pessoa
+        // manda remover de novo. Na ordem inversa, o `DELETE` passaria e o
+        // Keychain falharia depois: a conta some da tela e a senha fica no
+        // chaveiro, sem nada na interface que ainda saiba que ela existe.
         try secrets.remove(for: accountID)
         // A cascata do banco leva pastas, mensagens, corpos, agenda e
         // sync_state junto — está na migração v1, com teste.
@@ -248,6 +306,7 @@ public actor AccountDirector {
         }
         errors[accountID] = nil
         progresses[accountID] = nil
+        generations[accountID] = nil
         await refresh()
     }
 
@@ -273,8 +332,17 @@ public actor AccountDirector {
     /// `Task` sem estrutura **não** herda o cancelamento de quem a criou, e
     /// sem isto cancelar o chamador deixaria a carga rodando sozinha.
     public func loadInitial(accountID: String) async {
+        // Uma carga por conta, e a anterior morre **e é esperada** antes de a
+        // nova nascer. Sobrescrever `loads` sem isto deixaria a primeira carga
+        // rodando sem ninguém que a conheça: um `remove` posterior cancelaria
+        // só a segunda, e a órfã seguiria escrevendo depois do `DELETE` — o
+        // invariante deste arquivo passaria a depender dos guards de outro.
+        await cancelaCarga(accountID)
+
+        let geracao = UUID()
+        generations[accountID] = geracao
         let tarefa = Task<Void, Never> { [weak self] in
-            await self?.executaCarga(accountID: accountID)
+            await self?.executaCarga(accountID: accountID, geracao: geracao)
         }
         loads[accountID] = tarefa
         await withTaskCancellationHandler {
@@ -285,14 +353,14 @@ public actor AccountDirector {
         if loads[accountID] == tarefa { loads[accountID] = nil }
     }
 
-    private func executaCarga(accountID: String) async {
+    private func executaCarga(accountID: String, geracao: UUID) async {
         guard let conta = try? await database.pool.read({ db in
             try AccountRecord.fetchOne(db, key: accountID)?.account
         }) else { return }
 
         let loader = InitialLoader(database: database)
         let publica: @Sendable (LoadProgress) -> Void = { [weak self] progresso in
-            Task { await self?.registra(progresso) }
+            Task { await self?.registra(progresso, geracao: geracao) }
         }
 
         do {
@@ -337,6 +405,9 @@ public actor AccountDirector {
         } catch {
             errors[accountID] = .rede(error.localizedDescription)
         }
+        // Mesmo cuidado do progresso: uma carga que morreu enquanto a
+        // seguinte já rodava não pode apagar a barra da que está viva.
+        guard generations[accountID] == geracao else { return }
         progresses[accountID] = nil
         await refresh()
     }
@@ -364,7 +435,9 @@ public actor AccountDirector {
         }
     }
 
-    private func registra(_ progresso: LoadProgress) async {
+    private func registra(_ progresso: LoadProgress, geracao: UUID) async {
+        // Relato de carga que já não é a corrente não move a barra de ninguém.
+        guard generations[progresso.accountID] == geracao else { return }
         progresses[progresso.accountID] = progresso
         await refresh()
     }

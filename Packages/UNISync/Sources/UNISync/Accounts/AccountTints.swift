@@ -21,6 +21,12 @@ public enum AccountTints {
         ("#5B9A6D", "#A7F4C3"),
     ]
 
+    /// Quantos pares distintos existem antes de a lista dar a volta. Quem
+    /// procura uma cor **livre** precisa saber onde parar de procurar: sem
+    /// isto, uma nona conta faria o laço girar para sempre atrás de uma cor
+    /// que não existe mais.
+    public static var count: Int { pairs.count }
+
     /// O par da n-ésima conta. Índice negativo também tem cor: o resto de
     /// `%` em Swift herda o sinal do dividendo, e um `-1` cru estouraria o
     /// índice em vez de dar a volta.

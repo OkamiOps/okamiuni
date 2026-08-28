@@ -15,23 +15,80 @@ private func encerra(_ grupo: MultiThreadedEventLoopGroup) {
 
 /// O portão que deixa o teste segurar a carga no ponto exato.
 ///
-/// Existe porque as duas provas de cancelamento precisam de um instante em que
-/// a carga **já começou e ainda não terminou** — e um `Task.sleep` no teste,
+/// Existe porque as provas de cancelamento precisam de um instante em que a
+/// carga **já começou e ainda não terminou** — e um `Task.sleep` no teste,
 /// esperando que a carga chegue lá, é a definição de teste intermitente.
+///
+/// Conta as chegadas em vez de ser um interruptor: os testes de duas cargas
+/// precisam distinguir "a primeira chegou" de "a segunda chegou".
 private actor Portao {
-    private var chegou = false
-    private var esperando: [CheckedContinuation<Void, Never>] = []
+    private var chegadas = 0
+    private var vigias: [(alvo: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
-    func abre() {
-        chegou = true
-        for continuation in esperando { continuation.resume() }
-        esperando = []
+    func chega() {
+        chegadas += 1
+        vigias.removeAll { vigia in
+            guard chegadas >= vigia.alvo else { return false }
+            vigia.continuation.resume()
+            return true
+        }
     }
 
-    func espera() async {
-        if chegou { return }
-        await withCheckedContinuation { esperando.append($0) }
+    func espera(_ alvo: Int = 1) async {
+        if chegadas >= alvo { return }
+        await withCheckedContinuation { vigias.append((alvo, $0)) }
     }
+}
+
+/// O que uma carga deixa registrado ao morrer, e quantas estiveram vivas ao
+/// mesmo tempo.
+private actor Marcador {
+    private(set) var encerradas = 0
+    private(set) var vivas = 0
+    private(set) var maximoVivas = 0
+
+    func entra() {
+        vivas += 1
+        maximoVivas = max(maximoVivas, vivas)
+    }
+
+    /// O encerramento que o cancelamento **não** corta.
+    func encerra() { vivas -= 1; encerradas += 1 }
+}
+
+/// O freio das ações da janela: prende quem chega até `libera()`.
+///
+/// Diferente do `Portao`, ele **bloqueia** — é o que permite afirmar que a
+/// segunda ação não entrou enquanto a primeira estava presa.
+private actor Freio {
+    private var chegadas = 0
+    private var liberado = false
+    private var presos: [CheckedContinuation<Void, Never>] = []
+    private var vigias: [(alvo: Int, continuation: CheckedContinuation<Void, Never>)] = []
+
+    func passa() async {
+        chegadas += 1
+        vigias.removeAll { vigia in
+            guard chegadas >= vigia.alvo else { return false }
+            vigia.continuation.resume()
+            return true
+        }
+        if liberado { return }
+        await withCheckedContinuation { presos.append($0) }
+    }
+
+    func esperaChegada(_ alvo: Int) async {
+        if chegadas >= alvo { return }
+        await withCheckedContinuation { vigias.append((alvo, $0)) }
+    }
+
+    func libera() {
+        liberado = true
+        for continuation in presos { continuation.resume() }
+        presos = []
+    }
+
+    func quantasChegaram() -> Int { chegadas }
 }
 
 /// Quantas vezes o `imapConnect` do teste já foi chamado. A primeira é o teste
@@ -41,7 +98,11 @@ private actor Contador {
     func proximo() -> Int { quantas += 1; return quantas }
 }
 
-@Suite("O diretor de contas")
+/// `.serialized` porque cada teste sobe um `FakeImapServer` e um
+/// `MultiThreadedEventLoopGroup` próprios: em paralelo, uma dúzia deles
+/// disputa portas e threads, e o teste que mede "a segunda carga não entrou"
+/// passa a medir também o escalonador da máquina.
+@Suite("O diretor de contas", .serialized)
 struct AccountDirectorTests {
     private let agora = Date(timeIntervalSince1970: 1_800_000_000)
 
@@ -346,9 +407,15 @@ struct AccountDirectorTests {
     // MARK: Cancelamento
 
     /// Um diretor cuja carga trava no portão, para o teste cancelar no meio.
+    ///
+    /// O ponto fino é o **encerramento**: ao ser cancelada, a carga ainda gasta
+    /// 400 ms num `Task.detached` — que não herda cancelamento — antes de
+    /// marcar que morreu. É esse atraso que distingue "cancelei" de "cancelei e
+    /// esperei": sem ele, o cancelamento corta tudo no mesmo instante e as duas
+    /// versões do `remove` são indistinguíveis.
     private func diretorComPortao(
         db: SyncDatabase, secrets: any SecretStore, grupo: any EventLoopGroup,
-        porta: Int, portao: Portao
+        porta: Int, portao: Portao, marcador: Marcador
     ) -> AccountDirector {
         let contador = Contador()
         return diretor(db: db, secrets: secrets, grupo: grupo, porta: porta) { _, grupo in
@@ -357,8 +424,16 @@ struct AccountDirectorTests {
             // cancelamento chegar — `Task.sleep` acorda lançando `Cancellation-
             // Error`, que é exatamente o caminho que se quer provar.
             if await contador.proximo() > 1 {
-                await portao.abre()
-                try await Task.sleep(for: .seconds(5))
+                await marcador.entra()
+                await portao.chega()
+                do {
+                    try await Task.sleep(for: .seconds(5))
+                } catch {
+                    await Task.detached { try? await Task.sleep(for: .milliseconds(400)) }.value
+                    await marcador.encerra()
+                    throw error
+                }
+                await marcador.encerra()
             }
             return try await ImapSession.connect(
                 endpoint: ImapEndpoint(host: "127.0.0.1", port: porta, security: .startTLS),
@@ -378,7 +453,8 @@ struct AccountDirectorTests {
         let db = try SyncDatabase.temporary()
         let portao = Portao()
         let director = diretorComPortao(
-            db: db, secrets: InMemorySecretStore(), grupo: grupo, porta: porta, portao: portao
+            db: db, secrets: InMemorySecretStore(), grupo: grupo, porta: porta,
+            portao: portao, marcador: Marcador()
         )
         let conta = try await director.addImapAccount(
             address: "contato@meusite.com", password: "senha-de-app",
@@ -414,8 +490,10 @@ struct AccountDirectorTests {
         let db = try SyncDatabase.temporary()
         let cofre = InMemorySecretStore()
         let portao = Portao()
+        let marcador = Marcador()
         let director = diretorComPortao(
-            db: db, secrets: cofre, grupo: grupo, porta: porta, portao: portao
+            db: db, secrets: cofre, grupo: grupo, porta: porta,
+            portao: portao, marcador: marcador
         )
         let conta = try await director.addImapAccount(
             address: "contato@meusite.com", password: "senha-de-app",
@@ -425,12 +503,186 @@ struct AccountDirectorTests {
         let carga = Task { await director.loadInitial(accountID: conta.id) }
         await portao.espera()
         try await director.remove(accountID: conta.id)
-        await carga.value
 
-        // A remoção completa: nada no banco, nada no cofre. Uma carga ainda
-        // viva escreveria a conta de volta — é isso que o cancelamento evita.
+        // **A remoção esperou.** O encerramento da carga leva 400 ms que o
+        // cancelamento não corta; se `remove` só mandasse cancelar e seguisse,
+        // ela voltaria daqui com a carga ainda viva e a corrida de pé, só mais
+        // curta — e o `DELETE` logo abaixo aconteceria com um carregador ainda
+        // capaz de escrever.
+        #expect(await marcador.encerradas == 1)
+
+        await carga.value
+        // A remoção completa: nada no banco, nada no cofre.
         #expect(try await db.pool.read { try AccountRecord.fetchCount($0) } == 0)
         #expect(try await db.pool.read { try MessageRecord.fetchCount($0) } == 0)
+        #expect(try cofre.secret(for: conta.id) == nil)
+    }
+
+    @Test("Duas cargas na mesma conta: uma só fica viva, e nenhuma sobrevive ao remover")
+    func umaCargaPorConta() async throws {
+        let servidor = FakeImapServer(script: roteiroImap())
+        let porta = try servidor.start()
+        defer { servidor.stop() }
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+
+        let db = try SyncDatabase.temporary()
+        let portao = Portao()
+        let marcador = Marcador()
+        let director = diretorComPortao(
+            db: db, secrets: InMemorySecretStore(), grupo: grupo, porta: porta,
+            portao: portao, marcador: marcador
+        )
+        let conta = try await director.addImapAccount(
+            address: "contato@meusite.com", password: "senha-de-app",
+            endpoint: endpoint(porta), hostMark: "meusite", displayName: "Site"
+        )
+
+        let primeira = Task { await director.loadInitial(accountID: conta.id) }
+        await portao.espera(1)
+        // A segunda carga da mesma conta: ela tem de matar a primeira, não
+        // tomar-lhe o lugar no dicionário e deixá-la rodando sem dono.
+        let segunda = Task { await director.loadInitial(accountID: conta.id) }
+        await portao.espera(2)
+        #expect(await marcador.maximoVivas == 1)
+
+        try await director.remove(accountID: conta.id)
+        await primeira.value
+        await segunda.value
+
+        // As duas morreram, e nada escreveu depois do `DELETE`: uma carga órfã
+        // sobreviveria ao `remove` — que só conhece a última — e voltaria a
+        // escrever com a conta já apagada.
+        #expect(await marcador.vivas == 0)
+        #expect(await marcador.encerradas == 2)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(try await db.pool.read { try AccountRecord.fetchCount($0) } == 0)
+        #expect(try await db.pool.read { try MessageRecord.fetchCount($0) } == 0)
+    }
+
+    // MARK: Re-adicionar e cores
+
+    @Test("Re-adicionar a mesma conta troca a senha e preserva a história dela")
+    func readicionarPreserva() async throws {
+        let servidor = FakeImapServer(script: roteiroImap())
+        let porta = try servidor.start()
+        defer { servidor.stop() }
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+
+        let db = try SyncDatabase.temporary()
+        let cofre = InMemorySecretStore()
+        let director = diretor(db: db, secrets: cofre, grupo: grupo, porta: porta)
+        let primeira = try await director.addImapAccount(
+            address: "contato@meusite.com", password: "senha-velha",
+            endpoint: endpoint(porta), hostMark: "meusite", displayName: "Site"
+        )
+        await director.loadInitial(accountID: primeira.id)
+
+        let antes = try #require(
+            try await db.pool.read { try AccountRecord.fetchOne($0, key: primeira.id)?.account }
+        )
+        #expect(antes.state == .ativa)
+        #expect(antes.lastSyncedAt != nil)
+
+        // O caso de uso real: a pessoa trocou a senha de app e reconecta.
+        let segunda = try await director.addImapAccount(
+            address: "contato@meusite.com", password: "senha-nova",
+            endpoint: endpoint(porta), hostMark: "meusite", displayName: "Site"
+        )
+
+        #expect(try cofre.secret(for: primeira.id) == .password("senha-nova"))
+        let depois = try #require(
+            try await db.pool.read { try AccountRecord.fetchOne($0, key: primeira.id)?.account }
+        )
+        // Reconectar não é recomeçar: o estado, o carimbo de sync, a cor e as
+        // mensagens são história da conta, e nada disso foi pedido de volta.
+        #expect(depois.state == .ativa)
+        #expect(depois.lastSyncedAt == antes.lastSyncedAt)
+        #expect(depois.tintLightHex == antes.tintLightHex)
+        #expect(segunda.state == .ativa)
+        #expect(try await db.pool.read { try MessageRecord.fetchCount($0) } == 1)
+        #expect(try await db.pool.read { try AccountRecord.fetchCount($0) } == 1)
+    }
+
+    @Test("A cor de uma conta removida volta ao bolo — a próxima não colide com quem ficou")
+    func corLiberadaNaoColide() async throws {
+        let servidor = FakeImapServer(script: roteiroImap())
+        let porta = try servidor.start()
+        defer { servidor.stop() }
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+
+        let db = try SyncDatabase.temporary()
+        let director = diretor(db: db, secrets: InMemorySecretStore(), grupo: grupo, porta: porta)
+        let a = try await director.addImapAccount(
+            address: "a@meusite.com", password: "s", endpoint: endpoint(porta),
+            hostMark: "meusite", displayName: "A"
+        )
+        let b = try await director.addImapAccount(
+            address: "b@outro.com", password: "s", endpoint: endpoint(porta),
+            hostMark: "outro", displayName: "B"
+        )
+        try await director.remove(accountID: a.id)
+
+        let c = try await director.addImapAccount(
+            address: "c@terceiro.com", password: "s", endpoint: endpoint(porta),
+            hostMark: "terceiro", displayName: "C"
+        )
+        // Contar contas daria a cor de B à C: duas linhas da mesma cor na
+        // lateral, que é o oposto do que a cor existe para fazer.
+        #expect(c.tintLightHex != b.tintLightHex)
+        #expect(c.tintLightHex == a.tintLightHex)   // a cor liberada foi reaproveitada
+    }
+
+    @Test("Remover conta Google revoga no provedor e limpa banco e cofre")
+    func removerGoogle() async throws {
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+
+        let db = try SyncDatabase.temporary()
+        let cofre = InMemorySecretStore()
+        let sessaoAuth = StubURLProtocol.session(routes: [
+            "/token": [.json(#"{"access_token":"a1","refresh_token":"r1","expires_in":3600}"#)],
+            "/revoke": [.json("{}")],
+        ])
+        let sessaoGmail = StubURLProtocol.session(routes: [
+            "/gmail/v1/users/me/profile":
+                [.json(#"{"emailAddress":"ricardo@gmail.com","historyId":"1"}"#)],
+        ])
+        let auth = GoogleAuth(
+            config: GoogleAuthConfig(
+                clientID: "cliente-de-teste",
+                tokenEndpoint: URL(string: "https://oauth2.example/token")!,
+                revocationEndpoint: URL(string: "https://oauth2.example/revoke")!
+            ),
+            session: sessaoAuth, secrets: cofre,
+            presenter: StubAuthorizationPresenter { url in
+                let state = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .queryItems?.first { $0.name == "state" }?.value ?? ""
+                return URL(string: "com.okamiops.okamiuni:/oauth?code=cod&state=\(state)")!
+            },
+            now: { self.agora }
+        )
+        let director = AccountDirector(
+            database: db, secrets: cofre, auth: auth, session: sessaoGmail,
+            gmailBaseURL: URL(string: "https://gmail.example/gmail/v1/users/me")!,
+            eventLoopGroup: grupo,
+            imapConnect: { _, _ in throw SyncError.rede("não deveria ser chamado") },
+            now: { self.agora }
+        )
+
+        let conta = try await director.addGoogleAccount(address: "Ricardo@Gmail.com")
+        #expect(conta.provider == .gmail)
+        #expect(conta.address == "ricardo@gmail.com")
+        #expect(try cofre.secret(for: conta.id) != nil)
+
+        try await director.remove(accountID: conta.id)
+
+        // A revogação avisou o Google — deixar a autorização de pé do lado
+        // dele é conta removida aqui e app ainda autorizado lá.
+        #expect(StubURLProtocol.requests(for: sessaoAuth).contains { $0.path == "/revoke" })
+        #expect(try await db.pool.read { try AccountRecord.fetchCount($0) } == 0)
         #expect(try cofre.secret(for: conta.id) == nil)
     }
 }
