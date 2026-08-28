@@ -72,6 +72,26 @@ public actor GoogleAuth {
         return try await refresh(accountID: accountID, using: guardados).accessToken
     }
 
+    /// Renova **agora**, sem perguntar ao relógio local.
+    ///
+    /// `accessToken(for:)` só renova quando o token que está no cofre já
+    /// venceu **segundo este computador**, e é aí que ele erra: um relógio
+    /// adiantado do lado do Google, um token revogado no meio da carga, uma
+    /// sessão encerrada no painel da conta — em todos, o token continua
+    /// "válido" para nós e o servidor devolve 401. Sem esta porta, o replay
+    /// pós-401 reenviaria exatamente o mesmo token e tomaria o mesmo 401: uma
+    /// carga de 90 dias morreria por diferença de relógio.
+    ///
+    /// Passa pela mesma corrida por conta de `refresh`: dez 401 simultâneos
+    /// (a carga é concorrente por natureza) disparam **um** refresh, não dez —
+    /// e o Google invalida refresh token usado em paralelo.
+    public func renewedAccessToken(for accountID: String) async throws -> String {
+        guard case .oauth(let guardados)? = try secrets.secret(for: accountID) else {
+            throw SyncError.autenticacao
+        }
+        return try await refresh(accountID: accountID, using: guardados).accessToken
+    }
+
     /// A renovação, com uma corrida por conta.
     private func refresh(accountID: String, using guardados: OAuthTokens) async throws -> OAuthTokens {
         if let emVoo = inFlight[accountID] { return try await emVoo.value }

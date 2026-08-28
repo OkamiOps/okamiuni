@@ -241,6 +241,37 @@ struct GoogleAuthTests {
         #expect(StubURLProtocol.requests(for: http).filter { $0.path == "/token" }.count == 2)
     }
 
+    @Test("`renewedAccessToken` renova mesmo com o token válido pelo relógio local")
+    func renovacaoForcada() async throws {
+        // É o que dá ao 401 uma segunda chance. `accessToken(for:)` olharia o
+        // relógio **deste** computador, veria um token que só vence daqui a
+        // uma hora e devolveria o mesmo token — que o servidor acabou de
+        // recusar. Um relógio adiantado, ou uma revogação no painel da conta,
+        // mataria uma carga de noventa dias.
+        let cofre = InMemorySecretStore()
+        try cofre.store(.oauth(OAuthTokens(
+            accessToken: "at-que-o-servidor-recusou", refreshToken: "rt",
+            expiresAt: Date(timeIntervalSince1970: 999_999)
+        )), for: "conta-g")
+        let (login, http) = auth(secrets: cofre, routes: [
+            "/token": [.json("{\"access_token\":\"at-renovado\",\"expires_in\":3600}")],
+        ])
+
+        // Pelo relógio local o token está ótimo: este é o caminho que não
+        // renova.
+        #expect(try await login.accessToken(for: "conta-g") == "at-que-o-servidor-recusou")
+        #expect(StubURLProtocol.requests(for: http).isEmpty)
+
+        #expect(try await login.renewedAccessToken(for: "conta-g") == "at-renovado")
+        #expect(StubURLProtocol.requests(for: http).filter { $0.path == "/token" }.count == 1)
+        // E o token novo fica no cofre: o replay o encontra pelo caminho
+        // normal, sem o chamador ter de carregá-lo na mão.
+        guard case .oauth(let guardados)? = try cofre.secret(for: "conta-g") else {
+            Issue.record("o refresh tem de guardar o token novo"); return
+        }
+        #expect(guardados.accessToken == "at-renovado")
+    }
+
     @Test("Falha de rede no refresh vira `.rede`, e o refresh token continua no cofre")
     func refreshComFalhaDeRede() async throws {
         // Nenhuma rota para `/token`: o `StubURLProtocol` dispara um

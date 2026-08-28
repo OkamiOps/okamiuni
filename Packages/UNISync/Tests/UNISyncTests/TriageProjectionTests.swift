@@ -47,6 +47,26 @@ struct TriageProjectionTests {
         #expect(TriageProjection.bucket(gmailLabelIDs: ["SENT", "INBOX"], laterLabelID: nil) == nil)
     }
 
+    @Test("Sem `UNREAD` é lida — o Gmail não tem rótulo `READ`")
+    func lidaEhAusenciaDeUnread() {
+        // Invertida, a regra faria a caixa inteira abrir não lida e o contador
+        // de Hoje mentir em cima do número que a pessoa vê no navegador.
+        #expect(TriageProjection.isRead(gmailLabelIDs: ["INBOX"]))
+        #expect(TriageProjection.isRead(gmailLabelIDs: []))
+        #expect(!TriageProjection.isRead(gmailLabelIDs: ["INBOX", "UNREAD"]))
+    }
+
+    @Test("`STARRED` é a bandeira — sinalizar é estado da mensagem")
+    func estrelaEhBandeira() {
+        // Sem isto, a estrela que a pessoa pôs no navegador sumiria ao abrir o
+        // app: perda silenciosa de uma decisão dela.
+        #expect(TriageProjection.isFlagged(gmailLabelIDs: ["INBOX", "STARRED"]))
+        #expect(!TriageProjection.isFlagged(gmailLabelIDs: ["INBOX"]))
+        // As duas bandeiras são independentes: lida e sinalizada convivem.
+        #expect(TriageProjection.isRead(gmailLabelIDs: ["STARRED"]))
+        #expect(TriageProjection.isFlagged(gmailLabelIDs: ["UNREAD", "STARRED"]))
+    }
+
     @Test("O id do rótulo `Depois` sai da lista de rótulos, quando existir")
     func acharORotuloDepois() {
         let rotulos = [

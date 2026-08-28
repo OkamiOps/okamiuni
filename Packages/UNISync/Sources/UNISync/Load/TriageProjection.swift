@@ -53,6 +53,34 @@ public enum TriageProjection {
         return .archived
     }
 
+    // MARK: As bandeiras
+
+    /// Se a mensagem já foi lida, pelos rótulos do Gmail.
+    ///
+    /// **A ausência de `UNREAD` é que significa lida** — o Gmail não tem um
+    /// rótulo `READ`. Invertida, a regra faria toda a caixa nascer não lida e
+    /// o contador de Hoje abrir mentindo em cima do número que a pessoa vê no
+    /// navegador.
+    ///
+    /// Aqui, e não no `GmailMessageParser`: o parser devolve os rótulos como
+    /// eles vieram, e é a **entrada** que projeta — a mesma estrada de mão
+    /// única do `bucket`. E aqui, e não no `InitialLoader`: uma regra escrita
+    /// dentro do laço da carga não tem como ser testada sem banco nem rede, e
+    /// a carga do Marco 3 a copiaria em vez de a herdar.
+    public static func isRead(gmailLabelIDs: [String]) -> Bool {
+        !gmailLabelIDs.contains("UNREAD")
+    }
+
+    /// Se a mensagem está sinalizada, pelos rótulos do Gmail.
+    ///
+    /// `STARRED` é a estrela do Gmail, e ela é a mesma coisa que a bandeira
+    /// desta ferramenta: sinalizar é estado da mensagem, e a linha da lista o
+    /// mostra. Deixá-la de fora faria a estrela que a pessoa pôs no navegador
+    /// sumir ao abrir o app — perda silenciosa de uma decisão dela.
+    public static func isFlagged(gmailLabelIDs: [String]) -> Bool {
+        gmailLabelIDs.contains("STARRED")
+    }
+
     /// O id do rótulo "Depois", se ele já existir na conta.
     ///
     /// Ausente é o normal numa instalação nova, e não é erro: neste marco a

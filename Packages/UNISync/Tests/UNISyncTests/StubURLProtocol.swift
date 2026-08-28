@@ -43,7 +43,23 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     /// pôde sair.
     private static let lock = NSLock()
     nonisolated(unsafe) private static var routesByID: [UUID: [String: [Reply]]] = [:]
-    nonisolated(unsafe) private static var recordedByID: [UUID: [(path: String, body: String)]] = [:]
+    nonisolated(unsafe) private static var recordedByID: [UUID: [Recorded]] = [:]
+
+    /// Uma requisição como ela chegou.
+    ///
+    /// `query` e `authorization` entraram na Task 12 e são aditivos: sem a
+    /// primeira, um teste não consegue afirmar que foi o **servidor** que
+    /// filtrou os 90 dias (o `q=newer_than:90d` viaja na query, não no corpo),
+    /// e trocar a consulta por outra passaria despercebido. Sem a segunda,
+    /// não há como distinguir um replay que renovou o token de um replay que
+    /// reenviou o mesmo token vencido — que é exatamente o defeito que o
+    /// refresh pós-401 existe para não ter.
+    struct Recorded: Sendable {
+        var path: String
+        var body: String
+        var query: String
+        var authorization: String?
+    }
 
     /// Uma `URLSession` isolada, com o roteiro já instalado na criação: cada
     /// chamada tem seu próprio `UUID`, seu próprio roteiro e seu próprio log
@@ -69,7 +85,7 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     /// o corpo do POST levou `grant_type=refresh_token` e não outra coisa —
     /// sem risco de ler o que outra sessão, de outra suíte, gravou ao mesmo
     /// tempo.
-    static func requests(for session: URLSession) -> [(path: String, body: String)] {
+    static func requests(for session: URLSession) -> [Recorded] {
         guard let id = sessionID(of: session) else { return [] }
         lock.lock()
         defer { lock.unlock() }
@@ -120,7 +136,11 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
 
         Self.lock.lock()
         if let sessaoID {
-            Self.recordedByID[sessaoID, default: []].append((path: caminho, body: corpo))
+            Self.recordedByID[sessaoID, default: []].append(Recorded(
+                path: caminho, body: corpo,
+                query: request.url?.query ?? "",
+                authorization: request.value(forHTTPHeaderField: "Authorization")
+            ))
         }
         let resposta: Reply?
         if let sessaoID, var fila = Self.routesByID[sessaoID]?[caminho], !fila.isEmpty {
