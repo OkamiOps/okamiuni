@@ -64,9 +64,20 @@ public struct AccountsRehearsal: Sendable {
     ///
     /// Nulo quando o banco temporário não pôde ser aberto. O ensaio registra e
     /// encerra, em vez de fingir que passou.
+    ///
+    /// Em Release a composição não existe: `ImapSession.connectForRehearsal` é
+    /// `#if DEBUG`, e é assim que a promessa "produção sempre TLS" volta a ser
+    /// fato do compilador. A bandeira num binário de Release diz isso e segue.
     @MainActor
     public static func makeModel() -> AccountsModel? {
         guard fromProcess != nil else { return nil }
+        #if !DEBUG
+        RehearsalStage.log(
+            "contas: o ensaio não existe neste binário — ele é de Debug, "
+            + "porque a conexão em claro que ele usa também é."
+        )
+        return nil
+        #else
         do {
             let banco = try SyncDatabase.temporary()
             let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
@@ -87,6 +98,7 @@ public struct AccountsRehearsal: Sendable {
             RehearsalStage.log("contas: FALHOU: banco temporário não abriu — \(error)")
             return nil
         }
+        #endif
     }
 }
 
@@ -124,6 +136,14 @@ private struct AccountsProbe: NSViewRepresentable {
     func updateNSView(_ view: NSView, context: Context) {
         guard request != nil, !started else { return }
         started = true
+        // O relógio de guarda. Um ensaio que trava é pior do que um que falha:
+        // ele não diz nada e deixa um app aberto na máquina de quem o rodou.
+        // Aconteceu de verdade nesta tarefa, no clique que abre o dropdown.
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(120))
+            RehearsalStage.log("contas: FALHOU: o ensaio estourou o relógio de guarda")
+            NSApp.terminate(nil)
+        }
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(1.8))
             guard let janela = view.window else {
@@ -168,11 +188,23 @@ private final class AccountsDriver {
         }
         defer { servidor.stop() }
 
-        // A janela precisa ser a chave do app ativo: é a janela-chave que
-        // recebe as teclas que saem da fila em `NSApp.postEvent`. Sem isto o
-        // que o ensaio digita não chega a campo nenhum — a lição da Task AQ.
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
+        // A janela é ordenada para a frente **do app**, e o app não é trazido
+        // para a frente da tela.
+        //
+        // Este ensaio não precisa disso, e a diferença veio à tona medindo: o
+        // instrumento pedia `NSApp.activate` e ficava oito segundos sem
+        // ganhá-la — um app lançado por trás não decide quem fica na frente, o
+        // sistema decide, e decide conforme quem já está lá. Um ensaio que
+        // depende de ganhar essa disputa passa numa rodada e falha na seguinte
+        // sem nada ter mudado no código.
+        //
+        // A ativação só é obrigatória para atalho com ⌘, que corre em
+        // `NSApplication.sendEvent` — é o caso do `KeyboardRehearsal`, e é por
+        // isso que ele a pede. Aqui tudo é clique e caractere dentro de uma
+        // janela, e para isso `NSWindow.sendEvent` é o cano certo: o mesmo por
+        // onde o evento real chega depois que a `NSApplication` o entregou.
+        // O ensaio roda sem tirar a frente de quem está usando a máquina.
+        window.orderFront(nil)
         await espera()
 
         // 2. O estado inicial: nenhuma conta.
@@ -184,28 +216,47 @@ private final class AccountsDriver {
         await digitaOEndereco()
         await fotografa("contas-02-endereco")
 
-        // 4. Testar com senha certa, contra o servidor local.
-        let endpoint = ImapEndpoint(host: "127.0.0.1", port: porta, security: .startTLS)
-        let passou = await model.testImap(
-            address: AccountsRehearsal.endereco,
-            password: AccountsRehearsal.senha,
-            endpoint: endpoint
+        // 4. O formulário inteiro, apontado para o servidor local, e o clique
+        //    de verdade em "Testar e adicionar".
+        //
+        //    Este é o clique mais importante da janela — o que conecta, grava a
+        //    senha no cofre e põe a conta na lista —, e por isso ele é feito, e
+        //    não simulado com uma chamada ao modelo. O que o ensaio afere é o
+        //    efeito: a conta que aparece traz a **marca do host que o
+        //    formulário calculou**, não uma que o driver tenha passado. Ela só
+        //    pode ter vindo dali.
+        await apontaOFormularioParaOServidorLocal(porta: porta)
+        afirma(model.statuses.isEmpty, "nada foi gravado antes do clique")
+        await clicaEmTestarEAdicionar()
+        // O quadro do clique sai **no mesmo instante**, sem folga nenhuma: ele
+        // mostra o formulário como estava quando o botão foi apertado, apontado
+        // para o servidor local.
+        //
+        // Sem folga porque com folga não existe quadro nenhum para tirar.
+        // Contra um servidor em 127.0.0.1 a conexão, o login e as duas
+        // mensagens acontecem mais rápido do que uma volta do runloop: mesmo
+        // fotografando no primeiro instante em que `isBusy` fica verdadeiro, e
+        // sondando de 10 em 10ms, o quadro saía byte a byte igual ao da fase
+        // seguinte — conferido por MD5. O estado "Carregando…" não chega a
+        // existir na tela, e fingir que chega seria o instrumento mentindo.
+        // Quem prova que a carga aconteceu são as afirmações e o quadro 04.
+        driver.shoot("contas-03-clique")
+        let entrou = await esperaAte(segundos: 20) { [model] in !model.statuses.isEmpty }
+        afirma(entrou, "o clique em «Testar e adicionar» passou no teste e gravou a conta")
+        afirma(model.lastError == nil, "o clique não deixou erro")
+        afirma(
+            model.statuses.first?.address == AccountsRehearsal.endereco,
+            "a conta gravada é a do endereço digitado"
         )
-        afirma(passou, "teste de conexão passou")
-        afirma(model.lastError == nil, "teste não deixou erro")
-        await fotografa("contas-03-testado")
+        afirma(
+            model.statuses.first?.hostMark == "meusite",
+            "a marca do host veio do formulário (leu «\(model.statuses.first?.hostMark ?? "—")»)"
+        )
 
-        // 5. Adicionar e carregar.
-        await model.addImap(
-            address: AccountsRehearsal.endereco,
-            password: AccountsRehearsal.senha,
-            endpoint: endpoint, hostMark: "meusite", displayName: "Site"
-        )
-        afirma(model.statuses.count == 1, "a conta entrou na lista")
-        // A carga corre solta — `addImap` devolve assim que a conta existe. O
-        // ensaio espera pelo **efeito** dela, e não por um relógio: dormir um
-        // tanto fixo é como um ensaio começa a passar numa máquina e falhar na
-        // outra.
+        // 5. A carga corre solta — o botão devolve assim que a conta existe. O
+        //    ensaio espera pelo **efeito** dela, e não por um relógio: dormir um
+        //    tanto fixo é como um ensaio começa a passar numa máquina e falhar
+        //    na outra.
         let carregou = await esperaAte(segundos: 20) { [model] in
             model.statuses.first?.state != .carregando
         }
@@ -263,19 +314,15 @@ private final class AccountsDriver {
     /// o texto dele tem de ser o endereço. É a diferença entre provar que a
     /// tecla chegou e torcer para que tenha chegado.
     private func digitaOEndereco() async {
-        guard let campo = Self.primeiroCampo(em: window.contentView) else {
+        guard let campo = campos().first else {
             afirma(false, "o formulário não expôs campo de texto nenhum")
             return
         }
-        let centro = campo.convert(CGPoint(x: campo.bounds.midX, y: campo.bounds.midY), to: nil)
-        driver.click(at: centro)
+        driver.hit(at: centro(de: campo))
         await espera()
-        let editor = window.firstResponder as? NSText
-        afirma(editor != nil, "o clique pôs o foco no campo de endereço")
+        afirma(window.firstResponder is NSText, "o clique pôs o foco no campo de endereço")
 
-        for caractere in AccountsRehearsal.endereco {
-            driver.send(key: 0, characters: String(caractere))
-        }
+        digita(AccountsRehearsal.endereco)
         await espera()
         let escrito = (window.firstResponder as? NSText)?.string ?? campo.stringValue
         afirma(
@@ -284,15 +331,158 @@ private final class AccountsDriver {
         )
     }
 
-    /// O primeiro `NSTextField` da árvore — o campo de endereço é o único do
-    /// formulário, e é o primeiro em ordem de desenho.
-    private static func primeiroCampo(em view: NSView?) -> NSTextField? {
-        guard let view else { return nil }
-        if let campo = view as? NSTextField, campo.isEditable { return campo }
-        for filho in view.subviews {
-            if let achado = primeiroCampo(em: filho) { return achado }
+    /// Preenche senha, forma de TLS, host e porta — nesta ordem, que não é
+    /// arbitrária.
+    ///
+    /// A forma de TLS vem **antes** da porta porque escolhê-la reescreve a
+    /// porta (`pick` do `ComposerSelect` põe 143 no STARTTLS); na ordem inversa
+    /// o ensaio digitaria a porta do servidor falso e o próprio formulário a
+    /// apagaria. E STARTTLS é a única forma que o servidor falso aceita: em
+    /// `.tls` o primeiro byte já seria de um handshake, e ele não tem
+    /// certificado nenhum.
+    private func apontaOFormularioParaOServidorLocal(porta: Int) async {
+        let campos = campos()
+        // Endereço, senha, host, porta — a ordem em que `AddAccountForm` os
+        // desenha, e a única coisa que este ensaio presume sobre o formulário.
+        guard campos.count >= 4 else {
+            afirma(false, "a rota IMAP não abriu os quatro campos (vi \(campos.count))")
+            return
         }
-        return nil
+        await preenche(campos[1], com: AccountsRehearsal.senha, oque: "senha de app")
+        await escolheSTARTTLS(aoLadoDe: campos[3])
+        // 143 é o que o `pick` do STARTTLS escreve na porta, e mais nada o
+        // escreve. Ler isto é a prova de que a linha certa do menu foi clicada
+        // — sem ela, o ensaio seguiria em `.tls` e a falha só apareceria três
+        // fases adiante, com a cara de outro problema.
+        let apos = await leitura(de: campos[3])
+        afirma(apos == "143", "escolher STARTTLS trocou a porta para 143 (leu «\(apos)»)")
+        await preenche(campos[2], com: "127.0.0.1", oque: "host")
+        await preenche(campos[3], com: String(porta), oque: "porta")
+    }
+
+    /// Clica, apaga o que estava lá e digita por cima.
+    ///
+    /// Apagar é preciso: host e porta já vêm preenchidos pelo palpite da rota,
+    /// e digitar por cima sem limpar deixaria `imap.meusite.com127.0.0.1`.
+    ///
+    /// Seta-para-a-direita e depois apagar, e não ⌘A: ⌘A é atalho, e atalho
+    /// pede o app na frente da tela — o que este ensaio deixou de exigir de
+    /// propósito. Setas e a tecla de apagar são teclas comuns, chegam pelo
+    /// `sendEvent` da janela, e o resultado é o mesmo. O laço vai a 40 porque o
+    /// maior palpite que o formulário escreve tem 17 caracteres: sobra é grátis,
+    /// e uma seta a mais no fim do texto não move nada.
+    private func preenche(_ campo: NSTextField, com texto: String, oque: String) async {
+        driver.hit(at: centro(de: campo))
+        await espera()
+        for _ in 0..<40 { driver.type(key: RehearsalKey.right, characters: "\u{F703}") }
+        for _ in 0..<40 { driver.type(key: RehearsalKey.delete, characters: "\u{8}") }
+        digita(texto)
+        await espera()
+        let lido = (window.firstResponder as? NSText)?.string ?? campo.stringValue
+        afirma(lido == texto, "o campo «\(oque)» ficou com \(texto) (leu «\(lido)»)")
+    }
+
+    /// Abre o dropdown de TLS e escolhe a segunda linha, STARTTLS.
+    ///
+    /// O `ComposerSelect` não é um `NSPopUpButton` — é o dropdown do design, e
+    /// o menu dele é um `popover`, que no AppKit é **outra janela**. Daí as
+    /// duas coisas incomuns aqui: o gatilho é localizado a partir do quadro do
+    /// campo de porta (ele é o vizinho de 108pt à direita, no mesmo `HStack`, e
+    /// nenhuma `NSView` o representa), e o clique da linha vai para a janela do
+    /// popover, não para a principal.
+    ///
+    /// As duas opções são as únicas do menu, então a geometria do painel é
+    /// conhecida: 8pt de recuo em cima e embaixo, duas linhas iguais, 2pt entre
+    /// elas. A de baixo é a que se quer. E nada disto é presumido: a afirmação
+    /// seguinte confere a porta em 143, que só o `pick` do STARTTLS escreve.
+    private func escolheSTARTTLS(aoLadoDe porta: NSTextField) async {
+        let quadro = porta.convert(porta.bounds, to: nil)
+        let gatilho = NSPoint(x: quadro.maxX + 8 + 54, y: quadro.midY)
+        let antes = Set(NSApp.windows.map(ObjectIdentifier.init))
+        driver.hit(at: gatilho)
+        await espera()
+        guard let painel = NSApp.windows.first(where: {
+            $0.isVisible && !antes.contains(ObjectIdentifier($0))
+        }) else {
+            afirma(false, "o dropdown de TLS não abriu painel nenhum")
+            return
+        }
+        let alturaDaLinha = (painel.contentLayoutRect.height - 18) / 2
+        driver.hit(at: NSPoint(x: 40, y: 8 + alturaDaLinha / 2), in: painel)
+        await espera()
+    }
+
+    /// Clica em "Testar e adicionar".
+    ///
+    /// Nenhuma `NSView` representa o botão — ele é SwiftUI puro dentro do
+    /// `NSHostingView`. A posição sai do quadro do campo de host, que é uma
+    /// `NSView` de verdade: o botão é o próximo item do `VStack`, 12pt abaixo
+    /// dele (o `spacing` do formulário), e o recuo à esquerda é o mesmo.
+    private func clicaEmTestarEAdicionar() async {
+        guard campos().count >= 3 else {
+            afirma(false, "sem campo de host para localizar o botão")
+            return
+        }
+        let host = campos()[2]
+        let quadro = host.convert(host.bounds, to: nil)
+        driver.hit(at: NSPoint(x: quadro.minX + 50, y: quadro.minY - 12 - 8))
+    }
+
+    // MARK: Teclado e árvore
+
+    private func digita(_ texto: String) {
+        for caractere in texto {
+            // O código virtual não importa para um campo de texto: quem insere
+            // é `interpretKeyEvents`, que lê `characters`. O que importa é o
+            // evento sair pela fila do app, como os outros ensaios.
+            driver.type(key: 0, characters: String(caractere))
+        }
+    }
+
+    private func centro(de campo: NSView) -> NSPoint {
+        campo.convert(CGPoint(x: campo.bounds.midX, y: campo.bounds.midY), to: nil)
+    }
+
+    /// Os campos de texto editáveis da janela, **na ordem em que se lê a tela**:
+    /// de cima para baixo, e da esquerda para a direita dentro de uma mesma
+    /// linha. Dá `[endereço, senha, host, porta]`.
+    ///
+    /// A ordem é geométrica, e não a da árvore, porque a da árvore não é a que
+    /// se vê: as `NSView` de uma janela ficam em ordem de empilhamento, e o
+    /// SwiftUI as acrescenta de trás para a frente. Presumir a ordem da árvore
+    /// foi um erro medido — o ensaio clicou no campo de endereço achando que
+    /// era o de porta, e o clique do dropdown caiu 34pt fora da janela.
+    ///
+    /// `NSSecureTextField` é `NSTextField`, então a senha entra aqui como as
+    /// outras; é a posição, e não o tipo, que identifica cada campo.
+    private func campos() -> [NSTextField] {
+        var achados: [NSTextField] = []
+        func caminha(_ view: NSView) {
+            if let campo = view as? NSTextField, campo.isEditable { achados.append(campo) }
+            for filho in view.subviews { caminha(filho) }
+        }
+        if let raiz = window.contentView { caminha(raiz) }
+        return achados.sorted { a, b in
+            let qa = a.convert(a.bounds, to: nil)
+            let qb = b.convert(b.bounds, to: nil)
+            // Em coordenadas do AppKit o y cresce para cima, então "mais alto
+            // na tela" é y maior. Os 4pt de folga é o que separa duas linhas de
+            // dois campos lado a lado na mesma linha.
+            if abs(qa.midY - qb.midY) > 4 { return qa.midY > qb.midY }
+            return qa.minX < qb.minX
+        }
+    }
+
+    /// Clica num campo e lê o que ele tem, pelo editor de campo.
+    ///
+    /// `NSTextField.stringValue` **não serve** aqui: nos campos que o SwiftUI
+    /// desenha ele devolve valor de outro campo ou vazio — foi ele que fez o
+    /// ensaio afirmar que a porta continha o endereço de e-mail. O texto de
+    /// verdade está no editor de campo, e o editor é do campo que tem o foco.
+    private func leitura(de campo: NSTextField) async -> String {
+        driver.hit(at: centro(de: campo))
+        await espera()
+        return (window.firstResponder as? NSText)?.string ?? ""
     }
 
     // MARK: Ferramentas
@@ -309,11 +499,15 @@ private final class AccountsDriver {
     }
 
     /// Espera por um **efeito**, com teto. Devolve `false` se o teto estourou.
-    private func esperaAte(segundos: Int, _ condicao: @MainActor () -> Bool) async -> Bool {
+    private func esperaAte(
+        segundos: Int,
+        passo: Duration = .milliseconds(150),
+        _ condicao: @MainActor () -> Bool
+    ) async -> Bool {
         let fim = Date().addingTimeInterval(TimeInterval(segundos))
         while Date() < fim {
             if condicao() { return true }
-            try? await Task.sleep(for: .milliseconds(150))
+            try? await Task.sleep(for: passo)
         }
         return condicao()
     }

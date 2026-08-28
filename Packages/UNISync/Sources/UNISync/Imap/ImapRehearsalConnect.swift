@@ -16,9 +16,22 @@ extension ImapEndpoint {
     }
 }
 
+// A porta insegura **não existe em Release**.
+//
+// Confinar o entitlement `network.server` ao Debug fechou a escuta e deixou a
+// saída aberta: uma API pública que fala IMAP em claro compilava para o binário
+// que sai para o mundo, ao alcance de qualquer importador do módulo. Endurecer
+// de um lado só não endurece. Com o `#if DEBUG`, a promessa "produção sempre
+// TLS" volta a ser fato do compilador — em Release o símbolo não existe, e
+// quem o chamasse não compilaria.
+//
+// `ehLoopback` fica de fora do guarda de propósito: é uma função pura sobre uma
+// string, não abre conexão nenhuma, e serve a quem precisar decidir o mesmo em
+// qualquer configuração.
+#if DEBUG
 extension ImapSession {
     /// A única porta pública que fala IMAP **em claro** — e só com a própria
-    /// máquina.
+    /// máquina, e só em Debug.
     ///
     /// ## Por que ela existe
     ///
@@ -48,3 +61,4 @@ extension ImapSession {
         )
     }
 }
+#endif
