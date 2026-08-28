@@ -239,6 +239,49 @@ public struct SyncDatabase: Sendable {
                 )
                 """)
         }
+        // A v2 do Marco 3: a fila de saída. **Ao lado** da v1, nunca editando
+        // -a — um banco já em v1 não a roda de novo, e mudar o texto dela
+        // deixaria instalações divergentes (mesmo alerta do comentário da
+        // v1, agora valendo para ela mesma).
+        //
+        // É esta tabela que resolve o defeito visto pelo dono: sem ela, uma
+        // mutação (arquivar, apagar) só existia na memória do `MailStore`, e
+        // o próximo retrato que a `ValueObservation` do `DatabaseMailSource`
+        // entregasse — vindo do banco, que nunca soube da mutação — desfazia
+        // a ação na tela. Com `DatabaseCommandPort` escrevendo a projeção em
+        // `message` **e** enfileirando aqui, na mesma transação, o retrato
+        // seguinte já nasce certo.
+        migrator.registerMigration("v2") { db in
+            try db.execute(sql: """
+                CREATE TABLE outbox (
+                  id TEXT PRIMARY KEY NOT NULL,
+                  accountID TEXT NOT NULL REFERENCES account(id) ON DELETE CASCADE,
+                  -- A operação inteira, tipada, como JSON — `MailOperation`
+                  -- codifica seu próprio caso (`setRead`, `move`, ...) e os
+                  -- ids que ela alcança. Uma coluna, e não uma por campo,
+                  -- porque os campos variam por caso: `move` carrega uma
+                  -- caixa que os outros não têm.
+                  operationJSON TEXT NOT NULL,
+                  -- A chave de idempotência: determinística a partir da
+                  -- conta, do tipo de operação e dos ids — não de um relógio.
+                  -- Duas chamadas com a mesma intenção (mesma conta, mesmo
+                  -- tipo, mesmos ids) colidem aqui e a segunda não duplica a
+                  -- fila, via `ON CONFLICT(idempotencyKey) DO NOTHING`.
+                  idempotencyKey TEXT NOT NULL UNIQUE,
+                  attempts INTEGER NOT NULL DEFAULT 0,
+                  nextAttemptAt DOUBLE NOT NULL,
+                  state TEXT NOT NULL DEFAULT 'pendente',
+                  createdAt DOUBLE NOT NULL
+                )
+                """)
+            // O índice do executor: ele varre "as pendentes desta conta, na
+            // ordem em que devem ser tentadas" — exatamente esta tripla, na
+            // mesma ordem.
+            try db.execute(sql: """
+                CREATE INDEX outbox_on_account_state_next
+                ON outbox(accountID, state, nextAttemptAt)
+                """)
+        }
         return migrator
     }
 }

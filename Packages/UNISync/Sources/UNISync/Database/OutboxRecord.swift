@@ -1,0 +1,117 @@
+import Foundation
+import GRDB
+import UNICore
+
+/// O estado de uma linha do `outbox`, como o executor (fora do escopo desta
+/// tarefa) a encontra e a deixa.
+public enum OutboxState: String, Codable, Sendable {
+    case pendente
+    case executando
+    case falhou
+    case feita
+}
+
+/// Uma operação de saída, tipada e serializável — o que a coluna
+/// `operationJSON` do `outbox` carrega.
+///
+/// Um caso por operação do `MailCommandPort`, cada um só com os campos que
+/// aquele caso precisa: `move` carrega a caixa de destino, os outros não.
+/// Codable é **sintetizado**: todo campo associado (`Bool`, `String`,
+/// `[String]`) já conforma, então o compilador escreve o `Codable` por nós —
+/// é o que "JSON tipado" pede, sem uma segunda representação para manter em
+/// dia.
+public enum MailOperation: Codable, Sendable, Equatable {
+    case setRead(isRead: Bool, messageIDs: [String])
+    case setFlagged(isFlagged: Bool, messageIDs: [String])
+    /// `bucket` é o `rawValue` de `TriageBucket`, não o tipo em si — evita
+    /// dar a `TriageBucket` uma conformância `Codable` que ninguém mais no
+    /// `UNICore` pede, só para este arquivo poder guardá-lo.
+    case move(bucket: String, messageIDs: [String])
+    case delete(messageIDs: [String])
+    case deletePermanently(messageIDs: [String])
+    case emptyTrash
+
+    /// O rótulo do caso, para a chave de idempotência — estável mesmo se a
+    /// ordem dos casos do enum mudar, ao contrário de um índice numérico.
+    var label: String {
+        switch self {
+        case .setRead: "setRead"
+        case .setFlagged: "setFlagged"
+        case .move: "move"
+        case .delete: "delete"
+        case .deletePermanently: "deletePermanently"
+        case .emptyTrash: "emptyTrash"
+        }
+    }
+
+    /// Os ids que esta operação alcança, para a chave de idempotência.
+    /// `emptyTrash` não tem ids próprios — ela é "a conta inteira" — e por
+    /// isso devolve vazio.
+    var messageIDs: [String] {
+        switch self {
+        case .setRead(_, let ids), .setFlagged(_, let ids),
+             .move(_, let ids), .delete(let ids), .deletePermanently(let ids):
+            ids
+        case .emptyTrash:
+            []
+        }
+    }
+}
+
+/// Uma linha do `outbox`.
+public struct OutboxRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Equatable {
+    public static let databaseTableName = "outbox"
+
+    public var id: String
+    public var accountID: String
+    public var operationJSON: String
+    public var idempotencyKey: String
+    public var attempts: Int
+    public var nextAttemptAt: Date
+    public var state: String
+    public var createdAt: Date
+
+    public static func databaseDateEncodingStrategy(for column: String) -> DatabaseDateEncodingStrategy {
+        .timeIntervalSince1970
+    }
+
+    public static func databaseDateDecodingStrategy(for column: String) -> DatabaseDateDecodingStrategy {
+        .timeIntervalSince1970
+    }
+
+    public init(
+        id: String = UUID().uuidString, accountID: String, operation: MailOperation,
+        nextAttemptAt: Date = Date(), createdAt: Date = Date()
+    ) throws {
+        self.id = id
+        self.accountID = accountID
+        let dados = try JSONEncoder().encode(operation)
+        operationJSON = String(data: dados, encoding: .utf8) ?? "{}"
+        idempotencyKey = Self.idempotencyKey(accountID: accountID, operation: operation)
+        attempts = 0
+        self.nextAttemptAt = nextAttemptAt
+        state = OutboxState.pendente.rawValue
+        self.createdAt = createdAt
+    }
+
+    public var operation: MailOperation? {
+        guard let dados = operationJSON.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(MailOperation.self, from: dados)
+    }
+
+    /// Determinística: conta + tipo + ids ordenados, sem relógio nenhum. É
+    /// isto que faz duas chamadas com a mesma intenção colidirem no `UNIQUE`
+    /// da coluna em vez de duplicar a fila — a idempotência da chave, provada
+    /// em `DatabaseCommandPortTests`.
+    static func idempotencyKey(accountID: String, operation: MailOperation) -> String {
+        let ids = operation.messageIDs.sorted().joined(separator: ",")
+        let extra: String
+        switch operation {
+        case .setRead(let isRead, _): extra = "\(isRead)"
+        case .setFlagged(let isFlagged, _): extra = "\(isFlagged)"
+        case .move(let bucket, _): extra = bucket
+        default: extra = ""
+        }
+        return "\(accountID)|\(operation.label)|\(extra)|\(ids)"
+    }
+}

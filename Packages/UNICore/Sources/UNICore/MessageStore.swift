@@ -163,8 +163,30 @@ public final class MailStore {
 
     private let source: MailSource
 
-    public init(source: MailSource) {
+    /// Para onde as seis mutações do Marco 3 são enviadas, quando há para
+    /// onde enviar. `nil` é o caso das fixtures e de todo teste que não passa
+    /// uma — o comportamento fica **idêntico** ao do Marco 1: só memória.
+    ///
+    /// Falha aqui nunca some silenciosa e nunca desfaz a mutação local — ela
+    /// vira `loadError`, pelo mesmo `report(_:)` que a carga usa. A mutação
+    /// otimista na lista continua valendo mesmo se a porta falhar: é UI que
+    /// nunca espera rede, o mesmo princípio do Marco 2 aplicado à escrita.
+    private let commandPort: MailCommandPort?
+
+    public init(source: MailSource, commandPort: MailCommandPort? = nil) {
         self.source = source
+        self.commandPort = commandPort
+    }
+
+    /// Manda a mutação para a porta, se houver uma. Erro vira `loadError` —
+    /// nunca é engolido — mas nunca desfaz o que já mudou em memória.
+    private func send(_ operation: (MailCommandPort) throws -> Void) {
+        guard let commandPort else { return }
+        do {
+            try operation(commandPort)
+        } catch {
+            report(error)
+        }
     }
 
     public func load() async {
@@ -470,6 +492,18 @@ public final class MailStore {
         // Onde ela estava na lista, para saber quem herda a seleção.
         let positionBefore = visibleMessages.firstIndex { $0.id == current.id }
 
+        // A porta primeiro: é a escrita no banco, na mesma transação em que a
+        // operação entra na fila de saída — o conserto do defeito do dono.
+        // Mover para a Lixeira é `delete`, não `move`; o resto da triagem
+        // (Hoje/Depois/Arquivado) é `move(to:)`. Ver `MailCommandPort`.
+        send { port in
+            if newBucket == .trash {
+                try port.delete(accountID: current.accountID, messageIDs: [current.id])
+            } else {
+                try port.move(to: newBucket, accountID: current.accountID, messageIDs: [current.id])
+            }
+        }
+
         // `withBucket` e não um `Message(...)` à mão: reconstruir aqui já
         // significou uma mensagem de ontem reaparecendo sob "Hoje", porque os
         // campos com default no `init` **compilam** quando esquecidos. Com
@@ -516,6 +550,10 @@ public final class MailStore {
         guard let index = messages.firstIndex(where: { $0.id == messageID }) else { return }
         let going = messages[index]
         let positionBefore = visibleMessages.firstIndex { $0.id == messageID }
+
+        send { port in
+            try port.deletePermanently(accountID: going.accountID, messageIDs: [messageID])
+        }
 
         deleted[messageID] = going
         messages.remove(at: index)
@@ -565,6 +603,13 @@ public final class MailStore {
         }
         let doomed = messages.filter { $0.bucket == .trash && scope($0) }
 
+        // Uma chamada por conta tocada — a porta esvazia uma conta por vez.
+        // `accountID` nulo aqui pode abranger várias contas; sem ele, é uma
+        // só, e o laço abaixo faz uma única chamada mesmo assim.
+        for touched in Set(doomed.map(\.accountID)) {
+            send { port in try port.emptyTrash(accountID: touched) }
+        }
+
         let ids = Set(doomed.map(\.id))
         messages.removeAll { ids.contains($0.id) }
         // O cofre inteiro do recorte, e não só o das que acabaram de sair: uma
@@ -611,6 +656,8 @@ public final class MailStore {
     public func setRead(_ isRead: Bool, for messageID: String) {
         guard let index = messages.firstIndex(where: { $0.id == messageID }),
               messages[index].isRead != isRead else { return }
+        let accountID = messages[index].accountID
+        send { port in try port.setRead(isRead, accountID: accountID, messageIDs: [messageID]) }
         messages[index] = messages[index].withRead(isRead)
     }
 
@@ -627,6 +674,8 @@ public final class MailStore {
     public func setFlagged(_ isFlagged: Bool, for messageID: String) {
         guard let index = messages.firstIndex(where: { $0.id == messageID }),
               messages[index].isFlagged != isFlagged else { return }
+        let accountID = messages[index].accountID
+        send { port in try port.setFlagged(isFlagged, accountID: accountID, messageIDs: [messageID]) }
         messages[index] = messages[index].withFlagged(isFlagged)
     }
 

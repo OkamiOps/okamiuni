@@ -25,6 +25,15 @@ public struct AppComposition: Sendable {
     /// A fonte que a UI lê. `DatabaseMailSource` quando há pelo menos uma
     /// conta; `InMemoryMailSource.fixtures` quando não há.
     public let source: any MailSource
+    /// Para onde o `MailStore` manda as seis mutações do Marco 3.
+    /// `DatabaseCommandPort` quando o banco abriu; `nil` quando não — e
+    /// nesse caso `MailStore` fica só em memória, como no Marco 1. Ao
+    /// contrário de `source`, que troca sozinha entre banco e fixtures a
+    /// cada retrato (ver `DatabaseMailSource.emptyFallback`), esta porta não
+    /// precisa trocar: escrever no banco sem conta nenhuma cadastrada não
+    /// tem para onde apontar (`accountID` não existiria), então o próprio
+    /// `MailStore` nunca a chama nesse caso — não há mensagem para mutar.
+    public let commandPort: MailCommandPort?
     /// Falha de configuração que o app **mostra** em vez de esconder: banco
     /// que não abriu, client ID que falta. Nunca fatal.
     public let configError: SyncError?
@@ -58,7 +67,7 @@ public struct AppComposition: Sendable {
             log.error("Banco não abriu: \(falha.mensagem, privacy: .public)")
             return AppComposition(
                 database: nil, director: nil,
-                source: InMemoryMailSource.fixtures, configError: falha
+                source: InMemoryMailSource.fixtures, commandPort: nil, configError: falha
             )
         }
 
@@ -104,6 +113,7 @@ public struct AppComposition: Sendable {
             database: banco,
             director: director,
             source: DatabaseMailSource(database: banco, emptyFallback: .fixtures),
+            commandPort: DatabaseCommandPort(database: banco),
             configError: erro
         )
     }

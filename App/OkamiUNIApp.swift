@@ -43,7 +43,9 @@ struct OkamiUNIApp: App {
         // erro aparece na janela de Contas em vez de virar tela cinza.
         let composicao = AppComposition.make()
         composition = composicao
-        _mailStore = State(initialValue: MailStore(source: composicao.source))
+        _mailStore = State(initialValue: MailStore(
+            source: composicao.source, commandPort: composicao.commandPort
+        ))
         if let diretor = composicao.director {
             _accountsModel = State(initialValue: AccountsModel(director: diretor))
         }
@@ -73,6 +75,19 @@ struct OkamiUNIApp: App {
     /// é da Task 18, e até ela chegar o ensaio pega a janela principal
     /// emprestada em vez de registrar por conta própria uma cena que teria de
     /// ser desfeita depois.
+    /// De onde vem o "agora" da trilha e das três visões da agenda, no app
+    /// de verdade.
+    ///
+    /// `.live` quando o banco abriu — é aí que `composition.source` é
+    /// `DatabaseMailSource`, e é o caso de uma conta real: o relógio da
+    /// máquina, batendo minuto a minuto. `.fixed(Fixtures.nowMinute)` quando
+    /// o banco não abriu (`ContasIndisponiveis` já cobre esse caso na janela
+    /// de Contas) — aí não há nem como ter conta real, e o "agora" congelado
+    /// é o mesmo do Marco 1.
+    private var agendaClock: AgendaClock {
+        composition.database != nil ? .live : .fixed(Fixtures.nowMinute)
+    }
+
     @ViewBuilder
     private var cenaPrincipal: some View {
         if let accountsRehearsalModel {
@@ -81,7 +96,7 @@ struct OkamiUNIApp: App {
                     AccountsRehearsal.fromProcess, model: accountsRehearsalModel
                 )
         } else {
-            InboxScreen(store: mailStore)
+            InboxScreen(store: mailStore, clock: agendaClock)
                 // Porta de depuração: `open -g --args --nova-mensagem` abre a
                 // janela auxiliar pelo mesmo `openWindow` do menu, sem trazer o
                 // app à frente e sem sintetizar tecla nenhuma. Sem a bandeira,
