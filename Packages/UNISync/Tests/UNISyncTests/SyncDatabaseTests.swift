@@ -274,6 +274,78 @@ struct SyncDatabaseTests {
         }
     }
 
+    @Test("O teto da busca devolve os 200 MAIS RECENTES, e não os 200 mais antigos")
+    func buscaDevolveOsMaisRecentes() throws {
+        // Sem `ORDER BY`, a ordem é a do percurso do índice FTS — ordem de
+        // `rowid`, isto é, ordem de inserção. O teto de 200 devolvia então os
+        // 200 **mais antigos**: medido num banco de 50 mil, de 1 000 corpos que
+        // casavam, os 200 devolvidos cobriam os primeiros 20 % da faixa de datas
+        // e toda a metade recente ficava invisível. E como o resultado é um
+        // `Set` que a UI interseca, o corte é mudo: não há "mostrando 200 de
+        // 1 000", só ausência.
+        //
+        // MUTAÇÃO QUE ISTO PEGA: tirar o `ORDER BY m.receivedAt DESC` de
+        // `MessageSearch.matchingBodyIDs` inverte o conjunto devolvido — a mais
+        // nova some e a mais velha aparece.
+        let db = try banco()
+        let quantas = 250
+        try db.pool.write { conexao in
+            try AccountRecord(conta, createdAt: Date(timeIntervalSince1970: 1)).insert(conexao)
+            try FolderRecord(
+                id: "conta-a/INBOX", accountID: "conta-a",
+                serverName: "INBOX", role: .inbox, displayName: "Caixa de entrada"
+            ).insert(conexao)
+            // Inseridas em ordem crescente de data: a ordem de `rowid` e a
+            // ordem de data coincidem, que é o caso em que a falta de `ORDER BY`
+            // erra de forma mais limpa.
+            for numero in 1...quantas {
+                var registro = MessageRecord(mensagem("m\(numero)"), folderID: "conta-a/INBOX")
+                registro.receivedAt = Date(timeIntervalSince1970: 1_700_000_000 + Double(numero))
+                try registro.insert(conexao)
+                var corpo = MessageBodyRecord(
+                    messageID: "m\(numero)", paragraphs: ["O relatorio numero \(numero)."]
+                )
+                try corpo.insert(conexao)
+            }
+        }
+        try db.pool.read { conexao in
+            let achados = try MessageSearch.matchingBodyIDs(conexao, term: "relatorio", accountID: nil)
+            #expect(achados.count == 200)
+            // As cinquenta mais antigas ficam de fora, as duzentas mais novas
+            // entram. As pontas são o que separa "cortou" de "cortou o lado
+            // certo".
+            #expect(achados.contains("m\(quantas)"))
+            #expect(achados.contains("m\(quantas - 199)"))
+            #expect(!achados.contains("m1"))
+            #expect(!achados.contains("m\(quantas - 200)"))
+        }
+    }
+
+    @Test("A busca por corpo chega em `message` pela via indexada, e não varrendo a tabela")
+    func planoDaBusca() throws {
+        let db = try banco()
+        try db.pool.read { conexao in
+            // O `ORDER BY` novo custa uma ordenação das linhas que casam (mil,
+            // no banco medido; 2 ms para a consulta inteira). O que ele **não**
+            // pode custar é uma varredura de `message`: a junção continua
+            // entrando pela chave primária.
+            let consulta = try #require(MessageSearch.ftsQuery("relatorio"))
+            let plano = try Row.fetchAll(conexao, sql: """
+                EXPLAIN QUERY PLAN
+                SELECT b.messageID
+                FROM message_fts f
+                JOIN message_body b ON b.rowid = f.rowid
+                JOIN message m ON m.id = b.messageID
+                WHERE message_fts MATCH ?
+                ORDER BY m.receivedAt DESC LIMIT 200
+                """, arguments: [consulta]
+            ).map { $0["detail"] as String }.joined(separator: " | ")
+            #expect(plano.contains("VIRTUAL TABLE INDEX"), "plano: \(plano)")
+            #expect(plano.contains("SEARCH m"), "plano: \(plano)")
+            #expect(!plano.contains("SCAN m"), "plano: \(plano)")
+        }
+    }
+
     @Test("A busca respeita o filtro de conta")
     func buscaFiltraPorConta() throws {
         let db = try banco()
