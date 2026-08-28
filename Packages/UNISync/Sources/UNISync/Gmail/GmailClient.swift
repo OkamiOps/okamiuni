@@ -109,17 +109,49 @@ public struct GmailClient: Sendable {
     /// Cada código vira o caso que pede a ação certa: 401 manda reconectar,
     /// 429 manda esperar, 503 manda tentar de novo. Uma frase só para os três
     /// mandaria a pessoa fazer a coisa errada duas vezes em três.
+    ///
+    /// **O 403 depende do corpo, e é por isso que ele é lido.** A Gmail API
+    /// devolve 403 para `userRateLimitExceeded`, `rateLimitExceeded` e
+    /// `quotaExceeded` — excesso de uso, não escopo insuficiente. Tratar todo
+    /// 403 como revogação fazia uma carga de 90 dias que esbarrasse na quota
+    /// morrer inteira (`derrubaACarga` trata `.autorizacaoRevogada` como fatal)
+    /// e a janela oferecer "Reconectar" para quem só precisava esperar — a ação
+    /// errada com convicção, e a única que a pessoa não pode desfazer sozinha.
+    ///
+    /// A regra não é nova neste pacote: `GoogleAuth.tokenError` já lê
+    /// `rateLimitExceeded` do corpo do servidor de token. Aqui ela é a mesma,
+    /// no lugar que faltava.
     private func apiError(status: Int, body: Data) -> SyncError {
         struct Wire: Decodable {
-            struct Detalhe: Decodable { let message: String? }
+            struct Razao: Decodable { let reason: String? }
+            struct Detalhe: Decodable {
+                let message: String?
+                let status: String?
+                let errors: [Razao]?
+            }
             let error: Detalhe?
         }
-        let mensagem = (try? JSONDecoder().decode(Wire.self, from: body))?.error?.message ?? "sem detalhe"
+        let fio = (try? JSONDecoder().decode(Wire.self, from: body))?.error
+        let mensagem = fio?.message ?? "sem detalhe"
         switch status {
         case 401: return .autenticacao
-        case 403: return .autorizacaoRevogada
+        case 403:
+            let razoes = Set((fio?.errors ?? []).compactMap(\.reason))
+            if !razoes.isDisjoint(with: Self.razoesDeQuota) { return .quota }
+            // `PERMISSION_DENIED` é o `status` canônico do escopo insuficiente.
+            // Sem razão nenhuma no corpo (403 de um proxy, corpo vazio, HTML de
+            // portal cativo) a resposta continua sendo revogação: é o caso que
+            // pede ação da pessoa, e errar para o lado de pedir é melhor que
+            // errar para o lado de repetir para sempre uma chamada que nunca vai
+            // passar.
+            return .autorizacaoRevogada
         case 429: return .quota
         default: return .servidor(codigo: status, mensagem: mensagem)
         }
     }
+
+    /// As três razões de excesso que a Gmail API devolve **com 403**.
+    private static let razoesDeQuota: Set<String> = [
+        "userRateLimitExceeded", "rateLimitExceeded", "quotaExceeded",
+    ]
 }

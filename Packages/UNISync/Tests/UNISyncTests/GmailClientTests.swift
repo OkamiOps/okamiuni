@@ -183,6 +183,9 @@ struct GmailClientTests {
     func errosDistintos() async throws {
         for (status, esperado) in [
             (401, SyncError.autenticacao),
+            // O 403 **sem razão no corpo** continua sendo revogação: é o caso
+            // que pede ação da pessoa. Com razão de quota ele muda — ver o
+            // teste abaixo, que é onde o corpo importa.
             (403, SyncError.autorizacaoRevogada),
             (429, SyncError.quota),
             (503, SyncError.servidor(codigo: 503, mensagem: "Service Unavailable")),
@@ -195,6 +198,47 @@ struct GmailClientTests {
             ])
             await #expect(throws: esperado) { _ = try await cliente.profile() }
         }
+    }
+
+    @Test("403 de quota é ESPERAR, e não reconectar — quem decide é a razão no corpo")
+    func quatrocentosETresDeQuota() async throws {
+        // A Gmail API devolve 403 para excesso de uso, e não só para escopo
+        // insuficiente. Tratar todo 403 como revogação fazia uma carga de 90
+        // dias que esbarrasse na quota morrer inteira — `derrubaACarga` trata
+        // `.autorizacaoRevogada` como fatal — e a janela oferecer "Reconectar"
+        // para quem só precisava esperar. O corpo era decodificado e jogado
+        // fora, e o teste antigo fixava o mapeamento errado sem olhar a razão:
+        // ele protegia o defeito em vez do comportamento.
+        //
+        // MUTAÇÃO QUE ISTO PEGA: voltar `case 403: return .autorizacaoRevogada`
+        // sem olhar o corpo derruba as três razões de uma vez.
+        for razao in ["userRateLimitExceeded", "rateLimitExceeded", "quotaExceeded"] {
+            let cliente = cliente(routes: [
+                "/gmail/v1/users/me/profile": [.json(
+                    """
+                    {"error":{"code":403,"errors":[{"reason":"\(razao)"}],
+                     "message":"User Rate Limit Exceeded"}}
+                    """,
+                    status: 403
+                )],
+            ])
+            await #expect(throws: SyncError.quota) { _ = try await cliente.profile() }
+        }
+
+        // E o contrapeso: escopo insuficiente de verdade continua sendo
+        // revogação. Sem ele, o conserto poderia ter sido "403 nunca é
+        // revogação", que faria a conta sem escopo repetir para sempre uma
+        // chamada que nunca vai passar.
+        let semEscopo = cliente(routes: [
+            "/gmail/v1/users/me/profile": [.json(
+                """
+                {"error":{"code":403,"errors":[{"reason":"insufficientPermissions"}],
+                 "status":"PERMISSION_DENIED","message":"Insufficient Permission"}}
+                """,
+                status: 403
+            )],
+        ])
+        await #expect(throws: SyncError.autorizacaoRevogada) { _ = try await semEscopo.profile() }
     }
 }
 
