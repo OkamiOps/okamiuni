@@ -134,15 +134,25 @@ final class FakeImapServer: @unchecked Sendable {
                 return
             }
             for modelo in linhas {
-                escreve(context, modelo.replacingOccurrences(of: "TAG ", with: "\(tag) "))
+                let texto = modelo.replacingOccurrences(of: "TAG ", with: "\(tag) ")
+                // `CRU:` manda os bytes **sem** terminador. É o que deixa um
+                // teste encenar meia linha no fio — o caso que a fronteira do
+                // STARTTLS precisa enxergar e que nenhuma linha inteira produz.
+                if texto.hasPrefix("CRU:") {
+                    escreve(context, String(texto.dropFirst(4)), terminador: false)
+                } else {
+                    escreve(context, texto)
+                }
             }
             if verbo == "LOGOUT" { context.close(promise: nil) }
         }
 
-        private func escreve(_ context: ChannelHandlerContext, _ texto: String) {
+        private func escreve(
+            _ context: ChannelHandlerContext, _ texto: String, terminador: Bool = true
+        ) {
             var buffer = context.channel.allocator.buffer(capacity: texto.utf8.count + 2)
             buffer.writeString(texto)
-            buffer.writeString("\r\n")
+            if terminador { buffer.writeString("\r\n") }
             context.writeAndFlush(wrapOutboundOut(buffer), promise: nil)
         }
     }

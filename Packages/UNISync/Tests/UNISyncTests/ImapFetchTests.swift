@@ -132,20 +132,7 @@ struct ImapFetchTests {
         #expect(ImapUidValidity.changed(previous: 1_755_000_000, current: 1_900_000_000))
     }
 
-    // MARK: A costura dos literais
-
-    @Test("Um quadro que termina em `{n}` é cabeçalho de literal, e não fim de linha")
-    func cabecalhoDeLiteral() {
-        // É esta pergunta que decide se a linha lógica acabou ou se ainda vem
-        // conteúdo contado em bytes. Errar aqui parte o corpo de toda mensagem
-        // em pedaços que o parser lê como respostas soltas.
-        #expect(ImapResponseAdapter.terminaEmCabecalhoDeLiteral("* 1 FETCH (BODY[TEXT] {21}\r\n"))
-        #expect(ImapResponseAdapter.terminaEmCabecalhoDeLiteral("* 1 FETCH (BODY[TEXT] {21+}\r\n"))
-        #expect(ImapResponseAdapter.terminaEmCabecalhoDeLiteral("* 1 FETCH (BODY[TEXT] ~{21}\r\n"))
-        #expect(!ImapResponseAdapter.terminaEmCabecalhoDeLiteral("* OK [UIDVALIDITY 1] ok\r\n"))
-        #expect(!ImapResponseAdapter.terminaEmCabecalhoDeLiteral("* 1 FETCH (BODY[TEXT] {})\r\n"))
-        #expect(!ImapResponseAdapter.terminaEmCabecalhoDeLiteral("A0001 OK FETCH completed\r\n"))
-    }
+    // MARK: Os literais
 
     @Test("O literal é cortado pelo tamanho declarado, e não pelo primeiro `)`")
     func literalCortadoPeloTamanho() {
@@ -161,6 +148,86 @@ struct ImapFetchTests {
             return
         }
         #expect(fetch.text == "Primeiro.)\r\n\r\nSegundo.")
+    }
+
+    @Test("Um assunto em literal não desloca os campos do ENVELOPE")
+    func assuntoEmLiteral() throws {
+        // Dovecot e Courier mandam o assunto em literal quando ele é 8-bit ou
+        // longo. Cortar por espaço sem saber onde o literal está empurra TODOS
+        // os campos seguintes uma casa: `from`, `to` e `cc` viram nil e a
+        // mensagem chega com "Remetente desconhecido".
+        let linha = "1 FETCH (UID 9001 ENVELOPE (\"Tue, 25 Aug 2026 09:00:00 -0300\" "
+            + "{20}\r\nRevisão do contrato "
+            + "((\"Marina\" NIL \"marina\" \"clientepremium.com\")) NIL NIL "
+            + "((\"Ricardo\" NIL \"ricardo\" \"empresa.com\")) NIL NIL NIL NIL))"
+        guard case .fetch(let fetch) = ImapResponseAdapter.untagged(fromLogicalLine: linha) else {
+            Issue.record("Esperava um `.fetch`.")
+            return
+        }
+        #expect(fetch.subject == "Revisão do contrato")
+        #expect(fetch.from == "Marina <marina@clientepremium.com>")
+        #expect(fetch.to == "Ricardo <ricardo@empresa.com>")
+    }
+
+    @Test("Um nome de remetente em literal também é lido, e não some")
+    func remetenteEmLiteral() throws {
+        let linha = "1 FETCH (UID 9001 ENVELOPE (NIL \"Assunto\" "
+            + "(({6}\r\nMarina NIL \"marina\" \"clientepremium.com\")) NIL NIL NIL NIL NIL NIL NIL))"
+        guard case .fetch(let fetch) = ImapResponseAdapter.untagged(fromLogicalLine: linha) else {
+            Issue.record("Esperava um `.fetch`.")
+            return
+        }
+        #expect(fetch.subject == "Assunto")
+        #expect(fetch.from == "Marina <marina@clientepremium.com>")
+    }
+
+    @Test("Assunto e remetente, os dois em literal, na mesma resposta")
+    func assuntoERemetenteEmLiteral() throws {
+        let linha = "1 FETCH (UID 9001 ENVELOPE (NIL {20}\r\nRevisão do contrato "
+            + "(({14}\r\nDuarte, Marina NIL \"marina\" \"clientepremium.com\")) NIL NIL "
+            + "((\"Ricardo\" NIL \"ricardo\" \"empresa.com\")) NIL NIL NIL NIL))"
+        guard case .fetch(let fetch) = ImapResponseAdapter.untagged(fromLogicalLine: linha) else {
+            Issue.record("Esperava um `.fetch`.")
+            return
+        }
+        #expect(fetch.subject == "Revisão do contrato")
+        #expect(fetch.from == "Duarte, Marina <marina@clientepremium.com>")
+        #expect(fetch.to == "Ricardo <ricardo@empresa.com>")
+    }
+
+    @Test("Um `UID 999` escrito dentro do corpo não vira o UID da resposta")
+    func uidEscritoNoCorpo() throws {
+        // O corpo é texto de outra pessoa; procurar chave de protocolo dentro
+        // dele é ler a mensagem como se fosse o protocolo. Uma linha "UID 999"
+        // num email — uma cola de suporte, um log — trocaria a identidade da
+        // mensagem inteira.
+        let linha = "1 FETCH (BODY[TEXT] {13}\r\nUID 999 e tal UID 9001)"
+        guard case .fetch(let fetch) = ImapResponseAdapter.untagged(fromLogicalLine: linha) else {
+            Issue.record("Esperava um `.fetch`.")
+            return
+        }
+        #expect(fetch.uid == 9_001)
+        #expect(fetch.text == "UID 999 e tal")
+    }
+
+    // MARK: O nome da pasta no LIST
+
+    @Test("O nome da pasta é o que vem depois do separador — citado, átomo ou literal")
+    func nomeDaPastaNoList() {
+        // `* LIST (…) "/" INBOX` é legal no RFC 3501: o nome na forma átomo,
+        // sem aspas. Ler "a última string citada" devolveria o separador `/`
+        // como nome — a INBOX sumiria e uma pasta chamada "/" tomaria o lugar.
+        func nome(_ linha: String) -> String? {
+            guard case .list(let nome, _) = ImapResponseAdapter.untagged(fromLogicalLine: linha) else {
+                return nil
+            }
+            return nome
+        }
+        #expect(nome("* LIST (\\HasNoChildren) \"/\" \"INBOX\"") == "INBOX")
+        #expect(nome("* LIST (\\HasNoChildren) \"/\" INBOX") == "INBOX")
+        #expect(nome("* LIST (\\HasNoChildren) \".\" INBOX.Enviados") == "INBOX.Enviados")
+        #expect(nome("* LIST (\\HasNoChildren) \"/\" {6}\r\nEnviad") == "Enviad")
+        #expect(nome("* LIST (\\Noselect) \"/\" \"[Gmail]\"") == "[Gmail]")
     }
 
     // MARK: De ponta a ponta, contra o servidor falso
@@ -267,6 +334,62 @@ struct ImapFetchTests {
         )
         try await sessao.login(user: "eu@x.com", password: "senha")
         #expect(try await sessao.bodyText(uid: 9_001) == ["Primeiro.)", "Segundo."])
+        await sessao.logout()
+    }
+
+    @Test("Corpo vazio (`{0}`) responde na hora, e não morre de teto de tempo")
+    func corpoVazioDePontaAPonta() async throws {
+        // Convite de agenda e mensagem só-com-anexo devolvem `BODY[TEXT] {0}`.
+        // A Task 13 chama `bodyText` por pasta: um caso desses parando a
+        // conexão por quinze segundos derruba a carga inicial inteira.
+        let servidor = FakeImapServer(script: .init(replies: [
+            "LOGIN": ["TAG OK LOGIN completed"],
+            // Numa escrita **só**, de propósito: é assim que o servidor manda
+            // de verdade, e é a forma em que um framer que trava no `{0}` fica
+            // sem bytes novos para destravá-lo. Em duas escritas o defeito se
+            // esconde, porque a segunda acorda o framer por acidente.
+            "UID FETCH": ["CRU:* 1 FETCH (UID 9001 BODY[TEXT] {0}\r\n)\r\nTAG OK UID FETCH completed\r\n"],
+            "LOGOUT": ["TAG OK LOGOUT completed"],
+        ]))
+        let porta = try servidor.start()
+        defer { servidor.stop() }
+
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+
+        // Teto curto de propósito: se o `{0}` prender a resposta tagueada, este
+        // teste falha por tempo em vez de passar devagar.
+        let sessao = try await ImapSession.connect(
+            endpoint: ImapEndpoint(host: "127.0.0.1", port: porta, security: .startTLS),
+            group: grupo, allowInsecure: true, teto: .milliseconds(500)
+        )
+        try await sessao.login(user: "eu@x.com", password: "senha")
+        #expect(try await sessao.bodyText(uid: 9_001).isEmpty)
+        await sessao.logout()
+    }
+
+    @Test("Acento no corpo atravessa o fio inteiro sem virar `?`")
+    func corpoAcentuadoDePontaAPonta() async throws {
+        let servidor = FakeImapServer(script: .init(replies: [
+            "LOGIN": ["TAG OK LOGIN completed"],
+            "UID FETCH": [
+                "* 1 FETCH (UID 9001 BODY[TEXT] {24}\r\nA ação foi concluída.)",
+                "TAG OK UID FETCH completed",
+            ],
+            "LOGOUT": ["TAG OK LOGOUT completed"],
+        ]))
+        let porta = try servidor.start()
+        defer { servidor.stop() }
+
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+
+        let sessao = try await ImapSession.connect(
+            endpoint: ImapEndpoint(host: "127.0.0.1", port: porta, security: .startTLS),
+            group: grupo, allowInsecure: true, teto: .seconds(5)
+        )
+        try await sessao.login(user: "eu@x.com", password: "senha")
+        #expect(try await sessao.bodyText(uid: 9_001) == ["A ação foi concluída."])
         await sessao.logout()
     }
 }

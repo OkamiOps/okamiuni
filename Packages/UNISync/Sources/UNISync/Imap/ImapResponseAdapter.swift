@@ -1,47 +1,260 @@
 import Foundation
-import NIOCore
-import NIOIMAP
 
-/// A fronteira com o `swift-nio-imap`. **É o único arquivo do app que conhece
-/// os tipos de resposta da biblioteca.**
+/// A fronteira entre o texto que o servidor manda e os nossos tipos.
 ///
-/// Tudo que sai daqui é `ImapWire.Untagged`, que é nosso e é puro. A troco de
-/// um arquivo de tradução, a lógica inteira do IMAP fica testável sem NIO, e
-/// uma mudança de forma na biblioteca custa este arquivo em vez de custar a
-/// sessão, a carga inicial e os testes de todas as duas.
+/// Tudo que sai daqui é `ImapWire.Untagged`, que é nosso e é puro — testável
+/// sem NIO, sem rede e sem servidor.
+///
+/// **A leitura é em bytes, e não em `Character`.** Duas razões, as duas
+/// aprendidas do jeito caro: `\r\n` é um grafema **só** para o Swift, então
+/// `primeiro == "\r"` é falso justamente na ponta que importa; e o literal
+/// `{n}` é contado em **bytes**, então qualquer contagem feita em `Character`
+/// erra no primeiro assunto acentuado.
 enum ImapResponseAdapter {
     /// Uma linha lógica de resposta untagged virando o nosso caso.
     ///
-    /// A tradução é feita sobre o **texto** da linha, e não sobre a árvore da
-    /// biblioteca, por um motivo prático: a superfície que a gente usa é
-    /// pequena (LIST, SEARCH, EXISTS, OK[código], FETCH) e a árvore da
-    /// biblioteca é grande e versionada. O que a biblioteca faz por nós é o
-    /// trabalho que a gente não sabe fazer: contar os bytes de um literal
-    /// `{123}` para que a linha lógica chegue aqui inteira — é o
-    /// `ImapFrameJoiner`, logo abaixo, sobre o `FrameDecoder` dela.
+    /// "Linha lógica" quer dizer: o `CRLFLineDecoder` já juntou os literais
+    /// `{n}` ao resto, então o que chega aqui é a resposta inteira, com os
+    /// bytes do corpo dentro dela — CRLFs e tudo.
     static func untagged(fromLogicalLine linha: String) -> ImapWire.Untagged {
         let corpo = linha.hasPrefix("* ") ? String(linha.dropFirst(2)) : linha
+        let analise = Analise(corpo)
 
-        if corpo.uppercased().hasPrefix("LIST ") { return list(corpo) }
-        if corpo.uppercased().hasPrefix("SEARCH") { return search(corpo) }
-        if corpo.uppercased().hasPrefix("OK [") { return okCode(corpo) }
+        if analise.comecaCom("LIST ") { return list(analise) }
+        if analise.comecaCom("SEARCH") { return search(corpo) }
+        if analise.comecaCom("OK [") { return okCode(corpo) }
         if let quantas = exists(corpo) { return .exists(quantas) }
-        if corpo.uppercased().contains(" FETCH ") || corpo.uppercased().hasPrefix("FETCH ") {
-            if let linhaFetch = fetch(corpo) { return .fetch(linhaFetch) }
+        if analise.contem(" FETCH (") || analise.comecaCom("FETCH (") {
+            if let linhaFetch = fetch(analise) { return .fetch(linhaFetch) }
         }
         return .outra(corpo)
     }
 
-    /// `LIST (\HasNoChildren \Trash) "/" "Lixeira"`
-    private static func list(_ corpo: String) -> ImapWire.Untagged {
-        var atributos: [String] = []
-        if let abre = corpo.firstIndex(of: "("), let fecha = corpo.firstIndex(of: ")"), abre < fecha {
-            atributos = corpo[corpo.index(after: abre)..<fecha]
-                .split(separator: " ").map(String.init)
+    // MARK: A análise da linha lógica
+
+    /// Uma linha lógica com os literais **mapeados**.
+    ///
+    /// Saber onde estão os literais é o que separa ler a resposta de ler o
+    /// conteúdo dela por engano. Sem isto, duas coisas acontecem em produção e
+    /// em nenhum teste ingênuo: um `UID 999` escrito no corpo de uma mensagem
+    /// vira o UID da resposta; e um assunto mandado em literal — o que Dovecot
+    /// e Courier fazem com cabeçalho 8-bit ou longo — desloca **todos** os
+    /// campos do `ENVELOPE`, deixando remetente e destinatários nulos.
+    struct Analise {
+        let bytes: [UInt8]
+        /// `true` onde o byte pertence a um literal — cabeçalho `{n}` incluído.
+        private let dentroDeLiteral: [Bool]
+        /// Índice de onde o cabeçalho começa → faixa do conteúdo daquele literal.
+        private let conteudo: [Int: Range<Int>]
+
+        init(_ texto: String) {
+            let bytes = Array(texto.utf8)
+            var literal = [Bool](repeating: false, count: bytes.count)
+            var conteudos: [Int: Range<Int>] = [:]
+            var aspas = false
+            var i = 0
+            while i < bytes.count {
+                let byte = bytes[i]
+                if aspas {
+                    if byte == UInt8(ascii: "\\") { i += 2; continue }
+                    if byte == UInt8(ascii: "\"") { aspas = false }
+                    i += 1
+                    continue
+                }
+                if byte == UInt8(ascii: "\"") {
+                    aspas = true
+                    i += 1
+                    continue
+                }
+                if let cabecalho = Self.cabecalho(em: bytes, desde: i) {
+                    let fim = max(
+                        cabecalho.depoisDoCabecalho,
+                        min(cabecalho.depoisDoCabecalho + cabecalho.tamanho, bytes.count)
+                    )
+                    conteudos[i] = cabecalho.depoisDoCabecalho..<fim
+                    for marcado in i..<fim { literal[marcado] = true }
+                    i = max(fim, i + 1)
+                    continue
+                }
+                i += 1
+            }
+            self.bytes = bytes
+            dentroDeLiteral = literal
+            conteudo = conteudos
         }
-        // O nome é o último token; entre aspas quando tem espaço.
-        let nome = ultimaStringCitada(corpo) ?? String(corpo.split(separator: " ").last ?? "")
-        return .list(name: nome, attributes: atributos)
+
+        /// `{21}`, `{21+}`, `~{21}` seguidos de CRLF (ou só LF) — o cabeçalho de
+        /// um literal. Devolve o tamanho e onde o conteúdo começa.
+        static func cabecalho(
+            em bytes: [UInt8], desde inicio: Int
+        ) -> (tamanho: Int, depoisDoCabecalho: Int)? {
+            var i = inicio
+            if i < bytes.count, bytes[i] == UInt8(ascii: "~") { i += 1 }
+            guard i < bytes.count, bytes[i] == UInt8(ascii: "{") else { return nil }
+            i += 1
+            var tamanho = 0
+            var digitos = 0
+            while i < bytes.count, bytes[i] >= UInt8(ascii: "0"), bytes[i] <= UInt8(ascii: "9") {
+                tamanho = tamanho * 10 + Int(bytes[i] - UInt8(ascii: "0"))
+                i += 1
+                digitos += 1
+            }
+            guard digitos > 0 else { return nil }
+            // `LITERAL+` (`{21+}`) e `LITERAL-` (`{21-}`).
+            if i < bytes.count, bytes[i] == UInt8(ascii: "+") || bytes[i] == UInt8(ascii: "-") { i += 1 }
+            guard i < bytes.count, bytes[i] == UInt8(ascii: "}") else { return nil }
+            i += 1
+            if i < bytes.count, bytes[i] == UInt8(ascii: "\r") { i += 1 }
+            if i < bytes.count, bytes[i] == UInt8(ascii: "\n") { i += 1 }
+            return (tamanho, i)
+        }
+
+        private static func maiuscula(_ byte: UInt8) -> UInt8 {
+            byte >= UInt8(ascii: "a") && byte <= UInt8(ascii: "z") ? byte - 32 : byte
+        }
+
+        /// O índice logo **depois** da chave, procurada só fora dos literais.
+        /// A comparação ignora caixa: as palavras do IMAP são ASCII.
+        func depoisDe(_ chave: String) -> Int? {
+            let alvo = Array(chave.utf8).map(Self.maiuscula)
+            guard !alvo.isEmpty, bytes.count >= alvo.count else { return nil }
+            var i = 0
+            while i + alvo.count <= bytes.count {
+                if !dentroDeLiteral[i] {
+                    var casou = true
+                    for j in 0..<alvo.count where Self.maiuscula(bytes[i + j]) != alvo[j] {
+                        casou = false
+                        break
+                    }
+                    if casou { return i + alvo.count }
+                }
+                i += 1
+            }
+            return nil
+        }
+
+        func contem(_ chave: String) -> Bool { depoisDe(chave) != nil }
+
+        func comecaCom(_ chave: String) -> Bool {
+            let alvo = Array(chave.utf8).map(Self.maiuscula)
+            guard bytes.count >= alvo.count else { return false }
+            for j in 0..<alvo.count where Self.maiuscula(bytes[j]) != alvo[j] { return false }
+            return true
+        }
+
+        func texto(_ faixa: Range<Int>) -> String {
+            guard faixa.lowerBound >= 0, faixa.upperBound <= bytes.count,
+                  faixa.lowerBound <= faixa.upperBound else { return "" }
+            return String(decoding: bytes[faixa], as: UTF8.self)
+        }
+
+        /// A faixa dentro do parêntese que vem depois da chave, respeitando
+        /// aspas, aninhamento e literais.
+        func grupo(depoisDe chave: String) -> Range<Int>? {
+            guard let abre = depoisDe(chave + " (") else { return nil }
+            var profundidade = 1
+            var i = abre
+            var aspas = false
+            while i < bytes.count {
+                if let faixa = conteudo[i] { i = max(faixa.upperBound, i + 1); continue }
+                let byte = bytes[i]
+                if aspas {
+                    if byte == UInt8(ascii: "\\") { i += 2; continue }
+                    if byte == UInt8(ascii: "\"") { aspas = false }
+                    i += 1
+                    continue
+                }
+                switch byte {
+                case UInt8(ascii: "\""): aspas = true
+                case UInt8(ascii: "("): profundidade += 1
+                case UInt8(ascii: ")"):
+                    profundidade -= 1
+                    if profundidade == 0 { return abre..<i }
+                default: break
+                }
+                i += 1
+            }
+            return abre..<bytes.count
+        }
+
+        /// Os itens de primeiro nível de uma faixa, separados por espaço —
+        /// **sem** cortar dentro de aspas, de parêntese aninhado ou de literal.
+        ///
+        /// O corte que não sabe onde os literais estão é exatamente o defeito
+        /// que empurra todo campo do `ENVELOPE` uma casa para o lado quando o
+        /// assunto vem em `{20}`.
+        func itens(de faixa: Range<Int>) -> [Range<Int>] {
+            var saida: [Range<Int>] = []
+            let limite = min(faixa.upperBound, bytes.count)
+            var inicio = max(0, faixa.lowerBound)
+            var i = inicio
+            var profundidade = 0
+            var aspas = false
+            while i < limite {
+                if let conteudoDoLiteral = conteudo[i] {
+                    i = max(min(conteudoDoLiteral.upperBound, limite), i + 1)
+                    continue
+                }
+                let byte = bytes[i]
+                if aspas {
+                    if byte == UInt8(ascii: "\\") { i += 2; continue }
+                    if byte == UInt8(ascii: "\"") { aspas = false }
+                    i += 1
+                    continue
+                }
+                switch byte {
+                case UInt8(ascii: "\""): aspas = true
+                case UInt8(ascii: "("): profundidade += 1
+                case UInt8(ascii: ")"): profundidade -= 1
+                case UInt8(ascii: " ") where profundidade == 0:
+                    if i > inicio { saida.append(inicio..<i) }
+                    inicio = i + 1
+                default: break
+                }
+                i += 1
+            }
+            if limite > inicio { saida.append(inicio..<limite) }
+            return saida
+        }
+
+        /// O valor de um item: literal, string entre aspas, `NIL` ou átomo.
+        func valor(de faixa: Range<Int>) -> String? {
+            guard !faixa.isEmpty else { return nil }
+            if let conteudoDoLiteral = conteudo[faixa.lowerBound] { return texto(conteudoDoLiteral) }
+            let bruto = texto(faixa)
+            if bruto.uppercased() == "NIL" { return nil }
+            if bruto.hasPrefix("\""), bruto.hasSuffix("\""), bruto.count >= 2 {
+                return String(bruto.dropFirst().dropLast())
+                    .replacingOccurrences(of: "\\\"", with: "\"")
+                    .replacingOccurrences(of: "\\\\", with: "\\")
+            }
+            return bruto
+        }
+    }
+
+    // MARK: Cada forma de resposta
+
+    /// `LIST (\HasNoChildren \Trash) "/" "Lixeira"`
+    ///
+    /// O nome é o item **depois do separador**, e não "o último token" nem "a
+    /// última string entre aspas": `* LIST (…) "/" INBOX` é legal no RFC 3501
+    /// (a forma átomo), e lê-la pela última string citada devolveria `/` como
+    /// nome de pasta — a INBOX sumiria e uma pasta chamada "/" apareceria no
+    /// lugar dela.
+    private static func list(_ analise: Analise) -> ImapWire.Untagged {
+        var atributos: [String] = []
+        var depoisDosAtributos = 0
+        if let faixa = analise.grupo(depoisDe: "LIST") {
+            atributos = analise.itens(de: faixa).compactMap { analise.valor(de: $0) }
+            depoisDosAtributos = faixa.upperBound + 1
+        }
+        let resto = min(depoisDosAtributos, analise.bytes.count)..<analise.bytes.count
+        let itens = analise.itens(de: resto)
+        // [separador, nome]. Sem separador (servidor esquisito), o que sobrar.
+        let nome = itens.count >= 2
+            ? analise.valor(de: itens[1])
+            : itens.last.flatMap { analise.valor(de: $0) }
+        return .list(name: nome ?? "", attributes: atributos)
     }
 
     /// `SEARCH 9001 9002`
@@ -71,23 +284,24 @@ enum ImapResponseAdapter {
 
     /// `1 FETCH (UID 9001 FLAGS (\Seen) INTERNALDATE "…" ENVELOPE (…))`
     ///
-    /// Os campos são lidos por nome, não por posição: servidores mandam a
-    /// mesma informação em ordens diferentes, e ler por posição funciona no
-    /// servidor em que se testou e falha no seguinte.
-    private static func fetch(_ corpo: String) -> ImapWire.FetchLine? {
-        guard let uid = inteiroDepois(de: "UID", em: corpo) else { return nil }
-        let envelope = grupo(depoisDe: "ENVELOPE", em: corpo).map(camposDoEnvelope) ?? []
+    /// Os campos são lidos por nome, e sempre **fora dos literais**: servidores
+    /// mandam a mesma informação em ordens diferentes, e um `UID 999` escrito
+    /// dentro do corpo da mensagem não é o UID da resposta.
+    private static func fetch(_ analise: Analise) -> ImapWire.FetchLine? {
+        guard let uid = inteiroDepois(de: "UID ", em: analise) else { return nil }
+        let campos = analise.grupo(depoisDe: "ENVELOPE").map(analise.itens(de:)) ?? []
         return ImapWire.FetchLine(
             uid: uid,
-            flags: grupo(depoisDe: "FLAGS", em: corpo)?.split(separator: " ").map(String.init) ?? [],
-            internalDate: dataInterna(stringCitadaDepois(de: "INTERNALDATE", em: corpo)),
+            flags: analise.grupo(depoisDe: "FLAGS").map { faixa in
+                analise.itens(de: faixa).compactMap { analise.valor(de: $0) }
+            } ?? [],
+            internalDate: dataInterna(valorDepois(de: "INTERNALDATE ", em: analise)),
             // ENVELOPE (data assunto from sender reply-to to cc bcc in-reply-to message-id)
-            from: envelope.count > 2 ? enderecoDoEnvelope(envelope[2]) : nil,
-            to: envelope.count > 5 ? enderecoDoEnvelope(envelope[5]) : nil,
-            cc: envelope.count > 6 ? enderecoDoEnvelope(envelope[6]) : nil,
-            subject: envelope.count > 1 ? semAspas(envelope[1]) : nil,
-            text: stringCitadaDepois(de: "BODY[TEXT]", em: corpo)
-                ?? literalDepois(de: "BODY[TEXT]", em: corpo)
+            from: campos.count > 2 ? endereco(campos[2], em: analise) : nil,
+            to: campos.count > 5 ? endereco(campos[5], em: analise) : nil,
+            cc: campos.count > 6 ? endereco(campos[6], em: analise) : nil,
+            subject: campos.count > 1 ? analise.valor(de: campos[1]) : nil,
+            text: valorDepois(de: "BODY[TEXT] ", em: analise)
         )
     }
 
@@ -103,213 +317,50 @@ enum ImapResponseAdapter {
         return formatador.date(from: texto.trimmingCharacters(in: .whitespaces))
     }
 
-    // MARK: Utilitários de leitura
+    // MARK: Leituras por nome
 
-    private static func semAspas(_ texto: String) -> String? {
-        let limpo = texto.trimmingCharacters(in: .whitespaces)
-        if limpo.uppercased() == "NIL" { return nil }
-        guard limpo.hasPrefix("\""), limpo.hasSuffix("\""), limpo.count >= 2 else { return limpo }
-        return String(limpo.dropFirst().dropLast())
+    private static func inteiroDepois(de chave: String, em analise: Analise) -> Int64? {
+        guard let indice = analise.depoisDe(chave) else { return nil }
+        var i = indice
+        var digitos: [UInt8] = []
+        while i < analise.bytes.count, analise.bytes[i] >= UInt8(ascii: "0"),
+              analise.bytes[i] <= UInt8(ascii: "9") {
+            digitos.append(analise.bytes[i])
+            i += 1
+        }
+        return Int64(String(decoding: digitos, as: UTF8.self))
     }
 
-    private static func inteiroDepois(de chave: String, em corpo: String) -> Int64? {
-        guard let intervalo = corpo.range(of: chave + " ") else { return nil }
-        let resto = corpo[intervalo.upperBound...]
-        return Int64(resto.prefix { $0.isNumber })
+    /// O item que vem logo depois da chave — literal, entre aspas ou átomo.
+    private static func valorDepois(de chave: String, em analise: Analise) -> String? {
+        guard let indice = analise.depoisDe(chave) else { return nil }
+        let itens = analise.itens(de: indice..<analise.bytes.count)
+        guard let primeiro = itens.first else { return nil }
+        return analise.valor(de: primeiro)
     }
 
-    private static func stringCitadaDepois(de chave: String, em corpo: String) -> String? {
-        guard let intervalo = corpo.range(of: chave + " ") else { return nil }
-        let resto = corpo[intervalo.upperBound...]
-        guard resto.first == "\"" else { return nil }
-        let miolo = resto.dropFirst()
-        guard let fim = miolo.firstIndex(of: "\"") else { return nil }
-        return String(miolo[miolo.startIndex..<fim])
-    }
-
-    /// O corpo de um literal já juntado pelo `ImapFrameJoiner`, entregue como
-    /// `{n}\r\n<texto>` no meio da linha lógica.
+    /// `(("Marina" NIL "marina" "clientepremium.com"))` → `Marina <marina@…>`.
     ///
-    /// O corte é pelo **tamanho declarado**, em bytes, e não pelo `)` que fecha
-    /// o `FETCH`: o `)` vem depois do literal, na mesma linha lógica, e cortar
-    /// nele daria um parêntese sobrando no fim de todo corpo — e um corpo que
-    /// contivesse `)` sairia pela metade. Contar bytes é justamente o que o
-    /// `{n}` existe para permitir.
-    ///
-    /// A leitura é em **bytes** e não em `Character`: `\r\n` é um grafema só
-    /// para o Swift, e `first == "\r"` é falso justamente onde o CRLF importa.
-    private static func literalDepois(de chave: String, em corpo: String) -> String? {
-        guard let intervalo = corpo.range(of: chave + " ") else { return nil }
-        let bytes = Array(corpo[intervalo.upperBound...].utf8)
-        var indice = 0
-        if indice < bytes.count, bytes[indice] == UInt8(ascii: "~") { indice += 1 } // binário
-        guard indice < bytes.count, bytes[indice] == UInt8(ascii: "{") else { return nil }
-        indice += 1
-        var tamanho = 0
-        var digitos = 0
-        while indice < bytes.count, bytes[indice] >= UInt8(ascii: "0"), bytes[indice] <= UInt8(ascii: "9") {
-            tamanho = tamanho * 10 + Int(bytes[indice] - UInt8(ascii: "0"))
-            indice += 1
-            digitos += 1
-        }
-        guard digitos > 0 else { return nil }
-        if indice < bytes.count, bytes[indice] == UInt8(ascii: "+") || bytes[indice] == UInt8(ascii: "-") {
-            indice += 1 // LITERAL+ / LITERAL-
-        }
-        guard indice < bytes.count, bytes[indice] == UInt8(ascii: "}") else { return nil }
-        indice += 1
-        if indice < bytes.count, bytes[indice] == UInt8(ascii: "\r") { indice += 1 }
-        if indice < bytes.count, bytes[indice] == UInt8(ascii: "\n") { indice += 1 }
-        return String(decoding: bytes[indice..<min(indice + tamanho, bytes.count)], as: UTF8.self)
-    }
-
-    /// O conteúdo do parêntese que vem depois da chave, respeitando aninhamento.
-    private static func grupo(depoisDe chave: String, em corpo: String) -> String? {
-        guard let intervalo = corpo.range(of: chave + " (") else { return nil }
-        var profundidade = 1
-        var resultado = ""
-        for caractere in corpo[intervalo.upperBound...] {
-            if caractere == "(" { profundidade += 1 }
-            if caractere == ")" {
-                profundidade -= 1
-                if profundidade == 0 { break }
-            }
-            resultado.append(caractere)
-        }
-        return resultado
-    }
-
-    /// Os campos de primeiro nível de um `ENVELOPE`, respeitando aspas e
-    /// parênteses aninhados.
-    private static func camposDoEnvelope(_ texto: String) -> [String] {
-        var campos: [String] = []
-        var atual = ""
-        var profundidade = 0
-        var dentroDeAspas = false
-        for caractere in texto {
-            switch caractere {
-            case "\"": dentroDeAspas.toggle(); atual.append(caractere)
-            case "(" where !dentroDeAspas: profundidade += 1; atual.append(caractere)
-            case ")" where !dentroDeAspas: profundidade -= 1; atual.append(caractere)
-            case " " where !dentroDeAspas && profundidade == 0:
-                if !atual.isEmpty { campos.append(atual); atual = "" }
-            default: atual.append(caractere)
-            }
-        }
-        if !atual.isEmpty { campos.append(atual) }
-        return campos
-    }
-
-    /// `(("Marina" NIL "marina" "clientepremium.com"))` → `Marina <marina@clientepremium.com>`.
-    private static func enderecoDoEnvelope(_ campo: String) -> String? {
-        guard campo.uppercased() != "NIL" else { return nil }
-        let miolo = campo.trimmingCharacters(in: CharacterSet(charactersIn: "()"))
+    /// Cada endereço é um grupo de quatro: nome, rota (obsoleta), caixa e host.
+    /// O nome pode chegar em literal, e por isso a divisão é a mesma de sempre
+    /// — `itens(de:)`, que sabe onde os literais estão.
+    private static func endereco(_ faixa: Range<Int>, em analise: Analise) -> String? {
+        guard analise.bytes.indices.contains(faixa.lowerBound),
+              analise.bytes[faixa.lowerBound] == UInt8(ascii: "(") else { return nil }
+        let miolo = (faixa.lowerBound + 1)..<max(faixa.lowerBound + 1, faixa.upperBound - 1)
         var enderecos: [String] = []
-        for bloco in miolo.components(separatedBy: ") (") {
-            let partes = camposDoEnvelope(bloco.trimmingCharacters(in: CharacterSet(charactersIn: "()")))
+        for grupo in analise.itens(de: miolo) {
+            guard analise.bytes.indices.contains(grupo.lowerBound),
+                  analise.bytes[grupo.lowerBound] == UInt8(ascii: "(") else { continue }
+            let dentro = (grupo.lowerBound + 1)..<max(grupo.lowerBound + 1, grupo.upperBound - 1)
+            let partes = analise.itens(de: dentro)
             guard partes.count >= 4 else { continue }
-            let nome = semAspas(partes[0])
-            guard let usuario = semAspas(partes[2]), let dominio = semAspas(partes[3]) else { continue }
+            let nome = analise.valor(de: partes[0])
+            guard let usuario = analise.valor(de: partes[2]),
+                  let dominio = analise.valor(de: partes[3]) else { continue }
             let endereco = "\(usuario)@\(dominio)"
             enderecos.append(nome.map { "\($0) <\(endereco)>" } ?? endereco)
         }
         return enderecos.isEmpty ? nil : enderecos.joined(separator: ", ")
-    }
-
-    private static func ultimaStringCitada(_ texto: String) -> String? {
-        var partes: [String] = []
-        var atual = ""
-        var dentro = false
-        for caractere in texto {
-            if caractere == "\"" {
-                if dentro { partes.append(atual); atual = "" }
-                dentro.toggle()
-            } else if dentro {
-                atual.append(caractere)
-            }
-        }
-        return partes.last
-    }
-
-    // MARK: A costura dos quadros
-
-    /// `… BODY[TEXT] {21}` — o quadro acabou num cabeçalho de literal, então a
-    /// linha lógica **não** acabou: vêm `n` bytes contados, e depois o resto da
-    /// linha.
-    ///
-    /// Cobre as três formas que aparecem de verdade: `{21}`, o `{21+}` do
-    /// `LITERAL+` e o `~{21}` do literal binário.
-    /// A leitura é em **bytes**: `\r\n` é um grafema só para o Swift, e
-    /// comparar `Character` com `"\r"` é falso justamente na ponta que importa.
-    static func terminaEmCabecalhoDeLiteral(_ quadro: String) -> Bool {
-        var bytes = Array(quadro.utf8)
-        while let ultimo = bytes.last, ultimo == UInt8(ascii: "\r") || ultimo == UInt8(ascii: "\n") {
-            bytes.removeLast()
-        }
-        guard bytes.last == UInt8(ascii: "}") else { return false }
-        bytes.removeLast()
-        if let ultimo = bytes.last, ultimo == UInt8(ascii: "+") || ultimo == UInt8(ascii: "-") {
-            bytes.removeLast()
-        }
-        var digitos = 0
-        while let ultimo = bytes.last, ultimo >= UInt8(ascii: "0"), ultimo <= UInt8(ascii: "9") {
-            bytes.removeLast()
-            digitos += 1
-        }
-        guard digitos > 0 else { return false }
-        if bytes.last == UInt8(ascii: "~") { bytes.removeLast() }
-        return bytes.last == UInt8(ascii: "{")
-    }
-}
-
-/// Os quadros do `swift-nio-imap` virando uma linha lógica de cada vez.
-///
-/// **É a única razão de a biblioteca estar aqui.** Cortar por CRLF é fácil e a
-/// gente faz (`CRLFLineDecoder`); o que não dá para fazer no nível da linha é o
-/// literal `{n}`, cujo conteúdo é contado em **bytes** e tem CRLF dentro — o
-/// corpo de qualquer mensagem. O `FrameDecoder` conta esses bytes; este tipo
-/// junta os pedaços que ele emite numa linha só.
-///
-/// **Divergência do plano (regra da Task 9):** o plano dizia que a biblioteca
-/// entregaria a linha lógica pronta. Na 0.4.0 que o SPM resolveu, o
-/// `ResponseDecoder` é `internal` — só o `FrameDecoder` e o `FramingResult`
-/// são públicos, e o `FrameDecoder` entrega o cabeçalho, os pedaços do literal
-/// e o resto da linha como quadros separados. Costurá-los é este tipo.
-struct ImapFrameJoiner {
-    private var parcial = ""
-    private var emLiteral = false
-
-    /// `true` enquanto uma linha lógica está pela metade. É o que a fronteira
-    /// do STARTTLS confere junto com o resto do estado.
-    var montando: Bool { emLiteral || !parcial.isEmpty }
-
-    /// A próxima linha lógica, ou `nil` enquanto ela não fechou.
-    mutating func junta(_ quadro: FramingResult) throws -> String? {
-        switch quadro {
-        case .complete(let buffer):
-            let texto = String(buffer: buffer)
-            parcial += texto
-            if ImapResponseAdapter.terminaEmCabecalhoDeLiteral(texto) {
-                emLiteral = true
-                return nil
-            }
-            let linha = parcial.trimmingCharacters(in: .whitespacesAndNewlines)
-            parcial = ""
-            emLiteral = false
-            return linha.isEmpty ? nil : linha
-        case .insideLiteral(let buffer, _):
-            parcial += String(buffer: buffer)
-            return nil
-        case .incomplete:
-            return nil
-        case .invalid(let buffer):
-            parcial = ""
-            emLiteral = false
-            // Descartar em silêncio deixaria a resposta tagueada nunca chegar,
-            // e o comando morreria de teto de tempo com a mensagem errada.
-            throw SyncError.resposta(
-                "O servidor IMAP mandou um quadro inválido: \(String(buffer: buffer))"
-            )
-        }
     }
 }

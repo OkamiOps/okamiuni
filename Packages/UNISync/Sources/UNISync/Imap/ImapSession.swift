@@ -1,6 +1,5 @@
 import Foundation
 import NIOCore
-import NIOIMAP
 import NIOPosix
 import NIOSSL
 import UNICore
@@ -83,15 +82,11 @@ public actor ImapSession {
                         // primeiro byte já é do handshake.
                         handlers.append(try Self.tlsHandler(host: endpoint.host))
                     }
-                    // O quadro é da biblioteca, e não do nosso
-                    // `CRLFLineDecoder`: o literal `{n}` é contado em bytes e
-                    // tem CRLF dentro, e cortar por linha o partiria em
-                    // pedaços que o parser leria como respostas soltas. O teto
-                    // é o mesmo dos nossos cortes por linha — 64 KiB —, e ele
-                    // vale para a linha, não para o literal, que atravessa em
-                    // pedaços sem encher o buffer.
+                    // O decodificador entrega **linha lógica**: a linha até o
+                    // CRLF com os literais `{n}` já juntos. O handler recebe
+                    // resposta inteira ou nada.
                     handlers.append(ByteToMessageHandler(
-                        FrameDecoder(frameSizeLimit: CRLFLineDecoder.tetoDaLinha)
+                        CRLFLineDecoder(pendencia: handler.pendencia)
                     ))
                     handlers.append(handler)
                     try canal.pipeline.syncOperations.addHandlers(handlers)
@@ -370,12 +365,43 @@ struct ImapCommandResult: Sendable {
     let untagged: [ImapWire.Untagged]
 }
 
-/// Corta o fluxo de bytes em linhas de protocolo.
+/// Quantos bytes o decodificador está segurando por não terem virado linha
+/// ainda.
 ///
-/// O `swift-nio` desta versão não traz nenhum decodificador de linhas — o
-/// `LineBasedFrameDecoder` mora no `swift-nio-extras`, que não é dependência
-/// deste marco. São poucas linhas nossas em vez de um quarto pacote, e elas
-/// cortam por CRLF, que é o que o RFC 3501 manda.
+/// Existe por causa do STARTTLS: meia linha parada dentro do decodificador é
+/// conversa em claro que o túnel cobriria sem ninguém ver. O `ByteToMessageHandler`
+/// não conta nada disso para fora, então o decodificador anota aqui e o handler
+/// lê — os dois na event loop, nunca fora dela.
+final class PendenciaDeBytes: @unchecked Sendable {
+    private let lock = NSLock()
+    private var quantos = 0
+
+    var bytes: Int {
+        get { lock.lock(); defer { lock.unlock() }; return quantos }
+        set { lock.lock(); quantos = newValue; lock.unlock() }
+    }
+}
+
+/// Corta o fluxo de bytes em **linhas lógicas** de protocolo.
+///
+/// Uma linha lógica é a resposta inteira: a linha até o CRLF **mais** os
+/// literais `{n}` que ela abrir, com o conteúdo deles junto. Isso é mais do que
+/// cortar por CRLF, e a diferença não é acadêmica — o corpo de qualquer
+/// mensagem chega em literal e tem CRLF dentro, então quem corta por linha
+/// entrega o corpo picado em pedaços que o parser lê como respostas soltas.
+///
+/// **Por que não o `FrameDecoder` do `swift-nio-imap`:** ele foi usado na
+/// primeira versão desta tarefa e falha em dois pontos que a carga inicial
+/// atravessa todo dia. Um literal de tamanho zero — `BODY[TEXT] {0}`, que é o
+/// que um convite ou uma mensagem só-com-anexo devolve — faz o `FramingParser`
+/// devolver `.incomplete` e **segurar no buffer dele** o resto da linha e a
+/// resposta tagueada seguinte, que só saem quando outros bytes chegarem; o
+/// comando morre de teto de tempo culpando o servidor. E o conteúdo do literal
+/// sai em pedaços arbitrários, de modo que um caractere multibyte cortado ao
+/// meio vira dois `U+FFFD` — o "ç" some e a contagem de bytes do literal
+/// escorrega junto. Os dois foram reproduzidos contra a 0.4.0 antes de escrever
+/// isto. Aqui, a linha lógica sai inteira ou não sai, e o conteúdo é
+/// decodificado uma vez só, no fim.
 ///
 /// `decodeLast` **não** é implementado de propósito: o padrão do NIO drena o
 /// que dá e descarta o resto sem `\n`, e descartar é o comportamento seguro.
@@ -384,32 +410,129 @@ struct ImapCommandResult: Sendable {
 struct CRLFLineDecoder: ByteToMessageDecoder {
     typealias InboundOut = ByteBuffer
 
-    /// Teto de uma linha de protocolo.
+    /// Teto da parte **de linha** de uma resposta.
     ///
     /// Sem teto, um servidor (ou alguém no meio) que despeje bytes sem `\n`
     /// faz o `ByteToMessageHandler` crescer o buffer até a memória acabar —
     /// negação de serviço com uma conexão só. 64 KiB é folgado para as linhas
-    /// que o IMAP manda de fato; conteúdo grande vem em literal `{n}`, que a
-    /// Task 10 lê com o decodificador da biblioteca.
+    /// que o IMAP manda de fato.
     static let tetoDaLinha = 64 * 1024
 
+    /// Teto do conteúdo de um literal.
+    ///
+    /// O corpo de uma mensagem é grande de propósito, então o teto de linha não
+    /// serve aqui — mas "sem teto" também não: o tamanho vem declarado pelo
+    /// servidor, e aceitar `{9999999999}` é entregar a memória do processo a
+    /// quem estiver do outro lado. Oito mebibytes cobrem qualquer corpo de texto
+    /// real com folga, e a recusa é imediata, na leitura do cabeçalho, antes de
+    /// reservar byte nenhum.
+    static let tetoDoLiteral = 8 * 1024 * 1024
+
+    let pendencia: PendenciaDeBytes
+
+    init(pendencia: PendenciaDeBytes = PendenciaDeBytes()) {
+        self.pendencia = pendencia
+    }
+
     mutating func decode(context: ChannelHandlerContext, buffer: inout ByteBuffer) throws -> DecodingState {
-        let visao = buffer.readableBytesView
-        guard let fim = visao.firstIndex(of: UInt8(ascii: "\n")) else {
-            if buffer.readableBytes > Self.tetoDaLinha {
-                throw SyncError.resposta(
-                    "O servidor IMAP mandou uma linha maior que \(Self.tetoDaLinha) bytes sem terminador."
-                )
+        // `varrido` é quanto da linha lógica corrente já foi conferido; ele
+        // sobrevive entre chamadas dentro da mesma linha, e é o que impede
+        // reprocessar o corpo inteiro a cada pedaço que chega da rede.
+        while true {
+            let visao = buffer.readableBytesView
+            let base = visao.startIndex
+
+            if restanteDoLiteral > 0 {
+                let disponivel = visao.count - varrido
+                guard disponivel > 0 else { return pare(&buffer) }
+                let pega = min(disponivel, restanteDoLiteral)
+                varrido += pega
+                restanteDoLiteral -= pega
+                if restanteDoLiteral > 0 { return pare(&buffer) }
+                continue
             }
-            return .needMoreData
+
+            guard let fim = visao[visao.index(base, offsetBy: varrido)...]
+                .firstIndex(of: UInt8(ascii: "\n"))
+            else {
+                varrido = visao.count
+                if varrido > Self.tetoDaLinha {
+                    throw SyncError.resposta(
+                        "O servidor IMAP mandou uma linha maior que \(Self.tetoDaLinha) bytes sem terminador."
+                    )
+                }
+                return pare(&buffer)
+            }
+
+            let depoisDoLF = visao.distance(from: base, to: fim) + 1
+
+            // A linha só acaba aqui se ela **não** terminar abrindo um literal.
+            // Tamanho zero não abre nada: o conteúdo é vazio e o resto da linha
+            // vem logo em seguida, na mesma varredura. É exatamente o caso em
+            // que o framer da biblioteca prendia a resposta tagueada.
+            if let tamanho = Self.tamanhoDoLiteral(visao, ate: depoisDoLF - 1) {
+                guard tamanho <= Self.tetoDoLiteral else {
+                    throw SyncError.resposta(
+                        "O servidor IMAP anunciou um literal de \(tamanho) bytes, acima do teto de \(Self.tetoDoLiteral)."
+                    )
+                }
+                restanteDoLiteral = tamanho
+                varrido = depoisDoLF
+                continue
+            }
+
+            var linha = buffer.readSlice(length: depoisDoLF - 1)!
+            buffer.moveReaderIndex(forwardBy: 1) // o `\n`
+            if linha.readableBytesView.last == UInt8(ascii: "\r") {
+                linha = linha.readSlice(length: linha.readableBytes - 1)!
+            }
+            varrido = 0
+            pendencia.bytes = buffer.readableBytes
+            context.fireChannelRead(wrapInboundOut(linha))
+            return .continue
         }
-        var linha = buffer.readSlice(length: fim - visao.startIndex)!
-        buffer.moveReaderIndex(forwardBy: 1) // o `\n`
-        if linha.readableBytesView.last == UInt8(ascii: "\r") {
-            linha = linha.readSlice(length: linha.readableBytes - 1)!
+    }
+
+    /// O tamanho do literal que a linha abre no fim, ou `nil` se ela não abre
+    /// nenhum. `fimExclusivo` é o índice do `\n`.
+    ///
+    /// A leitura é para trás, em bytes: `\r\n` é um grafema só para o Swift, e
+    /// o cabeçalho é ASCII puro.
+    static func tamanhoDoLiteral(_ visao: ByteBufferView, ate fimExclusivo: Int) -> Int? {
+        let base = visao.startIndex
+        var i = fimExclusivo
+        func byte(_ posicao: Int) -> UInt8? {
+            guard posicao >= 0, posicao < visao.count else { return nil }
+            return visao[visao.index(base, offsetBy: posicao)]
         }
-        context.fireChannelRead(wrapInboundOut(linha))
-        return .continue
+        if byte(i - 1) == UInt8(ascii: "\r") { i -= 1 }
+        guard byte(i - 1) == UInt8(ascii: "}") else { return nil }
+        i -= 1
+        if let anterior = byte(i - 1), anterior == UInt8(ascii: "+") || anterior == UInt8(ascii: "-") {
+            i -= 1 // LITERAL+ / LITERAL-
+        }
+        var tamanho = 0
+        var escala = 1
+        var digitos = 0
+        while let digito = byte(i - 1), digito >= UInt8(ascii: "0"), digito <= UInt8(ascii: "9") {
+            tamanho += Int(digito - UInt8(ascii: "0")) * escala
+            escala *= 10
+            digitos += 1
+            i -= 1
+            if digitos > 12 { return nil } // tamanho absurdo: não é cabeçalho
+        }
+        guard digitos > 0 else { return nil }
+        if byte(i - 1) == UInt8(ascii: "~") { i -= 1 } // literal binário
+        guard byte(i - 1) == UInt8(ascii: "{") else { return nil }
+        return tamanho
+    }
+
+    private var varrido = 0
+    private var restanteDoLiteral = 0
+
+    private mutating func pare(_ buffer: inout ByteBuffer) -> DecodingState {
+        pendencia.bytes = buffer.readableBytes
+        return .needMoreData
     }
 }
 
@@ -420,8 +543,12 @@ struct CRLFLineDecoder: ByteToMessageDecoder {
 /// some no primeiro refactor. O `continuation` é o que transforma o callback do
 /// NIO em `await`.
 final class ImapChannelHandler: ChannelInboundHandler, @unchecked Sendable {
-    typealias InboundIn = FramingResult
+    typealias InboundIn = ByteBuffer
     typealias OutboundOut = ByteBuffer
+
+    /// Quantos bytes o decodificador está segurando sem terem virado linha.
+    /// Compartilhado com ele; conferido na fronteira do STARTTLS.
+    let pendencia = PendenciaDeBytes()
 
     private let lock = NSLock()
     private var greeting: CheckedContinuation<String, any Error>?
@@ -430,10 +557,6 @@ final class ImapChannelHandler: ChannelInboundHandler, @unchecked Sendable {
     private var pendingTag: String?
     private var pending: CheckedContinuation<ImapCommandResult, any Error>?
     private var collected: [ImapWire.Untagged] = []
-    /// A costura dos quadros da biblioteca em linhas lógicas. Só é tocada na
-    /// event loop — em `channelRead` e no bloco que sobe o TLS —, e por isso
-    /// não entra no `lock`.
-    private var costura = ImapFrameJoiner()
     private var falhaFinal: (any Error)?
     private var relogio: Scheduled<Void>?
     private var cancelamentoPendente = false
@@ -521,9 +644,11 @@ final class ImapChannelHandler: ChannelInboundHandler, @unchecked Sendable {
     /// TLS. Chamada **na event loop**, junto com a inserção do handler.
     func verificaFronteiraLimpa() throws {
         lock.lock()
-        // `costura.montando` entra na conta: uma linha lógica pela metade é
-        // conversa em claro pendurada tanto quanto uma linha inteira.
-        let sujo = !collected.isEmpty || linhasOrfas > 0 || pending != nil || costura.montando
+        // `pendencia.bytes` entra na conta: meia linha parada **dentro** do
+        // decodificador é conversa em claro que o túnel cobriria sem ninguém
+        // ver — e ela nunca chega a virar linha coletada, então nenhum dos
+        // outros três sinais a enxerga.
+        let sujo = !collected.isEmpty || linhasOrfas > 0 || pending != nil || pendencia.bytes > 0
         lock.unlock()
         if sujo {
             throw SyncError.tls(
@@ -535,16 +660,13 @@ final class ImapChannelHandler: ChannelInboundHandler, @unchecked Sendable {
     // MARK: Leitura
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-        let quadro = unwrapInboundIn(data)
-        let linha: String
-        do {
-            guard let completa = try costura.junta(quadro) else { return }
-            linha = completa
-        } catch {
-            falha(Self.traduz(error))
-            context.close(promise: nil)
-            return
-        }
+        var buffer = unwrapInboundIn(data)
+        // Uma decodificação **só**, sobre a linha lógica inteira: decodificar
+        // pedaço a pedaço partiria qualquer caractere multibyte que caísse na
+        // emenda em dois `U+FFFD`.
+        let linha = (buffer.readString(length: buffer.readableBytes) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !linha.isEmpty else { return }
 
         lock.lock()
         if let continuation = greeting {

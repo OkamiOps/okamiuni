@@ -239,6 +239,28 @@ struct ImapSessionTests {
         #expect(!servidor.commands.contains { $0.contains("LOGIN") })
     }
 
+    @Test("Meia linha emendada antes do TLS também derruba a conexão")
+    func startTLSComInjecaoSemTerminador() async throws {
+        // A injeção do CVE-2011-0411 não precisa ser uma linha inteira: bytes
+        // sem CRLF ficam **dentro** do decodificador, onde nenhuma linha
+        // coletada os enxerga, e o túnel subiria por cima deles como se
+        // tivessem vindo de dentro.
+        let servidor = FakeImapServer(script: .init(replies: [
+            "STARTTLS": ["TAG OK Begin TLS negotiation now", "CRU:* OK injetado sem terminador"],
+            "LOGIN": ["TAG OK LOGIN completed"],
+        ]))
+        let porta = try servidor.start()
+        defer { servidor.stop() }
+
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+
+        await #expect(throws: SyncError.self) {
+            _ = try await ImapSession.connect(endpoint: endpoint(porta: porta), group: grupo)
+        }
+        #expect(!servidor.commands.contains { $0.contains("LOGIN") })
+    }
+
     @Test("Handshake TLS falho é erro de TLS, e não de rede")
     func tlsContraServidorEmClaro() async throws {
         // O servidor falso fala IMAP em texto puro. Um cliente em TLS implícito
@@ -411,10 +433,28 @@ struct ImapSessionTests {
 
 @Suite("IMAP: o corte de linhas")
 struct CRLFLineDecoderTests {
-    private func canal() -> EmbeddedChannel {
+    private func canal(_ pendencia: PendenciaDeBytes = PendenciaDeBytes()) -> EmbeddedChannel {
         let canal = EmbeddedChannel()
-        try! canal.pipeline.syncOperations.addHandler(ByteToMessageHandler(CRLFLineDecoder()))
+        try! canal.pipeline.syncOperations.addHandler(
+            ByteToMessageHandler(CRLFLineDecoder(pendencia: pendencia))
+        )
         return canal
+    }
+
+    /// As linhas lógicas que saem quando os bytes entram nessas fatias.
+    private func linhas(_ escritas: [[UInt8]]) throws -> [String] {
+        let canal = canal()
+        var saida: [String] = []
+        for escrita in escritas {
+            var entrada = canal.allocator.buffer(capacity: escrita.count)
+            entrada.writeBytes(escrita)
+            try canal.writeInbound(entrada)
+            while let linha = try canal.readInbound(as: ByteBuffer.self) {
+                saida.append(String(buffer: linha))
+            }
+        }
+        _ = try? canal.finish()
+        return saida
     }
 
     @Test("Corta por CRLF e entrega a linha sem o terminador")
@@ -433,11 +473,69 @@ struct CRLFLineDecoderTests {
     @Test("Linha sem terminador acima do teto vira erro, e não memória sem fim")
     func tetoDaLinha() throws {
         // Sem teto, quem despeja bytes sem `\n` faz o buffer crescer até a
-        // memória acabar — negação de serviço com uma conexão só.
+        // memória acabar — negação de serviço com uma conexão só. A mensagem
+        // faz parte do que se promete: é ela que diz o que aconteceu em vez de
+        // deixar um erro de biblioteca em inglês vazar para a tela.
         let canal = canal()
         var entrada = canal.allocator.buffer(capacity: CRLFLineDecoder.tetoDaLinha + 64)
         entrada.writeString(String(repeating: "x", count: CRLFLineDecoder.tetoDaLinha + 1))
+        #expect(throws: SyncError.resposta(
+            "O servidor IMAP mandou uma linha maior que \(CRLFLineDecoder.tetoDaLinha) bytes sem terminador."
+        )) { try canal.writeInbound(entrada) }
+        _ = try? canal.finish()
+    }
+
+    @Test("Literal anunciado acima do teto é recusado antes de reservar memória")
+    func tetoDoLiteral() throws {
+        // O tamanho vem declarado pelo servidor. Aceitar `{9999999999}` é
+        // entregar a memória do processo a quem estiver do outro lado; o corpo
+        // de texto mais gordo que existe cabe em oito mebibytes.
+        let canal = canal()
+        var entrada = canal.allocator.buffer(capacity: 64)
+        entrada.writeString("* 1 FETCH (BODY[TEXT] {99999999}\r\n")
         #expect(throws: SyncError.self) { try canal.writeInbound(entrada) }
+        _ = try? canal.finish()
+    }
+
+    @Test("O literal atravessa duas leituras sem partir um caractere ao meio")
+    func literalPartidoEntreLeituras() throws {
+        // "ação" tem seis bytes e quatro caracteres. Se cada pedaço que chega
+        // da rede for decodificado sozinho, o "ç" cortado entre `0xC3` e `0xA7`
+        // vira dois `U+FFFD` — e como `U+FFFD` ocupa três bytes, a contagem do
+        // literal escorrega junto e o "o" some.
+        let cabeca = Array("* 1 FETCH (UID 9 BODY[TEXT] {6}\r\na".utf8) + [0xC3]
+        let rabo: [UInt8] = [0xA7, 0xC3, 0xA3] + Array("o)\r\n".utf8)
+        #expect(try linhas([cabeca, rabo]) == ["* 1 FETCH (UID 9 BODY[TEXT] {6}\r\nação)"])
+    }
+
+    @Test("Byte a byte dá exatamente a mesma linha lógica")
+    func byteAByte() throws {
+        let resposta = "* 1 FETCH (UID 9 BODY[TEXT] {6}\r\nação)\r\n"
+        let umPorVez = Array(resposta.utf8).map { [$0] }
+        #expect(try linhas(umPorVez) == ["* 1 FETCH (UID 9 BODY[TEXT] {6}\r\nação)"])
+    }
+
+    @Test("Um literal `{0}` não segura o resto da linha nem a resposta seguinte")
+    func literalVazio() throws {
+        // Corpo vazio existe: convite de agenda, mensagem só com anexo. Um
+        // framer que entra em "modo literal" com tamanho zero fica esperando
+        // bytes que já chegaram, e a resposta tagueada morre de teto de tempo
+        // culpando o servidor.
+        let tudo = Array("* 1 FETCH (UID 9 BODY[TEXT] {0}\r\n)\r\nA0002 OK done\r\n".utf8)
+        #expect(try linhas([tudo]) == ["* 1 FETCH (UID 9 BODY[TEXT] {0}\r\n)", "A0002 OK done"])
+    }
+
+    @Test("Bytes presos sem terminador ficam contados para quem precisa saber")
+    func pendenciaContada() throws {
+        // É este número que a fronteira do STARTTLS consulta: meia linha parada
+        // dentro do decodificador é conversa em claro que o túnel cobriria.
+        let pendencia = PendenciaDeBytes()
+        let canal = canal(pendencia)
+        var entrada = canal.allocator.buffer(capacity: 32)
+        entrada.writeString("* OK inteira\r\n* OK meia")
+        try canal.writeInbound(entrada)
+        #expect(try canal.readInbound(as: ByteBuffer.self).map { String(buffer: $0) } == "* OK inteira")
+        #expect(pendencia.bytes == Array("* OK meia".utf8).count)
         _ = try? canal.finish()
     }
 
