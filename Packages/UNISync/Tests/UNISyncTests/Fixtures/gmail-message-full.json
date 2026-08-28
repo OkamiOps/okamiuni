@@ -1,0 +1,20 @@
+{"id":"18f0a1b2c3","threadId":"18f0a1b2c3",
+ "labelIds":["INBOX","UNREAD","STARRED"],
+ "snippet":"A revisão do contrato ficou pronta",
+ "internalDate":"1800000000000",
+ "payload":{
+   "mimeType":"multipart/alternative",
+   "headers":[
+     {"name":"From","value":"\"Duarte, Marina\" <marina@clientepremium.com>"},
+     {"name":"To","value":"Ricardo Alves <ricardo@gmail.com>, contato@meusite.com"},
+     {"name":"Cc","value":"juridico@clientepremium.com"},
+     {"name":"Subject","value":"=?UTF-8?B?UmV2aXPDo28gZG8gY29udHJhdG8=?="},
+     {"name":"Date","value":"Tue, 25 Aug 2026 09:00:00 -0300"}
+   ],
+   "parts":[
+     {"partId":"0","mimeType":"text/plain","body":{"size":74,
+      "data":"QSByZXZpc8OjbyBkbyBjb250cmF0byBmaWNvdSBwcm9udGEuCgpQb2RlbW9zIGZlY2hhciBxdWludGE_"}},
+     {"partId":"1","mimeType":"text/html","body":{"size":92,
+      "data":"PHA-QSByZXZpc8OjbyBmaWNvdSBwcm9udGEuPC9wPg_-"}}
+   ]
+ }}

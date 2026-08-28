@@ -1,0 +1,8 @@
+{"labels":[
+  {"id":"INBOX","name":"INBOX","type":"system"},
+  {"id":"SENT","name":"SENT","type":"system"},
+  {"id":"TRASH","name":"TRASH","type":"system"},
+  {"id":"UNREAD","name":"UNREAD","type":"system"},
+  {"id":"STARRED","name":"STARRED","type":"system"},
+  {"id":"Label_7","name":"OkamiUNI/Depois","type":"user"}
+]}
