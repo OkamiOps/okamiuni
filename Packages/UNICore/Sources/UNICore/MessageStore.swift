@@ -356,11 +356,23 @@ public final class MailStore {
             // porque `matches` usa `bodyHits` como **acréscimo**. Trocar o
             // acréscimo por substituição faria os dois divergirem — e a busca
             // sobre as fixtures esvaziaria a lista a cada tecla.
-            bodyHits = try await source.bodyMatches(termo, accountID: selectedAccountID) ?? []
+            let acertos = try await source.bodyMatches(termo, accountID: selectedAccountID) ?? []
+            // O carimbo: entre o `await` acima e esta linha, a pessoa pode ter
+            // digitado mais uma tecla — "a" virou "ab", e outra chamada a
+            // `refreshBodyMatches()` já está em voo. Se essa outra responder
+            // primeiro, gravar aqui por cima apagaria o acerto do termo atual
+            // com o do termo velho. `termo` é o que **esta** chamada pediu;
+            // se `query` já não bate mais com ele, a resposta chegou tarde
+            // demais para valer, e é descartada.
+            guard query.trimmingCharacters(in: .whitespaces) == termo else { return }
+            bodyHits = acertos
         } catch {
             // A busca no corpo falhar não pode apagar a lista: a busca do
             // Marco 1 continua valendo, e o erro aparece na janela de Contas —
-            // exceto quando o que houve foi cancelamento, ver `report`.
+            // exceto quando o que houve foi cancelamento, ver `report`. A
+            // mesma guarda do carimbo vale aqui: uma falha atrasada de um
+            // termo velho não pode limpar os acertos do termo atual.
+            guard query.trimmingCharacters(in: .whitespaces) == termo else { return }
             bodyHits = []
             report(error)
         }

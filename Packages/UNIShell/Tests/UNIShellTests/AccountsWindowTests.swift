@@ -280,6 +280,44 @@ struct AccountsWindowTests {
         #expect(comRede.first?.label == "Tentar de novo")
     }
 
+    /// **"Ver o roteiro" abre o roteiro — não chama `onReconnect`.**
+    ///
+    /// A linha oferece "Ver o roteiro" para `.semClientID` (`acaoCombinaComACausa`
+    /// acima), mas antes desta task a ação por trás do rótulo era `.reconnect`,
+    /// e `.reconnect` cai em `execute()` no mesmo `onReconnect` que
+    /// "Reconectar" usa — que dispara `model.loadInitial`, uma tentativa de
+    /// OAuth sem Client ID nenhum para tentar. A pessoa lia "Ver o roteiro",
+    /// clicava, e o app tentava de novo o mesmo login que já falhou, em vez de
+    /// abrir `docs/oauth-google.md`.
+    ///
+    /// O duplo de contadores — `onReconnect` e `onRetry` — é o que prova a
+    /// fiação: com o defeito, `.semClientID` produzia `.reconnect(.semClientID)`
+    /// e `reconectou` subiria para 1 ao executar a ação. Corrigido, a ação é
+    /// `.openRoteiro`, nenhum dos dois contadores se move, e quem abre o
+    /// arquivo é `AccountsDocs` diretamente.
+    @Test("A ação de 'Ver o roteiro' é openRoteiro, e executá-la não chama reconectar nem tentar de novo")
+    func verORoteiroNaoReconecta() {
+        let comSemClientID = AccountsCopy.actions(for: status(state: .erroDeAutenticacao, erro: .semClientID))
+        #expect(comSemClientID == [.openRoteiro, .remove])
+        #expect(comSemClientID.first?.label == "Ver o roteiro")
+        // Nem `.reconnect(.semClientID)` nem `.retry(.semClientID)`: a ação
+        // não é nenhuma das duas outras — é uma terceira coisa.
+        #expect(comSemClientID.first != .reconnect(.semClientID))
+        #expect(comSemClientID.first != .retry(.semClientID))
+
+        var reconectou = 0
+        var tentou = 0
+        let lista = AccountsList(
+            statuses: [],
+            onReconnect: { _ in reconectou += 1 },
+            onRetry: { _ in tentou += 1 },
+            onRemove: { _ in }
+        )
+        lista.execute(.openRoteiro, on: "conta-a")
+        #expect(reconectou == 0, "'Ver o roteiro' chamou onReconnect")
+        #expect(tentou == 0, "'Ver o roteiro' chamou onRetry")
+    }
+
     /// **A conta que volta quebrada do banco também tem saída.**
     ///
     /// O erro detalhado vive num dicionário de memória do `AccountDirector` e

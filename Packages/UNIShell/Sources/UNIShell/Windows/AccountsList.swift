@@ -14,6 +14,10 @@ public enum AccountRowAction: Hashable, Sendable, Identifiable {
     case reconnect(SyncError)
     /// Repetir a operação. Para o que passa sozinho: rede, TLS, quota.
     case retry(SyncError)
+    /// Abrir `docs/oauth-google.md`. Só para `.semClientID` — não há
+    /// credencial para refazer nem operação para repetir: falta configurar o
+    /// app, e o roteiro é o que diz como.
+    case openRoteiro
     /// Apagar a conta — destrutivo, e por isso pergunta antes.
     case remove
 
@@ -21,6 +25,7 @@ public enum AccountRowAction: Hashable, Sendable, Identifiable {
         switch self {
         case .reconnect: "reconnect"
         case .retry: "retry"
+        case .openRoteiro: "openRoteiro"
         case .remove: "remove"
         }
     }
@@ -28,6 +33,7 @@ public enum AccountRowAction: Hashable, Sendable, Identifiable {
     public var label: String {
         switch self {
         case .reconnect(let erro), .retry(let erro): AccountsCopy.action(for: erro)
+        case .openRoteiro: AccountsCopy.action(for: .semClientID)
         case .remove: "Remover"
         }
     }
@@ -35,6 +41,7 @@ public enum AccountRowAction: Hashable, Sendable, Identifiable {
     public var help: String {
         switch self {
         case .reconnect(let erro), .retry(let erro): AccountsCopy.actionHelp(for: erro)
+        case .openRoteiro: AccountsCopy.actionHelp(for: .semClientID)
         case .remove: "Apagar esta conta, as mensagens baixadas dela e a senha guardada"
         }
     }
@@ -119,8 +126,14 @@ public enum AccountsCopy {
         var acoes: [AccountRowAction] = []
         if let erro = cause(of: s) {
             switch erro {
-            case .autenticacao, .autorizacaoRevogada, .semClientID:
+            case .autenticacao, .autorizacaoRevogada:
                 acoes.append(.reconnect(erro))
+            case .semClientID:
+                // Não é reconectar: não há credencial revogada para refazer,
+                // é o app que não foi configurado com um Client ID. Mandar
+                // isto para `onReconnect` (que dispara `loadInitial`) repetia
+                // um OAuth sem nada para tentar — ver `verORoteiroNaoReconecta`.
+                acoes.append(.openRoteiro)
             default:
                 acoes.append(.retry(erro))
             }
@@ -274,10 +287,16 @@ public struct AccountsList: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func execute(_ acao: AccountRowAction, on accountID: String) {
+    /// Não é `private`: `AccountsWindowTests` chama diretamente para provar
+    /// que "Ver o roteiro" não cai no mesmo `onReconnect` de "Reconectar" —
+    /// ver `verORoteiroNaoReconecta`.
+    func execute(_ acao: AccountRowAction, on accountID: String) {
         switch acao {
         case .reconnect: onReconnect(accountID)
         case .retry: onRetry(accountID)
+        // Abre o arquivo direto — não passa pelo `model`, porque não há carga
+        // nenhuma para refazer aqui, só um roteiro para ler.
+        case .openRoteiro: AccountsDocs.open(AccountsDocs.oauthGoogle)
         case .remove: onRemove(accountID)
         }
     }

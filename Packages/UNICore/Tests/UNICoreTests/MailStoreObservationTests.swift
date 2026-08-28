@@ -173,6 +173,50 @@ struct MailStoreObservationTests {
         await store.refreshBodyMatches()
         #expect(!store.visibleMessages.isEmpty)
     }
+
+    /// **A resposta atrasada de um termo velho não pode sobrescrever o termo
+    /// atual.**
+    ///
+    /// A reprodução do revisor: "a" → "ab". A pessoa digita "a", o índice do
+    /// banco começa a procurar; antes de responder, ela digita mais uma letra
+    /// e a busca de "ab" dispara também. Sem carimbo, as duas gravam direto em
+    /// `bodyHits` — e quem escrever por último vence, não quem tem o termo
+    /// atual. Aqui "ab" responde primeiro e "a" responde depois, atrasada: o
+    /// defeito é a resposta de "a" apagar os acertos de "ab" que já estavam na
+    /// tela.
+    ///
+    /// `FonteControlavel` segura cada consulta numa continuação até o teste
+    /// mandar liberar — é o que torna a ordem determinística em vez de uma
+    /// corrida de verdade.
+    @Test("Resposta atrasada de um termo antigo não sobrescreve o termo atual")
+    func termoAntigoNaoSobrescreveOAtual() async throws {
+        let fonte = FonteControlavel(hits: ["a": ["m1"], "ab": ["m2"]])
+        let store = MailStore(source: fonte)
+        await store.load()
+
+        store.query = "a"
+        async let buscaA: Void = store.refreshBodyMatches()
+        await fonte.aguardaPedido("a")
+
+        store.query = "ab"
+        async let buscaAB: Void = store.refreshBodyMatches()
+        await fonte.aguardaPedido("ab")
+
+        // "ab" responde primeiro — é o termo atual, e a lista deve mostrar o
+        // acerto dele.
+        fonte.libera("ab")
+        await buscaAB
+        #expect(store.visibleMessages.map(\.id) == ["m2"], "o acerto de 'ab' não chegou à lista")
+
+        // "a" só responde agora, atrasada. Descartada: não é mais o termo
+        // atual, e escrever por cima apagaria o que "ab" acabou de acertar.
+        fonte.libera("a")
+        await buscaA
+        #expect(
+            store.visibleMessages.map(\.id) == ["m2"],
+            "a resposta atrasada de 'a' sobrescreveu o acerto de 'ab'"
+        )
+    }
 }
 
 private enum FalhaDeTeste: Error, LocalizedError {
@@ -227,4 +271,85 @@ private struct FonteComCorpo: MailSource {
     func agenda() async throws -> [AgendaItem] { [] }
     func pendingItems() async throws -> [PendingItem] { [] }
     func bodyMatches(_ term: String, accountID: String?) async throws -> Set<String>? { hits }
+}
+
+/// Uma fonte cuja `bodyMatches` fica **presa** até o teste mandar liberar —
+/// termo por termo. É o que torna determinística a ordem "'ab' responde antes
+/// de 'a', embora 'a' tenha sido pedido primeiro", em vez de depender de uma
+/// corrida de verdade contra o agendador.
+///
+/// `@unchecked Sendable` com trava porque `MailSource` é `Sendable` e os dois
+/// lados — a consulta que chega e o teste que libera — mexem no mesmo estado
+/// de fora do ator.
+private final class FonteControlavel: MailSource, @unchecked Sendable {
+    private let trava = NSLock()
+    private let hits: [String: Set<String>]
+    private var liberacoes: [String: CheckedContinuation<Void, Never>] = [:]
+    private var pedidosPendentes: Set<String> = []
+    private var avisosDePedido: [String: CheckedContinuation<Void, Never>] = [:]
+
+    init(hits: [String: Set<String>]) { self.hits = hits }
+
+    func accounts() async throws -> [Account] { Fixtures.accounts }
+    func messages() async throws -> [Message] {
+        [Message.preview(id: "m1"), Message.preview(id: "m2")]
+    }
+    func agenda() async throws -> [AgendaItem] { [] }
+    func pendingItems() async throws -> [PendingItem] { [] }
+
+    func bodyMatches(_ term: String, accountID: String?) async throws -> Set<String>? {
+        let avisador = registraPedido(term)
+        avisador?.resume()
+
+        await withCheckedContinuation { (continuacao: CheckedContinuation<Void, Never>) in
+            registraLiberacao(term, continuacao)
+        }
+        return hits[term] ?? []
+    }
+
+    /// Espera a consulta deste termo **chegar** à fonte, sem se importar se
+    /// chegou antes ou depois desta chamada — as duas ordens são possíveis
+    /// dependendo de quando o agendador roda a tarefa filha do `async let`.
+    func aguardaPedido(_ term: String) async {
+        if jaPediu(term) { return }
+        await withCheckedContinuation { (continuacao: CheckedContinuation<Void, Never>) in
+            registraAviso(term, continuacao)
+        }
+    }
+
+    /// Destrava a consulta deste termo, que devolve o que `hits[term]` tiver.
+    func libera(_ term: String) {
+        trava.lock()
+        let continuacao = liberacoes.removeValue(forKey: term)
+        trava.unlock()
+        continuacao?.resume()
+    }
+
+    // MARK: A trava, isolada em funções síncronas — `NSLock` não pode ser
+    // usada direto dentro do corpo de uma função `async`.
+
+    private func registraPedido(_ term: String) -> CheckedContinuation<Void, Never>? {
+        trava.lock()
+        defer { trava.unlock() }
+        pedidosPendentes.insert(term)
+        return avisosDePedido.removeValue(forKey: term)
+    }
+
+    private func registraLiberacao(_ term: String, _ continuacao: CheckedContinuation<Void, Never>) {
+        trava.lock()
+        defer { trava.unlock() }
+        liberacoes[term] = continuacao
+    }
+
+    private func jaPediu(_ term: String) -> Bool {
+        trava.lock()
+        defer { trava.unlock() }
+        return pedidosPendentes.contains(term)
+    }
+
+    private func registraAviso(_ term: String, _ continuacao: CheckedContinuation<Void, Never>) {
+        trava.lock()
+        defer { trava.unlock() }
+        avisosDePedido[term] = continuacao
+    }
 }
