@@ -118,14 +118,37 @@ public struct Message: Sendable, Hashable, Identifiable {
     /// campo — ver o relatório da Task Y.
     public let replyHints: [String]
 
+    /// O id que o **servidor** dá a esta mensagem, opaco para nós.
+    ///
+    /// Gmail: o `id` da `messages.get`. IMAP: o UID, em texto. Nulo nas
+    /// fixtures e em qualquer mensagem que não nasceu de um servidor — é
+    /// aditivo, como `dayOffset` foi.
+    ///
+    /// Opaco de verdade: nada no app interpreta este texto, faz `switch` sobre
+    /// ele nem presume formato. Quem precisa de um id **nosso** usa
+    /// `Message.id`, que `UNISync.MessageIdentity` monta de forma estável.
+    public let serverID: String?
+
+    /// O `UIDVALIDITY` da pasta IMAP de onde o UID veio. Nulo para Gmail e
+    /// para as fixtures.
+    ///
+    /// Existe porque UID sozinho não identifica nada: o servidor pode trocar o
+    /// `UIDVALIDITY` da pasta e reciclar os UIDs desde 1. Guardar o par é o que
+    /// permite ao Marco 3 detectar a troca e refazer a pasta em vez de casar
+    /// mensagem errada com mensagem errada.
+    public let uidValidity: Int64?
+
     public init(
         id: String, accountID: String, from: Contact, receivedAt: Date,
         subject: String, snippet: String, body: [String],
         tags: [Tag], bucket: TriageBucket, isRead: Bool,
         summary: String?, detectedEvent: DetectedEvent?,
         dayOffset: Int = 0, replyHints: [String] = [],
-        to: [Contact] = [], cc: [Contact] = [], isFlagged: Bool = false
+        to: [Contact] = [], cc: [Contact] = [], isFlagged: Bool = false,
+        serverID: String? = nil, uidValidity: Int64? = nil
     ) {
+        self.serverID = serverID
+        self.uidValidity = uidValidity
         self.to = to
         self.cc = cc
         self.isFlagged = isFlagged
@@ -173,10 +196,9 @@ extension Message {
     ///
     /// Cada campo novo com default no `init` é uma armadilha a mais para quem
     /// copia à mão — `dayOffset` e `replyHints` já custaram uma mensagem de
-    /// ontem reaparecendo sob "Hoje". Com `to`, `cc` e `isFlagged` são cinco.
-    /// Aqui a lista é escrita uma vez, e os três copiadores acima passam por
-    /// ela; acrescentar um campo ao modelo quebra **este** arquivo, que é onde
-    /// se quer que quebre.
+    /// ontem reaparecendo sob "Hoje". Com `to`, `cc`, `isFlagged`, `serverID` e
+    /// `uidValidity` são sete. Aqui a lista é escrita uma vez, e os três
+    /// copiadores acima passam por ela.
     private func copy(
         bucket: TriageBucket? = nil,
         isRead: Bool? = nil,
@@ -188,7 +210,8 @@ extension Message {
             bucket: bucket ?? self.bucket, isRead: isRead ?? self.isRead,
             summary: summary, detectedEvent: detectedEvent,
             dayOffset: dayOffset, replyHints: replyHints,
-            to: to, cc: cc, isFlagged: isFlagged ?? self.isFlagged
+            to: to, cc: cc, isFlagged: isFlagged ?? self.isFlagged,
+            serverID: serverID, uidValidity: uidValidity
         )
     }
 
