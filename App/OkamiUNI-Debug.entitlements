@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  As permissões do app **em Debug**, e a única diferença para as de Release é
+  `network.server`.
+
+  Ela existe por causa de um instrumento: `--ensaiar-contas` sobe o
+  `RehearsalImapServer` em 127.0.0.1 numa porta que o sistema escolhe, e o
+  sandbox recusa `bind` sem esta chave ("Operation not permitted", errno 1).
+  Um servidor falso dentro do processo é o que faz o ensaio do fluxo de contas
+  rodar num notebook desligado da internet, sem tocar servidor de ninguém.
+
+  Fica **só aqui**. O app que sai para o mundo (`App/OkamiUNI.entitlements`,
+  usado em Release) não escuta em porta nenhuma, porque não tem nada para
+  escutar: um cliente de e-mail só fala de fora para dentro. Capacidade que o
+  produto não usa não viaja com o produto — mesmo confinada pelo sandbox.
+-->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.app-sandbox</key><true/>
+  <key>com.apple.security.network.client</key><true/>
+  <key>com.apple.security.network.server</key><true/>
+  <key>com.apple.security.personal-information.calendars</key><true/>
+  <key>com.apple.security.files.user-selected.read-write</key><true/>
+</dict>
+</plist>

@@ -2,6 +2,7 @@ import SwiftUI
 import UNIDesign
 import UNIShell
 import UNICore
+import UNISync
 
 @main
 struct OkamiUNIApp: App {
@@ -10,6 +11,18 @@ struct OkamiUNIApp: App {
     /// Quais ações o arraste lateral da linha revela de cada lado. Persistido
     /// em `UserDefaults` como o tema — ver `SwipeSettingsStore`.
     @State private var swipes = SwipeSettingsStore()
+    /// O modelo de Contas **do ensaio**, e só dele: banco temporário, cofre em
+    /// memória, sem OAuth. Nulo sem `--ensaiar-contas`, que é o caso de todo
+    /// mundo — ver `AccountsRehearsal.makeModel()`.
+    ///
+    /// **A cena `uni.accounts` é da Task 18.** Enquanto ela não existe, o
+    /// ensaio precisa de uma janela de Contas para dirigir, e a bandeira a
+    /// empresta da janela principal: com `--ensaiar-contas` a cena principal
+    /// desenha `AccountsWindow` no lugar do `InboxScreen`, ensaia e encerra o
+    /// app sozinha. Nada disto é registro definitivo — é o menor empréstimo que
+    /// deixa o instrumento rodar antes da tarefa que registra a cena de
+    /// verdade, e sai daqui quando ela chegar.
+    @State private var accountsRehearsalModel = AccountsRehearsal.makeModel()
 
     init() {
         FontRegistry.registerBundledFonts()
@@ -24,9 +37,48 @@ struct OkamiUNIApp: App {
         }
     }
 
+    /// O conteúdo da cena principal.
+    ///
+    /// Uma cena só, dois conteúdos, e a bandeira decide. Sem `--ensaiar-contas`
+    /// — o caso de todo mundo — é o `InboxScreen` de sempre, com as portas de
+    /// depuração penduradas nele. Com a bandeira, é a janela de Contas que o
+    /// ensaio dirige e fotografa antes de encerrar o app: a cena `uni.accounts`
+    /// é da Task 18, e até ela chegar o ensaio pega a janela principal
+    /// emprestada em vez de registrar por conta própria uma cena que teria de
+    /// ser desfeita depois.
+    @ViewBuilder
+    private var cenaPrincipal: some View {
+        if let accountsRehearsalModel {
+            AccountsWindow(model: accountsRehearsalModel)
+                .rehearseAccountsIfRequested(
+                    AccountsRehearsal.fromProcess, model: accountsRehearsalModel
+                )
+        } else {
+            InboxScreen(store: mailStore)
+                // Porta de depuração: `open -g --args --nova-mensagem` abre a
+                // janela auxiliar pelo mesmo `openWindow` do menu, sem trazer o
+                // app à frente e sem sintetizar tecla nenhuma. Sem a bandeira,
+                // isto não faz nada.
+                .modifier(LaunchWindowOpener())
+                // `--capturar=/caminho.png`: fotografa a própria janela e
+                // encerra. Sem a bandeira, não faz nada.
+                .captureWindowIfRequested(WindowCapture.fromProcess, store: mailStore)
+                // `--ensaiar-arraste`: arrasta a primeira linha com eventos
+                // sintetizados dentro do processo e fotografa cada fase. Sem a
+                // bandeira, não faz nada.
+                .rehearseSwipeIfRequested(SwipeRehearsal.fromProcess)
+                // `--ensaiar-teclado`: sintetiza ⌘R, ⌘N, ⌘⏎ e as setas do menu
+                // de contexto dentro do processo e afere o efeito de cada uma.
+                .rehearseKeyboardIfRequested(KeyboardRehearsal.fromProcess, store: mailStore)
+                // `--ensaiar-barra`: dois cliques na área vazia da barra de
+                // título e a moldura da janela antes e depois.
+                .rehearseTitleBarIfRequested(TitleBarRehearsal.fromProcess)
+        }
+    }
+
     var body: some Scene {
         WindowGroup("OkamiUNI") {
-            InboxScreen(store: mailStore)
+            cenaPrincipal
                 .environment(themes)
                 .environment(swipes)
                 .theme(themes.theme)
@@ -47,24 +99,6 @@ struct OkamiUNIApp: App {
                 // inteiro comprime até 100. Então 600 aqui é 600 de conteúdo,
                 // 632 de janela.
                 .frame(minWidth: 860, minHeight: 600)
-                // Porta de depuração: `open -g --args --nova-mensagem` abre a
-                // janela auxiliar pelo mesmo `openWindow` do menu, sem trazer o
-                // app à frente e sem sintetizar tecla nenhuma. Sem a bandeira,
-                // isto não faz nada.
-                .modifier(LaunchWindowOpener())
-                // `--capturar=/caminho.png`: fotografa a própria janela e
-                // encerra. Sem a bandeira, não faz nada.
-                .captureWindowIfRequested(WindowCapture.fromProcess, store: mailStore)
-                // `--ensaiar-arraste`: arrasta a primeira linha com eventos
-                // sintetizados dentro do processo e fotografa cada fase. Sem a
-                // bandeira, não faz nada.
-                .rehearseSwipeIfRequested(SwipeRehearsal.fromProcess)
-                // `--ensaiar-teclado`: sintetiza ⌘R, ⌘N, ⌘⏎ e as setas do menu
-                // de contexto dentro do processo e afere o efeito de cada uma.
-                .rehearseKeyboardIfRequested(KeyboardRehearsal.fromProcess, store: mailStore)
-                // `--ensaiar-barra`: dois cliques na área vazia da barra de
-                // título e a moldura da janela antes e depois.
-                .rehearseTitleBarIfRequested(TitleBarRehearsal.fromProcess)
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1440, height: 916)
