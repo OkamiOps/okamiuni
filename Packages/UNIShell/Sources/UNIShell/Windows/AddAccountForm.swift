@@ -94,7 +94,33 @@ public struct AddAccountForm: View {
         ProviderDetector.route(for: address)
     }
 
-    private var route: ProviderRoute? { Self.route(for: address) }
+    /// A pessoa mandou: Gmail por IMAP com senha de app, sem OAuth. Vale só
+    /// para o endereço em que foi pedido — trocar o endereço desfaz a escolha
+    /// (`preenche` zera), senão o clique numa conta contaminaria a próxima.
+    @State private var imapForcadoPara: String?
+
+    private var route: ProviderRoute? {
+        let rota = Self.route(for: address)
+        if case .google = rota, imapForcadoPara == address {
+            return .imap(Self.gmailPorImap)
+        }
+        return rota
+    }
+
+    /// O preset que a tabela não tem de propósito (o caminho padrão do Gmail é
+    /// OAuth): só existe para quem escolhe a senha de app explicitamente.
+    static let gmailPorImap = ImapPreset(
+        name: "Gmail (IMAP)", hostMark: "gmail",
+        endpoint: ImapEndpoint(host: "imap.gmail.com", port: 993, security: .tls),
+        domains: []
+    )
+
+    private func forceImapForGoogle() {
+        imapForcadoPara = address
+        host = Self.gmailPorImap.endpoint.host
+        port = "\(Self.gmailPorImap.endpoint.port)"
+        security = .tls
+    }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -130,6 +156,25 @@ public struct AddAccountForm: View {
                 .help(model.isBusy
                     ? "Há outra ação em curso; ela termina em instantes."
                     : "Abrir o consentimento do Google para \(address)")
+                .focusRing(cornerRadius: theme.radiusSmall)
+
+                // A saída sem console: o Gmail também fala IMAP com senha de
+                // app (verificação em duas etapas ligada). É o caminho de quem
+                // não quer registrar um OAuth Client — dois minutos em
+                // myaccount.google.com/apppasswords, nenhum projeto no Google
+                // Cloud. O OAuth continua sendo o melhor sync (histórico
+                // incremental); a escolha é da pessoa, não nossa.
+                Button("Ou conectar por IMAP com senha de app") {
+                    forceImapForGoogle()
+                }
+                .buttonStyle(.plain)
+                .font(theme.sans.font(size: 11.5))
+                .foregroundStyle(theme.ink3.color)
+                .help("""
+                    Sem registro no Google Cloud: crie uma senha de app em \
+                    myaccount.google.com/apppasswords (exige verificação em \
+                    duas etapas) e conecte como qualquer conta IMAP.
+                    """)
                 .focusRing(cornerRadius: theme.radiusSmall)
 
             case .imap, .manual:
@@ -307,6 +352,7 @@ public struct AddAccountForm: View {
     /// três campos continuam editáveis.
     private func preenche(_ novo: String) {
         testado = nil
+        imapForcadoPara = nil
         let rota = Self.route(for: novo)
         host = Self.host(of: rota)
         port = Self.port(of: rota)
