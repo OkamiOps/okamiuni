@@ -162,10 +162,47 @@ public struct AddAccountForm: View {
                     .font(theme.sans.font(size: 11.5))
                     .foregroundStyle(theme.ink3.color)
             }
+
+            // A nota do endereço numérico, no bloco de recado — junto do erro e
+            // do "testada com sucesso", que é onde já mora tudo o que a janela
+            // tem a dizer **sobre esta tentativa**. É disso que ela fala: do que
+            // vai acontecer quando o botão for apertado.
+            if mostraNotaDoEnderecoNumerico { notaDoEnderecoNumerico }
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(theme.surface.color)
+    }
+
+    /// A nota só faz sentido na rota que tem campo de host: na rota Google não
+    /// há host nenhum para ser numérico.
+    private var mostraNotaDoEnderecoNumerico: Bool {
+        switch route {
+        case .imap, .manual: ImapEndpoint.ehIPLiteral(host)
+        case .none, .google: false
+        }
+    }
+
+    /// Ela **não** impede nada. Servidor interno acessível só por endereço
+    /// existe, e recusá-lo trocaria um enfraquecimento por uma impossibilidade.
+    /// O que ela impede é o enfraquecimento acontecer em silêncio: o SNI do TLS
+    /// não aceita IP, e sem SNI o NIOSSL valida a cadeia mas não confere se o
+    /// certificado é **deste** servidor.
+    ///
+    /// Quem decide se o host é literal é a mesma função que a sessão usa
+    /// (`ImapEndpoint.ehIPLiteral`): escritas em dois lugares, as duas
+    /// divergiriam, e a nota apareceria onde não há perda ou — pior — faltaria
+    /// onde há.
+    private var notaDoEnderecoNumerico: some View {
+        Text("Endereço numérico: o certificado do servidor não é conferido pelo nome.")
+            .font(theme.sans.font(size: 11))
+            .foregroundStyle(theme.ink4.color)
+            .fixedSize(horizontal: false, vertical: true)
+            .help("""
+                O SNI do TLS não aceita endereço numérico, então o app não tem \
+                contra que nome conferir o certificado. A cadeia continua validada. \
+                Prefira o nome do servidor quando ele existir.
+                """)
     }
 
     @ViewBuilder
@@ -220,27 +257,6 @@ public struct AddAccountForm: View {
                     port = security == .tls ? "993" : "143"
                 }
             )
-        }
-
-        // A nota do IP literal. Ela **não** impede nada: servidor interno
-        // acessível só por endereço existe, e recusá-lo trocaria um
-        // enfraquecimento por uma impossibilidade. O que ela impede é o
-        // enfraquecimento acontecer em silêncio — SNI não aceita IP, e sem SNI
-        // o NIOSSL valida a cadeia mas não confere se o certificado é **deste**
-        // servidor. Quem decide se o host é literal é a mesma função que a
-        // sessão usa (`ImapEndpoint.ehIPLiteral`): escritas em dois lugares,
-        // as duas divergiriam, e a nota apareceria onde não há perda ou faltaria
-        // onde há.
-        if ImapEndpoint.ehIPLiteral(host) {
-            Text("Endereço numérico: o certificado do servidor não é conferido pelo nome.")
-                .font(theme.sans.font(size: 11))
-                .foregroundStyle(theme.ink4.color)
-                .fixedSize(horizontal: false, vertical: true)
-                .help("""
-                    O SNI do TLS não aceita endereço numérico, então o app não tem \
-                    contra que nome conferir o certificado. A cadeia continua validada. \
-                    Prefira o nome do servidor quando ele existir.
-                    """)
         }
 
         HStack(spacing: 10) {
