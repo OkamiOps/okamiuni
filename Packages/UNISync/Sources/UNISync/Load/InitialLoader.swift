@@ -349,18 +349,29 @@ public struct InitialLoader: Sendable {
         do {
             try await marca(account.id, estado: .carregando)
 
-            // Só as pastas com papel de triagem. Enviados fica de fora (a
-            // caixa não existe neste marco) e `other` também: carregar toda
-            // pasta que a pessoa criou baixaria a caixa inteira sob o nome de
-            // "90 dias".
-            let comPapel = try await sessao.folders().filter { pasta in
-                TriageProjection.bucket(role: pasta.role) != nil && pasta.role != .other
+            // As pastas que a triagem sabe onde pôr. Enviados fica de fora — a
+            // caixa não existe neste marco, e o que a pessoa escreveu não é
+            // triagem dela.
+            //
+            // As que a **pessoa** criou entram, em Arquivado, com o nome delas
+            // como etiqueta. Esta linha já excluía `.other` de propósito, e a
+            // conta Gmail ao lado incluía todo rótulo do usuário: a mesma
+            // pessoa, com uma pasta "Faturas" nas duas contas, via as faturas do
+            // Gmail e nenhuma das do IMAP. Duas respostas opostas para a mesma
+            // pergunta — que é justamente o que o `TriageProjection` existe para
+            // não ter. Quem decide agora é ele, para os dois.
+            //
+            // O `bucket` sai resolvido aqui, junto com o filtro, para não haver
+            // uma segunda decisão (e um `?? .archived` inalcançável) lá embaixo.
+            let comPapel = try await sessao.folders().compactMap { pasta -> (ImapFolder, TriageBucket)? in
+                guard let bucket = TriageProjection.bucket(role: pasta.role) else { return nil }
+                return (pasta, bucket)
             }
 
             let desde = since(now: now)
             var totalEstimado = 0
             var feitas = 0
-            var porPasta: [(ImapFolder, ImapMailboxStatus, [Int64])] = []
+            var porPasta: [(ImapFolder, TriageBucket, ImapMailboxStatus, [Int64])] = []
             /// O primeiro erro de pasta. Guardado porque uma pasta que falha
             /// não derruba as outras — mas **todas** falharem não é uma carga
             /// bem-sucedida de caixa nenhuma, e terminar `ativa` ali diria à
@@ -373,13 +384,13 @@ public struct InitialLoader: Sendable {
             //    progresso ter denominador de verdade desde o primeiro relato,
             //    em vez de uma barra que anda para trás quando a pasta seguinte
             //    aparece.
-            for pasta in comPapel {
+            for (pasta, bucket) in comPapel {
                 try Task.checkCancellation()
                 do {
                     let status = try await sessao.select(pasta)
                     let uids = try await sessao.uids(since: desde, calendar: calendar)
                     totalEstimado += uids.count
-                    porPasta.append((pasta, status, uids))
+                    porPasta.append((pasta, bucket, status, uids))
                 } catch let erro as SyncError where !Self.derrubaAConta(erro) {
                     // Uma pasta que sumiu entre o `LIST` e o `SELECT`, ou que
                     // o servidor recusa por qualquer motivo local, não pode
@@ -390,10 +401,9 @@ public struct InitialLoader: Sendable {
             progress(LoadProgress(accountID: account.id, done: 0, total: totalEstimado))
 
             // 2. Baixar, pasta a pasta.
-            for (pasta, status, uids) in porPasta {
+            for (pasta, bucket, status, uids) in porPasta {
                 try Task.checkCancellation()
                 let folderID = FolderRecord.id(accountID: account.id, serverName: pasta.name)
-                let bucket = TriageProjection.bucket(role: pasta.role) ?? .archived
                 /// Quantas desta pasta já foram percorridas. Vive fora do `do`
                 /// porque o `catch` precisa saber quantas **faltavam**.
                 var percorridasAqui = 0
@@ -449,7 +459,7 @@ public struct InitialLoader: Sendable {
                         // mesma saída do `trocou` acima, adiada por uma carga.
                         throw SyncError.resposta(
                             "A pasta \(pasta.name) reciclou os UIDs no meio da carga "
-                            + "(UIDVALIDITY \(status.uidValidity ?? 0) → \(relido.uidValidity ?? 0)) "
+                            + "(UIDVALIDITY \(status.uidValidity) → \(relido.uidValidity)) "
                             + "— ela será recarregada do zero."
                         )
                     }
@@ -465,7 +475,9 @@ public struct InitialLoader: Sendable {
                         let fatia = Array(envelopes[lote..<min(lote + batchSize, envelopes.count)])
                         try await gravaImap(
                             fatia, account: account, folderID: folderID,
-                            uidValidity: status.uidValidity, bucket: bucket, corpos: corpos
+                            uidValidity: status.uidValidity, bucket: bucket,
+                            etiqueta: TriageProjection.tag(folderRole: pasta.role, folderName: pasta.name),
+                            corpos: corpos
                         )
                         feitas += fatia.count
                         percorridasAqui += fatia.count
@@ -576,7 +588,8 @@ public struct InitialLoader: Sendable {
 
     private func gravaImap(
         _ envelopes: [ImapEnvelope], account: Account, folderID: String,
-        uidValidity: Int64, bucket: TriageBucket, corpos: [Int64: [String]]
+        uidValidity: Int64, bucket: TriageBucket, etiqueta: Tag?,
+        corpos: [Int64: [String]]
     ) async throws {
         try await database.pool.write { db in
             for envelope in envelopes {
@@ -592,7 +605,11 @@ public struct InitialLoader: Sendable {
                     // Sem corpo baixado, a prévia é o assunto: melhor do que
                     // uma linha vazia onde o design desenha o trecho.
                     snippet: corpo.first ?? envelope.subject,
-                    body: corpo, tags: [], bucket: bucket,
+                    // A etiqueta é o nome da pasta que a PESSOA criou, e quem
+                    // decide isso é o `TriageProjection` — o mesmo lugar que
+                    // decide o `bucket`. Sem ela, cair em Arquivado perderia a
+                    // única informação que a pasta carregava.
+                    body: corpo, tags: etiqueta.map { [$0] } ?? [], bucket: bucket,
                     isRead: envelope.isRead, summary: nil, detectedEvent: nil,
                     to: envelope.to, cc: envelope.cc, isFlagged: envelope.isFlagged,
                     serverID: String(envelope.uid), uidValidity: uidValidity

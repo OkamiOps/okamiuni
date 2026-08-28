@@ -22,6 +22,28 @@ struct TriageProjectionTests {
         #expect(TriageProjection.bucket(role: .sent) == nil)
     }
 
+    @Test("Só a pasta que a pessoa criou vira etiqueta — as nossas cinco são estrutura")
+    func pastaDoUsuarioViraEtiqueta() {
+        // A regra mora aqui, e não dentro do laço da carga, por uma razão que
+        // este pacote já pagou uma vez: a decisão sobre pasta do usuário estava
+        // escrita em dois lugares (o filtro do IMAP e o `return .archived` do
+        // Gmail) e as duas respostas eram opostas.
+        #expect(TriageProjection.tag(folderRole: .other, folderName: "Faturas")?.name == "Faturas")
+        // O nome das nossas é estrutura, e o `bucket` já o diz: "Arquivo"
+        // etiquetado como "Arquivo" é ruído na linha.
+        #expect(TriageProjection.tag(folderRole: .inbox, folderName: "INBOX") == nil)
+        #expect(TriageProjection.tag(folderRole: .archive, folderName: "Arquivo") == nil)
+        #expect(TriageProjection.tag(folderRole: .later, folderName: "OkamiUNI/Depois") == nil)
+        #expect(TriageProjection.tag(folderRole: .trash, folderName: "Lixeira") == nil)
+        #expect(TriageProjection.tag(folderRole: .sent, folderName: "Enviados") == nil)
+        // Nome vazio (ou só espaço) não vira etiqueta vazia na linha.
+        #expect(TriageProjection.tag(folderRole: .other, folderName: "   ") == nil)
+        #expect(TriageProjection.tag(folderRole: .other, folderName: " Faturas ")?.name == "Faturas")
+        // Sem cor própria: a etiqueta herda o `ink3` do tema. A cor por conta
+        // já é a da conta.
+        #expect(TriageProjection.tag(folderRole: .other, folderName: "Faturas")?.tintHex == nil)
+    }
+
     @Test("Os rótulos do Gmail caem nas mesmas caixas, com a mesma precedência")
     func rotulosDoGmail() {
         #expect(TriageProjection.bucket(gmailLabelIDs: ["INBOX", "UNREAD"], laterLabelID: nil) == .today)

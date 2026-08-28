@@ -260,6 +260,52 @@ struct InitialLoaderImapTests {
         #expect(try await db.pool.read { try MessageRecord.fetchCount($0) } == 4)
     }
 
+    @Test("A pasta que a pessoa criou entra, em Arquivado, com o nome como etiqueta")
+    func pastaDoUsuarioEntraComEtiqueta() async throws {
+        // A divergência que isto fecha: o IMAP EXCLUÍA explicitamente toda pasta
+        // sem papel nosso, e a conta Gmail ao lado incluía todo rótulo do
+        // usuário (caindo em Arquivado). A mesma pessoa, com uma pasta "Faturas"
+        // nas duas contas, via as faturas do Gmail e nenhuma das do IMAP — duas
+        // respostas opostas para a pergunta que o `TriageProjection` existe para
+        // responder uma vez só.
+        //
+        // MUTAÇÃO QUE ISTO PEGA: devolver o `&& pasta.role != .other` ao filtro
+        // some com as duas mensagens; trocar `case .other: .archived` por
+        // `.trash` em `TriageProjection` muda o bucket gravado; e apagar o
+        // `TriageProjection.tag` deixa a linha sem etiqueta nenhuma.
+        var script = roteiro()
+        script.replies["LIST"] = [
+            "* LIST (\\HasNoChildren) \"/\" \"INBOX\"",
+            "* LIST (\\HasNoChildren) \"/\" \"Faturas\"",
+            "TAG OK LIST completed",
+        ]
+        let db = try SyncDatabase.temporary()
+        _ = try await carrega(db, script: script)
+
+        let daPasta = try await db.pool.read { conexao in
+            try MessageRecord
+                .filter(Column("folderID") == "conta-i/Faturas")
+                .fetchAll(conexao)
+                .map { $0.message(body: []) }
+        }
+        #expect(daPasta.count == 2)
+        #expect(daPasta.allSatisfy { $0.bucket == .archived })
+        // A etiqueta é o que salva a informação que a pasta carregava: sem ela,
+        // cair em Arquivado apagaria a organização da pessoa.
+        #expect(daPasta.allSatisfy { $0.tags.map(\.name) == ["Faturas"] })
+
+        // E a INBOX continua sendo a INBOX: o nome dela é estrutura, não
+        // etiqueta. "Entrada" etiquetada como "INBOX" seria ruído.
+        let daEntrada = try await db.pool.read { conexao in
+            try MessageRecord
+                .filter(Column("folderID") == "conta-i/INBOX")
+                .fetchAll(conexao)
+                .map { $0.message(body: []) }
+        }
+        #expect(daEntrada.allSatisfy { $0.tags.isEmpty })
+        #expect(daEntrada.allSatisfy { $0.bucket == .today })
+    }
+
     @Test("UIDVALIDITY que troca DENTRO da carga aborta a pasta em vez de carimbar errado")
     func uidValidityTrocadaNoMeioDaCarga() async throws {
         // O `uidValidityTrocadaLimpa` acima cobre a troca **entre duas cargas**.

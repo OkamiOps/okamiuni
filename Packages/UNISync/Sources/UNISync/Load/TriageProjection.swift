@@ -28,8 +28,38 @@ public enum TriageProjection {
         // Pasta que a pessoa criou não tem papel nosso, e "arquivada" é a
         // resposta certa: a mensagem existe, não está na entrada, não está na
         // lixeira. Some da triagem só o que ela mandou sumir.
+        //
+        // Esta linha já foi código morto: o filtro do `InitialLoader` excluía
+        // `.other` antes de chegar aqui, e só o teste-tabela a cobria. Desde que
+        // o IMAP passou a carregar as pastas do usuário (como o Gmail sempre
+        // fez), ela tem caminho de produção — e o nome da pasta vem junto, como
+        // etiqueta, por `tag(folderRole:folderName:)`.
         case .other: .archived
         }
+    }
+
+    /// A etiqueta que uma pasta empresta às mensagens dela — ou `nil`.
+    ///
+    /// **Uma regra, um lugar.** A pergunta "o que a pessoa organizou por conta
+    /// própria entra na triagem, e como?" já teve duas respostas opostas neste
+    /// pacote: o Gmail incluía todo rótulo do usuário (caindo em Arquivado pelo
+    /// `return .archived` do fim) e o IMAP **excluía** explicitamente toda pasta
+    /// sem papel nosso. A mesma pessoa, com uma pasta "Faturas" nas duas contas,
+    /// via as faturas do Gmail em Arquivado e nenhuma das do IMAP.
+    ///
+    /// A resposta escolhida é a do Gmail: pasta do usuário entra, em Arquivado
+    /// (`bucket(role: .other)`), e o nome dela vira etiqueta — sem isso, entrar
+    /// em Arquivado perderia a única informação que a pasta carregava.
+    ///
+    /// As nossas cinco não viram etiqueta: o nome delas é estrutura, e já está
+    /// dito pelo `bucket`. "Arquivo" etiquetado como "Arquivo" é ruído.
+    /// Sem `tintHex`: a etiqueta herda o `ink3` do tema. A cor por conta já é a
+    /// da conta, e inventar uma segunda cor aqui seria decisão de design que
+    /// ninguém tomou.
+    public static func tag(folderRole: FolderRole, folderName: String) -> Tag? {
+        guard folderRole == .other else { return nil }
+        let limpo = folderName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return limpo.isEmpty ? nil : Tag(name: limpo)
     }
 
     /// A mesma projeção, pelos rótulos do Gmail.
