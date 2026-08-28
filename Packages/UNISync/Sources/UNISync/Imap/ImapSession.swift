@@ -10,29 +10,61 @@ import UNICore
 /// a resposta tagueada fecha o comando, e o próximo só entra depois. Dois
 /// comandos em voo na mesma conexão embaralham as respostas untagged — e as
 /// untagged são justamente o conteúdo (`FETCH`, `LIST`, `SEARCH`).
+///
+/// **Ator não é fila.** Todo `await` solta a isolação, e dois chamadores podem
+/// entrar no mesmo método enquanto o primeiro espera a rede. Por isso a
+/// sequencialidade tem um cadeado explícito (`adquire`/`libera`) e não a
+/// aparência de um: sem ele, o segundo comando sobrescrevia a continuation do
+/// primeiro, que vazava — a sessão travava para sempre e o runtime só
+/// resmungava `SWIFT TASK CONTINUATION MISUSE`.
 public actor ImapSession {
+    /// Quanto tempo uma espera pode durar antes de virar erro.
+    ///
+    /// Existe porque servidor que aceita a conexão e emudece é caso comum
+    /// (balanceador que aceita e não repassa, provedor sob carga), e sem teto
+    /// a espera é eterna: a carga inicial some e o app parece só estar devagar.
+    static let tetoPadrao = TimeAmount.seconds(15)
+
     private let channel: any Channel
     private let handler: ImapChannelHandler
+    private let teto: TimeAmount
     private var tagCounter = 0
     private var closed = false
 
-    private init(channel: any Channel, handler: ImapChannelHandler) {
+    // O cadeado do "um comando por vez".
+    private var ocupado = false
+    private var fila: [CheckedContinuation<Void, Never>] = []
+
+    private init(channel: any Channel, handler: ImapChannelHandler, teto: TimeAmount) {
         self.channel = channel
         self.handler = handler
+        self.teto = teto
     }
 
     /// Conecta, sobe o TLS que o endpoint pedir, e espera a saudação.
     ///
-    /// `allowInsecure` existe **para o teste**, e só para ele: o servidor IMAP
-    /// falso roda dentro do processo do teste, em `127.0.0.1`, sem certificado
-    /// nenhum, e exigir TLS ali significaria gerar e confiar num certificado
-    /// só para provar coisas que não são sobre TLS. Em produção ninguém passa
-    /// esse parâmetro, e o padrão `false` é o que garante que uma conta
-    /// `.startTLS` faz `STARTTLS` de verdade antes de mandar a senha.
+    /// Este é o único `connect` público, e ele **não** tem como pedir conexão
+    /// insegura. A promessa "produção sempre TLS" é do compilador: quem quiser
+    /// falar em claro precisa do `@testable`.
     public static func connect(
         endpoint: ImapEndpoint,
+        group: any EventLoopGroup
+    ) async throws -> ImapSession {
+        try await connect(endpoint: endpoint, group: group, allowInsecure: false)
+    }
+
+    /// A versão com as duas alavancas de teste.
+    ///
+    /// `allowInsecure` existe **para o teste**, e só para ele: o servidor IMAP
+    /// falso roda dentro do processo do teste, em `127.0.0.1`, sem certificado
+    /// nenhum, e exigir TLS ali significaria gerar e confiar num certificado só
+    /// para provar coisas que não são sobre TLS. `teto` é a mesma história: o
+    /// teste que prova o timeout não pode levar quinze segundos.
+    static func connect(
+        endpoint: ImapEndpoint,
         group: any EventLoopGroup,
-        allowInsecure: Bool = false
+        allowInsecure: Bool,
+        teto: TimeAmount = ImapSession.tetoPadrao
     ) async throws -> ImapSession {
         let handler = ImapChannelHandler()
         let bootstrap = ClientBootstrap(group: group)
@@ -59,20 +91,20 @@ public actor ImapSession {
         let canal: any Channel
         do {
             canal = try await bootstrap.connect(host: endpoint.host, port: endpoint.port).get()
-        } catch let erro as NIOSSLError {
-            throw SyncError.tls(String(describing: erro))
         } catch let erro as SyncError {
             throw erro
         } catch {
-            throw SyncError.rede("\(endpoint.host):\(endpoint.port) — \(error.localizedDescription)")
+            throw ImapChannelHandler.traduz(error, redeSePreciso: "\(endpoint.host):\(endpoint.port)")
         }
 
         // A saudação chega sozinha, sem tag. Esperá-la aqui é o que garante
         // que o primeiro comando não seja escrito antes de o servidor estar de
         // pé — e é onde um servidor que responde `* BYE` na cara já é recusado.
+        // É também onde o handshake do TLS implícito falha: ele estoura
+        // enquanto ninguém pediu nada, e a saudação é quem está esperando.
         let saudacao: String
         do {
-            saudacao = try await handler.waitForGreeting()
+            saudacao = try await handler.waitForGreeting(on: canal, teto: teto)
         } catch {
             try? await canal.close()
             throw error
@@ -82,12 +114,36 @@ public actor ImapSession {
             throw SyncError.servidor(codigo: 0, mensagem: saudacao)
         }
 
-        let sessao = ImapSession(channel: canal, handler: handler)
+        let sessao = ImapSession(channel: canal, handler: handler, teto: teto)
         if endpoint.security == .startTLS, !allowInsecure {
             try await sessao.upgradeToTLS(host: endpoint.host)
         }
         return sessao
     }
+
+    // MARK: O cadeado
+
+    /// Espera a vez. Quem chega enquanto outro comando está em voo entra na
+    /// fila em vez de atropelar a continuation dele.
+    private func adquire() async {
+        guard ocupado else {
+            ocupado = true
+            return
+        }
+        await withCheckedContinuation { continuation in
+            fila.append(continuation)
+        }
+    }
+
+    private func libera() {
+        if fila.isEmpty {
+            ocupado = false
+        } else {
+            fila.removeFirst().resume()
+        }
+    }
+
+    // MARK: TLS
 
     /// Sobe a conexão em claro para TLS, antes de qualquer credencial.
     ///
@@ -98,43 +154,61 @@ public actor ImapSession {
     private func upgradeToTLS(host: String) async throws {
         let resultado: ImapCommandResult
         do {
-            resultado = try await send { ImapWire.startTLS(tag: $0) }
+            let tag = proximaTag()
+            resultado = try await send(comando: ImapWire.startTLS(tag: tag), tag: tag)
         } catch {
-            try? await channel.close()
-            closed = true
+            await encerraCom()
             throw error
         }
         guard resultado.status == .ok else {
-            try? await channel.close()
-            closed = true
+            await encerraCom()
             throw SyncError.tls("O servidor recusou STARTTLS: \(resultado.text)")
         }
         do {
             // Antes do decodificador de linhas: a partir daqui os bytes do
             // socket são do TLS, e só saem em claro depois deste handler.
+            //
+            // O `verificaFronteira` é a defesa em profundidade contra injeção
+            // no comando de texto puro (a família do CVE-2011-0411): um
+            // atacante no meio pode emendar bytes logo depois do `OK` do
+            // STARTTLS, e eles seriam lidos como se tivessem vindo de dentro do
+            // túnel. Nada pode estar bufferizado quando o TLS entra — e a
+            // conferência acontece **na event loop**, no mesmo bloco que insere
+            // o handler, para não haver janela entre conferir e inserir.
             let canal = channel
+            let handler = handler
             try await canal.eventLoop.submit {
+                try handler.verificaFronteiraLimpa()
                 try canal.pipeline.syncOperations.addHandler(
                     Self.tlsHandler(host: host), position: .first
                 )
             }.get()
         } catch {
-            try? await channel.close()
-            closed = true
-            throw SyncError.tls(String(describing: error))
+            await encerraCom()
+            throw error as? SyncError ?? SyncError.tls(String(describing: error))
         }
     }
 
+    private func encerraCom() async {
+        closed = true
+        try? await channel.close()
+    }
+
     /// O handler de TLS do cliente.
-    ///
-    /// `serverHostname` só entra quando o host é um nome: SNI não aceita
-    /// endereço IP literal, e passar um faria o `NIOSSLClientHandler` lançar
-    /// antes mesmo de tocar a rede.
     private static func tlsHandler(host: String) throws -> NIOSSLClientHandler {
         let contexto = try NIOSSLContext(configuration: .makeClientConfiguration())
         return try NIOSSLClientHandler(context: contexto, serverHostname: Self.sni(host))
     }
 
+    /// O nome que vai no SNI, ou `nil` quando o host é um endereço literal.
+    ///
+    /// SNI não aceita IP, e passar um faria o `NIOSSLClientHandler` lançar
+    /// antes mesmo de tocar a rede. O preço é honesto e precisa ser dito:
+    /// **sem `serverHostname`, a verificação de nome do certificado não
+    /// acontece** — o NIOSSL continua validando a cadeia contra as âncoras do
+    /// sistema, mas ninguém confere se o certificado é *daquele* servidor.
+    /// Conectar a IMAP por IP literal é, por isso, mais fraco do que conectar
+    /// por nome; a interface de contas deve pedir nome de host.
     static func sni(_ host: String) -> String? {
         if host.contains(":") { return nil } // IPv6 literal
         let partes = host.split(separator: ".", omittingEmptySubsequences: false)
@@ -144,19 +218,26 @@ public actor ImapSession {
         return host
     }
 
-    /// Manda o próximo comando e devolve a resposta tagueada **crua**, sem
-    /// julgar `OK`/`NO`/`BAD`. É o que o `STARTTLS` usa, onde `NO` tem
-    /// significado próprio.
-    private func send(_ build: (String) -> String) async throws -> ImapCommandResult {
+    // MARK: Comandos
+
+    private func proximaTag() -> String {
         tagCounter += 1
-        let tag = ImapWire.tag(tagCounter)
-        let comando = build(tag)
+        return ImapWire.tag(tagCounter)
+    }
+
+    /// Manda um comando já montado e devolve a resposta tagueada **crua**, sem
+    /// julgar `OK`/`NO`/`BAD`. É o que o `STARTTLS` usa, onde `NO` tem
+    /// significado próprio, e o que o `LOGOUT` usa, que sai com a sessão já
+    /// marcada como fechada.
+    private func send(comando: String, tag: String) async throws -> ImapCommandResult {
+        await adquire()
+        defer { libera() }
 
         var buffer = channel.allocator.buffer(capacity: comando.utf8.count + 2)
         buffer.writeString(comando)
         buffer.writeString("\r\n")
 
-        return try await handler.send(buffer, tag: tag, on: channel)
+        return try await handler.send(buffer, tag: tag, on: channel, teto: teto)
     }
 
     /// O próximo comando, e a resposta tagueada dele, já traduzida em erro
@@ -164,12 +245,15 @@ public actor ImapSession {
     ///
     /// `internal` e não `private` porque a Task 10 chama daqui de dentro do
     /// mesmo ator, e porque os testes de `ImapSession` afirmam o texto exato
-    /// que sai.
+    /// que sai. O closure é chamado **uma vez só**: chamá-lo duas vezes (uma
+    /// para espiar o comando, outra para mandar) transformaria qualquer
+    /// construção com efeito colateral num bug silencioso.
     @discardableResult
     func run(_ build: (String) -> String) async throws -> ImapCommandResult {
         guard !closed else { throw SyncError.rede("A sessão IMAP já foi encerrada.") }
-        let comando = build("")
-        let resultado = try await send(build)
+        let tag = proximaTag()
+        let comando = build(tag)
+        let resultado = try await send(comando: comando, tag: tag)
         switch resultado.status {
         case .ok:
             return resultado
@@ -202,15 +286,15 @@ public actor ImapSession {
     /// Não lança, e é de propósito: encerrar já é o caminho de saída, e um erro
     /// aqui não muda nada que alguém possa fazer.
     ///
-    /// `closed` sobe **antes** do `await`: um ator não é um cadeado, e um
-    /// segundo `logout()` durante a espera do primeiro mandaria um `LOGOUT`
-    /// numa conexão que já está saindo. Por isso o `LOGOUT` desce por `send`, e
-    /// não por `run` — é o único comando que tem o direito de sair com a sessão
-    /// já marcada como fechada.
+    /// `closed` sobe **antes** do `await`: um segundo `logout()` durante a
+    /// espera do primeiro mandaria um `LOGOUT` numa conexão que já está saindo.
+    /// Por isso o `LOGOUT` desce por `send`, e não por `run` — é o único
+    /// comando que tem o direito de sair com a sessão já marcada como fechada.
     public func logout() async {
         guard !closed else { return }
         closed = true
-        _ = try? await send { ImapWire.logout(tag: $0) }
+        let tag = proximaTag()
+        _ = try? await send(comando: ImapWire.logout(tag: tag), tag: tag)
         try? await channel.close()
     }
 }
@@ -230,14 +314,35 @@ struct ImapCommandResult: Sendable {
 ///
 /// O `swift-nio` desta versão não traz nenhum decodificador de linhas — o
 /// `LineBasedFrameDecoder` mora no `swift-nio-extras`, que não é dependência
-/// deste marco. São quinze linhas nossas em vez de um quarto pacote, e elas
+/// deste marco. São poucas linhas nossas em vez de um quarto pacote, e elas
 /// cortam por CRLF, que é o que o RFC 3501 manda.
+///
+/// `decodeLast` **não** é implementado de propósito: o padrão do NIO drena o
+/// que dá e descarta o resto sem `\n`, e descartar é o comportamento seguro.
+/// Emitir o rabo truncado como se fosse linha inteira faria um `A0001 OK` (que
+/// o servidor ainda ia continuar escrevendo) virar resposta válida.
 struct CRLFLineDecoder: ByteToMessageDecoder {
     typealias InboundOut = ByteBuffer
 
+    /// Teto de uma linha de protocolo.
+    ///
+    /// Sem teto, um servidor (ou alguém no meio) que despeje bytes sem `\n`
+    /// faz o `ByteToMessageHandler` crescer o buffer até a memória acabar —
+    /// negação de serviço com uma conexão só. 64 KiB é folgado para as linhas
+    /// que o IMAP manda de fato; conteúdo grande vem em literal `{n}`, que a
+    /// Task 10 lê com o decodificador da biblioteca.
+    static let tetoDaLinha = 64 * 1024
+
     mutating func decode(context: ChannelHandlerContext, buffer: inout ByteBuffer) throws -> DecodingState {
         let visao = buffer.readableBytesView
-        guard let fim = visao.firstIndex(of: UInt8(ascii: "\n")) else { return .needMoreData }
+        guard let fim = visao.firstIndex(of: UInt8(ascii: "\n")) else {
+            if buffer.readableBytes > Self.tetoDaLinha {
+                throw SyncError.resposta(
+                    "O servidor IMAP mandou uma linha maior que \(Self.tetoDaLinha) bytes sem terminador."
+                )
+            }
+            return .needMoreData
+        }
         var linha = buffer.readSlice(length: fim - visao.startIndex)!
         buffer.moveReaderIndex(forwardBy: 1) // o `\n`
         if linha.readableBytesView.last == UInt8(ascii: "\r") {
@@ -246,24 +351,14 @@ struct CRLFLineDecoder: ByteToMessageDecoder {
         context.fireChannelRead(wrapInboundOut(linha))
         return .continue
     }
-
-    /// O que sobrou sem `\n` no fim ainda é uma linha: um servidor que fecha a
-    /// conexão logo depois de escrever não pode fazer a última resposta sumir.
-    mutating func decodeLast(
-        context: ChannelHandlerContext, buffer: inout ByteBuffer, seenEOF: Bool
-    ) throws -> DecodingState {
-        if try decode(context: context, buffer: &buffer) == .continue { return .continue }
-        guard buffer.readableBytes > 0 else { return .needMoreData }
-        let linha = buffer.readSlice(length: buffer.readableBytes)!
-        context.fireChannelRead(wrapInboundOut(linha))
-        return .needMoreData
-    }
 }
 
 /// O handler que junta as linhas até a resposta tagueada.
 ///
-/// Uma requisição em voo por vez, garantida pelo ator acima. O `continuation`
-/// é o que transforma o callback do NIO em `await`.
+/// Uma requisição em voo por vez, garantida pelo cadeado do ator acima — e
+/// conferida aqui de novo, porque garantia que só existe no chamador é a que
+/// some no primeiro refactor. O `continuation` é o que transforma o callback do
+/// NIO em `await`.
 final class ImapChannelHandler: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = ByteBuffer
     typealias OutboundOut = ByteBuffer
@@ -276,44 +371,102 @@ final class ImapChannelHandler: ChannelInboundHandler, @unchecked Sendable {
     private var pending: CheckedContinuation<ImapCommandResult, any Error>?
     private var collected: [String] = []
     private var falhaFinal: (any Error)?
+    private var relogio: Scheduled<Void>?
+    private var cancelamentoPendente = false
+    /// Linhas que chegaram sem ninguém ter pedido nada. Fora da saudação, é
+    /// exatamente o sintoma de dado injetado antes do TLS.
+    private var linhasOrfas = 0
 
-    func waitForGreeting() async throws -> String {
-        try await withCheckedThrowingContinuation { continuation in
-            lock.lock()
-            if let linha = greetingLine {
+    // MARK: Espera da saudação
+
+    func waitForGreeting(on channel: any Channel, teto: TimeAmount) async throws -> String {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                lock.lock()
+                if let linha = greetingLine {
+                    lock.unlock()
+                    continuation.resume(returning: linha)
+                    return
+                }
+                if let erro = greetingFailure {
+                    lock.unlock()
+                    continuation.resume(throwing: erro)
+                    return
+                }
+                if consomeCancelamento() {
+                    lock.unlock()
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                greeting = continuation
+                agenda(teto, on: channel, motivo: "A saudação do servidor IMAP não chegou")
                 lock.unlock()
-                continuation.resume(returning: linha)
-                return
             }
-            if let erro = greetingFailure {
-                lock.unlock()
-                continuation.resume(throwing: erro)
-                return
-            }
-            greeting = continuation
-            lock.unlock()
+        } onCancel: {
+            cancela()
         }
     }
 
-    func send(_ buffer: ByteBuffer, tag: String, on channel: any Channel) async throws -> ImapCommandResult {
-        try await withCheckedThrowingContinuation { continuation in
-            lock.lock()
-            // Uma conexão que já caiu não ganha mais um comando pendurado: a
-            // falha que derrubou a anterior vale para esta também.
-            if let erro = falhaFinal {
+    // MARK: Envio
+
+    func send(
+        _ buffer: ByteBuffer, tag: String, on channel: any Channel, teto: TimeAmount
+    ) async throws -> ImapCommandResult {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                lock.lock()
+                // Uma conexão que já caiu não ganha mais um comando pendurado:
+                // a falha que derrubou a anterior vale para esta também.
+                if let erro = falhaFinal {
+                    lock.unlock()
+                    continuation.resume(throwing: erro)
+                    return
+                }
+                // Cinto e suspensório do cadeado do ator: sobrescrever `pending`
+                // vazaria a continuation do comando anterior, e a sessão nunca
+                // mais responderia. Recusar é ruidoso; vazar é mudo.
+                if pending != nil {
+                    lock.unlock()
+                    continuation.resume(throwing: SyncError.rede(
+                        "Já havia um comando IMAP em voo nesta conexão."
+                    ))
+                    return
+                }
+                if consomeCancelamento() {
+                    lock.unlock()
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                pendingTag = tag
+                pending = continuation
+                collected = []
+                agenda(teto, on: channel, motivo: "O servidor IMAP não respondeu a \(tag)")
                 lock.unlock()
-                continuation.resume(throwing: erro)
-                return
+                channel.writeAndFlush(buffer).whenFailure { erro in
+                    self.falha(Self.traduz(erro))
+                }
             }
-            pendingTag = tag
-            pending = continuation
-            collected = []
-            lock.unlock()
-            channel.writeAndFlush(buffer).whenFailure { erro in
-                self.falha(SyncError.rede(erro.localizedDescription))
-            }
+        } onCancel: {
+            cancela()
         }
     }
+
+    // MARK: Fronteira do STARTTLS
+
+    /// Lança se houver qualquer resto de conversa em claro na hora de ligar o
+    /// TLS. Chamada **na event loop**, junto com a inserção do handler.
+    func verificaFronteiraLimpa() throws {
+        lock.lock()
+        let sujo = !collected.isEmpty || linhasOrfas > 0 || pending != nil
+        lock.unlock()
+        if sujo {
+            throw SyncError.tls(
+                "O servidor mandou dados depois do OK do STARTTLS e antes do TLS subir — a conexão foi descartada."
+            )
+        }
+    }
+
+    // MARK: Leitura
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         var buffer = unwrapInboundIn(data)
@@ -325,6 +478,7 @@ final class ImapChannelHandler: ChannelInboundHandler, @unchecked Sendable {
         if let continuation = greeting {
             greeting = nil
             greetingLine = linha
+            desagenda()
             lock.unlock()
             continuation.resume(returning: linha)
             return
@@ -335,6 +489,7 @@ final class ImapChannelHandler: ChannelInboundHandler, @unchecked Sendable {
             return
         }
         guard let tag = pendingTag else {
+            linhasOrfas += 1
             lock.unlock()
             return
         }
@@ -349,6 +504,7 @@ final class ImapChannelHandler: ChannelInboundHandler, @unchecked Sendable {
             pending = nil
             pendingTag = nil
             collected = []
+            desagenda()
             lock.unlock()
             continuation?.resume(returning: resultado)
         } else {
@@ -358,12 +514,74 @@ final class ImapChannelHandler: ChannelInboundHandler, @unchecked Sendable {
     }
 
     func errorCaught(context: ChannelHandlerContext, error: any Error) {
-        falha(SyncError.rede(error.localizedDescription))
+        falha(Self.traduz(error))
         context.close(promise: nil)
     }
 
     func channelInactive(context: ChannelHandlerContext) {
         falha(SyncError.rede("O servidor IMAP fechou a conexão."))
+    }
+
+    // MARK: Erros, tempo e cancelamento
+
+    /// Erro do NIOSSL é erro de **TLS**, e não de rede.
+    ///
+    /// A diferença não é cosmética: `.rede` manda a pessoa conferir a conexão,
+    /// e `.tls` manda conferir a porta e a forma de TLS da conta — que é o que
+    /// de fato resolve quando o handshake falha. O `catch NIOSSLError` no
+    /// `connect` só via erro de **construção** do handler; o handshake falha
+    /// depois, e chega por `errorCaught`.
+    static func traduz(_ erro: any Error, redeSePreciso prefixo: String? = nil) -> SyncError {
+        if let erro = erro as? SyncError { return erro }
+        let tipo = String(reflecting: type(of: erro))
+        if erro is NIOSSLError || erro is NIOSSLExtraError || tipo.hasPrefix("NIOSSL.") {
+            return .tls(String(describing: erro))
+        }
+        if let prefixo {
+            return .rede("\(prefixo) — \(erro.localizedDescription)")
+        }
+        return .rede(erro.localizedDescription)
+    }
+
+    /// Marca um teto de tempo para a espera corrente. Chamada com o `lock`.
+    private func agenda(_ teto: TimeAmount, on channel: any Channel, motivo: String) {
+        let segundos = Double(teto.nanoseconds) / 1_000_000_000
+        relogio = channel.eventLoop.scheduleTask(in: teto) { [weak self] in
+            self?.falha(.rede(String(format: "%@ em %.1fs.", motivo, segundos)))
+        }
+    }
+
+    /// Cancela o teto. Chamada com o `lock`.
+    private func desagenda() {
+        relogio?.cancel()
+        relogio = nil
+    }
+
+    /// `true` se o cancelamento chegou antes de a espera ser registrada.
+    /// Chamada com o `lock`.
+    private func consomeCancelamento() -> Bool {
+        if cancelamentoPendente {
+            cancelamentoPendente = false
+            return true
+        }
+        return Task.isCancelled
+    }
+
+    /// `Task.cancel()` acorda quem espera. Sem isto, cancelar uma sincronização
+    /// não interrompia nada — o `withCheckedThrowingContinuation` puro ignora
+    /// cancelamento, e a tarefa "cancelada" continuava pendurada na rede.
+    private func cancela() {
+        lock.lock()
+        let saudacao = greeting
+        let comando = pending
+        greeting = nil
+        pending = nil
+        pendingTag = nil
+        desagenda()
+        if saudacao == nil, comando == nil { cancelamentoPendente = true }
+        lock.unlock()
+        saudacao?.resume(throwing: CancellationError())
+        comando?.resume(throwing: CancellationError())
     }
 
     /// Uma falha acorda quem estiver esperando. Sem isto, uma conexão caída no
@@ -376,6 +594,7 @@ final class ImapChannelHandler: ChannelInboundHandler, @unchecked Sendable {
         greeting = nil
         pending = nil
         pendingTag = nil
+        desagenda()
         if falhaFinal == nil { falhaFinal = erro }
         if greetingLine == nil, greetingFailure == nil { greetingFailure = erro }
         lock.unlock()

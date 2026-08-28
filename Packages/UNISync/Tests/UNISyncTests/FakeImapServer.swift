@@ -15,10 +15,12 @@ import NIOPosix
 /// precisar prever a numeração das tags.
 final class FakeImapServer: @unchecked Sendable {
     struct Script: Sendable {
-        /// A saudação, antes de qualquer comando.
+        /// A saudação, antes de qualquer comando. String vazia = servidor que
+        /// aceita a conexão e emudece, que é o caso que prova o teto de tempo.
         var greeting: String
         /// Verbo (em maiúsculas) → linhas de resposta. A linha que começa com
-        /// `TAG ` tem a tag substituída pela do comando recebido.
+        /// `TAG ` tem a tag substituída pela do comando recebido. Lista vazia =
+        /// o servidor recebe o comando e não responde nada.
         var replies: [String: [String]]
 
         init(
@@ -97,6 +99,7 @@ final class FakeImapServer: @unchecked Sendable {
         }
 
         func channelActive(context: ChannelHandlerContext) {
+            guard !script.greeting.isEmpty else { return }
             escreve(context, script.greeting)
         }
 

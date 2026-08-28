@@ -1,5 +1,6 @@
 import Foundation
 import NIOCore
+import NIOEmbedded
 import NIOPosix
 import Testing
 import UNICore
@@ -13,6 +14,15 @@ import UNICore
 /// que é onde ele precisa estar para valer também no caminho de erro.
 private func encerra(_ grupo: MultiThreadedEventLoopGroup) {
     try? grupo.syncShutdownGracefully()
+}
+
+/// Um contador que sobrevive a fronteira de isolação — é o que deixa o teste
+/// afirmar quantas vezes o closure de montagem foi chamado.
+private final class ContadorDeMontagens: @unchecked Sendable {
+    private let lock = NSLock()
+    private var n = 0
+    func mais() { lock.lock(); n += 1; lock.unlock() }
+    var total: Int { lock.lock(); defer { lock.unlock() }; return n }
 }
 
 @Suite("IMAP: conectar, autenticar, sair")
@@ -75,7 +85,7 @@ struct ImapSessionTests {
         defer { encerra(grupo) }
 
         let sessao = try await ImapSession.connect(
-            endpoint: endpoint(porta: porta), group: grupo, allowInsecure: true
+            endpoint: endpoint(porta: porta), group: grupo, allowInsecure: true, teto: .seconds(5)
         )
         try await sessao.login(user: "eu@x.com", password: "senha-de-app")
         await sessao.logout()
@@ -97,7 +107,7 @@ struct ImapSessionTests {
         defer { encerra(grupo) }
 
         let sessao = try await ImapSession.connect(
-            endpoint: endpoint(porta: porta), group: grupo, allowInsecure: true
+            endpoint: endpoint(porta: porta), group: grupo, allowInsecure: true, teto: .seconds(5)
         )
         await #expect(throws: SyncError.autenticacao) {
             try await sessao.login(user: "eu@x.com", password: "errada")
@@ -118,7 +128,7 @@ struct ImapSessionTests {
         defer { encerra(grupo) }
 
         let sessao = try await ImapSession.connect(
-            endpoint: endpoint(porta: porta), group: grupo, allowInsecure: true
+            endpoint: endpoint(porta: porta), group: grupo, allowInsecure: true, teto: .seconds(5)
         )
         await #expect(throws: SyncError.resposta("O servidor IMAP recusou o comando: Missing argument")) {
             try await sessao.login(user: "eu@x.com", password: "x")
@@ -136,7 +146,8 @@ struct ImapSessionTests {
             _ = try await ImapSession.connect(
                 endpoint: ImapEndpoint(host: "127.0.0.1", port: 1, security: .startTLS),
                 group: grupo,
-                allowInsecure: true
+                allowInsecure: true,
+                teto: .seconds(5)
             )
         }
     }
@@ -154,7 +165,7 @@ struct ImapSessionTests {
         defer { encerra(grupo) }
 
         let sessao = try await ImapSession.connect(
-            endpoint: endpoint(porta: porta), group: grupo, allowInsecure: true
+            endpoint: endpoint(porta: porta), group: grupo, allowInsecure: true, teto: .seconds(5)
         )
         try await sessao.login(user: "eu@x.com", password: "senha")
         await sessao.logout()
@@ -202,5 +213,242 @@ struct ImapSessionTests {
         }
         #expect(servidor.commands.contains { $0.hasSuffix("STARTTLS") })
         #expect(!servidor.commands.contains { $0.contains("LOGIN") })
+    }
+
+    @Test("Dados emendados depois do OK do STARTTLS derrubam a conexão")
+    func startTLSComInjecao() async throws {
+        // A família do CVE-2011-0411: quem está no meio emenda bytes logo
+        // depois do `OK`, e eles seriam lidos como se tivessem vindo de dentro
+        // do túnel. Nada pode estar bufferizado quando o TLS sobe.
+        let servidor = FakeImapServer(script: .init(replies: [
+            "STARTTLS": ["TAG OK Begin TLS negotiation now", "* OK injetado antes do TLS"],
+            "LOGIN": ["TAG OK LOGIN completed"],
+        ]))
+        let porta = try servidor.start()
+        defer { servidor.stop() }
+
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+
+        await #expect(throws: SyncError.self) {
+            _ = try await ImapSession.connect(endpoint: endpoint(porta: porta), group: grupo)
+        }
+        #expect(!servidor.commands.contains { $0.contains("LOGIN") })
+    }
+
+    @Test("Handshake TLS falho é erro de TLS, e não de rede")
+    func tlsContraServidorEmClaro() async throws {
+        // O servidor falso fala IMAP em texto puro. Um cliente em TLS implícito
+        // manda o ClientHello e recebe `* OK ...` — handshake quebrado. O erro
+        // precisa dizer TLS: `.rede` manda a pessoa conferir a conexão, que
+        // está ótima, em vez da porta e da forma de TLS da conta.
+        let servidor = FakeImapServer(script: .init(replies: [:]))
+        let porta = try servidor.start()
+        defer { servidor.stop() }
+
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+
+        do {
+            _ = try await ImapSession.connect(
+                endpoint: ImapEndpoint(host: "127.0.0.1", port: porta, security: .tls),
+                group: grupo,
+                allowInsecure: false,
+                teto: .seconds(5)
+            )
+            Issue.record("A conexão deveria ter falhado no handshake.")
+        } catch let erro as SyncError {
+            guard case .tls = erro else {
+                Issue.record("Esperava `.tls`, veio \(erro).")
+                return
+            }
+        }
+    }
+
+    @Test("O comando é montado uma vez só")
+    func comandoMontadoUmaVez() async throws {
+        // `run` chamava o closure duas vezes — uma para espiar o comando, outra
+        // para mandá-lo. Qualquer construção com efeito colateral (a Task 10
+        // monta `UID FETCH` a partir de listas de UID) viraria bug silencioso.
+        let servidor = FakeImapServer(script: .init(replies: [
+            "NOOP": ["TAG OK NOOP completed"],
+            "LOGOUT": ["TAG OK LOGOUT completed"],
+        ]))
+        let porta = try servidor.start()
+        defer { servidor.stop() }
+
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+
+        let sessao = try await ImapSession.connect(
+            endpoint: endpoint(porta: porta), group: grupo, allowInsecure: true, teto: .seconds(5)
+        )
+        let contador = ContadorDeMontagens()
+        _ = try await sessao.run { tag in
+            contador.mais()
+            return "\(tag) NOOP"
+        }
+        #expect(contador.total == 1)
+        await sessao.logout()
+    }
+
+    // MARK: Tempo, reentrância e cancelamento
+
+    @Test("Servidor que aceita e emudece não trava a saudação para sempre")
+    func saudacaoQueNuncaChega() async throws {
+        let servidor = FakeImapServer(script: .init(greeting: "", replies: [:]))
+        let porta = try servidor.start()
+        defer { servidor.stop() }
+
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+
+        do {
+            _ = try await ImapSession.connect(
+                endpoint: endpoint(porta: porta), group: grupo,
+                allowInsecure: true, teto: .milliseconds(200)
+            )
+            Issue.record("A conexão deveria ter estourado o teto de tempo.")
+        } catch let erro as SyncError {
+            guard case .rede(let detalhe) = erro else {
+                Issue.record("Esperava `.rede`, veio \(erro).")
+                return
+            }
+            #expect(detalhe.contains("saudação"))
+        }
+    }
+
+    @Test("Comando sem resposta estoura o teto com motivo, e não fica pendurado")
+    func comandoSemResposta() async throws {
+        let servidor = FakeImapServer(script: .init(replies: [
+            "LOGIN": [], // recebe e não responde
+            "LOGOUT": ["TAG OK LOGOUT completed"],
+        ]))
+        let porta = try servidor.start()
+        defer { servidor.stop() }
+
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+
+        let sessao = try await ImapSession.connect(
+            endpoint: endpoint(porta: porta), group: grupo,
+            allowInsecure: true, teto: .milliseconds(200)
+        )
+        do {
+            try await sessao.login(user: "eu@x.com", password: "senha")
+            Issue.record("O LOGIN deveria ter estourado o teto de tempo.")
+        } catch let erro as SyncError {
+            guard case .rede(let detalhe) = erro else {
+                Issue.record("Esperava `.rede`, veio \(erro).")
+                return
+            }
+            #expect(detalhe.contains("não respondeu"))
+        }
+        await sessao.logout()
+    }
+
+    @Test("Dois comandos concorrentes: um espera o outro, nada vaza, nada trava")
+    func comandosConcorrentes() async throws {
+        // Um ator não é fila: `await` solta a isolação, e o segundo comando
+        // sobrescrevia a continuation do primeiro — que vazava
+        // (`SWIFT TASK CONTINUATION MISUSE`) e travava a sessão para sempre.
+        let servidor = FakeImapServer(script: .init(replies: [
+            "LOGIN": [], // recebe e não responde
+            "LOGOUT": ["TAG OK LOGOUT completed"],
+        ]))
+        let porta = try servidor.start()
+        defer { servidor.stop() }
+
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+
+        let sessao = try await ImapSession.connect(
+            endpoint: endpoint(porta: porta), group: grupo,
+            allowInsecure: true, teto: .milliseconds(200)
+        )
+
+        let entrada = Task { try await sessao.login(user: "eu@x.com", password: "senha") }
+        let saida = Task { await sessao.logout() }
+
+        // O `logout` termina (não lança) e o `login` termina com erro. O que
+        // não pode acontecer é nenhum dos dois terminar — que é o que
+        // acontecia quando o segundo comando atropelava a continuation do
+        // primeiro.
+        await saida.value
+        await #expect(throws: SyncError.self) { try await entrada.value }
+    }
+
+    @Test("Cancelar a tarefa acorda a espera em vez de deixá-la pendurada")
+    func cancelamentoAcordaAEspera() async throws {
+        let servidor = FakeImapServer(script: .init(replies: [
+            "LOGIN": [], // recebe e não responde
+            "LOGOUT": ["TAG OK LOGOUT completed"],
+        ]))
+        let porta = try servidor.start()
+        defer { servidor.stop() }
+
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+
+        let sessao = try await ImapSession.connect(
+            endpoint: endpoint(porta: porta), group: grupo,
+            allowInsecure: true, teto: .seconds(30)
+        )
+
+        let tarefa = Task { try await sessao.login(user: "eu@x.com", password: "senha") }
+        try await Task.sleep(for: .milliseconds(120))
+        tarefa.cancel()
+
+        // Teto de 30s: se o cancelamento não acordasse a espera, isto ficaria
+        // pendurado bem além do que o teste tolera.
+        await #expect(throws: CancellationError.self) { try await tarefa.value }
+        await sessao.logout()
+    }
+}
+
+@Suite("IMAP: o corte de linhas")
+struct CRLFLineDecoderTests {
+    private func canal() -> EmbeddedChannel {
+        let canal = EmbeddedChannel()
+        try! canal.pipeline.syncOperations.addHandler(ByteToMessageHandler(CRLFLineDecoder()))
+        return canal
+    }
+
+    @Test("Corta por CRLF e entrega a linha sem o terminador")
+    func corta() throws {
+        let canal = canal()
+        var entrada = canal.allocator.buffer(capacity: 32)
+        entrada.writeString("* OK um\r\nA0001 OK dois\r\n")
+        try canal.writeInbound(entrada)
+        let primeira = try canal.readInbound(as: ByteBuffer.self)
+        let segunda = try canal.readInbound(as: ByteBuffer.self)
+        #expect(primeira.map { String(buffer: $0) } == "* OK um")
+        #expect(segunda.map { String(buffer: $0) } == "A0001 OK dois")
+        _ = try canal.finish()
+    }
+
+    @Test("Linha sem terminador acima do teto vira erro, e não memória sem fim")
+    func tetoDaLinha() throws {
+        // Sem teto, quem despeja bytes sem `\n` faz o buffer crescer até a
+        // memória acabar — negação de serviço com uma conexão só.
+        let canal = canal()
+        var entrada = canal.allocator.buffer(capacity: CRLFLineDecoder.tetoDaLinha + 64)
+        entrada.writeString(String(repeating: "x", count: CRLFLineDecoder.tetoDaLinha + 1))
+        #expect(throws: SyncError.self) { try canal.writeInbound(entrada) }
+        _ = try? canal.finish()
+    }
+
+    @Test("O rabo truncado é descartado, e não promovido a resposta")
+    func rabosTruncadosSaoDescartados() throws {
+        // `A0001 OK` sem `\r\n` é um pedaço do que o servidor ainda ia
+        // escrever. Emiti-lo como linha inteira faria um status pela metade
+        // virar status válido.
+        let canal = canal()
+        var entrada = canal.allocator.buffer(capacity: 16)
+        entrada.writeString("A0001 OK")
+        try canal.writeInbound(entrada)
+        #expect(try canal.readInbound(as: ByteBuffer.self) == nil)
+        _ = try? canal.finish()
+        #expect(try canal.readInbound(as: ByteBuffer.self) == nil)
     }
 }
