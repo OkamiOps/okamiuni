@@ -8,9 +8,10 @@ let package = Package(
     dependencies: [
         .package(path: "../UNIDesign"),
         .package(path: "../UNICore"),
+        .package(path: "../UNISync"),
     ],
     targets: [
-        .target(name: "UNIShell", dependencies: ["UNIDesign", "UNICore"]),
+        .target(name: "UNIShell", dependencies: ["UNIDesign", "UNICore", "UNISync"]),
         .testTarget(name: "UNIShellTests", dependencies: ["UNIShell"]),
     ]
 )
