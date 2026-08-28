@@ -260,6 +260,50 @@ struct InitialLoaderImapTests {
         #expect(try await db.pool.read { try MessageRecord.fetchCount($0) } == 4)
     }
 
+    @Test("A geração velha só sai junto com a nova: a pasta nunca fica vazia")
+    func apagamentoViajaComOPrimeiroLote() async throws {
+        // MENOR M2 DO RELATÓRIO DE BANCO: o `DELETE` da geração velha fechava
+        // a transação dele **antes** do download. Entre ele e a primeira
+        // gravação havia um SELECT, um UID FETCH de todos os UIDs da janela e o
+        // download dos corpos — minutos. App morto (ou rede caída) nessa janela
+        // deixava a pasta vazia na tela, com a conta em `.ativa`.
+        //
+        // A prova é a ORDEM NO FIO: o apagamento tem de acontecer depois do
+        // `UID FETCH`, e não antes. Como ele agora viaja dentro da transação do
+        // primeiro lote, isso é o mesmo que dizer que ele acontece junto com a
+        // primeira gravação.
+        //
+        // MUTAÇÃO QUE ISTO PEGA: devolver o `DELETE` para a transação de cima
+        // (junto com o `save` da pasta).
+        let db = try SyncDatabase.temporary()
+        _ = try await carrega(db, script: roteiro())
+        #expect(try await db.pool.read { try MessageRecord.fetchCount($0) } == 4)
+
+        // Segunda carga, com a geração reciclada — e um servidor que **não
+        // responde** ao UID FETCH da INBOX: a carga morre no meio, exatamente
+        // na janela que o defeito abria.
+        var novo = roteiro()
+        novo.replies["SELECT"] = [
+            "* 2 EXISTS",
+            "* OK [UIDVALIDITY 1999999999] UIDs valid",
+            "* OK [UIDNEXT 3] Predicted next UID",
+            "TAG OK [READ-WRITE] SELECT completed",
+        ]
+        novo.replies["UID FETCH"] = ["TAG NO Servidor indisponível"]
+        _ = try? await carrega(db, script: novo)
+
+        // As quatro velhas continuam lá. Antes, o `DELETE` já teria passado e a
+        // pessoa veria as duas pastas vazias — sem nada ter chegado no lugar.
+        #expect(
+            try await db.pool.read { try MessageRecord.fetchCount($0) } == 4,
+            "a pasta ficou vazia entre o apagamento e o download"
+        )
+        let validades = try await db.pool.read {
+            try Int64.fetchSet($0, sql: "SELECT DISTINCT uidValidity FROM message")
+        }
+        #expect(validades == [1_755_000_000])
+    }
+
     @Test("A pasta que a pessoa criou entra, em Arquivado, com o nome como etiqueta")
     func pastaDoUsuarioEntraComEtiqueta() async throws {
         // A divergência que isto fecha: o IMAP EXCLUÍA explicitamente toda pasta

@@ -120,7 +120,15 @@ public struct FolderRecord: Codable, FetchableRecord, PersistableRecord, Sendabl
         "\(accountID)/\(serverName)"
     }
 
-    public var folderRole: FolderRole { FolderRole(rawValue: role) ?? .other }
+    // REMOVIDO: `var folderRole: FolderRole`.
+    //
+    // Era a única porta de volta de `role: String` para `FolderRole`, e não
+    // tinha leitor nenhum — nem em produção, nem em teste. Não é código morto
+    // inofensivo: a coluna `role` da pseudo-pasta do Gmail **não é confiável**
+    // (ver `InitialLoader`, onde ela é gravada), e a primeira pessoa a usar
+    // esta propriedade herdaria o defeito sem nenhum aviso. Quando o Marco 3
+    // precisar resolver destino por papel de pasta, ela volta — junto com a
+    // decisão sobre o que a pseudo-pasta do Gmail significa.
 }
 
 public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Equatable {

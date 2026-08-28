@@ -118,11 +118,25 @@ public struct InitialLoader: Sendable {
 
             // Uma "pasta" só para o Gmail: os rótulos fazem o papel das pastas,
             // e a tabela `folder` guarda a chave estrangeira que a cascata usa.
+            //
+            // **O papel é `.other`, e isso é uma declaração de que ele não
+            // significa nada.** Esta linha guarda as mensagens de Hoje, Depois,
+            // Arquivado *e* Lixeira da conta: nenhum papel a descreve. Era
+            // `.inbox`, e `TriageProjection.bucket(role: .inbox)` diria `.today`
+            // para todas elas — o `folder.role` gravado contradizendo o
+            // `message.bucket` gravado, na maioria das linhas de qualquer conta
+            // Gmail. `.other` diz a verdade que existe: "não é uma das nossas
+            // caixas". Nada lê esta coluna hoje (a propriedade que a lia saiu,
+            // ver `Records.swift`), e a invariante "o `bucket` gravado bate com
+            // o que a projeção diria" vale **pela via dos rótulos**, nunca pela
+            // via da pasta. O Marco 3 escreve de volta no servidor: um caminho
+            // que resolva destino pelo papel da pasta acertaria no IMAP e
+            // erraria em todo o Gmail, e é por isso que isto está escrito aqui.
             let folderID = FolderRecord.id(accountID: account.id, serverName: "GMAIL")
             try await database.pool.write { db in
                 try FolderRecord(
                     id: folderID, accountID: account.id, serverName: "GMAIL",
-                    role: .inbox, displayName: "Gmail"
+                    role: .other, displayName: "Gmail"
                 ).save(db)
             }
 
@@ -490,17 +504,20 @@ public struct InitialLoader: Sendable {
                             id: folderID, accountID: account.id, serverName: pasta.name,
                             role: pasta.role, displayName: pasta.name
                         ).save(db)
-                        if trocou {
-                            // Os UIDs foram reciclados: a geração velha não
-                            // casa com nada. Deixá-la ali faria a lista mostrar
-                            // cada mensagem duas vezes, com assuntos diferentes
-                            // sob o mesmo UID.
-                            try db.execute(
-                                sql: "DELETE FROM message WHERE folderID = ? AND uidValidity IS NOT ?",
-                                arguments: [folderID, status.uidValidity]
-                            )
-                        }
                     }
+                    // Os UIDs reciclados: a geração velha não casa com nada, e
+                    // deixá-la ali faria a lista mostrar cada mensagem duas
+                    // vezes, com assuntos diferentes sob o mesmo UID.
+                    //
+                    // **O apagamento espera o download.** Ele ficava aqui, numa
+                    // transação própria, e entre ele e a primeira gravação havia
+                    // um SELECT, um UID FETCH de todos os UIDs da janela e o
+                    // download dos corpos — minutos. App morto (ou rede caída)
+                    // nessa janela deixava a pasta **vazia** na tela, com a
+                    // conta em `.ativa`. Agora ele viaja junto com o primeiro
+                    // lote, na mesma transação: as duas gerações trocam de lugar
+                    // de uma vez, e não há instante em que a pasta esteja vazia.
+                    var faltaApagarAGeracaoVelha = trocou
 
                     // Reselecionar: a primeira passada deixou outra pasta
                     // selecionada, e `UID FETCH` age sobre a pasta corrente.
@@ -544,11 +561,26 @@ public struct InitialLoader: Sendable {
                             fatia, account: account, folderID: folderID,
                             uidValidity: status.uidValidity, bucket: bucket,
                             etiqueta: TriageProjection.tag(folderRole: pasta.role, folderName: pasta.name),
-                            corpos: corpos
+                            corpos: corpos,
+                            apagandoAGeracaoVelha: faltaApagarAGeracaoVelha
                         )
+                        faltaApagarAGeracaoVelha = false
                         feitas += fatia.count
                         percorridasAqui += fatia.count
                         progress(LoadProgress(accountID: account.id, done: feitas, total: totalEstimado))
+                    }
+
+                    // A pasta ficou **vazia** na geração nova: não houve lote
+                    // nenhum para carregar o apagamento junto, e a geração velha
+                    // ainda está lá. Ela sai agora — é a única saída que sobra,
+                    // e aqui já não há download nenhum entre a decisão e a
+                    // escrita.
+                    if faltaApagarAGeracaoVelha {
+                        try await database.pool.write { db in
+                            try Self.apagaGeracaoVelha(
+                                db, folderID: folderID, uidValidity: status.uidValidity
+                            )
+                        }
                     }
 
                     // O ponto de partida do Marco 3 para esta pasta.
@@ -660,9 +692,15 @@ public struct InitialLoader: Sendable {
     private func gravaImap(
         _ envelopes: [ImapEnvelope], account: Account, folderID: String,
         uidValidity: Int64, bucket: TriageBucket, etiqueta: Tag?,
-        corpos: [Int64: [String]]
+        corpos: [Int64: [String]],
+        apagandoAGeracaoVelha apagar: Bool = false
     ) async throws {
         try await database.pool.write { db in
+            // Na MESMA transação do primeiro lote: as duas gerações trocam de
+            // lugar de uma vez, e não há instante em que a pasta esteja vazia.
+            if apagar {
+                try Self.apagaGeracaoVelha(db, folderID: folderID, uidValidity: uidValidity)
+            }
             for envelope in envelopes {
                 let id = MessageIdentity.imap(
                     accountID: account.id, folderID: folderID,
@@ -691,6 +729,17 @@ public struct InitialLoader: Sendable {
                 }
             }
         }
+    }
+
+    /// As mensagens de qualquer geração que não seja esta. Uma função só,
+    /// porque ela é chamada de dois lugares — junto com o primeiro lote, e
+    /// sozinha quando a pasta ficou vazia — e duas cópias divergiriam no dia em
+    /// que a condição mudasse.
+    static func apagaGeracaoVelha(_ db: Database, folderID: String, uidValidity: Int64) throws {
+        try db.execute(
+            sql: "DELETE FROM message WHERE folderID = ? AND uidValidity IS NOT ?",
+            arguments: [folderID, uidValidity]
+        )
     }
 
     /// O erro de **uma pasta** derruba a conta inteira?

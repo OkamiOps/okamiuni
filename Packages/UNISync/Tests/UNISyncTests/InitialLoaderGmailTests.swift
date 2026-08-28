@@ -403,6 +403,42 @@ struct InitialLoaderGmailTests {
         #expect(LoadProgress(accountID: "x", done: 0, total: 0).fraction == 1)
     }
 
+    // MARK: A pseudo-pasta
+
+    @Test("A pseudo-pasta do Gmail não finge ser a caixa de entrada")
+    func pseudoPastaNaoMente() async throws {
+        // MENOR M3 DO RELATÓRIO DE BANCO: a linha era gravada com
+        // `role: .inbox`, e ela guarda as mensagens de Hoje, Depois, Arquivado
+        // **e** Lixeira da conta. `TriageProjection.bucket(role: .inbox)` diria
+        // `.today` para todas elas — o `folder.role` gravado contradizendo o
+        // `message.bucket` gravado, na maioria das linhas de qualquer conta
+        // Gmail.
+        //
+        // Nada lê essa coluna hoje (a propriedade que a lia saiu do
+        // `Records.swift` no mesmo commit), então não havia defeito observável
+        // — mas o Marco 3 escreve de volta no servidor, e um caminho que
+        // resolva destino pelo papel da pasta acertaria no IMAP e erraria em
+        // todo o Gmail.
+        //
+        // MUTAÇÃO QUE ISTO PEGA: voltar `role: .inbox`.
+        let db = try SyncDatabase.temporary()
+        try await carrega(db)
+
+        let pasta = try await db.pool.read { conexao in
+            try FolderRecord.fetchOne(conexao, key: FolderRecord.id(accountID: "conta-g", serverName: "GMAIL"))
+        }
+        let papel = try #require(pasta?.role)
+        #expect(papel == FolderRole.other.rawValue, "papel gravado: \(papel)")
+
+        // E a razão de o papel não poder ser `.inbox`, medida: as mensagens
+        // desta única pasta estão em caixas diferentes. Nenhum papel descreve
+        // todas, e por isso o honesto é `.other`.
+        let caixas = try await db.pool.read { conexao in
+            try String.fetchSet(conexao, sql: "SELECT DISTINCT bucket FROM message")
+        }
+        #expect(caixas.count > 1, "caixas: \(caixas)")
+    }
+
     // MARK: A janela de concorrência
 
     @Test("A busca não é mais em série — e não passa da janela de quatro")
