@@ -34,7 +34,14 @@ desse banco — sem mudar de forma.
 | Pacote | Para quê |
 |---|---|
 | `GRDB.swift` | SQLite: cache de mensagens, FTS5, `ValueObservation` |
-| `swift-nio-imap` (+ SwiftNIO que ele traz) | Parser/protocolo IMAP |
+| `swift-nio` + `swift-nio-ssl` | O transporte do IMAP: event loops, TLS, e o nosso decodificador de linhas lógicas |
+
+> **Emenda (Task 10):** a spec original declarava `swift-nio-imap`, mas a
+> 0.4.0 real não expõe o `ResponseDecoder` (é `internal`), e o framing por
+> literais que precisávamos acabou escrito e provado por sonda dentro de
+> `CRLFLineDecoder`/`ImapResponseAdapter`. A biblioteca ficou sem trabalho no
+> caminho de dados e saiu; o SwiftNIO, que sempre foi quem trabalhava, passou
+> a dependência direta declarada.
 
 Nenhuma outra. OAuth é `ASWebAuthenticationSession` + `URLSession`, ambos do
 sistema. Keychain é `Security.framework`.
