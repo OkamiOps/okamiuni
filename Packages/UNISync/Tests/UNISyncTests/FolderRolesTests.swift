@@ -39,6 +39,14 @@ struct FolderRolesTests {
         #expect(FolderRoles.role(specialUse: nil, name: "Todos os e-mails") == .archive)
     }
 
+    @Test("A lixeira do Outlook/Office365 tem nome próprio: 'Deleted Items'")
+    func lixeiraDoOutlook() {
+        // outlook.com, hotmail.com e live.com estão nos presets (Task 6); se o
+        // servidor não anunciar SPECIAL-USE \Trash, é este nome que decide.
+        #expect(FolderRoles.role(specialUse: nil, name: "Deleted Items") == .trash)
+        #expect(FolderRoles.role(specialUse: nil, name: "deleted items") == .trash)
+    }
+
     @Test("A pasta `OkamiUNI/Depois` é reconhecida quando existir de instalação anterior")
     func pastaDepois() {
         #expect(FolderRoles.laterFolderName == "OkamiUNI/Depois")

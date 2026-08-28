@@ -36,7 +36,7 @@ public enum FolderRoles {
         where dobrado == sufixo || dobrado.hasSuffix("/" + sufixo) {
             return .archive
         }
-        for sufixo in ["trash", "lixeira", "deleted messages", "itens excluidos"]
+        for sufixo in ["trash", "lixeira", "deleted messages", "deleted items", "itens excluidos"]
         where dobrado == sufixo || dobrado.hasSuffix("/" + sufixo) {
             return .trash
         }
