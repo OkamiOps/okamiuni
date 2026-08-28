@@ -7,7 +7,7 @@
 ![Swift 6.3](https://img.shields.io/badge/Swift-6.3-F05138?logo=swift&logoColor=white)
 ![macOS 26](https://img.shields.io/badge/macOS-26-000000?logo=apple&logoColor=white)
 ![SwiftUI](https://img.shields.io/badge/SwiftUI-nativo-0071e3)
-![Testes](https://img.shields.io/badge/testes-807%20verdes-2ea44f)
+![Testes](https://img.shields.io/badge/testes-1088%20verdes-2ea44f)
 ![Temas](https://img.shields.io/badge/temas-26-8a2be2)
 ![Marco](https://img.shields.io/badge/marco-2%20·%20contas-orange)
 
@@ -22,7 +22,7 @@
 - ✍️ **Composer rico de verdade**: negrito que muda a fonte, tabela que sobrevive ao Enter, hyperlink, justificado, qualquer cor, todas as fontes do sistema.
 - 🎨 **26 temas**, hairlines de 1 pixel em telas 1×, semáforos a 22pt do topo — o polimento é requisito, não acabamento.
 - 🔌 **Qualquer provedor**: as quatro contas de exemplo são fixtures de design; nada no código limita provedor, domínio ou número de contas.
-- ✅ **807 testes** que provam por mutação: cada teste novo só conta depois de falhar com o defeito reintroduzido.
+- ✅ **1088 testes** que provam por mutação: cada teste novo só conta depois de falhar com o defeito reintroduzido.
 
 ```bash
 Tools/rodar.sh     # mata a instância antiga, regenera o projeto, compila e abre
@@ -72,24 +72,25 @@ O script encerra a instância anterior, limpa o estado salvo da janela, regenera
 
 ## Arquitetura
 
-Três pacotes Swift e um princípio: **lógica pura fora das views** — uma `View` SwiftUI é `@MainActor` implícito, e tudo que merece teste nonisolated mora em `UNICore`.
+Quatro pacotes Swift e um princípio: **lógica pura fora das views** — uma `View` SwiftUI é `@MainActor` implícito, e tudo que merece teste nonisolated mora em `UNICore`.
 
 | Pacote | Papel | Exemplos |
 |---|---|---|
 | `Packages/UNICore` | Modelo e lógica pura, sem SwiftUI | `MailStore`, `SwipeGestureMachine`, `ComposerSeed`, `WeekAgenda`/`MonthAgenda`, `ContextMenus`, `MenuPlacement`, `PaneLayout` |
 | `Packages/UNIDesign` | O sistema de temas — 26 temas, tokens de cor, tipografia, fontes embarcadas | `Theme`, `ThemeStore`, `FontRegistry` |
 | `Packages/UNIShell` | As telas e o chrome da janela | `InboxScreen`, `CalendarScreen`, `ComposerWindow`, `WindowChrome`, os menus custom |
+| `Packages/UNISync` | Contas e sincronização: OAuth, IMAP sobre SwiftNIO, Keychain, o banco GRDB | `AccountDirector`, `GoogleAuth`, `ImapSession`, `InitialLoader`, `SyncDatabase` |
 
 ```
 App/  ──▶  UNIShell  ──▶  UNIDesign
-                └───────▶  UNICore
+                └───────▶  UNICore  ◀──  UNISync  ──▶  (Keychain · GRDB · Gmail API · IMAP)
 ```
 
 O projeto Xcode é gerado por [`project.yml`](project.yml) (XcodeGen) com `SWIFT_STRICT_CONCURRENCY: complete`. O desenho original — HTML navegável — vive em [`design/`](design/) e é tratado como especificação: quando uma medida está em dúvida, o protótipo é servido e **medido**, não lido.
 
 ## Como este projeto se testa
 
-**Swift Testing** (nunca XCTest), 807 testes em três suítes — e uma regra que virou cultura depois de uma auditoria dedicada: **teste que passa com o código quebrado é defeito**. Doze testes foram condenados por mutação e substituídos; todo teste novo nasce provado vermelho com o defeito reintroduzido.
+**Swift Testing** (nunca XCTest), 1088 testes em quatro pacotes — e uma regra que virou cultura depois de uma auditoria dedicada: **teste que passa com o código quebrado é defeito**. Doze testes foram condenados por mutação e substituídos; todo teste novo nasce provado vermelho com o defeito reintroduzido.
 
 Três instrumentos fazem o app testemunhar contra si mesmo, sem tocar no mouse de ninguém:
 
@@ -98,17 +99,18 @@ Três instrumentos fazem o app testemunhar contra si mesmo, sem tocar no mouse d
 | Captura | `--capturar` | A janela real se fotografa e encerra — pixels do AppKit, não de um harness |
 | Ensaio de arraste | `--ensaiar-arraste` | Eventos de mouse sintetizados **dentro do processo** (`NSWindow.sendEvent`), uma foto por fase do gesto |
 | Ensaio de teclado / barra | `--ensaiar-teclado` · `--ensaiar-barra` | Cada atalho e o duplo clique na barra, aferidos no caminho real dos eventos |
+| Ensaio de contas | `--ensaiar-contas` | O fluxo inteiro de conectar uma conta, contra um servidor IMAP falso em loopback — banco descartável, Keychain intocado |
 
 Foi o ensaio de arraste que pegou o defeito que três rodadas de teste de modelo não viam: no macOS, um `Button` dispara no mouse-up mesmo depois de a mão andar 200pt — e a linha inteira é um botão. O registro completo dessas decisões está em [`docs/decisoes-de-engenharia.md`](docs/decisoes-de-engenharia.md).
 
 ```bash
-for p in UNICore UNIDesign UNIShell; do (cd "Packages/$p" && swift test); done
+for p in UNICore UNIDesign UNIShell UNISync; do (cd "Packages/$p" && swift test); done
 ```
 
 ## Roteiro
 
 - [x] **Marco 1 — Shell**: tudo acima, com as quatro contas vindo de fixtures
-- [ ] **Marco 2 — Contas**: OAuth e armazenamento seguro de credenciais
+- [x] **Marco 2 — Contas**: OAuth do Google (PKCE), IMAP para qualquer provedor, Keychain, banco SQLite local-first com FTS5, carga de 90 dias retomável, janela de Contas
 - [ ] **Marco 3 — Sincronização**: Gmail API + Microsoft Graph + IMAP como reserva — qualquer provedor, qualquer domínio
 - [ ] **Marco 4 — Agenda real**: EventKit; "Reagendar" volta, "Tirar da agenda" alcança tudo
 - [ ] **Marco 5 — Inteligência no dispositivo**: resumo e detecção de compromisso deixando as fixtures
