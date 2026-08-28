@@ -428,6 +428,26 @@ struct CRLFLineDecoder: ByteToMessageDecoder {
     /// reservar byte nenhum.
     static let tetoDoLiteral = 8 * 1024 * 1024
 
+    /// Teto da linha lógica **inteira** — e este nunca rearma.
+    ///
+    /// Os outros dois são por parte: `tetoDaLinha` mede só a parte-de-linha
+    /// corrente e recomeça do zero depois de cada literal; `tetoDoLiteral` mede
+    /// um literal de cada vez. Nenhum dos dois olha a **soma**, e uma linha
+    /// lógica só acaba num `\n` que não abre literal — então um servidor que
+    /// encadeia literais indefinidamente
+    ///
+    ///     * 1 FETCH (UID 1 X {8388608}\r\n<8 MiB> Y {8388608}\r\n<8 MiB> …
+    ///
+    /// fazia o `ByteToMessageHandler` crescer sem limite, sem emitir nada — e
+    /// sem emitir nada nem o teto de tempo dispara, porque os bytes continuam
+    /// chegando. Medido: 40 MiB absorvidos em 40 ciclos, `readInbound` devolvendo
+    /// `nil`, nenhum erro. O número era escolha do atacante.
+    ///
+    /// O dobro do teto de literal cobre qualquer FETCH real com folga: a maior
+    /// resposta legítima é um envelope (bytes) mais **um** corpo (8 MiB no
+    /// máximo, pelo teto acima). Duas vezes isso já é resposta que ninguém manda.
+    static let tetoDaLinhaLogica = 2 * tetoDoLiteral
+
     let pendencia: PendenciaDeBytes
 
     init(pendencia: PendenciaDeBytes = PendenciaDeBytes()) {
@@ -448,6 +468,7 @@ struct CRLFLineDecoder: ByteToMessageDecoder {
                 let pega = min(disponivel, restanteDoLiteral)
                 varrido += pega
                 restanteDoLiteral -= pega
+                try confereTetoDaLinhaLogica()
                 if restanteDoLiteral > 0 { return pare(&buffer) }
                 // O literal acabou: daqui para a frente é parte-de-linha de
                 // novo, e a contagem do teto recomeça do zero.
@@ -470,6 +491,8 @@ struct CRLFLineDecoder: ByteToMessageDecoder {
                         "O servidor IMAP mandou uma linha maior que \(Self.tetoDaLinha) bytes sem terminador."
                     )
                 }
+                // ...mas a **soma** conta, e esta conta nunca recomeça.
+                try confereTetoDaLinhaLogica()
                 return pare(&buffer)
             }
 
@@ -489,6 +512,14 @@ struct CRLFLineDecoder: ByteToMessageDecoder {
                         "O servidor IMAP anunciou um literal de \(tamanho) bytes"
                         + (uid.map { " para o UID \($0)" } ?? "")
                         + ", acima do teto de \(Self.tetoDoLiteral)."
+                    )
+                }
+                // O literal que **cabe** sozinho pode não caber na soma: recusar
+                // aqui, no cabeçalho, é recusar antes de reservar byte nenhum.
+                guard depoisDoLF + tamanho <= Self.tetoDaLinhaLogica else {
+                    throw SyncError.resposta(
+                        "O servidor IMAP encadeou literais além de \(Self.tetoDaLinhaLogica) bytes "
+                        + "numa linha lógica só — a conexão foi descartada."
                     )
                 }
                 restanteDoLiteral = tamanho
@@ -592,6 +623,16 @@ struct CRLFLineDecoder: ByteToMessageDecoder {
     /// Onde a parte-de-linha corrente começa, dentro da linha lógica. Zero no
     /// começo da linha; logo depois de cada literal, onde ele terminou.
     private var inicioDaParteCorrente = 0
+
+    /// O teto que não rearma. `varrido` é a posição dentro da linha **lógica**,
+    /// e conta os bytes de literal junto — é exatamente a soma que faltava.
+    private func confereTetoDaLinhaLogica() throws {
+        guard varrido > Self.tetoDaLinhaLogica else { return }
+        throw SyncError.resposta(
+            "O servidor IMAP mandou uma linha lógica maior que \(Self.tetoDaLinhaLogica) bytes "
+            + "— a conexão foi descartada."
+        )
+    }
 
     private mutating func pare(_ buffer: inout ByteBuffer) -> DecodingState {
         pendencia.bytes = buffer.readableBytes

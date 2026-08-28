@@ -501,6 +501,52 @@ struct CRLFLineDecoderTests {
         #expect(saida.first?.utf8.count == cabeca.count + 1)
     }
 
+    @Test("Literais colados não crescem sem fim: a linha lógica inteira tem teto")
+    func tetoDaLinhaLogica() throws {
+        // O teto de linha rearmava depois de **cada** literal, e o de literal
+        // media um de cada vez — ninguém olhava a soma. Como a linha lógica só
+        // acaba num `\n` que não abre literal, um servidor que encadeia literais
+        // faz o buffer crescer sem limite, sem emitir nada, e sem emitir nada
+        // nem o teto de tempo dispara. Medido antes do conserto: 40 MiB
+        // absorvidos, `readInbound` devolvendo `nil` nos 40 ciclos, zero erros.
+        //
+        // MUTAÇÃO QUE ISTO PEGA: apagar as chamadas de
+        // `confereTetoDaLinhaLogica` (ou trocar o teto por `Int.max`) faz este
+        // teste absorver os 40 MiB calado e falhar por "esperava um erro".
+        let canal = canal()
+        let pedaco = 1024 * 1024
+        let corpo = [UInt8](repeating: UInt8(ascii: "x"), count: pedaco)
+        var absorvidos = 0
+        #expect(throws: SyncError.self) {
+            // Um literal por escrita, todos colados na MESMA linha lógica:
+            // nenhuma delas termina em `\n` que não abra literal.
+            for _ in 0..<40 {
+                var entrada = canal.allocator.buffer(capacity: pedaco + 64)
+                entrada.writeString("Y {\(pedaco)}\r\n")
+                entrada.writeBytes(corpo)
+                try canal.writeInbound(entrada)
+                absorvidos += 1
+            }
+        }
+        // O teto é de 16 MiB e cada volta traz 1 MiB: a recusa vem bem antes
+        // das 40. Sem esta afirmação, um erro na primeira volta passaria.
+        #expect(absorvidos > 1)
+        #expect(absorvidos < 40)
+        _ = try? canal.finish()
+    }
+
+    @Test("Um corpo grande, sozinho, continua passando — o teto da soma não o pega")
+    func linhaLogicaGrandeMasLegitima() throws {
+        // O contrapeso do teste acima: o teto novo não pode estreitar o que já
+        // era permitido. Um FETCH com um corpo de 8 MiB — o máximo que o teto
+        // de literal deixa passar — atravessa inteiro.
+        let corpo = [UInt8](repeating: UInt8(ascii: "x"), count: CRLFLineDecoder.tetoDoLiteral)
+        let cabeca = Array("* 1 FETCH (UID 9001 BODY[TEXT] {\(corpo.count)}\r\n".utf8) + corpo
+        let saida = try linhas([cabeca, Array(")\r\n".utf8)])
+        #expect(saida.count == 1)
+        #expect(saida.first?.utf8.count == cabeca.count + 1)
+    }
+
     @Test("Literal anunciado acima do teto é recusado, dizendo o tamanho e o UID")
     func tetoDoLiteral() throws {
         // O tamanho vem declarado pelo servidor. Aceitar `{9999999999}` é
