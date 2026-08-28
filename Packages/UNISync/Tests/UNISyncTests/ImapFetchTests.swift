@@ -135,7 +135,7 @@ struct ImapFetchTests {
     // MARK: Os literais
 
     @Test("O literal é cortado pelo tamanho declarado, e não pelo primeiro `)`")
-    func literalCortadoPeloTamanho() {
+    func literalCortadoPeloTamanho() throws {
         // O `)` que fecha o FETCH vem **depois** do literal, na mesma linha
         // lógica. Cortar nele é fácil e errado: um corpo que contenha `)` sairia
         // pela metade, e todo corpo ganharia um parêntese no fim.
@@ -143,7 +143,7 @@ struct ImapFetchTests {
         // bytes" de "cortei no primeiro parêntese", que dão a mesma resposta em
         // qualquer corpo bem-comportado e respostas diferentes num de verdade.
         let linha = "1 FETCH (UID 9001 BODY[TEXT] {22}\r\nPrimeiro.)\r\n\r\nSegundo.)"
-        guard case .fetch(let fetch) = ImapResponseAdapter.untagged(fromLogicalLine: linha) else {
+        guard case .fetch(let fetch) = try ImapResponseAdapter.untagged(fromLogicalLine: linha) else {
             Issue.record("Esperava um `.fetch`.")
             return
         }
@@ -160,7 +160,7 @@ struct ImapFetchTests {
             + "{20}\r\nRevisão do contrato "
             + "((\"Marina\" NIL \"marina\" \"clientepremium.com\")) NIL NIL "
             + "((\"Ricardo\" NIL \"ricardo\" \"empresa.com\")) NIL NIL NIL NIL))"
-        guard case .fetch(let fetch) = ImapResponseAdapter.untagged(fromLogicalLine: linha) else {
+        guard case .fetch(let fetch) = try ImapResponseAdapter.untagged(fromLogicalLine: linha) else {
             Issue.record("Esperava um `.fetch`.")
             return
         }
@@ -173,7 +173,7 @@ struct ImapFetchTests {
     func remetenteEmLiteral() throws {
         let linha = "1 FETCH (UID 9001 ENVELOPE (NIL \"Assunto\" "
             + "(({6}\r\nMarina NIL \"marina\" \"clientepremium.com\")) NIL NIL NIL NIL NIL NIL NIL))"
-        guard case .fetch(let fetch) = ImapResponseAdapter.untagged(fromLogicalLine: linha) else {
+        guard case .fetch(let fetch) = try ImapResponseAdapter.untagged(fromLogicalLine: linha) else {
             Issue.record("Esperava um `.fetch`.")
             return
         }
@@ -186,7 +186,7 @@ struct ImapFetchTests {
         let linha = "1 FETCH (UID 9001 ENVELOPE (NIL {20}\r\nRevisão do contrato "
             + "(({14}\r\nDuarte, Marina NIL \"marina\" \"clientepremium.com\")) NIL NIL "
             + "((\"Ricardo\" NIL \"ricardo\" \"empresa.com\")) NIL NIL NIL NIL))"
-        guard case .fetch(let fetch) = ImapResponseAdapter.untagged(fromLogicalLine: linha) else {
+        guard case .fetch(let fetch) = try ImapResponseAdapter.untagged(fromLogicalLine: linha) else {
             Issue.record("Esperava um `.fetch`.")
             return
         }
@@ -205,7 +205,7 @@ struct ImapFetchTests {
         // literal no fim da linha.
         let linha = "1 FETCH (UID 9001 ENVELOPE (NIL {4} NIL NIL NIL "
             + "((\"Ricardo\" NIL \"ricardo\" \"empresa.com\")) NIL NIL NIL NIL))"
-        guard case .fetch(let fetch) = ImapResponseAdapter.untagged(fromLogicalLine: linha) else {
+        guard case .fetch(let fetch) = try ImapResponseAdapter.untagged(fromLogicalLine: linha) else {
             Issue.record("Esperava um `.fetch`.")
             return
         }
@@ -222,7 +222,7 @@ struct ImapFetchTests {
         // num email — uma cola de suporte, um log — trocaria a identidade da
         // mensagem inteira.
         let linha = "1 FETCH (BODY[TEXT] {13}\r\nUID 999 e tal UID 9001)"
-        guard case .fetch(let fetch) = ImapResponseAdapter.untagged(fromLogicalLine: linha) else {
+        guard case .fetch(let fetch) = try ImapResponseAdapter.untagged(fromLogicalLine: linha) else {
             Issue.record("Esperava um `.fetch`.")
             return
         }
@@ -230,24 +230,69 @@ struct ImapFetchTests {
         #expect(fetch.text == "UID 999 e tal")
     }
 
+    // MARK: O tamanho absurdo de literal
+
+    @Test("Vinte dígitos dentro de `{}` viram erro de resposta, e não SIGTRAP")
+    func literalComTamanhoImpossivel() {
+        // Este teste não afirma um valor: ele afirma que o processo **continua
+        // vivo**. O laço de dígitos multiplicava e somava em `Int`, e em Swift
+        // isso armadilha no estouro — vinte noves matavam o app inteiro com
+        // signal 5, dentro do `channelRead` do NIO, com a carga em voo.
+        //
+        // O caminho é o normal, não um canto: TODA linha untagged passa por
+        // `untagged(fromLogicalLine:)`, e a primeira coisa que ela faz é varrer
+        // a linha à procura de cabeçalho de literal. Basta a saudação e uma
+        // linha para o servidor derrubar o cliente.
+        //
+        // MUTAÇÃO QUE ISTO PEGA: tirar o `guard digitos <= tetoDeDigitos` de
+        // `Analise.cabecalho` faz o processo de teste **morrer** (signal 5) —
+        // vermelho da forma mais barulhenta que existe.
+        #expect(throws: SyncError.self) {
+            try ImapResponseAdapter.untagged(
+                fromLogicalLine: "* OK [ALERT] {99999999999999999999} bytes"
+            )
+        }
+        // O teto é de dígitos, e não de valor: doze dígitos passam pela guarda
+        // e são recusados adiante por não terem CRLF — a linha vira `.outra`,
+        // que é o comportamento de sempre.
+        #expect(throws: SyncError.self) {
+            try ImapResponseAdapter.untagged(fromLogicalLine: "* OK [ALERT] {1234567890123} bytes")
+        }
+        #expect(throws: Never.self) {
+            try ImapResponseAdapter.untagged(fromLogicalLine: "* OK [ALERT] {123456789012} bytes")
+        }
+    }
+
+    @Test("O teto de dígitos do UID é o mesmo, e o UID absurdo não vira mensagem")
+    func uidComDigitosDemais() throws {
+        // O `Int64(_: String)` já devolvia `nil` no estouro, então aqui nunca
+        // houve trap — o que havia era duas regras diferentes para a mesma
+        // pergunta no mesmo arquivo. `fetch` sem UID não é `.fetch`.
+        let linha = "1 FETCH (UID 99999999999999999999 FLAGS (\\Seen))"
+        guard case .outra = try ImapResponseAdapter.untagged(fromLogicalLine: linha) else {
+            Issue.record("Um UID de vinte dígitos não é UID: a linha não podia virar `.fetch`.")
+            return
+        }
+    }
+
     // MARK: O nome da pasta no LIST
 
     @Test("O nome da pasta é o que vem depois do separador — citado, átomo ou literal")
-    func nomeDaPastaNoList() {
+    func nomeDaPastaNoList() throws {
         // `* LIST (…) "/" INBOX` é legal no RFC 3501: o nome na forma átomo,
         // sem aspas. Ler "a última string citada" devolveria o separador `/`
         // como nome — a INBOX sumiria e uma pasta chamada "/" tomaria o lugar.
-        func nome(_ linha: String) -> String? {
-            guard case .list(let nome, _) = ImapResponseAdapter.untagged(fromLogicalLine: linha) else {
+        func nome(_ linha: String) throws -> String? {
+            guard case .list(let nome, _) = try ImapResponseAdapter.untagged(fromLogicalLine: linha) else {
                 return nil
             }
             return nome
         }
-        #expect(nome("* LIST (\\HasNoChildren) \"/\" \"INBOX\"") == "INBOX")
-        #expect(nome("* LIST (\\HasNoChildren) \"/\" INBOX") == "INBOX")
-        #expect(nome("* LIST (\\HasNoChildren) \".\" INBOX.Enviados") == "INBOX.Enviados")
-        #expect(nome("* LIST (\\HasNoChildren) \"/\" {6}\r\nEnviad") == "Enviad")
-        #expect(nome("* LIST (\\Noselect) \"/\" \"[Gmail]\"") == "[Gmail]")
+        #expect(try nome("* LIST (\\HasNoChildren) \"/\" \"INBOX\"") == "INBOX")
+        #expect(try nome("* LIST (\\HasNoChildren) \"/\" INBOX") == "INBOX")
+        #expect(try nome("* LIST (\\HasNoChildren) \".\" INBOX.Enviados") == "INBOX.Enviados")
+        #expect(try nome("* LIST (\\HasNoChildren) \"/\" {6}\r\nEnviad") == "Enviad")
+        #expect(try nome("* LIST (\\Noselect) \"/\" \"[Gmail]\"") == "[Gmail]")
     }
 
     // MARK: De ponta a ponta, contra o servidor falso

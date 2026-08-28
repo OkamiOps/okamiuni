@@ -765,8 +765,20 @@ final class ImapChannelHandler: ChannelInboundHandler, @unchecked Sendable {
             lock.unlock()
             continuation?.resume(returning: resultado)
         } else {
-            collected.append(ImapResponseAdapter.untagged(fromLogicalLine: linha))
+            // A leitura sai de baixo do cadeado de propósito: ela pode **lançar**
+            // (cabeçalho de literal com tamanho impossível), e `falha` toma o
+            // mesmo cadeado. Antes de o adapter lançar, esta linha derrubava o
+            // processo inteiro com SIGTRAP, aqui dentro da event loop.
             lock.unlock()
+            do {
+                let resposta = try ImapResponseAdapter.untagged(fromLogicalLine: linha)
+                lock.lock()
+                collected.append(resposta)
+                lock.unlock()
+            } catch {
+                falha(Self.traduz(error))
+                context.close(promise: nil)
+            }
         }
     }
 

@@ -16,9 +16,14 @@ enum ImapResponseAdapter {
     /// "Linha lógica" quer dizer: o `CRLFLineDecoder` já juntou os literais
     /// `{n}` ao resto, então o que chega aqui é a resposta inteira, com os
     /// bytes do corpo dentro dela — CRLFs e tudo.
-    static func untagged(fromLogicalLine linha: String) -> ImapWire.Untagged {
+    /// Lança `SyncError.resposta` quando a linha traz um cabeçalho de literal
+    /// com tamanho impossível de ler. Não é preciosismo de tipo: o laço de
+    /// dígitos multiplica e soma em `Int`, e em Swift `*`/`+` **armadilham** no
+    /// estouro — vinte noves dentro de `{}` matavam o processo com SIGTRAP,
+    /// dentro do `channelRead` do NIO, com a carga em voo.
+    static func untagged(fromLogicalLine linha: String) throws -> ImapWire.Untagged {
         let corpo = linha.hasPrefix("* ") ? String(linha.dropFirst(2)) : linha
-        let analise = Analise(corpo)
+        let analise = try Analise(corpo)
 
         if analise.comecaCom("LIST ") { return list(analise) }
         if analise.comecaCom("SEARCH") { return search(corpo) }
@@ -56,7 +61,13 @@ enum ImapResponseAdapter {
         /// Índice de onde o cabeçalho começa → faixa do conteúdo daquele literal.
         private let conteudo: [Int: Range<Int>]
 
-        init(_ texto: String) {
+        /// O teto de dígitos do tamanho de um literal — o **mesmo** número que
+        /// o `CRLFLineDecoder.tamanhoDoLiteral` já usava (`ImapSession.swift`).
+        /// Duas respostas diferentes para a mesma pergunta é o defeito que este
+        /// arquivo inteiro existe para não ter.
+        static let tetoDeDigitos = 12
+
+        init(_ texto: String) throws {
             let bytes = Array(texto.utf8)
             var literal = [Bool](repeating: false, count: bytes.count)
             var conteudos: [Int: Range<Int>] = [:]
@@ -75,7 +86,7 @@ enum ImapResponseAdapter {
                     i += 1
                     continue
                 }
-                if let cabecalho = Self.cabecalho(em: bytes, desde: i) {
+                if let cabecalho = try Self.cabecalho(em: bytes, desde: i) {
                     let fim = max(
                         cabecalho.depoisDoCabecalho,
                         min(cabecalho.depoisDoCabecalho + cabecalho.tamanho, bytes.count)
@@ -94,9 +105,16 @@ enum ImapResponseAdapter {
 
         /// `{21}`, `{21+}`, `~{21}` seguidos de CRLF (ou só LF) — o cabeçalho de
         /// um literal. Devolve o tamanho e onde o conteúdo começa.
+        ///
+        /// **Lança** quando os dígitos passam do teto: o `{` já foi visto, então
+        /// aquilo *é* um cabeçalho, e continuar multiplicando estoura o `Int` —
+        /// que em Swift não dá zero nem `nil`, dá SIGTRAP. Devolver `nil` seria
+        /// pior que lançar de outra forma: seguiria lendo o conteúdo do literal
+        /// como se fosse protocolo, que é a dessincronia silenciosa que o mapa
+        /// de literais existe para impedir.
         static func cabecalho(
             em bytes: [UInt8], desde inicio: Int
-        ) -> (tamanho: Int, depoisDoCabecalho: Int)? {
+        ) throws -> (tamanho: Int, depoisDoCabecalho: Int)? {
             var i = inicio
             if i < bytes.count, bytes[i] == UInt8(ascii: "~") { i += 1 }
             guard i < bytes.count, bytes[i] == UInt8(ascii: "{") else { return nil }
@@ -104,9 +122,15 @@ enum ImapResponseAdapter {
             var tamanho = 0
             var digitos = 0
             while i < bytes.count, bytes[i] >= UInt8(ascii: "0"), bytes[i] <= UInt8(ascii: "9") {
+                digitos += 1
+                guard digitos <= tetoDeDigitos else {
+                    throw SyncError.resposta(
+                        "O servidor IMAP anunciou um literal com mais de \(tetoDeDigitos) dígitos "
+                        + "de tamanho — a sincronia da conexão se perdeu."
+                    )
+                }
                 tamanho = tamanho * 10 + Int(bytes[i] - UInt8(ascii: "0"))
                 i += 1
-                digitos += 1
             }
             guard digitos > 0 else { return nil }
             // `LITERAL+` (`{21+}`) e `LITERAL-` (`{21-}`).
@@ -337,6 +361,12 @@ enum ImapResponseAdapter {
 
     // MARK: Leituras por nome
 
+    /// O mesmo teto de dígitos do cabeçalho de literal, pela mesma razão: um
+    /// `UID` de vinte dígitos é despejo, não número. Aqui a conversão é
+    /// `Int64(_: String)`, que devolve `nil` no estouro em vez de armadilhar —
+    /// então o teto é sobre o **trabalho**, e não sobre o trap; mas deixar dois
+    /// laços de dígitos com regras diferentes no mesmo arquivo é o convite para
+    /// o próximo deles voltar a multiplicar à mão.
     private static func inteiroDepois(de chave: String, em analise: Analise) -> Int64? {
         guard let indice = analise.depoisDe(chave) else { return nil }
         var i = indice
@@ -345,6 +375,7 @@ enum ImapResponseAdapter {
               analise.bytes[i] <= UInt8(ascii: "9") {
             digitos.append(analise.bytes[i])
             i += 1
+            if digitos.count > Analise.tetoDeDigitos { return nil }
         }
         return Int64(String(decoding: digitos, as: UTF8.self))
     }
