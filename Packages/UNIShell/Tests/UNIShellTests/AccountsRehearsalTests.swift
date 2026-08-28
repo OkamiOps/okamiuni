@@ -27,6 +27,32 @@ struct AccountsRehearsalTests {
         #expect(porta > 0)
     }
 
+    @Test("A varredura leva os bancos do ensaio e não toca no resto")
+    func varreduraDosBancos() throws {
+        // O `deinit` que apagaria o banco descartável nunca roda: quem encerra
+        // o ensaio é `NSApp.terminate`, que derruba o processo sem desmontar
+        // nada. Eram vinte diretórios acumulados no contêiner quando isto foi
+        // notado — instrumento que suja a máquina de quem o roda tem um defeito,
+        // mesmo medindo certo.
+        //
+        // A varredura recebe o diretório em vez de assumir o `tmp` do processo:
+        // varrer o `tmp` de dentro de um teste apagaria os bancos temporários de
+        // qualquer suíte rodando ao lado.
+        let raiz = FileManager.default.temporaryDirectory
+            .appendingPathComponent("varredura-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: raiz, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: raiz) }
+
+        let doEnsaio = raiz.appendingPathComponent("okamiuni-\(UUID().uuidString)", isDirectory: true)
+        let alheio = raiz.appendingPathComponent("nao-e-nosso", isDirectory: true)
+        try FileManager.default.createDirectory(at: doEnsaio, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: alheio, withIntermediateDirectories: true)
+
+        #expect(AccountsRehearsal.limpaBancosDoEnsaio(em: raiz) == 1)
+        #expect(!FileManager.default.fileExists(atPath: doEnsaio.path))
+        #expect(FileManager.default.fileExists(atPath: alheio.path))
+    }
+
     @Test("Os quadros do ensaio vão para o contêiner, e não para o disco do usuário")
     func caminhoDosQuadros() {
         let caminho = RehearsalStage.framePath("contas-01-vazio")

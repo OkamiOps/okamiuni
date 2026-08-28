@@ -66,33 +66,64 @@ enum Render {
         window.contentView = NSHostingView(rootView: root)
 
         guard let content = window.contentView else { return nil }
-        content.layoutSubtreeIfNeeded()
-        // O SwiftUI resolve conteúdo preguiçoso num segundo passe; sem isto as
-        // listas saem vazias.
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        content.layoutSubtreeIfNeeded()
+        defer { window.close() }
 
-        // Em `scale: 2` o bitmap tem o dobro de pixels mas o mesmo tamanho em
-        // pontos — é assim que uma tela Retina desenha. Importa: uma borda de
-        // 0,5pt vira meio pixel lavado em 1× e um pixel nítido em 2×, e
-        // defeito de contorno só aparece na segunda. Verificar em 1× e concluir
-        // que está limpo já me enganou uma vez.
-        guard let rep = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: Int(size.width * scale),
-            pixelsHigh: Int(size.height * scale),
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
-        ) else { return nil }
-        rep.size = size
-        content.cacheDisplay(in: content.bounds, to: rep)
-        window.close()
-        return rep
+        // Fotografa **até o quadro parar de mudar**, e não depois de um tempo
+        // fixo.
+        //
+        // Aqui havia `RunLoop.run(until: +0.05)` e uma única captura. Cinquenta
+        // milissegundos bastam numa máquina ociosa e não bastam numa carregada:
+        // com a suíte inteira em paralelo, o SwiftUI às vezes não terminava o
+        // segundo passe (o que resolve conteúdo preguiçoso) antes da foto, e o
+        // teste que media o cartão da paleta contava linhas de um cartão pela
+        // metade. Medido no commit intocado deste marco: uma falha em doze
+        // rodadas da suíte, em dois testes diferentes da mesma família — o
+        // instrumento sorteando, não o código quebrando.
+        //
+        // Dois quadros idênticos seguidos é o sinal de que o desenho assentou.
+        // São sempre no mínimo dois passes (nunca menos trabalho do que antes),
+        // e o teto de oito impede que conteúdo que nunca assenta pendure a
+        // suíte — nesse caso vale o último quadro, que é o que a versão antiga
+        // devolveria de qualquer jeito.
+        var anterior: NSBitmapImageRep?
+        for _ in 0..<8 {
+            content.layoutSubtreeIfNeeded()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.03))
+            content.layoutSubtreeIfNeeded()
+
+            // Em `scale: 2` o bitmap tem o dobro de pixels mas o mesmo tamanho
+            // em pontos — é assim que uma tela Retina desenha. Importa: uma
+            // borda de 0,5pt vira meio pixel lavado em 1× e um pixel nítido em
+            // 2×, e defeito de contorno só aparece na segunda. Verificar em 1× e
+            // concluir que está limpo já me enganou uma vez.
+            guard let rep = NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: Int(size.width * scale),
+                pixelsHigh: Int(size.height * scale),
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+            ) else { return nil }
+            rep.size = size
+            content.cacheDisplay(in: content.bounds, to: rep)
+            if let anterior, mesmosPixels(anterior, rep) { return rep }
+            anterior = rep
+        }
+        return anterior
+    }
+
+    /// Dois bitmaps com o mesmo conteúdo? Comparação byte a byte do plano —
+    /// `memcmp` sobre alguns megabytes é ordens de grandeza mais barato do que
+    /// um passe de layout, e é o que deixa a espera ser "até assentar" em vez de
+    /// "por tanto tempo".
+    private static func mesmosPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Bool {
+        guard a.bytesPerPlane == b.bytesPerPlane,
+              let dadosA = a.bitmapData, let dadosB = b.bitmapData else { return false }
+        return memcmp(dadosA, dadosB, a.bytesPerPlane) == 0
     }
 
     /// Renderiza e, se `UNI_RENDER_DIR` estiver definido, grava um PNG para

@@ -30,9 +30,16 @@ import AppKit
 /// diretor do ensaio nasce sem `GoogleAuth`, que é exatamente o estado que a
 /// rota Google tem de explicar em vez de calar.
 ///
-/// **Nada do dono é tocado.** O banco é um `SyncDatabase.temporary()`
-/// descartável e o cofre é o `InMemorySecretStore` — o `mail.sqlite` do
-/// contêiner e o Keychain de verdade ficam de fora do ensaio inteiro.
+/// **Nada do dono é escrito.** O banco do ensaio é um `SyncDatabase.temporary()`
+/// descartável e o cofre é o `InMemorySecretStore`: o Keychain de verdade não é
+/// tocado, e o `mail.sqlite` do contêiner não recebe uma linha — nenhuma conta,
+/// nenhuma mensagem, nenhum segredo.
+///
+/// A frase que estava aqui dizia que o `mail.sqlite` ficava "de fora do ensaio
+/// inteiro", e desde a Task 18 isso deixou de ser literal: a composição do app
+/// abre e migra o banco do contêiner em **todo** lançamento, inclusive neste. O
+/// que o ensaio garante é o que importa — ele não lê nem escreve nada lá; ele
+/// dirige o seu próprio banco descartável, e o apaga ao terminar.
 ///
 /// `open -g --args --ensaiar-contas` liga; sem a bandeira, nada acontece.
 public struct AccountsRehearsal: Sendable {
@@ -51,6 +58,48 @@ public struct AccountsRehearsal: Sendable {
     public static let senha = "senha-de-app"
     /// O endereço da rota Google — a que só vai até a mensagem do client ID.
     public static let enderecoGoogle = "ricardo@gmail.com"
+
+    /// O diretório do banco descartável desta rodada, para ser apagado antes do
+    /// `terminate`. `nil` quando não há ensaio.
+    @MainActor private static var diretorioDoBanco: String?
+
+    /// Apaga o banco desta rodada e os órfãos das anteriores.
+    ///
+    /// **Por que à mão.** `SyncDatabase.temporary()` apaga o diretório no
+    /// `deinit` do dono, e o `deinit` nunca chega: quem encerra o ensaio é
+    /// `NSApp.terminate(nil)`, que derruba o processo sem desmontar nada. Cada
+    /// execução deixava um `okamiuni-<UUID>/` para trás no `tmp` do contêiner —
+    /// eram vinte quando isto foi notado. Instrumento que suja a máquina de quem
+    /// o roda tem um defeito, mesmo que meça certo.
+    ///
+    /// Varre o prefixo inteiro, e não só o desta rodada, porque limpar o próprio
+    /// rastro não recolhe o que já ficou; a varredura roda **antes** de o banco
+    /// desta rodada existir, então ela nunca apaga o que está em uso.
+    ///
+    /// O diretório é parâmetro (com o `tmp` do contêiner por padrão) para o
+    /// teste poder apontá-lo a uma pasta que ele mesmo criou. Varrer o `tmp` do
+    /// processo dentro de um teste apagaria os bancos temporários de qualquer
+    /// suíte rodando ao lado.
+    @discardableResult
+    static func limpaBancosDoEnsaio(
+        em diretorio: URL = FileManager.default.temporaryDirectory
+    ) -> Int {
+        let nomes = (try? FileManager.default.contentsOfDirectory(atPath: diretorio.path)) ?? []
+        var apagados = 0
+        for nome in nomes where nome.hasPrefix("okamiuni-") {
+            try? FileManager.default.removeItem(at: diretorio.appendingPathComponent(nome))
+            apagados += 1
+        }
+        return apagados
+    }
+
+    /// O rastro desta rodada, apagado no fim dela.
+    @MainActor
+    static func limpaOBancoDaRodada() {
+        guard let diretorio = diretorioDoBanco else { return }
+        try? FileManager.default.removeItem(atPath: diretorio)
+        diretorioDoBanco = nil
+    }
 
     // MARK: A composição do ensaio
 
@@ -79,7 +128,14 @@ public struct AccountsRehearsal: Sendable {
         return nil
         #else
         do {
+            // Antes de criar o desta rodada, varre os das rodadas anteriores.
+            // Ver `limpaBancosDoEnsaio` — havia vinte deles no contêiner.
+            _ = limpaBancosDoEnsaio()
             let banco = try SyncDatabase.temporary()
+            // De onde o diretório desta rodada será apagado no fim: o `deinit`
+            // que apagaria sozinho nunca roda, porque quem encerra o ensaio é
+            // `NSApp.terminate`.
+            diretorioDoBanco = (banco.pool.path as NSString).deletingLastPathComponent
             let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
             let diretor = AccountDirector(
                 database: banco,
@@ -136,28 +192,35 @@ private struct AccountsProbe: NSViewRepresentable {
     func updateNSView(_ view: NSView, context: Context) {
         guard request != nil, !started else { return }
         started = true
+        // Toda saída deste instrumento passa por aqui: apaga o banco
+        // descartável e só então derruba o processo. `terminate` não desmonta
+        // nada, então quem não apagar à mão deixa o diretório para trás.
+        func encerra() {
+            AccountsRehearsal.limpaOBancoDaRodada()
+            NSApp.terminate(nil)
+        }
         // O relógio de guarda. Um ensaio que trava é pior do que um que falha:
         // ele não diz nada e deixa um app aberto na máquina de quem o rodou.
         // Aconteceu de verdade nesta tarefa, no clique que abre o dropdown.
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(120))
             RehearsalStage.log("contas: FALHOU: o ensaio estourou o relógio de guarda")
-            NSApp.terminate(nil)
+            encerra()
         }
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(1.8))
             guard let janela = view.window else {
                 RehearsalStage.log("contas: FALHOU: sem janela")
-                NSApp.terminate(nil)
+                encerra()
                 return
             }
             guard let model else {
                 RehearsalStage.log("contas: FALHOU: a composição não montou o AccountsModel")
-                NSApp.terminate(nil)
+                encerra()
                 return
             }
             await AccountsDriver(window: janela, model: model).run()
-            NSApp.terminate(nil)
+            encerra()
         }
     }
 }

@@ -38,6 +38,55 @@ struct MailStoreObservationTests {
         #expect(store.loadError == nil)
     }
 
+    @Test("A conta filtrada que sai do retrato leva o filtro embora")
+    func contaRemovidaLimpaOFiltro() async throws {
+        // A armadilha que o Marco 2 criou: com o banco como fonte, remover a
+        // conta que está filtrando esvazia a lista **e** tira da tela o único
+        // caminho de volta — "Limpar filtro" mora no menu de contexto da linha
+        // da conta, que sumiu junto. O app pareceria quebrado, sem nada
+        // clicável que o consertasse.
+        let semHost = Fixtures.accounts.filter { $0.id != "host" }
+        let fonte = FonteEmSequencia(snapshots: [
+            MailSnapshot(
+                accounts: Fixtures.accounts, messages: Fixtures.messages,
+                agenda: [], pendingItems: []
+            ),
+            MailSnapshot(
+                accounts: semHost,
+                messages: Fixtures.messages.filter { $0.accountID != "host" },
+                agenda: [], pendingItems: []
+            ),
+        ])
+        let store = MailStore(source: fonte)
+        store.select(account: "host")
+        await store.observe()
+
+        #expect(store.selectedAccountID == nil)
+        #expect(!store.visibleMessages.isEmpty)
+        #expect(store.selectedMessage != nil)
+        // E o filtro de uma conta que **continua** existindo não é mexido: a
+        // limpeza é da conta que sumiu, não de toda remoção.
+        #expect(store.accounts.map(\.id) == semHost.map(\.id))
+    }
+
+    @Test("Filtro de conta que continua no retrato sobrevive")
+    func contaQueFicaMantemOFiltro() async throws {
+        let fonte = FonteEmSequencia(snapshots: [
+            MailSnapshot(
+                accounts: Fixtures.accounts, messages: Fixtures.messages,
+                agenda: [], pendingItems: []
+            ),
+            MailSnapshot(
+                accounts: Fixtures.accounts,
+                messages: Fixtures.messages, agenda: [], pendingItems: []
+            ),
+        ])
+        let store = MailStore(source: fonte)
+        store.select(account: "host")
+        await store.observe()
+        #expect(store.selectedAccountID == "host")
+    }
+
     @Test("Erro no meio da observação vira `loadError`, e o que já estava fica")
     func erroNaObservacao() async throws {
         let fonte = FonteEmSequencia(

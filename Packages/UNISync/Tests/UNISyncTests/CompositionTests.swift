@@ -99,6 +99,49 @@ struct CompositionTests {
         #expect(composicao.source is DatabaseMailSource)
     }
 
+    @Test("A última conta a sair devolve as fixtures, também sem reiniciar")
+    func voltaAsFixturesAoVivo() async throws {
+        // O sentido inverso do teste acima, e o último item do critério de
+        // aceite: "com as duas contas removidas, o app volta às fixtures". Sem
+        // isto o app ficaria com uma lista vazia — que é o que a tela mostra
+        // quando não há nada, e não o que o Marco 1 mostra quando não há conta.
+        let caminho = NSTemporaryDirectory() + "okamiuni-teste-\(UUID().uuidString).sqlite"
+        defer { try? FileManager.default.removeItem(atPath: caminho) }
+
+        // A conta já está no banco quando o app abre — é o estado de quem
+        // fechou o app com conta e o reabriu.
+        let existente = try SyncDatabase(path: caminho)
+        try await existente.pool.write { conexao in
+            try AccountRecord(
+                Account(
+                    id: "c", address: "eu@x.com", displayName: "Eu",
+                    provider: .imap, host: "x",
+                    tintLightHex: "#3F6AA1", tintDarkHex: "#8CBAF7"
+                ),
+                createdAt: Date(timeIntervalSince1970: 1)
+            ).insert(conexao)
+        }
+
+        let composicao = AppComposition.make(databasePath: caminho, bundle: .main)
+        var retratos = composicao.source.snapshots().makeAsyncIterator()
+        let primeiro = try #require(try await retratos.next())
+        #expect(primeiro.accounts.map(\.address) == ["eu@x.com"])
+
+        // A remoção passa pelo banco **da composição**, e não pelo `existente`
+        // aberto acima. Não é preciosismo: uma `ValueObservation` só enxerga as
+        // escritas das conexões do próprio `DatabasePool` — dois pools sobre o
+        // mesmo arquivo são dois mundos para efeito de observação, e escrever
+        // pelo outro deixa este teste esperando para sempre um retrato que não
+        // vem. (Foi o que aconteceu ao escrevê-lo.) No app há um pool só.
+        let daComposicao = try #require(composicao.database)
+        _ = try await daComposicao.pool.write { conexao -> Int in
+            try AccountRecord.deleteAll(conexao)
+        }
+
+        let segundo = try #require(try await retratos.next())
+        #expect(segundo.accounts == Fixtures.accounts)
+    }
+
     @Test("Sem client ID no bundle, o diretor existe e a rota IMAP continua inteira")
     func semClientIDNaoDerrubaOApp() throws {
         // O bundle de teste não tem OkamiUNIGoogleClientID.

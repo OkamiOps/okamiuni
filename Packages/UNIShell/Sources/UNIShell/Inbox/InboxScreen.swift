@@ -59,22 +59,9 @@ public struct InboxScreen: View {
             }
         }
         .environment(receipts)
-        // Assina em vez de puxar. Com a fonte em memória do Marco 1,
-        // `observe()` entrega um retrato e termina — exatamente o `load()` que
-        // estava aqui, e é por isso que trocar não muda nada sem conta. Com o
-        // banco, é ele que acorda a lista enquanto a carga inicial baixa: sem
-        // isto a pessoa adicionaria uma conta e ficaria olhando uma tela parada
-        // até reabrir o app.
-        .task {
-            await store.observe()
-        }
+        .task { await subscribeToSource() }
         .onChange(of: query) { _, newQuery in
-            store.query = newQuery
-            // A busca alcança o **corpo** pelo índice do banco, e alcançá-lo é
-            // assíncrono — a lista não pode esperar disco a cada tecla. Fonte
-            // que não sabe procurar no corpo devolve "não sei" e a busca do
-            // Marco 1 continua sendo o que decide.
-            Task { await store.refreshBodyMatches() }
+            Task { await searchChanged(to: newQuery) }
         }
         // Revelar uma mensagem pode vir de **fora** desta tela: o botão "Email"
         // da janela 04 é outra cena e só alcança o `MailStore`. `revealCount`
@@ -84,6 +71,41 @@ public struct InboxScreen: View {
             workspace = .mail
             query = store.query
         }
+    }
+
+    // MARK: A fiação com a fonte
+    //
+    // Os dois métodos abaixo são o corpo do `.task` e o do `onChange` da busca,
+    // fora dos modificadores **para poderem ser chamados de um teste**. A
+    // primeira versão desta fiação era testada renderizando a tela numa janela
+    // fora do ar e esperando o efeito com um teto de tempo: passava sozinha,
+    // passava numa rodada da suíte inteira e falhava na seguinte, porque quem
+    // entrega o `.task` de uma `View` é o ator principal, disputado por dezenas
+    // de renderizações. Teste assim não prova fiação, sorteia. Chamados
+    // diretamente, com um duplo de fonte que conta as chamadas, os dois viram
+    // afirmação determinística — e o que resta sem cobertura é uma linha visível
+    // em cada modificador acima.
+
+    /// Assina a fonte. **Assina**, e não puxa: com a fonte em memória do
+    /// Marco 1 `observe()` entrega um retrato e termina — exatamente o `load()`
+    /// que estava aqui, e é por isso que a troca não muda nada sem conta. Com o
+    /// banco, é ele que acorda a lista enquanto a carga inicial baixa: sem isto
+    /// a pessoa adicionaria uma conta e ficaria olhando uma tela parada até
+    /// reabrir o app.
+    func subscribeToSource() async {
+        await store.observe()
+    }
+
+    /// A busca mudou: o termo vai para o modelo e o **corpo** é perguntado à
+    /// fonte.
+    ///
+    /// Perguntar é assíncrono (é consulta ao índice do banco) e a lista é
+    /// síncrona — a tela não pode esperar disco a cada tecla. Fonte que não sabe
+    /// procurar no corpo devolve "não sei", e a busca do Marco 1 (remetente,
+    /// assunto, prévia) continua sendo o que decide.
+    func searchChanged(to termo: String) async {
+        store.query = termo
+        await store.refreshBodyMatches()
     }
 
     /// O `GeometryReader` existe por um motivo só: dar a largura real da janela

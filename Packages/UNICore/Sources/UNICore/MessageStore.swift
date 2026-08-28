@@ -207,6 +207,20 @@ public final class MailStore {
         agenda = snapshot.agenda.sorted { $0.startMinute < $1.startMinute }
         pendingItems = snapshot.pendingItems
         loadError = nil
+        // Filtro apontando para uma conta que não existe mais é armadilha sem
+        // saída, e ela só aparece quando a fonte é o banco: remover a conta que
+        // está filtrando deixaria a lista vazia, o leitor vazio — e o "Limpar
+        // filtro" mora no menu de contexto **da linha da conta**, que sumiu
+        // junto. A pessoa ficaria com um app que parece quebrado e sem nada
+        // para clicar.
+        //
+        // Aqui, e não em `remove`: quem tira a conta é o `AccountDirector`, do
+        // outro lado do banco, e o retrato é o único lugar por onde essa
+        // remoção chega à tela.
+        if let filtrada = selectedAccountID,
+           !snapshot.accounts.contains(where: { $0.id == filtrada }) {
+            selectedAccountID = nil
+        }
         // O protótipo abre com uma mensagem já aberta no leitor
         // (`state = { … selected: 'm1' … }`, a primeira da caixa "hoje").
         // O estado vazio fica reservado para uma caixa de fato vazia.
