@@ -189,7 +189,7 @@ public struct FolderSidebar: View {
                         .frame(width: 6, height: 6)
                         .help(account.state == .carregando
                             ? "Carregando as mensagens desta conta…"
-                            : "Esta conta precisa ser reconectada. Abra Contas…")
+                            : "Esta conta precisa ser reconectada. Abra Configurações…")
                 }
 
                 // Sem isto a linha mede o conteúdo, e como cada endereço tem um

@@ -52,8 +52,9 @@ public enum ContextCommand: Sendable, Hashable {
     case filterAccount(accountID: String)
     /// Desliga o filtro de conta.
     case clearAccountFilter
-    /// Abre a janela de Contas. Cena própria (`UNIWindow.accounts`), como as
-    /// outras quatro — não é folha, e por isso tem ⌘W e entra no menu Janela.
+    /// Abre a janela de Configurações. Cena própria (`UNIWindow.accounts`,
+    /// nome interno que não muda — só o rótulo que a pessoa lê), como as
+    /// outras quatro: não é folha, e por isso tem ⌘W e entra no menu Janela.
     case openAccounts
     /// Tira da agenda um compromisso que o app criou a partir de um email —
     /// o inverso de "Colocar na agenda".
@@ -399,7 +400,7 @@ public enum ContextMenus {
         // A linha da conta é onde se descobre que uma conta parou: é ela que
         // mostra o estado. O caminho até "o que fazer com isso" sai daqui.
         entries.append(.item(ContextMenuItem(
-            "Contas…",
+            "Configurações…",
             .openAccounts,
             help: "Adicionar, testar ou remover contas"
         )))

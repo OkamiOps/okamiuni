@@ -153,10 +153,14 @@ struct OkamiUNIApp: App {
             // `NSApplication.sendEvent` consulta antes da janela, e ⌘E já é
             // "Use Selection for Find" lá. Ver `MessageCommands`.
             MessageCommands(store: mailStore)
-            // "Contas…" no menu do app, ao lado de Ajustes — é onde o macOS
-            // guarda o que é do app e não do documento, e é o par do item de
-            // contexto que a linha da conta na lateral já oferece.
-            CommandGroup(after: .appSettings) { AccountsCommand() }
+            // "Configurações…" no lugar do item de Ajustes que o macOS
+            // reserva — é a mesma janela do Marco 2, batizada com o nome que
+            // o dono do projeto pediu, e o par do item de contexto que a
+            // linha da conta na lateral já oferece. `.replacing`, e não
+            // `.after`: esta cena **é** as Configurações do app, não um item
+            // ao lado delas — duas entradas ali confundiriam o que abre com
+            // ⌘,.
+            CommandGroup(replacing: .appSettings) { AccountsCommand() }
         }
 
         // As quatro janelas da Task U. Cenas de verdade, não folhas: o protótipo
@@ -206,13 +210,16 @@ struct OkamiUNIApp: App {
         .windowStyle(.hiddenTitleBar)
         .defaultSize(UNIWindow.Size.event)
 
-        // A janela de Contas do Marco 2. `Window`, e não `WindowGroup`: ela é
-        // uma só — abri-la de novo traz a que já está aberta, que é o que o
-        // menu do app e o item de contexto da linha da conta esperam. É esta a
-        // cena que `UNIWindow.accounts` nomeia, e é o registro definitivo dela:
-        // a Task 16 já mandava abri-la e a Task 17 a tomou emprestada da janela
-        // principal enquanto ela não existia.
-        Window("Contas", id: UNIWindow.accounts) {
+        // A janela de Configurações do Marco 2 — "Contas" até o primeiro
+        // teste com contas reais. `Window`, e não `WindowGroup`: ela é uma
+        // só — abri-la de novo traz a que já está aberta, que é o que o menu
+        // do app e o item de contexto da linha da conta esperam. É esta a
+        // cena que `UNIWindow.accounts` nomeia (o id interno não mudou, só o
+        // título) e é o registro definitivo dela: a Task 16 já mandava
+        // abri-la e a Task 17 a tomou emprestada da janela principal
+        // enquanto ela não existia. A lista de contas é a primeira seção do
+        // corpo — ver `AccountsWindow`.
+        Window("Configurações", id: UNIWindow.accounts) {
             Group {
                 if let accountsModel {
                     AccountsWindow(model: accountsModel)
@@ -270,18 +277,21 @@ private struct NewMessageCommand: View {
     }
 }
 
-/// ⇧⌘A abre a janela de Contas. Vive num `View` porque `openWindow` é chave de
-/// ambiente, como `NewMessageCommand`.
+/// ⌘, abre a janela de Configurações. Vive num `View` porque `openWindow` é
+/// chave de ambiente, como `NewMessageCommand`.
 ///
-/// ⇧⌘A e não ⌘,: ⌘, é "Ajustes" no macOS inteiro, e o app terá ajustes. Roubar
-/// o atalho para Contas deixaria o item que o sistema espera sem tecla, e a
-/// pessoa apertando ⌘, para chegar noutro lugar.
+/// ⌘, e não mais ⇧⌘A: era ⇧⌘A porque ⌘, era "Ajustes" no macOS inteiro, e
+/// roubar o atalho de um item que o sistema espera deixaria esse item sem
+/// tecla. Isso valia enquanto a janela se chamava "Contas" — uma coisa entre
+/// outras que o app tinha. Virando "Configurações", ela **é** o que ⌘, é
+/// para: não há mais item nenhum do sistema para colidir, porque esta janela
+/// é o item.
 private struct AccountsCommand: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button("Contas…") { openWindow(id: UNIWindow.accounts) }
-            .keyboardShortcut("a", modifiers: [.command, .shift])
+        Button("Configurações…") { openWindow(id: UNIWindow.accounts) }
+            .keyboardShortcut(",", modifiers: .command)
     }
 }
 

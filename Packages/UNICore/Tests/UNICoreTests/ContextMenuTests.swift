@@ -585,8 +585,9 @@ extension ContextMenuTests {
             "Marcar tudo como lido",
             // "Contas…" entrou na Task 16 do Marco 2, entre o que se faz com a
             // lista e o que se copia: é daqui que se chega à janela que explica
-            // uma conta parada.
-            "Contas…",
+            // uma conta parada. O primeiro teste com contas reais renomeou a
+            // janela para "Configurações" — o item da lateral segue o nome dela.
+            "Configurações…",
             "Copiar endereço",
         ])
     }
