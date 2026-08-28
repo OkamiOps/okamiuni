@@ -7,7 +7,19 @@ import UNISync
 @main
 struct OkamiUNIApp: App {
     @State private var themes = ThemeStore()
-    @State private var mailStore = MailStore(source: InMemoryMailSource.fixtures)
+
+    /// O mundo do `UNISync`: banco, diretor e a fonte que a UI vai ler.
+    ///
+    /// Montado uma vez, no `init`, porque a escolha é a mesma para o app
+    /// inteiro e não pode mudar a cada redesenho. Quem decide o que ela é mora
+    /// no `UNISync` — `AppComposition` —, e não aqui: este alvo não tem testes,
+    /// e a decisão "banco ou fixtures" é a mais consequente do Marco 2. Daqui
+    /// para baixo só há fiação.
+    private let composition: AppComposition
+    @State private var mailStore: MailStore
+    /// A janela de Contas do usuário. Nula só quando o `UNISync` não subiu —
+    /// e nesse caso a cena diz o que houve, ver `ContasIndisponiveis`.
+    @State private var accountsModel: AccountsModel?
     /// Quais ações o arraste lateral da linha revela de cada lado. Persistido
     /// em `UserDefaults` como o tema — ver `SwipeSettingsStore`.
     @State private var swipes = SwipeSettingsStore()
@@ -26,6 +38,21 @@ struct OkamiUNIApp: App {
 
     init() {
         FontRegistry.registerBundledFonts()
+        // O banco do contêiner, o diretor e a fonte. Nada aqui pode impedir o
+        // app de abrir: banco que não abre devolve as fixtures e o erro, e o
+        // erro aparece na janela de Contas em vez de virar tela cinza.
+        let composicao = AppComposition.make()
+        composition = composicao
+        _mailStore = State(initialValue: MailStore(source: composicao.source))
+        if let diretor = composicao.director {
+            _accountsModel = State(initialValue: AccountsModel(director: diretor))
+        }
+        if let erro = composicao.configError {
+            // Falha de configuração nunca some: vai para o log estruturado
+            // (dentro do `AppComposition`) e para o stderr, e a janela de
+            // Contas a mostra para quem pode consertá-la.
+            fputs("[OkamiUNI] \(erro.mensagem)\n", stderr)
+        }
         // A faixa de resposta lê o rascunho uma vez, na primeira montagem.
         // Semear depois disso não a alcança — foi o que fez duas capturas
         // saírem byte a byte idênticas. Aqui é antes de qualquer janela.
@@ -111,6 +138,10 @@ struct OkamiUNIApp: App {
             // `NSApplication.sendEvent` consulta antes da janela, e ⌘E já é
             // "Use Selection for Find" lá. Ver `MessageCommands`.
             MessageCommands(store: mailStore)
+            // "Contas…" no menu do app, ao lado de Ajustes — é onde o macOS
+            // guarda o que é do app e não do documento, e é o par do item de
+            // contexto que a linha da conta na lateral já oferece.
+            CommandGroup(after: .appSettings) { AccountsCommand() }
         }
 
         // As quatro janelas da Task U. Cenas de verdade, não folhas: o protótipo
@@ -159,6 +190,28 @@ struct OkamiUNIApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(UNIWindow.Size.event)
+
+        // A janela de Contas do Marco 2. `Window`, e não `WindowGroup`: ela é
+        // uma só — abri-la de novo traz a que já está aberta, que é o que o
+        // menu do app e o item de contexto da linha da conta esperam. É esta a
+        // cena que `UNIWindow.accounts` nomeia, e é o registro definitivo dela:
+        // a Task 16 já mandava abri-la e a Task 17 a tomou emprestada da janela
+        // principal enquanto ela não existia.
+        Window("Contas", id: UNIWindow.accounts) {
+            Group {
+                if let accountsModel {
+                    AccountsWindow(model: accountsModel)
+                } else {
+                    // Sem diretor não há o que gerenciar — e dizer isso é
+                    // melhor do que uma janela vazia.
+                    ContasIndisponiveis(erro: composition.configError)
+                }
+            }
+            .themed(themes)
+            .frame(minWidth: 560, minHeight: 420)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(UNIWindow.Size.accounts)
     }
 }
 
@@ -199,5 +252,45 @@ private struct NewMessageCommand: View {
             openWindow(id: UNIWindow.newMessage, value: "")
         }
         .keyboardShortcut("n", modifiers: .command)
+    }
+}
+
+/// ⇧⌘A abre a janela de Contas. Vive num `View` porque `openWindow` é chave de
+/// ambiente, como `NewMessageCommand`.
+///
+/// ⇧⌘A e não ⌘,: ⌘, é "Ajustes" no macOS inteiro, e o app terá ajustes. Roubar
+/// o atalho para Contas deixaria o item que o sistema espera sem tecla, e a
+/// pessoa apertando ⌘, para chegar noutro lugar.
+private struct AccountsCommand: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("Contas…") { openWindow(id: UNIWindow.accounts) }
+            .keyboardShortcut("a", modifiers: [.command, .shift])
+    }
+}
+
+/// O que a cena de Contas mostra quando o `UNISync` não subiu.
+///
+/// Existe porque a alternativa é pior: sem diretor, `AccountsWindow` não pode
+/// ser construída, e uma cena registrada que abre vazia faz a pessoa achar que
+/// não tem conta nenhuma quando o que houve foi o banco não abrir.
+private struct ContasIndisponiveis: View {
+    @Environment(\.theme) private var theme
+    let erro: SyncError?
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Text("Contas indisponíveis")
+                .font(theme.sans.font(size: 14, weight: .medium))
+                .foregroundStyle(theme.ink.color)
+            Text(erro?.mensagem ?? "O banco local não pôde ser aberto.")
+                .font(theme.sans.font(size: 12))
+                .foregroundStyle(theme.ink3.color)
+                .multilineTextAlignment(.center)
+        }
+        .padding(28)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(theme.paper.color)
     }
 }

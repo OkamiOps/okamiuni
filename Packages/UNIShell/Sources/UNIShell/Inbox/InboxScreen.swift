@@ -59,11 +59,22 @@ public struct InboxScreen: View {
             }
         }
         .environment(receipts)
+        // Assina em vez de puxar. Com a fonte em memória do Marco 1,
+        // `observe()` entrega um retrato e termina — exatamente o `load()` que
+        // estava aqui, e é por isso que trocar não muda nada sem conta. Com o
+        // banco, é ele que acorda a lista enquanto a carga inicial baixa: sem
+        // isto a pessoa adicionaria uma conta e ficaria olhando uma tela parada
+        // até reabrir o app.
         .task {
-            await store.load()
+            await store.observe()
         }
         .onChange(of: query) { _, newQuery in
             store.query = newQuery
+            // A busca alcança o **corpo** pelo índice do banco, e alcançá-lo é
+            // assíncrono — a lista não pode esperar disco a cada tecla. Fonte
+            // que não sabe procurar no corpo devolve "não sei" e a busca do
+            // Marco 1 continua sendo o que decide.
+            Task { await store.refreshBodyMatches() }
         }
         // Revelar uma mensagem pode vir de **fora** desta tela: o botão "Email"
         // da janela 04 é outra cena e só alcança o `MailStore`. `revealCount`

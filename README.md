@@ -9,7 +9,7 @@
 ![SwiftUI](https://img.shields.io/badge/SwiftUI-nativo-0071e3)
 ![Testes](https://img.shields.io/badge/testes-807%20verdes-2ea44f)
 ![Temas](https://img.shields.io/badge/temas-26-8a2be2)
-![Marco](https://img.shields.io/badge/marco-1%20·%20shell-orange)
+![Marco](https://img.shields.io/badge/marco-2%20·%20contas-orange)
 
 <img src="docs/capturas/janela-principal.png" width="860" alt="A janela principal do OkamiUNI: barra lateral com contas e caixas, lista de mensagens, leitor com resumo no dispositivo e trilha de agenda do dia." />
 
@@ -47,6 +47,7 @@ Cliente de email é o app que mais horas passa aberto — e o que menos respeito
 | ✍️ **Composer** | NSTextView de verdade: formatação **na seleção**, tabelas (Enter não quebra), hyperlink, justificado, cor livre, fontes do sistema, assinatura por conta |
 | 🪟 **Janelas** | Composer, nova mensagem, mensagem destacada e detalhe de compromisso são cenas reais (⌘W, menu Janela, uma por valor) |
 | 🎨 **Shell** | 26 temas com tokens de ponta a ponta, hairlines de 1 pixel de dispositivo, semáforos a 22pt, duplo clique na barra respeitando a preferência do sistema, painéis redimensionáveis com intenção preservada |
+| 🔐 **Contas de verdade** (Marco 2) | OAuth do Google com PKCE, IMAP para qualquer provedor com detecção de servidor, segredos no Keychain, cache local em SQLite com busca no corpo (FTS5, acento dobrado) e carga dos últimos 90 dias — o app abre **offline**. Sem conta conectada, ele continua sendo o shell do Marco 1, com as fixtures |
 
 <div align="center">
 <table>

@@ -9,9 +9,24 @@ import UNICore
 /// escreve no banco em vez de falar com a tela.
 public struct DatabaseMailSource: MailSource, Sendable {
     private let database: SyncDatabase
+    /// O que entregar enquanto o banco não tiver **conta nenhuma**.
+    ///
+    /// Nulo nos testes que querem o banco cru. O app passa
+    /// `InMemoryMailSource.fixtures`, e isso é o critério de aceite do Marco 2
+    /// virado código: sem conta conectada, o app é o do Marco 1.
+    ///
+    /// A substituição mora **aqui**, e não na composição, por uma razão de
+    /// tempo: escolher a fonte uma vez, na abertura, deixaria a troca
+    /// dependendo de reiniciar o app — a primeira conta entraria e a tela
+    /// continuaria nas fixtures até o próximo lançamento. A única coisa que
+    /// acompanha o banco continuamente é a observação, então a decisão tem de
+    /// ser tomada por retrato, dentro dela. Com isto, a primeira conta a entrar
+    /// e a última a sair trocam a lista na hora, pelo mesmo `observe()`.
+    private let fallback: InMemoryMailSource?
 
-    public init(database: SyncDatabase) {
+    public init(database: SyncDatabase, emptyFallback: InMemoryMailSource? = nil) {
         self.database = database
+        self.fallback = emptyFallback
     }
 
     public func accounts() async throws -> [Account] {
@@ -42,7 +57,18 @@ public struct DatabaseMailSource: MailSource, Sendable {
     /// leituras pode ter a mensagem de um lote sem o corpo dele. Uma
     /// transação de leitura vê um estado consistente e pronto.
     public func snapshot() async throws -> MailSnapshot {
-        try await database.pool.read { db in try Self.snapshot(in: db) }
+        try await resolvido(database.pool.read { db in try Self.snapshot(in: db) })
+    }
+
+    /// O retrato que a UI recebe: o do banco, ou o das fixtures enquanto não
+    /// houver conta nenhuma.
+    ///
+    /// A pergunta é `accounts.isEmpty` e não "quantas mensagens": uma conta
+    /// recém-adicionada, ainda carregando, tem zero mensagem — e mostrar as
+    /// fixtures por cima dela seria dizer que a conta não entrou.
+    private func resolvido(_ retrato: MailSnapshot) async throws -> MailSnapshot {
+        guard retrato.accounts.isEmpty, let fallback else { return retrato }
+        return try await fallback.snapshot()
     }
 
     /// A observação: um retrato agora, e outro a cada escrita que mexa no que
@@ -60,7 +86,7 @@ public struct DatabaseMailSource: MailSource, Sendable {
                         try Self.snapshot(in: db)
                     }
                     for try await snapshot in observacao.values(in: pool) {
-                        continuation.yield(snapshot)
+                        continuation.yield(try await resolvido(snapshot))
                     }
                     continuation.finish()
                 } catch {
@@ -75,8 +101,14 @@ public struct DatabaseMailSource: MailSource, Sendable {
     }
 
     public func bodyMatches(_ term: String, accountID: String?) async throws -> Set<String>? {
-        try await database.pool.read { db in
-            try MessageSearch.matchingBodyIDs(db, term: term, accountID: accountID)
+        let fallback = self.fallback
+        return try await database.pool.read { db in
+            // Sem conta e com fixtures no lugar, quem responde é a fonte em
+            // memória — e ela devolve `nil`, "não sei procurar no corpo". Um
+            // conjunto vazio diria "procurei e não achei" sobre um índice que
+            // não indexa nenhuma das mensagens que estão na tela.
+            if fallback != nil, try AccountRecord.fetchCount(db) == 0 { return nil }
+            return try MessageSearch.matchingBodyIDs(db, term: term, accountID: accountID)
         }
     }
 
