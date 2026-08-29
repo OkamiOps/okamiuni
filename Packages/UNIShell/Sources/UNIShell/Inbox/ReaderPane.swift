@@ -8,18 +8,24 @@ struct ReaderAssistantButton: View {
     let presentation: IntelligencePresentation
     let action: () -> Void
 
+    private var help: String {
+        presentation.isAvailable
+            ? "Abre resumo, pontos-chave, insights, pendências e geração de resposta para este email."
+            : presentation.detail
+    }
+
     var body: some View {
         SoloToolButton(
             label: "",
             symbol: presentation.symbol,
-            title: presentation.actionHelp,
+            title: help,
             on: presentation.isAvailable,
             enabled: presentation.isAvailable,
             action: action
         )
-        .accessibilityLabel("Perguntar sobre este email")
+        .accessibilityLabel("Ações de inteligência deste email")
         .accessibilityValue(presentation.isAvailable ? "Disponível" : "Indisponível")
-        .accessibilityHint(presentation.actionHelp)
+        .accessibilityHint(help)
     }
 }
 

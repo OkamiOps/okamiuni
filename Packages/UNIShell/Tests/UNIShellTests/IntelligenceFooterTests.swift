@@ -19,7 +19,7 @@ struct IntelligenceFooterTests {
             (
                 .available,
                 "Inteligência local disponível",
-                "Pergunte sobre emails e conversas. Nada sai deste Mac.",
+                "Pergunte sobre suas caixas, emails e agenda. Nada sai deste Mac.",
                 true
             ),
             (
@@ -47,7 +47,7 @@ struct IntelligenceFooterTests {
             #expect(presentation.title == title)
             #expect(presentation.detail == detail)
             #expect(presentation.symbol == "apple.intelligence")
-            #expect(presentation.actionTitle == "Perguntar ao email")
+            #expect(presentation.actionTitle == "Perguntar ao ambiente")
             #expect(presentation.isAvailable == isAvailable)
             #expect(!presentation.title.localizedCaseInsensitiveContains("classificação"))
             #expect(!presentation.detail.localizedCaseInsensitiveContains("classificação"))
@@ -67,7 +67,7 @@ struct IntelligenceFooterTests {
 
     /// O clique atravessa a `NSWindow` offscreen e chega à closure do dono da
     /// navegação. Isto impede que a nova porta fique só desenhada.
-    @Test("clicar em Perguntar ao email entrega a intenção ao app")
+    @Test("clicar em Perguntar ao ambiente entrega a intenção ao app")
     func expandedActionCallsItsClosure() async {
         let store = MailStore(source: InMemoryMailSource.fixtures)
         await store.load()

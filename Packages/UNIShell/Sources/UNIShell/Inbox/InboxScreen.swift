@@ -2,6 +2,18 @@ import SwiftUI
 import UNIDesign
 import UNICore
 
+enum InboxAssistantScope: Sendable, Hashable {
+    case workspace
+    case email(String)
+
+    var mode: LocalAssistantMode {
+        switch self {
+        case .workspace: .workspace
+        case .email: .email
+        }
+    }
+}
+
 public struct InboxScreen: View {
     @Environment(\.theme) private var theme
     /// As quatro janelas da Task U são cenas de verdade, abertas por aqui.
@@ -33,6 +45,8 @@ public struct InboxScreen: View {
     @State private var workspace: Workspace = .mail
     @State private var query = ""
     @State private var assistantOpen = false
+    @State private var assistantScope: InboxAssistantScope = .workspace
+    @State private var assistantSessionID = UUID()
     let store: MailStore
 
     /// De onde vem o "agora" da trilha e das três visões da agenda.
@@ -73,7 +87,8 @@ public struct InboxScreen: View {
         clock: AgendaClock = .fixed(Fixtures.nowMinute),
         intelligencePresentation: IntelligencePresentation = .available,
         textAssistant: (any OnDeviceTextAssisting)? = nil,
-        debugAssistantOpen: Bool
+        debugAssistantOpen: Bool,
+        debugAssistantScope: InboxAssistantScope = .workspace
     ) {
         self.store = store
         self.clock = clock
@@ -83,6 +98,7 @@ public struct InboxScreen: View {
             OnDeviceAssistantBridge.composerGenerator(using: $0)
         }
         _assistantOpen = State(initialValue: debugAssistantOpen)
+        _assistantScope = State(initialValue: debugAssistantScope)
     }
 
     /// O **hoje** de tudo que esta tela desenha com data: o carimbo de cada
@@ -203,7 +219,7 @@ public struct InboxScreen: View {
                         store: store,
                         width: layout.sidebarWidth,
                         intelligencePresentation: intelligencePresentation,
-                        onOpenAssistant: openAssistant
+                        onOpenAssistant: openWorkspaceAssistant
                     )
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 } else {
@@ -211,7 +227,7 @@ public struct InboxScreen: View {
                         store: store,
                         width: layout.sidebarWidth,
                         intelligencePresentation: intelligencePresentation,
-                        onOpenAssistant: openAssistant
+                        onOpenAssistant: openWorkspaceAssistant
                     )
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 }
@@ -233,7 +249,7 @@ public struct InboxScreen: View {
                     onReply: openComposer,
                     intelligence: composerIntelligence,
                     intelligencePresentation: intelligencePresentation,
-                    onOpenAssistant: openAssistant
+                    onOpenAssistant: openEmailAssistant
                 )
 
                 // Trilha de agenda — o primeiro painel a sair quando aperta.
@@ -354,7 +370,7 @@ public struct InboxScreen: View {
                 anchor: agendaAnchor,
                 wantsSidebar: wantsSidebar,
                 intelligencePresentation: intelligencePresentation,
-                onOpenAssistant: openAssistant,
+                onOpenAssistant: openWorkspaceAssistant,
                 onOpenEvent: openEventWindow,
                 onRevealMessage: reveal
             )
@@ -415,44 +431,57 @@ public struct InboxScreen: View {
 
     // MARK: - Assistente local
 
-    private var assistantContext: LocalAssistantContext {
-        guard let message = store.selectedMessage else {
+    private func assistantContext(for scope: InboxAssistantScope) -> LocalAssistantContext {
+        switch scope {
+        case .workspace:
+            let accountCount = store.accounts.count
+            let emailCount = store.messages.count
+            let agendaCount = store.agenda.count
             return LocalAssistantContext(
-                subject: "Selecione um email",
-                sender: "Abra uma mensagem para começar"
+                subject: "Todo o OkamiUNI",
+                sender: "\(accountCount) \(accountCount == 1 ? "conta" : "contas") · \(emailCount) \(emailCount == 1 ? "email" : "emails")",
+                conversationLabel: "\(agendaCount) \(agendaCount == 1 ? "compromisso" : "compromissos")"
+            )
+        case let .email(messageID):
+            guard let message = store.messages.first(where: { $0.id == messageID }) else {
+                return LocalAssistantContext(
+                    subject: "Email indisponível",
+                    sender: "A mensagem saiu da caixa"
+                )
+            }
+            let count = store.conversation(of: messageID)?.count ?? 1
+            return LocalAssistantContext(
+                subject: message.subject,
+                sender: message.from.display,
+                conversationLabel: count > 1 ? "\(count) mensagens" : nil
             )
         }
-        let count = store.selectedConversation?.count ?? 1
-        return LocalAssistantContext(
-            subject: message.subject,
-            sender: message.from.display,
-            conversationLabel: count > 1 ? "\(count) mensagens" : nil
-        )
-    }
-
-    private var assistantContextID: String {
-        store.selectedConversation?.key ?? store.selectedMessageID ?? "sem-email"
-    }
-
-    private var assistantMailContext: OnDeviceAssistantMailContext? {
-        guard let message = store.selectedMessage else { return nil }
-        if let conversation = store.selectedConversation, conversation.count > 1 {
-            return OnDeviceAssistantMailContext(conversation: conversation)
-        }
-        return OnDeviceAssistantMailContext(message: message)
     }
 
     private var assistantPanel: some View {
-        LocalAssistantPanel(
-            context: assistantContext,
-            onAsk: askAssistant,
+        let scope = assistantScope
+        return LocalAssistantPanel(
+            mode: scope.mode,
+            context: assistantContext(for: scope),
+            onAsk: { request in
+                try await askAssistant(request, scope: scope)
+            },
             onClose: closeAssistant
         )
-        .id(assistantContextID)
+        .id(assistantSessionID)
         .shadow(color: .black.opacity(0.16), radius: 22, x: 0, y: 10)
     }
 
-    private func openAssistant() {
+    private func openWorkspaceAssistant() {
+        assistantScope = .workspace
+        assistantSessionID = UUID()
+        withAnimation(Self.paneTransition) { assistantOpen = true }
+    }
+
+    private func openEmailAssistant() {
+        guard let messageID = store.selectedMessageID else { return }
+        assistantScope = .email(messageID)
+        assistantSessionID = UUID()
         withAnimation(Self.paneTransition) { assistantOpen = true }
     }
 
@@ -460,25 +489,35 @@ public struct InboxScreen: View {
         withAnimation(Self.paneTransition) { assistantOpen = false }
     }
 
-    private func askAssistant(_ request: LocalAssistantRequest) async throws -> String {
+    func askAssistant(
+        _ request: LocalAssistantRequest,
+        scope: InboxAssistantScope
+    ) async throws -> String {
         guard let textAssistant else {
             throw OnDeviceTextAssistantError.invalidRequest(
                 "O assistente local não foi conectado a esta janela."
             )
         }
-        guard let selectedID = store.selectedMessageID else {
-            throw OnDeviceTextAssistantError.invalidRequest(
-                "Selecione um email antes de fazer uma pergunta."
-            )
-        }
+        let mailContext: OnDeviceAssistantMailContext
+        switch scope {
+        case .workspace:
+            // O snapshot é global e leve: cabeçalhos/prévias, contagens e
+            // agenda. Corpos integrais continuam no botão do próprio e-mail.
+            mailContext = OnDeviceAssistantMailContext(workspace: store)
+        case let .email(messageID):
+            let ids = store.conversation(of: messageID)?.messageIDs ?? [messageID]
+            for id in ids { await store.loadBodyIfNeeded(id) }
 
-        let ids = store.selectedConversation?.messageIDs ?? [selectedID]
-        for id in ids { await store.loadBodyIfNeeded(id) }
-
-        guard let mailContext = assistantMailContext else {
-            throw OnDeviceTextAssistantError.invalidRequest(
-                "O email selecionado não está mais disponível."
-            )
+            guard let message = store.messages.first(where: { $0.id == messageID }) else {
+                throw OnDeviceTextAssistantError.invalidRequest(
+                    "O email selecionado não está mais disponível."
+                )
+            }
+            if let conversation = store.conversation(of: messageID), conversation.count > 1 {
+                mailContext = OnDeviceAssistantMailContext(conversation: conversation)
+            } else {
+                mailContext = OnDeviceAssistantMailContext(message: message)
+            }
         }
         return try await OnDeviceAssistantBridge.answer(
             request,

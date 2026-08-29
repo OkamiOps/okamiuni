@@ -26,6 +26,130 @@ public struct OnDeviceAssistantEmailContext: Sendable, Hashable {
     }
 }
 
+/// Uma contagem de caixa que dá ao assistente a visão do ambiente inteiro sem
+/// obrigá-lo a deduzir totais a partir do recorte de e-mails detalhados.
+public struct OnDeviceAssistantMailboxContext: Sendable, Hashable {
+    public let name: String
+    public let totalCount: Int
+    public let unreadCount: Int
+
+    public init(name: String, totalCount: Int, unreadCount: Int) {
+        self.name = name
+        self.totalCount = totalCount
+        self.unreadCount = unreadCount
+    }
+}
+
+/// Um compromisso disponível no ambiente local do app.
+public struct OnDeviceAssistantAgendaContext: Sendable, Hashable {
+    public let title: String
+    public let date: Date
+    public let startMinute: Int
+    public let endMinute: Int
+    public let account: String
+    public let place: String?
+
+    public init(
+        title: String,
+        date: Date,
+        startMinute: Int,
+        endMinute: Int,
+        account: String,
+        place: String? = nil
+    ) {
+        self.title = title
+        self.date = date
+        self.startMinute = startMinute
+        self.endMinute = endMinute
+        self.account = account
+        self.place = place
+    }
+}
+
+/// Cabeçalho e prévia de um e-mail dentro do retrato global. O corpo integral
+/// permanece reservado ao botão contextual do leitor.
+public struct OnDeviceAssistantWorkspaceEmailContext: Sendable, Hashable {
+    public let id: String
+    public let account: String
+    public let mailbox: String
+    public let isRead: Bool
+    public let isFlagged: Bool
+    public let subject: String
+    public let sender: String
+    public let recipients: [String]
+    public let sentAt: Date
+    public let snippet: String
+
+    public init(
+        id: String,
+        account: String,
+        mailbox: String,
+        isRead: Bool,
+        isFlagged: Bool,
+        subject: String,
+        sender: String,
+        recipients: [String],
+        sentAt: Date,
+        snippet: String
+    ) {
+        self.id = id
+        self.account = account
+        self.mailbox = mailbox
+        self.isRead = isRead
+        self.isFlagged = isFlagged
+        self.subject = subject
+        self.sender = sender
+        self.recipients = recipients
+        self.sentAt = sentAt
+        self.snippet = snippet
+    }
+}
+
+public struct OnDeviceAssistantPendingContext: Sendable, Hashable {
+    public let text: String
+    public let account: String
+
+    public init(text: String, account: String) {
+        self.text = text
+        self.account = account
+    }
+}
+
+/// Retrato local do OkamiUNI usado pelo botão global: todas as caixas
+/// carregadas, os e-mails disponíveis e a agenda, sem depender da mensagem
+/// que por acaso esteja aberta no leitor.
+public struct OnDeviceAssistantWorkspaceContext: Sendable, Hashable {
+    /// Quantos e-mails prioritários recebem cabeçalho e prévia no prompt.
+    /// Totais e contagens continuam cobrindo o ambiente inteiro.
+    public static let detailedEmailLimit = 24
+
+    public let accounts: [String]
+    public let emailCount: Int
+    public let unreadCount: Int
+    public let mailboxes: [OnDeviceAssistantMailboxContext]
+    public let emails: [OnDeviceAssistantWorkspaceEmailContext]
+    public let agenda: [OnDeviceAssistantAgendaContext]
+    public let pendingItems: [OnDeviceAssistantPendingContext]
+
+    public init(
+        accounts: [String],
+        emailCount: Int,
+        unreadCount: Int,
+        mailboxes: [OnDeviceAssistantMailboxContext],
+        emails: [OnDeviceAssistantWorkspaceEmailContext],
+        agenda: [OnDeviceAssistantAgendaContext],
+        pendingItems: [OnDeviceAssistantPendingContext] = []
+    ) {
+        self.accounts = accounts
+        self.emailCount = emailCount
+        self.unreadCount = unreadCount
+        self.mailboxes = mailboxes
+        self.emails = emails
+        self.agenda = agenda
+        self.pendingItems = pendingItems
+    }
+}
+
 /// O contexto de e-mail disponível para uma pergunta factual.
 ///
 /// Um `.email` representa a leitura atual. Um `.conversation` preserva a
@@ -33,6 +157,9 @@ public struct OnDeviceAssistantEmailContext: Sendable, Hashable {
 public enum OnDeviceAssistantMailContext: Sendable, Hashable {
     case email(OnDeviceAssistantEmailContext)
     case conversation([OnDeviceAssistantEmailContext])
+    /// O nome histórico do tipo é mantido para não quebrar os consumidores de
+    /// escrita, mas perguntas globais podem receber o ambiente local completo.
+    case workspace(OnDeviceAssistantWorkspaceContext)
 }
 
 /// A origem de cada turno da conversa com o assistente.

@@ -54,6 +54,36 @@ struct OnDeviceAssistantBridgeTests {
         #expect(call.question == "Qual é o prazo?")
         #expect(call.conversation.turns.map(\.text) == ["Resuma", "Resumo"])
     }
+
+    @Test("Contexto global atravessa a ponte sem virar email selecionado")
+    func workspaceContextIsPreserved() async throws {
+        let spy = AssistantSpy()
+        let workspace = OnDeviceAssistantWorkspaceContext(
+            accounts: ["Marcos · eu@example.com · example"],
+            emailCount: 8,
+            unreadCount: 3,
+            mailboxes: [.init(name: "Hoje", totalCount: 4, unreadCount: 2)],
+            emails: [],
+            agenda: [.init(
+                title: "Planejamento", date: Date(timeIntervalSince1970: 1_788_000_000),
+                startMinute: 600, endMinute: 660, account: "eu@example.com"
+            )]
+        )
+        let request = LocalAssistantRequest(
+            context: .init(subject: "Todo o OkamiUNI"),
+            question: "Como está meu dia?",
+            conversation: []
+        )
+
+        _ = try await OnDeviceAssistantBridge.answer(
+            request,
+            mailContext: .workspace(workspace),
+            using: spy
+        )
+
+        let call = try #require(await spy.lastAnswer)
+        #expect(call.conversation.mailContext == .workspace(workspace))
+    }
 }
 
 private actor AssistantSpy: OnDeviceTextAssisting {

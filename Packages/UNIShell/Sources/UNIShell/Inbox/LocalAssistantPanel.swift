@@ -33,19 +33,93 @@ public struct LocalAssistantContext: Sendable, Hashable {
 
 public struct LocalAssistantSuggestion: Identifiable, Sendable, Hashable {
     public let id: String
+    public let title: String
     public let question: String
 
-    public init(id: String? = nil, question: String) {
+    public init(id: String? = nil, title: String? = nil, question: String) {
         self.id = id ?? question
+        self.title = title ?? question
         self.question = question
     }
 
     public static let emailDefaults: [LocalAssistantSuggestion] = [
-        .init(question: "Resuma decisões, prazos e pendências"),
-        .init(question: "O que exige resposta ou decisão?"),
-        .init(question: "Analise riscos, tom e pontos em aberto"),
-        .init(question: "Prepare uma resposta completa"),
+        .init(title: "Resumo", question: "Faça um resumo útil desta conversa, destacando o que importa."),
+        .init(title: "Pontos-chave", question: "Liste os pontos-chave desta conversa."),
+        .init(title: "Insights", question: "Analise esta conversa e identifique insights, riscos e pontos em aberto."),
+        .init(title: "Pendências", question: "Liste pendências, responsáveis e prazos desta conversa."),
+        .init(title: "Gerar resposta", question: "Prepare uma resposta completa, natural e pronta para revisão desta conversa."),
     ]
+
+    public static let workspaceDefaults: [LocalAssistantSuggestion] = [
+        .init(title: "Resumo geral", question: "Resuma meu ambiente: caixas, e-mails, agenda e pendências."),
+        .init(title: "Prioridades", question: "Quais são minhas prioridades agora considerando e-mails e agenda?"),
+        .init(title: "Não lidos", question: "Organize os e-mails não lidos mais importantes e diga por onde começar."),
+        .init(title: "Agenda", question: "Resuma minha agenda e aponte conflitos, lacunas ou preparações necessárias."),
+        .init(title: "Riscos e pendências", question: "Cruze e-mails, agenda e pendências e identifique riscos ou itens esquecidos."),
+    ]
+}
+
+/// Define se o painel fala da mensagem aberta ou do ambiente inteiro. A
+/// separação é visível e também decide o catálogo de ações rápidas.
+public enum LocalAssistantMode: Sendable, Hashable {
+    case email
+    case workspace
+
+    var title: String {
+        switch self {
+        case .email: "Inteligência do email"
+        case .workspace: "Assistente do ambiente"
+        }
+    }
+
+    var contextLabel: String {
+        switch self {
+        case .email: "CONTEXTO DO EMAIL"
+        case .workspace: "AMBIENTE LOCAL"
+        }
+    }
+
+    var emptyTitle: String {
+        switch self {
+        case .email: "Ações rápidas"
+        case .workspace: "O que você quer organizar?"
+        }
+    }
+
+    var emptyDetail: String {
+        switch self {
+        case .email: "Escolha uma ação ou escreva uma pergunta sobre este email."
+        case .workspace: "Pergunte sobre suas caixas, emails, agenda e pendências."
+        }
+    }
+
+    var placeholder: String {
+        switch self {
+        case .email: "Pergunte sobre este email…"
+        case .workspace: "Pergunte sobre seu ambiente…"
+        }
+    }
+
+    var accessibilitySubject: String {
+        switch self {
+        case .email: "o email"
+        case .workspace: "o ambiente"
+        }
+    }
+
+    var footer: String {
+        switch self {
+        case .email: "Usa a mensagem ou conversa aberta."
+        case .workspace: "Usa todas as caixas e a agenda carregadas neste Mac."
+        }
+    }
+
+    var suggestions: [LocalAssistantSuggestion] {
+        switch self {
+        case .email: LocalAssistantSuggestion.emailDefaults
+        case .workspace: LocalAssistantSuggestion.workspaceDefaults
+        }
+    }
 }
 
 public enum LocalAssistantSpeaker: String, Sendable, Hashable {
@@ -143,10 +217,12 @@ public final class LocalAssistantConversation {
 
     public var hasConversation: Bool { !messages.isEmpty }
 
-    public func use(_ suggestion: LocalAssistantSuggestion) {
+    /// Uma ação rápida é realmente de um toque: entra no mesmo fluxo de
+    /// pergunta, carregamento, resposta e retry do campo livre.
+    public func run(_ suggestion: LocalAssistantSuggestion) async {
         guard !isLoading else { return }
         draft = suggestion.question
-        errorMessage = nil
+        await submit()
     }
 
     public func clear() {
@@ -199,7 +275,7 @@ public final class LocalAssistantConversation {
     }
 }
 
-/// Painel de perguntas sobre a mensagem ou conversa aberta.
+/// Painel de perguntas sobre a mensagem aberta ou sobre o ambiente local.
 ///
 /// A resposta é uma closure assíncrona injetada pelo app. Por isso esta peça
 /// pode ser renderizada e testada sem acesso ao Foundation Models, sem rede e
@@ -211,21 +287,24 @@ public struct LocalAssistantPanel: View {
     @Environment(\.displayScale) private var displayScale
     @State private var conversation: LocalAssistantConversation
 
+    private let mode: LocalAssistantMode
     private let context: LocalAssistantContext
     private let suggestions: [LocalAssistantSuggestion]
     private let onClose: () -> Void
     private let width: CGFloat
 
     public init(
+        mode: LocalAssistantMode = .email,
         context: LocalAssistantContext,
-        suggestions: [LocalAssistantSuggestion] = LocalAssistantSuggestion.emailDefaults,
+        suggestions: [LocalAssistantSuggestion]? = nil,
         width: CGFloat = LocalAssistantPanel.defaultWidth,
         debugState: LocalAssistantPanelDebugState = .empty,
         onAsk: @escaping (LocalAssistantRequest) async throws -> String,
         onClose: @escaping () -> Void
     ) {
+        self.mode = mode
         self.context = context
-        self.suggestions = suggestions
+        self.suggestions = suggestions ?? mode.suggestions
         self.width = width
         self.onClose = onClose
         _conversation = State(
@@ -286,7 +365,7 @@ public struct LocalAssistantPanel: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("Perguntar ao email")
+                Text(mode.title)
                     .font(theme.serif.font(size: 18, weight: .medium))
                     .foregroundStyle(theme.ink.color)
                     .lineLimit(1)
@@ -298,7 +377,7 @@ public struct LocalAssistantPanel: View {
             }
             // Reserva fixa para que a presença de uma barra de rolagem no
             // transcript não possa expulsar título nem botões da moldura.
-            .frame(width: 150, alignment: .leading)
+            .frame(width: 190, alignment: .leading)
             Spacer(minLength: 0)
 
             if conversation.hasConversation {
@@ -328,14 +407,14 @@ public struct LocalAssistantPanel: View {
             .buttonStyle(.plain)
             .focusRing(cornerRadius: theme.radiusSmall)
             .help("Fechar painel de perguntas")
-            .accessibilityLabel("Fechar perguntas sobre o email")
+            .accessibilityLabel("Fechar perguntas sobre \(mode.accessibilitySubject)")
         }
         .padding(16)
     }
 
     private var contextBand: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("CONTEXTO ATUAL")
+            Text(mode.contextLabel)
                 .font(theme.mono.font(size: 9, weight: .medium))
                 .tracking(theme.capsTracking(at: 9))
                 .foregroundStyle(theme.ink4.color)
@@ -358,10 +437,10 @@ public struct LocalAssistantPanel: View {
 
     private var emptyConversation: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("O que você quer entender desta conversa?")
+            Text(mode.emptyTitle)
                 .font(theme.serif.font(size: 16, weight: .medium))
                 .foregroundStyle(theme.ink.color)
-            Text("Escolha um ponto de partida ou escreva sua própria pergunta.")
+            Text(mode.emptyDetail)
                 .font(theme.sans.font(size: 12))
                 .foregroundStyle(theme.ink3.color)
                 .fixedSize(horizontal: false, vertical: true)
@@ -388,9 +467,9 @@ public struct LocalAssistantPanel: View {
     }
 
     private func suggestionButton(_ suggestion: LocalAssistantSuggestion) -> some View {
-        Button { conversation.use(suggestion) } label: {
+        Button { Task { await conversation.run(suggestion) } } label: {
             HStack(spacing: 10) {
-                Text(suggestion.question)
+                Text(suggestion.title)
                     .font(theme.sans.font(size: 12, weight: .medium))
                     .foregroundStyle(theme.ink2.color)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -426,6 +505,7 @@ public struct LocalAssistantPanel: View {
                     .font(theme.sans.font(size: 12.5))
                     .foregroundStyle(theme.ink2.color)
                     .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
             }
             .frame(maxWidth: 274, alignment: .leading)
             .padding(10)
@@ -495,7 +575,7 @@ public struct LocalAssistantPanel: View {
     private var composer: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .bottom, spacing: 8) {
-                TextField("Pergunte sobre este email…", text: $conversation.draft, axis: .vertical)
+                TextField(mode.placeholder, text: $conversation.draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(theme.sans.font(size: 12.5))
                     .foregroundStyle(theme.ink.color)
@@ -509,7 +589,7 @@ public struct LocalAssistantPanel: View {
                             .strokeBorder(theme.btnLine.color, lineWidth: Hairline.thickness(displayScale))
                     }
                     .onSubmit { submit() }
-                    .accessibilityLabel("Pergunta sobre o email")
+                    .accessibilityLabel("Pergunta sobre \(mode.accessibilitySubject)")
 
                 Button(action: submit) {
                     HStack(spacing: 5) {
@@ -532,7 +612,7 @@ public struct LocalAssistantPanel: View {
                 .accessibilityLabel("Enviar pergunta")
             }
 
-            Text("A pergunta usa apenas o contexto mostrado acima.")
+            Text(mode.footer)
                 .font(theme.sans.font(size: 10.5))
                 .foregroundStyle(theme.ink4.color)
         }

@@ -200,7 +200,11 @@ public struct MessageWindow: View {
                 withAnimation(.easeInOut(duration: 0.18)) { assistantOpen = true }
             }
             .disabled(!intelligencePresentation.isAvailable)
-            .help(intelligencePresentation.actionHelp)
+            .help(
+                intelligencePresentation.isAvailable
+                    ? "Abre ações rápidas e perguntas sobre este email."
+                    : intelligencePresentation.detail
+            )
             ChromeButton("Arquivar", appearance: .outlined) {
                 store.move(message, to: .archived)
                 dismiss()

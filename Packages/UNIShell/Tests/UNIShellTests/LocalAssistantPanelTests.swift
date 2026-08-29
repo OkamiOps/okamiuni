@@ -12,6 +12,62 @@ struct LocalAssistantPanelTests {
         conversationLabel: "Conversa com 3 mensagens"
     )
 
+    @Test("ações do email têm nomes claros e executam sem segundo clique")
+    func emailQuickActionsRunImmediately() async throws {
+        let actions = LocalAssistantSuggestion.emailDefaults
+        #expect(actions.map(\.title) == [
+            "Resumo", "Pontos-chave", "Insights", "Pendências", "Gerar resposta"
+        ])
+
+        var received: LocalAssistantRequest?
+        let conversation = LocalAssistantConversation(context: context) { request in
+            received = request
+            return "Resposta pronta"
+        }
+        await conversation.run(try #require(actions.first))
+
+        #expect(received?.question == actions.first?.question)
+        #expect(conversation.messages.map(\.speaker) == [.user, .assistant])
+        #expect(conversation.messages.last?.text == "Resposta pronta")
+        #expect(conversation.draft.isEmpty)
+    }
+
+    @Test("clicar em Gerar resposta atravessa o botão e chega ao motor")
+    func generateReplyButtonRunsOffscreen() async throws {
+        let action = try #require(
+            LocalAssistantSuggestion.emailDefaults.first { $0.title == "Gerar resposta" }
+        )
+        var received: LocalAssistantRequest?
+
+        CliqueDeEnsaio.em(
+            LocalAssistantPanel(
+                context: context,
+                suggestions: [action],
+                onAsk: { request in
+                    received = request
+                    return "Resposta completa pronta para revisão"
+                },
+                onClose: {}
+            ),
+            size: CGSize(width: LocalAssistantPanel.defaultWidth, height: 620),
+            aY: 245,
+            x: LocalAssistantPanel.defaultWidth / 2
+        )
+        await Task.yield()
+        try await Task.sleep(for: .milliseconds(50))
+
+        #expect(received?.question == action.question)
+    }
+
+    @Test("assistente global oferece ações de caixas e agenda")
+    func workspaceQuickActionsAreGlobal() {
+        let actions = LocalAssistantSuggestion.workspaceDefaults
+        #expect(actions.map(\.title) == [
+            "Resumo geral", "Prioridades", "Não lidos", "Agenda", "Riscos e pendências"
+        ])
+        #expect(actions.allSatisfy { !$0.question.localizedCaseInsensitiveContains("este email") })
+    }
+
     @Test("pergunta faz a transição para resposta pela closure injetada")
     func questionTransitionsToAnswer() async {
         var received: LocalAssistantRequest?
@@ -95,6 +151,26 @@ struct LocalAssistantPanelTests {
         for bitmap in snapshots.dropFirst() {
             #expect(empty.pixelsDiffering(from: bitmap) > 0)
         }
+    }
+
+    @Test("painel global identifica o ambiente e renderiza as ações")
+    func workspacePanelRenders() throws {
+        let bitmap = try #require(Render.snapshot(
+            LocalAssistantPanel(
+                mode: .workspace,
+                context: LocalAssistantContext(
+                    subject: "Todo o OkamiUNI",
+                    sender: "4 contas · 7 emails",
+                    conversationLabel: "38 compromissos"
+                ),
+                onAsk: { _ in "Resposta de ensaio" },
+                onClose: {}
+            ),
+            named: "m5-local-assistant-workspace",
+            size: CGSize(width: LocalAssistantPanel.defaultWidth, height: 620),
+            theme: .tinta
+        ))
+        #expect(bitmap.pixelsWide == Int(LocalAssistantPanel.defaultWidth))
     }
 }
 

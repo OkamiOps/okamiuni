@@ -17,7 +17,7 @@ public enum IntelligencePresentation: CaseIterable, Sendable {
     /// O rótulo da ação fica estável; o estado explica se ela pode ser usada.
     /// Mudar o texto do botão conforme o motor oscila esconderia justamente a
     /// porta que a pessoa procura para entender o que está acontecendo.
-    public var actionTitle: String { "Perguntar ao email" }
+    public var actionTitle: String { "Perguntar ao ambiente" }
 
     /// Se o motor está pronto para receber uma pergunta. O shell só desenha
     /// esta decisão: quem a mede continua sendo o compositor do app.
@@ -39,7 +39,7 @@ public enum IntelligencePresentation: CaseIterable, Sendable {
     var detail: String {
         switch self {
         case .available:
-            "Pergunte sobre emails e conversas. Nada sai deste Mac."
+            "Pergunte sobre suas caixas, emails e agenda. Nada sai deste Mac."
         case .deviceNotEligible:
             "Este Mac não é compatível com Apple Intelligence. Seus emails continuam locais."
         case .appleIntelligenceNotEnabled:
@@ -55,7 +55,7 @@ public enum IntelligencePresentation: CaseIterable, Sendable {
 
     public var actionHelp: String {
         isAvailable
-            ? "Abre um painel para perguntar sobre o email e a conversa aberta."
+            ? "Abre o assistente global para suas caixas, emails e agenda."
             : detail
     }
 }
