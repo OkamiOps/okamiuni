@@ -34,6 +34,14 @@ public struct AppComposition: Sendable {
     /// tem para onde apontar (`accountID` não existiria), então o próprio
     /// `MailStore` nunca a chama nesse caso — não há mensagem para mutar.
     public let commandPort: MailCommandPort?
+    /// Quem leva a fila de saída ao servidor, uma conta por vez. Nulo pelo
+    /// mesmo motivo do banco. Já vem **ligado**: a fila começa a andar ao
+    /// abrir o app, que é o que faz uma ação feita offline chegar ao servidor
+    /// assim que a rede volta, sem a pessoa ter de fazer nada.
+    public let outbox: OutboxRunner?
+    /// O aviso que a porta de escrita dá ao executor. Público porque a tarefa
+    /// 3 (o `NWPathMonitor`) chama `notify` daqui.
+    public let outboxSignal: OutboxSignal?
     /// Falha de configuração que o app **mostra** em vez de esconder: banco
     /// que não abriu, client ID que falta. Nunca fatal.
     public let configError: SyncError?
@@ -67,7 +75,8 @@ public struct AppComposition: Sendable {
             log.error("Banco não abriu: \(falha.mensagem, privacy: .public)")
             return AppComposition(
                 database: nil, director: nil,
-                source: InMemoryMailSource.fixtures, commandPort: nil, configError: falha
+                source: InMemoryMailSource.fixtures, commandPort: nil,
+                outbox: nil, outboxSignal: nil, configError: falha
             )
         }
 
@@ -87,16 +96,28 @@ public struct AppComposition: Sendable {
             log.notice("Rota Google indisponível: \(erro!.mensagem, privacy: .public)")
         }
 
+        // Duas threads: uma carga IMAP por vez é o que o `AccountDirector`
+        // permite por conta, e duas contas carregando juntas é o caso real de
+        // quem tem trabalho e pessoal. O mesmo grupo serve a fila de saída —
+        // as conexões dela são igualmente uma por conta.
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 2)
         let director = AccountDirector(
             database: banco,
             secrets: cofre,
             auth: auth,
             session: .shared,
-            // Duas threads: uma carga IMAP por vez é o que o `AccountDirector`
-            // permite por conta, e duas contas carregando juntas é o caso real
-            // de quem tem trabalho e pessoal.
-            eventLoopGroup: MultiThreadedEventLoopGroup(numberOfThreads: 2)
+            eventLoopGroup: grupo
         )
+
+        let sinal = OutboxSignal()
+        let fila = OutboxRunner(
+            database: banco, secrets: cofre, auth: auth, session: .shared,
+            eventLoopGroup: grupo, signal: sinal
+        )
+        // A fila começa a andar ao abrir. `Task` porque ligar os executores lê
+        // o banco, e a composição é síncrona de propósito: o app não pode
+        // esperar por I/O para desenhar a primeira janela.
+        Task { await fila.start() }
 
         // Tem conta? Então o banco é a fonte. Não tem? Fixtures — e é isso que
         // mantém os ensaios e as capturas do Marco 1 idênticos.
@@ -113,7 +134,9 @@ public struct AppComposition: Sendable {
             database: banco,
             director: director,
             source: DatabaseMailSource(database: banco, emptyFallback: .fixtures),
-            commandPort: DatabaseCommandPort(database: banco),
+            commandPort: DatabaseCommandPort(database: banco, signal: sinal),
+            outbox: fila,
+            outboxSignal: sinal,
             configError: erro
         )
     }

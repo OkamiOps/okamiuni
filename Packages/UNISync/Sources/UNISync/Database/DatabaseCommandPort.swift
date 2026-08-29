@@ -24,9 +24,15 @@ import UNICore
 /// correndo atrás de uma corrida que não precisa existir.
 public struct DatabaseCommandPort: MailCommandPort, Sendable {
     private let database: SyncDatabase
+    /// Quem avisa o executor da conta que há coisa nova. Opcional porque a
+    /// porta é útil sem ele — todos os testes da tarefa 1 a exercitam assim, e
+    /// o que eles afirmam (projeção + enfileiramento na mesma transação) não
+    /// muda por haver ou não quem consuma a fila depois.
+    private let signal: OutboxSignal?
 
-    public init(database: SyncDatabase) {
+    public init(database: SyncDatabase, signal: OutboxSignal? = nil) {
         self.database = database
+        self.signal = signal
     }
 
     public func setRead(_ isRead: Bool, accountID: String, messageIDs: [String]) throws {
@@ -106,5 +112,9 @@ public struct DatabaseCommandPort: MailCommandPort, Sendable {
                 ]
             )
         }
+        // **Depois** da transação, nunca dentro: o executor acordado lê o
+        // banco, e um aviso disparado antes do commit o mandaria procurar uma
+        // linha que ainda não existe.
+        signal?.notify(accountID: accountID)
     }
 }
