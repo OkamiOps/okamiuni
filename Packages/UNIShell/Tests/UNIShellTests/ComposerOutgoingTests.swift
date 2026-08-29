@@ -173,6 +173,68 @@ struct ComposerSendWiringTests {
         #expect(porta.enviadas.isEmpty)
     }
 
+    /// **O encaminhar do email, de ponta a ponta.**
+    ///
+    /// O dono do projeto relatou que encaminhar também não funcionava. A
+    /// investigação da M3-15 não achou furo neste caminho — `ComposerRoute`
+    /// carrega o prefixo `enc:`, a janela lê o modo, a conta vem da mensagem
+    /// encaminhada (`fromAccountID` é nulo no modo `.forward`, e o `account`
+    /// cai em `store.account(repliedMessage.accountID)`) e `store.canSend` é
+    /// verdadeiro sempre que há banco. Este teste é a prova disso onde ela
+    /// pode existir sem clique: do seed até a fila.
+    ///
+    /// O que faltava de fato era o "Enviar" da **faixa de resposta** e o
+    /// "Encaminhar convite" da janela de compromisso — os dois consertados
+    /// nesta tarefa.
+    @Test("encaminhar um email monta o corpo citado e entra na fila")
+    func encaminhaDePontaAPonta() async throws {
+        let porta = PortaFalsa()
+        let store = MailStore(source: InMemoryMailSource.fixtures, sendPort: porta)
+        await store.load()
+        let original = try #require(store.messages.first { !$0.body.isEmpty })
+        let conta = try #require(store.account(original.accountID))
+        // Sem porta a janela cairia no `logSend` e fecharia fingindo sucesso —
+        // é o guarda que a queixa do dono acusaria se ele fosse o problema.
+        #expect(store.canSend)
+
+        let seed = ComposerSeed.forward(
+            of: original, dateLabel: DateLabels.eventDate(original.receivedAt)
+        )
+        let mensagem = ComposerOutgoing.message(
+            accountID: conta.id,
+            from: Contact(name: conta.displayName, address: conta.address),
+            to: [Contact(name: "Sócio", address: "socio@meusite.com")],
+            cc: [], bcc: [],
+            subject: seed.subject,
+            plainText: seed.body,
+            html: nil,
+            // Encaminhar não é responder: `In-Reply-To` enfiaria a mensagem
+            // dentro da conversa original na caixa de quem recebe.
+            replyingTo: nil
+        )
+        #expect(store.send(mensagem))
+
+        let enviada = try #require(porta.enviadas.first)
+        #expect(enviada.subject == "Enc: \(original.subject)")
+        #expect(enviada.accountID == original.accountID)
+        #expect(enviada.plainText.contains("Mensagem encaminhada"))
+        #expect(enviada.plainText.contains(original.from.address))
+        let primeiroParagrafo = try #require(original.body.first)
+        #expect(enviada.plainText.contains(primeiroParagrafo))
+        #expect(enviada.inReplyTo == nil)
+        #expect(enviada.references.isEmpty)
+    }
+
+    /// A rota que o menu e o atalho usam para abrir a janela de encaminhar —
+    /// se ela chegasse como resposta, a janela semearia o seed errado e o
+    /// "Encaminhar" mandaria uma resposta ao remetente.
+    @Test("a rota de encaminhar chega do outro lado como encaminhar")
+    func rotaDeEncaminhar() {
+        let valor = ComposerRoute.forward(messageID: "m1").value
+        #expect(ComposerRoute.parse(valor) == .forward(messageID: "m1"))
+        #expect(ComposerWindow.Mode(ComposerRoute.parse(valor)) == .forward(messageID: "m1"))
+    }
+
     @Test("a mesma janela sem apertar nada não manda mensagem nenhuma")
     func semApertar() async throws {
         let porta = PortaFalsa()
