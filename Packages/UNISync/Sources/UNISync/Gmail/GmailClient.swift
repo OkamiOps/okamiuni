@@ -64,7 +64,65 @@ public struct GmailClient: Sendable {
         return try GmailMessageParser.parse(dados)
     }
 
+    // MARK: A escrita — o espelho da triagem
+
+    /// `messages.batchModify`: adiciona e remove rótulos de até mil mensagens
+    /// numa chamada.
+    ///
+    /// **É naturalmente idempotente**, e é isso que faz o retry depois de um
+    /// timeout ambíguo ser seguro: "adicione `TRASH`, tire `INBOX`" aplicado
+    /// duas vezes deixa o mesmo estado que aplicado uma. Não há contador nem
+    /// alternância — por isso o `setRead` é `removeLabelIds: [UNREAD]`, e nunca
+    /// um "inverta o que estiver lá".
+    ///
+    /// A resposta é `204 No Content`, sem corpo: nada a decodificar.
+    public func batchModify(ids: [String], addLabelIDs: [String], removeLabelIDs: [String]) async throws {
+        guard !ids.isEmpty else { return }
+        let corpo: [String: any Sendable] = [
+            "ids": ids, "addLabelIds": addLabelIDs, "removeLabelIds": removeLabelIDs,
+        ]
+        _ = try await postData(path: "messages/batchModify", body: corpo)
+    }
+
+    /// `messages.batchDelete`: apagamento **definitivo**, sem passar pela
+    /// lixeira. É o que "apagar definitivamente" e "esvaziar lixeira" pedem.
+    public func batchDelete(ids: [String]) async throws {
+        guard !ids.isEmpty else { return }
+        _ = try await postData(path: "messages/batchDelete", body: ["ids": ids])
+    }
+
+    /// `labels.create`. Devolve o id do rótulo recém-criado.
+    ///
+    /// `409 Conflict` é a resposta do Gmail para "esse rótulo já existe", e ela
+    /// **não** é erro aqui: o espelho cria `OkamiUNI/Depois` no primeiro uso, e
+    /// duas execuções da mesma operação (o retry do timeout ambíguo, de novo)
+    /// chegariam as duas neste ponto. Quem chama relê a lista e acha o id.
+    public func createLabel(name: String) async throws -> String? {
+        struct Wire: Decodable { let id: String }
+        let corpo: [String: any Sendable] = [
+            "name": name,
+            "labelListVisibility": "labelShow",
+            "messageListVisibility": "show",
+        ]
+        do {
+            let dados = try await postData(path: "labels", body: corpo)
+            return (try? JSONDecoder().decode(Wire.self, from: dados))?.id
+        } catch SyncError.servidor(let codigo, _) where codigo == 409 {
+            return nil
+        }
+    }
+
     // MARK: O cano
+
+    private func postData(path: String, body: [String: any Sendable]) async throws -> Data {
+        // `.sortedKeys` porque um corpo com a mesma intenção tem de sair
+        // **byte a byte igual** nas duas tentativas de um retry: sem isso a
+        // ordem das chaves de um dicionário varia entre execuções, e "o mesmo
+        // pedido" deixa de ser afirmável — nem por nós, nem por quem for ler
+        // um log de rede tentando entender uma duplicata.
+        let json = try JSONSerialization.data(withJSONObject: body, options: [.sortedKeys])
+        return try await enviar(path: path, query: [], method: "POST", body: json)
+    }
 
     private func get<T: Decodable>(path: String, query: [URLQueryItem]) async throws -> T {
         let dados = try await getData(path: path, query: query)
@@ -76,14 +134,32 @@ public struct GmailClient: Sendable {
     }
 
     private func getData(path: String, query: [URLQueryItem]) async throws -> Data {
+        try await enviar(path: path, query: query, method: "GET", body: nil)
+    }
+
+    /// O único lugar que fala com a rede — GET e POST pela mesma porta.
+    ///
+    /// Uma porta só porque a tradução de erro (`apiError`) é a parte que mais
+    /// importa acertar, e ela vale igual para as duas: um 403 de quota numa
+    /// escrita pede a mesma espera que numa leitura, e um 401 pede a mesma
+    /// reconexão. Duplicar o cano duplicaria essa tabela, e a cópia divergiria
+    /// no primeiro código novo.
+    private func enviar(
+        path: String, query: [URLQueryItem], method: String, body: Data?
+    ) async throws -> Data {
         var components = URLComponents(
             url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false
         )!
         if !query.isEmpty { components.queryItems = query }
 
         var request = URLRequest(url: components.url!)
+        request.httpMethod = method
         request.setValue("Bearer \(try await accessToken())", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let body {
+            request.httpBody = body
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
 
         let (dados, resposta): (Data, URLResponse)
         do {
