@@ -76,4 +76,34 @@ struct EventSectionsTests {
             ]) == "O que gerou este compromisso"
         )
     }
+
+    /// A prévia do corpo: os primeiros parágrafos, e só eles.
+    ///
+    /// O defeito: aberta, a seção mostrava o cabeçalho do email (quem, assunto,
+    /// data) e a nota — nada do que o email dizia.
+    @Test("A prévia leva os três primeiros parágrafos do email")
+    func previaDoCorpo() {
+        let corpo = ["Primeiro.", "Segundo.", "Terceiro.", "Quarto.", "Quinto."]
+        #expect(EventSections.bodyPreview(corpo) == ["Primeiro.", "Segundo.", "Terceiro."])
+        #expect(EventSections.bodyPreview(corpo, paragraphs: 1) == ["Primeiro."])
+    }
+
+    /// Parágrafo em branco não vira linha em branco na janela: o que vem do
+    /// decodificador tem sobra de espaço e de quebra de linha.
+    @Test("A prévia descarta parágrafos vazios e apara o que sobra")
+    func previaAparaOVazio() {
+        #expect(
+            EventSections.bodyPreview(["  ", "\n", " Oi, tudo bem?\n", "", "Segundo."])
+                == ["Oi, tudo bem?", "Segundo."]
+        )
+    }
+
+    /// Mensagem sem corpo no banco é caso legítimo — as que ainda não foram
+    /// buscadas. A seção fica com a linha do email e o "Abrir no leitor", e
+    /// esta janela não pede rede para preencher o resto.
+    @Test("Sem corpo, a prévia é vazia — e não uma linha em branco")
+    func semCorpo() {
+        #expect(EventSections.bodyPreview([]).isEmpty)
+        #expect(EventSections.bodyPreview(["", "   "]).isEmpty)
+    }
 }

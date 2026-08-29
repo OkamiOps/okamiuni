@@ -56,6 +56,28 @@ public struct EventSections: Sendable, Hashable {
     /// Sem linha de email (um compromisso que a IA detectou, ou o de série
     /// recorrente) fica o título de sempre — inventar "email de …" onde não há
     /// email seria o cabeçalho mentindo sobre o que esconde.
+    /// Os primeiros parágrafos do email que gerou o compromisso — o que a
+    /// seção aberta mostra abaixo da linha dele.
+    ///
+    /// **Prévia, e não o leitor.** Aberta, a seção mostrava o remetente, o
+    /// assunto, a data e a nota — e nada do que o email dizia, que é o que o
+    /// dono queria ver dali. Embutir o leitor de HTML inteiro numa janela de
+    /// 560pt seria trazer `WebView`, política de conteúdo remoto, faixa de
+    /// confiança e rolagem própria para dentro de um cartão: o começo do texto
+    /// plano responde "de que se trata" e o botão "Abrir no leitor" leva ao
+    /// resto, que é onde o resto sempre esteve.
+    ///
+    /// Lista vazia é **resposta legítima**, não erro: a mensagem pode estar no
+    /// banco sem corpo (as 39 do dono, ver `MessageStore.loadBodyIfNeeded`).
+    /// Aí a seção fica com a linha e o botão, sem inventar espera de rede numa
+    /// janela que não pede rede.
+    public static func bodyPreview(_ body: [String], paragraphs: Int = 3) -> [String] {
+        body.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .prefix(max(0, paragraphs))
+            .map { $0 }
+    }
+
     public static func originHeader(_ thread: [EventThreadEntry]) -> String {
         guard let email = thread.first(where: { $0.kind == .email }), !email.when.isEmpty else {
             return "O que gerou este compromisso"

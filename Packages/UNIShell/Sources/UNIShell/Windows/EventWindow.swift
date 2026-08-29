@@ -66,6 +66,16 @@ public struct EventWindow: View {
         self.itemID = itemID
     }
 
+    /// A mesma janela com as seções já abertas. **Só para verificação fora da
+    /// tela**, como o `initialMode` da `CalendarScreen`: o harness não clica em
+    /// cabeçalho nenhum, e sem este caminho o que a seção aberta mostra seria
+    /// um estado que nenhum PNG jamais fotografaria.
+    init(store: MailStore, itemID: String, debugSections: EventSections) {
+        self.store = store
+        self.itemID = itemID
+        _sections = State(initialValue: debugSections)
+    }
+
     private var item: AgendaItem? {
         store.agenda.first { $0.id == itemID }
     }
@@ -480,6 +490,7 @@ public struct EventWindow: View {
             if sections.origin {
                 VStack(alignment: .leading, spacing: 11) {
                     ForEach(detail.thread) { entry in threadRow(entry) }
+                    originPreview
                     originLine
                 }
                 .padding(.top, 10)
@@ -549,6 +560,63 @@ public struct EventWindow: View {
                     .padding(.top, 3)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    /// A mensagem que gerou este compromisso, se ela ainda está na caixa.
+    ///
+    /// É a mesma `originMessageID` do botão "Email": um lugar só decide qual é
+    /// o email de origem, e a prévia mostra o corpo **daquele**, não de um
+    /// segundo palpite.
+    private var originMessage: Message? {
+        originMessageID.flatMap { id in store.messages.first { $0.id == id } }
+    }
+
+    /// O começo do email, e o salto para ele.
+    ///
+    /// **O que o dono pediu ao abrir a seção**: ela mostrava quem escreveu, o
+    /// assunto, a data e a nota — o cabeçalho do email, e nada do email. Agora
+    /// vêm os primeiros parágrafos do texto plano, na tipografia do leitor, e
+    /// um "Abrir no leitor" explícito.
+    ///
+    /// **Não é o leitor.** O corpo em HTML, a política de conteúdo remoto e a
+    /// faixa de confiança continuam morando no `ReaderPane`, que é onde a
+    /// pessoa lê email; trazer tudo isso para dentro de uma janela de 560pt
+    /// seria uma segunda tela de leitura para manter em dia. Prévia curta mais
+    /// salto é a versão honesta disso — decisão registrada no relatório.
+    ///
+    /// Sem corpo no banco, **nada de espera**: esta janela não pede rede, e um
+    /// "Carregando…" aqui prometeria uma busca que ninguém vai fazer. Fica a
+    /// linha do email e o botão, que leva ao leitor — e é o leitor que sabe
+    /// buscar o corpo que falta (`MessageStore.loadBodyIfNeeded`).
+    @ViewBuilder
+    private var originPreview: some View {
+        let paragrafos = EventSections.bodyPreview(originMessage?.body ?? [])
+        if !paragrafos.isEmpty || originMessageID != nil {
+            VStack(alignment: .leading, spacing: 7) {
+                ForEach(Array(paragrafos.enumerated()), id: \.offset) { _, paragrafo in
+                    Text(paragrafo)
+                        .font(theme.serif.font(size: 13.5))
+                        .lineSpacing(0.45 * 13.5)
+                        .foregroundStyle(theme.ink.color)
+                        // Altura limitada: três parágrafos, seis linhas cada. É
+                        // prévia — o email inteiro tem casa própria.
+                        .lineLimit(6)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                }
+
+                if originMessageID != nil {
+                    ChromeButton(
+                        "Abrir no leitor", appearance: .outlined, size: 11.5,
+                        weight: .semibold, height: 26, horizontalPadding: 11
+                    ) {
+                        revealOriginMessage()
+                    }
+                    .help("Abrir na janela principal o email que gerou este compromisso")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
