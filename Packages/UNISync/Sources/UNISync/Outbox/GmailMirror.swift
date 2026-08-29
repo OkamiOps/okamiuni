@@ -20,9 +20,16 @@ import UNICore
 public actor GmailMirror: MailMirror {
     private let client: GmailClient
     private var laterLabelID: String?
+    /// O relógio do cabeçalho `Date:`. Injetável porque um teste que afirma o
+    /// texto que sai não pode depender do segundo em que rodou — e porque o
+    /// instante certo é o do **envio**, não o da escrita: uma mensagem que
+    /// esperou a rede voltar sai agora, e datá-la de ontem faria toda caixa de
+    /// entrada ordená-la no lugar errado.
+    private let now: @Sendable () -> Date
 
-    public init(client: GmailClient) {
+    public init(client: GmailClient, now: @Sendable @escaping () -> Date = Date.init) {
         self.client = client
+        self.now = now
     }
 
     public func apply(_ operation: MailOperation, targets: [MessageCoordinate]) async throws {
@@ -93,6 +100,20 @@ public actor GmailMirror: MailMirror {
                 todos.append(contentsOf: restantes.ids)
             }
             try await client.batchDelete(ids: todos)
+
+        case .send(let mensagem):
+            // **A pergunta antes do envio**, e ela é o que faz esta operação
+            // ser repetível: o retry de um tempo esgotado ambíguo não sabe se a
+            // primeira tentativa passou, então ele procura o `Message-ID` na
+            // conta antes de mandar. Sem esta linha — e é exatamente esta a
+            // mutação que o teste do invariante mata — a mesma mensagem chega
+            // duas vezes na caixa de quem recebe, e não há como desfazer.
+            guard try await !client.hasMessage(rfc822MessageID: mensagem.messageID) else { return }
+            // `includeBcc: true` porque a Gmail API monta os destinatários a
+            // partir do texto da mensagem, e tira o cabeçalho antes de
+            // entregar. Sem ele a cópia oculta não é enviada a ninguém.
+            let raw = OutgoingMime.compose(mensagem, date: now(), includeBcc: true)
+            try await client.send(raw: OutgoingMime.base64URL(raw))
         }
     }
 

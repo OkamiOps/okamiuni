@@ -34,6 +34,11 @@ public struct AppComposition: Sendable {
     /// tem para onde apontar (`accountID` não existiria), então o próprio
     /// `MailStore` nunca a chama nesse caso — não há mensagem para mutar.
     public let commandPort: MailCommandPort?
+    /// Para onde o "Enviar" do composer manda a mensagem. É o **mesmo**
+    /// `DatabaseCommandPort` de `commandPort`, e não uma segunda porta: quem
+    /// enfileira uma triagem e quem enfileira um envio escrevem na mesma
+    /// tabela, e duas instâncias dariam dois avisos ao executor por engano.
+    public let sendPort: MailSendPort?
     /// Quem busca o corpo que a carga inicial não trouxe. `nil` quando o banco
     /// não abriu — e nesse caso a fonte são as fixtures, que já têm corpo.
     ///
@@ -88,7 +93,7 @@ public struct AppComposition: Sendable {
             log.error("Banco não abriu: \(falha.mensagem, privacy: .public)")
             return AppComposition(
                 database: nil, director: nil,
-                source: InMemoryMailSource.fixtures, commandPort: nil, bodyPort: nil,
+                source: InMemoryMailSource.fixtures, commandPort: nil, sendPort: nil, bodyPort: nil,
                 outbox: nil, outboxSignal: nil, sync: nil, network: nil, configError: falha
             )
         }
@@ -181,11 +186,15 @@ public struct AppComposition: Sendable {
         // `DatabaseMailSource.emptyFallback`. Assim é o `observe()` do
         // `MailStore` que troca a lista na tela, nos dois sentidos, sem
         // reinício.
+        // Uma porta só para as duas coisas: a triagem e o envio escrevem na
+        // mesma fila, e duas instâncias avisariam o executor duas vezes.
+        let porta = DatabaseCommandPort(database: banco, signal: sinal)
         return AppComposition(
             database: banco,
             director: director,
             source: DatabaseMailSource(database: banco, emptyFallback: .fixtures),
-            commandPort: DatabaseCommandPort(database: banco, signal: sinal),
+            commandPort: porta,
+            sendPort: porta,
             bodyPort: DatabaseBodyFetcher(
                 database: banco, secrets: cofre, auth: auth,
                 session: .shared, eventLoopGroup: grupo

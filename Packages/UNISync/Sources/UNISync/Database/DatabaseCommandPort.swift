@@ -22,7 +22,7 @@ import UNICore
 /// obrigaria a disparar um `Task` a partir de um método síncrono — e então
 /// o teste teria de esperar por ele para poder afirmar qualquer coisa,
 /// correndo atrás de uma corrida que não precisa existir.
-public struct DatabaseCommandPort: MailCommandPort, Sendable {
+public struct DatabaseCommandPort: MailCommandPort, MailSendPort, Sendable {
     private let database: SyncDatabase
     /// Quem avisa o executor da conta que há coisa nova. Opcional porque a
     /// porta é útil sem ele — todos os testes da tarefa 1 a exercitam assim, e
@@ -81,6 +81,28 @@ public struct DatabaseCommandPort: MailCommandPort, Sendable {
         }
     }
 
+    /// O "Enviar" da janela: a mensagem entra na fila e mais nada acontece
+    /// agora.
+    ///
+    /// **Sem projeção**, ao contrário das seis mutações acima, e é uma
+    /// diferença de fato e não de gosto: aquelas mudam uma linha que já existe
+    /// na tela, e a tela tem de refletir a mudança na hora. Esta não tem linha
+    /// nenhuma para mudar — a mensagem enviada não entra na triagem (ver
+    /// `TriageProjection.bucket(role:)`: `.sent` devolve `nil`, de propósito,
+    /// porque o que a pessoa escreveu não é caixa de entrada dela). Gravar uma
+    /// linha que nenhuma visão desenha seria escrever no banco para ninguém
+    /// ler.
+    ///
+    /// O que a pessoa vê é a janela fechando e, se algo der errado, a mesma
+    /// falha de fila que as outras operações já mostram, com "tentar de novo"
+    /// ao lado.
+    public func send(_ message: OutgoingMessage) throws {
+        try database.pool.write { db in
+            try Self.enfileira(db, accountID: message.accountID, operation: .send(message: message))
+        }
+        signal?.notify(accountID: message.accountID)
+    }
+
     private static func scoped(accountID: String, ids: [String]) -> QueryInterfaceRequest<MessageRecord> {
         MessageRecord
             .filter(keys: ids)
@@ -94,6 +116,20 @@ public struct DatabaseCommandPort: MailCommandPort, Sendable {
     ) throws {
         try database.pool.write { db in
             try projection(db)
+            try Self.enfileira(db, accountID: accountID, operation: operation)
+        }
+        // **Depois** da transação, nunca dentro: o executor acordado lê o
+        // banco, e um aviso disparado antes do commit o mandaria procurar uma
+        // linha que ainda não existe.
+        signal?.notify(accountID: accountID)
+    }
+
+    /// O `INSERT` no `outbox`, e só ele. Extraído porque o envio o chama
+    /// **sem** projeção nenhuma — e uma segunda cópia deste SQL divergiria da
+    /// primeira no dia em que uma coluna mudasse.
+    private static func enfileira(
+        _ db: Database, accountID: String, operation: MailOperation
+    ) throws {
             let record = try OutboxRecord(accountID: accountID, operation: operation)
             // **Toda ação entra na fila.** A versão anterior deduplicava aqui,
             // por uma chave derivada do conteúdo, e com isso engolia o terceiro
@@ -115,10 +151,5 @@ public struct DatabaseCommandPort: MailCommandPort, Sendable {
                     record.state, record.createdAt.timeIntervalSince1970,
                 ]
             )
-        }
-        // **Depois** da transação, nunca dentro: o executor acordado lê o
-        // banco, e um aviso disparado antes do commit o mandaria procurar uma
-        // linha que ainda não existe.
-        signal?.notify(accountID: accountID)
     }
 }

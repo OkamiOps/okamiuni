@@ -1,5 +1,6 @@
 import Foundation
 import UNICore
+import os
 
 /// O espelho da triagem no IMAP — a coluna "IMAP" da tabela da spec.
 ///
@@ -22,18 +23,37 @@ public actor ImapMirror: MailMirror {
     /// o dia todo, a rede cai, o servidor derruba conexões ociosas. Guardar uma
     /// sessão fixa faria a primeira queda parar a fila da conta para sempre.
     private let conectar: @Sendable () async throws -> ImapSession
+    /// Como conseguir uma sessão SMTP autenticada, quando a conta tem por onde
+    /// enviar. Closure pela mesma razão da de leitura — e **opcional** porque
+    /// uma conta sem servidor de envio derivável existe, e o resto do espelho
+    /// (a triagem inteira) continua funcionando nela.
+    private let conectarSmtp: (@Sendable () async throws -> SmtpSession)?
+    private let now: @Sendable () -> Date
     private var sessao: ImapSession?
     private var pastas: [ImapFolder]?
     private var depoisCriada = false
+    private let log = Logger(subsystem: "com.okamiops.okamiuni", category: "ImapMirror")
 
-    public init(connect: @Sendable @escaping () async throws -> ImapSession) {
+    public init(
+        connect: @Sendable @escaping () async throws -> ImapSession,
+        smtp: (@Sendable () async throws -> SmtpSession)? = nil,
+        now: @Sendable @escaping () -> Date = Date.init
+    ) {
         conectar = connect
+        conectarSmtp = smtp
+        self.now = now
     }
 
     /// A conveniência de quem já tem uma sessão viva — os testes, e quem
     /// espelha dentro de uma sincronização em curso.
-    public init(session: ImapSession) {
+    public init(
+        session: ImapSession,
+        smtp: (@Sendable () async throws -> SmtpSession)? = nil,
+        now: @Sendable @escaping () -> Date = Date.init
+    ) {
         conectar = { session }
+        conectarSmtp = smtp
+        self.now = now
         sessao = session
     }
 
@@ -96,7 +116,80 @@ public actor ImapMirror: MailMirror {
             _ = try await session.select(ImapFolder(name: lixeira, specialUse: nil))
             try await session.markAllDeleted()
             try await session.expunge()
+
+        case .send(let mensagem):
+            try await envia(mensagem)
         }
+    }
+
+    // MARK: O envio
+
+    /// SMTP para entregar, IMAP para guardar a cópia.
+    ///
+    /// A ordem das três coisas é o que faz a operação ser repetível:
+    ///
+    /// 1. **Pergunta antes.** Se o `Message-ID` já está em Enviadas, a
+    ///    tentativa anterior chegou até o fim — não manda de novo. É a mesma
+    ///    pergunta que torna o `mover` idempotente, feita pela mesma razão: um
+    ///    tempo esgotado ambíguo não sabe se passou, e reenviar entrega a
+    ///    mesma mensagem duas vezes na caixa de quem recebe.
+    /// 2. **Entrega.** Uma sessão SMTP por envio, e ela morre no fim: o
+    ///    servidor de submissão derruba conexão ociosa, e guardar uma faria a
+    ///    primeira queda parar o envio da conta.
+    /// 3. **Guarda a cópia**, e falhar aqui **não** desfaz o envio — a
+    ///    mensagem já saiu, e dizer que o envio falhou faria a pessoa mandá-la
+    ///    de novo. A falha vai para o log; a cópia aparece no próximo ciclo se
+    ///    o servidor a tiver por conta própria (vários põem), ou não aparece.
+    private func envia(_ mensagem: OutgoingMessage) async throws {
+        guard let conectarSmtp else {
+            throw SyncError.resposta(
+                "A conta não tem servidor de envio, e enviar precisa de um."
+            )
+        }
+        // A pasta é lida **antes** de qualquer coisa sair, e uma falha aqui
+        // aborta o envio de propósito: sem conseguir olhar Enviadas não há como
+        // saber se a tentativa anterior passou, e mandar às cegas é escolher a
+        // duplicata. A fila tenta de novo com o recuo dela.
+        let enviadas = try await nome(de: .sent, em: lista())
+        if let enviadas, try await jaEstaEnviada(mensagem.messageID, em: enviadas) { return }
+
+        // `includeBcc: false`: no SMTP a cópia oculta viaja no `RCPT TO`, e um
+        // cabeçalho `Bcc` no texto a mostraria para todo mundo que recebeu.
+        let raw = OutgoingMime.compose(mensagem, date: now(), includeBcc: false)
+        let smtp = try await conectarSmtp()
+        do {
+            try await smtp.send(
+                from: mensagem.from.address, recipients: mensagem.recipients, raw: raw
+            )
+        } catch {
+            await smtp.quit()
+            throw error
+        }
+        await smtp.quit()
+
+        guard let enviadas else {
+            log.notice("A conta não tem pasta de Enviadas: a cópia da mensagem não foi guardada.")
+            return
+        }
+        do {
+            let session = try await sessaoAtiva()
+            guard try await session.capabilities().contains("LITERAL+") else {
+                log.notice("O servidor não anuncia LITERAL+: a cópia em Enviadas não foi gravada.")
+                return
+            }
+            try await session.append(mailbox: enviadas, raw: raw)
+        } catch {
+            // Registrado e seguido: a mensagem **já saiu**, e transformar isto
+            // em falha faria a fila tentar de novo um envio que já aconteceu.
+            log.error("A cópia em Enviadas não foi gravada: \(error)")
+        }
+    }
+
+    /// O `Message-ID` já está na pasta de Enviadas?
+    private func jaEstaEnviada(_ messageID: String, em pasta: String) async throws -> Bool {
+        let session = try await sessaoAtiva()
+        _ = try await session.select(ImapFolder(name: pasta, specialUse: nil))
+        return try await !session.uids(messageID: "<\(messageID)>").isEmpty
     }
 
     // MARK: As bandeiras

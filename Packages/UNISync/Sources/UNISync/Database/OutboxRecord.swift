@@ -30,6 +30,21 @@ public enum MailOperation: Codable, Sendable, Equatable {
     case delete(messageIDs: [String])
     case deletePermanently(messageIDs: [String])
     case emptyTrash
+    /// Uma mensagem para sair.
+    ///
+    /// **O envio entra na fila como qualquer outra operação**, e não por um
+    /// caminho próprio direto ao servidor. É o que lhe dá de graça as quatro
+    /// coisas que a fila já tinha: funcionar sem rede (a mensagem sai quando
+    /// ela volta), recuo com tremor, ordem, e a falha permanente aparecendo na
+    /// janela com "tentar de novo" ao lado. Um "Enviar" que falasse com o
+    /// servidor na hora perderia as quatro, e a primeira delas — apertar
+    /// Enviar no avião — é a que a pessoa nota.
+    ///
+    /// A mensagem inteira viaja no JSON, e é por isso que `OutgoingMessage` é
+    /// `Codable`: o app pode ser fechado com a mensagem ainda na fila, e o que
+    /// sair depois tem de ser exatamente o que ela escreveu — inclusive o
+    /// `Message-ID`, que é a identidade que torna o reenvio seguro.
+    case send(message: OutgoingMessage)
 
     /// O rótulo do caso, para o log e para a leitura humana da fila — estável
     /// mesmo se a ordem dos casos do enum mudar, ao contrário de um índice
@@ -42,6 +57,7 @@ public enum MailOperation: Codable, Sendable, Equatable {
         case .delete: "delete"
         case .deletePermanently: "deletePermanently"
         case .emptyTrash: "emptyTrash"
+        case .send: "send"
         }
     }
 
@@ -52,7 +68,10 @@ public enum MailOperation: Codable, Sendable, Equatable {
         case .setRead(_, let ids), .setFlagged(_, let ids),
              .move(_, let ids), .delete(let ids), .deletePermanently(let ids):
             ids
-        case .emptyTrash:
+        // `emptyTrash` não tem ids próprios — ela é "a conta inteira". O envio
+        // também não: a mensagem dele ainda não existe em lugar nenhum, e o
+        // alvo dela são endereços, não linhas do banco.
+        case .emptyTrash, .send:
             []
         }
     }

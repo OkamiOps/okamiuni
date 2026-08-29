@@ -23,6 +23,11 @@ public actor OutboxRunner {
     private let eventLoopGroup: any EventLoopGroup
     private let signal: OutboxSignal
     private let imapConnect: @Sendable (ImapEndpoint, any EventLoopGroup) async throws -> ImapSession
+    /// Como abrir a conexão de **envio**. Injetável pela mesma razão da de
+    /// leitura: o servidor SMTP falso dos testes fala em claro no loopback, e
+    /// exigir TLS ali seria gerar um certificado só para provar coisas que não
+    /// são sobre TLS.
+    private let smtpConnect: @Sendable (SmtpEndpoint, any EventLoopGroup) async throws -> SmtpSession
     private let report: @Sendable (String, SyncError?) -> Void
     private let log = Logger(subsystem: "com.okamiops.okamiuni", category: "OutboxRunner")
 
@@ -38,6 +43,8 @@ public actor OutboxRunner {
         signal: OutboxSignal,
         imapConnect: @Sendable @escaping (ImapEndpoint, any EventLoopGroup) async throws -> ImapSession
             = { endpoint, grupo in try await ImapSession.connect(endpoint: endpoint, group: grupo) },
+        smtpConnect: @Sendable @escaping (SmtpEndpoint, any EventLoopGroup) async throws -> SmtpSession
+            = { endpoint, grupo in try await SmtpSession.connect(endpoint: endpoint, group: grupo) },
         report: @Sendable @escaping (String, SyncError?) -> Void = { _, _ in }
     ) {
         self.database = database
@@ -48,6 +55,7 @@ public actor OutboxRunner {
         self.eventLoopGroup = eventLoopGroup
         self.signal = signal
         self.imapConnect = imapConnect
+        self.smtpConnect = smtpConnect
         self.report = report
     }
 
@@ -115,16 +123,40 @@ public actor OutboxRunner {
             let secrets = self.secrets
             let grupo = eventLoopGroup
             let conectar = imapConnect
+            let conectarSmtp = smtpConnect
             let id = conta.id
             let endereco = conta.address
-            return ImapMirror(connect: {
-                guard case .password(let senha)? = try secrets.secret(for: id) else {
-                    throw SyncError.autenticacao
+            // O servidor de envio é **derivado** do de leitura — ver
+            // `SmtpDiscovery`. Nenhuma tela nova foi pedida à pessoa por
+            // causa disto: a mesma senha de app que lê a caixa é a que
+            // manda, que é como todo provedor de submissão funciona.
+            var abreSmtp: (@Sendable () async throws -> SmtpSession)?
+            if let destino = SmtpDiscovery.endpoint(forImap: endpoint) {
+                abreSmtp = {
+                    guard case .password(let senha)? = try secrets.secret(for: id) else {
+                        throw SyncError.autenticacao
+                    }
+                    let sessao = try await conectarSmtp(destino, grupo)
+                    do {
+                        try await sessao.login(user: endereco, password: senha)
+                    } catch {
+                        await sessao.quit()
+                        throw error
+                    }
+                    return sessao
                 }
-                let sessao = try await conectar(endpoint, grupo)
-                try await sessao.login(user: endereco, password: senha)
-                return sessao
-            })
+            }
+            return ImapMirror(
+                connect: {
+                    guard case .password(let senha)? = try secrets.secret(for: id) else {
+                        throw SyncError.autenticacao
+                    }
+                    let sessao = try await conectar(endpoint, grupo)
+                    try await sessao.login(user: endereco, password: senha)
+                    return sessao
+                },
+                smtp: abreSmtp
+            )
         }
     }
 }
