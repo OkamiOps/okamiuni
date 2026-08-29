@@ -45,9 +45,16 @@ public struct AppComposition: Sendable {
     /// abrir o app, que é o que faz uma ação feita offline chegar ao servidor
     /// assim que a rede volta, sem a pessoa ter de fazer nada.
     public let outbox: OutboxRunner?
-    /// O aviso que a porta de escrita dá ao executor. Público porque a tarefa
-    /// 3 (o `NWPathMonitor`) chama `notify` daqui.
+    /// O aviso que a porta de escrita dá ao executor. Público porque o
+    /// `NetworkWatcher` chama `notifyAll` daqui quando a rede volta.
     public let outboxSignal: OutboxSignal?
+    /// Quem traz do servidor o que chegou depois da carga inicial, uma conta
+    /// por vez. Já vem **ligado**, pela mesma razão que a fila: sincronizar é
+    /// comportamento do app aberto, não um botão.
+    public let sync: SyncRunner?
+    /// Quem repara que a rede voltou e acorda os dois — a sincronização e a
+    /// fila. Nulo quando não há banco, como todo o resto.
+    public let network: NetworkWatcher?
     /// Falha de configuração que o app **mostra** em vez de esconder: banco
     /// que não abriu, client ID que falta. Nunca fatal.
     public let configError: SyncError?
@@ -82,7 +89,7 @@ public struct AppComposition: Sendable {
             return AppComposition(
                 database: nil, director: nil,
                 source: InMemoryMailSource.fixtures, commandPort: nil, bodyPort: nil,
-                outbox: nil, outboxSignal: nil, configError: falha
+                outbox: nil, outboxSignal: nil, sync: nil, network: nil, configError: falha
             )
         }
 
@@ -116,14 +123,37 @@ public struct AppComposition: Sendable {
         )
 
         let sinal = OutboxSignal()
+        // O erro da fila e o do ciclo passam a **chegar à janela**: os dois
+        // recebiam um relato que caía num no-op, e uma conta com a credencial
+        // recusada aparecia na lista como se estivesse bem.
+        let relata: @Sendable (String, SyncError?) -> Void = { conta, erro in
+            Task { await director.report(accountID: conta, error: erro) }
+        }
         let fila = OutboxRunner(
             database: banco, secrets: cofre, auth: auth, session: .shared,
-            eventLoopGroup: grupo, signal: sinal
+            eventLoopGroup: grupo, signal: sinal, report: relata
         )
         // A fila começa a andar ao abrir. `Task` porque ligar os executores lê
         // o banco, e a composição é síncrona de propósito: o app não pode
         // esperar por I/O para desenhar a primeira janela.
         Task { await fila.start() }
+
+        // A sincronização contínua. Ela não lê a lista de contas por conta
+        // própria: assina o diretor, e é ele quem diz quem entrou, quem saiu e
+        // quem parou de autenticar.
+        let sincronizacao = SyncRunner(
+            database: banco, secrets: cofre, auth: auth, session: .shared,
+            eventLoopGroup: grupo, director: director, report: relata
+        )
+        Task { await sincronizacao.start() }
+
+        // E a rede: quando o caminho volta, os dois lados andam na hora em vez
+        // de esperar o próximo minuto.
+        let rede = NetworkWatcher {
+            await sincronizacao.wakeAll()
+            sinal.notifyAll()
+        }
+        Task { await rede.start() }
 
         // Os corpos que uma versão anterior gravou crus são consertados na
         // abertura. Numa `Task` pela mesma razão que a fila, e por uma segunda:
@@ -162,6 +192,8 @@ public struct AppComposition: Sendable {
             ),
             outbox: fila,
             outboxSignal: sinal,
+            sync: sincronizacao,
+            network: rede,
             configError: erro
         )
     }

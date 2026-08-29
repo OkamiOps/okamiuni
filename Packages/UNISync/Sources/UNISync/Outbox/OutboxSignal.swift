@@ -37,6 +37,17 @@ public final class OutboxSignal: @unchecked Sendable {
         for acorda in chamados { acorda() }
     }
 
+    /// Avisa **todos** os executores. É o que a rede voltando pede: a fila
+    /// parada de qualquer conta pode andar agora, e descobrir quais contas
+    /// existem para chamar `notify` uma a uma seria refazer, de fora, a lista
+    /// que este objeto já tem dentro.
+    public func notifyAll() {
+        lock.lock()
+        let chamados = ouvintes.values.flatMap { $0 }
+        lock.unlock()
+        for acorda in chamados { acorda() }
+    }
+
     /// Esquece os ouvintes de uma conta — usada quando a conta sai.
     public func forget(accountID: String) {
         lock.lock()

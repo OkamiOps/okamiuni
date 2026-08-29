@@ -91,6 +91,26 @@ public actor AccountDirector {
 
     private func desassina(_ chave: UUID) { subscribers[chave] = nil }
 
+    /// O erro de uma conta, vindo de **fora** do diretor: a fila de saída
+    /// (`OutboxRunner`) e o coordenador de sincronização (`SyncRunner`).
+    ///
+    /// Os dois já recebiam um `report` na construção, e ele caía num no-op —
+    /// a falha ficava no log e a janela de Contas mostrava a conta como se
+    /// nada tivesse acontecido. Esta é a porta que faltava, e é a mesma
+    /// prateleira que a carga inicial usa (`errors`), de propósito: uma conta
+    /// tem **um** erro corrente, e duas prateleiras discordariam sobre qual
+    /// mostrar.
+    ///
+    /// `nil` limpa — é o ciclo que passou, e a pessoa precisa ver isso tanto
+    /// quanto viu a falha. A publicação só acontece quando o valor de fato
+    /// muda: um ciclo bem sucedido por minuto redesenharia a lista inteira à
+    /// toa, para sempre.
+    public func report(accountID: String, error: SyncError?) async {
+        guard errors[accountID] != error else { return }
+        errors[accountID] = error
+        await refresh()
+    }
+
     /// Relê o banco e publica.
     public func refresh() async {
         let lista = (try? await montaStatuses()) ?? []
