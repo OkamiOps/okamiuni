@@ -43,6 +43,24 @@ public enum MimeBody {
     public static func text(
         raw: String, contentType: String? = nil, contentTransferEncoding: String? = nil
     ) -> String {
+        decode(
+            raw: raw, contentType: contentType,
+            contentTransferEncoding: contentTransferEncoding
+        ).text
+    }
+
+    /// Tudo o que a mensagem tinha para dar: o texto, o HTML já sanitizado (com
+    /// as imagens `cid:` embutidas) e a parte de calendário, quando houver.
+    ///
+    /// **É a entrada de verdade desde a M3-8**; `text` e `paragraphs` são duas
+    /// vistas dela. Antes, a parte `text/html` era decodificada, virada texto e
+    /// jogada fora — o email do provedor chegava ao leitor como prosa seca, sem
+    /// uma imagem, e o convite de agenda chegava como "esta mensagem não tem
+    /// texto". As três respostas saem da **mesma** descida na árvore MIME: uma
+    /// regra, um lugar.
+    public static func decode(
+        raw: String, contentType: String? = nil, contentTransferEncoding: String? = nil
+    ) -> Decoded {
         var tipo = contentType?.trimmingCharacters(in: .whitespacesAndNewlines)
         var codificacao = contentTransferEncoding?.trimmingCharacters(in: .whitespacesAndNewlines)
         var corpo = normaliza(raw)
@@ -82,49 +100,125 @@ public enum MimeBody {
         )
     }
 
+    /// O que uma mensagem tem para mostrar.
+    public struct Decoded: Sendable, Equatable {
+        /// A leitura em texto — a mesma de sempre, e a que o FTS indexa.
+        public var text: String
+        /// O HTML sanitizado, quando a mensagem trouxe uma parte `text/html`.
+        /// `nil` quando ela é só texto (ou quando o HTML estourou
+        /// `MimeSanitize.tetoDoHTML`).
+        public var html: String?
+        /// O `text/calendar` cru, quando houver — quem o lê é
+        /// `UNICore.ICalendar`, que não sabe nada de MIME.
+        public var calendar: String?
+
+        public init(text: String, html: String? = nil, calendar: String? = nil) {
+            self.text = text
+            self.html = html
+            self.calendar = calendar
+        }
+
+        public var paragraphs: [String] { GmailMessageParser.paragraphs(from: text) }
+    }
+
     // MARK: - A árvore
 
-    /// Uma folha de texto da árvore MIME: o tipo dela, e o texto já decodificado.
+    /// Uma folha da árvore MIME: o tipo dela, os bytes já decodificados e o
+    /// `Content-ID` quando ela tem um.
     struct Folha {
         let mime: String
-        let texto: String
+        let dados: Data
+        let charset: String.Encoding
+        let contentID: String?
+
+        var texto: String { MimeBody.string(de: dados, charset: charset) }
     }
 
     /// A escolha, dada a árvore: `text/plain` primeiro; `text/html` virado
     /// texto quando não houver plain nenhum.
     ///
     /// **Nessa ordem, e não "a última parte do alternative"**, que é o que o RFC
-    /// 2046 sugere para quem renderiza rich text. Este leitor desenha
-    /// `[String]` de parágrafos: a parte mais rica é a que ele menos consegue
-    /// mostrar, e preferi-la encheria a tela de marcação para depois a arrancar.
+    /// 2046 sugere para quem renderiza rich text. O `text` daqui é a leitura em
+    /// texto — a que vai para os parágrafos e para a busca —, e para ela a parte
+    /// mais rica é a que menos serve. O HTML não desaparece por isso: ele sai ao
+    /// lado, em `html`, e é a mesma preferência de multipart que o escolhe (a
+    /// primeira parte `text/html` na ordem do documento).
     private static func resolve(
         corpo: String, tipo: String, codificacao: String, profundidade: Int
-    ) -> String {
+    ) -> Decoded {
         let folhas = folhas(
             corpo: corpo, tipo: tipo, codificacao: codificacao, profundidade: profundidade
         )
-        if let plana = folhas.first(where: { $0.mime == "text/plain" }) {
-            return plana.texto
+        let plana = folhas.first { $0.mime == "text/plain" }
+        let html = folhas.first { $0.mime == "text/html" }
+        let agenda = folhas.first { ehCalendario($0.mime) }
+
+        let texto: String
+        if let plana {
+            texto = plana.texto
+        } else if let html {
+            texto = textFromHTML(html.texto)
+        } else {
+            texto = ""
         }
-        if let html = folhas.first(where: { $0.mime == "text/html" }) {
-            return textFromHTML(html.texto)
-        }
-        return ""
+
+        return Decoded(
+            text: texto,
+            html: html.flatMap { pagina in
+                MimeSanitize.sanitize(html: pagina.texto, imagens: imagensInline(de: folhas))
+            },
+            calendar: agenda?.texto
+        )
     }
 
-    /// As folhas de **texto** da árvore, na ordem do documento.
+    /// `text/calendar` é o nome do RFC; `application/ics` é o que alguns
+    /// servidores mandam para o mesmo conteúdo, e recusá-lo faria o convite
+    /// deles cair no vazio de sempre.
+    private static func ehCalendario(_ mime: String) -> Bool {
+        mime == "text/calendar" || mime == "application/ics" || mime == "text/x-vcalendar"
+    }
+
+    /// As imagens que a própria mensagem carrega, na ordem do documento — a
+    /// ordem importa, porque é nela que o orçamento de `MimeSanitize` é gasto.
+    private static func imagensInline(de folhas: [Folha]) -> [MimeSanitize.ImagemInline] {
+        folhas.compactMap { folha in
+            guard folha.mime.hasPrefix("image/"), let id = folha.contentID else { return nil }
+            return MimeSanitize.ImagemInline(contentID: id, mime: folha.mime, dados: folha.dados)
+        }
+    }
+
+    /// As folhas que interessam, na ordem do documento.
     ///
-    /// Anexos e imagens não entram: `text/*` é o único ramo que vira leitura.
-    /// Uma parte marcada `Content-Disposition: attachment` também fica de fora
-    /// mesmo sendo texto — um `.csv` anexado é arquivo, não a mensagem.
+    /// `text/*` vira leitura; `image/*` **com `Content-ID`** vira imagem
+    /// embutida — e só com `Content-ID`, porque é por ele que o HTML a
+    /// referencia; sem um, ela é anexo, e anexo é de outra tarefa. O resto
+    /// (PDF, `.zip`, o `.docx` de quatro megabytes) nem é decodificado: gastar
+    /// memória com bytes que ninguém vai ler é o começo de um app que engasga
+    /// numa mensagem.
+    ///
+    /// Uma parte marcada `Content-Disposition: attachment` fica de fora mesmo
+    /// sendo texto — um `.csv` anexado é arquivo, não a mensagem. A imagem
+    /// referenciada por `cid:` é a exceção: muito gerador de email a marca como
+    /// anexo e mesmo assim a aponta do HTML, e obedecer ao rótulo deixaria o
+    /// logotipo do remetente de fora.
     private static func folhas(
-        corpo: String, tipo: String, codificacao: String, profundidade: Int
+        corpo: String, tipo: String, codificacao: String, profundidade: Int,
+        disposicao: String? = nil, contentID: String? = nil
     ) -> [Folha] {
         let mime = mimeType(de: tipo)
         guard mime.hasPrefix("multipart/") else {
-            guard mime.hasPrefix("text/") else { return [] }
+            let anexo = disposicao?.lowercased().contains("attachment") == true
+            if mime.hasPrefix("image/") {
+                guard contentID != nil else { return [] }
+            } else if mime.hasPrefix("text/") || ehCalendario(mime) {
+                guard !anexo else { return [] }
+            } else {
+                return []
+            }
             let dados = decodificaTransporte(corpo, codificacao: codificacao)
-            return [Folha(mime: mime, texto: string(de: dados, charset: charset(de: tipo)))]
+            return [Folha(
+                mime: mime, dados: dados, charset: charset(de: tipo), contentID: contentID
+            )]
         }
         guard profundidade < profundidadeMaxima, let limite = parametro("boundary", em: tipo) else {
             return []
@@ -132,15 +226,13 @@ public enum MimeBody {
         var encontradas: [Folha] = []
         for parte in partes(de: corpo, limite: limite) {
             let (cabecalhos, conteudo) = separaCabecalhos(parte)
-            if let disposicao = cabecalhos["content-disposition"],
-               disposicao.lowercased().contains("attachment") {
-                continue
-            }
             encontradas += folhas(
                 corpo: conteudo,
                 tipo: cabecalhos["content-type"] ?? "text/plain",
                 codificacao: cabecalhos["content-transfer-encoding"] ?? "",
-                profundidade: profundidade + 1
+                profundidade: profundidade + 1,
+                disposicao: cabecalhos["content-disposition"],
+                contentID: cabecalhos["content-id"]
             )
         }
         return encontradas
