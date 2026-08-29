@@ -119,6 +119,21 @@ public struct AppComposition: Sendable {
         // esperar por I/O para desenhar a primeira janela.
         Task { await fila.start() }
 
+        // Os corpos que uma versão anterior gravou crus são consertados na
+        // abertura. Numa `Task` pela mesma razão que a fila, e por uma segunda:
+        // ela toca o banco em lotes, e a primeira janela não pode esperar por
+        // isso. Cada corpo consertado acorda a `ValueObservation` pelo caminho
+        // normal, então a tela troca o `--fronteira` pelo texto sozinha,
+        // enquanto a pessoa olha.
+        //
+        // Falhar aqui não pode custar a abertura do app: o pior caso é o corpo
+        // continuar cru, que é exatamente o estado de antes desta tarefa.
+        Task {
+            do { _ = try await BodyRedecoding.run(banco) } catch {
+                log.error("A re-decodificação dos corpos não terminou: \(error)")
+            }
+        }
+
         // Tem conta? Então o banco é a fonte. Não tem? Fixtures — e é isso que
         // mantém os ensaios e as capturas do Marco 1 idênticos.
         //

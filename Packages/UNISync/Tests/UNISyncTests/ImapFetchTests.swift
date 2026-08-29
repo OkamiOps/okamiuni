@@ -118,6 +118,62 @@ struct ImapFetchTests {
         #expect(ImapWire.bodyText(from: [.fetch(linha)], uid: 7).isEmpty)
     }
 
+    @Test("O corpo multipart é decodificado com o cabeçalho que veio no mesmo FETCH")
+    func corpoMultipart() {
+        // O que o servidor manda de verdade quando a mensagem tem duas partes.
+        // Sem os cabeçalhos ao lado, isto era gravado como leitura — é o
+        // defeito que o dono via.
+        let linha = ImapWire.FetchLine(
+            uid: 9_001, flags: [], internalDate: nil, from: nil, to: nil, cc: nil,
+            subject: nil,
+            text: """
+                --xyz\r
+                Content-Type: text/plain; charset="utf-8"\r
+                Content-Transfer-Encoding: quoted-printable\r
+                \r
+                A revis=C3=A3o do contrato ficou pronta.\r
+                --xyz\r
+                Content-Type: text/html; charset="utf-8"\r
+                \r
+                <p>tags</p>\r
+                --xyz--\r
+                """,
+            contentHeader: "Content-Type: multipart/alternative; boundary=\"xyz\"\r\n"
+                + "Content-Transfer-Encoding: 7bit\r\n\r\n"
+        )
+        #expect(ImapWire.bodyText(from: [.fetch(linha)], uid: 9_001)
+                == ["A revisão do contrato ficou pronta."])
+    }
+
+    @Test("O comando de corpo pede os cabeçalhos de conteúdo junto, com PEEK nos dois")
+    func comandoDeCorpo() {
+        let comando = ImapWire.uidFetchBody(tag: "A007", uid: 9_001)
+        #expect(comando == "A007 UID FETCH 9001 "
+                + "(BODY.PEEK[HEADER.FIELDS (CONTENT-TYPE CONTENT-TRANSFER-ENCODING)] "
+                + "BODY.PEEK[TEXT])")
+        // `PEEK` nos dois: ler para o cache não é a pessoa ter lido a mensagem,
+        // e um `BODY[...]` sem PEEK marcaria `\Seen` no servidor.
+        #expect(!comando.replacingOccurrences(of: "BODY.PEEK", with: "").contains("BODY["))
+    }
+
+    @Test("Sem os cabeçalhos, o decodificador fareja a fronteira do próprio texto")
+    func corpoSemCabecalho() {
+        // Servidor que devolve o rótulo com outra grafia, ou um banco velho: o
+        // `contentHeader` chega nulo e a decodificação continua acontecendo.
+        let linha = ImapWire.FetchLine(
+            uid: 9_001, flags: [], internalDate: nil, from: nil, to: nil, cc: nil,
+            subject: nil,
+            text: """
+                --abcd\r
+                Content-Type: text/plain; charset="utf-8"\r
+                \r
+                Farejada.\r
+                --abcd--\r
+                """
+        )
+        #expect(ImapWire.bodyText(from: [.fetch(linha)], uid: 9_001) == ["Farejada."])
+    }
+
     @Test("O lote é de 200, e o comando lista os UIDs pedidos")
     func lote() {
         #expect(ImapWire.fetchBatchSize == 200)

@@ -83,11 +83,31 @@ public enum ImapWire {
         return "\(tag) UID FETCH \(conjunto) (UID FLAGS INTERNALDATE ENVELOPE)"
     }
 
-    /// O corpo em texto de uma mensagem. `BODY.PEEK` e não `BODY`: `BODY` marca
-    /// a mensagem como lida no servidor, e baixar o corpo para o cache não é a
-    /// pessoa ter lido nada.
+    /// Os dois cabeçalhos que dizem **como ler** o corpo.
+    ///
+    /// Fora do comando, com nome, porque a resposta vem rotulada com o texto
+    /// exato que foi pedido — o adaptador procura por esta mesma chave, e as
+    /// duas pontas não podem divergir por uma vírgula.
+    static let camposDeConteudo = "CONTENT-TYPE CONTENT-TRANSFER-ENCODING"
+
+    /// O corpo em texto de uma mensagem, **com os cabeçalhos que o decifram**.
+    ///
+    /// `BODY.PEEK` e não `BODY`: `BODY` marca a mensagem como lida no servidor,
+    /// e baixar o corpo para o cache não é a pessoa ter lido nada.
+    ///
+    /// O `HEADER.FIELDS` entrou junto nesta tarefa, e é o conserto do defeito
+    /// que o dono via: `BODY[TEXT]` sozinho entrega a **fonte** da mensagem —
+    /// `--fronteira`, `Content-Type:` de cada parte, `=E7` no lugar de `ç` — e
+    /// quem sabe que aquilo é um `multipart/alternative` com carga em
+    /// quoted-printable é justamente o cabeçalho da mensagem, que ficava para
+    /// trás. Pedir os dois na mesma ida e volta custa nada e é o que dá ao
+    /// `MimeBody` o ponto de partida certo.
+    ///
+    /// Sem eles o decodificador ainda fareja a fronteira do próprio texto (é o
+    /// que a re-decodificação dos corpos velhos faz), mas farejar é a saída de
+    /// emergência: aqui a informação existe, e é de graça.
     public static func uidFetchBody(tag: String, uid: Int64) -> String {
-        "\(tag) UID FETCH \(uid) (BODY.PEEK[TEXT])"
+        "\(tag) UID FETCH \(uid) (BODY.PEEK[HEADER.FIELDS (\(camposDeConteudo))] BODY.PEEK[TEXT])"
     }
 
     public static func logout(tag: String) -> String { "\(tag) LOGOUT" }
@@ -201,12 +221,23 @@ public enum ImapWire {
         /// e misturá-los faria um `BODY.PEEK[HEADER.FIELDS …]` ser lido como
         /// corpo da mensagem — texto de cabeçalho gravado como parágrafo.
         public let messageIDHeader: String?
+        /// O bloco `Content-Type` + `Content-Transfer-Encoding` da mensagem,
+        /// cru, quando o `FETCH` os pediu. Campo próprio pela mesma razão que
+        /// `messageIDHeader` é: os dois viajam em literal ao lado do corpo, e
+        /// misturá-los faria o cabeçalho ser gravado como parágrafo.
+        ///
+        /// Nulo é caso normal e não é falha: servidor que devolve o rótulo com
+        /// outra grafia, ou um `FETCH` que não os pediu, caem no farejamento do
+        /// `MimeBody`.
+        public let contentHeader: String?
 
         public init(
             uid: Int64, flags: [String], internalDate: Date?,
             from: String?, to: String?, cc: String?, subject: String?, text: String?,
-            messageIDHeader: String? = nil
+            messageIDHeader: String? = nil,
+            contentHeader: String? = nil
         ) {
+            self.contentHeader = contentHeader
             self.uid = uid
             self.flags = flags
             self.internalDate = internalDate
@@ -296,14 +327,36 @@ public enum ImapWire {
         }
     }
 
+    /// O corpo de uma mensagem, **decodificado**.
+    ///
+    /// Era `GmailMessageParser.paragraphs(from: texto)` direto sobre o
+    /// `BODY[TEXT]`, e é aí que nasceu o defeito do dono: `BODY[TEXT]` não é o
+    /// texto da mensagem, é a fonte dela depois dos cabeçalhos. Numa mensagem
+    /// moderna isso é multipart com carga codificada, e cortá-la em parágrafos
+    /// grava fronteira e sub-cabeçalho como leitura.
+    ///
+    /// Quem decide agora é o `MimeBody` — o mesmo, e único, que a carga do
+    /// Gmail e a busca por demanda usam.
     public static func bodyText(from respostas: [Untagged], uid: Int64) -> [String] {
         for resposta in respostas {
             guard case .fetch(let linha) = resposta, linha.uid == uid, let texto = linha.text else { continue }
-            // O mesmo caminho do Gmail: uma segunda regra de parágrafo
-            // divergiria da primeira no primeiro corpo esquisito.
-            return GmailMessageParser.paragraphs(from: texto)
+            let (tipo, codificacao) = conteudo(de: linha.contentHeader)
+            return MimeBody.paragraphs(
+                raw: texto, contentType: tipo, contentTransferEncoding: codificacao
+            )
         }
         return []
+    }
+
+    /// O bloco de cabeçalho cru virando o par que o decodificador pede.
+    ///
+    /// Lido pelo mesmo separador de cabeçalhos das partes MIME: um
+    /// `Content-Type` longo chega quebrado em duas linhas aqui do mesmo jeito
+    /// que lá dentro, e é sempre a segunda linha que carrega o `boundary=`.
+    static func conteudo(de cabecalho: String?) -> (String?, String?) {
+        guard let cabecalho, !cabecalho.isEmpty else { return (nil, nil) }
+        let (campos, _) = MimeBody.separaCabecalhos(cabecalho)
+        return (campos["content-type"], campos["content-transfer-encoding"])
     }
 }
 

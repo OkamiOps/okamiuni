@@ -199,7 +199,12 @@ final class FakeImapServer: @unchecked Sendable {
                 func escrita(_ chave: String) -> Bool {
                     script.replies[chave] != nil || script.rounds[chave] != nil
                 }
-                if verbo == "UID FETCH", maiusculo.contains("HEADER.FIELDS"),
+                // `HEADER.FIELDS (MESSAGE-ID)`, e não "contém HEADER.FIELDS":
+                // o `FETCH` de corpo passou a pedir os cabeçalhos de conteúdo
+                // na mesma linha, e um casamento largo o mandaria para a
+                // resposta de identidade do espelho — corpo respondido com
+                // `Message-ID`, sem erro nenhum na tela.
+                if verbo == "UID FETCH", maiusculo.contains("HEADER.FIELDS (MESSAGE-ID)"),
                    escrita(FakeImapServer.chaveDeCabecalho) {
                     return FakeImapServer.chaveDeCabecalho
                 }

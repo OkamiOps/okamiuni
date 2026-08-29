@@ -344,7 +344,14 @@ enum ImapResponseAdapter {
             cc: campos.count > 6 ? endereco(campos[6], em: analise) : nil,
             subject: campos.count > 1 ? analise.valor(de: campos[1]) : nil,
             text: valorDepois(de: "BODY[TEXT] ", em: analise),
-            messageIDHeader: valorDepois(de: "BODY[HEADER.FIELDS (MESSAGE-ID)] ", em: analise)
+            messageIDHeader: valorDepois(de: "BODY[HEADER.FIELDS (MESSAGE-ID)] ", em: analise),
+            // O rótulo é o texto **exato** que o comando pediu — por isso ele
+            // vem de `ImapWire.camposDeConteudo`, e não escrito à mão aqui: as
+            // duas pontas divergirem por uma vírgula devolveria nulo para
+            // sempre, calado, e o corpo voltaria a sair cru sem nada explicando.
+            contentHeader: valorDepois(
+                de: "BODY[HEADER.FIELDS (\(ImapWire.camposDeConteudo))] ", em: analise
+            )
         )
     }
 

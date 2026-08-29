@@ -78,14 +78,16 @@ struct GmailClientTests {
         #expect(!mensagem.body.contains { $0.contains("<p>") })
     }
 
-    @Test("Mensagem só de HTML sai sem corpo — o Marco 3 é quem resolve isso")
+    @Test("Mensagem só de HTML sai com o texto do HTML — e não vazia")
     func mensagemSoDeHTML() throws {
-        // Sem `text/plain` em lugar nenhum da árvore MIME, `plainText(in:)`
-        // não tem o que devolver. `[]` é a resposta honesta: inventar texto a
-        // partir do HTML aqui seria decisão de renderização, e essa decisão é
-        // do leitor (Marco 3), não do parser.
+        // **Isto mudou no Marco 3, e é a mudança.** Sem `text/plain` na árvore,
+        // o parser devolvia `[]` e o leitor mostrava a tela vazia sobre uma
+        // mensagem que tinha conteúdo — a newsletter, o recibo, a notificação
+        // de sistema. Vazio calado é pior do que texto simples: a pessoa não
+        // sabe se a mensagem é vazia, se o app quebrou, ou se ela precisa
+        // abrir o webmail. Quem converte é o `MimeBody`, o mesmo do IMAP.
         let mensagem = try GmailMessageParser.parse(fixture("gmail-message-html-only"))
-        #expect(mensagem.body.isEmpty)
+        #expect(mensagem.body == ["Só HTML."])
         #expect(mensagem.subject == "Só HTML")
     }
 

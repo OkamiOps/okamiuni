@@ -119,23 +119,16 @@ public enum MailAddress {
         return resultado
     }
 
+    /// A variante "Q" do RFC 2047 — a de cabeçalho, onde `_` vale espaço.
+    ///
+    /// **A implementação mora em `MimeBody`**, com a do corpo (RFC 2045). Elas
+    /// eram duas cópias da mesma regra, separadas por dois interruptores (`_`
+    /// como espaço; a quebra suave `=\n`, que só existe no corpo), e a segunda
+    /// cópia — esta — nasceu antes de haver um decodificador de corpo. Agora há:
+    /// uma função, dois chamadores, e nenhuma chance de a correção de um escape
+    /// mal-formado ser aplicada num lugar só.
     private static func decodeQuotedPrintable(_ text: String, encoding: String.Encoding) -> String {
-        var bytes: [UInt8] = []
-        var indice = text.startIndex
-        while indice < text.endIndex {
-            let caractere = text[indice]
-            if caractere == "=", let fim = text.index(indice, offsetBy: 3, limitedBy: text.endIndex),
-               let byte = UInt8(text[text.index(after: indice)..<fim], radix: 16) {
-                bytes.append(byte)
-                indice = fim
-            } else if caractere == "_" {
-                bytes.append(0x20)
-                indice = text.index(after: indice)
-            } else {
-                bytes.append(contentsOf: Array(String(caractere).utf8))
-                indice = text.index(after: indice)
-            }
-        }
-        return String(data: Data(bytes), encoding: encoding) ?? text
+        let dados = MimeBody.quotedPrintable(text, sublinhadoEhEspaco: true)
+        return String(data: dados, encoding: encoding) ?? text
     }
 }

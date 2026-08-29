@@ -54,23 +54,43 @@ public enum GmailMessageParser {
             cc: MailAddress.parseList(cabecalho("Cc") ?? ""),
             subject: MailAddress.decodeRFC2047(cabecalho("Subject") ?? ""),
             snippet: fio.snippet ?? "",
-            body: paragraphs(from: plainText(in: payload) ?? "")
+            body: paragraphs(from: bodyText(in: payload))
         )
     }
 
-    /// A primeira parte `text/plain` da árvore MIME, em profundidade.
+    /// O texto da mensagem: a parte `text/plain` da árvore MIME; se não houver
+    /// nenhuma, a `text/html` virada texto.
     ///
-    /// **Texto, nunca HTML**: o leitor do Marco 1 desenha `[String]` de
-    /// parágrafos, e entregar a parte HTML encheria a tela de tags.
-    private static func plainText(in part: Wire.Part) -> String? {
-        if part.mimeType?.lowercased() == "text/plain", let dado = part.body?.data {
-            return decodeBody(base64URL: dado)
+    /// **A segunda metade é nova, e é o conserto de uma ausência.** Antes, uma
+    /// mensagem só de HTML — newsletter, recibo, notificação de sistema, que é
+    /// um terço largo do que chega — devolvia `nil`, e o leitor mostrava a tela
+    /// vazia do "Nada aqui. Bom sinal." sobre uma mensagem que tinha conteúdo.
+    /// Vazio calado é pior do que texto simples: a pessoa não sabe se a
+    /// mensagem é vazia, se o app quebrou, ou se ela precisa abrir o webmail.
+    ///
+    /// A preferência continua sendo o texto — o leitor desenha `[String]` de
+    /// parágrafos, e a parte mais rica é a que ele menos consegue mostrar. Quem
+    /// converte é o `MimeBody`, o mesmo que a carga IMAP e a busca por demanda
+    /// usam: uma regra, um lugar.
+    private static func bodyText(in part: Wire.Part) -> String {
+        if let texto = firstPart(in: part, mimeType: "text/plain") { return texto }
+        if let html = firstPart(in: part, mimeType: "text/html") {
+            return MimeBody.textFromHTML(html)
+        }
+        return ""
+    }
+
+    /// A primeira parte de um tipo, em profundidade, já decodificada.
+    private static func firstPart(in part: Wire.Part, mimeType: String) -> String? {
+        if part.mimeType?.lowercased() == mimeType, let dado = part.body?.data {
+            // O `charset=` é do cabeçalho **da parte**, e ignorá-lo já trocava
+            // todo `é` de um remetente latin1 por um losango de substituição.
+            let tipo = part.headers?.first { $0.name.lowercased() == "content-type" }?.value
+            return decodeBody(base64URL: dado, contentType: tipo)
         }
         for filha in part.parts ?? [] {
-            if let texto = plainText(in: filha) { return texto }
+            if let texto = firstPart(in: filha, mimeType: mimeType) { return texto }
         }
-        // Uma mensagem só de HTML não tem texto para nós. Vazio é a resposta
-        // honesta: o corpo por demanda do Marco 3 é quem resolve isso.
         return nil
     }
 
@@ -78,14 +98,15 @@ public enum GmailMessageParser {
     ///
     /// `Data(base64Encoded:)` recusa os dois desvios e devolve `nil` — que,
     /// engolido, viraria corpo vazio em toda mensagem acentuada.
-    public static func decodeBody(base64URL: String) -> String {
-        var texto = base64URL
+    ///
+    /// - Parameter contentType: o cabeçalho da parte, para o `charset=`. Nulo
+    ///   é UTF-8, que é o que a Gmail API entrega na esmagadora maioria.
+    public static func decodeBody(base64URL: String, contentType: String? = nil) -> String {
+        let texto = base64URL
             .replacingOccurrences(of: "-", with: "+")
             .replacingOccurrences(of: "_", with: "/")
-        let sobra = texto.count % 4
-        if sobra > 0 { texto += String(repeating: "=", count: 4 - sobra) }
-        guard let dados = Data(base64Encoded: texto) else { return "" }
-        return String(data: dados, encoding: .utf8) ?? ""
+        guard let dados = MimeBody.base64(texto) else { return "" }
+        return MimeBody.string(de: dados, charset: MimeBody.charset(de: contentType ?? ""))
     }
 
     /// Parágrafos: linhas em branco separam, pontas somem.
