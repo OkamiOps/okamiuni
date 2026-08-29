@@ -343,7 +343,8 @@ enum ImapResponseAdapter {
             to: campos.count > 5 ? endereco(campos[5], em: analise) : nil,
             cc: campos.count > 6 ? endereco(campos[6], em: analise) : nil,
             subject: campos.count > 1 ? analise.valor(de: campos[1]) : nil,
-            text: valorDepois(de: "BODY[TEXT] ", em: analise)
+            text: valorDepois(de: "BODY[TEXT] ", em: analise),
+            messageIDHeader: valorDepois(de: "BODY[HEADER.FIELDS (MESSAGE-ID)] ", em: analise)
         )
     }
 

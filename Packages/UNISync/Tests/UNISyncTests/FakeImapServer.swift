@@ -62,6 +62,20 @@ final class FakeImapServer: @unchecked Sendable {
     /// existe, tudo continua caindo em `UID FETCH`, como nos testes da Task 10.
     static let chaveDeCorpo = "UID FETCH BODY"
 
+    /// O `UID FETCH` que pede **só o cabeçalho `Message-ID`** — o do espelho da
+    /// triagem, que precisa da identidade da mensagem para saber se ela já está
+    /// no destino. Ele também casa `BODY.PEEK`, então esta chave é conferida
+    /// **antes** de `chaveDeCorpo`: sem isso, um roteiro que responde corpo
+    /// responderia corpo à pergunta do cabeçalho.
+    static let chaveDeCabecalho = "UID FETCH HEADER"
+
+    /// O `UID SEARCH HEADER Message-ID …` — "esta mensagem já está nesta
+    /// pasta?". Separado do `UID SEARCH UID …` ("este UID ainda está aqui?")
+    /// pela mesma razão que o cabeçalho é separado do corpo: são duas
+    /// perguntas diferentes, e o teste da idempotência do mover precisa
+    /// responder coisas diferentes às duas.
+    static let chaveDeBuscaPorHeader = "UID SEARCH HEADER"
+
     private let group: MultiThreadedEventLoopGroup
     private var channel: (any Channel)?
     private let script: Script
@@ -181,11 +195,23 @@ final class FakeImapServer: @unchecked Sendable {
             // A chave mais específica primeiro: o `FETCH` de corpo pede
             // `BODY.PEEK`, e o roteiro pode querer respondê-lo de outro jeito.
             let chave: String = {
-                let corpo = FakeImapServer.chaveDeCorpo
-                guard verbo == "UID FETCH", resto.uppercased().contains("BODY.PEEK"),
-                      script.replies[corpo] != nil || script.rounds[corpo] != nil
-                else { return verbo }
-                return corpo
+                let maiusculo = resto.uppercased()
+                func escrita(_ chave: String) -> Bool {
+                    script.replies[chave] != nil || script.rounds[chave] != nil
+                }
+                if verbo == "UID FETCH", maiusculo.contains("HEADER.FIELDS"),
+                   escrita(FakeImapServer.chaveDeCabecalho) {
+                    return FakeImapServer.chaveDeCabecalho
+                }
+                if verbo == "UID FETCH", maiusculo.contains("BODY.PEEK"),
+                   escrita(FakeImapServer.chaveDeCorpo) {
+                    return FakeImapServer.chaveDeCorpo
+                }
+                if verbo == "UID SEARCH", maiusculo.contains("HEADER"),
+                   escrita(FakeImapServer.chaveDeBuscaPorHeader) {
+                    return FakeImapServer.chaveDeBuscaPorHeader
+                }
+                return verbo
             }()
 
             let linhasDoRoteiro: [String]? = {

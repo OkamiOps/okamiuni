@@ -92,6 +92,75 @@ public enum ImapWire {
 
     public static func logout(tag: String) -> String { "\(tag) LOGOUT" }
 
+    // MARK: Os comandos de escrita — o espelho da triagem
+
+    /// Um conjunto de UIDs como o IMAP o escreve: `1,2,5`.
+    public static func uidSet(_ uids: [Int64]) -> String {
+        uids.map(String.init).joined(separator: ",")
+    }
+
+    /// `UID STORE 1,2 +FLAGS (\Seen)` — ou `-FLAGS`, para tirar.
+    ///
+    /// **Naturalmente idempotente**, e é isso que faz o retry depois de um
+    /// timeout ambíguo ser seguro: `+FLAGS` põe a bandeira que já está lá sem
+    /// mudar nada. É por isso que a operação é sempre "ponha" ou "tire", nunca
+    /// "inverta" — inverter aplicado duas vezes desfaz o que a pessoa pediu.
+    ///
+    /// `.SILENT` porque a resposta `FETCH` de confirmação não é lida por
+    /// ninguém aqui, e pedi-la é uma linha por mensagem à toa.
+    public static func uidStore(tag: String, uids: [Int64], flags: [String], add: Bool) -> String {
+        "\(tag) UID STORE \(uidSet(uids)) \(add ? "+" : "-")FLAGS.SILENT (\(flags.joined(separator: " ")))"
+    }
+
+    /// O mesmo, para a caixa **inteira**: é o que "esvaziar a lixeira" pede no
+    /// IMAP, onde não existe um "apague tudo" e sim marcar tudo e expurgar.
+    public static func storeAllDeleted(tag: String) -> String {
+        "\(tag) STORE 1:* +FLAGS.SILENT (\\Deleted)"
+    }
+
+    public static func uidCopy(tag: String, uids: [Int64], mailbox: String) -> String {
+        "\(tag) UID COPY \(uidSet(uids)) \(quoted(mailbox))"
+    }
+
+    public static func expunge(tag: String) -> String { "\(tag) EXPUNGE" }
+
+    public static func create(tag: String, mailbox: String) -> String {
+        "\(tag) CREATE \(quoted(mailbox))"
+    }
+
+    /// `UID SEARCH UID 42` — "este UID ainda está nesta pasta?".
+    public static func uidSearchUID(tag: String, uids: [Int64]) -> String {
+        "\(tag) UID SEARCH UID \(uidSet(uids))"
+    }
+
+    /// `UID SEARCH HEADER Message-ID "<…>"` — "esta mensagem já está aqui?".
+    ///
+    /// É a pergunta que torna o mover do IMAP idempotente: `COPY` **não** é
+    /// idempotente (copiar duas vezes deixa duas cópias na pasta de destino), e
+    /// um retry depois de um timeout ambíguo não sabe se a primeira cópia
+    /// passou. O `Message-ID` é a identidade que atravessa a cópia — o mesmo
+    /// cabeçalho, na origem e no destino.
+    public static func uidSearchMessageID(tag: String, messageID: String) -> String {
+        "\(tag) UID SEARCH HEADER Message-ID \(quoted(messageID))"
+    }
+
+    /// Só o cabeçalho `Message-ID`, sem baixar o corpo. `PEEK` pela mesma razão
+    /// de sempre: ler para espelhar não é a pessoa ter lido a mensagem.
+    public static func uidFetchMessageID(tag: String, uid: Int64) -> String {
+        "\(tag) UID FETCH \(uid) (BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])"
+    }
+
+    /// O `<…>` de dentro de um cabeçalho `Message-ID: <…>`.
+    ///
+    /// Puro, e testado como tal: o que chega é o cabeçalho cru, com o nome, os
+    /// dois pontos e o CRLF final que o `BODY[HEADER.FIELDS]` sempre manda.
+    public static func messageID(fromHeader cabecalho: String) -> String? {
+        guard let abre = cabecalho.firstIndex(of: "<"),
+              let fecha = cabecalho[abre...].firstIndex(of: ">"), abre < fecha
+        else { return nil }
+        return String(cabecalho[abre...fecha])
+    }
+
     // MARK: Respostas, do nosso lado
 
     /// Uma linha untagged, já traduzida para os nossos termos.
@@ -127,10 +196,16 @@ public enum ImapWire {
         public let cc: String?
         public let subject: String?
         public let text: String?
+        /// O cabeçalho `Message-ID` cru, quando o `FETCH` o pediu. Campo
+        /// próprio, e não `text`: os dois vêm em literal e caem na mesma linha,
+        /// e misturá-los faria um `BODY.PEEK[HEADER.FIELDS …]` ser lido como
+        /// corpo da mensagem — texto de cabeçalho gravado como parágrafo.
+        public let messageIDHeader: String?
 
         public init(
             uid: Int64, flags: [String], internalDate: Date?,
-            from: String?, to: String?, cc: String?, subject: String?, text: String?
+            from: String?, to: String?, cc: String?, subject: String?, text: String?,
+            messageIDHeader: String? = nil
         ) {
             self.uid = uid
             self.flags = flags
@@ -140,6 +215,7 @@ public enum ImapWire {
             self.cc = cc
             self.subject = subject
             self.text = text
+            self.messageIDHeader = messageIDHeader
         }
     }
 

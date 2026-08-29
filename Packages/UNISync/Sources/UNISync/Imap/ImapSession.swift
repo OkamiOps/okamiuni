@@ -352,6 +352,79 @@ public actor ImapSession {
         return ImapWire.bodyText(from: resultado.untagged, uid: uid)
     }
 
+    // MARK: A escrita — o espelho da triagem
+    //
+    // Todos entram pelo mesmo `run(_:)` do idioma que já existe aqui: o
+    // comando é montado puro no `ImapWire`, a resposta tagueada vira `OK` ou
+    // erro, e nenhum deles precisa de estado novo no ator.
+
+    /// Põe ou tira bandeiras dos UIDs da pasta selecionada.
+    public func store(uids: [Int64], flags: [String], add: Bool) async throws {
+        guard !uids.isEmpty else { return }
+        _ = try await run { ImapWire.uidStore(tag: $0, uids: uids, flags: flags, add: add) }
+    }
+
+    /// Copia UIDs da pasta selecionada para outra.
+    public func copy(uids: [Int64], to mailbox: String) async throws {
+        guard !uids.isEmpty else { return }
+        _ = try await run { ImapWire.uidCopy(tag: $0, uids: uids, mailbox: mailbox) }
+    }
+
+    /// Remove de vez as mensagens marcadas `\Deleted` na pasta selecionada.
+    public func expunge() async throws {
+        _ = try await run { ImapWire.expunge(tag: $0) }
+    }
+
+    /// Marca a caixa selecionada **inteira** como `\Deleted`. O par disto é
+    /// `expunge()`, e só os dois juntos esvaziam a lixeira.
+    public func markAllDeleted() async throws {
+        _ = try await run { ImapWire.storeAllDeleted(tag: $0) }
+    }
+
+    /// Cria uma pasta. **Não lança quando ela já existe**, e isso é a metade
+    /// IMAP do "criada no primeiro uso": o servidor responde `NO
+    /// [ALREADYEXISTS]` (ou só um `NO` com o texto), e tratar isso como falha
+    /// pararia a fila da conta por causa de uma pasta que está exatamente como
+    /// precisamos que esteja.
+    public func create(mailbox: String) async throws {
+        do {
+            _ = try await run { ImapWire.create(tag: $0, mailbox: mailbox) }
+        } catch SyncError.servidor(_, let mensagem) {
+            let dobrado = mensagem.uppercased()
+            guard dobrado.contains("ALREADYEXISTS") || dobrado.contains("ALREADY EXISTS")
+                || dobrado.contains("EXISTS")
+            else { throw SyncError.servidor(codigo: 0, mensagem: mensagem) }
+        }
+    }
+
+    /// Quais destes UIDs ainda estão na pasta selecionada.
+    public func existingUIDs(_ uids: [Int64]) async throws -> [Int64] {
+        guard !uids.isEmpty else { return [] }
+        let resultado = try await run { ImapWire.uidSearchUID(tag: $0, uids: uids) }
+        return ImapWire.uids(from: resultado.untagged)
+    }
+
+    /// Os UIDs da pasta selecionada cujo `Message-ID` é este. Vazio significa
+    /// "esta mensagem não está aqui" — é a pergunta que torna o mover
+    /// idempotente.
+    public func uids(messageID: String) async throws -> [Int64] {
+        let resultado = try await run { ImapWire.uidSearchMessageID(tag: $0, messageID: messageID) }
+        return ImapWire.uids(from: resultado.untagged)
+    }
+
+    /// O `Message-ID` de um UID da pasta selecionada, ou `nil` se a mensagem
+    /// não estiver mais lá (ou não tiver o cabeçalho — mensagem sem
+    /// `Message-ID` existe, e é malformada).
+    public func messageID(uid: Int64) async throws -> String? {
+        let resultado = try await run { ImapWire.uidFetchMessageID(tag: $0, uid: uid) }
+        for resposta in resultado.untagged {
+            guard case .fetch(let linha) = resposta, linha.uid == uid,
+                  let cabecalho = linha.messageIDHeader else { continue }
+            return ImapWire.messageID(fromHeader: cabecalho)
+        }
+        return nil
+    }
+
     /// Sai e fecha. Idempotente: sair duas vezes é o mesmo estado.
     ///
     /// Não lança, e é de propósito: encerrar já é o caminho de saída, e um erro
