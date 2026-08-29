@@ -56,10 +56,11 @@ public enum BodyRedecoding {
             let consertos: [Conserto] = lote.compactMap { registro in
                 guard let rowid = registro.rowid else { return nil }
                 let velhos = registro.body
-                guard let novos = MimeBody.redecoded(velhos) else { return nil }
+                guard let novos = MimeBody.redecodedBody(velhos) else { return nil }
                 return Conserto(
                     rowid: rowid, messageID: registro.messageID,
-                    velhoPrimeiroParagrafo: velhos.first, paragrafos: novos
+                    velhoPrimeiroParagrafo: velhos.first,
+                    paragrafos: novos.paragraphs, html: novos.html
                 )
             }
 
@@ -84,6 +85,11 @@ public enum BodyRedecoding {
         /// tinha sido tirada dele.
         let velhoPrimeiroParagrafo: String?
         let paragrafos: [String]
+        /// A página, quando o que estava gravado como texto era o **fonte** de
+        /// uma. `nil` nos outros casos, e aí a coluna `html` fica como estava:
+        /// um corpo que nunca teve HTML não ganha um `""` que faria o leitor
+        /// parar de rebuscá-lo.
+        let html: String?
     }
 
     /// Uma linha consertada.
@@ -97,6 +103,11 @@ public enum BodyRedecoding {
         let novo = MessageBodyRecord(messageID: conserto.messageID, paragraphs: conserto.paragrafos)
         registro.paragraphs = novo.paragraphs
         registro.plain = novo.plain
+        // O corpo que era fonte HTML passa a ter as duas metades: a leitura em
+        // texto (que o FTS reindexa pelo gatilho de UPDATE) e a página, que é o
+        // que o leitor desenha desde a M3-8. Sem esta linha, o conserto
+        // devolveria prosa sem imagem nenhuma no lugar do email.
+        if let pagina = conserto.html { registro.html = pagina }
         try registro.update(db)
 
         // A prévia da lista também estava crua.

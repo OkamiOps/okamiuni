@@ -26,6 +26,25 @@ extension MimeBody {
         case quotedPrintable
         /// Idem, em base64.
         case base64
+        /// **Documento HTML avulso gravado como se fosse leitura.** Sem
+        /// cabeçalho, sem fronteira: o corpo começa em `<!doctype html>` (ou
+        /// `<html`) e segue com a página inteira, muitas vezes ainda com as
+        /// cicatrizes do quoted-printable (`lang=3D"en"`, `=` no fim da linha).
+        ///
+        /// É o email do dono que aparecia no leitor como código-fonte. As três
+        /// famílias acima não o pegam: não há cabeçalho MIME, o alfabeto tem
+        /// `<` e `>` (não é base64), e classificá-lo como quoted-printable
+        /// só tirava os `=3D` — o leitor continuava desenhando marcação como
+        /// texto.
+        case htmlCru
+    }
+
+    /// O conserto de um corpo, nas duas metades que o banco guarda.
+    public struct Redecoded: Sendable, Equatable {
+        public var paragraphs: [String]
+        /// O HTML sanitizado, quando o que estava gravado era uma página. `nil`
+        /// nos outros casos — e aí a coluna `html` não é tocada.
+        public var html: String?
     }
 
     /// O corpo re-decodificado, ou `nil` quando não há o que fazer.
@@ -37,13 +56,37 @@ extension MimeBody {
     /// justamente o que separa cabeçalho de conteúdo em MIME. A estrutura que
     /// importa sobrevive à ida e à volta.
     public static func redecoded(_ paragrafos: [String]) -> [String]? {
+        redecodedBody(paragrafos)?.paragraphs
+    }
+
+    /// O mesmo conserto, com o HTML junto — que é o que a varredura da abertura
+    /// precisa desde o corpo gravado como fonte HTML.
+    public static func redecodedBody(_ paragrafos: [String]) -> Redecoded? {
         let cru = paragrafos.joined(separator: "\n\n")
         guard let familia = familia(de: cru) else { return nil }
 
         let novo: [String]
+        var pagina: String?
         switch familia {
         case .mime:
             novo = paragraphs(raw: cru)
+        case .htmlCru:
+            // Primeiro as cicatrizes do transporte, se houver: `=3D` vira `=`,
+            // e a quebra suave desaparece **antes** de qualquer coisa olhar a
+            // marcação — uma tag partida no meio por `=\n` não é tag nenhuma.
+            let fonte = pareceQuotedPrintable(normalizaParaFarejar(cru))
+                ? string(
+                    de: quotedPrintable(normalizaParaFarejar(cru), sublinhadoEhEspaco: false),
+                    charset: .utf8
+                )
+                : cru
+            // A mesma limpeza da M3-8, e não uma segunda opinião: o que o
+            // leitor desenha tem de ter passado pelo mesmo filtro, venha da
+            // rede ou de uma linha antiga do banco.
+            pagina = MimeSanitize.sanitize(html: fonte)
+            // E a leitura em texto pelo mesmo caminho de sempre — é ela que
+            // vira prévia da lista e índice de busca.
+            novo = GmailMessageParser.paragraphs(from: textFromHTML(fonte))
         case .quotedPrintable:
             novo = GmailMessageParser.paragraphs(
                 from: string(
@@ -60,8 +103,8 @@ extension MimeBody {
         // parte de texto nenhuma — e trocar um corpo cru e legível-com-esforço
         // por nada é uma perda, não um conserto. Igual significa que não havia
         // o que consertar.
-        guard !novo.isEmpty, novo != paragrafos else { return nil }
-        return novo
+        guard !novo.isEmpty, novo != paragrafos || pagina != nil else { return nil }
+        return Redecoded(paragraphs: novo, html: pagina)
     }
 
     /// Só a pergunta, sem a resposta. Existe separada porque a migração relata
@@ -75,6 +118,11 @@ extension MimeBody {
         let texto = normalizaParaFarejar(cru)
         guard !texto.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         if pareceMIME(texto) { return .mime }
+        // **Antes** do quoted-printable, e por isso: uma página HTML gravada
+        // como texto costuma trazer `=3D` em toda parte, e a família QP a
+        // reclamaria primeiro — devolvendo a mesma marcação, só que sem os
+        // `=3D`. O leitor continuaria mostrando código-fonte.
+        if pareceHTMLCru(texto) { return .htmlCru }
         // Base64 **antes** de quoted-printable, e não por gosto: o `=` de
         // enchimento no fim de um bloco base64 é indistinguível de uma quebra
         // suave de QP, e a ordem inversa classificava todo corpo base64 como
@@ -98,6 +146,27 @@ extension MimeBody {
     /// produz um corpo reescrito em vazio.
     private static func pareceMIME(_ texto: String) -> Bool {
         cabecalhosNaFrente(texto) != nil || fronteiraSolta(texto) != nil
+    }
+
+    /// O corpo **começa** sendo um documento HTML?
+    ///
+    /// A exigência é a posição, não a presença: `<!doctype html`, `<html`,
+    /// `<head` ou `<body` nos primeiros bytes do corpo. É o que separa "isto é
+    /// uma página que alguém gravou como texto" de "isto é um email meu que
+    /// fala sobre HTML e tem um `<div>` no meio da terceira frase" — o segundo
+    /// não pode virar página, e um teste de presença o transformaria.
+    ///
+    /// O prefixo é procurado depois de pular linhas em branco e comentários
+    /// (`<!-- … -->`), que é onde alguns geradores põem a condicional do
+    /// Outlook antes do `<html>`.
+    private static func pareceHTMLCru(_ texto: String) -> Bool {
+        var inicio = Substring(texto).drop { $0.isWhitespace }
+        // Um comentário na frente ainda é "a página começa aqui".
+        while inicio.hasPrefix("<!--"), let fim = inicio.range(of: "-->") {
+            inicio = inicio[fim.upperBound...].drop { $0.isWhitespace }
+        }
+        let cabeca = inicio.prefix(120).lowercased()
+        return ["<!doctype html", "<html", "<head", "<body"].contains { cabeca.hasPrefix($0) }
     }
 
     /// Uma quebra suave (`=` sozinho no fim da linha) ou dois escapes `=XX`.
