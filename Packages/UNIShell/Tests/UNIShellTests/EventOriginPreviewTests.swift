@@ -137,7 +137,7 @@ struct EventOriginPreviewTests {
 
     /// A linha do meio do botão "Abrir no leitor": ele é o único desenho com
     /// fundo `btn` **acima** do rodapé, que começa nos últimos 60pt da janela.
-    private static func linhaDoBotao(in rep: NSBitmapImageRep) -> Int? {
+    static func linhaDoBotao(in rep: NSBitmapImageRep) -> Int? {
         let alvo = Theme.tinta.btn
         var linhas: [Int] = []
         for y in 0..<(rep.pixelsHigh - 60) {
@@ -150,7 +150,7 @@ struct EventOriginPreviewTests {
         return (primeira + ultima) / 2
     }
 
-    private static func corresponde(_ cor: NSColor?, a token: TokenColor) -> Bool {
+    static func corresponde(_ cor: NSColor?, a token: TokenColor) -> Bool {
         guard let c = cor?.usingColorSpace(.sRGB),
               let alvo = token.nsColor.usingColorSpace(.sRGB), c.alphaComponent > 0.9
         else { return false }
@@ -203,24 +203,44 @@ struct EventOriginBodyTests {
         )
     }
 
+    /// **O teto de altura, provado pelo que a seção empurra.**
+    ///
+    /// A medida é o "Abrir no leitor", que fica logo abaixo do texto: com o
+    /// teto, um convite de 60 parágrafos empurra o botão no máximo os 260 da
+    /// seção; sem ele, empurra a mensagem inteira — mais de mil pontos — e
+    /// leva junto tudo o que vem depois na janela.
+    ///
+    /// A janela é desenhada alta de propósito: o botão precisa caber nas duas
+    /// medidas para que a comparação exista.
     @Test("A seção não empurra a janela: acima do teto, ela rola por dentro")
     func tetoDeAltura() async throws {
-        let curto = try #require(await EventOriginPreviewTests.janela(corpo: ["Uma linha."]))
-        let longo = try #require(
-            await EventOriginPreviewTests.janela(
-                corpo: (1...60).map { "Parágrafo número \($0) deste convite bem comprido." }
+        let alta = CGSize(width: 560, height: 1800)
+        let curto = try #require(
+            Render.bitmap(
+                EventWindow(
+                    store: await EventOriginPreviewTests.loja(corpo: ["Uma linha."]),
+                    itemID: "email-m1", debugSections: EventSections(origin: true)
+                ),
+                size: alta, theme: .tinta
             )
         )
-        // O rodapé da janela — os últimos 40pt — continua desenhado igual: a
-        // seção cresceu até o teto e parou.
-        var diferentes = 0
-        for y in (curto.pixelsHigh - 40)..<curto.pixelsHigh {
-            for x in 0..<curto.pixelsWide
-            where curto.colorAt(x: x, y: y) != longo.colorAt(x: x, y: y) {
-                diferentes += 1
-            }
-        }
-        #expect(diferentes == 0, "a seção longa empurrou o rodapé da janela para fora")
+        let longo = try #require(
+            Render.bitmap(
+                EventWindow(
+                    store: await EventOriginPreviewTests.loja(
+                        corpo: (1...60).map { "Parágrafo número \($0) deste convite bem comprido." }
+                    ),
+                    itemID: "email-m1", debugSections: EventSections(origin: true)
+                ),
+                size: alta, theme: .tinta
+            )
+        )
+        let yCurto = try #require(EventOriginPreviewTests.linhaDoBotao(in: curto))
+        let yLongo = try #require(EventOriginPreviewTests.linhaDoBotao(in: longo))
+        #expect(
+            yLongo - yCurto <= Int(EventWindow.originBodyMaxHeight) + 20,
+            "a seção cresceu além do teto: o botão desceu \(yLongo - yCurto) pontos"
+        )
     }
 
     @Test("Sem corpo no banco, a janela busca — e o corpo que chega aparece")

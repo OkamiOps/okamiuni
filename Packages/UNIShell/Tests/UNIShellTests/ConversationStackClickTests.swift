@@ -146,4 +146,25 @@ struct ConversationStackClickTests {
 
         #expect(estado.opened?.ids.contains("c") == false)
     }
+
+    /// **A faixa da contagem é rótulo, não linha.** Clicar nela não abre nem
+    /// recolhe nada.
+    ///
+    /// É também o que prova que ela **existe**: sem o cabeçalho, este mesmo
+    /// ponto cai dentro da primeira linha recolhida e a abre — e o teste vira
+    /// vermelho por ter aberto o que não devia.
+    @Test("Clicar na faixa da contagem não mexe na pilha")
+    func oCliqueNoCabecalhoNaoAbre() async throws {
+        let store = await store(porta: nil)
+        let estado = EstadoDaPilha()
+
+        try CliqueDeEnsaio.em(
+            pilha(store, estado: estado),
+            size: CGSize(width: 700, height: 400),
+            aY: ConversationStackView<EmptyView>.alturaDoCabecalho / 2
+        )
+
+        // Nada abriu, e nada foi lido.
+        #expect(estado.opened == nil)
+    }
 }
