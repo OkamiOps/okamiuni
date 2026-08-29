@@ -196,9 +196,10 @@ struct QuickReplyBandSendTests {
         let message = try #require(store.messages.first { $0.id == "m1" })
         #expect(message.bucket != .archived)
 
-        let updated = QuickReplyBand.send(
-            draft(to: message), for: message, in: store, archiving: true, at: Self.now
-        )
+        let updated = try #require(QuickReplyBand.send(
+            draft(to: message), for: message, in: store,
+            archiving: true, theme: .tinta, at: Self.now
+        ))
 
         #expect(updated.sentAt == Self.now)
         #expect(updated.archivedOriginal)
@@ -214,9 +215,10 @@ struct QuickReplyBandSendTests {
         let message = try #require(store.messages.first { $0.id == "m1" })
         let bucketBefore = message.bucket
 
-        let updated = QuickReplyBand.send(
-            draft(to: message), for: message, in: store, archiving: false, at: Self.now
-        )
+        let updated = try #require(QuickReplyBand.send(
+            draft(to: message), for: message, in: store,
+            archiving: false, theme: .tinta, at: Self.now
+        ))
 
         #expect(updated.sentAt == Self.now)
         #expect(updated.archivedOriginal == false)
@@ -231,8 +233,9 @@ struct QuickReplyBandSendTests {
         let store = await loaded()
         let message = try #require(store.messages.first { $0.id == "m1" })
 
-        QuickReplyBand.send(
-            draft(to: message), for: message, in: store, archiving: false, at: Self.now
+        _ = QuickReplyBand.send(
+            draft(to: message), for: message, in: store,
+            archiving: false, theme: .tinta, at: Self.now
         )
 
         let stored = try #require(store.replyDraft(for: "m1"))
@@ -250,14 +253,175 @@ struct QuickReplyBandSendTests {
         let empty = ReplyDraft(to: [], body: AttributedString("Quinta às 15h está de pé."))
 
         let updated = QuickReplyBand.send(
-            empty, for: message, in: store, archiving: true, at: Self.now
+            empty, for: message, in: store,
+            archiving: true, theme: .tinta, at: Self.now
         )
 
-        #expect(updated.sentAt == nil)
-        #expect(updated.archivedOriginal == false)
+        // Nada saiu: nem carimbo, nem arquivamento, nem faixa recolhida.
+        #expect(updated == nil)
         let after = try #require(store.messages.first { $0.id == "m1" })
         #expect(after.bucket != .archived)
         #expect(store.replyDraft(for: "m1") == nil)
+    }
+}
+
+/// **O "Enviar" da faixa envia.** Ele passou o Marco 1 inteiro escrevendo no
+/// `stderr`, e é o botão que a pessoa mais usa — a fila `outbox` do banco do
+/// dono do projeto não tinha uma única operação de envio.
+///
+/// A prova é de nível porta: a mesma ação dos dois botões, com uma
+/// `MailSendPort` falsa no lugar da fila do banco. Nenhum teste deste projeto
+/// toca rede.
+@Suite("O Enviar da faixa de resposta")
+@MainActor
+struct QuickReplyBandOutgoingTests {
+    private static let now = Date(timeIntervalSince1970: 1_700_000_000)
+
+    private final class PortaFalsa: MailSendPort, @unchecked Sendable {
+        private let lock = NSLock()
+        private var _enviadas: [OutgoingMessage] = []
+        /// Quando não é nulo, a porta recusa — é a fila que não conseguiu
+        /// gravar.
+        let erro: (any Error)?
+        init(erro: (any Error)? = nil) { self.erro = erro }
+        var enviadas: [OutgoingMessage] {
+            lock.lock()
+            defer { lock.unlock() }
+            return _enviadas
+        }
+        func send(_ message: OutgoingMessage) throws {
+            if let erro { throw erro }
+            lock.lock()
+            _enviadas.append(message)
+            lock.unlock()
+        }
+    }
+
+    private struct ErroDeTeste: Error {}
+
+    private func loaded(_ porta: MailSendPort) async -> MailStore {
+        let store = MailStore(source: InMemoryMailSource.fixtures, sendPort: porta)
+        await store.load()
+        return store
+    }
+
+    private func draft(to message: Message) -> ReplyDraft {
+        ReplyDraft(to: [message.from], body: AttributedString("Quinta às 15h está de pé."))
+    }
+
+    /// Uma mensagem com `Message-ID` de verdade: as fixtures não têm um, e sem
+    /// ele não há como provar o `In-Reply-To` da M3-9. A conta é a `zoho`, que
+    /// existe nas fixtures.
+    private static func respondida() -> Message {
+        Message(
+            id: "m-resp", accountID: "zoho",
+            from: Contact(name: "Marina Duarte", address: "marina@clientepremium.com"),
+            receivedAt: Date(timeIntervalSince1970: 1_699_000_000),
+            subject: "Contrato TransRota", snippet: "", body: ["Segue."], tags: [],
+            bucket: .today, isRead: true, summary: nil, detectedEvent: nil,
+            rfcMessageID: "raiz@clientepremium.com", references: ["anterior@x.com"]
+        )
+    }
+
+    @Test("o Enviar da faixa entrega a resposta à porta de envio")
+    func enviaDeVerdade() async throws {
+        let porta = PortaFalsa()
+        let store = await loaded(porta)
+        let message = Self.respondida()
+
+        let updated = try #require(QuickReplyBand.send(
+            draft(to: message), for: message, in: store,
+            archiving: false, theme: .tinta, at: Self.now
+        ))
+
+        let enviada = try #require(porta.enviadas.first)
+        #expect(enviada.to.map(\.address) == ["marina@clientepremium.com"])
+        // A conta é a que **recebeu** a mensagem: a faixa não tem linha "De".
+        #expect(enviada.accountID == "zoho")
+        #expect(enviada.from.address == store.account("zoho")?.address)
+        #expect(enviada.subject == "Re: Contrato TransRota")
+        #expect(enviada.plainText == "Quinta às 15h está de pé.")
+        #expect(!enviada.messageID.isEmpty)
+        // Enfileirou: a faixa volta ao começo — sem texto, sem carimbo de
+        // "pronta para envio", com o remetente de volta no "Para".
+        #expect(updated.text.isEmpty)
+        #expect(updated.sentAt == nil)
+        #expect(updated.to.map(\.address) == ["marina@clientepremium.com"])
+    }
+
+    /// Sem isto a resposta abre uma **conversa nova** na caixa de quem recebe —
+    /// o mesmo defeito que a M3-9 consertou do lado da janela cheia.
+    @Test("a resposta da faixa cita a mensagem respondida em In-Reply-To")
+    func citaAConversa() async throws {
+        let porta = PortaFalsa()
+        let store = await loaded(porta)
+        let message = Self.respondida()
+
+        _ = QuickReplyBand.send(
+            draft(to: message), for: message, in: store,
+            archiving: false, theme: .tinta, at: Self.now
+        )
+
+        let enviada = try #require(porta.enviadas.first)
+        #expect(enviada.inReplyTo == "raiz@clientepremium.com")
+        #expect(enviada.references == ["anterior@x.com", "raiz@clientepremium.com"])
+    }
+
+    /// A formatação que a barra da faixa aplica tem de chegar do outro lado —
+    /// ela sobrevive ao "⤢" desde a Task Z, e agora sobrevive ao envio.
+    @Test("o corpo formatado sai também em HTML")
+    func corpoFormatado() async throws {
+        let porta = PortaFalsa()
+        let store = await loaded(porta)
+        let message = Self.respondida()
+        var corpo = AttributedString("combinado")
+        corpo[BodyStyleAttribute.self] = BodyStyle(bold: true)
+
+        _ = QuickReplyBand.send(
+            ReplyDraft(to: [message.from], body: corpo), for: message, in: store,
+            archiving: false, theme: .tinta, at: Self.now
+        )
+
+        let enviada = try #require(porta.enviadas.first)
+        let html = try #require(enviada.html)
+        #expect(html.contains("combinado"))
+    }
+
+    /// A metade que já era real continua real — e acontece **depois** de a
+    /// mensagem entrar na fila.
+    @Test("'Enviar e arquivar' enfileira e arquiva a original")
+    func enviaEArquiva() async throws {
+        let porta = PortaFalsa()
+        let store = await loaded(porta)
+        let message = try #require(store.messages.first { $0.id == "m1" })
+        #expect(message.bucket != .archived)
+
+        _ = QuickReplyBand.send(
+            draft(to: message), for: message, in: store,
+            archiving: true, theme: .tinta, at: Self.now
+        )
+
+        #expect(porta.enviadas.count == 1)
+        let after = try #require(store.messages.first { $0.id == "m1" })
+        #expect(after.bucket == .archived)
+    }
+
+    /// Gravação que falha não pode custar o texto de quem escreveu: a faixa
+    /// fica aberta, com tudo dentro, e o erro aparece onde os outros aparecem.
+    @Test("fila que recusa deixa o rascunho de pé e não arquiva nada")
+    func filaRecusa() async throws {
+        let store = await loaded(PortaFalsa(erro: ErroDeTeste()))
+        let message = try #require(store.messages.first { $0.id == "m1" })
+
+        let updated = QuickReplyBand.send(
+            draft(to: message), for: message, in: store,
+            archiving: true, theme: .tinta, at: Self.now
+        )
+
+        #expect(updated == nil)
+        let after = try #require(store.messages.first { $0.id == "m1" })
+        #expect(after.bucket != .archived)
+        #expect(store.loadError != nil)
     }
 }
 
