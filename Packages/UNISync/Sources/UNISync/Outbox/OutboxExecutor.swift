@@ -460,8 +460,18 @@ public actor OutboxExecutor {
         let conta = accountID
         do {
             try await database.pool.write { db in
+                // A chave da conversa sai daqui de dentro porque ela depende da
+                // mensagem respondida, que está no banco — ver
+                // `SentCopy.linhas(_:gravadaEm:accountID:now:threadKey:)`.
+                let chave = try ThreadKeyResolver.resolve(
+                    db, accountID: conta, messageID: mensagem.messageID,
+                    inReplyTo: mensagem.inReplyTo, references: mensagem.references,
+                    subject: mensagem.subject,
+                    fallback: ThreadKey.rfc(accountID: conta, messageID: mensagem.messageID)
+                )
                 let linhas = SentCopy.linhas(
-                    mensagem, gravadaEm: onde, accountID: conta, now: agora
+                    mensagem, gravadaEm: onde, accountID: conta, now: agora,
+                    threadKey: chave
                 )
                 try linhas.folder.save(db)
                 try MessageRecord(linhas.message, folderID: linhas.folder.id).save(db)

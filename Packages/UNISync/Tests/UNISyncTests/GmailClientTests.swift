@@ -70,6 +70,19 @@ struct GmailClientTests {
         #expect(mensagem.body == ["A revisão do contrato ficou pronta.", "Podemos fechar quinta?"])
     }
 
+    /// O `threadId` já vinha em toda resposta da API e era jogado fora. Ele é
+    /// a conversa **segundo o Gmail** — a mesma que a pessoa lê no webmail, e a
+    /// comparação que abriu esta tarefa.
+    @Test("O threadId e os cabeçalhos da conversa saem da mesma resposta")
+    func conversaDoGmail() throws {
+        let mensagem = try GmailMessageParser.parse(fixture("gmail-message-full"))
+        #expect(mensagem.threadID == "18f0a1b2c3")
+        #expect(mensagem.rfcMessageID == "contrato-2@clientepremium.com")
+        // `References` quando existe — e `In-Reply-To` sozinho quando é só o
+        // que veio, que é o que muitos clientes mandam.
+        #expect(mensagem.references == ["contrato-1@clientepremium.com"])
+    }
+
     @Test("Entre `text/plain` e `text/html`, o parser fica com o texto")
     func preferenciaPorTextoSimples() throws {
         let mensagem = try GmailMessageParser.parse(fixture("gmail-message-full"))

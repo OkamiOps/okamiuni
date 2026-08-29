@@ -371,7 +371,13 @@ enum ImapResponseAdapter {
             // sempre, calado, e o corpo voltaria a sair cru sem nada explicando.
             contentHeader: valorDepois(
                 de: "BODY[HEADER.FIELDS (\(ImapWire.camposDeConteudo))] ", em: analise
-            )
+            ),
+            // Os dois últimos campos do `ENVELOPE`, que já estavam na resposta
+            // e eram jogados fora — é com eles que a conversa se monta no IMAP,
+            // sem uma ida e volta a mais e sem mexer no comando que o servidor
+            // falso do teste conhece.
+            envelopeMessageID: campos.count > 9 ? analise.valor(de: campos[9]) : nil,
+            envelopeInReplyTo: campos.count > 8 ? analise.valor(de: campos[8]) : nil
         )
     }
 

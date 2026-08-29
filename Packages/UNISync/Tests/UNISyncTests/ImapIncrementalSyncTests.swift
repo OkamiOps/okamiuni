@@ -128,12 +128,15 @@ struct ImapIncrementalSyncTests {
         ])
     }
 
-    private func envelope(uid: Int64, assunto: String, flags: String = "") -> String {
+    private func envelope(
+        uid: Int64, assunto: String, flags: String = "",
+        inReplyTo: String = "NIL", messageID: String = "NIL"
+    ) -> String {
         """
         * 1 FETCH (UID \(uid) FLAGS (\(flags)) INTERNALDATE "25-Aug-2026 09:00:00 -0300" \
         ENVELOPE ("Mon, 25 Aug 2026 09:00:00 -0300" "\(assunto)" \
         (("Marina" NIL "marina" "clientepremium.com")) NIL NIL \
-        (("Ricardo" NIL "ricardo" "angulos.com")) NIL NIL NIL NIL))
+        (("Ricardo" NIL "ricardo" "angulos.com")) NIL NIL \(inReplyTo) \(messageID)))
         """
     }
 
@@ -207,6 +210,43 @@ struct ImapIncrementalSyncTests {
         // Sem o piso novo, o ciclo seguinte pediria `31:*` de novo e regravaria
         // a mesma mensagem.
         #expect(try await estado(db)?.highestUID == 31)
+    }
+
+    /// A resposta que chega **depois** da carga inicial entra na conversa que
+    /// já está no banco, em vez de abrir uma linha nova ao lado dela — que é
+    /// exatamente o que o dono via.
+    @Test("A resposta que chega no ciclo entra na conversa da mensagem que já estava lá")
+    func respostaEntraNaConversaExistente() async throws {
+        let db = try await banco(maiorUID: 30, mensagens: [(30, true, false)])
+        // A mãe, já gravada pela carga, com o `Message-ID` e a chave dela.
+        try await db.pool.write { conexao in
+            try conexao.execute(
+                sql: "UPDATE message SET rfcMessageID = ?, threadKey = ?",
+                arguments: ["mae@clientepremium.com", "conta-i:m:mae@clientepremium.com"]
+            )
+        }
+
+        _ = try await delta(db, script: roteiro(
+            busca: ["* SEARCH 31", "TAG OK UID SEARCH completed"],
+            envelopes: [
+                envelope(
+                    uid: 31, assunto: "Re: UID 30",
+                    inReplyTo: "\"<mae@clientepremium.com>\"",
+                    messageID: "\"<filha@angulos.com>\""
+                ),
+                "TAG OK UID FETCH completed",
+            ],
+            bandeiras: [
+                envelopeFlags(uid: 30, flags: "\\Seen"),
+                envelopeFlags(uid: 31, flags: ""),
+                "TAG OK UID FETCH completed",
+            ]
+        ))
+
+        let todas = try await linhas(db)
+        #expect(todas.count == 2)
+        #expect(Set(todas.compactMap(\.threadKey)) == ["conta-i:m:mae@clientepremium.com"])
+        #expect(todas.last?.rfcMessageID == "filha@angulos.com")
     }
 
     @Test("UID abaixo do piso não é mensagem nova — o `n:*` do RFC devolve o maior mesmo assim")

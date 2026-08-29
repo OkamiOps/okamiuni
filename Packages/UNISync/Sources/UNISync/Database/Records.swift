@@ -182,6 +182,16 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
     /// sugestões da mensagem reaberta vem sempre vazia, mensagem nenhuma
     /// tendo sugestão nenhuma — o cartão de resumo do leitor depende disto.
     public var replyHintsJSON: String
+    /// O `Message-ID` do RFC 5322, sem `<>`, da v4. `nil` nas linhas gravadas
+    /// antes dela e em toda mensagem que não nasceu de um servidor.
+    public var rfcMessageID: String?
+    /// A corrente da conversa como JSON, da raiz para cá — ver
+    /// `Message.references`.
+    public var referencesJSON: String
+    /// A chave da conversa, derivada por `ThreadKey` na gravação e **indexada**.
+    /// `nil` só existiria numa linha escrita fora de todos os caminhos de hoje;
+    /// a migração v4 preencheu as antigas.
+    public var threadKey: String?
 
     /// Datas gravadas como epoch UTC (`Double`) — ver
     /// `AccountRecord.databaseDateEncodingStrategy`. `ORDER BY receivedAt
@@ -215,6 +225,9 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
         summary = message.summary
         detectedEventJSON = Self.encodeDetectedEvent(message.detectedEvent)
         replyHintsJSON = Self.encodeStrings(message.replyHints)
+        rfcMessageID = message.rfcMessageID
+        referencesJSON = Self.encodeStrings(message.references)
+        threadKey = message.threadKey
     }
 
     /// O corpo vem de fora porque mora noutra tabela: a lista mostra centenas
@@ -234,7 +247,10 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
             to: Self.decode(toJSON), cc: Self.decode(ccJSON),
             isFlagged: isFlagged,
             serverID: serverID, uidValidity: uidValidity,
-            bodyHTML: bodyHTML, calendarICS: calendarICS
+            bodyHTML: bodyHTML, calendarICS: calendarICS,
+            rfcMessageID: rfcMessageID,
+            references: Self.decodeStrings(referencesJSON),
+            threadKey: threadKey
         )
     }
 

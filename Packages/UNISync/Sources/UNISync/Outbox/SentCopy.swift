@@ -24,11 +24,18 @@ enum SentCopy {
     /// chave estrangeira para ela, e no primeiro envio de uma conta IMAP a
     /// pasta de Enviadas pode ainda não estar no banco: ela nunca foi
     /// carregada se a conta é nova, e a transação inteira cairia.
+    /// - Parameter threadKey: a chave da conversa em que esta cópia entra —
+    ///   resolvida por quem grava, dentro da transação, porque ela depende da
+    ///   mensagem respondida que **está no banco**: numa conta Gmail a chave é
+    ///   o `threadId`, e a `messages.send` não o devolve. Sem isto, a resposta
+    ///   que você mandou apareceria numa linha separada da conversa que ela
+    ///   responde — que é meia conversa.
     static func linhas(
         _ mensagem: OutgoingMessage,
         gravadaEm coordenada: MessageCoordinate,
         accountID: String,
-        now: Date
+        now: Date,
+        threadKey: String
     ) -> (folder: FolderRecord, message: Message) {
         let pasta: FolderRecord
         let id: String
@@ -77,7 +84,13 @@ enum SentCopy {
             to: mensagem.to.map { Contact(name: $0.name, address: $0.address) },
             cc: mensagem.cc.map { Contact(name: $0.name, address: $0.address) },
             isFlagged: false,
-            serverID: serverID, uidValidity: uidValidity
+            serverID: serverID, uidValidity: uidValidity,
+            // O `Message-ID` que **nós** geramos e escrevemos no cabeçalho: é
+            // ele que faz a resposta seguinte (de quem receber, ou nossa) achar
+            // esta mensagem como mãe.
+            rfcMessageID: mensagem.messageID,
+            references: mensagem.references,
+            threadKey: threadKey
         )
         return (pasta, nossa)
     }

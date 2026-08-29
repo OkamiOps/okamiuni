@@ -370,13 +370,28 @@ public enum ImapWire {
         /// outra grafia, ou um `FETCH` que não os pediu, caem no farejamento do
         /// `MimeBody`.
         public let contentHeader: String?
+        /// O `Message-ID` que vem **dentro do `ENVELOPE`** — o décimo campo
+        /// dele, e de graça no mesmo `FETCH` que já buscamos.
+        ///
+        /// Campo separado de `messageIDHeader`, que vem de um
+        /// `BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)]` pedido de propósito pelo
+        /// espelho do IMAP: são duas perguntas diferentes, feitas por dois
+        /// comandos diferentes, e juntá-las faria a resposta de uma parecer a
+        /// da outra quando só um dos dois foi pedido.
+        public let envelopeMessageID: String?
+        /// O `In-Reply-To` do `ENVELOPE` — o nono campo.
+        public let envelopeInReplyTo: String?
 
         public init(
             uid: Int64, flags: [String], internalDate: Date?,
             from: String?, to: String?, cc: String?, subject: String?, text: String?,
             messageIDHeader: String? = nil,
-            contentHeader: String? = nil
+            contentHeader: String? = nil,
+            envelopeMessageID: String? = nil,
+            envelopeInReplyTo: String? = nil
         ) {
+            self.envelopeMessageID = envelopeMessageID
+            self.envelopeInReplyTo = envelopeInReplyTo
             self.contentHeader = contentHeader
             self.uid = uid
             self.flags = flags
@@ -462,9 +477,21 @@ public enum ImapWire {
                 // à mão aqui, onde ela viraria a segunda resposta para a
                 // mesma pergunta e divergiria da primeira.
                 isRead: TriageProjection.isRead(imapFlags: linha.flags),
-                isFlagged: TriageProjection.isFlagged(imapFlags: linha.flags)
+                isFlagged: TriageProjection.isFlagged(imapFlags: linha.flags),
+                // Pelados, sem `<>`: é a forma que não tem duas leituras — ver
+                // `ThreadKey.bare`. Vazio vira nulo, porque um servidor que
+                // manda `""` no lugar de `NIL` não está dizendo outra coisa.
+                messageID: bareOrNil(linha.envelopeMessageID),
+                inReplyTo: bareOrNil(linha.envelopeInReplyTo)
             )
         }
+    }
+
+    /// Um `Message-ID` pelado, ou `nil` quando não veio nada de útil.
+    static func bareOrNil(_ bruto: String?) -> String? {
+        guard let bruto else { return nil }
+        let pelado = ThreadKey.bare(bruto)
+        return pelado.isEmpty ? nil : pelado
     }
 
     /// O corpo de uma mensagem, **decodificado**.
@@ -543,11 +570,26 @@ public struct ImapEnvelope: Sendable, Hashable {
     public let date: Date
     public let isRead: Bool
     public let isFlagged: Bool
+    /// O `Message-ID` da mensagem, sem `<>` — do `ENVELOPE`, que já o trazia.
+    public let messageID: String?
+    /// O `In-Reply-To`, sem `<>` — do mesmo `ENVELOPE`.
+    ///
+    /// **`References` não vem por aqui**, e não é esquecimento: o `ENVELOPE` do
+    /// RFC 3501 não o tem, e pedi-lo custaria um
+    /// `BODY.PEEK[HEADER.FIELDS (REFERENCES)]` no `FETCH` de envelope — que é o
+    /// comando do laço de lotes, o mais caro da carga. Sem ele a corrente é
+    /// reconstruída de outro jeito, e mais barato: a mensagem-mãe já está no
+    /// banco com a chave dela, e a filha **herda** essa chave. Ver
+    /// `ThreadKeyResolver`.
+    public let inReplyTo: String?
 
     public init(
         uid: Int64, from: Contact, to: [Contact], cc: [Contact],
-        subject: String, date: Date, isRead: Bool, isFlagged: Bool
+        subject: String, date: Date, isRead: Bool, isFlagged: Bool,
+        messageID: String? = nil, inReplyTo: String? = nil
     ) {
+        self.messageID = messageID
+        self.inReplyTo = inReplyTo
         self.uid = uid
         self.from = from
         self.to = to

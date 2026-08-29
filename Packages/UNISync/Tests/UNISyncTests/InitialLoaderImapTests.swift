@@ -27,12 +27,16 @@ struct InitialLoaderImapTests {
 
     /// Uma linha de `FETCH` de envelope. A hora varia porque a ordem das
     /// mensagens importa: o corpo desce das mais recentes primeiro.
-    private func fetchLine(uid: Int64, assunto: String, flags: String, hora: String = "09") -> String {
+    private func fetchLine(
+        uid: Int64, assunto: String, flags: String, hora: String = "09",
+        inReplyTo: String = "NIL", messageID: String = "NIL"
+    ) -> String {
         "* \(uid) FETCH (UID \(uid) FLAGS (\(flags)) "
         + "INTERNALDATE \"25-Aug-2026 \(hora):00:00 -0300\" "
         + "ENVELOPE (\"Tue, 25 Aug 2026 \(hora):00:00 -0300\" \"\(assunto)\" "
         + "((\"Marina\" NIL \"marina\" \"clientepremium.com\")) NIL NIL "
-        + "((\"Ricardo\" NIL \"contato\" \"meusite.com\")) NIL NIL NIL NIL))"
+        + "((\"Ricardo\" NIL \"contato\" \"meusite.com\")) NIL NIL "
+        + "\(inReplyTo) \(messageID)))"
     }
 
     private func selectOK() -> [String] {
@@ -164,6 +168,56 @@ struct InitialLoaderImapTests {
         #expect(registro?.serverID == "9001")
         #expect(registro?.bucket == "hoje")
         #expect(registro?.fromAddress == "marina@clientepremium.com")
+    }
+
+    /// A queixa do dono, ponta a ponta pelo IMAP: a original e a resposta
+    /// chegam do servidor e viram **uma** conversa no banco.
+    ///
+    /// A resposta traz `In-Reply-To` no `ENVELOPE` — que já vinha e era jogado
+    /// fora — e a chave da mãe é herdada. Nenhum comando novo foi ao servidor:
+    /// o `UID FETCH` é o mesmo.
+    @Test("A resposta chega com a chave da conversa da original")
+    func conversaPeloEnvelope() async throws {
+        let db = try SyncDatabase.temporary()
+        let comConversa = FakeImapServer.Script(replies: [
+            "LOGIN": ["TAG OK LOGIN completed"],
+            "LIST": [
+                "* LIST (\\HasNoChildren) \"/\" \"INBOX\"",
+                "TAG OK LIST completed",
+            ],
+            "SELECT": selectOK(),
+            "UID SEARCH": ["* SEARCH 9001 9002", "TAG OK UID SEARCH completed"],
+            "UID FETCH": [
+                fetchLine(
+                    uid: 9_001, assunto: "Lembrete rapido: nossa call amanha",
+                    flags: "\\Seen", messageID: "\"<mae@clientepremium.com>\""
+                ),
+                fetchLine(
+                    uid: 9_002, assunto: "Re: Lembrete rapido: nossa call amanha",
+                    flags: "", hora: "10",
+                    inReplyTo: "\"<mae@clientepremium.com>\"",
+                    messageID: "\"<filha@meusite.com>\""
+                ),
+                "TAG OK UID FETCH completed",
+            ],
+            "LOGOUT": ["TAG OK LOGOUT completed"],
+        ])
+        _ = try await carrega(db, script: comConversa)
+
+        let linhas = try await db.pool.read {
+            try MessageRecord.order(Column("serverID")).fetchAll($0)
+        }
+        #expect(linhas.count == 2)
+        #expect(linhas.first?.rfcMessageID == "mae@clientepremium.com")
+        #expect(linhas.last?.rfcMessageID == "filha@meusite.com")
+        // Uma chave só: uma linha na lista.
+        #expect(Set(linhas.compactMap(\.threadKey)).count == 1)
+        #expect(linhas.first?.threadKey == ThreadKey.rfc(
+            accountID: "conta-i", messageID: "mae@clientepremium.com"
+        ))
+        // E o agrupamento da tela concorda.
+        let mensagens = linhas.map { $0.message(body: []) }
+        #expect(Conversation.build(from: mensagens).count == 1)
     }
 
     @Test("`\\Seen` e `\\Flagged` viram as mesmas duas bandeiras do Gmail")

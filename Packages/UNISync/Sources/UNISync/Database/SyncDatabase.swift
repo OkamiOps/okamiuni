@@ -309,6 +309,69 @@ public struct SyncDatabase: Sendable {
             try db.execute(sql: "ALTER TABLE message_body ADD COLUMN html TEXT")
             try db.execute(sql: "ALTER TABLE message_body ADD COLUMN calendarICS TEXT")
         }
+        // A v4 da M3-9: a conversa. **Ao lado** das três anteriores, e só
+        // acrescentando colunas e índice — pelo mesmo motivo de sempre, agora
+        // com três migrações de história para o provar.
+        //
+        // As três colunas são o mínimo que responde às três perguntas que a
+        // conversa faz, e nem uma a mais:
+        //
+        // - `rfcMessageID` é **a identidade da mensagem entre servidores**. Sem
+        //   ela, a resposta que nós mandamos não tem o que pôr em `In-Reply-To`
+        //   (a dívida registrada da M3-5) e uma filha não acha a mãe no banco.
+        // - `referencesJSON` é a corrente, da raiz para cá. `In-Reply-To` não
+        //   ganha coluna própria: quando ele é tudo o que a mensagem trouxe,
+        //   ele **é** a corrente de um elo só, e uma segunda coluna com a mesma
+        //   informação seria a segunda resposta para a mesma pergunta.
+        // - `threadKey` é a chave derivada, **guardada e indexada**. Derivar na
+        //   leitura significaria uma consulta por linha da lista, a cada
+        //   retrato; e a derivação olha a mensagem-mãe, que é justamente uma
+        //   consulta.
+        //
+        // O índice é `(accountID, threadKey)` porque é assim que a pergunta é
+        // feita — "as mensagens desta conversa, nesta conta" —, e
+        // `(accountID, rfcMessageID)` porque a derivação procura a mãe por aí,
+        // uma vez por mensagem nova.
+        //
+        // **O preenchimento das linhas antigas.** Elas não têm cabeçalho
+        // nenhum (ninguém os gravou até aqui), então a chave delas é o fallback
+        // do assunto normalizado — a regra 3 de `ThreadKey`. A normalização é
+        // texto com dobra de acento e laço de prefixos, que SQL não faz sem
+        // inventar uma segunda implementação da regra; então ela roda em Swift,
+        // aqui, uma vez na vida da instalação. Assunto vazio cai no próprio id,
+        // que é único: conversa de uma mensagem só, nunca todas juntas.
+        //
+        // A partir daí a chave melhora sozinha: o sync grava `rfcMessageID` de
+        // toda mensagem nova, e o `UPDATE` do `DatabaseBodyFetcher` reescreve a
+        // chave da mensagem antiga na primeira vez que alguém a abre.
+        migrator.registerMigration("v4") { db in
+            try db.execute(sql: "ALTER TABLE message ADD COLUMN rfcMessageID TEXT")
+            try db.execute(
+                sql: "ALTER TABLE message ADD COLUMN referencesJSON TEXT NOT NULL DEFAULT '[]'"
+            )
+            try db.execute(sql: "ALTER TABLE message ADD COLUMN threadKey TEXT")
+            try db.execute(sql: """
+                CREATE INDEX message_on_thread ON message(accountID, threadKey)
+                """)
+            try db.execute(sql: """
+                CREATE INDEX message_on_rfc_message_id ON message(accountID, rfcMessageID)
+                """)
+
+            let linhas = try Row.fetchAll(db, sql: "SELECT id, accountID, subject FROM message")
+            for linha in linhas {
+                let id: String = linha["id"]
+                let accountID: String = linha["accountID"]
+                let subject: String = linha["subject"]
+                let chave = ThreadKey.derive(
+                    accountID: accountID, messageID: nil, inReplyTo: nil,
+                    references: [], subject: subject, fallback: id
+                )
+                try db.execute(
+                    sql: "UPDATE message SET threadKey = ? WHERE id = ?",
+                    arguments: [chave, id]
+                )
+            }
+        }
         return migrator
     }
 }

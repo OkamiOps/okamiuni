@@ -374,6 +374,16 @@ public struct InitialLoader: Sendable {
                 gmailLabelIDs: mensagem.labelIDs, laterLabelID: laterLabelID
             )
             let id = MessageIdentity.gmail(accountID: account.id, serverID: mensagem.id)
+            // A conversa do Gmail é o `threadId` dele, sem discussão — ver
+            // `ThreadKey`. Só a resposta torta (sem o campo) cai nos
+            // cabeçalhos, pelo mesmo caminho de uma conta IMAP.
+            let chave = mensagem.threadID.isEmpty
+                ? try ThreadKeyResolver.resolve(
+                    db, accountID: account.id, messageID: mensagem.rfcMessageID,
+                    inReplyTo: nil, references: mensagem.references,
+                    subject: mensagem.subject, fallback: id
+                )
+                : ThreadKey.gmail(accountID: account.id, threadID: mensagem.threadID)
             let nossa = Message(
                 id: id, accountID: account.id, from: mensagem.from,
                 receivedAt: mensagem.internalDate,
@@ -386,7 +396,10 @@ public struct InitialLoader: Sendable {
                 summary: nil, detectedEvent: nil,
                 to: mensagem.to, cc: mensagem.cc,
                 isFlagged: TriageProjection.isFlagged(gmailLabelIDs: mensagem.labelIDs),
-                serverID: mensagem.id
+                serverID: mensagem.id,
+                rfcMessageID: mensagem.rfcMessageID,
+                references: mensagem.references,
+                threadKey: chave
             )
             // `save` é upsert: id determinístico + upsert = recarga
             // idempotente, que é o que faz "parar no meio" ser seguro.
@@ -745,6 +758,11 @@ public struct InitialLoader: Sendable {
                 )
                 let corpo = corpos[envelope.uid] ?? MimeBody.Decoded(text: "")
                 let paragrafos = corpo.paragraphs
+                let chave = try ThreadKeyResolver.resolve(
+                    db, accountID: account.id, messageID: envelope.messageID,
+                    inReplyTo: envelope.inReplyTo, references: [],
+                    subject: envelope.subject, fallback: id
+                )
                 let nossa = Message(
                     id: id, accountID: account.id, from: envelope.from,
                     receivedAt: envelope.date,
@@ -759,7 +777,10 @@ public struct InitialLoader: Sendable {
                     body: paragrafos, tags: etiqueta.map { [$0] } ?? [], bucket: bucket,
                     isRead: envelope.isRead, summary: nil, detectedEvent: nil,
                     to: envelope.to, cc: envelope.cc, isFlagged: envelope.isFlagged,
-                    serverID: String(envelope.uid), uidValidity: uidValidity
+                    serverID: String(envelope.uid), uidValidity: uidValidity,
+                    rfcMessageID: envelope.messageID,
+                    references: [envelope.inReplyTo].compactMap { $0 },
+                    threadKey: chave
                 )
                 try MessageRecord(nossa, folderID: folderID).save(db)
                 if corpos[envelope.uid] != nil {

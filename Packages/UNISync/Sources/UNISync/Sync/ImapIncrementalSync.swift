@@ -256,6 +256,14 @@ public struct ImapIncrementalSync: Sendable {
                     accountID: account.id, folderID: folderID,
                     uidValidity: uidValidity, uid: envelope.uid
                 )
+                // A mesma resolução da carga inicial, e pela mesma razão: a
+                // resposta que chega agora tem de cair na conversa que já está
+                // no banco, não abrir uma linha nova ao lado dela.
+                let chave = try ThreadKeyResolver.resolve(
+                    db, accountID: account.id, messageID: envelope.messageID,
+                    inReplyTo: envelope.inReplyTo, references: [],
+                    subject: envelope.subject, fallback: id
+                )
                 let nossa = Message(
                     id: id, accountID: account.id, from: envelope.from,
                     receivedAt: envelope.date, subject: envelope.subject,
@@ -266,7 +274,10 @@ public struct ImapIncrementalSync: Sendable {
                     body: [], tags: etiqueta.map { [$0] } ?? [], bucket: bucket,
                     isRead: envelope.isRead, summary: nil, detectedEvent: nil,
                     to: envelope.to, cc: envelope.cc, isFlagged: envelope.isFlagged,
-                    serverID: String(envelope.uid), uidValidity: uidValidity
+                    serverID: String(envelope.uid), uidValidity: uidValidity,
+                    rfcMessageID: envelope.messageID,
+                    references: [envelope.inReplyTo].compactMap { $0 },
+                    threadKey: chave
                 )
                 try MessageRecord(nossa, folderID: folderID).save(db)
             }

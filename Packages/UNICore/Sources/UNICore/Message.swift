@@ -176,6 +176,38 @@ public struct Message: Sendable, Hashable, Identifiable {
     /// mensagem errada com mensagem errada.
     public let uidValidity: Int64?
 
+    /// O `Message-ID` do RFC 5322 desta mensagem, **sem** os sinais de menor e
+    /// maior — `uuid@dominio`, a mesma forma pelada que `OutgoingMessage`
+    /// guarda, para não haver duas leituras do mesmo campo.
+    ///
+    /// É a identidade que atravessa servidores: é por ela que a resposta que
+    /// **nós** mandamos sabe a quem responde (`In-Reply-To`), e é por ela que
+    /// uma mensagem filha acha a mãe dentro do banco.
+    ///
+    /// Aditivo (`nil`): as fixtures do Marco 1 não têm cabeçalho nenhum, e as
+    /// linhas gravadas antes da v4 também não.
+    public let rfcMessageID: String?
+
+    /// A corrente da conversa, da mais antiga para a mais nova, sem `<>` — o
+    /// cabeçalho `References`, ou o `In-Reply-To` sozinho quando é só o que a
+    /// mensagem trouxe.
+    ///
+    /// Vazia é o caso comum e legítimo: toda mensagem que **abre** uma conversa
+    /// não responde a nada.
+    public let references: [String]
+
+    /// A chave da conversa a que esta mensagem pertence.
+    ///
+    /// Derivada por `UNISync.ThreadKey` na hora de gravar, e **guardada** — não
+    /// recalculada a cada retrato: a derivação olha a mensagem-mãe no banco, e
+    /// refazê-la por linha a cada leitura da lista seria uma consulta por linha.
+    ///
+    /// `nil` é "ninguém derivou chave para esta mensagem" — o caso das fixtures
+    /// do Marco 1. Quem agrupa cai em `conversationKey`, que devolve o `id`:
+    /// mensagem sem chave é uma conversa de uma mensagem só, que é exatamente o
+    /// que o Marco 1 mostrava.
+    public let threadKey: String?
+
     public init(
         id: String, accountID: String, from: Contact, receivedAt: Date,
         subject: String, snippet: String, body: [String],
@@ -184,8 +216,13 @@ public struct Message: Sendable, Hashable, Identifiable {
         dayOffset: Int = 0, replyHints: [String] = [],
         to: [Contact] = [], cc: [Contact] = [], isFlagged: Bool = false,
         serverID: String? = nil, uidValidity: Int64? = nil,
-        bodyHTML: String? = nil, calendarICS: String? = nil
+        bodyHTML: String? = nil, calendarICS: String? = nil,
+        rfcMessageID: String? = nil, references: [String] = [],
+        threadKey: String? = nil
     ) {
+        self.rfcMessageID = rfcMessageID
+        self.references = references
+        self.threadKey = threadKey
         self.bodyHTML = bodyHTML
         self.calendarICS = calendarICS
         self.serverID = serverID
@@ -251,6 +288,14 @@ extension Message {
         copy(isFlagged: isFlagged)
     }
 
+    /// Por qual chave esta mensagem se agrupa numa conversa.
+    ///
+    /// `threadKey` quando alguém a derivou; o **próprio id** quando não —
+    /// e é aí que mora a garantia de que o Marco 1 continua igual: um id é
+    /// único por construção, então uma mensagem sem chave nunca se junta a
+    /// ninguém. A lista das fixtures desenha sete conversas de uma mensagem.
+    public var conversationKey: String { threadKey ?? id }
+
     /// A mensagem tem HTML para desenhar?
     ///
     /// `""` não conta: ele é o carimbo de "decodificada, e sem HTML". Sem esta
@@ -305,7 +350,11 @@ extension Message {
             // `.some(nil)` é "apaga". Sem os dois níveis não haveria como
             // devolver uma mensagem ao estado de "nunca decodificada".
             bodyHTML: bodyHTML ?? self.bodyHTML,
-            calendarICS: calendarICS ?? self.calendarICS
+            calendarICS: calendarICS ?? self.calendarICS,
+            // Os três da conversa atravessam toda cópia. Esquecê-los aqui é a
+            // armadilha que este método existe para não ter: marcar uma
+            // mensagem como lida a tiraria da conversa dela, e isso **compila**.
+            rfcMessageID: rfcMessageID, references: references, threadKey: threadKey
         )
     }
 

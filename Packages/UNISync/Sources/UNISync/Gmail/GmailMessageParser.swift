@@ -17,6 +17,7 @@ public enum GmailMessageParser {
             let parts: [Part]?
         }
         let id: String
+        let threadId: String?
         let labelIds: [String]?
         let snippet: String?
         let internalDate: String?
@@ -44,9 +45,16 @@ public enum GmailMessageParser {
         // sai fora de ordem — e como o campo é `String`, o erro compila.
         let milissegundos = Double(fio.internalDate ?? "0") ?? 0
 
+        // A corrente da conversa: `References` quando existe, e `In-Reply-To`
+        // sozinho quando é só o que veio — que é o caso de todo cliente que
+        // manda um sem o outro, e são muitos.
+        let corrente = ThreadKey.ids(inHeader: cabecalho("References") ?? "")
+        let respondendo = ThreadKey.ids(inHeader: cabecalho("In-Reply-To") ?? "")
+
         let corpo = corpoDe(payload)
         return GmailMessage(
             id: fio.id,
+            threadID: fio.threadId ?? "",
             labelIDs: fio.labelIds ?? [],
             internalDate: Date(timeIntervalSince1970: milissegundos / 1_000),
             from: MailAddress.parse(cabecalho("From") ?? "")
@@ -57,7 +65,9 @@ public enum GmailMessageParser {
             snippet: fio.snippet ?? "",
             body: corpo.paragraphs,
             html: corpo.html,
-            calendarICS: corpo.calendar
+            calendarICS: corpo.calendar,
+            rfcMessageID: ThreadKey.ids(inHeader: cabecalho("Message-ID") ?? "").first,
+            references: corrente.isEmpty ? respondendo : corrente
         )
     }
 

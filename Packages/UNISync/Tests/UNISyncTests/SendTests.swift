@@ -19,7 +19,9 @@ struct SendTests {
         messageID: String = "novo-1@meudominio.com.br",
         to: [OutgoingAddress] = [OutgoingAddress(name: "Marina", address: "marina@clientepremium.com")],
         bcc: [OutgoingAddress] = [],
-        html: String? = nil
+        html: String? = nil,
+        inReplyTo: String? = nil,
+        references: [String] = []
     ) -> OutgoingMessage {
         OutgoingMessage(
             messageID: messageID,
@@ -31,7 +33,9 @@ struct SendTests {
             // mais bytes que letras, e é onde um `count` no lugar de
             // `utf8.count` quebraria em silêncio.
             plainText: "Segue a versão final.",
-            html: html
+            html: html,
+            inReplyTo: inReplyTo,
+            references: references
         )
     }
 
@@ -396,6 +400,46 @@ struct SendTests {
             try FolderRecord.fetchOne($0, key: FolderRecord.id(accountID: "conta-a", serverName: "Enviados"))
         }
         #expect(pasta?.role == "sent")
+    }
+
+    /// A resposta enviada **entra na conversa** da mensagem respondida, e não
+    /// numa linha ao lado dela.
+    ///
+    /// A chave sai da mãe, que está no banco: é o que faz isto funcionar
+    /// também numa conta Gmail, onde a chave da conversa é o `threadId` e a
+    /// `messages.send` não o devolve.
+    @Test("A resposta enviada cai na conversa da mensagem respondida")
+    func aEnviadaEntraNaConversa() async throws {
+        let db = try banco()
+        let raiz = "conta-a:t:t9"
+        try await db.pool.write { conexao in
+            try FolderRecord(
+                id: "conta-a/INBOX", accountID: "conta-a", serverName: "INBOX",
+                role: .inbox, displayName: "INBOX"
+            ).save(conexao)
+            let mae = Message(
+                id: "conta-a:g:g1", accountID: "conta-a",
+                from: Contact(name: "Marina", address: "marina@clientepremium.com"),
+                receivedAt: Date(timeIntervalSince1970: 1_800_000_000),
+                subject: "Contrato", snippet: "", body: [], tags: [], bucket: .today,
+                isRead: true, summary: nil, detectedEvent: nil,
+                rfcMessageID: "mae@clientepremium.com", threadKey: raiz
+            )
+            try MessageRecord(mae, folderID: "conta-a/INBOX").save(conexao)
+        }
+
+        try DatabaseCommandPort(database: db).send(
+            mensagem(inReplyTo: "mae@clientepremium.com", references: ["mae@clientepremium.com"])
+        )
+        let onde = MessageCoordinate.imap(folderName: "Enviados", uidValidity: 42, uid: 9)
+        _ = await executor(db, espelho: EspelhoFalso(gravouEm: onde)).drain()
+
+        let enviada = try await db.pool.read {
+            try MessageRecord.filter(Column("bucket") == "enviadas").fetchOne($0)
+        }
+        let linha = try #require(enviada)
+        #expect(linha.threadKey == raiz)
+        #expect(linha.rfcMessageID == "novo-1@meudominio.com.br")
     }
 
     @Test("A mesma mensagem gravada duas vezes continua sendo uma linha só")

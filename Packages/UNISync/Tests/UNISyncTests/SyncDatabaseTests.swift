@@ -42,7 +42,7 @@ struct SyncDatabaseTests {
             #expect(tabelas.contains(esperada), "faltou a tabela \(esperada)")
         }
         let versoes = try db.pool.read { try SyncDatabase.migrator.appliedIdentifiers($0) }
-        #expect(versoes == ["v1", "v2", "v3"])
+        #expect(versoes == ["v1", "v2", "v3", "v4"])
     }
 
     @Test("Migrar duas vezes não faz nada na segunda")
@@ -50,7 +50,7 @@ struct SyncDatabaseTests {
         let db = try banco()
         try SyncDatabase.migrator.migrate(db.pool)
         let versoes = try db.pool.read { try SyncDatabase.migrator.appliedIdentifiers($0) }
-        #expect(versoes == ["v1", "v2", "v3"])
+        #expect(versoes == ["v1", "v2", "v3", "v4"])
     }
 
     @Test("A conta vai e volta inteira — inclusive o endpoint e o estado")

@@ -28,6 +28,17 @@ public enum GmailFormat: String, Sendable {
 
 public struct GmailMessage: Sendable, Hashable {
     public let id: String
+    /// A conversa **segundo o Gmail**.
+    ///
+    /// Ele já vinha em toda resposta da API e era jogado fora; agora é a chave
+    /// da conversa, sem discussão — o Gmail resolveu o agrupamento com mais
+    /// informação do que temos aqui (ele vê a caixa inteira, não só os 90 dias
+    /// que baixamos), e refazer a conta pelos cabeçalhos daria uma resposta
+    /// diferente da que a pessoa lê no webmail.
+    ///
+    /// Vazio é o caso torto — resposta sem o campo —, e aí a derivação cai nos
+    /// cabeçalhos como qualquer conta IMAP.
+    public let threadID: String
     public let labelIDs: [String]
     public let internalDate: Date
     public let from: Contact
@@ -42,6 +53,17 @@ public struct GmailMessage: Sendable, Hashable {
     public let html: String?
     /// O `text/calendar` cru do convite, quando houver.
     public let calendarICS: String?
+    /// O cabeçalho `Message-ID`, sem `<>`. Vem em `metadata` e em `full` — a
+    /// API manda os cabeçalhos nos dois formatos.
+    public let rfcMessageID: String?
+    /// `References` (ou `In-Reply-To`, quando é só o que veio), sem `<>`, da
+    /// raiz para cá.
+    ///
+    /// A conversa do Gmail não depende deles — quem manda é o `threadId` —,
+    /// mas a **resposta que sai daqui** depende: é com isto que o composer
+    /// escreve `In-Reply-To` e `References`, e é o que faz a resposta cair na
+    /// conversa certa na caixa de quem recebe.
+    public let references: [String]
 }
 
 /// Cabeçalhos de endereço, do jeito que eles chegam de verdade.
