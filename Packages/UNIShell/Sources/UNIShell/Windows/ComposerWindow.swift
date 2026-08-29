@@ -210,6 +210,17 @@ public struct ComposerWindow: View {
         return store.messages.first { $0.id == id }
     }
 
+    /// O modelo recebe o fio inteiro quando ele existe. A mensagem atual
+    /// continua sendo a âncora visual, mas uma resposta útil precisa enxergar
+    /// perguntas, decisões e compromissos que vieram antes dela.
+    private var intelligenceSourceContext: OnDeviceAssistantMailContext? {
+        guard let repliedMessage else { return nil }
+        if let conversation = store.conversation(of: repliedMessage.id) {
+            return OnDeviceAssistantMailContext(conversation: conversation)
+        }
+        return OnDeviceAssistantMailContext(message: repliedMessage)
+    }
+
     /// A mensagem a que esta janela **responde** — não a que ela encaminha.
     ///
     /// A distinção é do RFC 5322 §3.6.4 e importa na caixa de quem recebe:
@@ -295,6 +306,7 @@ public struct ComposerWindow: View {
                 openPanel: debugOpenPanel,
                 intelligence: intelligence,
                 intelligenceSourceMessage: repliedMessage,
+                intelligenceSourceContext: intelligenceSourceContext,
                 intelligenceContext: ComposerEditor.intelligenceContext(
                     of: draft, selection: selection
                 ),

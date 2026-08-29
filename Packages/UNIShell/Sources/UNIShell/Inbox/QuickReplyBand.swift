@@ -368,6 +368,13 @@ struct QuickReplyBand: View {
     /// A barra da janela, na densidade da faixa. Ela lê a seleção do editor e
     /// emite comandos; quem aplica é `ComposerEditor`, o mesmo das telas 03 e
     /// 06 — a faixa não sabe editar texto.
+    private var intelligenceSourceContext: OnDeviceAssistantMailContext {
+        if let conversation = store.conversation(of: message.id) {
+            return OnDeviceAssistantMailContext(conversation: conversation)
+        }
+        return OnDeviceAssistantMailContext(message: message)
+    }
+
     private var toolbar: some View {
         ComposerToolbar(
             reading: ComposerEditor.reading(of: draft, selection: selection),
@@ -376,6 +383,7 @@ struct QuickReplyBand: View {
             moreOpen: debugMoreFormatting,
             intelligence: intelligence,
             intelligenceSourceMessage: message,
+            intelligenceSourceContext: intelligenceSourceContext,
             intelligenceContext: ComposerEditor.intelligenceContext(
                 of: draft, selection: selection
             ),

@@ -41,10 +41,10 @@ public struct LocalAssistantSuggestion: Identifiable, Sendable, Hashable {
     }
 
     public static let emailDefaults: [LocalAssistantSuggestion] = [
-        .init(question: "Resuma os pontos importantes"),
-        .init(question: "Há algo que exige resposta?"),
-        .init(question: "Quais prazos aparecem aqui?"),
-        .init(question: "Escreva uma resposta curta"),
+        .init(question: "Resuma decisões, prazos e pendências"),
+        .init(question: "O que exige resposta ou decisão?"),
+        .init(question: "Analise riscos, tom e pontos em aberto"),
+        .init(question: "Prepare uma resposta completa"),
     ]
 }
 

@@ -10,18 +10,25 @@ struct OnDeviceAssistantBridgeTests {
         let spy = AssistantSpy()
         let generator = OnDeviceAssistantBridge.composerGenerator(using: spy)
         let message = Fixtures.messages[0]
+        let conversationContext = OnDeviceAssistantMailContext.conversation([
+            OnDeviceAssistantEmailContext(
+                subject: "Pergunta original", sender: "Cliente", body: "Pode enviar até sexta?"
+            ),
+            OnDeviceAssistantEmailContext(message: message),
+        ])
 
         _ = try await generator(.init(
             action: .createReply,
             target: .draft,
             source: "",
-            sourceMessage: message
+            sourceMessage: message,
+            sourceContext: conversationContext
         ))
 
         let call = try #require(await spy.lastTransform)
         #expect(call.text.isEmpty)
         #expect(call.action == .draftReply)
-        #expect(call.context == .email(OnDeviceAssistantEmailContext(message: message)))
+        #expect(call.context == conversationContext)
     }
 
     @Test("Pergunta atual não é duplicada no histórico")

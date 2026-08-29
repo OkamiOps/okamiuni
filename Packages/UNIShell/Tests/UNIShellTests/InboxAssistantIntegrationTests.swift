@@ -7,6 +7,26 @@ import UNIDesign
 @Suite("Assistente integrado ao leitor")
 @MainActor
 struct InboxAssistantIntegrationTests {
+    @Test("o botão contextual do leitor abre a IA e respeita indisponibilidade")
+    func readerButtonIsAnAction() {
+        var opens = 0
+        CliqueDeEnsaio.em(
+            ReaderAssistantButton(presentation: .available) { opens += 1 },
+            size: CGSize(width: 60, height: 50),
+            aY: 13,
+            x: 14
+        )
+        #expect(opens == 1)
+
+        CliqueDeEnsaio.em(
+            ReaderAssistantButton(presentation: .modelNotReady) { opens += 1 },
+            size: CGSize(width: 60, height: 50),
+            aY: 13,
+            x: 14
+        )
+        #expect(opens == 1)
+    }
+
     @Test("painel abre sobre o email sem quebrar o shell")
     func openPanelRendersOffscreen() async throws {
         let store = MailStore(source: InMemoryMailSource.fixtures)

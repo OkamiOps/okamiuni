@@ -231,7 +231,9 @@ public struct InboxScreen: View {
                 ReaderPane(
                     store: store,
                     onReply: openComposer,
-                    intelligence: composerIntelligence
+                    intelligence: composerIntelligence,
+                    intelligencePresentation: intelligencePresentation,
+                    onOpenAssistant: openAssistant
                 )
 
                 // Trilha de agenda — o primeiro painel a sair quando aperta.

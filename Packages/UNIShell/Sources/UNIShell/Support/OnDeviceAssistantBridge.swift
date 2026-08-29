@@ -8,7 +8,8 @@ public enum OnDeviceAssistantBridge {
         using assistant: any OnDeviceTextAssisting
     ) -> ComposerIntelligenceGenerator {
         { request in
-            let context = request.sourceMessage.map(OnDeviceAssistantMailContext.init(message:))
+            let context = request.sourceContext
+                ?? request.sourceMessage.map(OnDeviceAssistantMailContext.init(message:))
             return try await assistant.transform(
                 request.source,
                 using: writingAction(for: request),

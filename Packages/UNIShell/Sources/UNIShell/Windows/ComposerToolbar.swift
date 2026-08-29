@@ -36,6 +36,7 @@ struct ComposerToolbar: View {
     /// por que não pode agir.
     let intelligence: ComposerIntelligenceGenerator?
     let intelligenceSourceMessage: Message?
+    let intelligenceSourceContext: OnDeviceAssistantMailContext?
     let intelligenceContext: ComposerIntelligenceContext?
     let applyIntelligence: (ComposerIntelligenceProposal) -> ComposerIntelligenceApplyResult
 
@@ -59,6 +60,7 @@ struct ComposerToolbar: View {
         moreOpen: Bool = false,
         intelligence: ComposerIntelligenceGenerator? = nil,
         intelligenceSourceMessage: Message? = nil,
+        intelligenceSourceContext: OnDeviceAssistantMailContext? = nil,
         intelligenceContext: ComposerIntelligenceContext? = nil,
         applyIntelligence: @escaping (ComposerIntelligenceProposal) -> ComposerIntelligenceApplyResult = { _ in .sourceChanged },
         perform: @escaping (ComposerCommand) -> Void
@@ -68,6 +70,7 @@ struct ComposerToolbar: View {
         self.perform = perform
         self.intelligence = intelligence
         self.intelligenceSourceMessage = intelligenceSourceMessage
+        self.intelligenceSourceContext = intelligenceSourceContext
         self.intelligenceContext = intelligenceContext
         self.applyIntelligence = applyIntelligence
         _openPanel = State(initialValue: openPanel)
@@ -446,7 +449,7 @@ struct ComposerToolbar: View {
         if !intelligenceContext.source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return true
         }
-        return intelligenceSourceMessage != nil
+        return intelligenceSourceContext != nil || intelligenceSourceMessage != nil
     }
 
     private var intelligenceHelp: String {
@@ -454,6 +457,7 @@ struct ComposerToolbar: View {
             return "Inteligência de escrita — indisponível: nenhum motor foi conectado"
         }
         if intelligenceContext?.source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
+           intelligenceSourceContext == nil,
            intelligenceSourceMessage == nil {
             return "Inteligência de escrita — escreva ou selecione texto primeiro"
         }
@@ -469,7 +473,8 @@ struct ComposerToolbar: View {
             return
         }
         let hasText = !context.source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        guard action == .createReply ? intelligenceSourceMessage != nil : hasText else {
+        let hasMailContext = intelligenceSourceContext != nil || intelligenceSourceMessage != nil
+        guard action == .createReply ? hasMailContext : hasText else {
             intelligencePhase = .failure("Escreva ou selecione texto antes de gerar uma prévia.")
             return
         }
@@ -479,7 +484,8 @@ struct ComposerToolbar: View {
             target: context.target,
             source: context.source,
             instruction: instruction?.trimmingCharacters(in: .whitespacesAndNewlines),
-            sourceMessage: intelligenceSourceMessage
+            sourceMessage: intelligenceSourceMessage,
+            sourceContext: intelligenceSourceContext
         )
         intelligenceTask?.cancel()
         intelligencePhase = .loading(action)

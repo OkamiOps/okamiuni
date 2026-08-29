@@ -2,6 +2,27 @@ import SwiftUI
 import UNIDesign
 import UNICore
 
+/// Acesso contextual à IA no próprio cabeçalho do e-mail. Separado apenas
+/// para o clique real do controle ser verificável fora da tela.
+struct ReaderAssistantButton: View {
+    let presentation: IntelligencePresentation
+    let action: () -> Void
+
+    var body: some View {
+        SoloToolButton(
+            label: "",
+            symbol: presentation.symbol,
+            title: presentation.actionHelp,
+            on: presentation.isAvailable,
+            enabled: presentation.isAvailable,
+            action: action
+        )
+        .accessibilityLabel("Perguntar sobre este email")
+        .accessibilityValue(presentation.isAvailable ? "Disponível" : "Indisponível")
+        .accessibilityHint(presentation.actionHelp)
+    }
+}
+
 public struct ReaderPane: View {
     @Environment(\.theme) private var theme
     @Environment(\.displayScale) private var displayScale
@@ -18,6 +39,11 @@ public struct ReaderPane: View {
     let onReply: (Message) -> Void
     /// Mesmo motor da janela cheia, reaproveitado na resposta rápida.
     let intelligence: ComposerIntelligenceGenerator?
+    /// Estado real do modelo local e ação que abre o painel contextual do
+    /// leitor. O botão fica junto da caixa porque é uma ação sobre este e-mail,
+    /// não uma configuração global.
+    let intelligencePresentation: IntelligencePresentation
+    let onOpenAssistant: () -> Void
     /// Destino injetável do anexo: evita painel do sistema no harness e deixa
     /// a ação testável sem automação da área de trabalho.
     let attachmentSaver: (any AttachmentSaving)?
@@ -58,12 +84,16 @@ public struct ReaderPane: View {
         store: MailStore,
         onReply: @escaping (Message) -> Void = { _ in },
         attachmentSaver: (any AttachmentSaving)? = NativeAttachmentSaver(),
-        intelligence: ComposerIntelligenceGenerator? = nil
+        intelligence: ComposerIntelligenceGenerator? = nil,
+        intelligencePresentation: IntelligencePresentation = .available,
+        onOpenAssistant: @escaping () -> Void = {}
     ) {
         self.store = store
         self.onReply = onReply
         self.attachmentSaver = attachmentSaver
         self.intelligence = intelligence
+        self.intelligencePresentation = intelligencePresentation
+        self.onOpenAssistant = onOpenAssistant
     }
 
     public var body: some View {
@@ -399,6 +429,11 @@ public struct ReaderPane: View {
             .keyboardShortcut("r", modifiers: .command)
 
             Spacer(minLength: 8)
+
+            ReaderAssistantButton(
+                presentation: intelligencePresentation,
+                action: onOpenAssistant
+            )
 
             // Protótipo: `selChipStyle: this.chip(selAcc.c, true)` — o mesmo
             // chip da barra lateral e da lista, na cor da conta.

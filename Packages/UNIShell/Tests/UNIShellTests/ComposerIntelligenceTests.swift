@@ -79,6 +79,46 @@ struct ComposerIntelligenceTests {
         #expect(failed)
     }
 
+    @Test("a resposta gerada ocupa uma área de prévia legível")
+    func generatedReplyPreviewDoesNotCollapse() throws {
+        let sourceMessage = try #require(Fixtures.messages.first)
+        let proposal = ComposerIntelligenceProposal(
+            request: .init(
+                action: .createReply,
+                target: .draft,
+                source: "",
+                sourceMessage: sourceMessage
+            ),
+            result: "Olá, Marina. Obrigado pela mensagem. Posso confirmar os próximos passos ainda hoje."
+        )
+        let panel = ComposerIntelligencePanel(
+            context: .init(target: .draft, source: ""),
+            available: true,
+            sourceMessage: sourceMessage,
+            phase: .preview(proposal),
+            instruction: .constant(""),
+            generate: { _, _ in },
+            apply: { _ in },
+            cancel: {}
+        )
+        let hosted = NSHostingView(rootView: panel
+            .theme(.tinta)
+            .environment(\.displayScale, 1)
+        )
+        hosted.layoutSubtreeIfNeeded()
+
+        #expect(
+            hosted.fittingSize.height >= 180,
+            "a prévia colapsou e esconderia o texto gerado"
+        )
+        _ = try #require(Render.snapshot(
+            panel,
+            named: "composer-intelligence-reply-preview",
+            size: CGSize(width: 340, height: 230),
+            theme: .tinta
+        ))
+    }
+
     @Test("a prévia troca somente a seleção e conserva seu estilo")
     func applyReplacesOnlySelectedText() throws {
         var text = AttributedString("Olá mundo amigável")

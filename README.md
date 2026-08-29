@@ -7,7 +7,7 @@
 ![Swift 6.3](https://img.shields.io/badge/Swift-6.3-F05138?logo=swift&logoColor=white)
 ![macOS 26](https://img.shields.io/badge/macOS-26-000000?logo=apple&logoColor=white)
 ![SwiftUI](https://img.shields.io/badge/SwiftUI-nativo-0071e3)
-![Testes](https://img.shields.io/badge/testes-1811%20verdes-2ea44f)
+![Testes](https://img.shields.io/badge/testes-1814%20verdes-2ea44f)
 ![Mutações](https://img.shields.io/badge/provas%20por%20mutação-190%2B-blueviolet)
 ![Temas](https://img.shields.io/badge/temas-26-8a2be2)
 ![Marco](https://img.shields.io/badge/marco-5%20·%20inteligência%20local%20✓-success)
@@ -29,7 +29,7 @@
 - 🖱️ **Ações onde a mão espera**: botão direito custom em toda superfície, arraste lateral com Desfazer, atalhos de verdade (`⌘R` `⇧⌘R` `⇧⌘F` `⌘E` `⌫` `⇧⌘L` `⇧⌘U` `⌘N` `⌘K`).
 - 🎨 **26 temas**, hairlines de 1 pixel em telas 1×, semáforos a 22pt **verificados por ensaio** — o polimento é requisito, não acabamento.
 - 🔌 **Qualquer provedor**: nada no código limita provedor, domínio, número de contas ou de pastas.
-- ✅ **1811 testes** que provam por mutação: cada teste novo só conta depois de falhar com o defeito reintroduzido.
+- ✅ **1814 testes** que provam por mutação: cada teste novo só conta depois de falhar com o defeito reintroduzido.
 
 ```bash
 Tools/rodar.sh     # mata a instância antiga, regenera o projeto, compila e abre
@@ -140,7 +140,7 @@ O projeto Xcode é gerado por [`project.yml`](project.yml) (XcodeGen) com `SWIFT
 
 ## Como este projeto se testa
 
-**Swift Testing** (nunca XCTest), 1778 testes em quatro pacotes — e uma regra que virou cultura: **teste que passa com o código quebrado é defeito**. Todo teste novo nasce provado vermelho com o defeito reintroduzido; mais de 190 mutações registradas mataram, entre outras, um quoted-printable que comia a última letra de cada linha, uma fila que engolia a terceira ação de um ciclo ler→não ler→ler, e um "esvaziar a lixeira" que só funcionava uma vez na vida da conta.
+**Swift Testing** (nunca XCTest), 1814 testes em quatro pacotes — e uma regra que virou cultura: **teste que passa com o código quebrado é defeito**. Todo teste novo nasce provado vermelho com o defeito reintroduzido; mais de 190 mutações registradas mataram, entre outras, um quoted-printable que comia a última letra de cada linha, uma fila que engolia a terceira ação de um ciclo ler→não ler→ler, e um "esvaziar a lixeira" que só funcionava uma vez na vida da conta.
 
 Seis instrumentos fazem o app testemunhar contra si mesmo, sem tocar no mouse de ninguém:
 

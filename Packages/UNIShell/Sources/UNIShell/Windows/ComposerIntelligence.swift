@@ -26,7 +26,7 @@ public enum ComposerIntelligenceAction: String, CaseIterable, Sendable {
         case .formal: "Mais formal"
         case .cordial: "Mais cordial"
         case .correctPortuguese: "Corrigir português"
-        case .createReply: "Criar resposta"
+        case .createReply: "Gerar resposta"
         case .custom: "Aplicar instrução"
         }
     }
@@ -63,19 +63,25 @@ public struct ComposerIntelligenceRequest: Equatable, Sendable {
     /// porque uma mensagem nova não tem contexto anterior, mas é o que permite
     /// ao motor criar uma resposta mesmo antes de haver rascunho.
     public let sourceMessage: Message?
+    /// Contexto completo da conversa, quando a superfície dona do composer
+    /// consegue fornecê-lo. `sourceMessage` continua existindo para preservar
+    /// a origem visual e como fallback de integrações mais simples.
+    public let sourceContext: OnDeviceAssistantMailContext?
 
     public init(
         action: ComposerIntelligenceAction,
         target: ComposerIntelligenceTarget,
         source: String,
         instruction: String? = nil,
-        sourceMessage: Message? = nil
+        sourceMessage: Message? = nil,
+        sourceContext: OnDeviceAssistantMailContext? = nil
     ) {
         self.action = action
         self.target = target
         self.source = source
         self.instruction = instruction
         self.sourceMessage = sourceMessage
+        self.sourceContext = sourceContext
     }
 }
 
@@ -260,7 +266,7 @@ struct ComposerIntelligencePanel: View {
     @ViewBuilder
     private var createReplyButton: some View {
         if sourceMessage != nil {
-            panelButton("Criar resposta", enabled: available) {
+            panelButton(ComposerIntelligenceAction.createReply.title, enabled: available) {
                 generate(.createReply, nil)
             }
             .help("Cria uma prévia a partir da mensagem recebida, sem alterar o rascunho")
@@ -323,8 +329,13 @@ struct ComposerIntelligencePanel: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(9)
+                    .textSelection(.enabled)
             }
-            .frame(maxHeight: 116)
+            // Sem uma altura mínima, `ScrollView` não oferece tamanho ideal
+            // ao painel ancorado e colapsa para zero: a geração acontece, mas
+            // só aparecem o rótulo “Prévia” e os botões. A faixa mantém uma
+            // resposta curta legível e passa a rolar apenas quando necessário.
+            .frame(minHeight: 82, maxHeight: 148, alignment: .topLeading)
             .background(theme.surface2.color, in: RoundedRectangle(cornerRadius: theme.radiusSmall))
             .overlay {
                 RoundedRectangle(cornerRadius: theme.radiusSmall)
