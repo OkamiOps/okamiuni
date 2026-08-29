@@ -235,7 +235,10 @@ struct EventOriginBodyTests {
         #expect(store.bodyLoad(for: "m1") != nil)
 
         await porta.libera()
-        while store.messages.first(where: { $0.id == "m1" })?.body.isEmpty != false {
+        // Espera **limitada**: sem teto, uma mutação que corta o pedido de
+        // corpo faz este laço girar para sempre e o vermelho vira uma suíte
+        // travada — que não prova nada.
+        for _ in 0..<10_000 where store.messages.first(where: { $0.id == "m1" })?.body.isEmpty != false {
             await Task.yield()
         }
         let chegou = try #require(Render.bitmap(janela, size: Self.tamanho, theme: .tinta))
