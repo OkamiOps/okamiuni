@@ -178,14 +178,46 @@ public final class MailStore {
     /// que é o comportamento do Marco 1 intacto.
     private let bodyPort: BodyFetching?
 
+    /// Para onde vai o "Enviar" do composer. `nil` nas fixtures e em todo
+    /// teste que não passa uma — e nesse caso a janela continua fechando sem
+    /// mandar nada, que é o Marco 1 intacto. `canSend` é o que deixa a janela
+    /// dizer a verdade sobre isso em vez de fingir que enviou.
+    private let sendPort: MailSendPort?
+
     public init(
         source: MailSource,
         commandPort: MailCommandPort? = nil,
-        bodyPort: BodyFetching? = nil
+        bodyPort: BodyFetching? = nil,
+        sendPort: MailSendPort? = nil
     ) {
         self.source = source
         self.commandPort = commandPort
         self.bodyPort = bodyPort
+        self.sendPort = sendPort
+    }
+
+    /// Há por onde enviar de verdade?
+    ///
+    /// A janela pergunta antes de prometer: sem porta, "Enviar" não envia, e um
+    /// botão que fecha a janela como se tivesse enviado é a versão mais cara do
+    /// botão mudo — a pessoa acha que mandou.
+    public var canSend: Bool { sendPort != nil }
+
+    /// Enfileira a mensagem. Devolve se ela de fato entrou na fila.
+    ///
+    /// Falha não é engolida (vira `loadError`, como toda falha de porta) e
+    /// **não** é fatal para o rascunho: quem chama só fecha a janela quando
+    /// isto devolve `true`, senão o texto da pessoa some junto com o erro.
+    @discardableResult
+    public func send(_ message: OutgoingMessage) -> Bool {
+        guard let sendPort else { return false }
+        do {
+            try sendPort.send(message)
+            return true
+        } catch {
+            report(error)
+            return false
+        }
     }
 
     /// Manda a mutação para a porta, se houver uma. Erro vira `loadError` —
