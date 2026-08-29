@@ -173,9 +173,19 @@ public final class MailStore {
     /// nunca espera rede, o mesmo princípio do Marco 2 aplicado à escrita.
     private let commandPort: MailCommandPort?
 
-    public init(source: MailSource, commandPort: MailCommandPort? = nil) {
+    /// Quem busca o corpo que o banco não tem. `nil` nas fixtures e em todo
+    /// teste que não passa uma — e nesse caso `loadBodyIfNeeded` não faz nada,
+    /// que é o comportamento do Marco 1 intacto.
+    private let bodyPort: BodyFetching?
+
+    public init(
+        source: MailSource,
+        commandPort: MailCommandPort? = nil,
+        bodyPort: BodyFetching? = nil
+    ) {
         self.source = source
         self.commandPort = commandPort
+        self.bodyPort = bodyPort
     }
 
     /// Manda a mutação para a porta, se houver uma. Erro vira `loadError` —
@@ -708,6 +718,77 @@ public final class MailStore {
             guard let accountID else { return true }
             return message.accountID == accountID
         }.count
+    }
+
+    // MARK: - O corpo por demanda
+
+    /// Em que pé está a busca do corpo de uma mensagem.
+    ///
+    /// A ausência de valor é o quarto estado, e o mais comum: "nunca foi
+    /// preciso buscar". Ele não está no enum de propósito — um `.naoTentado`
+    /// que precisasse ser escrito no dicionário para toda mensagem da caixa
+    /// seria estado a manter em dia sem nada a dizer.
+    public enum BodyLoad: Sendable, Equatable {
+        case carregando
+        /// A causa, no idioma da pessoa. É o que a faixa de erro mostra ao lado
+        /// do "Tentar de novo".
+        case falhou(String)
+        /// Buscamos. O corpo pode ter vindo (e então está em `body`) ou a
+        /// mensagem pode de fato não ter texto nenhum — um anexo sozinho, um
+        /// convite de calendário. Este estado é o que impede a segunda coisa de
+        /// virar um laço: sem ele, o leitor pediria o corpo de novo a cada
+        /// redesenho de uma mensagem que nunca vai ter um.
+        case buscado
+    }
+
+    private var bodyLoads: [String: BodyLoad] = [:]
+
+    /// Em que pé está o corpo desta mensagem. `nil` é "nunca foi preciso".
+    public func bodyLoad(for messageID: String) -> BodyLoad? { bodyLoads[messageID] }
+
+    /// Busca o corpo desta mensagem, se ela não tiver um e ninguém já estiver
+    /// buscando.
+    ///
+    /// Quem chama é o leitor, ao abrir a mensagem. Todas as guardas são de
+    /// "não fazer duas vezes o que já foi feito": sem porta, sem mensagem, com
+    /// corpo, já buscando, já buscado ou já falhado — sai. A falha só volta a
+    /// ser tentada por `retryBody(_:)`, que é a pessoa pedindo.
+    public func loadBodyIfNeeded(_ messageID: String) async {
+        guard let bodyPort, bodyLoads[messageID] == nil else { return }
+        guard let message = messages.first(where: { $0.id == messageID }),
+              message.body.isEmpty else { return }
+
+        bodyLoads[messageID] = .carregando
+        do {
+            let paragrafos = try await bodyPort.fetchBody(
+                accountID: message.accountID, messageID: messageID
+            )
+            bodyLoads[messageID] = .buscado
+            // O corpo entra na lista agora. A porta já o gravou no banco, e o
+            // retrato seguinte o traria — mas a mensagem está aberta na tela
+            // enquanto isso, e esperar a observação acordar é um piscar de
+            // "Carregando…" a mais por nada.
+            guard !paragrafos.isEmpty,
+                  let indice = messages.firstIndex(where: { $0.id == messageID }) else { return }
+            messages[indice] = messages[indice].withBody(paragrafos)
+        } catch is CancellationError {
+            // A pessoa trocou de mensagem antes de a resposta chegar. Isso não
+            // é falha e não pode virar uma faixa vermelha: o estado volta a
+            // "nunca foi preciso", e voltar à mensagem tenta de novo.
+            bodyLoads[messageID] = nil
+        } catch {
+            guard !Task.isCancelled else {
+                bodyLoads[messageID] = nil
+                return
+            }
+            bodyLoads[messageID] = .falhou(error.localizedDescription)
+        }
+    }
+
+    /// O "Tentar de novo" da faixa de erro. Limpa a falha e busca outra vez.
+    public func retryBody(_ messageID: String) async {
+        bodyLoads[messageID] = nil
+        await loadBodyIfNeeded(messageID)
     }
 
     // MARK: - Rascunhos de resposta

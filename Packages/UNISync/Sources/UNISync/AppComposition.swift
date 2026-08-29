@@ -34,6 +34,12 @@ public struct AppComposition: Sendable {
     /// tem para onde apontar (`accountID` não existiria), então o próprio
     /// `MailStore` nunca a chama nesse caso — não há mensagem para mutar.
     public let commandPort: MailCommandPort?
+    /// Quem busca o corpo que a carga inicial não trouxe. `nil` quando o banco
+    /// não abriu — e nesse caso a fonte são as fixtures, que já têm corpo.
+    ///
+    /// Ao contrário de `commandPort`, esta porta é **rede**: é a única do app
+    /// cuja espera o leitor precisa mostrar na tela.
+    public let bodyPort: BodyFetching?
     /// Quem leva a fila de saída ao servidor, uma conta por vez. Nulo pelo
     /// mesmo motivo do banco. Já vem **ligado**: a fila começa a andar ao
     /// abrir o app, que é o que faz uma ação feita offline chegar ao servidor
@@ -75,7 +81,7 @@ public struct AppComposition: Sendable {
             log.error("Banco não abriu: \(falha.mensagem, privacy: .public)")
             return AppComposition(
                 database: nil, director: nil,
-                source: InMemoryMailSource.fixtures, commandPort: nil,
+                source: InMemoryMailSource.fixtures, commandPort: nil, bodyPort: nil,
                 outbox: nil, outboxSignal: nil, configError: falha
             )
         }
@@ -150,6 +156,10 @@ public struct AppComposition: Sendable {
             director: director,
             source: DatabaseMailSource(database: banco, emptyFallback: .fixtures),
             commandPort: DatabaseCommandPort(database: banco, signal: sinal),
+            bodyPort: DatabaseBodyFetcher(
+                database: banco, secrets: cofre, auth: auth,
+                session: .shared, eventLoopGroup: grupo
+            ),
             outbox: fila,
             outboxSignal: sinal,
             configError: erro

@@ -118,6 +118,16 @@ public struct ReaderPane: View {
             QuickReplyBand(store: store, message: message, onPromote: onReply)
                 .id(message.id)
         }
+        // Abrir uma mensagem sem corpo **é** o pedido de busca. `id:` para que
+        // trocar de mensagem cancele a busca da anterior e comece a desta: sem
+        // isso, abrir cinco mensagens em sequência deixaria cinco conexões em
+        // voo para escrever num leitor que já mostra outra coisa.
+        //
+        // Sem porta de corpo (fixtures, e todo teste que não passa uma) isto
+        // não faz nada — `loadBodyIfNeeded` sai na primeira guarda.
+        .task(id: message.id) {
+            await store.loadBodyIfNeeded(message.id)
+        }
     }
 
     /// Protótipo: um bloco só — `padding: 16px 28px 16px;
@@ -428,17 +438,80 @@ public struct ReaderPane: View {
         withAnimation(SwipeMotion.transition) { agendaReceipt = nil }
     }
 
+    /// O corpo — ou o que está acontecendo com ele.
+    ///
+    /// **Nunca vazio mudo.** Era exatamente isso: uma mensagem sem corpo no
+    /// banco (39 das 83 do dono) abria com a coluna do texto em branco, sem
+    /// nada dizendo se a mensagem é vazia, se o app quebrou, ou se vale esperar.
+    /// Agora os quatro estados são visíveis: o texto, a espera, a falha com
+    /// saída, e a mensagem que de fato não tem texto.
+    @ViewBuilder
     private func body(_ message: Message) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            ForEach(Array(message.body.enumerated()), id: \.offset) { _, para in
-                Text(para)
-                    .font(theme.serif.font(size: 16))
-                    .lineSpacing(10.88)
-                    .foregroundStyle(theme.ink.color)
-                    .frame(maxWidth: 500, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
+        if !message.body.isEmpty {
+            VStack(alignment: .leading, spacing: 16) {
+                ForEach(Array(message.body.enumerated()), id: \.offset) { _, para in
+                    Text(para)
+                        .font(theme.serif.font(size: 16))
+                        .lineSpacing(10.88)
+                        .foregroundStyle(theme.ink.color)
+                        .frame(maxWidth: 500, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.horizontal, 28)
+        } else {
+            switch store.bodyLoad(for: message.id) {
+            case .carregando:
+                bodyNote(Self.carregandoCorpo)
+            case .falhou(let causa):
+                bodyFailure(causa, message: message)
+            case .buscado:
+                // Buscamos e não havia texto: um anexo sozinho, um convite de
+                // calendário. Dizer isso é diferente de não dizer nada.
+                bodyNote(Self.semTexto)
+            case nil:
+                // Sem porta de corpo — as fixtures do Marco 1. A coluna fica
+                // como sempre esteve, e nenhuma captura muda.
+                EmptyView()
             }
         }
+    }
+
+    /// "Carregando corpo…", e a frase da mensagem sem texto. Estáticas e
+    /// `nonisolated` para o teste as afirmar sem montar a janela: o que a
+    /// pessoa lê é comportamento, não decoração.
+    nonisolated static let carregandoCorpo = "Carregando corpo…"
+    nonisolated static let semTexto = "Esta mensagem não tem texto."
+
+    private func bodyNote(_ texto: String) -> some View {
+        Text(texto)
+            .font(theme.serif.font(size: 15))
+            .italic()
+            .foregroundStyle(theme.ink4.color)
+            .frame(maxWidth: 500, alignment: .leading)
+            .padding(.horizontal, 28)
+    }
+
+    /// A falha, com a saída junto. Uma faixa que só diz "não deu" é a mesma
+    /// tela vazia com mais palavras.
+    private func bodyFailure(_ causa: String, message: Message) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Não foi possível baixar o corpo desta mensagem.")
+                .font(theme.sans.font(size: 12.5, weight: .semibold))
+                .foregroundStyle(theme.ink.color)
+            Text(causa)
+                .font(theme.sans.font(size: 12))
+                .foregroundStyle(theme.ink3.color)
+                .fixedSize(horizontal: false, vertical: true)
+            ChromeButton(
+                "Tentar de novo", appearance: .outlined,
+                size: 11.5, height: 26, horizontalPadding: 10
+            ) {
+                Task { await store.retryBody(message.id) }
+            }
+            .help("Busca o corpo desta mensagem no servidor outra vez")
+        }
+        .frame(maxWidth: 500, alignment: .leading)
         .padding(.horizontal, 28)
     }
 

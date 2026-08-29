@@ -44,7 +44,8 @@ struct OkamiUNIApp: App {
         let composicao = AppComposition.make()
         composition = composicao
         _mailStore = State(initialValue: MailStore(
-            source: composicao.source, commandPort: composicao.commandPort
+            source: composicao.source, commandPort: composicao.commandPort,
+            bodyPort: composicao.bodyPort
         ))
         if let diretor = composicao.director {
             _accountsModel = State(initialValue: AccountsModel(director: diretor))

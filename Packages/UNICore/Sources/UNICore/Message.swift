@@ -192,6 +192,17 @@ extension Message {
         copy(isFlagged: isFlagged)
     }
 
+    /// A mesma mensagem com o corpo que a busca por demanda acabou de trazer.
+    ///
+    /// A porta (`BodyFetching`) grava no banco, e o retrato seguinte traria o
+    /// corpo de qualquer jeito — mas "o retrato seguinte" é uma observação
+    /// assíncrona, e a mensagem está **aberta na tela** enquanto isso. Pôr o
+    /// corpo aqui é o que faz o texto aparecer no instante em que ele chega, em
+    /// vez de no instante em que o SQLite acorda quem observa.
+    public func withBody(_ body: [String]) -> Message {
+        copy(body: body)
+    }
+
     /// O único lugar que reconstrói uma `Message`.
     ///
     /// Cada campo novo com default no `init` é uma armadilha a mais para quem
@@ -202,11 +213,12 @@ extension Message {
     private func copy(
         bucket: TriageBucket? = nil,
         isRead: Bool? = nil,
-        isFlagged: Bool? = nil
+        isFlagged: Bool? = nil,
+        body: [String]? = nil
     ) -> Message {
         Message(
             id: id, accountID: accountID, from: from, receivedAt: receivedAt,
-            subject: subject, snippet: snippet, body: body, tags: tags,
+            subject: subject, snippet: snippet, body: body ?? self.body, tags: tags,
             bucket: bucket ?? self.bucket, isRead: isRead ?? self.isRead,
             summary: summary, detectedEvent: detectedEvent,
             dayOffset: dayOffset, replyHints: replyHints,
