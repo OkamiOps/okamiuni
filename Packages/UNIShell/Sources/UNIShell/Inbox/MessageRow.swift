@@ -12,6 +12,7 @@ public struct MessageRow: View {
     static let accountBarWidth: CGFloat = UnreadMetrics.quietBarWidth
 
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
     let message: Message
     let accountHost: String
     let accountTint: Color
@@ -118,13 +119,24 @@ public struct MessageRow: View {
     @ViewBuilder
     private var countBadge: some View {
         if conversationCount > 1 {
+            // **Um grau mais presente desde a M3-21.** Ele estava em 9,5pt,
+            // `ink3`, sobre `surface3` — e sobre a linha selecionada, que já
+            // tem o tom da conta por baixo, o selo praticamente sumia. Meio
+            // ponto de corpo, o peso do carimbo, a tinta um grau mais escura e
+            // um fio em volta: continua sendo o mesmo selo miúdo, agora com
+            // borda que o separa de qualquer fundo que a linha tenha.
             Text(String(conversationCount))
-                .font(theme.mono.font(size: 9.5, weight: .medium))
-                .foregroundStyle(theme.ink3.color)
+                .font(theme.mono.font(size: 10, weight: .semibold))
+                .foregroundStyle(theme.ink2.color)
                 .padding(.horizontal, 5)
-                .frame(height: 15)
+                .frame(height: 16)
                 .background(theme.surface3.color)
                 .clipShape(Capsule())
+                .overlay {
+                    Capsule().strokeBorder(
+                        theme.line.color, lineWidth: Hairline.thickness(displayScale)
+                    )
+                }
                 .fixedSize()
                 .help("\(conversationCount) mensagens nesta conversa")
                 .accessibilityLabel("\(conversationCount) mensagens nesta conversa")

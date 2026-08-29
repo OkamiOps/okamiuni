@@ -258,4 +258,53 @@ struct ConversationReaderTests {
         // A pilha tem uma linha recolhida a mais — logo, mais tinta escrita.
         #expect(pilha.pixelsDiffering(from: simples) > 0)
     }
+
+    /// **A pilha se anuncia (M3-21).** A tela do dono: duas mensagens
+    /// recolhidas do Zoho no topo do leitor, dois fios quase invisíveis, e ele
+    /// não percebeu que havia mais. A contagem no topo é a resposta.
+    @Test("A pilha abre dizendo quantas mensagens a conversa tem")
+    func aPilhaSeAnuncia() {
+        #expect(ConversationStackView<EmptyView>.contagem(2) == "2 mensagens nesta conversa")
+        #expect(ConversationStackView<EmptyView>.contagem(5) == "5 mensagens nesta conversa")
+        #expect(ConversationStackView<EmptyView>.alturaDoCabecalho > 0)
+    }
+
+    /// **A mutação:** tirar o cabeçalho da contagem e o fundo das linhas
+    /// recolhidas devolve a pilha ao fio de antes — e as duas faixas do topo do
+    /// leitor voltam a pintar o mesmo que o papel.
+    ///
+    /// A medida é a tinta dos primeiros `alturaDoCabecalho + alturaDaLinha`
+    /// pontos abaixo do cabeçalho do leitor: é ali que a pilha se anuncia.
+    @Test("A pilha recolhida tem presença: fundo e contagem pintam o topo")
+    func aPilhaTemPresenca() async throws {
+        let comConversa = await store([
+            msg("c", thread: "t1", at: 300, from: "Marina", body: ["resposta"]),
+            msg("a", thread: "t1", at: 100, from: "Ricardo", body: ["original"]),
+        ])
+        comConversa.select(message: "c")
+        let pilha = try #require(
+            Render.bitmap(
+                ReaderPane(store: comConversa).environment(ThemeStore()),
+                size: CGSize(width: 700, height: 600), theme: .tinta
+            )
+        )
+        let sozinha = await store([
+            msg("c", thread: "t1", at: 300, from: "Marina", body: ["resposta"])
+        ])
+        sozinha.select(message: "c")
+        let simples = try #require(
+            Render.bitmap(
+                ReaderPane(store: sozinha).environment(ThemeStore()),
+                size: CGSize(width: 700, height: 600), theme: .tinta
+            )
+        )
+        // Onde a pilha vive, o desenho é claramente outro — e não por um fio.
+        var diferentes = 0
+        for y in 0..<min(pilha.pixelsHigh, 300) {
+            for x in 0..<pilha.pixelsWide where pilha.colorAt(x: x, y: y) != simples.colorAt(x: x, y: y) {
+                diferentes += 1
+            }
+        }
+        #expect(diferentes > 5000, "a pilha continua sendo dois fios sobre o mesmo papel")
+    }
 }

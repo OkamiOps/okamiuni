@@ -99,6 +99,11 @@ struct ConversationStackClickTests {
     /// O clique na linha recolhida do Favini — a primeira da pilha, dentro dos
     /// 38pt da primeira linha — expande **e pede o corpo dela**.
     ///
+    /// A pilha passou a abrir com o cabeçalho da contagem (M3-21), então toda
+    /// linha desce `alturaDoCabecalho`. O deslocamento entra pela constante, e
+    /// não por um número novo: quem mudar a altura do cabeçalho não precisa
+    /// vir consertar dois cliques aqui.
+    ///
     /// Cai por mutação: sem o `.task` de `ConversationStackView`, a porta nunca
     /// é perguntada, `bodyLoad` fica `nil` e a linha expande para o vazio — que
     /// é exatamente o app que o dono usou.
@@ -110,7 +115,8 @@ struct ConversationStackClickTests {
         try CliqueDeEnsaio.em(
             pilha(store, estado: estado),
             size: CGSize(width: 700, height: 400),
-            aY: ConversationStackView<EmptyView>.alturaDaLinha / 2
+            aY: ConversationStackView<EmptyView>.alturaDoCabecalho
+                + ConversationStackView<EmptyView>.alturaDaLinha / 2
         )
 
         // Abriu: o estado da pilha passou a ter a mensagem de baixo.
@@ -135,7 +141,7 @@ struct ConversationStackClickTests {
         try CliqueDeEnsaio.em(
             pilha(store, estado: estado),
             size: CGSize(width: 700, height: 400),
-            aY: altura * 2 + altura / 2
+            aY: ConversationStackView<EmptyView>.alturaDoCabecalho + altura * 2 + altura / 2
         )
 
         #expect(estado.opened?.ids.contains("c") == false)

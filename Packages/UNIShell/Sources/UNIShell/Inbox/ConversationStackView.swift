@@ -41,6 +41,7 @@ struct ConversationStackView<Corpo: View>: View {
     var body: some View {
         let abertas = ConversationStack.expanded(conversa, opened: opened)
         VStack(alignment: .leading, spacing: 0) {
+            cabecalhoDaPilha
             ForEach(conversa.messages) { message in
                 let aberta = abertas.contains(message.id)
                 VStack(alignment: .leading, spacing: 0) {
@@ -70,6 +71,33 @@ struct ConversationStackView<Corpo: View>: View {
                 }
             }
         }
+    }
+
+    /// **Quantas mensagens esta conversa tem, dito em voz alta.**
+    ///
+    /// O defeito da tela do dono: as duas mensagens recolhidas do Zoho eram
+    /// dois fios no topo do leitor, e ele não percebeu que havia mais. A pilha
+    /// existia e não se anunciava. Agora ela abre com a contagem, no rótulo em
+    /// versalete que a barra lateral e a janela de compromisso já usam para
+    /// dizer de que é a seção que vem abaixo — nenhum desenho novo.
+    ///
+    /// A frase é a mesma do selo da lista (M3-9), e é de propósito: a pessoa lê
+    /// "3 mensagens nesta conversa" no `help` da linha da caixa e encontra a
+    /// mesma frase quando abre.
+    private var cabecalhoDaPilha: some View {
+        Text(Self.contagem(conversa.messages.count))
+            .capsLabel(size: 9.5)
+            .padding(.horizontal, 28)
+            .frame(height: Self.alturaDoCabecalho, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(theme.surface2.color)
+            .hairline(theme.line, edges: .bottom)
+    }
+
+    /// "3 mensagens nesta conversa". `nonisolated` e `static` porque o que a
+    /// pessoa lê é comportamento — o teste a afirma sem montar leitor.
+    nonisolated static func contagem(_ quantas: Int) -> String {
+        "\(quantas) mensagens nesta conversa"
     }
 
     /// A linha clicável de uma mensagem da pilha. Clicar abre a recolhida e
@@ -116,11 +144,22 @@ struct ConversationStackView<Corpo: View>: View {
         .padding(.horizontal, 28)
         .frame(height: Self.alturaDaLinha)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // **Recolhida tem fundo; aberta é o papel do leitor.** Era o segundo
+        // motivo de a pilha passar despercebida: as linhas recolhidas tinham a
+        // mesma cor do corpo e só uma hairline entre elas, e três fios de 38pt
+        // sobre o mesmo papel não se leem como três mensagens. O fundo é o da
+        // barra lateral e da barra de título — a cor que esta base já usa para
+        // "isto é moldura, não conteúdo".
+        .background(aberta ? Color.clear : theme.surface2.color)
         .contentShape(Rectangle())
-        .hairline(theme.line2, edges: .bottom)
+        .hairline(theme.line, edges: .bottom)
     }
 
     /// A altura da linha de cabeçalho, em pontos. Nomeada porque o ensaio de
     /// clique precisa saber onde a segunda linha começa.
     static var alturaDaLinha: CGFloat { 38 }
+
+    /// A altura do cabeçalho da pilha — a linha da contagem, acima de tudo.
+    /// Nomeada pela mesma razão: é o deslocamento de toda linha abaixo dela.
+    static var alturaDoCabecalho: CGFloat { 26 }
 }
