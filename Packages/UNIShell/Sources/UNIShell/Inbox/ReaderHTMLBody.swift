@@ -19,8 +19,11 @@ import WebKit
 ///   pixel. Carregar é uma escolha por mensagem, e ela não fica guardada.
 /// - **Navegar.** Todo link sai para o navegador padrão — ver
 ///   `ReaderHTMLPolicy.decide(url:)`.
-/// - **Lembrar.** `WKWebsiteDataStore.nonPersistent()`: cookie, cache e
-///   armazenamento local morrem com a janela. Um email não tem sessão.
+/// - **Lembrar depois de fechar.** O armazenamento não é persistente: cookie,
+///   cache e armazenamento local morrem com o app. Um email não tem sessão. O
+///   que ele guarda **enquanto o app roda** é comum a todas as mensagens desde
+///   a M3-22 — ver `ReaderWebSession` para por que isso não é o contrário
+///   disto.
 /// - **Roubar.** Ela não aceita foco, devolve a roda do mouse para o leitor e
 ///   não responde a atalho nenhum — os do app continuam sendo do app.
 struct ReaderHTMLBody: NSViewRepresentable {
@@ -43,18 +46,25 @@ struct ReaderHTMLBody: NSViewRepresentable {
     /// imagens dentro dele — medido na M3-18), e a régua responde logo depois.
     /// Quando a primeira altura de verdade chega, a mensagem está desenhada.
     /// Enquanto não chega, quem espera na tela é o `ReaderHTMLSection`.
+    ///
+    /// **Volta a falso a cada carga nova** (M3-22). Sem isso, apertar
+    /// "Carregar" numa mensagem já pintada trocava o documento por um em branco
+    /// com o sinal ainda ligado — e era esse o caminho dos "trinta segundos de
+    /// nada" que o dono relatou.
     @Binding var pintou: Bool
 
     func makeCoordinator() -> Coordenador { Coordenador(self) }
 
     func makeNSView(context: Context) -> WKWebView {
-        let configuracao = WKWebViewConfiguration()
-        configuracao.defaultWebpagePreferences.allowsContentJavaScript = false
-        // Sem persistência: um email não tem sessão, e um cookie de rastreio
-        // que sobrevivesse à mensagem seria o pixel de rastreio com memória.
-        configuracao.websiteDataStore = .nonPersistent()
-
-        let webView = WebViewQueNaoRouba(frame: .zero, configuration: configuracao)
+        // **A mensagem que já foi lida volta pronta.** Ver `ReaderWebSession`:
+        // o leitor destrói este bloco a cada troca de mensagem, e sem o acervo
+        // voltar para a mensagem de ontem é baixar tudo de novo.
+        let webView = ReaderWebSession.retira(context.coordinator.assinatura(de: self))
+            .map { guardada -> WebViewQueNaoRouba in
+                context.coordinator.reaproveita(guardada)
+                return guardada.view
+            }
+            ?? WebViewQueNaoRouba(frame: .zero, configuration: ReaderWebSession.configuracao())
         webView.navigationDelegate = context.coordinator
         webView.setValue(false, forKey: "drawsBackground")
         // A largura do painel muda quando alguém arrasta a divisória — e a
@@ -64,7 +74,7 @@ struct ReaderHTMLBody: NSViewRepresentable {
         // Os dois fracos, e não por zelo: a `WebView` guarda a closure, e uma
         // closure que a guardasse de volta seria um ciclo — uma `WebView` por
         // mensagem aberta, vivas até o app fechar.
-        webView.aoMudarLargura = { [weak webView, weak coordenador = context.coordinator] largura in
+        webView.aoMudarLargura = { [weak webView, weak coordenador = context.coordinator] (largura: CGFloat) in
             guard let webView else { return }
             coordenador?.ajusta(webView, largura: largura)
         }
@@ -77,6 +87,11 @@ struct ReaderHTMLBody: NSViewRepresentable {
         context.coordinator.carrega(em: webView)
     }
 
+    /// Fechar a mensagem **guarda** a página em vez de queimá-la.
+    static func dismantleNSView(_ nsView: WKWebView, coordinator: Coordenador) {
+        MainActor.assumeIsolated { coordinator.guarda(nsView) }
+    }
+
     // MARK: - O delegado
 
     @MainActor
@@ -87,22 +102,107 @@ struct ReaderHTMLBody: NSViewRepresentable {
         /// noutro painel.
         private var ultimoCarregado: String?
 
+        /// O teto da espera, armado quando a navegação termina. Ver
+        /// `ReaderHTMLSection.tetoDaEspera`.
+        private var tetoDaRegua: Task<Void, Never>?
+
+        deinit { tetoDaRegua?.cancel() }
+
+        /// A última altura que a régua devolveu. É ela que volta com a página
+        /// guardada: sem isso a `WebView` reaproveitada entraria com um ponto de
+        /// altura e a mensagem piscaria antes de reabrir no tamanho certo.
+        private var ultimaAltura: CGFloat = 1
+        /// A página desta `WebView` chegou a pintar de verdade — a régua
+        /// respondeu. Só uma dessas vale a pena guardar.
+        private var pintouDeVerdade = false
+
+        /// Qual carga está na tela.
+        ///
+        /// **A medição é assíncrona, e a carga seguinte não a espera.** O
+        /// `didFinish` agenda uma segunda passada 120ms depois; se nesse meio
+        /// tempo a pessoa aperta "Carregar", a resposta da régua **do documento
+        /// velho** chegava e anunciava "pintou" por cima do documento novo, que
+        /// ainda estava descendo — a espera sumia da tela e voltava a coluna em
+        /// branco. Medido: era o que restava dos "trinta segundos de nada"
+        /// depois do primeiro conserto. Cada resposta agora diz de que carga
+        /// ela é, e a atrasada é descartada.
+        private var geracao = 0
+
         init(_ pai: ReaderHTMLBody) {
             self.pai = pai
             super.init()
         }
 
-        func carrega(em webView: WKWebView) {
+        /// O que identifica o documento que está (ou vai) na tela: o HTML já
+        /// montado com o tema, mais a permissão de imagem remota. Duas
+        /// mensagens diferentes, dois documentos; a mesma mensagem com as
+        /// imagens liberadas, outro documento — e é por isso que apertar
+        /// "Carregar" recarrega.
+        nonisolated func documento(de corpo: ReaderHTMLBody) -> (assinatura: String, html: String) {
             let documento = ReaderHTMLPolicy.documento(
-                html: pai.html, fundo: pai.fundo, tinta: pai.tinta,
-                link: pai.link, fonte: pai.fonte
+                html: corpo.html, fundo: corpo.fundo, tinta: corpo.tinta,
+                link: corpo.link, fonte: corpo.fonte
             )
-            let assinatura = "\(pai.permiteRemotas)\n\(documento)"
+            return ("\(corpo.permiteRemotas)\n\(documento)", documento)
+        }
+
+        nonisolated func assinatura(de corpo: ReaderHTMLBody) -> String {
+            documento(de: corpo).assinatura
+        }
+
+        /// A página que voltou do acervo já está desenhada: nada é recarregado,
+        /// e o leitor a mostra na altura em que ela ficou.
+        func reaproveita(_ guardada: ReaderWebSession.Pagina) {
+            ultimoCarregado = guardada.assinatura
+            ultimaAltura = guardada.altura
+            pintouDeVerdade = true
+            // Fora do desenho em curso: isto roda dentro do `makeNSView`, e
+            // escrever num `@State` no meio da montagem da `View` é
+            // justamente o que o SwiftUI proíbe.
+            let altura = guardada.altura
+            Task { @MainActor [self] in
+                pai.altura = altura
+                pai.pintou = true
+            }
+        }
+
+        /// Devolve a página ao acervo quando o bloco sai da tela.
+        func guarda(_ webView: WKWebView) {
+            tetoDaRegua?.cancel()
+            tetoDaRegua = nil
+            guard pintouDeVerdade, let assinatura = ultimoCarregado,
+                  let view = webView as? WebViewQueNaoRouba
+            else { return }
+            view.aoMudarLargura = nil
+            view.navigationDelegate = nil
+            ReaderWebSession.guarda(
+                .init(assinatura: assinatura, view: view, altura: ultimaAltura)
+            )
+        }
+
+        func carrega(em webView: WKWebView) {
+            let (assinatura, documento) = documento(de: pai)
             guard assinatura != ultimoCarregado else { return }
             ultimoCarregado = assinatura
+            geracao += 1
+            pintouDeVerdade = false
+
+            // **Carga nova é espera nova — e é o defeito da M3-21.** O sinal só
+            // nascia falso; ninguém o devolvia para falso quando um segundo
+            // documento começava a carregar. O caminho que leva os trinta
+            // segundos é justamente esse: a pessoa aperta "Carregar", as onze
+            // imagens remotas saem pela rede, e a `WebView` fica em branco com
+            // `pintou` ainda ligado da carga anterior — vinte segundos de nada,
+            // sem a espera que a M3-21 desenhou.
+            tetoDaRegua?.cancel()
+            tetoDaRegua = nil
 
             let permite = pai.permiteRemotas
-            Task { @MainActor in
+            Task { @MainActor [self] in
+                // Fora do desenho em curso, pelo mesmo motivo do
+                // `reaproveita`: `carrega` é chamado de dentro do `makeNSView`
+                // e do `updateNSView`.
+                if pai.pintou { pai.pintou = false }
                 // **A regra entra antes do documento.** Compilar depois de
                 // carregar deixaria a primeira leva de imagens sair pela rede —
                 // e o pixel de rastreio só precisa de uma.
@@ -152,9 +252,39 @@ struct ReaderHTMLBody: NSViewRepresentable {
             // Segunda passada: a primeira acontece antes de as imagens
             // embutidas terem layout, e uma newsletter cresce meia tela quando
             // elas entram. Sem ela, o fim da mensagem fica cortado.
+            let geracao = self.geracao
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(120))
-                ajusta(webView, largura: webView.bounds.width)
+                ajusta(webView, largura: webView.bounds.width, geracao: geracao)
+            }
+            armaOTeto()
+        }
+
+        /// Navegação que falhou também acaba a espera: sem isto, um documento
+        /// que nunca carrega deixaria a roda girando para sempre.
+        func webView(
+            _ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error
+        ) {
+            armaOTeto()
+        }
+
+        func webView(
+            _ webView: WKWebView,
+            didFailProvisionalNavigation navigation: WKNavigation!,
+            withError error: Error
+        ) {
+            armaOTeto()
+        }
+
+        /// O teto começa **aqui**, e não na abertura: enquanto a rede trabalha
+        /// a espera é verdade, e desligá-la no meio devolveria a coluna vazia
+        /// que o dono viu. Ver `ReaderHTMLSection.tetoDaEspera`.
+        private func armaOTeto() {
+            guard tetoDaRegua == nil else { return }
+            tetoDaRegua = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: ReaderHTMLSection.tetoDaEspera)
+                guard let self, !Task.isCancelled else { return }
+                if !self.pai.pintou { self.pai.pintou = true }
             }
         }
 
@@ -170,6 +300,10 @@ struct ReaderHTMLBody: NSViewRepresentable {
         /// script que a mensagem traz, não sobre o que nós perguntamos. Medido
         /// na prática, não deduzido do cabeçalho.
         func ajusta(_ webView: WKWebView, largura: CGFloat) {
+            ajusta(webView, largura: largura, geracao: geracao)
+        }
+
+        private func ajusta(_ webView: WKWebView, largura: CGFloat, geracao: Int) {
             guard largura > 0 else { return }
             webView.pageZoom = 1
             // `body.scrollWidth`, e **não** `documentElement.scrollWidth`: com
@@ -178,25 +312,28 @@ struct ReaderHTMLBody: NSViewRepresentable {
             // vez do que está sendo medido. Foi assim que o corte passou
             // despercebido.
             webView.evaluateJavaScript("document.body.scrollWidth") { [weak self] valor, _ in
-                guard let self else { return }
+                guard let self, self.geracao == geracao else { return }
                 let conteudo = (valor as? CGFloat) ?? 0
                 let escala = ReaderHTMLPolicy.escala(painel: largura, conteudo: conteudo)
                 webView.pageZoom = escala
-                self.mede(webView, escala: escala)
+                self.mede(webView, escala: escala, geracao: geracao)
             }
         }
 
-        private func mede(_ webView: WKWebView, escala: CGFloat) {
+        private func mede(_ webView: WKWebView, escala: CGFloat, geracao: Int) {
             webView.evaluateJavaScript(
                 ReaderHTMLPolicy.medidaDaAltura
             ) { [weak self] valor, _ in
-                guard let self, let numero = valor as? CGFloat, numero > 0 else { return }
+                guard let self, self.geracao == geracao,
+                      let numero = valor as? CGFloat, numero > 0 else { return }
                 // A régua respondeu com um número de verdade: o documento está
                 // desenhado. É aqui, e não no `didFinish`, porque entre os dois
                 // a `WebView` ainda mede um ponto de altura — anunciar "pintou"
                 // lá deixaria um fio no lugar da mensagem.
                 if !self.pai.pintou { self.pai.pintou = true }
+                self.pintouDeVerdade = true
                 let altura = ReaderHTMLPolicy.altura(documento: numero, escala: escala)
+                self.ultimaAltura = altura
                 guard abs(altura - self.pai.altura) > 1 else { return }
                 self.pai.altura = altura
             }
@@ -210,7 +347,7 @@ struct ReaderHTMLBody: NSViewRepresentable {
 /// (senão a mensagem rola por dentro e a coluna não anda), o atalho volta para
 /// o app (senão ⌘R deixa de responder quando o foco cai aqui), e o foco nunca
 /// vem para cá (a `WebView` não tem nada para digitar).
-private final class WebViewQueNaoRouba: WKWebView {
+final class WebViewQueNaoRouba: WKWebView {
     /// Avisado quando a largura muda de verdade — a divisória de painéis
     /// arrastada, a janela redimensionada. A altura muda o tempo todo (é a
     /// própria medição que a muda), e reagir a ela seria um laço.

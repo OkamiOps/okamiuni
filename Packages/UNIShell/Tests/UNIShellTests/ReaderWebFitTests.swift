@@ -333,13 +333,16 @@ final class SondaDeWebView: NSObject, WKNavigationDelegate {
     let web: WKWebView
     private var terminou: CheckedContinuation<Void, Never>?
 
-    init(largura: CGFloat) {
-        let configuracao = WKWebViewConfiguration()
-        configuracao.defaultWebpagePreferences.allowsContentJavaScript = false
-        configuracao.websiteDataStore = .nonPersistent()
+    init(largura: CGFloat, configuracao: WKWebViewConfiguration? = nil) {
+        let escolhida: WKWebViewConfiguration = configuracao ?? {
+            let nova = WKWebViewConfiguration()
+            nova.defaultWebpagePreferences.allowsContentJavaScript = false
+            nova.websiteDataStore = .nonPersistent()
+            return nova
+        }()
         web = WKWebView(
             frame: NSRect(x: 0, y: 0, width: largura, height: 1),
-            configuration: configuracao
+            configuration: escolhida
         )
         super.init()
         web.navigationDelegate = self

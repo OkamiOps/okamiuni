@@ -15,6 +15,15 @@ struct ReaderHTMLSection: View {
     @Environment(\.displayScale) private var displayScale
 
     let html: String
+    /// O texto plano da mesma mensagem, já refluído — o que o leitor mostra
+    /// **enquanto** o HTML não pintou.
+    ///
+    /// **É a metade honesta do conserto da M3-22.** O corpo texto já está no
+    /// banco quando a mensagem abre; segurá-lo escondido atrás de uma coluna
+    /// vazia enquanto onze imagens remotas descem por trinta segundos é
+    /// esconder o que se tem. A pessoa começa a ler na hora, e o desenho do
+    /// remetente entra por cima quando ficar pronto.
+    var paragrafos: [String] = []
     /// O endereço de quem mandou. É o que a faixa escreve no botão do "sempre"
     /// e o que fica gravado — ver `UNICore.SenderTrust` para por que o
     /// endereço inteiro, e não o domínio.
@@ -43,14 +52,16 @@ struct ReaderHTMLSection: View {
     /// vindo do servidor, aqui ele já chegou e está sendo desenhado.
     nonisolated static let carregando = "Carregando a mensagem…"
 
-    /// Quanto a espera dura no máximo.
+    /// Quanto a espera dura depois de a navegação terminar.
     ///
-    /// **Teto, e não promessa.** Se a `WebView` nunca responder — um documento
-    /// que quebra a régua, um `didFinish` que não vem —, o leitor cai para o
-    /// que tiver em vez de girar para sempre. Cinco segundos é folga larga
-    /// sobre o caso normal (as imagens remotas nascem bloqueadas, então o
-    /// `load` não espera a rede) e curto o bastante para ninguém achar que
-    /// travou.
+    /// **Teto da régua, e não da rede — mudou na M3-22.** Ele era contado da
+    /// abertura, e por isso mentia no caso que interessa: com onze imagens
+    /// remotas descendo, aos cinco segundos ele declarava "pintou" e a coluna
+    /// voltava a ser um fio em branco por mais quinze. Agora a contagem começa
+    /// no fim da navegação (`didFinish` ou `didFail`), que é quando a régua
+    /// deveria responder: enquanto a rede trabalha, a roda gira e o texto plano
+    /// está na tela — e se a régua é que quebrou, o leitor cai para o que tiver
+    /// cinco segundos depois, em vez de girar para sempre.
     nonisolated static let tetoDaEspera: Duration = .seconds(5)
 
     /// As imagens desta mensagem carregam?
@@ -95,18 +106,17 @@ struct ReaderHTMLSection: View {
                 // espera seria destruí-la e recomeçar a carga a cada redesenho.
                 .opacity(jaPintou ? 1 : 0)
 
-                // A `ReaderNote` já traz os mesmos 28 de folga do corpo.
-                if !jaPintou { ReaderNote(Self.carregando) }
+                // A espera: a roda que gira, e o texto que a pessoa já pode
+                // ler. As duas trazem os mesmos 28 de folga do corpo.
+                if !jaPintou {
+                    VStack(alignment: .leading, spacing: 18) {
+                        ReaderSpinnerNote(Self.carregando)
+                        if !paragrafos.isEmpty { ReaderPlainText(paragrafos: paragrafos) }
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        // O teto da espera. `id: html` porque cada mensagem tem a sua: trocar
-        // de email recomeça a contagem em vez de herdar o resto da anterior.
-        .task(id: html) {
-            try? await Task.sleep(for: Self.tetoDaEspera)
-            guard !Task.isCancelled else { return }
-            pintou = true
-        }
     }
 
     /// A frase, e o que ela oferece.

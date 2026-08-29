@@ -782,6 +782,10 @@ public struct ReaderPane: View {
             // disco e não neste `@State`.
             ReaderHTMLSection(
                 html: html,
+                // O texto plano da **mesma** mensagem, que já está no banco: é
+                // ele que o leitor mostra enquanto o HTML não pinta, em vez da
+                // coluna vazia. Ver `ReaderHTMLSection`.
+                paragrafos: Self.paragrafos(de: message),
                 remetente: message.from.address,
                 confiavel: store.trustsSender(message.from.address),
                 aoConfiar: { store.trustSender(message.from.address) },
@@ -789,17 +793,7 @@ public struct ReaderPane: View {
             )
             .id(message.id)
         } else if !message.body.isEmpty {
-            VStack(alignment: .leading, spacing: 16) {
-                ForEach(Array(Self.paragrafos(de: message).enumerated()), id: \.offset) { _, para in
-                    Text(para)
-                        .font(theme.serif.font(size: 16))
-                        .lineSpacing(10.88)
-                        .foregroundStyle(theme.ink.color)
-                        .frame(maxWidth: Self.readingWidth, alignment: .leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            .padding(.horizontal, 28)
+            ReaderPlainText(paragrafos: Self.paragrafos(de: message))
         } else {
             switch store.bodyLoad(for: message.id) {
             case .carregando:
@@ -957,5 +951,60 @@ struct ReaderNote: View {
             .foregroundStyle(theme.ink4.color)
             .frame(maxWidth: ReaderPane.readingWidth, alignment: .leading)
             .padding(.horizontal, 28)
+    }
+}
+
+/// A mesma nota, com a roda girando ao lado.
+///
+/// **Pedido do dono, com estas palavras: "um spinning".** A frase sozinha é
+/// discreta demais para uma espera de vinte segundos — ela se lê como legenda,
+/// não como "o app está trabalhando". A roda é o que separa "está vindo" de
+/// "travou", e é a peça que o macOS já tem para dizer isso.
+///
+/// A tipografia continua sendo a da `ReaderNote`: uma voz só no leitor.
+struct ReaderSpinnerNote: View {
+    @Environment(\.theme) private var theme
+    private let texto: String
+
+    init(_ texto: String) { self.texto = texto }
+
+    var body: some View {
+        HStack(spacing: 9) {
+            ProgressView()
+                .progressViewStyle(.circular)
+                .controlSize(.small)
+            Text(texto)
+                .font(theme.serif.font(size: 15))
+                .italic()
+                .foregroundStyle(theme.ink4.color)
+        }
+        .frame(maxWidth: ReaderPane.readingWidth, alignment: .leading)
+        .padding(.horizontal, 28)
+    }
+}
+
+/// A coluna de texto plano do leitor.
+///
+/// Era um `VStack` dentro do `ReaderPane.body(_:)`. Virou peça porque agora ela
+/// é desenhada em **dois** momentos: quando a mensagem não tem HTML (sempre foi
+/// assim) e enquanto o HTML ainda não pintou — o texto que já está no banco no
+/// lugar dos vinte segundos de nada. Duas cópias divergiriam na primeira vez
+/// que alguém mexesse no espaçamento de uma.
+struct ReaderPlainText: View {
+    @Environment(\.theme) private var theme
+    let paragrafos: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            ForEach(Array(paragrafos.enumerated()), id: \.offset) { _, para in
+                Text(para)
+                    .font(theme.serif.font(size: 16))
+                    .lineSpacing(10.88)
+                    .foregroundStyle(theme.ink.color)
+                    .frame(maxWidth: ReaderPane.readingWidth, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 28)
     }
 }

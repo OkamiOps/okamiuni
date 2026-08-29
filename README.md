@@ -100,6 +100,7 @@ Três instrumentos fazem o app testemunhar contra si mesmo, sem tocar no mouse d
 | Captura | `--capturar` | A janela real se fotografa e encerra — pixels do AppKit, não de um harness |
 | Ensaio de arraste | `--ensaiar-arraste` | Eventos de mouse sintetizados **dentro do processo** (`NSWindow.sendEvent`), uma foto por fase do gesto |
 | Ensaio de teclado / barra | `--ensaiar-teclado` · `--ensaiar-barra` | Cada atalho e o duplo clique na barra, aferidos no caminho real dos eventos |
+| Ensaio dos semáforos | `--ensaiar-semaforos` | A moldura real dos botões do sistema contra o cabeçalho de cada uma das seis janelas, medida dentro do processo |
 | Ensaio de contas | `--ensaiar-contas` | O fluxo inteiro de conectar uma conta, contra um servidor IMAP falso em loopback — banco descartável, Keychain intocado |
 
 Foi o ensaio de arraste que pegou o defeito que três rodadas de teste de modelo não viam: no macOS, um `Button` dispara no mouse-up mesmo depois de a mão andar 200pt — e a linha inteira é um botão. O registro completo dessas decisões está em [`docs/decisoes-de-engenharia.md`](docs/decisoes-de-engenharia.md).

@@ -19,9 +19,9 @@ struct ReaderHTMLLoadingTests {
     private static let html = "<html><body><p>Uma mensagem qualquer.</p></body></html>"
     private static let tamanho = CGSize(width: 700, height: 300)
 
-    private static func desenho(pintou: Bool) -> NSBitmapImageRep? {
+    private static func desenho(pintou: Bool, paragrafos: [String] = []) -> NSBitmapImageRep? {
         Render.bitmap(
-            ReaderHTMLSection(html: html, debugPintou: pintou),
+            ReaderHTMLSection(html: html, paragrafos: paragrafos, debugPintou: pintou),
             size: tamanho, theme: .tinta
         )
     }
@@ -61,6 +61,33 @@ struct ReaderHTMLLoadingTests {
         // `WebView` não desenha nada, e o que sobra é o papel limpo.
         #expect(Self.tinta(em: pintado) == 0, "a espera ficou na tela depois de a mensagem pintar")
         #expect(esperando.pixelsDiffering(from: pintado) > 0)
+    }
+
+    /// **O texto que já está no banco, na tela desde o primeiro instante.**
+    ///
+    /// Trinta segundos olhando uma coluna vazia enquanto o corpo texto da mesma
+    /// mensagem está guardado a um campo de distância é esconder o que se tem.
+    /// A espera passa a mostrá-lo; o desenho do remetente entra por cima quando
+    /// ficar pronto.
+    @Test("Enquanto espera, o texto plano da mensagem já está na tela")
+    func oTextoPlanoAparece() throws {
+        let paragrafo = "Bom dia, Marcos. Segue o combinado de ontem, com os valores."
+        let sóAEspera = try #require(Self.desenho(pintou: false))
+        let comOTexto = try #require(Self.desenho(pintou: false, paragrafos: [paragrafo]))
+        #expect(
+            Self.tinta(em: comOTexto) > Self.tinta(em: sóAEspera),
+            "o texto plano não foi desenhado enquanto o HTML carrega"
+        )
+    }
+
+    /// E ele sai quando a mensagem pinta: dois corpos ao mesmo tempo seriam a
+    /// mesma mensagem duas vezes.
+    @Test("Quando o HTML pinta, o texto plano sai da tela")
+    func oTextoPlanoSai() throws {
+        let pintado = try #require(
+            Self.desenho(pintou: true, paragrafos: ["Bom dia, Marcos."])
+        )
+        #expect(Self.tinta(em: pintado) == 0)
     }
 
     @Test("A frase é a do leitor, e a espera tem teto")
