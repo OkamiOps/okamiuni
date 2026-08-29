@@ -44,6 +44,12 @@ public enum TriageProjection {
         // fez), ela tem caminho de produção — e o nome da pasta vem junto, como
         // etiqueta, por `tag(folderRole:folderName:)`.
         case .other: .archived
+        // Rascunhos e spam ganharam papel próprio na M3-17 **sem mudar caixa
+        // nenhuma**: eles eram `.other` e caíam aqui, em Arquivado; continuam
+        // caindo. O papel serve à barra lateral (o ícone da linha), e uma
+        // mudança de projeção junto teria movido de caixa, calada, toda mensagem
+        // de rascunho e de spam de toda conta IMAP já carregada.
+        case .drafts, .junk: .archived
         }
     }
 
@@ -66,9 +72,19 @@ public enum TriageProjection {
     /// da conta, e inventar uma segunda cor aqui seria decisão de design que
     /// ninguém tomou.
     public static func tag(folderRole: FolderRole, folderName: String) -> Tag? {
-        guard folderRole == .other else { return nil }
-        let limpo = folderName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return limpo.isEmpty ? nil : Tag(name: limpo)
+        switch folderRole {
+        // As nossas continuam sem etiqueta: o nome delas é estrutura, e já está
+        // dito pelo `bucket`.
+        case .inbox, .later, .archive, .trash, .sent: return nil
+        // Rascunhos e spam **continuam** ganhando etiqueta. Eles eram `.other`
+        // até a M3-17, e cair em Arquivado com "Rascunhos" ao lado é a única
+        // coisa que distinguia aquela mensagem das outras arquivadas. Deixá-los
+        // sair daqui junto com o papel novo teria apagado a etiqueta de toda
+        // mensagem de rascunho já gravada, na recarga seguinte.
+        case .drafts, .junk, .other:
+            let limpo = folderName.trimmingCharacters(in: .whitespacesAndNewlines)
+            return limpo.isEmpty ? nil : Tag(name: limpo)
+        }
     }
 
     /// A mesma projeção, pelos rótulos do Gmail.

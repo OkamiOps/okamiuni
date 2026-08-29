@@ -29,11 +29,17 @@ public struct GmailClient: Sendable {
 
     public func labels() async throws -> [GmailLabel] {
         struct Wire: Decodable {
-            struct Label: Decodable { let id: String; let name: String }
+            // `type` é opcional no nosso lado: a API o manda sempre, mas um
+            // rótulo sem ele não pode derrubar a listagem inteira. Ausente conta
+            // como "user", que é o caso que **entra** na barra — errar para o
+            // lado de mostrar é menos grave do que esconder uma pasta da pessoa.
+            struct Label: Decodable { let id: String; let name: String; let type: String? }
             let labels: [Label]?
         }
         let fio: Wire = try await get(path: "labels", query: [])
-        return (fio.labels ?? []).map { GmailLabel(id: $0.id, name: $0.name) }
+        return (fio.labels ?? []).map {
+            GmailLabel(id: $0.id, name: $0.name, type: $0.type ?? "user")
+        }
     }
 
     public func messageIDs(query: String, pageToken: String?) async throws -> GmailPage {

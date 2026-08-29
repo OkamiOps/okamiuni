@@ -75,8 +75,19 @@ public struct ImapIncrementalSync: Sendable {
     /// inicial, e pela mesma razão: uma pasta de arquivo que o servidor recusa
     /// não pode custar a caixa de entrada.
     public func run(account: Account, session: ImapSession, now: Date) async throws -> Outcome {
-        let comPapel = try await session.folders().map { pasta in
+        let doServidor = try await session.folders()
+        let comPapel = doServidor.map { pasta in
             (pasta, TriageProjection.bucket(role: pasta.role))
+        }
+        // A descoberta acontece **a cada ciclo**, e não só na carga inicial: a
+        // pasta criada no webmail hoje de manhã aparece na barra sem reiniciar o
+        // app, e a que foi apagada some. O `LIST` já estava sendo feito aqui —
+        // o que faltava era gravar o resultado dele.
+        try await database.pool.write { db in
+            try FolderSync.reconcile(
+                db, accountID: account.id,
+                discovered: InitialLoader.registros(doServidor, accountID: account.id)
+            )
         }
         var total = Outcome()
         for (pasta, bucket) in comPapel {

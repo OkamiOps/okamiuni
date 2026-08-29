@@ -208,6 +208,18 @@ public struct Message: Sendable, Hashable, Identifiable {
     /// que o Marco 1 mostrava.
     public let threadKey: String?
 
+    /// Em que pastas do provedor esta mensagem está.
+    ///
+    /// Uma no IMAP (a pasta em que ela mora), várias no Gmail (os rótulos dela,
+    /// que **são** as pastas de lá), nenhuma nas fixtures do Marco 1 — que é o
+    /// valor padrão e o que faz a barra lateral sem conta continuar sendo a de
+    /// sempre.
+    ///
+    /// Lista, e não um id só, porque o Gmail não cabe num id só: a mesma
+    /// mensagem está em "Faturas" e em "Clientes" ao mesmo tempo, e escolher uma
+    /// das duas faria a outra pasta abrir sem ela.
+    public let folderIDs: [String]
+
     public init(
         id: String, accountID: String, from: Contact, receivedAt: Date,
         subject: String, snippet: String, body: [String],
@@ -218,8 +230,9 @@ public struct Message: Sendable, Hashable, Identifiable {
         serverID: String? = nil, uidValidity: Int64? = nil,
         bodyHTML: String? = nil, calendarICS: String? = nil,
         rfcMessageID: String? = nil, references: [String] = [],
-        threadKey: String? = nil
+        threadKey: String? = nil, folderIDs: [String] = []
     ) {
+        self.folderIDs = folderIDs
         self.rfcMessageID = rfcMessageID
         self.references = references
         self.threadKey = threadKey
@@ -368,7 +381,12 @@ extension Message {
             // Os três da conversa atravessam toda cópia. Esquecê-los aqui é a
             // armadilha que este método existe para não ter: marcar uma
             // mensagem como lida a tiraria da conversa dela, e isso **compila**.
-            rfcMessageID: rfcMessageID, references: references, threadKey: threadKey
+            rfcMessageID: rfcMessageID, references: references, threadKey: threadKey,
+            // Pela mesma razão dos três acima: arquivar uma mensagem não a tira
+            // da pasta do provedor em que ela está, e esquecê-la aqui **compila**
+            // — a mensagem sumiria da pasta aberta no instante em que alguém a
+            // marcasse como lida.
+            folderIDs: folderIDs
         )
     }
 

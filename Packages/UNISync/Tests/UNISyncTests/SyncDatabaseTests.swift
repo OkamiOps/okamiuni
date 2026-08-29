@@ -28,7 +28,12 @@ struct SyncDatabaseTests {
             tags: [], bucket: bucket, isRead: false,
             summary: nil, detectedEvent: nil,
             to: [Contact(name: "Eu", address: "eu@meudominio.com.br")],
-            serverID: "9001", uidValidity: 42
+            serverID: "9001", uidValidity: 42,
+            // A pasta em que ela mora — a mesma que o `folderID` da gravação
+            // diz. A coluna `folderMembershipJSON` da v8 grava `[]` justamente
+            // quando as duas coincidem, e a leitura a resolve de volta para
+            // aqui: é a ida e volta que este teste afirma.
+            folderIDs: ["conta-a/INBOX"]
         )
     }
 
@@ -42,7 +47,7 @@ struct SyncDatabaseTests {
             #expect(tabelas.contains(esperada), "faltou a tabela \(esperada)")
         }
         let versoes = try db.pool.read { try SyncDatabase.migrator.appliedIdentifiers($0) }
-        #expect(versoes == ["v1", "v2", "v3", "v4", "v5", "v6", "v7"])
+        #expect(versoes == ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8"])
     }
 
     @Test("Migrar duas vezes não faz nada na segunda")
@@ -50,7 +55,7 @@ struct SyncDatabaseTests {
         let db = try banco()
         try SyncDatabase.migrator.migrate(db.pool)
         let versoes = try db.pool.read { try SyncDatabase.migrator.appliedIdentifiers($0) }
-        #expect(versoes == ["v1", "v2", "v3", "v4", "v5", "v6", "v7"])
+        #expect(versoes == ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8"])
     }
 
     @Test("A conta vai e volta inteira — inclusive o endpoint e o estado")
@@ -142,6 +147,13 @@ struct SyncDatabaseTests {
             let corpo = try MessageBodyRecord.fetchOne(conexao, key: ["messageID": "m1"])
             return registro.message(body: corpo?.body ?? [])
         }
+        // A volta traz `folderIDs` preenchido com a pasta em que a linha mora,
+        // e a ida gravou `[]`: **é a mesma informação, dita de duas formas**.
+        // Uma mensagem IMAP está numa pasta e ponto, e repetir o `folderID` em
+        // toda linha do banco seria a segunda fonte da verdade que um dia
+        // diverge — ver a v8. `[]` na entrada quer dizer "onde `folderID` diz",
+        // e é isso que sai.
+        #expect(devolvida.folderIDs == ["conta-a/INBOX"])
         #expect(devolvida == original)
     }
 
@@ -166,7 +178,8 @@ struct SyncDatabaseTests {
                 duration: 1_800
             ),
             replyHints: ["Confirmar quinta 15h", "Pedir mais um dia"],
-            serverID: "9001", uidValidity: 42
+            serverID: "9001", uidValidity: 42,
+            folderIDs: ["conta-a/INBOX"]
         )
         try db.pool.write { conexao in
             try AccountRecord(conta, createdAt: Date(timeIntervalSince1970: 1)).insert(conexao)

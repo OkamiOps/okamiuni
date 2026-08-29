@@ -45,6 +45,10 @@ public struct DatabaseMailSource: MailSource, Sendable {
         }
     }
 
+    public func folders() async throws -> [MailFolder] {
+        try await database.pool.read { try Self.folders(in: $0) }
+    }
+
     /// Sem tabela: `PendingItem` é a seção "Vindo do email" do Marco 1, que
     /// nasce da detecção no dispositivo e não do servidor. Lista vazia é a
     /// resposta honesta — inventar uma tabela vazia seria pior.
@@ -151,6 +155,11 @@ public struct DatabaseMailSource: MailSource, Sendable {
             &+ MessageRecord.fetchCount(db)
             &+ MessageBodyRecord.fetchCount(db)
             &+ AgendaItemRecord.fetchCount(db)
+            // `folder` entrou na M3-17, e não é decorativa: o retrato passou a
+            // levar as pastas, e sem esta contagem a `ValueObservation` não
+            // observa a tabela — a pasta criada no webmail só apareceria na
+            // barra quando alguma **mensagem** mudasse alguma coisa.
+            &+ FolderRecord.fetchCount(db)
     }
 
     private static func snapshot(in db: Database) throws -> MailSnapshot {
@@ -158,8 +167,16 @@ public struct DatabaseMailSource: MailSource, Sendable {
             accounts: try AccountRecord.order(Column("createdAt")).fetchAll(db).map(\.account),
             messages: try messages(in: db),
             agenda: try AgendaItemRecord.fetchAll(db).map(\.item),
-            pendingItems: []
+            pendingItems: [],
+            folders: try folders(in: db)
         )
+    }
+
+    /// As pastas do provedor, sem as linhas que não são pastas de verdade —
+    /// `FolderRecord.folder` devolve `nil` para a pseudo-pasta do Gmail, e é
+    /// por isso que o `compactMap` está aqui e não um `map`.
+    private static func folders(in db: Database) throws -> [MailFolder] {
+        try FolderRecord.fetchAll(db).compactMap(\.folder)
     }
 
     private static func messages(in db: Database) throws -> [Message] {

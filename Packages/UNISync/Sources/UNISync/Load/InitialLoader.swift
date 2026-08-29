@@ -134,8 +134,17 @@ public struct InitialLoader: Sendable {
             // erraria em todo o Gmail, e é por isso que isto está escrito aqui.
             let pseudoPasta = FolderRecord.gmail(accountID: account.id)
             let folderID = pseudoPasta.id
+            // As pastas que a barra lateral mostra: os rótulos, que **são** as
+            // pastas de uma conta Gmail. A pseudo-pasta continua ao lado deles,
+            // guardando as mensagens; ela é preservada por nome na reconciliação
+            // porque listagem nenhuma a devolve — ver `FolderSync.reconcile`.
+            let pastasDeRotulo = GmailFolders.records(rotulos, accountID: account.id)
             try await database.pool.write { db in
                 try pseudoPasta.save(db)
+                try FolderSync.reconcile(
+                    db, accountID: account.id,
+                    discovered: pastasDeRotulo, preservando: [folderID]
+                )
             }
 
             // 1. Os ids, paginados.
@@ -399,7 +408,14 @@ public struct InitialLoader: Sendable {
                 serverID: mensagem.id,
                 rfcMessageID: mensagem.rfcMessageID,
                 references: mensagem.references,
-                threadKey: chave
+                threadKey: chave,
+                // As pastas desta mensagem **são** os rótulos dela — a mesma
+                // lista que já decidiu a caixa, lida por outro ângulo. Sem esta
+                // linha as pastas da barra abririam todas vazias numa conta
+                // Gmail: a linha existiria e nenhuma mensagem se diria dela.
+                folderIDs: GmailFolders.membership(
+                    labelIDs: mensagem.labelIDs, accountID: account.id
+                )
             )
             // `save` é upsert: id determinístico + upsert = recarga
             // idempotente, que é o que faz "parar no meio" ser seguro.
@@ -495,8 +511,21 @@ public struct InitialLoader: Sendable {
             //
             // O `bucket` sai resolvido aqui, junto com o filtro, para não haver
             // uma segunda decisão (e um `?? .archived` inalcançável) lá embaixo.
-            let comPapel = try await sessao.folders().map { pasta in
+            let doServidor = try await sessao.folders()
+            let comPapel = doServidor.map { pasta in
                 (pasta, TriageProjection.bucket(role: pasta.role))
+            }
+
+            // A tabela `folder` posta em dia **antes** de baixar mensagem
+            // nenhuma: é ela que a barra lateral lê, e uma pasta que só aparece
+            // depois do download da caixa inteira é uma barra que fica errada
+            // por minutos. Apagar a que sumiu do servidor também é aqui — ver
+            // `FolderSync.reconcile` para as duas guardas do apagamento.
+            try await database.pool.write { db in
+                try FolderSync.reconcile(
+                    db, accountID: account.id,
+                    discovered: Self.registros(doServidor, accountID: account.id)
+                )
             }
 
             let desde = since(now: now)
@@ -678,6 +707,26 @@ public struct InitialLoader: Sendable {
             await recupera(account.id, estado: .ativa)
             log.error("Carga IMAP de \(account.address, privacy: .private) falhou: \(error)")
             throw error
+        }
+    }
+
+    /// As pastas do `LIST` como linhas de `folder`.
+    ///
+    /// `static` e aqui, e não escrita duas vezes: o ciclo incremental grava
+    /// exatamente as mesmas linhas a cada volta, e duas cópias divergiriam no
+    /// primeiro campo novo — com a pasta mudando de nome (ou de papel) conforme
+    /// quem a gravou por último.
+    static func registros(_ pastas: [ImapFolder], accountID: String) -> [FolderRecord] {
+        pastas.map { pasta in
+            FolderRecord(
+                id: FolderRecord.id(accountID: accountID, serverName: pasta.name),
+                accountID: accountID, serverName: pasta.name,
+                role: pasta.role,
+                // O nome do provedor, inteiro e como ele veio — inclusive o
+                // caminho composto de uma subpasta ("Clientes/Faturas"). Ver
+                // `MailFolder.serverName` para por que ele não é quebrado.
+                displayName: pasta.name
+            )
         }
     }
 

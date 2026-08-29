@@ -12,6 +12,22 @@ public struct GmailProfile: Sendable, Hashable {
 public struct GmailLabel: Sendable, Hashable {
     public let id: String
     public let name: String
+    /// `"system"` ou `"user"`, como a API os classifica.
+    ///
+    /// Existe desde a M3-17 porque a barra lateral precisa separar os dois: os
+    /// rótulos do usuário são **todos** pastas, e os do sistema quase nenhum é
+    /// — `UNREAD`, `STARRED`, `IMPORTANT` e as `CATEGORY_*` são estados e abas,
+    /// não lugares. Ver `GmailFolders`.
+    ///
+    /// Padrão `"user"` no `init` para o campo ser aditivo: os testes que
+    /// montavam um rótulo com id e nome continuam valendo.
+    public let type: String
+
+    public init(id: String, name: String, type: String = "user") {
+        self.id = id
+        self.name = name
+        self.type = type
+    }
 }
 
 public struct GmailPage: Sendable, Hashable {

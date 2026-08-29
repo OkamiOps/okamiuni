@@ -2,25 +2,9 @@ import Foundation
 import GRDB
 import UNICore
 
-/// O papel de uma pasta, do ponto de vista do app.
-///
-/// Nome do servidor não serve: "Archive", "Arquivo", "[Gmail]/Todos os e-mails"
-/// e "Alle Nachrichten" são a mesma coisa. O papel é o que a projeção de
-/// triagem lê, e é por isso que ele é gravado — descobri-lo de novo a cada
-/// abertura significaria refazer a heurística de nome sobre dados que já
-/// resolvemos uma vez.
-///
-/// `other` é legítimo e comum: pasta que o usuário criou não tem papel nosso.
-public enum FolderRole: String, Sendable, Hashable, CaseIterable {
-    case inbox
-    case archive
-    case trash
-    case sent
-    /// A pasta `OkamiUNI/Depois`, quando existe de instalação anterior. Neste
-    /// marco ela só é **lida**; escrever nela é do Marco 3.
-    case later = "depois"
-    case other = "outra"
-}
+// `FolderRole` mudou de casa na M3-17: ele mora em `UNICore.MailFolder`, junto
+// com o tipo que a barra lateral desenha. `import UNICore` acima é o que o traz
+// de volta para todo este pacote, sem uma linha de mudança em quem o usa.
 
 public struct AccountRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Equatable {
     public static let databaseTableName = "account"
@@ -139,15 +123,33 @@ public struct FolderRecord: Codable, FetchableRecord, PersistableRecord, Sendabl
         "\(accountID)/\(serverName)"
     }
 
-    // REMOVIDO: `var folderRole: FolderRole`.
-    //
-    // Era a única porta de volta de `role: String` para `FolderRole`, e não
-    // tinha leitor nenhum — nem em produção, nem em teste. Não é código morto
-    // inofensivo: a coluna `role` da pseudo-pasta do Gmail **não é confiável**
-    // (ver `InitialLoader`, onde ela é gravada), e a primeira pessoa a usar
-    // esta propriedade herdaria o defeito sem nenhum aviso. Quando o Marco 3
-    // precisar resolver destino por papel de pasta, ela volta — junto com a
-    // decisão sobre o que a pseudo-pasta do Gmail significa.
+    /// A pasta como a barra lateral a mostra — ou `nil` quando esta linha não é
+    /// uma pasta de verdade.
+    ///
+    /// **A pseudo-pasta do Gmail devolve `nil`, e é por isso que esta
+    /// propriedade é opcional.** Ela existe só para a chave estrangeira de
+    /// `message` ter para onde apontar; ela guarda as mensagens de Hoje,
+    /// Depois, Arquivado *e* Lixeira da conta, e a coluna `role` dela é
+    /// `.other` justamente para declarar que não significa nada (ver
+    /// `InitialLoader`). Mostrá-la na barra seria uma linha chamada "Gmail" com
+    /// a conta inteira dentro, ao lado das pastas de verdade. As pastas de uma
+    /// conta Gmail são os **rótulos**, e eles têm linhas próprias desde a
+    /// M3-17.
+    ///
+    /// Esta é a volta de `role: String` para `FolderRole` que o comentário
+    /// antigo deste lugar deixou marcada como dívida — paga agora, e com a
+    /// decisão sobre o Gmail junto, que era a condição.
+    public var folder: MailFolder? {
+        guard serverName != Self.gmailServerName else { return nil }
+        return MailFolder(
+            id: id, accountID: accountID, serverName: serverName,
+            displayName: displayName,
+            // Valor desconhecido não derruba a leitura, pela mesma regra de
+            // `AccountRecord.account`: um banco escrito por uma versão futura
+            // continua abrindo, com a pasta aparecendo sem papel.
+            role: FolderRole(rawValue: role) ?? .other
+        )
+    }
 }
 
 public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Equatable {
@@ -192,6 +194,15 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
     /// `nil` só existiria numa linha escrita fora de todos os caminhos de hoje;
     /// a migração v4 preencheu as antigas.
     public var threadKey: String?
+    /// Em que pastas do provedor esta mensagem está, como JSON de ids de pasta
+    /// — a coluna da v8.
+    ///
+    /// **Vazio é o caso normal, e significa "onde `folderID` diz".** Numa conta
+    /// IMAP a mensagem mora numa pasta e ponto: a coluna ficaria repetindo o
+    /// `folderID` em toda linha do banco. Ela existe pelo Gmail, onde pasta é
+    /// rótulo e uma mensagem tem vários — "Faturas" e "Clientes" ao mesmo
+    /// tempo, que nenhuma coluna única representa.
+    public var folderMembershipJSON: String
 
     /// Datas gravadas como epoch UTC (`Double`) — ver
     /// `AccountRecord.databaseDateEncodingStrategy`. `ORDER BY receivedAt
@@ -228,6 +239,11 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
         rfcMessageID = message.rfcMessageID
         referencesJSON = Self.encodeStrings(message.references)
         threadKey = message.threadKey
+        // Só o que **acrescenta** informação é gravado: a pertinência de uma
+        // mensagem que está só na própria pasta já está dita por `folderID`.
+        folderMembershipJSON = message.folderIDs == [folderID]
+            ? "[]"
+            : Self.encodeStrings(message.folderIDs)
     }
 
     /// O corpo vem de fora porque mora noutra tabela: a lista mostra centenas
@@ -250,8 +266,17 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
             bodyHTML: bodyHTML, calendarICS: calendarICS,
             rfcMessageID: rfcMessageID,
             references: Self.decodeStrings(referencesJSON),
-            threadKey: threadKey
+            threadKey: threadKey,
+            folderIDs: Self.folderIDs(membership: folderMembershipJSON, folderID: folderID)
         )
+    }
+
+    /// As pastas da mensagem, resolvidas: a lista gravada quando há uma, e a
+    /// pasta única quando não. Uma função, e não duas leituras espalhadas, para
+    /// o "vazio quer dizer `folderID`" ter um lugar só.
+    static func folderIDs(membership: String, folderID: String) -> [String] {
+        let lista = decodeStrings(membership)
+        return lista.isEmpty ? [folderID] : lista
     }
 
     /// Um contato serializado, para `to`/`cc` caberem numa coluna.

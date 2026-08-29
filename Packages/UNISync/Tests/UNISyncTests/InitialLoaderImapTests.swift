@@ -642,8 +642,22 @@ struct InitialLoaderImapTests {
         let db = try SyncDatabase.temporary()
         _ = try await carrega(db, script: script)
 
+        // As três pastas do `LIST` entram na tabela — **inclusive a que o
+        // servidor recusou**. Elas eram gravadas uma a uma, junto do download
+        // de cada uma, e a recusada ficava de fora; desde a M3-17 a tabela
+        // `folder` é o que a barra lateral desenha, e uma pasta que sumia da
+        // barra por causa de um `NO` de um ciclo seria a pasta piscando na tela
+        // conforme o servidor tem ou não um dia ruim. O que a recusa custa
+        // continua sendo o conteúdo: nenhuma mensagem da INBOX entrou.
         let pastas = try await db.pool.read { try String.fetchSet($0, sql: "SELECT serverName FROM folder") }
-        #expect(pastas == ["Arquivo", "Enviados"])
+        #expect(pastas == ["INBOX", "Arquivo", "Enviados"])
+        let daInbox = try await db.pool.read { conexao in
+            try Int.fetchOne(
+                conexao, sql: "SELECT COUNT(*) FROM message WHERE folderID = ?",
+                arguments: [FolderRecord.id(accountID: "conta-i", serverName: "INBOX")]
+            )
+        }
+        #expect(daInbox == 0)
         let buckets = try await db.pool.read { try String.fetchSet($0, sql: "SELECT DISTINCT bucket FROM message") }
         #expect(buckets == ["arquivar", "enviadas"])
 

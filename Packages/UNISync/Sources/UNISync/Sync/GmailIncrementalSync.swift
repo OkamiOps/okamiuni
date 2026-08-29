@@ -100,7 +100,15 @@ public struct GmailIncrementalSync: Sendable {
         // uma ida e volta — que é o mínimo que "continuar sincronizando" pode
         // custar.
         if !mudancas.paraBuscar.isEmpty {
-            let idDoDepois = TriageProjection.laterLabelID(in: try await gmail.labels())
+            let rotulos = try await gmail.labels()
+            // A descoberta pega carona no `labels()` que este ciclo já fazia:
+            // um rótulo criado no webmail vira pasta na barra, e um apagado
+            // some. **Ela não é feita no ciclo ocioso**, de propósito — o ciclo
+            // que não tem nada a gravar custa uma ida e volta, e é o mínimo que
+            // "continuar sincronizando" pode custar; um rótulo criado sem
+            // nenhuma mensagem se mexer espera o próximo ciclo com mudança.
+            try await sincronizaPastas(rotulos, account: account)
+            let idDoDepois = TriageProjection.laterLabelID(in: rotulos)
             resultado.gravadas = try await aplica(
                 mudancas.paraBuscar, account: account, laterLabelID: idDoDepois, gmail: gmail
             )
@@ -116,6 +124,17 @@ public struct GmailIncrementalSync: Sendable {
             try await carimba(novo, account: account.id, em: now)
         }
         return resultado
+    }
+
+    /// As pastas da conta Gmail — os rótulos — postas em dia.
+    private func sincronizaPastas(_ rotulos: [GmailLabel], account: Account) async throws {
+        let pastas = GmailFolders.records(rotulos, accountID: account.id)
+        let pseudo = FolderRecord.gmail(accountID: account.id).id
+        try await database.pool.write { db in
+            try FolderSync.reconcile(
+                db, accountID: account.id, discovered: pastas, preservando: [pseudo]
+            )
+        }
     }
 
     // MARK: A coleta

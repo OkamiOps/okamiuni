@@ -24,8 +24,13 @@ public enum FolderRoles {
             case "\\archive", "\\all": return .archive
             case "\\trash": return .trash
             case "\\sent": return .sent
-            // `\Drafts` e `\Junk` existem e não têm papel nosso — cair em
-            // `.other` é a resposta certa, não uma lacuna.
+            // `\Drafts` e `\Junk` ganharam papel na M3-17. Eles continuam
+            // **fora do fluxo de triagem** — a projeção manda os dois para
+            // Arquivado, exatamente como mandava quando eram `.other` —, e o
+            // que o papel compra é o ícone da linha na barra lateral. Ver
+            // `FolderRole.drafts`.
+            case "\\drafts": return .drafts
+            case "\\junk": return .junk
             default: break
             }
         }
@@ -43,6 +48,14 @@ public enum FolderRoles {
         for sufixo in ["sent", "sent items", "sent messages", "enviados", "itens enviados"]
         where dobrado == sufixo || dobrado.hasSuffix("/" + sufixo) {
             return .sent
+        }
+        for sufixo in ["drafts", "draft", "rascunhos", "rascunho"]
+        where dobrado == sufixo || dobrado.hasSuffix("/" + sufixo) {
+            return .drafts
+        }
+        for sufixo in ["junk", "junk email", "spam", "lixo eletronico", "bulk mail"]
+        where dobrado == sufixo || dobrado.hasSuffix("/" + sufixo) {
+            return .junk
         }
         return .other
     }

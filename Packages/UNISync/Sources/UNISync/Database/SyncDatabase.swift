@@ -516,6 +516,39 @@ public struct SyncDatabase: Sendable {
         migrator.registerMigration("v7") { db in
             try db.execute(sql: "ALTER TABLE outbox ADD COLUMN lastError TEXT")
         }
+        // A v8 da M3-17: **em que pastas do provedor a mensagem está.** Ao lado
+        // das sete anteriores, uma coluna acrescentada e nada mais — a tabela
+        // `folder` da v1 já tinha as cinco colunas de que a barra lateral
+        // precisa, e por isso ela não é tocada.
+        //
+        // "Vocês não sincronizaram as outras pastas — as caixas têm que ter a
+        // opção de expandir e mostrar as outras pastas do provider." As
+        // mensagens já estavam todas no banco (a carga IMAP lê **todas** as
+        // pastas desde o Marco 3, e a do Gmail lê a janela inteira sem filtro de
+        // rótulo); o que faltava era saber, por mensagem, a que pasta do
+        // provedor ela pertence — e no Gmail isso não cabe em `folderID`.
+        //
+        // ## Por que uma coluna, e não `message.folderID` repetido
+        //
+        // No IMAP a mensagem mora numa pasta e ponto: `folderID` já responde, e
+        // gravar a mesma resposta duas vezes em toda linha é a segunda fonte da
+        // verdade que um dia diverge. **Vazio é o valor normal**, e quer dizer
+        // "onde `folderID` diz" — ver `MessageRecord.folderIDs(membership:…)`.
+        //
+        // No Gmail pasta é rótulo, e uma mensagem tem vários ao mesmo tempo
+        // ("Faturas" *e* "Clientes"): nenhuma coluna única a representa, e uma
+        // tabela de ligação seria um `JOIN` por retrato para uma lista que a UI
+        // já lê inteira.
+        //
+        // Sem índice, de propósito: ninguém consulta por esta coluna. O filtro
+        // de pasta acontece no `MailStore`, sobre as mensagens que ele já tem em
+        // memória — a barra lateral não faz consulta nenhuma.
+        migrator.registerMigration("v8") { db in
+            try db.execute(sql: """
+                ALTER TABLE message
+                ADD COLUMN folderMembershipJSON TEXT NOT NULL DEFAULT '[]'
+                """)
+        }
         return migrator
     }
 }

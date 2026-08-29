@@ -9,6 +9,11 @@ public protocol MailSource: Sendable {
     func messages() async throws -> [Message]
     func agenda() async throws -> [AgendaItem]
     func pendingItems() async throws -> [PendingItem]
+    /// As pastas do provedor, de todas as contas. **Requisito com implementação
+    /// padrão** pela mesma razão de despacho de `snapshots()` logo abaixo — e
+    /// a padrão é a lista vazia, que é o que faz o app sem conta (as fixtures)
+    /// continuar sem seção de pastas nenhuma.
+    func folders() async throws -> [MailFolder]
 
     // As três abaixo são **requisitos com implementação padrão**, e não
     // membros só de extensão. A diferença é despacho: o `MailStore` guarda
@@ -34,15 +39,21 @@ public struct MailSnapshot: Sendable, Hashable {
     public let messages: [Message]
     public let agenda: [AgendaItem]
     public let pendingItems: [PendingItem]
+    /// As pastas do provedor. Aditivo (`[]`), e a lista vazia é o retrato do
+    /// app sem conta: as fixtures não têm servidor nenhum, e por isso a seção
+    /// CAIXAS continua exatamente como o Marco 1 a desenhava.
+    public let folders: [MailFolder]
 
     public init(
         accounts: [Account], messages: [Message],
-        agenda: [AgendaItem], pendingItems: [PendingItem]
+        agenda: [AgendaItem], pendingItems: [PendingItem],
+        folders: [MailFolder] = []
     ) {
         self.accounts = accounts
         self.messages = messages
         self.agenda = agenda
         self.pendingItems = pendingItems
+        self.folders = folders
     }
 }
 
@@ -53,9 +64,13 @@ extension MailSource {
             accounts: try await accounts(),
             messages: try await messages(),
             agenda: try await agenda(),
-            pendingItems: try await pendingItems()
+            pendingItems: try await pendingItems(),
+            folders: try await folders()
         )
     }
+
+    /// Sem pastas: a fonte em memória não fala com servidor nenhum.
+    public func folders() async throws -> [MailFolder] { [] }
 
     /// A sequência de retratos.
     ///
@@ -134,6 +149,13 @@ public final class MailStore {
     public private(set) var agenda: [AgendaItem] = []
     public private(set) var pendingItems: [PendingItem] = []
 
+    /// As pastas do provedor, como o último retrato as trouxe — **sem**
+    /// contador. Quem quer a lista de uma conta pronta para desenhar chama
+    /// `folders(of:)`, que ordena e conta.
+    ///
+    /// Vazia sem conta conectada, sempre: as fixtures não têm servidor.
+    public private(set) var folders: [MailFolder] = []
+
     /// Quantas vezes `reveal(_:)` de fato revelou alguma coisa.
     ///
     /// Existe porque "ir para o email de origem" também é pedido de **fora** da
@@ -151,6 +173,23 @@ public final class MailStore {
     public private(set) var bucket: TriageBucket = .today
     public private(set) var selectedMessageID: String?
     public private(set) var selectedAccountID: String?
+
+    /// A pasta do provedor aberta, quando há uma.
+    ///
+    /// **É uma dimensão paralela à caixa do Fluxo, não um substituto dela.**
+    /// O Fluxo é triagem ("o que ainda preciso decidir"); a pasta é o mapa do
+    /// servidor ("onde isto está guardado lá"). Os dois filtros valem ao mesmo
+    /// tempo, e é por isso que abrir uma pasta não mexe em `bucket`.
+    public private(set) var selectedFolderID: String?
+
+    /// Que contas estão com as pastas abertas na barra lateral.
+    ///
+    /// **Nenhuma, ao nascer** — recolhida é como a barra sempre foi, e é o que
+    /// mantém a tela do Marco 1 idêntica. O estado é da sessão de propósito: é
+    /// o mesmo idioma das seções da janela de compromisso (`EventSections`) e
+    /// da faixa de resposta do leitor.
+    public private(set) var expandedAccountIDs: Set<String> = []
+
     public var query: String = ""
     public private(set) var loadError: String?
 
@@ -436,12 +475,26 @@ public final class MailStore {
     ///
     /// Atômico de propósito, como o `load()` do Marco 1 já era: ou as quatro
     /// listas mudam, ou nenhuma muda.
-    private func apply(_ snapshot: MailSnapshot) {
+    /// `internal`, e não `private`: as três guardas que este método carrega —
+    /// a conta filtrada que saiu, a pasta aberta que sumiu, a seleção que caiu
+    /// fora da visão — são sobre **um retrato chegando**, e é assim que o teste
+    /// precisa as encenar. Pelo caminho público (`observe()`) não há como
+    /// escolher um filtro *entre* dois retratos de uma sequência já montada, e
+    /// um teste que dependesse do tempo entre eles seria intermitente.
+    func apply(_ snapshot: MailSnapshot) {
         accounts = snapshot.accounts
         messages = snapshot.messages
         agenda = mergedAgenda(snapshot.agenda)
         pendingItems = snapshot.pendingItems
+        folders = snapshot.folders
         loadError = nil
+        // A pasta que sumiu do servidor (apagada no webmail, renomeada) não pode
+        // deixar a lista filtrada por um lugar que já não existe — a mesma
+        // armadilha sem saída do filtro de conta logo abaixo, e a mesma saída.
+        if let aberta = selectedFolderID,
+           !snapshot.folders.contains(where: { $0.id == aberta }) {
+            selectedFolderID = nil
+        }
         // Filtro apontando para uma conta que não existe mais é armadilha sem
         // saída, e ela só aparece quando a fonte é o banco: remover a conta que
         // está filtrando deixaria a lista vazia, o leitor vazio — e o "Limpar
@@ -480,10 +533,78 @@ public final class MailStore {
         let inAccount = selectedAccountID == nil
             ? inBucket
             : inBucket.filter { $0.accountID == selectedAccountID }
-        let searched = query.trimmingCharacters(in: .whitespaces).isEmpty
+        // A pasta entra **depois** da conta e **antes** da busca, no lugar em
+        // que ela é mais barata: a conta já cortou a maior parte, e a busca é a
+        // única etapa que olha texto.
+        let inFolder = selectedFolderID == nil
             ? inAccount
-            : inAccount.filter { matches($0, query) }
+            : inAccount.filter { $0.folderIDs.contains(selectedFolderID ?? "") }
+        let searched = query.trimmingCharacters(in: .whitespaces).isEmpty
+            ? inFolder
+            : inFolder.filter { matches($0, query) }
         return searched.sorted { $0.receivedAt > $1.receivedAt }
+    }
+
+    // MARK: - As pastas do provedor
+
+    /// As pastas de uma conta, na ordem em que a barra as desenha e já com o
+    /// contador de não lidas.
+    ///
+    /// O contador conta **a pasta inteira**, e não o recorte da caixa aberta:
+    /// a pasta é o mapa do servidor, e "3 não lidas em Faturas" tem de dizer o
+    /// mesmo que o webmail diz, esteja a lista mostrando Hoje ou Arquivado.
+    /// Enviadas e Lixeira ficam de fora da regra por nada: uma mensagem não
+    /// lida é uma mensagem não lida, esteja onde estiver.
+    public func folders(of accountID: String) -> [MailFolder] {
+        let daConta = folders.filter { $0.accountID == accountID }
+        return MailFolder.ordered(daConta.map { pasta in
+            pasta.withUnreadCount(unreadCount(inFolder: pasta.id))
+        })
+    }
+
+    /// Quantas mensagens não lidas esta pasta tem.
+    public func unreadCount(inFolder folderID: String) -> Int {
+        messages.filter { !$0.isRead && $0.folderIDs.contains(folderID) }.count
+    }
+
+    /// As pastas desta conta estão abertas na barra?
+    public func foldersExpanded(_ accountID: String) -> Bool {
+        expandedAccountIDs.contains(accountID)
+    }
+
+    /// Abre ou fecha as pastas de uma conta.
+    ///
+    /// Fechar **não** desfaz o filtro: quem abriu "Faturas" e recolheu a conta
+    /// para ganhar altura na barra continua vendo Faturas, e a linha da conta
+    /// continua realçada. Recolher é sobre espaço, não sobre o que a lista
+    /// mostra.
+    public func toggleFolders(of accountID: String) {
+        if expandedAccountIDs.contains(accountID) {
+            expandedAccountIDs.remove(accountID)
+        } else {
+            expandedAccountIDs.insert(accountID)
+        }
+    }
+
+    /// Abre uma pasta do provedor — e clicar de novo na mesma a fecha, como a
+    /// linha da conta já fazia com o filtro dela.
+    ///
+    /// Abrir uma pasta **acende o filtro da conta dela**: uma pasta pertence a
+    /// uma conta, e mostrar "Faturas" da conta A junto com as mensagens da
+    /// conta B seria a lista respondendo a uma pergunta que ninguém fez. É
+    /// também o que faz a agenda seguir junto, pelo mesmo `visibleAgenda` de
+    /// sempre — ela filtra por conta, e a conta acabou de ser escolhida.
+    public func select(folder id: String?) {
+        if selectedFolderID == id {
+            selectedFolderID = nil
+        } else {
+            selectedFolderID = id
+            if let id, let pasta = folders.first(where: { $0.id == id }) {
+                selectedAccountID = pasta.accountID
+                expandedAccountIDs.insert(pasta.accountID)
+            }
+        }
+        selectDefaultMessage()
     }
 
     // MARK: - As conversas
@@ -964,6 +1085,11 @@ public final class MailStore {
         } else {
             selectedAccountID = id
         }
+        // A pasta aberta é de **uma** conta: trocar (ou limpar) o filtro de
+        // conta sem soltar a pasta deixaria a lista filtrada por uma pasta que
+        // não pertence ao que a barra mostra como selecionado — uma lista vazia
+        // sem nada na tela que explique por quê.
+        selectedFolderID = nil
         selectDefaultMessage()
     }
 
@@ -990,6 +1116,12 @@ public final class MailStore {
 
         if let filtered = selectedAccountID, filtered != message.accountID {
             selectedAccountID = nil
+        }
+        // A pasta aberta esconde tanto quanto o filtro de conta, e "ir para o
+        // email de origem" que deixa a lista sem ele é meia ação — a mesma
+        // regra dos outros três filtros desta função.
+        if let pasta = selectedFolderID, !message.folderIDs.contains(pasta) {
+            selectedFolderID = nil
         }
         if !bucket.contains(message) {
             bucket = message.bucket
