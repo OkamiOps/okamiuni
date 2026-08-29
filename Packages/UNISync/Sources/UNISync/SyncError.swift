@@ -11,7 +11,16 @@ import Foundation
 /// `LocalizedError` não é enfeite: `MailStore.load()` grava
 /// `error.localizedDescription` em `loadError`, e sem esta conformidade o
 /// Foundation devolveria "The operation couldn’t be completed."
-public enum SyncError: Error, Sendable, Hashable, LocalizedError {
+/// `Codable` também não: a falha que **para** a fila de saída de uma conta
+/// precisa sobreviver ao app fechar — senão a abertura seguinte encontra as
+/// linhas `falhou` no banco e não tem como dizer por quê (ver a coluna
+/// `outbox.lastError`, da migração v7). Guardar só a frase bastaria para a
+/// linha da conta, mas não para o **botão**: `AccountsCopy.actions(for:)` lê o
+/// caso do erro para decidir entre "Reconectar" e "Tentar de novo", e uma
+/// autorização revogada que voltasse do banco como texto ofereceria a ação
+/// errada. O `Codable` é sintetizado — todo valor associado (`String`, `Int`,
+/// `Int32`) já conforma.
+public enum SyncError: Error, Sendable, Hashable, Codable, LocalizedError {
     /// Não chegou ao servidor: sem rota, tempo esgotado, DNS.
     case rede(String)
     /// Chegou, mas o TLS não fechou: certificado, versão, `STARTTLS` recusado.

@@ -330,6 +330,43 @@ struct OutboxExecutorTests {
         #expect(try naFila(db) == 0)
     }
 
+    /// **A parada sobrevive ao processo, e a causa junto com ela.**
+    ///
+    /// O defeito visto no banco do dono: 3 linhas `falhou` (arquivar, 09:21) e
+    /// 2 `pendente` atrás delas, e o app aberto de novo no dia seguinte não
+    /// sabia de nada. A trava (`parada`) mora no ator, e o ator nasce limpo;
+    /// `recupera()` só devolve o que ficou `executando`; `prontas()` só lê
+    /// `pendente`. Resultado: a abertura seguinte não vê a parada, não relata
+    /// nada, e ainda executa **por cima** da falha as operações que estavam
+    /// atrás dela — a ordem da fila, que é invariante, quebrada em silêncio.
+    ///
+    /// MUTAÇÃO QUE ISTO PEGA: tirar a leitura da parada persistida do
+    /// `drain()`. As quatro afirmações abaixo caem juntas.
+    @Test("A fila que parou continua parada na abertura seguinte, com a causa")
+    func paradaSobreviveAoReinicio() async throws {
+        let db = try banco()
+        try enfileira(db, .delete(messageIDs: [idIMAP(1)]), criadaEm: 10)
+        try enfileira(db, .delete(messageIDs: [idIMAP(2)]), criadaEm: 20)
+        // A sessão em que a fila parou.
+        await executor(db, EspelhoFalso(roteiro: [.autorizacaoRevogada])).drain()
+
+        // O app fecha e abre: executor novo, espelho novo, o mesmo banco.
+        let espelho = EspelhoFalso()
+        let relatados = Relator()
+        let resultado = await executor(
+            db, espelho, report: { conta, erro in relatados.anota(conta, erro) }
+        ).drain()
+
+        #expect(resultado.falhaPermanente == .autorizacaoRevogada)
+        // Nada é tentado por cima da parada — nem a de trás, que passaria na
+        // frente da que falhou.
+        #expect(await espelho.chamadas.isEmpty)
+        // E a linha da conta sabe disso na abertura, sem esperar uma falha ao
+        // vivo que talvez nunca aconteça.
+        #expect(relatados.ultimo == .autorizacaoRevogada)
+        #expect(resultado.pendentes == 2)
+    }
+
     // MARK: - A fila não engole ação nenhuma
 
     @Test("Ler, não-ler e ler de novo: o servidor termina LIDA")

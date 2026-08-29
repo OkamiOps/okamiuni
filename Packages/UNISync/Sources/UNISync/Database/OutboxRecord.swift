@@ -89,6 +89,14 @@ public struct OutboxRecord: Codable, FetchableRecord, PersistableRecord, Sendabl
     public var nextAttemptAt: Date
     public var state: String
     public var createdAt: Date
+    /// O `SyncError` que **parou** a fila nesta linha, em JSON — a coluna da
+    /// v7. Nulo em tudo que não falhou.
+    ///
+    /// Ele existe porque a trava da fila mora no ator do executor e morre com
+    /// o processo, enquanto a linha `falhou` fica no arquivo: sem a causa
+    /// gravada, a abertura seguinte reencontra a fila parada e não teria o que
+    /// dizer nem o que oferecer. Ver `OutboxExecutor.paradaGravada()`.
+    public var lastError: String?
 
     public static func databaseDateEncodingStrategy(for column: String) -> DatabaseDateEncodingStrategy {
         .timeIntervalSince1970
@@ -111,6 +119,7 @@ public struct OutboxRecord: Codable, FetchableRecord, PersistableRecord, Sendabl
         self.nextAttemptAt = nextAttemptAt
         state = OutboxState.pendente.rawValue
         self.createdAt = createdAt
+        lastError = nil
     }
 
     public var operation: MailOperation? {

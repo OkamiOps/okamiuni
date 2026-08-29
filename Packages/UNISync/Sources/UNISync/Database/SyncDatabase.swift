@@ -492,6 +492,30 @@ public struct SyncDatabase: Sendable {
                 )
                 """)
         }
+        // A v7 da M3-16: **por que a fila daquela conta parou.** Ao lado das
+        // seis anteriores, uma coluna acrescentada e nada mais.
+        //
+        // O defeito: a conta do dono tinha 3 operações `falhou` na `outbox`
+        // desde as 09:21 e 2 `pendente` atrás delas — a fila parada — e a
+        // janela mostrava a conta saudável. Metade disso era o diretor
+        // (duas prateleiras de erro, agora separadas); a outra metade é esta.
+        //
+        // ## Por que no banco, e não só no processo
+        //
+        // A trava da fila (`OutboxExecutor.parada`) mora no ator e morre com o
+        // app; as linhas `falhou` ficam no arquivo e não. Sem a causa gravada,
+        // a abertura seguinte encontra a fila travada e **não tem como dizer
+        // por quê** — e uma parada sem causa não oferece ação nenhuma, que é
+        // o defeito de novo, um dia depois. Era isto ou perguntar ao servidor
+        // de novo só para descobrir a mensagem, o que é uma ida à rede para
+        // reproduzir uma falha que já aconteceu.
+        //
+        // O `SyncError` inteiro, em JSON, e não a frase: é o **caso** que
+        // decide o rótulo do botão ("Reconectar" contra "Tentar de novo").
+        // Nulo em toda linha que não falhou — que são quase todas.
+        migrator.registerMigration("v7") { db in
+            try db.execute(sql: "ALTER TABLE outbox ADD COLUMN lastError TEXT")
+        }
         return migrator
     }
 }

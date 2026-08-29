@@ -159,7 +159,8 @@ public actor OutboxExecutor {
             try await database.pool.write { db in
                 try db.execute(
                     sql: """
-                        UPDATE outbox SET state = ?, attempts = 0, nextAttemptAt = ?
+                        UPDATE outbox
+                        SET state = ?, attempts = 0, nextAttemptAt = ?, lastError = NULL
                         WHERE accountID = ? AND state = ?
                         """,
                     arguments: [
@@ -208,6 +209,17 @@ public actor OutboxExecutor {
         if !recuperou {
             recuperou = true
             await recupera()
+            // **A parada que a sessão anterior deixou.** `recupera()` só
+            // devolve o que ficou `executando`; linha `falhou` continua
+            // `falhou`, e nenhuma consulta daqui a lê. Sem este trecho, a
+            // abertura seguinte encontrava a fila travada e não sabia disso:
+            // não relatava nada — a conta aparecia saudável com a fila parada
+            // desde a véspera — e ainda executava **por cima** da falha as
+            // operações que estavam atrás dela, quebrando a ordem em silêncio.
+            if let gravada = await paradaGravada() {
+                parada = gravada
+                report(accountID, gravada)
+            }
         }
         guard parada == nil else {
             return Outcome(
@@ -226,7 +238,7 @@ public actor OutboxExecutor {
             } catch {
                 let erro = (error as? SyncError) ?? .rede(error.localizedDescription)
                 if Self.ehPermanente(erro) {
-                    await marca(lote.ids, estado: .falhou)
+                    await marca(lote.ids, estado: .falhou, causa: erro)
                     parada = erro
                     report(accountID, erro)
                     log.error("""
@@ -269,9 +281,10 @@ public actor OutboxExecutor {
             // Linha com JSON que não decodifica: não dá para executar e não dá
             // para fingir que foi feita. Ela para a fila, como qualquer falha
             // permanente — nunca é descartada em silêncio.
-            await marca(coalescido.ids, estado: .falhou)
-            parada = .resposta("Uma operação da fila não pôde ser lida.")
-            report(accountID, parada)
+            let ilegivel = SyncError.resposta("Uma operação da fila não pôde ser lida.")
+            await marca(coalescido.ids, estado: .falhou, causa: ilegivel)
+            parada = ilegivel
+            report(accountID, ilegivel)
             return nil
         }
         guard await reivindica(coalescido.ids) else { return nil }
@@ -492,19 +505,61 @@ public actor OutboxExecutor {
         }
     }
 
-    private func marca(_ ids: [String], estado: OutboxState) async {
+    /// A causa vai junto com o estado, na **mesma** escrita: uma linha `falhou`
+    /// sem a causa ao lado é a fila parada sem ninguém que saiba por quê — e
+    /// duas escritas separadas deixariam essa janela aberta de verdade, no
+    /// intervalo entre elas.
+    private func marca(_ ids: [String], estado: OutboxState, causa: SyncError? = nil) async {
         guard !ids.isEmpty else { return }
+        let motivo = causa.flatMap { erro -> String? in
+            guard let dados = try? JSONEncoder().encode(erro) else { return nil }
+            return String(data: dados, encoding: .utf8)
+        }
         do {
             try await database.pool.write { db in
                 let marcadores = ids.map { _ in "?" }.joined(separator: ",")
                 try db.execute(
-                    sql: "UPDATE outbox SET state = ? WHERE id IN (\(marcadores))",
-                    arguments: StatementArguments([estado.rawValue] + ids)
+                    sql: "UPDATE outbox SET state = ?, lastError = ? WHERE id IN (\(marcadores))",
+                    arguments: StatementArguments(
+                        [estado.rawValue, motivo] as [(any DatabaseValueConvertible)?]
+                    ) + StatementArguments(ids)
                 )
             }
         } catch {
             log.error("Não foi possível marcar operações como \(estado.rawValue): \(error)")
         }
+    }
+
+    /// A parada que a sessão anterior deixou gravada, se houver.
+    ///
+    /// Lê a **primeira** linha `falhou` da fila desta conta — na mesma ordem em
+    /// que ela seria executada —, porque é ela que está na frente e é a causa
+    /// dela que a pessoa precisa ver.
+    private func paradaGravada() async -> SyncError? {
+        let conta = accountID
+        let linha = try? await database.pool.read { db in
+            try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT lastError FROM outbox
+                    WHERE accountID = ? AND state = ?
+                    ORDER BY createdAt, rowid LIMIT 1
+                    """,
+                arguments: [conta, OutboxState.falhou.rawValue]
+            )
+        }
+        guard let linha = linha ?? nil else { return nil }
+        let json: String? = linha["lastError"]
+        guard let json, let dados = json.data(using: .utf8),
+              let erro = try? JSONDecoder().decode(SyncError.self, from: dados)
+        else {
+            // Linha parada por uma versão anterior à v7, ou JSON que não
+            // decodifica. A fila está parada de qualquer jeito, e dizer isso
+            // sem a causa exata é o único caminho honesto: voltar a andar por
+            // cima dela executaria a de trás na frente da que falhou.
+            return .resposta("Uma operação da fila não pôde ser concluída.")
+        }
+        return erro
     }
 
     private func adia(_ ids: [String], tentativas: Int) async {
