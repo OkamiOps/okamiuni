@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import SwiftUI
 import Testing
 import UNICore
@@ -231,8 +232,12 @@ struct EventOriginBodyTests {
         )
         let carregando = try #require(Render.bitmap(janela, size: Self.tamanho, theme: .tinta))
         // A janela pediu o corpo — o que a M3-14 não fazia.
-        await porta.esperaEntrada()
-        #expect(store.bodyLoad(for: "m1") != nil)
+        //
+        // A espera é **limitada**, e não um `await` na porta: sem o pedido a
+        // porta nunca é chamada, e esperar por ela travaria a suíte no lugar de
+        // a derrubar. Vermelho travado não é vermelho.
+        for _ in 0..<10_000 where !porta.entrouAgora { await Task.yield() }
+        #expect(store.bodyLoad(for: "m1") != nil, "a janela não pediu o corpo que falta")
 
         await porta.libera()
         // Espera **limitada**: sem teto, uma mutação que corta o pedido de
@@ -250,25 +255,21 @@ struct EventOriginBodyTests {
 /// `PortaSegurada` de `ReaderBodyStateTests`, aqui porque aquela é privada
 /// daquele arquivo.
 private actor PortaDeCorpoSegurada: BodyFetching {
-    private var avisaEntrada: CheckedContinuation<Void, Never>?
-    private var entrou = false
+    private let chegou = Atomic<Bool>(false)
     private var liberacao: CheckedContinuation<Void, Never>?
     private var liberada = false
 
     func fetchBody(accountID: String, messageID: String) async throws -> FetchedBody {
-        entrou = true
-        avisaEntrada?.resume()
-        avisaEntrada = nil
+        chegou.store(true, ordering: .relaxed)
         if !liberada {
             await withCheckedContinuation { continuation in liberacao = continuation }
         }
         return FetchedBody(paragraphs: ["O convite dizia isto aqui."])
     }
 
-    func esperaEntrada() async {
-        guard !entrou else { return }
-        await withCheckedContinuation { continuation in avisaEntrada = continuation }
-    }
+    /// Se a porta já foi chamada — lido em laço limitado, para o teste nunca
+    /// esperar por um pedido que a mutação apagou.
+    nonisolated var entrouAgora: Bool { chegou.load(ordering: .relaxed) }
 
     func libera() {
         liberada = true
