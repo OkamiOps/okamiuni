@@ -50,8 +50,18 @@ public struct EventWindow: View {
         store.agenda.first { $0.id == itemID }
     }
 
+    /// O que este compromisso mostra além do horário.
+    ///
+    /// **O que ele carrega primeiro.** Um compromisso criado de um convite traz
+    /// local, link, organizador, participantes e descrição de verdade — e essa
+    /// janela mostrava, por cima deles, o `EV_DEFAULT` do protótipo: "Sem local
+    /// definido", "Ricardo Gomes · ricardo@empresa.com" e "Criado manualmente
+    /// na agenda", numa reunião que o Favini tinha convidado.
+    ///
+    /// A tabela de fixture continua sendo o caminho de quem não carrega nada —
+    /// os compromissos da agenda de exemplo, que é o que o Marco 1 desenha.
     private var detail: EventDetail {
-        Fixtures.eventDetail(for: item?.title ?? "")
+        item?.detail ?? Fixtures.eventDetail(for: item?.title ?? "")
     }
 
     private var account: Account? {
@@ -68,7 +78,16 @@ public struct EventWindow: View {
     /// `internal`: `WindowTests` lê isto para provar o destino do botão sem
     /// clicar em nada.
     var originMessageID: String? {
-        ContextMenus.originMessageID(for: detail, in: store.messages)
+        // O compromisso nascido de um email **sabe** de qual: o `id` dele é
+        // `email-<messageID>`. Perguntar isso primeiro é mais barato e mais
+        // certo que casar assunto com assunto — e é o que faz o botão "Email"
+        // funcionar num compromisso vindo de convite, cuja linha de histórico
+        // pode não casar com nenhuma mensagem da caixa.
+        if let doID = DetectedEventConversion.messageID(forAgendaID: itemID),
+           store.messages.contains(where: { $0.id == doID }) {
+            return doID
+        }
+        return ContextMenus.originMessageID(for: detail, in: store.messages)
     }
 
     private var tint: Color {
@@ -137,6 +156,7 @@ public struct EventWindow: View {
             fields
             people
             if detail.hasAgenda { agenda }
+            if let texto = detail.descricao, !texto.isEmpty { descricao(texto) }
             if detail.hasThread { thread }
             if forwardOpen { forwardPanel }
             if forwardSent { forwardConfirmation }
@@ -188,11 +208,28 @@ public struct EventWindow: View {
                     .tracking(theme.capsTracking(at: 8.5))
                     .textCase(.uppercase)
                     .foregroundStyle(theme.accentInk.color)
-                Text(link)
-                    .font(theme.mono.font(size: 11.5))
-                    .foregroundStyle(theme.ink.color)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                // Clicável quando é um endereço de verdade: entrar na reunião é
+                // o que a pessoa veio fazer aqui, e copiar o link para colar no
+                // navegador era um passo a mais em cima da hora. `Link` abre no
+                // navegador padrão do sistema — declarativo, sem
+                // `NSWorkspace.open` escondido num fechamento.
+                if let destino = URL(string: link), destino.scheme?.hasPrefix("http") == true {
+                    Link(destination: destino) {
+                        Text(link)
+                            .font(theme.mono.font(size: 11.5))
+                            .foregroundStyle(theme.accentInk.color)
+                            .underline()
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                    .help("Abrir a reunião no navegador")
+                } else {
+                    Text(link)
+                        .font(theme.mono.font(size: 11.5))
+                        .foregroundStyle(theme.ink.color)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
             }
             ChromeButton(
                 copied ? "Link copiado ✓" : "Copiar link",
@@ -352,6 +389,32 @@ public struct EventWindow: View {
                     }
                 }
             }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 20)
+        .padding(.top, 18)
+    }
+
+    /// A `DESCRIPTION` do convite, inteira, no mesmo bloco da pauta.
+    ///
+    /// Inteira de propósito: é o que o organizador escreveu, e recortar
+    /// escondia justamente o que costuma estar no fim — a instrução de entrar
+    /// pelo telefone, o código da sala, o "leve a proposta impressa".
+    @ViewBuilder
+    private func descricao(_ texto: String) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Descrição")
+                .font(theme.mono.font(size: 8.5, weight: .medium))
+                .tracking(theme.capsTracking(at: 8.5))
+                .textCase(.uppercase)
+                .foregroundStyle(theme.ink4.color)
+                .padding(.bottom, 8)
+            Text(texto)
+                .font(theme.sans.font(size: 13))
+                .lineSpacing(0.45 * 13)
+                .foregroundStyle(theme.ink.color)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)

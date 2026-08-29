@@ -20,9 +20,24 @@ public struct CalendarInvite: Sendable, Hashable {
     /// `DTSTART;VALUE=DATE` — o compromisso de dia inteiro, sem hora.
     public let isAllDay: Bool
     public let location: String?
-    /// `ORGANIZER`, pelo `CN=` quando ele existe, senão pelo endereço.
-    public let organizer: String?
-    public let attendees: [String]
+
+    /// `ORGANIZER` inteiro — nome **e** endereço.
+    ///
+    /// Era só o nome de exibição, e o compromisso criado a partir do convite
+    /// não tinha como dizer quem organizava: a janela de detalhe caía no
+    /// organizador de fixture ("Ricardo Gomes · ricardo@empresa.com") num
+    /// evento que o Favini tinha convidado.
+    public let organizerContact: Contact?
+
+    /// `ATTENDEE`, cada um com nome e endereço, sem repetidos.
+    public let attendeeContacts: [Contact]
+
+    /// `DESCRIPTION` — o texto que o convite traz. É onde mora, muitas vezes,
+    /// o link da reunião e a pauta.
+    public let descricao: String?
+
+    /// `URL` — quando o convite declara um endereço próprio.
+    public let url: String?
     /// `METHOD` do `VCALENDAR`: `REQUEST`, `CANCEL`, `REPLY`.
     public let method: String?
     /// `STATUS` do `VEVENT`: `CONFIRMED`, `TENTATIVE`, `CANCELLED`.
@@ -52,9 +67,10 @@ public struct CalendarInvite: Sendable, Hashable {
 
     public init(
         summary: String, start: Date?, end: Date?, isAllDay: Bool = false,
-        location: String? = nil, organizer: String? = nil, attendees: [String] = [],
+        location: String? = nil, organizer: Contact? = nil, attendees: [Contact] = [],
         method: String? = nil, status: String? = nil,
-        uid: String? = nil, sequence: Int? = nil
+        uid: String? = nil, sequence: Int? = nil,
+        descricao: String? = nil, url: String? = nil
     ) {
         self.uid = uid
         self.sequence = sequence
@@ -63,10 +79,41 @@ public struct CalendarInvite: Sendable, Hashable {
         self.end = end
         self.isAllDay = isAllDay
         self.location = location
-        self.organizer = organizer
-        self.attendees = attendees
+        self.organizerContact = organizer
+        self.attendeeContacts = attendees
         self.method = method
         self.status = status
+        self.descricao = descricao
+        self.url = url
+    }
+
+    /// Como o cartão do leitor escreve o organizador: o nome quando há, o
+    /// endereço quando não. Continua sendo o que a M3-8 mostrava — mudou o que
+    /// está guardado por baixo, não o que a pessoa lê.
+    public var organizer: String? { organizerContact.map(Self.nomeVisivel) }
+
+    /// Os participantes, no mesmo idioma.
+    public var attendees: [String] { attendeeContacts.map(Self.nomeVisivel) }
+
+    static func nomeVisivel(_ quem: Contact) -> String {
+        quem.name.isEmpty ? quem.address : quem.name
+    }
+
+    /// O link da reunião, procurado onde ele de fato vem.
+    ///
+    /// Três lugares, nesta ordem: o `URL:` do convite (quando é http), a
+    /// `LOCATION` (o Google Meet escreve a sala ali) e a `DESCRIPTION` (Zoom e
+    /// Teams enterram o link no meio do texto). Sem os três, não há link — e a
+    /// janela de detalhe simplesmente não desenha o cartão dele.
+    ///
+    /// Só endereços de reunião conhecidos: um convite traz link de mapa, de
+    /// cancelamento e de política de privacidade, e "a primeira URL do texto"
+    /// poria qualquer um deles onde a pessoa espera o botão de entrar.
+    public var meetingURL: String? {
+        for texto in [url, location, descricao].compactMap({ $0 }) {
+            if let achado = MeetingLink.first(in: texto) { return achado }
+        }
+        return nil
     }
 
     /// Quanto dura um convite que não disse quando termina.
@@ -130,8 +177,10 @@ public enum ICalendar {
         var terminou = false
         var summary = ""
         var location: String?
-        var organizer: String?
-        var attendees: [String] = []
+        var organizer: Contact?
+        var attendees: [Contact] = []
+        var descricao: String?
+        var url: String?
         var status: String?
         var uid: String?
         var sequence: Int?
@@ -162,6 +211,10 @@ public enum ICalendar {
                 // de outra cópia do mesmo convite. Interpretar barras invertidas
                 // faria duas cópias iguais deixarem de casar.
                 uid = vazioVira(nil, valor)
+            case "DESCRIPTION" where dentro:
+                descricao = vazioVira(nil, desescapa(valor))
+            case "URL" where dentro:
+                url = vazioVira(nil, valor)
             case "SEQUENCE" where dentro:
                 sequence = Int(valor.trimmingCharacters(in: .whitespaces))
             case "ORGANIZER" where dentro:
@@ -170,8 +223,10 @@ public enum ICalendar {
                 if let quem = pessoa(parametros: parametros, valor: valor) {
                     // Sem repetidos: um convite grande lista o mesmo endereço
                     // como participante e como organizador, e o cartão mostraria
-                    // o nome duas vezes.
-                    if !attendees.contains(quem) { attendees.append(quem) }
+                    // o nome duas vezes. A comparação é pelo endereço — o mesmo
+                    // `id` de `Contact` —, porque o mesmo participante pode vir
+                    // com `CN` numa linha e sem `CN` noutra.
+                    if !attendees.contains(where: { $0.id == quem.id }) { attendees.append(quem) }
                 }
             case "DTSTART" where dentro:
                 let lido = data(valor, parametros: parametros, timeZone: timeZone)
@@ -188,7 +243,8 @@ public enum ICalendar {
             summary: summary, start: start, end: end, isAllDay: diaInteiro,
             location: location, organizer: organizer, attendees: attendees,
             method: method, status: status,
-            uid: uid, sequence: sequence
+            uid: uid, sequence: sequence,
+            descricao: descricao, url: url
         )
     }
 
@@ -293,13 +349,14 @@ public enum ICalendar {
     ///
     /// O `CN=` primeiro, porque é o nome que a pessoa reconhece; o endereço
     /// quando não há `CN` — e sem o `mailto:`, que é protocolo, não gente.
-    static func pessoa(parametros: [String: String], valor: String) -> String? {
-        if let nome = parametros["CN"]?.trimmingCharacters(in: .whitespaces), !nome.isEmpty {
-            return desescapa(nome)
-        }
+    static func pessoa(parametros: [String: String], valor: String) -> Contact? {
+        let cn = desescapa(parametros["CN"]?.trimmingCharacters(in: .whitespaces) ?? "")
         let cru = valor.trimmingCharacters(in: .whitespaces)
         let semEsquema = cru.lowercased().hasPrefix("mailto:") ? String(cru.dropFirst(7)) : cru
-        return semEsquema.isEmpty ? nil : semEsquema
+        // Sem nome e sem endereço não há pessoa. Com um dos dois, há: o
+        // convite que só diz `CN` (existe) continua nomeando quem convidou.
+        guard !cn.isEmpty || !semEsquema.isEmpty else { return nil }
+        return Contact(name: cn, address: semEsquema)
     }
 
     /// `20260827T150000Z`, `20260827T150000` e `20260827`.

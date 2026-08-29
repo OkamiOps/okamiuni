@@ -142,6 +142,58 @@ struct EventWindowFooterTests {
         #expect(store.revealCount == before + 1)
     }
 
+    /// **A janela mostra o que o compromisso carrega.** As duas telas são o
+    /// mesmo compromisso, no mesmo horário, com o mesmo título: o que muda é
+    /// um trazer o detalhe do convite (sala de verdade, link, o Favini
+    /// organizando, a descrição) e o outro não. Uma janela que preenchesse com
+    /// `Fixtures.eventDetail` — o estado de antes deste conserto — desenharia
+    /// as duas idênticas, com "Sem local definido" e "Ricardo Gomes" nas duas.
+    @Test("O compromisso vindo de convite desenha o que veio, não a fixture")
+    func oDetalheDoConviteAparece() async throws {
+        func janela(_ detail: EventDetail?) async -> NSBitmapImageRep? {
+            let item = AgendaItem(
+                id: "email-m1", title: "DreamSquad",
+                startMinute: 594, endMinute: 644, accountID: "zoho",
+                dayOffset: 0, calendarUID: "u1", calendarSequence: 0, detail: detail
+            )
+            let store = MailStore(
+                source: InMemoryMailSource(
+                    accounts: Fixtures.accounts, messages: [], agenda: [item]
+                )
+            )
+            await store.load()
+            return Render.bitmap(
+                EventWindow(store: store, itemID: "email-m1"),
+                size: CGSize(width: 560, height: 700), theme: .tinta
+            )
+        }
+
+        let doConvite = EventDetail(
+            place: "Sala Vantion, 4º andar",
+            link: "https://meet.google.com/abc-defg-hij",
+            organizer: EventPerson(
+                name: "Favini", address: "favini@vantion.com.br",
+                role: "organizador", status: .yes
+            ),
+            people: [
+                EventPerson(
+                    name: "Marcos Santos", address: "marcos@vantion.com.br",
+                    role: "convidado", status: .pending
+                )
+            ],
+            note: "Do convite por email · conta vantion",
+            recurrence: "Evento único", notice: "Sem alerta",
+            agenda: [], thread: [],
+            descricao: "Pauta do time."
+        )
+        let comDetalhe = try #require(await janela(doConvite))
+        let semDetalhe = try #require(await janela(nil))
+        #expect(
+            comDetalhe.pixelsDiffering(from: semDetalhe) > 0,
+            "a janela desenhou a fixture no lugar do que o convite trouxe"
+        )
+    }
+
     /// Sem mensagem casada não há para onde ir, e o botão não pode fingir que
     /// há: a ação sai sem mexer em nada e o botão desenha apagado.
     @Test("sem mensagem de origem o botão não mexe em nada")

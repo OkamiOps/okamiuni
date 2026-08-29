@@ -50,15 +50,28 @@ public struct AgendaItem: Sendable, Hashable, Identifiable {
     /// ele que um "Convite atualizado" se anuncia como mais novo.
     public let calendarSequence: Int?
 
+    /// O que a janela 04 mostra além do horário — local, link, organizador,
+    /// participantes, descrição — **quando o compromisso trouxe isso**.
+    ///
+    /// `nil` é o compromisso da agenda de exemplo, e aí a janela cai em
+    /// `Fixtures.eventDetail(for:)` como sempre caiu. Era o único caminho que
+    /// existia: um compromisso criado de um convite do Favini abria com "Sem
+    /// local definido", organizador "Ricardo Gomes · ricardo@empresa.com" e a
+    /// nota "Criado manualmente na agenda" — dado de fixture numa reunião de
+    /// verdade.
+    public let detail: EventDetail?
+
     public init(
         id: String, title: String,
         startMinute: Int, endMinute: Int, accountID: String,
         dayOffset: Int = 0,
         calendarUID: String? = nil,
-        calendarSequence: Int? = nil
+        calendarSequence: Int? = nil,
+        detail: EventDetail? = nil
     ) {
         self.calendarUID = calendarUID
         self.calendarSequence = calendarSequence
+        self.detail = detail
         self.id = id
         self.title = title
         self.startMinute = startMinute

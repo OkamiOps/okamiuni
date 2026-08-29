@@ -623,8 +623,27 @@ public final class MailStore {
             existing: InviteAgenda.existing(
                 for: invite, id: id, accountID: message.accountID, in: agenda
             ),
-            proposed: InviteAgenda.item(
-                for: invite, id: id, accountID: message.accountID, referenceDay: Fixtures.today
+            proposed: proposedItem(for: invite, from: message, id: id)
+        )
+    }
+
+    /// O compromisso que este convite pede, com tudo o que a janela 04 mostra
+    /// já pendurado nele. Uma função só, porque desenhar o cartão e clicar no
+    /// botão precisam do **mesmo** valor: se as duas montassem por conta
+    /// própria, o botão diria "Na agenda" e o clique criaria outro.
+    private func proposedItem(
+        for invite: CalendarInvite, from message: Message, id: String
+    ) -> AgendaItem? {
+        InviteAgenda.item(
+            for: invite, id: id, accountID: message.accountID, referenceDay: Fixtures.today,
+            detail: InviteAgenda.detail(
+                for: invite,
+                subject: message.subject,
+                sender: message.from,
+                when: message.receivedAt.formatted(
+                    .dateTime.day().month(.abbreviated).hour().minute()
+                ),
+                accountHost: account(message.accountID)?.host
             )
         )
     }
@@ -643,9 +662,7 @@ public final class MailStore {
     @discardableResult
     public func addToAgenda(_ invite: CalendarInvite, from message: Message) -> AgendaItem? {
         let id = DetectedEventConversion.agendaID(forMessageID: message.id)
-        guard let proposto = InviteAgenda.item(
-            for: invite, id: id, accountID: message.accountID, referenceDay: Fixtures.today
-        ) else { return nil }
+        guard let proposto = proposedItem(for: invite, from: message, id: id) else { return nil }
 
         let existente = InviteAgenda.existing(
             for: invite, id: id, accountID: message.accountID, in: agenda
