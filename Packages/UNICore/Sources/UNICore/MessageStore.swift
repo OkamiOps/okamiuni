@@ -149,6 +149,11 @@ public final class MailStore {
     public private(set) var agenda: [AgendaItem] = []
     public private(set) var pendingItems: [PendingItem] = []
 
+    /// `nil` preserva o mundo sem calendário conectado (fixtures e testes do
+    /// Marco 1). Quando há uma porta real, a aba Agenda mostra um estado que a
+    /// pessoa consegue agir, em vez de parecer vazia por algum motivo oculto.
+    public private(set) var calendarAvailability: CalendarAvailability?
+
     /// As pastas do provedor, como o último retrato as trouxe — **sem**
     /// contador. Quem quer a lista de uma conta pronta para desenhar chama
     /// `folders(of:)`, que ordena e conta.
@@ -267,6 +272,17 @@ public final class MailStore {
     /// agenda é de sessão, como no Marco 1. Ver `AgendaPersisting`.
     private let agendaPort: (any AgendaPersisting)?
 
+    /// A agenda do sistema e, quando configurado, CalDAV. Ela não substitui a
+    /// fonte de email: soma seus compromissos ao retrato que já alimenta as
+    /// quatro superfícies de agenda.
+    private let calendarSync: (any CalendarSyncing)?
+
+    /// A parte do retrato que vem de `MailSource`; mantê-la separada permite
+    /// que uma observação do banco não apague o resultado que acabou de chegar
+    /// do EventKit/CalDAV entre dois retratos.
+    private var sourceAgenda: [AgendaItem] = []
+    private var synchronizedAgenda: [AgendaItem] = []
+
     /// De quem as imagens remotas carregam sozinhas. `nil` nas fixtures e em
     /// todo teste que não passa uma — e nesse caso ninguém é confiável, que é
     /// o comportamento da M3-8, intacto. Ver `SenderTrusting`.
@@ -310,6 +326,7 @@ public final class MailStore {
         inviteRSVPPort: InviteRSVPCommandPort? = nil,
         contactPort: ContactDirectoryPort? = nil,
         agendaPort: (any AgendaPersisting)? = nil,
+        calendarSync: (any CalendarSyncing)? = nil,
         trustPort: (any SenderTrusting)? = nil,
         agendaReferenceDay: @escaping @Sendable () -> Date = { Fixtures.today }
     ) {
@@ -320,6 +337,7 @@ public final class MailStore {
         self.inviteRSVPPort = inviteRSVPPort
         self.contactPort = contactPort
         self.agendaPort = agendaPort
+        self.calendarSync = calendarSync
         self.trustPort = trustPort
         self.agendaReferenceDay = agendaReferenceDay
         // Uma leitura de uma tabela de dezenas de linhas, na montagem. Adiá-la
@@ -494,6 +512,7 @@ public final class MailStore {
     }
 
     public func load() async {
+        await refreshCalendar()
         reloadPersistedAgenda()
         do {
             // O retrato é buscado inteiro antes de qualquer propriedade mudar.
@@ -514,6 +533,7 @@ public final class MailStore {
     /// "recarregar". Fontes que não observam entregam um retrato e terminam,
     /// então chamar isto nelas é exatamente `load()`.
     public func observe() async {
+        await refreshCalendar()
         reloadPersistedAgenda()
         do {
             for try await snapshot in source.snapshots() {
@@ -585,7 +605,8 @@ public final class MailStore {
     func apply(_ snapshot: MailSnapshot) {
         accounts = snapshot.accounts
         messages = snapshot.messages
-        agenda = mergedAgenda(snapshot.agenda)
+        sourceAgenda = snapshot.agenda
+        agenda = mergedAgenda(combinedAgenda())
         pendingItems = snapshot.pendingItems
         folders = snapshot.folders
         loadError = nil
@@ -880,6 +901,31 @@ public final class MailStore {
         return agenda.filter { $0.accountID == selectedAccountID }
     }
 
+    /// Atualiza a agenda conectada. Sem `requestAuthorization`, a abertura só
+    /// lê o estado do sistema — nunca dispara uma caixa de permissão por trás
+    /// da tela. O botão visível da Agenda chama a mesma função com `true`.
+    public func refreshCalendar(requestAuthorization: Bool = false) async {
+        guard let calendarSync else { return }
+        let before = await calendarSync.availability()
+        guard before.isAvailable || requestAuthorization else {
+            calendarAvailability = before
+            return
+        }
+        calendarAvailability = .loading
+        do {
+            synchronizedAgenda = try await calendarSync.synchronize(
+                referenceDay: agendaReferenceDay(), requestAuthorization: requestAuthorization
+            )
+            calendarAvailability = await calendarSync.availability()
+            agenda = mergedAgenda(combinedAgenda())
+        } catch {
+            let reported = await calendarSync.availability()
+            calendarAvailability = reported.isAvailable
+                ? .unavailable(error.localizedDescription)
+                : reported
+        }
+    }
+
     /// `pendingItems` depois do mesmo filtro de conta que `visibleAgenda`
     /// aplica. É o que a seção "Vindo do email" da trilha deve ler: seguindo
     /// o padrão de `visibleAgenda`, uma caixa selecionada não pode deixar a
@@ -926,33 +972,76 @@ public final class MailStore {
             .sorted { $0.startMinute < $1.startMinute }
     }
 
+    /// Junta fonte e sincronização por identidade. Um evento salvo pelo
+    /// OkamiUNI pode voltar pelo EventKit no quadro seguinte; sem a chave, a
+    /// mesma reunião apareceria duas vezes até o próximo relançamento.
+    private func combinedAgenda() -> [AgendaItem] {
+        var byID = Dictionary(
+            sourceAgenda.map { ($0.id, $0) }, uniquingKeysWith: { _, newest in newest }
+        )
+        for item in synchronizedAgenda { byID[item.id] = item }
+        return Array(byID.values)
+    }
+
     /// Grava um compromisso e o põe na lista do que está guardado.
     ///
     /// Na **mesma ação** que o pôs na tela, e não numa tarefa depois: era essa
     /// a distância entre "coloquei na agenda" e "sumiu ao reabrir".
     private func persist(_ item: AgendaItem) {
-        guard let agendaPort else { return }
-        persistedAgenda.removeAll { $0.id == item.id }
-        persistedAgenda.append(item)
-        do {
-            try agendaPort.saveAgendaItem(
-                StoredAgendaItem(item, referenceDay: agendaReferenceDay())
-            )
-        } catch {
-            report(error)
+        if let agendaPort {
+            persistedAgenda.removeAll { $0.id == item.id }
+            persistedAgenda.append(item)
+            do {
+                try agendaPort.saveAgendaItem(
+                    StoredAgendaItem(item, referenceDay: agendaReferenceDay())
+                )
+            } catch {
+                report(error)
+            }
         }
+        writeToConnectedCalendar(item)
     }
 
     /// O contrário: some do disco e da lista. É o "Desfazer" e o "Tirar da
     /// agenda", e os dois têm de alcançar o disco — senão reabrir traz de volta
     /// o que a pessoa acabou de tirar.
     private func forget(_ id: String) {
-        guard let agendaPort else { return }
-        persistedAgenda.removeAll { $0.id == id }
-        do {
-            try agendaPort.removeAgendaItem(id)
-        } catch {
-            report(error)
+        if let agendaPort {
+            persistedAgenda.removeAll { $0.id == id }
+            do {
+                try agendaPort.removeAgendaItem(id)
+            } catch {
+                report(error)
+            }
+        }
+        removeFromConnectedCalendar(id)
+    }
+
+    /// A escrita no calendário real é assíncrona; a confirmação local continua
+    /// imediata e qualquer falha fica declarada na própria aba Agenda.
+    private func writeToConnectedCalendar(_ item: AgendaItem) {
+        guard let calendarSync else { return }
+        let referenceDay = agendaReferenceDay()
+        Task { [weak self, calendarSync] in
+            do {
+                try await calendarSync.save(item, referenceDay: referenceDay)
+                await self?.refreshCalendar()
+            } catch {
+                self?.calendarAvailability = .unavailable(error.localizedDescription)
+            }
+        }
+    }
+
+    private func removeFromConnectedCalendar(_ id: String) {
+        guard let calendarSync else { return }
+        let referenceDay = agendaReferenceDay()
+        Task { [weak self, calendarSync] in
+            do {
+                try await calendarSync.remove(id: id, referenceDay: referenceDay)
+                await self?.refreshCalendar()
+            } catch {
+                self?.calendarAvailability = .unavailable(error.localizedDescription)
+            }
         }
     }
 

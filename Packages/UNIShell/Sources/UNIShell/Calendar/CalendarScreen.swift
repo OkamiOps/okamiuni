@@ -142,6 +142,12 @@ public struct CalendarScreen: View {
             // metade escondido atrás da grade.
             .zIndex(30)
 
+            if let state = store.calendarAvailability {
+                CalendarStatusBand(state: state) {
+                    Task { await store.refreshCalendar(requestAuthorization: true) }
+                }
+            }
+
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

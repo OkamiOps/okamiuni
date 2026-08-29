@@ -61,6 +61,7 @@ struct OkamiUNIApp: App {
             inviteRSVPPort: composicao.inviteRSVPPort,
             contactPort: composicao.contactPort,
             agendaPort: composicao.agendaPort,
+            calendarSync: composicao.calendarSync,
             trustPort: composicao.trustPort,
             agendaReferenceDay: { relogio.today }
         ))

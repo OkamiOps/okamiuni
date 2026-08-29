@@ -63,6 +63,10 @@ public struct AppComposition: Sendable {
     /// continua sendo um compromisso que a pessoa criou, e a tabela da v5 não
     /// tem chave estrangeira para `account` justamente por isso.
     public let agendaPort: (any AgendaPersisting)?
+    /// A agenda real do macOS. EventKit inclui calendários iCloud, Exchange e
+    /// CalDAV já configurados no sistema; adaptadores CalDAV diretos podem ser
+    /// compostos aqui quando a conta tiver uma configuração explícita.
+    public let calendarSync: (any CalendarSyncing)?
     /// De quem as imagens remotas podem carregar sozinhas — o "sempre carregar
     /// deste remetente" da faixa do leitor. `nil` quando o banco não abriu, e
     /// aí ninguém é confiável: o bloqueio da M3-8 sem memória, que é o pior
@@ -122,7 +126,7 @@ public struct AppComposition: Sendable {
                 database: nil, director: nil,
                 source: InMemoryMailSource.fixtures, commandPort: nil, sendPort: nil,
                 inviteRSVPPort: nil, bodyPort: nil,
-                contactPort: nil, agendaPort: nil, trustPort: nil,
+                contactPort: nil, agendaPort: nil, calendarSync: EventKitCalendarAdapter(), trustPort: nil,
                 outbox: nil, outboxSignal: nil, sync: nil, network: nil, configError: falha
             )
         }
@@ -245,6 +249,7 @@ public struct AppComposition: Sendable {
             ),
             contactPort: DatabaseContactDirectory(database: banco),
             agendaPort: DatabaseAgendaStore(database: banco),
+            calendarSync: EventKitCalendarAdapter(),
             trustPort: DatabaseTrustedSenderStore(database: banco),
             outbox: fila,
             outboxSignal: sinal,
