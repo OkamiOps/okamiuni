@@ -50,6 +50,16 @@ public struct AppComposition: Sendable {
     /// abriu, pela mesma razão de `bodyPort`: sem banco não há onde
     /// consultar, e `MailStore` fica com `Fixtures.contacts`.
     public let contactPort: ContactDirectoryPort?
+    /// Onde os compromissos que a pessoa criou sobrevivem ao fechar o app.
+    /// `nil` quando o banco não abriu — e nesse caso a agenda volta a ser de
+    /// sessão, como no Marco 1, que é o pior caso honesto: sem disco não há
+    /// onde guardar.
+    ///
+    /// Ao contrário de `commandPort`, esta porta vale **mesmo sem conta
+    /// conectada**: um compromisso criado a partir de uma mensagem de exemplo
+    /// continua sendo um compromisso que a pessoa criou, e a tabela da v5 não
+    /// tem chave estrangeira para `account` justamente por isso.
+    public let agendaPort: (any AgendaPersisting)?
     /// Quem leva a fila de saída ao servidor, uma conta por vez. Nulo pelo
     /// mesmo motivo do banco. Já vem **ligado**: a fila começa a andar ao
     /// abrir o app, que é o que faz uma ação feita offline chegar ao servidor
@@ -99,7 +109,7 @@ public struct AppComposition: Sendable {
             return AppComposition(
                 database: nil, director: nil,
                 source: InMemoryMailSource.fixtures, commandPort: nil, sendPort: nil, bodyPort: nil,
-                contactPort: nil,
+                contactPort: nil, agendaPort: nil,
                 outbox: nil, outboxSignal: nil, sync: nil, network: nil, configError: falha
             )
         }
@@ -211,6 +221,7 @@ public struct AppComposition: Sendable {
                 session: .shared, eventLoopGroup: grupo
             ),
             contactPort: DatabaseContactDirectory(database: banco),
+            agendaPort: DatabaseAgendaStore(database: banco),
             outbox: fila,
             outboxSignal: sinal,
             sync: sincronizacao,

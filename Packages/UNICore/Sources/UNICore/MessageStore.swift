@@ -213,18 +213,42 @@ public final class MailStore {
     /// conjunto de contas em vez do texto digitado.
     private var contactPoolGeneration = 0
 
+    /// Onde os compromissos que a pessoa criou sobrevivem ao fechar o app.
+    /// `nil` nas fixtures e em todo teste que não passa uma — e nesse caso a
+    /// agenda é de sessão, como no Marco 1. Ver `AgendaPersisting`.
+    private let agendaPort: (any AgendaPersisting)?
+
+    /// Contra que dia o `dayOffset` da agenda é contado.
+    ///
+    /// `Fixtures.today` por padrão, que é o mundo congelado do Marco 1 e o que
+    /// mantém capturas e retratos idênticos. O app com banco passa o relógio da
+    /// máquina, o mesmo que `AgendaClock.live` dá às telas de agenda — os dois
+    /// **têm** de concordar, senão um compromisso criado hoje aparece no dia
+    /// errado da grade.
+    private let agendaReferenceDay: @Sendable () -> Date
+
+    /// Os compromissos vindos do disco, já traduzidos para o "hoje" desta
+    /// abertura. Eles entram em `agenda` junto com o que a fonte der, e ganham
+    /// dela no `id`: um compromisso que a pessoa criou não pode ser apagado
+    /// pelo retrato seguinte.
+    private var persistedAgenda: [AgendaItem] = []
+
     public init(
         source: MailSource,
         commandPort: MailCommandPort? = nil,
         bodyPort: BodyFetching? = nil,
         sendPort: MailSendPort? = nil,
-        contactPort: ContactDirectoryPort? = nil
+        contactPort: ContactDirectoryPort? = nil,
+        agendaPort: (any AgendaPersisting)? = nil,
+        agendaReferenceDay: @escaping @Sendable () -> Date = { Fixtures.today }
     ) {
         self.source = source
         self.commandPort = commandPort
         self.bodyPort = bodyPort
         self.sendPort = sendPort
         self.contactPort = contactPort
+        self.agendaPort = agendaPort
+        self.agendaReferenceDay = agendaReferenceDay
     }
 
     /// Há por onde enviar de verdade?
@@ -263,6 +287,7 @@ public final class MailStore {
     }
 
     public func load() async {
+        reloadPersistedAgenda()
         do {
             // O retrato é buscado inteiro antes de qualquer propriedade mudar.
             // Isto garante atomicidade: ou as quatro listas chegam, ou nenhuma
@@ -282,6 +307,7 @@ public final class MailStore {
     /// "recarregar". Fontes que não observam entregam um retrato e terminam,
     /// então chamar isto nelas é exatamente `load()`.
     public func observe() async {
+        reloadPersistedAgenda()
         do {
             for try await snapshot in source.snapshots() {
                 apply(snapshot)
@@ -346,7 +372,7 @@ public final class MailStore {
     private func apply(_ snapshot: MailSnapshot) {
         accounts = snapshot.accounts
         messages = snapshot.messages
-        agenda = snapshot.agenda.sorted { $0.startMinute < $1.startMinute }
+        agenda = mergedAgenda(snapshot.agenda)
         pendingItems = snapshot.pendingItems
         loadError = nil
         // Filtro apontando para uma conta que não existe mais é armadilha sem
@@ -574,6 +600,73 @@ public final class MailStore {
         return pendingItems.filter { $0.accountID == selectedAccountID }
     }
 
+    // MARK: - A agenda que sobrevive ao fechar o app
+
+    /// Relê do disco tudo o que a pessoa criou, traduzido para o "hoje" desta
+    /// abertura.
+    ///
+    /// Chamado no começo de `load()` e de `observe()`, e não a cada retrato: a
+    /// lista só muda por ação de quem está aqui, e essas ações a atualizam na
+    /// hora (`persist`/`forget`). Reler por retrato seria uma consulta a cada
+    /// lote da carga inicial, pelo mesmo resultado.
+    private func reloadPersistedAgenda() {
+        guard let agendaPort else { return }
+        do {
+            let hoje = agendaReferenceDay()
+            persistedAgenda = try agendaPort.savedAgendaItems().map { $0.item(referenceDay: hoje) }
+        } catch {
+            report(error)
+        }
+    }
+
+    /// A agenda que a tela vê: a da fonte **mais** a que a pessoa criou.
+    ///
+    /// O compromisso guardado ganha do da fonte no mesmo `id` — ele é o mais
+    /// recente por construção, porque a fonte não o conhece. E ele entra
+    /// **mesmo sem conta conectada**, onde a fonte são as fixtures: um
+    /// compromisso que alguém criou não é agenda de exemplo, e sumir ao
+    /// reiniciar foi exatamente o defeito. A agenda de exemplo, essa, continua
+    /// nascendo das fixtures a cada abertura, byte a byte como no Marco 1 —
+    /// sem porta, `persistedAgenda` é vazia e isto é a ordenação de sempre.
+    private func mergedAgenda(_ daFonte: [AgendaItem]) -> [AgendaItem] {
+        guard !persistedAgenda.isEmpty else {
+            return daFonte.sorted { $0.startMinute < $1.startMinute }
+        }
+        let guardados = Set(persistedAgenda.map(\.id))
+        return (daFonte.filter { !guardados.contains($0.id) } + persistedAgenda)
+            .sorted { $0.startMinute < $1.startMinute }
+    }
+
+    /// Grava um compromisso e o põe na lista do que está guardado.
+    ///
+    /// Na **mesma ação** que o pôs na tela, e não numa tarefa depois: era essa
+    /// a distância entre "coloquei na agenda" e "sumiu ao reabrir".
+    private func persist(_ item: AgendaItem) {
+        guard let agendaPort else { return }
+        persistedAgenda.removeAll { $0.id == item.id }
+        persistedAgenda.append(item)
+        do {
+            try agendaPort.saveAgendaItem(
+                StoredAgendaItem(item, referenceDay: agendaReferenceDay())
+            )
+        } catch {
+            report(error)
+        }
+    }
+
+    /// O contrário: some do disco e da lista. É o "Desfazer" e o "Tirar da
+    /// agenda", e os dois têm de alcançar o disco — senão reabrir traz de volta
+    /// o que a pessoa acabou de tirar.
+    private func forget(_ id: String) {
+        guard let agendaPort else { return }
+        persistedAgenda.removeAll { $0.id == id }
+        do {
+            try agendaPort.removeAgendaItem(id)
+        } catch {
+            report(error)
+        }
+    }
+
     // MARK: - Agenda a partir de um email
 
     /// "Colocar na agenda", no cartão de resumo do leitor: cria o
@@ -601,10 +694,12 @@ public final class MailStore {
         guard !agenda.contains(where: { $0.id == id }) else { return nil }
 
         let item = DetectedEventConversion.agendaItem(
-            from: event, id: id, accountID: message.accountID, referenceDay: Fixtures.today
+            from: event, id: id, accountID: message.accountID,
+            referenceDay: agendaReferenceDay()
         )
         agenda.append(item)
         agenda.sort { $0.startMinute < $1.startMinute }
+        persist(item)
         return item
     }
 
@@ -635,7 +730,8 @@ public final class MailStore {
         for invite: CalendarInvite, from message: Message, id: String
     ) -> AgendaItem? {
         InviteAgenda.item(
-            for: invite, id: id, accountID: message.accountID, referenceDay: Fixtures.today,
+            for: invite, id: id, accountID: message.accountID,
+            referenceDay: agendaReferenceDay(),
             detail: InviteAgenda.detail(
                 for: invite,
                 subject: message.subject,
@@ -673,6 +769,7 @@ public final class MailStore {
         case .ausente:
             agenda.append(proposto)
             agenda.sort { $0.startMinute < $1.startMinute }
+            persist(proposto)
             return proposto
         case .desatualizado:
             guard let existente,
@@ -681,6 +778,7 @@ public final class MailStore {
             let atualizado = InviteAgenda.updated(existente, with: proposto)
             agenda[posicao] = atualizado
             agenda.sort { $0.startMinute < $1.startMinute }
+            persist(atualizado)
             return atualizado
         }
     }
@@ -693,6 +791,7 @@ public final class MailStore {
     public func removeFromAgenda(_ id: String) {
         if let item = agenda.first(where: { $0.id == id }) { removedFromAgenda[id] = item }
         agenda.removeAll { $0.id == id }
+        forget(id)
     }
 
     /// O que saiu da agenda, para "Desfazer" ter o que devolver — o mesmo
@@ -707,6 +806,7 @@ public final class MailStore {
         guard !agenda.contains(where: { $0.id == id }) else { return }
         agenda.append(item)
         agenda.sort { $0.startMinute < $1.startMinute }
+        persist(item)
     }
 
     private func matches(_ message: Message, _ term: String) -> Bool {

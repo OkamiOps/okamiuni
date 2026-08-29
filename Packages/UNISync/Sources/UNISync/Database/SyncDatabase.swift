@@ -372,6 +372,90 @@ public struct SyncDatabase: Sendable {
                 )
             }
         }
+        // A v5 da M3-11: **os compromissos que a pessoa criou**. Ao lado das
+        // quatro anteriores, e sem tocar em nenhuma — pelo mesmo motivo de
+        // sempre, agora com quatro migrações de história para o provar.
+        //
+        // "Coloco o item no calendário e ao fechar e abrir o OkamiUNI a agenda
+        // some." Sumia: `MailStore.addToAgenda` só acrescentava à lista em
+        // memória, e o retrato seguinte — do banco ou das fixtures — substituía
+        // a lista inteira.
+        //
+        // ## Por que uma tabela nova, e não a `agenda_item` da v1
+        //
+        // Três razões, e a primeira decide sozinha.
+        //
+        // 1. `agenda_item.accountID` tem `REFERENCES account(id)`, e as chaves
+        //    estrangeiras estão ligadas. **Sem conta conectada não haveria onde
+        //    gravar**: a mensagem de exemplo tem `accountID` de fixture, que não
+        //    existe em `account`, e o `INSERT` seria recusado. O compromisso que
+        //    a pessoa cria sem conta é dela do mesmo jeito, e a tabela nova não
+        //    tem essa chave — a conta fica guardada como texto, que é o que ela
+        //    é para este fim: de onde o compromisso veio.
+        // 2. `agenda_item` é a agenda **que a fonte dá** — no Marco 4, a do
+        //    EventKit. Misturar as duas obrigaria toda leitura de lá a separar o
+        //    que é servidor do que é nosso.
+        // 3. Ela não tem coluna para `UID`, `SEQUENCE`, local, gente, link nem
+        //    descrição, e acrescentá-las a uma tabela que é de outra coisa é o
+        //    começo de uma tabela que não é de nada.
+        //
+        // ## `day` é texto, e não um `dayOffset` inteiro
+        //
+        // `AgendaItem.dayOffset` é **relativo** ao "hoje" da tela, e com conta
+        // conectada esse hoje é o relógio da máquina. Gravado cru, um
+        // compromisso de amanhã seria "amanhã" outra vez amanhã, e no outro dia,
+        // e no outro — o compromisso fugindo um dia por abertura. `day` guarda
+        // o dia civil ("2026-08-30"), que não anda e não tem fuso; a tradução
+        // nos dois sentidos é `CivilDay`, e só ela.
+        //
+        // ## Uma coluna por campo, e JSON só onde há lista
+        //
+        // Título, horário, `UID`, `SEQUENCE`, local, link, descrição, nota,
+        // repetição e alerta são valores, e viram colunas. Organizador,
+        // participantes, pauta e a trilha "o que gerou este compromisso" são
+        // listas ou registros compostos, e viram JSON — uma tabela filha para
+        // cada uma seria quatro `JOIN`s para desenhar uma janela que sempre lê
+        // tudo junto.
+        migrator.registerMigration("v5") { db in
+            try db.execute(sql: """
+                CREATE TABLE created_agenda_item (
+                  id TEXT PRIMARY KEY NOT NULL,
+                  -- Texto, sem `REFERENCES`: ver a nota acima. É de onde o
+                  -- compromisso veio, e ele sobrevive à conta sair.
+                  accountID TEXT NOT NULL,
+                  title TEXT NOT NULL,
+                  -- O dia civil, "AAAA-MM-DD". Nunca um deslocamento, nunca um
+                  -- instante.
+                  day TEXT NOT NULL,
+                  startMinute INTEGER NOT NULL,
+                  endMinute INTEGER NOT NULL,
+                  -- A identidade do evento no iCalendar, igual em toda cópia
+                  -- dele. É o que faz "✓ Na agenda" sobreviver ao reinício em
+                  -- vez de o cartão oferecer de novo o que já está lá.
+                  calendarUID TEXT,
+                  calendarSequence INTEGER,
+                  -- O detalhe da janela 04. NULL no compromisso que não trouxe
+                  -- nenhum, e aí a janela cai em `Fixtures.eventDetail(for:)`
+                  -- como sempre caiu.
+                  place TEXT,
+                  link TEXT,
+                  descricao TEXT,
+                  note TEXT,
+                  recurrence TEXT,
+                  notice TEXT,
+                  organizerJSON TEXT,
+                  peopleJSON TEXT,
+                  agendaJSON TEXT,
+                  threadJSON TEXT
+                )
+                """)
+            // A pergunta que a checagem de duplicata faz, e a única consulta
+            // desta tabela além de "traga tudo".
+            try db.execute(sql: """
+                CREATE INDEX created_agenda_on_uid
+                ON created_agenda_item(accountID, calendarUID)
+                """)
+        }
         return migrator
     }
 }

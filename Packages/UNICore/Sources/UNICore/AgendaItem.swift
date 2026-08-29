@@ -40,10 +40,16 @@ public struct AgendaItem: Sendable, Hashable, Identifiable {
     /// `nil` no compromisso que não veio de convite — o detectado no texto de
     /// um email, o da agenda de exemplo. Aditivo, como `dayOffset` foi.
     ///
-    /// Modelo, e não coluna: a agenda ainda é de sessão (nada escreve em
-    /// `agenda_item`; ver `DatabaseMailSource.agenda()`), e as migrações v1–v4
-    /// são imutáveis. Quando o Marco 4 trouxer o EventKit, este campo é o que
-    /// casa com o `calendarItemExternalIdentifier` de lá.
+    /// **Agora é coluna também.** Era só modelo, e a nota antiga aqui dizia que
+    /// "a agenda ainda é de sessão" — dívida que o dono cobrou do jeito mais
+    /// direto: "coloco o item no calendário e ao fechar e abrir o OkamiUNI a
+    /// agenda some". A M3-11 a pagou com a migração v5 e a tabela
+    /// `created_agenda_item`, e é este `UID` guardado que faz "✓ Na agenda"
+    /// sobreviver ao reinício em vez de o cartão oferecer de novo o que já está
+    /// lá. Ver `AgendaPersisting`.
+    ///
+    /// Quando o Marco 4 trouxer o EventKit, este campo é o que casa com o
+    /// `calendarItemExternalIdentifier` de lá.
     public let calendarUID: String?
 
     /// O `SEQUENCE` da versão do convite que este compromisso reflete. É contra

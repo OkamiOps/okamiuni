@@ -68,7 +68,7 @@ struct DatabaseCommandPortTests {
         #expect(indices.contains("outbox_on_account_state_next"))
 
         let versoes = try db.pool.read { try SyncDatabase.migrator.appliedIdentifiers($0) }
-        #expect(versoes == ["v1", "v2", "v3", "v4"])
+        #expect(versoes == ["v1", "v2", "v3", "v4", "v5"])
     }
 
     @Test("As colunas do outbox são as da spec, e o estado nasce pendente")

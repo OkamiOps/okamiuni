@@ -16,6 +16,12 @@ struct OkamiUNIApp: App {
     /// e a decisão "banco ou fixtures" é a mais consequente do Marco 2. Daqui
     /// para baixo só há fiação.
     private let composition: AppComposition
+    /// De onde vem o "agora" e o "hoje" da agenda. Decidido uma vez, no `init`,
+    /// porque o `MailStore` precisa do **mesmo** hoje que as telas de agenda:
+    /// o `dayOffset` de um compromisso é contado contra ele, e dois "hojes"
+    /// diferentes poriam o compromisso criado num dia da grade e desenhado
+    /// noutro.
+    private let agendaClock: AgendaClock
     @State private var mailStore: MailStore
     /// A janela de Contas do usuário. Nula só quando o `UNISync` não subiu —
     /// e nesse caso a cena diz o que houve, ver `ContasIndisponiveis`.
@@ -43,10 +49,18 @@ struct OkamiUNIApp: App {
         // erro aparece na janela de Contas em vez de virar tela cinza.
         let composicao = AppComposition.make()
         composition = composicao
+        // `.live` quando o banco abriu — é aí que a fonte pode ser real e o
+        // relógio da máquina é o que vale. `.fixed` quando não (a janela de
+        // Contas já cobre esse caso), e aí o "agora" congelado é o do Marco 1.
+        let relogio: AgendaClock = composicao.database != nil
+            ? .live : .fixed(Fixtures.nowMinute)
+        agendaClock = relogio
         _mailStore = State(initialValue: MailStore(
             source: composicao.source, commandPort: composicao.commandPort,
             bodyPort: composicao.bodyPort, sendPort: composicao.sendPort,
-            contactPort: composicao.contactPort
+            contactPort: composicao.contactPort,
+            agendaPort: composicao.agendaPort,
+            agendaReferenceDay: { relogio.today }
         ))
         if let diretor = composicao.director {
             _accountsModel = State(initialValue: AccountsModel(director: diretor))
@@ -77,19 +91,6 @@ struct OkamiUNIApp: App {
     /// é da Task 18, e até ela chegar o ensaio pega a janela principal
     /// emprestada em vez de registrar por conta própria uma cena que teria de
     /// ser desfeita depois.
-    /// De onde vem o "agora" da trilha e das três visões da agenda, no app
-    /// de verdade.
-    ///
-    /// `.live` quando o banco abriu — é aí que `composition.source` é
-    /// `DatabaseMailSource`, e é o caso de uma conta real: o relógio da
-    /// máquina, batendo minuto a minuto. `.fixed(Fixtures.nowMinute)` quando
-    /// o banco não abriu (`ContasIndisponiveis` já cobre esse caso na janela
-    /// de Contas) — aí não há nem como ter conta real, e o "agora" congelado
-    /// é o mesmo do Marco 1.
-    private var agendaClock: AgendaClock {
-        composition.database != nil ? .live : .fixed(Fixtures.nowMinute)
-    }
-
     @ViewBuilder
     private var cenaPrincipal: some View {
         if let accountsRehearsalModel {
