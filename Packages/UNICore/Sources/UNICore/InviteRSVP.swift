@@ -22,6 +22,16 @@ public enum InviteRSVPResponse: String, Codable, Sendable, Hashable, CaseIterabl
         case .declined: "Recusado"
         }
     }
+
+    /// Texto de ação do botão. O estado usa particípio ("Aceito"), enquanto o
+    /// controle precisa dizer o que acontecerá ao clique ("Aceitar").
+    public var actionLabel: String {
+        switch self {
+        case .accepted: "Aceitar"
+        case .tentative: "Talvez"
+        case .declined: "Recusar"
+        }
+    }
 }
 
 /// Onde uma resposta não pode ser produzida com segurança. Cada caso tem uma

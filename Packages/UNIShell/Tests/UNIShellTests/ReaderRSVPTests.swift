@@ -10,7 +10,8 @@ import UNIDesign
 @MainActor
 struct ReaderRSVPTests {
     private final class SendPort: MailSendPort, @unchecked Sendable {
-        func send(_ message: OutgoingMessage) throws {}
+        private(set) var sent: [OutgoingMessage] = []
+        func send(_ message: OutgoingMessage) throws { sent.append(message) }
     }
 
     private let account = Account(
@@ -49,8 +50,10 @@ struct ReaderRSVPTests {
         )
         await store.load()
         store.select(message: item.id)
-        return Render.bitmap(
-            ReaderPane(store: store), size: CGSize(width: 760, height: 700), theme: .tinta
+        return Render.snapshot(
+            ReaderPane(store: store),
+            named: cancelled ? "m4-rsvp-cancelado" : "m4-rsvp-ativo",
+            size: CGSize(width: 760, height: 700), theme: .tinta
         )
     }
 
@@ -65,5 +68,30 @@ struct ReaderRSVPTests {
             active.pixelsDiffering(from: cancelled) > 0,
             "o cartão RSVP e o cancelado renderizaram iguais; o estado não chegou à superfície"
         )
+    }
+
+    @Test("clicar em Aceitar atravessa o botão e enfileira o iTIP")
+    func aceitarPeloBotao() async throws {
+        let item = message(cancelled: false)
+        let port = SendPort()
+        let store = MailStore(
+            source: InMemoryMailSource(accounts: [account], messages: [item], agenda: []),
+            sendPort: port
+        )
+        await store.load()
+        store.select(message: item.id)
+
+        // Centro do botão «Aceitar» no mesmo quadro de 760×700 usado pela
+        // captura. O evento entra numa NSWindow a −50.000pt, sem tocar na sessão.
+        CliqueDeEnsaio.em(
+            ReaderPane(store: store), size: CGSize(width: 760, height: 700),
+            aY: 280, x: 75
+        )
+
+        let calendar = try #require(item.calendarICS)
+        let invite = try #require(ICalendar.parse(calendar))
+        #expect(port.sent.count == 1)
+        #expect(port.sent.first?.calendarICS?.contains("PARTSTAT=ACCEPTED") == true)
+        #expect(store.inviteRSVPState(for: invite, from: item) == .accepted)
     }
 }

@@ -37,6 +37,12 @@ struct InviteRSVPTests {
         )
     }
 
+    @Test("Os botões usam ações; o estado usa a resposta já dada")
+    func rotulosDeAcaoEEstado() {
+        #expect(InviteRSVPResponse.allCases.map(\.actionLabel) == ["Aceitar", "Talvez", "Recusar"])
+        #expect(InviteRSVPResponse.allCases.map(\.label) == ["Aceito", "Talvez", "Recusado"])
+    }
+
     /// Mutation check: trocar METHOD ou PARTSTAT no construtor abaixo torna
     /// esta prova vermelha; não compara uma cópia local da implementação.
     @Test("Aceitar monta METHOD:REPLY e PARTSTAT=ACCEPTED para a conta convidada")

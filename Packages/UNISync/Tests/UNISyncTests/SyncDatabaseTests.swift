@@ -47,7 +47,7 @@ struct SyncDatabaseTests {
             #expect(tabelas.contains(esperada), "faltou a tabela \(esperada)")
         }
         let versoes = try db.pool.read { try SyncDatabase.migrator.appliedIdentifiers($0) }
-        #expect(versoes == ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8"])
+        #expect(versoes == ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10"])
     }
 
     @Test("Migrar duas vezes não faz nada na segunda")
@@ -55,7 +55,35 @@ struct SyncDatabaseTests {
         let db = try banco()
         try SyncDatabase.migrator.migrate(db.pool)
         let versoes = try db.pool.read { try SyncDatabase.migrator.appliedIdentifiers($0) }
-        #expect(versoes == ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8"])
+        #expect(versoes == ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10"])
+    }
+
+    @Test("Um banco já em v9 recebe a tabela de anexos na v10")
+    func migracaoIncrementalV10() throws {
+        let diretorio = FileManager.default.temporaryDirectory
+            .appendingPathComponent("okamiuni-v9-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: diretorio, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: diretorio) }
+
+        var config = Configuration()
+        config.foreignKeysEnabled = true
+        let pool = try DatabasePool(
+            path: diretorio.appendingPathComponent("mail.sqlite").path, configuration: config
+        )
+        try SyncDatabase.migrator.migrate(pool, upTo: "v9")
+
+        let antes = try pool.read { conexao -> Set<String> in
+            try String.fetchSet(conexao, sql: "SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        #expect(antes.contains("invite_rsvp"))
+        #expect(!antes.contains("message_attachment"))
+
+        try SyncDatabase.migrator.migrate(pool)
+        let depois = try pool.read { conexao -> Set<String> in
+            try String.fetchSet(conexao, sql: "SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        #expect(depois.contains("invite_rsvp"))
+        #expect(depois.contains("message_attachment"))
     }
 
     @Test("A conta vai e volta inteira — inclusive o endpoint e o estado")

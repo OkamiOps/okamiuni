@@ -720,13 +720,13 @@ public struct ReaderPane: View {
         } else if let unavailable {
             help = unavailable.message
         } else {
-            help = "Envia \(response.label.lowercased()) ao organizador pela fila de saída"
+            help = "\(response.actionLabel) e enviar ao organizador pela fila de saída"
         }
 
         return Button {
             _ = store.respondToInvite(convite, from: message, response: response)
         } label: {
-            Text(response.label)
+            Text(response.actionLabel)
                 .font(theme.sans.font(size: 11.5, weight: .semibold))
                 .foregroundStyle(isSelected ? theme.ink4.color : theme.onAccent.color)
                 .frame(height: 26)
