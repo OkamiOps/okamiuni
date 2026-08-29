@@ -23,13 +23,57 @@ struct AccountsWindowTests {
         erro: SyncError? = nil,
         progresso: LoadProgress? = nil,
         sincronizada: Date? = Date(timeIntervalSince1970: 1_799_996_400),
-        mensagens: Int = 1_284
+        mensagens: Int = 1_284,
+        aguardando: Int = 0
     ) -> AccountStatus {
         AccountStatus(
             accountID: "conta-a", address: "contato@meusite.com", hostMark: "meusite",
             state: state, messageCount: mensagens, lastSyncedAt: sincronizada,
-            error: erro, progress: progresso
+            error: erro, progress: progresso, pendingOperations: aguardando
         )
+    }
+
+    // MARK: O selo da fila de saída
+
+    /// "n aguardando" na linha da conta.
+    ///
+    /// Ele mora na linha de estado que já existe, e não numa superfície nova:
+    /// o lugar onde a pessoa já olha para saber como a conta está é aquela
+    /// linha, e um segundo selo ao lado diria a mesma coisa duas vezes.
+    @Test("A fila de saída aparece como «n aguardando», e some quando está vazia")
+    func seloDaFila() {
+        // Fila vazia é o normal: "0 aguardando" em toda conta, o dia inteiro,
+        // treinaria a pessoa a não ler a linha.
+        #expect(!AccountsCopy.status(status(), now: agora, calendar: calendario).contains("aguardando"))
+
+        let comFila = AccountsCopy.status(status(aguardando: 3), now: agora, calendar: calendario)
+        #expect(comFila.contains("3 aguardando"))
+        // E sem perder o que a linha já dizia.
+        #expect(comFila.contains("1.284 mensagens"))
+        #expect(comFila.hasPrefix("Sincronizada às "))
+
+        // Milhar com separador, como a contagem de mensagens ao lado: uma fila
+        // de 1284 operações escrita "1284" ao lado de "1.284 mensagens" leria
+        // como dois números de tipos diferentes.
+        #expect(AccountsCopy.status(status(aguardando: 1_284), now: agora, calendar: calendario)
+            .contains("1.284 aguardando"))
+    }
+
+    /// **Fila parada é exatamente quando o número importa**: ele diz quanta
+    /// coisa está esperando o "Tentar de novo" que a linha oferece ao lado.
+    /// A frase do erro toma a frente da linha, e o selo continua lá.
+    @Test("A conta parada mostra o erro E quantas operações esperam por ele")
+    func seloSobreviveAoErro() {
+        let texto = AccountsCopy.status(
+            status(erro: .rede("A conexão caiu."), aguardando: 2),
+            now: agora, calendar: calendario
+        )
+        #expect(texto.hasPrefix(SyncError.rede("A conexão caiu.").mensagem))
+        #expect(texto.contains("2 aguardando"))
+        // E a saída oferecida continua sendo a do erro — o selo é informação,
+        // não uma ação a mais.
+        #expect(AccountsCopy.actions(for: status(erro: .rede("A conexão caiu."), aguardando: 2))
+            == [.retry(.rede("A conexão caiu.")), .remove])
     }
 
     // MARK: O texto — puro, e é onde estão as decisões

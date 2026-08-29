@@ -18,12 +18,23 @@ public struct AccountStatus: Sendable, Hashable, Identifiable {
     public let error: SyncError?
     /// Nulo quando não há carga em curso.
     public let progress: LoadProgress?
+    /// Quantas operações desta conta continuam na fila de saída — pendentes ou
+    /// paradas por uma falha permanente. Zero é fila vazia.
+    ///
+    /// É o mesmo número que `OutboxExecutor.Outcome.pendentes`, e ele é honesto
+    /// por construção: a tabela `outbox` só guarda trabalho por fazer (a
+    /// operação concluída **sai** da tabela), então contar as linhas é contar o
+    /// que falta. Aditivo (`0` no `init`) — quem monta um status sem fila não
+    /// precisa saber que ela existe.
+    public let pendingOperations: Int
 
     public init(
         accountID: String, address: String, hostMark: String,
         state: Account.State, messageCount: Int, lastSyncedAt: Date?,
-        error: SyncError?, progress: LoadProgress?
+        error: SyncError?, progress: LoadProgress?,
+        pendingOperations: Int = 0
     ) {
+        self.pendingOperations = pendingOperations
         self.accountID = accountID
         self.address = address
         self.hostMark = hostMark

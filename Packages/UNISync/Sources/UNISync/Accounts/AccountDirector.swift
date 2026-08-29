@@ -38,6 +38,9 @@ public actor AccountDirector {
     /// de a seguinte ter começado e mandar a barra para trás. O token diz de
     /// quem é o relato, e o que não é da geração corrente é descartado.
     private var generations: [String: UUID] = [:]
+    /// A observação da fila de saída. Uma só, viva enquanto houver quem desenhe
+    /// a lista — ver `observaAFila()`.
+    private var fila: Task<Void, Never>?
 
     public init(
         database: SyncDatabase,
@@ -80,6 +83,7 @@ public actor AccountDirector {
         AsyncStream { continuation in
             let chave = UUID()
             subscribers[chave] = continuation
+            self.observaAFila()
             continuation.onTermination = { _ in
                 Task { await self.desassina(chave) }
             }
@@ -89,7 +93,54 @@ public actor AccountDirector {
         }
     }
 
-    private func desassina(_ chave: UUID) { subscribers[chave] = nil }
+    private func desassina(_ chave: UUID) {
+        subscribers[chave] = nil
+        // Sem ninguém olhando, a observação do banco desliga: ela existe para
+        // acordar a janela, e continuar acordando ninguém pelo resto da vida do
+        // app é o mesmo desperdício que a `snapshots()` do `DatabaseMailSource`
+        // desfaz no `onTermination` dela.
+        if subscribers.isEmpty {
+            fila?.cancel()
+            fila = nil
+        }
+    }
+
+    /// O selo "n aguardando" muda quando a **tabela** muda, e não quando alguém
+    /// se lembra de perguntar.
+    ///
+    /// `ValueObservation` sobre a `outbox`, como o resto do app: enfileirar,
+    /// executar e concluir são escritas nela, e cada uma acorda esta observação
+    /// — que só chama `refresh()`. Sem isto o número só se moveria nas ações
+    /// que já publicam (adicionar, remover, um erro reportado), e a fila
+    /// esvaziando sozinha em segundo plano deixaria "3 aguardando" na tela para
+    /// sempre.
+    ///
+    /// Uma só para todos os assinantes, e ela não lê o número: o valor
+    /// observado é a contagem da tabela inteira, barato, e serve de gatilho —
+    /// `montaStatuses` faz a leitura de verdade, por conta.
+    private func observaAFila() {
+        guard fila == nil else { return }
+        let pool = database.pool
+        fila = Task { [weak self] in
+            do {
+                let gatilho = ValueObservation.tracking { db in
+                    try Int.fetchOne(db, sql: "SELECT count(*) FROM outbox") ?? 0
+                }
+                for try await _ in gatilho.values(in: pool, bufferingPolicy: .bufferingNewest(1)) {
+                    await self?.refresh()
+                }
+            } catch {
+                // Observação que morre não pode derrubar a janela: o resto dos
+                // caminhos que publicam continua valendo.
+                await self?.registraQuedaDaFila(error)
+            }
+        }
+    }
+
+    private func registraQuedaDaFila(_ error: any Error) {
+        guard !(error is CancellationError) else { return }
+        log.error("A observação da fila de saída parou: \(error)")
+    }
 
     /// O erro de uma conta, vindo de **fora** do diretor: a fila de saída
     /// (`OutboxRunner`) e o coordenador de sincronização (`SyncRunner`).
@@ -124,7 +175,15 @@ public actor AccountDirector {
                     db, sql: "SELECT count(*) FROM message WHERE accountID = ?",
                     arguments: [registro.id]
                 ) ?? 0
-                return Linha(conta: registro.account, mensagens: quantas)
+                // A fila de saída desta conta. O mesmo `state <> feita` do
+                // executor, e pela mesma razão: a linha concluída sai da
+                // tabela, então o que resta é o que ainda não aconteceu —
+                // pendente, esperando o recuo, ou parada por uma falha.
+                let aguardando = try Int.fetchOne(
+                    db, sql: "SELECT count(*) FROM outbox WHERE accountID = ? AND state <> ?",
+                    arguments: [registro.id, OutboxState.feita.rawValue]
+                ) ?? 0
+                return Linha(conta: registro.account, mensagens: quantas, aguardando: aguardando)
             }
         }
         return contas.map { linha in
@@ -132,7 +191,8 @@ public actor AccountDirector {
                 accountID: linha.conta.id, address: linha.conta.address,
                 hostMark: linha.conta.host, state: linha.conta.state,
                 messageCount: linha.mensagens, lastSyncedAt: linha.conta.lastSyncedAt,
-                error: errors[linha.conta.id], progress: progresses[linha.conta.id]
+                error: errors[linha.conta.id], progress: progresses[linha.conta.id],
+                pendingOperations: linha.aguardando
             )
         }
     }
@@ -141,6 +201,7 @@ public actor AccountDirector {
     private struct Linha: Sendable {
         let conta: Account
         let mensagens: Int
+        let aguardando: Int
     }
 
     // MARK: Adicionar

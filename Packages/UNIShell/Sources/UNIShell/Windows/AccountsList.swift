@@ -56,6 +56,7 @@ public enum AccountsCopy {
     /// A linha de estado de uma conta.
     public static func status(_ s: AccountStatus, now: Date, calendar: Calendar) -> String {
         let contagem = "\(numero(s.messageCount)) \(s.messageCount == 1 ? "mensagem" : "mensagens")"
+            + fila(s)
 
         if let erro = s.error {
             return "\(erro.mensagem) · \(contagem)"
@@ -78,6 +79,24 @@ public enum AccountsCopy {
             }
             return "Sincronizada \(horario(quando, calendar: calendar)) · \(contagem)"
         }
+    }
+
+    /// "· 3 aguardando", quando há fila de saída.
+    ///
+    /// **Na linha que já existe, e não numa superfície nova.** O que a pessoa
+    /// precisa saber é que algo dela ainda não saiu — e o lugar onde ela já
+    /// olha para saber como a conta está é esta linha. Um segundo selo ao lado
+    /// diria a mesma coisa duas vezes.
+    ///
+    /// Some com a fila vazia, que é o normal: "0 aguardando" em toda conta o
+    /// dia inteiro treinaria a pessoa a não ler a linha.
+    ///
+    /// Aparece **junto do erro**, e isso é de propósito: fila parada é
+    /// exatamente quando o número importa — é ele que diz quanta coisa está
+    /// esperando o "Tentar de novo" ao lado.
+    static func fila(_ s: AccountStatus) -> String {
+        guard s.pendingOperations > 0 else { return "" }
+        return " · \(numero(s.pendingOperations)) aguardando"
     }
 
     /// A ação que o erro pede. Duas ações diferentes porque são dois problemas

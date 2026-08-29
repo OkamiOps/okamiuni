@@ -98,6 +98,34 @@ private actor Contador {
     func proximo() -> Int { quantas += 1; return quantas }
 }
 
+/// Os números publicados, com uma espera **com prazo**.
+///
+/// Sem prazo, a asserção "o segundo valor chega" viraria um teste que trava
+/// quando a observação some, em vez de um que falha — e teste que trava não é
+/// prova de nada, é a suíte parada.
+private actor CaixaDeNumeros {
+    private var vistos: [Int] = []
+
+    /// Guarda o valor novo. Repetição não entra: a publicação acontece por
+    /// qualquer mudança do banco, e o que este teste afirma é a **sequência de
+    /// números**, não quantas vezes a lista foi redesenhada.
+    func anota(_ numero: Int) {
+        guard vistos.last != numero else { return }
+        vistos.append(numero)
+    }
+
+    /// Espera até haver `quantos` números, ou até o prazo acabar.
+    func espera(ate quantos: Int, prazo: Duration = .seconds(3)) async -> [Int] {
+        let passo = Duration.milliseconds(20)
+        var gastos = Duration.zero
+        while vistos.count < quantos, gastos < prazo {
+            try? await Task.sleep(for: passo)
+            gastos += passo
+        }
+        return vistos
+    }
+}
+
 /// `.serialized` porque cada teste sobe um `FakeImapServer` e um
 /// `MultiThreadedEventLoopGroup` próprios: em paralelo, uma dúzia deles
 /// disputa portas e threads, e o teste que mede "a segunda carga não entrou"
@@ -328,6 +356,55 @@ struct AccountDirectorTests {
         #expect(status.error == nil)
         // A carga acabou: nada de barra pendurada em 1.0 para sempre.
         #expect(status.progress == nil)
+    }
+
+    /// O selo "n aguardando" da linha da conta, e o que o faz mudar.
+    ///
+    /// Duas coisas se provam aqui, e a segunda é a que importa: o número é o da
+    /// fila **daquela** conta, e ele anda sozinho quando a tabela muda — por
+    /// `ValueObservation`, como o resto do app. Sem a observação, o número só
+    /// se moveria nas ações que já publicam (adicionar, remover, um erro
+    /// reportado), e a fila esvaziando em segundo plano deixaria "2 aguardando"
+    /// na tela para sempre.
+    @Test("O selo «n aguardando» conta a fila da conta e anda sozinho quando ela muda")
+    func filaDeSaidaPublicada() async throws {
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+        let db = try SyncDatabase.temporary()
+        let conta = Account(
+            id: "conta-a", address: "eu@meudominio.com.br", displayName: "Eu",
+            provider: .imap, host: "meudominio",
+            tintLightHex: "#3F6AA1", tintDarkHex: "#8CBAF7", signature: "Eu",
+            imap: ImapEndpoint(host: "imap.meudominio.com.br", port: 993, security: .tls),
+            state: .ativa
+        )
+        try await db.pool.write { try AccountRecord(conta, createdAt: self.agora).insert($0) }
+
+        let porta = DatabaseCommandPort(database: db)
+        try porta.move(to: .archived, accountID: "conta-a", messageIDs: ["conta-a:g:m1"])
+        try porta.move(to: .later, accountID: "conta-a", messageIDs: ["conta-a:g:m2"])
+
+        let director = diretor(db: db, secrets: InMemorySecretStore(), grupo: grupo, porta: 0)
+        let caixa = CaixaDeNumeros()
+        let assinatura = Task {
+            for await lista in await director.statuses() {
+                guard let status = lista.first else { continue }
+                await caixa.anota(status.pendingOperations)
+            }
+        }
+        defer { assinatura.cancel() }
+
+        #expect(await caixa.espera(ate: 1) == [2])
+
+        // A fila anda: a operação feita **sai** da tabela (invariante do M3-2),
+        // e a lista tem de ser publicada de novo sem ninguém pedir.
+        //
+        // MUTAÇÃO QUE ISTO PEGA: tirar a `ValueObservation` da fila
+        // (`observaAFila`). O primeiro número continuaria certo, e o segundo
+        // nunca chegaria — "2 aguardando" na tela de uma conta sem fila
+        // nenhuma, para sempre.
+        try await db.pool.write { try $0.execute(sql: "DELETE FROM outbox") }
+        #expect(await caixa.espera(ate: 2) == [2, 0])
     }
 
     @Test("Remover apaga banco e Keychain — os dois, sempre")
