@@ -170,7 +170,7 @@ struct BandSuggestionStackingTests {
         guard let message = store.messages.first(where: { $0.id == "m1" }) else { return nil }
         return Render.snapshot(
             QuickReplyBand(
-                store: store, message: message, onPromote: { _ in },
+                store: store, message: message, onPromote: { _ in }, expandRequest: 1,
                 seededCopyQuery: query, debugCopiesOpen: true
             )
             .environment(ThemeStore())

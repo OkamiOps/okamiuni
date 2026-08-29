@@ -50,6 +50,14 @@ struct QuickReplyBand: View {
     /// O "⤢": promove esta resposta para a janela cheia. Quem recebe já
     /// encontra o rascunho em `store.replyDraft(for:)`.
     let onPromote: (Message) -> Void
+    /// O "Responder" da barra de ações do topo, contado.
+    ///
+    /// Cada clique lá em cima incrementa este número, e cada incremento abre
+    /// **esta** faixa e põe o cursor no campo. Contador, e não `Bool`: dois
+    /// cliques são dois pedidos, e quem recolheu no meio precisa que o segundo
+    /// ainda chegue. Zero é "ninguém pediu" — o padrão de todo teste que não
+    /// passa nada.
+    var expandRequest: Int = 0
 
     /// Portas do harness de renderização. Ele desenha fora da tela e nunca
     /// entrega foco a ninguém, então sem elas não há como verificar a aparência
@@ -64,7 +72,11 @@ struct QuickReplyBand: View {
     var debugMoreFormatting = false
     var debugCopiesOpen = false
 
-    @State private var open = true
+    /// A faixa nasce **recolhida** — ver `opensExpanded(for:)`.
+    @State private var open = false
+    /// Repassado ao editor para ele tomar o cursor quando a faixa abre por
+    /// pedido de fora.
+    @State private var focusToken = 0
     @State private var to: [Contact] = []
     @State private var cc: [Contact] = []
     @State private var bcc: [Contact] = []
@@ -146,6 +158,14 @@ struct QuickReplyBand: View {
         .background(theme.surface.color)
         .hairline(theme.line2, edges: .top)
         .task(id: message.id) { seed() }
+        // O "Responder" do topo do leitor: abre esta faixa e põe o cursor no
+        // campo. Ele **não** abre janela — a janela continua sendo o "⤢", que
+        // leva o rascunho junto.
+        .onChange(of: expandRequest) { _, novo in
+            guard novo > 0 else { return }
+            open = true
+            focusToken += 1
+        }
     }
 
     /// Semeia uma vez por mensagem. Um rascunho guardado vence o padrão: quem
@@ -168,7 +188,10 @@ struct QuickReplyBand: View {
             ComposerEditor.decorate(&body, theme: theme)
             draft = body
         }
-        open = Self.opensExpanded(for: stored)
+        // `expandRequest` já contado antes da primeira semeadura é o "⌘R
+        // enquanto a mensagem ainda abria": o pedido não pode se perder no
+        // meio, porque o `onChange` só ouve o que muda **depois**.
+        open = Self.opensExpanded(for: stored) || expandRequest > 0
         seeded = true
     }
 
@@ -182,16 +205,37 @@ struct QuickReplyBand: View {
         return draft.to
     }
 
-    /// A faixa nasce aberta — é o estado do protótipo, e é o que preenche o
-    /// vazio embaixo da mensagem. A exceção é a resposta que já passou pelo
-    /// "Enviar": ali a faixa fechada é o **retorno** daquele clique, e reabrir
-    /// sozinha apagaria a única confirmação que existe.
+    /// **A faixa nasce recolhida.** Pedido do dono: o editor de resposta
+    /// ocupava o rodapé do leitor em toda mensagem, mesmo nas que ninguém vai
+    /// responder — e a altura que ele comia é a do texto que a pessoa está
+    /// lendo. Recolhida, a faixa é uma linha ("Responder a Fulano…" e um
+    /// botão), e o editor aparece quando alguém pede.
     ///
-    /// "Salvar" **não** fecha: quem salvou continua escrevendo. Por isso
-    /// `sentAt` e `savedAt` são campos distintos em `ReplyDraft`.
+    /// Duas exceções, e as duas são a mesma regra: **a faixa nunca esconde
+    /// trabalho que já existe.**
+    ///
+    /// - Um rascunho com texto ou anexo, ainda não enviado, reabre expandido:
+    ///   quem escreveu e saiu volta ao ponto em que parou.
+    /// - A resposta que já passou pelo "Enviar" continua recolhida, porque ali
+    ///   a faixa fechada **é** o retorno daquele clique — reabrir apagaria a
+    ///   única confirmação que existe.
+    ///
+    /// "Salvar" não fecha: quem salvou continua escrevendo. Por isso `sentAt` e
+    /// `savedAt` são campos distintos em `ReplyDraft`.
     nonisolated static func opensExpanded(for draft: ReplyDraft?) -> Bool {
-        guard let draft, draft.sentAt != nil else { return true }
-        return false
+        guard let draft, draft.sentAt == nil else { return false }
+        let escrito = !String(draft.body.characters)
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return escrito || !draft.attachments.isEmpty
+    }
+
+    /// Esc recolhe?
+    ///
+    /// Só com o campo vazio. Quem está no meio de uma frase aperta Esc para
+    /// fechar um menu, um corretor, uma sugestão — e teria a resposta recolhida
+    /// debaixo do dedo.
+    nonisolated static func recolheComEsc(_ texto: String) -> Bool {
+        texto.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// O que a faixa tem agora, no formato que atravessa a fronteira.
@@ -347,9 +391,21 @@ struct QuickReplyBand: View {
                 selection: $selection,
                 theme: theme,
                 // Protótipo: `padding: 14px`.
-                insets: CGSize(width: 14, height: 14)
+                insets: CGSize(width: 14, height: 14),
+                focusToken: focusToken
             )
             .frame(height: 110, alignment: .top)
+            // Esc **com o campo vazio** recolhe a faixa; com texto dentro, não
+            // faz nada — recolher por engano quem está escrevendo custa mais do
+            // que a tecla economiza. O botão "▾" continua recolhendo sempre, e
+            // o rascunho sobrevive aos dois: ele mora no `MailStore`, e a faixa
+            // o guarda antes de fechar.
+            .onKeyPress(.escape) {
+                guard Self.recolheComEsc(plainText) else { return .ignored }
+                persist()
+                open = false
+                return .handled
+            }
 
             if draft.characters.isEmpty {
                 // Protótipo, linha 1275.

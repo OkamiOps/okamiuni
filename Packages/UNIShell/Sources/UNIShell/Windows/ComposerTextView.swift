@@ -53,6 +53,17 @@ struct ComposerTextView: NSViewRepresentable {
     /// Chamado depois de cada edição do usuário, para quem precisa carimbar
     /// rascunho. A barra não passa por aqui: ela muda o modelo direto.
     var onEdit: (() -> Void)?
+    /// Um contador que, ao mudar, põe o cursor **aqui**.
+    ///
+    /// Existe para o "Responder" do topo do leitor: ele expande a faixa e o
+    /// cursor já tem de estar no campo — pedir para a pessoa clicar de novo no
+    /// que ela acabou de abrir é um passo a mais por nada. É um contador, e não
+    /// um `Bool`, porque dois pedidos seguidos ("Responder" duas vezes) são
+    /// dois pedidos, e um `Bool` que já era `true` não avisaria o segundo.
+    ///
+    /// Zero é "ninguém pediu", e é o padrão: a janela 03 e todo teste que não
+    /// passa nada continuam sem mexer no foco de ninguém.
+    var focusToken: Int = 0
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -131,6 +142,14 @@ struct ComposerTextView: NSViewRepresentable {
             context.coordinator.applySelection(selection, in: text, to: view)
         }
         context.coordinator.applyTypingAttributes(selection, in: text, theme: theme, to: view)
+
+        // O pedido de foco do "Responder". `makeFirstResponder` age dentro da
+        // janela do próprio app — não mexe em teclado nem em mouse do sistema,
+        // e numa janela fora da tela (o harness dos testes) não faz nada.
+        if focusToken != context.coordinator.focusToken {
+            context.coordinator.focusToken = focusToken
+            if focusToken > 0 { view.window?.makeFirstResponder(view) }
+        }
     }
 
     /// A altura ideal é a do texto desenhado, para o editor da 03 crescer dentro
@@ -165,6 +184,8 @@ struct ComposerTextView: NSViewRepresentable {
         private var settled: AttributedString?
         private var settledTheme: Theme?
         private var pushing = false
+        /// O último pedido de foco já atendido — ver `ComposerTextView.focusToken`.
+        var focusToken = 0
 
         init(_ parent: ComposerTextView) {
             self.parent = parent

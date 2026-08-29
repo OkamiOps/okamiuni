@@ -162,7 +162,7 @@ struct ComposerCaretTests {
         var steps: [CGFloat] = []
 
         EditorProbe.withHostedView(
-            QuickReplyBand(store: store, message: message, onPromote: { _ in }),
+            QuickReplyBand(store: store, message: message, onPromote: { _ in }, expandRequest: 1),
             size: CGSize(width: 720, height: 520), theme: .tinta
         ) { content in
             guard let editor = EditorProbe.textView(in: content, containing: "ddadasd") else { return }

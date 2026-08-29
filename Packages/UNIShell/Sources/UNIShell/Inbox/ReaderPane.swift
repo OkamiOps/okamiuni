@@ -8,10 +8,13 @@ public struct ReaderPane: View {
     let store: MailStore
     /// Abre a janela 03 (Composer) com esta mensagem citada.
     ///
-    /// Dois gatilhos chamam este mesmo fechamento: o botão "Responder" da fila
-    /// de triagem e o "⤢" da faixa de resposta rápida. O do "⤢" grava o
-    /// rascunho em `store.replyDraft(for:)` **antes** de chamar, para a janela
-    /// cheia continuar de onde a faixa parou.
+    /// **Um gatilho só, desde a M3-12: o "⤢" da faixa de resposta rápida.** Ele
+    /// grava o rascunho em `store.replyDraft(for:)` antes de chamar, para a
+    /// janela cheia continuar de onde a faixa parou.
+    ///
+    /// O botão "Responder" da fila de triagem deixou de abrir janela: ele
+    /// expande a faixa de baixo e põe o cursor nela — pedido do dono. A janela
+    /// continua a um clique dali, e é o mesmo caminho de sempre.
     let onReply: (Message) -> Void
 
     /// O retorno de "Colocar na agenda": qual mensagem, qual item criado, e a
@@ -24,6 +27,11 @@ public struct ReaderPane: View {
     /// fila de triagem chama `store.move(_:to:)` direto, sem passar por um
     /// closure.
     @State private var agendaReceipt: AgendaAddReceipt?
+
+    /// Quantas vezes alguém pediu para responder esta mensagem pelo botão do
+    /// topo (ou por ⌘R). A faixa de baixo ouve o número mudar e se expande —
+    /// ver `QuickReplyBand.expandRequest`.
+    @State private var pedidoDeResposta = 0
 
     /// O mesmo retorno com "Desfazer" que a lista desenha. O leitor **posta**
     /// nele e não o desenha: apagar daqui tira a mensagem do leitor, e uma
@@ -116,8 +124,11 @@ public struct ReaderPane: View {
             // aberta: trocar de mensagem tem de trocar de rascunho, não herdar
             // o texto da anterior. O que já foi escrito não se perde — fica no
             // `MailStore`, e volta quando a mensagem voltar.
-            QuickReplyBand(store: store, message: message, onPromote: onReply)
-                .id(message.id)
+            QuickReplyBand(
+                store: store, message: message, onPromote: onReply,
+                expandRequest: pedidoDeResposta
+            )
+            .id(message.id)
         }
         // Abrir uma mensagem sem corpo **é** o pedido de busca. `id:` para que
         // trocar de mensagem cancele a busca da anterior e comece a desta: sem
@@ -276,9 +287,11 @@ public struct ReaderPane: View {
                 .focusRing(cornerRadius: theme.radiusSmall)
             }
 
-            // O gancho para a janela 03. Fica junto da fila de triagem porque é
-            // a mesma decisão: o que fazer com esta mensagem agora.
-            Button { onReply(message) } label: {
+            // "Responder" **expande a faixa de baixo** e põe o cursor nela —
+            // não abre janela. Pedido do dono: a resposta começa embaixo da
+            // mensagem que se está lendo, e a janela cheia continua a um clique
+            // dali, no "⤢" da própria faixa, que leva o rascunho junto.
+            Button { pedidoDeResposta += 1 } label: {
                 Text("Responder")
                     .font(theme.sans.font(size: 11.5, weight: .semibold))
                     .foregroundStyle(theme.onAccent.color)
