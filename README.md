@@ -7,9 +7,9 @@
 ![Swift 6.3](https://img.shields.io/badge/Swift-6.3-F05138?logo=swift&logoColor=white)
 ![macOS 26](https://img.shields.io/badge/macOS-26-000000?logo=apple&logoColor=white)
 ![SwiftUI](https://img.shields.io/badge/SwiftUI-nativo-0071e3)
-![Testes](https://img.shields.io/badge/testes-1088%20verdes-2ea44f)
+![Testes](https://img.shields.io/badge/testes-1338%20verdes-2ea44f)
 ![Temas](https://img.shields.io/badge/temas-26-8a2be2)
-![Marco](https://img.shields.io/badge/marco-2%20·%20contas-orange)
+![Marco](https://img.shields.io/badge/marco-3%20·%20sincronização-orange)
 
 <img src="docs/capturas/janela-principal.png" width="860" alt="A janela principal do OkamiUNI: barra lateral com contas e caixas, lista de mensagens, leitor com resumo no dispositivo e trilha de agenda do dia." />
 
@@ -48,6 +48,7 @@ Cliente de email é o app que mais horas passa aberto — e o que menos respeito
 | 🪟 **Janelas** | Composer, nova mensagem, mensagem destacada e detalhe de compromisso são cenas reais (⌘W, menu Janela, uma por valor) |
 | 🎨 **Shell** | 26 temas com tokens de ponta a ponta, hairlines de 1 pixel de dispositivo, semáforos a 22pt, duplo clique na barra respeitando a preferência do sistema, painéis redimensionáveis com intenção preservada |
 | 🔐 **Contas de verdade** (Marco 2) | OAuth do Google com PKCE, IMAP para qualquer provedor com detecção de servidor, segredos no Keychain, cache local em SQLite com busca no corpo (FTS5, acento dobrado) e carga dos últimos 90 dias — o app abre **offline**. Sem conta conectada, ele continua sendo o shell do Marco 1, com as fixtures |
+| 🔄 **Sincronização de verdade** (Marco 3) | As contas se mantêm sozinhas: IMAP IDLE com delta de bandeiras, Gmail incremental por histórico, e a rede que volta acorda tudo. Corpos MIME decodificados de verdade (multipart, quoted-printable, charsets) com busca sob demanda ao abrir. Toda ação (arquivar, apagar, lida, estrela) persiste numa **fila transacional** espelhada no servidor — funciona offline, com retry, e falha permanente para com explicação e "tentar de novo". **Enviar envia**: Gmail pela API, IMAP por SMTP próprio (STARTTLS), com caixa Enviadas e idempotência por Message-ID. Contatos do autocomplete vêm das caixas reais |
 
 <div align="center">
 <table>
@@ -111,7 +112,7 @@ for p in UNICore UNIDesign UNIShell UNISync; do (cd "Packages/$p" && swift test)
 
 - [x] **Marco 1 — Shell**: tudo acima, com as quatro contas vindo de fixtures
 - [x] **Marco 2 — Contas**: OAuth do Google (PKCE), IMAP para qualquer provedor, Keychain, banco SQLite local-first com FTS5, carga de 90 dias retomável, janela de Contas
-- [ ] **Marco 3 — Sincronização**: Gmail API + Microsoft Graph + IMAP como reserva — qualquer provedor, qualquer domínio
+- [x] **Marco 3 — Sincronização**: sync contínuo (IDLE + histórico incremental), corpos MIME, fila de ações espelhada no servidor, envio (Gmail API + SMTP), Enviadas, contatos reais
 - [ ] **Marco 4 — Agenda real**: EventKit; "Reagendar" volta, "Tirar da agenda" alcança tudo
 - [ ] **Marco 5 — Inteligência no dispositivo**: resumo e detecção de compromisso deixando as fixtures
 
