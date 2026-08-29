@@ -36,6 +36,14 @@ struct ReaderHTMLBody: NSViewRepresentable {
     /// A altura medida do conteúdo. É ela que faz a `WebView` crescer dentro da
     /// rolagem do leitor em vez de rolar por dentro.
     @Binding var altura: CGFloat
+    /// O conteúdo já pintou?
+    ///
+    /// **É o mesmo sinal que a medição da M3-18/M3-20 já observa**, e não um
+    /// segundo relógio: `didFinish` espera o evento `load` do documento (com as
+    /// imagens dentro dele — medido na M3-18), e a régua responde logo depois.
+    /// Quando a primeira altura de verdade chega, a mensagem está desenhada.
+    /// Enquanto não chega, quem espera na tela é o `ReaderHTMLSection`.
+    @Binding var pintou: Bool
 
     func makeCoordinator() -> Coordenador { Coordenador(self) }
 
@@ -183,6 +191,11 @@ struct ReaderHTMLBody: NSViewRepresentable {
                 ReaderHTMLPolicy.medidaDaAltura
             ) { [weak self] valor, _ in
                 guard let self, let numero = valor as? CGFloat, numero > 0 else { return }
+                // A régua respondeu com um número de verdade: o documento está
+                // desenhado. É aqui, e não no `didFinish`, porque entre os dois
+                // a `WebView` ainda mede um ponto de altura — anunciar "pintou"
+                // lá deixaria um fio no lugar da mensagem.
+                if !self.pai.pintou { self.pai.pintou = true }
                 let altura = ReaderHTMLPolicy.altura(documento: numero, escala: escala)
                 guard abs(altura - self.pai.altura) > 1 else { return }
                 self.pai.altura = altura

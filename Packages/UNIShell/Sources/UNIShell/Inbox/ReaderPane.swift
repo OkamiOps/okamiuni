@@ -865,14 +865,7 @@ public struct ReaderPane: View {
     nonisolated static let carregandoCorpo = "Carregando corpo…"
     nonisolated static let semTexto = "Esta mensagem não tem texto."
 
-    private func bodyNote(_ texto: String) -> some View {
-        Text(texto)
-            .font(theme.serif.font(size: 15))
-            .italic()
-            .foregroundStyle(theme.ink4.color)
-            .frame(maxWidth: Self.readingWidth, alignment: .leading)
-            .padding(.horizontal, 28)
-    }
+    private func bodyNote(_ texto: String) -> some View { ReaderNote(texto) }
 
     /// A falha, com a saída junto. Uma faixa que só diz "não deu" é a mesma
     /// tela vazia com mais palavras.
@@ -941,3 +934,28 @@ public struct ReaderPane: View {
         .frame(width: 600, height: 600)
 }
 #endif
+
+/// A frase em itálico que o leitor põe no lugar do corpo enquanto ele não está
+/// lá: "Carregando corpo…" da M3-3, "Esta mensagem não tem texto." e, desde a
+/// M3-21, o "Carregando a mensagem…" do bloco de HTML.
+///
+/// **Uma peça, e não três cópias da receita.** As três dizem a mesma coisa —
+/// "aqui devia haver texto e por ora não há" — e um leitor em que duas delas
+/// estivessem em serif e a terceira em sans seria um leitor com duas vozes. A
+/// tipografia é a do corpo, um grau menor e em itálico: presente, e claramente
+/// não sendo a mensagem.
+struct ReaderNote: View {
+    @Environment(\.theme) private var theme
+    private let texto: String
+
+    init(_ texto: String) { self.texto = texto }
+
+    var body: some View {
+        Text(texto)
+            .font(theme.serif.font(size: 15))
+            .italic()
+            .foregroundStyle(theme.ink4.color)
+            .frame(maxWidth: ReaderPane.readingWidth, alignment: .leading)
+            .padding(.horizontal, 28)
+    }
+}

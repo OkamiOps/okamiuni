@@ -25,8 +25,33 @@ struct ReaderHTMLSection: View {
     var aoConfiar: () -> Void = {}
     var aoRevogar: () -> Void = {}
 
+    /// O estado de "já pintou" forçado, para o retrato conseguir medir os dois
+    /// lados da espera. Mesmo idioma do `debugSections` da janela 04: a `View`
+    /// desenha o que desenharia, e o teste escolhe o instante — em vez de um
+    /// interruptor que só existe no teste e muda o caminho do código.
+    var debugPintou: Bool?
+
     @State private var carregaRemotas = false
     @State private var altura: CGFloat = 1
+    /// A mensagem já está desenhada na `WebView`?
+    @State private var pintou = false
+
+    private var jaPintou: Bool { debugPintou ?? pintou }
+
+    /// A frase da espera, no idioma do "Carregando corpo…" da M3-3 — mesma
+    /// `ReaderNote`, mesma tipografia, momento diferente: lá o corpo está
+    /// vindo do servidor, aqui ele já chegou e está sendo desenhado.
+    nonisolated static let carregando = "Carregando a mensagem…"
+
+    /// Quanto a espera dura no máximo.
+    ///
+    /// **Teto, e não promessa.** Se a `WebView` nunca responder — um documento
+    /// que quebra a régua, um `didFinish` que não vem —, o leitor cai para o
+    /// que tiver em vez de girar para sempre. Cinco segundos é folga larga
+    /// sobre o caso normal (as imagens remotas nascem bloqueadas, então o
+    /// `load` não espera a rede) e curto o bastante para ninguém achar que
+    /// travou.
+    nonisolated static let tetoDaEspera: Duration = .seconds(5)
 
     /// As imagens desta mensagem carregam?
     ///
@@ -48,19 +73,40 @@ struct ReaderHTMLSection: View {
                 }
             }
 
-            ReaderHTMLBody(
-                html: html,
-                permiteRemotas: permiteRemotas,
-                fundo: Self.css(theme.surface),
-                tinta: Self.css(theme.ink),
-                link: Self.css(theme.accent),
-                fonte: Self.familia(theme),
-                altura: $altura
-            )
-            .frame(height: max(1, altura))
-            .padding(.horizontal, 28)
+            // **O vazio que parecia defeito.** A `WebView` nasce com um ponto
+            // de altura e só cresce quando a régua responde; até lá o leitor
+            // mostrava uma coluna em branco, e o dono achou que o email tinha
+            // aberto quebrado — ele carregou enquanto a reclamação era escrita.
+            // A espera agora tem cara de espera.
+            ZStack(alignment: .topLeading) {
+                ReaderHTMLBody(
+                    html: html,
+                    permiteRemotas: permiteRemotas,
+                    fundo: Self.css(theme.surface),
+                    tinta: Self.css(theme.ink),
+                    link: Self.css(theme.accent),
+                    fonte: Self.familia(theme),
+                    altura: $altura,
+                    pintou: $pintou
+                )
+                .frame(height: max(1, altura))
+                .padding(.horizontal, 28)
+                // Escondida, e não ausente: tirá-la da hierarquia enquanto
+                // espera seria destruí-la e recomeçar a carga a cada redesenho.
+                .opacity(jaPintou ? 1 : 0)
+
+                // A `ReaderNote` já traz os mesmos 28 de folga do corpo.
+                if !jaPintou { ReaderNote(Self.carregando) }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // O teto da espera. `id: html` porque cada mensagem tem a sua: trocar
+        // de email recomeça a contagem em vez de herdar o resto da anterior.
+        .task(id: html) {
+            try? await Task.sleep(for: Self.tetoDaEspera)
+            guard !Task.isCancelled else { return }
+            pintou = true
+        }
     }
 
     /// A frase, e o que ela oferece.
