@@ -209,3 +209,25 @@ private final class WindowReachingView: NSView {
         if let window { onWindow?(window) }
     }
 }
+
+extension View {
+    /// Põe os semáforos nativos desta janela na linha da plataforma — a mesma
+    /// em que a barra desenha o que ela desenha.
+    ///
+    /// **Existia só na janela principal, e é o defeito da M3-21.** A `WindowChrome`
+    /// mandava os botões do sistema para y=22 e centrava os controles dela lá; as
+    /// outras cinco janelas (03, 04, 05, 06 e Configurações) tinham a barra
+    /// própria e **não** tinham o alinhador, então os semáforos delas ficavam
+    /// onde o macOS os deixa numa `.hiddenTitleBar` — centro em y=16 — enquanto
+    /// o título ia para o meio da barra. Cinco pontos de desencontro, medidos,
+    /// em toda janela que não fosse a principal.
+    ///
+    /// Uma linha por barra, e a regra da casa passa a valer nas seis.
+    func trafficLightsOnTheLine(barHeight: CGFloat) -> some View {
+        overlay(alignment: .topLeading) {
+            TrafficLightAlignment(barHeight: barHeight)
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+        }
+    }
+}

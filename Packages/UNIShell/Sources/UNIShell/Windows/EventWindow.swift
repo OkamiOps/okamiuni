@@ -177,9 +177,15 @@ public struct EventWindow: View {
         // janela principal.
         .padding(.leading, WindowChrome.trafficLightInset)
         .padding(.trailing, 18)
-        .padding(.vertical, 13)
+        // **Altura fixa, e não folga vertical.** Com `padding(.vertical, 13)` a
+        // linha média do cabeçalho saía da altura do texto — e caía onde caísse,
+        // longe dos semáforos, que ninguém alinhava nesta janela. Agora a barra
+        // mede duas vezes a linha da plataforma, e o que ela desenha cai
+        // exatamente em cima dela.
+        .frame(height: TrafficLightLayout.contentCenterFromTop * 2)
         .background(theme.surface2.color)
         .hairline(theme.line2, edges: .bottom)
+        .trafficLightsOnTheLine(barHeight: TrafficLightLayout.contentCenterFromTop * 2)
     }
 
     private func content(_ item: AgendaItem) -> some View {

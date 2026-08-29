@@ -12,7 +12,19 @@ import UNIDesign
 /// o vão deles — a mesma decisão (e a mesma medida, `trafficLightInset`) que a
 /// barra da janela principal já usa.
 struct WindowTitleBar<Accessory: View>: View {
-    static var height: CGFloat { 42 }
+    /// **44, e não os 42 do protótipo.**
+    ///
+    /// A regra da casa é a dos semáforos: o conteúdo da barra e os botões do
+    /// sistema caem na mesma linha, `TrafficLightLayout.contentCenterFromTop`.
+    /// Com 42 o título ficava centrado em 21 e os semáforos, sem alinhador,
+    /// no lugar nativo (16) — o desencontro que o dono mostrou na janela de
+    /// resposta. Dois pontos de altura a mais fazem o centro da barra **ser**
+    /// a linha 22, sem conta nenhuma pelo caminho.
+    ///
+    /// Onde a medida do protótipo briga com a convenção do macOS, a plataforma
+    /// vence — é a mesma decisão que pôs os semáforos em 22 (ver
+    /// `TrafficLightLayout.contentCenterFromTop`).
+    static var height: CGFloat { TrafficLightLayout.contentCenterFromTop * 2 }
 
     @Environment(\.theme) private var theme
     let title: String
@@ -37,6 +49,10 @@ struct WindowTitleBar<Accessory: View>: View {
         .frame(maxWidth: .infinity)
         .background(theme.surface2.color)
         .hairline(theme.line, edges: .bottom)
+        // E os semáforos desta janela sobem para a mesma linha. Sem isto o
+        // título ia para o meio da barra e os botões do sistema ficavam onde
+        // o macOS os deixa — a queixa do dono na janela de resposta.
+        .trafficLightsOnTheLine(barHeight: Self.height)
     }
 }
 
