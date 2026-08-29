@@ -56,26 +56,28 @@ public struct EventSections: Sendable, Hashable {
     /// Sem linha de email (um compromisso que a IA detectou, ou o de série
     /// recorrente) fica o título de sempre — inventar "email de …" onde não há
     /// email seria o cabeçalho mentindo sobre o que esconde.
-    /// Os primeiros parágrafos do email que gerou o compromisso — o que a
-    /// seção aberta mostra abaixo da linha dele.
+    /// O texto do email que gerou o compromisso — o que a seção aberta mostra
+    /// abaixo da linha dele.
     ///
-    /// **Prévia, e não o leitor.** Aberta, a seção mostrava o remetente, o
-    /// assunto, a data e a nota — e nada do que o email dizia, que é o que o
-    /// dono queria ver dali. Embutir o leitor de HTML inteiro numa janela de
-    /// 560pt seria trazer `WebView`, política de conteúdo remoto, faixa de
-    /// confiança e rolagem própria para dentro de um cartão: o começo do texto
-    /// plano responde "de que se trata" e o botão "Abrir no leitor" leva ao
-    /// resto, que é onde o resto sempre esteve.
+    /// **A mensagem inteira, e desde a M3-21 não mais três parágrafos.** A M3-14
+    /// cortava em três porque a seção era uma amostra; o dono pediu para *ler* a
+    /// mensagem dentro do convite, e três parágrafos de um convite comprido são
+    /// a mesma frustração de antes com mais linhas. Quem limita agora é a
+    /// altura da seção, que rola por dentro — o texto está todo lá.
+    ///
+    /// **Ainda não é o leitor.** O corpo em HTML, a política de conteúdo remoto
+    /// e a faixa de confiança continuam morando no `ReaderPane`: nenhuma
+    /// `WebView` entra na janela de compromisso, e o "Abrir no leitor" continua
+    /// sendo o caminho para o email rico. O que esta seção mostra é o **texto
+    /// plano** dele.
     ///
     /// Lista vazia é **resposta legítima**, não erro: a mensagem pode estar no
-    /// banco sem corpo (as 39 do dono, ver `MessageStore.loadBodyIfNeeded`).
-    /// Aí a seção fica com a linha e o botão, sem inventar espera de rede numa
-    /// janela que não pede rede.
-    public static func bodyPreview(_ body: [String], paragraphs: Int = 3) -> [String] {
+    /// banco sem corpo (as 39 do dono, ver `MessageStore.loadBodyIfNeeded`) — e
+    /// aí quem responde é o estado de carregando da janela, que desde a M3-21
+    /// busca o corpo em vez de ficar no beco sem saída.
+    public static func bodyPreview(_ body: [String]) -> [String] {
         body.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-            .prefix(max(0, paragraphs))
-            .map { $0 }
     }
 
     public static func originHeader(_ thread: [EventThreadEntry]) -> String {

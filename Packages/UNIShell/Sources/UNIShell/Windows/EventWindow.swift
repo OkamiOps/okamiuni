@@ -1,6 +1,9 @@
 import SwiftUI
 import UNIDesign
 import UNICore
+// Por uma linha: `MimeBody.textFromHTML`, que deriva o texto do convite
+// HTML-only na hora de exibir. Nenhuma segunda cópia da regra.
+import UNISync
 
 /// As cores semânticas do protótipo (`semC`), já convertidas de oklch para
 /// sRGB — `TokenColor` lê hex. A mesma conversão que produziu o `#D73337` /
@@ -572,38 +575,83 @@ public struct EventWindow: View {
         originMessageID.flatMap { id in store.messages.first { $0.id == id } }
     }
 
-    /// O começo do email, e o salto para ele.
+    /// Até onde a mensagem cresce dentro da seção antes de passar a rolar.
+    ///
+    /// O convite do dono é HTML-only e comprido; sem teto, a seção empurraria o
+    /// resto da janela (encaminhar, nota, rodapé) para fora da vista a cada
+    /// abertura. Com teto, a mensagem está toda ali e a janela continua sendo
+    /// uma janela de compromisso.
+    static let originBodyMaxHeight: CGFloat = 260
+
+    /// O texto do email de origem — o dele mesmo, e não só o que o banco
+    /// gravou como parágrafo.
+    ///
+    /// **Dois caminhos, e o segundo é o defeito da M3-21.** O convite do dono é
+    /// `text/html` puro: o `body` dele está vazio e tudo o que a mensagem diz
+    /// está no HTML. A seção lia só o `body`, e por isso ficava com a linha do
+    /// email e o botão — a prévia da M3-14 nunca aparecia. Aqui o texto é
+    /// derivado do HTML **na hora de exibir**, pelo mesmo `MimeHTML` que a
+    /// decodificação usa; nada é gravado, e nenhuma `WebView` entra nesta
+    /// janela.
+    private var originBody: [String] {
+        guard let mensagem = originMessage else { return [] }
+        let gravado = EventSections.bodyPreview(mensagem.body)
+        guard gravado.isEmpty, let pagina = mensagem.bodyHTML, !pagina.isEmpty else {
+            return gravado
+        }
+        return EventSections.bodyPreview(
+            GmailMessageParser.paragraphs(from: MimeBody.textFromHTML(pagina))
+        )
+    }
+
+    /// O email, e o salto para ele.
     ///
     /// **O que o dono pediu ao abrir a seção**: ela mostrava quem escreveu, o
     /// assunto, a data e a nota — o cabeçalho do email, e nada do email. Agora
-    /// vêm os primeiros parágrafos do texto plano, na tipografia do leitor, e
-    /// um "Abrir no leitor" explícito.
+    /// vem o texto plano inteiro, na tipografia do leitor, rolando dentro da
+    /// seção acima de `originBodyMaxHeight`, e um "Abrir no leitor" explícito.
     ///
     /// **Não é o leitor.** O corpo em HTML, a política de conteúdo remoto e a
     /// faixa de confiança continuam morando no `ReaderPane`, que é onde a
     /// pessoa lê email; trazer tudo isso para dentro de uma janela de 560pt
-    /// seria uma segunda tela de leitura para manter em dia. Prévia curta mais
-    /// salto é a versão honesta disso — decisão registrada no relatório.
+    /// seria uma segunda tela de leitura para manter em dia. **`WebView` dentro
+    /// da janela de compromisso continua sendo não** — o texto plano mais o
+    /// salto é a versão honesta disso.
     ///
-    /// Sem corpo no banco, **nada de espera**: esta janela não pede rede, e um
-    /// "Carregando…" aqui prometeria uma busca que ninguém vai fazer. Fica a
-    /// linha do email e o botão, que leva ao leitor — e é o leitor que sabe
-    /// buscar o corpo que falta (`MessageStore.loadBodyIfNeeded`).
+    /// **Sem corpo no banco, a janela busca.** Era o beco da M3-14: "esta
+    /// janela não pede rede", e a seção ficava com a linha e o botão para
+    /// sempre. Ela pede pela mesma porta do leitor
+    /// (`MessageStore.loadBodyIfNeeded`, que já é uma tentativa por abertura e
+    /// grava a resposta no banco), e mostra o mesmo "Carregando corpo…" da M3-3
+    /// enquanto isso.
     @ViewBuilder
     private var originPreview: some View {
-        let paragrafos = EventSections.bodyPreview(originMessage?.body ?? [])
+        let paragrafos = originBody
         if !paragrafos.isEmpty || originMessageID != nil {
             VStack(alignment: .leading, spacing: 7) {
-                ForEach(Array(paragrafos.enumerated()), id: \.offset) { _, paragrafo in
-                    Text(paragrafo)
-                        .font(theme.serif.font(size: 13.5))
-                        .lineSpacing(0.45 * 13.5)
-                        .foregroundStyle(theme.ink.color)
-                        // Altura limitada: três parágrafos, seis linhas cada. É
-                        // prévia — o email inteiro tem casa própria.
-                        .lineLimit(6)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
+                if paragrafos.isEmpty {
+                    if case .carregando = store.bodyLoad(for: originMessageID ?? "") {
+                        Text(ReaderPane.carregandoCorpo)
+                            .font(theme.serif.font(size: 13.5))
+                            .italic()
+                            .foregroundStyle(theme.ink4.color)
+                    }
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 7) {
+                            ForEach(Array(paragrafos.enumerated()), id: \.offset) { _, paragrafo in
+                                Text(paragrafo)
+                                    .font(theme.serif.font(size: 13.5))
+                                    .lineSpacing(0.45 * 13.5)
+                                    .foregroundStyle(theme.ink.color)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .textSelection(.enabled)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .scrollBounceBehavior(.basedOnSize)
+                    .frame(maxHeight: Self.originBodyMaxHeight)
                 }
 
                 if originMessageID != nil {
@@ -617,6 +665,12 @@ public struct EventWindow: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            // A busca acontece quando a seção está **aberta**: um compromisso
+            // com a seção recolhida não paga viagem nenhuma.
+            .task(id: originMessageID) {
+                guard let id = originMessageID else { return }
+                await store.loadBodyIfNeeded(id)
+            }
         }
     }
 

@@ -77,15 +77,16 @@ struct EventSectionsTests {
         )
     }
 
-    /// A prévia do corpo: os primeiros parágrafos, e só eles.
+    /// A prévia do corpo: o email **inteiro**.
     ///
-    /// O defeito: aberta, a seção mostrava o cabeçalho do email (quem, assunto,
-    /// data) e a nota — nada do que o email dizia.
-    @Test("A prévia leva os três primeiros parágrafos do email")
+    /// O defeito da M3-14: aberta, a seção mostrava o cabeçalho do email (quem,
+    /// assunto, data) e a nota — nada do que o email dizia. O da M3-21: mostrava
+    /// três parágrafos, e o dono queria **ler** a mensagem dali. Quem limita
+    /// agora é a altura da seção, que rola por dentro.
+    @Test("A prévia leva o email inteiro, e não uma amostra")
     func previaDoCorpo() {
         let corpo = ["Primeiro.", "Segundo.", "Terceiro.", "Quarto.", "Quinto."]
-        #expect(EventSections.bodyPreview(corpo) == ["Primeiro.", "Segundo.", "Terceiro."])
-        #expect(EventSections.bodyPreview(corpo, paragraphs: 1) == ["Primeiro."])
+        #expect(EventSections.bodyPreview(corpo) == corpo)
     }
 
     /// Parágrafo em branco não vira linha em branco na janela: o que vem do

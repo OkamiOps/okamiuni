@@ -20,13 +20,16 @@ struct EventOriginPreviewTests {
     /// Uma caixa com uma mensagem `m1` e um compromisso `email-m1` nascido
     /// dela — é o `id` que faz `originMessageID` casar os dois sem adivinhar
     /// assunto (ver `DetectedEventConversion.messageID(forAgendaID:)`).
-    private static func loja(corpo: [String]) async -> MailStore {
+    static func loja(
+        corpo: [String], html: String? = nil, porta: (any BodyFetching)? = nil
+    ) async -> MailStore {
         let mensagem = Message(
             id: "m1", accountID: "zoho",
             from: Contact(name: "Favini", address: "favini@vantion.com.br"),
             receivedAt: Fixtures.today, subject: "Convite: DreamSquad <> Vantion",
             snippet: "Confirma quinta?", body: corpo, tags: [],
-            bucket: .today, isRead: true, summary: nil, detectedEvent: nil
+            bucket: .today, isRead: true, summary: nil, detectedEvent: nil,
+            bodyHTML: html
         )
         let detalhe = EventDetail(
             place: EventPlace.semLocal, link: nil,
@@ -54,14 +57,15 @@ struct EventOriginPreviewTests {
         let store = MailStore(
             source: InMemoryMailSource(
                 accounts: Fixtures.accounts, messages: [mensagem], agenda: [item]
-            )
+            ),
+            bodyPort: porta
         )
         await store.load()
         return store
     }
 
-    private static func janela(corpo: [String]) async -> NSBitmapImageRep? {
-        let store = await loja(corpo: corpo)
+    static func janela(corpo: [String], html: String? = nil) async -> NSBitmapImageRep? {
+        let store = await loja(corpo: corpo, html: html)
         return Render.bitmap(
             EventWindow(store: store, itemID: "email-m1", debugSections: EventSections(origin: true)),
             size: tamanho, theme: .tinta
@@ -152,5 +156,120 @@ struct EventOriginPreviewTests {
         return abs(c.redComponent - alvo.redComponent) < 0.01
             && abs(c.greenComponent - alvo.greenComponent) < 0.01
             && abs(c.blueComponent - alvo.blueComponent) < 0.01
+    }
+}
+
+/// A M3-21: a prévia que **não aparecia**, e o pedido de ler a mensagem dali.
+///
+/// A tela do dono: "O QUE GEROU" aberto mostrava a linha do email e o "Abrir
+/// no leitor" — e nada dos três parágrafos que a M3-14 prometia. O convite de
+/// origem é HTML puro: o `body` dele está vazio no banco, e a seção só olhava
+/// para o `body`. Agora ela deriva o texto do HTML na hora de exibir, mostra a
+/// mensagem inteira (rolando dentro da seção acima de 260pt) e busca o corpo
+/// que falta em vez de ficar no beco.
+@Suite("Janela 04 — a mensagem dentro do compromisso")
+@MainActor
+struct EventOriginBodyTests {
+
+    private static let tamanho = CGSize(width: 560, height: 700)
+
+    @Test("O convite que só tem HTML mostra o texto dele")
+    func conviteSoHTML() async throws {
+        let comHTML = try #require(
+            await EventOriginPreviewTests.janela(
+                corpo: [],
+                html: "<html><body><p>Confirmando a conversa de quinta às 15h.</p>"
+                    + "<p>Levo a proposta revisada.</p></body></html>"
+            )
+        )
+        let semNada = try #require(await EventOriginPreviewTests.janela(corpo: []))
+        #expect(
+            comHTML.pixelsDiffering(from: semNada) > 0,
+            "a seção não derivou o texto do convite HTML-only"
+        )
+    }
+
+    @Test("O quarto parágrafo também está na tela")
+    func corpoInteiroNaoAmostra() async throws {
+        let tres = ["Primeiro.", "Segundo.", "Terceiro."]
+        let comTres = try #require(await EventOriginPreviewTests.janela(corpo: tres))
+        let comQuatro = try #require(
+            await EventOriginPreviewTests.janela(corpo: tres + ["Quarto."])
+        )
+        #expect(
+            comTres.pixelsDiffering(from: comQuatro) > 0,
+            "a seção continua cortando o email em três parágrafos"
+        )
+    }
+
+    @Test("A seção não empurra a janela: acima do teto, ela rola por dentro")
+    func tetoDeAltura() async throws {
+        let curto = try #require(await EventOriginPreviewTests.janela(corpo: ["Uma linha."]))
+        let longo = try #require(
+            await EventOriginPreviewTests.janela(
+                corpo: (1...60).map { "Parágrafo número \($0) deste convite bem comprido." }
+            )
+        )
+        // O rodapé da janela — os últimos 40pt — continua desenhado igual: a
+        // seção cresceu até o teto e parou.
+        var diferentes = 0
+        for y in (curto.pixelsHigh - 40)..<curto.pixelsHigh {
+            for x in 0..<curto.pixelsWide
+            where curto.colorAt(x: x, y: y) != longo.colorAt(x: x, y: y) {
+                diferentes += 1
+            }
+        }
+        #expect(diferentes == 0, "a seção longa empurrou o rodapé da janela para fora")
+    }
+
+    @Test("Sem corpo no banco, a janela busca — e o corpo que chega aparece")
+    func buscaOCorpoQueFalta() async throws {
+        let porta = PortaDeCorpoSegurada()
+        let store = await EventOriginPreviewTests.loja(corpo: [], porta: porta)
+        let janela = EventWindow(
+            store: store, itemID: "email-m1", debugSections: EventSections(origin: true)
+        )
+        let carregando = try #require(Render.bitmap(janela, size: Self.tamanho, theme: .tinta))
+        // A janela pediu o corpo — o que a M3-14 não fazia.
+        await porta.esperaEntrada()
+        #expect(store.bodyLoad(for: "m1") != nil)
+
+        await porta.libera()
+        while store.messages.first(where: { $0.id == "m1" })?.body.isEmpty != false {
+            await Task.yield()
+        }
+        let chegou = try #require(Render.bitmap(janela, size: Self.tamanho, theme: .tinta))
+        #expect(carregando.pixelsDiffering(from: chegou) > 0)
+    }
+}
+
+/// A porta de corpo que segura a resposta até mandarem — a irmã da
+/// `PortaSegurada` de `ReaderBodyStateTests`, aqui porque aquela é privada
+/// daquele arquivo.
+private actor PortaDeCorpoSegurada: BodyFetching {
+    private var avisaEntrada: CheckedContinuation<Void, Never>?
+    private var entrou = false
+    private var liberacao: CheckedContinuation<Void, Never>?
+    private var liberada = false
+
+    func fetchBody(accountID: String, messageID: String) async throws -> FetchedBody {
+        entrou = true
+        avisaEntrada?.resume()
+        avisaEntrada = nil
+        if !liberada {
+            await withCheckedContinuation { continuation in liberacao = continuation }
+        }
+        return FetchedBody(paragraphs: ["O convite dizia isto aqui."])
+    }
+
+    func esperaEntrada() async {
+        guard !entrou else { return }
+        await withCheckedContinuation { continuation in avisaEntrada = continuation }
+    }
+
+    func libera() {
+        liberada = true
+        liberacao?.resume()
+        liberacao = nil
     }
 }
