@@ -24,6 +24,27 @@ public enum SyncError: Error, Sendable, Hashable, LocalizedError {
     case quota
     /// O servidor respondeu com falha própria.
     case servidor(codigo: Int, mensagem: String)
+    /// O servidor respondeu **pedindo que se tente de novo**: caixa ocupada,
+    /// carga momentânea, greylisting.
+    ///
+    /// Caso próprio, e não um `.servidor` com o código dentro, por causa de uma
+    /// colisão concreta: `OutboxExecutor.ehPermanente` lê o número de
+    /// `.servidor` como código HTTP, e todo `4xx` do SMTP — que por definição
+    /// do RFC 5321 é temporário — cairia na faixa que ele trata como pedido
+    /// malformado e pararia a fila da conta. Um greylisting, que é o caso mais
+    /// comum de primeira entrega a um domínio novo, pararia o envio para
+    /// sempre em vez de esperar os cinco minutos que ele pede.
+    case transitorio(String)
+    /// O servidor recusou **de vez**: endereço que não existe, mensagem grande
+    /// demais, relay negado.
+    ///
+    /// O par de `.transitorio`, e pelo mesmo motivo de existir: no SMTP o
+    /// significado dos dígitos é o **inverso** do HTTP — `5yz` é definitivo
+    /// ("essa caixa não existe") e `4yz` é temporário. Guardá-los em
+    /// `.servidor` faria os dois serem lidos ao contrário: um endereço
+    /// digitado errado seria repetido para sempre, com recuo, sem nunca
+    /// aparecer para quem podia corrigi-lo.
+    case recusado(String)
     /// O Keychain recusou. `status` é o `OSStatus` cru, para o relato ter o que
     /// procurar; a mensagem já vem traduzida.
     case keychain(status: Int32)
@@ -62,6 +83,10 @@ public enum SyncError: Error, Sendable, Hashable, LocalizedError {
             "O provedor pediu para desacelerar. A carga continua sozinha em instantes."
         case .servidor(let codigo, let mensagem):
             "O servidor respondeu \(codigo): \(mensagem)."
+        case .transitorio(let detalhe):
+            "O servidor pediu para tentar mais tarde: \(detalhe). A fila tenta sozinha."
+        case .recusado(let detalhe):
+            "O servidor recusou a mensagem: \(detalhe)."
         case .keychain(let status):
             "Não foi possível guardar o segredo no Keychain (código \(status))."
         case .semClientID:

@@ -821,6 +821,17 @@ public struct InitialLoader: Sendable {
             true
         case .resposta:
             false
+        // `.transitorio` é a recusa temporária do SMTP, e a carga inicial nunca
+        // fala SMTP: ela não chega aqui por caminho nenhum de hoje. A resposta
+        // certa se um dia chegar é a mesma da quota — o servidor pediu para
+        // esperar, e esperar é coisa da conexão inteira, não de uma mensagem.
+        case .transitorio:
+            true
+        // Recusa definitiva de envio: a carga inicial nunca envia nada, e por
+        // isso este caso não tem caminho até aqui. `false` é a resposta certa
+        // se um dia tiver — é sobre **uma** mensagem, não sobre a conexão.
+        case .recusado:
+            false
         // 4xx é sobre **este** recurso; 5xx é o servidor passando mal, e o
         // próximo pedido vai encontrar o mesmo servidor doente.
         case .servidor(let codigo, _):

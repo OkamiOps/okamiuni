@@ -499,7 +499,10 @@ public actor OutboxExecutor {
     /// conserta.
     static func ehPermanente(_ erro: SyncError) -> Bool {
         switch erro {
-        case .rede, .quota:
+        // `.transitorio` é a resposta `4xx` do SMTP, que o RFC define como
+        // "tente de novo" — greylisting, caixa ocupada, carga. É exatamente o
+        // que o recuo existe para atravessar.
+        case .rede, .quota, .transitorio:
             false
         case .servidor(let codigo, _):
             // `codigo: 0` é a forma como o `NO` do IMAP chega hoje —
@@ -516,7 +519,7 @@ public actor OutboxExecutor {
             // relatório. Até lá, o lado seguro é o que não repete em silêncio.
             codigo == 0 || ((400..<500).contains(codigo) && codigo != 408 && codigo != 429)
         case .tls, .autenticacao, .autorizacaoRevogada, .keychain,
-             .semClientID, .resposta, .banco:
+             .semClientID, .resposta, .banco, .recusado:
             true
         }
     }
