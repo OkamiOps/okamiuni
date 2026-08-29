@@ -1,4 +1,5 @@
 import Foundation
+import UNICore
 
 /// O HTML de um email virando HTML que pode ser desenhado sem medo.
 ///
@@ -68,8 +69,14 @@ public enum MimeSanitize {
     /// O que entra no lugar de uma imagem que estourou o teto: um GIF
     /// transparente de 1×1. O `alt` do remetente continua lá para dizer o que
     /// era.
-    public static let placeholder =
-        "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+    public static let placeholder = InlineImagePlaceholder.vazio
+
+    /// O mesmo vazio, marcado como **por buscar** — a imagem existe e a
+    /// mensagem ainda não a tem em mãos (o `attachmentId` do Gmail). Ver
+    /// `InlineImagePlaceholder`: a marca é o que separa "não coube" de "falta
+    /// pedir", e é ela que faz o leitor rebuscar a segunda e deixar a primeira
+    /// em paz.
+    public static let placeholderPendente = InlineImagePlaceholder.pendente
 
     /// Uma imagem que veio dentro da própria mensagem, referenciada por
     /// `cid:` no HTML.
@@ -125,8 +132,15 @@ public enum MimeSanitize {
     ///
     /// - Returns: `nil` quando não sobrou nada de útil (HTML vazio) ou quando o
     ///   resultado estourou `tetoDoHTML`.
-    public static func sanitize(html: String, imagens: [ImagemInline] = []) -> String? {
-        let mapa = embute(imagens)
+    ///
+    /// - Parameter pendentes: os `Content-ID` das imagens que a mensagem tem e
+    ///   que ainda **não** foram buscadas — o `attachmentId` do Gmail. Elas
+    ///   entram com `placeholderPendente` em vez do vazio comum, para o leitor
+    ///   saber que vale pedir o corpo outra vez.
+    public static func sanitize(
+        html: String, imagens: [ImagemInline] = [], pendentes: [String] = []
+    ) -> String? {
+        let mapa = embute(imagens, pendentes: pendentes)
         let limpo = varre(html, imagens: mapa)
         let podado = limpo.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !podado.isEmpty else { return nil }
@@ -140,12 +154,24 @@ public enum MimeSanitize {
     /// Interna e testável à parte porque a regra do teto é uma decisão de
     /// produto ("a mensagem não carrega uma fotografia inteira"), não um
     /// detalhe do varredor.
-    static func embute(_ imagens: [ImagemInline]) -> [String: String] {
+    static func embute(
+        _ imagens: [ImagemInline], pendentes: [String] = []
+    ) -> [String: String] {
         var mapa: [String: String] = [:]
         var gasto = 0
+        // As pendentes entram **primeiro e por baixo**: quem trouxe dados de
+        // verdade sobrescreve a marca logo abaixo. A ordem contrária faria uma
+        // imagem já buscada continuar marcada como por buscar, e o leitor
+        // rebuscaria uma mensagem que já está inteira.
+        for id in pendentes {
+            mapa[normalizaContentID(id)] = placeholderPendente
+        }
         for imagem in imagens {
             let chave = normalizaContentID(imagem.contentID)
-            guard mapa[chave] == nil else { continue }
+            // A marca de "por buscar" não conta como já resolvida: é justamente
+            // ela que estas imagens vêm substituir. Duas imagens com o mesmo
+            // `Content-ID` continuam valendo a primeira.
+            guard mapa[chave] == nil || mapa[chave] == placeholderPendente else { continue }
             guard imagem.dados.count <= tetoPorImagem,
                   gasto + imagem.dados.count <= tetoPorMensagem else {
                 mapa[chave] = placeholder

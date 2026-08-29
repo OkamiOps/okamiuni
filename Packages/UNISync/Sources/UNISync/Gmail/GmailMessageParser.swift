@@ -7,9 +7,36 @@ import UNICore
 /// barato se testa: MIME aninhado, base64url, RFC 2047 e milissegundos. Nada
 /// aqui toca rede.
 public enum GmailMessageParser {
+    /// Uma imagem embutida que a mensagem **tem** e que a `messages.get` não
+    /// entregou: o Gmail devolve `attachmentId` no lugar do `data`, e quem a
+    /// quiser inteira precisa de uma segunda chamada
+    /// (`users.messages.attachments.get`).
+    public struct InlinePorBuscar: Sendable, Equatable {
+        /// O `Content-ID` **sem** os sinais de menor e maior — a mesma chave que
+        /// `MimeSanitize.normalizaContentID` produz.
+        public let contentID: String
+        public let mime: String
+        public let attachmentID: String
+        /// O tamanho que o Gmail declarou, em bytes. É contra ele que o teto por
+        /// imagem é conferido **antes** da viagem: não se baixa meio megabyte
+        /// para o jogar fora ao chegar.
+        public let tamanho: Int
+
+        public init(contentID: String, mime: String, attachmentID: String, tamanho: Int) {
+            self.contentID = contentID
+            self.mime = mime
+            self.attachmentID = attachmentID
+            self.tamanho = tamanho
+        }
+    }
+
     private struct Wire: Decodable {
         struct Header: Decodable { let name: String; let value: String }
-        struct Body: Decodable { let data: String? }
+        struct Body: Decodable {
+            let data: String?
+            let attachmentId: String?
+            let size: Int?
+        }
         struct Part: Decodable {
             let mimeType: String?
             let headers: [Header]?
@@ -24,7 +51,31 @@ public enum GmailMessageParser {
         let payload: Part?
     }
 
-    public static func parse(_ data: Data) throws -> GmailMessage {
+    /// As imagens embutidas que esta resposta **tem e não entregou**.
+    ///
+    /// Pura, e separada de `parse`, porque a decisão de ir buscá-las é de quem
+    /// tem rede — ver `GmailInlineAttachments`. Aqui só se diz quais são, qual o
+    /// `Content-ID` de cada uma e quanto o servidor disse que ela pesa.
+    public static func inlinePorBuscar(_ data: Data) throws -> [InlinePorBuscar] {
+        guard let fio = try? JSONDecoder().decode(Wire.self, from: data),
+              let payload = fio.payload else { return [] }
+        return porBuscar(in: payload)
+    }
+
+    /// - Parameters:
+    ///   - inline: imagens embutidas já buscadas por fora (o `attachments.get`
+    ///     do Gmail). Elas entram no lugar das pendentes — ver
+    ///     `MimeSanitize.embute(_:pendentes:)`.
+    ///   - semConserto: os `Content-ID` que quem buscou decidiu **não** buscar,
+    ///     e que não vão mudar de ideia: a foto que já se sabe grande demais
+    ///     para o teto da M3-8. Elas caem no vazio comum, sem a marca de
+    ///     pendente — pedi-las de novo seria uma viagem por abertura, para
+    ///     sempre. A que falhou por rede **não** entra aqui: essa vale retentar.
+    public static func parse(
+        _ data: Data,
+        inline resolvidas: [MimeSanitize.ImagemInline] = [],
+        semConserto: [String] = []
+    ) throws -> GmailMessage {
         let fio: Wire
         do {
             fio = try JSONDecoder().decode(Wire.self, from: data)
@@ -51,7 +102,7 @@ public enum GmailMessageParser {
         let corrente = ThreadKey.ids(inHeader: cabecalho("References") ?? "")
         let respondendo = ThreadKey.ids(inHeader: cabecalho("In-Reply-To") ?? "")
 
-        let corpo = corpoDe(payload)
+        let corpo = corpoDe(payload, resolvidas: resolvidas, semConserto: semConserto)
         return GmailMessage(
             id: fio.id,
             threadID: fio.threadId ?? "",
@@ -78,12 +129,19 @@ public enum GmailMessageParser {
     /// a limpeza do HTML e os tetos das imagens embutidas são de `MimeSanitize`,
     /// não uma segunda opinião escrita aqui.
     ///
-    /// **Dívida conhecida:** a imagem embutida do Gmail quase sempre vem como
-    /// `attachmentId` em vez de `body.data` — quem a quiser inteira precisa de
-    /// outra chamada à API. As que já vêm com `data` são embutidas; as outras
-    /// caem no vazio de 1×1 de `MimeSanitize.placeholder`, como qualquer `cid:`
-    /// órfão. Está registrado no relatório da M3-8.
-    private static func corpoDe(_ payload: Wire.Part) -> MimeBody.Decoded {
+    /// **A dívida da M3-8, paga na M3-18.** A imagem embutida do Gmail quase
+    /// sempre vem como `attachmentId` em vez de `body.data`, e quem a quiser
+    /// inteira precisa de outra chamada à API. Antes disto ela caía no vazio de
+    /// 1×1 e a newsletter que é só imagem abria **em branco** — o defeito que o
+    /// dono viu. Agora: as que já vêm com `data` são embutidas aqui; as que só
+    /// têm `attachmentId` são anunciadas por `inlinePorBuscar` e entram como
+    /// `placeholderPendente` até alguém com rede as trazer em `resolvidas` (ver
+    /// `GmailInlineAttachments`).
+    private static func corpoDe(
+        _ payload: Wire.Part,
+        resolvidas: [MimeSanitize.ImagemInline] = [],
+        semConserto: [String] = []
+    ) -> MimeBody.Decoded {
         let plano = firstPart(in: payload, mimeType: "text/plain").map(desdobra)
         let html = firstPart(in: payload, mimeType: "text/html")?.texto
         let agenda = (firstPart(in: payload, mimeType: "text/calendar")
@@ -97,13 +155,45 @@ public enum GmailMessageParser {
         } else {
             texto = ""
         }
+        let descartadas = Set(semConserto.map(MimeSanitize.normalizaContentID))
         return MimeBody.Decoded(
             text: texto,
             html: html.flatMap {
-                MimeSanitize.sanitize(html: $0, imagens: imagensInline(in: payload))
+                MimeSanitize.sanitize(
+                    html: $0,
+                    // As já buscadas primeiro: com o mesmo `Content-ID`, é a que
+                    // tem bytes que vale.
+                    imagens: resolvidas + imagensInline(in: payload),
+                    // Fica pendente só o que ninguém resolveu **e** ninguém
+                    // descartou de vez.
+                    pendentes: porBuscar(in: payload).map(\.contentID).filter {
+                        !descartadas.contains($0)
+                    }
+                )
             },
             calendar: agenda
         )
+    }
+
+    /// As imagens embutidas que só têm `attachmentId`, na ordem do documento.
+    ///
+    /// Sem `Content-ID` não entra: uma imagem que o HTML não referencia por
+    /// `cid:` é anexo, não é parte do desenho — buscá-la seria baixar o PDF de
+    /// uma nota fiscal para não a mostrar em lugar nenhum.
+    private static func porBuscar(in part: Wire.Part) -> [InlinePorBuscar] {
+        var achadas: [InlinePorBuscar] = []
+        let mime = part.mimeType?.lowercased() ?? ""
+        if mime.hasPrefix("image/"),
+           part.body?.data == nil,
+           let anexo = part.body?.attachmentId,
+           let id = part.headers?.first(where: { $0.name.lowercased() == "content-id" })?.value {
+            achadas.append(InlinePorBuscar(
+                contentID: MimeSanitize.normalizaContentID(id), mime: mime,
+                attachmentID: anexo, tamanho: part.body?.size ?? 0
+            ))
+        }
+        for filha in part.parts ?? [] { achadas += porBuscar(in: filha) }
+        return achadas
     }
 
     /// As imagens que a própria mensagem carrega, na ordem do documento.

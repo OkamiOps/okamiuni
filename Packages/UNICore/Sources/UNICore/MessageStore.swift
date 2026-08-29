@@ -1278,7 +1278,14 @@ public final class MailStore {
               // gravada no banco seja ela qual for (`""` para a mensagem que de
               // fato não tem HTML), então `htmlResolved` passa a dizer sim e
               // nem esta guarda nem a rede são incomodadas de novo.
-              message.body.isEmpty || !message.htmlResolved else { return }
+              // A terceira é da M3-18: o corpo veio inteiro, mas com o vazio de
+              // 1×1 no lugar de uma imagem que o Gmail só entrega por uma
+              // segunda chamada. Uma tentativa por abertura, como as outras
+              // duas — e a rebusca grava ou a imagem (e a marca some) ou o
+              // placeholder de "não coube" (que não é pendente), então nem esta
+              // guarda nem a rede voltam a ser incomodadas.
+              message.body.isEmpty || !message.htmlResolved
+                || message.hasPendingInlineImages else { return }
 
         bodyLoads[messageID] = .carregando
         do {

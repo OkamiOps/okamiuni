@@ -229,7 +229,10 @@ public struct GmailClient: Sendable {
         }
     }
 
-    private func getData(path: String, query: [URLQueryItem]) async throws -> Data {
+    /// Interna, e não privada, porque `GmailInlineAttachments` acrescenta duas
+    /// rotas a este cliente de fora do arquivo — e um segundo cano seria uma
+    /// segunda tabela de tradução de erro para manter em dia.
+    func getData(path: String, query: [URLQueryItem]) async throws -> Data {
         try await enviar(path: path, query: query, method: "GET", body: nil)
     }
 

@@ -218,6 +218,41 @@ struct BodyOnDemandTests {
         #expect(store.messages.first?.bodyHTML == "<p>Oi</p>")
     }
 
+    /// **A terceira razão para rebuscar, da M3-18.** A mensagem tem HTML — o
+    /// `htmlResolved` diz sim, o texto está lá — e mesmo assim está incompleta:
+    /// no lugar da foto ficou o vazio **marcado** que o Gmail deixa quando
+    /// entrega a imagem embutida como `attachmentId`. É o email que o dono abriu
+    /// com um buraco no meio, e a newsletter que abriu em branco.
+    @Test("O HTML com imagem por buscar é rebuscado, mesmo já tendo HTML")
+    func rebuscaOCorpoComImagemPendente() async throws {
+        let completo = "<p>Oi</p><img src=\"data:image/png;base64,AAA\">"
+        let porta = PortaConduzida(resposta: .success(
+            FetchedBody(paragraphs: ["Oi"], html: completo)
+        ))
+        let comBuraco = "<p>Oi</p><img src=\"\(InlineImagePlaceholder.pendente)\">"
+        let store = store(corpo: ["Oi"], porta: porta, html: comBuraco)
+        await store.load()
+        #expect(store.messages.first?.hasPendingInlineImages == true)
+
+        await store.loadBodyIfNeeded("m1")
+        #expect(await porta.quantasChamadas == 1)
+        #expect(store.messages.first?.bodyHTML == completo)
+        #expect(store.messages.first?.hasPendingInlineImages == false)
+    }
+
+    /// E o vazio de "não coube" **não** é rebuscado: ele não tem conserto, e
+    /// pedi-lo de novo seria uma viagem por abertura da mensagem, para sempre.
+    @Test("O vazio de `não coube` não faz o corpo ser pedido outra vez")
+    func naoRebuscaOQueNaoCabe() async throws {
+        let porta = PortaConduzida(resposta: .success(FetchedBody(paragraphs: ["Oi"])))
+        let grandeDemais = "<p>Oi</p><img src=\"\(InlineImagePlaceholder.vazio)\">"
+        let store = store(corpo: ["Oi"], porta: porta, html: grandeDemais)
+        await store.load()
+
+        await store.loadBodyIfNeeded("m1")
+        #expect(await porta.quantasChamadas == 0)
+    }
+
     @Test("Duas aberturas em cima da outra não viram duas viagens")
     func semViagemDuplicada() async throws {
         let porta = PortaConduzida(resposta: .success(FetchedBody(paragraphs: ["Um só."])), seguraAResposta: true)

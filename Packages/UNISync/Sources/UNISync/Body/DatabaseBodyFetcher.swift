@@ -93,7 +93,13 @@ public actor DatabaseBodyFetcher: BodyFetching {
             // `.full`, e não `.metadata`: é justamente o corpo que falta. O
             // parser é o mesmo da carga — inclusive o caminho novo que converte
             // a mensagem só de HTML em texto.
-            let mensagem = try await cliente.message(id: serverID, format: .full)
+            //
+            // E **com as imagens embutidas resolvidas**: a `messages.get` do
+            // Gmail entrega o HTML e deixa as imagens `cid:` para trás, como
+            // `attachmentId`. Sem esta rota, a newsletter que é só imagem abria
+            // em branco e a mensagem com uma foto no meio abria com um buraco —
+            // ver `GmailInlineAttachments`, que é a dívida da M3-8 paga.
+            let mensagem = try await GmailInlineAttachments.message(cliente, id: serverID)
             return MimeBody.Decoded(
                 text: mensagem.body.joined(separator: "\n\n"),
                 html: mensagem.html, calendar: mensagem.calendarICS

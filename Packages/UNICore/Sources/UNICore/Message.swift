@@ -310,6 +310,20 @@ extension Message {
     /// qual for.
     public var htmlResolved: Bool { bodyHTML != nil }
 
+    /// O HTML gravado ainda tem imagem embutida por buscar?
+    ///
+    /// **É a terceira razão para rebuscar um corpo.** A do Gmail: a imagem
+    /// dentro da mensagem quase sempre chega como `attachmentId`, e o corpo
+    /// gravado por quem não a foi buscar guarda um vazio de 1×1 no lugar da
+    /// foto — a newsletter que é só imagem abre em branco, e o email com uma
+    /// foto no meio abre com um buraco. Ver `InlineImagePlaceholder`, que também
+    /// explica por que a imagem que só era **grande demais** não cai aqui: ela
+    /// não tem conserto, e rebuscá-la seria uma viagem por abertura, para
+    /// sempre.
+    public var hasPendingInlineImages: Bool {
+        InlineImagePlaceholder.temPendente(bodyHTML)
+    }
+
     /// A mesma mensagem com o corpo que a busca por demanda acabou de trazer.
     ///
     /// A porta (`BodyFetching`) grava no banco, e o retrato seguinte traria o
