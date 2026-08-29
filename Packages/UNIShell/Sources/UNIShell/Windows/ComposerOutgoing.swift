@@ -68,13 +68,15 @@ enum ComposerOutgoing {
         bcc: [Contact],
         subject: String,
         plainText: String,
-        html: String?
+        html: String?,
+        replyingTo original: Message? = nil
     ) -> OutgoingMessage {
         func limpa(_ contatos: [Contact]) -> [OutgoingAddress] {
             contatos
                 .filter { !$0.address.trimmingCharacters(in: .whitespaces).isEmpty }
                 .map(OutgoingAddress.init)
         }
+        let corrente = conversa(original)
         return OutgoingMessage(
             messageID: OutgoingMessage.newMessageID(for: from.address),
             accountID: accountID,
@@ -84,7 +86,35 @@ enum ComposerOutgoing {
             bcc: limpa(bcc),
             subject: subject,
             plainText: plainText,
-            html: html
+            html: html,
+            inReplyTo: corrente.inReplyTo,
+            references: corrente.references
         )
+    }
+
+    /// `In-Reply-To` e `References` de uma resposta — **a dívida da M3-5,
+    /// paga**.
+    ///
+    /// `OutgoingMime.compose` já escrevia os dois cabeçalhos desde então; o que
+    /// faltava era alguém preenchê-los, porque a mensagem respondida não
+    /// guardava o `Message-ID` dela. Agora guarda (v4), e a conta é a do RFC
+    /// 5322 §3.6.4:
+    ///
+    /// - `In-Reply-To` é o `Message-ID` da mensagem respondida, e só dele.
+    /// - `References` é a corrente **dela** com o `Message-ID` dela no fim —
+    ///   a resposta acrescenta um elo, não recomeça a corrente. Sem isso, o
+    ///   cliente de quem recebe abre uma conversa nova a cada resposta, que é
+    ///   o mesmo defeito que esta tarefa conserta do lado de cá.
+    ///
+    /// Sem mensagem de origem, ou com uma que não tem `Message-ID` (linha
+    /// antiga, fixture), os dois saem vazios — e a mensagem sai como nova, que
+    /// é a verdade: não há a que responder.
+    static func conversa(_ original: Message?) -> (inReplyTo: String?, references: [String]) {
+        guard let original, let messageID = original.rfcMessageID, !messageID.isEmpty else {
+            return (nil, [])
+        }
+        var corrente = original.references.filter { !$0.isEmpty }
+        if !corrente.contains(messageID) { corrente.append(messageID) }
+        return (messageID, corrente)
     }
 }

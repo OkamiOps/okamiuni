@@ -193,6 +193,20 @@ public struct ComposerWindow: View {
         return store.messages.first { $0.id == id }
     }
 
+    /// A mensagem a que esta janela **responde** — não a que ela encaminha.
+    ///
+    /// A distinção é do RFC 5322 §3.6.4 e importa na caixa de quem recebe:
+    /// `In-Reply-To` diz "isto é uma resposta àquilo", e um encaminhamento não
+    /// é. Marcá-lo como resposta enfiaria a mensagem encaminhada dentro da
+    /// conversa original no cliente de quem recebeu — que é o contrário do que
+    /// encaminhar quer dizer.
+    private var answeredMessage: Message? {
+        switch mode {
+        case .reply, .replyAll: repliedMessage
+        case .forward, .new: nil
+        }
+    }
+
     private var account: Account? {
         if let fromAccountID { return store.account(fromAccountID) }
         if let repliedMessage { return store.account(repliedMessage.accountID) }
@@ -777,7 +791,11 @@ public struct ComposerWindow: View {
             to: to, cc: cc, bcc: bcc,
             subject: subject,
             plainText: plainDraft,
-            html: ComposerOutgoing.html(draft, theme: theme)
+            html: ComposerOutgoing.html(draft, theme: theme),
+            // A mensagem respondida, quando há uma: é dela que saem
+            // `In-Reply-To` e `References` — a dívida da M3-5, paga em
+            // `ComposerOutgoing.conversa`.
+            replyingTo: answeredMessage
         )
         // Não enfileirou? A janela fica aberta com o rascunho inteiro, e o erro
         // já está no `loadError` do store — a pessoa não perde o que escreveu
