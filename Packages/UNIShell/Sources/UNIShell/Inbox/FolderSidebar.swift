@@ -2,6 +2,95 @@ import SwiftUI
 import UNIDesign
 import UNICore
 
+/// O que a lateral pode afirmar sobre a inteligência local neste momento.
+///
+/// O shell não pergunta ao Foundation Models nem persiste esta decisão: o
+/// compositor do app traduz o estado real do motor para esta apresentação.
+/// Assim, a barra não precisa conhecer a implementação para dizer a verdade
+/// sobre o que a pessoa pode usar.
+public enum IntelligencePresentation: CaseIterable, Sendable {
+    case available
+    case deviceNotEligible
+    case appleIntelligenceNotEnabled
+    case modelNotReady
+
+    var title: String {
+        switch self {
+        case .available:
+            "Resumos e compromissos no dispositivo"
+        case .deviceNotEligible:
+            "Apple Intelligence indisponível"
+        case .appleIntelligenceNotEnabled:
+            "Ative a Apple Intelligence"
+        case .modelNotReady:
+            "Modelo ainda não está pronto"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .available:
+            "Este Mac resume emails e identifica compromissos. Nada sai daqui."
+        case .deviceNotEligible:
+            "Este Mac não é compatível com Apple Intelligence. Seus emails continuam locais."
+        case .appleIntelligenceNotEnabled:
+            "Ative-a nos Ajustes do Sistema para gerar resumos e identificar compromissos."
+        case .modelNotReady:
+            "A Apple Intelligence ainda está sendo preparada. Resumos e compromissos ficam disponíveis quando terminar."
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .available: "sparkles"
+        case .deviceNotEligible: "desktopcomputer.trianglebadge.exclamationmark"
+        case .appleIntelligenceNotEnabled: "switch.2"
+        case .modelNotReady: "arrow.down.circle"
+        }
+    }
+}
+
+struct IntelligenceFooter: View {
+    @Environment(\.theme) private var theme
+    let presentation: IntelligencePresentation
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                Image(systemName: presentation.symbol)
+                    .font(.system(size: 11, weight: .medium))
+                    .frame(width: 12, height: 12)
+                    .foregroundStyle(statusColor.color)
+                    .accessibilityHidden(true)
+                Text(presentation.title)
+                    .font(theme.sans.font(size: 11.5, weight: .semibold))
+                    .foregroundStyle(theme.ink2.color)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            Text(presentation.detail)
+                .font(theme.sans.font(size: 11))
+                .lineSpacing(5.5)  // line-height: 1.5 × 11pt − 11pt = 16.5 − 11 = 5.5
+                .foregroundStyle(theme.ink3.color)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(presentation.title). \(presentation.detail)")
+    }
+
+    private var statusColor: TokenColor {
+        switch presentation {
+        case .available:
+            let hexColor = theme.isDark ? "#89D298" : "#317A45"
+            return TokenColor(css: hexColor) ?? theme.ink2
+        case .deviceNotEligible, .appleIntelligenceNotEnabled, .modelNotReady:
+            return theme.ink3
+        }
+    }
+}
+
 public struct FolderSidebar: View {
     /// A largura canônica mora em `PaneLayout`, que é quem decide o que cabe.
     /// Este nome continua existindo porque o resto do shell já o usa — mas ele
@@ -31,6 +120,10 @@ public struct FolderSidebar: View {
     /// que previews e testes não precisem calcular layout.
     let width: CGFloat
 
+    /// A apresentação vem do compositor do app. O padrão preserva os pontos
+    /// de chamada existentes até que ele conecte o estado real do motor.
+    let intelligencePresentation: IntelligencePresentation
+
     /// Qual caixa está esperando a confirmação de "Esvaziar lixeira".
     ///
     /// É o **único** destrutivo sem volta do app, e o único que pergunta antes.
@@ -41,9 +134,14 @@ public struct FolderSidebar: View {
     /// `id` e não um `Bool` por linha.
     @State private var chevronHovering: String?
 
-    public init(store: MailStore, width: CGFloat = PaneLayout.expandedSidebarWidth) {
+    public init(
+        store: MailStore,
+        width: CGFloat = PaneLayout.expandedSidebarWidth,
+        intelligencePresentation: IntelligencePresentation = .available
+    ) {
         self.store = store
         self.width = width
+        self.intelligencePresentation = intelligencePresentation
     }
 
     public var body: some View {
@@ -98,24 +196,14 @@ public struct FolderSidebar: View {
             Rectangle()
                 .fill(theme.line.color)
                 .frame(height: Hairline.thickness(displayScale))
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 7) {
-                    Circle()
-                        .fill(triageDotColor(isDark: theme.isDark).color)
-                        .frame(width: 5, height: 5)
-                    Text("Triagem local ativa")
-                        .font(theme.sans.font(size: 11.5, weight: .semibold))
-                        // Peso 590 do protótipo arredondado para .semibold (600) — sem peso intermediário em SwiftUI
-                        .foregroundStyle(theme.ink2.color)
-                }
-                Text("Classificação, resumo e busca semântica rodam no Mac. Nada sai daqui.")
-                    .font(theme.sans.font(size: 11))
-                    .lineSpacing(5.5)  // line-height: 1.5 × 11pt − 11pt = 16.5 − 11 = 5.5
-                    .foregroundStyle(theme.ink3.color)
-            }
-            .padding(16)
+            IntelligenceFooter(presentation: intelligencePresentation)
+                .padding(16)
         }
+        // A barra ocupa toda a altura que o painel conceder. Sem esse limite,
+        // um rodapé com três linhas pode disputar a altura ideal com o
+        // `ScrollView` e esmagar a lista acima dele no primeiro passe.
         .frame(width: width, alignment: .leading)
+        .frame(maxHeight: .infinity, alignment: .topLeading)
         .background(theme.surface2.color)
         .hairline(theme.line, edges: .trailing)
     }
@@ -401,13 +489,4 @@ public struct FolderSidebar: View {
         return tokenColor.color.opacity(Double(percentage) / 100.0)
     }
 
-    private func triageDotColor(isDark: Bool) -> TokenColor {
-        // Cor semântica "ok" do protótipo (semC('ok') no JavaScript do protótipo).
-        // Adapta conforme o tema para manter contraste e legibilidade.
-        let hexColor = isDark
-            ? "#89D298"  // tema escuro: oklch(0.80 0.11 150)
-            : "#317A45"  // tema claro: oklch(0.52 0.11 150)
-        return TokenColor(css: hexColor) ?? theme.ink2
-    }
 }
-
