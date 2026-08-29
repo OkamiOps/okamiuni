@@ -218,6 +218,16 @@ public final class MailStore {
     /// agenda é de sessão, como no Marco 1. Ver `AgendaPersisting`.
     private let agendaPort: (any AgendaPersisting)?
 
+    /// De quem as imagens remotas carregam sozinhas. `nil` nas fixtures e em
+    /// todo teste que não passa uma — e nesse caso ninguém é confiável, que é
+    /// o comportamento da M3-8, intacto. Ver `SenderTrusting`.
+    private let trustPort: (any SenderTrusting)?
+
+    /// A lista lida do disco, em memória, para a pergunta "este remetente é
+    /// confiável?" não custar uma consulta a cada desenho do leitor. Ela muda
+    /// só por ação de quem está aqui, e essas ações a atualizam na hora.
+    private var trustedSenderAddresses: Set<String> = []
+
     /// Contra que dia o `dayOffset` da agenda é contado.
     ///
     /// `Fixtures.today` por padrão, que é o mundo congelado do Marco 1 e o que
@@ -240,6 +250,7 @@ public final class MailStore {
         sendPort: MailSendPort? = nil,
         contactPort: ContactDirectoryPort? = nil,
         agendaPort: (any AgendaPersisting)? = nil,
+        trustPort: (any SenderTrusting)? = nil,
         agendaReferenceDay: @escaping @Sendable () -> Date = { Fixtures.today }
     ) {
         self.source = source
@@ -248,7 +259,53 @@ public final class MailStore {
         self.sendPort = sendPort
         self.contactPort = contactPort
         self.agendaPort = agendaPort
+        self.trustPort = trustPort
         self.agendaReferenceDay = agendaReferenceDay
+        // Uma leitura de uma tabela de dezenas de linhas, na montagem. Adiá-la
+        // faria o primeiro email aberto mostrar a faixa de bloqueio antes de a
+        // lista chegar — e piscar depois.
+        if let trustPort {
+            trustedSenderAddresses = (try? trustPort.trustedSenders()) ?? []
+        }
+    }
+
+    // MARK: - Os remetentes de quem as imagens carregam sozinhas
+
+    /// Este remetente já foi confiado?
+    ///
+    /// Casa por **endereço exato**, normalizado dos dois lados — ver
+    /// `SenderTrust` para por que não é por domínio. Sem porta, é sempre
+    /// `false`: o bloqueio da M3-8, intacto.
+    public func trustsSender(_ address: String) -> Bool {
+        trustedSenderAddresses.contains(SenderTrust.normalize(address))
+    }
+
+    /// "Sempre carregar deste remetente." Grava e passa a valer no mesmo
+    /// quadro — era essa a distância entre clicar e a imagem aparecer.
+    public func trustSender(_ address: String) {
+        guard let trustPort else { return }
+        let normalizado = SenderTrust.normalize(address)
+        guard !normalizado.isEmpty else { return }
+        trustedSenderAddresses.insert(normalizado)
+        do {
+            try trustPort.trustSender(normalizado)
+        } catch {
+            report(error)
+        }
+    }
+
+    /// O "Rever" da faixa: desfaz a confiança, no disco e na tela. Sem ele a
+    /// decisão seria de mão única, e uma decisão de mão única sobre privacidade
+    /// é um beco.
+    public func revokeSenderTrust(_ address: String) {
+        guard let trustPort else { return }
+        let normalizado = SenderTrust.normalize(address)
+        trustedSenderAddresses.remove(normalizado)
+        do {
+            try trustPort.revokeSenderTrust(normalizado)
+        } catch {
+            report(error)
+        }
     }
 
     /// Há por onde enviar de verdade?

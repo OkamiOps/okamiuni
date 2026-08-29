@@ -698,8 +698,19 @@ public struct ReaderPane: View {
             // **por mensagem**: sem ele, o "Carregar" de uma valeria para a
             // seguinte, que é exatamente a permissão global que esta tela não
             // tem.
-            ReaderHTMLSection(html: html)
-                .id(message.id)
+            // O remetente vai junto: é dele que a faixa oferece o "sempre", e
+            // é ele que o `MailStore` já sabe se é confiável. `.id` continua
+            // sendo da mensagem — o "Carregar" de uma abertura não atravessa
+            // para a seguinte; o que atravessa é a confiança, que está no
+            // disco e não neste `@State`.
+            ReaderHTMLSection(
+                html: html,
+                remetente: message.from.address,
+                confiavel: store.trustsSender(message.from.address),
+                aoConfiar: { store.trustSender(message.from.address) },
+                aoRevogar: { store.revokeSenderTrust(message.from.address) }
+            )
+            .id(message.id)
         } else if !message.body.isEmpty {
             VStack(alignment: .leading, spacing: 16) {
                 ForEach(Array(Self.paragrafos(de: message).enumerated()), id: \.offset) { _, para in

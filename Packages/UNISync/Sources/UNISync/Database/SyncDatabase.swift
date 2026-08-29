@@ -456,6 +456,42 @@ public struct SyncDatabase: Sendable {
                 ON created_agenda_item(accountID, calendarUID)
                 """)
         }
+        // A v6 da M3-12: **os remetentes de quem as imagens carregam
+        // sozinhas.** Ao lado das cinco anteriores, sem tocar em nenhuma.
+        //
+        // "Toda hora tenho que clicar em Carregar, mesmo em remetente
+        // confiável." O bloqueio por padrão fica — ele é a defesa contra o
+        // pixel de rastreio, e é o padrão certo. O que faltava era a memória de
+        // um "sempre" dito uma vez.
+        //
+        // ## O endereço inteiro é a chave, e não o domínio
+        //
+        // Ver `UNICore.SenderTrust` para o argumento completo. Em duas linhas:
+        // o rótulo do botão diz o endereço, e é ele que a pessoa aprovou; e sem
+        // DKIM/SPF conferidos, um domínio liberado é herdado por qualquer
+        // `From` forjado daquele domínio.
+        //
+        // ## Sem `REFERENCES account(id)`
+        //
+        // Pelo mesmo motivo da v5: confiar num remetente é uma decisão sobre
+        // **ele**, não sobre uma caixa. Ela vale em qualquer conta e sobrevive
+        // à conta sair — e com a chave estrangeira ligada, uma confiança dada
+        // sem conta conectada (as fixtures) nem poderia ser gravada.
+        //
+        // Duas colunas e mais nada. `createdAt` não é enfeite: é o que permite
+        // um dia mostrar "confiado em março" ou expirar o que ninguém mais usa,
+        // sem migração nova.
+        migrator.registerMigration("v6") { db in
+            try db.execute(sql: """
+                CREATE TABLE trusted_sender (
+                  -- O endereço normalizado (minúsculas, sem espaço nas pontas).
+                  -- Chave primária: confiar duas vezes no mesmo remetente é a
+                  -- mesma linha, não duas.
+                  address TEXT PRIMARY KEY NOT NULL,
+                  createdAt DOUBLE NOT NULL
+                )
+                """)
+        }
         return migrator
     }
 }

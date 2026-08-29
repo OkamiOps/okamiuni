@@ -60,6 +60,15 @@ public struct AppComposition: Sendable {
     /// continua sendo um compromisso que a pessoa criou, e a tabela da v5 não
     /// tem chave estrangeira para `account` justamente por isso.
     public let agendaPort: (any AgendaPersisting)?
+    /// De quem as imagens remotas podem carregar sozinhas — o "sempre carregar
+    /// deste remetente" da faixa do leitor. `nil` quando o banco não abriu, e
+    /// aí ninguém é confiável: o bloqueio da M3-8 sem memória, que é o pior
+    /// caso honesto.
+    ///
+    /// Vale **mesmo sem conta conectada**, como a agenda e pelo mesmo motivo:
+    /// a confiança é sobre o remetente, não sobre a caixa — e a tabela da v6
+    /// não tem chave estrangeira para `account` justamente por isso.
+    public let trustPort: (any SenderTrusting)?
     /// Quem leva a fila de saída ao servidor, uma conta por vez. Nulo pelo
     /// mesmo motivo do banco. Já vem **ligado**: a fila começa a andar ao
     /// abrir o app, que é o que faz uma ação feita offline chegar ao servidor
@@ -109,7 +118,7 @@ public struct AppComposition: Sendable {
             return AppComposition(
                 database: nil, director: nil,
                 source: InMemoryMailSource.fixtures, commandPort: nil, sendPort: nil, bodyPort: nil,
-                contactPort: nil, agendaPort: nil,
+                contactPort: nil, agendaPort: nil, trustPort: nil,
                 outbox: nil, outboxSignal: nil, sync: nil, network: nil, configError: falha
             )
         }
@@ -222,6 +231,7 @@ public struct AppComposition: Sendable {
             ),
             contactPort: DatabaseContactDirectory(database: banco),
             agendaPort: DatabaseAgendaStore(database: banco),
+            trustPort: DatabaseTrustedSenderStore(database: banco),
             outbox: fila,
             outboxSignal: sinal,
             sync: sincronizacao,

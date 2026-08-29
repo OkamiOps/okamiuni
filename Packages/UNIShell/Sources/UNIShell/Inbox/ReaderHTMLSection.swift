@@ -15,21 +15,42 @@ struct ReaderHTMLSection: View {
     @Environment(\.displayScale) private var displayScale
 
     let html: String
+    /// O endereço de quem mandou. É o que a faixa escreve no botão do "sempre"
+    /// e o que fica gravado — ver `UNICore.SenderTrust` para por que o
+    /// endereço inteiro, e não o domínio.
+    var remetente: String = ""
+    /// Este remetente já foi confiado? Vem de fora (do `MailStore`) porque a
+    /// resposta sobrevive ao fechar o app, e esta `View` não.
+    var confiavel: Bool = false
+    var aoConfiar: () -> Void = {}
+    var aoRevogar: () -> Void = {}
 
     @State private var carregaRemotas = false
     @State private var altura: CGFloat = 1
 
+    /// As imagens desta mensagem carregam?
+    ///
+    /// Duas portas para o mesmo lugar: o "Carregar" desta abertura (que não
+    /// fica guardado em lugar nenhum) e a confiança no remetente (que fica).
+    private var permiteRemotas: Bool { carregaRemotas || confiavel }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if !carregaRemotas, ReaderHTMLPolicy.pedeRecursoRemoto(html) {
-                faixa
-                    .padding(.horizontal, 28)
-                    .padding(.bottom, 12)
+            if ReaderHTMLPolicy.pedeRecursoRemoto(html) {
+                if confiavel {
+                    faixaConfiavel
+                        .padding(.horizontal, 28)
+                        .padding(.bottom, 12)
+                } else if !carregaRemotas {
+                    faixa
+                        .padding(.horizontal, 28)
+                        .padding(.bottom, 12)
+                }
             }
 
             ReaderHTMLBody(
                 html: html,
-                permiteRemotas: carregaRemotas,
+                permiteRemotas: permiteRemotas,
                 fundo: Self.css(theme.surface),
                 tinta: Self.css(theme.ink),
                 link: Self.css(theme.accent),
@@ -50,6 +71,25 @@ struct ReaderHTMLSection: View {
     /// falhou.
     nonisolated static let imagensBloqueadas = "Imagens remotas bloqueadas"
     nonisolated static let carregar = "Carregar"
+    nonisolated static let imagensCarregadas = "Imagens carregadas · remetente confiável"
+    nonisolated static let rever = "Rever"
+
+    /// "Sempre carregar de noreply@calendly.com" — o endereço **inteiro**,
+    /// escrito no botão.
+    ///
+    /// O rótulo é a promessa, e ele diz exatamente o que vai ser gravado: o
+    /// endereço, não o domínio. Um botão que dissesse "Sempre carregar do
+    /// Calendly" e liberasse `calendly.com` estaria concedendo mais do que
+    /// mostrou — ver `UNICore.SenderTrust`.
+    ///
+    /// Sem endereço (uma mensagem cujo `From` não trouxe nenhum) o botão não
+    /// aparece: não há o que confiar, e um "sempre" sobre o vazio valeria para
+    /// todo remetente sem endereço que chegasse depois.
+    nonisolated static func sempreCarregar(de remetente: String) -> String? {
+        let podado = remetente.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !podado.isEmpty else { return nil }
+        return "Sempre carregar de \(podado)"
+    }
 
     private var faixa: some View {
         HStack(spacing: 8) {
@@ -68,6 +108,46 @@ struct ReaderHTMLSection: View {
             .help(
                 "Carrega as imagens que esta mensagem busca na internet. "
                 + "Vale só para ela — carregar avisa o remetente de que você a abriu."
+            )
+            // A segunda ação, no mesmo idioma da primeira e ao lado dela: o
+            // "uma vez" e o "sempre" são a mesma decisão em duas durações.
+            if let sempre = Self.sempreCarregar(de: remetente) {
+                ChromeButton(
+                    sempre, appearance: .outlined,
+                    size: 11.5, height: 24, horizontalPadding: 10
+                ) {
+                    aoConfiar()
+                }
+                .help(
+                    "Passa a carregar as imagens deste endereço sozinho, em toda "
+                    + "mensagem dele. Vale só para este endereço, e pode ser desfeito."
+                )
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// A linha mínima da mensagem de um remetente confiável.
+    ///
+    /// Ela existe por uma razão só: **a saída**. Sem ela, a confiança dada num
+    /// clique não teria onde ser desfeita, e uma decisão de mão única sobre
+    /// privacidade é um beco. Diz o que aconteceu (as imagens carregaram, e
+    /// por quê) e traz o "Rever" que revoga.
+    private var faixaConfiavel: some View {
+        HStack(spacing: 8) {
+            Text(Self.imagensCarregadas)
+                .font(theme.sans.font(size: 11.5))
+                .foregroundStyle(theme.ink4.color)
+            ChromeButton(
+                Self.rever, appearance: .outlined,
+                size: 11.5, height: 24, horizontalPadding: 10
+            ) {
+                aoRevogar()
+            }
+            .help(
+                "Deixa de confiar neste endereço: as imagens dele voltam a ser "
+                + "bloqueadas, aqui e nas próximas mensagens."
             )
             Spacer(minLength: 0)
         }

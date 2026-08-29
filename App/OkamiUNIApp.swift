@@ -60,6 +60,7 @@ struct OkamiUNIApp: App {
             bodyPort: composicao.bodyPort, sendPort: composicao.sendPort,
             contactPort: composicao.contactPort,
             agendaPort: composicao.agendaPort,
+            trustPort: composicao.trustPort,
             agendaReferenceDay: { relogio.today }
         ))
         if let diretor = composicao.director {
