@@ -233,4 +233,106 @@ struct SidebarTests {
     func expandedWidth() {
         #expect(FolderSidebar.expandedWidth == 236)
     }
+
+    // MARK: As pastas do provedor
+
+    /// Uma fonte com pastas — `InMemoryMailSource` não tem servidor nenhum e
+    /// devolve `[]`, que é justamente o que mantém a barra sem conta idêntica à
+    /// do Marco 1.
+    private struct FonteComPastas: MailSource {
+        var contas: [Account]
+        var mensagens: [Message]
+        var pastas: [MailFolder]
+
+        func accounts() async throws -> [Account] { contas }
+        func messages() async throws -> [Message] { mensagens }
+        func agenda() async throws -> [AgendaItem] { [] }
+        func pendingItems() async throws -> [PendingItem] { [] }
+        func folders() async throws -> [MailFolder] { pastas }
+    }
+
+    @MainActor
+    private func storeComPastas(segundaPasta: String = "Clientes/Faturas") async -> MailStore {
+        let conta = Account(
+            id: "c1", address: "marcos@okamiops.com", displayName: "Trabalho",
+            provider: .imap, host: "okamiops",
+            tintLightHex: "#3E6FA8", tintDarkHex: "#7BA8D9"
+        )
+        let pastas = [
+            MailFolder(
+                id: "c1/INBOX", accountID: "c1", serverName: "INBOX",
+                displayName: "INBOX", role: .inbox
+            ),
+            MailFolder(
+                id: "c1/Clientes/Faturas", accountID: "c1", serverName: segundaPasta,
+                displayName: segundaPasta, role: .other
+            ),
+        ]
+        let store = MailStore(source: FonteComPastas(
+            contas: [conta],
+            mensagens: [
+                Message(
+                    id: "m1", accountID: "c1",
+                    from: Contact(name: "Marina", address: "marina@clientepremium.com"),
+                    receivedAt: Date(timeIntervalSince1970: 1_799_000_000),
+                    subject: "Fatura", snippet: "Trecho", body: [], tags: [],
+                    bucket: .archived, isRead: false, summary: nil, detectedEvent: nil,
+                    folderIDs: ["c1/Clientes/Faturas"]
+                )
+            ],
+            pastas: pastas
+        ))
+        await store.load()
+        return store
+    }
+
+    @MainActor
+    private func bitmap(_ store: MailStore) -> NSBitmapImageRep? {
+        Render.bitmap(
+            FolderSidebar(store: store),
+            size: CGSize(width: FolderSidebar.expandedWidth, height: 520), theme: .tinta
+        )
+    }
+
+    /// **A mutação:** apagar o `ForEach(store.folders(of:))` do corpo da barra
+    /// faz os dois desenhos saírem idênticos — a conta abre e não mostra pasta
+    /// nenhuma, que é exatamente a queixa do dono.
+    ///
+    /// O instrumento é o **nome de uma pasta**, e não o abrir e fechar: a seta
+    /// muda de glifo ao abrir, então "recolhida contra aberta" acusaria
+    /// diferença mesmo com as linhas de pasta apagadas — o teste passaria pela
+    /// razão errada. Duas barras igualmente abertas, diferindo só no nome de uma
+    /// pasta, não têm outra explicação possível.
+    @Test("a conta aberta desenha as pastas do provedor")
+    @MainActor
+    func aContaAbertaDesenhaAsPastas() async throws {
+        let umNome = await storeComPastas(segundaPasta: "Clientes/Faturas")
+        umNome.toggleFolders(of: "c1")
+        let outroNome = await storeComPastas(segundaPasta: "Fornecedores/Contratos")
+        outroNome.toggleFolders(of: "c1")
+
+        let a = try #require(bitmap(umNome))
+        let b = try #require(bitmap(outroNome))
+        #expect(
+            a.pixelsDiffering(from: b) > 0,
+            "trocar o nome de uma pasta não mudou nada na barra — as pastas não estão sendo desenhadas"
+        )
+    }
+
+    /// **A mutação:** desenhar a seta sempre (tirar o `if !pastas.isEmpty`) faz
+    /// a barra do Marco 1 ganhar uma seta ao lado de cada conta, e o retrato
+    /// deixa de ser idêntico.
+    @Test("sem pasta nenhuma, a barra é a do Marco 1 — até o pixel")
+    @MainActor
+    func semPastaAABarraEhADeSempre() async throws {
+        let comFixtures = MailStore(source: InMemoryMailSource.fixtures)
+        await comFixtures.load()
+        let semPastas = try #require(bitmap(comFixtures))
+
+        // O mesmo store, com as pastas "abertas": sem pasta nenhuma para
+        // desenhar, abrir não pode mudar um pixel.
+        for conta in comFixtures.accounts { comFixtures.toggleFolders(of: conta.id) }
+        let aindaSemPastas = try #require(bitmap(comFixtures))
+        #expect(semPastas.pixelsDiffering(from: aindaSemPastas) == 0)
+    }
 }

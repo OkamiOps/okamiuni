@@ -52,6 +52,17 @@ public struct FolderSidebar: View {
                         VStack(alignment: .leading, spacing: 2) {  // protótipo: gap: 2px
                             ForEach(store.accounts) { account in
                                 accountRow(account)
+                                // As pastas do provedor, quando a conta está
+                                // aberta. Elas ficam **dentro** da seção
+                                // CAIXAS, logo abaixo da conta a que pertencem:
+                                // uma seção própria as separaria da conta e a
+                                // barra teria de repetir o endereço em cada
+                                // grupo.
+                                if store.foldersExpanded(account.id) {
+                                    ForEach(store.folders(of: account.id)) { folder in
+                                        folderRow(folder, account: account)
+                                    }
+                                }
                             }
                         }
                         .padding(.horizontal, 8)
@@ -183,13 +194,104 @@ public struct FolderSidebar: View {
             : store.unreadCount(in: bucket, accountID: store.selectedAccountID)
     }
 
+    /// A linha de uma pasta do provedor, dentro da conta aberta.
+    ///
+    /// Ela recua 14pt em relação à linha da conta — o mesmo recuo que a seta
+    /// ocupa lá em cima — e é isso que diz "esta pasta é daquela conta" sem
+    /// precisar de moldura, linha guia nem repetir o endereço.
+    private func folderRow(_ folder: MailFolder, account: Account) -> some View {
+        let active = folder.id == store.selectedFolderID
+        let tintColor = account.tint(isDark: theme.isDark)
+        let tintTokenColor = TokenColor(css: tintColor) ?? theme.ink4
+
+        return Button { store.select(folder: folder.id) } label: {
+            HStack(spacing: 7) {
+                // O ícone só existe para a pasta de papel conhecido — lixeira,
+                // enviadas, rascunhos, spam. A que a pessoa criou não tem
+                // nenhum, e um ícone genérico ao lado de todas roubaria o sinal
+                // das que têm um. Ver `MailFolder.symbol`.
+                Group {
+                    if let symbol = folder.symbol {
+                        Image(systemName: symbol)
+                            .font(.system(size: 10))
+                            .foregroundStyle((active ? theme.accentInk : theme.ink4).color)
+                    }
+                }
+                .frame(width: 12)
+                .accessibilityHidden(true)
+
+                Text(folder.displayName)
+                    .font(theme.sans.font(size: 12))
+                    .foregroundStyle((active ? theme.accentInk : theme.ink2).color)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    // O caminho inteiro no `help`: a linha corta pelo meio uma
+                    // subpasta longa ("Clientes/2026/Faturas"), e o balão é
+                    // onde ele cabe sem alargar a barra.
+                    .help(folder.serverName)
+
+                Spacer(minLength: 0)
+
+                // Zero não é desenhado: uma coluna de zeros ao lado de doze
+                // pastas é ruído com cara de informação, e o que importa numa
+                // pasta é justamente ela ter alguma coisa por ler.
+                if folder.unreadCount > 0 {
+                    Text("\(folder.unreadCount)")
+                        .font(theme.mono.font(size: 10))
+                        .foregroundStyle((active ? theme.accentInk : theme.ink4).color)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 26)
+            .padding(.leading, 22)
+            .padding(.trailing, 8)
+            .contentShape(Rectangle())
+            .background {
+                if active {
+                    RoundedRectangle(cornerRadius: theme.radiusSmall)
+                        .fill(opacityMix(tintColor, 16))
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
+    }
+
     private func accountRow(_ account: Account) -> some View {
         let active = account.id == store.selectedAccountID
         let tintColor = account.tint(isDark: theme.isDark)
         let tintTokenColor = TokenColor(css: tintColor) ?? theme.ink4
+        // **A seta só existe quando há pasta.** Sem conta conectada — as
+        // fixtures — não há pasta de provedor nenhuma, e a linha da conta fica
+        // exatamente como o Marco 1 a desenhava, até o pixel. É a mesma regra
+        // que o app inteiro segue: sem conta, nada muda.
+        let pastas = store.folders(of: account.id)
 
         return Button { store.select(account: account.id) } label: {
             HStack(spacing: 8) {
+                if !pastas.isEmpty {
+                    // A seta é o idioma de recolhível desta base — o mesmo "▾"
+                    // aberto / "▸" fechado do cabeçalho de seção da janela de
+                    // compromisso (M3-13), e não um `DisclosureGroup`, que traz
+                    // desenho e espaçamento próprios do sistema.
+                    //
+                    // Ela **não** é um botão dentro de um botão: é um alvo de
+                    // toque desenhado dentro do rótulo, com o gesto próprio por
+                    // cima. Um `Button` aninhado teria dois estilos, dois anéis
+                    // de foco e um clique que às vezes chega ao de fora.
+                    Text(store.foldersExpanded(account.id) ? "▾" : "▸")
+                        .font(theme.mono.font(size: 9))
+                        .foregroundStyle(theme.ink4.color)
+                        .frame(width: 10, height: 24)
+                        .contentShape(Rectangle())
+                        .onTapGesture { store.toggleFolders(of: account.id) }
+                        .accessibilityLabel(
+                            store.foldersExpanded(account.id)
+                                ? "Recolher as pastas de \(account.address)"
+                                : "Mostrar as pastas de \(account.address)"
+                        )
+                }
+
                 // Chip do host — o mesmo `chip()` do protótipo que a lista usa.
                 TintChip(label: account.host, tint: tintTokenColor.color, emphasized: active)
 
