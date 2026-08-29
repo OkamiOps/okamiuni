@@ -19,9 +19,9 @@ struct PaneLayoutTests {
         #expect(l.agendaVisible == false)
     }
 
-    @Test("abaixo de 1120 a lateral recolhe para a trilha")
+    @Test("abaixo de 920 a lateral recolhe para a trilha")
     func sidebarCollapses() {
-        let l = PaneLayout.resolve(width: 1000, wantsSidebar: true, wantsAgenda: true)
+        let l = PaneLayout.resolve(width: 919, wantsSidebar: true, wantsAgenda: true)
         #expect(l.sidebarExpanded == false)
         #expect(l.agendaVisible == false)
     }
@@ -48,17 +48,17 @@ struct PaneLayoutTests {
     func listStaysInRange(width: CGFloat) {
         let l = PaneLayout.resolve(width: width, wantsSidebar: true, wantsAgenda: true)
         #expect(l.messageListWidth >= 320)
-        #expect(l.messageListWidth <= 420)
+        #expect(l.messageListWidth <= 400)
     }
 
     @Test("o leitor nunca fica abaixo do mínimo legível")
     func readerNeverStarves() {
         for width in stride(from: 860.0, through: 2560.0, by: 20.0) {
             let l = PaneLayout.resolve(width: width, wantsSidebar: true, wantsAgenda: true)
-            let taken = (l.sidebarExpanded ? 236 : 62)
+            let taken = (l.sidebarExpanded ? PaneLayout.expandedSidebarWidth : PaneLayout.railWidth)
                 + l.messageListWidth
-                + (l.agendaVisible ? 262 : 0)
-            #expect(width - taken >= 420, "leitor espremido em \(width)pt")
+                + l.agendaRailWidth
+            #expect(width - taken >= PaneLayout.readerMinimumWidth, "leitor espremido em \(width)pt")
         }
     }
 
@@ -69,17 +69,17 @@ struct PaneLayoutTests {
     // ponto**; se a `PaneLayout` devolver outra coisa em 1440, o marco anterior
     // quebra sem nenhum teste acima reclamar. Estas asserções travam a literal.
 
-    @Test("em 1440 a lista mede exatamente os 370 que a Task P alinhou")
+    @Test("em 1440 a lista mede exatamente os 400 do redesenho")
     func fidelityAt1440() {
         let l = PaneLayout.resolve(width: 1440, wantsSidebar: true, wantsAgenda: true)
-        #expect(l.messageListWidth == 370)
+        #expect(l.messageListWidth == 400)
     }
 
-    @Test("em 1440 o leitor recebe exatamente os 572 que a Task P mediu")
+    @Test("em 1440 o leitor recebe exatamente os 516 do redesenho")
     func readerAt1440() {
         let l = PaneLayout.resolve(width: 1440, wantsSidebar: true, wantsAgenda: true)
-        let reader = 1440 - 236 - l.messageListWidth - 262
-        #expect(reader == 572)
+        let reader = l.readerWidth(inWindowOfWidth: 1440)
+        #expect(reader == 516)
     }
 
     // MARK: - As fronteiras das faixas
@@ -87,16 +87,16 @@ struct PaneLayoutTests {
     // Os testes do enunciado amostram 900/1000/1200/1440, que ficam longe das
     // bordas. Um `>` no lugar de `>=` passa por todos eles e erra a fronteira.
 
-    @Test("1120 é a primeira largura que expande a lateral, 1119 não")
+    @Test("920 é a primeira largura que expande a lateral, 919 não")
     func sidebarBoundary() {
-        #expect(PaneLayout.resolve(width: 1119, wantsSidebar: true, wantsAgenda: true).sidebarExpanded == false)
-        #expect(PaneLayout.resolve(width: 1120, wantsSidebar: true, wantsAgenda: true).sidebarExpanded)
+        #expect(PaneLayout.resolve(width: 919, wantsSidebar: true, wantsAgenda: true).sidebarExpanded == false)
+        #expect(PaneLayout.resolve(width: 920, wantsSidebar: true, wantsAgenda: true).sidebarExpanded)
     }
 
-    @Test("1360 é a primeira largura que mostra a agenda, 1359 não")
+    @Test("1280 é a primeira largura que mostra a agenda, 1279 não")
     func agendaBoundary() {
-        #expect(PaneLayout.resolve(width: 1359, wantsSidebar: true, wantsAgenda: true).agendaVisible == false)
-        #expect(PaneLayout.resolve(width: 1360, wantsSidebar: true, wantsAgenda: true).agendaVisible)
+        #expect(PaneLayout.resolve(width: 1279, wantsSidebar: true, wantsAgenda: true).agendaVisible == false)
+        #expect(PaneLayout.resolve(width: 1280, wantsSidebar: true, wantsAgenda: true).agendaVisible)
     }
 
     @Test("no piso da janela a lista encolhe até o mínimo de 320")
@@ -109,9 +109,9 @@ struct PaneLayoutTests {
     func collapsingSidebarWidensTheReader() {
         let open = PaneLayout.resolve(width: 1440, wantsSidebar: true, wantsAgenda: true)
         let shut = PaneLayout.resolve(width: 1440, wantsSidebar: false, wantsAgenda: true)
-        let readerOpen = 1440 - 236 - open.messageListWidth - 262
-        let readerShut = 1440 - 62 - shut.messageListWidth - 262
+        let readerOpen = open.readerWidth(inWindowOfWidth: 1440)
+        let readerShut = shut.readerWidth(inWindowOfWidth: 1440)
         #expect(readerShut > readerOpen)
-        #expect(shut.messageListWidth <= 420)
+        #expect(shut.messageListWidth <= 400)
     }
 }

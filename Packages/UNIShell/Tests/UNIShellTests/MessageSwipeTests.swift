@@ -20,7 +20,7 @@ import UNIDesign
 struct MessageSwipeTests {
 
     static let theme = Theme.tinta
-    static let listWidth: CGFloat = MessageList.width  // 370
+    static let listWidth: CGFloat = MessageList.width  // 400
     static let stageHeight: CGFloat = 140
 
     /// O painel inteiro do padrão: duas colunas de 84.
@@ -498,7 +498,9 @@ struct MessageSwipeTests {
         // `rowPadding.leading` — para **toda** linha, lida ou não, senão as
         // duas dançariam para os lados conforme a caixa se lê.
         #expect(atRest.min >= Int(Self.contentIndent) - 2)
-        #expect(atRest.min <= Int(Self.contentIndent) + 8)
+        // O avatar do redesenho é a primeira tinta e começa alguns pontos
+        // depois da coluna reservada ao indicador.
+        #expect(atRest.min <= Int(Self.contentIndent) + 16)
         // E, deslocada, ela reaparece exatamente 168pt adiante.
         #expect(shifted.min == atRest.min + Int(Self.panel))
     }
@@ -523,15 +525,18 @@ struct MessageSwipeTests {
             SwipeReceipt.of(.archive, message: message, stamp: "14:32")
         )
 
-        let roomy = try Self.renderBand("desfazer-larga-tinta", receipt: receipt, width: 420)
-        let tight = try Self.renderBand("desfazer-estreita-tinta", receipt: receipt, width: 300)
+        // No Tinta redesenhado `paper` e `btn` são ambos brancos; use um tema
+        // alternativo para a sonda de pixels continuar distinguindo o botão do palco.
+        let bandTheme = Theme.papel
+        let roomy = try Self.renderBand("desfazer-larga", receipt: receipt, width: 420, theme: bandTheme)
+        let tight = try Self.renderBand("desfazer-estreita", receipt: receipt, width: 300, theme: bandTheme)
 
         let wide = try #require(
-            Self.columns(of: Self.theme.btn, in: roomy, y: 0..<70),
+            Self.columns(of: bandTheme.btn, in: roomy, y: 0..<70),
             "não achei o botão na faixa larga"
         )
         let narrow = try #require(
-            Self.columns(of: Self.theme.btn, in: tight, y: 0..<70),
+            Self.columns(of: bandTheme.btn, in: tight, y: 0..<70),
             "não achei o botão na faixa estreita"
         )
         let wideWidth = wide.max - wide.min
@@ -546,7 +551,7 @@ struct MessageSwipeTests {
     /// A faixa sozinha, encostada no topo, sobre `paper` — que não se confunde
     /// com `btn` nem com `accentSoft`.
     private static func renderBand(
-        _ name: String, receipt: SwipeReceipt, width: CGFloat
+        _ name: String, receipt: SwipeReceipt, width: CGFloat, theme: Theme = Self.theme
     ) throws -> NSBitmapImageRep {
         try #require(
             Render.snapshot(

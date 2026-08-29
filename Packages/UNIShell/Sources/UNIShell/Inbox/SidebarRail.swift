@@ -17,6 +17,8 @@ public struct SidebarRail: View {
     /// janela pode recolher, mas a pergunta não pode desaparecer junto.
     let intelligencePresentation: IntelligencePresentation
     let onOpenAssistant: () -> Void
+    let onCompose: (() -> Void)?
+    let onOpenAccounts: (() -> Void)?
 
     /// Ver `FolderSidebar.confirmingEmptyTrash`: a trilha é a mesma barra
     /// lateral, recolhida, e a ação destrutiva não pode perder a pergunta só
@@ -27,12 +29,16 @@ public struct SidebarRail: View {
         store: MailStore,
         width: CGFloat = PaneLayout.railWidth,
         intelligencePresentation: IntelligencePresentation = .available,
-        onOpenAssistant: @escaping () -> Void = {}
+        onOpenAssistant: @escaping () -> Void = {},
+        onCompose: (() -> Void)? = nil,
+        onOpenAccounts: (() -> Void)? = nil
     ) {
         self.store = store
         self.railWidth = width
         self.intelligencePresentation = intelligencePresentation
         self.onOpenAssistant = onOpenAssistant
+        self.onCompose = onCompose
+        self.onOpenAccounts = onOpenAccounts
     }
 
     /// Abreviação de três a quatro letras que a trilha usa no lugar do rótulo
@@ -51,6 +57,11 @@ public struct SidebarRail: View {
 
     public var body: some View {
         VStack(alignment: .center, spacing: 4) {
+            if onCompose != nil {
+                composeButton
+                    .padding(.bottom, 8)
+            }
+
             // Pastas (Fluxo) — fixas no topo
             VStack(alignment: .center, spacing: 4) {
                 ForEach(TriageBucket.allCases, id: \.self) { bucket in
@@ -87,11 +98,42 @@ public struct SidebarRail: View {
 
             Spacer(minLength: 8)
             assistantButton
+            if onOpenAccounts != nil {
+                accountsButton
+            }
         }
         .frame(width: railWidth, alignment: .center)
         .padding(.vertical, 14)
         .background(theme.surface2.color)
         .hairline(theme.line, edges: .trailing)
+    }
+
+    private var composeButton: some View {
+        Button { onCompose?() } label: {
+            Image(systemName: "square.and.pencil")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(theme.surface.color)
+                .frame(width: 46, height: 42)
+                .background(theme.ink.color)
+                .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall, tint: \.surface)
+        .help("Nova mensagem (⌘N)")
+        .accessibilityLabel("Escrever uma nova mensagem")
+    }
+
+    private var accountsButton: some View {
+        Button { onOpenAccounts?() } label: {
+            Image(systemName: "shippingbox")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(theme.ink2.color)
+                .frame(width: 46, height: 40)
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
+        .help("Contas e providers")
+        .accessibilityLabel("Abrir contas e providers")
     }
 
     private var assistantButton: some View {
@@ -105,20 +147,18 @@ public struct SidebarRail: View {
                 // cortada. A abreviação conserva o verbo e deixa o ícone ser a
                 // âncora visual, enquanto `help` e acessibilidade dizem a ação
                 // inteira.
-                Text("perg.")
-                    .font(theme.mono.font(size: 7.5, weight: .medium))
-                    .tracking(theme.capsTracking(at: 7.5))
-                    .textCase(.uppercase)
+                Text("IA")
+                    .font(theme.sans.font(size: 9, weight: .semibold))
                     .lineLimit(1)
             }
-            .foregroundStyle((intelligencePresentation.isAvailable ? theme.accentInk : theme.ink4).color)
+            .foregroundStyle(intelligencePresentation.isAvailable ? foundationColor : theme.ink4.color)
             .frame(width: 46, height: 50)
-            .background(intelligencePresentation.isAvailable ? theme.accentSoft.color : theme.surface3.color)
+            .background(intelligencePresentation.isAvailable ? foundationColor.opacity(0.08) : theme.surface3.color)
             .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
             .overlay {
                 RoundedRectangle(cornerRadius: theme.radiusSmall)
                     .strokeBorder(
-                        (intelligencePresentation.isAvailable ? theme.accentLine : theme.line2).color,
+                        intelligencePresentation.isAvailable ? foundationColor.opacity(0.28) : theme.line2.color,
                         lineWidth: Hairline.thickness(displayScale)
                     )
             }
@@ -132,24 +172,17 @@ public struct SidebarRail: View {
         .accessibilityHint(intelligencePresentation.actionHelp)
     }
 
+    private var foundationColor: Color {
+        Color(red: 1, green: 90 / 255, blue: 31 / 255)
+    }
+
     private func bucketButton(_ bucket: TriageBucket) -> some View {
         let active = bucket == store.bucket
-        let abbr = Self.abbreviation(for: bucket)
-
         return Button { store.select(bucket: bucket) } label: {
             VStack(alignment: .center, spacing: 3) {
-                // A abreviação da Lixeira vem com o símbolo à frente, como na
-                // barra larga: 62pt de trilha e quatro letras não distinguem
-                // "arq" de "lixo" no canto do olho.
-                if let symbol = FolderSidebar.symbol(for: bucket) {
-                    Image(systemName: symbol)
-                        .font(.system(size: 9))
-                        .accessibilityHidden(true)
-                }
-                Text(abbr)
-                    .font(theme.mono.font(size: 8.5))
-                    .tracking(0.06 * 8.5)  // Tracking em pontos: 0.06em × 8.5pt = 0.51pt
-                    .textCase(.uppercase)
+                Image(systemName: navigationSymbol(for: bucket))
+                    .font(.system(size: 14, weight: .medium))
+                    .accessibilityHidden(true)
 
                 // O mesmo número da barra larga — total em Enviadas, não lidas
                 // no resto. Ver `FolderSidebar.counter(for:store:)`: a trilha é
@@ -158,7 +191,7 @@ public struct SidebarRail: View {
                 Text("\(FolderSidebar.counter(for: bucket, store: store))")
                     // O protótipo não declara família nesta contagem, então ela
                     // herda a sans do corpo — não é mono como a abreviação acima.
-                    .font(theme.sans.font(size: 13, weight: .semibold))
+                    .font(theme.sans.font(size: 9.5, weight: .semibold))
                     // Peso 650 não existe em Font.Weight (enum: 100,300,400,500,600,700,800,900).
                     // Semibold (600) é o vizinho mais próximo, como em Task 7.
                     // Para peso exato, seria preciso Core Text e fonte variável.
@@ -204,6 +237,18 @@ public struct SidebarRail: View {
             }
         )
         .modifier(EmptyTrashConfirmation(store: store, isPresented: $confirmingEmptyTrash))
+        .accessibilityLabel(bucket.label)
+    }
+
+    private func navigationSymbol(for bucket: TriageBucket) -> String {
+        switch bucket {
+        case .today: "sun.max"
+        case .later: "clock"
+        case .all: "tray"
+        case .archived: "archivebox"
+        case .trash: "trash"
+        case .sent: "paperplane"
+        }
     }
 
     private func accountMark(_ account: Account) -> some View {

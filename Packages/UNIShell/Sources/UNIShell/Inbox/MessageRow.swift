@@ -75,8 +75,8 @@ public struct MessageRow: View {
     /// degrau à frente de `surface`, na mesma família do ponto, e nenhuma cor
     /// de sistema envolvida.
     private var rowBackground: Color {
-        if isSelected { return accountTint.opacity(0.10) }
-        if marks, emphasis.showsField { return theme.accentSoft.color }
+        if isSelected { return theme.surface3.color }
+        if marks, emphasis.showsField { return theme.surface2.color }
         return .clear
     }
 
@@ -215,45 +215,56 @@ public struct MessageRow: View {
     }
 
     private var content: some View {
-        VStack(alignment: .leading, spacing: 3) {  // protótipo: margin-top: 3px
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                // O remetente — ou o destinatário, em Enviadas. Quem decide é
-                // `Message.listHeadline`, no `UNICore`: é regra do produto, e
-                // esta linha só a desenha.
-                Text(message.listHeadline)
-                    .font(theme.sans.font(size: 13, weight: message.isRead ? .regular : .semibold))
-                    .tracking(-0.005 * 13)  // letter-spacing: -0.005em a 13pt = -0.065pt
+        HStack(alignment: .top, spacing: 12) {
+            Text(message.from.initials)
+                .font(theme.sans.font(size: 11, weight: .semibold))
+                .foregroundStyle(theme.ink2.color)
+                .frame(width: 38, height: 38)
+                .background(theme.surface2.color)
+                .clipShape(Circle())
+                .overlay {
+                    Circle().strokeBorder(
+                        accountTint.opacity(0.72),
+                        lineWidth: max(1, Hairline.thickness(displayScale))
+                    )
+                }
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline, spacing: 7) {
+                    // O remetente — ou o destinatário, em Enviadas. Quem decide é
+                    // `Message.listHeadline`, no `UNICore`: é regra do produto.
+                    Text(message.listHeadline)
+                        .font(theme.sans.font(size: 13, weight: message.isRead ? .medium : .semibold))
+                        .foregroundStyle(theme.ink.color)
+                        .lineLimit(1)
+                    countBadge
+                    Spacer(minLength: 4)
+                    flagStar
+                    timeStamp
+                        .font(theme.mono.font(size: 9.5))
+                        .foregroundStyle(theme.ink3.color)
+                }
+
+                Text(message.subject)
+                    .font(theme.body.font(size: theme.subjectSize, weight: theme.subjectWeight))
                     .foregroundStyle(theme.ink.color)
                     .lineLimit(1)
-                countBadge
-                Spacer(minLength: 4)
-                flagStar
-                timeStamp
-                    .font(theme.mono.font(size: 10))
-                    .foregroundStyle(theme.ink4.color)
-            }
 
-            Text(message.subject)
-                .font(theme.body.font(size: theme.subjectSize, weight: theme.subjectWeight))
-                .lineSpacing(0.35 * theme.subjectSize)  // line-height 1.35
-                .foregroundStyle(theme.ink.color)
-                .lineLimit(1)
+                Text(message.snippet)
+                    .font(theme.sans.font(size: 11.5))
+                    .foregroundStyle(theme.ink2.color)
+                    .lineLimit(1)
 
-            Text(message.snippet)
-                .font(theme.sans.font(size: 11.5))
-                .lineSpacing(0.45 * 11.5)  // line-height 1.45 × 11.5 − 11.5 = 5.175
-                .foregroundStyle(theme.ink3.color)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-
-            HStack(spacing: 5) {
-                TintChip(label: accountHost, tint: accountTint, emphasized: isSelected)
-                ForEach(message.tags) { tag in
-                    TagChip(tag: tag)
+                HStack(spacing: 5) {
+                    TintChip(label: accountHost, tint: accountTint, emphasized: isSelected)
+                    ForEach(message.tags) { tag in
+                        TagChip(tag: tag)
+                    }
+                    Spacer(minLength: 0)
                 }
-                Spacer(minLength: 0)
+                .padding(.top, 3)
             }
-            .padding(.top, 5)  // 3 do VStack + 5 = os 8 do `margin-top` do protótipo
         }
         .padding(contentPadding)
         .frame(maxWidth: .infinity, alignment: .leading)

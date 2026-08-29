@@ -99,6 +99,9 @@ enum ToolbarBand {
 struct SuggestionStackingTests {
 
     private static let size = CGSize(width: 820, height: 620)
+    /// No Tinta redesenhado `btn` e `surface` são brancos; Papel mantém a
+    /// cápsula mensurável sem mudar a estrutura do composer.
+    private static let theme = Theme.papel
     /// Dentro da cápsula de fonte e corpo, fora dos glifos. Ver `ToolbarBand`.
     private static let probeX = 100
 
@@ -118,7 +121,7 @@ struct SuggestionStackingTests {
             ),
             named: "janela-\(slot)-\(query == nil ? "sem-lista" : "com-lista")",
             size: Self.size,
-            theme: .tinta
+            theme: Self.theme
         )
     }
 
@@ -131,7 +134,7 @@ struct SuggestionStackingTests {
 
         let capsule = try #require(
             ToolbarBand.capsuleRows(
-                in: closed, probeX: Self.probeX, theme: .tinta, searching: 120..<400
+                in: closed, probeX: Self.probeX, theme: Self.theme, searching: 120..<400
             ),
             "a cápsula de fonte e corpo não foi encontrada: a âncora da medida saiu do lugar"
         )

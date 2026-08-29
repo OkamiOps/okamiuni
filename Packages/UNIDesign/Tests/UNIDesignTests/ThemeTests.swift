@@ -83,18 +83,18 @@ struct ThemeCatalogueTests {
         let t = Theme.tinta
         #expect(t.name == "Tinta")
         #expect(t.isDark == false)
-        #expect(t.paper == TokenColor(css: "#F4F2EE"))
-        #expect(t.surface == TokenColor(css: "#FDFCFA"))
-        #expect(t.ink == TokenColor(css: "#1D1D1B"))
-        #expect(t.accent == TokenColor(css: "#2F4B7C"))
+        #expect(t.paper == TokenColor(css: "#FFFFFF"))
+        #expect(t.surface == TokenColor(css: "#FFFFFF"))
+        #expect(t.ink == TokenColor(css: "#222222"))
+        #expect(t.accent == TokenColor(css: "#1456F0"))
         #expect(t.radiusSmall == 8)
-        #expect(t.radiusLarge == 10)
-        #expect(t.subjectSize == 14.5)
-        #expect(t.subjectWeight == .regular)
-        #expect(t.serif.name == "Newsreader")
+        #expect(t.radiusLarge == 13)
+        #expect(t.subjectSize == 13)
+        #expect(t.subjectWeight == .semibold)
+        #expect(t.serif.name == "Space Grotesk")
         #expect(t.mono.name == "IBM Plex Mono")
-        #expect(t.sans.name == nil)          // the design asks for the system face
-        #expect(t.bodyFont == .serif)
+        #expect(t.sans.name == "Inter")
+        #expect(t.bodyFont == .sans)
     }
 
     @Test("shadow layers keep x, y and blur in the right order")
@@ -102,13 +102,13 @@ struct ThemeCatalogueTests {
         let inner = try #require(Theme.tinta.btnShadow.first)
         #expect(inner.x == 0)
         #expect(inner.y == 1)
-        #expect(inner.blur == 1.5)
+        #expect(inner.blur == 2)
 
         #expect(Theme.tinta.shadow.count == 2)
         let drop = Theme.tinta.shadow[0]
         #expect(drop.x == 0)
-        #expect(drop.y == 30)
-        #expect(drop.blur == 80)
+        #expect(drop.y == 24)
+        #expect(drop.blur == 64)
 
         let hairline = Theme.tinta.shadow[1]
         #expect(hairline.spread == 0.5)
@@ -131,7 +131,7 @@ struct ThemeCatalogueTests {
     /// A versão que vale trava a família que cada tema realmente usa, extraída
     /// do protótipo. Um erro no gerador de temas cai aqui.
     @Test("cada tema usa a família de corpo que o design manda", arguments: [
-        ("tinta", "Newsreader"), ("linho", "Newsreader"), ("barro", "Newsreader"),
+        ("tinta", "Inter"), ("linho", "Newsreader"), ("barro", "Newsreader"),
         ("noite", "Newsreader"), ("grafite", "Newsreader"), ("vapor", "Newsreader"),
         ("papel", "Newsreader"), ("aura", "Newsreader"), ("ambar", "Newsreader"),
         ("okami", "Space Grotesk"), ("brutal", "Space Grotesk"), ("neon", "Space Grotesk"),
@@ -147,13 +147,12 @@ struct ThemeCatalogueTests {
         #expect(theme.body.name == family)
     }
 
-    /// O protótipo declara `--body-font: var(--serif)` uma única vez, na raiz:
-    /// vale para os 26. Se algum dia um tema divergir, este teste avisa em vez
-    /// de o corpo mudar de família em silêncio.
-    @Test("o design põe o corpo em serifa em todos os temas")
-    func everyThemeUsesSerifForBody() {
+    /// O redesenho usa Inter no tema padrão; os temas alternativos preservam a
+    /// tipografia que já tinham.
+    @Test("só o tema padrão migra o corpo para sans")
+    func onlyDefaultThemeUsesSansForBody() {
         for theme in Theme.all {
-            #expect(theme.bodyFont == .serif, "\(theme.id)")
+            #expect(theme.bodyFont == (theme.id == "tinta" ? .sans : .serif), "\(theme.id)")
         }
     }
 }

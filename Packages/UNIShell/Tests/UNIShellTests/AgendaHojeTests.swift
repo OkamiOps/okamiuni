@@ -61,7 +61,10 @@ struct AgendaHojeTests {
         )
         let comFixture = try #require(
             Render.bitmap(
-                CalendarScreen(store: store, now: agora, anchor: Fixtures.today),
+                CalendarScreen(
+                    store: store, now: agora, anchor: Fixtures.today,
+                    onCompose: {}, onOpenAccounts: {}
+                ),
                 size: tamanho, theme: .tinta
             )
         )
@@ -72,7 +75,10 @@ struct AgendaHojeTests {
 
         let comHoje = try #require(
             Render.bitmap(
-                CalendarScreen(store: store, now: agora, anchor: Date()),
+                CalendarScreen(
+                    store: store, now: agora, anchor: Date(),
+                    onCompose: {}, onOpenAccounts: {}
+                ),
                 size: tamanho, theme: .tinta
             )
         )

@@ -228,10 +228,10 @@ struct SidebarTests {
         )
     }
 
-    @Test("a largura expandida é 236")
+    @Test("a largura expandida é 248")
     @MainActor
     func expandedWidth() {
-        #expect(FolderSidebar.expandedWidth == 236)
+        #expect(FolderSidebar.expandedWidth == 248)
     }
 
     // MARK: As pastas do provedor

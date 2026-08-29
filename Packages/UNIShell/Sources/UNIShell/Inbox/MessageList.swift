@@ -75,7 +75,7 @@ public struct MessageList: View {
     /// tudo visível). Não é mais uma largura aplicada: é o que `PaneLayout`
     /// devolve naquela largura de janela, e o que este `View` usa quando ninguém
     /// resolveu layout por ele.
-    public static let width: CGFloat = 370
+    public static let width: CGFloat = 400
 
     /// Quanto tempo o retorno de uma ação de arraste fica na tela antes de
     /// sumir sozinho. Longo o bastante para ler a frase e alcançar "Desfazer".
@@ -111,7 +111,7 @@ public struct MessageList: View {
         nonmutating set { receipts.current = newValue }
     }
 
-    /// A largura resolvida que a janela concedeu — entre 320 e 420 conforme a
+    /// A largura resolvida que a janela concedeu — entre 320 e 400 conforme a
     /// faixa. Ao contrário dos outros painéis, esta de fato varia.
     let listWidth: CGFloat
 
@@ -177,23 +177,21 @@ public struct MessageList: View {
         swipeSettings?.configuration ?? .default
     }
 
-    /// Protótipo: `height: 40px; padding: 0 16px; align-items: baseline; gap: 8px;
-    /// border-bottom: 0.5px solid var(--line2)` sobre `var(--surface)`, com o
-    /// título em `var(--serif)` 16/600 e a contagem em `var(--mono)` 10.
+    /// Cabeçalho de produto do novo shell: título forte e a contagem como
+    /// metadado, em vez da antiga faixa tipográfica de uma linha.
     private var header: some View {
-        HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 3) {
             Text(headerTitle)
-                .font(theme.serif.font(size: 16, weight: .semibold))
+                .font(theme.serif.font(size: 20, weight: .semibold))
                 .foregroundStyle(theme.ink.color)
                 .lineLimit(1)
-            Spacer(minLength: 8)
             Text(Self.messageCountLabel(store.visibleMessages.count))
-                .font(theme.mono.font(size: 10))
-                .foregroundStyle(theme.ink4.color)
-                .fixedSize()
+                .font(theme.sans.font(size: 11.5))
+                .foregroundStyle(theme.ink2.color)
         }
-        .padding(.horizontal, 16)
-        .frame(height: 40)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 18)
+        .frame(height: 74)
         .background(theme.surface.color)
         .hairline(theme.line2, edges: .bottom)
     }
@@ -211,27 +209,14 @@ public struct MessageList: View {
            let account = store.account(selectedAccountID) {
             return account.host
         }
-        return store.bucket.label
+        return store.bucket == .all ? "Caixa unificada" : store.bucket.label
     }
 
     private var list: some View {
         ScrollView {
-            LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
-                ForEach(MessageGroup.build(from: store.visibleMessages)) { group in
-                    Section {
-                        ForEach(group.conversations) { conversation in
-                            row(conversation)
-                        }
-                    } header: {
-                        // Protótipo: `padding: 9px 16px 5px;` e `font-size: 9.5px`.
-                        Text(group.label)
-                            .capsLabel(size: 9.5)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 16)
-                            .padding(.top, 9)
-                            .padding(.bottom, 5)
-                            .background(theme.surface.color)
-                    }
+            LazyVStack(spacing: 0) {
+                ForEach(Conversation.build(from: store.visibleMessages)) { conversation in
+                    row(conversation)
                 }
             }
             footer

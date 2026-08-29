@@ -5,6 +5,8 @@ import UNICore
 /// Acesso contextual à IA no próprio cabeçalho do e-mail. Separado apenas
 /// para o clique real do controle ser verificável fora da tela.
 struct ReaderAssistantButton: View {
+    @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
     let presentation: IntelligencePresentation
     let action: () -> Void
 
@@ -15,17 +17,33 @@ struct ReaderAssistantButton: View {
     }
 
     var body: some View {
-        SoloToolButton(
-            label: "",
-            symbol: presentation.symbol,
-            title: help,
-            on: presentation.isAvailable,
-            enabled: presentation.isAvailable,
-            action: action
-        )
+        Button(action: action) {
+            Image(systemName: presentation.symbol)
+                .font(.system(size: 15, weight: .medium))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(presentation.isAvailable ? foundationColor : theme.ink4.color)
+                .frame(width: 32, height: 30)
+                .background(presentation.isAvailable ? foundationColor.opacity(0.08) : theme.surface3.color)
+                .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+                .overlay {
+                    RoundedRectangle(cornerRadius: theme.radiusSmall)
+                        .strokeBorder(
+                            presentation.isAvailable ? foundationColor.opacity(0.34) : theme.line.color,
+                            lineWidth: Hairline.thickness(displayScale)
+                        )
+                }
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
+        .disabled(!presentation.isAvailable)
+        .help(help)
         .accessibilityLabel("Ações de inteligência deste email")
         .accessibilityValue(presentation.isAvailable ? "Disponível" : "Indisponível")
         .accessibilityHint(help)
+    }
+
+    private var foundationColor: Color {
+        Color(red: 1, green: 90 / 255, blue: 31 / 255)
     }
 }
 
@@ -353,15 +371,15 @@ public struct ReaderPane: View {
         let accentColor = accountTint(message)
 
         return VStack(alignment: .leading, spacing: 0) {
-            triageBar(message)
-                .padding(.bottom, 12)  // protótipo: margin-bottom: 12px
             subject(message)
             sender(message)
-                .padding(.top, 10)  // protótipo: margin-top: 10px
+                .padding(.top, 9)
+            triageBar(message)
+                .padding(.top, 14)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 28)
-        .padding(.vertical, 16)
+        .padding(.vertical, 20)
         .background(theme.surface.color)
         .hairline(theme.line2, edges: .bottom)
         .overlay(alignment: .leading) {
@@ -381,69 +399,57 @@ public struct ReaderPane: View {
         let account = store.account(message.accountID)
         let accentColor = accountTint(message)
 
-        return HStack(spacing: 7) {  // protótipo: gap: 7px
-            let triageButtons = [
-                ("Hoje", TriageBucket.today),
-                ("Depois", TriageBucket.later),
-                ("Arquivar", TriageBucket.archived)
-            ]
+        return VStack(alignment: .leading, spacing: 9) {
+            // Contexto primeiro: o ícone da IA fica literalmente ao lado do
+            // chip da caixa, sem competir com as ações de triagem.
+            HStack(spacing: 7) {
+                TintChip(label: account?.host ?? "", tint: accentColor, emphasized: true)
+                ReaderAssistantButton(
+                    presentation: intelligencePresentation,
+                    action: onOpenAssistant
+                )
+                Spacer(minLength: 0)
+            }
 
-            // Protótipo: `on` é a caixa **da mensagem**, e clicar move a
-            // mensagem — não troca a visão da lista.
-            ForEach(triageButtons, id: \.0) { label, bucket in
-                triageChip(
-                    label, isActive: message.bucket == bucket, accent: accentColor,
-                    help: ""
-                ) {
-                    store.move(message, to: bucket)
+            HStack(spacing: 7) {
+                let triageButtons = [
+                    ("Hoje", TriageBucket.today),
+                    ("Depois", TriageBucket.later),
+                    ("Arquivar", TriageBucket.archived)
+                ]
+
+                ForEach(triageButtons, id: \.0) { label, bucket in
+                    triageChip(
+                        label, isActive: message.bucket == bucket, accent: accentColor,
+                        help: ""
+                    ) {
+                        store.move(message, to: bucket)
+                    }
                 }
+
+                triageChip(
+                    Self.apagarLabel(message), isActive: false, accent: accentColor,
+                    help: ContextMenus.deleteItem(message).help
+                ) {
+                    _ = receipts.delete(message, on: store)
+                }
+
+                Button { pedidoDeResposta += 1 } label: {
+                    Text("Responder")
+                        .font(theme.sans.font(size: 11.5, weight: .semibold))
+                        .foregroundStyle(theme.onAccent.color)
+                        .frame(height: 26)
+                        .padding(.horizontal, 12)
+                        .background(theme.accent.color)
+                        .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+                        .contentShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+                }
+                .buttonStyle(.plain)
+                .focusRing(cornerRadius: theme.radiusSmall, tint: \.onAccent)
+                .keyboardShortcut("r", modifiers: .command)
+
+                Spacer(minLength: 0)
             }
-
-            // **"Apagar", que faltava.** A barra oferecia Hoje · Depois ·
-            // Arquivar · Responder, e a ação que o dono mais usa vivia só no
-            // botão direito e no ⌫ — os dois continuam valendo, e os três agora
-            // fazem exatamente a mesma coisa (`ActionReceipts.delete`).
-            //
-            // No idioma dos vizinhos, e não numa cor nova: o app não tem token
-            // destrutivo, e inventar um vermelho aqui seria a única cor do
-            // aplicativo que não sai do desenho. O que carrega o peso da ação é
-            // a palavra — "Apagar", a mesma do menu, do arraste e da tela de
-            // ajustes — e a faixa "Desfazer" que ela deixa na lista.
-            triageChip(
-                Self.apagarLabel(message), isActive: false, accent: accentColor,
-                help: ContextMenus.deleteItem(message).help
-            ) {
-                _ = receipts.delete(message, on: store)
-            }
-
-            // "Responder" **expande a faixa de baixo** e põe o cursor nela —
-            // não abre janela. Pedido do dono: a resposta começa embaixo da
-            // mensagem que se está lendo, e a janela cheia continua a um clique
-            // dali, no "⤢" da própria faixa, que leva o rascunho junto.
-            Button { pedidoDeResposta += 1 } label: {
-                Text("Responder")
-                    .font(theme.sans.font(size: 11.5, weight: .semibold))
-                    .foregroundStyle(theme.onAccent.color)
-                    .frame(height: 26)
-                    .padding(.horizontal, 12)
-                    .background(theme.accent.color)
-                    .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-                    .contentShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-            }
-            .buttonStyle(.plain)
-            .focusRing(cornerRadius: theme.radiusSmall, tint: \.onAccent)
-            .keyboardShortcut("r", modifiers: .command)
-
-            Spacer(minLength: 8)
-
-            ReaderAssistantButton(
-                presentation: intelligencePresentation,
-                action: onOpenAssistant
-            )
-
-            // Protótipo: `selChipStyle: this.chip(selAcc.c, true)` — o mesmo
-            // chip da barra lateral e da lista, na cor da conta.
-            TintChip(label: account?.host ?? "", tint: accentColor, emphasized: true)
         }
     }
 
@@ -499,9 +505,9 @@ public struct ReaderPane: View {
 
     private func subject(_ message: Message) -> some View {
         Text(message.subject)
-            .font(theme.serif.font(size: 26, weight: .medium))
-            .tracking(-0.01 * 26)   // letter-spacing: -0.01em a 26pt = -0.26pt
-            .lineSpacing(0.22 * 26)  // line-height: 1.22 × 26 − 26 = 5.72
+            .font(theme.serif.font(size: 22, weight: .semibold))
+            .tracking(-0.01 * 22)
+            .lineSpacing(0.20 * 22)
             .foregroundStyle(theme.ink.color)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)

@@ -67,59 +67,54 @@ struct IntelligenceFooter: View {
     let onOpenAssistant: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Button(action: onOpenAssistant) {
-                HStack(spacing: 11) {
-                    Image(systemName: presentation.symbol)
-                        .font(.system(size: 22, weight: .medium))
-                        .symbolRenderingMode(.hierarchical)
-                        .frame(width: 24, height: 24)
-                        .foregroundStyle(statusColor.color)
-                        .accessibilityHidden(true)
+        Button(action: onOpenAssistant) {
+            HStack(spacing: 10) {
+                Image(systemName: presentation.symbol)
+                    .font(.system(size: 19, weight: .medium))
+                    .symbolRenderingMode(.hierarchical)
+                    .frame(width: 24, height: 24)
+                    .foregroundStyle(statusColor.color)
+                    .accessibilityHidden(true)
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(presentation.actionTitle)
-                            .font(theme.sans.font(size: 13, weight: .semibold))
-                            .foregroundStyle((presentation.isAvailable ? theme.accentInk : theme.ink3).color)
-                        Text(presentation.title)
-                            .font(theme.mono.font(size: 9.5, weight: .medium))
-                            .tracking(theme.capsTracking(at: 9.5))
-                            .textCase(.uppercase)
-                            .foregroundStyle(theme.ink4.color)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(presentation.actionTitle)
+                        .font(theme.sans.font(size: 12.5, weight: .semibold))
+                        .foregroundStyle((presentation.isAvailable ? theme.ink : theme.ink3).color)
+                    Text("Todo o OkamiUNI · local")
+                        .font(theme.sans.font(size: 10.5))
+                        .foregroundStyle(theme.ink3.color)
                 }
-                .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
-                .padding(.horizontal, 12)
-                .background(presentation.isAvailable ? theme.accentSoft.color : theme.surface3.color)
-                .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-                .overlay {
-                    RoundedRectangle(cornerRadius: theme.radiusSmall)
-                        .strokeBorder(
-                            (presentation.isAvailable ? theme.accentLine : theme.line2).color,
-                            lineWidth: Hairline.thickness(displayScale)
-                        )
-                }
-            }
-            .buttonStyle(.plain)
-            .focusRing(cornerRadius: theme.radiusSmall)
-            .disabled(!presentation.isAvailable)
-            .help(presentation.actionHelp)
-            .accessibilityLabel(presentation.actionTitle)
-            .accessibilityValue(presentation.isAvailable ? "Disponível" : "Indisponível")
-            .accessibilityHint(presentation.actionHelp)
-
-            Text(presentation.detail)
-                .font(theme.sans.font(size: 11))
-                .lineSpacing(5.5)  // line-height: 1.5 × 11pt − 11pt = 16.5 − 11 = 5.5
-                .foregroundStyle(theme.ink3.color)
-                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
+
+                Circle()
+                    .fill(presentation.isAvailable ? statusColor.color : theme.ink4.color)
+                    .frame(width: 6, height: 6)
+            }
+            .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+            .padding(.horizontal, 12)
+            .background(presentation.isAvailable ? statusColor.color.opacity(0.08) : theme.surface3.color)
+            .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
+            .overlay {
+                RoundedRectangle(cornerRadius: theme.radiusLarge)
+                    .strokeBorder(
+                        presentation.isAvailable ? statusColor.color.opacity(0.28) : theme.line2.color,
+                        lineWidth: Hairline.thickness(displayScale)
+                    )
+            }
         }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusLarge)
+        .disabled(!presentation.isAvailable)
+        .help(presentation.actionHelp)
+        .accessibilityLabel(presentation.actionTitle)
+        .accessibilityValue(presentation.isAvailable ? "Disponível" : "Indisponível")
+        .accessibilityHint(presentation.actionHelp)
     }
 
     private var statusColor: TokenColor {
-        presentation.isAvailable ? theme.accent : theme.ink4
+        presentation.isAvailable
+            ? TokenColor(red: 1, green: 90 / 255, blue: 31 / 255, opacity: 1)
+            : theme.ink4
     }
 }
 
@@ -160,6 +155,8 @@ public struct FolderSidebar: View {
     /// apenas entrega uma intenção — não conhece Foundation Models nem o motor
     /// que vai responder.
     let onOpenAssistant: () -> Void
+    let onCompose: (() -> Void)?
+    let onOpenAccounts: (() -> Void)?
 
     /// Qual caixa está esperando a confirmação de "Esvaziar lixeira".
     ///
@@ -175,16 +172,27 @@ public struct FolderSidebar: View {
         store: MailStore,
         width: CGFloat = PaneLayout.expandedSidebarWidth,
         intelligencePresentation: IntelligencePresentation = .available,
-        onOpenAssistant: @escaping () -> Void = {}
+        onOpenAssistant: @escaping () -> Void = {},
+        onCompose: (() -> Void)? = nil,
+        onOpenAccounts: (() -> Void)? = nil
     ) {
         self.store = store
         self.width = width
         self.intelligencePresentation = intelligencePresentation
         self.onOpenAssistant = onOpenAssistant
+        self.onCompose = onCompose
+        self.onOpenAccounts = onOpenAccounts
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if onCompose != nil {
+                composeButton
+                    .padding(.horizontal, 10)
+                    .padding(.top, 14)
+                    .padding(.bottom, 10)
+            }
+
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     // Seção "Fluxo"
@@ -224,7 +232,7 @@ public struct FolderSidebar: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 14)  // padding-top: 14 do container
+                .padding(.top, onCompose == nil ? 14 : 0)
             }
 
             // Rodapé fixo
@@ -235,11 +243,16 @@ public struct FolderSidebar: View {
             Rectangle()
                 .fill(theme.line.color)
                 .frame(height: Hairline.thickness(displayScale))
-            IntelligenceFooter(
-                presentation: intelligencePresentation,
-                onOpenAssistant: onOpenAssistant
-            )
-                .padding(16)
+            VStack(spacing: 8) {
+                IntelligenceFooter(
+                    presentation: intelligencePresentation,
+                    onOpenAssistant: onOpenAssistant
+                )
+                if onOpenAccounts != nil {
+                    accountsButton
+                }
+            }
+            .padding(10)
         }
         // A barra ocupa toda a altura que o painel conceder. Sem esse limite,
         // um rodapé com três linhas pode disputar a altura ideal com o
@@ -248,6 +261,48 @@ public struct FolderSidebar: View {
         .frame(maxHeight: .infinity, alignment: .topLeading)
         .background(theme.surface2.color)
         .hairline(theme.line, edges: .trailing)
+    }
+
+    private var composeButton: some View {
+        Button { onCompose?() } label: {
+            HStack(spacing: 9) {
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: 14, weight: .semibold))
+                Text("Escrever")
+                    .font(theme.sans.font(size: 13, weight: .semibold))
+            }
+            .foregroundStyle(theme.surface.color)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .background(theme.ink.color)
+            .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall, tint: \.surface)
+        .help("Nova mensagem (⌘N)")
+        .accessibilityLabel("Escrever uma nova mensagem")
+    }
+
+    private var accountsButton: some View {
+        Button { onOpenAccounts?() } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "shippingbox")
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(width: 20)
+                Text("Contas e providers")
+                    .font(theme.sans.font(size: 12.5, weight: .medium))
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(theme.ink4.color)
+            }
+            .foregroundStyle(theme.ink2.color)
+            .frame(maxWidth: .infinity, minHeight: 40)
+            .padding(.horizontal, 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
+        .help("Gerenciar contas, providers e sincronização")
     }
 
     private func sectionHeader(_ title: String, padding: EdgeInsets) -> some View {
@@ -260,16 +315,11 @@ public struct FolderSidebar: View {
         let active = bucket == store.bucket
         return Button { store.select(bucket: bucket) } label: {
             HStack(spacing: 9) {
-                // A Lixeira é a única caixa com símbolo, e ele não é enfeite:
-                // ela é a única cujo conteúdo se perde, e o ícone é o que a
-                // distingue à primeira vista de "Arquivado", logo acima. As
-                // outras quatro continuam só com o nome, como no protótipo.
-                if let symbol = Self.symbol(for: bucket) {
-                    Image(systemName: symbol)
-                        .font(.system(size: 11))
-                        .foregroundStyle((active ? theme.accentInk : theme.ink3).color)
-                        .accessibilityHidden(true)
-                }
+                Image(systemName: Self.navigationSymbol(for: bucket))
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle((active ? theme.accentInk : theme.ink3).color)
+                    .frame(width: 18)
+                    .accessibilityHidden(true)
                 Text(bucket.label)
                     .font(theme.sans.font(size: 13, weight: .medium))
                     .foregroundStyle((active ? theme.accentInk : theme.ink2).color)
@@ -278,8 +328,8 @@ public struct FolderSidebar: View {
                     .font(theme.mono.font(size: 10))
                     .foregroundStyle((active ? theme.accentInk : theme.ink4).color)
             }
-            .frame(height: 30)
-            .padding(.horizontal, 8)
+            .frame(height: 40)
+            .padding(.horizontal, 10)
             .contentShape(Rectangle())
             .background {
                 if active {
@@ -330,6 +380,17 @@ public struct FolderSidebar: View {
         }
     }
 
+    private static func navigationSymbol(for bucket: TriageBucket) -> String {
+        switch bucket {
+        case .today: "sun.max"
+        case .later: "clock"
+        case .all: "tray"
+        case .archived: "archivebox"
+        case .trash: "trash"
+        case .sent: "paperplane"
+        }
+    }
+
     /// O número que a caixa mostra à direita.
     ///
     /// Não lidas em toda caixa da triagem — é o que o dono pediu, e o que o
@@ -350,7 +411,6 @@ public struct FolderSidebar: View {
     private func folderRow(_ folder: MailFolder, account: Account) -> some View {
         let active = folder.id == store.selectedFolderID
         let tintColor = account.tint(isDark: theme.isDark)
-        let tintTokenColor = TokenColor(css: tintColor) ?? theme.ink4
 
         return Button { store.select(folder: folder.id) } label: {
             HStack(spacing: 7) {
@@ -390,7 +450,7 @@ public struct FolderSidebar: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 26)
+            .frame(height: 34)
             .padding(.leading, 22)
             .padding(.trailing, 8)
             .contentShape(Rectangle())
@@ -491,7 +551,7 @@ public struct FolderSidebar: View {
                     .foregroundStyle(theme.ink4.color)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 32)
+            .frame(height: 40)
             .padding(.horizontal, 8)
             .contentShape(Rectangle())
             .background {

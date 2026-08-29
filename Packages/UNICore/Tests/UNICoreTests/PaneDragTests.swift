@@ -15,8 +15,8 @@ struct PaneDragTests {
     @Test("sem preferência, a janela decide exatamente como decidia antes")
     func noPreferenceKeepsTaskRBehaviour() {
         let l = PaneLayout.resolve(width: 1440, wantsSidebar: true, wantsAgenda: true)
-        #expect(l.messageListWidth == 370)
-        #expect(l.agendaRailWidth == 262)
+        #expect(l.messageListWidth == 400)
+        #expect(l.agendaRailWidth == 276)
     }
 
     @Test("a agenda escondida mede zero, não a canônica")
@@ -37,7 +37,7 @@ struct PaneDragTests {
         #expect(l.messageListWidth == 500)
         // e o leitor fica com o resto, não com uma medida fixa
         let reader: CGFloat = 1920 - l.sidebarWidth - l.messageListWidth - l.agendaRailWidth
-        #expect(reader == 922)
+        #expect(reader == 896)
     }
 
     @Test("a agenda arrastada assume a largura pedida quando ela cabe")
@@ -56,14 +56,14 @@ struct PaneDragTests {
             draggedListWidth: 600
         )
         #expect(onlyList.messageListWidth == 600)
-        #expect(onlyList.agendaRailWidth == 262)  // intocada
+        #expect(onlyList.agendaRailWidth == 276)  // intocada
 
         let onlyAgenda = PaneLayout.resolve(
             width: 1920, wantsSidebar: true, wantsAgenda: true,
             draggedAgendaWidth: 210
         )
         #expect(onlyAgenda.agendaRailWidth == 210)
-        #expect(onlyAgenda.messageListWidth == 420)  // teto da faixa automática
+        #expect(onlyAgenda.messageListWidth == 400)  // teto da faixa automática
     }
 
     // MARK: - A faixa do gesto
@@ -97,7 +97,7 @@ struct PaneDragTests {
         #expect(wide.messageListWidth == 640)
 
         let auto = PaneLayout.resolve(width: 1920, wantsSidebar: true, wantsAgenda: true)
-        #expect(auto.messageListWidth == 420)
+        #expect(auto.messageListWidth == 400)
     }
 
     // MARK: - A trava do leitor: nenhuma preferência a atravessa
@@ -119,8 +119,8 @@ struct PaneDragTests {
         )
         #expect(small.agendaVisible == false)
         #expect(small.agendaRailWidth == 0)
-        #expect(small.messageListWidth == 418)   // 900 − 62 (trilha) − 420 (leitor)
-        #expect(900 - 62 - small.messageListWidth == 420)
+        #expect(small.messageListWidth == 508)   // 900 − 72 (trilha) − 320 (leitor)
+        #expect(900 - PaneLayout.railWidth - small.messageListWidth == PaneLayout.readerMinimumWidth)
 
         // E a preferência não foi apagada: a mesma entrada numa janela grande
         // devolve os 640 de novo. Só o resultado cedeu, a intenção não.
@@ -139,29 +139,29 @@ struct PaneDragTests {
             draggedListWidth: 640, draggedAgendaWidth: 400
         )
         #expect(l.agendaRailWidth == 400)   // a agenda pedida foi respeitada
-        #expect(l.messageListWidth == 384)  // 1440 − 236 − 400 − 420
-        #expect(1440 - 236 - l.messageListWidth - l.agendaRailWidth == 420)
+        #expect(l.messageListWidth == 472)  // 1440 − 248 − 400 − 320
+        #expect(l.readerWidth(inWindowOfWidth: 1440) == PaneLayout.readerMinimumWidth)
     }
 
     @Test("uma agenda larga demais cede quando a lista já está no piso dela")
     func aTooWideAgendaYieldsWhenTheListCannot() {
-        // 1360 é a primeira largura em que a agenda aparece. Com a agenda no
+        // 1280 é a primeira largura em que a agenda aparece. Com a agenda no
         // teto de 400 e a lista sem preferência — logo, presa no piso de 340 da
         // faixa automática —, não há de onde tirar os pontos do leitor a não
         // ser da própria agenda.
         let l = PaneLayout.resolve(
-            width: 1360, wantsSidebar: true, wantsAgenda: true,
+            width: 1280, wantsSidebar: true, wantsAgenda: true,
             draggedAgendaWidth: 400
         )
         #expect(l.agendaVisible)
         #expect(l.messageListWidth == 340)
-        #expect(l.agendaRailWidth == 364)   // 400 cedeu 36
-        #expect(1360 - 236 - l.messageListWidth - l.agendaRailWidth == 420)
+        #expect(l.agendaRailWidth == 372)   // 400 cedeu 28
+        #expect(l.readerWidth(inWindowOfWidth: 1280) == PaneLayout.readerMinimumWidth)
     }
 
     @Test("os pisos das duas faixas cabem na janela mais estreita que mostra a agenda")
     func theFloorsFitAtTheAgendaBreakpoint() {
-        // A garantia estrutural por trás da trava do leitor: em 1360, a lateral
+        // A garantia estrutural por trás da trava do leitor: em 1280, a lateral
         // aberta mais o piso da lista arrastada mais o teto da agenda arrastada
         // mais o mínimo do leitor ainda sobram pontos. Se alguém subir um dos
         // pisos ou o teto da agenda além disto, é aqui que descobre.
@@ -169,14 +169,14 @@ struct PaneDragTests {
             + PaneLayout.draggableListRange.lowerBound
             + PaneLayout.draggableAgendaRange.lowerBound
             + PaneLayout.readerMinimumWidth
-        #expect(needed <= 1360)
-        #expect(needed == 1116)
+        #expect(needed <= 1280)
+        #expect(needed == 1028)
     }
 
-    @Test("o leitor nunca fica abaixo de 420, com qualquer preferência, em qualquer largura")
+    @Test("o leitor nunca fica abaixo de 320, com qualquer preferência, em qualquer largura")
     func readerNeverStarvesWithAnyPreference() {
         let listPreferences: [CGFloat?] = [nil, 260, 320, 370, 500, 640, 9999, -50]
-        let agendaPreferences: [CGFloat?] = [nil, 200, 262, 400, 9999, -50]
+        let agendaPreferences: [CGFloat?] = [nil, 200, 276, 400, 9999, -50]
 
         var sweeps = 0
         let expectedSweeps = listPreferences.count * agendaPreferences.count * 86
@@ -192,11 +192,8 @@ struct PaneDragTests {
                         draggedListWidth: listPreference,
                         draggedAgendaWidth: agendaPreference
                     )
-                    let taken = (l.sidebarExpanded ? 236 : 62)
-                        + l.messageListWidth
-                        + l.agendaRailWidth
                     #expect(
-                        width - taken >= 420,
+                        l.readerWidth(inWindowOfWidth: width) >= PaneLayout.readerMinimumWidth,
                         "leitor espremido em \(width)pt com lista \(String(describing: listPreference)) e agenda \(String(describing: agendaPreference))"
                     )
                 }
@@ -308,13 +305,13 @@ struct PaneWidthStoreTests {
             width: 1440, wantsSidebar: true, wantsAgenda: true,
             draggedListWidth: store.messageList
         )
-        #expect(dragged.messageListWidth == 522)  // 1440 − 236 − 262 − 420
+        #expect(dragged.messageListWidth == 596)  // 1440 − 248 − 276 − 320
 
         store.resetMessageList()
         let restored = PaneLayout.resolve(
             width: 1440, wantsSidebar: true, wantsAgenda: true,
             draggedListWidth: store.messageList
         )
-        #expect(restored.messageListWidth == 370)  // o valor canônico da Task P
+        #expect(restored.messageListWidth == 400)  // o valor canônico do redesenho
     }
 }

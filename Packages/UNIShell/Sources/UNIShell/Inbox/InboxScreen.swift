@@ -126,7 +126,9 @@ public struct InboxScreen: View {
                 accountCount: store.accounts.count,
                 onToggleSidebar: toggleSidebar,
                 onToggleAgenda: toggleAgenda,
-                onCompose: openNewMessage
+                onCompose: openNewMessage,
+                accountMonogram: accountMonogram,
+                onOpenAccounts: openAccounts
             )
 
             ZStack(alignment: .trailing) {
@@ -219,7 +221,9 @@ public struct InboxScreen: View {
                         store: store,
                         width: layout.sidebarWidth,
                         intelligencePresentation: intelligencePresentation,
-                        onOpenAssistant: openWorkspaceAssistant
+                        onOpenAssistant: openWorkspaceAssistant,
+                        onCompose: openNewMessage,
+                        onOpenAccounts: openAccounts
                     )
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 } else {
@@ -227,7 +231,9 @@ public struct InboxScreen: View {
                         store: store,
                         width: layout.sidebarWidth,
                         intelligencePresentation: intelligencePresentation,
-                        onOpenAssistant: openWorkspaceAssistant
+                        onOpenAssistant: openWorkspaceAssistant,
+                        onCompose: openNewMessage,
+                        onOpenAccounts: openAccounts
                     )
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 }
@@ -300,7 +306,7 @@ public struct InboxScreen: View {
     /// já desenham: lista ↔ leitor e leitor ↔ agenda.
     ///
     /// A da lateral fica de fora de propósito. A lateral não tem largura
-    /// contínua: ela é aberta (236) ou trilha (62), duas medidas canônicas que
+    /// contínua: ela é aberta (248) ou trilha (72), duas medidas canônicas que
     /// a `SidebarRail` e a `FolderSidebar` usam para escolher o que desenham em
     /// cada uma. Torná-la arrastável não é acrescentar um alvo, é trocar o
     /// modelo dela — e o botão da barra do topo já faz o que ela precisa.
@@ -371,6 +377,8 @@ public struct InboxScreen: View {
                 wantsSidebar: wantsSidebar,
                 intelligencePresentation: intelligencePresentation,
                 onOpenAssistant: openWorkspaceAssistant,
+                onCompose: openNewMessage,
+                onOpenAccounts: openAccounts,
                 onOpenEvent: openEventWindow,
                 onRevealMessage: reveal
             )
@@ -415,6 +423,19 @@ public struct InboxScreen: View {
     /// `WindowChrome` precisa receber.
     public func openNewMessage() {
         openWindow(id: UNIWindow.newMessage, value: store.selectedAccountID ?? "")
+    }
+
+    private func openAccounts() {
+        openWindow(id: UNIWindow.accounts)
+    }
+
+    private var accountMonogram: String {
+        let selected = store.selectedAccountID.flatMap { store.account($0) }
+        let address = selected?.address
+            ?? store.accounts.first?.address
+            ?? "UNI"
+        let local = address.split(separator: "@", maxSplits: 1).first.map(String.init) ?? address
+        return String(local.prefix(2)).uppercased()
     }
 
     private func toggleSidebar() {

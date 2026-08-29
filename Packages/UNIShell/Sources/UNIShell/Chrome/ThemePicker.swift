@@ -11,20 +11,11 @@ public struct ThemePicker: View {
 
     public var body: some View {
         Button { open.toggle() } label: {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(theme.accent.color)
-                    .frame(width: 8, height: 8)
-                Text(theme.name)
-                    .font(theme.sans.font(size: 11.5))
-                    .foregroundStyle(theme.ink2.color)
-                Text("▼")
-                    .font(.system(size: 7))
-                    .foregroundStyle(theme.ink3.color)
-            }
-            .padding(.horizontal, 9)
-            .frame(height: 26)
-            .background(theme.btn.color)
+            Image(systemName: theme.isDark ? "moon.stars" : "sun.max")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(theme.ink2.color)
+                .frame(width: 38, height: 38)
+            .background(theme.surface.color)
             .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
             .overlay {
                 RoundedRectangle(cornerRadius: theme.radiusSmall)

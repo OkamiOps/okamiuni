@@ -4,8 +4,8 @@ import CoreGraphics
 @testable import UNIShell
 
 /// A barra superior é o que o dono do projeto mais olha, e o que ele já
-/// reclamou duas vezes. Estes testes travam as duas decisões da Task S: a ordem
-/// dos controles (com o lockup à direita) e a linha média em que os semáforos
+/// reclamou duas vezes. Estes testes travam a ordem do novo shell e a linha
+/// média em que os semáforos
 /// nativos passam a cair.
 @Suite("Barra superior — posições e ordem")
 struct WindowChromeLayoutTests {
@@ -17,14 +17,12 @@ struct WindowChromeLayoutTests {
         #expect(
             WindowChrome.controlOrder == [
                 .sidebarToggle,
-                .tabs,
-                .search,
-                .agendaToggle,
                 .lockup,
+                .search,
+                .tabs,
+                .agendaToggle,
                 .themePicker,
-                // Task U: "+ Escrever" entra no fim, como no protótipo, sem
-                // desencostar o lockup do seletor de temas.
-                .compose,
+                .accounts,
             ]
         )
     }
@@ -33,27 +31,26 @@ struct WindowChromeLayoutTests {
     func everyControlAppearsExactlyOnce() {
         let order = WindowChrome.controlOrder
         #expect(order.count == 7)
-        #expect(Set(order) == Set(ChromeControl.allCases))
         #expect(order.count == Set(order).count)
+        #expect(order.contains(.compose) == false)
+        #expect(Set(order) == Set(ChromeControl.allCases.filter { $0 != .compose }))
     }
 
-    /// Divergência deliberada do protótipo: no protótipo o lockup abre a barra.
-    /// O dono pediu para movê-lo, e este teste é o que impede que ele volte
-    /// sozinho num refactor.
-    @Test("o lockup fecha a barra em vez de abri-la, encostado no seletor de temas")
-    func lockupClosesTheBar() {
+    @Test("o lockup abre o conteúdo e a conta fecha a barra")
+    func shellAnchorsStayInPlace() {
         let order = WindowChrome.controlOrder
         guard
             let lockup = order.firstIndex(of: .lockup),
-            let picker = order.firstIndex(of: .themePicker),
-            let tabs = order.firstIndex(of: .tabs)
+            let search = order.firstIndex(of: .search),
+            let accounts = order.firstIndex(of: .accounts)
         else {
-            Issue.record("a barra perdeu um dos três controles que a Task S posiciona")
+            Issue.record("a barra perdeu um dos controles estruturais do redesenho")
             return
         }
-        #expect(lockup > tabs, "o lockup voltou para a esquerda das abas")
-        #expect(picker - lockup == 1, "o lockup desencostou do seletor de temas")
         #expect(order.first == .sidebarToggle, "a esquerda tem de abrir com o botão da lateral")
+        #expect(lockup == 1, "a marca deve ficar logo após o botão da lateral")
+        #expect(search == 2, "a busca deve ficar entre a marca e as abas")
+        #expect(accounts == order.count - 1, "a conta deve fechar a barra")
     }
 
     @Test("só a busca cede largura")
@@ -76,10 +73,10 @@ struct WindowChromeLayoutTests {
     /// Os botões que `NSWindow.standardWindowButton` devolve têm 14pt de lado —
     /// medido na hierarquia de views. O quadro de acessibilidade é maior (16pt),
     /// mas quem posiciona é o `frame`.
-    @Test("na barra de 58pt o semáforo nasce em y=29 e fica com centro em y=22")
+    @Test("na barra de 64pt o semáforo nasce em y=35 e fica com centro em y=22")
     func trafficLightLandsOnTheBarsMidline() {
-        #expect(TrafficLightLayout.buttonOriginY(barHeight: 58, buttonHeight: 14) == 29)
-        #expect(TrafficLightLayout.centerFromTop(barHeight: 58, buttonHeight: 14) == 22)
+        #expect(TrafficLightLayout.buttonOriginY(barHeight: 64, buttonHeight: 14) == 35)
+        #expect(TrafficLightLayout.centerFromTop(barHeight: 64, buttonHeight: 14) == 22)
     }
 
     /// Duas literais independentes que têm de se encontrar: a linha média que a
@@ -88,7 +85,7 @@ struct WindowChromeLayoutTests {
     @Test("o semáforo cai na mesma linha média que os nossos controles")
     func trafficLightMeetsOurControls() {
         #expect(WindowChrome.centerY == 22)
-        #expect(WindowChrome.height == 58)
+        #expect(WindowChrome.height == 64)
         let semaphore = TrafficLightLayout.centerFromTop(
             barHeight: WindowChrome.height, buttonHeight: 14
         )
@@ -104,7 +101,7 @@ struct WindowChromeLayoutTests {
     @Test("o semáforo desce 6pt do padrão nativo para a linha da plataforma")
     func movesToThePlatformLine() {
         let before = TrafficLightLayout.nativeCenterFromTop
-        let after = TrafficLightLayout.centerFromTop(barHeight: 58, buttonHeight: 14)
+        let after = TrafficLightLayout.centerFromTop(barHeight: 64, buttonHeight: 14)
         #expect(before == 16)
         #expect(after == 22)
         #expect(after - before == 6)
@@ -117,39 +114,39 @@ struct WindowChromeLayoutTests {
     /// ocupam a faixa inteira e precisam receber clique.
     @Test("o semáforo cabe na barra nativa, mas a faixa de controles não")
     func containerMustGrowForOurControls() {
-        let bottom = TrafficLightLayout.centerFromTop(barHeight: 58, buttonHeight: 14) + 7
+        let bottom = TrafficLightLayout.centerFromTop(barHeight: 64, buttonHeight: 14) + 7
         #expect(bottom == 29)
         #expect(bottom <= TrafficLightLayout.nativeBarHeight)
         // A faixa de conteúdo vai até 44 (2 × 22) e passa dos 32 nativos.
         #expect(TrafficLightLayout.contentCenterFromTop * 2 > TrafficLightLayout.nativeBarHeight)
 
-        let originIn58 = TrafficLightLayout.buttonOriginY(barHeight: 58, buttonHeight: 14)
-        #expect(originIn58 >= 0)
-        #expect(originIn58 + 14 <= 58, "o botão tem de caber inteiro na barra de 58pt")
+        let originIn64 = TrafficLightLayout.buttonOriginY(barHeight: 64, buttonHeight: 14)
+        #expect(originIn64 >= 0)
+        #expect(originIn64 + 14 <= 64, "o botão tem de caber inteiro na barra de 64pt")
     }
 
     /// A barra de título mora em coordenadas do `NSThemeFrame`, que não é
     /// invertido: ela encosta no topo da janela, então a origem sobe junto com a
-    /// altura. Numa janela de 916pt de altura com barra de 58, isso é y=858.
+    /// altura. Numa janela de 916pt de altura com barra de 64, isso é y=852.
     @Test("o container da barra de título cresce a partir do topo da janela")
     func containerFrameGrowsFromTheTop() {
         let frame = TrafficLightLayout.containerFrame(
-            windowSize: CGSize(width: 1440, height: 916), barHeight: 58
+            windowSize: CGSize(width: 1440, height: 916), barHeight: 64
         )
-        #expect(frame == CGRect(x: 0, y: 858, width: 1440, height: 58))
+        #expect(frame == CGRect(x: 0, y: 852, width: 1440, height: 64))
     }
 
     @Test(
         "o container acompanha a janela em toda largura que a Task R prevê",
         arguments: [
-            (CGSize(width: 880, height: 916), CGRect(x: 0, y: 858, width: 880, height: 58)),
-            (CGSize(width: 1200, height: 916), CGRect(x: 0, y: 858, width: 1200, height: 58)),
-            (CGSize(width: 1440, height: 916), CGRect(x: 0, y: 858, width: 1440, height: 58)),
-            (CGSize(width: 860, height: 632), CGRect(x: 0, y: 574, width: 860, height: 58)),
+            (CGSize(width: 880, height: 916), CGRect(x: 0, y: 852, width: 880, height: 64)),
+            (CGSize(width: 1200, height: 916), CGRect(x: 0, y: 852, width: 1200, height: 64)),
+            (CGSize(width: 1440, height: 916), CGRect(x: 0, y: 852, width: 1440, height: 64)),
+            (CGSize(width: 860, height: 632), CGRect(x: 0, y: 568, width: 860, height: 64)),
         ]
     )
     func containerFollowsTheWindow(size: CGSize, expected: CGRect) {
-        #expect(TrafficLightLayout.containerFrame(windowSize: size, barHeight: 58) == expected)
+        #expect(TrafficLightLayout.containerFrame(windowSize: size, barHeight: 64) == expected)
     }
 }
 
@@ -203,9 +200,9 @@ struct TitleBarDoubleClickTests {
     @Test("a âncora do duplo clique nunca rouba o clique de ninguém")
     @MainActor
     func theAnchorNeverStealsAClick() {
-        let bar = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 58))
+        let bar = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 64))
         let catcher = CatcherView(frame: bar.bounds)
-        catcher.barHeight = 58
+        catcher.barHeight = 64
         bar.addSubview(catcher)
 
         #expect(catcher.hitTest(NSPoint(x: 420, y: 48)) == nil)

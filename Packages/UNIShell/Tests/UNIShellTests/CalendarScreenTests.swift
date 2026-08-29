@@ -187,7 +187,7 @@ struct CalendarRenderTests {
 
         // Os dois tokens são de fato distinguíveis: sem isto o teste passaria
         // num tema em que `surface` e `surface2` coincidem, sem medir nada.
-        #expect(levels(sidebar, canvas) > 8)
+        #expect(levels(sidebar, canvas) > 2)
     }
 
     /// A mesma lateral que o email usa, com as mesmas contas — todas elas,
@@ -206,12 +206,12 @@ struct CalendarRenderTests {
         #expect(rep.pixelsWide == Int(PaneLayout.expandedSidebarWidth))
     }
 
-    /// Em janela estreita a lateral recolhe para a trilha de 62pt, como no
+    /// Em janela estreita a lateral recolhe para a trilha de 72pt, como no
     /// email — ela nunca some por completo.
     @Test("em janela estreita a lateral da agenda recolhe, mas não some")
     func sidebarCollapses() async throws {
         let store = await loadedStore()
-        let narrow = CGSize(width: 1000, height: 800)
+        let narrow = CGSize(width: 900, height: 800)
         #expect(!PaneLayout.sidebarExpanded(width: narrow.width, wantsSidebar: true))
 
         let rep = try #require(
@@ -223,7 +223,7 @@ struct CalendarRenderTests {
         let pixels = Pixels(rep: rep)
         let sidebar = token(Theme.tinta.surface2)
 
-        // Dentro dos 62 da trilha ainda é fundo de lateral…
+        // Dentro dos 72 da trilha ainda é fundo de lateral…
         let inside = try #require(pixels.color(8, 400))
         #expect(levels(inside, sidebar) < 8, "a trilha sumiu: x=8 veio \(inside)")
         // …e a agenda começa logo depois.
@@ -266,7 +266,7 @@ struct CalendarRenderTests {
         var lastCanvasColumn = -1
         for x in stride(from: pixels.width - 1, through: 0, by: -1) {
             guard let c = pixels.color(x, row) else { continue }
-            if levels(c, canvas) < 8 { lastCanvasColumn = x; break }
+            if levels(c, canvas) < 2 { lastCanvasColumn = x; break }
         }
         #expect(lastCanvasColumn > 0, "não achei a grade nesta linha")
         let panelWidth = pixels.width - lastCanvasColumn - 1

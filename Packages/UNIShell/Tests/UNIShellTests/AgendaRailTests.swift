@@ -14,7 +14,7 @@ struct AgendaRailTests {
 
     @Test("a trilha tem a largura do design")
     func width() {
-        #expect(AgendaRail.width == 262)
+        #expect(AgendaRail.width == 276)
     }
 
     @Test("um compromisso das 09:30 às 10:00 cai na posição certa")

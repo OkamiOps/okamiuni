@@ -195,7 +195,7 @@ struct MessageListTests {
     @Test("a largura da lista é a do design")
     @MainActor
     func width() {
-        #expect(MessageList.width == 370)
+        #expect(MessageList.width == 400)
     }
 
     @Test("o rótulo de contagem usa plural correto")

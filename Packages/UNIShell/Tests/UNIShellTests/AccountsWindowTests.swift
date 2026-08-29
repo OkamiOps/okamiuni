@@ -573,7 +573,9 @@ struct AccountsWindowTests {
     /// proíbe, só que agora provado no pixel.
     @Test("O formulário desenha no token e só abre os campos com rota")
     func formularioNoToken() throws {
-        let tema = try #require(Theme.named("tinta"))
+        // O Tinta redesenhado usa caixas brancas sobre superfície branca; este
+        // ensaio estrutural usa Papel para a área dos campos continuar mensurável.
+        let tema = try #require(Theme.named("papel"))
         let modelo = AccountsModel(director: try Self.diretorDeTeste())
         let vazio = try #require(Render.bitmap(
             AddAccountForm(model: modelo),

@@ -14,7 +14,7 @@ struct TokenModifierTests {
 
     @Test("a barra tem a altura do design")
     func chromeHeight() {
-        #expect(WindowChrome.height == 58)
+        #expect(WindowChrome.height == 64)
     }
 
     @Test("o vazio dos semáforos termina exatamente onde eles terminam")
@@ -31,7 +31,7 @@ struct TokenModifierTests {
     /// porque nenhum deles é lido de `WindowChrome.body`. Prova de verdade:
     /// renderizar a barra e medir onde o primeiro controle (o botão da
     /// lateral) de fato começa a pintar.
-    @Test("o primeiro controle nasce 14pt depois dos semáforos, como no protótipo")
+    @Test("o primeiro controle nasce 12pt depois dos semáforos no novo shell")
     @MainActor
     func firstControlOffset() throws {
         let rep = try #require(
@@ -73,8 +73,8 @@ struct TokenModifierTests {
             "nenhum pixel diferente do fundo apareceu na linha média da barra"
         )
         #expect(
-            abs(x - 84) <= 2,
-            "o primeiro controle começou a pintar em x=\(x), não perto de 84"
+            abs(x - 82) <= 2,
+            "o primeiro controle começou a pintar em x=\(x), não perto de 82"
         )
     }
 
@@ -96,10 +96,7 @@ struct TokenModifierTests {
                 r >= 0,
                 "tabCornerRadius é \(r) no tema \(theme.name) — aba fica com raio negativo"
             )
-            #expect(
-                r == theme.radiusSmall,
-                "a aba usa o mesmo raio do container, como no protótipo"
-            )
+            #expect(r == max(theme.radiusLarge, 17))
         }
     }
 }

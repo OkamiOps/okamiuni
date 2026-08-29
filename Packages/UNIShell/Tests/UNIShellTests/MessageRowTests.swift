@@ -20,7 +20,7 @@ import UNIDesign
 @Suite("MessageRow")
 @MainActor
 struct MessageRowTests {
-    private static let width: CGFloat = 370
+    private static let width: CGFloat = MessageList.width
     private static let canvasHeight: CGFloat = 300
 
     private func message(
@@ -138,16 +138,12 @@ struct MessageRowTests {
         )
     }
 
-    // MARK: - Altura da linha segue o conteúdo, até o limite de 2 linhas
+    // MARK: - Altura compacta da linha
 
-    /// Duas quebras de linha literais (`\n`) forçam três linhas *lógicas* no
-    /// trecho; com `.lineLimit(2)` só duas podem aparecer. Uma quebra só
-    /// força duas linhas, que cabem inteiras. Se as duas alturas saem iguais,
-    /// o limite está de fato cortando a terceira — apagar `.lineLimit(2)` (a
-    /// mutação que a auditoria citou) deixaria a versão de três linhas mais
-    /// alta que a de duas, e o teste cairia.
-    @Test("o trecho de três linhas para no limite de duas, não cresce mais")
-    func snippetHeightCapsAtTwoLines() throws {
+    /// O redesenho mantém remetente, assunto, trecho e chips em uma linha cada;
+    /// quebras no trecho não podem fazer uma conversa ocupar duas alturas.
+    @Test("o trecho permanece compacto em uma linha")
+    func snippetHeightStaysCompact() throws {
         let oneLine = try #require(renderRow(snippet: "Uma linha só, sem quebra nenhuma."))
         let twoLines = try #require(
             renderRow(snippet: "Primeira linha do trecho.\nSegunda linha do trecho.")
@@ -161,11 +157,8 @@ struct MessageRowTests {
         let h3 = barRunLength(threeLinesForced, x: 1)
 
         #expect(h1 > 0, "a barra da conta não pintou nada — a sonda não está medindo a linha")
-        #expect(h2 > h1, "duas linhas de trecho não ficaram mais altas que uma — a linha não segue o conteúdo")
-        #expect(
-            h3 == h2,
-            "três linhas de trecho (h=\(h3)) ficaram mais altas que duas (h=\(h2)) — o limite de 2 linhas não está cortando"
-        )
+        #expect(h2 == h1, "uma quebra no trecho alterou a altura compacta: \(h1) → \(h2)")
+        #expect(h3 == h1, "três linhas lógicas alteraram a altura compacta: \(h1) → \(h3)")
     }
 
     // MARK: - Largura da barra da conta
@@ -191,7 +184,7 @@ struct MessageRowTests {
 
     /// Requisito explícito do dono do projeto: a linha inteira pinta na
     /// seleção, não só embaixo do texto ou do chip. Medido bem à direita da
-    /// linha (x=360 de 370), onde nem texto nem chip chegam — só o fundo.
+    /// linha, onde nem texto nem chip chegam — só o fundo.
     @Test("selecionar a linha pinta até a borda direita, não só o texto")
     func selectionPaintsTheFullRow() throws {
         let snippet = "Um trecho comum, de uma linha."
@@ -203,14 +196,13 @@ struct MessageRowTests {
         let y = rowHeight / 2
         let x = Int(Self.width) - 10
 
-        #expect(
-            isReddish(selected, x, y),
-            "a linha selecionada não pintou perto da borda direita (x=\(x), y=\(y)) — a seleção não cobre a linha inteira"
-        )
-        #expect(
-            isReddish(notSelected, x, y) == false,
-            "a linha NÃO selecionada já aparece pintada perto da borda direita — falso positivo da sonda"
-        )
+        let selectedColor = try #require(selected.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+        let plainColor = try #require(notSelected.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+        let selectedToken = try #require(Theme.tinta.surface3.nsColor.usingColorSpace(.sRGB))
+        let plainToken = try #require(Theme.tinta.surface.nsColor.usingColorSpace(.sRGB))
+        #expect(abs(selectedColor.redComponent - selectedToken.redComponent) < 0.02)
+        #expect(abs(plainColor.redComponent - plainToken.redComponent) < 0.02)
+        #expect(selectedColor != plainColor, "a seleção não cobre a largura inteira da linha")
     }
 
     // MARK: - O ponto de não-lida
@@ -353,7 +345,7 @@ struct MessageRowTests {
     }
 
     /// O terceiro sinal da variante C: o **fundo**. A linha não lida pinta
-    /// `accentSoft` de ponta a ponta; a lida não pinta nada e mostra o
+    /// `surface2` de ponta a ponta; a lida não pinta nada e mostra o
     /// `surface` do palco.
     ///
     /// Medido bem à direita (x = largura − 10), onde nem texto nem chip chegam
@@ -371,13 +363,13 @@ struct MessageRowTests {
 
         func softPixels(_ rep: NSBitmapImageRep) -> Int {
             var count = 0
-            guard let wanted = Theme.tinta.accentSoft.nsColor.usingColorSpace(.sRGB)
+            guard let wanted = Theme.tinta.surface2.nsColor.usingColorSpace(.sRGB)
             else { return 0 }
             for row in y {
                 guard let c = rep.colorAt(x: x, y: row)?.usingColorSpace(.sRGB) else { continue }
-                if abs(c.redComponent - wanted.redComponent) < 0.02,
-                   abs(c.greenComponent - wanted.greenComponent) < 0.02,
-                   abs(c.blueComponent - wanted.blueComponent) < 0.02 {
+                if abs(c.redComponent - wanted.redComponent) < 0.008,
+                   abs(c.greenComponent - wanted.greenComponent) < 0.008,
+                   abs(c.blueComponent - wanted.blueComponent) < 0.008 {
                     count += 1
                 }
             }

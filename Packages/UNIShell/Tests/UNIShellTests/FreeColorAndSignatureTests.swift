@@ -47,6 +47,9 @@ struct DifferenceBox {
 struct FreeColorPanelTests {
 
     private static let size = CGSize(width: 820, height: 620)
+    /// No Tinta redesenhado o papel do painel se confunde com a janela; Papel
+    /// preserva contraste suficiente para esta sonda estrutural de pixels.
+    private static let theme = Theme.papel
 
     private func window(_ panel: ComposerToolbar.Panel?) async -> NSBitmapImageRep? {
         let store = MailStore(source: InMemoryMailSource.fixtures)
@@ -54,7 +57,7 @@ struct FreeColorPanelTests {
         return Render.snapshot(
             ComposerWindow(store: store, mode: .new(accountID: nil), debugOpenPanel: panel),
             named: panel.map { "paleta-\($0)" } ?? "paleta-fechada",
-            size: Self.size, theme: .tinta
+            size: Self.size, theme: Self.theme
         )
     }
 
@@ -109,7 +112,7 @@ struct FreeColorPanelTests {
     func panelCarriesFreeRow(panel: ComposerToolbar.Panel) async throws {
         let open = try #require(await window(panel))
         let box = try await openedPanelBox(panel)
-        let rows = opaqueRows(of: box, in: open, theme: .tinta)
+        let rows = opaqueRows(of: box, in: open, theme: Self.theme)
         let complaint = "o cartão tem \(rows) linhas de papel: cabe a fileira de amostras "
             + "e mais nada, o item de cor livre sumiu"
         #expect(rows > 50, "\(complaint)")

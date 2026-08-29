@@ -224,15 +224,15 @@ struct HairlineThicknessTests {
         // ela cai dentro da forma e chega no token.
         //
         // A varredura corta a linha média do primeiro botão ("hoje", que é a
-        // pasta ativa por padrão): a trilha tem 62 de largura e o botão 46,
-        // então a borda esquerda dele está em `pad + 8`; a altura começa no
+        // pasta ativa por padrão): a trilha tem 72 de largura e o botão 46,
+        // então a borda esquerda dele está em `pad + 13`; a altura começa no
         // `padding(.vertical, 14)` da trilha e o botão tem 40.
         Probe(
             id: "botao-ativo-da-trilha",
             size: CGSize(width: SidebarRail.width + 2 * pad, height: 240),
             token: \.accentLine,
             scan: { _ in
-                stride(from: 0.0, to: pad + 12, by: 0.25).map { ($0, pad + 14 + 20) }
+                stride(from: 0.0, to: pad + 16, by: 0.25).map { ($0, pad + 14 + 20) }
             }
         ),
         Probe(

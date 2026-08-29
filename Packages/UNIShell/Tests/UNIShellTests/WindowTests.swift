@@ -225,7 +225,7 @@ struct EventWindowFooterTests {
                 theme: .tinta
             )
         )
-        #expect(Self.pills(in: rep, y: 670, width: 560) == 4)
+        #expect(Self.pills(in: rep, y: 660, width: 560) == 4)
     }
 
     // MARK: - "Entrar", que não fazia nada
@@ -316,7 +316,7 @@ struct EventWindowFooterTests {
                 size: CGSize(width: 560, height: 700), theme: .tinta
             )
         )
-        #expect(Self.pills(in: rep, y: Int(Self.yDoRodape), width: 560) == 3)
+        #expect(Self.pills(in: rep, y: 660, width: 560) == 3)
     }
 
     /// E um "link" que não se abre no navegador é a mesma coisa que não ter:
@@ -330,7 +330,7 @@ struct EventWindowFooterTests {
                 size: CGSize(width: 560, height: 700), theme: .tinta
             )
         )
-        #expect(Self.pills(in: rep, y: Int(Self.yDoRodape), width: 560) == 3)
+        #expect(Self.pills(in: rep, y: 660, width: 560) == 3)
     }
 
     // MARK: - As seções que nascem recolhidas

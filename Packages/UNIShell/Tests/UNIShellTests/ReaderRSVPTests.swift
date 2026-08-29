@@ -85,7 +85,7 @@ struct ReaderRSVPTests {
         // captura. O evento entra numa NSWindow a −50.000pt, sem tocar na sessão.
         CliqueDeEnsaio.em(
             ReaderPane(store: store), size: CGSize(width: 760, height: 700),
-            aY: 280, x: 75
+            aY: 326, x: 75
         )
 
         let calendar = try #require(item.calendarICS)

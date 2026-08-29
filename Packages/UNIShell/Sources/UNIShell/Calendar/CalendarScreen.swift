@@ -40,6 +40,8 @@ public struct CalendarScreen: View {
     let wantsSidebar: Bool
     let intelligencePresentation: IntelligencePresentation
     let onOpenAssistant: () -> Void
+    let onCompose: (() -> Void)?
+    let onOpenAccounts: (() -> Void)?
     let onOpenEvent: (AgendaItem) -> Void
     /// "Ir para o email de origem", do menu de contexto do cartão. Sai da aba
     /// Agenda: quem sabe voltar para o email é o `InboxScreen`.
@@ -60,6 +62,8 @@ public struct CalendarScreen: View {
         wantsSidebar: Bool = true,
         intelligencePresentation: IntelligencePresentation = .available,
         onOpenAssistant: @escaping () -> Void = {},
+        onCompose: (() -> Void)? = nil,
+        onOpenAccounts: (() -> Void)? = nil,
         onOpenEvent: @escaping (AgendaItem) -> Void = { _ in },
         onRevealMessage: @escaping (String) -> Void = { _ in }
     ) {
@@ -67,7 +71,8 @@ public struct CalendarScreen: View {
             store: store, now: now, anchor: anchor, wantsSidebar: wantsSidebar,
             intelligencePresentation: intelligencePresentation,
             initialMode: .week, initialPickerOpen: false,
-            onOpenAssistant: onOpenAssistant, onOpenEvent: onOpenEvent,
+            onOpenAssistant: onOpenAssistant, onCompose: onCompose,
+            onOpenAccounts: onOpenAccounts, onOpenEvent: onOpenEvent,
             onRevealMessage: onRevealMessage
         )
     }
@@ -90,6 +95,8 @@ public struct CalendarScreen: View {
         initialMode: CalendarViewMode,
         initialPickerOpen: Bool = false,
         onOpenAssistant: @escaping () -> Void = {},
+        onCompose: (() -> Void)? = nil,
+        onOpenAccounts: (() -> Void)? = nil,
         onOpenEvent: @escaping (AgendaItem) -> Void = { _ in },
         onRevealMessage: @escaping (String) -> Void = { _ in }
     ) {
@@ -99,6 +106,8 @@ public struct CalendarScreen: View {
         self.wantsSidebar = wantsSidebar
         self.intelligencePresentation = intelligencePresentation
         self.onOpenAssistant = onOpenAssistant
+        self.onCompose = onCompose
+        self.onOpenAccounts = onOpenAccounts
         self.onOpenEvent = onOpenEvent
         self.onRevealMessage = onRevealMessage
         _mode = State(initialValue: initialMode)
@@ -120,7 +129,9 @@ public struct CalendarScreen: View {
                         store: store,
                         width: sidebarWidth,
                         intelligencePresentation: intelligencePresentation,
-                        onOpenAssistant: onOpenAssistant
+                        onOpenAssistant: onOpenAssistant,
+                        onCompose: onCompose,
+                        onOpenAccounts: onOpenAccounts
                     )
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 } else {
@@ -128,7 +139,9 @@ public struct CalendarScreen: View {
                         store: store,
                         width: sidebarWidth,
                         intelligencePresentation: intelligencePresentation,
-                        onOpenAssistant: onOpenAssistant
+                        onOpenAssistant: onOpenAssistant,
+                        onCompose: onCompose,
+                        onOpenAccounts: onOpenAccounts
                     )
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 }

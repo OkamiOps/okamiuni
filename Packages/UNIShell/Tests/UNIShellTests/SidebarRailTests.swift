@@ -12,7 +12,7 @@ struct SidebarRailTests {
     @Test("a trilha tem a largura do design")
     @MainActor
     func railWidth() {
-        #expect(SidebarRail.width == 62)
+        #expect(SidebarRail.width == 72)
     }
 
     @Test("as abreviações das quatro pastas estão na ordem certa", arguments: [
@@ -72,8 +72,8 @@ struct SidebarRailTests {
         #expect(account.host != account.id)
     }
 
-    /// A barra expandida tem 236pt e mostra o nome inteiro. O encurtamento é
-    /// só da trilha de 62 — se o modelo guardasse a versão curta, este teste
+    /// A barra expandida tem 248pt e mostra o nome inteiro. O encurtamento é
+    /// só da trilha de 72 — se o modelo guardasse a versão curta, este teste
     /// não teria como distinguir os dois lugares.
     @Test("a conta entrega o nome inteiro; encurtar é escolha de quem desenha")
     @MainActor

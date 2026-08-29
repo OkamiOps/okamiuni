@@ -76,7 +76,7 @@ struct IntelligenceFooterTests {
         CliqueDeEnsaio.em(
             FolderSidebar(store: store, onOpenAssistant: { opens += 1 }),
             size: CGSize(width: FolderSidebar.expandedWidth, height: 620),
-            aY: 540,
+            aY: 580,
             x: 118
         )
 
@@ -96,7 +96,7 @@ struct IntelligenceFooterTests {
                 onOpenAssistant: { opens += 1 }
             ),
             size: CGSize(width: FolderSidebar.expandedWidth, height: 620),
-            aY: 540,
+            aY: 580,
             x: 118
         )
 
