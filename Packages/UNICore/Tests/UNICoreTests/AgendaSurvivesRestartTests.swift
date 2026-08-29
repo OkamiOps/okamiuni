@@ -194,3 +194,24 @@ struct AgendaSurvivesRestartTests {
         #expect(terceira.agenda.map(\.id) == [criado.id])
     }
 }
+
+@Suite("A data do compromisso é a dele, não a da âncora")
+struct AgendaDateTests {
+    @Test("agendaDate soma o deslocamento do item ao hoje injetado")
+    @MainActor func dataDoItemNaoEhAAncora() {
+        let hoje = Date(timeIntervalSince1970: 1_787_000_000)
+        let store = MailStore(
+            source: InMemoryMailSource(accounts: [], messages: [], agenda: []),
+            agendaReferenceDay: { hoje }
+        )
+        let item = AgendaItem(
+            id: "ev-1", title: "Reunião",
+            startMinute: 600, endMinute: 660, accountID: "conta-a", dayOffset: 3
+        )
+        let esperado = Calendar.current.date(byAdding: .day, value: 3, to: hoje)!
+        // A janela de compromisso desenhava a âncora das fixtures para
+        // qualquer evento; a data tem que ser a DO ITEM.
+        #expect(store.agendaDate(for: item) == esperado)
+        #expect(store.agendaDate(for: item) != hoje)
+    }
+}

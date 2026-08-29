@@ -219,7 +219,7 @@ public struct EventWindow: View {
                     .lineSpacing(0.25 * 22)   // line-height: 1.25
                     .foregroundStyle(theme.ink.color)
                     .fixedSize(horizontal: false, vertical: true)
-                Text(DateLabels.eventDate(Fixtures.today))
+                Text(DateLabels.eventDate(store.agendaDate(for: item)))
                     .font(theme.sans.font(size: 13))
                     .foregroundStyle(theme.ink.color)
                     .padding(.top, 7)
@@ -861,7 +861,7 @@ public struct EventWindow: View {
             item, detail: detail,
             // A mesma data que o cabeçalho desta janela mostra: o corpo do
             // convite e o que se lê na tela não podem discordar.
-            date: Fixtures.today,
+            date: store.agendaDate(for: item),
             to: forwardTo, note: forwardNote, in: store
         ) else { return }
         forwardSent = true

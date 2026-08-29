@@ -237,6 +237,16 @@ public final class MailStore {
     /// errado da grade.
     private let agendaReferenceDay: @Sendable () -> Date
 
+    /// O dia de calendário de um item da agenda — o "hoje" injetado mais o
+    /// deslocamento do item. É o que a janela de compromisso mostra como
+    /// data: sem isto ela desenhava a âncora das fixtures ("Terça, 25 de
+    /// agosto") para qualquer evento, em qualquer dia real.
+    public func agendaDate(for item: AgendaItem) -> Date {
+        Calendar.current.date(
+            byAdding: .day, value: item.dayOffset, to: agendaReferenceDay()
+        ) ?? agendaReferenceDay()
+    }
+
     /// Os compromissos vindos do disco, já traduzidos para o "hoje" desta
     /// abertura. Eles entram em `agenda` junto com o que a fonte der, e ganham
     /// dela no `id`: um compromisso que a pessoa criou não pode ser apagado
