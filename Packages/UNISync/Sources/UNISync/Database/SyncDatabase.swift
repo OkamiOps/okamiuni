@@ -251,6 +251,14 @@ public struct SyncDatabase: Sendable {
         // a ação na tela. Com `DatabaseCommandPort` escrevendo a projeção em
         // `message` **e** enfileirando aqui, na mesma transação, o retrato
         // seguinte já nasce certo.
+        // NOTA HISTÓRICA: o comentário de `idempotencyKey` dentro do SQL
+        // abaixo descreve a **primeira** versão da chave, que era derivada do
+        // conteúdo da operação e deduplicava no enfileirar. Ela foi trocada por
+        // um `UUID` por operação — a de conteúdo engolia o terceiro passo de um
+        // ciclo ler→não-ler→ler e todo `emptyTrash` depois do primeiro. O
+        // motivo está em `OutboxRecord.idempotencyKey`. O texto da migração não
+        // é editado nem para corrigir um comentário: migração registrada é
+        // história, e reescrevê-la é o começo de instalações divergentes.
         migrator.registerMigration("v2") { db in
             try db.execute(sql: """
                 CREATE TABLE outbox (

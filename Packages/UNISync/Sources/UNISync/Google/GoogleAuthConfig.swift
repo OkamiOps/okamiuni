@@ -12,14 +12,23 @@ public struct GoogleAuthConfig: Sendable, Hashable {
     public let tokenEndpoint: URL
     public let revocationEndpoint: URL
 
-    /// Os três pedidos **juntos**, no primeiro consentimento.
+    /// Os dois pedidos **juntos**, no primeiro consentimento.
     ///
-    /// `gmail.send` só é usado no Marco 3 e mesmo assim entra aqui: pedi-lo
-    /// depois obrigaria o usuário a passar pela tela de consentimento uma
-    /// segunda vez, para um app que ele já autorizou.
+    /// **`mail.google.com`, e não `gmail.modify` + `gmail.send`.** O par
+    /// anterior não cobria o Marco 3 inteiro: `messages.batchDelete` — o
+    /// apagamento definitivo, que "apagar de vez" e "esvaziar a lixeira"
+    /// pedem — exige o escopo total, e recusa `gmail.modify` com 403. Uma
+    /// conta autorizada com o par antigo veria a fila parar na primeira
+    /// operação de apagar definitivo, sem nada que a pessoa pudesse fazer
+    /// além de adivinhar.
+    ///
+    /// `mail.google.com` é superconjunto de `modify` + `send`, então um
+    /// escopo só cobre ler, triar, apagar e enviar — o marco todo, uma tela
+    /// de consentimento só. Quem já autorizou com o par antigo **reconecta
+    /// uma vez**; é o preço, e a mensagem do 403 diz exatamente isso em vez
+    /// de falar em revogação (ver `SyncError.autorizacaoRevogada`).
     public static let defaultScopes = [
-        "https://www.googleapis.com/auth/gmail.modify",
-        "https://www.googleapis.com/auth/gmail.send",
+        "https://mail.google.com/",
         "https://www.googleapis.com/auth/userinfo.email",
     ]
 

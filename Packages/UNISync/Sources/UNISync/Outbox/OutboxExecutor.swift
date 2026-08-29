@@ -132,10 +132,44 @@ public actor OutboxExecutor {
 
     /// Religa uma fila parada por falha permanente e tenta de novo. É o "tentar
     /// de novo" que a UI oferece ao lado do erro.
-    public func retryAfterPermanentFailure() {
+    ///
+    /// **As linhas `falhou` voltam para `pendente` antes de a trava sair**, e a
+    /// ordem importa nas duas leituras da palavra. Sem devolvê-las, "tentar de
+    /// novo" só destravava a fila: a operação que de fato falhou continuava
+    /// marcada `falhou`, que nenhuma consulta do executor lê — ela nunca mais
+    /// seria tentada, e a que estava atrás dela passaria na frente. Devolvidas,
+    /// elas voltam a ser as primeiras da fila (a ordem é `createdAt, rowid`, e
+    /// nada disso mudou), então a operação parada reexecuta antes da seguinte.
+    ///
+    /// `nextAttemptAt` volta para agora, e `attempts` para zero: quem mandou
+    /// tentar de novo foi a pessoa, e fazê-la esperar o recuo acumulado de uma
+    /// falha que ela já viu e já tratou seria responder a um pedido explícito
+    /// com silêncio.
+    public func retryAfterPermanentFailure() async {
+        await requeueFalhadas()
         parada = nil
         report(accountID, nil)
         acorda()
+    }
+
+    private func requeueFalhadas() async {
+        let conta = accountID
+        let agora = now().timeIntervalSince1970
+        do {
+            try await database.pool.write { db in
+                try db.execute(
+                    sql: """
+                        UPDATE outbox SET state = ?, attempts = 0, nextAttemptAt = ?
+                        WHERE accountID = ? AND state = ?
+                        """,
+                    arguments: [
+                        OutboxState.pendente.rawValue, agora, conta, OutboxState.falhou.rawValue,
+                    ]
+                )
+            }
+        } catch {
+            log.error("Não foi possível devolver à fila as operações que falharam: \(error)")
+        }
     }
 
     private func acorda() {
@@ -186,7 +220,7 @@ public actor OutboxExecutor {
         while let lote = await proximoLote() {
             do {
                 try await mirror.apply(lote.operacao, targets: lote.alvos)
-                await marca(lote.ids, estado: .feita)
+                await conclui(lote.ids)
                 executadas += lote.ids.count
             } catch {
                 let erro = (error as? SyncError) ?? .rede(error.localizedDescription)
@@ -378,6 +412,32 @@ public actor OutboxExecutor {
         }
     }
 
+    /// Operação feita **sai da tabela**.
+    ///
+    /// Marcá-la `feita` e deixá-la lá faria o `outbox` crescer para sempre: uma
+    /// linha por ação, de toda conta, desde a instalação. O estado `feita` do
+    /// enum continua existindo porque ele é o vocabulário da transição — mas
+    /// ele é o instante entre executar e apagar, não uma prateleira.
+    ///
+    /// Isso **não** enfraquece o invariante: quem garante o "não executa em
+    /// dobro" é a reivindicação (`pendente` → `executando`), que acontece antes
+    /// de o espelho ser chamado. Uma linha apagada é uma linha que ninguém mais
+    /// reivindica.
+    private func conclui(_ ids: [String]) async {
+        guard !ids.isEmpty else { return }
+        do {
+            try await database.pool.write { db in
+                let marcadores = ids.map { _ in "?" }.joined(separator: ",")
+                try db.execute(
+                    sql: "DELETE FROM outbox WHERE id IN (\(marcadores))",
+                    arguments: StatementArguments(ids)
+                )
+            }
+        } catch {
+            log.error("Não foi possível tirar da fila as operações concluídas: \(error)")
+        }
+    }
+
     private func marca(_ ids: [String], estado: OutboxState) async {
         guard !ids.isEmpty else { return }
         do {
@@ -442,7 +502,19 @@ public actor OutboxExecutor {
         case .rede, .quota:
             false
         case .servidor(let codigo, _):
-            (400..<500).contains(codigo) && codigo != 408 && codigo != 429
+            // `codigo: 0` é a forma como o `NO` do IMAP chega hoje —
+            // `ImapSession.run` não tem número HTTP para dar. `NO` é recusa
+            // **com motivo** ("mailbox não existe", "acima da cota de pastas",
+            // "permissão negada na pasta"), e nenhum desses motivos passa por
+            // insistir: repetir para sempre esconderia da pessoa a única frase
+            // que diz o que aconteceu. Parar mostra a mensagem do servidor e
+            // oferece "tentar de novo".
+            //
+            // O mapeamento fino dos códigos do `NO` (`[TRYCREATE]`, que pede
+            // criar a pasta e repetir; `[INUSE]`, que pede esperar) fica para
+            // quando o `ImapSession` estiver livre — está registrado no
+            // relatório. Até lá, o lado seguro é o que não repete em silêncio.
+            codigo == 0 || ((400..<500).contains(codigo) && codigo != 408 && codigo != 429)
         case .tls, .autenticacao, .autorizacaoRevogada, .keychain,
              .semClientID, .resposta, .banco:
             true

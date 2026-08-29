@@ -50,7 +50,14 @@ public enum SyncError: Error, Sendable, Hashable, LocalizedError {
         case .autenticacao:
             "O servidor recusou o endereço ou a senha. Em provedores com verificação em duas etapas, use uma senha de app."
         case .autorizacaoRevogada:
-            "Autorização negada ou revogada. Reconecte a conta para autorizar de novo."
+            // A frase fala em **reconectar para autorizar**, e não em
+            // "revogada" e ponto, porque a causa mais provável hoje não é
+            // revogação nenhuma: é uma conta autorizada com o escopo antigo
+            // (`gmail.modify`), que não cobre o apagamento definitivo. As duas
+            // pedem a mesma ação — passar pela tela de consentimento de novo —
+            // e a frase que só falava em revogação mandava a pessoa procurar
+            // um acesso removido que ela nunca removeu.
+            "Reconecte a conta para autorizar o acesso. Se a conta é antiga, ela foi autorizada com um escopo que não cobre apagar mensagens — reconectar resolve."
         case .quota:
             "O provedor pediu para desacelerar. A carga continua sozinha em instantes."
         case .servidor(let codigo, let mensagem):

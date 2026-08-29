@@ -84,8 +84,40 @@ public struct GmailClient: Sendable {
         _ = try await postData(path: "messages/batchModify", body: corpo)
     }
 
+    /// `messages.trash` — o caminho canônico para a lixeira.
+    ///
+    /// **E não `batchModify` com `addLabelIds: ["TRASH"]`.** A Gmail API
+    /// documenta que `TRASH` não pode ser *aplicado* por `modify`/`batchModify`
+    /// (só removido), então a rota antiga era um pedido que o servidor tinha
+    /// todo o direito de recusar — e "apagar" é a ação em que falhar em
+    /// silêncio é mais caro: a mensagem some da tela e continua na caixa de
+    /// entrada da pessoa.
+    ///
+    /// É por mensagem, e não em lote: `messages.trash` não tem variante
+    /// `batch`. O preço é uma ida e volta por mensagem, e ele é pago de bom
+    /// grado — o endpoint funciona com qualquer escopo de escrita, e é
+    /// idempotente (mandar para a lixeira o que já está lá é o mesmo estado).
+    public func trash(ids: [String]) async throws {
+        for id in ids {
+            _ = try await postData(path: "messages/\(id)/trash", body: [:])
+        }
+    }
+
+    /// `messages.untrash`: o caminho de volta. Inofensivo em quem não está na
+    /// lixeira — o Gmail simplesmente devolve a mensagem como ela está.
+    public func untrash(ids: [String]) async throws {
+        for id in ids {
+            _ = try await postData(path: "messages/\(id)/untrash", body: [:])
+        }
+    }
+
     /// `messages.batchDelete`: apagamento **definitivo**, sem passar pela
-    /// lixeira. É o que "apagar definitivamente" e "esvaziar lixeira" pedem.
+    /// lixeira. É o que "apagar definitivamente" e "esvaziar lixeira" pedem —
+    /// e **só** eles: mandar para a lixeira é `trash(ids:)`.
+    ///
+    /// Exige o escopo `https://mail.google.com/`; `gmail.modify` não o cobre.
+    /// É a razão de `GoogleAuthConfig.defaultScopes` ter deixado de pedir o par
+    /// `modify` + `send`.
     public func batchDelete(ids: [String]) async throws {
         guard !ids.isEmpty else { return }
         _ = try await postData(path: "messages/batchDelete", body: ["ids": ids])

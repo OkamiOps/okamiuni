@@ -176,24 +176,49 @@ struct DatabaseCommandPortTests {
 
     // MARK: - Idempotência
 
-    @Test("A mesma intenção, chamada duas vezes, não duplica a fila")
-    func idempotenciaDaChave() throws {
+    /// **Esta afirmação foi invertida, e a inversão é o conserto.**
+    ///
+    /// A versão anterior provava que a mesma intenção chamada duas vezes
+    /// **não** duplicava a fila, por uma chave de idempotência derivada do
+    /// conteúdo da operação. A regra estava resolvendo um problema que ninguém
+    /// tinha — a reexecução segura já é garantida por linha (a reivindicação
+    /// atômica do executor) e por operação (o espelho põe ou tira, nunca
+    /// inverte) — e criava dois que existiam:
+    ///
+    /// - ler → não-ler → ler perdia o terceiro passo, e o servidor terminava
+    ///   não-lido enquanto a tela mostrava lido;
+    /// - `emptyTrash`, que não tem ids, colidia consigo mesma **para sempre**.
+    ///
+    /// Descartar no enfileirar é a única perda que nenhum retry conserta: a
+    /// operação nunca chegou a existir. Então toda ação entra, e quem tira
+    /// redundância é a coalescência do executor — depois, e sabendo o que está
+    /// junto de quê.
+    @Test("Toda ação entra na fila: enfileirar nunca descarta em silêncio")
+    func toda_acao_entra() throws {
         let db = try banco()
         try semear(db, mensagens: [mensagem("m1", bucket: .today)])
         let porta = DatabaseCommandPort(database: db)
 
         try porta.setFlagged(true, accountID: "conta-a", messageIDs: ["m1"])
         try porta.setFlagged(true, accountID: "conta-a", messageIDs: ["m1"])
+        #expect(try db.pool.read { try OutboxRecord.fetchCount($0) } == 2)
 
-        let total = try db.pool.read { try OutboxRecord.fetchCount($0) }
-        #expect(total == 1)
-
-        // Mas duas intenções **diferentes** — mesmo alvo, valor oposto —
-        // são duas linhas: a chave não confunde "sinalizar" com
-        // "dessinalizar" da mesma mensagem.
         try porta.setFlagged(false, accountID: "conta-a", messageIDs: ["m1"])
-        let depoisDeDiferente = try db.pool.read { try OutboxRecord.fetchCount($0) }
-        #expect(depoisDeDiferente == 2)
+        #expect(try db.pool.read { try OutboxRecord.fetchCount($0) } == 3)
+
+        // E `emptyTrash`, que não tem alvo nenhum, entra tantas vezes quantas
+        // for pedida — antes, a segunda de toda a vida da instalação sumia.
+        try porta.emptyTrash(accountID: "conta-a")
+        try porta.emptyTrash(accountID: "conta-a")
+        #expect(try db.pool.read { try OutboxRecord.fetchCount($0) } == 5)
+
+        // As chaves continuam únicas: elas identificam a **linha**, que é o que
+        // um `UNIQUE` deve garantir — e não a intenção, que se repete de
+        // propósito.
+        let chaves = try db.pool.read {
+            try String.fetchAll($0, sql: "SELECT idempotencyKey FROM outbox")
+        }
+        #expect(Set(chaves).count == 5)
     }
 
     // MARK: - MailStore, com a porta

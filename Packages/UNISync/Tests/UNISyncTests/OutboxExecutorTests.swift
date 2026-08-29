@@ -62,6 +62,13 @@ struct OutboxExecutorTests {
         return registro.id
     }
 
+    /// Quantas linhas restam no `outbox`. Operação concluída **sai da
+    /// tabela**, então "zero" é a afirmação forte: nada executado ficou para
+    /// trás, e a fila não vira histórico infinito.
+    private func naFila(_ db: SyncDatabase) throws -> Int {
+        try db.pool.read { try Int.fetchOne($0, sql: "SELECT count(*) FROM outbox") ?? 0 }
+    }
+
     private func estado(_ db: SyncDatabase, _ id: String) throws -> String? {
         try db.pool.read { try String.fetchOne($0, sql: "SELECT state FROM outbox WHERE id = ?", arguments: [id]) }
     }
@@ -189,7 +196,8 @@ struct OutboxExecutorTests {
         // A rede voltou: a mesma operação é executada, uma vez só.
         let segunda = await executor(db, espelho, agora: 2_000).drain()
         #expect(segunda.executadas == 1)
-        #expect(try estado(db, id) == "feita")
+        #expect(try estado(db, id) == nil)
+        #expect(try naFila(db) == 0)
         #expect(await espelho.chamadas.count == 2)
     }
 
@@ -256,6 +264,122 @@ struct OutboxExecutorTests {
         #expect(OutboxExecutor.ehPermanente(.servidor(codigo: 400, mensagem: "")))
     }
 
+    @Test("O NO do IMAP para a fila em vez de girar para sempre")
+    func noDoImapEhPermanente() async throws {
+        // `ImapSession.run` traduz um `NO` tagueado em `.servidor(codigo: 0,
+        // mensagem:)` — não há número HTTP para dar. `NO` é recusa com motivo
+        // ("mailbox não existe", "acima da cota", "permissão negada"), e nenhum
+        // desses motivos passa por insistir.
+        #expect(OutboxExecutor.ehPermanente(.servidor(codigo: 0, mensagem: "[NONEXISTENT] Mailbox doesn't exist")))
+
+        let db = try banco()
+        let espelho = EspelhoFalso(roteiro: [
+            .servidor(codigo: 0, mensagem: "[NONEXISTENT] Mailbox doesn't exist"),
+        ])
+        let id = try enfileira(db, .move(bucket: "arquivar", messageIDs: [idIMAP(1)]), criadaEm: 10)
+
+        let resultado = await executor(db, espelho).drain()
+
+        #expect(resultado.falhaPermanente
+            == .servidor(codigo: 0, mensagem: "[NONEXISTENT] Mailbox doesn't exist"))
+        #expect(try estado(db, id) == "falhou")
+        // A mensagem do servidor fica visível para a pessoa, em vez de sumir
+        // dentro de um recuo que nunca termina.
+        #expect(resultado.falhaPermanente?.mensagem.contains("NONEXISTENT") == true)
+    }
+
+    @Test("«Tentar de novo» reexecuta a operação parada, e antes da seguinte")
+    func retryDepoisDaFalhaPermanente() async throws {
+        let db = try banco()
+        // Falha permanente na primeira; da segunda vez o servidor aceita.
+        let espelho = EspelhoFalso(roteiro: [.autorizacaoRevogada])
+        let primeira = try enfileira(db, .delete(messageIDs: [idIMAP(1)]), criadaEm: 10)
+        let segunda = try enfileira(db, .delete(messageIDs: [idIMAP(2)]), criadaEm: 20)
+
+        let executor = executor(db, espelho)
+        let parada = await executor.drain()
+        #expect(parada.falhaPermanente == .autorizacaoRevogada)
+        #expect(try estado(db, primeira) == "falhou")
+
+        // A pessoa reconectou a conta e mandou tentar de novo.
+        await executor.retryAfterPermanentFailure()
+        let resultado = await executor.drain()
+
+        // **A mutação:** sem o `requeueFalhadas`, a linha `falhou` continua
+        // `falhou` — nenhuma consulta do executor a lê —, a operação da pessoa
+        // some para sempre e a de trás passa na frente. As afirmações abaixo
+        // são as que morrem.
+        #expect(await espelho.operacoes == [
+            .delete(messageIDs: [idIMAP(1)]),  // a que falhou, tentada de novo…
+            .delete(messageIDs: [idIMAP(1)]),  // …e ela vem ANTES da seguinte…
+            .delete(messageIDs: [idIMAP(2)]),  // …que só então executa.
+        ])
+        #expect(resultado.executadas == 2)
+        #expect(resultado.falhaPermanente == nil)
+        #expect(try estado(db, primeira) == nil)
+        #expect(try estado(db, segunda) == nil)
+        #expect(try naFila(db) == 0)
+    }
+
+    // MARK: - A fila não engole ação nenhuma
+
+    @Test("Ler, não-ler e ler de novo: o servidor termina LIDA")
+    func tresCliquesNoMesmoAlvo() async throws {
+        let db = try banco()
+        let espelho = EspelhoFalso()
+        // Os três cliques da pessoa, na ordem em que ela os deu.
+        try enfileira(db, .setRead(isRead: true, messageIDs: [idIMAP(1)]), criadaEm: 10)
+        try enfileira(db, .setRead(isRead: false, messageIDs: [idIMAP(1)]), criadaEm: 20)
+        try enfileira(db, .setRead(isRead: true, messageIDs: [idIMAP(1)]), criadaEm: 30)
+
+        let resultado = await executor(db, espelho).drain()
+
+        // **A mutação:** com a chave de idempotência derivada do conteúdo (a
+        // versão anterior), o terceiro colidia com o primeiro no `UNIQUE` e era
+        // descartado no enfileirar — sem erro, sem log, sem nada. O servidor
+        // terminava com a mensagem NÃO LIDA enquanto a tela mostrava lida.
+        #expect(resultado.executadas == 3)
+        #expect(await espelho.operacoes == [
+            .setRead(isRead: true, messageIDs: [idIMAP(1)]),
+            .setRead(isRead: false, messageIDs: [idIMAP(1)]),
+            .setRead(isRead: true, messageIDs: [idIMAP(1)]),
+        ])
+        // O que vale é o último: o servidor fica lida, como a tela.
+        #expect(await espelho.operacoes.last == .setRead(isRead: true, messageIDs: [idIMAP(1)]))
+    }
+
+    @Test("Sinalizar, desinalizar e sinalizar: a terceira bandeira chega")
+    func tresBandeiras() async throws {
+        let db = try banco()
+        let espelho = EspelhoFalso()
+        try enfileira(db, .setFlagged(isFlagged: true, messageIDs: [idIMAP(1)]), criadaEm: 10)
+        try enfileira(db, .setFlagged(isFlagged: false, messageIDs: [idIMAP(1)]), criadaEm: 20)
+        try enfileira(db, .setFlagged(isFlagged: true, messageIDs: [idIMAP(1)]), criadaEm: 30)
+
+        await executor(db, espelho).drain()
+
+        #expect(await espelho.operacoes.count == 3)
+        #expect(await espelho.operacoes.last == .setFlagged(isFlagged: true, messageIDs: [idIMAP(1)]))
+    }
+
+    @Test("Esvaziar a lixeira duas vezes funciona duas vezes")
+    func esvaziarDuasVezes() async throws {
+        let db = try banco()
+        let espelho = EspelhoFalso()
+        // `emptyTrash` não tem ids próprios — a operação é "a conta inteira" —,
+        // então a chave derivada do conteúdo era idêntica em toda chamada, de
+        // todo dia. A segunda vez que alguém esvaziasse a lixeira, em qualquer
+        // momento futuro, era engolida para sempre.
+        try enfileira(db, .emptyTrash, criadaEm: 10)
+        try enfileira(db, .emptyTrash, criadaEm: 900)
+
+        let resultado = await executor(db, espelho).drain()
+
+        #expect(resultado.executadas == 2)
+        #expect(await espelho.operacoes == [.emptyTrash, .emptyTrash])
+        #expect(try naFila(db) == 0)
+    }
+
     // MARK: - O invariante: nada se perde, nada executa em dobro
 
     @Test("Operação interrompida no meio volta para a fila na partida seguinte")
@@ -274,7 +398,7 @@ struct OutboxExecutorTests {
         // deixa esta linha parada em `executando` para sempre — a operação
         // perdida — e as três afirmações abaixo caem.
         #expect(resultado.executadas == 1)
-        #expect(try estado(db, id) == "feita")
+        #expect(try estado(db, id) == nil)
         #expect(await espelho.operacoes == [.delete(messageIDs: [idIMAP(5)])])
     }
 
@@ -291,10 +415,7 @@ struct OutboxExecutorTests {
         _ = await (a, b)
 
         #expect(await espelho.chamadas.count == 1)
-        let feitas = try await db.pool.read {
-            try Int.fetchOne($0, sql: "SELECT count(*) FROM outbox WHERE state = 'feita'")
-        }
-        #expect(feitas == 1)
+        #expect(try naFila(db) == 0)
     }
 
     @Test("O timeout ambíguo reexecuta, e a operação continua sendo uma só")
@@ -315,12 +436,10 @@ struct OutboxExecutorTests {
             .setRead(isRead: true, messageIDs: [idIMAP(1)]),
             .setRead(isRead: true, messageIDs: [idIMAP(1)]),
         ])
-        // E a fila registra uma execução, não duas.
-        #expect(try estado(db, id) == "feita")
-        let feitas = try await db.pool.read {
-            try Int.fetchOne($0, sql: "SELECT count(*) FROM outbox WHERE state = 'feita'")
-        }
-        #expect(feitas == 1)
+        // E a fila registra uma execução, não duas: a linha saiu da tabela, e
+        // saiu uma vez.
+        #expect(try estado(db, id) == nil)
+        #expect(try naFila(db) == 0)
     }
 
     // MARK: - As coordenadas

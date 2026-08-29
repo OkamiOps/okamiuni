@@ -88,15 +88,71 @@ struct GmailMirrorTests {
         #expect((pedido["addLabelIds"] as? [String])?.isEmpty == true)
     }
 
-    @Test("Apagar põe TRASH e tira a INBOX")
+    @Test("Apagar usa messages.trash, e não uma label TRASH posta à mão")
     func lixeira() async throws {
         let (espelho, sessao) = par(routes: [
+            "\(base)/messages/m1/trash": [.init(status: 200, body: Data("{}".utf8))],
+            "\(base)/messages/m2/trash": [.init(status: 200, body: Data("{}".utf8))],
+        ])
+        try await espelho.apply(.delete(messageIDs: ["x"]), targets: [alvo("m1"), alvo("m2")])
+
+        // A Gmail API não deixa `batchModify` **aplicar** `TRASH` (só remover),
+        // então a rota antiga era um pedido que o servidor podia recusar — e
+        // apagar é a ação em que falhar calado é mais caro: a mensagem sumia da
+        // tela e continuava na caixa de entrada da pessoa.
+        let caminhos = StubURLProtocol.requests(for: sessao).map(\.path)
+        #expect(caminhos == ["\(base)/messages/m1/trash", "\(base)/messages/m2/trash"])
+        #expect(!caminhos.contains("\(base)/messages/batchModify"))
+    }
+
+    @Test("Mover para a Lixeira é a mesma rota do apagar")
+    func moverParaLixeira() async throws {
+        let (espelho, sessao) = par(routes: [
+            "\(base)/messages/m1/trash": [.init(status: 200, body: Data("{}".utf8))],
+        ])
+        try await espelho.apply(
+            .move(bucket: TriageBucket.trash.rawValue, messageIDs: ["x"]), targets: [alvo("m1")]
+        )
+        #expect(StubURLProtocol.requests(for: sessao).map(\.path) == ["\(base)/messages/m1/trash"])
+    }
+
+    @Test("Voltar para Hoje tira a mensagem da lixeira pelo untrash")
+    func restauraDaLixeira() async throws {
+        let (espelho, sessao) = par(routes: [
+            "\(base)/labels": [.json(#"{"labels":[{"id":"INBOX","name":"INBOX"}]}"#)],
+            "\(base)/messages/m1/untrash": [.init(status: 200, body: Data("{}".utf8))],
             "\(base)/messages/batchModify": [.init(status: 204)],
         ])
-        try await espelho.apply(.delete(messageIDs: ["x"]), targets: [alvo("m1")])
+        try await espelho.apply(
+            .move(bucket: TriageBucket.today.rawValue, messageIDs: ["x"]), targets: [alvo("m1")]
+        )
+        let caminhos = StubURLProtocol.requests(for: sessao).map(\.path)
+        #expect(caminhos.contains("\(base)/messages/m1/untrash"))
         let pedido = try corpo(sessao, caminho: "\(base)/messages/batchModify")
-        #expect(pedido["addLabelIds"] as? [String] == ["TRASH"])
-        #expect(pedido["removeLabelIds"] as? [String] == ["INBOX"])
+        #expect(pedido["addLabelIds"] as? [String] == ["INBOX"])
+    }
+
+    @Test("O apagamento definitivo é o que exige o escopo total — e o 403 dele pede reconectar")
+    func escopoDoApagamentoDefinitivo() async throws {
+        // A prova do ALTA-1 pelo lado que dói: com o escopo antigo
+        // (`gmail.modify`), `messages.batchDelete` responde 403
+        // PERMISSION_DENIED. O erro que sai daqui tem de ser o que manda a
+        // pessoa reconectar — e é ele que o executor trata como permanente,
+        // parando a fila com a explicação em vez de repetir para sempre uma
+        // chamada que nunca vai passar.
+        let (espelho, _) = par(routes: [
+            "\(base)/messages/batchDelete": [.json(
+                #"{"error":{"code":403,"status":"PERMISSION_DENIED","message":"Insufficient Permission"}}"#,
+                status: 403
+            )],
+        ])
+        await #expect(throws: SyncError.autorizacaoRevogada) {
+            try await espelho.apply(.deletePermanently(messageIDs: ["x"]), targets: [alvo("m1")])
+        }
+        #expect(OutboxExecutor.ehPermanente(.autorizacaoRevogada))
+        // E o escopo que o app pede agora é o que cobre essa chamada.
+        #expect(GoogleAuthConfig.defaultScopes.contains("https://mail.google.com/"))
+        #expect(SyncError.autorizacaoRevogada.mensagem.contains("Reconecte"))
     }
 
     @Test("Depois cria a label no primeiro uso — e só no primeiro")

@@ -95,15 +95,19 @@ public struct DatabaseCommandPort: MailCommandPort, Sendable {
         try database.pool.write { db in
             try projection(db)
             let record = try OutboxRecord(accountID: accountID, operation: operation)
-            // `ON CONFLICT(idempotencyKey) DO NOTHING`: a mesma intenção
-            // (mesma conta, mesmo tipo, mesmos ids) chamada de novo não
-            // duplica a fila — a idempotência da chave.
+            // **Toda ação entra na fila.** A versão anterior deduplicava aqui,
+            // por uma chave derivada do conteúdo, e com isso engolia o terceiro
+            // passo de um ciclo ler→não-ler→ler e todo `emptyTrash` depois do
+            // primeiro (ver `OutboxRecord.idempotencyKey`). Descartar no
+            // enfileirar é a única forma de perda que nenhum retry conserta: a
+            // operação nunca existiu. Quem tira redundância é a coalescência do
+            // executor, que junta o que dá para juntar — depois, e sabendo o
+            // que está junto de quê.
             try db.execute(
                 sql: """
                     INSERT INTO outbox
                       (id, accountID, operationJSON, idempotencyKey, attempts, nextAttemptAt, state, createdAt)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(idempotencyKey) DO NOTHING
                     """,
                 arguments: [
                     record.id, record.accountID, record.operationJSON, record.idempotencyKey,

@@ -92,9 +92,13 @@ struct GoogleAuthTests {
         #expect(valor("prompt") == "consent")
 
         let escopos = try #require(valor("scope")).split(separator: " ").map(String.init)
-        #expect(escopos.contains("https://www.googleapis.com/auth/gmail.modify"))
-        #expect(escopos.contains("https://www.googleapis.com/auth/gmail.send"))
+        // Um escopo de Gmail só. `gmail.modify` não cobre
+        // `messages.batchDelete` — o apagamento definitivo do Marco 3 — e o
+        // 403 dele pararia a fila da conta. `mail.google.com` é superconjunto
+        // de `modify` + `send`: uma tela de consentimento, o marco inteiro.
+        #expect(escopos.contains("https://mail.google.com/"))
         #expect(escopos.contains("https://www.googleapis.com/auth/userinfo.email"))
+        #expect(!escopos.contains("https://www.googleapis.com/auth/gmail.modify"))
     }
 
     // MARK: O redirect de volta

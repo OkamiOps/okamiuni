@@ -31,8 +31,9 @@ public enum MailOperation: Codable, Sendable, Equatable {
     case deletePermanently(messageIDs: [String])
     case emptyTrash
 
-    /// O rótulo do caso, para a chave de idempotência — estável mesmo se a
-    /// ordem dos casos do enum mudar, ao contrário de um índice numérico.
+    /// O rótulo do caso, para o log e para a leitura humana da fila — estável
+    /// mesmo se a ordem dos casos do enum mudar, ao contrário de um índice
+    /// numérico.
     var label: String {
         switch self {
         case .setRead: "setRead"
@@ -44,9 +45,8 @@ public enum MailOperation: Codable, Sendable, Equatable {
         }
     }
 
-    /// Os ids que esta operação alcança, para a chave de idempotência.
-    /// `emptyTrash` não tem ids próprios — ela é "a conta inteira" — e por
-    /// isso devolve vazio.
+    /// Os ids que esta operação alcança. `emptyTrash` não tem ids próprios —
+    /// ela é "a conta inteira" — e por isso devolve vazio.
     var messageIDs: [String] {
         switch self {
         case .setRead(_, let ids), .setFlagged(_, let ids),
@@ -87,7 +87,7 @@ public struct OutboxRecord: Codable, FetchableRecord, PersistableRecord, Sendabl
         self.accountID = accountID
         let dados = try JSONEncoder().encode(operation)
         operationJSON = String(data: dados, encoding: .utf8) ?? "{}"
-        idempotencyKey = Self.idempotencyKey(accountID: accountID, operation: operation)
+        idempotencyKey = Self.idempotencyKey()
         attempts = 0
         self.nextAttemptAt = nextAttemptAt
         state = OutboxState.pendente.rawValue
@@ -99,19 +99,30 @@ public struct OutboxRecord: Codable, FetchableRecord, PersistableRecord, Sendabl
         return try? JSONDecoder().decode(MailOperation.self, from: dados)
     }
 
-    /// Determinística: conta + tipo + ids ordenados, sem relógio nenhum. É
-    /// isto que faz duas chamadas com a mesma intenção colidirem no `UNIQUE`
-    /// da coluna em vez de duplicar a fila — a idempotência da chave, provada
-    /// em `DatabaseCommandPortTests`.
-    static func idempotencyKey(accountID: String, operation: MailOperation) -> String {
-        let ids = operation.messageIDs.sorted().joined(separator: ",")
-        let extra: String
-        switch operation {
-        case .setRead(let isRead, _): extra = "\(isRead)"
-        case .setFlagged(let isFlagged, _): extra = "\(isFlagged)"
-        case .move(let bucket, _): extra = bucket
-        default: extra = ""
-        }
-        return "\(accountID)|\(operation.label)|\(extra)|\(ids)"
-    }
+    /// **Única por operação, e não derivada do conteúdo dela.**
+    ///
+    /// A primeira versão desta chave era determinística — conta + tipo + ids —
+    /// e o `UNIQUE` da coluna descartava, no enfileirar, toda operação com a
+    /// mesma intenção de uma que já estava na fila. Isso resolvia um problema
+    /// que ninguém tinha e criava dois que existiam de verdade:
+    ///
+    /// - **O terceiro clique sumia.** Marcar como lida, desmarcar, marcar de
+    ///   novo: a terceira colidia com a primeira e era descartada em silêncio.
+    ///   O servidor terminava com a mensagem **não lida** enquanto a tela
+    ///   mostrava lida — divergência permanente, sem erro em lugar nenhum.
+    /// - **`emptyTrash` colidia consigo mesma para sempre.** A chave dela não
+    ///   tem ids (a operação é "a conta inteira"), então a segunda vez que
+    ///   alguém esvaziasse a lixeira, em qualquer dia futuro, era engolida.
+    ///
+    /// A idempotência que importa nunca dependeu disto: ela é **por linha**
+    /// (reivindicação atômica + recuperação na partida, em `OutboxExecutor`) e
+    /// **por operação** (as do espelho põem ou tiram, nunca invertem; o mover
+    /// do IMAP confere o `Message-ID` no destino antes de copiar). Quem tira a
+    /// redundância da fila é a coalescência do `drain`, que junta o que dá
+    /// para juntar sem apagar o que não dá.
+    ///
+    /// A coluna continua `UNIQUE` no esquema, e continua fazendo sentido: ela
+    /// agora garante que duas linhas nunca compartilham identidade, que é o
+    /// que um `UNIQUE` deve garantir.
+    static func idempotencyKey() -> String { UUID().uuidString }
 }

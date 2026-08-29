@@ -8,7 +8,7 @@ import UNICore
 /// | Hoje | `+INBOX`, `-OkamiUNI/Depois` |
 /// | Depois | `+OkamiUNI/Depois`, `-INBOX` (a INBOX sai junto para a mensagem não aparecer duas vezes no webmail) |
 /// | Arquivado | `-INBOX`, `-OkamiUNI/Depois` |
-/// | Lixeira | `+TRASH`, `-INBOX` |
+/// | Lixeira | `messages.trash` (o endpoint próprio — `TRASH` não pode ser *posta* por `batchModify`) |
 /// | Sinalizada | `STARRED` |
 /// | Lida | `-UNREAD` |
 ///
@@ -53,12 +53,21 @@ public actor GmailMirror: MailMirror {
             guard let bucket = TriageBucket(rawValue: bruto) else {
                 throw SyncError.resposta("Caixa de triagem desconhecida na fila: \(bruto).")
             }
+            // Mover para a Lixeira é o endpoint próprio, e não uma label posta
+            // à mão — a mesma rota do `delete` abaixo.
+            guard bucket != .trash else {
+                try await client.trash(ids: ids)
+                return
+            }
             // O id do rótulo só é pedido (e o rótulo só é criado) quando a
             // operação de fato precisa dele — arquivar não cria pasta nenhuma
             // em quem nunca usou Depois.
-            let depois = bucket == .later || bucket == .today || bucket == .archived
-                ? try await idDoDepois(criandoSePreciso: bucket == .later)
-                : nil
+            let depois = try await idDoDepois(criandoSePreciso: bucket == .later)
+            // Voltar para Hoje é o caminho por onde uma mensagem **sai** da
+            // Lixeira ("restaurar"), e tirar `TRASH` por `batchModify` é
+            // justamente o que a API não garante. `untrash` é o inverso
+            // canônico do `trash`, e é inofensivo em quem nunca esteve lá.
+            if bucket == .today { try await client.untrash(ids: ids) }
             try await client.batchModify(
                 ids: ids,
                 addLabelIDs: bucket == .later ? [depois].compactMap { $0 } : (bucket == .today ? ["INBOX"] : []),
@@ -66,7 +75,7 @@ public actor GmailMirror: MailMirror {
             )
 
         case .delete:
-            try await client.batchModify(ids: ids, addLabelIDs: ["TRASH"], removeLabelIDs: ["INBOX"])
+            try await client.trash(ids: ids)
 
         case .deletePermanently:
             try await client.batchDelete(ids: ids)
@@ -92,7 +101,8 @@ public actor GmailMirror: MailMirror {
         case .later: ["INBOX"]
         case .today: [depois].compactMap { $0 }
         case .archived: ["INBOX"] + [depois].compactMap { $0 }
-        case .trash: ["INBOX"]
+        // A Lixeira nunca chega aqui: ela sai por `messages.trash`, acima.
+        case .trash: []
         // `todos` é uma visão, não um estado — não há para onde mover.
         case .all: []
         }

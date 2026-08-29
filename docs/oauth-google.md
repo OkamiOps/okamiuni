@@ -35,18 +35,24 @@ Leva uns dez minutos.
    - Email do desenvolvedor: o seu
 4. **Salvar e continuar**.
 5. Na etapa **Escopos**, clique em **Adicionar ou remover escopos** e marque os
-   três, colando cada um no filtro:
-   - `https://www.googleapis.com/auth/gmail.modify`
-   - `https://www.googleapis.com/auth/gmail.send`
+   dois, colando cada um no filtro:
+   - `https://mail.google.com/`
    - `https://www.googleapis.com/auth/userinfo.email`
 
-   Os três são pedidos **juntos**, de propósito: `gmail.send` só é usado no
-   Marco 3, mas pedi-lo depois obrigaria o usuário a consentir duas vezes.
+   Um escopo de Gmail só, e não o par `gmail.modify` + `gmail.send`:
+   `messages.batchDelete` — o apagamento definitivo, que "apagar de vez" e
+   "esvaziar a lixeira" pedem — exige o escopo total e recusa `gmail.modify`
+   com 403. `https://mail.google.com/` é superconjunto dos dois, então ele
+   cobre ler, triar, apagar e enviar numa tela de consentimento só.
+
+   **Quem já conectou uma conta com o par antigo precisa reconectá-la uma
+   vez** — o app pede isso na mensagem do erro, em vez de falar em
+   autorização revogada.
 6. **Atualizar** ▸ **Salvar e continuar**.
 7. Na etapa **Usuários de teste**, **Adicionar usuários** e coloque os endereços
    Gmail que você vai conectar. **Em modo de teste, só esses endereços
    conseguem autorizar o app** — se faltar um, o consentimento devolve
-   `access_denied`, que o app mostra como "Autorização negada ou revogada".
+   `access_denied`, que o app mostra pedindo para reconectar a conta.
 8. **Salvar e continuar** ▸ **Voltar ao painel**.
 
 Modo **Teste** serve. Publicar exige verificação do Google, que só faz sentido
