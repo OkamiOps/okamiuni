@@ -136,6 +136,62 @@ enum ReaderHTMLPolicy {
         max(1, (documento * escala).rounded(.up))
     }
 
+    // MARK: - Medir o nosso, não o do remetente
+
+    /// O identificador do invólucro que o leitor põe em volta da mensagem.
+    ///
+    /// Um `id`, e não uma classe: é a especificidade mais alta que existe sem
+    /// `!important`, e nenhum seletor que o remetente escreva a alcança.
+    static let involucro = "uni-root"
+
+    /// A pergunta que o leitor faz ao documento para saber a altura dele.
+    ///
+    /// **O defeito que ela conserta: o email que abre num vazio total.** O email
+    /// de marketing chega com `height: 100% !important` **na linha do próprio
+    /// `<body>`** — praxe do gênero, e o caso do dono tinha isso e mais
+    /// `width: 100% !important; min-width: 100%`. A `WebView` do leitor nasce
+    /// com um fio de altura (`ReaderHTMLSection` começa com `altura = 1`, porque
+    /// a altura é justamente o que ainda vai ser medido), o documento sai do
+    /// `MimeSanitize` sem `<!DOCTYPE>` — ele descarta as declarações junto com o
+    /// resto —, e em modo de compatibilidade a porcentagem do `body` resolve
+    /// contra a área visível. "100% de um fio" é um fio: `documentElement.
+    /// scrollHeight` devolvia **1**, a `WebView` ficava com 1 ponto de altura, e
+    /// as 44 mil letras do email eram uma linha em branco.
+    ///
+    /// A M3-18 já tinha desconfiado da medição e a inocentou — mas com um
+    /// documento simples, sem `height: 100%`. A pergunta estava certa; era o
+    /// documento da sonda que não tinha a armadilha.
+    ///
+    /// **A saída é medir uma coisa nossa.** O conteúdo da mensagem vai dentro de
+    /// um `<div id="uni-root">` que o leitor mesmo põe (ver `documento(...)`), e
+    /// é a altura dele que responde. O que o remetente declara sobre `html` e
+    /// `body` deixa de importar: o invólucro está **dentro** do `body`, e mede o
+    /// que o conteúdo de fato ocupa, colapsado ou não.
+    ///
+    /// Neutralizar por folha de estilo — `html, body { height: auto !important }`
+    /// — foi tentado e **não funciona**: o `!important` de um atributo `style`
+    /// ganha do `!important` de qualquer folha de autor, por definição da
+    /// cascata. Medido na sonda, e não deduzido.
+    ///
+    /// E `Math.max` com a medida antiga porque as duas respondem coisas
+    /// diferentes: o invólucro não enxerga o que escapa dele (um posicionamento
+    /// absoluto pendurado no `body`), e a medida antiga não enxerga o conteúdo
+    /// quando o `body` colapsa **e recorta**. Quem manda é a maior — o email não
+    /// pode ficar curto por nenhum dos dois motivos.
+    ///
+    /// São, de propósito, duas defesas para o mesmo caso: o `overflow: visible`
+    /// que `documento(...)` devolve ao `body` já faz o conteúdo transbordado
+    /// contar na medida antiga. Uma cobre a outra, e a suíte derruba cada uma
+    /// separadamente.
+    static let medidaDaAltura = """
+        (function () {
+          var doc = document.documentElement.scrollHeight;
+          var raiz = document.getElementById('\(involucro)');
+          if (!raiz) { return doc; }
+          return Math.max(doc, Math.ceil(raiz.getBoundingClientRect().height));
+        })()
+        """
+
     // MARK: - O documento
 
     /// De que cores o documento é desenhado.
@@ -224,9 +280,21 @@ enum ReaderHTMLPolicy {
             a { color: \(corDoLink); }
             /* A `WebView` não rola: quem rola é o leitor, e a altura dela
                acompanha o conteúdo. */
-            html, body { overflow: hidden !important; }
+            html { overflow: hidden !important; }
+            /* **E o `body` não recorta.** O email que declara a própria altura
+               (`height: 100% !important` na linha, e o quadro nascendo com um
+               fio) deixaria o conteúdo do lado de fora de um `body` de um ponto
+               — e com `overflow: hidden` ali, do lado de fora quer dizer
+               invisível. Quem esconde o que sobra é o `html`, que é quem define
+               a rolagem da área visível; o `body` só precisa não atrapalhar. */
+            body { overflow: visible !important; }
+            /* O invólucro do leitor: um bloco e nada mais. É ele que a régua
+               mede (ver `medidaDaAltura`), e por isso ele não pode virar outra
+               coisa por causa de um `div { display: ... }` do remetente — daí o
+               `id`, que ganha de qualquer seletor que a mensagem escreva. */
+            #\(involucro) { display: block; }
             </style>
-            \(html)
+            <div id="\(involucro)">\(html)</div>
             """
     }
 }

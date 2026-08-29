@@ -180,7 +180,7 @@ struct ReaderHTMLBody: NSViewRepresentable {
 
         private func mede(_ webView: WKWebView, escala: CGFloat) {
             webView.evaluateJavaScript(
-                "document.documentElement.scrollHeight"
+                ReaderHTMLPolicy.medidaDaAltura
             ) { [weak self] valor, _ in
                 guard let self, let numero = valor as? CGFloat, numero > 0 else { return }
                 let altura = ReaderHTMLPolicy.altura(documento: numero, escala: escala)

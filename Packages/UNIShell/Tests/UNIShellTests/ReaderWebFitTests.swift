@@ -166,6 +166,150 @@ struct ReaderWebFitTests {
         #expect(await desenhado.numero("document.body.getBoundingClientRect().width") == 900)
     }
 
+    // MARK: O body que declara a própria altura
+
+    /// O email de marketing do dono (Kickstargogo), reduzido ao que importa: um
+    /// `<body>` com `height: 100% !important` **na linha**, e o conteúdo inteiro
+    /// em tabela — mais o pré-cabeçalho escondido que é praxe do gênero.
+    ///
+    /// Os 44 mil bytes do original não cabem aqui e não fazem falta: o que
+    /// derruba a medição são estes dois atributos.
+    private static let bodyDeCemPorCento = """
+        <html><head><style>.cabecalho { color: #333; }</style></head>
+        <body topmargin="0" leftmargin="0" style="height: 100% !important; margin: 0; \
+        padding: 0; width: 100% !important; min-width: 100%;">
+        <div id="pre" style="display:none">Sua recompensa está esperando</div>
+        <table width="640" cellpadding="0" cellspacing="0" align="center" bgcolor="#f6f6f6">
+        <tr><td id="alvo" width="640" style="width:640px;height:900px">Promoção</td></tr>
+        </table>
+        </body></html>
+        """
+
+    /// **O vazio total.** O email chega com `height: 100% !important` no próprio
+    /// `<body>`; a `WebView` nasce com um fio de altura (o `@State altura = 1` do
+    /// `ReaderHTMLSection`), e "100% de um fio" é um fio. A altura medida sai 1,
+    /// a `WebView` fica com 1 ponto, e o email de 900 é uma linha em branco.
+    ///
+    /// A M3-18 mediu `documentElement.scrollHeight` com um documento **sem**
+    /// `height: 100%`, viu o número certo, e concluiu que a medição estava sã.
+    /// Este é o documento que ela não usou.
+    ///
+    /// O documento é servido sem `<!DOCTYPE>` — o `MimeSanitize` o descarta com
+    /// as outras declarações —, então o motor desenha em modo de compatibilidade,
+    /// onde a porcentagem do `body` resolve contra a área visível. É por isso que
+    /// o "100%" vira o tamanho do quadro, e não o tamanho do conteúdo.
+    @Test("O body que se declara 100% não colapsa a altura do email")
+    func bodyDeCemPorCentoNaoColapsa() async throws {
+        let sonda = SondaDeWebView(largura: 500)
+        await sonda.carrega(ReaderHTMLPolicy.documento(
+            html: Self.bodyDeCemPorCento, fundo: "#ffffff", tinta: "#1a1a1a",
+            link: "#1155cc", fonte: "ui-serif"
+        ))
+
+        // A armadilha, medida: o quadro tem um fio de altura, e o `body` do
+        // remetente encolheu para ele — enquanto a tabela dentro mede 900.
+        #expect(await sonda.numero("document.body.getBoundingClientRect().height") == 1)
+        #expect(await sonda.numero("document.getElementById('alvo').getBoundingClientRect().bottom")
+            == 900)
+
+        // E a régua do leitor, apesar disso, devolve o tamanho do conteúdo.
+        let medida = try #require(await sonda.numero(ReaderHTMLPolicy.medidaDaAltura))
+        #expect(medida == 900)
+    }
+
+    /// O email normal continua medindo o que sempre mediu.
+    ///
+    /// A mesma pergunta, no documento que a M3-18 usou para se convencer de que
+    /// a medição estava sã: 900 pontos de tabela, 900 de resposta.
+    @Test("O email sem armadilha mede o mesmo de antes")
+    func emailNormalMedeOMesmo() async throws {
+        let sonda = SondaDeWebView(largura: 500)
+        await sonda.carrega(ReaderHTMLPolicy.documento(
+            html: "<table width=\"640\" bgcolor=\"#f6f6f6\"><tr><td style=\"height:900px\">oi</td></tr></table>",
+            fundo: "#ffffff", tinta: "#1a1a1a", link: "#1155cc", fonte: "ui-serif"
+        ))
+        #expect(await sonda.numero("document.documentElement.scrollHeight") == 900)
+        #expect(await sonda.numero(ReaderHTMLPolicy.medidaDaAltura) == 900)
+    }
+
+    /// **O que estava escondido continua escondido.**
+    ///
+    /// Todo email de marketing traz um pré-cabeçalho `display: none` — a frase
+    /// que o webmail mostra na lista e a mensagem não mostra no corpo. Consertar
+    /// o `body` colapsado não pode ser a desculpa para desentortar o resto do
+    /// documento: o invólucro do leitor mede, e não repinta.
+    @Test("O pré-cabeçalho escondido do marketing não vira texto visível")
+    func preCabecalhoContinuaEscondido() async throws {
+        let sonda = SondaDeWebView(largura: 500)
+        await sonda.carrega(ReaderHTMLPolicy.documento(
+            html: Self.bodyDeCemPorCento, fundo: "#ffffff", tinta: "#1a1a1a",
+            link: "#1155cc", fonte: "ui-serif"
+        ))
+        #expect(await sonda.numero(
+            "getComputedStyle(document.getElementById('pre')).display === 'none' ? 1 : 0"
+        ) == 1)
+        #expect(await sonda.numero(
+            "document.getElementById('pre').getBoundingClientRect().height"
+        ) == 0)
+    }
+
+    /// **Medir certo não basta: o conteúdo também não pode ser recortado.**
+    ///
+    /// O `body` que declara a própria altura — 100% de um quadro de um fio, ou
+    /// 600 pontos fixos — deixa a tabela de 900 do lado de fora dele. Com
+    /// `overflow: hidden` no `body`, "do lado de fora" quer dizer invisível: a
+    /// régua acertaria a altura e a mensagem continuaria em branco. Quem esconde
+    /// o que sobra é o `html`, e é lá que a regra mora.
+    @Test("O body que declara altura própria não recorta o conteúdo")
+    func bodyNaoRecorta() async throws {
+        for html in [Self.bodyDeCemPorCento, """
+            <body style="height: 600px !important">
+            <table width="640"><tr><td style="height:900px">Promoção</td></tr></table></body>
+            """] {
+            let sonda = SondaDeWebView(largura: 500)
+            await sonda.carrega(ReaderHTMLPolicy.documento(
+                html: html, fundo: "#ffffff", tinta: "#1a1a1a",
+                link: "#1155cc", fonte: "ui-serif"
+            ))
+            let recorta = try #require(await sonda.numero("""
+                (function () {
+                  var corpo = document.body;
+                  var raiz = document.getElementById('\(ReaderHTMLPolicy.involucro)');
+                  var escondido = getComputedStyle(corpo).overflow === 'hidden';
+                  var sobra = raiz.getBoundingClientRect().height > corpo.clientHeight;
+                  return escondido && sobra ? 1 : 0;
+                })()
+                """))
+            #expect(recorta == 0)
+        }
+    }
+
+    /// **Só o `html` e o `body` são neutralizados — nunca o conteúdo.**
+    ///
+    /// O `height: 100%` numa célula interna é como um email legítimo centra o
+    /// que está dentro dela, e desmanchá-lo seria trocar um desenho quebrado por
+    /// outro. A célula continua com a altura que a linha lhe dá.
+    @Test("O height:100% de uma célula interna continua valendo")
+    func celulaInternaIntacta() async throws {
+        let sonda = SondaDeWebView(largura: 500)
+        await sonda.carrega(ReaderHTMLPolicy.documento(
+            html: """
+                <table width="640" bgcolor="#f6f6f6"><tr>
+                <td height="300" style="height:300px">
+                <div id="celula" style="height:100%">centro</div>
+                </td></tr></table>
+                """,
+            fundo: "#ffffff", tinta: "#1a1a1a", link: "#1155cc", fonte: "ui-serif"
+        ))
+        let alturaDaCelula = try #require(await sonda.numero(
+            "document.getElementById('celula').getBoundingClientRect().height"
+        ))
+        // 298 e não 300: a célula tem a folga de um ponto que o motor dá a todo
+        // `td`. O que importa é que o `100%` resolveu contra os 300 da célula, e
+        // não contra o vazio.
+        #expect(alturaDaCelula == 298)
+    }
+
     /// A régua do app não pode depender de um interruptor que está desligado: a
     /// `WebView` do leitor recusa o script **da mensagem**, e é o app que
     /// pergunta a altura. Verificado na prática, e não deduzido do nome da
