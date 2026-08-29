@@ -99,6 +99,9 @@ public struct AppComposition: Sendable {
     /// O estado que a lateral explica já na primeira janela, sem importar
     /// FoundationModels no shell.
     public let intelligenceAvailability: OnDeviceMessageAnalysisAvailability
+    /// Perguntas e transformações de texto usando o mesmo modelo local.
+    /// Existe também no fallback de fixtures: não depende de banco nem rede.
+    public let textAssistant: any OnDeviceTextAssisting
     /// Falha de configuração que o app **mostra** em vez de esconder: banco
     /// que não abriu, client ID que falta. Nunca fatal.
     public let configError: SyncError?
@@ -122,6 +125,7 @@ public struct AppComposition: Sendable {
     @MainActor
     public static func make(databasePath: String? = nil, bundle: Bundle = .main) -> AppComposition {
         let analyzer = FoundationModelsMessageAnalyzer()
+        let textAssistant = FoundationModelsTextAssistant()
         let intelligenceAvailability = FoundationModelsMessageAnalyzer.systemAvailability
         let banco: SyncDatabase
         do {
@@ -140,6 +144,7 @@ public struct AppComposition: Sendable {
                 contactPort: nil, agendaPort: nil, calendarSync: EventKitCalendarAdapter(), trustPort: nil,
                 outbox: nil, outboxSignal: nil, sync: nil, network: nil,
                 intelligence: nil, intelligenceAvailability: intelligenceAvailability,
+                textAssistant: textAssistant,
                 configError: falha
             )
         }
@@ -283,6 +288,7 @@ public struct AppComposition: Sendable {
             network: rede,
             intelligence: intelligence,
             intelligenceAvailability: intelligenceAvailability,
+            textAssistant: textAssistant,
             configError: erro
         )
     }
