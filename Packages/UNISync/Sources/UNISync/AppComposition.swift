@@ -146,8 +146,13 @@ public struct AppComposition: Sendable {
         )
         // A fila começa a andar ao abrir. `Task` porque ligar os executores lê
         // o banco, e a composição é síncrona de propósito: o app não pode
-        // esperar por I/O para desenhar a primeira janela.
-        Task { await fila.start() }
+        // esperar por I/O para desenhar a primeira janela. E ela segue o
+        // diretor: conta adicionada com o app aberto ganha executor na hora —
+        // sem isso, arquivar na conta nova enfileirava para sempre.
+        Task {
+            await fila.start()
+            await fila.follow(director.statuses())
+        }
 
         // A sincronização contínua. Ela não lê a lista de contas por conta
         // própria: assina o diretor, e é ele quem diz quem entrou, quem saiu e

@@ -32,6 +32,7 @@ public actor OutboxRunner {
     private let log = Logger(subsystem: "com.okamiops.okamiuni", category: "OutboxRunner")
 
     private var executores: [String: OutboxExecutor] = [:]
+    private var assinatura: Task<Void, Never>?
 
     public init(
         database: SyncDatabase,
@@ -93,7 +94,27 @@ public actor OutboxRunner {
         }
     }
 
+    /// Religa a fila a cada mudança na lista de contas.
+    ///
+    /// `start()` roda uma vez na abertura — e era só isso: a conta adicionada
+    /// com o app aberto nunca ganhava executor, e as ações dela ficavam
+    /// `pendente`, com zero tentativas, até o próximo reinício. A
+    /// sincronização já assinava o diretor (`SyncRunner.start`); a fila
+    /// assina o mesmo fluxo. `start()` é idempotente de propósito, então cada
+    /// publicação só liga o que falta e desliga o que sobrou.
+    public func follow(_ statuses: AsyncStream<[AccountStatus]>) {
+        guard assinatura == nil else { return }
+        assinatura = Task { [weak self] in
+            for await _ in statuses {
+                guard let self else { return }
+                await self.start()
+            }
+        }
+    }
+
     public func stop() async {
+        assinatura?.cancel()
+        assinatura = nil
         for (id, executor) in executores {
             await executor.stop()
             signal.forget(accountID: id)
