@@ -385,8 +385,14 @@ public struct ReaderPane: View {
         let tint = accountTint(message)
 
         return HStack(spacing: 10) {
+            // Protótipo (`selAvatarStyle`): `width/height: 26px; font-size:
+            // 10px; font-weight: 650`, **na fonte do painel** — o estilo não
+            // troca a família. Aqui a inicial estava em `mono`/600: uma
+            // tipografia que o desenho não pediu, e a única do leitor que não
+            // combinava com a mesma bolinha da janela 05, que já traduz o mesmo
+            // `font-weight: 650` como `sans`/`bold` (ver `MessageWindow`).
             Text(message.from.initials)
-                .font(theme.mono.font(size: 10, weight: .semibold))
+                .font(theme.sans.font(size: 10, weight: .bold))  // CSS 650
                 .foregroundStyle(tint)
                 .frame(width: 26, height: 26)
                 .background(tint.opacity(0.16))
@@ -789,7 +795,7 @@ public struct ReaderPane: View {
                         .font(theme.serif.font(size: 16))
                         .lineSpacing(10.88)
                         .foregroundStyle(theme.ink.color)
-                        .frame(maxWidth: 500, alignment: .leading)
+                        .frame(maxWidth: Self.readingWidth, alignment: .leading)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -839,6 +845,20 @@ public struct ReaderPane: View {
         message.body.flatMap { PlainTextReflow.paragraphs(from: $0) }
     }
 
+    /// A largura da coluna de leitura.
+    ///
+    /// Protótipo: `max-width: 64ch` no parágrafo do corpo — 64 caracteres de
+    /// Newsreader a 16pt, que é o que este número resolve. Uma linha de texto
+    /// corrido que atravessasse o painel inteiro obriga o olho a caçar o começo
+    /// da linha seguinte, e é justamente o que um leitor de email não pode
+    /// pedir.
+    ///
+    /// Uma constante, e não três literais: desde a M3-18 o mesmo número também
+    /// entra na folha de estilo do email **sem desenho próprio** (ver
+    /// `ReaderHTMLPolicy.documento`), e três cópias divergiriam na primeira vez
+    /// que alguém mexesse numa.
+    nonisolated static let readingWidth: CGFloat = 500
+
     /// "Carregando corpo…", e a frase da mensagem sem texto. Estáticas e
     /// `nonisolated` para o teste as afirmar sem montar a janela: o que a
     /// pessoa lê é comportamento, não decoração.
@@ -850,7 +870,7 @@ public struct ReaderPane: View {
             .font(theme.serif.font(size: 15))
             .italic()
             .foregroundStyle(theme.ink4.color)
-            .frame(maxWidth: 500, alignment: .leading)
+            .frame(maxWidth: Self.readingWidth, alignment: .leading)
             .padding(.horizontal, 28)
     }
 
@@ -873,7 +893,7 @@ public struct ReaderPane: View {
             }
             .help("Busca o corpo desta mensagem no servidor outra vez")
         }
-        .frame(maxWidth: 500, alignment: .leading)
+        .frame(maxWidth: Self.readingWidth, alignment: .leading)
         .padding(.horizontal, 28)
     }
 

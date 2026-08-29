@@ -140,6 +140,32 @@ struct ReaderWebFitTests {
         #expect(await sonda.numero("document.body.scrollWidth") == 640)
     }
 
+    // MARK: A coluna de leitura
+
+    /// **O email escrito à mão ganha a coluna do protótipo; o desenhado, não.**
+    ///
+    /// Texto corrido atravessando 700 pontos de painel é a linha que o
+    /// protótipo recusa com `max-width: 64ch` no parágrafo — o olho perde o
+    /// começo da linha seguinte. Já a newsletter traz a própria largura,
+    /// centrada, e espremê-la numa coluna quebraria o desenho do remetente.
+    @Test("O email sem desenho próprio lê numa coluna; o desenhado fica inteiro")
+    func colunaDeLeitura() async throws {
+        let sonda = SondaDeWebView(largura: 900)
+        await sonda.carrega(ReaderHTMLPolicy.documento(
+            html: "<p>Bom dia, Marcos. Segue o combinado de ontem.</p>",
+            fundo: "#ffffff", tinta: "#1a1a1a", link: "#1155cc", fonte: "ui-serif"
+        ))
+        #expect(await sonda.numero("document.body.getBoundingClientRect().width")
+            == ReaderPane.readingWidth)
+
+        let desenhado = SondaDeWebView(largura: 900)
+        await desenhado.carrega(ReaderHTMLPolicy.documento(
+            html: "<table bgcolor=\"#fff\" width=\"640\"><tr><td>Promoção</td></tr></table>",
+            fundo: "#ffffff", tinta: "#1a1a1a", link: "#1155cc", fonte: "ui-serif"
+        ))
+        #expect(await desenhado.numero("document.body.getBoundingClientRect().width") == 900)
+    }
+
     /// A régua do app não pode depender de um interruptor que está desligado: a
     /// `WebView` do leitor recusa o script **da mensagem**, e é o app que
     /// pergunta a altura. Verificado na prática, e não deduzido do nome da

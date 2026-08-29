@@ -65,6 +65,14 @@ struct ReaderHTMLSection: View {
 
     /// A frase, e o que ela oferece.
     ///
+    /// **Na altura dos vizinhos, desde a M3-18.** Os botões daqui mediam 24 de
+    /// altura e 10 de folga lateral; tudo o mais que o leitor desenha — as
+    /// pastilhas da fila de triagem, o "Colocar na agenda", o "Desfazer" da
+    /// confirmação, o "Tentar de novo" do corpo que falhou — mede 26 e 12, que
+    /// é o que o protótipo especifica para o controle desta tela. Dois pontos de
+    /// diferença não se notam num botão; notam-se numa faixa que fica logo acima
+    /// do corpo, com a barra de 26 logo acima dela.
+    ///
     /// **Discreta de propósito.** Ela não é um alerta: o padrão está certo, e
     /// nada deu errado. É uma linha dizendo o que faltou e um botão para quem
     /// quiser o resto — a mesma gramática do "Tentar de novo" do corpo que
@@ -101,7 +109,7 @@ struct ReaderHTMLSection: View {
                 .foregroundStyle(theme.ink4.color)
             ChromeButton(
                 Self.carregar, appearance: .outlined,
-                size: 11.5, height: 24, horizontalPadding: 10
+                size: 11.5, height: 26, horizontalPadding: 12
             ) {
                 carregaRemotas = true
             }
@@ -114,7 +122,7 @@ struct ReaderHTMLSection: View {
             if let sempre = Self.sempreCarregar(de: remetente) {
                 ChromeButton(
                     sempre, appearance: .outlined,
-                    size: 11.5, height: 24, horizontalPadding: 10
+                    size: 11.5, height: 26, horizontalPadding: 12
                 ) {
                     aoConfiar()
                 }
@@ -141,7 +149,7 @@ struct ReaderHTMLSection: View {
                 .foregroundStyle(theme.ink4.color)
             ChromeButton(
                 Self.rever, appearance: .outlined,
-                size: 11.5, height: 24, horizontalPadding: 10
+                size: 11.5, height: 26, horizontalPadding: 12
             ) {
                 aoRevogar()
             }

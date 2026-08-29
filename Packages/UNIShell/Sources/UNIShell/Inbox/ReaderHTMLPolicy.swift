@@ -176,9 +176,24 @@ enum ReaderHTMLPolicy {
     /// a especificidade mais baixa que existe: tudo o que a mensagem declarar
     /// ganha do que está aqui. Isto é piso, não opinião.
     static func documento(
-        html: String, fundo: String, tinta: String, link: String, fonte: String
+        html: String, fundo: String, tinta: String, link: String, fonte: String,
+        larguraDeLeitura: CGFloat = ReaderPane.readingWidth
     ) -> String {
         let papel = paleta(para: html) == .papel
+        // **A coluna de leitura, e só para quem não trouxe desenho.**
+        //
+        // O email escrito à mão que chega em HTML é texto corrido, e sem limite
+        // ele atravessa o painel inteiro — a linha de 700 pontos que o
+        // protótipo recusa com `max-width: 64ch` no parágrafo. O email de
+        // marketing é o contrário: ele traz a própria largura, centrada, e
+        // espremê-lo numa coluna quebraria o desenho do remetente.
+        //
+        // A pergunta que separa os dois já existe e já é testada: quem declarou
+        // cor declarou desenho (ver `paleta(para:)`). É o mesmo sinal, usado
+        // para a mesma coisa — de quem é o desenho desta mensagem.
+        let coluna = papel
+            ? ""
+            : "\n  max-width: \(Int(larguraDeLeitura))px;"
         let corDeFundo = papel ? "#ffffff" : fundo
         let corDaTinta = papel ? "#1a1a1a" : tinta
         let corDoLink = papel ? "#1155cc" : link
@@ -194,7 +209,7 @@ enum ReaderHTMLPolicy {
             body {
               margin: 0; padding: 0; background: transparent; color: \(corDaTinta);
               font-family: \(fonte); font-size: 16px; line-height: 1.68;
-              overflow-wrap: break-word; word-break: break-word;
+              overflow-wrap: break-word; word-break: break-word;\(coluna)
             }
             /* A imagem de 900px de uma newsletter não pode empurrar o painel
                para o lado: o leitor rola para baixo, e só.
