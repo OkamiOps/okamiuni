@@ -333,6 +333,64 @@ struct EventWindowFooterTests {
         #expect(Self.pills(in: rep, y: Int(Self.yDoRodape), width: 560) == 3)
     }
 
+    // MARK: - As seções que nascem recolhidas
+
+    /// **Oito participantes tomavam a janela inteira.** Recolhida, a seção
+    /// mostra o organizador e mais nada — e a prova é que trocar quem são os
+    /// sete escondidos não muda um pixel do desenho.
+    ///
+    /// Cai por mutação: tirar o `EventSections.visibleGuests` (desenhar
+    /// `guests` inteiro) põe os sete na tela, e os dois desenhos divergem.
+    @Test("a seção de participantes nasce recolhida")
+    func participantesNascemRecolhidos() async throws {
+        func janela(_ nomes: [String]) async -> NSBitmapImageRep? {
+            let extras = nomes.map {
+                EventPerson(
+                    name: $0, address: "\($0.lowercased())@vantion.com.br",
+                    role: "convidado", status: .pending
+                )
+            }
+            let store = await Self.loja(Self.detalheDeConvite(link: nil, extras: extras))
+            return Render.bitmap(
+                EventWindow(store: store, itemID: "email-m1"),
+                size: CGSize(width: 560, height: 700), theme: .tinta
+            )
+        }
+
+        // Mesma contagem (o cabeçalho diz "· 8" nos dois), gente diferente.
+        let time = try #require(await janela(
+            ["Marcos", "Ana", "Bruno", "Carla", "Diego", "Elis", "Fabio"]
+        ))
+        let outroTime = try #require(await janela(
+            ["Zilda", "Yara", "Xavier", "Walter", "Vera", "Ulisses", "Tania"]
+        ))
+        #expect(
+            time.pixelsDiffering(from: outroTime) == 0,
+            "a janela desenhou os participantes que a seção recolhida esconde"
+        )
+    }
+
+    /// A mesma prova para "o que gerou este compromisso": recolhida, o assunto
+    /// do email não está na tela — só o cabeçalho, que diz de quando ele é.
+    @Test("a seção «o que gerou» nasce recolhida")
+    func oQueGerouNasceRecolhido() async throws {
+        func janela(_ assunto: String) async -> NSBitmapImageRep? {
+            let store = await Self.loja(
+                Self.detalheDeConvite(link: nil, assuntoDoEmail: assunto)
+            )
+            return Render.bitmap(
+                EventWindow(store: store, itemID: "email-m1"),
+                size: CGSize(width: 560, height: 700), theme: .tinta
+            )
+        }
+        let um = try #require(await janela("Convite: DreamSquad <> Vantion"))
+        let outro = try #require(await janela("Outro assunto completamente diferente"))
+        #expect(
+            um.pixelsDiffering(from: outro) == 0,
+            "a janela desenhou o histórico que a seção recolhida esconde"
+        )
+    }
+
     /// Quantas pastilhas a linha `y` atravessa: cada entrada num trecho de cor
     /// diferente do fundo do rodapé conta uma.
     private static func pills(in rep: NSBitmapImageRep, y: Int, width: Int) -> Int {

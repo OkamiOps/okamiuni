@@ -51,6 +51,10 @@ public struct EventWindow: View {
         #endif
     }
 
+    /// As seções recolhíveis — participantes e "o que gerou". Nascem
+    /// recolhidas e **não** atravessam a abertura seguinte: ver `EventSections`.
+    @State private var sections = EventSections()
+
     @State private var forwardOpen = false
     @State private var forwardTo: [Contact] = []
     @State private var forwardNote = ""
@@ -176,7 +180,15 @@ public struct EventWindow: View {
             if detail.hasThread { thread }
             if forwardOpen { forwardPanel }
             if forwardSent { forwardConfirmation }
-            originNote
+            // A nota de origem tinha cartão próprio no fim da janela, embaixo
+            // da seção que fala da mesma coisa — duas caixas dizendo de onde o
+            // compromisso veio, uma logo abaixo da outra. Com histórico, ela
+            // passa a ser a última linha **de dentro** da seção; sem histórico
+            // (o compromisso da agenda de exemplo) o cartão continua sendo o
+            // único lugar onde essa frase cabe.
+            if !detail.hasThread { originNote }
+            Color.clear
+                .frame(height: 0)
                 .id(Self.bottomAnchor)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -329,17 +341,26 @@ public struct EventWindow: View {
     }
 
     /// Protótipo: `padding: 18px 20px 0`, com "Participantes · N" no topo.
+    ///
+    /// **Nasce recolhida** — pedido do dono: oito participantes tomavam a
+    /// janela inteira e empurravam para fora da vista o quando, o onde e o
+    /// link. Recolhida, o cabeçalho conta quantos são e a lista mostra o
+    /// organizador; o clique no cabeçalho abre o resto. Ver `EventSections`.
     private var people: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Participantes · \(detail.guestCount)")
-                .font(theme.mono.font(size: 8.5, weight: .medium))
-                .tracking(theme.capsTracking(at: 8.5))
-                .textCase(.uppercase)
-                .foregroundStyle(theme.ink4.color)
-                .padding(.bottom, 9)
+            SectionHeader(
+                title: "Participantes · \(detail.guestCount)",
+                expanded: sections.participants,
+                help: sections.participants
+                    ? "Recolher a lista de participantes"
+                    : "Mostrar os \(detail.guestCount) participantes"
+            ) {
+                sections.toggleParticipants()
+            }
+            .padding(.bottom, 9)
 
             VStack(alignment: .leading, spacing: 2) {
-                ForEach(guests) { guest in
+                ForEach(EventSections.visibleGuests(guests, expanded: sections.participants)) { guest in
                     HStack(spacing: 10) {
                         Text(guest.initials)
                             .font(theme.sans.font(size: 9.5, weight: .bold))  // 650
@@ -390,11 +411,7 @@ public struct EventWindow: View {
 
     private var agenda: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Pauta")
-                .font(theme.mono.font(size: 8.5, weight: .medium))
-                .tracking(theme.capsTracking(at: 8.5))
-                .textCase(.uppercase)
-                .foregroundStyle(theme.ink4.color)
+            SectionHeader(title: "Pauta")
                 .padding(.bottom, 8)
 
             VStack(alignment: .leading, spacing: 6) {
@@ -427,11 +444,7 @@ public struct EventWindow: View {
     @ViewBuilder
     private func descricao(_ texto: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Descrição")
-                .font(theme.mono.font(size: 8.5, weight: .medium))
-                .tracking(theme.capsTracking(at: 8.5))
-                .textCase(.uppercase)
-                .foregroundStyle(theme.ink4.color)
+            SectionHeader(title: "Descrição")
                 .padding(.bottom, 8)
             Text(texto)
                 .font(theme.sans.font(size: 13))
@@ -446,58 +459,108 @@ public struct EventWindow: View {
     }
 
     /// Protótipo: `border-left: 0.5px solid var(--line); padding-left: 14px`.
+    ///
+    /// **Nasce recolhida, e o cabeçalho diz de quando é o email.** Antes eram
+    /// duas coisas soltas no fim da janela: a linha do histórico, e um cartão
+    /// cinza com "Do convite por email · conta vantion" logo abaixo, dizendo a
+    /// mesma coisa noutro desenho. Agora a nota é a última linha **de dentro**
+    /// da seção, e a seção inteira só ocupa altura quando alguém pede.
     private var thread: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("O que gerou este compromisso")
-                .font(theme.mono.font(size: 8.5, weight: .medium))
-                .tracking(theme.capsTracking(at: 8.5))
-                .textCase(.uppercase)
-                .foregroundStyle(theme.ink4.color)
-                .padding(.bottom, 10)
-
-            VStack(alignment: .leading, spacing: 11) {
-                ForEach(detail.thread) { entry in
-                    HStack(alignment: .top, spacing: 10) {
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(dotColor(entry.kind))
-                            .frame(width: 7, height: 7)
-                            .padding(.top, 4)
-                        VStack(alignment: .leading, spacing: 0) {
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Text(entry.who)
-                                    .font(theme.sans.font(size: 12, weight: .semibold))  // 590
-                                    .foregroundStyle(theme.ink.color)
-                                Text(entry.kind.rawValue)
-                                    .font(theme.mono.font(size: 8.5, weight: .medium))
-                                    .tracking(theme.capsTracking(at: 8.5))
-                                    .textCase(.uppercase)
-                                    .foregroundStyle(theme.ink4.color)
-                                Spacer(minLength: 8)
-                                Text(entry.when)
-                                    .font(theme.mono.font(size: 10))
-                                    .foregroundStyle(theme.ink4.color)
-                                    .fixedSize()
-                            }
-                            Text(entry.what)
-                                .font(theme.serif.font(size: 13.5))
-                                .lineSpacing(0.45 * 13.5)
-                                .foregroundStyle(theme.ink2.color)
-                                .padding(.top, 3)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                }
+            SectionHeader(
+                title: EventSections.originHeader(detail.thread),
+                expanded: sections.origin,
+                help: sections.origin
+                    ? "Recolher o histórico deste compromisso"
+                    : "Mostrar o email e a origem deste compromisso"
+            ) {
+                sections.toggleOrigin()
             }
-            .padding(.leading, 14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .overlay(alignment: .leading) {
-                Rectangle().fill(theme.line.color).frame(width: Hairline.thickness(displayScale))
+
+            if sections.origin {
+                VStack(alignment: .leading, spacing: 11) {
+                    ForEach(detail.thread) { entry in threadRow(entry) }
+                    originLine
+                }
+                .padding(.top, 10)
+                .padding(.leading, 14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .overlay(alignment: .leading) {
+                    Rectangle().fill(theme.line.color).frame(width: Hairline.thickness(displayScale))
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
         .padding(.top, 18)
-        .padding(.bottom, 4)
+        .padding(.bottom, 20)
+    }
+
+    /// Uma linha do histórico, no vocabulário das linhas de mensagem do app:
+    /// quem escreveu em `sans` 12,5 destacado, o assunto em `serif` logo
+    /// abaixo, o carimbo em `mono` na direita — a mesma divisão de papéis de
+    /// `MessageRow` e da pilha da conversa.
+    ///
+    /// A linha do email **é clicável** quando há mensagem para onde ir: leva ao
+    /// mesmo lugar que o botão "Email" do rodapé, pela mesma função. Sem
+    /// mensagem casada ela não vira botão — clique que não faz nada é o defeito
+    /// que esta tarefa veio tirar, não um a acrescentar.
+    @ViewBuilder
+    private func threadRow(_ entry: EventThreadEntry) -> some View {
+        if entry.kind == .email, originMessageID != nil {
+            Button { revealOriginMessage() } label: {
+                threadRowBody(entry).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .focusRing(cornerRadius: theme.radiusSmall)
+            .help("Mostrar na janela principal o email que gerou este compromisso")
+        } else {
+            threadRowBody(entry)
+        }
+    }
+
+    private func threadRowBody(_ entry: EventThreadEntry) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(dotColor(entry.kind))
+                .frame(width: 7, height: 7)
+                .padding(.top, 5)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(entry.who)
+                        .font(theme.sans.font(size: 12.5, weight: .semibold))  // 590
+                        .foregroundStyle(theme.ink.color)
+                        .lineLimit(1)
+                    Text(entry.kind.rawValue)
+                        .font(theme.mono.font(size: 8.5, weight: .medium))
+                        .tracking(theme.capsTracking(at: 8.5))
+                        .textCase(.uppercase)
+                        .foregroundStyle(theme.ink4.color)
+                    Spacer(minLength: 8)
+                    Text(entry.when)
+                        .font(theme.mono.font(size: 10))
+                        .foregroundStyle(theme.ink4.color)
+                        .fixedSize()
+                }
+                Text(entry.what)
+                    .font(theme.serif.font(size: 13.5))
+                    .lineSpacing(0.45 * 13.5)
+                    .foregroundStyle(theme.ink2.color)
+                    .padding(.top, 3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// A nota de origem, integrada à seção: uma linha de apoio embaixo do
+    /// histórico, e não mais um cartão cinza jogado no fim da janela.
+    private var originLine: some View {
+        Text(detail.note)
+            .font(theme.sans.font(size: 11.5))
+            .lineSpacing(0.45 * 11.5)
+            .foregroundStyle(theme.ink3.color)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func dotColor(_ kind: EventThreadEntry.Kind) -> Color {
@@ -713,6 +776,60 @@ public struct EventWindow: View {
             try? await Task.sleep(for: .milliseconds(1600))
             copied = false
         }
+    }
+}
+
+/// O rótulo de uma seção da janela 04 — e, quando a seção recolhe, o controle
+/// que a abre.
+///
+/// Protótipo: `font-family: var(--mono); font-size: 8.5px; letter-spacing:
+/// var(--caps); text-transform: uppercase; color: var(--ink4)`. Era o mesmo
+/// bloco copiado cinco vezes no arquivo, e agora é um só — o que também garante
+/// que a seção que recolhe e a que não recolhe fiquem na mesma linha de base.
+///
+/// O sinal é o "▾"/"▸" que o app já usa: "▾" na faixa de resposta do leitor
+/// (aberta, e o clique recolhe) e "▸" no submenu de contexto (fechado, e o
+/// clique abre). Nenhum componente novo além deste — é polimento, não reforma.
+private struct SectionHeader: View {
+    @Environment(\.theme) private var theme
+    @State private var hovering = false
+
+    let title: String
+    /// `nil` numa seção que não recolhe ("Pauta", "Descrição"): sem seta, sem
+    /// clique, sem hover — um rótulo, como sempre foi.
+    var expanded: Bool?
+    var help: String?
+    var action: (() -> Void)?
+
+    var body: some View {
+        if let expanded, let action {
+            Button(action: action) {
+                row(expanded: expanded).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .focusRing(cornerRadius: theme.radiusSmall)
+            .help(help ?? "")
+            .onHover { hovering = $0 }
+        } else {
+            row(expanded: nil)
+        }
+    }
+
+    private func row(expanded: Bool?) -> some View {
+        HStack(spacing: 7) {
+            Text(title)
+                .font(theme.mono.font(size: 8.5, weight: .medium))
+                .tracking(theme.capsTracking(at: 8.5))
+                .textCase(.uppercase)
+                .foregroundStyle(hovering ? theme.ink3.color : theme.ink4.color)
+            if let expanded {
+                Text(expanded ? "▾" : "▸")
+                    .font(theme.mono.font(size: 8.5))
+                    .foregroundStyle(hovering ? theme.ink3.color : theme.ink4.color)
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
