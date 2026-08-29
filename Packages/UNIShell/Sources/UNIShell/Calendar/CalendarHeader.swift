@@ -29,11 +29,14 @@ struct CalendarHeader: View {
 
     var body: some View {
         HStack(spacing: 14) {
-            Text(title)
-                .font(theme.serif.font(size: 19, weight: .semibold))
-                .foregroundStyle(theme.ink.color)
-                .lineLimit(1)
-                .fixedSize()
+            // Largura reservada, e não largura medida: era daqui que vinha o
+            // defeito dos "controles que andam". Ver `ReservedText`.
+            ReservedText(
+                text: title,
+                groups: titleCandidates,
+                font: theme.serif.font(size: 19, weight: .semibold),
+                color: theme.ink.color
+            )
 
             viewTabs
 
@@ -62,6 +65,27 @@ struct CalendarHeader: View {
         mode == .day
             ? MonthAgenda.longDayTitle(dayOffset: selectedDayOffset, anchor: anchor)
             : WeekAgenda.monthTitle(for: focusedDate)
+    }
+
+    /// Todos os títulos que **esta** visão pode mostrar, em grupos — a régua
+    /// da largura reservada ao título.
+    ///
+    /// Na Semana e no Mês são os doze meses do ano em foco; na visão Dia são
+    /// os dois pedaços de que qualquer dia do ano é feito. Ver
+    /// `CalendarTitleReserve`, que explica por que dois pedaços bastam.
+    private var titleCandidates: [[String]] {
+        guard mode == .day else {
+            return [CalendarTitleReserve.monthTitles(inYearOf: focusedDate)]
+        }
+        let pedacos = CalendarTitleReserve.longDayTitlePieces(inYearOf: focusedDate)
+        return [pedacos.prefixes, pedacos.suffixes]
+    }
+
+    /// O mesmo para o botão que abre o seletor: "ter, 25 ago" e "qua, 1 set"
+    /// não medem igual, e o que estivesse à direita dele andava junto.
+    private var dayLabelCandidates: [[String]] {
+        let pedacos = CalendarTitleReserve.shortDayLabelPieces(inYearOf: focusedDate)
+        return [pedacos.prefixes, pedacos.suffixes]
     }
 
     /// O dia em que a navegação está parada. Título, número da semana e
@@ -151,8 +175,14 @@ struct CalendarHeader: View {
                 action: onTogglePicker
             ) {
                 HStack(spacing: 5) {
-                    Text(MonthAgenda.shortDayLabel(dayOffset: selectedDayOffset, anchor: anchor))
-                        .font(theme.sans.font(size: 12, weight: .medium))
+                    ReservedText(
+                        text: MonthAgenda.shortDayLabel(
+                            dayOffset: selectedDayOffset, anchor: anchor
+                        ),
+                        groups: dayLabelCandidates,
+                        font: theme.sans.font(size: 12, weight: .medium),
+                        color: nil
+                    )
                     // Protótipo: `font-size: 8px; opacity: 0.6` no mono.
                     Text("▾")
                         .font(theme.mono.font(size: 8))
@@ -223,6 +253,68 @@ struct CalendarHeader: View {
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("Cor da caixa \(account.host)")
             }
+        }
+    }
+}
+
+/// Um texto que ocupa sempre a largura do **maior** texto que aquele lugar
+/// pode mostrar.
+///
+/// É o conserto do defeito dos controles que andam: a faixa da agenda é um
+/// `HStack`, e num `HStack` quem está à direita começa onde o vizinho da
+/// esquerda termina. Com o título medindo o que a data medisse, ir de "Julho
+/// 2026" para "Agosto 2026" deslocava as abas, o `‹ ›`, o "Hoje" e a contagem —
+/// e o dono, que navega com cliques repetidos em `›`, via o botão fugir do
+/// cursor. O mesmo valia para o botão "ter, 25 ago".
+///
+/// A reserva é feita **desenhando**, e não com uma constante em pontos: a
+/// largura depende da fonte que a máquina de fato tem (a Newsreader do desenho
+/// pode não estar instalada, e aí vale a do sistema), e uma constante escolhida
+/// numa máquina mentiria na outra. Os candidatos vêm escondidos — ocupam
+/// layout, não pintam pixel — e a soma dos maiores de cada grupo é a largura da
+/// fatia.
+///
+/// Se algum texto passar da reserva, ele **cresce** em vez de ser cortado ou de
+/// pintar por cima das abas: a pior consequência possível de um candidato mal
+/// escolhido é o defeito antigo naquele caso, nunca um título ilegível.
+private struct ReservedText: View {
+    let text: String
+    /// Grupos de candidatos. A reserva é a soma do maior de cada grupo — ver
+    /// `CalendarTitleReserve` para o porquê de haver mais de um.
+    let groups: [[String]]
+    let font: Font
+    /// `nil` herda a cor de quem contém, que é o caso do rótulo dentro do
+    /// botão do seletor: ele muda de cor com o estado do botão.
+    let color: Color?
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            HStack(spacing: 0) {
+                ForEach(Array(groups.enumerated()), id: \.offset) { _, grupo in
+                    ZStack(alignment: .leading) {
+                        ForEach(grupo, id: \.self) { candidato in
+                            Text(candidato).font(font).lineLimit(1).fixedSize()
+                        }
+                    }
+                }
+            }
+            .hidden()
+            .accessibilityHidden(true)
+
+            visivel
+        }
+        .fixedSize()
+    }
+
+    /// A cor só é aplicada quando há uma: dentro do botão do seletor, o rótulo
+    /// herda a cor do botão, e cravar `.primary` aqui apagaria o realce dele.
+    @ViewBuilder
+    private var visivel: some View {
+        let base = Text(text).font(font).lineLimit(1).fixedSize()
+        if let color {
+            base.foregroundStyle(color)
+        } else {
+            base
         }
     }
 }

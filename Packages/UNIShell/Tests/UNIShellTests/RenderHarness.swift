@@ -452,5 +452,34 @@ extension NSBitmapImageRep {
         }
         return count
     }
+
+    /// Em que colunas esta cor aparece. `nil` quando ela não aparece em
+    /// nenhuma.
+    ///
+    /// É a régua do defeito 2: a pastilha das três abas tem fundo `surface3` e
+    /// os botões `‹ › Hoje` têm fundo `btn`. Se a barra andar quando o mês
+    /// muda, estas colunas mudam junto — e é isso que o caso mede, em vez de
+    /// comparar a imagem inteira, que muda de qualquer jeito porque o título
+    /// mudou.
+    func columns(matching token: TokenColor, tolerance: Double = 0.02) -> ClosedRange<Int>? {
+        guard let wanted = token.nsColor.usingColorSpace(.sRGB) else { return nil }
+        var menor: Int?
+        var maior: Int?
+        for x in 0..<pixelsWide {
+            for y in 0..<pixelsHigh {
+                guard let c = colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
+                      c.alphaComponent > 0.9,
+                      abs(c.redComponent - wanted.redComponent) < tolerance,
+                      abs(c.greenComponent - wanted.greenComponent) < tolerance,
+                      abs(c.blueComponent - wanted.blueComponent) < tolerance else { continue }
+                if menor == nil { menor = x }
+                maior = x
+                break
+            }
+        }
+        guard let menor, let maior else { return nil }
+        return menor...maior
+    }
+
 }
 
