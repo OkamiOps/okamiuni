@@ -193,6 +193,10 @@ public struct ReaderPane: View {
     /// quando alguém a abre. `nonisolated` e `static` pelo motivo de sempre: o
     /// que a pessoa lê é comportamento, e o teste o afirma sem montar janela.
     nonisolated static func primeiraLinha(de message: Message) -> String {
+        // **Sem refluxo, de propósito.** Aqui a pergunta é outra: a pilha
+        // recolhida mostra uma linha, cortada no fim, e a primeira linha crua
+        // já é a resposta certa para ela. Refluir aqui só emendaria mais texto
+        // no que a `lineLimit(1)` corta — e mudaria o que a M3-10 fixou.
         let bruto = message.body.first ?? message.snippet
         return bruto
             .split(whereSeparator: \.isNewline)
@@ -698,7 +702,7 @@ public struct ReaderPane: View {
                 .id(message.id)
         } else if !message.body.isEmpty {
             VStack(alignment: .leading, spacing: 16) {
-                ForEach(Array(message.body.enumerated()), id: \.offset) { _, para in
+                ForEach(Array(Self.paragrafos(de: message).enumerated()), id: \.offset) { _, para in
                     Text(para)
                         .font(theme.serif.font(size: 16))
                         .lineSpacing(10.88)
@@ -727,6 +731,30 @@ public struct ReaderPane: View {
                 EmptyView()
             }
         }
+    }
+
+    /// Os parágrafos do texto plano **como se lê**, e não como o transporte os
+    /// entregou.
+    ///
+    /// "Não gosto de como o email fica": um texto plano quebrado à mão em 72
+    /// colunas chegava aqui com uma linha por quebra, e a coluna do leitor
+    /// desenhava cada uma como um bloco — a frase "Passando para confirmar
+    /// nossa call amanhã, 16 de julho, às 15h, / no horário / de Brasília."
+    /// partida em três. `PlainTextReflow` desfaz a quebra que é do transporte e
+    /// deixa em paz a que é do autor (lista, citação, assinatura, tabela).
+    ///
+    /// **Mora aqui, no desenho, e não no decodificador.** As duas alternativas
+    /// custam o mesmo para escrever, e só esta alcança as mensagens que **já
+    /// estão** no banco: refluir na decodificação melhoraria as próximas e
+    /// deixaria as antigas exatamente como o dono as vê hoje — a menos de uma
+    /// varredura que reescrevesse todos os corpos e reindexasse o FTS por
+    /// causa de espaçamento. Aqui, uma mensagem de 2024 fica boa na primeira
+    /// abertura, e o banco não é tocado.
+    ///
+    /// `nonisolated` e `static` pelo motivo de sempre: o que a pessoa lê é
+    /// comportamento, e o teste o afirma sem montar janela.
+    nonisolated static func paragrafos(de message: Message) -> [String] {
+        message.body.flatMap { PlainTextReflow.paragraphs(from: $0) }
     }
 
     /// "Carregando corpo…", e a frase da mensagem sem texto. Estáticas e

@@ -84,10 +84,10 @@ public enum GmailMessageParser {
     /// caem no vazio de 1×1 de `MimeSanitize.placeholder`, como qualquer `cid:`
     /// órfão. Está registrado no relatório da M3-8.
     private static func corpoDe(_ payload: Wire.Part) -> MimeBody.Decoded {
-        let plano = firstPart(in: payload, mimeType: "text/plain")
-        let html = firstPart(in: payload, mimeType: "text/html")
-        let agenda = firstPart(in: payload, mimeType: "text/calendar")
-            ?? firstPart(in: payload, mimeType: "application/ics")
+        let plano = firstPart(in: payload, mimeType: "text/plain").map(desdobra)
+        let html = firstPart(in: payload, mimeType: "text/html")?.texto
+        let agenda = (firstPart(in: payload, mimeType: "text/calendar")
+            ?? firstPart(in: payload, mimeType: "application/ics"))?.texto
 
         let texto: String
         if let plano {
@@ -123,18 +123,41 @@ public enum GmailMessageParser {
         return achadas
     }
 
+    /// Uma parte já decodificada, com o `Content-Type` dela ao lado.
+    ///
+    /// O cabeçalho vem junto porque ele ainda decide coisa: o `charset=` (que
+    /// `decodeBody` já lê) e o `format=flowed` do RFC 3676, que diz se as
+    /// quebras de linha daquela parte são do autor ou do transporte.
+    struct Parte {
+        let texto: String
+        let tipo: String
+    }
+
     /// A primeira parte de um tipo, em profundidade, já decodificada.
-    private static func firstPart(in part: Wire.Part, mimeType: String) -> String? {
+    private static func firstPart(in part: Wire.Part, mimeType: String) -> Parte? {
         if part.mimeType?.lowercased() == mimeType, let dado = part.body?.data {
             // O `charset=` é do cabeçalho **da parte**, e ignorá-lo já trocava
             // todo `é` de um remetente latin1 por um losango de substituição.
             let tipo = part.headers?.first { $0.name.lowercased() == "content-type" }?.value
-            return decodeBody(base64URL: dado, contentType: tipo)
+            return Parte(
+                texto: decodeBody(base64URL: dado, contentType: tipo), tipo: tipo ?? ""
+            )
         }
         for filha in part.parts ?? [] {
-            if let texto = firstPart(in: filha, mimeType: mimeType) { return texto }
+            if let achada = firstPart(in: filha, mimeType: mimeType) { return achada }
         }
         return nil
+    }
+
+    /// A parte de texto com as quebras do `format=flowed` desfeitas — quando o
+    /// remetente as declarou. É a mesma decisão de `MimeBody.desdobra`, tomada
+    /// no mesmo lugar da árvore: quem lê o cabeçalho da parte.
+    private static func desdobra(_ parte: Parte) -> String {
+        guard MimeBody.parametro("format", em: parte.tipo)?.lowercased() == "flowed" else {
+            return parte.texto
+        }
+        let delSp = MimeBody.parametro("delsp", em: parte.tipo)?.lowercased() == "yes"
+        return PlainTextReflow.reflow(parte.texto, flowed: true, delSp: delSp)
     }
 
     /// base64**url**: `-` e `_` no lugar de `+` e `/`, e sem padding.

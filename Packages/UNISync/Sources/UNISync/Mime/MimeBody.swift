@@ -1,4 +1,5 @@
 import Foundation
+import UNICore
 
 /// O corpo de um email de verdade, virando texto.
 ///
@@ -130,6 +131,10 @@ public enum MimeBody {
         let dados: Data
         let charset: String.Encoding
         let contentID: String?
+        /// O `Content-Type` **inteiro** da parte, e não só o tipo: é dele que
+        /// saem o `format=flowed` e o `DelSp` do RFC 3676, que decidem se as
+        /// quebras de linha desta parte são do autor ou do transporte.
+        let tipoCru: String
 
         var texto: String { MimeBody.string(de: dados, charset: charset) }
     }
@@ -155,7 +160,7 @@ public enum MimeBody {
 
         let texto: String
         if let plana {
-            texto = plana.texto
+            texto = desdobra(plana)
         } else if let html {
             texto = textFromHTML(html.texto)
         } else {
@@ -169,6 +174,27 @@ public enum MimeBody {
             },
             calendar: agenda?.texto
         )
+    }
+
+    /// A parte de texto com as quebras do RFC 3676 desfeitas — **quando o
+    /// remetente as declarou**.
+    ///
+    /// `format=flowed` é um contrato explícito: "espaço no fim da linha
+    /// significa que ela continua". Obedecê-lo aqui, no decodificador, e não no
+    /// desenho, é o que faz o texto gravado (e por tabela a prévia, o resumo e
+    /// o índice de busca) já nascer com o parágrafo inteiro — e é o único lugar
+    /// em que o `DelSp` ainda existe para ser lido: no leitor, o cabeçalho já
+    /// não está mais lá.
+    ///
+    /// Sem a declaração, nada acontece aqui. A quebra de 72 colunas
+    /// não-declarada é heurística, e heurística mora no desenho
+    /// (`UNICore.PlainTextReflow`), onde ela alcança também as mensagens que já
+    /// estão no banco.
+    private static func desdobra(_ plana: Folha) -> String {
+        let texto = plana.texto
+        guard parametro("format", em: plana.tipoCru)?.lowercased() == "flowed" else { return texto }
+        let delSp = parametro("delsp", em: plana.tipoCru)?.lowercased() == "yes"
+        return PlainTextReflow.reflow(texto, flowed: true, delSp: delSp)
     }
 
     /// `text/calendar` é o nome do RFC; `application/ics` é o que alguns
@@ -217,7 +243,8 @@ public enum MimeBody {
             }
             let dados = decodificaTransporte(corpo, codificacao: codificacao)
             return [Folha(
-                mime: mime, dados: dados, charset: charset(de: tipo), contentID: contentID
+                mime: mime, dados: dados, charset: charset(de: tipo), contentID: contentID,
+                tipoCru: tipo
             )]
         }
         guard profundidade < profundidadeMaxima, let limite = parametro("boundary", em: tipo) else {
