@@ -72,6 +72,18 @@ public enum ContextCommand: Sendable, Hashable {
     /// O "Desfazer" de `deleteForever`: devolve a mensagem ao lugar de onde ela
     /// saiu.
     case restoreDeleted(messageID: String)
+    /// O "Desfazer" de uma ação sobre a **conversa inteira**: cada mensagem
+    /// volta ao estado que tinha antes.
+    ///
+    /// Nenhum menu produz este comando — ele só nasce dentro do recibo de uma
+    /// ação de conversa. Existe como caso do mesmo `enum` para o "Desfazer" da
+    /// faixa continuar sendo um `ContextCommand`, executado pelo mesmo
+    /// `StoreCommand.run` de todos os outros: um segundo caminho de execução
+    /// para desfazer é como o arraste e o menu divergem no primeiro conserto.
+    case restoreConversation(states: [MessageState])
+    /// O "Desfazer" de "Apagar definitivamente" uma conversa inteira: o mesmo
+    /// cofre de `restoreDeleted`, uma mensagem de cada vez.
+    case restoreDeletedConversation(messageIDs: [String])
     /// Esvazia a Lixeira. `accountID` nulo abrange todas as contas.
     ///
     /// **É o único destrutivo sem volta do app**, e por isso quem o dispara

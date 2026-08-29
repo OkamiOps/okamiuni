@@ -20,23 +20,35 @@ public struct MessageRow: View {
     /// parâmetros nomeados existem para o harness renderizar as três variantes
     /// lado a lado sem mexer no app.
     let emphasis: UnreadEmphasis
+    /// Quantas mensagens a conversa desta linha tem. `1` é o padrão e é o caso
+    /// da esmagadora maioria — e com `1` nada aqui muda de desenho.
+    let conversationCount: Int
+    /// A conversa tem alguma não lida? `nil` é "pergunte à mensagem", que é o
+    /// que toda chamada de antes desta tarefa (previews, harness, os testes de
+    /// linha) continua fazendo.
+    let unread: Bool?
 
     public init(
         message: Message,
         accountHost: String,
         accountTint: Color,
         isSelected: Bool,
-        emphasis: UnreadEmphasis = .standard
+        emphasis: UnreadEmphasis = .standard,
+        conversationCount: Int = 1,
+        unread: Bool? = nil
     ) {
         self.message = message
         self.accountHost = accountHost
         self.accountTint = accountTint
         self.isSelected = isSelected
         self.emphasis = emphasis
+        self.conversationCount = conversationCount
+        self.unread = unread
     }
 
-    /// A marca vale para a mensagem não lida, e só para ela.
-    private var marks: Bool { !message.isRead }
+    /// A marca vale para a **conversa** não lida — e, na falta de conversa,
+    /// para a mensagem não lida, que é o mesmo.
+    private var marks: Bool { unread ?? !message.isRead }
 
     /// A largura da barra da conta nesta linha.
     private var barWidth: CGFloat {
@@ -70,6 +82,31 @@ public struct MessageRow: View {
             Text(name)
         } else {
             Text(message.receivedAt, format: .dateTime.day().month(.abbreviated))
+        }
+    }
+
+    /// O selo com quantas mensagens a conversa tem — "3", ao lado do
+    /// remetente, como Gmail e Zoho fazem.
+    ///
+    /// **Só existe a partir de duas.** Um "1" em toda linha de uma caixa sem
+    /// conversa nenhuma seria ruído em cada linha, e mudaria o desenho de
+    /// tudo o que o Marco 1 já tinha — a condição byte a byte dos retratos.
+    ///
+    /// O número em `mono`, como o carimbo de horário e o chip do host: é
+    /// contagem, e nesta tela contagem é monoespaçada.
+    @ViewBuilder
+    private var countBadge: some View {
+        if conversationCount > 1 {
+            Text(String(conversationCount))
+                .font(theme.mono.font(size: 9.5, weight: .medium))
+                .foregroundStyle(theme.ink3.color)
+                .padding(.horizontal, 5)
+                .frame(height: 15)
+                .background(theme.surface3.color)
+                .clipShape(Capsule())
+                .fixedSize()
+                .help("\(conversationCount) mensagens nesta conversa")
+                .accessibilityLabel("\(conversationCount) mensagens nesta conversa")
         }
     }
 
@@ -155,6 +192,7 @@ public struct MessageRow: View {
                     .tracking(-0.005 * 13)  // letter-spacing: -0.005em a 13pt = -0.065pt
                     .foregroundStyle(theme.ink.color)
                     .lineLimit(1)
+                countBadge
                 Spacer(minLength: 4)
                 flagStar
                 timeStamp

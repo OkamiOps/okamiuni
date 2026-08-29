@@ -393,6 +393,167 @@ public final class MailStore {
         return searched.sorted { $0.receivedAt > $1.receivedAt }
     }
 
+    // MARK: - As conversas
+
+    /// A lista **como ela é desenhada**: uma linha por conversa, dentro da
+    /// caixa atual.
+    ///
+    /// Derivada de `visibleMessages`, e não uma segunda consulta: o filtro de
+    /// caixa, o de conta e a busca já foram aplicados lá, e agrupar por cima
+    /// é o que garante que a contagem da linha ("3") conte o que a caixa
+    /// mostra — arquivar uma das três não pode deixar o selo dizendo três.
+    public var visibleConversations: [Conversation] {
+        Conversation.build(from: visibleMessages)
+    }
+
+    /// A conversa a que uma mensagem pertence, dentro do recorte visível.
+    ///
+    /// `nil` quando a mensagem não está na visão — o que é normal: o leitor
+    /// mostra a mensagem revelada por "Ir para o email de origem" antes de a
+    /// lista alcançá-la.
+    public func conversation(of messageID: String) -> Conversation? {
+        visibleConversations.first { $0.contains(messageID) }
+    }
+
+    /// A conversa aberta no leitor.
+    public var selectedConversation: Conversation? {
+        guard let selectedMessageID else { return nil }
+        return conversation(of: selectedMessageID)
+    }
+
+    /// O estado de triagem destas mensagens, agora. Quem vai agir sobre a
+    /// conversa fotografa **antes**, pelo mesmo motivo de sempre: depois de
+    /// arquivadas elas não sabem mais de que caixa vieram.
+    public func states(of messageIDs: [String]) -> [MessageState] {
+        let wanted = Set(messageIDs)
+        return messages.filter { wanted.contains($0.id) }.map(MessageState.init)
+    }
+
+    /// O "Desfazer" de uma ação sobre a conversa: cada mensagem volta ao
+    /// estado que ela tinha, e não ao estado da mais recente.
+    ///
+    /// Sem guarda contra id ausente, como `restoreDeleted`: desfazer o que já
+    /// voltou (ou o que outra ação levou embora) não é erro, é o mesmo estado a
+    /// que se pretendia chegar.
+    public func restore(_ states: [MessageState]) {
+        for state in states {
+            setRead(state.isRead, for: state.messageID)
+            setFlagged(state.isFlagged, for: state.messageID)
+            guard let index = messages.firstIndex(where: { $0.id == state.messageID }) else {
+                continue
+            }
+            move(messages[index], to: state.bucket)
+        }
+    }
+
+    /// Move a conversa inteira. É o que arrastar ou arquivar **na linha da
+    /// lista** faz: a linha é a conversa, e mover metade dela deixaria a outra
+    /// metade na caixa, sozinha, com o mesmo assunto.
+    ///
+    /// **Uma chamada à porta, com todos os ids** — e não uma por mensagem: a
+    /// porta já recebe `messageIDs`, e a fila de saída já sabe executar uma
+    /// operação de vários ids. Ver `MailCommandPort`.
+    ///
+    /// As que já estão no destino ficam de fora da operação: é a mesma guarda
+    /// que `move(_:to:)` faz por mensagem, aplicada ao conjunto.
+    public func move(_ conversation: Conversation, to newBucket: TriageBucket) {
+        let movendo = conversation.messages.filter { $0.bucket != newBucket }
+        guard !movendo.isEmpty else { return }
+        let positionBefore = visibleMessages.firstIndex { $0.id == conversation.latest.id }
+
+        for (accountID, ids) in Self.porConta(movendo) {
+            send { port in
+                if newBucket == .trash {
+                    try port.delete(accountID: accountID, messageIDs: ids)
+                } else {
+                    try port.move(to: newBucket, accountID: accountID, messageIDs: ids)
+                }
+            }
+        }
+
+        for message in movendo {
+            guard let index = messages.firstIndex(where: { $0.id == message.id }) else { continue }
+            messages[index] = messages[index].withBucket(newBucket)
+        }
+        reselect(from: positionBefore, leaving: Set(conversation.messageIDs))
+    }
+
+    /// Marca a conversa inteira como lida (ou não lida).
+    public func setRead(_ isRead: Bool, for conversation: Conversation) {
+        let mudando = conversation.messages.filter { $0.isRead != isRead }
+        guard !mudando.isEmpty else { return }
+        for (accountID, ids) in Self.porConta(mudando) {
+            send { port in try port.setRead(isRead, accountID: accountID, messageIDs: ids) }
+        }
+        for message in mudando {
+            guard let index = messages.firstIndex(where: { $0.id == message.id }) else { continue }
+            messages[index] = messages[index].withRead(isRead)
+        }
+    }
+
+    /// Liga ou desliga a estrela da conversa inteira.
+    public func setFlagged(_ isFlagged: Bool, for conversation: Conversation) {
+        let mudando = conversation.messages.filter { $0.isFlagged != isFlagged }
+        guard !mudando.isEmpty else { return }
+        for (accountID, ids) in Self.porConta(mudando) {
+            send { port in try port.setFlagged(isFlagged, accountID: accountID, messageIDs: ids) }
+        }
+        for message in mudando {
+            guard let index = messages.firstIndex(where: { $0.id == message.id }) else { continue }
+            messages[index] = messages[index].withFlagged(isFlagged)
+        }
+    }
+
+    /// Apaga a conversa inteira de vez. Só faz sentido na Lixeira, como
+    /// `deleteForever(_:)` — e é quem monta o menu que garante isso.
+    public func deleteForever(_ conversation: Conversation) {
+        let positionBefore = visibleMessages.firstIndex { $0.id == conversation.latest.id }
+        for (accountID, ids) in Self.porConta(conversation.messages) {
+            send { port in try port.deletePermanently(accountID: accountID, messageIDs: ids) }
+        }
+        for message in conversation.messages {
+            deleted[message.id] = message
+        }
+        let indo = Set(conversation.messageIDs)
+        messages.removeAll { indo.contains($0.id) }
+        reselect(from: positionBefore, leaving: indo)
+    }
+
+    /// Os ids agrupados por conta, na ordem em que as contas apareceram.
+    ///
+    /// Uma conversa **pode** cruzar contas — a mesma troca de emails chega no
+    /// trabalho e no pessoal, e as duas mensagens compartilham a raiz de
+    /// `References`. A porta é por conta; mandar os ids das duas numa chamada
+    /// só faria o espelho procurar no servidor errado.
+    private static func porConta(_ messages: [Message]) -> [(String, [String])] {
+        var order: [String] = []
+        var byAccount: [String: [String]] = [:]
+        for message in messages {
+            if byAccount[message.accountID] == nil { order.append(message.accountID) }
+            byAccount[message.accountID, default: []].append(message.id)
+        }
+        return order.map { ($0, byAccount[$0] ?? []) }
+    }
+
+    /// A seleção depois de uma ação que tirou a conversa da visão.
+    ///
+    /// A mesma regra de `move(_:to:)`: quem ocupou o lugar dela, ou a que ficou
+    /// acima quando era a última. Só age quando a mensagem selecionada era uma
+    /// das que saíram — arquivar uma conversa que não estava aberta não pode
+    /// tirar a pessoa da que estava.
+    private func reselect(from positionBefore: Int?, leaving ids: Set<String>) {
+        guard let selectedMessageID, ids.contains(selectedMessageID) else { return }
+        let remaining = visibleMessages
+        guard !remaining.contains(where: { ids.contains($0.id) }) else { return }
+        guard let positionBefore else {
+            self.selectedMessageID = remaining.first?.id
+            return
+        }
+        self.selectedMessageID = remaining.indices.contains(positionBefore)
+            ? remaining[positionBefore].id
+            : remaining.last?.id
+    }
+
     /// A agenda depois do filtro de conta.
     ///
     /// Clicar numa caixa filtra a lista **e** a grade da agenda. O protótipo
