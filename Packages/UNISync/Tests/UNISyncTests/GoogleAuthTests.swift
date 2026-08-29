@@ -413,3 +413,47 @@ struct GoogleAuthTests {
 
 /// Âncora para pegar um `Bundle` que não tem a chave do client ID.
 private final class BundleAnchor {}
+
+import AuthenticationServices
+
+@Suite("O retorno do navegador, traduzido fora da fila principal")
+struct AuthorizationPresenterTests {
+    // As três chamadas acontecem num contexto nonisolated de propósito: o
+    // completion do ASWebAuthenticationSession chega numa fila do XPC, e um
+    // `traduz` isolado ao MainActor nem compilaria daqui — o teste trava a
+    // forma que causou o SIGTRAP no login real.
+    @Test("O callback que veio é sucesso")
+    func callbackViraSucesso() async throws {
+        let url = URL(string: "com.exemplo:/oauth?code=abc")!
+        let resultado = await Task.detached {
+            WebAuthorizationPresenter.traduz(url, nil)
+        }.value
+        #expect(try resultado.get() == url)
+    }
+
+    @Test("Cancelar o login é autorização revogada, não erro de rede")
+    func cancelarEhRevogada() async {
+        let erro = ASWebAuthenticationSessionError(.canceledLogin)
+        let resultado = await Task.detached {
+            WebAuthorizationPresenter.traduz(nil, erro)
+        }.value
+        guard case .failure(.autorizacaoRevogada) = resultado else {
+            Issue.record("esperava .autorizacaoRevogada, veio \(resultado)")
+            return
+        }
+    }
+
+    @Test("Qualquer outro fim sem callback é erro de rede com a causa")
+    func outroFimEhRede() async {
+        let erro = NSError(domain: "teste", code: 1,
+                           userInfo: [NSLocalizedDescriptionKey: "caiu a ponte"])
+        let resultado = await Task.detached {
+            WebAuthorizationPresenter.traduz(nil, erro)
+        }.value
+        guard case .failure(.rede(let causa)) = resultado else {
+            Issue.record("esperava .rede, veio \(resultado)")
+            return
+        }
+        #expect(causa == "caiu a ponte")
+    }
+}

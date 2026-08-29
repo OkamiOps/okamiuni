@@ -30,21 +30,20 @@ public final class WebAuthorizationPresenter:
 
     public func authorize(url: URL, callbackScheme: String) async throws -> URL {
         try await withCheckedThrowingContinuation { continuation in
+            // O completion do `ASWebAuthenticationSession` chega numa fila de
+            // fundo do XPC, não na principal. A closure precisa nascer AQUI,
+            // `@Sendable` e fora do `Task { @MainActor }` — lá dentro ela
+            // herdaria o isolamento do MainActor e o runtime derrubaria o app
+            // na checagem (`dispatch_assert_queue_fail`, SIGTRAP) no momento
+            // em que o login termina.
+            let completa: @Sendable (URL?, Error?) -> Void = { callback, erro in
+                continuation.resume(with: Self.traduz(callback, erro))
+            }
             Task { @MainActor in
                 let sessao = ASWebAuthenticationSession(
-                    url: url, callbackURLScheme: callbackScheme
-                ) { callback, erro in
-                    if let callback {
-                        continuation.resume(returning: callback)
-                    } else if let erro = erro as? ASWebAuthenticationSessionError,
-                              erro.code == .canceledLogin {
-                        continuation.resume(throwing: SyncError.autorizacaoRevogada)
-                    } else {
-                        continuation.resume(throwing: SyncError.rede(
-                            erro?.localizedDescription ?? "a janela de autorização fechou sem resposta"
-                        ))
-                    }
-                }
+                    url: url, callbackURLScheme: callbackScheme,
+                    completionHandler: completa
+                )
                 sessao.presentationContextProvider = self
                 // Sessão **não** efêmera: reconectar uma conta que o navegador
                 // já conhece não deve exigir digitar a senha do Google de novo.
@@ -58,6 +57,22 @@ public final class WebAuthorizationPresenter:
                 }
             }
         }
+    }
+
+    /// O que o retorno do navegador significa. Pura e `nonisolated` de
+    /// propósito: é chamada da fila do XPC, e a classe inteira é inferida
+    /// `@MainActor` pela conformance ao provedor de âncora.
+    nonisolated static func traduz(_ callback: URL?, _ erro: Error?) -> Result<URL, SyncError> {
+        if let callback {
+            return .success(callback)
+        }
+        if let erro = erro as? ASWebAuthenticationSessionError,
+           erro.code == .canceledLogin {
+            return .failure(.autorizacaoRevogada)
+        }
+        return .failure(.rede(
+            erro?.localizedDescription ?? "a janela de autorização fechou sem resposta"
+        ))
     }
 
     public func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
