@@ -335,4 +335,31 @@ struct SidebarTests {
         let aindaSemPastas = try #require(bitmap(comFixtures))
         #expect(semPastas.pixelsDiffering(from: aindaSemPastas) == 0)
     }
+
+    /// **A seta com presença (M3-21).** O dono quase não a viu: 9pt de corpo,
+    /// tinta `ink4` e um alvo de 10 pontos.
+    ///
+    /// Os três números estão travados aqui porque presença é comportamento —
+    /// e o desenho está travado logo abaixo, no bitmap.
+    @Test("a seta tem o corpo, a tinta e o alvo do idioma da base")
+    func aSetaTemPresenca() {
+        #expect(FolderSidebar.chevronSize == 11)
+        #expect(FolderSidebar.chevronTargetWidth == 18)
+        #expect(FolderSidebar.chevronTargetHeight == 24)
+        // O alvo cabe na linha da conta, que mede 32.
+        #expect(FolderSidebar.chevronTargetHeight <= 32)
+    }
+
+    /// A seta continua sendo **a seta**: aberta e fechada desenham diferente,
+    /// e é o glifo que muda — não o resto da linha.
+    @Test("aberta e fechada, a seta troca de glifo")
+    @MainActor
+    func aSetaTrocaDeGlifo() async throws {
+        let fechada = await storeComPastas(segundaPasta: "Clientes/Faturas")
+        let aberta = await storeComPastas(segundaPasta: "Clientes/Faturas")
+        aberta.toggleFolders(of: "c1")
+        let a = try #require(bitmap(fechada))
+        let b = try #require(bitmap(aberta))
+        #expect(a.pixelsDiffering(from: b) > 0)
+    }
 }

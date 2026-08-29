@@ -8,6 +8,21 @@ public struct FolderSidebar: View {
     /// agora é um apelido, não uma segunda fonte da verdade.
     public static let expandedWidth: CGFloat = PaneLayout.expandedSidebarWidth
 
+    /// A seta que abre as pastas de uma conta, em números.
+    ///
+    /// Ela nasceu na M3-17 com 9pt de corpo, tinta `ink4` e um alvo de 10
+    /// pontos de largura — e o dono **quase não a viu**. Estes três números são
+    /// o conserto da M3-21, e estão aqui com nome porque presença é
+    /// comportamento: um teste os afirma sem montar barra nenhuma, e voltar
+    /// atrás por acidente passa a custar um vermelho.
+    ///
+    /// Nada disso é componente novo: 11pt e `ink3` são o corpo e a tinta do
+    /// cabeçalho de seção da janela 04, e o alvo com fundo no hover é o mesmo
+    /// do × do canto dela. Visível, não gritante.
+    nonisolated static let chevronSize: CGFloat = 11
+    nonisolated static let chevronTargetWidth: CGFloat = 18
+    nonisolated static let chevronTargetHeight: CGFloat = 24
+
     @Environment(\.theme) private var theme
     @Environment(\.displayScale) private var displayScale
     let store: MailStore
@@ -22,6 +37,9 @@ public struct FolderSidebar: View {
     /// Arquivar, apagar e apagar definitivamente têm "Desfazer"; este não tem,
     /// e a pergunta é o que fica no lugar dele.
     @State private var confirmingEmptyTrash = false
+    /// Sobre qual seta de conta o mouse está. Uma só por vez, e por isso um
+    /// `id` e não um `Bool` por linha.
+    @State private var chevronHovering: String?
 
     public init(store: MailStore, width: CGFloat = PaneLayout.expandedSidebarWidth) {
         self.store = store
@@ -279,11 +297,26 @@ public struct FolderSidebar: View {
                     // toque desenhado dentro do rótulo, com o gesto próprio por
                     // cima. Um `Button` aninhado teria dois estilos, dois anéis
                     // de foco e um clique que às vezes chega ao de fora.
+                    // **Com presença, desde a M3-21.** Ela nasceu em 9pt,
+                    // `ink4`, num alvo de 10 pontos de largura e sem nenhuma
+                    // resposta ao mouse — o dono quase não a viu. Três coisas
+                    // mudaram, e nenhuma é um componente novo: o corpo (11pt),
+                    // a tinta (`ink3`, a mesma que o cabeçalho de seção da
+                    // janela 04 usa) e o alvo (18×24, com o fundo do hover que
+                    // o × do canto daquela janela já desenha). Continua sendo
+                    // a mesma seta no mesmo lugar — agora ela se oferece.
                     Text(store.foldersExpanded(account.id) ? "▾" : "▸")
-                        .font(theme.mono.font(size: 9))
-                        .foregroundStyle(theme.ink4.color)
-                        .frame(width: 10, height: 24)
+                        .font(theme.mono.font(size: Self.chevronSize))
+                        .foregroundStyle(
+                            (chevronHovering == account.id ? theme.ink2 : theme.ink3).color
+                        )
+                        .frame(width: Self.chevronTargetWidth, height: Self.chevronTargetHeight)
+                        .background(
+                            chevronHovering == account.id ? theme.surface3.color : .clear
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
                         .contentShape(Rectangle())
+                        .onHover { chevronHovering = $0 ? account.id : nil }
                         .onTapGesture { store.toggleFolders(of: account.id) }
                         .accessibilityLabel(
                             store.foldersExpanded(account.id)
