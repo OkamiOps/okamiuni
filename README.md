@@ -7,10 +7,10 @@
 ![Swift 6.3](https://img.shields.io/badge/Swift-6.3-F05138?logo=swift&logoColor=white)
 ![macOS 26](https://img.shields.io/badge/macOS-26-000000?logo=apple&logoColor=white)
 ![SwiftUI](https://img.shields.io/badge/SwiftUI-nativo-0071e3)
-![Testes](https://img.shields.io/badge/testes-1755%20verdes-2ea44f)
+![Testes](https://img.shields.io/badge/testes-1778%20verdes-2ea44f)
 ![Mutações](https://img.shields.io/badge/provas%20por%20mutação-190%2B-blueviolet)
 ![Temas](https://img.shields.io/badge/temas-26-8a2be2)
-![Marco](https://img.shields.io/badge/marco-4%20·%20agenda%20real%20✓-success)
+![Marco](https://img.shields.io/badge/marco-5%20·%20inteligência%20local%20✓-success)
 
 <img src="docs/capturas/janela-principal.png" width="860" alt="A janela principal do OkamiUNI: barra lateral com contas e caixas, lista de mensagens, leitor com resumo no dispositivo e trilha de agenda do dia." />
 
@@ -25,10 +25,11 @@
 - 🗂️ **As pastas do provedor** na barra lateral, expansíveis por conta — e um arquivar que **cria** a pasta que falta no servidor em vez de parar a fila.
 - 📅 **Agenda real e convites**: EventKit lê e grava calendários do macOS (inclusive CalDAV configurado no sistema), e o cartão responde `Aceitar · Talvez · Recusar` por iTIP, pela mesma fila offline do email.
 - 📎 **Anexos de verdade**: recebidos aparecem no leitor e salvam sob demanda; o composer envia arquivos em `multipart/mixed`, com limite explícito e nome sanitizado.
+- ✨ **Inteligência no dispositivo**: o Foundation Models resume a mensagem e identifica compromissos localmente; a fila persiste no SQLite, se recupera após reinício e não envia o conteúdo para servidor algum.
 - 🖱️ **Ações onde a mão espera**: botão direito custom em toda superfície, arraste lateral com Desfazer, atalhos de verdade (`⌘R` `⇧⌘R` `⇧⌘F` `⌘E` `⌫` `⇧⌘L` `⇧⌘U` `⌘N` `⌘K`).
 - 🎨 **26 temas**, hairlines de 1 pixel em telas 1×, semáforos a 22pt **verificados por ensaio** — o polimento é requisito, não acabamento.
 - 🔌 **Qualquer provedor**: nada no código limita provedor, domínio, número de contas ou de pastas.
-- ✅ **1755 testes** que provam por mutação: cada teste novo só conta depois de falhar com o defeito reintroduzido.
+- ✅ **1778 testes** que provam por mutação: cada teste novo só conta depois de falhar com o defeito reintroduzido.
 
 ```bash
 Tools/rodar.sh     # mata a instância antiga, regenera o projeto, compila e abre
@@ -85,6 +86,15 @@ Cliente de email é o app que mais horas passa aberto — e o que menos respeito
 | 📎 **Anexos recebidos** | IMAP e Gmail preservam metadados sem carregar BLOB na lista; o leitor mostra nome e tamanho, busca só o arquivo pedido, reutiliza cache local e abre o painel de destino apenas por ação explícita |
 | 📤 **Anexos enviados** | Composer e resposta rápida escolhem arquivos reais; a fila guarda os bytes até a confirmação e o MIME usa `multipart/mixed`, alternativa texto+HTML interna, base64 em linhas de 76 caracteres, nome sanitizado e teto de 25 MiB por arquivo |
 
+### Marco 5 — inteligência no dispositivo
+
+| Área | O que tem |
+|---|---|
+| ✨ **Análise local** | Foundation Models recebe assunto e corpo, com saída tipada, e produz resumo mais compromisso detectado sem tirar o email do Mac; o corpo tem teto explícito de 12 mil caracteres |
+| 💾 **Pipeline durável** | SQLite guarda hash do conteúdo, estado e resultado; observação reativa acorda uma fila serial, que se recupera de interrupções e só reprocessa quando a mensagem muda |
+| 🛡️ **Compromisso factual** | Data e hora sugeridas só são persistidas quando existem evidências explícitas no texto original — o modelo não pode transformar a data de recebimento em compromisso inventado |
+| 🖥️ **Disponibilidade honesta** | A barra lateral distingue dispositivo incompatível, Apple Intelligence desativada, modelo ainda preparando e recurso disponível, sempre explicando o que ocorre |
+
 <div align="center">
 <table>
 <tr>
@@ -128,7 +138,7 @@ O projeto Xcode é gerado por [`project.yml`](project.yml) (XcodeGen) com `SWIFT
 
 ## Como este projeto se testa
 
-**Swift Testing** (nunca XCTest), 1755 testes em quatro pacotes — e uma regra que virou cultura: **teste que passa com o código quebrado é defeito**. Todo teste novo nasce provado vermelho com o defeito reintroduzido; mais de 190 mutações registradas mataram, entre outras, um quoted-printable que comia a última letra de cada linha, uma fila que engolia a terceira ação de um ciclo ler→não ler→ler, e um "esvaziar a lixeira" que só funcionava uma vez na vida da conta.
+**Swift Testing** (nunca XCTest), 1778 testes em quatro pacotes — e uma regra que virou cultura: **teste que passa com o código quebrado é defeito**. Todo teste novo nasce provado vermelho com o defeito reintroduzido; mais de 190 mutações registradas mataram, entre outras, um quoted-printable que comia a última letra de cada linha, uma fila que engolia a terceira ação de um ciclo ler→não ler→ler, e um "esvaziar a lixeira" que só funcionava uma vez na vida da conta.
 
 Seis instrumentos fazem o app testemunhar contra si mesmo, sem tocar no mouse de ninguém:
 
@@ -155,7 +165,7 @@ O registro das decisões — por que o Button do macOS dispara no mouse-up depoi
 - [x] **Marco 2 — Contas**: OAuth do Google (PKCE), IMAP para qualquer provedor, Keychain, banco SQLite local-first com FTS5, carga de 90 dias retomável
 - [x] **Marco 3 — Sincronização**: sync contínuo (IDLE + histórico), fila de ações espelhada com autocura, leitor HTML seguro, conversas, envio (API + SMTP), Enviadas, pastas do provedor, convites com dedup, contatos reais
 - [x] **Marco 4 — Agenda real**: EventKit com calendários CalDAV do macOS, cliente CalDAV direto testado, RSVP do convite por iTIP e anexos recebidos/enviados
-- [ ] **Marco 5 — Inteligência no dispositivo**: resumo e detecção de compromisso deixando as fixtures
+- [x] **Marco 5 — Inteligência no dispositivo**: Foundation Models local, pipeline durável e resumo/compromisso persistidos no banco
 
 Dívidas deliberadas, registradas onde doem: recorrência de evento, configuração CalDAV direta dentro do app (contas CalDAV já configuradas no macOS funcionam via EventKit), árvore de pastas indentada (o delimitador ainda não sobe pelo fio), encaminhar convite com o `.ics` junto.
 

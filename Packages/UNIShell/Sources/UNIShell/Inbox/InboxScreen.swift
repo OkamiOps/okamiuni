@@ -42,10 +42,18 @@ public struct InboxScreen: View {
     /// Só quem quer o relógio vivo (o app de verdade, com conta real) passa
     /// `.live` explicitamente — ver `OkamiUNIApp`.
     let clock: AgendaClock
+    /// Estado real do modelo local, traduzido pela composição do app. O padrão
+    /// mantém previews e harnesses no estado disponível das fixtures.
+    let intelligencePresentation: IntelligencePresentation
 
-    public init(store: MailStore, clock: AgendaClock = .fixed(Fixtures.nowMinute)) {
+    public init(
+        store: MailStore,
+        clock: AgendaClock = .fixed(Fixtures.nowMinute),
+        intelligencePresentation: IntelligencePresentation = .available
+    ) {
         self.store = store
         self.clock = clock
+        self.intelligencePresentation = intelligencePresentation
     }
 
     /// O **hoje** de tudo que esta tela desenha com data: o carimbo de cada
@@ -153,7 +161,11 @@ public struct InboxScreen: View {
                 // Barra lateral. Ela nunca some por completo: recolhida, é a
                 // trilha de 62pt da Task 7B.
                 if layout.sidebarExpanded {
-                    FolderSidebar(store: store, width: layout.sidebarWidth)
+                    FolderSidebar(
+                        store: store,
+                        width: layout.sidebarWidth,
+                        intelligencePresentation: intelligencePresentation
+                    )
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 } else {
                     SidebarRail(store: store, width: layout.sidebarWidth)
@@ -291,6 +303,7 @@ public struct InboxScreen: View {
                 now: now,
                 anchor: agendaAnchor,
                 wantsSidebar: wantsSidebar,
+                intelligencePresentation: intelligencePresentation,
                 onOpenEvent: openEventWindow,
                 onRevealMessage: reveal
             )

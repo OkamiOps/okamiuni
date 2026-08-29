@@ -329,7 +329,7 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
     /// regra das colunas de data — ver `databaseDateEncodingStrategy`.
     private struct DetectedEventWire: Codable { var label: String; var start: Double; var duration: Double }
 
-    private static func encodeDetectedEvent(_ event: DetectedEvent?) -> String? {
+    static func encodeDetectedEvent(_ event: DetectedEvent?) -> String? {
         guard let event else { return nil }
         let fio = DetectedEventWire(
             label: event.label, start: event.start.timeIntervalSince1970, duration: event.duration

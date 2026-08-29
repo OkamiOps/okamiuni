@@ -107,7 +107,11 @@ struct OkamiUNIApp: App {
                     AccountsRehearsal.fromProcess, model: accountsRehearsalModel
                 )
         } else {
-            InboxScreen(store: mailStore, clock: agendaClock)
+            InboxScreen(
+                store: mailStore,
+                clock: agendaClock,
+                intelligencePresentation: composition.intelligenceAvailability.presentation
+            )
                 // Porta de depuração: `open -g --args --nova-mensagem` abre a
                 // janela auxiliar pelo mesmo `openWindow` do menu, sem trazer o
                 // app à frente e sem sintetizar tecla nenhuma. Sem a bandeira,
@@ -252,6 +256,21 @@ struct OkamiUNIApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(UNIWindow.Size.accounts)
+    }
+}
+
+private extension OnDeviceMessageAnalysisAvailability {
+    var presentation: IntelligencePresentation {
+        switch self {
+        case .available:
+            .available
+        case .deviceNotEligible:
+            .deviceNotEligible
+        case .appleIntelligenceNotEnabled:
+            .appleIntelligenceNotEnabled
+        case .modelNotReady:
+            .modelNotReady
+        }
     }
 }
 

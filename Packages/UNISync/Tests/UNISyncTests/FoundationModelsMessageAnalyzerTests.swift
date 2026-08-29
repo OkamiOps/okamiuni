@@ -98,6 +98,49 @@ struct FoundationModelsMessageAnalyzerTests {
         #expect(result.detectedEvent == nil)
     }
 
+    @Test("Data de recebimento não vira compromisso sem evidência no email")
+    func receiptCannotBorrowReceivedAt() throws {
+        let receipt = OnDeviceMessageAnalysisInput(
+            subject: "Recibo da compra",
+            sender: "Loja <vendas@example.com>",
+            receivedAt: input.receivedAt,
+            body: "Sua compra foi confirmada e o recibo está anexado.",
+            timeZone: timeZone
+        )
+        let hallucinated = MessageAnalysisGeneratedOutput(
+            summary: "A compra foi confirmada.",
+            hasEvent: true,
+            eventTitle: "Compra confirmada",
+            eventYear: 2026,
+            eventMonth: 8,
+            eventDay: 29,
+            eventHour: 10,
+            eventMinute: 40,
+            eventDurationMinutes: 0
+        )
+
+        let result = try hallucinated.analysis(for: receipt, modelVersion: "test-v1")
+        #expect(result.detectedEvent == nil)
+    }
+
+    @Test("Evento precisa repetir no resultado um horário explícito do email")
+    func eventTimeMustMatchSource() throws {
+        let wrongTime = MessageAnalysisGeneratedOutput(
+            summary: "Marina propõe uma conversa amanhã.",
+            hasEvent: true,
+            eventTitle: "Conversa",
+            eventYear: 2026,
+            eventMonth: 8,
+            eventDay: 30,
+            eventHour: 16,
+            eventMinute: 0,
+            eventDurationMinutes: 30
+        )
+
+        let result = try wrongTime.analysis(for: input, modelVersion: "test-v1")
+        #expect(result.detectedEvent == nil)
+    }
+
     @Test("Data impossível é rejeitada em vez de normalizada")
     func parsingRejectsImpossibleDate() throws {
         let output = MessageAnalysisGeneratedOutput(
@@ -107,7 +150,7 @@ struct FoundationModelsMessageAnalyzerTests {
             eventYear: 2026,
             eventMonth: 2,
             eventDay: 30,
-            eventHour: 10,
+            eventHour: 15,
             eventMinute: 0,
             eventDurationMinutes: 30
         )
@@ -147,5 +190,34 @@ struct FoundationModelsMessageAnalyzerTests {
         #expect(!result.summary.isEmpty)
         #expect(result.detectedEvent == nil)
         #expect(result.modelVersion == analyzer.modelVersion)
+    }
+
+    @Test(
+        "O motor real detecta compromisso quando data, hora e duração são explícitas",
+        .enabled(if: ProcessInfo.processInfo.environment["OKAMIUNI_LIVE_MODEL_TEST"] == "1")
+    )
+    func liveModelDetectsExplicitEvent() async throws {
+        let analyzer = FoundationModelsMessageAnalyzer()
+        let currentAvailability = await analyzer.availability()
+        guard currentAvailability == .available else {
+            throw OnDeviceMessageAnalysisError.unavailable(currentAvailability)
+        }
+
+        let result = try await analyzer.analyze(
+            OnDeviceMessageAnalysisInput(
+                subject: "Reunião do projeto",
+                sender: "Marina <marina@example.com>",
+                receivedAt: input.receivedAt,
+                body: "Nossa reunião será amanhã às 15h, com duração de 30 minutos.",
+                timeZone: timeZone
+            )
+        )
+        let event = try #require(result.detectedEvent)
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+
+        #expect(calendar.component(.hour, from: event.start) == 15)
+        #expect(calendar.component(.minute, from: event.start) == 0)
+        #expect(event.duration == 30 * 60)
     }
 }

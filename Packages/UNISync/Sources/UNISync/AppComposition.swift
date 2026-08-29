@@ -93,6 +93,12 @@ public struct AppComposition: Sendable {
     /// Quem repara que a rede voltou e acorda os dois — a sincronização e a
     /// fila. Nulo quando não há banco, como todo o resto.
     public let network: NetworkWatcher?
+    /// O ciclo serial que transforma corpos completos em resumo e compromisso
+    /// usando somente o modelo local do sistema.
+    public let intelligence: MessageIntelligenceCoordinator?
+    /// O estado que a lateral explica já na primeira janela, sem importar
+    /// FoundationModels no shell.
+    public let intelligenceAvailability: OnDeviceMessageAnalysisAvailability
     /// Falha de configuração que o app **mostra** em vez de esconder: banco
     /// que não abriu, client ID que falta. Nunca fatal.
     public let configError: SyncError?
@@ -115,6 +121,8 @@ public struct AppComposition: Sendable {
     /// tipo é o que troca um aviso de concorrência por uma garantia.
     @MainActor
     public static func make(databasePath: String? = nil, bundle: Bundle = .main) -> AppComposition {
+        let analyzer = FoundationModelsMessageAnalyzer()
+        let intelligenceAvailability = FoundationModelsMessageAnalyzer.systemAvailability
         let banco: SyncDatabase
         do {
             banco = try SyncDatabase(path: try databasePath ?? SyncDatabase.defaultPath())
@@ -130,7 +138,9 @@ public struct AppComposition: Sendable {
                 inviteRSVPPort: nil, bodyPort: nil,
                 attachmentPort: nil,
                 contactPort: nil, agendaPort: nil, calendarSync: EventKitCalendarAdapter(), trustPort: nil,
-                outbox: nil, outboxSignal: nil, sync: nil, network: nil, configError: falha
+                outbox: nil, outboxSignal: nil, sync: nil, network: nil,
+                intelligence: nil, intelligenceAvailability: intelligenceAvailability,
+                configError: falha
             )
         }
 
@@ -225,6 +235,16 @@ public struct AppComposition: Sendable {
             }
         }
 
+        // Resumo e compromisso entram pelo mesmo princípio do sync: o banco é
+        // a fronteira. Uma observação barata acorda quando um corpo aparece;
+        // o coordenador processa em série e a ValueObservation da tela mostra
+        // o resultado, sem callback paralelo para a UI.
+        let intelligence = MessageIntelligenceCoordinator(
+            database: banco,
+            analyzer: analyzer
+        )
+        Task { await intelligence.start() }
+
         // Tem conta? Então o banco é a fonte. Não tem? Fixtures — e é isso que
         // mantém os ensaios e as capturas do Marco 1 idênticos.
         //
@@ -261,6 +281,8 @@ public struct AppComposition: Sendable {
             outboxSignal: sinal,
             sync: sincronizacao,
             network: rede,
+            intelligence: intelligence,
+            intelligenceAvailability: intelligenceAvailability,
             configError: erro
         )
     }

@@ -15,7 +15,10 @@ public struct FoundationModelsMessageAnalyzer: OnDeviceMessageAnalyzing {
         self.modelVersion = modelVersion
     }
 
-    public func availability() async -> OnDeviceMessageAnalysisAvailability {
+    /// O retrato síncrono que a composição usa antes de desenhar a primeira
+    /// janela. `availability()` lê a mesma fonte em cada lote, então o motor
+    /// ainda reage a uma mudança posterior sem duplicar esta tradução.
+    public static var systemAvailability: OnDeviceMessageAnalysisAvailability {
         switch SystemLanguageModel.default.availability {
         case .available:
             return .available
@@ -26,11 +29,12 @@ public struct FoundationModelsMessageAnalyzer: OnDeviceMessageAnalyzing {
         case .unavailable(.modelNotReady):
             return .modelNotReady
         @unknown default:
-            // A API não oferece um quinto estado que a UI saiba explicar.
-            // Tratar uma disponibilidade futura como "ainda não pronto" evita
-            // afirmar que a análise está utilizável sem ter essa garantia.
             return .modelNotReady
         }
+    }
+
+    public func availability() async -> OnDeviceMessageAnalysisAvailability {
+        Self.systemAvailability
     }
 
     public func analyze(_ input: OnDeviceMessageAnalysisInput) async throws -> OnDeviceMessageAnalysisResult {
@@ -93,9 +97,16 @@ struct MessageAnalysisGeneratedOutput: Sendable, Equatable {
             throw OnDeviceMessageAnalysisError.invalidResponse("Resumo vazio.")
         }
 
+        let event: DetectedEvent?
+        if hasEvent, MessageAnalysisEventEvidence.supports(self, input: input) {
+            event = try detectedEvent(in: input.timeZone)
+        } else {
+            event = nil
+        }
+
         return OnDeviceMessageAnalysisResult(
             summary: summary,
-            detectedEvent: try detectedEvent(in: input.timeZone),
+            detectedEvent: event,
             modelVersion: modelVersion
         )
     }
@@ -149,6 +160,87 @@ struct MessageAnalysisGeneratedOutput: Sendable, Equatable {
             start: start,
             duration: TimeInterval(durationSeconds.partialValue)
         )
+    }
+}
+
+/// Guarda determinística contra o falso positivo mais caro do modelo: usar a
+/// data de recebimento como se fosse a data de um compromisso. A geração só é
+/// aceita quando o texto original contém uma data reconhecível e um horário
+/// que coincide com a saída estruturada. O modelo continua decidindo o sentido
+/// da mensagem; esta camada só exige evidência para os campos factuais.
+enum MessageAnalysisEventEvidence {
+    private static let datePatterns = [
+        #"\b(?:hoje|amanh[ãa]|depois\s+de\s+amanh[ãa]|today|tomorrow)\b"#,
+        #"\b(?:segunda(?:-feira)?|ter[çc]a(?:-feira)?|quarta(?:-feira)?|quinta(?:-feira)?|sexta(?:-feira)?|s[áa]bado|domingo|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b"#,
+        #"\b\d{1,2}[\/-]\d{1,2}(?:[\/-]\d{2,4})?\b"#,
+        #"\b\d{4}-\d{1,2}-\d{1,2}\b"#,
+        #"\b(?:dia\s+)?\d{1,2}\s+(?:de\s+)?(?:jan(?:eiro)?|fev(?:ereiro)?|mar[çc]o|abr(?:il)?|mai(?:o)?|jun(?:ho)?|jul(?:ho)?|ago(?:sto)?|set(?:embro)?|out(?:ubro)?|nov(?:embro)?|dez(?:embro)?|january|february|march|april|may|june|july|august|september|october|november|december)\b"#,
+        #"\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}\b"#,
+        #"\bdia\s+\d{1,2}\b"#,
+    ]
+
+    static func supports(
+        _ output: MessageAnalysisGeneratedOutput,
+        input: OnDeviceMessageAnalysisInput
+    ) -> Bool {
+        let source = input.subject + "\n" + input.body
+        guard datePatterns.contains(where: { contains($0, in: source) }) else { return false }
+        return explicitTimes(in: source).contains {
+            $0.hour == output.eventHour && $0.minute == output.eventMinute
+        }
+    }
+
+    private static func explicitTimes(in source: String) -> [(hour: Int, minute: Int)] {
+        var times: [(Int, Int)] = []
+        times += captures(
+            #"\b([01]?\d|2[0-3])[:h\.]([0-5]\d)\b"#,
+            in: source
+        ).compactMap { values in
+            guard let hour = Int(values[0]), let minute = Int(values[1]) else { return nil }
+            return (hour, minute)
+        }
+        times += captures(#"\b([01]?\d|2[0-3])h\b"#, in: source).compactMap { values in
+            guard let hour = Int(values[0]) else { return nil }
+            return (hour, 0)
+        }
+        times += captures(
+            #"\b(0?[1-9]|1[0-2])(?::([0-5]\d))?\s*(am|pm)\b"#,
+            in: source
+        ).compactMap { values in
+            guard var hour = Int(values[0]) else { return nil }
+            let minute = Int(values[1]) ?? 0
+            let period = values[2].lowercased()
+            if period == "pm", hour != 12 { hour += 12 }
+            if period == "am", hour == 12 { hour = 0 }
+            return (hour, minute)
+        }
+        if contains(#"\b(?:meio-dia|meio\s+dia|noon)\b"#, in: source) {
+            times.append((12, 0))
+        }
+        if contains(#"\b(?:meia-noite|meia\s+noite|midnight)\b"#, in: source) {
+            times.append((0, 0))
+        }
+        return times
+    }
+
+    private static func contains(_ pattern: String, in source: String) -> Bool {
+        source.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil
+    }
+
+    private static func captures(_ pattern: String, in source: String) -> [[String]] {
+        guard let expression = try? NSRegularExpression(
+            pattern: pattern,
+            options: [.caseInsensitive]
+        ) else { return [] }
+        let range = NSRange(source.startIndex..., in: source)
+        return expression.matches(in: source, range: range).map { match in
+            (1..<match.numberOfRanges).map { index in
+                let capture = match.range(at: index)
+                guard capture.location != NSNotFound,
+                      let range = Range(capture, in: source) else { return "" }
+                return String(source[range])
+            }
+        }
     }
 }
 

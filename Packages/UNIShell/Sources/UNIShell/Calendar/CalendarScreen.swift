@@ -38,6 +38,7 @@ public struct CalendarScreen: View {
     /// topo. O que aparece é isto cruzado com a largura da janela — a mesma
     /// regra do email, em `PaneLayout.sidebarExpanded(width:wantsSidebar:)`.
     let wantsSidebar: Bool
+    let intelligencePresentation: IntelligencePresentation
     let onOpenEvent: (AgendaItem) -> Void
     /// "Ir para o email de origem", do menu de contexto do cartão. Sai da aba
     /// Agenda: quem sabe voltar para o email é o `InboxScreen`.
@@ -56,11 +57,13 @@ public struct CalendarScreen: View {
         now: Int,
         anchor: Date,
         wantsSidebar: Bool = true,
+        intelligencePresentation: IntelligencePresentation = .available,
         onOpenEvent: @escaping (AgendaItem) -> Void = { _ in },
         onRevealMessage: @escaping (String) -> Void = { _ in }
     ) {
         self.init(
             store: store, now: now, anchor: anchor, wantsSidebar: wantsSidebar,
+            intelligencePresentation: intelligencePresentation,
             initialMode: .week, initialPickerOpen: false, onOpenEvent: onOpenEvent,
             onRevealMessage: onRevealMessage
         )
@@ -80,6 +83,7 @@ public struct CalendarScreen: View {
         now: Int,
         anchor: Date,
         wantsSidebar: Bool = true,
+        intelligencePresentation: IntelligencePresentation = .available,
         initialMode: CalendarViewMode,
         initialPickerOpen: Bool = false,
         onOpenEvent: @escaping (AgendaItem) -> Void = { _ in },
@@ -89,6 +93,7 @@ public struct CalendarScreen: View {
         self.now = now
         self.anchor = anchor
         self.wantsSidebar = wantsSidebar
+        self.intelligencePresentation = intelligencePresentation
         self.onOpenEvent = onOpenEvent
         self.onRevealMessage = onRevealMessage
         _mode = State(initialValue: initialMode)
@@ -106,7 +111,11 @@ public struct CalendarScreen: View {
 
             HStack(spacing: 0) {
                 if expanded {
-                    FolderSidebar(store: store, width: sidebarWidth)
+                    FolderSidebar(
+                        store: store,
+                        width: sidebarWidth,
+                        intelligencePresentation: intelligencePresentation
+                    )
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 } else {
                     SidebarRail(store: store, width: sidebarWidth)
