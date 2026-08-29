@@ -46,6 +46,26 @@ public enum MeetingLink {
         return nil
     }
 
+    /// O endereço **pronto para abrir**, ou `nil`.
+    ///
+    /// Existe para o botão "Entrar" e para o cartão do link fazerem a mesma
+    /// pergunta uma vez só: dois lugares decidindo por conta própria o que é
+    /// clicável divergiriam no primeiro caso torto, e um deles viraria controle
+    /// mudo — o botão que aparece e não abre nada.
+    ///
+    /// Só `http`/`https`, e só com hospedeiro: um `mailto:` ou um "Sala 3" não
+    /// se abre no navegador, e prometer que sim é a mesma mudez de outra cor.
+    public static func destino(_ texto: String?) -> URL? {
+        guard let texto else { return nil }
+        let limpo = texto.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !limpo.isEmpty, let url = URL(string: limpo) else { return nil }
+        guard let esquema = url.scheme?.lowercased(), esquema == "http" || esquema == "https" else {
+            return nil
+        }
+        guard let host = url.host(), !host.isEmpty else { return nil }
+        return url
+    }
+
     /// O ponto final da frase não faz parte do endereço. `)` e `>` já caíram
     /// como separadores; sobra a pontuação colada no fim.
     private static func podaPontuacaoFinal(_ texto: String) -> String {

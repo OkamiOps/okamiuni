@@ -228,6 +228,111 @@ struct EventWindowFooterTests {
         #expect(Self.pills(in: rep, y: 670, width: 560) == 4)
     }
 
+    // MARK: - "Entrar", que não fazia nada
+
+    /// O compromisso vindo de convite, montado à mão para a janela ter o que
+    /// desenhar. `link` nulo é o convite sem sala — o caso em que o botão
+    /// "Entrar" **não pode existir**.
+    static func detalheDeConvite(
+        link: String?,
+        extras: [EventPerson] = [],
+        assuntoDoEmail: String = "Convite: DreamSquad <> Vantion"
+    ) -> EventDetail {
+        EventDetail(
+            place: EventPlace.semLocal, link: link,
+            organizer: EventPerson(
+                name: "Favini", address: "favini@vantion.com.br",
+                role: "organizador", status: .yes
+            ),
+            people: extras,
+            note: "Do convite por email · conta vantion",
+            recurrence: "Evento único", notice: "Sem alerta",
+            agenda: [],
+            thread: [
+                EventThreadEntry(
+                    when: "21 de jul., 14:30", who: "Favini",
+                    what: assuntoDoEmail, kind: .email
+                )
+            ],
+            descricao: nil
+        )
+    }
+
+    static func loja(_ detail: EventDetail) async -> MailStore {
+        let item = AgendaItem(
+            id: "email-m1", title: "DreamSquad", startMinute: 594, endMinute: 644,
+            accountID: "zoho", dayOffset: 0,
+            calendarUID: "u1", calendarSequence: 0, detail: detail
+        )
+        let store = MailStore(
+            source: InMemoryMailSource(accounts: Fixtures.accounts, messages: [], agenda: [item])
+        )
+        await store.load()
+        return store
+    }
+
+    /// Onde o rodapé desenha os botões, num render de 700 de altura: recuo de
+    /// baixo 15 + metade dos 30pt do botão.
+    private static let yDoRodape: CGFloat = 700 - 30
+
+    /// **O defeito mais caro da tela do dono.** O botão em destaque da janela
+    /// chamava `UNIWindow.logSend("Abriria …")`: uma linha no `stderr`, nada na
+    /// tela. A pessoa clicava em cima da hora e a reunião não abria.
+    ///
+    /// Provado com um clique de verdade — `NSEvent.mouseEvent` entregue por
+    /// `NSWindow.sendEvent` a uma janela a −50.000pt, o mesmo cano da M3-11.
+    /// Nenhum navegador é aberto: o abridor entra pela porta (`abreLink`) e só
+    /// anota o endereço.
+    ///
+    /// Cai por mutação: devolver a ação ao `logSend` (ou esvaziá-la) deixa a
+    /// caixa vazia.
+    @Test("«Entrar» abre o link da reunião no navegador")
+    func entrarAbreALink() async throws {
+        let store = await Self.loja(Self.detalheDeConvite(link: "https://meet.google.com/abc-defg-hij"))
+        let caixa = CaixaDeLinks()
+
+        var janela = EventWindow(store: store, itemID: "email-m1")
+        janela.abreLink = { caixa.abertos.append($0) }
+
+        CliqueDeEnsaio.em(
+            janela,
+            size: CGSize(width: 560, height: 700),
+            aY: Self.yDoRodape, x: 40
+        )
+
+        #expect(caixa.abertos.map(\.absoluteString) == ["https://meet.google.com/abc-defg-hij"])
+    }
+
+    /// Sem sala reconhecida o botão **não aparece** — é o que o protótipo
+    /// desenha (`sc-if ev.hasLink`) e o que o resto do app faz quando não há
+    /// para onde ir. O rodapé volta a três pastilhas: Encaminhar, Email e
+    /// Fechar.
+    @Test("sem link de reunião o «Entrar» não existe")
+    func semLinkSemEntrar() async throws {
+        let store = await Self.loja(Self.detalheDeConvite(link: nil))
+        let rep = try #require(
+            Render.bitmap(
+                EventWindow(store: store, itemID: "email-m1"),
+                size: CGSize(width: 560, height: 700), theme: .tinta
+            )
+        )
+        #expect(Self.pills(in: rep, y: Int(Self.yDoRodape), width: 560) == 3)
+    }
+
+    /// E um "link" que não se abre no navegador é a mesma coisa que não ter:
+    /// um botão que promete o navegador e entrega nada é o defeito de volta.
+    @Test("um «link» que não é endereço também não acende o botão")
+    func linkQueNaoAbreNaoAcende() async throws {
+        let store = await Self.loja(Self.detalheDeConvite(link: "Sala 3, 4º andar"))
+        let rep = try #require(
+            Render.bitmap(
+                EventWindow(store: store, itemID: "email-m1"),
+                size: CGSize(width: 560, height: 700), theme: .tinta
+            )
+        )
+        #expect(Self.pills(in: rep, y: Int(Self.yDoRodape), width: 560) == 3)
+    }
+
     /// Quantas pastilhas a linha `y` atravessa: cada entrada num trecho de cor
     /// diferente do fundo do rodapé conta uma.
     private static func pills(in rep: NSBitmapImageRep, y: Int, width: Int) -> Int {
@@ -247,4 +352,12 @@ struct EventWindowFooterTests {
         }
         return count
     }
+}
+
+/// Onde o abridor injetado anota o que lhe pediram. Classe, e não `var` local:
+/// o fechamento que a janela guarda precisa escrever num lugar que sobreviva ao
+/// clique — e nenhum navegador é aberto em teste nenhum deste projeto.
+@MainActor
+final class CaixaDeLinks {
+    var abertos: [URL] = []
 }

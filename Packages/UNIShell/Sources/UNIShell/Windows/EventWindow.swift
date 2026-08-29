@@ -35,6 +35,22 @@ public struct EventWindow: View {
     let store: MailStore
     let itemID: String
 
+    /// Quem abre o link da reunião.
+    ///
+    /// **É o conserto do "Entrar" mudo.** O botão em destaque da janela
+    /// chamava `UNIWindow.logSend("Abriria …")` — uma linha no `stderr` e mais
+    /// nada. A pessoa clicava em cima da hora e a reunião não abria.
+    ///
+    /// Entra pela porta, e não como `NSWorkspace.shared.open` escondido no
+    /// fechamento, por uma razão só: nenhum teste deste projeto abre navegador.
+    /// O ensaio injeta um abridor que anota o endereço e devolve — e é assim que
+    /// o clique se prova sem tirar a máquina de quem está usando.
+    var abreLink: @MainActor (URL) -> Void = { url in
+        #if canImport(AppKit)
+        NSWorkspace.shared.open(url)
+        #endif
+    }
+
     @State private var forwardOpen = false
     @State private var forwardTo: [Contact] = []
     @State private var forwardNote = ""
@@ -210,18 +226,26 @@ public struct EventWindow: View {
                     .foregroundStyle(theme.accentInk.color)
                 // Clicável quando é um endereço de verdade: entrar na reunião é
                 // o que a pessoa veio fazer aqui, e copiar o link para colar no
-                // navegador era um passo a mais em cima da hora. `Link` abre no
-                // navegador padrão do sistema — declarativo, sem
-                // `NSWorkspace.open` escondido num fechamento.
-                if let destino = URL(string: link), destino.scheme?.hasPrefix("http") == true {
-                    Link(destination: destino) {
+                // navegador era um passo a mais em cima da hora.
+                //
+                // O `Link` do SwiftUI saiu daqui: ele abre por conta própria, e
+                // por isso o cartão e o botão "Entrar" do rodapé eram dois
+                // caminhos diferentes para a mesma reunião — um funcionava, o
+                // outro só escrevia no console. Agora os dois passam pelo mesmo
+                // `abreLink`, e o mesmo `MeetingLink.destino` decide se há o que
+                // abrir.
+                if let destino = MeetingLink.destino(link) {
+                    Button { abreLink(destino) } label: {
                         Text(link)
                             .font(theme.mono.font(size: 11.5))
                             .foregroundStyle(theme.accentInk.color)
                             .underline()
                             .lineLimit(1)
                             .truncationMode(.tail)
+                            .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+                    .focusRing(cornerRadius: theme.radiusSmall)
                     .help("Abrir a reunião no navegador")
                 } else {
                     Text(link)
@@ -599,13 +623,23 @@ public struct EventWindow: View {
     /// Protótipo: `padding: 12px 18px 15px`, botões de 30pt.
     private var footer: some View {
         HStack(spacing: 8) {
-            if let link = detail.link {
+            // **"Entrar" abre a reunião.** Ele chamava `UNIWindow.logSend` —
+            // uma linha no console e nada na tela —, e era o controle mudo mais
+            // caro do app: o botão em destaque da janela, apertado em cima da
+            // hora, sem nada acontecendo.
+            //
+            // Sem link de sala o botão **não existe**, como o protótipo desenha
+            // (`sc-if ev.hasLink`) e como o resto do app faz quando não há para
+            // onde ir. Quem decide é `MeetingLink.destino`, o mesmo do cartão
+            // acima: um "link" que não se abre no navegador não acende botão.
+            if let destino = MeetingLink.destino(detail.link) {
                 ChromeButton(
                     "Entrar", appearance: .accent, size: 12.5, weight: .semibold,
                     height: 30, horizontalPadding: 16
                 ) {
-                    UNIWindow.logSend("Abriria \(link).")
+                    abreLink(destino)
                 }
+                .help("Abrir a reunião no navegador")
             }
             ChromeButton(
                 "Encaminhar",

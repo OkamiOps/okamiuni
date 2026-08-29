@@ -147,6 +147,91 @@ enum Render {
     }
 }
 
+/// Hospeda uma `View` numa janela fora da tela e lhe entrega um clique **dentro
+/// do processo**.
+///
+/// Nasceu na M3-11 dentro de `ConversationStackClickTests` e mudou de casa aqui
+/// porque deixou de ser da pilha: o botão "Entrar" da janela do compromisso
+/// (M3-13) precisa do mesmo cano — um controle que se diz mudo só se
+/// desmente com um clique.
+///
+/// A janela é a do `Render`: sem borda, a −50.000pt, nunca trazida à frente,
+/// fechada no fim. Nada aqui toca no mouse nem no teclado da máquina — não há
+/// `CGEvent` postado no sistema, nem `osascript`. O evento nasce por
+/// `NSEvent.mouseEvent` e entra por `NSWindow.sendEvent`, o mesmo cano por onde
+/// um clique real chegaria à janela depois de a `NSApplication` o receber.
+@MainActor
+enum CliqueDeEnsaio {
+
+    static func em<V: View>(_ view: V, size: CGSize, aY y: CGFloat, x: CGFloat = 60) {
+        let raiz = view
+            .theme(.tinta)
+            .environment(\.locale, Locale(identifier: "pt_BR"))
+            .environment(\.displayScale, 1)
+            // `topLeading`, e não o centro que o `frame` dá por padrão: as
+            // coordenadas deste ensaio contam a partir da primeira linha da
+            // pilha, e conteúdo centrado as faria depender da altura do que
+            // está aberto.
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: -50_000, y: -50_000, width: size.width, height: size.height),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: raiz)
+        // **`orderBack` não é descuido, e é o que faz o clique existir.** Numa
+        // janela nunca ordenada o `hitTest` acha a `View` certa e o `Button` do
+        // SwiftUI não dispara: medido, o contador do clique fica em zero.
+        //
+        // A janela continua a −50.000pt, fora de qualquer monitor, e `orderBack`
+        // a põe **atrás** de tudo: não vira janela-chave, não ativa o app, não
+        // tira o foco de quem está usando a máquina.
+        window.orderBack(nil)
+        defer { window.close() }
+        guard let content = window.contentView else { return }
+
+        content.layoutSubtreeIfNeeded()
+        assenta()
+        content.layoutSubtreeIfNeeded()
+
+        clique(at: NSPoint(x: x, y: size.height - y), in: window)
+
+        assenta()
+        content.layoutSubtreeIfNeeded()
+        assenta()
+    }
+
+    /// O par pressão/soltura, entregue **direto à janela**.
+    ///
+    /// `RehearsalDriver.hit` faria o mesmo e mais um passo: pôr uma cópia da
+    /// soltura na fila do `NSApp`, para os laços de rastreio do AppKit a
+    /// encontrarem lá. Isso é indispensável no app e é fatal aqui — num processo
+    /// de teste, mexer na fila do `NSApp` termina o laço de drenagem da `main` e
+    /// o processo **sai com 0 no meio do teste**, sem uma linha de relatório (a
+    /// saída foi rastreada até `exit` dentro de
+    /// `swift_task_asyncMainDrainQueue`). Um `Button` do SwiftUI não usa laço de
+    /// rastreio, então o par direto basta.
+    private static func clique(at ponto: NSPoint, in window: NSWindow) {
+        for (tipo, pressao) in [(NSEvent.EventType.leftMouseDown, Float(1)), (.leftMouseUp, 0)] {
+            guard let evento = NSEvent.mouseEvent(
+                with: tipo, location: ponto, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil,
+                eventNumber: 70_001, clickCount: 1, pressure: pressao
+            ) else { return }
+            window.sendEvent(evento)
+        }
+    }
+
+    /// Deixa o desenho assentar. É `RunLoop`, e não `Task.sleep`: o `.task` de
+    /// uma `View` é agendado pelo laço de execução, e uma pausa de concorrência
+    /// o deixa por correr — medido, a porta de corpo nunca era perguntada.
+    private static func assenta() {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+    }
+}
+
 @Suite("Renderização fora da tela")
 @MainActor
 struct RenderHarnessTests {
