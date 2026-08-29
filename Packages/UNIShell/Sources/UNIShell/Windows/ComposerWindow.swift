@@ -94,6 +94,14 @@ public struct ComposerWindow: View {
     /// continuou verde. O que corre aqui é a ação do botão, a mesma que o
     /// clique dispara, não uma cópia dela.
     let debugInsertSignature: Bool
+    /// Só para verificação: aperta **Enviar** no primeiro passe.
+    ///
+    /// A mesma porta de `debugInsertSignature`, e pela mesma razão registrada
+    /// lá: fora da tela ninguém clica em nada, e sem ela a fiação do botão
+    /// ficaria sem prova — foi exatamente assim que "Enviar" passou o Marco 1
+    /// inteiro só escrevendo no console. O que corre aqui é a **ação do
+    /// botão**, não uma cópia dela.
+    let debugSend: Bool
 
     /// Qual campo de destinatário a porta do harness abre.
     enum RecipientSlot: Sendable { case to, cc, bcc }
@@ -113,6 +121,7 @@ public struct ComposerWindow: View {
         self.debugOpenPanel = nil
         self.debugSuggestion = nil
         self.debugInsertSignature = false
+        self.debugSend = false
     }
 
     init(
@@ -120,13 +129,15 @@ public struct ComposerWindow: View {
         mode: Mode,
         debugOpenPanel: ComposerToolbar.Panel? = nil,
         debugSuggestion: DebugSuggestion? = nil,
-        debugInsertSignature: Bool = false
+        debugInsertSignature: Bool = false,
+        debugSend: Bool = false
     ) {
         self.store = store
         self.mode = mode
         self.debugOpenPanel = debugOpenPanel
         self.debugSuggestion = debugSuggestion
         self.debugInsertSignature = debugInsertSignature
+        self.debugSend = debugSend
         // As linhas Cc e Cco nascem fechadas; para desenhar a lista de uma
         // delas o harness precisa da linha aberta desde o primeiro passe.
         _ccOpen = State(initialValue: debugSuggestion?.slot == .cc)
@@ -292,6 +303,7 @@ public struct ComposerWindow: View {
             // semeadura, para o corpo já estar no estado em que o clique o
             // encontraria.
             if debugInsertSignature, canInsertSignature { insertSignature() }
+            if debugSend { send(archiving: false) }
         }
     }
 
@@ -723,13 +735,54 @@ public struct ComposerWindow: View {
         savedStamp = Date.now.formatted(date: .omitted, time: .shortened)
     }
 
+    /// O que "Enviar" faz agora: **enfileira de verdade**.
+    ///
+    /// Até aqui ele escrevia uma linha no console e fechava a janela — o que o
+    /// dono do projeto viu como "tentei enviar email e nada está funcionando".
+    /// A mensagem agora entra na fila de saída na mesma transação de sempre, e
+    /// o executor a leva ao servidor (Gmail API ou SMTP, conforme a conta).
+    ///
+    /// Três decisões que a janela toma, e não a fila:
+    ///
+    /// - **Sem destinatário não envia**, e a janela **fica aberta**. Fechar
+    ///   engoliria o texto junto com o engano.
+    /// - **Sem porta de envio** (o app nas fixtures, sem conta nenhuma) o
+    ///   comportamento continua sendo o do Marco 1: a linha no console e a
+    ///   janela fechando. Nada aqui promete o que não existe.
+    /// - **A janela fecha ao enfileirar**, e não ao a mensagem chegar: a fila
+    ///   pode estar esperando a rede voltar, e prender a janela até lá seria
+    ///   fazer a pessoa esperar por algo que o app já se comprometeu a fazer
+    ///   sozinho. Falha permanente aparece onde as outras falhas da fila
+    ///   aparecem, com "tentar de novo" ao lado.
     private func send(archiving: Bool) {
-        let recipients = to.map(\.address).joined(separator: ", ")
-        UNIWindow.logSend(
-            "Enviaria \"\(subject)\" para [\(recipients)] pela conta \(account?.address ?? "—") "
-            + "(\(DraftMeta.wordCount(plainDraft)) palavras, \(attachments.count) anexos)"
-            + (archiving ? " e arquivaria a original." : ".")
+        let recipients = (to + cc + bcc).map(\.address).filter { !$0.isEmpty }
+        guard !recipients.isEmpty else { return }
+        guard let account, store.canSend else {
+            UNIWindow.logSend(
+                "Enviaria \"\(subject)\" para [\(recipients.joined(separator: ", "))] "
+                + "pela conta \(account?.address ?? "—") "
+                + "(\(DraftMeta.wordCount(plainDraft)) palavras, \(attachments.count) anexos)"
+                + (archiving ? " e arquivaria a original." : ".")
+            )
+            if archiving, let original = repliedMessage {
+                store.move(original, to: .archived)
+            }
+            dismiss()
+            return
+        }
+
+        let mensagem = ComposerOutgoing.message(
+            accountID: account.id,
+            from: Contact(name: account.displayName, address: account.address),
+            to: to, cc: cc, bcc: bcc,
+            subject: subject,
+            plainText: plainDraft,
+            html: ComposerOutgoing.html(draft, theme: theme)
         )
+        // Não enfileirou? A janela fica aberta com o rascunho inteiro, e o erro
+        // já está no `loadError` do store — a pessoa não perde o que escreveu
+        // por causa de uma escrita de banco que falhou.
+        guard store.send(mensagem) else { return }
         if archiving, let original = repliedMessage {
             store.move(original, to: .archived)
         }
