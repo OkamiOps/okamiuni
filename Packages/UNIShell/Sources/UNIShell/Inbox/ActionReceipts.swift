@@ -95,6 +95,49 @@ public final class ActionReceipts {
         }
     }
 
+    /// **Apagar, venha de onde vier** — a tecla ⌫, o menu, ou o botão da barra
+    /// do leitor.
+    ///
+    /// Uma função só porque a decisão é uma só, e ela tem três partes que não
+    /// podem divergir entre superfícies: *o quê* (Lixeira, ou de vez quando a
+    /// mensagem já está lá — a mesma regra que `ContextMenus.deleteItem`
+    /// escreve no rótulo), *sobre quem* (a conversa, quando a linha é uma
+    /// conversa — a decisão da M3-9: a barra do leitor age na pilha da caixa
+    /// aberta, como o clique na linha agiria), e *com que volta* (a faixa
+    /// "Desfazer", sempre — uma ação destrutiva sem volta visível é pior do que
+    /// não ter a ação).
+    ///
+    /// O recibo nasce **antes** da mudança, como todos os outros: depois de
+    /// apagada, a mensagem não está mais no store para dizer quem era.
+    ///
+    /// - Returns: `false` quando não havia o que apagar — aí a tecla segue o
+    ///   caminho dela em vez de ser engolida por um atalho que não fez nada.
+    @discardableResult
+    public func delete(_ message: Message, on store: MailStore) -> Bool {
+        let comando = ContextMenus.deleteItem(message).command
+        // Sem conversa aberta (a mensagem revelada de fora da visão), a
+        // mensagem — que é o comportamento de sempre.
+        guard let conversa = store.conversation(of: message.id), conversa.count > 1 else {
+            return intercept(comando, on: store, stamp: Self.stamp)
+        }
+        switch comando {
+        case .deleteForever:
+            let feito = SwipeReceipt.ofConversationDeleteForever(
+                conversation: conversa, stamp: Self.stamp
+            )
+            store.deleteForever(conversa)
+            current = feito
+        default:
+            let feito = SwipeReceipt.ofConversation(
+                .trash, conversation: conversa,
+                states: store.states(of: conversa.messageIDs), stamp: Self.stamp
+            )
+            store.move(conversa, to: .trash)
+            current = feito
+        }
+        return true
+    }
+
     /// A hora do recibo. Entra pronta em `SwipeReceipt` justamente para a
     /// formatação ficar num lugar só — ver o comentário de `SwipeReceipt.of`.
     public static var stamp: String {

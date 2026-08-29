@@ -29,11 +29,55 @@ public struct AgendaItem: Sendable, Hashable, Identifiable {
     /// continua compilando e continua significando "hoje".
     public let dayOffset: Int
 
+    /// O `UID` do convite que gerou este compromisso — a identidade que o
+    /// iCalendar dá ao evento, igual em todas as cópias dele.
+    ///
+    /// **É a guarda contra a agenda em dobro.** Sem ele, o convite original e o
+    /// "Convite atualizado" do mesmo evento eram dois compromissos, e cada
+    /// encaminhamento seria mais um: foram os dois "DreamSquad" idênticos da
+    /// tela do dono.
+    ///
+    /// `nil` no compromisso que não veio de convite — o detectado no texto de
+    /// um email, o da agenda de exemplo. Aditivo, como `dayOffset` foi.
+    ///
+    /// **Agora é coluna também.** Era só modelo, e a nota antiga aqui dizia que
+    /// "a agenda ainda é de sessão" — dívida que o dono cobrou do jeito mais
+    /// direto: "coloco o item no calendário e ao fechar e abrir o OkamiUNI a
+    /// agenda some". A M3-11 a pagou com a migração v5 e a tabela
+    /// `created_agenda_item`, e é este `UID` guardado que faz "✓ Na agenda"
+    /// sobreviver ao reinício em vez de o cartão oferecer de novo o que já está
+    /// lá. Ver `AgendaPersisting`.
+    ///
+    /// Quando o Marco 4 trouxer o EventKit, este campo é o que casa com o
+    /// `calendarItemExternalIdentifier` de lá.
+    public let calendarUID: String?
+
+    /// O `SEQUENCE` da versão do convite que este compromisso reflete. É contra
+    /// ele que um "Convite atualizado" se anuncia como mais novo.
+    public let calendarSequence: Int?
+
+    /// O que a janela 04 mostra além do horário — local, link, organizador,
+    /// participantes, descrição — **quando o compromisso trouxe isso**.
+    ///
+    /// `nil` é o compromisso da agenda de exemplo, e aí a janela cai em
+    /// `Fixtures.eventDetail(for:)` como sempre caiu. Era o único caminho que
+    /// existia: um compromisso criado de um convite do Favini abria com "Sem
+    /// local definido", organizador "Ricardo Gomes · ricardo@empresa.com" e a
+    /// nota "Criado manualmente na agenda" — dado de fixture numa reunião de
+    /// verdade.
+    public let detail: EventDetail?
+
     public init(
         id: String, title: String,
         startMinute: Int, endMinute: Int, accountID: String,
-        dayOffset: Int = 0
+        dayOffset: Int = 0,
+        calendarUID: String? = nil,
+        calendarSequence: Int? = nil,
+        detail: EventDetail? = nil
     ) {
+        self.calendarUID = calendarUID
+        self.calendarSequence = calendarSequence
+        self.detail = detail
         self.id = id
         self.title = title
         self.startMinute = startMinute

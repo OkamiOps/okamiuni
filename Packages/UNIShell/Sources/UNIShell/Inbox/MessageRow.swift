@@ -12,6 +12,7 @@ public struct MessageRow: View {
     static let accountBarWidth: CGFloat = UnreadMetrics.quietBarWidth
 
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
     let message: Message
     let accountHost: String
     let accountTint: Color
@@ -20,23 +21,46 @@ public struct MessageRow: View {
     /// parâmetros nomeados existem para o harness renderizar as três variantes
     /// lado a lado sem mexer no app.
     let emphasis: UnreadEmphasis
+    /// Quantas mensagens a conversa desta linha tem. `1` é o padrão e é o caso
+    /// da esmagadora maioria — e com `1` nada aqui muda de desenho.
+    let conversationCount: Int
+    /// A conversa tem alguma não lida? `nil` é "pergunte à mensagem", que é o
+    /// que toda chamada de antes desta tarefa (previews, harness, os testes de
+    /// linha) continua fazendo.
+    let unread: Bool?
+
+    /// Que dia é hoje, para o carimbo da direita saber se escreve hora ou data.
+    ///
+    /// O padrão é `Fixtures.today` pelo mesmo motivo que
+    /// `InboxScreen(clock:)` tem `.fixed(Fixtures.nowMinute)` por padrão: sem
+    /// ninguém dizendo o contrário, esta é a lista do Marco 1, cujas fixtures
+    /// são de 25 de agosto de 2026 e cujos retratos não podem mudar. O app com
+    /// banco aberto passa o dia da máquina — ver `AgendaClock.today`.
+    let today: Date
 
     public init(
         message: Message,
         accountHost: String,
         accountTint: Color,
         isSelected: Bool,
-        emphasis: UnreadEmphasis = .standard
+        emphasis: UnreadEmphasis = .standard,
+        conversationCount: Int = 1,
+        unread: Bool? = nil,
+        today: Date = Fixtures.today
     ) {
+        self.today = today
         self.message = message
         self.accountHost = accountHost
         self.accountTint = accountTint
         self.isSelected = isSelected
         self.emphasis = emphasis
+        self.conversationCount = conversationCount
+        self.unread = unread
     }
 
-    /// A marca vale para a mensagem não lida, e só para ela.
-    private var marks: Bool { !message.isRead }
+    /// A marca vale para a **conversa** não lida — e, na falta de conversa,
+    /// para a mensagem não lida, que é o mesmo.
+    private var marks: Bool { unread ?? !message.isRead }
 
     /// A largura da barra da conta nesta linha.
     private var barWidth: CGFloat {
@@ -59,17 +83,63 @@ public struct MessageRow: View {
     /// O canto direito da primeira linha. Design (`MSGS`): a mensagem de hoje
     /// mostra a hora (`time: '09:42'`), a de ontem mostra o dia
     /// (`time: 'Ontem'`) — a hora só informa quando o dia já está implícito.
+    /// Mais para trás, a data; e de outro ano, a data com o ano.
     ///
-    /// A escolha sai de `dayOffset`, a mesma fonte do cabeçalho de grupo, e não
-    /// de uma comparação com o relógio.
+    /// A escolha sai de `MessageStamp`, que compara `receivedAt` com o dia de
+    /// `today`. Saía de `message.dayOffset`, e `dayOffset` só é preenchido
+    /// pelas fixtures: toda mensagem vinda de servidor nasce com `0`, e era
+    /// assim que julho inteiro aparecia carimbado com horário, como se tivesse
+    /// chegado hoje de manhã.
+    ///
+    /// O vocabulário é o do cabeçalho do leitor ("21 de jul., 19:46"), sem a
+    /// hora: `.dateTime.day().month(.abbreviated)`.
     @ViewBuilder
     private var timeStamp: some View {
-        if DayLabel.showsClockTime(forOffset: message.dayOffset) {
+        switch MessageStamp.of(message.receivedAt, now: today) {
+        case .clock:
             Text(message.receivedAt, format: .dateTime.hour().minute())
-        } else if let name = DayLabel.name(forOffset: message.dayOffset) {
-            Text(name)
-        } else {
+        case .yesterday:
+            Text(DayLabel.yesterday)
+        case .dayMonth:
             Text(message.receivedAt, format: .dateTime.day().month(.abbreviated))
+        case .dayMonthYear:
+            Text(message.receivedAt, format: .dateTime.day().month(.abbreviated).year())
+        }
+    }
+
+    /// O selo com quantas mensagens a conversa tem — "3", ao lado do
+    /// remetente, como Gmail e Zoho fazem.
+    ///
+    /// **Só existe a partir de duas.** Um "1" em toda linha de uma caixa sem
+    /// conversa nenhuma seria ruído em cada linha, e mudaria o desenho de
+    /// tudo o que o Marco 1 já tinha — a condição byte a byte dos retratos.
+    ///
+    /// O número em `mono`, como o carimbo de horário e o chip do host: é
+    /// contagem, e nesta tela contagem é monoespaçada.
+    @ViewBuilder
+    private var countBadge: some View {
+        if conversationCount > 1 {
+            // **Um grau mais presente desde a M3-21.** Ele estava em 9,5pt,
+            // `ink3`, sobre `surface3` — e sobre a linha selecionada, que já
+            // tem o tom da conta por baixo, o selo praticamente sumia. Meio
+            // ponto de corpo, o peso do carimbo, a tinta um grau mais escura e
+            // um fio em volta: continua sendo o mesmo selo miúdo, agora com
+            // borda que o separa de qualquer fundo que a linha tenha.
+            Text(String(conversationCount))
+                .font(theme.mono.font(size: 10, weight: .semibold))
+                .foregroundStyle(theme.ink2.color)
+                .padding(.horizontal, 5)
+                .frame(height: 16)
+                .background(theme.surface3.color)
+                .clipShape(Capsule())
+                .overlay {
+                    Capsule().strokeBorder(
+                        theme.line.color, lineWidth: Hairline.thickness(displayScale)
+                    )
+                }
+                .fixedSize()
+                .help("\(conversationCount) mensagens nesta conversa")
+                .accessibilityLabel("\(conversationCount) mensagens nesta conversa")
         }
     }
 
@@ -147,11 +217,15 @@ public struct MessageRow: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 3) {  // protótipo: margin-top: 3px
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(message.from.name)
+                // O remetente — ou o destinatário, em Enviadas. Quem decide é
+                // `Message.listHeadline`, no `UNICore`: é regra do produto, e
+                // esta linha só a desenha.
+                Text(message.listHeadline)
                     .font(theme.sans.font(size: 13, weight: message.isRead ? .regular : .semibold))
                     .tracking(-0.005 * 13)  // letter-spacing: -0.005em a 13pt = -0.065pt
                     .foregroundStyle(theme.ink.color)
                     .lineLimit(1)
+                countBadge
                 Spacer(minLength: 4)
                 flagStar
                 timeStamp

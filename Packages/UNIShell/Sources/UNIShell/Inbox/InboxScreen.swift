@@ -34,9 +34,35 @@ public struct InboxScreen: View {
     @State private var query = ""
     let store: MailStore
 
-    public init(store: MailStore) {
+    /// De onde vem o "agora" da trilha e das três visões da agenda.
+    ///
+    /// O padrão é `.fixed(Fixtures.nowMinute)` de propósito: é o que mantém
+    /// `RenderHarness`, as capturas e os testes deste pacote — que chamam
+    /// `InboxScreen(store:)` sem este parâmetro — byte a byte iguais a antes.
+    /// Só quem quer o relógio vivo (o app de verdade, com conta real) passa
+    /// `.live` explicitamente — ver `OkamiUNIApp`.
+    let clock: AgendaClock
+
+    public init(store: MailStore, clock: AgendaClock = .fixed(Fixtures.nowMinute)) {
         self.store = store
+        self.clock = clock
     }
+
+    /// O **hoje** de tudo que esta tela desenha com data: o carimbo de cada
+    /// linha da lista, o cabeçalho da trilha do dia e as três visões da aba
+    /// Agenda.
+    ///
+    /// Um lugar só, e é o motivo de ele existir. O minuto já vinha do relógio
+    /// desde a M3-4, mas o **dia** era `Fixtures.today` escrito à mão em dois
+    /// pontos daqui — a trilha e a `CalendarScreen` —, de modo que com conta
+    /// conectada a agenda continuava destacando terça, 25 de agosto: a âncora
+    /// congelada do Marco 1. Dois "hojes" no mesmo processo também poriam um
+    /// compromisso criado num dia e desenhado noutro; ver
+    /// `MailStore.agendaReferenceDay`, que recebe este mesmo relógio pelo
+    /// `OkamiUNIApp`.
+    ///
+    /// `internal`: `AgendaHojeTests` afere a decisão sem renderizar nada.
+    var agendaAnchor: Date { clock.today }
 
     public var body: some View {
         VStack(spacing: 0) {
@@ -59,11 +85,9 @@ public struct InboxScreen: View {
             }
         }
         .environment(receipts)
-        .task {
-            await store.load()
-        }
+        .task { await subscribeToSource() }
         .onChange(of: query) { _, newQuery in
-            store.query = newQuery
+            Task { await searchChanged(to: newQuery) }
         }
         // Revelar uma mensagem pode vir de **fora** desta tela: o botão "Email"
         // da janela 04 é outra cena e só alcança o `MailStore`. `revealCount`
@@ -75,10 +99,47 @@ public struct InboxScreen: View {
         }
     }
 
+    // MARK: A fiação com a fonte
+    //
+    // Os dois métodos abaixo são o corpo do `.task` e o do `onChange` da busca,
+    // fora dos modificadores **para poderem ser chamados de um teste**. A
+    // primeira versão desta fiação era testada renderizando a tela numa janela
+    // fora do ar e esperando o efeito com um teto de tempo: passava sozinha,
+    // passava numa rodada da suíte inteira e falhava na seguinte, porque quem
+    // entrega o `.task` de uma `View` é o ator principal, disputado por dezenas
+    // de renderizações. Teste assim não prova fiação, sorteia. Chamados
+    // diretamente, com um duplo de fonte que conta as chamadas, os dois viram
+    // afirmação determinística — e o que resta sem cobertura é uma linha visível
+    // em cada modificador acima.
+
+    /// Assina a fonte. **Assina**, e não puxa: com a fonte em memória do
+    /// Marco 1 `observe()` entrega um retrato e termina — exatamente o `load()`
+    /// que estava aqui, e é por isso que a troca não muda nada sem conta. Com o
+    /// banco, é ele que acorda a lista enquanto a carga inicial baixa: sem isto
+    /// a pessoa adicionaria uma conta e ficaria olhando uma tela parada até
+    /// reabrir o app.
+    func subscribeToSource() async {
+        await store.observe()
+    }
+
+    /// A busca mudou: o termo vai para o modelo e o **corpo** é perguntado à
+    /// fonte.
+    ///
+    /// Perguntar é assíncrono (é consulta ao índice do banco) e a lista é
+    /// síncrona — a tela não pode esperar disco a cada tecla. Fonte que não sabe
+    /// procurar no corpo devolve "não sei", e a busca do Marco 1 (remetente,
+    /// assunto, prévia) continua sendo o que decide.
+    func searchChanged(to termo: String) async {
+        store.query = termo
+        await store.refreshBodyMatches()
+    }
+
     /// O `GeometryReader` existe por um motivo só: dar a largura real da janela
     /// a `PaneLayout`. A decisão em si não mora aqui — este `View` é `@MainActor`
     /// e a aritmética precisa ser chamável de teste nonisolated.
-    private var mailContent: some View {
+    /// `internal` (era `private`) para `AgendaHojeTests` fotografar só a coluna
+    /// da trilha e provar que a data do cabeçalho dela segue o relógio.
+    var mailContent: some View {
         GeometryReader { proxy in
             let layout = PaneLayout.resolve(
                 width: proxy.size.width,
@@ -103,6 +164,10 @@ public struct InboxScreen: View {
                 MessageList(
                     store: store,
                     width: layout.messageListWidth,
+                    // O carimbo de horário de cada linha compara a data da
+                    // mensagem com **este** dia: `Fixtures.today` no mundo
+                    // congelado dos retratos, o dia da máquina com conta real.
+                    today: agendaAnchor,
                     onOpenWindow: openMessageWindow
                 )
 
@@ -110,17 +175,21 @@ public struct InboxScreen: View {
                 ReaderPane(store: store, onReply: openComposer)
 
                 // Trilha de agenda — o primeiro painel a sair quando aperta.
-                // Ambos (data e minuto) vêm de Fixtures para coerência durante testes
-                // nowMinute é constante e não depende do fuso da máquina
+                // A data do cabeçalho e o minuto seguem o **mesmo** relógio:
+                // fixos nos retratos e nas capturas, vivos com conta real.
+                // Escrever `Fixtures.today` aqui era o que fazia a trilha dizer
+                // "Terça-feira, 25 de agosto" em qualquer dia do ano.
                 if layout.agendaVisible {
-                    AgendaRail(
-                        store: store,
-                        now: Fixtures.nowMinute,
-                        headerDate: Fixtures.today,
-                        width: layout.agendaRailWidth,
-                        onOpenEvent: openEventWindow,
-                        onRevealMessage: reveal
-                    )
+                    AgendaClockReader(clock) { now in
+                        AgendaRail(
+                            store: store,
+                            now: now,
+                            headerDate: agendaAnchor,
+                            width: layout.agendaRailWidth,
+                            onOpenEvent: openEventWindow,
+                            onRevealMessage: reveal
+                        )
+                    }
                     .transition(.move(edge: .trailing).combined(with: .opacity))
                 }
             }
@@ -213,15 +282,19 @@ public struct InboxScreen: View {
     /// protótipo ela é do shell e não da tela do email — ver `CalendarScreen`.
     /// Por isso `wantsSidebar` atravessa daqui: é a intenção que o botão da
     /// barra do topo mexe, e ela tem de valer nas duas abas.
-    private var calendarContent: some View {
-        CalendarScreen(
-            store: store,
-            now: Fixtures.nowMinute,
-            anchor: Fixtures.today,
-            wantsSidebar: wantsSidebar,
-            onOpenEvent: openEventWindow,
-            onRevealMessage: reveal
-        )
+    ///
+    /// `internal` (era `private`) pelo mesmo motivo do `mailContent`.
+    var calendarContent: some View {
+        AgendaClockReader(clock) { now in
+            CalendarScreen(
+                store: store,
+                now: now,
+                anchor: agendaAnchor,
+                wantsSidebar: wantsSidebar,
+                onOpenEvent: openEventWindow,
+                onRevealMessage: reveal
+            )
+        }
     }
 
     // MARK: - Janelas

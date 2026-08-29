@@ -498,3 +498,56 @@ compromisso em vez de ficar mudo (volta no Marco 4, com EventKit), e a
 sugestão de contato tem uma máquina só — a do `ContactDirectory`, com dobra
 de acento, que também passou a valer para a busca da lista ("Revisao" acha
 "Revisão").
+
+## O dia de um compromisso guardado é uma data civil, nunca um deslocamento (2026-08-29, M3-11)
+
+`AgendaItem.dayOffset` é um inteiro relativo ao "hoje" da tela, e isso é certo
+para a tela: é o que deixa uma lista só alimentar a trilha do dia, a Semana e o
+Mês sem nenhuma conversão de fuso. Para o disco é errado, e de um jeito que só
+aparece no dia seguinte: com conta conectada o "hoje" é o relógio da máquina
+(`AgendaClock.live`), então um compromisso gravado como `+1` seria "amanhã"
+hoje, "amanhã" amanhã, e "amanhã" na semana que vem — fugindo um dia a cada
+abertura, para sempre.
+
+A tabela `created_agenda_item` (migração v5) guarda `day` como texto
+`"AAAA-MM-DD"`. Três inteiros não têm fuso, não andam, e sobrevivem a uma
+viagem. A tradução nos dois sentidos mora num lugar só, `CivilDay`, e é a única
+fronteira: quem grava converte deslocamento em dia, quem lê converte de volta
+contra o "hoje" daquela abertura. O `MailStore` recebe esse "hoje" injetado
+(`agendaReferenceDay`), com `Fixtures.today` por padrão — é o que mantém as
+capturas e os retratos do Marco 1 byte a byte iguais.
+
+Tabela nova, e não a `agenda_item` da v1, por uma razão que decide sozinha:
+`agenda_item.accountID` tem `REFERENCES account(id)`, e as chaves estrangeiras
+estão ligadas. **Sem conta conectada não haveria onde gravar** — a mensagem de
+exemplo tem `accountID` de fixture, e o `INSERT` seria recusado. Um compromisso
+criado sem conta é da pessoa do mesmo jeito. A prova está em
+`DatabaseAgendaStoreTests`: reintroduzir a chave estrangeira derruba cinco
+testes com `FOREIGN KEY constraint failed`.
+
+## Clique de `View` se prova com clique, e a janela do harness precisa ser ordenada (2026-08-29, M3-11)
+
+O defeito "clicar na mensagem recolhida não abre nada" não era alcançável por
+teste de lógica: a lógica da pilha estava certa, e o que faltava era o pedido de
+corpo que só a `View` dispara. `ConversationStackView` nasceu com fronteira
+própria para poder ser hospedada sozinha numa janela fora da tela e receber um
+evento sintético dentro do processo.
+
+Duas coisas medidas no caminho, e as duas contraintuitivas:
+
+1. **Uma `NSWindow` nunca ordenada não processa mouse.** O `hitTest` acha a
+   `View` certa e o `Button` do SwiftUI não dispara. `orderBack(nil)` numa
+   janela a −50.000pt resolve sem tirar o foco de ninguém — ela continua fora
+   de qualquer monitor e atrás de tudo.
+2. **`NSApp.postEvent` mata o processo de teste.** `RehearsalDriver.hit` põe a
+   soltura na fila do `NSApp` de propósito (os laços de rastreio do AppKit a
+   procuram lá), e isso é indispensável no app; num processo de teste, mexer
+   nessa fila termina o laço de drenagem da `main` e o processo **sai com 0 no
+   meio do teste**, sem uma linha de relatório — rastreado até `exit` dentro de
+   `swift_task_asyncMainDrainQueue`. Um `Button` do SwiftUI não usa laço de
+   rastreio, então o par `sendEvent` direto basta.
+
+E uma terceira, sobre o instrumento: o `.task` de uma `View` é agendado pelo
+laço de execução. Esperar com `Task.sleep` deixa-o por correr, e o ensaio mede
+um app que não existe — a espera tem de ser `RunLoop.run`, como o `Render` já
+fazia.

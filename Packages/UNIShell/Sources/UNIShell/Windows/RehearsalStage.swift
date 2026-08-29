@@ -35,6 +35,9 @@ enum RehearsalStage {
 /// Os códigos de tecla virtuais que os ensaios usam. São os do
 /// `Carbon.HIToolbox.Events`, escritos aqui para o ensaio não puxar o Carbon.
 enum RehearsalKey {
+    /// ⌘A — "selecionar tudo". O ensaio de contas o usa para apagar o palpite
+    /// de um campo antes de digitar por cima.
+    static let a: UInt16 = 0
     static let r: UInt16 = 15
     static let n: UInt16 = 45
     static let k: UInt16 = 40
@@ -109,6 +112,45 @@ final class RehearsalDriver {
         }
     }
 
+    /// Manda uma tecla **direto para a janela**, sem passar pela fila do app.
+    ///
+    /// A fila (`send(key:…)`) é obrigatória para atalho com ⌘: quem os resolve
+    /// é `NSApplication.sendEvent`, e ela só corre no app **ativo**. Isso custa
+    /// caro para um ensaio que roda enquanto o dono trabalha: ou ele rouba a
+    /// frente da máquina, ou não mede nada — e um app lançado por trás nem
+    /// sempre ganha a ativação, o que faz o mesmo ensaio passar numa rodada e
+    /// falhar na seguinte sem nada ter mudado.
+    ///
+    /// Um caractere digitado num campo de texto não precisa de nada disso: ele
+    /// vai do `sendEvent` da janela ao `keyDown:` do primeiro respondedor, que
+    /// é o editor de campo, e daí ao `interpretKeyEvents`. É o mesmo cano por
+    /// onde a tecla real chega depois que a `NSApplication` a entregou à
+    /// janela — só que sem exigir a frente da tela.
+    ///
+    /// Serve para tecla **sem** modificador de comando. Para atalho, use
+    /// `send(key:…)` e ative o app antes.
+    func type(key code: UInt16, characters: String, in target: NSWindow? = nil) {
+        let window = target ?? self.window
+        for phase in [NSEvent.EventType.keyDown, .keyUp] {
+            guard let event = NSEvent.keyEvent(
+                with: phase,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: characters,
+                charactersIgnoringModifiers: characters,
+                isARepeat: false,
+                keyCode: code
+            ) else {
+                RehearsalStage.log("tecla \(code) não pôde ser sintetizada")
+                return
+            }
+            window.sendEvent(event)
+        }
+    }
+
     // MARK: - Mouse
 
     /// Um clique completo (down + up) com a contagem pedida, entregue à janela.
@@ -119,6 +161,62 @@ final class RehearsalDriver {
         let window = target ?? self.window
         post(.leftMouseDown, at: point, clickCount: clickCount, in: window)
         post(.leftMouseUp, at: point, clickCount: clickCount, in: window)
+    }
+
+    /// Um clique entregue **direto na janela**, sem depender de o app estar na
+    /// frente da tela — o par de `type(key:…)`, e pela mesma razão.
+    ///
+    /// ## A soltura vai para a fila **antes** da pressão, e isso não é capricho
+    ///
+    /// Um `NSButton`, um `NSTextField` e boa parte do SwiftKit que o SwiftUI
+    /// desenha tratam o clique com um **laço de rastreio**: ao receber o
+    /// `mouseDown` eles param ali dentro chamando `nextEventMatchingMask`, à
+    /// espera da soltura. Entregue só por `sendEvent`, a soltura nunca passa
+    /// pela fila — e o laço espera por um sistema que não vai mandar nada. O
+    /// app trava inteiro, com a thread principal parada: nem o relógio de
+    /// guarda deste ensaio disparava, porque ele também é `@MainActor`.
+    ///
+    /// Isto aconteceu de verdade, e o sintoma enganava: o ensaio parava em
+    /// pontos diferentes a cada rodada, conforme qual view do caminho usava
+    /// laço de rastreio.
+    ///
+    /// Pondo a soltura na fila **primeiro**, o laço já a encontra lá quando
+    /// começa a procurar, e devolve na hora. Quem não usa laço nenhum recebe a
+    /// soltura síncrona logo depois, como sempre; a cópia da fila chega a
+    /// seguir e é ignorada — soltura sem pressão não aciona coisa alguma.
+    ///
+    /// Quem decide roteamento lendo `NSApp.currentEvent` — o `RightClickCatcher`
+    /// faz isso — **não** pode ser medido assim; para esses, `click(at:)`.
+    func hit(at point: NSPoint, clickCount: Int = 1, in target: NSWindow? = nil) {
+        let window = target ?? self.window
+        guard let down = mouseEvent(.leftMouseDown, at: point, clickCount: clickCount, in: window),
+              let up = mouseEvent(.leftMouseUp, at: point, clickCount: clickCount, in: window),
+              let upDaFila = mouseEvent(.leftMouseUp, at: point, clickCount: clickCount, in: window)
+        else { return }
+        NSApp.postEvent(upDaFila, atStart: false)
+        window.sendEvent(down)
+        window.sendEvent(up)
+    }
+
+    private func mouseEvent(
+        _ type: NSEvent.EventType, at point: NSPoint, clickCount: Int, in window: NSWindow
+    ) -> NSEvent? {
+        eventNumber += 1
+        guard let event = NSEvent.mouseEvent(
+            with: type,
+            location: point,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: eventNumber,
+            clickCount: clickCount,
+            pressure: type == .leftMouseUp ? 0 : 1
+        ) else {
+            RehearsalStage.log("evento \(type) não pôde ser sintetizado")
+            return nil
+        }
+        return event
     }
 
     /// Duplo clique como o sistema o entrega: dois pares down/up, o segundo com

@@ -23,8 +23,10 @@ struct AgendaRailTests {
             id: "e1", title: "Standup produto",
             startMinute: 570, endMinute: 600, accountID: "zoho"
         )
-        // 09:30 é 90 minutos depois das 08:00 (480) -> 90 × 0.78 = 70.2pt
-        #expect(layout.offset(for: standup) == 70.2)
+        // A trilha cobre o dia inteiro agora (00:00 a 24:00) — o desconto de
+        // 480 (08:00) que existia quando a faixa começava lá sumiu junto:
+        // 09:30 são 570 minutos desde a meia-noite -> 570 × 0.78 = 444.6pt.
+        #expect(layout.offset(for: standup) == 444.6)
         // 30 min × 0.78 - 3 = 23.4 - 3 = 20.4pt, mas mínimo é 42 para modo tight
         #expect(layout.height(for: standup) == 42)
     }
@@ -39,10 +41,15 @@ struct AgendaRailTests {
         #expect(layout.height(for: tiny) == 42)
     }
 
-    @Test("a trilha cobre a faixa inteira do dia (480 a 1140)")
+    /// Antes a trilha ia só de 480 (08:00) a 1140 (19:00) — o dono conectou
+    /// uma conta real e viu que um compromisso depois das 19h simplesmente
+    /// não tinha onde desenhar. "O dia não acaba às 18" foi a fala dele.
+    /// Mudança consciente: o literal e o comentário do teste anterior
+    /// afirmavam a faixa velha, e agora afirmam o dia inteiro.
+    @Test("a trilha cobre o dia inteiro (00:00 a 24:00)")
     func totalHeight() {
-        // 1140 - 480 = 660 min × 0.78 = 514.8pt (com tolerância de floating point)
-        #expect(abs(layout.totalHeight - 514.8) < 0.01)
+        // 1440 min × 0.78 = 1123.2pt (com tolerância de floating point)
+        #expect(abs(layout.totalHeight - 1_123.2) < 0.01)
     }
 
     @Test("o rótulo de início é HH:MM")
@@ -126,15 +133,22 @@ struct AgendaRailTests {
         #expect(abs(layout.height(for: item3) - 43.8) < 0.01)
     }
 
-    @Test("posição não desenha fora da faixa (480-1140)")
-    func offsetOutsideRail() {
+    /// Mutação vermelha do conserto: com a faixa velha (480-1140), um
+    /// compromisso às 05:00 desenhava com `offset` negativo (fora da trilha,
+    /// para cima) e um às 20:00 desenhava além de `totalHeight` (fora da
+    /// trilha, para baixo) — os dois sumiam. Com o dia inteiro, os dois têm
+    /// onde desenhar: `offset` cai dentro de `0...totalHeight`. Se a faixa
+    /// voltasse a 480-1140, `early` voltaria a ser negativo e `late`
+    /// voltaria a estourar `totalHeight`.
+    @Test("um compromisso de madrugada ou depois das 19h ainda desenha dentro da trilha")
+    func offsetsCoverTheWholeDay() {
         let early = AgendaItem(id: "x", title: "Cedo", startMinute: 300, endMinute: 400, accountID: "z")
         let late = AgendaItem(id: "x", title: "Tarde", startMinute: 1200, endMinute: 1300, accountID: "z")
 
-        // Fora da faixa: a lógica de offset continua funcionando, mas a View não desenha
-        // (isso é responsabilidade da View, não do Layout)
-        #expect(layout.offset(for: early) < 0)
-        #expect(layout.offset(for: late) > layout.totalHeight)
+        #expect(layout.offset(for: early) == 234)     // 05:00 → 300 × 0.78
+        #expect(layout.offset(for: late) == 936)       // 20:00 → 1200 × 0.78
+        #expect(layout.offset(for: early) >= 0)
+        #expect(layout.offset(for: late) <= layout.totalHeight)
     }
 
     @Test("cabeçalho da agenda formata a data corretamente")
@@ -217,6 +231,15 @@ struct AgendaRailTests {
         let widest = AgendaRail.hourLabel(minuteOfDay: 1080)
         #expect(widest.count == 5)
         #expect(layout.labelGutter >= 30)
+    }
+
+    @Test("a rolagem inicial deixa a manhã (~08:00) visível, não a meia-noite")
+    func initialScrollTargetShowsMorning() {
+        // A trilha agora abre em 00:00, e sem uma rolagem inicial a pessoa
+        // veria a madrugada vazia em vez dos compromissos do dia. O alvo é
+        // fixo em 08:00 — 480 × 0.78 — e não em "agora": a trilha é o resumo
+        // do dia inteiro, útil de manhã, de tarde ou de madrugada.
+        #expect(abs(layout.initialScrollTarget - 374.4) < 0.01)
     }
 
     @Test("o marcador de agora encosta na calha em vez de atravessá-la")

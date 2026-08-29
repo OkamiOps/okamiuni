@@ -78,11 +78,20 @@ public struct EventDetail: Sendable, Hashable {
     public let agenda: [String]
     public let thread: [EventThreadEntry]
 
+    /// A `DESCRIPTION` do convite, inteira, quando o compromisso veio de um.
+    ///
+    /// É o texto que o organizador escreveu — pauta, instruções, o link
+    /// repetido. A janela mostrava a pauta de fixture e nunca isto. Aditivo
+    /// (`nil` em todo compromisso que não veio de convite).
+    public let descricao: String?
+
     public init(
         place: String, link: String?, organizer: EventPerson, people: [EventPerson],
         note: String, recurrence: String, notice: String,
-        agenda: [String], thread: [EventThreadEntry]
+        agenda: [String], thread: [EventThreadEntry],
+        descricao: String? = nil
     ) {
+        self.descricao = descricao
         self.place = place
         self.link = link
         self.organizer = organizer

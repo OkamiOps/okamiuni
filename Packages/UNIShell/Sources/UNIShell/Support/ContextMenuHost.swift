@@ -68,6 +68,14 @@ enum StoreCommand {
             store.restoreDeleted(messageID)
             return true
 
+        case .restoreConversation(let states):
+            store.restore(states)
+            return true
+
+        case .restoreDeletedConversation(let messageIDs):
+            for messageID in messageIDs { store.restoreDeleted(messageID) }
+            return true
+
         case .emptyTrash(let accountID):
             store.emptyTrash(accountID: accountID)
             return true
@@ -162,7 +170,11 @@ struct MenuCommandRunner {
 
         case .setRead, .setFlagged, .move, .markAllRead,
              .deleteForever, .restoreDeleted, .emptyTrash,
-             .removeFromAgenda, .restoreToAgenda:
+             .removeFromAgenda, .restoreToAgenda,
+             // Os dois de conversa não vêm de menu nenhum — eles nascem dentro
+             // do recibo de uma ação de conversa e chegam aqui pelo "Desfazer"
+             // da faixa, que é o mesmo caminho de todos os outros.
+             .restoreConversation, .restoreDeletedConversation:
             StoreCommand.run(command, on: store)
 
         case .composeFrom(let accountID):
@@ -183,6 +195,11 @@ struct MenuCommandRunner {
 
         case .openEvent(let itemID):
             openWindow(id: UNIWindow.event, value: itemID)
+
+        case .openAccounts:
+            // Cena sem valor: a janela de Contas é uma só, e abri-la de novo
+            // traz a que já está aberta.
+            openWindow(id: UNIWindow.accounts)
 
         case .revealMessage(let messageID):
             onReveal(messageID)

@@ -164,11 +164,7 @@ public struct WindowChrome: View {
         .hairline(theme.line, edges: .bottom)
         // Sobe os semáforos nativos para a linha média da barra. Tamanho zero e
         // sem hit test: não participa do layout nem come clique.
-        .overlay(alignment: .topLeading) {
-            TrafficLightAlignment(barHeight: Self.height)
-                .frame(width: 0, height: 0)
-                .allowsHitTesting(false)
-        }
+        .trafficLightsOnTheLine(barHeight: Self.height)
     }
 
     /// Cada controle publica a moldura **do que ele desenha**, e é por isso que

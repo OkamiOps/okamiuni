@@ -2,14 +2,25 @@ import SwiftUI
 import UNIDesign
 import UNICore
 
-/// Um dia de mensagens, com o rótulo que a lista mostra no cabeçalho.
+/// Um dia de **conversas**, com o rótulo que a lista mostra no cabeçalho.
 public struct MessageGroup: Identifiable {
     /// O dia do grupo, em dias a partir de hoje: `0`, `-1`, ...
     public let dayOffset: Int
     public let label: String
-    public let messages: [Message]
+    /// As conversas do dia, na ordem em que a lista as entregou. Uma linha da
+    /// lista é uma destas.
+    public let conversations: [Conversation]
 
     public var id: Int { dayOffset }
+
+    /// As mensagens do dia, achatadas.
+    ///
+    /// Continua existindo porque a pergunta "que mensagens este dia tem" é
+    /// legítima e é a que os testes fazem — mas ela deixou de ser o que a lista
+    /// desenha. Numa caixa sem conversa nenhuma (as fixtures do Marco 1) esta
+    /// lista é idêntica à de antes desta tarefa, mensagem por mensagem e na
+    /// mesma ordem: cada conversa tem uma mensagem só.
+    public var messages: [Message] { conversations.flatMap(\.messages) }
 
     /// Agrupa pelo **dia que a mensagem declara**, preservando a ordem que veio.
     ///
@@ -23,22 +34,28 @@ public struct MessageGroup: Identifiable {
     ///
     /// `now` e `calendar` não entram mais porque não há mais nada a perguntar
     /// a eles: dia é `dayOffset`, e o nome dele é `DayLabel`.
+    /// **As conversas vêm antes do dia**, e a ordem das duas operações não é
+    /// livre: agrupar por dia primeiro partiria em duas linhas a conversa que
+    /// tem uma mensagem de ontem e a resposta de hoje — que é a conversa mais
+    /// comum que existe. Primeiro a conversa, depois o dia **da mais recente
+    /// dela**, que é a data que a linha mostra.
     public static func build(from messages: [Message]) -> [MessageGroup] {
         guard !messages.isEmpty else { return [] }
 
         var order: [Int] = []
-        var byDay: [Int: [Message]] = [:]
-        for message in messages {
-            if byDay[message.dayOffset] == nil { order.append(message.dayOffset) }
-            byDay[message.dayOffset, default: []].append(message)
+        var byDay: [Int: [Conversation]] = [:]
+        for conversation in Conversation.build(from: messages) {
+            let offset = conversation.latest.dayOffset
+            if byDay[offset] == nil { order.append(offset) }
+            byDay[offset, default: []].append(conversation)
         }
 
         return order.map { offset in
             let inDay = byDay[offset] ?? []
             return MessageGroup(
                 dayOffset: offset,
-                label: label(forOffset: offset, sample: inDay.first),
-                messages: inDay
+                label: label(forOffset: offset, sample: inDay.first?.latest),
+                conversations: inDay
             )
         }
     }
@@ -107,13 +124,19 @@ public struct MessageList: View {
     /// `onDoubleClick="{{ m.onOpenWin }}"` e `title="Duplo clique abre em janela"`.
     let onOpenWindow: (Message) -> Void
 
+    /// Que dia é hoje, repassado a cada linha para o carimbo de horário. Ver
+    /// `MessageRow.today` e `AgendaClock.today`.
+    let today: Date
+
     public init(
         store: MailStore,
         width: CGFloat = MessageList.width,
+        today: Date = Fixtures.today,
         onOpenWindow: @escaping (Message) -> Void = { _ in }
     ) {
         self.store = store
         self.listWidth = width
+        self.today = today
         self.onOpenWindow = onOpenWindow
     }
 
@@ -196,8 +219,8 @@ public struct MessageList: View {
             LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
                 ForEach(MessageGroup.build(from: store.visibleMessages)) { group in
                     Section {
-                        ForEach(group.messages) { message in
-                            row(message)
+                        ForEach(group.conversations) { conversation in
+                            row(conversation)
                         }
                     } header: {
                         // Protótipo: `padding: 9px 16px 5px;` e `font-size: 9.5px`.
@@ -229,7 +252,11 @@ public struct MessageList: View {
     /// - **botão direito** abre `ContextMenus.messageRow` no painel que o app
     ///   desenha, e o `DragGesture` nem o enxerga: o arraste só acompanha o
     ///   botão esquerdo.
-    private func row(_ message: Message) -> some View {
+    /// Uma linha é **uma conversa**. Quando ela tem uma mensagem só — o caso
+    /// das fixtures e de quase toda caixa — tudo aqui dentro se resolve na
+    /// mensagem dela, e o desenho é exatamente o de antes desta tarefa.
+    private func row(_ conversation: Conversation) -> some View {
+        let message = conversation.latest
         let account = store.account(message.accountID)
         return SwipeRow(
             message: message,
@@ -239,7 +266,7 @@ public struct MessageList: View {
             // alguma coisa se a linha souber quanto mede.
             rowWidth: listWidth,
             openRowID: $openSwipeRowID,
-            onFire: { fire($0, on: message) }
+            onFire: { fire($0, on: conversation) }
         ) { swipe in
             Button {
                 if swipe.isBlocked { swipe.dismiss() } else { store.select(message: message.id) }
@@ -248,8 +275,17 @@ public struct MessageList: View {
                     message: message,
                     accountHost: account?.host ?? "",
                     accountTint: accountTint(account),
-                    isSelected: message.id == store.selectedMessageID,
-                    emphasis: unreadEmphasis
+                    // Selecionada quando **qualquer** mensagem da conversa está
+                    // aberta: expandir a resposta antiga no leitor não pode
+                    // apagar o realce da linha que a contém.
+                    isSelected: conversation.contains(store.selectedMessageID),
+                    emphasis: unreadEmphasis,
+                    // O selo, e o "não lida" da conversa: `nil` e `1` na
+                    // conversa de uma mensagem só, que é a garantia de a linha
+                    // desenhar o que sempre desenhou.
+                    conversationCount: conversation.count,
+                    unread: conversation.hasUnread,
+                    today: today
                 )
             }
             .buttonStyle(.plain)
@@ -273,7 +309,10 @@ public struct MessageList: View {
             .uniContextMenu(
                 ContextMenus.messageRow(message, accountAddress: account?.address ?? ""),
                 store: store,
-                intercept: { receipted($0) }
+                // O menu é montado sobre a mensagem mais recente (é ela que
+                // decide os rótulos: "Marcar como não lida" só numa lida), mas
+                // o que ele faz alcança a conversa — a linha é a conversa.
+                intercept: { act($0, on: conversation) }
             )
         }
     }
@@ -285,11 +324,77 @@ public struct MessageList: View {
     /// O recibo tem de nascer aqui, antes da mudança: depois de arquivada a
     /// mensagem não sabe mais de que caixa veio, e um "Desfazer" que
     /// adivinhasse a caixa seria a versão silenciosa do botão mudo.
-    private func fire(_ action: SwipeAction, on message: Message) {
+    private func fire(_ action: SwipeAction, on conversation: Conversation) {
+        let message = conversation.latest
         guard let command = action.command(for: message) else { return }
-        let made = SwipeReceipt.of(action, message: message, stamp: ActionReceipts.stamp)
-        StoreCommand.run(command, on: store)
+        guard conversation.count > 1 else {
+            // O caminho de sempre, intocado: uma conversa de uma mensagem só é
+            // a mensagem.
+            let made = SwipeReceipt.of(action, message: message, stamp: ActionReceipts.stamp)
+            StoreCommand.run(command, on: store)
+            withAnimation(SwipeMotion.transition) { receipt = made }
+            return
+        }
+        // O estado de **cada** mensagem, antes: as três podem estar em caixas
+        // diferentes, e "Desfazer" não pode empilhá-las na caixa da mais
+        // recente.
+        let antes = store.states(of: conversation.messageIDs)
+        let made = SwipeReceipt.ofConversation(
+            action, conversation: conversation, states: antes, stamp: ActionReceipts.stamp
+        )
+        _ = act(command, on: conversation)
         withAnimation(SwipeMotion.transition) { receipt = made }
+    }
+
+    /// O comando, aplicado à **conversa**.
+    ///
+    /// Devolve `true` quando já cuidou de tudo — é o contrato de `intercept`,
+    /// e é o que impede `MenuCommandRunner` de repetir a mutação na mensagem
+    /// sozinha depois de ela ter sido feita na conversa inteira.
+    ///
+    /// Conversa de uma mensagem só cai direto no caminho de antes desta tarefa
+    /// (`receipted`), sem passar por nada novo: é assim que os retratos do
+    /// Marco 1 continuam idênticos byte a byte.
+    @discardableResult
+    func act(_ command: ContextCommand, on conversation: Conversation) -> Bool {
+        guard conversation.count > 1 else { return receipted(command) }
+        switch command {
+        case .move(_, let bucket):
+            // Só a Lixeira ganha faixa com "Desfazer" — a mesma decisão que
+            // `ActionReceipts.intercept` já toma para a mensagem: encher a tela
+            // de confirmação de "adiada para depois" seria ruído.
+            let made = bucket == .trash
+                ? SwipeReceipt.ofConversation(
+                    .trash, conversation: conversation,
+                    states: store.states(of: conversation.messageIDs),
+                    stamp: ActionReceipts.stamp
+                )
+                : nil
+            store.move(conversation, to: bucket)
+            if let made { withAnimation(SwipeMotion.transition) { receipt = made } }
+            return true
+
+        case .setRead(_, let isRead):
+            store.setRead(isRead, for: conversation)
+            return true
+
+        case .setFlagged(_, let isFlagged):
+            store.setFlagged(isFlagged, for: conversation)
+            return true
+
+        case .deleteForever:
+            let made = SwipeReceipt.ofConversationDeleteForever(
+                conversation: conversation, stamp: ActionReceipts.stamp
+            )
+            store.deleteForever(conversation)
+            withAnimation(SwipeMotion.transition) { receipt = made }
+            return true
+
+        default:
+            // Responder, abrir janela, copiar: são ações sobre **a** mensagem,
+            // e alcançar a conversa com elas não quer dizer nada.
+            return receipted(command)
+        }
     }
 
     /// O retorno visível de uma ação destrutiva, com a animação da faixa.
@@ -311,7 +416,14 @@ public struct MessageList: View {
     /// vez de ser engolida por um atalho que não fez nada.
     func deleteSelected() -> Bool {
         guard let message = store.selectedMessage else { return false }
-        return receipted(ContextMenus.deleteItem(message).command)
+        // A decisão inteira mora em `ActionReceipts.delete`, e não aqui: desde a
+        // M3-18 o **botão "Apagar" da barra do leitor** faz exatamente a mesma
+        // coisa, e duas cópias divergiriam no primeiro conserto.
+        var apagou = false
+        withAnimation(SwipeMotion.transition) {
+            apagou = receipts.delete(message, on: store)
+        }
+        return apagou
     }
 
     private func undo(_ receipt: SwipeReceipt) {

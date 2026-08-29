@@ -27,15 +27,17 @@ import UNICore
 ///
 /// ## Nenhum botão é mudo
 ///
-/// Marco 1 não tem rede. Cada ação faz o que o marco permite **com retorno
-/// visível**, ou fica desabilitada com o motivo no `help`:
+/// Cada ação faz o que dá para fazer **com retorno visível**, ou fica
+/// desabilitada com o motivo no `help`:
 ///
-/// - **Enviar** carimba a resposta como pronta, guarda tudo no `MailStore` e
-///   fecha a faixa na confirmação — que diz, por escrito, que nada saiu pela
-///   rede. Desabilitado sem destinatário ou sem texto.
+/// - **Enviar** põe a resposta na fila de saída da conta que recebeu a
+///   mensagem, pela mesma montagem do composer, e recolhe a faixa. Sem porta de
+///   envio — as fixtures, os ensaios — vale o Marco 1: carimba, guarda e diz
+///   por escrito que nada saiu pela rede. Desabilitado sem destinatário ou sem
+///   texto.
 /// - **Enviar e arquivar** faz o mesmo **e arquiva a original de verdade**, com
-///   `store.move(_:to:.archived)`. Essa metade não é simulada: a mensagem sai
-///   da caixa e a lista escolhe a próxima.
+///   `store.move(_:to:.archived)`. Essa metade nunca foi simulada: a mensagem
+///   sai da caixa e a lista escolhe a próxima.
 /// - **Salvar** carimba o rascunho e deixa a faixa aberta; a linha de baixo
 ///   passa de "não salvo" a "rascunho salvo HH:MM". Desabilitado quando não há
 ///   nada novo para salvar.
@@ -50,6 +52,14 @@ struct QuickReplyBand: View {
     /// O "⤢": promove esta resposta para a janela cheia. Quem recebe já
     /// encontra o rascunho em `store.replyDraft(for:)`.
     let onPromote: (Message) -> Void
+    /// O "Responder" da barra de ações do topo, contado.
+    ///
+    /// Cada clique lá em cima incrementa este número, e cada incremento abre
+    /// **esta** faixa e põe o cursor no campo. Contador, e não `Bool`: dois
+    /// cliques são dois pedidos, e quem recolheu no meio precisa que o segundo
+    /// ainda chegue. Zero é "ninguém pediu" — o padrão de todo teste que não
+    /// passa nada.
+    var expandRequest: Int = 0
 
     /// Portas do harness de renderização. Ele desenha fora da tela e nunca
     /// entrega foco a ninguém, então sem elas não há como verificar a aparência
@@ -64,7 +74,11 @@ struct QuickReplyBand: View {
     var debugMoreFormatting = false
     var debugCopiesOpen = false
 
-    @State private var open = true
+    /// A faixa nasce **recolhida** — ver `opensExpanded(for:)`.
+    @State private var open = false
+    /// Repassado ao editor para ele tomar o cursor quando a faixa abre por
+    /// pedido de fora.
+    @State private var focusToken = 0
     @State private var to: [Contact] = []
     @State private var cc: [Contact] = []
     @State private var bcc: [Contact] = []
@@ -82,11 +96,17 @@ struct QuickReplyBand: View {
 
     // MARK: - Catálogo
 
-    /// Os contatos que o app conhece: os remetentes das mensagens que existem,
-    /// mais o caderno de endereços. Nenhum filtro por conta, host ou domínio.
-    private var pool: [DirectoryContact] {
-        QuickReply.directory(messages: store.messages, catalog: Fixtures.contacts)
-    }
+    /// Os contatos que o app conhece.
+    ///
+    /// `store.contactPool` já resolve a regra inteira — fixtures sem conta,
+    /// banco com conta — e é a mesma lista que o composer em janela usa.
+    /// `QuickReply.directory` continua existindo (e testado) como a
+    /// implementação de referência de "mesclar remetentes com um caderno",
+    /// mas chamá-la aqui **misturaria** o catálogo de exemplo do protótipo
+    /// (`Fixtures.contacts`) com contatos de uma conta de verdade — o defeito
+    /// que esta tarefa veio consertar. Nenhum filtro por conta, host ou
+    /// domínio.
+    private var pool: [DirectoryContact] { store.contactPool }
 
     private var plainText: String { String(draft.characters) }
 
@@ -140,6 +160,14 @@ struct QuickReplyBand: View {
         .background(theme.surface.color)
         .hairline(theme.line2, edges: .top)
         .task(id: message.id) { seed() }
+        // O "Responder" do topo do leitor: abre esta faixa e põe o cursor no
+        // campo. Ele **não** abre janela — a janela continua sendo o "⤢", que
+        // leva o rascunho junto.
+        .onChange(of: expandRequest) { _, novo in
+            guard novo > 0 else { return }
+            open = true
+            focusToken += 1
+        }
     }
 
     /// Semeia uma vez por mensagem. Um rascunho guardado vence o padrão: quem
@@ -162,7 +190,10 @@ struct QuickReplyBand: View {
             ComposerEditor.decorate(&body, theme: theme)
             draft = body
         }
-        open = Self.opensExpanded(for: stored)
+        // `expandRequest` já contado antes da primeira semeadura é o "⌘R
+        // enquanto a mensagem ainda abria": o pedido não pode se perder no
+        // meio, porque o `onChange` só ouve o que muda **depois**.
+        open = Self.opensExpanded(for: stored) || expandRequest > 0
         seeded = true
     }
 
@@ -176,16 +207,37 @@ struct QuickReplyBand: View {
         return draft.to
     }
 
-    /// A faixa nasce aberta — é o estado do protótipo, e é o que preenche o
-    /// vazio embaixo da mensagem. A exceção é a resposta que já passou pelo
-    /// "Enviar": ali a faixa fechada é o **retorno** daquele clique, e reabrir
-    /// sozinha apagaria a única confirmação que existe.
+    /// **A faixa nasce recolhida.** Pedido do dono: o editor de resposta
+    /// ocupava o rodapé do leitor em toda mensagem, mesmo nas que ninguém vai
+    /// responder — e a altura que ele comia é a do texto que a pessoa está
+    /// lendo. Recolhida, a faixa é uma linha ("Responder a Fulano…" e um
+    /// botão), e o editor aparece quando alguém pede.
     ///
-    /// "Salvar" **não** fecha: quem salvou continua escrevendo. Por isso
-    /// `sentAt` e `savedAt` são campos distintos em `ReplyDraft`.
+    /// Duas exceções, e as duas são a mesma regra: **a faixa nunca esconde
+    /// trabalho que já existe.**
+    ///
+    /// - Um rascunho com texto ou anexo, ainda não enviado, reabre expandido:
+    ///   quem escreveu e saiu volta ao ponto em que parou.
+    /// - A resposta que já passou pelo "Enviar" continua recolhida, porque ali
+    ///   a faixa fechada **é** o retorno daquele clique — reabrir apagaria a
+    ///   única confirmação que existe.
+    ///
+    /// "Salvar" não fecha: quem salvou continua escrevendo. Por isso `sentAt` e
+    /// `savedAt` são campos distintos em `ReplyDraft`.
     nonisolated static func opensExpanded(for draft: ReplyDraft?) -> Bool {
-        guard let draft, draft.sentAt != nil else { return true }
-        return false
+        guard let draft, draft.sentAt == nil else { return false }
+        let escrito = !String(draft.body.characters)
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return escrito || !draft.attachments.isEmpty
+    }
+
+    /// Esc recolhe?
+    ///
+    /// Só com o campo vazio. Quem está no meio de uma frase aperta Esc para
+    /// fechar um menu, um corretor, uma sugestão — e teria a resposta recolhida
+    /// debaixo do dedo.
+    nonisolated static func recolheComEsc(_ texto: String) -> Bool {
+        texto.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// O que a faixa tem agora, no formato que atravessa a fronteira.
@@ -341,9 +393,21 @@ struct QuickReplyBand: View {
                 selection: $selection,
                 theme: theme,
                 // Protótipo: `padding: 14px`.
-                insets: CGSize(width: 14, height: 14)
+                insets: CGSize(width: 14, height: 14),
+                focusToken: focusToken
             )
             .frame(height: 110, alignment: .top)
+            // Esc **com o campo vazio** recolhe a faixa; com texto dentro, não
+            // faz nada — recolher por engano quem está escrevendo custa mais do
+            // que a tecla economiza. O botão "▾" continua recolhendo sempre, e
+            // o rascunho sobrevive aos dois: ele mora no `MailStore`, e a faixa
+            // o guarda antes de fechar.
+            .onKeyPress(.escape) {
+                guard Self.recolheComEsc(plainText) else { return .ignored }
+                persist()
+                open = false
+                return .handled
+            }
 
             if draft.characters.isEmpty {
                 // Protótipo, linha 1275.
@@ -563,15 +627,27 @@ struct QuickReplyBand: View {
     private var sendHelp: String {
         if !hasBody { return "Enviar — indisponível: a resposta ainda está vazia." }
         if !hasRecipient { return "Enviar — indisponível: escolha pelo menos um destinatário." }
-        return "Marco 1 não tem rede. Carimba a resposta como pronta, guarda tudo "
-            + "e fecha a faixa na confirmação."
+        // Sem porta de envio a frase continua sendo a do Marco 1, porque o
+        // comportamento também é: o `help` não pode prometer rede onde ela não
+        // existe, nem esconder que ela existe onde ela passou a existir.
+        guard store.canSend else {
+            return "Marco 1 não tem rede. Carimba a resposta como pronta, guarda tudo "
+                + "e fecha a faixa na confirmação."
+        }
+        return "Põe a resposta na fila de saída da conta \(account?.host ?? "") "
+            + "e recolhe a faixa."
     }
 
     private var archiveHelp: String {
         guard canSend else { return sendHelp }
+        guard store.canSend else {
+            return message.bucket == .archived
+                ? "A original já está arquivada; a resposta fica pronta para envio."
+                : "Arquiva a original de verdade e deixa a resposta pronta para envio."
+        }
         return message.bucket == .archived
-            ? "A original já está arquivada; a resposta fica pronta para envio."
-            : "Arquiva a original de verdade e deixa a resposta pronta para envio."
+            ? "A original já está arquivada; a resposta vai para a fila de saída."
+            : "Arquiva a original e põe a resposta na fila de saída."
     }
 
     private var canSave: Bool { QuickReply.canSave(currentDraft) }
@@ -602,15 +678,16 @@ struct QuickReplyBand: View {
 
     /// "Enviar" e "Enviar e arquivar".
     ///
-    /// Marco 1 não tem rede, então isto **não envia**: carimba, guarda, fecha a
-    /// faixa e escreve na confirmação que nada saiu. Quando `archiving`, a
-    /// metade que o marco consegue fazer acontece de verdade —
-    /// `store.move(_:to:.archived)` tira a mensagem da caixa.
+    /// **Este botão envia de verdade desde a M3-15.** Ele passou o Marco 1
+    /// inteiro só escrevendo no `stderr` — e é o caminho que mais gente usa,
+    /// então era ele a maior parte do "tentei enviar e não está funcionando"
+    /// do dono do projeto. Sem porta de envio (fixtures, sem conta) o
+    /// comportamento do Marco 1 continua igual; ver a estática abaixo.
     private func send(archiving: Bool) {
-        let updated = Self.send(
-            currentDraft, for: message, in: store, archiving: archiving, at: .now
-        )
-        guard updated.sentAt != nil else { return }
+        guard let updated = Self.send(
+            currentDraft, for: message, in: store,
+            archiving: archiving, theme: theme, at: .now
+        ) else { return }
         absorb(updated)
         open = false
     }
@@ -618,38 +695,81 @@ struct QuickReplyBand: View {
     /// O que os dois botões de envio de fato fazem, num lugar que o teste
     /// alcança sem clique — o `@MainActor` é do `MailStore`, não da `View`.
     ///
-    /// A metade real do "Enviar e arquivar" está aqui: `store.move(_:to:)`
-    /// arquiva a original de verdade, tira a mensagem da caixa e a lista
-    /// escolhe a próxima. A outra metade, a rede, não existe neste marco — e
-    /// por isso o retorno é o carimbo que a faixa fechada mostra por escrito.
+    /// Dois caminhos, e a chave é `store.canSend`:
     ///
-    /// Devolve o rascunho carimbado. Devolve o **original**, sem carimbo,
-    /// quando faltava destinatário ou texto: aí o botão está desabilitado e
-    /// nada deveria ter chegado até aqui.
+    /// - **Com porta de envio** a resposta vira `OutgoingMessage` pela mesma
+    ///   montagem do composer (`ComposerOutgoing.message`, nada duplicado
+    ///   aqui) e entra na fila. A conta é a que **recebeu** a mensagem — a
+    ///   faixa não tem seletor de "De" —, o assunto é o mesmo "Re: " que
+    ///   `ComposerSeed.reply` escreve, e `replyingTo:` é o que dá o
+    ///   `In-Reply-To`/`References` da M3-9: sem eles a resposta abre uma
+    ///   conversa nova na caixa de quem recebe.
+    /// - **Sem porta** (as fixtures, os ensaios, todo teste que não passa uma)
+    ///   fica valendo o Marco 1 intacto: carimba, guarda e registra no console
+    ///   que nada saiu pela rede.
+    ///
+    /// Devolve o rascunho que a faixa deve absorver, ou `nil` quando **nada
+    /// saiu** — faltava destinatário ou texto (aí o botão está desabilitado e
+    /// nada deveria ter chegado até aqui), ou a fila recusou a escrita. Nos
+    /// dois casos a faixa fica aberta com tudo dentro: ninguém perde o que
+    /// escreveu por causa de uma gravação que falhou.
+    ///
+    /// A metade real do "Enviar e arquivar" continua sendo `store.move(_:to:)`,
+    /// e ela acontece **depois** de a mensagem entrar na fila: mover a original
+    /// troca a seleção do leitor, e a faixa some antes de terminar o que estava
+    /// fazendo.
     @MainActor
     static func send(
         _ draft: ReplyDraft,
         for message: Message,
         in store: MailStore,
         archiving: Bool,
+        theme: Theme,
         at now: Date
-    ) -> ReplyDraft {
-        guard QuickReply.canSend(draft) else { return draft }
-        let stamped = QuickReply.sent(draft, archiving: archiving, at: now)
-        store.setReplyDraft(stamped, for: message.id)
-        UNIWindow.logSend(
-            "Enviaria \"\(message.subject)\" para "
-            + "[\(stamped.to.map(\.address).joined(separator: ", "))] "
-            + "(\(DraftMeta.wordCount(stamped.text)) palavras, "
-            + "\(stamped.attachments.count) anexos)"
-            + (archiving ? " e arquivaria a original." : ".")
+    ) -> ReplyDraft? {
+        guard QuickReply.canSend(draft) else { return nil }
+
+        guard let account = store.account(message.accountID), store.canSend else {
+            let stamped = QuickReply.sent(draft, archiving: archiving, at: now)
+            store.setReplyDraft(stamped, for: message.id)
+            UNIWindow.logSend(
+                "Enviaria \"\(message.subject)\" para "
+                + "[\(stamped.to.map(\.address).joined(separator: ", "))] "
+                + "(\(DraftMeta.wordCount(stamped.text)) palavras, "
+                + "\(stamped.attachments.count) anexos)"
+                + (archiving ? " e arquivaria a original." : ".")
+            )
+            if archiving {
+                store.move(message, to: .archived)
+            }
+            return stamped
+        }
+
+        let mensagem = ComposerOutgoing.message(
+            accountID: account.id,
+            from: Contact(name: account.displayName, address: account.address),
+            to: draft.to, cc: draft.cc, bcc: draft.bcc,
+            // O mesmo "Re: " da janela cheia, pela mesma função: duas regras de
+            // assunto divergiriam no primeiro ajuste, e a faixa e o "⤢" têm de
+            // mandar a mesma coisa.
+            subject: ComposerSeed.reply(to: message, draft: nil).subject,
+            plainText: draft.text,
+            html: ComposerOutgoing.html(draft.body, theme: theme),
+            replyingTo: message
         )
-        // Depois de gravar e registrar: mover a mensagem troca a seleção do
-        // leitor, e a faixa some antes de terminar o que estava fazendo.
+        guard store.send(mensagem) else { return nil }
+
+        // Enfileirou: a faixa volta ao estado de quem ainda não escreveu nada —
+        // com o remetente no "Para", que é como ela nasce. O carimbo do Marco 1
+        // não serve aqui: ele diz "sem rede neste marco", e agora saiu de fato.
+        // A confirmação passa a ser a caixa **Enviadas** e o contador da fila na
+        // linha da conta.
+        let limpo = ReplyDraft(to: [message.from])
+        store.setReplyDraft(limpo, for: message.id)
         if archiving {
             store.move(message, to: .archived)
         }
-        return stamped
+        return limpo
     }
 
     private func saveDraft() {

@@ -16,6 +16,9 @@ sleep 1
 echo "▸ descartando janelas que o macOS guardou da sessão anterior"
 rm -rf ~/Library/"Saved Application State/com.okamiops.okamiuni.savedState" 2>/dev/null || true
 
+echo "▸ garantindo o xcconfig do Google (vazio é legítimo — ver docs/oauth-google.md)"
+test -f Config/Google.xcconfig || cp Config/Google.example.xcconfig Config/Google.xcconfig
+
 echo "▸ regerando o projeto"
 xcodegen generate >/dev/null
 
@@ -52,6 +55,16 @@ if [[ "$1" == "--capturar" ]]; then
     echo "  log do app:  log show --last 2m --predicate 'process == \"OkamiUNI\"' | grep captura"
     exit 1
   fi
+  exit 0
+fi
+
+if [[ "$1" == --ensaiar-* ]]; then
+  # O ensaio fala pelo stderr (ver `RehearsalStage`), e `open` entrega o stderr
+  # do app ao log do sistema em vez do terminal. Rodar o binário de dentro do
+  # bundle dá as mesmas entitlements (elas vêm da assinatura) e devolve as
+  # linhas aqui, que é o ponto de um instrumento de medida.
+  echo "▸ ensaiando $* (o app se encerra sozinho)"
+  "$APP/Contents/MacOS/OkamiUNI" "$@" 2>&1
   exit 0
 fi
 

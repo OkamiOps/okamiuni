@@ -11,13 +11,39 @@ struct QuickReplyBandStateTests {
 
     private static let sender = Contact(name: "Marina Duarte", address: "marina@clientepremium.com")
 
-    @Test("sem rascunho, a faixa nasce aberta e já com o remetente no Para")
-    func freshBandStartsOpen() {
-        #expect(QuickReplyBand.opensExpanded(for: nil))
+    @Test("sem rascunho, a faixa nasce RECOLHIDA — e já com o remetente no Para")
+    func freshBandStartsCollapsed() {
+        // Mudança deliberada da M3-12, a pedido do dono: o editor de resposta
+        // ocupava o rodapé de toda mensagem, mesmo nas que ninguém vai
+        // responder. Recolhida, a faixa é uma linha; o editor aparece quando
+        // alguém pede — pelo botão dela, pelo "Responder" do topo ou por ⌘R.
+        #expect(QuickReplyBand.opensExpanded(for: nil) == false)
         #expect(
             QuickReplyBand.seededRecipients(draft: nil, sender: Self.sender)
                 .map(\.address) == ["marina@clientepremium.com"]
         )
+    }
+
+    @Test("um rascunho começado e não enviado reabre expandido")
+    func startedDraftReopensExpanded() {
+        // A faixa nunca esconde trabalho que já existe: quem escreveu, saiu e
+        // voltou encontra o texto na tela, não atrás de um botão.
+        let comeco = ReplyDraft(
+            to: [Self.sender], body: AttributedString("Fecho quinta.")
+        )
+        #expect(QuickReplyBand.opensExpanded(for: comeco))
+        // Um rascunho vazio (só o destinatário semeado) não é trabalho: fica
+        // recolhido como qualquer mensagem nova.
+        #expect(QuickReplyBand.opensExpanded(for: ReplyDraft(to: [Self.sender])) == false)
+    }
+
+    @Test("Esc recolhe só com o campo vazio")
+    func escRecolhe() {
+        #expect(QuickReplyBand.recolheComEsc(""))
+        #expect(QuickReplyBand.recolheComEsc("   \n "))
+        // Quem está escrevendo aperta Esc para fechar um menu, não para perder
+        // a faixa de vista.
+        #expect(QuickReplyBand.recolheComEsc("Fecho quinta.") == false)
     }
 
     @Test("depois de 'Enviar' a faixa volta fechada, mostrando o que guardou")
@@ -170,9 +196,10 @@ struct QuickReplyBandSendTests {
         let message = try #require(store.messages.first { $0.id == "m1" })
         #expect(message.bucket != .archived)
 
-        let updated = QuickReplyBand.send(
-            draft(to: message), for: message, in: store, archiving: true, at: Self.now
-        )
+        let updated = try #require(QuickReplyBand.send(
+            draft(to: message), for: message, in: store,
+            archiving: true, theme: .tinta, at: Self.now
+        ))
 
         #expect(updated.sentAt == Self.now)
         #expect(updated.archivedOriginal)
@@ -188,9 +215,10 @@ struct QuickReplyBandSendTests {
         let message = try #require(store.messages.first { $0.id == "m1" })
         let bucketBefore = message.bucket
 
-        let updated = QuickReplyBand.send(
-            draft(to: message), for: message, in: store, archiving: false, at: Self.now
-        )
+        let updated = try #require(QuickReplyBand.send(
+            draft(to: message), for: message, in: store,
+            archiving: false, theme: .tinta, at: Self.now
+        ))
 
         #expect(updated.sentAt == Self.now)
         #expect(updated.archivedOriginal == false)
@@ -205,8 +233,9 @@ struct QuickReplyBandSendTests {
         let store = await loaded()
         let message = try #require(store.messages.first { $0.id == "m1" })
 
-        QuickReplyBand.send(
-            draft(to: message), for: message, in: store, archiving: false, at: Self.now
+        _ = QuickReplyBand.send(
+            draft(to: message), for: message, in: store,
+            archiving: false, theme: .tinta, at: Self.now
         )
 
         let stored = try #require(store.replyDraft(for: "m1"))
@@ -224,14 +253,175 @@ struct QuickReplyBandSendTests {
         let empty = ReplyDraft(to: [], body: AttributedString("Quinta às 15h está de pé."))
 
         let updated = QuickReplyBand.send(
-            empty, for: message, in: store, archiving: true, at: Self.now
+            empty, for: message, in: store,
+            archiving: true, theme: .tinta, at: Self.now
         )
 
-        #expect(updated.sentAt == nil)
-        #expect(updated.archivedOriginal == false)
+        // Nada saiu: nem carimbo, nem arquivamento, nem faixa recolhida.
+        #expect(updated == nil)
         let after = try #require(store.messages.first { $0.id == "m1" })
         #expect(after.bucket != .archived)
         #expect(store.replyDraft(for: "m1") == nil)
+    }
+}
+
+/// **O "Enviar" da faixa envia.** Ele passou o Marco 1 inteiro escrevendo no
+/// `stderr`, e é o botão que a pessoa mais usa — a fila `outbox` do banco do
+/// dono do projeto não tinha uma única operação de envio.
+///
+/// A prova é de nível porta: a mesma ação dos dois botões, com uma
+/// `MailSendPort` falsa no lugar da fila do banco. Nenhum teste deste projeto
+/// toca rede.
+@Suite("O Enviar da faixa de resposta")
+@MainActor
+struct QuickReplyBandOutgoingTests {
+    private static let now = Date(timeIntervalSince1970: 1_700_000_000)
+
+    private final class PortaFalsa: MailSendPort, @unchecked Sendable {
+        private let lock = NSLock()
+        private var _enviadas: [OutgoingMessage] = []
+        /// Quando não é nulo, a porta recusa — é a fila que não conseguiu
+        /// gravar.
+        let erro: (any Error)?
+        init(erro: (any Error)? = nil) { self.erro = erro }
+        var enviadas: [OutgoingMessage] {
+            lock.lock()
+            defer { lock.unlock() }
+            return _enviadas
+        }
+        func send(_ message: OutgoingMessage) throws {
+            if let erro { throw erro }
+            lock.lock()
+            _enviadas.append(message)
+            lock.unlock()
+        }
+    }
+
+    private struct ErroDeTeste: Error {}
+
+    private func loaded(_ porta: MailSendPort) async -> MailStore {
+        let store = MailStore(source: InMemoryMailSource.fixtures, sendPort: porta)
+        await store.load()
+        return store
+    }
+
+    private func draft(to message: Message) -> ReplyDraft {
+        ReplyDraft(to: [message.from], body: AttributedString("Quinta às 15h está de pé."))
+    }
+
+    /// Uma mensagem com `Message-ID` de verdade: as fixtures não têm um, e sem
+    /// ele não há como provar o `In-Reply-To` da M3-9. A conta é a `zoho`, que
+    /// existe nas fixtures.
+    private static func respondida() -> Message {
+        Message(
+            id: "m-resp", accountID: "zoho",
+            from: Contact(name: "Marina Duarte", address: "marina@clientepremium.com"),
+            receivedAt: Date(timeIntervalSince1970: 1_699_000_000),
+            subject: "Contrato TransRota", snippet: "", body: ["Segue."], tags: [],
+            bucket: .today, isRead: true, summary: nil, detectedEvent: nil,
+            rfcMessageID: "raiz@clientepremium.com", references: ["anterior@x.com"]
+        )
+    }
+
+    @Test("o Enviar da faixa entrega a resposta à porta de envio")
+    func enviaDeVerdade() async throws {
+        let porta = PortaFalsa()
+        let store = await loaded(porta)
+        let message = Self.respondida()
+
+        let updated = try #require(QuickReplyBand.send(
+            draft(to: message), for: message, in: store,
+            archiving: false, theme: .tinta, at: Self.now
+        ))
+
+        let enviada = try #require(porta.enviadas.first)
+        #expect(enviada.to.map(\.address) == ["marina@clientepremium.com"])
+        // A conta é a que **recebeu** a mensagem: a faixa não tem linha "De".
+        #expect(enviada.accountID == "zoho")
+        #expect(enviada.from.address == store.account("zoho")?.address)
+        #expect(enviada.subject == "Re: Contrato TransRota")
+        #expect(enviada.plainText == "Quinta às 15h está de pé.")
+        #expect(!enviada.messageID.isEmpty)
+        // Enfileirou: a faixa volta ao começo — sem texto, sem carimbo de
+        // "pronta para envio", com o remetente de volta no "Para".
+        #expect(updated.text.isEmpty)
+        #expect(updated.sentAt == nil)
+        #expect(updated.to.map(\.address) == ["marina@clientepremium.com"])
+    }
+
+    /// Sem isto a resposta abre uma **conversa nova** na caixa de quem recebe —
+    /// o mesmo defeito que a M3-9 consertou do lado da janela cheia.
+    @Test("a resposta da faixa cita a mensagem respondida em In-Reply-To")
+    func citaAConversa() async throws {
+        let porta = PortaFalsa()
+        let store = await loaded(porta)
+        let message = Self.respondida()
+
+        _ = QuickReplyBand.send(
+            draft(to: message), for: message, in: store,
+            archiving: false, theme: .tinta, at: Self.now
+        )
+
+        let enviada = try #require(porta.enviadas.first)
+        #expect(enviada.inReplyTo == "raiz@clientepremium.com")
+        #expect(enviada.references == ["anterior@x.com", "raiz@clientepremium.com"])
+    }
+
+    /// A formatação que a barra da faixa aplica tem de chegar do outro lado —
+    /// ela sobrevive ao "⤢" desde a Task Z, e agora sobrevive ao envio.
+    @Test("o corpo formatado sai também em HTML")
+    func corpoFormatado() async throws {
+        let porta = PortaFalsa()
+        let store = await loaded(porta)
+        let message = Self.respondida()
+        var corpo = AttributedString("combinado")
+        corpo[BodyStyleAttribute.self] = BodyStyle(bold: true)
+
+        _ = QuickReplyBand.send(
+            ReplyDraft(to: [message.from], body: corpo), for: message, in: store,
+            archiving: false, theme: .tinta, at: Self.now
+        )
+
+        let enviada = try #require(porta.enviadas.first)
+        let html = try #require(enviada.html)
+        #expect(html.contains("combinado"))
+    }
+
+    /// A metade que já era real continua real — e acontece **depois** de a
+    /// mensagem entrar na fila.
+    @Test("'Enviar e arquivar' enfileira e arquiva a original")
+    func enviaEArquiva() async throws {
+        let porta = PortaFalsa()
+        let store = await loaded(porta)
+        let message = try #require(store.messages.first { $0.id == "m1" })
+        #expect(message.bucket != .archived)
+
+        _ = QuickReplyBand.send(
+            draft(to: message), for: message, in: store,
+            archiving: true, theme: .tinta, at: Self.now
+        )
+
+        #expect(porta.enviadas.count == 1)
+        let after = try #require(store.messages.first { $0.id == "m1" })
+        #expect(after.bucket == .archived)
+    }
+
+    /// Gravação que falha não pode custar o texto de quem escreveu: a faixa
+    /// fica aberta, com tudo dentro, e o erro aparece onde os outros aparecem.
+    @Test("fila que recusa deixa o rascunho de pé e não arquiva nada")
+    func filaRecusa() async throws {
+        let store = await loaded(PortaFalsa(erro: ErroDeTeste()))
+        let message = try #require(store.messages.first { $0.id == "m1" })
+
+        let updated = QuickReplyBand.send(
+            draft(to: message), for: message, in: store,
+            archiving: true, theme: .tinta, at: Self.now
+        )
+
+        #expect(updated == nil)
+        let after = try #require(store.messages.first { $0.id == "m1" })
+        #expect(after.bucket != .archived)
+        #expect(store.loadError != nil)
     }
 }
 
@@ -445,6 +635,19 @@ struct QuickReplyBandRenderTests {
         return host.fittingSize.height
     }
 
+    /// Um rascunho **começado e não enviado**.
+    ///
+    /// Desde a M3-12 a faixa nasce recolhida (pedido do dono: o editor comia o
+    /// rodapé de toda mensagem), e a exceção é justamente esta — trabalho que
+    /// já existe não fica escondido. É o estado que estes retratos precisam
+    /// para medir a faixa **aberta** dentro do leitor.
+    private static func startedDraft() -> ReplyDraft {
+        ReplyDraft(
+            to: [Contact(name: "Marina Duarte", address: "marina@clientepremium.com")],
+            body: AttributedString("Quinta às 15h está de pé aqui.")
+        )
+    }
+
     private static func sentDraft() -> ReplyDraft {
         ReplyDraft(
             to: [Contact(name: "Marina Duarte", address: "marina@clientepremium.com")],
@@ -459,6 +662,7 @@ struct QuickReplyBandRenderTests {
         let store = MailStore(source: InMemoryMailSource.fixtures)
         await store.load()
         store.select(message: "m1")
+        store.setReplyDraft(Self.startedDraft(), for: "m1")
 
         let rep = try #require(
             Render.snapshot(
@@ -492,6 +696,7 @@ struct QuickReplyBandRenderTests {
         let store = MailStore(source: InMemoryMailSource.fixtures)
         await store.load()
         store.select(message: "m1")
+        store.setReplyDraft(Self.startedDraft(), for: "m1")
 
         let heights = try [560.0, 700.0, 780.0].map { height -> Int in
             let rep = try #require(
@@ -534,7 +739,7 @@ struct QuickReplyBandRenderTests {
             let store = MailStore(source: InMemoryMailSource.fixtures)
             await store.load()
             store.select(message: "m1")
-            if sent { store.setReplyDraft(Self.sentDraft(), for: "m1") }
+            store.setReplyDraft(sent ? Self.sentDraft() : Self.startedDraft(), for: "m1")
             return try #require(
                 Render.snapshot(reader(store), named: named, size: Self.size, theme: .tinta)
             )
@@ -560,7 +765,7 @@ struct QuickReplyBandRenderTests {
         let message = try #require(store.messages.first { $0.id == "m1" })
 
         let openHeight = Self.fittingHeight(
-            QuickReplyBand(store: store, message: message, onPromote: { _ in }),
+            QuickReplyBand(store: store, message: message, onPromote: { _ in }, expandRequest: 1),
             width: 700
         )
 
@@ -583,6 +788,29 @@ struct QuickReplyBandRenderTests {
 
     /// O que o dono do projeto disse que faltava: a barra de formatação inteira
     /// dentro da faixa, com o `⋯` que abre o resto.
+    /// O "Responder" do topo do leitor não abre janela: ele expande **esta**
+    /// faixa. O contador é o caminho inteiro — o botão o incrementa, a faixa o
+    /// ouve — e a diferença de altura é a prova de que o editor apareceu.
+    @Test("o pedido do 'Responder' do topo expande a faixa")
+    func topReplyExpandsTheBand() async throws {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        let message = try #require(store.messages.first { $0.id == "m1" })
+
+        let recolhida = Self.fittingHeight(
+            QuickReplyBand(store: store, message: message, onPromote: { _ in }),
+            width: 700
+        )
+        let expandida = Self.fittingHeight(
+            QuickReplyBand(
+                store: store, message: message, onPromote: { _ in }, expandRequest: 1
+            ),
+            width: 700
+        )
+        #expect(recolhida < 90, "a faixa não nasceu recolhida: \(recolhida)pt")
+        #expect(expandida > 275, "o pedido não expandiu a faixa: \(expandida)pt")
+    }
+
     @Test("a barra de formatação está na faixa, e o ⋯ abre a segunda linha")
     func formattingBarIsInsideTheBand() async throws {
         let store = MailStore(source: InMemoryMailSource.fixtures)
@@ -592,7 +820,7 @@ struct QuickReplyBandRenderTests {
 
         func band(more: Bool) -> some View {
             QuickReplyBand(
-                store: store, message: message, onPromote: { _ in },
+                store: store, message: message, onPromote: { _ in }, expandRequest: 1,
                 debugMoreFormatting: more
             )
             .environment(ThemeStore())
@@ -615,12 +843,12 @@ struct QuickReplyBandRenderTests {
         // O ⋯ acrescenta uma segunda linha de ~38pt, e tudo abaixo dela desce.
         let grew = Self.fittingHeight(
             QuickReplyBand(
-                store: store, message: message, onPromote: { _ in }, debugMoreFormatting: true
+                store: store, message: message, onPromote: { _ in }, expandRequest: 1, debugMoreFormatting: true
             ),
             width: 700
         )
         let base = Self.fittingHeight(
-            QuickReplyBand(store: store, message: message, onPromote: { _ in }),
+            QuickReplyBand(store: store, message: message, onPromote: { _ in }, expandRequest: 1),
             width: 700
         )
         #expect(grew - base > 30)
@@ -640,7 +868,7 @@ struct QuickReplyBandRenderTests {
 
         func band(_ panel: ComposerToolbar.Panel?) -> some View {
             QuickReplyBand(
-                store: store, message: message, onPromote: { _ in }, debugOpenPanel: panel
+                store: store, message: message, onPromote: { _ in }, expandRequest: 1, debugOpenPanel: panel
             )
             .environment(ThemeStore())
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -671,7 +899,7 @@ struct QuickReplyBandRenderTests {
         // sai preta no bitmap, e "preto" conta como tinta na contagem abaixo.
         func band(query: String?) -> some View {
             QuickReplyBand(
-                store: store, message: message, onPromote: { _ in }, seededQuery: query
+                store: store, message: message, onPromote: { _ in }, expandRequest: 1, seededQuery: query
             )
             .environment(ThemeStore())
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -715,7 +943,7 @@ struct QuickReplyBandRenderTests {
         func band(named: String) throws -> NSBitmapImageRep {
             try #require(
                 Render.snapshot(
-                    QuickReplyBand(store: store, message: message, onPromote: { _ in })
+                    QuickReplyBand(store: store, message: message, onPromote: { _ in }, expandRequest: 1)
                         .environment(ThemeStore())
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                         .background(Theme.tinta.surface.color),
@@ -746,12 +974,12 @@ struct QuickReplyBandRenderTests {
         let message = try #require(store.messages.first { $0.id == "m1" })
 
         let base = Self.fittingHeight(
-            QuickReplyBand(store: store, message: message, onPromote: { _ in }),
+            QuickReplyBand(store: store, message: message, onPromote: { _ in }, expandRequest: 1),
             width: 700
         )
         let withCopies = Self.fittingHeight(
             QuickReplyBand(
-                store: store, message: message, onPromote: { _ in }, debugCopiesOpen: true
+                store: store, message: message, onPromote: { _ in }, expandRequest: 1, debugCopiesOpen: true
             ),
             width: 700
         )

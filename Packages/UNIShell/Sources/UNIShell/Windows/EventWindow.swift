@@ -1,6 +1,9 @@
 import SwiftUI
 import UNIDesign
 import UNICore
+// Por uma linha: `MimeBody.textFromHTML`, que deriva o texto do convite
+// HTML-only na hora de exibir. Nenhuma segunda cópia da regra.
+import UNISync
 
 /// As cores semânticas do protótipo (`semC`), já convertidas de oklch para
 /// sRGB — `TokenColor` lê hex. A mesma conversão que produziu o `#D73337` /
@@ -35,6 +38,26 @@ public struct EventWindow: View {
     let store: MailStore
     let itemID: String
 
+    /// Quem abre o link da reunião.
+    ///
+    /// **É o conserto do "Entrar" mudo.** O botão em destaque da janela
+    /// chamava `UNIWindow.logSend("Abriria …")` — uma linha no `stderr` e mais
+    /// nada. A pessoa clicava em cima da hora e a reunião não abria.
+    ///
+    /// Entra pela porta, e não como `NSWorkspace.shared.open` escondido no
+    /// fechamento, por uma razão só: nenhum teste deste projeto abre navegador.
+    /// O ensaio injeta um abridor que anota o endereço e devolve — e é assim que
+    /// o clique se prova sem tirar a máquina de quem está usando.
+    var abreLink: @MainActor (URL) -> Void = { url in
+        #if canImport(AppKit)
+        NSWorkspace.shared.open(url)
+        #endif
+    }
+
+    /// As seções recolhíveis — participantes e "o que gerou". Nascem
+    /// recolhidas e **não** atravessam a abertura seguinte: ver `EventSections`.
+    @State private var sections = EventSections()
+
     @State private var forwardOpen = false
     @State private var forwardTo: [Contact] = []
     @State private var forwardNote = ""
@@ -46,12 +69,32 @@ public struct EventWindow: View {
         self.itemID = itemID
     }
 
+    /// A mesma janela com as seções já abertas. **Só para verificação fora da
+    /// tela**, como o `initialMode` da `CalendarScreen`: o harness não clica em
+    /// cabeçalho nenhum, e sem este caminho o que a seção aberta mostra seria
+    /// um estado que nenhum PNG jamais fotografaria.
+    init(store: MailStore, itemID: String, debugSections: EventSections) {
+        self.store = store
+        self.itemID = itemID
+        _sections = State(initialValue: debugSections)
+    }
+
     private var item: AgendaItem? {
         store.agenda.first { $0.id == itemID }
     }
 
+    /// O que este compromisso mostra além do horário.
+    ///
+    /// **O que ele carrega primeiro.** Um compromisso criado de um convite traz
+    /// local, link, organizador, participantes e descrição de verdade — e essa
+    /// janela mostrava, por cima deles, o `EV_DEFAULT` do protótipo: "Sem local
+    /// definido", "Ricardo Gomes · ricardo@empresa.com" e "Criado manualmente
+    /// na agenda", numa reunião que o Favini tinha convidado.
+    ///
+    /// A tabela de fixture continua sendo o caminho de quem não carrega nada —
+    /// os compromissos da agenda de exemplo, que é o que o Marco 1 desenha.
     private var detail: EventDetail {
-        Fixtures.eventDetail(for: item?.title ?? "")
+        item?.detail ?? Fixtures.eventDetail(for: item?.title ?? "")
     }
 
     private var account: Account? {
@@ -68,7 +111,16 @@ public struct EventWindow: View {
     /// `internal`: `WindowTests` lê isto para provar o destino do botão sem
     /// clicar em nada.
     var originMessageID: String? {
-        ContextMenus.originMessageID(for: detail, in: store.messages)
+        // O compromisso nascido de um email **sabe** de qual: o `id` dele é
+        // `email-<messageID>`. Perguntar isso primeiro é mais barato e mais
+        // certo que casar assunto com assunto — e é o que faz o botão "Email"
+        // funcionar num compromisso vindo de convite, cuja linha de histórico
+        // pode não casar com nenhuma mensagem da caixa.
+        if let doID = DetectedEventConversion.messageID(forAgendaID: itemID),
+           store.messages.contains(where: { $0.id == doID }) {
+            return doID
+        }
+        return ContextMenus.originMessageID(for: detail, in: store.messages)
     }
 
     private var tint: Color {
@@ -125,9 +177,15 @@ public struct EventWindow: View {
         // janela principal.
         .padding(.leading, WindowChrome.trafficLightInset)
         .padding(.trailing, 18)
-        .padding(.vertical, 13)
+        // **Altura fixa, e não folga vertical.** Com `padding(.vertical, 13)` a
+        // linha média do cabeçalho saía da altura do texto — e caía onde caísse,
+        // longe dos semáforos, que ninguém alinhava nesta janela. Agora a barra
+        // mede duas vezes a linha da plataforma, e o que ela desenha cai
+        // exatamente em cima dela.
+        .frame(height: TrafficLightLayout.contentCenterFromTop * 2)
         .background(theme.surface2.color)
         .hairline(theme.line2, edges: .bottom)
+        .trafficLightsOnTheLine(barHeight: TrafficLightLayout.contentCenterFromTop * 2)
     }
 
     private func content(_ item: AgendaItem) -> some View {
@@ -137,10 +195,19 @@ public struct EventWindow: View {
             fields
             people
             if detail.hasAgenda { agenda }
+            if let texto = detail.descricao, !texto.isEmpty { descricao(texto) }
             if detail.hasThread { thread }
             if forwardOpen { forwardPanel }
             if forwardSent { forwardConfirmation }
-            originNote
+            // A nota de origem tinha cartão próprio no fim da janela, embaixo
+            // da seção que fala da mesma coisa — duas caixas dizendo de onde o
+            // compromisso veio, uma logo abaixo da outra. Com histórico, ela
+            // passa a ser a última linha **de dentro** da seção; sem histórico
+            // (o compromisso da agenda de exemplo) o cartão continua sendo o
+            // único lugar onde essa frase cabe.
+            if !detail.hasThread { originNote }
+            Color.clear
+                .frame(height: 0)
                 .id(Self.bottomAnchor)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -161,7 +228,7 @@ public struct EventWindow: View {
                     .lineSpacing(0.25 * 22)   // line-height: 1.25
                     .foregroundStyle(theme.ink.color)
                     .fixedSize(horizontal: false, vertical: true)
-                Text(DateLabels.eventDate(Fixtures.today))
+                Text(DateLabels.eventDate(store.agendaDate(for: item)))
                     .font(theme.sans.font(size: 13))
                     .foregroundStyle(theme.ink.color)
                     .padding(.top, 7)
@@ -188,11 +255,36 @@ public struct EventWindow: View {
                     .tracking(theme.capsTracking(at: 8.5))
                     .textCase(.uppercase)
                     .foregroundStyle(theme.accentInk.color)
-                Text(link)
-                    .font(theme.mono.font(size: 11.5))
-                    .foregroundStyle(theme.ink.color)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                // Clicável quando é um endereço de verdade: entrar na reunião é
+                // o que a pessoa veio fazer aqui, e copiar o link para colar no
+                // navegador era um passo a mais em cima da hora.
+                //
+                // O `Link` do SwiftUI saiu daqui: ele abre por conta própria, e
+                // por isso o cartão e o botão "Entrar" do rodapé eram dois
+                // caminhos diferentes para a mesma reunião — um funcionava, o
+                // outro só escrevia no console. Agora os dois passam pelo mesmo
+                // `abreLink`, e o mesmo `MeetingLink.destino` decide se há o que
+                // abrir.
+                if let destino = MeetingLink.destino(link) {
+                    Button { abreLink(destino) } label: {
+                        Text(link)
+                            .font(theme.mono.font(size: 11.5))
+                            .foregroundStyle(theme.accentInk.color)
+                            .underline()
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .focusRing(cornerRadius: theme.radiusSmall)
+                    .help("Abrir a reunião no navegador")
+                } else {
+                    Text(link)
+                        .font(theme.mono.font(size: 11.5))
+                        .foregroundStyle(theme.ink.color)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
             }
             ChromeButton(
                 copied ? "Link copiado ✓" : "Copiar link",
@@ -268,17 +360,26 @@ public struct EventWindow: View {
     }
 
     /// Protótipo: `padding: 18px 20px 0`, com "Participantes · N" no topo.
+    ///
+    /// **Nasce recolhida** — pedido do dono: oito participantes tomavam a
+    /// janela inteira e empurravam para fora da vista o quando, o onde e o
+    /// link. Recolhida, o cabeçalho conta quantos são e a lista mostra o
+    /// organizador; o clique no cabeçalho abre o resto. Ver `EventSections`.
     private var people: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Participantes · \(detail.guestCount)")
-                .font(theme.mono.font(size: 8.5, weight: .medium))
-                .tracking(theme.capsTracking(at: 8.5))
-                .textCase(.uppercase)
-                .foregroundStyle(theme.ink4.color)
-                .padding(.bottom, 9)
+            SectionHeader(
+                title: "Participantes · \(detail.guestCount)",
+                expanded: sections.participants,
+                help: sections.participants
+                    ? "Recolher a lista de participantes"
+                    : "Mostrar os \(detail.guestCount) participantes"
+            ) {
+                sections.toggleParticipants()
+            }
+            .padding(.bottom, 9)
 
             VStack(alignment: .leading, spacing: 2) {
-                ForEach(guests) { guest in
+                ForEach(EventSections.visibleGuests(guests, expanded: sections.participants)) { guest in
                     HStack(spacing: 10) {
                         Text(guest.initials)
                             .font(theme.sans.font(size: 9.5, weight: .bold))  // 650
@@ -329,11 +430,7 @@ public struct EventWindow: View {
 
     private var agenda: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Pauta")
-                .font(theme.mono.font(size: 8.5, weight: .medium))
-                .tracking(theme.capsTracking(at: 8.5))
-                .textCase(.uppercase)
-                .foregroundStyle(theme.ink4.color)
+            SectionHeader(title: "Pauta")
                 .padding(.bottom, 8)
 
             VStack(alignment: .leading, spacing: 6) {
@@ -358,59 +455,240 @@ public struct EventWindow: View {
         .padding(.top, 18)
     }
 
+    /// A `DESCRIPTION` do convite, inteira, no mesmo bloco da pauta.
+    ///
+    /// Inteira de propósito: é o que o organizador escreveu, e recortar
+    /// escondia justamente o que costuma estar no fim — a instrução de entrar
+    /// pelo telefone, o código da sala, o "leve a proposta impressa".
+    @ViewBuilder
+    private func descricao(_ texto: String) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionHeader(title: "Descrição")
+                .padding(.bottom, 8)
+            Text(texto)
+                .font(theme.sans.font(size: 13))
+                .lineSpacing(0.45 * 13)
+                .foregroundStyle(theme.ink.color)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 20)
+        .padding(.top, 18)
+    }
+
     /// Protótipo: `border-left: 0.5px solid var(--line); padding-left: 14px`.
+    ///
+    /// **Nasce recolhida, e o cabeçalho diz de quando é o email.** Antes eram
+    /// duas coisas soltas no fim da janela: a linha do histórico, e um cartão
+    /// cinza com "Do convite por email · conta vantion" logo abaixo, dizendo a
+    /// mesma coisa noutro desenho. Agora a nota é a última linha **de dentro**
+    /// da seção, e a seção inteira só ocupa altura quando alguém pede.
     private var thread: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("O que gerou este compromisso")
-                .font(theme.mono.font(size: 8.5, weight: .medium))
-                .tracking(theme.capsTracking(at: 8.5))
-                .textCase(.uppercase)
-                .foregroundStyle(theme.ink4.color)
-                .padding(.bottom, 10)
-
-            VStack(alignment: .leading, spacing: 11) {
-                ForEach(detail.thread) { entry in
-                    HStack(alignment: .top, spacing: 10) {
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill(dotColor(entry.kind))
-                            .frame(width: 7, height: 7)
-                            .padding(.top, 4)
-                        VStack(alignment: .leading, spacing: 0) {
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Text(entry.who)
-                                    .font(theme.sans.font(size: 12, weight: .semibold))  // 590
-                                    .foregroundStyle(theme.ink.color)
-                                Text(entry.kind.rawValue)
-                                    .font(theme.mono.font(size: 8.5, weight: .medium))
-                                    .tracking(theme.capsTracking(at: 8.5))
-                                    .textCase(.uppercase)
-                                    .foregroundStyle(theme.ink4.color)
-                                Spacer(minLength: 8)
-                                Text(entry.when)
-                                    .font(theme.mono.font(size: 10))
-                                    .foregroundStyle(theme.ink4.color)
-                                    .fixedSize()
-                            }
-                            Text(entry.what)
-                                .font(theme.serif.font(size: 13.5))
-                                .lineSpacing(0.45 * 13.5)
-                                .foregroundStyle(theme.ink2.color)
-                                .padding(.top, 3)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                }
+            SectionHeader(
+                title: EventSections.originHeader(detail.thread),
+                expanded: sections.origin,
+                help: sections.origin
+                    ? "Recolher o histórico deste compromisso"
+                    : "Mostrar o email e a origem deste compromisso"
+            ) {
+                sections.toggleOrigin()
             }
-            .padding(.leading, 14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .overlay(alignment: .leading) {
-                Rectangle().fill(theme.line.color).frame(width: Hairline.thickness(displayScale))
+
+            if sections.origin {
+                VStack(alignment: .leading, spacing: 11) {
+                    ForEach(detail.thread) { entry in threadRow(entry) }
+                    originPreview
+                    originLine
+                }
+                .padding(.top, 10)
+                .padding(.leading, 14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .overlay(alignment: .leading) {
+                    Rectangle().fill(theme.line.color).frame(width: Hairline.thickness(displayScale))
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 20)
         .padding(.top, 18)
-        .padding(.bottom, 4)
+        .padding(.bottom, 20)
+    }
+
+    /// Uma linha do histórico, no vocabulário das linhas de mensagem do app:
+    /// quem escreveu em `sans` 12,5 destacado, o assunto em `serif` logo
+    /// abaixo, o carimbo em `mono` na direita — a mesma divisão de papéis de
+    /// `MessageRow` e da pilha da conversa.
+    ///
+    /// A linha do email **é clicável** quando há mensagem para onde ir: leva ao
+    /// mesmo lugar que o botão "Email" do rodapé, pela mesma função. Sem
+    /// mensagem casada ela não vira botão — clique que não faz nada é o defeito
+    /// que esta tarefa veio tirar, não um a acrescentar.
+    @ViewBuilder
+    private func threadRow(_ entry: EventThreadEntry) -> some View {
+        if entry.kind == .email, originMessageID != nil {
+            Button { revealOriginMessage() } label: {
+                threadRowBody(entry).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .focusRing(cornerRadius: theme.radiusSmall)
+            .help("Mostrar na janela principal o email que gerou este compromisso")
+        } else {
+            threadRowBody(entry)
+        }
+    }
+
+    private func threadRowBody(_ entry: EventThreadEntry) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            RoundedRectangle(cornerRadius: 2)
+                .fill(dotColor(entry.kind))
+                .frame(width: 7, height: 7)
+                .padding(.top, 5)
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(entry.who)
+                        .font(theme.sans.font(size: 12.5, weight: .semibold))  // 590
+                        .foregroundStyle(theme.ink.color)
+                        .lineLimit(1)
+                    Text(entry.kind.rawValue)
+                        .font(theme.mono.font(size: 8.5, weight: .medium))
+                        .tracking(theme.capsTracking(at: 8.5))
+                        .textCase(.uppercase)
+                        .foregroundStyle(theme.ink4.color)
+                    Spacer(minLength: 8)
+                    Text(entry.when)
+                        .font(theme.mono.font(size: 10))
+                        .foregroundStyle(theme.ink4.color)
+                        .fixedSize()
+                }
+                Text(entry.what)
+                    .font(theme.serif.font(size: 13.5))
+                    .lineSpacing(0.45 * 13.5)
+                    .foregroundStyle(theme.ink2.color)
+                    .padding(.top, 3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// A mensagem que gerou este compromisso, se ela ainda está na caixa.
+    ///
+    /// É a mesma `originMessageID` do botão "Email": um lugar só decide qual é
+    /// o email de origem, e a prévia mostra o corpo **daquele**, não de um
+    /// segundo palpite.
+    private var originMessage: Message? {
+        originMessageID.flatMap { id in store.messages.first { $0.id == id } }
+    }
+
+    /// Até onde a mensagem cresce dentro da seção antes de passar a rolar.
+    ///
+    /// O convite do dono é HTML-only e comprido; sem teto, a seção empurraria o
+    /// resto da janela (encaminhar, nota, rodapé) para fora da vista a cada
+    /// abertura. Com teto, a mensagem está toda ali e a janela continua sendo
+    /// uma janela de compromisso.
+    static let originBodyMaxHeight: CGFloat = 260
+
+    /// O texto do email de origem — o dele mesmo, e não só o que o banco
+    /// gravou como parágrafo.
+    ///
+    /// **Dois caminhos, e o segundo é o defeito da M3-21.** O convite do dono é
+    /// `text/html` puro: o `body` dele está vazio e tudo o que a mensagem diz
+    /// está no HTML. A seção lia só o `body`, e por isso ficava com a linha do
+    /// email e o botão — a prévia da M3-14 nunca aparecia. Aqui o texto é
+    /// derivado do HTML **na hora de exibir**, pelo mesmo `MimeHTML` que a
+    /// decodificação usa; nada é gravado, e nenhuma `WebView` entra nesta
+    /// janela.
+    private var originBody: [String] {
+        guard let mensagem = originMessage else { return [] }
+        let gravado = EventSections.bodyPreview(mensagem.body)
+        guard gravado.isEmpty, let pagina = mensagem.bodyHTML, !pagina.isEmpty else {
+            return gravado
+        }
+        return EventSections.bodyPreview(
+            GmailMessageParser.paragraphs(from: MimeBody.textFromHTML(pagina))
+        )
+    }
+
+    /// O email, e o salto para ele.
+    ///
+    /// **O que o dono pediu ao abrir a seção**: ela mostrava quem escreveu, o
+    /// assunto, a data e a nota — o cabeçalho do email, e nada do email. Agora
+    /// vem o texto plano inteiro, na tipografia do leitor, rolando dentro da
+    /// seção acima de `originBodyMaxHeight`, e um "Abrir no leitor" explícito.
+    ///
+    /// **Não é o leitor.** O corpo em HTML, a política de conteúdo remoto e a
+    /// faixa de confiança continuam morando no `ReaderPane`, que é onde a
+    /// pessoa lê email; trazer tudo isso para dentro de uma janela de 560pt
+    /// seria uma segunda tela de leitura para manter em dia. **`WebView` dentro
+    /// da janela de compromisso continua sendo não** — o texto plano mais o
+    /// salto é a versão honesta disso.
+    ///
+    /// **Sem corpo no banco, a janela busca.** Era o beco da M3-14: "esta
+    /// janela não pede rede", e a seção ficava com a linha e o botão para
+    /// sempre. Ela pede pela mesma porta do leitor
+    /// (`MessageStore.loadBodyIfNeeded`, que já é uma tentativa por abertura e
+    /// grava a resposta no banco), e mostra o mesmo "Carregando corpo…" da M3-3
+    /// enquanto isso.
+    @ViewBuilder
+    private var originPreview: some View {
+        let paragrafos = originBody
+        if !paragrafos.isEmpty || originMessageID != nil {
+            VStack(alignment: .leading, spacing: 7) {
+                if paragrafos.isEmpty {
+                    if case .carregando = store.bodyLoad(for: originMessageID ?? "") {
+                        Text(ReaderPane.carregandoCorpo)
+                            .font(theme.serif.font(size: 13.5))
+                            .italic()
+                            .foregroundStyle(theme.ink4.color)
+                    }
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 7) {
+                            ForEach(Array(paragrafos.enumerated()), id: \.offset) { _, paragrafo in
+                                Text(paragrafo)
+                                    .font(theme.serif.font(size: 13.5))
+                                    .lineSpacing(0.45 * 13.5)
+                                    .foregroundStyle(theme.ink.color)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .textSelection(.enabled)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .scrollBounceBehavior(.basedOnSize)
+                    .frame(maxHeight: Self.originBodyMaxHeight)
+                }
+
+                if originMessageID != nil {
+                    ChromeButton(
+                        "Abrir no leitor", appearance: .outlined, size: 11.5,
+                        weight: .semibold, height: 26, horizontalPadding: 11
+                    ) {
+                        revealOriginMessage()
+                    }
+                    .help("Abrir na janela principal o email que gerou este compromisso")
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            // A busca acontece quando a seção está **aberta**: um compromisso
+            // com a seção recolhida não paga viagem nenhuma.
+            .task(id: originMessageID) {
+                guard let id = originMessageID else { return }
+                await store.loadBodyIfNeeded(id)
+            }
+        }
+    }
+
+    /// A nota de origem, integrada à seção: uma linha de apoio embaixo do
+    /// histórico, e não mais um cartão cinza jogado no fim da janela.
+    private var originLine: some View {
+        Text(detail.note)
+            .font(theme.sans.font(size: 11.5))
+            .lineSpacing(0.45 * 11.5)
+            .foregroundStyle(theme.ink3.color)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func dotColor(_ kind: EventThreadEntry.Kind) -> Color {
@@ -436,7 +714,7 @@ public struct EventWindow: View {
                 placeholder: "quem do time precisa entrar; ",
                 inputMinWidth: 150,
                 menuWidth: 320,
-                pool: Fixtures.contacts,
+                pool: store.contactPool,
                 chips: $forwardTo
             )
             .padding(.bottom, 9)
@@ -454,23 +732,25 @@ public struct EventWindow: View {
             HStack(spacing: 8) {
                 ChromeButton(
                     "Encaminhar",
-                    appearance: forwardTo.isEmpty ? .muted : .accent,
+                    appearance: canForwardInvite ? .accent : .muted,
                     size: 12.5, weight: .semibold, height: 30
                 ) {
-                    guard !forwardTo.isEmpty else { return }
-                    UNIWindow.logSend(
-                        "Encaminharia o convite para [\(forwardTo.map(\.address).joined(separator: ", "))]."
-                    )
-                    forwardSent = true
-                    forwardOpen = false
+                    forwardInvite()
                 }
+                .disabled(!canForwardInvite)
+                .help(forwardHelp)
                 ChromeButton("Cancelar", appearance: .outlined, height: 30, horizontalPadding: 12) {
                     forwardOpen = false
                     forwardTo = []
                     forwardNote = ""
                 }
                 Spacer(minLength: 8)
-                Text("o convite vai com o link e a pauta")
+                // Protótipo: "o convite vai com o link e a pauta". A pauta não
+                // vai — o corpo é o **mesmo** texto de "Copiar convite"
+                // (`ContextMenus.inviteText`): título, dia e horário, local,
+                // link e participantes. Dizer "pauta" numa mensagem que não a
+                // leva é a legenda mentindo sobre o botão.
+                Text("o convite vai com o link e os participantes")
                     .capsLabel()
                     .lineLimit(1)
             }
@@ -536,13 +816,23 @@ public struct EventWindow: View {
     /// Protótipo: `padding: 12px 18px 15px`, botões de 30pt.
     private var footer: some View {
         HStack(spacing: 8) {
-            if let link = detail.link {
+            // **"Entrar" abre a reunião.** Ele chamava `UNIWindow.logSend` —
+            // uma linha no console e nada na tela —, e era o controle mudo mais
+            // caro do app: o botão em destaque da janela, apertado em cima da
+            // hora, sem nada acontecendo.
+            //
+            // Sem link de sala o botão **não existe**, como o protótipo desenha
+            // (`sc-if ev.hasLink`) e como o resto do app faz quando não há para
+            // onde ir. Quem decide é `MeetingLink.destino`, o mesmo do cartão
+            // acima: um "link" que não se abre no navegador não acende botão.
+            if let destino = MeetingLink.destino(detail.link) {
                 ChromeButton(
                     "Entrar", appearance: .accent, size: 12.5, weight: .semibold,
                     height: 30, horizontalPadding: 16
                 ) {
-                    UNIWindow.logSend("Abriria \(link).")
+                    abreLink(destino)
                 }
+                .help("Abrir a reunião no navegador")
             }
             ChromeButton(
                 "Encaminhar",
@@ -590,6 +880,115 @@ public struct EventWindow: View {
         .hairline(theme.line2, edges: .top)
     }
 
+    // MARK: - Encaminhar o convite
+
+    /// O "Encaminhar" do painel só age com destinatário **e** conta.
+    ///
+    /// Sem conta não há de quem mandar: o convite sai por email, e email sai de
+    /// uma conta. O botão apaga com o motivo no `help` — a regra do controle
+    /// mudo, a mesma do "Email" do rodapé.
+    private var canForwardInvite: Bool {
+        Self.canForward(recipients: forwardTo.count, hasAccount: account != nil)
+    }
+
+    private var forwardHelp: String {
+        Self.forwardHelp(
+            recipients: forwardTo.count, account: account?.host, canSend: store.canSend
+        )
+    }
+
+    nonisolated static func canForward(recipients: Int, hasAccount: Bool) -> Bool {
+        recipients > 0 && hasAccount
+    }
+
+    nonisolated static func forwardHelp(recipients: Int, account: String?, canSend: Bool) -> String {
+        guard let account else {
+            return "Encaminhar — indisponível: este compromisso não está ligado a nenhuma conta, "
+                + "e o convite sai por email de uma conta."
+        }
+        guard recipients > 0 else {
+            return "Encaminhar — indisponível: escolha quem vai receber o convite."
+        }
+        guard canSend else {
+            return "Este marco não tem rede: o convite fica registrado no console."
+        }
+        return "Põe o convite na fila de saída da conta \(account)."
+    }
+
+    private func forwardInvite() {
+        guard let item, canForwardInvite else { return }
+        guard Self.forwardInvite(
+            item, detail: detail,
+            // A mesma data que o cabeçalho desta janela mostra: o corpo do
+            // convite e o que se lê na tela não podem discordar.
+            date: store.agendaDate(for: item),
+            to: forwardTo, note: forwardNote, in: store
+        ) else { return }
+        forwardSent = true
+        forwardOpen = false
+        forwardNote = ""
+    }
+
+    /// O que o "Encaminhar convite" de fato faz, num lugar que o teste alcança
+    /// sem clique — o `@MainActor` é do `MailStore`, não da `View`.
+    ///
+    /// **Sem protocolo novo, e sem anexo.** O app ainda não tem anexos, então o
+    /// `.ics` original não vai junto — dívida registrada. O que vai é o convite
+    /// em texto, o **mesmo** de "Copiar convite" (`ContextMenus.inviteText`):
+    /// título, dia e horário, local, link e participantes. Um segundo formato
+    /// aqui divergiria do que a agenda copia no primeiro ajuste, e o link é o
+    /// mínimo útil de verdade para quem recebe.
+    ///
+    /// A conta é a do compromisso (`AgendaItem.accountID`, desde a M3-11) —
+    /// nunca um endereço cravado. Sem conta, ou sem porta de envio, vale o que
+    /// valia: a linha no console e a confirmação na janela.
+    ///
+    /// Devolve se o painel pode fechar. `false` é "não saiu": o painel fica
+    /// aberto com quem já foi escolhido, e o erro já está no `loadError`.
+    @MainActor
+    static func forwardInvite(
+        _ item: AgendaItem,
+        detail: EventDetail,
+        date: Date,
+        to: [Contact],
+        note: String,
+        in store: MailStore
+    ) -> Bool {
+        guard !to.isEmpty, let account = store.account(item.accountID) else { return false }
+        guard store.canSend else {
+            UNIWindow.logSend(
+                "Encaminharia o convite para [\(to.map(\.address).joined(separator: ", "))]."
+            )
+            return true
+        }
+        let mensagem = ComposerOutgoing.message(
+            accountID: account.id,
+            from: Contact(name: account.displayName, address: account.address),
+            to: to, cc: [], bcc: [],
+            subject: forwardSubject(item.title),
+            plainText: inviteBody(item, detail: detail, date: date, note: note),
+            html: nil
+        )
+        return store.send(mensagem)
+    }
+
+    /// "Enc: " como em `ComposerSeed.forward` — encaminhar um convite e
+    /// encaminhar um email não podem chegar com dois prefixos diferentes na
+    /// mesma caixa. Compromisso sem título não vira "Enc: " pendurado.
+    nonisolated static func forwardSubject(_ title: String) -> String {
+        title.isEmpty ? "Enc: convite" : "Enc: \(title)"
+    }
+
+    /// O recado opcional em cima, o convite embaixo, separados por uma linha em
+    /// branco. Recado só de espaços não abre parágrafo nenhum.
+    nonisolated static func inviteBody(
+        _ item: AgendaItem, detail: EventDetail, date: Date, note: String
+    ) -> String {
+        let convite = ContextMenus.inviteText(item, detail: detail, date: date)
+        let recado = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        return recado.isEmpty ? convite : "\(recado)\n\n\(convite)"
+    }
+
     /// O que o botão "Email" faz.
     ///
     /// `MailStore.reveal` desfaz o filtro de conta, a caixa e a busca que
@@ -616,6 +1015,60 @@ public struct EventWindow: View {
             try? await Task.sleep(for: .milliseconds(1600))
             copied = false
         }
+    }
+}
+
+/// O rótulo de uma seção da janela 04 — e, quando a seção recolhe, o controle
+/// que a abre.
+///
+/// Protótipo: `font-family: var(--mono); font-size: 8.5px; letter-spacing:
+/// var(--caps); text-transform: uppercase; color: var(--ink4)`. Era o mesmo
+/// bloco copiado cinco vezes no arquivo, e agora é um só — o que também garante
+/// que a seção que recolhe e a que não recolhe fiquem na mesma linha de base.
+///
+/// O sinal é o "▾"/"▸" que o app já usa: "▾" na faixa de resposta do leitor
+/// (aberta, e o clique recolhe) e "▸" no submenu de contexto (fechado, e o
+/// clique abre). Nenhum componente novo além deste — é polimento, não reforma.
+private struct SectionHeader: View {
+    @Environment(\.theme) private var theme
+    @State private var hovering = false
+
+    let title: String
+    /// `nil` numa seção que não recolhe ("Pauta", "Descrição"): sem seta, sem
+    /// clique, sem hover — um rótulo, como sempre foi.
+    var expanded: Bool?
+    var help: String?
+    var action: (() -> Void)?
+
+    var body: some View {
+        if let expanded, let action {
+            Button(action: action) {
+                row(expanded: expanded).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .focusRing(cornerRadius: theme.radiusSmall)
+            .help(help ?? "")
+            .onHover { hovering = $0 }
+        } else {
+            row(expanded: nil)
+        }
+    }
+
+    private func row(expanded: Bool?) -> some View {
+        HStack(spacing: 7) {
+            Text(title)
+                .font(theme.mono.font(size: 8.5, weight: .medium))
+                .tracking(theme.capsTracking(at: 8.5))
+                .textCase(.uppercase)
+                .foregroundStyle(hovering ? theme.ink3.color : theme.ink4.color)
+            if let expanded {
+                Text(expanded ? "▾" : "▸")
+                    .font(theme.mono.font(size: 8.5))
+                    .foregroundStyle(hovering ? theme.ink3.color : theme.ink4.color)
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

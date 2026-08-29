@@ -91,16 +91,19 @@ struct ShellTrashTests {
 
     // MARK: - A caixa na barra
 
-    /// A Lixeira é a única caixa com símbolo, e não por enfeite: ela é a única
-    /// cujo conteúdo se perde, e "arq" e "lixo" não se distinguem no canto do
-    /// olho numa trilha de 62pt.
-    @Test("só a Lixeira tem símbolo, e a trilha a abrevia como «lixo»")
+    /// O símbolo não é enfeite: ele marca as caixas que **não** são o fluxo da
+    /// triagem — a Lixeira, cujo conteúdo se perde, e Enviadas, que guarda o
+    /// que saiu. As quatro do fluxo continuam só com o nome, e "arq", "lixo" e
+    /// "env" não se distinguem no canto do olho numa trilha de 62pt.
+    @Test("só a Lixeira e Enviadas têm símbolo, e a trilha as abrevia")
     func onlyTheTrashCarriesASymbol() {
-        for bucket in TriageBucket.allCases where bucket != .trash {
+        for bucket in TriageBucket.allCases where bucket != .trash && bucket != .sent {
             #expect(FolderSidebar.symbol(for: bucket) == nil)
         }
         #expect(FolderSidebar.symbol(for: .trash) == "trash")
+        #expect(FolderSidebar.symbol(for: .sent) == "paperplane")
         #expect(SidebarRail.abbreviation(for: .trash) == "lixo")
+        #expect(SidebarRail.abbreviation(for: .sent) == "env")
     }
 }
 

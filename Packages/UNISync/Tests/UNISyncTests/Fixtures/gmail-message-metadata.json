@@ -1,0 +1,6 @@
+{"id":"18f0a1b2c4","threadId":"18f0a1b2c4","labelIds":["INBOX","UNREAD"],
+ "snippet":"Segue a prévia sem corpo","internalDate":"1800000000000",
+ "payload":{"mimeType":"text/plain","headers":[
+   {"name":"From","value":"Newsletter <noticias@exemplo.com>"},
+   {"name":"Subject","value":"Boletim de agosto"}
+ ]}}

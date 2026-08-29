@@ -392,6 +392,25 @@ struct ContextMenuTests {
         #expect(deDentro.contains(.move(messageID: "m1", to: .today)))
     }
 
+    /// Enviadas não é destino de nada: o que põe uma mensagem lá é enviá-la.
+    /// Um item "Mover para ▸ Enviadas" seria o botão mudo com outra roupa — o
+    /// espelho recusa a operação nos dois provedores, então ele prometeria uma
+    /// escrita que só pararia a fila.
+    ///
+    /// Sair de Enviadas continua possível: quem quiser guardar a própria
+    /// mensagem no arquivo (ou jogá-la fora) tem por onde.
+    @Test("«Mover para» não oferece Enviadas — mas oferece a saída dela")
+    func moveSubmenuHasNoSent() {
+        for bucket in TriageBucket.allCases {
+            let alvos = ContextMenus.messageRow(message(bucket: bucket))
+                .submenuCommands("Mover para")
+            #expect(!alvos.contains(.move(messageID: "m1", to: .sent)))
+        }
+        let deDentro = ContextMenus.messageRow(message(bucket: .sent))
+            .submenuCommands("Mover para")
+        #expect(deDentro.contains(.move(messageID: "m1", to: .archived)))
+    }
+
     @Test("«Esvaziar lixeira» só existe na Lixeira, e só com o que esvaziar")
     func emptyTrashOnlyWhereItMeansSomething() {
         #expect(ContextMenus.bucketRow(.trash, unread: 0, accountID: nil, trash: 3)
@@ -583,6 +602,11 @@ extension ContextMenuTests {
             "Nova mensagem desta conta",
             "Filtrar só esta conta",
             "Marcar tudo como lido",
+            // "Contas…" entrou na Task 16 do Marco 2, entre o que se faz com a
+            // lista e o que se copia: é daqui que se chega à janela que explica
+            // uma conta parada. O primeiro teste com contas reais renomeou a
+            // janela para "Configurações" — o item da lateral segue o nome dela.
+            "Configurações…",
             "Copiar endereço",
         ])
     }

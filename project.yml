@@ -21,6 +21,12 @@ packages:
     path: Packages/UNICore
   UNIShell:
     path: Packages/UNIShell
+  UNISync:
+    path: Packages/UNISync
+
+configFiles:
+  Debug: Config/Google.xcconfig
+  Release: Config/Google.xcconfig
 
 targets:
   OkamiUNI:
@@ -32,6 +38,15 @@ targets:
           - "Resources/Fonts"
       - path: App/Resources/Fonts
         type: folder
+      # Os dois roteiros que a janela de Contas abre ("Ver o roteiro" e "O que
+      # é uma senha de app?"). Vão **dentro do app**, e não como link para o
+      # GitHub: link depende de branch, de rede e de o arquivo não ter sido
+      # renomeado — três formas de o botão virar um 404. Embarcados, ele abre
+      # offline e sempre na versão que o app conhece.
+      - path: docs/oauth-google.md
+        buildPhase: resources
+      - path: docs/senha-de-app.md
+        buildPhase: resources
     dependencies:
       - package: UNIDesign
         product: UNIDesign
@@ -39,11 +54,28 @@ targets:
         product: UNICore
       - package: UNIShell
         product: UNIShell
+      - package: UNISync
+        product: UNISync
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.okamiops.okamiuni
         INFOPLIST_FILE: App/Info.plist
         CODE_SIGN_ENTITLEMENTS: App/OkamiUNI.entitlements
-        CODE_SIGN_STYLE: Automatic
+        # Assinatura manual com a identidade de desenvolvimento da máquina.
+        # Automatic sem time assinava ad-hoc, e assinatura ad-hoc muda a cada
+        # build — o Keychain deixava de reconhecer o app e pedia a senha de
+        # login a CADA abertura. Com o certificado estável, "Sempre Permitir"
+        # vale para todos os builds seguintes.
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: Apple Development
+        DEVELOPMENT_TEAM: 7U9S5DB9K9
         ENABLE_HARDENED_RUNTIME: YES
         COMBINE_HIDPI_IMAGES: YES
+      configs:
+        # As permissões de Debug têm uma chave a mais — `network.server` —, e
+        # ela existe por causa de um instrumento: `--ensaiar-contas` sobe um
+        # IMAP falso em 127.0.0.1, e o sandbox recusa `bind` sem ela. O app de
+        # Release continua sem escutar porta nenhuma. Ver o comentário dentro
+        # de `App/OkamiUNI-Debug.entitlements`.
+        Debug:
+          CODE_SIGN_ENTITLEMENTS: App/OkamiUNI-Debug.entitlements

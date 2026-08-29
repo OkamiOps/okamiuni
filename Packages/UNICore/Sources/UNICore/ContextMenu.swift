@@ -52,6 +52,10 @@ public enum ContextCommand: Sendable, Hashable {
     case filterAccount(accountID: String)
     /// Desliga o filtro de conta.
     case clearAccountFilter
+    /// Abre a janela de Configurações. Cena própria (`UNIWindow.accounts`,
+    /// nome interno que não muda — só o rótulo que a pessoa lê), como as
+    /// outras quatro: não é folha, e por isso tem ⌘W e entra no menu Janela.
+    case openAccounts
     /// Tira da agenda um compromisso que o app criou a partir de um email —
     /// o inverso de "Colocar na agenda".
     case removeFromAgenda(itemID: String)
@@ -68,6 +72,18 @@ public enum ContextCommand: Sendable, Hashable {
     /// O "Desfazer" de `deleteForever`: devolve a mensagem ao lugar de onde ela
     /// saiu.
     case restoreDeleted(messageID: String)
+    /// O "Desfazer" de uma ação sobre a **conversa inteira**: cada mensagem
+    /// volta ao estado que tinha antes.
+    ///
+    /// Nenhum menu produz este comando — ele só nasce dentro do recibo de uma
+    /// ação de conversa. Existe como caso do mesmo `enum` para o "Desfazer" da
+    /// faixa continuar sendo um `ContextCommand`, executado pelo mesmo
+    /// `StoreCommand.run` de todos os outros: um segundo caminho de execução
+    /// para desfazer é como o arraste e o menu divergem no primeiro conserto.
+    case restoreConversation(states: [MessageState])
+    /// O "Desfazer" de "Apagar definitivamente" uma conversa inteira: o mesmo
+    /// cofre de `restoreDeleted`, uma mensagem de cada vez.
+    case restoreDeletedConversation(messageIDs: [String])
     /// Esvazia a Lixeira. `accountID` nulo abrange todas as contas.
     ///
     /// **É o único destrutivo sem volta do app**, e por isso quem o dispara
@@ -393,6 +409,13 @@ public enum ContextMenus {
                 .markAllRead(bucket: .all, accountID: account.id)
             )))
         }
+        // A linha da conta é onde se descobre que uma conta parou: é ela que
+        // mostra o estado. O caminho até "o que fazer com isso" sai daqui.
+        entries.append(.item(ContextMenuItem(
+            "Configurações…",
+            .openAccounts,
+            help: "Adicionar, testar ou remover contas"
+        )))
         entries.append(.item(ContextMenuItem("Copiar endereço", .copy(account.address))))
         return entries.tidied
     }
@@ -562,7 +585,12 @@ public enum ContextMenus {
         // "Mover para ▸ Lixeira" seria a mesma ação com um nome que ninguém
         // usa, dois níveis abaixo — e o mesmo vale na volta: quem está na
         // Lixeira tira de lá por "Mover para ▸ Hoje", que continua ali.
-        let targets = TriageBucket.allCases
+        //
+        // A lista é a da **triagem** (`TriageBucket.triage`), e não `allCases`:
+        // Enviadas não é destino de nada. Mover para lá uma mensagem que
+        // chegou seria dizer que você a escreveu — e no servidor não há
+        // operação que corresponda a isso.
+        let targets = TriageBucket.triage
             .filter { $0 != .all && $0 != .trash && $0 != message.bucket }
         guard !targets.isEmpty else { return nil }
         return .submenu(

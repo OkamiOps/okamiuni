@@ -1,5 +1,32 @@
 import Foundation
 
+/// Onde e como falar IMAP com um servidor.
+///
+/// Um tipo próprio, e não três campos soltos em `Account`, porque os três só
+/// fazem sentido juntos: porta sem host não liga em lugar nenhum, e "usa TLS"
+/// sem porta não diz se é 993 (TLS desde o primeiro byte) ou 143 com
+/// `STARTTLS`. Nulo em `Account.imap` significa "esta conta não fala IMAP" —
+/// uma conta Google recém-conectada, por exemplo.
+public struct ImapEndpoint: Sendable, Hashable {
+    /// Como o TLS entra. Não é preferência: é o protocolo do servidor.
+    public enum Security: String, Sendable, Hashable, CaseIterable {
+        /// TLS implícito, desde o primeiro byte. Porta canônica 993.
+        case tls
+        /// Conexão em claro que sobe para TLS com `STARTTLS`. Porta 143.
+        case startTLS
+    }
+
+    public let host: String
+    public let port: Int
+    public let security: Security
+
+    public init(host: String, port: Int, security: Security) {
+        self.host = host
+        self.port = port
+        self.security = security
+    }
+}
+
 public struct Account: Sendable, Hashable, Identifiable {
     /// Como o app conversa com o servidor — não quem é o provedor.
     ///
@@ -9,6 +36,21 @@ public struct Account: Sendable, Hashable, Identifiable {
     /// `imap` como exceção nem presumir que a lista de provedores é fechada.
     public enum Provider: String, Sendable, CaseIterable {
         case imap, gmail, microsoft
+    }
+
+    /// Em que pé a conta está — o que a lateral e a janela de Contas mostram.
+    ///
+    /// `erroDeAutenticacao` é o estado que o refresh de token falhado e o
+    /// `LOGIN` recusado produzem. Ele existe como **estado da conta**, e não
+    /// como um alerta passageiro, porque a conta continua na lista com as
+    /// mensagens que já baixou: o que ela perdeu foi o direito de baixar mais.
+    /// Toda superfície que mostra uma conta neste estado tem de oferecer
+    /// reconectar — conta parada sem explicação é a versão de dados do botão
+    /// mudo.
+    public enum State: String, Sendable, Hashable, CaseIterable {
+        case ativa
+        case carregando
+        case erroDeAutenticacao
     }
 
     public let id: String
@@ -47,10 +89,29 @@ public struct Account: Sendable, Hashable, Identifiable {
     /// fica desabilitado e diz por quê, em vez de inserir duas linhas vazias.
     public let signature: String
 
+    /// Nulo para contas que não falam IMAP (uma conta Google, por exemplo).
+    public let imap: ImapEndpoint?
+
+    /// O estado corrente. Default `.ativa`: as fixtures do Marco 1 nasceram
+    /// sem estado nenhum e continuam significando "funcionando".
+    public let state: State
+
+    /// Quando a última sincronização terminou. Nulo é "nunca sincronizou" —
+    /// que é o que a janela mostra como "ainda não sincronizada", em vez de
+    /// inventar uma data.
+    ///
+    /// `Date` aqui não fere a regra de fuso: isto é um **instante**, não um
+    /// horário de parede. Quem escreve "às 14:32" formata na borda, com o
+    /// `Calendar` de quem está lendo.
+    public let lastSyncedAt: Date?
+
     public init(
         id: String, address: String, displayName: String,
         provider: Provider, host: String, tintLightHex: String, tintDarkHex: String,
-        signature: String = ""
+        signature: String = "",
+        imap: ImapEndpoint? = nil,
+        state: State = .ativa,
+        lastSyncedAt: Date? = nil
     ) {
         self.id = id
         self.address = address
@@ -60,10 +121,52 @@ public struct Account: Sendable, Hashable, Identifiable {
         self.tintLightHex = tintLightHex
         self.tintDarkHex = tintDarkHex
         self.signature = signature
+        self.imap = imap
+        self.state = state
+        self.lastSyncedAt = lastSyncedAt
     }
 
     /// Retorna a cor apropriada para o tema.
     public func tint(isDark: Bool) -> String {
         isDark ? tintDarkHex : tintLightHex
+    }
+
+    /// A mesma conta noutro estado.
+    public func withState(_ state: State) -> Account { copy(state: state) }
+
+    /// A mesma conta com outro carimbo de sincronização.
+    public func withLastSynced(_ date: Date?) -> Account {
+        copy(lastSyncedAt: .some(date))
+    }
+
+    /// A mesma conta com outro endpoint IMAP (ou nenhum).
+    public func withImap(_ endpoint: ImapEndpoint?) -> Account {
+        copy(imap: .some(endpoint))
+    }
+
+    /// O único lugar que reconstrói uma `Account`.
+    ///
+    /// Onze campos, três deles com default no `init`: reconstruir à mão em
+    /// cada chamador é a mesma armadilha que `Message.copy` já pagou — o campo
+    /// esquecido **compila** e vira uma assinatura sumida ou uma conta que
+    /// voltou a "ativa" sozinha. Acrescentar campo ao modelo quebra este
+    /// arquivo, que é onde se quer que quebre.
+    ///
+    /// Os dois opcionais entram como `String??`/`Date??` para "não mexer"
+    /// (`nil`) ser distinguível de "apagar" (`.some(nil)`).
+    private func copy(
+        state: State? = nil,
+        imap: ImapEndpoint?? = nil,
+        lastSyncedAt: Date?? = nil
+    ) -> Account {
+        Account(
+            id: id, address: address, displayName: displayName,
+            provider: provider, host: host,
+            tintLightHex: tintLightHex, tintDarkHex: tintDarkHex,
+            signature: signature,
+            imap: imap ?? self.imap,
+            state: state ?? self.state,
+            lastSyncedAt: lastSyncedAt ?? self.lastSyncedAt
+        )
     }
 }

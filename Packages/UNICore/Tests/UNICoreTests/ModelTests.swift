@@ -24,16 +24,59 @@ struct ModelTests {
 
     /// A ordem é a que a barra lateral desenha, e a Lixeira entra **depois de
     /// Arquivado** — é a ordem de Gmail, Outlook e Mail, e é onde a mão a
-    /// procura.
-    @Test("as pastas de triagem batem com o protótipo, com a Lixeira ao fim")
+    /// procura. Enviadas vem depois dela, no fim: é a última da barra porque é
+    /// a que não pertence ao fluxo.
+    @Test("as pastas batem com o protótipo — Lixeira ao fim do fluxo, Enviadas depois")
     func triageBuckets() {
         #expect(TriageBucket.allCases.map(\.rawValue)
-            == ["hoje", "depois", "todos", "arquivar", "lixeira"])
+            == ["hoje", "depois", "todos", "arquivar", "lixeira", "enviadas"])
         #expect(TriageBucket.today.label == "Hoje")
         #expect(TriageBucket.later.label == "Depois")
         #expect(TriageBucket.all.label == "Tudo")
         #expect(TriageBucket.archived.label == "Arquivado")
         #expect(TriageBucket.trash.label == "Lixeira")
+        #expect(TriageBucket.sent.label == "Enviadas")
+    }
+
+    /// A lista da **triagem** é a de antes, e Enviadas não entra nela: ela é a
+    /// que o menu "Mover para" usa, e mover uma mensagem recebida para
+    /// Enviadas não quer dizer nada.
+    @Test("a triagem continua sendo as cinco de sempre — Enviadas fica fora")
+    func triageListExcludesSent() {
+        #expect(TriageBucket.triage.map(\.rawValue)
+            == ["hoje", "depois", "todos", "arquivar", "lixeira"])
+        #expect(!TriageBucket.triage.contains(.sent))
+    }
+
+    /// "Tudo" é a visão da triagem: o que chegou e ainda pede decisão. O que
+    /// você escreveu não entra — senão a caixa que a pessoa deixa aberta
+    /// cresceria a cada resposta que ela mandasse.
+    @Test("Enviadas fica fora de «Tudo», como a Lixeira")
+    func sentIsNotInAll() {
+        let enviada = Message.preview(id: "e1", bucket: .sent)
+        #expect(!TriageBucket.all.contains(enviada))
+        #expect(TriageBucket.sent.contains(enviada))
+    }
+
+    /// Em Enviadas a linha mostra **para quem** a mensagem foi: o remetente é
+    /// sempre você, e repeti-lo em toda linha esconderia a única coisa que
+    /// distingue uma da outra.
+    @Test("a linha da lista mostra o destinatário em Enviadas, e o remetente no resto")
+    func listHeadline() {
+        // O remetente da `preview` é "Marina Duarte"; o destinatário é outro
+        // nome de propósito, senão as duas respostas seriam a mesma e o teste
+        // passaria com a regra invertida.
+        let para = [Contact(name: "Ricardo Alves", address: "ricardo@meudominio.com.br")]
+        #expect(Message.preview(bucket: .today, to: para).listHeadline == "Marina Duarte")
+        #expect(Message.preview(bucket: .sent, to: para).listHeadline == "Ricardo Alves")
+
+        // Sem nome, o endereço — e todos eles, não só o primeiro.
+        let dois = para + [Contact(name: "", address: "socio@meudominio.com.br")]
+        #expect(Message.preview(bucket: .sent, to: dois).listHeadline
+            == "Ricardo Alves, socio@meudominio.com.br")
+        // Enviada sem destinatário visível (só cópia oculta) cai no remetente:
+        // dizer o seu nome é menos errado do que uma linha em branco.
+        #expect(Message.preview(bucket: .sent).listHeadline == "Marina Duarte")
     }
 
     /// Sem isto, apagar não pareceria apagar: a caixa que a pessoa deixa aberta

@@ -1,0 +1,12 @@
+{"id":"18f0a1b2c9","threadId":"18f0a1b2c9",
+ "labelIds":["INBOX"],
+ "snippet":"Só HTML",
+ "internalDate":"1800000000000",
+ "payload":{
+   "mimeType":"text/html",
+   "headers":[
+     {"name":"From","value":"newsletter@exemplo.com"},
+     {"name":"Subject","value":"Só HTML"}
+   ],
+   "body":{"size":16,"data":"PHA-U8OzIEhUTUwuPC9wPg"}
+ }}

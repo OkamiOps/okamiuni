@@ -17,3 +17,7 @@ xcuserdata/
 .superpowers/
 
 *.xcodeproj
+
+# O client ID do OAuth do Google. Ver docs/oauth-google.md.
+Config/Google.xcconfig
+Packages/*/Package.resolved

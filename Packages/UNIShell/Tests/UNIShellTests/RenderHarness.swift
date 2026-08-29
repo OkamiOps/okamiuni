@@ -66,33 +66,64 @@ enum Render {
         window.contentView = NSHostingView(rootView: root)
 
         guard let content = window.contentView else { return nil }
-        content.layoutSubtreeIfNeeded()
-        // O SwiftUI resolve conteúdo preguiçoso num segundo passe; sem isto as
-        // listas saem vazias.
-        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        content.layoutSubtreeIfNeeded()
+        defer { window.close() }
 
-        // Em `scale: 2` o bitmap tem o dobro de pixels mas o mesmo tamanho em
-        // pontos — é assim que uma tela Retina desenha. Importa: uma borda de
-        // 0,5pt vira meio pixel lavado em 1× e um pixel nítido em 2×, e
-        // defeito de contorno só aparece na segunda. Verificar em 1× e concluir
-        // que está limpo já me enganou uma vez.
-        guard let rep = NSBitmapImageRep(
-            bitmapDataPlanes: nil,
-            pixelsWide: Int(size.width * scale),
-            pixelsHigh: Int(size.height * scale),
-            bitsPerSample: 8,
-            samplesPerPixel: 4,
-            hasAlpha: true,
-            isPlanar: false,
-            colorSpaceName: .deviceRGB,
-            bytesPerRow: 0,
-            bitsPerPixel: 0
-        ) else { return nil }
-        rep.size = size
-        content.cacheDisplay(in: content.bounds, to: rep)
-        window.close()
-        return rep
+        // Fotografa **até o quadro parar de mudar**, e não depois de um tempo
+        // fixo.
+        //
+        // Aqui havia `RunLoop.run(until: +0.05)` e uma única captura. Cinquenta
+        // milissegundos bastam numa máquina ociosa e não bastam numa carregada:
+        // com a suíte inteira em paralelo, o SwiftUI às vezes não terminava o
+        // segundo passe (o que resolve conteúdo preguiçoso) antes da foto, e o
+        // teste que media o cartão da paleta contava linhas de um cartão pela
+        // metade. Medido no commit intocado deste marco: uma falha em doze
+        // rodadas da suíte, em dois testes diferentes da mesma família — o
+        // instrumento sorteando, não o código quebrando.
+        //
+        // Dois quadros idênticos seguidos é o sinal de que o desenho assentou.
+        // São sempre no mínimo dois passes (nunca menos trabalho do que antes),
+        // e o teto de oito impede que conteúdo que nunca assenta pendure a
+        // suíte — nesse caso vale o último quadro, que é o que a versão antiga
+        // devolveria de qualquer jeito.
+        var anterior: NSBitmapImageRep?
+        for _ in 0..<8 {
+            content.layoutSubtreeIfNeeded()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.03))
+            content.layoutSubtreeIfNeeded()
+
+            // Em `scale: 2` o bitmap tem o dobro de pixels mas o mesmo tamanho
+            // em pontos — é assim que uma tela Retina desenha. Importa: uma
+            // borda de 0,5pt vira meio pixel lavado em 1× e um pixel nítido em
+            // 2×, e defeito de contorno só aparece na segunda. Verificar em 1× e
+            // concluir que está limpo já me enganou uma vez.
+            guard let rep = NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: Int(size.width * scale),
+                pixelsHigh: Int(size.height * scale),
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+            ) else { return nil }
+            rep.size = size
+            content.cacheDisplay(in: content.bounds, to: rep)
+            if let anterior, mesmosPixels(anterior, rep) { return rep }
+            anterior = rep
+        }
+        return anterior
+    }
+
+    /// Dois bitmaps com o mesmo conteúdo? Comparação byte a byte do plano —
+    /// `memcmp` sobre alguns megabytes é ordens de grandeza mais barato do que
+    /// um passe de layout, e é o que deixa a espera ser "até assentar" em vez de
+    /// "por tanto tempo".
+    private static func mesmosPixels(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Bool {
+        guard a.bytesPerPlane == b.bytesPerPlane,
+              let dadosA = a.bitmapData, let dadosB = b.bitmapData else { return false }
+        return memcmp(dadosA, dadosB, a.bytesPerPlane) == 0
     }
 
     /// Renderiza e, se `UNI_RENDER_DIR` estiver definido, grava um PNG para
@@ -113,6 +144,91 @@ enum Render {
             }
         }
         return rep
+    }
+}
+
+/// Hospeda uma `View` numa janela fora da tela e lhe entrega um clique **dentro
+/// do processo**.
+///
+/// Nasceu na M3-11 dentro de `ConversationStackClickTests` e mudou de casa aqui
+/// porque deixou de ser da pilha: o botão "Entrar" da janela do compromisso
+/// (M3-13) precisa do mesmo cano — um controle que se diz mudo só se
+/// desmente com um clique.
+///
+/// A janela é a do `Render`: sem borda, a −50.000pt, nunca trazida à frente,
+/// fechada no fim. Nada aqui toca no mouse nem no teclado da máquina — não há
+/// `CGEvent` postado no sistema, nem `osascript`. O evento nasce por
+/// `NSEvent.mouseEvent` e entra por `NSWindow.sendEvent`, o mesmo cano por onde
+/// um clique real chegaria à janela depois de a `NSApplication` o receber.
+@MainActor
+enum CliqueDeEnsaio {
+
+    static func em<V: View>(_ view: V, size: CGSize, aY y: CGFloat, x: CGFloat = 60) {
+        let raiz = view
+            .theme(.tinta)
+            .environment(\.locale, Locale(identifier: "pt_BR"))
+            .environment(\.displayScale, 1)
+            // `topLeading`, e não o centro que o `frame` dá por padrão: as
+            // coordenadas deste ensaio contam a partir da primeira linha da
+            // pilha, e conteúdo centrado as faria depender da altura do que
+            // está aberto.
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: -50_000, y: -50_000, width: size.width, height: size.height),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: raiz)
+        // **`orderBack` não é descuido, e é o que faz o clique existir.** Numa
+        // janela nunca ordenada o `hitTest` acha a `View` certa e o `Button` do
+        // SwiftUI não dispara: medido, o contador do clique fica em zero.
+        //
+        // A janela continua a −50.000pt, fora de qualquer monitor, e `orderBack`
+        // a põe **atrás** de tudo: não vira janela-chave, não ativa o app, não
+        // tira o foco de quem está usando a máquina.
+        window.orderBack(nil)
+        defer { window.close() }
+        guard let content = window.contentView else { return }
+
+        content.layoutSubtreeIfNeeded()
+        assenta()
+        content.layoutSubtreeIfNeeded()
+
+        clique(at: NSPoint(x: x, y: size.height - y), in: window)
+
+        assenta()
+        content.layoutSubtreeIfNeeded()
+        assenta()
+    }
+
+    /// O par pressão/soltura, entregue **direto à janela**.
+    ///
+    /// `RehearsalDriver.hit` faria o mesmo e mais um passo: pôr uma cópia da
+    /// soltura na fila do `NSApp`, para os laços de rastreio do AppKit a
+    /// encontrarem lá. Isso é indispensável no app e é fatal aqui — num processo
+    /// de teste, mexer na fila do `NSApp` termina o laço de drenagem da `main` e
+    /// o processo **sai com 0 no meio do teste**, sem uma linha de relatório (a
+    /// saída foi rastreada até `exit` dentro de
+    /// `swift_task_asyncMainDrainQueue`). Um `Button` do SwiftUI não usa laço de
+    /// rastreio, então o par direto basta.
+    private static func clique(at ponto: NSPoint, in window: NSWindow) {
+        for (tipo, pressao) in [(NSEvent.EventType.leftMouseDown, Float(1)), (.leftMouseUp, 0)] {
+            guard let evento = NSEvent.mouseEvent(
+                with: tipo, location: ponto, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil,
+                eventNumber: 70_001, clickCount: 1, pressure: pressao
+            ) else { return }
+            window.sendEvent(evento)
+        }
+    }
+
+    /// Deixa o desenho assentar. É `RunLoop`, e não `Task.sleep`: o `.task` de
+    /// uma `View` é agendado pelo laço de execução, e uma pausa de concorrência
+    /// o deixa por correr — medido, a porta de corpo nunca era perguntada.
+    private static func assenta() {
+        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
     }
 }
 
@@ -309,14 +425,61 @@ extension NSBitmapImageRep {
 
     /// Quantos pixels diferem entre dois desenhos do mesmo tamanho.
     func pixelsDiffering(from other: NSBitmapImageRep) -> Int {
+        pixelsDiffering(from: other, inColumns: 0..<pixelsWide)
+    }
+
+    /// O mesmo, restrito a um retângulo.
+    ///
+    /// Existe porque um pedaço só do desenho é o que está sob prova: comparar
+    /// a janela inteira faria o caso passar por conta de outra coisa que também
+    /// mudou — e passar por mérito alheio é passar por engano. Ver
+    /// `AgendaHojeTests.trilhaSegueORelogio`, que compara a linha da data da
+    /// trilha e nada mais.
+    func pixelsDiffering(
+        from other: NSBitmapImageRep,
+        inColumns columns: Range<Int>,
+        rows: Range<Int>? = nil
+    ) -> Int {
         guard pixelsWide == other.pixelsWide, pixelsHigh == other.pixelsHigh else { return -1 }
+        let colunas = max(0, columns.lowerBound)..<min(pixelsWide, columns.upperBound)
+        let linhas = rows.map { max(0, $0.lowerBound)..<min(pixelsHigh, $0.upperBound) }
+            ?? 0..<pixelsHigh
         var count = 0
-        for y in 0..<pixelsHigh {
-            for x in 0..<pixelsWide where colorAt(x: x, y: y) != other.colorAt(x: x, y: y) {
+        for y in linhas {
+            for x in colunas where colorAt(x: x, y: y) != other.colorAt(x: x, y: y) {
                 count += 1
             }
         }
         return count
     }
+
+    /// Em que colunas esta cor aparece. `nil` quando ela não aparece em
+    /// nenhuma.
+    ///
+    /// É a régua do defeito 2: a pastilha das três abas tem fundo `surface3` e
+    /// os botões `‹ › Hoje` têm fundo `btn`. Se a barra andar quando o mês
+    /// muda, estas colunas mudam junto — e é isso que o caso mede, em vez de
+    /// comparar a imagem inteira, que muda de qualquer jeito porque o título
+    /// mudou.
+    func columns(matching token: TokenColor, tolerance: Double = 0.02) -> ClosedRange<Int>? {
+        guard let wanted = token.nsColor.usingColorSpace(.sRGB) else { return nil }
+        var menor: Int?
+        var maior: Int?
+        for x in 0..<pixelsWide {
+            for y in 0..<pixelsHigh {
+                guard let c = colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
+                      c.alphaComponent > 0.9,
+                      abs(c.redComponent - wanted.redComponent) < tolerance,
+                      abs(c.greenComponent - wanted.greenComponent) < tolerance,
+                      abs(c.blueComponent - wanted.blueComponent) < tolerance else { continue }
+                if menor == nil { menor = x }
+                maior = x
+                break
+            }
+        }
+        guard let menor, let maior else { return nil }
+        return menor...maior
+    }
+
 }
 

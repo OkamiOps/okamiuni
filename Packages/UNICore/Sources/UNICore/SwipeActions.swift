@@ -557,14 +557,82 @@ public struct SwipeReceipt: Sendable, Hashable, Identifiable {
         stamp: String,
         id: UUID = UUID()
     ) -> SwipeReceipt {
-        let who = message.from.name.isEmpty ? message.from.address : message.from.name
-        let head = "Apagada de vez"
-        return SwipeReceipt(
+        SwipeReceipt(
             id: id,
             messageID: message.id,
-            note: who.isEmpty ? "\(head) · \(stamp)" : "\(head) — \(who) · \(stamp)",
+            note: note("Apagada de vez", message: message, count: 1, stamp: stamp),
             undo: .restoreDeleted(messageID: message.id)
         )
+    }
+
+    /// O recibo de uma ação sobre a **conversa inteira**.
+    ///
+    /// A frase é a mesma da mensagem, com a contagem no meio — "Arquivada —
+    /// Marina Duarte · 3 mensagens · 14:32". Sem a contagem, "Desfazer"
+    /// devolveria três linhas depois de uma faixa que só falou de uma.
+    ///
+    /// O caminho de volta é `restoreConversation`, com o estado de **cada**
+    /// mensagem fotografado antes da ação: as três podiam estar em caixas
+    /// diferentes, e desfazer não pode empilhá-las todas na caixa da mais
+    /// recente.
+    public static func ofConversation(
+        _ action: SwipeAction,
+        conversation: Conversation,
+        states: [MessageState],
+        stamp: String,
+        id: UUID = UUID()
+    ) -> SwipeReceipt? {
+        guard action.undo(for: conversation.latest) != nil else { return nil }
+        return SwipeReceipt(
+            id: id,
+            action: action,
+            messageID: conversation.latest.id,
+            note: note(
+                action.receiptTitle(for: conversation.latest),
+                message: conversation.latest,
+                count: conversation.count, stamp: stamp
+            ),
+            undo: .restoreConversation(states: states)
+        )
+    }
+
+    /// O "Apagar definitivamente" de uma conversa inteira.
+    ///
+    /// O caminho de volta é uma cadeia de `restoreDeleted`, um por mensagem —
+    /// e não `restoreConversation`: fora do store, a mensagem não existe mais
+    /// para ter estado nenhum restaurado. É o cofre de `deleteForever` que a
+    /// devolve, exatamente como no caso de uma mensagem só.
+    public static func ofConversationDeleteForever(
+        conversation: Conversation,
+        stamp: String,
+        id: UUID = UUID()
+    ) -> SwipeReceipt {
+        SwipeReceipt(
+            id: id,
+            messageID: conversation.latest.id,
+            note: note(
+                "Apagada de vez", message: conversation.latest,
+                count: conversation.count, stamp: stamp
+            ),
+            undo: .restoreDeletedConversation(messageIDs: conversation.messageIDs)
+        )
+    }
+
+    /// "Arquivada — Marina Duarte · 3 mensagens · 14:32".
+    ///
+    /// Uma função para os dois casos: com `count == 1` ela devolve exatamente a
+    /// frase de antes desta tarefa, sem a contagem — a linha de uma mensagem só
+    /// não ganha um "· 1 mensagens".
+    static func note(
+        _ head: String,
+        message: Message,
+        count: Int,
+        stamp: String
+    ) -> String {
+        let who = message.from.name.isEmpty ? message.from.address : message.from.name
+        let quantas = count > 1 ? "\(count) mensagens · " : ""
+        guard !who.isEmpty else { return "\(head) · \(quantas)\(stamp)" }
+        return "\(head) — \(who) · \(quantas)\(stamp)"
     }
 
     public static func note(
@@ -572,10 +640,7 @@ public struct SwipeReceipt: Sendable, Hashable, Identifiable {
         message: Message,
         stamp: String
     ) -> String {
-        let who = message.from.name.isEmpty ? message.from.address : message.from.name
-        let head = action.receiptTitle(for: message)
-        guard !who.isEmpty else { return "\(head) · \(stamp)" }
-        return "\(head) — \(who) · \(stamp)"
+        note(action.receiptTitle(for: message), message: message, count: 1, stamp: stamp)
     }
 }
 
