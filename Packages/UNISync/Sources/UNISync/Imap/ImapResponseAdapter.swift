@@ -27,8 +27,10 @@ enum ImapResponseAdapter {
 
         if analise.comecaCom("LIST ") { return list(analise) }
         if analise.comecaCom("SEARCH") { return search(corpo) }
+        if analise.comecaCom("CAPABILITY ") { return capability(corpo) }
         if analise.comecaCom("OK [") { return okCode(corpo) }
         if let quantas = exists(corpo) { return .exists(quantas) }
+        if let quantas = expunge(corpo) { return .expunge(quantas) }
         if analise.contem(" FETCH (") || analise.comecaCom("FETCH (") {
             if let linhaFetch = fetch(analise) { return .fetch(linhaFetch) }
         }
@@ -319,9 +321,27 @@ enum ImapResponseAdapter {
 
     /// `2 EXISTS`
     private static func exists(_ corpo: String) -> Int? {
+        numeroSeguidoDe("EXISTS", em: corpo)
+    }
+
+    /// `3 EXPUNGE` — o irmão de `EXISTS`, e lido do mesmo jeito.
+    private static func expunge(_ corpo: String) -> Int? {
+        numeroSeguidoDe("EXPUNGE", em: corpo)
+    }
+
+    private static func numeroSeguidoDe(_ palavra: String, em corpo: String) -> Int? {
         let partes = corpo.split(separator: " ")
-        guard partes.count == 2, partes[1].uppercased() == "EXISTS" else { return nil }
+        guard partes.count == 2, partes[1].uppercased() == palavra else { return nil }
         return Int(partes[0])
+    }
+
+    /// `CAPABILITY IMAP4rev1 IDLE STARTTLS`
+    ///
+    /// A primeira palavra (`CAPABILITY`) sai fora: ela é o rótulo da linha, não
+    /// uma capacidade — e deixá-la dentro faria um `contains("CAPABILITY")`
+    /// responder sim a qualquer pergunta.
+    private static func capability(_ corpo: String) -> ImapWire.Untagged {
+        .capability(corpo.split(separator: " ").dropFirst().map(String.init))
     }
 
     /// `1 FETCH (UID 9001 FLAGS (\Seen) INTERNALDATE "…" ENVELOPE (…))`

@@ -425,6 +425,111 @@ public actor ImapSession {
         return nil
     }
 
+    // MARK: A sincronização contínua
+
+    /// O que o servidor anuncia saber fazer, em maiúsculas.
+    ///
+    /// Perguntado **depois do login**, por quem chama: a lista muda com a
+    /// autenticação, e servidor que só oferece `IDLE` a sessão autenticada
+    /// existe. Falhar aqui não é fatal para quem chama — sem a lista, o
+    /// caminho honesto é o polling, e é isso que o coordenador faz.
+    public func capabilities() async throws -> Set<String> {
+        let resultado = try await run { ImapWire.capability(tag: $0) }
+        return ImapWire.capabilities(from: resultado.untagged)
+    }
+
+    /// Os UIDs da pasta selecionada a partir de um piso, **filtrados**.
+    ///
+    /// O filtro é a parte que importa. `UID SEARCH UID 42:*` sobre uma caixa
+    /// cujo maior UID é 30 devolve `30` — o RFC manda o servidor tratar `*`
+    /// como o maior UID existente, e o intervalo passa a ser `30:42`. Sem o
+    /// filtro, uma caixa parada anunciaria a mesma mensagem como nova em todo
+    /// ciclo, para sempre, e o delta gravaria por cima dela sem parar.
+    public func uids(from piso: Int64) async throws -> [Int64] {
+        let resultado = try await run { ImapWire.uidSearchFrom(tag: $0, uid: piso) }
+        return ImapWire.uids(from: resultado.untagged).filter { $0 >= piso }
+    }
+
+    /// As bandeiras dos UIDs pedidos, em lotes.
+    ///
+    /// **O que não volta é o que sumiu**: o dicionário devolvido não tem chave
+    /// para o UID expurgado, e é assim que o delta descobre o apagamento feito
+    /// noutro cliente. Por isso o lote é `ImapWire.fetchBatchSize` e não a
+    /// lista inteira — um `UID FETCH` de milhares de UIDs numa linha só é o
+    /// tipo de comando que servidor recusa com `BAD`.
+    public func flags(uids: [Int64]) async throws -> [Int64: [String]] {
+        var todas: [Int64: [String]] = [:]
+        for lote in stride(from: 0, to: uids.count, by: ImapWire.fetchBatchSize) {
+            try Task.checkCancellation()
+            let fatia = Array(uids[lote..<min(lote + ImapWire.fetchBatchSize, uids.count)])
+            let resultado = try await run { ImapWire.uidFetchFlags(tag: $0, uids: fatia) }
+            todas.merge(ImapWire.flags(from: resultado.untagged)) { _, novo in novo }
+        }
+        return todas
+    }
+
+    /// Fica em `IDLE` até o servidor dizer que algo mudou, até o teto, ou até o
+    /// cancelamento. Devolve `true` quando foi **atividade** que acordou.
+    ///
+    /// ## Por que ele não é um `run` como os outros
+    ///
+    /// Todo comando daqui manda uma linha e espera a resposta tagueada. O
+    /// `IDLE` (RFC 2177) quebra isso de propósito: o servidor responde `+
+    /// idling`, despeja untagged enquanto quiser, e **só** fecha o comando
+    /// depois de o cliente escrever `DONE`. Quem espera a resposta tagueada,
+    /// então, não pode ser quem decide quando parar — são duas esperas
+    /// simultâneas na mesma conexão, e é por isso que o comando viaja numa
+    /// `Task` própria enquanto esta função espera o sinal.
+    ///
+    /// ## O que ele promete
+    ///
+    /// **O `DONE` sai sempre.** Acordado por atividade, por teto ou por
+    /// cancelamento, o caminho de saída é o mesmo: escrever `DONE` e esperar o
+    /// `OK`. Sair sem ele deixaria a conexão num estado em que nenhum comando
+    /// seguinte é aceito — e o delta que viria em seguida morreria de teto de
+    /// tempo culpando o servidor.
+    ///
+    /// O teto **existe e é obrigatório**: o RFC recomenda reengatar em menos de
+    /// 29 minutos, porque é isso que impede o servidor (e todo NAT no caminho)
+    /// de considerar a conexão morta. Quem chama passa 25.
+    public func idle(limite: TimeAmount) async throws -> Bool {
+        guard !closed else { throw SyncError.rede("A sessão IMAP já foi encerrada.") }
+        await adquire()
+        defer { libera() }
+
+        let tag = proximaTag()
+        handler.armaIdle()
+
+        var abertura = channel.allocator.buffer(capacity: 16)
+        abertura.writeString(ImapWire.idle(tag: tag))
+        abertura.writeString("\r\n")
+        // O teto do comando é o do IDLE **mais folga**: quem termina o comando
+        // é o `DONE` que esta função escreve, e ele só é escrito depois de o
+        // limite passar. Um teto igual ao limite seria uma corrida perdida.
+        let canal = channel
+        let manipulador = handler
+        let tetoDoComando = TimeAmount.nanoseconds(limite.nanoseconds + teto.nanoseconds)
+        let comando = Task {
+            try await manipulador.send(abertura, tag: tag, on: canal, teto: tetoDoComando)
+        }
+
+        let acordou = await handler.esperaIdle(limite: limite, on: channel.eventLoop)
+
+        var fim = channel.allocator.buffer(capacity: 8)
+        fim.writeString(ImapWire.done())
+        fim.writeString("\r\n")
+        channel.writeAndFlush(fim, promise: nil)
+
+        let resultado = try await comando.value
+        guard resultado.status == .ok else {
+            throw SyncError.servidor(codigo: 0, mensagem: resultado.text)
+        }
+        // Cancelamento continua sendo cancelamento: o `DONE` saiu e o comando
+        // fechou, e só então o laço de fora tem o direito de morrer.
+        try Task.checkCancellation()
+        return acordou
+    }
+
     /// Sai e fecha. Idempotente: sair duas vezes é o mesmo estado.
     ///
     /// Não lança, e é de propósito: encerrar já é o caminho de saída, e um erro
@@ -758,6 +863,15 @@ final class ImapChannelHandler: ChannelInboundHandler, @unchecked Sendable {
     /// exatamente o sintoma de dado injetado antes do TLS.
     private var linhasOrfas = 0
 
+    // O estado do IDLE. Ele vive ao lado do comando, e não no lugar dele: o
+    // `IDLE` continua sendo um comando com tag, esperado por `send` como
+    // qualquer outro — o que muda é que quem decide escrever o `DONE` precisa
+    // de um segundo sinal, e é este.
+    private var idleArmado = false
+    private var idleAtividade = false
+    private var idleContinuation: CheckedContinuation<Bool, Never>?
+    private var relogioIdle: Scheduled<Void>?
+
     // MARK: Espera da saudação
 
     func waitForGreeting(on channel: any Channel, teto: TimeAmount) async throws -> String {
@@ -829,6 +943,96 @@ final class ImapChannelHandler: ChannelInboundHandler, @unchecked Sendable {
             }
         } onCancel: {
             cancela()
+        }
+    }
+
+    // MARK: IDLE
+
+    /// Liga a escuta de atividade. Chamada **antes** de o `IDLE` ser escrito:
+    /// um servidor rápido pode mandar o `* 2 EXISTS` antes de esta função
+    /// voltar, e armar depois perderia justamente o aviso que se foi esperar.
+    func armaIdle() {
+        lock.lock()
+        idleArmado = true
+        idleAtividade = false
+        lock.unlock()
+    }
+
+    /// Espera atividade, o teto, ou o cancelamento. `true` só para atividade.
+    ///
+    /// O teto é agendado na event loop do canal — o mesmo relógio dos outros
+    /// tetos deste arquivo. Nenhuma espera daqui é sem teto, e esta não é
+    /// exceção: um servidor que aceita o `IDLE` e nunca mais fala prenderia a
+    /// sincronização da conta para sempre, calado.
+    /// - Parameter loop: a event loop que agenda o teto. Uma `EventLoop`, e não
+    ///   o `Channel` inteiro, porque é só disso que esta função precisa — e
+    ///   porque é o que deixa a corrida ser encenada num teste sem socket.
+    func esperaIdle(limite: TimeAmount, on loop: any EventLoop) async -> Bool {
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                lock.lock()
+                // Atividade que chegou entre `armaIdle` e aqui já está anotada:
+                // responder na hora é o que impede o aviso de se perder.
+                if idleAtividade || !idleArmado {
+                    let houve = idleAtividade
+                    idleArmado = false
+                    lock.unlock()
+                    continuation.resume(returning: houve)
+                    return
+                }
+                idleContinuation = continuation
+                relogioIdle = loop.scheduleTask(in: limite) { [weak self] in
+                    self?.acordaIdle(false)
+                }
+                lock.unlock()
+            }
+        } onCancel: {
+            acordaIdle(false)
+        }
+    }
+
+    /// Acorda quem espera o IDLE. Nunca chamada com o `lock` tomado — ela o
+    /// toma.
+    ///
+    /// `internal`, e não `private`, pela mesma razão que `AccountDirector.registra`
+    /// é: há um caminho aqui que **não** dá para provocar de fora sem depender
+    /// de tempo — o aviso que chega entre `armaIdle` e `esperaIdle`, na janela
+    /// de um `await`. Contra o servidor falso em loopback ele quase nunca cai
+    /// desse lado, e um teste que só quase prova não prova. A porta não abre
+    /// nada que o `@testable` já não abrisse; ela só dá nome ao que provar.
+    func acordaIdle(_ atividade: Bool) {
+        lock.lock()
+        guard idleArmado else {
+            lock.unlock()
+            return
+        }
+        if atividade { idleAtividade = true }
+        let continuation = idleContinuation
+        let houve = idleAtividade
+        idleContinuation = nil
+        // O relógio só sai quando alguém de fato foi acordado: atividade que
+        // chega antes da espera anota e **continua armada**, senão o teto
+        // sumiria junto com a anotação.
+        if continuation != nil {
+            idleArmado = false
+            relogioIdle?.cancel()
+            relogioIdle = nil
+        }
+        lock.unlock()
+        continuation?.resume(returning: houve)
+    }
+
+    /// A linha untagged é aviso de mudança na caixa?
+    ///
+    /// `EXISTS` (chegou mensagem), `EXPUNGE` (sumiu mensagem) e `FETCH` não
+    /// solicitado (mudou bandeira) são os três que o RFC 2177 permite durante o
+    /// IDLE, e são exatamente os três que o delta sabe explicar. O resto —
+    /// `RECENT`, `OK` de manutenção, o `+ idling` da abertura — não move nada e
+    /// acordar por causa dele seria um ciclo de rede por nada.
+    static func ehAvisoDeMudanca(_ resposta: ImapWire.Untagged) -> Bool {
+        switch resposta {
+        case .exists, .expunge, .fetch: true
+        default: false
         }
     }
 
@@ -906,6 +1110,9 @@ final class ImapChannelHandler: ChannelInboundHandler, @unchecked Sendable {
                 lock.lock()
                 collected.append(resposta)
                 lock.unlock()
+                // Fora do cadeado, como todo o resto deste ramo: `acordaIdle`
+                // toma o mesmo `lock`.
+                if Self.ehAvisoDeMudanca(resposta) { acordaIdle(true) }
             } catch {
                 falha(Self.traduz(error))
                 context.close(promise: nil)
@@ -1000,5 +1207,11 @@ final class ImapChannelHandler: ChannelInboundHandler, @unchecked Sendable {
         lock.unlock()
         saudacao?.resume(throwing: erro)
         comando?.resume(throwing: erro)
+        // Uma conexão que caiu não vai mandar `EXISTS` nenhum: quem espera o
+        // IDLE tem de sair agora. Sem isto, a conta ficaria os 25 minutos do
+        // teto parada sobre um socket morto, e a sincronização "contínua"
+        // pararia em silêncio — que é o defeito que esta tarefa existe para
+        // consertar, de volta por outra porta.
+        acordaIdle(false)
     }
 }

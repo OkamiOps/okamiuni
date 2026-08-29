@@ -76,6 +76,16 @@ final class FakeImapServer: @unchecked Sendable {
     /// responder coisas diferentes às duas.
     static let chaveDeBuscaPorHeader = "UID SEARCH HEADER"
 
+    /// O `UID FETCH … (UID FLAGS)` do delta — só as bandeiras, sem envelope.
+    ///
+    /// Separado do `UID FETCH` de envelope porque um ciclo de sincronização
+    /// manda os dois, na mesma conexão, um atrás do outro: um roteiro com uma
+    /// chave só responderia envelope à pergunta das bandeiras. O casamento é
+    /// pelo parêntese **exato** (`(UID FLAGS)`) e não por "contém FLAGS" — o
+    /// comando de envelope é `(UID FLAGS INTERNALDATE ENVELOPE)`, e um
+    /// casamento largo devolveria bandeiras onde se esperava envelope.
+    static let chaveDeBandeiras = "UID FETCH FLAGS"
+
     private let group: MultiThreadedEventLoopGroup
     private var channel: (any Channel)?
     private let script: Script
@@ -181,6 +191,17 @@ final class FakeImapServer: @unchecked Sendable {
             guard !linha.isEmpty else { return }
             registrar(linha)
 
+            // `DONE` é a única linha do protocolo **sem tag**: ela fecha o
+            // `IDLE` que está aberto, e a resposta tagueada que o servidor
+            // manda em seguida leva a tag daquele `IDLE`. Lê-la como qualquer
+            // outro comando faria a primeira palavra (`DONE`) virar tag, e o
+            // cliente esperaria para sempre por uma resposta que nunca casaria.
+            if linha.uppercased() == "DONE" {
+                responde(context, chave: "DONE", verbo: "DONE", tag: tagDoIdle ?? "*")
+                tagDoIdle = nil
+                return
+            }
+
             let partes = linha.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: false)
             let tag = String(partes.first ?? "*")
             let resto = partes.count > 1 ? String(partes[1]) : ""
@@ -208,6 +229,10 @@ final class FakeImapServer: @unchecked Sendable {
                    escrita(FakeImapServer.chaveDeCabecalho) {
                     return FakeImapServer.chaveDeCabecalho
                 }
+                if verbo == "UID FETCH", maiusculo.contains("(UID FLAGS)"),
+                   escrita(FakeImapServer.chaveDeBandeiras) {
+                    return FakeImapServer.chaveDeBandeiras
+                }
                 if verbo == "UID FETCH", maiusculo.contains("BODY.PEEK"),
                    escrita(FakeImapServer.chaveDeCorpo) {
                     return FakeImapServer.chaveDeCorpo
@@ -219,6 +244,19 @@ final class FakeImapServer: @unchecked Sendable {
                 return verbo
             }()
 
+            // A tag do `IDLE` fica guardada para o `DONE` que vem depois.
+            if verbo == "IDLE" { tagDoIdle = tag }
+            responde(context, chave: chave, verbo: verbo, tag: tag)
+        }
+
+        /// A tag do `IDLE` em voo nesta conexão. Vive no handler, e não no
+        /// servidor, porque o `IDLE` é por conexão — e só é tocada na event
+        /// loop do canal.
+        private var tagDoIdle: String?
+
+        private func responde(
+            _ context: ChannelHandlerContext, chave: String, verbo: String, tag: String
+        ) {
             let linhasDoRoteiro: [String]? = {
                 if let rodadas = script.rounds[chave], !rodadas.isEmpty {
                     return rodadas[min(proximaRodada(chave), rodadas.count - 1)]

@@ -112,6 +112,80 @@ public enum ImapWire {
 
     public static func logout(tag: String) -> String { "\(tag) LOGOUT" }
 
+    // MARK: Os comandos da sincronização contínua
+
+    /// `CAPABILITY` — a lista do que o servidor sabe fazer.
+    ///
+    /// Perguntada, e não deduzida da saudação: a saudação **pode** trazer
+    /// `[CAPABILITY …]` e muitos servidores trazem, mas depois do `LOGIN` a
+    /// lista muda (é o que o RFC 3501 manda relê-la), e um servidor que anuncia
+    /// `IDLE` só para sessão autenticada ficaria de fora do caminho vivo por
+    /// causa de uma leitura feita cedo demais.
+    public static func capability(tag: String) -> String { "\(tag) CAPABILITY" }
+
+    /// `UID SEARCH UID 42:*` — "o que chegou depois do último que eu conheço?".
+    ///
+    /// **O resultado precisa ser filtrado**, e isso não é preciosismo: o RFC
+    /// 3501 manda o servidor tratar `*` como o maior UID existente, e um
+    /// intervalo `n:*` com `n` maior que todos devolve mesmo assim o maior —
+    /// uma caixa parada responderia "esta aqui é nova" para a mesma mensagem em
+    /// todo ciclo. Quem filtra é `ImapSession.uids(from:)`.
+    public static func uidSearchFrom(tag: String, uid: Int64) -> String {
+        "\(tag) UID SEARCH UID \(max(1, uid)):*"
+    }
+
+    /// `UID FETCH 1,2,3 (UID FLAGS)` — só as bandeiras, sem envelope nem corpo.
+    ///
+    /// É a metade barata do delta: reler o envelope de duzentas mensagens para
+    /// descobrir que uma foi marcada como lida custaria o que a carga inicial
+    /// custa, a cada ciclo. E é também como o expurgo é detectado — o UID que
+    /// não volta na resposta não está mais na pasta.
+    public static func uidFetchFlags(tag: String, uids: [Int64]) -> String {
+        "\(tag) UID FETCH \(uidSet(uids)) (UID FLAGS)"
+    }
+
+    /// `IDLE` (RFC 2177). O par dele é `done`, e os dois **sempre** andam
+    /// juntos: um IDLE sem DONE deixa a conexão presa num estado em que nenhum
+    /// outro comando é aceito.
+    public static func idle(tag: String) -> String { "\(tag) IDLE" }
+
+    /// `DONE` — sem tag, de propósito: é a única linha do protocolo que
+    /// responde a um comando em vez de abrir outro.
+    public static func done() -> String { "DONE" }
+
+    /// As capacidades anunciadas, em **maiúsculas** — `IMAP4rev1`, `IDLE`,
+    /// `STARTTLS`… A dobra é o ponto: o RFC não obriga caixa nenhuma, e
+    /// `contains("IDLE")` sobre o texto cru deixaria de fora todo servidor que
+    /// responde `Idle`.
+    public static func capabilities(from respostas: [Untagged]) -> Set<String> {
+        var todas: Set<String> = []
+        for resposta in respostas {
+            switch resposta {
+            case .capability(let lista): todas.formUnion(lista.map { $0.uppercased() })
+            // O `SELECT` e o `LOGIN` costumam devolver a lista dentro de um
+            // `* OK [CAPABILITY …]`, e é a mesma informação.
+            case .ok(let codigo, let valor) where codigo.uppercased() == "CAPABILITY":
+                todas.formUnion(valor.split(separator: " ").map { $0.uppercased() })
+            default: continue
+            }
+        }
+        return todas
+    }
+
+    /// As bandeiras de cada UID de uma resposta de `UID FETCH … (UID FLAGS)`.
+    ///
+    /// Dicionário, e não lista: quem chama precisa saber **quais UIDs não
+    /// voltaram** — são os expurgados —, e uma lista obrigaria cada chamador a
+    /// refazer o cruzamento.
+    public static func flags(from respostas: [Untagged]) -> [Int64: [String]] {
+        var mapa: [Int64: [String]] = [:]
+        for resposta in respostas {
+            guard case .fetch(let linha) = resposta else { continue }
+            mapa[linha.uid] = linha.flags
+        }
+        return mapa
+    }
+
     // MARK: Os comandos de escrita — o espelho da triagem
 
     /// Um conjunto de UIDs como o IMAP o escreve: `1,2,5`.
@@ -193,6 +267,16 @@ public enum ImapWire {
         case list(name: String, attributes: [String])
         case search([Int64])
         case exists(Int)
+        /// `* 3 EXPUNGE` — a mensagem de número de sequência 3 saiu da pasta.
+        ///
+        /// O número **não** é um UID e é inútil para casar a linha do banco (o
+        /// IMAP renumera as sequências a cada expurgo). Ele existe aqui como
+        /// **sinal**: quem está em IDLE acorda com ele, e quem acorda descobre
+        /// o que sumiu pelo `UID FETCH … (UID FLAGS)` do delta, que é a única
+        /// pergunta cuja resposta é confiável.
+        case expunge(Int)
+        /// `* CAPABILITY IMAP4rev1 IDLE …`
+        case capability([String])
         /// `* OK [UIDVALIDITY 1755000000] …` → `code: "UIDVALIDITY"`, `value: "1755000000"`.
         case ok(code: String, value: String)
         case fetch(FetchLine)
