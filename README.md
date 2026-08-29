@@ -7,9 +7,10 @@
 ![Swift 6.3](https://img.shields.io/badge/Swift-6.3-F05138?logo=swift&logoColor=white)
 ![macOS 26](https://img.shields.io/badge/macOS-26-000000?logo=apple&logoColor=white)
 ![SwiftUI](https://img.shields.io/badge/SwiftUI-nativo-0071e3)
-![Testes](https://img.shields.io/badge/testes-1338%20verdes-2ea44f)
+![Testes](https://img.shields.io/badge/testes-1725%20verdes-2ea44f)
+![Mutações](https://img.shields.io/badge/provas%20por%20mutação-190%2B-blueviolet)
 ![Temas](https://img.shields.io/badge/temas-26-8a2be2)
-![Marco](https://img.shields.io/badge/marco-3%20·%20sincronização-orange)
+![Marco](https://img.shields.io/badge/marco-3%20·%20sincronização%20✓-success)
 
 <img src="docs/capturas/janela-principal.png" width="860" alt="A janela principal do OkamiUNI: barra lateral com contas e caixas, lista de mensagens, leitor com resumo no dispositivo e trilha de agenda do dia." />
 
@@ -18,11 +19,14 @@
 ## TL;DR
 
 - 📬 **Um app só** para email e agenda — a trilha do dia mora ao lado do leitor, e selecionar uma caixa filtra **as duas**.
-- 🖱️ **Ações onde a mão espera**: botão direito em toda superfície, arraste lateral na linha (configurável, com Desfazer), atalhos de verdade (`⌘R` `⇧⌘R` `⇧⌘F` `⌘E` `⌫` `⇧⌘L` `⇧⌘U` `⌘N` `⌘K`).
-- ✍️ **Composer rico de verdade**: negrito que muda a fonte, tabela que sobrevive ao Enter, hyperlink, justificado, qualquer cor, todas as fontes do sistema.
-- 🎨 **26 temas**, hairlines de 1 pixel em telas 1×, semáforos a 22pt do topo — o polimento é requisito, não acabamento.
-- 🔌 **Qualquer provedor**: as quatro contas de exemplo são fixtures de design; nada no código limita provedor, domínio ou número de contas.
-- ✅ **1088 testes** que provam por mutação: cada teste novo só conta depois de falhar com o defeito reintroduzido.
+- 🔄 **As contas se mantêm sozinhas**: IMAP IDLE, Gmail incremental por histórico, e a rede que volta acorda tudo. Ação feita offline chega ao servidor quando a conexão volta — com fila transacional, retry e "tentar de novo" explicado.
+- 📖 **Leitor de verdade**: HTML renderizado (JavaScript morto, imagem remota bloqueada por padrão com memória de confiança por remetente), conversas agrupadas em pilha, convite de agenda vira cartão com "Colocar na agenda" — sem duplicar, por UID.
+- ✉️ **Enviar envia**: Gmail pela API, qualquer IMAP por SMTP próprio (STARTTLS antes da senha), caixa Enviadas, resposta com `In-Reply-To`, idempotência por Message-ID — timeout ambíguo nunca duplica email.
+- 🗂️ **As pastas do provedor** na barra lateral, expansíveis por conta — e um arquivar que **cria** a pasta que falta no servidor em vez de parar a fila.
+- 🖱️ **Ações onde a mão espera**: botão direito custom em toda superfície, arraste lateral com Desfazer, atalhos de verdade (`⌘R` `⇧⌘R` `⇧⌘F` `⌘E` `⌫` `⇧⌘L` `⇧⌘U` `⌘N` `⌘K`).
+- 🎨 **26 temas**, hairlines de 1 pixel em telas 1×, semáforos a 22pt **verificados por ensaio** — o polimento é requisito, não acabamento.
+- 🔌 **Qualquer provedor**: nada no código limita provedor, domínio, número de contas ou de pastas.
+- ✅ **1725 testes** que provam por mutação: cada teste novo só conta depois de falhar com o defeito reintroduzido.
 
 ```bash
 Tools/rodar.sh     # mata a instância antiga, regenera o projeto, compila e abre
@@ -34,21 +38,41 @@ Tools/rodar.sh     # mata a instância antiga, regenera o projeto, compila e abr
 
 Cliente de email é o app que mais horas passa aberto — e o que menos respeito costuma receber: web view, ações escondidas, agenda em outro app. O OkamiUNI nasce do desenho ([`design/`](design/), a fonte da verdade deste repositório) para o binário nativo, com uma regra que atravessa tudo: **controle que existe faz alguma coisa** — ou aparece desabilitado explicando por quê. Botão mudo é defeito, não estado.
 
-## O que já funciona (Marco 1 — o shell)
+## O que já funciona
+
+### Marco 1 — o shell
 
 | Área | O que tem |
 |---|---|
-| 📥 **Caixa de entrada** | Fluxo de triagem (Hoje · Depois · Tudo · Arquivado · **Lixeira**), busca que dobra acento ("Revisao" acha "Revisão"), filtro por conta que alcança lista **e** agenda, ponto + fundo de não-lida, estrela de sinalizada |
-| 📖 **Leitor** | Resumo no dispositivo, compromisso detectado com **"Colocar na agenda"** (e o caminho de volta), resposta rápida com formatação que sobrevive à promoção **⤢** para a janela |
+| 📥 **Caixa de entrada** | Fluxo de triagem (Hoje · Depois · Tudo · Arquivado · Lixeira · **Enviadas**), busca que dobra acento ("Revisao" acha "Revisão"), filtro por conta que alcança lista **e** agenda, ponto + fundo de não-lida, estrela de sinalizada, data honesta na linha (hoje → hora · "Ontem" · "21 de jul.") |
 | ↔️ **Arraste na linha** | Duas ações por lado, persistidas e configuráveis; a linha **para** aberta, o disparo longo inunda de cor antes de executar, destrutivo tem Desfazer |
 | 🖱️ **Botão direito** | Menu custom no idioma do design em 10 superfícies — responder, responder a todos, encaminhar, arquivar, apagar, sinalizar, mover, copiar; submenu, atalhos exibidos, navegação por teclado (↑↓⏎→← Esc) |
 | ⌨️ **Atalhos** | Menu **Mensagem** na barra do sistema; `⌘R` responder · `⇧⌘R` responder a todos · `⇧⌘F` encaminhar · `⌘E` arquivar · `⌫` apagar · `⇧⌘L` sinalizar · `⇧⌘U` lida/não lida · `⌘N` nova · `⌘K` busca — e campo de texto nunca perde tecla sem modificador |
-| 📅 **Agenda** | Trilha do dia ao lado do email; aba própria com **Dia / Semana / Mês**, navegação ‹ › nas três, seletor de data que acompanha o foco, "agora" só onde é agora |
-| ✍️ **Composer** | NSTextView de verdade: formatação **na seleção**, tabelas (Enter não quebra), hyperlink, justificado, cor livre, fontes do sistema, assinatura por conta |
-| 🪟 **Janelas** | Composer, nova mensagem, mensagem destacada e detalhe de compromisso são cenas reais (⌘W, menu Janela, uma por valor) |
-| 🎨 **Shell** | 26 temas com tokens de ponta a ponta, hairlines de 1 pixel de dispositivo, semáforos a 22pt, duplo clique na barra respeitando a preferência do sistema, painéis redimensionáveis com intenção preservada |
-| 🔐 **Contas de verdade** (Marco 2) | OAuth do Google com PKCE, IMAP para qualquer provedor com detecção de servidor, segredos no Keychain, cache local em SQLite com busca no corpo (FTS5, acento dobrado) e carga dos últimos 90 dias — o app abre **offline**. Sem conta conectada, ele continua sendo o shell do Marco 1, com as fixtures |
-| 🔄 **Sincronização de verdade** (Marco 3) | As contas se mantêm sozinhas: IMAP IDLE com delta de bandeiras, Gmail incremental por histórico, e a rede que volta acorda tudo. Corpos MIME decodificados de verdade (multipart, quoted-printable, charsets) com busca sob demanda ao abrir. Toda ação (arquivar, apagar, lida, estrela) persiste numa **fila transacional** espelhada no servidor — funciona offline, com retry, e falha permanente para com explicação e "tentar de novo". **Enviar envia**: Gmail pela API, IMAP por SMTP próprio (STARTTLS), com caixa Enviadas e idempotência por Message-ID. Contatos do autocomplete vêm das caixas reais |
+| ✍️ **Composer** | NSTextView de verdade: formatação **na seleção**, tabelas (Enter não quebra), hyperlink, justificado, cor livre, fontes do sistema, assinatura por conta; a faixa de resposta rápida nasce recolhida e o rascunho sobrevive ao recolher |
+| 🪟 **Janelas** | Composer, nova mensagem, mensagem destacada e detalhe de compromisso são cenas reais (⌘W, menu Janela, uma por valor) — todas com o cabeçalho **na linha do semáforo**, verificado por ensaio |
+| 🎨 **Shell** | 26 temas com tokens de ponta a ponta, hairlines de 1 pixel de dispositivo, duplo clique na barra respeitando a preferência do sistema, painéis redimensionáveis com intenção preservada |
+
+### Marco 2 — contas de verdade
+
+| Área | O que tem |
+|---|---|
+| 🔐 **OAuth do Google** | PKCE S256 validado contra o vetor oficial do RFC 7636, redirect derivado do próprio client ID, refresh com corrida única por conta, `client_secret` de app desktop |
+| 📡 **IMAP para qualquer provedor** | Cliente próprio sobre SwiftNIO com framing de literais, STARTTLS obrigatório **antes** de qualquer credencial, detecção de servidor por endereço, toda espera com teto e cancelamento |
+| 🔑 **Segredos** | Só no Keychain — nunca em banco, log ou arquivo. Assinatura estável do binário: o Keychain pede a senha **uma vez**, não a cada build |
+| 💾 **Local-first** | SQLite (GRDB) com FTS5 de acento dobrado no corpo, carga retomável dos últimos 90 dias — o app abre **offline**. Sem conta conectada, ele continua sendo o shell do Marco 1, com as fixtures |
+
+### Marco 3 — sincronização de verdade
+
+| Área | O que tem |
+|---|---|
+| 🔄 **Sync contínuo** | IMAP IDLE (reengate ≤25min, DONE que sai sempre) com delta de chegadas/bandeiras/expurgos; Gmail incremental por `history.list` com recarga idempotente quando o marcador expira; `NWPathMonitor` acorda sync **e** fila quando a rede volta |
+| 📤 **Fila espelhada** | Toda ação (arquivar, apagar, lida, estrela, mover, enviar) persiste e enfileira **na mesma transação**; executor por conta com claim atômico, backoff, e idempotência por UUID. Falha permanente **para com a causa na tela** e "Tentar de novo" — que religa de verdade. Fila parada sobrevive ao reinício e não executa nada fora de ordem |
+| 📖 **Leitor rico** | HTML sanitizado (script/iframe/form fora, `cid:` embutido, anexo inline do Gmail buscado pela API) numa WebView **travada**: JS morto, zero requisição remota por padrão, links no navegador. Imagem remota com "Carregar" por mensagem e **"Sempre carregar deste remetente"** (endereço exato, revogável). Email de largura fixa **encolhe para caber**; `height:100%` de marketing não colapsa; espera tem **roda + texto plano legível por baixo**, e voltar à mensagem é instantâneo (acervo de sessão, nada em disco) |
+| 🧵 **Conversas** | Agrupadas por `threadId` (Gmail) / corrente de References (IMAP) / assunto normalizado (fallback), uma linha por conversa com contagem, pilha cronológica no leitor (anteriores recolhidas), ações da linha alcançam a conversa inteira — e a resposta enviada carrega `In-Reply-To` |
+| ✉️ **Envio** | RFC 5322 de verdade (RFC 2047 no assunto, multipart texto+HTML, Message-ID próprio); Gmail pela API, IMAP por SMTP (EHLO→STARTTLS→AUTH, dot-stuffing) + APPEND em Enviadas; **pela fila**: offline funciona, greylisting re-tenta, endereço recusado explica, timeout ambíguo checa antes de reenviar |
+| 🗂️ **Pastas do provedor** | LIST com special-use (RFC 6154) e labels do Gmail na barra lateral, expansíveis por conta, não-lidas por pasta; destino de move que não existe é **criado** no servidor e a operação repete |
+| 📅 **Agenda que lembra** | Convite (`text/calendar`) vira cartão com organizador, participantes, local limpo, link da reunião e "Colocar na agenda" — dedup por UID (50 encaminhamentos = 1 evento), "Convite atualizado" **atualiza**. Compromisso criado sobrevive ao reinício; "Entrar" abre a reunião; a mensagem de origem se lê dentro do compromisso |
+| 👥 **Contatos reais** | O autocomplete sugere quem troca email com as contas conectadas, por frequência e recência — as fixtures só ficam para quem não conectou nada |
 
 <div align="center">
 <table>
@@ -71,62 +95,67 @@ Tools/rodar.sh
 
 O script encerra a instância anterior, limpa o estado salvo da janela, regenera o `.xcodeproj`, compila, imprime a data do binário e o commit, e abre o app.
 
+Para a rota Google, copie `Config/Google.example.xcconfig` para `Config/Google.xcconfig` (gitignored) e cole o seu client ID de app desktop — o roteiro completo está em [`docs/oauth-google.md`](docs/oauth-google.md). Qualquer outro provedor entra por IMAP com senha de app ([`docs/senha-de-app.md`](docs/senha-de-app.md)).
+
 ## Arquitetura
 
 Quatro pacotes Swift e um princípio: **lógica pura fora das views** — uma `View` SwiftUI é `@MainActor` implícito, e tudo que merece teste nonisolated mora em `UNICore`.
 
 | Pacote | Papel | Exemplos |
 |---|---|---|
-| `Packages/UNICore` | Modelo e lógica pura, sem SwiftUI | `MailStore`, `SwipeGestureMachine`, `ComposerSeed`, `WeekAgenda`/`MonthAgenda`, `ContextMenus`, `MenuPlacement`, `PaneLayout` |
+| `Packages/UNICore` | Modelo e lógica pura, sem SwiftUI | `MailStore`, `ConversationStack`, `ICalendar`, `PlainTextReflow`, `ThreadKey`, `ContextMenus`, `WeekAgenda`/`MonthAgenda` |
 | `Packages/UNIDesign` | O sistema de temas — 26 temas, tokens de cor, tipografia, fontes embarcadas | `Theme`, `ThemeStore`, `FontRegistry` |
-| `Packages/UNIShell` | As telas e o chrome da janela | `InboxScreen`, `CalendarScreen`, `ComposerWindow`, `WindowChrome`, os menus custom |
-| `Packages/UNISync` | Contas e sincronização: OAuth, IMAP sobre SwiftNIO, Keychain, o banco GRDB | `AccountDirector`, `GoogleAuth`, `ImapSession`, `InitialLoader`, `SyncDatabase` |
+| `Packages/UNIShell` | As telas e o chrome da janela | `InboxScreen`, `ReaderPane`, `CalendarScreen`, `ComposerWindow`, `WindowChrome`, os menus custom |
+| `Packages/UNISync` | Contas e sincronização | `AccountDirector`, `GoogleAuth`, `ImapSession`, `SmtpSession`, `OutboxExecutor`, `SyncRunner`, `MimeBody`, `SyncDatabase` |
 
 ```
 App/  ──▶  UNIShell  ──▶  UNIDesign
-                └───────▶  UNICore  ◀──  UNISync  ──▶  (Keychain · GRDB · Gmail API · IMAP)
+                └───────▶  UNICore  ◀──  UNISync  ──▶  (Keychain · GRDB · Gmail API · IMAP · SMTP)
 ```
 
 O projeto Xcode é gerado por [`project.yml`](project.yml) (XcodeGen) com `SWIFT_STRICT_CONCURRENCY: complete`. O desenho original — HTML navegável — vive em [`design/`](design/) e é tratado como especificação: quando uma medida está em dúvida, o protótipo é servido e **medido**, não lido.
 
 ## Como este projeto se testa
 
-**Swift Testing** (nunca XCTest), 1088 testes em quatro pacotes — e uma regra que virou cultura depois de uma auditoria dedicada: **teste que passa com o código quebrado é defeito**. Doze testes foram condenados por mutação e substituídos; todo teste novo nasce provado vermelho com o defeito reintroduzido.
+**Swift Testing** (nunca XCTest), 1725 testes em quatro pacotes — e uma regra que virou cultura: **teste que passa com o código quebrado é defeito**. Todo teste novo nasce provado vermelho com o defeito reintroduzido; mais de 190 mutações registradas mataram, entre outras, um quoted-printable que comia a última letra de cada linha, uma fila que engolia a terceira ação de um ciclo ler→não ler→ler, e um "esvaziar a lixeira" que só funcionava uma vez na vida da conta.
 
-Três instrumentos fazem o app testemunhar contra si mesmo, sem tocar no mouse de ninguém:
+Cinco instrumentos fazem o app testemunhar contra si mesmo, sem tocar no mouse de ninguém:
 
 | Instrumento | Bandeira | O que faz |
 |---|---|---|
 | Captura | `--capturar` | A janela real se fotografa e encerra — pixels do AppKit, não de um harness |
 | Ensaio de arraste | `--ensaiar-arraste` | Eventos de mouse sintetizados **dentro do processo** (`NSWindow.sendEvent`), uma foto por fase do gesto |
 | Ensaio de teclado / barra | `--ensaiar-teclado` · `--ensaiar-barra` | Cada atalho e o duplo clique na barra, aferidos no caminho real dos eventos |
-| Ensaio dos semáforos | `--ensaiar-semaforos` | A moldura real dos botões do sistema contra o cabeçalho de cada uma das seis janelas, medida dentro do processo |
 | Ensaio de contas | `--ensaiar-contas` | O fluxo inteiro de conectar uma conta, contra um servidor IMAP falso em loopback — banco descartável, Keychain intocado |
+| Ensaio de semáforos | `--ensaiar-semaforos` | Abre as seis janelas, lê a moldura **real** dos botões do sistema e mede o alinhamento do cabeçalho — 6 janelas, diferença 0.0, verificado |
 
-Foi o ensaio de arraste que pegou o defeito que três rodadas de teste de modelo não viam: no macOS, um `Button` dispara no mouse-up mesmo depois de a mão andar 200pt — e a linha inteira é um botão. O registro completo dessas decisões está em [`docs/decisoes-de-engenharia.md`](docs/decisoes-de-engenharia.md).
+Nenhum teste toca rede externa: IMAP e SMTP falam com servidores falsos em `127.0.0.1`, o Gmail com um transport stub, e até a imagem remota lenta dos testes do leitor sai de um servidor local que conta requisições. Foi assim que se provou que **voltar a uma mensagem custa zero downloads**.
 
 ```bash
 for p in UNICore UNIDesign UNIShell UNISync; do (cd "Packages/$p" && swift test); done
 ```
 
+O registro das decisões — por que o Button do macOS dispara no mouse-up depois de 200pt de arraste, por que `NSApp.postEvent` mata um processo de teste em silêncio, por que `!important` de folha perde para `!important` inline — está em [`docs/decisoes-de-engenharia.md`](docs/decisoes-de-engenharia.md).
+
 ## Roteiro
 
-- [x] **Marco 1 — Shell**: tudo acima, com as quatro contas vindo de fixtures
-- [x] **Marco 2 — Contas**: OAuth do Google (PKCE), IMAP para qualquer provedor, Keychain, banco SQLite local-first com FTS5, carga de 90 dias retomável, janela de Contas
-- [x] **Marco 3 — Sincronização**: sync contínuo (IDLE + histórico incremental), corpos MIME, fila de ações espelhada no servidor, envio (Gmail API + SMTP), Enviadas, contatos reais
-- [ ] **Marco 4 — Agenda real**: EventKit; "Reagendar" volta, "Tirar da agenda" alcança tudo
+- [x] **Marco 1 — Shell**: o app inteiro navegável, com as quatro contas vindo de fixtures
+- [x] **Marco 2 — Contas**: OAuth do Google (PKCE), IMAP para qualquer provedor, Keychain, banco SQLite local-first com FTS5, carga de 90 dias retomável
+- [x] **Marco 3 — Sincronização**: sync contínuo (IDLE + histórico), fila de ações espelhada com autocura, leitor HTML seguro, conversas, envio (API + SMTP), Enviadas, pastas do provedor, convites com dedup, contatos reais
+- [ ] **Marco 4 — Agenda real**: EventKit/CalDAV; RSVP do convite (iTIP); anexos
 - [ ] **Marco 5 — Inteligência no dispositivo**: resumo e detecção de compromisso deixando as fixtures
 
-Dívidas deliberadas do Marco 1, registradas: caixa "Sinalizadas", tela de preferências do arraste, menu custom no editor do composer (hoje ele **acrescenta** ao menu do sistema para não perder ortografia e serviços).
+Dívidas deliberadas, registradas onde doem: anexos visíveis, RSVP (exige `METHOD:REPLY` por SMTP), recorrência de evento, árvore de pastas indentada (o delimitador ainda não sobe pelo fio), encaminhar convite com o `.ics` junto.
 
 ## Princípios de engenharia
 
 1. **O design é a especificação.** O HTML em `design/` decide medida, cor e comportamento; divergência é bug com número dos dois lados.
-2. **Nenhum controle mudo.** Faz, ou explica por que não pode.
-3. **Nada limita contas.** Provedor, domínio e quantidade são ilimitados por construção.
-4. **Fuso horário não atravessa o modelo.** Horário é minuto-do-dia, dia é deslocamento inteiro — `Date` só nas bordas.
-5. **Prova no app real.** Conserto de interação só conta com ensaio antes e depois, no caminho real dos eventos.
-6. **Telas 1× importam.** Meia unidade de ponto é zero ou um pixel; hairline é `1/displayScale`, borda é `strokeBorder`, nunca `.stroke` fino.
+2. **Nenhum controle mudo.** Faz, ou explica por que não pode — o "Entrar" da reunião, o "Tentar de novo" da fila e o "Sempre carregar" do remetente existem porque botão que finge é defeito.
+3. **Nada limita contas.** Provedor, domínio, quantidade de contas e de pastas são ilimitados por construção.
+4. **Fuso horário não atravessa o modelo.** Horário é minuto-do-dia, dia é data civil — `Date` só nas bordas.
+5. **Prova no app real.** Conserto de interação só conta com ensaio antes e depois, no caminho real dos eventos — inclusive a moldura dos botões que o bitmap não vê.
+6. **Privacidade por padrão.** Imagem remota é rastreador: bloqueada até você mandar, confiança por endereço exato, cache só em memória, segredos só no Keychain.
+7. **Telas 1× importam.** Meia unidade de ponto é zero ou um pixel; hairline é `1/displayScale`, borda é `strokeBorder`, nunca `.stroke` fino.
 
 ---
 
