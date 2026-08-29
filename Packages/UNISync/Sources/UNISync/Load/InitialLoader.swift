@@ -419,7 +419,7 @@ public struct InitialLoader: Sendable {
             )
             // `save` é upsert: id determinístico + upsert = recarga
             // idempotente, que é o que faz "parar no meio" ser seguro.
-            try MessageRecord(nossa, folderID: folderID).save(db)
+            try MessageRecord(nossa, folderID: folderID).savePreservingIntelligenceProjection(db)
             if temCorpo {
                 try Self.gravaAnexos(
                     db, messageID: id,
@@ -867,7 +867,7 @@ public struct InitialLoader: Sendable {
                     references: [envelope.inReplyTo].compactMap { $0 },
                     threadKey: chave
                 )
-                try MessageRecord(nossa, folderID: folderID).save(db)
+                try MessageRecord(nossa, folderID: folderID).savePreservingIntelligenceProjection(db)
                 if corpos[envelope.uid] != nil {
                     try Self.gravaCorpo(
                         db, id: id, paragrafos: paragrafos,

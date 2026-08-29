@@ -290,7 +290,7 @@ public struct ImapIncrementalSync: Sendable {
                     references: [envelope.inReplyTo].compactMap { $0 },
                     threadKey: chave
                 )
-                try MessageRecord(nossa, folderID: folderID).save(db)
+                try MessageRecord(nossa, folderID: folderID).savePreservingIntelligenceProjection(db)
             }
             return envelopes.count
         }

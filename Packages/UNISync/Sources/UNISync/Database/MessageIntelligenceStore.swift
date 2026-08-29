@@ -1,0 +1,316 @@
+import CryptoKit
+import Foundation
+import GRDB
+
+/// O ciclo de vida do resultado local de inteligência de uma mensagem.
+///
+/// A linha só é criada quando um trabalhador assume uma mensagem. Até lá, a
+/// ausência de estado significa `pending`, o que inclui naturalmente todas as
+/// mensagens anteriores à migração.
+public enum MessageIntelligenceState: String, Sendable, Codable, CaseIterable {
+    case pending
+    case processing
+    case completed
+    case failed
+    case unsupported
+}
+
+/// A entrada autocontida que o motor consome da fila local.
+///
+/// `contentHash` é calculado do corpo exato que sai de `plain`; ele deve voltar
+/// em toda transição para impedir que um resultado atrasado sobrescreva uma
+/// mensagem que mudou enquanto era analisada.
+public struct MessageIntelligenceWork: Sendable, Equatable {
+    public let messageID: String
+    public let accountID: String
+    public let fromName: String
+    public let fromAddress: String
+    public let subject: String
+    public let receivedAt: Date
+    public let plainBody: String
+    public let contentHash: String
+
+    public static func contentHash(for plainBody: String) -> String {
+        SHA256.hash(data: Data(plainBody.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+/// A fronteira de persistência da fila de inteligência. Ela não conhece motor,
+/// UI ou modelos Foundation: só decide qual corpo pode ser trabalhado e grava
+/// transições consistentes no SQLite.
+public struct MessageIntelligenceStore: Sendable {
+    private let database: SyncDatabase
+
+    public init(database: SyncDatabase) {
+        self.database = database
+    }
+
+    /// Devolve no máximo `limit` corpos utilizáveis que ainda precisam de
+    /// trabalho. Uma linha terminal com o mesmo hash fica fora; um hash novo
+    /// entra uma vez de novo, inclusive se a tentativa anterior falhou. Um
+    /// `processing` é retomável: após um crash, o único runner serial o assume
+    /// de novo na próxima abertura em vez de deixá-lo preso para sempre.
+    public func pendingWork(limit: Int = 20) throws -> [MessageIntelligenceWork] {
+        guard limit > 0 else { return [] }
+        return try database.pool.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                    SELECT
+                      m.id AS messageID,
+                      m.accountID,
+                      m.fromName,
+                      m.fromAddress,
+                      m.subject,
+                      m.receivedAt,
+                      b.plain,
+                      i.contentHash,
+                      i.state
+                    FROM message m
+                    JOIN message_body b ON b.messageID = m.id
+                    LEFT JOIN message_intelligence i ON i.messageID = m.id
+                    WHERE b.plain != ''
+                    ORDER BY m.receivedAt DESC, m.id ASC
+                    """
+            )
+            return rows.compactMap(Self.workIfPending).prefix(limit).map { $0 }
+        }
+    }
+
+    /// Assume uma entrada pendente. `false` quer dizer que outro trabalhador
+    /// já a assumiu, que ela deixou de ter corpo utilizável, ou que o corpo
+    /// mudou desde a leitura da fila.
+    @discardableResult
+    public func markProcessing(
+        _ work: MessageIntelligenceWork,
+        modelVersion: String,
+        at: Date = Date()
+    ) throws -> Bool {
+        try database.pool.write { db in
+            guard try Self.currentContentMatches(work, in: db) else { return false }
+
+            let existing = try MessageIntelligenceRecord.fetchOne(db, key: work.messageID)
+            if let existing,
+               existing.contentHash == work.contentHash,
+               existing.state != MessageIntelligenceState.pending.rawValue,
+               existing.state != MessageIntelligenceState.processing.rawValue {
+                return false
+            }
+
+            // Um resultado de um corpo antigo não pode continuar visível
+            // enquanto a nova versão espera processamento.
+            if let existing, existing.contentHash != work.contentHash {
+                try db.execute(
+                    sql: "UPDATE message SET summary = NULL, detectedEventJSON = NULL WHERE id = ?",
+                    arguments: [work.messageID]
+                )
+            }
+
+            try Self.upsert(
+                db, work: work, state: .processing, modelVersion: modelVersion,
+                lastError: nil, at: at
+            )
+            return true
+        }
+    }
+
+    /// Persiste o resultado e fecha o trabalho em **uma** transação. O hash e
+    /// o estado `processing` são conferidos antes das duas escritas, portanto
+    /// uma conclusão atrasada não deixa resumo sem a transição correspondente.
+    @discardableResult
+    public func markCompleted(
+        _ work: MessageIntelligenceWork,
+        modelVersion: String,
+        summary: String?,
+        detectedEventJSON: String?,
+        at: Date = Date()
+    ) throws -> Bool {
+        try database.pool.write { db in
+            guard try Self.canFinish(work, in: db) else { return false }
+            try db.execute(
+                sql: """
+                    UPDATE message
+                    SET summary = ?, detectedEventJSON = ?
+                    WHERE id = ?
+                    """,
+                arguments: [summary, detectedEventJSON, work.messageID]
+            )
+            try Self.updateTerminal(
+                db, work: work, state: .completed, modelVersion: modelVersion,
+                lastError: nil, at: at
+            )
+            return true
+        }
+    }
+
+    /// Fecha uma tentativa que falhou. Ela não volta sozinha para a fila com o
+    /// mesmo hash; só uma alteração real do corpo a reabre, evitando loop.
+    @discardableResult
+    public func markFailed(
+        _ work: MessageIntelligenceWork,
+        modelVersion: String? = nil,
+        error: String,
+        at: Date = Date()
+    ) throws -> Bool {
+        try markTerminal(
+            work, state: .failed, modelVersion: modelVersion, lastError: error, at: at
+        )
+    }
+
+    /// Fecha mensagens que o motor deliberadamente não suporta. Como `failed`,
+    /// este estado é terminal para o mesmo conteúdo e reabre só com hash novo.
+    @discardableResult
+    public func markUnsupported(
+        _ work: MessageIntelligenceWork,
+        modelVersion: String? = nil,
+        error: String? = nil,
+        at: Date = Date()
+    ) throws -> Bool {
+        try markTerminal(
+            work, state: .unsupported, modelVersion: modelVersion, lastError: error, at: at
+        )
+    }
+
+    private func markTerminal(
+        _ work: MessageIntelligenceWork,
+        state: MessageIntelligenceState,
+        modelVersion: String?,
+        lastError: String?,
+        at: Date
+    ) throws -> Bool {
+        try database.pool.write { db in
+            guard try Self.canFinish(work, in: db) else { return false }
+            try Self.updateTerminal(
+                db, work: work, state: state, modelVersion: modelVersion,
+                lastError: lastError, at: at
+            )
+            return true
+        }
+    }
+
+    private static func workIfPending(_ row: Row) -> MessageIntelligenceWork? {
+        let plainBody: String = row["plain"]
+        guard hasUsableBody(plainBody) else { return nil }
+        let contentHash = MessageIntelligenceWork.contentHash(for: plainBody)
+        let storedHash: String? = row["contentHash"]
+        let state = (row["state"] as String?).flatMap(MessageIntelligenceState.init(rawValue:))
+        guard storedHash == nil || storedHash != contentHash || state == .pending || state == .processing
+        else { return nil }
+        return MessageIntelligenceWork(
+            messageID: row["messageID"], accountID: row["accountID"],
+            fromName: row["fromName"], fromAddress: row["fromAddress"],
+            subject: row["subject"], receivedAt: Date(timeIntervalSince1970: row["receivedAt"]),
+            plainBody: plainBody, contentHash: contentHash
+        )
+    }
+
+    private static func hasUsableBody(_ plainBody: String) -> Bool {
+        !plainBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private static func currentContentMatches(_ work: MessageIntelligenceWork, in db: Database) throws -> Bool {
+        guard let plainBody = try String.fetchOne(
+            db,
+            sql: "SELECT plain FROM message_body WHERE messageID = ?",
+            arguments: [work.messageID]
+        ), hasUsableBody(plainBody) else { return false }
+        return MessageIntelligenceWork.contentHash(for: plainBody) == work.contentHash
+    }
+
+    private static func canFinish(_ work: MessageIntelligenceWork, in db: Database) throws -> Bool {
+        guard try currentContentMatches(work, in: db),
+              let record = try MessageIntelligenceRecord.fetchOne(db, key: work.messageID)
+        else { return false }
+        return record.contentHash == work.contentHash
+            && record.state == MessageIntelligenceState.processing.rawValue
+    }
+
+    private static func upsert(
+        _ db: Database,
+        work: MessageIntelligenceWork,
+        state: MessageIntelligenceState,
+        modelVersion: String?,
+        lastError: String?,
+        at: Date
+    ) throws {
+        try db.execute(
+            sql: """
+                INSERT INTO message_intelligence
+                  (messageID, contentHash, state, modelVersion, lastError, updatedAt)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(messageID) DO UPDATE SET
+                  contentHash = excluded.contentHash,
+                  state = excluded.state,
+                  modelVersion = excluded.modelVersion,
+                  lastError = excluded.lastError,
+                  updatedAt = excluded.updatedAt
+                """,
+            arguments: [
+                work.messageID, work.contentHash, state.rawValue,
+                modelVersion, lastError, at.timeIntervalSince1970,
+            ]
+        )
+    }
+
+    private static func updateTerminal(
+        _ db: Database,
+        work: MessageIntelligenceWork,
+        state: MessageIntelligenceState,
+        modelVersion: String?,
+        lastError: String?,
+        at: Date
+    ) throws {
+        try db.execute(
+            sql: """
+                UPDATE message_intelligence
+                SET state = ?,
+                    modelVersion = COALESCE(?, modelVersion),
+                    lastError = ?,
+                    updatedAt = ?
+                WHERE messageID = ? AND contentHash = ? AND state = ?
+                """,
+            arguments: [
+                state.rawValue, modelVersion, lastError, at.timeIntervalSince1970,
+                work.messageID, work.contentHash, MessageIntelligenceState.processing.rawValue,
+            ]
+        )
+    }
+}
+
+/// A forma crua da tabela. O formato fica aqui, perto da fila, em vez de
+/// contaminar `Message` com detalhes de tentativa/modelo.
+struct MessageIntelligenceRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Equatable {
+    static let databaseTableName = "message_intelligence"
+
+    var messageID: String
+    var contentHash: String
+    var state: String
+    var modelVersion: String?
+    var lastError: String?
+    var updatedAt: Date
+
+    static func databaseDateEncodingStrategy(for column: String) -> DatabaseDateEncodingStrategy {
+        .timeIntervalSince1970
+    }
+
+    static func databaseDateDecodingStrategy(for column: String) -> DatabaseDateDecodingStrategy {
+        .timeIntervalSince1970
+    }
+}
+
+extension MessageRecord {
+    /// Regravar metadados vindos do servidor não pode apagar a projeção local
+    /// de inteligência. Os quatro caminhos de sync montam `Message` com
+    /// `summary` e `detectedEvent` nulos; preservamos o que já foi calculado
+    /// quando o servidor não trouxe um novo valor para esses campos.
+    func savePreservingIntelligenceProjection(_ db: Database) throws {
+        var record = self
+        if let current = try MessageRecord.fetchOne(db, key: id) {
+            if record.summary == nil { record.summary = current.summary }
+            if record.detectedEventJSON == nil {
+                record.detectedEventJSON = current.detectedEventJSON
+            }
+        }
+        try record.save(db)
+    }
+}

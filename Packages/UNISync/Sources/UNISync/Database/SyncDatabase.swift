@@ -585,6 +585,31 @@ public struct SyncDatabase: Sendable {
                 ON message_attachment(messageID)
                 """)
         }
+        // A v11 do Marco 5: o estado local do processamento de inteligência
+        // por mensagem. A ausência da linha é deliberadamente "pendente":
+        // assim, mensagens gravadas antes desta versão e mensagens novas que
+        // chegam pelos sincronizadores existentes entram na mesma fila, sem
+        // exigir um backfill que reescreva a caixa inteira durante a abertura.
+        //
+        // `contentHash` amarra cada resultado ao corpo que o produziu. Quando
+        // o corpo muda, a fila percebe o hash diferente, limpa uma projeção
+        // antiga ao assumir o trabalho e processa a nova versão uma vez.
+        migrator.registerMigration("v11") { db in
+            try db.execute(sql: """
+                CREATE TABLE message_intelligence (
+                  messageID TEXT PRIMARY KEY NOT NULL REFERENCES message(id) ON DELETE CASCADE,
+                  contentHash TEXT NOT NULL,
+                  state TEXT NOT NULL DEFAULT 'pending',
+                  modelVersion TEXT,
+                  lastError TEXT,
+                  updatedAt DOUBLE NOT NULL
+                )
+                """)
+            try db.execute(sql: """
+                CREATE INDEX message_intelligence_on_state_updated
+                ON message_intelligence(state, updatedAt)
+                """)
+        }
         return migrator
     }
 }

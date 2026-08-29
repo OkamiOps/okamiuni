@@ -487,7 +487,7 @@ public actor OutboxExecutor {
                     threadKey: chave
                 )
                 try linhas.folder.save(db)
-                try MessageRecord(linhas.message, folderID: linhas.folder.id).save(db)
+                try MessageRecord(linhas.message, folderID: linhas.folder.id).savePreservingIntelligenceProjection(db)
                 if !linhas.message.body.isEmpty {
                     try InitialLoader.gravaCorpo(
                         db, id: linhas.message.id, paragrafos: linhas.message.body,
