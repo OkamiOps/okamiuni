@@ -28,11 +28,36 @@ public struct CalendarInvite: Sendable, Hashable {
     /// `STATUS` do `VEVENT`: `CONFIRMED`, `TENTATIVE`, `CANCELLED`.
     public let status: String?
 
+    /// `UID` — **a identidade do compromisso**, a mesma em todas as cópias
+    /// dele: o convite original, o "Convite atualizado", o encaminhamento que
+    /// um colega mandou.
+    ///
+    /// Era o campo que faltava, e a falta tinha nome na tela do dono: dois
+    /// blocos "DreamSquad" idênticos na agenda, porque o convite e a
+    /// atualização do **mesmo** evento entraram como dois compromissos
+    /// diferentes. Com encaminhamento, seriam cinquenta.
+    ///
+    /// `nil` num convite sem `UID` (existe, e é convite mesmo assim). Quem
+    /// não tem UID cai na identidade de antes — a mensagem que o trouxe.
+    public let uid: String?
+
+    /// `SEQUENCE` — a versão deste convite. Sobe a cada alteração que o
+    /// organizador manda; é assim que "Convite atualizado" se distingue de uma
+    /// cópia do original.
+    ///
+    /// `nil` é ausente, que pelo RFC 5545 vale `0` — mas guardamos a ausência
+    /// em vez de assumir zero para não confundir "não disse" com "primeira
+    /// versão" na hora de comparar.
+    public let sequence: Int?
+
     public init(
         summary: String, start: Date?, end: Date?, isAllDay: Bool = false,
         location: String? = nil, organizer: String? = nil, attendees: [String] = [],
-        method: String? = nil, status: String? = nil
+        method: String? = nil, status: String? = nil,
+        uid: String? = nil, sequence: Int? = nil
     ) {
+        self.uid = uid
+        self.sequence = sequence
         self.summary = summary
         self.start = start
         self.end = end
@@ -108,6 +133,8 @@ public enum ICalendar {
         var organizer: String?
         var attendees: [String] = []
         var status: String?
+        var uid: String?
+        var sequence: Int?
         var start: Date?
         var end: Date?
         var diaInteiro = false
@@ -130,6 +157,13 @@ public enum ICalendar {
                 location = vazioVira(nil, desescapa(valor))
             case "STATUS" where dentro:
                 status = valor.uppercased()
+            case "UID" where dentro:
+                // Sem `desescapa`: o UID é opaco e comparado byte a byte com o
+                // de outra cópia do mesmo convite. Interpretar barras invertidas
+                // faria duas cópias iguais deixarem de casar.
+                uid = vazioVira(nil, valor)
+            case "SEQUENCE" where dentro:
+                sequence = Int(valor.trimmingCharacters(in: .whitespaces))
             case "ORGANIZER" where dentro:
                 organizer = pessoa(parametros: parametros, valor: valor)
             case "ATTENDEE" where dentro:
@@ -153,7 +187,8 @@ public enum ICalendar {
         return CalendarInvite(
             summary: summary, start: start, end: end, isAllDay: diaInteiro,
             location: location, organizer: organizer, attendees: attendees,
-            method: method, status: status
+            method: method, status: status,
+            uid: uid, sequence: sequence
         )
     }
 

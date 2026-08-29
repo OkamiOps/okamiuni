@@ -29,11 +29,36 @@ public struct AgendaItem: Sendable, Hashable, Identifiable {
     /// continua compilando e continua significando "hoje".
     public let dayOffset: Int
 
+    /// O `UID` do convite que gerou este compromisso — a identidade que o
+    /// iCalendar dá ao evento, igual em todas as cópias dele.
+    ///
+    /// **É a guarda contra a agenda em dobro.** Sem ele, o convite original e o
+    /// "Convite atualizado" do mesmo evento eram dois compromissos, e cada
+    /// encaminhamento seria mais um: foram os dois "DreamSquad" idênticos da
+    /// tela do dono.
+    ///
+    /// `nil` no compromisso que não veio de convite — o detectado no texto de
+    /// um email, o da agenda de exemplo. Aditivo, como `dayOffset` foi.
+    ///
+    /// Modelo, e não coluna: a agenda ainda é de sessão (nada escreve em
+    /// `agenda_item`; ver `DatabaseMailSource.agenda()`), e as migrações v1–v4
+    /// são imutáveis. Quando o Marco 4 trouxer o EventKit, este campo é o que
+    /// casa com o `calendarItemExternalIdentifier` de lá.
+    public let calendarUID: String?
+
+    /// O `SEQUENCE` da versão do convite que este compromisso reflete. É contra
+    /// ele que um "Convite atualizado" se anuncia como mais novo.
+    public let calendarSequence: Int?
+
     public init(
         id: String, title: String,
         startMinute: Int, endMinute: Int, accountID: String,
-        dayOffset: Int = 0
+        dayOffset: Int = 0,
+        calendarUID: String? = nil,
+        calendarSequence: Int? = nil
     ) {
+        self.calendarUID = calendarUID
+        self.calendarSequence = calendarSequence
         self.id = id
         self.title = title
         self.startMinute = startMinute

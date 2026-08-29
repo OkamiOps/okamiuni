@@ -608,6 +608,66 @@ public final class MailStore {
         return item
     }
 
+    // MARK: - Agenda a partir de um convite
+
+    /// O que o cartão do convite deve oferecer: colocar, atualizar, ou dizer
+    /// que já está lá.
+    ///
+    /// É perguntado **ao desenhar**, e não depois de um clique: era essa a
+    /// diferença entre o cartão que oferece de novo o que já está na agenda —
+    /// e duplica — e o cartão que já abre dizendo "Na agenda".
+    public func agendaState(for invite: CalendarInvite, from message: Message) -> InviteAgendaState {
+        let id = DetectedEventConversion.agendaID(forMessageID: message.id)
+        return InviteAgenda.state(
+            for: invite,
+            existing: InviteAgenda.existing(
+                for: invite, id: id, accountID: message.accountID, in: agenda
+            ),
+            proposed: InviteAgenda.item(
+                for: invite, id: id, accountID: message.accountID, referenceDay: Fixtures.today
+            )
+        )
+    }
+
+    /// "Colocar na agenda" / "Atualizar na agenda", a partir do convite.
+    ///
+    /// **Um evento, um compromisso.** O convite traz o `UID` do iCalendar, que
+    /// é o mesmo no original, na atualização e em todo encaminhamento — e é por
+    /// ele que este caminho reencontra o que já existe. O original criava, a
+    /// atualização criava outro, e a agenda do dono ficou com dois blocos
+    /// "DreamSquad" idênticos.
+    ///
+    /// Devolve o item criado **ou atualizado**, e `nil` quando não havia o que
+    /// fazer (já está lá, igual) ou quando o convite não tem começo. É o mesmo
+    /// contrato de `addToAgenda(_:from:)`: só há confirmação quando algo mudou.
+    @discardableResult
+    public func addToAgenda(_ invite: CalendarInvite, from message: Message) -> AgendaItem? {
+        let id = DetectedEventConversion.agendaID(forMessageID: message.id)
+        guard let proposto = InviteAgenda.item(
+            for: invite, id: id, accountID: message.accountID, referenceDay: Fixtures.today
+        ) else { return nil }
+
+        let existente = InviteAgenda.existing(
+            for: invite, id: id, accountID: message.accountID, in: agenda
+        )
+        switch InviteAgenda.state(for: invite, existing: existente, proposed: proposto) {
+        case .naAgenda:
+            return nil
+        case .ausente:
+            agenda.append(proposto)
+            agenda.sort { $0.startMinute < $1.startMinute }
+            return proposto
+        case .desatualizado:
+            guard let existente,
+                  let posicao = agenda.firstIndex(where: { $0.id == existente.id })
+            else { return nil }
+            let atualizado = InviteAgenda.updated(existente, with: proposto)
+            agenda[posicao] = atualizado
+            agenda.sort { $0.startMinute < $1.startMinute }
+            return atualizado
+        }
+    }
+
     /// O "Desfazer" de `addToAgenda`. Tira o item pelo `id` que ela devolveu.
     ///
     /// Sem guarda contra `id` ausente: desfazer o que já não está lá — outra

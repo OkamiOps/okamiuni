@@ -211,6 +211,30 @@ struct ReaderInviteTests {
         #expect(ReaderPane.conviteCancelado == "Convite cancelado")
     }
 
+    /// O botão do cartão fala os três estados. Ele dizia sempre "Colocar na
+    /// agenda", e clicar sempre criava — foi assim que o convite e o "Convite
+    /// atualizado" do mesmo evento viraram dois blocos "DreamSquad".
+    @Test("O botão do convite diz o que vai fazer nos três estados")
+    func asFrasesDoBotao() {
+        #expect(ReaderPane.inviteButtonLabel(.ausente) == "Colocar na agenda")
+        #expect(ReaderPane.inviteButtonLabel(.naAgenda) == "Na agenda")
+        #expect(ReaderPane.inviteButtonLabel(.desatualizado) == "Atualizar na agenda")
+        #expect(ReaderPane.inviteButtonHelp(.desatualizado).contains("Atualiza"))
+    }
+
+    /// O cartão pergunta o estado **ao desenhar**: abrir de novo a mensagem de
+    /// um convite que já está na agenda mostra "Na agenda" sem clique nenhum.
+    @Test("O cartão do convite já aberto na agenda não oferece colocar de novo")
+    @MainActor
+    func oCartaoSabeQueJaEsta() async throws {
+        let mensagem = Self.mensagem(ics: Self.convite)
+        let store = await Self.store(mensagem)
+        let lido = try #require(ReaderPane.convite(de: mensagem))
+        #expect(store.agendaState(for: lido, from: mensagem) == .ausente)
+        store.addToAgenda(lido, from: mensagem)
+        #expect(store.agendaState(for: lido, from: mensagem) == .naAgenda)
+    }
+
     /// **Prova por mutação do cartão.** As duas telas têm o mesmo cabeçalho, o
     /// mesmo assunto e o mesmo remetente: um `ReaderPane` que ignorasse o
     /// `calendarICS` — que é o estado de antes desta tarefa — desenharia as

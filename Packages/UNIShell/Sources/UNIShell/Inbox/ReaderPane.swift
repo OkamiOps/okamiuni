@@ -535,7 +535,7 @@ public struct ReaderPane: View {
 
             // O botão só existe quando há o que criar: sem `DTSTART` não há
             // compromisso, e um convite cancelado não vira compromisso novo.
-            if let evento = convite.detectedEvent, !convite.isCancelled {
+            if convite.detectedEvent != nil, !convite.isCancelled {
                 Rectangle()
                     .fill(theme.accentLine.color)
                     .frame(height: Hairline.thickness(displayScale))
@@ -546,7 +546,7 @@ public struct ReaderPane: View {
                     if let agendaReceipt, agendaReceipt.messageID == message.id {
                         agendaConfirmation(agendaReceipt)
                     } else {
-                        addToAgendaButton(evento, for: message)
+                        inviteAgendaButton(convite, for: message)
                     }
                 }
             }
@@ -606,9 +606,58 @@ public struct ReaderPane: View {
     /// mesma cara e recusasse em silêncio seria o próprio defeito que esta
     /// tarefa veio consertar, só que adiado para o segundo clique.
     private func addToAgendaButton(_ event: DetectedEvent, for message: Message) -> some View {
-        let onAgenda = isOnAgenda(message)
-        return Button { addEvent(event, for: message) } label: {
-            Text(onAgenda ? "Na agenda" : "Colocar na agenda")
+        agendaButton(
+            label: isOnAgenda(message) ? "Na agenda" : "Colocar na agenda",
+            apagado: isOnAgenda(message),
+            help: isOnAgenda(message)
+                ? "Colocar na agenda — indisponível: este compromisso já está na agenda"
+                : "Cria o compromisso na agenda, a partir do que a mensagem detectou",
+            action: { addEvent(event, for: message) }
+        )
+    }
+
+    /// O mesmo botão, com a decisão do **convite**: colocar, atualizar, ou
+    /// dizer que já está lá.
+    ///
+    /// "Atualizar na agenda" existe porque o "Convite atualizado" é o mesmo
+    /// evento (mesmo `UID`) com uma versão nova, e a única coisa certa a fazer
+    /// com ele é mexer no compromisso que já existe. Antes desta decisão, o
+    /// botão dizia "Colocar" nas duas mensagens e criava dois compromissos
+    /// idênticos — os dois "DreamSquad" da agenda do dono.
+    private func inviteAgendaButton(_ convite: CalendarInvite, for message: Message) -> some View {
+        let estado = store.agendaState(for: convite, from: message)
+        return agendaButton(
+            label: Self.inviteButtonLabel(estado),
+            apagado: estado == .naAgenda,
+            help: Self.inviteButtonHelp(estado),
+            action: { addInvite(convite, for: message) }
+        )
+    }
+
+    /// O que o botão do convite escreve em cada estado. `nonisolated` e
+    /// `static` pelo motivo de sempre: o que a pessoa lê é comportamento, e o
+    /// teste o afirma sem montar janela.
+    nonisolated static func inviteButtonLabel(_ estado: InviteAgendaState) -> String {
+        switch estado {
+        case .ausente: "Colocar na agenda"
+        case .naAgenda: "Na agenda"
+        case .desatualizado: "Atualizar na agenda"
+        }
+    }
+
+    nonisolated static func inviteButtonHelp(_ estado: InviteAgendaState) -> String {
+        switch estado {
+        case .ausente: "Cria o compromisso na agenda, a partir deste convite"
+        case .naAgenda: "Colocar na agenda — indisponível: este convite já está na agenda"
+        case .desatualizado: "Atualiza o compromisso que já está na agenda com o que este convite mudou"
+        }
+    }
+
+    private func agendaButton(
+        label: String, apagado onAgenda: Bool, help: String, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(label)
                 .font(theme.sans.font(size: 11.5, weight: .semibold))
                 .foregroundStyle(onAgenda ? theme.ink4.color : theme.onAccent.color)
                 .frame(height: 26)
@@ -632,9 +681,7 @@ public struct ReaderPane: View {
         // Raio 8 literal, o mesmo do `clipShape` acima.
         .focusRing(cornerRadius: 8, tint: \.onAccent)
         .fixedSize()
-        .help(onAgenda
-              ? "Colocar na agenda — indisponível: este compromisso já está na agenda"
-              : "Cria o compromisso na agenda, a partir do que a mensagem detectou")
+        .help(help)
     }
 
     /// O retorno de "Colocar na agenda", no idioma da faixa de resposta
@@ -671,6 +718,21 @@ public struct ReaderPane: View {
                 messageID: message.id,
                 itemID: item.id,
                 note: AgendaAddReceipt.note(eventLabel: event.label, stamp: stamp)
+            )
+        }
+    }
+
+    /// O clique no botão do convite. `store.addToAgenda(_ invite:from:)` cria
+    /// **ou** atualiza, e devolve `nil` quando não havia o que fazer — a mesma
+    /// regra do outro caminho: um clique que não mudou nada não ganha um "✓".
+    private func addInvite(_ convite: CalendarInvite, for message: Message) {
+        guard let item = store.addToAgenda(convite, from: message) else { return }
+        let stamp = Date.now.formatted(date: .omitted, time: .shortened)
+        withAnimation(SwipeMotion.transition) {
+            agendaReceipt = AgendaAddReceipt(
+                messageID: message.id,
+                itemID: item.id,
+                note: AgendaAddReceipt.note(eventLabel: item.title, stamp: stamp)
             )
         }
     }
