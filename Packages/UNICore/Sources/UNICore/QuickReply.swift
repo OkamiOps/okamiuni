@@ -24,9 +24,9 @@ public struct ReplyDraft: Sendable, Hashable {
     /// projeção dele.
     public var body: AttributedString
 
-    /// Os anexos, pelo nome. Marco 1 não copia arquivo nenhum: é a mesma lista
-    /// de exemplo que a janela 03 usa.
-    public var attachments: [String]
+    /// Arquivos reais escolhidos para a resposta. O nome é metadado do arquivo,
+    /// não uma chave para uma fixture.
+    public var attachments: [OutgoingAttachment]
 
     /// Quando o rascunho foi guardado pela última vez pelo botão "Salvar".
     /// `nil` = nunca guardado explicitamente (só está em memória enquanto se
@@ -50,7 +50,7 @@ public struct ReplyDraft: Sendable, Hashable {
         cc: [Contact] = [],
         bcc: [Contact] = [],
         body: AttributedString = AttributedString(),
-        attachments: [String] = [],
+        attachments: [OutgoingAttachment] = [],
         savedAt: Date? = nil,
         sentAt: Date? = nil,
         archivedOriginal: Bool = false
@@ -227,11 +227,12 @@ public enum QuickReply {
 
     // MARK: - O que cada botão do rodapé pode fazer
 
-    /// "Enviar" e "Enviar e arquivar" só agem com destinatário **e** texto.
+    /// "Enviar" e "Enviar e arquivar" agem com destinatário e conteúdo:
+    /// texto, anexo, ou ambos. Um PDF sem texto é uma mensagem válida.
     /// Fora disso o botão fica desabilitado, com o motivo no `help` — botão
     /// mudo é defeito, e um "Enviar" que não faz nada é o pior deles.
     public static func canSend(_ draft: ReplyDraft) -> Bool {
-        !draft.to.isEmpty && draft.hasText
+        !draft.to.isEmpty && (draft.hasText || !draft.attachments.isEmpty)
     }
 
     /// "Salvar" precisa de algo para salvar, e de algo **novo**: rascunho já
@@ -268,17 +269,18 @@ public enum QuickReply {
         return next
     }
 
-    /// O 📎: acrescenta o primeiro nome do catálogo que ainda não está anexado.
-    /// Sem nenhum sobrando, devolve o rascunho intacto — e a faixa desabilita
-    /// o botão nesse caso.
-    public static func attaching(_ draft: ReplyDraft, from catalog: [String]) -> ReplyDraft {
-        guard let next = catalog.first(where: { !draft.attachments.contains($0) }) else {
-            return draft
-        }
-        var updated = draft
-        updated.attachments.append(next)
-        return updated
+    /// Acrescenta a seleção real sem duplicar a identidade do arquivo. A UI
+    /// usa a porta de seleção; esta função mantém a transição testável fora da
+    /// `View` e não conhece nenhuma fixture.
+    public static func attaching(
+        _ draft: ReplyDraft, files: [OutgoingAttachment]
+    ) -> ReplyDraft {
+        var next = draft
+        var ids = Set(next.attachments.map(\.id))
+        next.attachments += files.filter { ids.insert($0.id).inserted }
+        return next
     }
+
 
     // MARK: - Rascunhos sugeridos
 

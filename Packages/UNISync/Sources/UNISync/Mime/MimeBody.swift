@@ -124,6 +124,28 @@ public enum MimeBody {
 
     /// O que uma mensagem tem para mostrar.
     public struct Decoded: Sendable, Equatable {
+        /// Um anexo já decodificado do MIME IMAP. Fica aqui, e não no modelo da
+        /// lista, porque os bytes vão para o armazenamento local antes de a UI
+        /// receber só os metadados.
+        public struct Attachment: Sendable, Equatable {
+            public let filename: String
+            public let mimeType: String
+            /// `nil` quando o arquivo existe, mas ultrapassa o teto local.
+            /// Manter os metadados nesse caso deixa a tela explicar por que o
+            /// download não pode continuar, sem primeiro materializar dezenas
+            /// de megabytes só para descobrir isso.
+            public let data: Data?
+            public let byteCount: Int
+
+            public init(
+                filename: String, mimeType: String, data: Data?, byteCount: Int? = nil
+            ) {
+                self.filename = AttachmentName.sanitize(filename)
+                self.mimeType = AttachmentName.mimeType(mimeType)
+                self.data = data
+                self.byteCount = max(0, byteCount ?? data?.count ?? 0)
+            }
+        }
         /// A leitura em texto — a mesma de sempre, e a que o FTS indexa.
         public var text: String
         /// O HTML sanitizado, quando a mensagem trouxe uma parte `text/html`.
@@ -133,11 +155,16 @@ public enum MimeBody {
         /// O `text/calendar` cru, quando houver — quem o lê é
         /// `UNICore.ICalendar`, que não sabe nada de MIME.
         public var calendar: String?
+        public var attachments: [Attachment]
 
-        public init(text: String, html: String? = nil, calendar: String? = nil) {
+        public init(
+            text: String, html: String? = nil, calendar: String? = nil,
+            attachments: [Attachment] = []
+        ) {
             self.text = text
             self.html = html
             self.calendar = calendar
+            self.attachments = attachments
         }
 
         public var paragraphs: [String] { GmailMessageParser.paragraphs(from: text) }
@@ -193,7 +220,8 @@ public enum MimeBody {
             html: html.flatMap { pagina in
                 MimeSanitize.sanitize(html: pagina.texto, imagens: imagensInline(de: folhas))
             },
-            calendar: agenda?.texto
+            calendar: agenda?.texto,
+            attachments: anexos(corpo: corpo, tipo: tipo, codificacao: codificacao, profundidade: profundidade)
         )
     }
 
@@ -284,6 +312,77 @@ public enum MimeBody {
             )
         }
         return encontradas
+    }
+
+    /// Arquivos que o remetente marcou como anexo — ou deu `filename` —, sem
+    /// confundir as imagens `cid:` que pertencem ao HTML. A descida usa o
+    /// mesmo parser de fronteira/cabeçalho do corpo: IMAP chega como MIME cru,
+    /// e criar outro parser só para anexo faria os dois discordarem no primeiro
+    /// cabeçalho dobrado.
+    private static func anexos(
+        corpo: String, tipo: String, codificacao: String, profundidade: Int,
+        disposicao: String? = nil, contentID: String? = nil, nome: String? = nil
+    ) -> [Decoded.Attachment] {
+        let mime = mimeType(de: tipo)
+        guard !mime.hasPrefix("multipart/") else {
+            guard profundidade < profundidadeMaxima, let limite = parametro("boundary", em: tipo) else { return [] }
+            return partes(de: corpo, limite: limite).flatMap { parte in
+                let (headers, content) = separaCabecalhos(parte)
+                return anexos(
+                    corpo: content,
+                    tipo: headers["content-type"] ?? "application/octet-stream",
+                    codificacao: headers["content-transfer-encoding"] ?? "",
+                    profundidade: profundidade + 1,
+                    disposicao: headers["content-disposition"],
+                    contentID: headers["content-id"],
+                    nome: filename(disposition: headers["content-disposition"], contentType: headers["content-type"])
+                )
+            }
+        }
+        let isAttachment = disposicao?.lowercased().contains("attachment") == true || nome != nil
+        // `cid:` é conteúdo da mensagem; uma imagem com nome, mas sem a marca
+        // de anexo, continua sendo inline e não ganha um download duplicado.
+        guard isAttachment, contentID == nil else { return [] }
+        let attachmentFilename = nome ?? "anexo"
+        let mimeType = mime.isEmpty ? "application/octet-stream" : mime
+        // Antes de base64/quoted-printable materializar bytes, calcula uma
+        // estimativa segura da carga. Arquivo grande continua visível (nome,
+        // tipo e tamanho), mas só sua ficha — nunca os bytes — entra no banco.
+        let estimatedSize = tamanhoEstimadoDoAnexo(corpo, codificacao: codificacao)
+        guard estimatedSize <= OutgoingAttachment.maximumByteCount else {
+            return [Decoded.Attachment(
+                filename: attachmentFilename, mimeType: mimeType, data: nil, byteCount: estimatedSize
+            )]
+        }
+        let data = decodificaTransporte(corpo, codificacao: codificacao)
+        guard data.count <= OutgoingAttachment.maximumByteCount else {
+            return [Decoded.Attachment(
+                filename: attachmentFilename, mimeType: mimeType, data: nil, byteCount: data.count
+            )]
+        }
+        return [Decoded.Attachment(
+            filename: attachmentFilename, mimeType: mimeType, data: data
+        )]
+    }
+
+    /// Uma estimativa só precisa decidir se vale decodificar, portanto ela é
+    /// deliberadamente conservadora. Para base64, espaços e quebras não são
+    /// carga; para as demais codificações, os bytes da fonte já são um teto.
+    private static func tamanhoEstimadoDoAnexo(_ corpo: String, codificacao: String) -> Int {
+        guard codificacao.lowercased().contains("base64") else { return corpo.utf8.count }
+        let carga = corpo.unicodeScalars.filter { !$0.properties.isWhitespace }
+        let padding = carga.reversed().prefix { $0 == "=" }.count
+        return max(0, (carga.count * 3) / 4 - padding)
+    }
+
+    private static func filename(disposition: String?, contentType: String?) -> String? {
+        let raw = parametro("filename*", em: disposition ?? "")
+            ?? parametro("filename", em: disposition ?? "")
+            ?? parametro("name*", em: contentType ?? "")
+            ?? parametro("name", em: contentType ?? "")
+        guard let raw, !raw.isEmpty else { return nil }
+        let value = raw.split(separator: "'", maxSplits: 2, omittingEmptySubsequences: false).last.map(String.init) ?? raw
+        return value.removingPercentEncoding ?? value
     }
 
     /// O conteúdo de cada parte entre as fronteiras.

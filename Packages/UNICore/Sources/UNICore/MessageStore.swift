@@ -222,6 +222,10 @@ public final class MailStore {
     /// que é o comportamento do Marco 1 intacto.
     private let bodyPort: BodyFetching?
 
+    /// Busca de bytes de anexos sob demanda. Separada do corpo porque um PDF
+    /// não deve atravessar a mesma espera nem o mesmo estado do leitor.
+    private let attachmentPort: AttachmentFetching?
+
     /// Para onde vai o "Enviar" do composer. `nil` nas fixtures e em todo
     /// teste que não passa uma — e nesse caso a janela continua fechando sem
     /// mandar nada, que é o Marco 1 intacto. `canSend` é o que deixa a janela
@@ -322,6 +326,7 @@ public final class MailStore {
         source: MailSource,
         commandPort: MailCommandPort? = nil,
         bodyPort: BodyFetching? = nil,
+        attachmentPort: AttachmentFetching? = nil,
         sendPort: MailSendPort? = nil,
         inviteRSVPPort: InviteRSVPCommandPort? = nil,
         contactPort: ContactDirectoryPort? = nil,
@@ -333,6 +338,7 @@ public final class MailStore {
         self.source = source
         self.commandPort = commandPort
         self.bodyPort = bodyPort
+        self.attachmentPort = attachmentPort
         self.sendPort = sendPort
         self.inviteRSVPPort = inviteRSVPPort
         self.contactPort = contactPort
@@ -357,6 +363,17 @@ public final class MailStore {
                 report(error)
             }
         }
+    }
+
+    /// Baixa somente o arquivo solicitado. Sem porta (fixtures/harness) a
+    /// falha tem mensagem explícita, em vez de um botão que não faz nada.
+    public func fetchAttachment(
+        _ attachment: MailAttachment, from message: Message
+    ) async throws -> FetchedAttachment {
+        guard let attachmentPort else { throw AttachmentError.unavailable }
+        return try await attachmentPort.fetchAttachment(
+            accountID: message.accountID, messageID: message.id, attachmentID: attachment.id
+        )
     }
 
     // MARK: - Os remetentes de quem as imagens carregam sozinhas
@@ -1626,7 +1643,8 @@ public final class MailStore {
                 // mostrava.
                 corpo.paragraphs.isEmpty ? messages[indice].body : corpo.paragraphs,
                 html: corpo.html,
-                calendarICS: corpo.calendarICS ?? messages[indice].calendarICS
+                calendarICS: corpo.calendarICS ?? messages[indice].calendarICS,
+                attachments: corpo.attachments
             )
         } catch is CancellationError {
             // A pessoa trocou de mensagem antes de a resposta chegar. Isso não

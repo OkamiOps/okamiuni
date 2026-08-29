@@ -250,7 +250,8 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
     /// de linhas e não precisa de nenhum corpo, e carregar todos por tabela
     /// única faria a abertura pagar por texto que ninguém vai ler.
     public func message(
-        body: [String], bodyHTML: String? = nil, calendarICS: String? = nil
+        body: [String], bodyHTML: String? = nil, calendarICS: String? = nil,
+        attachments: [MailAttachment] = []
     ) -> Message {
         Message(
             id: id, accountID: accountID,
@@ -267,7 +268,8 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
             rfcMessageID: rfcMessageID,
             references: Self.decodeStrings(referencesJSON),
             threadKey: threadKey,
-            folderIDs: Self.folderIDs(membership: folderMembershipJSON, folderID: folderID)
+            folderIDs: Self.folderIDs(membership: folderMembershipJSON, folderID: folderID),
+            attachments: attachments
         )
     }
 
@@ -395,6 +397,37 @@ public struct MessageBodyRecord: Codable, FetchableRecord, MutablePersistableRec
 
     public mutating func didInsert(_ inserted: InsertionSuccess) {
         rowid = inserted.rowID
+    }
+}
+
+/// A parte local de um anexo recebido. `data` é nulo para Gmail até a pessoa
+/// pedir para salvar; IMAP a preenche quando já recebeu a fonte MIME completa.
+public struct MessageAttachmentRecord: Codable, FetchableRecord, PersistableRecord, Sendable, Equatable {
+    public static let databaseTableName = "message_attachment"
+
+    public var id: String
+    public var messageID: String
+    public var filename: String
+    public var mimeType: String
+    public var byteCount: Int
+    public var remoteID: String?
+    public var data: Data?
+
+    public init(
+        id: String, messageID: String, filename: String, mimeType: String,
+        byteCount: Int, remoteID: String? = nil, data: Data? = nil
+    ) {
+        self.id = id
+        self.messageID = messageID
+        self.filename = AttachmentName.sanitize(filename)
+        self.mimeType = AttachmentName.mimeType(mimeType)
+        self.byteCount = max(0, byteCount)
+        self.remoteID = remoteID
+        self.data = data
+    }
+
+    public var attachment: MailAttachment {
+        MailAttachment(id: id, filename: filename, mimeType: mimeType, byteCount: byteCount)
     }
 }
 

@@ -65,6 +65,14 @@ public struct OutgoingMessage: Codable, Sendable, Hashable {
     public let inReplyTo: String?
     /// A corrente da conversa, sem `<>`, da mais antiga para a mais nova.
     public let references: [String]
+    /// Arquivos escolhidos pela pessoa, serializados junto da fila local até o
+    /// provedor confirmar o envio.
+    public let attachments: [OutgoingAttachment]
+
+    private enum CodingKeys: String, CodingKey {
+        case messageID, accountID, from, to, cc, bcc, subject, plainText, html, calendarICS
+        case inReplyTo, references, attachments
+    }
 
     public init(
         messageID: String,
@@ -78,7 +86,8 @@ public struct OutgoingMessage: Codable, Sendable, Hashable {
         html: String? = nil,
         calendarICS: String? = nil,
         inReplyTo: String? = nil,
-        references: [String] = []
+        references: [String] = [],
+        attachments: [OutgoingAttachment] = []
     ) {
         self.messageID = messageID
         self.accountID = accountID
@@ -92,6 +101,27 @@ public struct OutgoingMessage: Codable, Sendable, Hashable {
         self.calendarICS = calendarICS
         self.inReplyTo = inReplyTo
         self.references = references
+        self.attachments = attachments
+    }
+
+    /// A fila local pode conter mensagens gravadas antes de anexos existirem.
+    /// Sem `decodeIfPresent`, abrir o app depois da atualização transformaria
+    /// uma linha velha do outbox em falha permanente em vez de enviá-la.
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        messageID = try values.decode(String.self, forKey: .messageID)
+        accountID = try values.decode(String.self, forKey: .accountID)
+        from = try values.decode(OutgoingAddress.self, forKey: .from)
+        to = try values.decode([OutgoingAddress].self, forKey: .to)
+        cc = try values.decodeIfPresent([OutgoingAddress].self, forKey: .cc) ?? []
+        bcc = try values.decodeIfPresent([OutgoingAddress].self, forKey: .bcc) ?? []
+        subject = try values.decode(String.self, forKey: .subject)
+        plainText = try values.decode(String.self, forKey: .plainText)
+        html = try values.decodeIfPresent(String.self, forKey: .html)
+        calendarICS = try values.decodeIfPresent(String.self, forKey: .calendarICS)
+        inReplyTo = try values.decodeIfPresent(String.self, forKey: .inReplyTo)
+        references = try values.decodeIfPresent([String].self, forKey: .references) ?? []
+        attachments = try values.decodeIfPresent([OutgoingAttachment].self, forKey: .attachments) ?? []
     }
 
     /// Todo mundo que vai receber — é a lista do `RCPT TO`, e é por isso que a

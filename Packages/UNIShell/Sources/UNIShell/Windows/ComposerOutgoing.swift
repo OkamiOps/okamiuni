@@ -69,6 +69,7 @@ enum ComposerOutgoing {
         subject: String,
         plainText: String,
         html: String?,
+        attachments: [OutgoingAttachment] = [],
         replyingTo original: Message? = nil
     ) -> OutgoingMessage {
         func limpa(_ contatos: [Contact]) -> [OutgoingAddress] {
@@ -88,7 +89,8 @@ enum ComposerOutgoing {
             plainText: plainText,
             html: html,
             inReplyTo: corrente.inReplyTo,
-            references: corrente.references
+            references: corrente.references,
+            attachments: attachments
         )
     }
 

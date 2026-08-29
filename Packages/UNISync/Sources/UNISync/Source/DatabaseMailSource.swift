@@ -154,6 +154,7 @@ public struct DatabaseMailSource: MailSource, Sendable {
         try AccountRecord.fetchCount(db)
             &+ MessageRecord.fetchCount(db)
             &+ MessageBodyRecord.fetchCount(db)
+            &+ MessageAttachmentRecord.fetchCount(db)
             &+ AgendaItemRecord.fetchCount(db)
             // `folder` entrou na M3-17, e não é decorativa: o retrato passou a
             // levar as pastas, e sem esta contagem a `ValueObservation` não
@@ -189,6 +190,7 @@ public struct DatabaseMailSource: MailSource, Sendable {
         // Os corpos numa consulta só: um `fetchOne` por mensagem seria uma
         // consulta por linha da lista, e a lista tem milhares.
         let corpos = try MessageBodyRecord.fetchAll(db)
+        let anexos = try MessageAttachmentRecord.fetchAll(db)
         // `uniquingKeysWith` e não `uniqueKeysWithValues`: `messageID` é UNIQUE
         // no esquema, mas um `init(uniqueKeysWithValues:)` responde a uma
         // violação disso com `fatalError` — o app inteiro caindo por causa de
@@ -197,6 +199,7 @@ public struct DatabaseMailSource: MailSource, Sendable {
         let porID = Dictionary(
             corpos.map { ($0.messageID, $0) }, uniquingKeysWith: { primeiro, _ in primeiro }
         )
+        let anexosPorMensagem = Dictionary(grouping: anexos, by: \.messageID)
         return registros.map { registro in
             let corpo = porID[registro.id]
             return registro.message(
@@ -204,7 +207,8 @@ public struct DatabaseMailSource: MailSource, Sendable {
                 // A mensagem **sem linha nenhuma** em `message_body` continua
                 // com `nil` aqui — e é assim que o leitor sabe que ainda há o
                 // que buscar. Trocar por `""` a daria por decodificada.
-                bodyHTML: corpo?.html, calendarICS: corpo?.calendarICS
+                bodyHTML: corpo?.html, calendarICS: corpo?.calendarICS,
+                attachments: (anexosPorMensagem[registro.id] ?? []).map(\.attachment)
             )
         }
     }

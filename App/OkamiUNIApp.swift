@@ -57,7 +57,8 @@ struct OkamiUNIApp: App {
         agendaClock = relogio
         _mailStore = State(initialValue: MailStore(
             source: composicao.source, commandPort: composicao.commandPort,
-            bodyPort: composicao.bodyPort, sendPort: composicao.sendPort,
+            bodyPort: composicao.bodyPort, attachmentPort: composicao.attachmentPort,
+            sendPort: composicao.sendPort,
             inviteRSVPPort: composicao.inviteRSVPPort,
             contactPort: composicao.contactPort,
             agendaPort: composicao.agendaPort,

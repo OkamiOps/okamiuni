@@ -68,13 +68,21 @@ public actor DatabaseBodyFetcher: BodyFetching {
         // continuaria sem achar o que a pessoa acabou de ler, e o app offline
         // voltaria a mostrar a coluna em branco.
         try await grava(corpo, messageID: messageID)
+        let attachments = try await database.pool.read { db in
+            try MessageAttachmentRecord
+                .filter(Column("messageID") == messageID)
+                .order(Column("id"))
+                .fetchAll(db)
+                .map(\.attachment)
+        }
         return FetchedBody(
             paragraphs: corpo.paragraphs,
             // `""` e não `nil`: a mensagem passou pelo decodificador, e a
             // resposta "ela não tem HTML" é uma resposta. Devolver `nil` aqui
             // faria o leitor rebuscá-la a cada abertura, para sempre.
             html: corpo.html ?? "",
-            calendarICS: corpo.calendar
+            calendarICS: corpo.calendar,
+            attachments: attachments
         )
     }
 
@@ -100,6 +108,23 @@ public actor DatabaseBodyFetcher: BodyFetching {
             // em branco e a mensagem com uma foto no meio abria com um buraco —
             // ver `GmailInlineAttachments`, que é a dívida da M3-8 paga.
             let mensagem = try await GmailInlineAttachments.message(cliente, id: serverID)
+            // Os metadados dos anexos comuns vêm no mesmo `messages.get`.
+            // Só os bytes pequenos já presentes são cacheados; os demais ficam
+            // com o `attachmentId` para a porta de download buscá-los depois.
+            try await database.pool.write { db in
+                let messageID = MessageIdentity.gmail(accountID: conta.id, serverID: serverID)
+                try InitialLoader.gravaAnexos(
+                    db, messageID: messageID,
+                    anexos: mensagem.attachments.enumerated().map { index, attachment in
+                        MessageAttachmentRecord(
+                            id: "\(messageID):gmail:\(index)", messageID: messageID,
+                            filename: attachment.filename, mimeType: attachment.mimeType,
+                            byteCount: attachment.byteCount,
+                            remoteID: attachment.attachmentID, data: attachment.inlineData
+                        )
+                    }
+                )
+            }
             return MimeBody.Decoded(
                 text: mensagem.body.joined(separator: "\n\n"),
                 html: mensagem.html, calendar: mensagem.calendarICS
@@ -182,12 +207,24 @@ public actor DatabaseBodyFetcher: BodyFetching {
         // Sem texto, sem HTML e sem convite não há linha a gravar — mas basta
         // **um** dos três para haver: o convite de agenda é justamente a
         // mensagem sem parágrafo nenhum.
-        guard !paragrafos.isEmpty || corpo.html != nil || corpo.calendar != nil else { return }
+        guard !paragrafos.isEmpty || corpo.html != nil || corpo.calendar != nil || !corpo.attachments.isEmpty else { return }
         try await database.pool.write { db in
             try InitialLoader.gravaCorpo(
                 db, id: messageID, paragrafos: paragrafos,
                 html: corpo.html ?? "", calendarICS: corpo.calendar
             )
+            if !corpo.attachments.isEmpty {
+                try InitialLoader.gravaAnexos(
+                    db, messageID: messageID,
+                    anexos: corpo.attachments.enumerated().map { index, attachment in
+                        MessageAttachmentRecord(
+                            id: "\(messageID):imap:\(index)", messageID: messageID,
+                            filename: attachment.filename, mimeType: attachment.mimeType,
+                            byteCount: attachment.byteCount, data: attachment.data
+                        )
+                    }
+                )
+            }
             // A prévia da lista de uma mensagem sem corpo é o **assunto** (ver
             // `InitialLoader.gravaImap`): a linha repetia o assunto duas vezes,
             // uma em cima da outra. Agora que há corpo, ela mostra a primeira

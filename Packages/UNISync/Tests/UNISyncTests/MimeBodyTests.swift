@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import UNICore
 @testable import UNISync
 
 /// Fontes MIME como elas chegam de verdade.
@@ -88,6 +89,52 @@ private enum Fonte {
 
 @Suite("MIME: o corpo de verdade virando texto")
 struct MimeBodyTests {
+
+    @Test("multipart misto expõe anexo com nome seguro e mantém texto fora dele")
+    func extractsReceivedAttachment() {
+        let raw = """
+        --outer
+        Content-Type: text/plain; charset=utf-8
+
+        Segue o arquivo.
+        --outer
+        Content-Type: application/pdf; name=../../contrato.pdf
+        Content-Disposition: attachment; filename=../../contrato.pdf
+        Content-Transfer-Encoding: base64
+
+        UERG
+        --outer--
+        """
+        let decoded = MimeBody.decode(raw: raw, contentType: "multipart/mixed; boundary=outer")
+        #expect(decoded.text == "Segue o arquivo.")
+        #expect(decoded.attachments.count == 1)
+        let attachment = decoded.attachments.first
+        #expect(attachment?.filename == "contrato.pdf")
+        #expect(attachment?.mimeType == "application/pdf")
+        #expect(attachment?.data == Data("PDF".utf8))
+    }
+
+    /// Checagem de mutação: se o limite sair antes da decodificação, esta
+    /// carga passaria a materializar 25 MiB no processo ou a sumir da tela.
+    @Test("anexo acima do teto continua visível, mas sem bytes em memória")
+    func keepsOversizedAttachmentMetadata() {
+        let encoded = String(repeating: "A", count: OutgoingAttachment.maximumByteCount * 4 / 3 + 4)
+        let raw = """
+        --outer
+        Content-Type: application/octet-stream; name=arquivo-grande.bin
+        Content-Disposition: attachment; filename=arquivo-grande.bin
+        Content-Transfer-Encoding: base64
+
+        \(encoded)
+        --outer--
+        """
+        let decoded = MimeBody.decode(raw: raw, contentType: "multipart/mixed; boundary=outer")
+        #expect(decoded.attachments.count == 1)
+        let attachment = decoded.attachments.first
+        #expect(attachment?.filename == "arquivo-grande.bin")
+        #expect(attachment?.byteCount ?? 0 > OutgoingAttachment.maximumByteCount)
+        #expect(attachment?.data == nil)
+    }
     // MARK: A forma mais comum
 
     @Test("multipart/alternative com quoted-printable acentuado sai em texto legível")

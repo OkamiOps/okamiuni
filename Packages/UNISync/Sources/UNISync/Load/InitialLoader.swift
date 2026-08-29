@@ -420,6 +420,19 @@ public struct InitialLoader: Sendable {
             // `save` é upsert: id determinístico + upsert = recarga
             // idempotente, que é o que faz "parar no meio" ser seguro.
             try MessageRecord(nossa, folderID: folderID).save(db)
+            if temCorpo {
+                try Self.gravaAnexos(
+                    db, messageID: id,
+                    anexos: mensagem.attachments.enumerated().map { index, attachment in
+                        MessageAttachmentRecord(
+                            id: "\(id):gmail:\(index)", messageID: id,
+                            filename: attachment.filename, mimeType: attachment.mimeType,
+                            byteCount: attachment.byteCount,
+                            remoteID: attachment.attachmentID, data: attachment.inlineData
+                        )
+                    }
+                )
+            }
             entraram += 1
             // O convite de agenda é mensagem sem parágrafo nenhum: só a parte
             // `text/calendar`. Exigir texto para gravar a linha o deixaria de
@@ -468,6 +481,29 @@ public struct InitialLoader: Sendable {
                 messageID: id, paragraphs: paragrafos, html: html, calendarICS: calendarICS
             )
             try corpo.insert(db)
+        }
+    }
+
+    /// Substitui a lista só quando o corpo completo foi lido. Uma resposta
+    /// `metadata` do Gmail não declara os anexos e apagaria o que já estava
+    /// cacheado se fosse tratada como lista vazia.
+    static func gravaAnexos(
+        _ db: Database, messageID: String, anexos: [MessageAttachmentRecord]
+    ) throws {
+        let cacheExistente = try Dictionary(
+            uniqueKeysWithValues: MessageAttachmentRecord
+                .filter(Column("messageID") == messageID)
+                .fetchAll(db)
+                .map { ($0.id, $0.data) }
+        )
+        try MessageAttachmentRecord
+            .filter(Column("messageID") == messageID)
+            .deleteAll(db)
+        for var anexo in anexos {
+            // Uma recarga Gmail pode voltar só com `attachmentId`: preservar
+            // bytes já conferidos evita baixar o mesmo arquivo a cada sync.
+            if anexo.data == nil { anexo.data = cacheExistente[anexo.id] ?? nil }
+            try anexo.insert(db)
         }
     }
 
@@ -836,6 +872,16 @@ public struct InitialLoader: Sendable {
                     try Self.gravaCorpo(
                         db, id: id, paragrafos: paragrafos,
                         html: corpo.html ?? "", calendarICS: corpo.calendar
+                    )
+                    try Self.gravaAnexos(
+                        db, messageID: id,
+                        anexos: corpo.attachments.enumerated().map { index, attachment in
+                            MessageAttachmentRecord(
+                                id: "\(id):imap:\(index)", messageID: id,
+                                filename: attachment.filename, mimeType: attachment.mimeType,
+                                byteCount: attachment.byteCount, data: attachment.data
+                            )
+                        }
                     )
                 }
             }

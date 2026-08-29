@@ -16,6 +16,9 @@ public struct ReaderPane: View {
     /// expande a faixa de baixo e põe o cursor nela — pedido do dono. A janela
     /// continua a um clique dali, e é o mesmo caminho de sempre.
     let onReply: (Message) -> Void
+    /// Destino injetável do anexo: evita painel do sistema no harness e deixa
+    /// a ação testável sem automação da área de trabalho.
+    let attachmentSaver: (any AttachmentSaving)?
 
     /// O retorno de "Colocar na agenda": qual mensagem, qual item criado, e a
     /// nota que a confirmação mostra. `nil` a maior parte do tempo — só existe
@@ -44,15 +47,19 @@ public struct ReaderPane: View {
     /// "Apagar" da barra seria um botão que não faz nada em metade dos
     /// contextos, que é o defeito que ele veio consertar.
     @State private var ownReceipts = ActionReceipts()
+    @State private var attachmentError: String?
+    @State private var savingAttachmentID: String?
 
     private var receipts: ActionReceipts { sharedReceipts ?? ownReceipts }
 
     public init(
         store: MailStore,
-        onReply: @escaping (Message) -> Void = { _ in }
+        onReply: @escaping (Message) -> Void = { _ in },
+        attachmentSaver: (any AttachmentSaving)? = NativeAttachmentSaver()
     ) {
         self.store = store
         self.onReply = onReply
+        self.attachmentSaver = attachmentSaver
     }
 
     public var body: some View {
@@ -183,9 +190,82 @@ public struct ReaderPane: View {
                 .padding(.bottom, 24)
         }
 
+        if !message.attachments.isEmpty {
+            attachmentSection(message)
+                .padding(.horizontal, 28)
+                .padding(.top, temCartao(message) ? 0 : 22)
+                .padding(.bottom, 12)
+        }
+
         body(message)
             .padding(.top, temCartao(message) ? 0 : 22)
             .padding(.bottom, 28)
+    }
+
+    private func attachmentSection(_ message: Message) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(message.attachments.count == 1 ? "ANEXO" : "ANEXOS")
+                .capsLabel(size: 10)
+                .foregroundStyle(theme.ink4.color)
+            FlowLayout(spacing: 6, rowSpacing: 6) {
+                ForEach(message.attachments) { attachment in
+                    Button {
+                        save(attachment, from: message)
+                    } label: {
+                        HStack(spacing: 7) {
+                            Image(systemName: "paperclip")
+                                .font(.system(size: 10, weight: .semibold))
+                            Text(attachment.filename)
+                                .lineLimit(1)
+                            Text(attachment.sizeLabel)
+                                .font(theme.mono.font(size: 9.5))
+                                .foregroundStyle(theme.ink4.color)
+                        }
+                        .font(theme.sans.font(size: 12, weight: .medium))
+                        .foregroundStyle(theme.accentInk.color)
+                        .frame(height: 28)
+                        .padding(.horizontal, 10)
+                        .background(theme.accentSoft.color)
+                        .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: theme.radiusSmall)
+                                .strokeBorder(theme.accentLine.color, lineWidth: Hairline.thickness(displayScale))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .focusRing(cornerRadius: theme.radiusSmall)
+                    .disabled(savingAttachmentID == attachment.id)
+                    .help(savingAttachmentID == attachment.id
+                        ? "Baixando \(attachment.filename)…"
+                        : "Baixar \(attachment.filename) (\(attachment.mimeType), \(attachment.sizeLabel))")
+                }
+            }
+            if let attachmentError {
+                Text(attachmentError)
+                    .font(theme.sans.font(size: 11))
+                    .foregroundStyle(theme.accent.color)
+            }
+        }
+    }
+
+    private func save(_ attachment: MailAttachment, from message: Message) {
+        guard let attachmentSaver else {
+            attachmentError = "Salvar anexo indisponível nesta janela."
+            return
+        }
+        savingAttachmentID = attachment.id
+        attachmentError = nil
+        Task {
+            defer { savingAttachmentID = nil }
+            do {
+                let fetched = try await store.fetchAttachment(attachment, from: message)
+                try await attachmentSaver.save(fetched)
+            } catch let error as AttachmentError {
+                attachmentError = error.localizedDescription
+            } catch {
+                attachmentError = "Não foi possível baixar ou salvar o anexo."
+            }
+        }
     }
 
     // MARK: - A conversa empilhada

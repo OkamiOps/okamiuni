@@ -73,7 +73,8 @@ public struct ComposerWindow: View {
     @State private var draft = AttributedString("")
     @State private var selection = AttributedTextSelection()
     @State private var fromAccountID: String?
-    @State private var attachments: [String] = []
+    @State private var attachments: [OutgoingAttachment] = []
+    @State private var attachmentError: String?
     @State private var savedStamp: String?
     @State private var historyOpen = true
     @State private var seeded = false
@@ -102,6 +103,9 @@ public struct ComposerWindow: View {
     /// inteiro só escrevendo no console. O que corre aqui é a **ação do
     /// botão**, não uma cópia dela.
     let debugSend: Bool
+    /// Porta injetável: o app usa o seletor nativo, e o harness pode escolher
+    /// arquivos sem abrir painel nem controlar mouse/teclado.
+    let attachmentSelector: (any AttachmentSelecting)?
 
     /// Qual campo de destinatário a porta do harness abre.
     enum RecipientSlot: Sendable { case to, cc, bcc }
@@ -122,6 +126,7 @@ public struct ComposerWindow: View {
         self.debugSuggestion = nil
         self.debugInsertSignature = false
         self.debugSend = false
+        self.attachmentSelector = NativeAttachmentSelector()
     }
 
     init(
@@ -130,7 +135,8 @@ public struct ComposerWindow: View {
         debugOpenPanel: ComposerToolbar.Panel? = nil,
         debugSuggestion: DebugSuggestion? = nil,
         debugInsertSignature: Bool = false,
-        debugSend: Bool = false
+        debugSend: Bool = false,
+        attachmentSelector: (any AttachmentSelecting)? = nil
     ) {
         self.store = store
         self.mode = mode
@@ -138,6 +144,7 @@ public struct ComposerWindow: View {
         self.debugSuggestion = debugSuggestion
         self.debugInsertSignature = debugInsertSignature
         self.debugSend = debugSend
+        self.attachmentSelector = attachmentSelector
         // As linhas Cc e Cco nascem fechadas; para desenhar a lista de uma
         // delas o harness precisa da linha aberta desde o primeiro passe.
         _ccOpen = State(initialValue: debugSuggestion?.slot == .cc)
@@ -658,9 +665,9 @@ public struct ComposerWindow: View {
 
     private var attachmentRow: some View {
         HStack(spacing: 6) {
-            ForEach(attachments, id: \.self) { name in
-                AttachmentChip(name: name, size: sizeLabel(for: name)) {
-                    attachments.removeAll { $0 == name }
+            ForEach(attachments) { attachment in
+                AttachmentChip(name: attachment.filename, size: attachment.metadata.sizeLabel) {
+                    attachments.removeAll { $0.id == attachment.id }
                 }
             }
             Spacer(minLength: 0)
@@ -668,10 +675,6 @@ public struct ComposerWindow: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 10)
         .hairline(theme.line2, edges: .top)
-    }
-
-    private func sizeLabel(for name: String) -> String {
-        Fixtures.attachments.first { $0.name == name }?.size ?? ""
     }
 
     private var footer: some View {
@@ -724,13 +727,36 @@ public struct ComposerWindow: View {
         .padding(.bottom, 14)
         .background(theme.surface2.color)
         .hairline(theme.line2, edges: .top)
+        .overlay(alignment: .topLeading) {
+            if let attachmentError {
+                Text(attachmentError)
+                    .font(theme.sans.font(size: 11))
+                    .foregroundStyle(theme.accent.color)
+                    .padding(.horizontal, 18)
+                    .padding(.top, 4)
+            }
+        }
     }
 
     // MARK: - Ações
 
     private func addAttachment() {
-        guard let next = Fixtures.attachments.first(where: { !attachments.contains($0.name) }) else { return }
-        attachments.append(next.name)
+        guard let attachmentSelector else {
+            attachmentError = "Anexar indisponível nesta janela."
+            return
+        }
+        Task {
+            do {
+                let selected = try await attachmentSelector.selectAttachments()
+                let ids = Set(attachments.map(\.id))
+                attachments += selected.filter { !ids.contains($0.id) }
+                attachmentError = nil
+            } catch let error as AttachmentError {
+                attachmentError = error.localizedDescription
+            } catch {
+                attachmentError = "Não foi possível ler o arquivo escolhido."
+            }
+        }
     }
 
     /// O motivo, quando o botão está apagado. Controle mudo é defeito: ou ele
@@ -792,6 +818,7 @@ public struct ComposerWindow: View {
             subject: subject,
             plainText: plainDraft,
             html: ComposerOutgoing.html(draft, theme: theme),
+            attachments: attachments,
             // A mensagem respondida, quando há uma: é dela que saem
             // `In-Reply-To` e `References` — a dívida da M3-5, paga em
             // `ComposerOutgoing.conversa`.

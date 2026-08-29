@@ -48,6 +48,8 @@ public struct AppComposition: Sendable {
     /// Ao contrário de `commandPort`, esta porta é **rede**: é a única do app
     /// cuja espera o leitor precisa mostrar na tela.
     public let bodyPort: BodyFetching?
+    /// Recupera os bytes de um anexo recebido quando a pessoa pede para salvar.
+    public let attachmentPort: AttachmentFetching?
     /// De onde vem o catálogo real de contatos — quem já mandou, recebeu ou
     /// entrou em cópia numa mensagem sincronizada. `nil` quando o banco não
     /// abriu, pela mesma razão de `bodyPort`: sem banco não há onde
@@ -126,6 +128,7 @@ public struct AppComposition: Sendable {
                 database: nil, director: nil,
                 source: InMemoryMailSource.fixtures, commandPort: nil, sendPort: nil,
                 inviteRSVPPort: nil, bodyPort: nil,
+                attachmentPort: nil,
                 contactPort: nil, agendaPort: nil, calendarSync: EventKitCalendarAdapter(), trustPort: nil,
                 outbox: nil, outboxSignal: nil, sync: nil, network: nil, configError: falha
             )
@@ -246,6 +249,9 @@ public struct AppComposition: Sendable {
             bodyPort: DatabaseBodyFetcher(
                 database: banco, secrets: cofre, auth: auth,
                 session: .shared, eventLoopGroup: grupo
+            ),
+            attachmentPort: DatabaseAttachmentFetcher(
+                database: banco, auth: auth, session: .shared
             ),
             contactPort: DatabaseContactDirectory(database: banco),
             agendaPort: DatabaseAgendaStore(database: banco),

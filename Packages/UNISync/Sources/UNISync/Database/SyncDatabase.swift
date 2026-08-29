@@ -565,6 +565,26 @@ public struct SyncDatabase: Sendable {
                 )
                 """)
         }
+        // A v10 do Marco 4: metadados e cache local de anexos. Os bytes só entram nesta
+        // tabela quando o IMAP já os trouxe no corpo ou quando a pessoa pediu o
+        // download Gmail; a lista de mensagens jamais carrega o BLOB.
+        migrator.registerMigration("v10") { db in
+            try db.execute(sql: """
+                CREATE TABLE message_attachment (
+                  id TEXT PRIMARY KEY NOT NULL,
+                  messageID TEXT NOT NULL REFERENCES message(id) ON DELETE CASCADE,
+                  filename TEXT NOT NULL,
+                  mimeType TEXT NOT NULL,
+                  byteCount INTEGER NOT NULL,
+                  remoteID TEXT,
+                  data BLOB
+                )
+                """)
+            try db.execute(sql: """
+                CREATE INDEX message_attachment_on_message
+                ON message_attachment(messageID)
+                """)
+        }
         return migrator
     }
 }

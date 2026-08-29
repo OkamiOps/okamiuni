@@ -73,7 +73,16 @@ public enum OutgoingMime {
             return linhas.joined(separator: "\r\n")
         }
 
-        guard let html = message.html, !html.isEmpty else {
+        if message.attachments.isEmpty, let html = message.html, !html.isEmpty {
+            linhas.append("Content-Type: multipart/alternative; boundary=\"\(boundary)\"")
+            linhas.append("")
+            linhas.append("Esta mensagem tem várias partes em MIME.")
+            linhas.append("")
+            appendTextParts(&linhas, boundary: boundary, plainText: message.plainText, html: html)
+            return linhas.joined(separator: "\r\n")
+        }
+
+        if message.attachments.isEmpty {
             linhas.append("Content-Type: text/plain; charset=utf-8")
             linhas.append("Content-Transfer-Encoding: quoted-printable")
             linhas.append("")
@@ -81,24 +90,72 @@ public enum OutgoingMime {
             return linhas.joined(separator: "\r\n")
         }
 
-        linhas.append("Content-Type: multipart/alternative; boundary=\"\(boundary)\"")
+        // O arquivo fica no `multipart/mixed` externo, e texto/HTML continuam
+        // irmãos dentro de `multipart/alternative`. Pôr o anexo dentro do
+        // alternative faz clientes escolherem o PDF *ou* o texto como se uma
+        // fosse alternativa do outro.
+        let alternativeBoundary = "\(boundary)-alt"
+        linhas.append("Content-Type: multipart/mixed; boundary=\"\(boundary)\"")
         linhas.append("")
-        // A frase de cortesia para quem abre a mensagem num programa que não
-        // entende MIME nenhum. Ela nunca é mostrada por um cliente moderno.
         linhas.append("Esta mensagem tem várias partes em MIME.")
         linhas.append("")
-        linhas.append("--\(boundary)")
-        linhas.append("Content-Type: text/plain; charset=utf-8")
-        linhas.append("Content-Transfer-Encoding: quoted-printable")
-        linhas.append("")
-        linhas.append(quotedPrintable(message.plainText))
-        linhas.append("--\(boundary)")
-        linhas.append("Content-Type: text/html; charset=utf-8")
-        linhas.append("Content-Transfer-Encoding: quoted-printable")
-        linhas.append("")
-        linhas.append(quotedPrintable(html))
+        if let html = message.html, !html.isEmpty {
+            linhas.append("--\(boundary)")
+            linhas.append("Content-Type: multipart/alternative; boundary=\"\(alternativeBoundary)\"")
+            linhas.append("")
+            appendTextParts(&linhas, boundary: alternativeBoundary, plainText: message.plainText, html: html)
+        } else {
+            linhas.append("--\(boundary)")
+            linhas.append("Content-Type: text/plain; charset=utf-8")
+            linhas.append("Content-Transfer-Encoding: quoted-printable")
+            linhas.append("")
+            linhas.append(quotedPrintable(message.plainText))
+        }
+        for attachment in message.attachments {
+            linhas.append("--\(boundary)")
+            linhas.append("Content-Type: \(attachment.mimeType); name*=utf-8''\(encodedFilename(attachment.filename))")
+            linhas.append("Content-Transfer-Encoding: base64")
+            linhas.append("Content-Disposition: attachment; filename*=utf-8''\(encodedFilename(attachment.filename))")
+            linhas.append("")
+            linhas.append(base64Lines(attachment.data))
+        }
         linhas.append("--\(boundary)--")
         return linhas.joined(separator: "\r\n")
+    }
+
+    private static func appendTextParts(
+        _ lines: inout [String], boundary: String, plainText: String, html: String
+    ) {
+        lines.append("--\(boundary)")
+        lines.append("Content-Type: text/plain; charset=utf-8")
+        lines.append("Content-Transfer-Encoding: quoted-printable")
+        lines.append("")
+        lines.append(quotedPrintable(plainText))
+        lines.append("--\(boundary)")
+        lines.append("Content-Type: text/html; charset=utf-8")
+        lines.append("Content-Transfer-Encoding: quoted-printable")
+        lines.append("")
+        lines.append(quotedPrintable(html))
+        lines.append("--\(boundary)--")
+    }
+
+    /// RFC 2045 limita linhas base64 a 76 caracteres. `Data` produz uma linha
+    /// só, que funcionaria em servidores permissivos e falharia no primeiro
+    /// relay estrito ou em anexos maiores.
+    private static func base64Lines(_ data: Data) -> String {
+        let encoded = data.base64EncodedString()
+        return stride(from: 0, to: encoded.count, by: 76).map { start in
+            let lower = encoded.index(encoded.startIndex, offsetBy: start)
+            let upper = encoded.index(lower, offsetBy: min(76, encoded.count - start))
+            return String(encoded[lower..<upper])
+        }.joined(separator: "\r\n")
+    }
+
+    /// `filename*` usa RFC 2231/RFC 5987: cabeçalho ASCII e UTF-8 percent
+    /// encoded. Nome cru com acento, aspas ou CRLF não pode entrar num header.
+    private static func encodedFilename(_ filename: String) -> String {
+        filename.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "-._~")))
+            ?? "anexo"
     }
 
     /// O `raw` que a Gmail API pede: base64 **url-safe**, sem preenchimento.

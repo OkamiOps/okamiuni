@@ -114,11 +114,16 @@ struct QuickReplyBandActionTests {
         ReplyDraft(to: [marina], body: AttributedString(text))
     }
 
-    @Test("sem destinatário ou sem texto, os dois 'Enviar' ficam desabilitados")
+    private static func file(_ name: String, id: String) -> OutgoingAttachment {
+        try! OutgoingAttachment(id: id, filename: name, data: Data([1]))
+    }
+
+    @Test("sem destinatário ou conteúdo, os dois 'Enviar' ficam desabilitados")
     func sendNeedsRecipientAndText() {
         #expect(QuickReply.canSend(Self.written("Fecho quinta.")))
         #expect(QuickReply.canSend(ReplyDraft(to: [], body: AttributedString("Fecho quinta."))) == false)
         #expect(QuickReply.canSend(ReplyDraft(to: [Self.marina], body: AttributedString("   \n "))) == false)
+        #expect(QuickReply.canSend(ReplyDraft(to: [Self.marina], attachments: [Self.file("proposta.pdf", id: "p")])) )
         #expect(QuickReply.canSend(ReplyDraft()) == false)
     }
 
@@ -127,7 +132,7 @@ struct QuickReplyBandActionTests {
         #expect(QuickReply.canSave(Self.written("Fecho quinta.")))
         // Só um anexo, sem uma palavra escrita, ainda é algo a guardar.
         var onlyFile = ReplyDraft(to: [Self.marina])
-        onlyFile.attachments = ["contrato-v4.pdf"]
+        onlyFile.attachments = [Self.file("contrato-v4.pdf", id: "c")]
         #expect(QuickReply.canSave(onlyFile))
         // Nada escrito e nada anexado: não há o que salvar.
         #expect(QuickReply.canSave(ReplyDraft(to: [Self.marina])) == false)
@@ -158,16 +163,16 @@ struct QuickReplyBandActionTests {
         #expect(edited.archivedOriginal)
     }
 
-    @Test("o 📎 anexa o próximo da lista e para quando ela acaba")
-    func attachWalksTheCatalog() {
-        let catalog = ["contrato-v4.pdf", "planilha.xlsx"]
-        let one = QuickReply.attaching(Self.written("Segue."), from: catalog)
-        #expect(one.attachments == ["contrato-v4.pdf"])
-        let two = QuickReply.attaching(one, from: catalog)
-        #expect(two.attachments == ["contrato-v4.pdf", "planilha.xlsx"])
-        // Sem nada sobrando, devolve o rascunho intacto — e a faixa desabilita.
-        let three = QuickReply.attaching(two, from: catalog)
-        #expect(three.attachments == ["contrato-v4.pdf", "planilha.xlsx"])
+    @Test("o 📎 acrescenta a seleção real sem duplicar a identidade")
+    func attachSelectionDeduplicates() {
+        let contract = Self.file("contrato-v4.pdf", id: "c")
+        let sheet = Self.file("planilha.xlsx", id: "p")
+        let one = QuickReply.attaching(Self.written("Segue."), files: [contract])
+        #expect(one.attachments == [contract])
+        let two = QuickReply.attaching(one, files: [contract, sheet])
+        #expect(two.attachments == [contract, sheet])
+        let three = QuickReply.attaching(two, files: [contract])
+        #expect(three.attachments == [contract, sheet])
     }
 }
 

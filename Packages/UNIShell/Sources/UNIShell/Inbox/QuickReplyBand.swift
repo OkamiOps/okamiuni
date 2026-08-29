@@ -41,8 +41,8 @@ import UNICore
 /// - **Salvar** carimba o rascunho e deixa a faixa aberta; a linha de baixo
 ///   passa de "não salvo" a "rascunho salvo HH:MM". Desabilitado quando não há
 ///   nada novo para salvar.
-/// - **📎** anexa da mesma lista de exemplo que a janela 03 usa, e cada anexo
-///   vira uma etiqueta com × que tira.
+/// - **📎** usa a porta de seleção da janela, e cada arquivo real vira uma
+///   etiqueta com × que tira.
 struct QuickReplyBand: View {
     @Environment(\.theme) private var theme
     @Environment(\.displayScale) private var displayScale
@@ -73,6 +73,9 @@ struct QuickReplyBand: View {
     var debugOpenPanel: ComposerToolbar.Panel?
     var debugMoreFormatting = false
     var debugCopiesOpen = false
+    /// Nula apenas quando um harness quer afirmar a falha explícita. No app,
+    /// a implementação nativa abre o painel por ação direta da pessoa.
+    var attachmentSelector: (any AttachmentSelecting)? = NativeAttachmentSelector()
 
     /// A faixa nasce **recolhida** — ver `opensExpanded(for:)`.
     @State private var open = false
@@ -88,7 +91,8 @@ struct QuickReplyBand: View {
     /// barra: uma barra que age sobre a seleção precisa de atributo por trecho.
     @State private var draft = AttributedString("")
     @State private var selection = AttributedTextSelection()
-    @State private var attachments: [String] = []
+    @State private var attachments: [OutgoingAttachment] = []
+    @State private var attachmentError: String?
     @State private var savedAt: Date?
     @State private var sentAt: Date?
     @State private var archivedOriginal = false
@@ -294,6 +298,14 @@ struct QuickReplyBand: View {
             editor
             if !attachments.isEmpty { attachmentRow }
             actionRow
+            if let attachmentError {
+                Text(attachmentError)
+                    .font(theme.sans.font(size: 11))
+                    .foregroundStyle(theme.accent.color)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+            }
             metaRow
         }
         .background(theme.surface2.color, in: RoundedRectangle(cornerRadius: theme.radiusLarge))
@@ -438,9 +450,9 @@ struct QuickReplyBand: View {
     /// Protótipo: `padding: 8px 12px; gap: 6px; border-top: 0.5px solid var(--line2)`.
     private var attachmentRow: some View {
         FlowLayout(spacing: 6, rowSpacing: 6) {
-            ForEach(attachments, id: \.self) { name in
-                BandAttachmentChip(name: name, size: Self.sizeLabel(for: name)) {
-                    attachments.removeAll { $0 == name }
+            ForEach(attachments) { attachment in
+                BandAttachmentChip(name: attachment.filename, size: attachment.metadata.sizeLabel) {
+                    attachments.removeAll { $0.id == attachment.id }
                     persist()
                 }
             }
@@ -592,11 +604,6 @@ struct QuickReplyBand: View {
         return "\(head) — \(words) · \(stamp) · sem rede neste marco"
     }
 
-    /// A etiqueta de tamanho do anexo, da mesma lista da janela 03.
-    nonisolated static func sizeLabel(for name: String) -> String {
-        Fixtures.attachments.first { $0.name == name }?.size ?? ""
-    }
-
     // MARK: - Botões pequenos
 
     /// Protótipo: `width: 24px; height: 22px; border-radius: var(--r2);
@@ -625,7 +632,9 @@ struct QuickReplyBand: View {
     private var canSend: Bool { QuickReply.canSend(currentDraft) }
 
     private var sendHelp: String {
-        if !hasBody { return "Enviar — indisponível: a resposta ainda está vazia." }
+        if !hasBody && attachments.isEmpty {
+            return "Enviar — indisponível: escreva uma resposta ou anexe um arquivo."
+        }
         if !hasRecipient { return "Enviar — indisponível: escolha pelo menos um destinatário." }
         // Sem porta de envio a frase continua sendo a do Marco 1, porque o
         // comportamento também é: o `help` não pode prometer rede onde ela não
@@ -662,12 +671,12 @@ struct QuickReplyBand: View {
         return "Guarda o rascunho com carimbo e deixa a faixa aberta."
     }
 
-    private var canAttach: Bool { attachments.count < Fixtures.attachments.count }
+    private var canAttach: Bool { attachmentSelector != nil }
 
     private var attachHelp: String {
         canAttach
             ? "Anexar arquivo"
-            : "Anexar — indisponível: a lista de exemplo do Marco 1 acabou."
+            : "Anexar — indisponível nesta janela."
     }
 
     private var promoteHelp: String {
@@ -755,6 +764,7 @@ struct QuickReplyBand: View {
             subject: ComposerSeed.reply(to: message, draft: nil).subject,
             plainText: draft.text,
             html: ComposerOutgoing.html(draft.body, theme: theme),
+            attachments: draft.attachments,
             replyingTo: message
         )
         guard store.send(mensagem) else { return nil }
@@ -778,8 +788,23 @@ struct QuickReplyBand: View {
     }
 
     private func attach() {
-        absorb(QuickReply.attaching(currentDraft, from: Fixtures.attachments.map(\.name)))
-        persist()
+        guard let attachmentSelector else {
+            attachmentError = "Anexar indisponível nesta janela."
+            return
+        }
+        Task {
+            do {
+                let selected = try await attachmentSelector.selectAttachments()
+                let ids = Set(attachments.map(\.id))
+                attachments += selected.filter { !ids.contains($0.id) }
+                attachmentError = nil
+                persist()
+            } catch let error as AttachmentError {
+                attachmentError = error.localizedDescription
+            } catch {
+                attachmentError = "Não foi possível ler o arquivo escolhido."
+            }
+        }
     }
 
     /// O "Rascunho sugerido": escreve o texto no corpo, com o estilo padrão.
