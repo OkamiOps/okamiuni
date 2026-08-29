@@ -98,6 +98,44 @@ enum ReaderHTMLPolicy {
         }
     }
 
+    // MARK: - Caber sem cortar
+
+    /// O menor fator de escala que este leitor aplica. Abaixo dele o texto do
+    /// email deixa de ser legível, e um email ilegível não é melhor do que um
+    /// email cortado — mas nenhum email real chega perto: uma newsletter mede
+    /// 600 ou 640 pontos, e o painel do leitor não fica abaixo de uns 380.
+    static let escalaMinima: CGFloat = 0.4
+
+    /// De quanto o documento tem de encolher para caber no painel.
+    ///
+    /// **O defeito que ela conserta.** O email de marketing traz o próprio
+    /// layout — uma tabela de 600 ou 640 pontos de largura fixa — e a `WebView`
+    /// desenha na largura que o painel tem. Quando o painel é mais estreito, a
+    /// diferença não vira barra de rolagem (a folha declara `overflow: hidden`,
+    /// porque quem rola é o leitor): vira **corte**. Foi o que o dono viu lado a
+    /// lado com o Gmail — "Olá, Marcos" virando "Olá", e a borda direita da
+    /// mensagem decepada.
+    ///
+    /// Encolher, e não espremer. O email tem uma largura que é dele — o
+    /// remetente a desenhou —, e o que muda aqui é a régua, não o desenho.
+    ///
+    /// Nunca **aumenta**: um email estreito num painel largo fica do tamanho que
+    /// o remetente pediu, centrado pelo próprio HTML, como no webmail.
+    static func escala(painel: CGFloat, conteudo: CGFloat) -> CGFloat {
+        guard painel > 0, conteudo > painel else { return 1 }
+        return max(escalaMinima, painel / conteudo)
+    }
+
+    /// A altura da `WebView`, em pontos, a partir do que o documento mediu.
+    ///
+    /// A medida do documento vem em pixels de CSS, e com escala aplicada um
+    /// pixel de CSS deixa de valer um ponto — usar o número cru deixaria uma
+    /// tira de vazio embaixo de toda newsletter encolhida, do tamanho exato do
+    /// que foi encolhido.
+    static func altura(documento: CGFloat, escala: CGFloat) -> CGFloat {
+        max(1, (documento * escala).rounded(.up))
+    }
+
     // MARK: - O documento
 
     /// De que cores o documento é desenhado.
@@ -159,7 +197,12 @@ enum ReaderHTMLPolicy {
               overflow-wrap: break-word; word-break: break-word;
             }
             /* A imagem de 900px de uma newsletter não pode empurrar o painel
-               para o lado: o leitor rola para baixo, e só. */
+               para o lado: o leitor rola para baixo, e só.
+
+               O `table` continua aqui, e medido: ele **não** espreme a tabela de
+               largura declarada de um email de marketing — ela sai daqui com os
+               640 pontos que o remetente pediu, e é a `WebView` inteira que
+               encolhe para caber (ver `escala(painel:conteudo:)`). */
             img, video, table { max-width: 100%; }
             img { height: auto; }
             table { border-collapse: collapse; }
