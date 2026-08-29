@@ -60,6 +60,19 @@ public enum OutgoingMime {
         }
         linhas.append("MIME-Version: 1.0")
 
+        // RSVP/iTIP é calendário, não uma mensagem rica com um texto que o
+        // cliente do organizador precise adivinhar. A mesma `OutgoingMessage`
+        // segue pelo mesmo SMTP/Gmail/outbox; muda somente a representação MIME.
+        if let calendar = message.calendarICS, !calendar.isEmpty {
+            let method = calendarMethod(in: calendar)
+            let suffix = method.map { "; method=\($0)" } ?? ""
+            linhas.append("Content-Type: text/calendar\(suffix); charset=utf-8")
+            linhas.append("Content-Transfer-Encoding: quoted-printable")
+            linhas.append("")
+            linhas.append(quotedPrintable(calendar))
+            return linhas.joined(separator: "\r\n")
+        }
+
         guard let html = message.html, !html.isEmpty else {
             linhas.append("Content-Type: text/plain; charset=utf-8")
             linhas.append("Content-Transfer-Encoding: quoted-printable")
@@ -230,6 +243,24 @@ public enum OutgoingMime {
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .replacingOccurrences(of: "\n", with: "\r\n")
+    }
+
+    /// `METHOD` pertence ao VCALENDAR, mas o parâmetro do Content-Type é o
+    /// que muitos clientes usam para despachar iTIP. Aceita só token ASCII para
+    /// que uma parte malformada não consiga injetar um cabeçalho.
+    static func calendarMethod(in calendar: String) -> String? {
+        for rawLine in normalizaQuebras(calendar).components(separatedBy: "\r\n") {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard line.uppercased().hasPrefix("METHOD:") else { continue }
+            let value = String(line.dropFirst("METHOD:".count)).uppercased()
+            guard !value.isEmpty,
+                  value.utf8.allSatisfy({
+                      ($0 >= 65 && $0 <= 90) || ($0 >= 48 && $0 <= 57) || $0 == 45
+                  })
+            else { return nil }
+            return value
+        }
+        return nil
     }
 
     // MARK: Data

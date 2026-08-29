@@ -39,6 +39,9 @@ public struct AppComposition: Sendable {
     /// enfileira uma triagem e quem enfileira um envio escrevem na mesma
     /// tabela, e duas instâncias dariam dois avisos ao executor por engano.
     public let sendPort: MailSendPort?
+    /// A mesma porta de saída, agora também responsável por gravar a decisão
+    /// RSVP junto do `METHOD:REPLY` que ela enfileira.
+    public let inviteRSVPPort: InviteRSVPCommandPort?
     /// Quem busca o corpo que a carga inicial não trouxe. `nil` quando o banco
     /// não abriu — e nesse caso a fonte são as fixtures, que já têm corpo.
     ///
@@ -117,7 +120,8 @@ public struct AppComposition: Sendable {
             log.error("Banco não abriu: \(falha.mensagem, privacy: .public)")
             return AppComposition(
                 database: nil, director: nil,
-                source: InMemoryMailSource.fixtures, commandPort: nil, sendPort: nil, bodyPort: nil,
+                source: InMemoryMailSource.fixtures, commandPort: nil, sendPort: nil,
+                inviteRSVPPort: nil, bodyPort: nil,
                 contactPort: nil, agendaPort: nil, trustPort: nil,
                 outbox: nil, outboxSignal: nil, sync: nil, network: nil, configError: falha
             )
@@ -234,6 +238,7 @@ public struct AppComposition: Sendable {
             source: DatabaseMailSource(database: banco, emptyFallback: .fixtures),
             commandPort: porta,
             sendPort: porta,
+            inviteRSVPPort: porta,
             bodyPort: DatabaseBodyFetcher(
                 database: banco, secrets: cofre, auth: auth,
                 session: .shared, eventLoopGroup: grupo

@@ -550,6 +550,12 @@ public struct ReaderPane: View {
                 linhaDoCartao(quem)
             }
 
+            if convite.isCancelled {
+                linhaDoCartao("Este convite foi cancelado pelo organizador.")
+            } else {
+                inviteRSVPControls(convite, for: message)
+            }
+
             // O botão só existe quando há o que criar: sem `DTSTART` não há
             // compromisso, e um convite cancelado não vira compromisso novo.
             if convite.detectedEvent != nil, !convite.isCancelled {
@@ -585,6 +591,80 @@ public struct ReaderPane: View {
             .foregroundStyle(theme.ink2.color)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// As três decisões iTIP vivem no próprio cartão do convite. O estado
+    /// vem do store (e do disco no app conectado), então o botão repetido fica
+    /// apagado enquanto os outros dois continuam permitindo mudar de ideia.
+    private func inviteRSVPControls(_ convite: CalendarInvite, for message: Message) -> some View {
+        let selected = store.inviteRSVPState(for: convite, from: message)
+        let unavailable = store.inviteRSVPUnavailableReason(for: convite, from: message)
+
+        return VStack(alignment: .leading, spacing: 7) {
+            Text(selected.map { "Resposta na fila: \($0.label)" } ?? "Responder ao convite")
+                .font(theme.sans.font(size: 11.5, weight: .semibold))
+                .foregroundStyle(selected == nil ? theme.ink2.color : theme.accentInk.color)
+
+            HStack(spacing: 6) {
+                ForEach(InviteRSVPResponse.allCases, id: \.self) { response in
+                    inviteRSVPButton(
+                        response, convite: convite, message: message,
+                        selected: selected, unavailable: unavailable
+                    )
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+
+            if let unavailable {
+                Text(unavailable.message)
+                    .font(theme.sans.font(size: 11))
+                    .foregroundStyle(theme.ink3.color)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.top, 4)
+    }
+
+    private func inviteRSVPButton(
+        _ response: InviteRSVPResponse,
+        convite: CalendarInvite,
+        message: Message,
+        selected: InviteRSVPResponse?,
+        unavailable: InviteRSVPUnavailableReason?
+    ) -> some View {
+        let isSelected = selected == response
+        let disabled = isSelected || unavailable != nil
+        let help: String
+        if isSelected {
+            help = "\(response.label) — esta resposta já está na fila de saída"
+        } else if let unavailable {
+            help = unavailable.message
+        } else {
+            help = "Envia \(response.label.lowercased()) ao organizador pela fila de saída"
+        }
+
+        return Button {
+            _ = store.respondToInvite(convite, from: message, response: response)
+        } label: {
+            Text(response.label)
+                .font(theme.sans.font(size: 11.5, weight: .semibold))
+                .foregroundStyle(isSelected ? theme.ink4.color : theme.onAccent.color)
+                .frame(height: 26)
+                .padding(.horizontal, 10)
+                .background(isSelected ? theme.surface3.color : theme.accent.color)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(
+                            isSelected ? theme.line.color : theme.accent.color,
+                            lineWidth: Hairline.thickness(displayScale)
+                        )
+                }
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .focusRing(cornerRadius: 8, tint: \.onAccent)
+        .help(help)
     }
 
     /// A data do convite em hora **local**, que é a única que a pessoa

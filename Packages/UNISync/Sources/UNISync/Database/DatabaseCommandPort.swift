@@ -153,3 +153,48 @@ public struct DatabaseCommandPort: MailCommandPort, MailSendPort, Sendable {
             )
     }
 }
+
+// MARK: - RSVP/iTIP
+
+extension DatabaseCommandPort: InviteRSVPCommandPort {
+    /// A lista pequena que o `MailStore` consulta na montagem para restaurar o
+    /// estado dos cartões. A resposta e o `send` não são dois commits: mudar
+    /// um sem o outro voltaria a abrir a porta para duplicidade após reiniciar.
+    public func savedInviteRSVPStates() throws -> [InviteRSVPState] {
+        try database.pool.read { db in
+            try Row.fetchAll(
+                db,
+                sql: "SELECT accountID, eventKey, response FROM invite_rsvp"
+            ).compactMap { row in
+                guard let response = InviteRSVPResponse(rawValue: row["response"] as String) else {
+                    return nil
+                }
+                return InviteRSVPState(
+                    accountID: row["accountID"], eventKey: row["eventKey"], response: response
+                )
+            }
+        }
+    }
+
+    /// Grava a decisão e enfileira o `METHOD:REPLY` no outbox existente em uma
+    /// transação SQLite. Assim, offline quer dizer "na fila", nunca "sumiu".
+    public func queueInviteRSVP(_ message: OutgoingMessage, state: InviteRSVPState) throws {
+        try database.pool.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO invite_rsvp (accountID, eventKey, response, updatedAt)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(accountID, eventKey) DO UPDATE SET
+                      response = excluded.response,
+                      updatedAt = excluded.updatedAt
+                    """,
+                arguments: [
+                    state.accountID, state.eventKey, state.response.rawValue,
+                    Date().timeIntervalSince1970,
+                ]
+            )
+            try Self.enfileira(db, accountID: state.accountID, operation: .send(message: message))
+        }
+        signal?.notify(accountID: state.accountID)
+    }
+}

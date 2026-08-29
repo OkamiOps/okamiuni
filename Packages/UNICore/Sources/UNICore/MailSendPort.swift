@@ -57,6 +57,10 @@ public struct OutgoingMessage: Codable, Sendable, Hashable {
     /// O corpo em HTML, ou `nil` quando o rascunho não tinha formatação
     /// nenhuma. `nil` é uma mensagem `text/plain` simples, sem `multipart`.
     public let html: String?
+    /// O iCalendar de uma resposta de convite. Quando existe, o transportador
+    /// envia esta mensagem como `text/calendar` — o composer comum continua
+    /// sem esta parte e preserva o MIME atual.
+    public let calendarICS: String?
     /// O `Message-ID` da mensagem respondida, sem `<>`.
     public let inReplyTo: String?
     /// A corrente da conversa, sem `<>`, da mais antiga para a mais nova.
@@ -72,6 +76,7 @@ public struct OutgoingMessage: Codable, Sendable, Hashable {
         subject: String,
         plainText: String,
         html: String? = nil,
+        calendarICS: String? = nil,
         inReplyTo: String? = nil,
         references: [String] = []
     ) {
@@ -84,6 +89,7 @@ public struct OutgoingMessage: Codable, Sendable, Hashable {
         self.subject = subject
         self.plainText = plainText
         self.html = html
+        self.calendarICS = calendarICS
         self.inReplyTo = inReplyTo
         self.references = references
     }

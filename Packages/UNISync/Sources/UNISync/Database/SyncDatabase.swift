@@ -549,6 +549,22 @@ public struct SyncDatabase: Sendable {
                 ADD COLUMN folderMembershipJSON TEXT NOT NULL DEFAULT '[]'
                 """)
         }
+        // A v9 do Marco 4: a resposta RSVP que a pessoa já pôs na fila.
+        // Não mora no corpo da mensagem: uma recusa não cria compromisso na
+        // agenda, mas ainda precisa sobreviver ao reinício para o cartão não
+        // oferecer o mesmo clique novamente. A chave inclui a conta porque a
+        // mesma reunião pode chegar em mais de uma identidade da pessoa.
+        migrator.registerMigration("v9") { db in
+            try db.execute(sql: """
+                CREATE TABLE invite_rsvp (
+                  accountID TEXT NOT NULL,
+                  eventKey TEXT NOT NULL,
+                  response TEXT NOT NULL,
+                  updatedAt DOUBLE NOT NULL,
+                  PRIMARY KEY (accountID, eventKey)
+                )
+                """)
+        }
         return migrator
     }
 }

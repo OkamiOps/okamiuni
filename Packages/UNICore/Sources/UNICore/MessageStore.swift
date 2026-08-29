@@ -223,6 +223,16 @@ public final class MailStore {
     /// dizer a verdade sobre isso em vez de fingir que enviou.
     private let sendPort: MailSendPort?
 
+    /// A extensão da mesma fila que grava uma resposta RSVP junto da mensagem
+    /// iTIP. Nula nos previews/fixtures; nesses casos ainda é possível testar
+    /// com `sendPort`, mas o app conectado usa esta porta para sobreviver ao
+    /// reinício sem deixar o cartão oferecer a mesma resposta outra vez.
+    private let inviteRSVPPort: InviteRSVPCommandPort?
+
+    /// O estado que o cartão lê. A chave inclui conta e UID (ou a mensagem
+    /// sem UID), porque o mesmo evento pode chegar em duas caixas distintas.
+    private var inviteRSVPStates: [String: InviteRSVPState] = [:]
+
     /// De onde vem o catálogo real de contatos. `nil` nas fixtures e em todo
     /// teste que não passa uma — e nesse caso `contactPool` fica em
     /// `Fixtures.contacts`, que é o comportamento de sempre.
@@ -297,6 +307,7 @@ public final class MailStore {
         commandPort: MailCommandPort? = nil,
         bodyPort: BodyFetching? = nil,
         sendPort: MailSendPort? = nil,
+        inviteRSVPPort: InviteRSVPCommandPort? = nil,
         contactPort: ContactDirectoryPort? = nil,
         agendaPort: (any AgendaPersisting)? = nil,
         trustPort: (any SenderTrusting)? = nil,
@@ -306,6 +317,7 @@ public final class MailStore {
         self.commandPort = commandPort
         self.bodyPort = bodyPort
         self.sendPort = sendPort
+        self.inviteRSVPPort = inviteRSVPPort
         self.contactPort = contactPort
         self.agendaPort = agendaPort
         self.trustPort = trustPort
@@ -315,6 +327,17 @@ public final class MailStore {
         // lista chegar — e piscar depois.
         if let trustPort {
             trustedSenderAddresses = (try? trustPort.trustedSenders()) ?? []
+        }
+        if let inviteRSVPPort {
+            do {
+                inviteRSVPStates = Dictionary(
+                    uniqueKeysWithValues: try inviteRSVPPort.savedInviteRSVPStates().map {
+                        (Self.inviteRSVPStateKey($0), $0)
+                    }
+                )
+            } catch {
+                report(error)
+            }
         }
     }
 
@@ -379,6 +402,84 @@ public final class MailStore {
             report(error)
             return false
         }
+    }
+
+    // MARK: - Respostas RSVP/iTIP
+
+    /// A resposta já gravada para este convite, se houver. O cartão usa isto
+    /// para exibir a decisão real e apagar somente o botão repetido — mudar de
+    /// ideia continua possível e gera um novo `METHOD:REPLY`.
+    public func inviteRSVPState(for invite: CalendarInvite, from message: Message) -> InviteRSVPResponse? {
+        let key = InviteRSVP.eventKey(for: invite, message: message)
+        return inviteRSVPStates[Self.inviteRSVPStateKey(accountID: message.accountID, eventKey: key)]?.response
+    }
+
+    /// A explicação que a interface mostra quando não há como montar uma
+    /// resposta honesta. Não depende da conta atualmente selecionada: a
+    /// identidade sempre é a da mensagem que trouxe o convite.
+    public func inviteRSVPUnavailableReason(
+        for invite: CalendarInvite, from message: Message
+    ) -> InviteRSVPUnavailableReason? {
+        InviteRSVP.unavailableReason(
+            for: invite,
+            account: account(message.accountID),
+            canQueue: inviteRSVPPort != nil || sendPort != nil
+        )
+    }
+
+    /// Enfileira a resposta pelo mesmo outbox do composer. Quando há banco, o
+    /// estado e a operação entram na **mesma transação**; em fixture, a porta
+    /// de envio falsa mantém a ação testável e o estado dura a sessão.
+    @discardableResult
+    public func respondToInvite(
+        _ invite: CalendarInvite,
+        from message: Message,
+        response: InviteRSVPResponse,
+        now: Date = Date()
+    ) -> InviteRSVPResult {
+        if let reason = inviteRSVPUnavailableReason(for: invite, from: message) {
+            return .unavailable(reason)
+        }
+        if inviteRSVPState(for: invite, from: message) == response {
+            return .alreadyQueued(response)
+        }
+        guard let account = account(message.accountID),
+              let outgoing = InviteRSVP.message(
+                response: response, invite: invite, original: message, account: account, now: now
+              )
+        else {
+            // A guarda acima cobre os dados de convite; este ramo existe para
+            // o caso de uma fonte trocar a conta durante o clique.
+            return .unavailable(.accountMissing)
+        }
+
+        let state = InviteRSVPState(
+            accountID: account.id,
+            eventKey: InviteRSVP.eventKey(for: invite, message: message),
+            response: response
+        )
+        do {
+            if let inviteRSVPPort {
+                try inviteRSVPPort.queueInviteRSVP(outgoing, state: state)
+            } else if let sendPort {
+                try sendPort.send(outgoing)
+            } else {
+                return .unavailable(.sendQueueMissing)
+            }
+            inviteRSVPStates[Self.inviteRSVPStateKey(state)] = state
+            return .queued(response)
+        } catch {
+            report(error)
+            return .failed
+        }
+    }
+
+    private static func inviteRSVPStateKey(_ state: InviteRSVPState) -> String {
+        inviteRSVPStateKey(accountID: state.accountID, eventKey: state.eventKey)
+    }
+
+    private static func inviteRSVPStateKey(accountID: String, eventKey: String) -> String {
+        "\(accountID)\u{1F}\(eventKey)"
     }
 
     /// Manda a mutação para a porta, se houver uma. Erro vira `loadError` —

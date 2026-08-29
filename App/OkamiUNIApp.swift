@@ -58,6 +58,7 @@ struct OkamiUNIApp: App {
         _mailStore = State(initialValue: MailStore(
             source: composicao.source, commandPort: composicao.commandPort,
             bodyPort: composicao.bodyPort, sendPort: composicao.sendPort,
+            inviteRSVPPort: composicao.inviteRSVPPort,
             contactPort: composicao.contactPort,
             agendaPort: composicao.agendaPort,
             trustPort: composicao.trustPort,
