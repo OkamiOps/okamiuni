@@ -73,6 +73,9 @@ struct QuickReplyBand: View {
     var debugOpenPanel: ComposerToolbar.Panel?
     var debugMoreFormatting = false
     var debugCopiesOpen = false
+    /// O motor é opcional e vem da composição. A faixa conserva o botão
+    /// visível, mas não tenta escolher nem importar uma implementação.
+    var intelligence: ComposerIntelligenceGenerator?
     /// Nula apenas quando um harness quer afirmar a falha explícita. No app,
     /// a implementação nativa abre o painel por ação direta da pessoa.
     var attachmentSelector: (any AttachmentSelecting)? = NativeAttachmentSelector()
@@ -371,6 +374,21 @@ struct QuickReplyBand: View {
             density: .band,
             openPanel: debugOpenPanel,
             moreOpen: debugMoreFormatting,
+            intelligence: intelligence,
+            intelligenceSourceMessage: message,
+            intelligenceContext: ComposerEditor.intelligenceContext(
+                of: draft, selection: selection
+            ),
+            applyIntelligence: { proposal in
+                let result = ComposerEditor.apply(
+                    proposal,
+                    on: &draft,
+                    selection: &selection,
+                    theme: theme
+                )
+                if result == .applied { bodyChanged() }
+                return result
+            },
             perform: { command in
                 ComposerEditor.perform(
                     command, on: &draft, selection: &selection, theme: theme

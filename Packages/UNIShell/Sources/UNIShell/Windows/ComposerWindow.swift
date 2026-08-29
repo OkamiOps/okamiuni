@@ -60,6 +60,9 @@ public struct ComposerWindow: View {
 
     let store: MailStore
     let mode: Mode
+    /// Injetado pela composição do app. A superfície do composer não escolhe
+    /// nem importa um motor de IA por conta própria.
+    let intelligence: ComposerIntelligenceGenerator?
 
     @State private var to: [Contact] = []
     @State private var cc: [Contact] = []
@@ -119,9 +122,14 @@ public struct ComposerWindow: View {
         var query: String?
     }
 
-    public init(store: MailStore, mode: Mode) {
+    public init(
+        store: MailStore,
+        mode: Mode,
+        intelligence: ComposerIntelligenceGenerator? = nil
+    ) {
         self.store = store
         self.mode = mode
+        self.intelligence = intelligence
         self.debugOpenPanel = nil
         self.debugSuggestion = nil
         self.debugInsertSignature = false
@@ -136,10 +144,12 @@ public struct ComposerWindow: View {
         debugSuggestion: DebugSuggestion? = nil,
         debugInsertSignature: Bool = false,
         debugSend: Bool = false,
-        attachmentSelector: (any AttachmentSelecting)? = nil
+        attachmentSelector: (any AttachmentSelecting)? = nil,
+        intelligence: ComposerIntelligenceGenerator? = nil
     ) {
         self.store = store
         self.mode = mode
+        self.intelligence = intelligence
         self.debugOpenPanel = debugOpenPanel
         self.debugSuggestion = debugSuggestion
         self.debugInsertSignature = debugInsertSignature
@@ -283,6 +293,19 @@ public struct ComposerWindow: View {
             ComposerToolbar(
                 reading: ComposerEditor.reading(of: draft, selection: selection),
                 openPanel: debugOpenPanel,
+                intelligence: intelligence,
+                intelligenceSourceMessage: repliedMessage,
+                intelligenceContext: ComposerEditor.intelligenceContext(
+                    of: draft, selection: selection
+                ),
+                applyIntelligence: { proposal in
+                    ComposerEditor.apply(
+                        proposal,
+                        on: &draft,
+                        selection: &selection,
+                        theme: theme
+                    )
+                },
                 perform: { command in
                     ComposerEditor.perform(command, on: &draft, selection: &selection, theme: theme)
                 }
