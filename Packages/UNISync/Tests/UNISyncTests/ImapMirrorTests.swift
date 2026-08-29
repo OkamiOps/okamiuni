@@ -284,6 +284,122 @@ struct ImapMirrorTests {
         #expect(!servidor.commands.contains { $0.contains("EXPUNGE") })
     }
 
+    // MARK: A pasta que falta
+
+    /// O roteiro completo de um mover, sem a lista de pastas — quem a fornece é
+    /// cada teste, porque é justamente ela que muda aqui.
+    private static func roteiroDeMover(_ pastas: [String]) -> [String: [String]] {
+        [
+            "LIST": pastas,
+            "SELECT": Self.selecionada,
+            "UID SEARCH": ["* SEARCH 9001", "TAG OK SEARCH completo"],
+            FakeImapServer.chaveDeCabecalho: [
+                "* 1 FETCH (UID 9001 BODY[HEADER.FIELDS (MESSAGE-ID)] {40}",
+                "Message-ID: <abc@clientepremium.com>",
+                "",
+                ")",
+                "TAG OK FETCH completo",
+            ],
+            FakeImapServer.chaveDeBuscaPorHeader: ["* SEARCH", "TAG OK SEARCH completo"],
+            "UID COPY": ["TAG OK COPY completo"],
+            "UID STORE": ["TAG OK STORE completo"],
+            "EXPUNGE": ["TAG OK EXPUNGE completo"],
+        ]
+    }
+
+    /// O defeito do dono, encenado: `marcos@okamiops.com` tinha cinco operações
+    /// paradas na fila atrás de "A conta não tem pasta de arquivo no servidor, e
+    /// arquivar precisa de uma". O servidor dela não tem `\Archive` nem nada que
+    /// a heurística de nome reconheça, e o espelho desistia.
+    ///
+    /// **A mutação:** trocar o `try await cria(MirrorNames.archive)` de
+    /// `destino(de: .archived)` de volta pelo `throw SyncError.resposta(…)` faz
+    /// esta chamada lançar, e nenhum `CREATE` nem `UID COPY` sai — a fila da
+    /// conta volta a parar.
+    @Test("Arquivar numa conta sem pasta de arquivo cria a pasta e move")
+    func arquivaCriandoAPasta() async throws {
+        let servidor = FakeImapServer(script: .init(
+            // Um servidor que só tem a caixa de entrada: nem `\Archive`, nem
+            // "Arquivo", nem "Archive".
+            replies: Self.roteiroDeMover([
+                #"* LIST (\HasNoChildren \Inbox) "/" "INBOX""#,
+                "TAG OK LIST completo",
+            ]),
+            mailboxes: ["INBOX"]
+        ))
+        let porta = try servidor.start()
+        defer { servidor.stop() }
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+
+        let espelho = ImapMirror(session: try await conecta(porta: porta, grupo: grupo))
+        try await espelho.apply(
+            .move(bucket: TriageBucket.archived.rawValue, messageIDs: ["a"]), targets: [alvo(9001)]
+        )
+
+        #expect(servidor.commands.contains { $0.hasSuffix(#"CREATE "Archive""#) })
+        #expect(servidor.commands.contains { $0.hasSuffix(#"UID COPY 9001 "Archive""#) })
+        #expect(servidor.mailboxes.contains("Archive"))
+        // O nome criado é um que a leitura reconhece de volta: sem isso, o
+        // `LIST` seguinte não acharia a pasta e o espelho criaria uma segunda ao
+        // lado, com as mensagens arquivadas partidas em duas.
+        #expect(FolderRoles.role(specialUse: nil, name: MirrorNames.archive) == .archive)
+        #expect(FolderRoles.role(specialUse: nil, name: MirrorNames.trash) == .trash)
+    }
+
+    /// A outra metade: a pasta **está** no `LIST`, e mesmo assim o servidor
+    /// recusa o destino — a caixa foi apagada entre a listagem e o move, ou o
+    /// `LIST` mentiu. O protocolo tem código próprio para isto
+    /// (`NO [NONEXISTENT]` no `SELECT`, `NO [TRYCREATE]` no `COPY`), e ele quer
+    /// dizer literalmente "crie e tente de novo".
+    ///
+    /// **A mutação:** apagar o `catch … where ImapWire.pedeCriacaoDaCaixa` de
+    /// `moveUm` faz o `NO` subir como `SyncError.servidor`, a operação falha
+    /// permanentemente e nenhum `CREATE` sai.
+    @Test("O NO [TRYCREATE] do destino é atendido: cria a caixa e repete o move")
+    func atendeOTryCreate() async throws {
+        let servidor = FakeImapServer(script: .init(
+            // O `LIST` anuncia "Arquivo" como pasta de arquivo…
+            replies: Self.roteiroDeMover([
+                #"* LIST (\HasNoChildren \Inbox) "/" "INBOX""#,
+                #"* LIST (\HasNoChildren \Archive) "/" "Arquivo""#,
+                "TAG OK LIST completo",
+            ]),
+            // …e o servidor não a tem.
+            mailboxes: ["INBOX"]
+        ))
+        let porta = try servidor.start()
+        defer { servidor.stop() }
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+
+        let espelho = ImapMirror(session: try await conecta(porta: porta, grupo: grupo))
+        try await espelho.apply(
+            .move(bucket: TriageBucket.archived.rawValue, messageIDs: ["a"]), targets: [alvo(9001)]
+        )
+
+        #expect(servidor.commands.contains { $0.hasSuffix(#"CREATE "Arquivo""#) })
+        #expect(servidor.commands.contains { $0.hasSuffix(#"UID COPY 9001 "Arquivo""#) })
+        // Uma cópia, e não duas: a retentativa refaz o mover do começo, e a
+        // pergunta de idempotência ao destino recém-criado responde "copie" uma
+        // vez só.
+        #expect(servidor.commands.filter { $0.contains("UID COPY") }.count == 1)
+    }
+
+    /// A recusa que **não** é sobre a caixa faltar continua sendo falha. Criar
+    /// uma pasta em cima de um `NO` de permissão esconderia o problema real
+    /// atrás de uma pasta nova e vazia.
+    @Test("Um NO que não pede criação continua falhando")
+    func recusaQueNaoPedeCriacao() {
+        #expect(ImapWire.pedeCriacaoDaCaixa("[TRYCREATE] Mailbox does not exist"))
+        #expect(ImapWire.pedeCriacaoDaCaixa("[NONEXISTENT] Unknown Mailbox"))
+        #expect(ImapWire.pedeCriacaoDaCaixa("Mailbox does not exist"))
+        #expect(ImapWire.pedeCriacaoDaCaixa("NO SUCH MAILBOX"))
+        #expect(!ImapWire.pedeCriacaoDaCaixa("[NOPERM] Permission denied"))
+        #expect(!ImapWire.pedeCriacaoDaCaixa("[OVERQUOTA] Quota exceeded"))
+        #expect(!ImapWire.pedeCriacaoDaCaixa("[READ-ONLY] Mailbox is read-only"))
+    }
+
     // MARK: O ciclo fecha
 
     @Test("Pasta criada, papel lido de volta: o bucket que sai é o que entrou")

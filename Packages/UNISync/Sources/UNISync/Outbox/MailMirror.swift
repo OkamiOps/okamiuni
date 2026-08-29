@@ -42,4 +42,25 @@ public protocol MailMirror: Sendable {
 /// o mesmo que a escrita cria, senão "Depois" feito aqui não volta como Depois.
 public enum MirrorNames {
     public static let later = FolderRoles.laterFolderName
+
+    /// O nome da pasta de arquivo, quando o servidor **não tem nenhuma**.
+    ///
+    /// A conta do dono (`marcos@okamiops.com`) tinha a fila parada em "A conta
+    /// não tem pasta de arquivo no servidor, e arquivar precisa de uma": o
+    /// `LIST` não trazia `\Archive` nem nada que a heurística de nome
+    /// reconhecesse, e o espelho desistia. Desistir é a resposta errada — a
+    /// pessoa mandou arquivar, e criar a pasta que falta é o que qualquer
+    /// cliente faz.
+    ///
+    /// `"Archive"` em inglês, e sem prefixo nosso, de propósito: é o nome que o
+    /// `SPECIAL-USE` do RFC 6154 nomeia, o que a maioria dos servidores usa por
+    /// padrão, e — o que decide — o que `FolderRoles.role(specialUse:name:)` já
+    /// lê de volta como `.archive`. Uma pasta "OkamiUNI/Arquivo" seria nossa e
+    /// de mais ninguém: o webmail da pessoa mostraria as mensagens arquivadas
+    /// num canto que só este app entende.
+    public static let archive = "Archive"
+
+    /// O mesmo para a lixeira, pela mesma razão e com o mesmo critério: é o
+    /// nome do `\Trash` do RFC 6154, e `FolderRoles` o reconhece de volta.
+    public static let trash = "Trash"
 }

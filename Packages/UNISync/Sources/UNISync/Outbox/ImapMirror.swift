@@ -31,7 +31,15 @@ public actor ImapMirror: MailMirror {
     private let now: @Sendable () -> Date
     private var sessao: ImapSession?
     private var pastas: [ImapFolder]?
-    private var depoisCriada = false
+    /// As pastas que **esta sessão** já mandou criar.
+    ///
+    /// Era um `Bool` para a `OkamiUNI/Depois` e virou conjunto quando o arquivo
+    /// e a lixeira ganharam o mesmo tratamento: sem ele, arquivar cinquenta
+    /// mensagens numa conta sem pasta de arquivo mandaria cinquenta `CREATE`
+    /// para o servidor — todos menos o primeiro respondidos com
+    /// `NO [ALREADYEXISTS]`, que o `create` engole em silêncio. Uma ida e volta
+    /// por mensagem para não fazer nada.
+    private var criadas: Set<String> = []
     private let log = Logger(subsystem: "com.okamiops.okamiuni", category: "ImapMirror")
 
     public init(
@@ -74,6 +82,11 @@ public actor ImapMirror: MailMirror {
     private func derruba() {
         sessao = nil
         pastas = nil
+        // A memória do que já foi criado é **da conexão**: a sessão nova relê a
+        // lista, e uma pasta que só existia na cabeça deste ator (criada por um
+        // `CREATE` que talvez nem tenha chegado, já que a conexão caiu) não pode
+        // impedir a tentativa seguinte de a criar de novo.
+        criadas = []
     }
 
     @discardableResult
@@ -259,7 +272,45 @@ public actor ImapMirror: MailMirror {
         }
     }
 
+    /// O mover de uma mensagem, com o `[TRYCREATE]` do RFC 2180 pago.
+    ///
+    /// **A caixa de destino pode não existir no meio da operação**, e o
+    /// protocolo tem uma resposta própria para isso: o `NO [TRYCREATE]` de um
+    /// `COPY` (ou o `NO [NONEXISTENT]` de um `SELECT`) quer dizer "crie a caixa
+    /// e tente de novo" — literalmente. Antes disto o `NO` virava
+    /// `SyncError.servidor`, o executor o classificava como falha e a operação
+    /// parava a fila da conta por causa de uma pasta ausente.
+    ///
+    /// A retentativa refaz o mover **do começo**, e não do ponto em que parou:
+    /// ela reseleciona a origem, reconfere que o UID ainda está lá e repergunta
+    /// ao destino. É de graça — a pasta recém-criada está vazia, então a
+    /// pergunta responde "copie" na hora — e é o que mantém a idempotência
+    /// documentada em `mover(_:para:)` valendo também por este caminho.
+    ///
+    /// **Uma vez, e não em laço.** Se o `CREATE` passou e o `COPY` seguinte
+    /// ainda diz que a caixa não existe, o problema não é a caixa faltando: é o
+    /// servidor, e insistir seria girar contra ele.
     private func moveUm(uid: Int64, de origem: String, para destino: String) async throws {
+        do {
+            try await tentaMover(uid: uid, de: origem, para: destino)
+        } catch SyncError.servidor(_, let mensagem)
+        where ImapWire.pedeCriacaoDaCaixa(mensagem) {
+            log.notice("A caixa de destino não existe; criando e tentando o move de novo.")
+            try await cria(destino)
+            try await tentaMover(uid: uid, de: origem, para: destino)
+        }
+    }
+
+    /// Cria a pasta uma vez por sessão e reabre a lista para as próximas
+    /// operações a acharem pelo caminho normal.
+    private func cria(_ mailbox: String) async throws {
+        guard !criadas.contains(mailbox) else { return }
+        try await sessaoAtiva().create(mailbox: mailbox)
+        criadas.insert(mailbox)
+        pastas = nil
+    }
+
+    private func tentaMover(uid: Int64, de origem: String, para destino: String) async throws {
         let session = try await sessaoAtiva()
         _ = try await session.select(ImapFolder(name: origem, specialUse: nil))
         guard try await !session.existingUIDs([uid]).isEmpty else { return }
@@ -298,37 +349,30 @@ public actor ImapMirror: MailMirror {
     /// A tradução é a **inversa** da `TriageProjection.bucket(role:)`, e é por
     /// isso que ela é escrita em termos de `FolderRole` e não de nomes: quem
     /// decide que "Alle Nachrichten" é o arquivo é `FolderRoles`, num lugar só.
+    /// - Note: **Nenhuma caixa de triagem falha mais por pasta ausente.** As
+    ///   três que precisam de uma pasta de verdade (Depois, Arquivado, Lixeira)
+    ///   criam a que falta, pela mesma regra e com o mesmo cuidado: o nome
+    ///   criado é um que `FolderRoles` reconhece de volta, para a pasta feita
+    ///   por nós ser achada pelo `LIST` da próxima vez em vez de uma segunda
+    ///   ser criada ao lado. Era este o defeito da conta do dono — cinco
+    ///   operações paradas atrás de "a conta não tem pasta de arquivo".
     private func destino(de bucket: TriageBucket) async throws -> String {
-        let session = try await sessaoAtiva()
         let disponiveis = try await lista()
         switch bucket {
         case .today:
             return nome(de: .inbox, em: disponiveis) ?? "INBOX"
         case .later:
             if let existente = nome(de: .later, em: disponiveis) { return existente }
-            // Criada no primeiro uso — e uma vez só: `create` não reclama de
-            // pasta que já existe, e a lista é relida para as próximas
-            // operações a acharem pelo caminho normal.
-            if !depoisCriada {
-                try await session.create(mailbox: MirrorNames.later)
-                depoisCriada = true
-                pastas = nil
-            }
+            try await cria(MirrorNames.later)
             return MirrorNames.later
         case .archived:
-            guard let pasta = nome(de: .archive, em: disponiveis) else {
-                throw SyncError.resposta(
-                    "A conta não tem pasta de arquivo no servidor, e arquivar precisa de uma."
-                )
-            }
-            return pasta
+            if let pasta = nome(de: .archive, em: disponiveis) { return pasta }
+            try await cria(MirrorNames.archive)
+            return MirrorNames.archive
         case .trash:
-            guard let pasta = nome(de: .trash, em: disponiveis) else {
-                throw SyncError.resposta(
-                    "A conta não tem pasta de lixeira no servidor, e apagar precisa de uma."
-                )
-            }
-            return pasta
+            if let pasta = nome(de: .trash, em: disponiveis) { return pasta }
+            try await cria(MirrorNames.trash)
+            return MirrorNames.trash
         case .all:
             throw SyncError.resposta("\"Tudo\" é uma visão, não uma pasta — não há para onde mover.")
         case .sent:

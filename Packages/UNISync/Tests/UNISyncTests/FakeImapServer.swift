@@ -40,17 +40,34 @@ final class FakeImapServer: @unchecked Sendable {
         /// os dois comandos nunca se sobrepõem, e "esperou a vez" e "não
         /// precisou esperar" ficam indistinguíveis.
         var atrasos: [String: TimeInterval]
+        /// Quais caixas **existem** neste servidor.
+        ///
+        /// `nil` — o padrão — desliga a encenação inteira e o servidor continua
+        /// respondendo do roteiro por verbo, como sempre fez: nenhum teste
+        /// antigo muda de caminho.
+        ///
+        /// Com um conjunto, o servidor passa a ter a única memória que o
+        /// `[TRYCREATE]` do RFC 2180 exige para ser encenado de verdade: um
+        /// `SELECT` ou um `UID COPY` para uma caixa de fora do conjunto é
+        /// recusado com o código que o protocolo manda, e um `CREATE` a
+        /// acrescenta — de modo que a **segunda** tentativa passa. Sem esta
+        /// memória, "criou e conseguiu mover" e "nunca precisou criar" ficam
+        /// indistinguíveis: o roteiro estático responderia `OK` ao `COPY` de
+        /// qualquer jeito.
+        var mailboxes: Set<String>?
 
         init(
             greeting: String = "* OK [CAPABILITY IMAP4rev1 STARTTLS] OkamiUNI falso pronto",
             replies: [String: [String]],
             rounds: [String: [[String]]] = [:],
-            atrasos: [String: TimeInterval] = [:]
+            atrasos: [String: TimeInterval] = [:],
+            mailboxes: Set<String>? = nil
         ) {
             self.greeting = greeting
             self.replies = replies
             self.rounds = rounds
             self.atrasos = atrasos
+            self.mailboxes = mailboxes
         }
     }
 
@@ -94,10 +111,24 @@ final class FakeImapServer: @unchecked Sendable {
     /// Quantas vezes cada chave de roteiro já foi servida. Vive no servidor, e
     /// não no handler, para sobreviver a uma reconexão.
     private var rodadas: [String: Int] = [:]
+    /// As caixas que existem agora. Vive no servidor, e não no handler, pela
+    /// mesma razão das rodadas: um `CREATE` feito numa conexão continua valendo
+    /// na seguinte — que é o que o mundo real faz, e o que o teste da fila
+    /// (tentar de novo depois do recuo) precisa que seja verdade.
+    private var caixas: Set<String>?
 
     init(script: Script) {
         self.script = script
+        caixas = script.mailboxes
         group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+    }
+
+    /// As caixas que existem no servidor agora — o que o teste afirma depois de
+    /// um `CREATE` automático.
+    var mailboxes: Set<String> {
+        lock.lock()
+        defer { lock.unlock() }
+        return caixas ?? []
     }
 
     /// Sobe e devolve a porta escolhida pelo sistema.
@@ -117,6 +148,21 @@ final class FakeImapServer: @unchecked Sendable {
             self.rodadas[chave] = atual + 1
             return atual
         }
+        /// `nil` quando o roteiro não encena caixas; `true`/`false` quando
+        /// encena. Três valores, e não dois, porque "não sei de caixa nenhuma"
+        /// e "esta caixa não existe" são coisas diferentes.
+        let existe: @Sendable (String) -> Bool? = { [weak self] nome in
+            guard let self else { return nil }
+            self.lock.lock()
+            defer { self.lock.unlock() }
+            return self.caixas.map { $0.contains(nome) }
+        }
+        let cria: @Sendable (String) -> Void = { [weak self] nome in
+            guard let self else { return }
+            self.lock.lock()
+            defer { self.lock.unlock() }
+            if self.caixas != nil { self.caixas?.insert(nome) }
+        }
         let bootstrap = ServerBootstrap(group: group)
             .serverChannelOption(.backlog, value: 8)
             .serverChannelOption(.socketOption(.so_reuseaddr), value: 1)
@@ -127,7 +173,8 @@ final class FakeImapServer: @unchecked Sendable {
                     try canal.pipeline.syncOperations.addHandlers([
                         ByteToMessageHandler(CRLFLineDecoder()),
                         ScriptedHandler(
-                            script: script, registrar: registrar, proximaRodada: proximaRodada
+                            script: script, registrar: registrar, proximaRodada: proximaRodada,
+                            existeCaixa: existe, criaCaixa: cria
                         ),
                     ])
                 }
@@ -168,15 +215,21 @@ final class FakeImapServer: @unchecked Sendable {
         private let script: Script
         private let registrar: @Sendable (String) -> Void
         private let proximaRodada: @Sendable (String) -> Int
+        private let existeCaixa: @Sendable (String) -> Bool?
+        private let criaCaixa: @Sendable (String) -> Void
 
         init(
             script: Script,
             registrar: @escaping @Sendable (String) -> Void,
-            proximaRodada: @escaping @Sendable (String) -> Int
+            proximaRodada: @escaping @Sendable (String) -> Int,
+            existeCaixa: @escaping @Sendable (String) -> Bool?,
+            criaCaixa: @escaping @Sendable (String) -> Void
         ) {
             self.script = script
             self.registrar = registrar
             self.proximaRodada = proximaRodada
+            self.existeCaixa = existeCaixa
+            self.criaCaixa = criaCaixa
         }
 
         func channelActive(context: ChannelHandlerContext) {
@@ -246,7 +299,57 @@ final class FakeImapServer: @unchecked Sendable {
 
             // A tag do `IDLE` fica guardada para o `DONE` que vem depois.
             if verbo == "IDLE" { tagDoIdle = tag }
+
+            // As caixas que existem, quando o roteiro as encena. Vem **antes**
+            // do roteiro por verbo: um `SELECT` de caixa inexistente é recusado
+            // mesmo que o roteiro tenha uma resposta de `SELECT` pronta — que é
+            // o ponto, já que todo roteiro tem.
+            if let resposta = respostaDeCaixa(verbo: verbo, resto: resto, tag: tag) {
+                escreve(context, resposta)
+                return
+            }
             responde(context, chave: chave, verbo: verbo, tag: tag)
+        }
+
+        /// A resposta que a existência (ou não) da caixa impõe, ou `nil` para
+        /// "deixe o roteiro responder".
+        ///
+        /// Os três verbos que olham para a caixa por nome são os três que
+        /// importam ao `[TRYCREATE]`: `SELECT` (o espelho seleciona o destino
+        /// antes de copiar, para perguntar se a mensagem já está lá), `UID COPY`
+        /// (a cópia em si) e `CREATE` (a saída).
+        private func respostaDeCaixa(verbo: String, resto: String, tag: String) -> String? {
+            switch verbo {
+            case "CREATE":
+                guard let nome = Self.caixaDoComando(resto),
+                      existeCaixa(nome) != nil else { return nil }
+                criaCaixa(nome)
+                return "\(tag) OK CREATE completo"
+            case "SELECT":
+                guard let nome = Self.caixaDoComando(resto),
+                      existeCaixa(nome) == false else { return nil }
+                // O código do RFC 5530, que é o que servidores modernos mandam
+                // no `SELECT` de uma caixa que não existe.
+                return "\(tag) NO [NONEXISTENT] Mailbox does not exist"
+            case "UID COPY":
+                guard let nome = Self.caixaDoComando(resto),
+                      existeCaixa(nome) == false else { return nil }
+                // E o do RFC 3501/2180 no `COPY`: "crie e tente de novo".
+                return "\(tag) NO [TRYCREATE] Mailbox does not exist"
+            default:
+                return nil
+            }
+        }
+
+        /// O nome da caixa de um comando: o **último** item da linha, sem as
+        /// aspas. Vale para os três (`SELECT "X"`, `CREATE "X"`,
+        /// `UID COPY 9001 "X"`), que é exatamente o formato que o `ImapWire`
+        /// monta.
+        private static func caixaDoComando(_ resto: String) -> String? {
+            guard let ultimo = resto.split(separator: " ").last else { return nil }
+            let cru = String(ultimo)
+            guard cru.hasPrefix("\""), cru.hasSuffix("\""), cru.count >= 2 else { return cru }
+            return String(cru.dropFirst().dropLast())
         }
 
         /// A tag do `IDLE` em voo nesta conexão. Vive no handler, e não no

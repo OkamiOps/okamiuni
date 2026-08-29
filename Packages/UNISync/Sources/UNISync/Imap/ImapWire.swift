@@ -53,6 +53,39 @@ public enum ImapWire {
 
     public static func list(tag: String) -> String { "\(tag) LIST \"\" \"*\"" }
 
+    /// Este `NO` está dizendo "a caixa de destino não existe"?
+    ///
+    /// **É o mapeamento fino de códigos `NO` que a M3-2 deixou registrado como
+    /// pendência — pago aqui só para este caso, e nem um centímetro além.** O
+    /// `run(_:)` do `ImapSession` traduz todo `NO` que não é credencial nem
+    /// quota em `SyncError.servidor(codigo: 0, mensagem:)`, com o texto do
+    /// servidor dentro; quem quiser distinguir um `NO` do outro tem de ler esse
+    /// texto, e ler texto de servidor espalhado por três arquivos é o começo de
+    /// três respostas diferentes para a mesma pergunta. Aqui é uma, pura e
+    /// testável.
+    ///
+    /// Os quatro sinais, e por que os quatro:
+    ///
+    /// - `[TRYCREATE]` é **o** código do RFC 3501/2180 para isto, e vem
+    ///   justamente no `NO` de um `APPEND` ou `COPY` cujo destino não existe. O
+    ///   nome do código é literalmente o conselho: crie e tente de novo.
+    /// - `[NONEXISTENT]` é o do RFC 5530, que servidores modernos mandam no
+    ///   `SELECT` de uma caixa que não existe — e o nosso mover **seleciona** o
+    ///   destino antes de copiar, para perguntar se a mensagem já está lá.
+    /// - as duas frases em inglês cobrem o servidor que não manda código
+    ///   nenhum e só escreve o motivo. Elas são o degrau mais frágil e estão
+    ///   por último de propósito: quem tem código não depende delas.
+    ///
+    /// O que **não** entra: nada que não seja sobre a existência da caixa. Um
+    /// `NO` de permissão, de quota ou de caixa somente-leitura continua sendo
+    /// falha — criar uma pasta em cima deles esconderia o problema real atrás
+    /// de uma pasta nova e vazia.
+    public static func pedeCriacaoDaCaixa(_ mensagem: String) -> Bool {
+        let dobrado = mensagem.uppercased()
+        if dobrado.contains("[TRYCREATE]") || dobrado.contains("[NONEXISTENT]") { return true }
+        return dobrado.contains("DOES NOT EXIST") || dobrado.contains("NO SUCH MAILBOX")
+    }
+
     public static func select(tag: String, mailbox: String) -> String {
         "\(tag) SELECT \(quoted(mailbox))"
     }
