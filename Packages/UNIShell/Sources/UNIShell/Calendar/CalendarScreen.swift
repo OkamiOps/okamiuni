@@ -39,6 +39,7 @@ public struct CalendarScreen: View {
     /// regra do email, em `PaneLayout.sidebarExpanded(width:wantsSidebar:)`.
     let wantsSidebar: Bool
     let intelligencePresentation: IntelligencePresentation
+    let onOpenAssistant: () -> Void
     let onOpenEvent: (AgendaItem) -> Void
     /// "Ir para o email de origem", do menu de contexto do cartão. Sai da aba
     /// Agenda: quem sabe voltar para o email é o `InboxScreen`.
@@ -58,13 +59,15 @@ public struct CalendarScreen: View {
         anchor: Date,
         wantsSidebar: Bool = true,
         intelligencePresentation: IntelligencePresentation = .available,
+        onOpenAssistant: @escaping () -> Void = {},
         onOpenEvent: @escaping (AgendaItem) -> Void = { _ in },
         onRevealMessage: @escaping (String) -> Void = { _ in }
     ) {
         self.init(
             store: store, now: now, anchor: anchor, wantsSidebar: wantsSidebar,
             intelligencePresentation: intelligencePresentation,
-            initialMode: .week, initialPickerOpen: false, onOpenEvent: onOpenEvent,
+            initialMode: .week, initialPickerOpen: false,
+            onOpenAssistant: onOpenAssistant, onOpenEvent: onOpenEvent,
             onRevealMessage: onRevealMessage
         )
     }
@@ -86,6 +89,7 @@ public struct CalendarScreen: View {
         intelligencePresentation: IntelligencePresentation = .available,
         initialMode: CalendarViewMode,
         initialPickerOpen: Bool = false,
+        onOpenAssistant: @escaping () -> Void = {},
         onOpenEvent: @escaping (AgendaItem) -> Void = { _ in },
         onRevealMessage: @escaping (String) -> Void = { _ in }
     ) {
@@ -94,6 +98,7 @@ public struct CalendarScreen: View {
         self.anchor = anchor
         self.wantsSidebar = wantsSidebar
         self.intelligencePresentation = intelligencePresentation
+        self.onOpenAssistant = onOpenAssistant
         self.onOpenEvent = onOpenEvent
         self.onRevealMessage = onRevealMessage
         _mode = State(initialValue: initialMode)
@@ -114,11 +119,17 @@ public struct CalendarScreen: View {
                     FolderSidebar(
                         store: store,
                         width: sidebarWidth,
-                        intelligencePresentation: intelligencePresentation
+                        intelligencePresentation: intelligencePresentation,
+                        onOpenAssistant: onOpenAssistant
                     )
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 } else {
-                    SidebarRail(store: store, width: sidebarWidth)
+                    SidebarRail(
+                        store: store,
+                        width: sidebarWidth,
+                        intelligencePresentation: intelligencePresentation,
+                        onOpenAssistant: onOpenAssistant
+                    )
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 }
                 // A faixa de retorno pende da coluna da agenda, e não da

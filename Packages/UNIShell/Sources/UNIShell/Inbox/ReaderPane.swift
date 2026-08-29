@@ -16,6 +16,8 @@ public struct ReaderPane: View {
     /// expande a faixa de baixo e põe o cursor nela — pedido do dono. A janela
     /// continua a um clique dali, e é o mesmo caminho de sempre.
     let onReply: (Message) -> Void
+    /// Mesmo motor da janela cheia, reaproveitado na resposta rápida.
+    let intelligence: ComposerIntelligenceGenerator?
     /// Destino injetável do anexo: evita painel do sistema no harness e deixa
     /// a ação testável sem automação da área de trabalho.
     let attachmentSaver: (any AttachmentSaving)?
@@ -55,11 +57,13 @@ public struct ReaderPane: View {
     public init(
         store: MailStore,
         onReply: @escaping (Message) -> Void = { _ in },
-        attachmentSaver: (any AttachmentSaving)? = NativeAttachmentSaver()
+        attachmentSaver: (any AttachmentSaving)? = NativeAttachmentSaver(),
+        intelligence: ComposerIntelligenceGenerator? = nil
     ) {
         self.store = store
         self.onReply = onReply
         self.attachmentSaver = attachmentSaver
+        self.intelligence = intelligence
     }
 
     public var body: some View {
@@ -140,7 +144,8 @@ public struct ReaderPane: View {
             // `MailStore`, e volta quando a mensagem voltar.
             QuickReplyBand(
                 store: store, message: message, onPromote: onReply,
-                expandRequest: pedidoDeResposta
+                expandRequest: pedidoDeResposta,
+                intelligence: intelligence
             )
             .id(message.id)
         }

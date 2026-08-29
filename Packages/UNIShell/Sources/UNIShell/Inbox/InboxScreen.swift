@@ -32,6 +32,7 @@ public struct InboxScreen: View {
 
     @State private var workspace: Workspace = .mail
     @State private var query = ""
+    @State private var assistantOpen = false
     let store: MailStore
 
     /// De onde vem o "agora" da trilha e das três visões da agenda.
@@ -45,15 +46,43 @@ public struct InboxScreen: View {
     /// Estado real do modelo local, traduzido pela composição do app. O padrão
     /// mantém previews e harnesses no estado disponível das fixtures.
     let intelligencePresentation: IntelligencePresentation
+    /// Serviço local injetado pelo app. `nil` mantém previews e harnesses
+    /// determinísticos, com a superfície ainda renderizável.
+    let textAssistant: (any OnDeviceTextAssisting)?
+    let composerIntelligence: ComposerIntelligenceGenerator?
 
     public init(
         store: MailStore,
         clock: AgendaClock = .fixed(Fixtures.nowMinute),
-        intelligencePresentation: IntelligencePresentation = .available
+        intelligencePresentation: IntelligencePresentation = .available,
+        textAssistant: (any OnDeviceTextAssisting)? = nil
+    ) {
+        self.init(
+            store: store,
+            clock: clock,
+            intelligencePresentation: intelligencePresentation,
+            textAssistant: textAssistant,
+            debugAssistantOpen: false
+        )
+    }
+
+    /// Porta exclusiva do harness offscreen; não sintetiza clique nem abre
+    /// janela visível.
+    init(
+        store: MailStore,
+        clock: AgendaClock = .fixed(Fixtures.nowMinute),
+        intelligencePresentation: IntelligencePresentation = .available,
+        textAssistant: (any OnDeviceTextAssisting)? = nil,
+        debugAssistantOpen: Bool
     ) {
         self.store = store
         self.clock = clock
         self.intelligencePresentation = intelligencePresentation
+        self.textAssistant = textAssistant
+        self.composerIntelligence = textAssistant.map {
+            OnDeviceAssistantBridge.composerGenerator(using: $0)
+        }
+        _assistantOpen = State(initialValue: debugAssistantOpen)
     }
 
     /// O **hoje** de tudo que esta tela desenha com data: o carimbo de cada
@@ -84,12 +113,21 @@ public struct InboxScreen: View {
                 onCompose: openNewMessage
             )
 
-            // Conteúdo principal
-            switch workspace {
-            case .mail:
-                mailContent
-            case .calendar:
-                calendarContent
+            ZStack(alignment: .trailing) {
+                // Conteúdo principal
+                switch workspace {
+                case .mail:
+                    mailContent
+                case .calendar:
+                    calendarContent
+                }
+
+                if assistantOpen {
+                    assistantPanel
+                        .padding(12)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                        .zIndex(50)
+                }
             }
         }
         .environment(receipts)
@@ -164,11 +202,17 @@ public struct InboxScreen: View {
                     FolderSidebar(
                         store: store,
                         width: layout.sidebarWidth,
-                        intelligencePresentation: intelligencePresentation
+                        intelligencePresentation: intelligencePresentation,
+                        onOpenAssistant: openAssistant
                     )
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 } else {
-                    SidebarRail(store: store, width: layout.sidebarWidth)
+                    SidebarRail(
+                        store: store,
+                        width: layout.sidebarWidth,
+                        intelligencePresentation: intelligencePresentation,
+                        onOpenAssistant: openAssistant
+                    )
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 }
 
@@ -184,7 +228,11 @@ public struct InboxScreen: View {
                 )
 
                 // Painel de leitura: fica com tudo o que sobrar.
-                ReaderPane(store: store, onReply: openComposer)
+                ReaderPane(
+                    store: store,
+                    onReply: openComposer,
+                    intelligence: composerIntelligence
+                )
 
                 // Trilha de agenda — o primeiro painel a sair quando aperta.
                 // A data do cabeçalho e o minuto seguem o **mesmo** relógio:
@@ -304,6 +352,7 @@ public struct InboxScreen: View {
                 anchor: agendaAnchor,
                 wantsSidebar: wantsSidebar,
                 intelligencePresentation: intelligencePresentation,
+                onOpenAssistant: openAssistant,
                 onOpenEvent: openEventWindow,
                 onRevealMessage: reveal
             )
@@ -360,6 +409,80 @@ public struct InboxScreen: View {
         withAnimation(Self.paneTransition) {
             wantsAgenda.toggle()
         }
+    }
+
+    // MARK: - Assistente local
+
+    private var assistantContext: LocalAssistantContext {
+        guard let message = store.selectedMessage else {
+            return LocalAssistantContext(
+                subject: "Selecione um email",
+                sender: "Abra uma mensagem para começar"
+            )
+        }
+        let count = store.selectedConversation?.count ?? 1
+        return LocalAssistantContext(
+            subject: message.subject,
+            sender: message.from.display,
+            conversationLabel: count > 1 ? "\(count) mensagens" : nil
+        )
+    }
+
+    private var assistantContextID: String {
+        store.selectedConversation?.key ?? store.selectedMessageID ?? "sem-email"
+    }
+
+    private var assistantMailContext: OnDeviceAssistantMailContext? {
+        guard let message = store.selectedMessage else { return nil }
+        if let conversation = store.selectedConversation, conversation.count > 1 {
+            return OnDeviceAssistantMailContext(conversation: conversation)
+        }
+        return OnDeviceAssistantMailContext(message: message)
+    }
+
+    private var assistantPanel: some View {
+        LocalAssistantPanel(
+            context: assistantContext,
+            onAsk: askAssistant,
+            onClose: closeAssistant
+        )
+        .id(assistantContextID)
+        .shadow(color: .black.opacity(0.16), radius: 22, x: 0, y: 10)
+    }
+
+    private func openAssistant() {
+        withAnimation(Self.paneTransition) { assistantOpen = true }
+    }
+
+    private func closeAssistant() {
+        withAnimation(Self.paneTransition) { assistantOpen = false }
+    }
+
+    private func askAssistant(_ request: LocalAssistantRequest) async throws -> String {
+        guard let textAssistant else {
+            throw OnDeviceTextAssistantError.invalidRequest(
+                "O assistente local não foi conectado a esta janela."
+            )
+        }
+        guard let selectedID = store.selectedMessageID else {
+            throw OnDeviceTextAssistantError.invalidRequest(
+                "Selecione um email antes de fazer uma pergunta."
+            )
+        }
+
+        let ids = store.selectedConversation?.messageIDs ?? [selectedID]
+        for id in ids { await store.loadBodyIfNeeded(id) }
+
+        guard let mailContext = assistantMailContext else {
+            throw OnDeviceTextAssistantError.invalidRequest(
+                "O email selecionado não está mais disponível."
+            )
+        }
+        return try await OnDeviceAssistantBridge.answer(
+            request,
+            mailContext: mailContext,
+            using: textAssistant
+        )
     }
 }
 

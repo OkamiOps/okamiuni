@@ -14,10 +14,20 @@ public struct MessageWindow: View {
 
     let store: MailStore
     let messageID: String
+    let textAssistant: (any OnDeviceTextAssisting)?
+    let intelligencePresentation: IntelligencePresentation
+    @State private var assistantOpen = false
 
-    public init(store: MailStore, messageID: String) {
+    public init(
+        store: MailStore,
+        messageID: String,
+        textAssistant: (any OnDeviceTextAssisting)? = nil,
+        intelligencePresentation: IntelligencePresentation = .available
+    ) {
         self.store = store
         self.messageID = messageID
+        self.textAssistant = textAssistant
+        self.intelligencePresentation = intelligencePresentation
     }
 
     private var message: Message? {
@@ -33,17 +43,31 @@ public struct MessageWindow: View {
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
-            WindowTitleBar(title: message?.subject ?? "Mensagem") {
-                TintChip(label: account?.host ?? "", tint: tint, emphasized: true)
+        ZStack(alignment: .trailing) {
+            VStack(spacing: 0) {
+                WindowTitleBar(title: message?.subject ?? "Mensagem") {
+                    TintChip(label: account?.host ?? "", tint: tint, emphasized: true)
+                }
+
+                if let message {
+                    header(message)
+                    body(message)
+                    footer(message)
+                } else {
+                    missing
+                }
             }
 
-            if let message {
-                header(message)
-                body(message)
-                footer(message)
-            } else {
-                missing
+            if assistantOpen, let message {
+                LocalAssistantPanel(
+                    context: localContext(for: message),
+                    onAsk: askAssistant,
+                    onClose: closeAssistant
+                )
+                .id(store.conversation(of: message.id)?.key ?? message.id)
+                .padding(12)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+                .shadow(color: .black.opacity(0.16), radius: 22, x: 0, y: 10)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -172,6 +196,11 @@ public struct MessageWindow: View {
                 openWindow(id: UNIWindow.composer, value: message.id)
                 dismiss()
             }
+            ChromeButton("Perguntar", appearance: .outlined) {
+                withAnimation(.easeInOut(duration: 0.18)) { assistantOpen = true }
+            }
+            .disabled(!intelligencePresentation.isAvailable)
+            .help(intelligencePresentation.actionHelp)
             ChromeButton("Arquivar", appearance: .outlined) {
                 store.move(message, to: .archived)
                 dismiss()
@@ -192,6 +221,47 @@ public struct MessageWindow: View {
             .italic()
             .foregroundStyle(theme.ink4.color)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func localContext(for message: Message) -> LocalAssistantContext {
+        let count = store.conversation(of: message.id)?.count ?? 1
+        return LocalAssistantContext(
+            subject: message.subject,
+            sender: message.from.display,
+            conversationLabel: count > 1 ? "\(count) mensagens" : nil
+        )
+    }
+
+    private func closeAssistant() {
+        withAnimation(.easeInOut(duration: 0.18)) { assistantOpen = false }
+    }
+
+    private func askAssistant(_ request: LocalAssistantRequest) async throws -> String {
+        guard let textAssistant else {
+            throw OnDeviceTextAssistantError.invalidRequest(
+                "O assistente local não foi conectado a esta janela."
+            )
+        }
+
+        let ids = store.conversation(of: messageID)?.messageIDs ?? [messageID]
+        for id in ids { await store.loadBodyIfNeeded(id) }
+
+        guard let current = store.messages.first(where: { $0.id == messageID }) else {
+            throw OnDeviceTextAssistantError.invalidRequest(
+                "O email selecionado não está mais disponível."
+            )
+        }
+        let mailContext: OnDeviceAssistantMailContext
+        if let conversation = store.conversation(of: current.id), conversation.count > 1 {
+            mailContext = .init(conversation: conversation)
+        } else {
+            mailContext = .init(message: current)
+        }
+        return try await OnDeviceAssistantBridge.answer(
+            request,
+            mailContext: mailContext,
+            using: textAssistant
+        )
     }
 }
 

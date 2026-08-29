@@ -42,6 +42,10 @@ struct OkamiUNIApp: App {
     /// verdade, e sai daqui quando ela chegar.
     @State private var accountsRehearsalModel = AccountsRehearsal.makeModel()
 
+    private var composerIntelligence: ComposerIntelligenceGenerator {
+        OnDeviceAssistantBridge.composerGenerator(using: composition.textAssistant)
+    }
+
     init() {
         FontRegistry.registerBundledFonts()
         // O banco do contêiner, o diretor e a fonte. Nada aqui pode impedir o
@@ -110,7 +114,8 @@ struct OkamiUNIApp: App {
             InboxScreen(
                 store: mailStore,
                 clock: agendaClock,
-                intelligencePresentation: composition.intelligenceAvailability.presentation
+                intelligencePresentation: composition.intelligenceAvailability.presentation,
+                textAssistant: composition.textAssistant
             )
                 // Porta de depuração: `open -g --args --nova-mensagem` abre a
                 // janela auxiliar pelo mesmo `openWindow` do menu, sem trazer o
@@ -196,7 +201,11 @@ struct OkamiUNIApp: App {
         // sem prefixo, continua sendo uma resposta simples: nenhuma janela
         // restaurada muda de significado.
         WindowGroup(id: UNIWindow.composer, for: String.self) { $route in
-            ComposerWindow(store: mailStore, mode: .init(ComposerRoute.parse(route ?? "")))
+            ComposerWindow(
+                store: mailStore,
+                mode: .init(ComposerRoute.parse(route ?? "")),
+                intelligence: composerIntelligence
+            )
                 .themed(themes)
                 .barraColadaNoTopo()
                 .frame(minWidth: 620, minHeight: 460)
@@ -205,7 +214,11 @@ struct OkamiUNIApp: App {
         .defaultSize(UNIWindow.Size.composer)
 
         WindowGroup(id: UNIWindow.newMessage, for: String.self) { $accountID in
-            ComposerWindow(store: mailStore, mode: .new(accountID: accountID))
+            ComposerWindow(
+                store: mailStore,
+                mode: .new(accountID: accountID),
+                intelligence: composerIntelligence
+            )
                 .themed(themes)
                 .barraColadaNoTopo()
                 .frame(minWidth: 620, minHeight: 440)
@@ -214,7 +227,12 @@ struct OkamiUNIApp: App {
         .defaultSize(UNIWindow.Size.newMessage)
 
         WindowGroup(id: UNIWindow.message, for: String.self) { $messageID in
-            MessageWindow(store: mailStore, messageID: messageID ?? "")
+            MessageWindow(
+                store: mailStore,
+                messageID: messageID ?? "",
+                textAssistant: composition.textAssistant,
+                intelligencePresentation: composition.intelligenceAvailability.presentation
+            )
                 .themed(themes)
                 .barraColadaNoTopo()
                 .frame(minWidth: 520, minHeight: 380)
