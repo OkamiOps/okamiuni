@@ -25,6 +25,8 @@ public actor AccountDirector {
     private let log = Logger(subsystem: "com.okamiops.okamiuni", category: "AccountDirector")
 
     private var errors: [String: SyncError] = [:]
+    /// O erro da fila de saída, **em prateleira própria** — ver `reportQueue`.
+    private var queueErrors: [String: SyncError] = [:]
     private var progresses: [String: LoadProgress] = [:]
     private var subscribers: [UUID: AsyncStream<[AccountStatus]>.Continuation] = [:]
     /// A carga em curso de cada conta. Guardada para poder ser **cancelada**:
@@ -142,23 +144,36 @@ public actor AccountDirector {
         log.error("A observação da fila de saída parou: \(error)")
     }
 
-    /// O erro de uma conta, vindo de **fora** do diretor: a fila de saída
-    /// (`OutboxRunner`) e o coordenador de sincronização (`SyncRunner`).
-    ///
-    /// Os dois já recebiam um `report` na construção, e ele caía num no-op —
-    /// a falha ficava no log e a janela de Contas mostrava a conta como se
-    /// nada tivesse acontecido. Esta é a porta que faltava, e é a mesma
-    /// prateleira que a carga inicial usa (`errors`), de propósito: uma conta
-    /// tem **um** erro corrente, e duas prateleiras discordariam sobre qual
-    /// mostrar.
+    /// O erro do **ciclo** de uma conta: a carga inicial e o coordenador de
+    /// sincronização (`SyncRunner`).
     ///
     /// `nil` limpa — é o ciclo que passou, e a pessoa precisa ver isso tanto
     /// quanto viu a falha. A publicação só acontece quando o valor de fato
     /// muda: um ciclo bem sucedido por minuto redesenharia a lista inteira à
     /// toa, para sempre.
+    ///
+    /// **Não toca no erro da fila.** As duas prateleiras foram uma só, e o
+    /// preço apareceu no banco do dono: a fila parava às 09:21 e relatava a
+    /// falha, o ciclo seguinte passava bem e relatava `nil` — e o `nil` do
+    /// ciclo apagava o erro da fila. A conta aparecia "Sincronizada às 00:59 ·
+    /// 48 mensagens · 5 aguardando", saudável, com cinco operações travadas e
+    /// nenhuma saída oferecida. Numa prateleira só a fila perde sempre: o
+    /// ciclo passa a cada minuto e ela não.
     public func report(accountID: String, error: SyncError?) async {
         guard errors[accountID] != error else { return }
         errors[accountID] = error
+        await refresh()
+    }
+
+    /// O erro da **fila de saída** de uma conta (`OutboxExecutor`, pelo
+    /// `OutboxRunner`). A outra prateleira.
+    ///
+    /// Ela só é limpa por quem tratou a fila: `retryAfterPermanentFailure`
+    /// relata `nil` ao religá-la. Um ciclo de sincronização bem sucedido não
+    /// diz nada sobre uma operação de saída que o servidor recusou.
+    public func reportQueue(accountID: String, error: SyncError?) async {
+        guard queueErrors[accountID] != error else { return }
+        queueErrors[accountID] = error
         await refresh()
     }
 
@@ -192,7 +207,8 @@ public actor AccountDirector {
                 hostMark: linha.conta.host, state: linha.conta.state,
                 messageCount: linha.mensagens, lastSyncedAt: linha.conta.lastSyncedAt,
                 error: errors[linha.conta.id], progress: progresses[linha.conta.id],
-                pendingOperations: linha.aguardando
+                pendingOperations: linha.aguardando,
+                queueError: queueErrors[linha.conta.id]
             )
         }
     }
@@ -393,6 +409,7 @@ public actor AccountDirector {
             try AccountRecord.deleteOne(db, key: accountID)
         }
         errors[accountID] = nil
+        queueErrors[accountID] = nil
         progresses[accountID] = nil
         generations[accountID] = nil
         await refresh()

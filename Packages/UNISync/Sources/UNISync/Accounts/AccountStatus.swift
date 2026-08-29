@@ -27,14 +27,25 @@ public struct AccountStatus: Sendable, Hashable, Identifiable {
     /// que falta. Aditivo (`0` no `init`) — quem monta um status sem fila não
     /// precisa saber que ela existe.
     public let pendingOperations: Int
+    /// A falha que **parou** a fila de saída desta conta. Nulo é fila viva —
+    /// andando, vazia, ou só esperando o recuo de uma falha transitória.
+    ///
+    /// Campo próprio, e não o `error` acima, porque os dois relatos são de
+    /// coisas diferentes e chegam de lugares diferentes: o ciclo de
+    /// sincronização passa a cada minuto e relata `nil` quando passa, e numa
+    /// prateleira só esse `nil` apagava o erro que a fila tinha posto ali —
+    /// o defeito que este campo desfaz. Ver `AccountDirector.reportQueue`.
+    public let queueError: SyncError?
 
     public init(
         accountID: String, address: String, hostMark: String,
         state: Account.State, messageCount: Int, lastSyncedAt: Date?,
         error: SyncError?, progress: LoadProgress?,
-        pendingOperations: Int = 0
+        pendingOperations: Int = 0,
+        queueError: SyncError? = nil
     ) {
         self.pendingOperations = pendingOperations
+        self.queueError = queueError
         self.accountID = accountID
         self.address = address
         self.hostMark = hostMark

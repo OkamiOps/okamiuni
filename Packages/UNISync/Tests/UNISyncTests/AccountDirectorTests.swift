@@ -126,6 +126,31 @@ private actor CaixaDeNumeros {
     }
 }
 
+/// O último `AccountStatus` publicado, com a mesma espera **com prazo** da
+/// caixa acima e pelo mesmo motivo.
+///
+/// Espera por uma **condição**, e não por uma contagem de publicações: a lista
+/// é republicada por qualquer mudança do banco (a `ValueObservation` da fila,
+/// entre outras), e contar redesenhos mediria isso em vez do que se afirma.
+private actor CaixaDeStatus {
+    private var ultimo: AccountStatus?
+
+    func anota(_ status: AccountStatus) { ultimo = status }
+
+    @discardableResult
+    func espera(
+        ate condicao: @Sendable (AccountStatus) -> Bool, prazo: Duration = .seconds(3)
+    ) async -> AccountStatus? {
+        let passo = Duration.milliseconds(20)
+        var gastos = Duration.zero
+        while !(ultimo.map(condicao) ?? false), gastos < prazo {
+            try? await Task.sleep(for: passo)
+            gastos += passo
+        }
+        return ultimo
+    }
+}
+
 /// `.serialized` porque cada teste sobe um `FakeImapServer` e um
 /// `MultiThreadedEventLoopGroup` próprios: em paralelo, uma dúzia deles
 /// disputa portas e threads, e o teste que mede "a segunda carga não entrou"
@@ -405,6 +430,62 @@ struct AccountDirectorTests {
         // nenhuma, para sempre.
         try await db.pool.write { try $0.execute(sql: "DELETE FROM outbox") }
         #expect(await caixa.espera(ate: 2) == [2, 0])
+    }
+
+    /// **O erro da fila e o do ciclo são duas prateleiras, e não uma.**
+    ///
+    /// O defeito visto no banco do dono: a `outbox` de `marcos@okamiops.com`
+    /// com 3 operações `falhou` (arquivar, 09:21) e 2 `pendente` atrás delas —
+    /// a fila daquela conta parada desde então — e a linha da conta dizendo
+    /// "Sincronizada às 00:59 · 48 mensagens · 5 aguardando", sem falha
+    /// nenhuma, sem causa e sem "Tentar de novo".
+    ///
+    /// A causa é uma prateleira só. A fila para e relata o erro; o ciclo de
+    /// sincronização seguinte roda bem e relata `nil`; o `nil` do ciclo apaga
+    /// o erro da fila. Os dois relatos convergem no mesmo `errors`, e a fila
+    /// perde sempre — o ciclo passa a cada minuto.
+    ///
+    /// MUTAÇÃO QUE ISTO PEGA: fazer `reportQueue` escrever em `errors`, a
+    /// prateleira do ciclo. Os dois primeiros `#expect` continuariam verdes e
+    /// o terceiro cairia.
+    @Test("O ciclo de sincronização que passou não apaga o erro da fila")
+    func cicloNaoApagaOErroDaFila() async throws {
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+        let db = try SyncDatabase.temporary()
+        let conta = Account(
+            id: "conta-a", address: "eu@meudominio.com.br", displayName: "Eu",
+            provider: .imap, host: "meudominio",
+            tintLightHex: "#3F6AA1", tintDarkHex: "#8CBAF7", signature: "Eu",
+            imap: ImapEndpoint(host: "imap.meudominio.com.br", port: 993, security: .tls),
+            state: .ativa
+        )
+        try await db.pool.write { try AccountRecord(conta, createdAt: self.agora).insert($0) }
+
+        let director = diretor(db: db, secrets: InMemorySecretStore(), grupo: grupo, porta: 0)
+        let caixa = CaixaDeStatus()
+        let assinatura = Task {
+            for await lista in await director.statuses() {
+                guard let status = lista.first else { continue }
+                await caixa.anota(status)
+            }
+        }
+        defer { assinatura.cancel() }
+
+        // A fila para: o espelho recusou a autorização, e o executor relata.
+        await director.reportQueue(accountID: "conta-a", error: .autorizacaoRevogada)
+        #expect(await caixa.espera(ate: { $0.queueError == .autorizacaoRevogada }) != nil)
+
+        // O ciclo de sincronização seguinte passa bem e relata `nil`. Ele
+        // limpa o **dele** — a pessoa precisa ver que o ciclo voltou tanto
+        // quanto viu a falha dele.
+        await director.report(accountID: "conta-a", error: .quota)
+        await caixa.espera(ate: { $0.error == .quota })
+        await director.report(accountID: "conta-a", error: nil)
+        let ultimo = await caixa.espera(ate: { $0.error == nil })
+        #expect(ultimo?.error == nil)
+        // E não o da fila, que ninguém tratou: a fila continua parada.
+        #expect(ultimo?.queueError == .autorizacaoRevogada)
     }
 
     @Test("Remover apaga banco e Keychain — os dois, sempre")

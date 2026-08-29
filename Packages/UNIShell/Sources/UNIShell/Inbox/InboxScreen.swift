@@ -48,6 +48,22 @@ public struct InboxScreen: View {
         self.clock = clock
     }
 
+    /// O **hoje** de tudo que esta tela desenha com data: o carimbo de cada
+    /// linha da lista, o cabeçalho da trilha do dia e as três visões da aba
+    /// Agenda.
+    ///
+    /// Um lugar só, e é o motivo de ele existir. O minuto já vinha do relógio
+    /// desde a M3-4, mas o **dia** era `Fixtures.today` escrito à mão em dois
+    /// pontos daqui — a trilha e a `CalendarScreen` —, de modo que com conta
+    /// conectada a agenda continuava destacando terça, 25 de agosto: a âncora
+    /// congelada do Marco 1. Dois "hojes" no mesmo processo também poriam um
+    /// compromisso criado num dia e desenhado noutro; ver
+    /// `MailStore.agendaReferenceDay`, que recebe este mesmo relógio pelo
+    /// `OkamiUNIApp`.
+    ///
+    /// `internal`: `AgendaHojeTests` afere a decisão sem renderizar nada.
+    var agendaAnchor: Date { clock.today }
+
     public var body: some View {
         VStack(spacing: 0) {
             // Barra do topo (58px)
@@ -121,7 +137,9 @@ public struct InboxScreen: View {
     /// O `GeometryReader` existe por um motivo só: dar a largura real da janela
     /// a `PaneLayout`. A decisão em si não mora aqui — este `View` é `@MainActor`
     /// e a aritmética precisa ser chamável de teste nonisolated.
-    private var mailContent: some View {
+    /// `internal` (era `private`) para `AgendaHojeTests` fotografar só a coluna
+    /// da trilha e provar que a data do cabeçalho dela segue o relógio.
+    var mailContent: some View {
         GeometryReader { proxy in
             let layout = PaneLayout.resolve(
                 width: proxy.size.width,
@@ -149,7 +167,7 @@ public struct InboxScreen: View {
                     // O carimbo de horário de cada linha compara a data da
                     // mensagem com **este** dia: `Fixtures.today` no mundo
                     // congelado dos retratos, o dia da máquina com conta real.
-                    today: clock.today,
+                    today: agendaAnchor,
                     onOpenWindow: openMessageWindow
                 )
 
@@ -157,16 +175,16 @@ public struct InboxScreen: View {
                 ReaderPane(store: store, onReply: openComposer)
 
                 // Trilha de agenda — o primeiro painel a sair quando aperta.
-                // A data do cabeçalho continua vindo de Fixtures — o "hoje" do
-                // app é `anchor`/`Fixtures.today` em toda parte, e mudar isso
-                // não é o que este defeito pediu. O minuto é que segue `clock`:
-                // fixo nos testes e nas capturas, vivo com conta real.
+                // A data do cabeçalho e o minuto seguem o **mesmo** relógio:
+                // fixos nos retratos e nas capturas, vivos com conta real.
+                // Escrever `Fixtures.today` aqui era o que fazia a trilha dizer
+                // "Terça-feira, 25 de agosto" em qualquer dia do ano.
                 if layout.agendaVisible {
                     AgendaClockReader(clock) { now in
                         AgendaRail(
                             store: store,
                             now: now,
-                            headerDate: Fixtures.today,
+                            headerDate: agendaAnchor,
                             width: layout.agendaRailWidth,
                             onOpenEvent: openEventWindow,
                             onRevealMessage: reveal
@@ -264,12 +282,14 @@ public struct InboxScreen: View {
     /// protótipo ela é do shell e não da tela do email — ver `CalendarScreen`.
     /// Por isso `wantsSidebar` atravessa daqui: é a intenção que o botão da
     /// barra do topo mexe, e ela tem de valer nas duas abas.
-    private var calendarContent: some View {
+    ///
+    /// `internal` (era `private`) pelo mesmo motivo do `mailContent`.
+    var calendarContent: some View {
         AgendaClockReader(clock) { now in
             CalendarScreen(
                 store: store,
                 now: now,
-                anchor: Fixtures.today,
+                anchor: agendaAnchor,
                 wantsSidebar: wantsSidebar,
                 onOpenEvent: openEventWindow,
                 onRevealMessage: reveal

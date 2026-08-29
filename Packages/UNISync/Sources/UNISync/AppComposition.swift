@@ -156,12 +156,21 @@ public struct AppComposition: Sendable {
         // O erro da fila e o do ciclo passam a **chegar à janela**: os dois
         // recebiam um relato que caía num no-op, e uma conta com a credencial
         // recusada aparecia na lista como se estivesse bem.
-        let relata: @Sendable (String, SyncError?) -> Void = { conta, erro in
+        //
+        // **Dois canais, e não um.** Eles convergiam no mesmo `report`, e o
+        // ciclo — que passa a cada minuto e relata `nil` quando passa — apagava
+        // o erro que a fila tinha posto lá. A conta do dono aparecia
+        // "Sincronizada às 00:59 · 48 mensagens · 5 aguardando", saudável, com
+        // três operações `falhou` travando a fila desde as 09:21.
+        let relataCiclo: @Sendable (String, SyncError?) -> Void = { conta, erro in
             Task { await director.report(accountID: conta, error: erro) }
+        }
+        let relataFila: @Sendable (String, SyncError?) -> Void = { conta, erro in
+            Task { await director.reportQueue(accountID: conta, error: erro) }
         }
         let fila = OutboxRunner(
             database: banco, secrets: cofre, auth: auth, session: .shared,
-            eventLoopGroup: grupo, signal: sinal, report: relata
+            eventLoopGroup: grupo, signal: sinal, report: relataFila
         )
         // A fila começa a andar ao abrir. `Task` porque ligar os executores lê
         // o banco, e a composição é síncrona de propósito: o app não pode
@@ -178,7 +187,7 @@ public struct AppComposition: Sendable {
         // quem parou de autenticar.
         let sincronizacao = SyncRunner(
             database: banco, secrets: cofre, auth: auth, session: .shared,
-            eventLoopGroup: grupo, director: director, report: relata
+            eventLoopGroup: grupo, director: director, report: relataCiclo
         )
         Task { await sincronizacao.start() }
 
