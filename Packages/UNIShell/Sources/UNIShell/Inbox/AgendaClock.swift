@@ -15,6 +15,20 @@ public enum AgendaClock: Sendable, Equatable {
     case fixed(Int)
     case live
 
+    /// Que dia é hoje, para este relógio.
+    ///
+    /// A mesma escolha do minuto, um degrau acima: `.fixed` é o mundo
+    /// congelado do Marco 1, e o "hoje" dele é `Fixtures.today` — é o que faz
+    /// capturas e retratos saírem sempre iguais, com as fixtures de 25 de
+    /// agosto de 2026 carimbadas como o design as carimba. `.live` é o dia da
+    /// máquina, e é o que a lista precisa para dizer que um email é de julho.
+    public var today: Date {
+        switch self {
+        case .fixed: Fixtures.today
+        case .live: Date()
+        }
+    }
+
     /// Minutos desde a meia-noite, pelo relógio informado. Só quem usa
     /// `.live` chama isto — `.fixed` já carrega o número.
     public static func minutesSinceMidnight(

@@ -124,13 +124,19 @@ public struct MessageList: View {
     /// `onDoubleClick="{{ m.onOpenWin }}"` e `title="Duplo clique abre em janela"`.
     let onOpenWindow: (Message) -> Void
 
+    /// Que dia é hoje, repassado a cada linha para o carimbo de horário. Ver
+    /// `MessageRow.today` e `AgendaClock.today`.
+    let today: Date
+
     public init(
         store: MailStore,
         width: CGFloat = MessageList.width,
+        today: Date = Fixtures.today,
         onOpenWindow: @escaping (Message) -> Void = { _ in }
     ) {
         self.store = store
         self.listWidth = width
+        self.today = today
         self.onOpenWindow = onOpenWindow
     }
 
@@ -278,7 +284,8 @@ public struct MessageList: View {
                     // conversa de uma mensagem só, que é a garantia de a linha
                     // desenhar o que sempre desenhou.
                     conversationCount: conversation.count,
-                    unread: conversation.hasUnread
+                    unread: conversation.hasUnread,
+                    today: today
                 )
             }
             .buttonStyle(.plain)

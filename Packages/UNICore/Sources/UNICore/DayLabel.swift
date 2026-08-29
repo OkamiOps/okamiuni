@@ -21,11 +21,17 @@ public enum DayLabel {
     /// e escolher o formato dela é de quem desenha. Sem tabela de meses aqui.
     public static func name(forOffset offset: Int) -> String? {
         switch offset {
-        case 0: "Hoje"
-        case -1: "Ontem"
+        case 0: today
+        case -1: yesterday
         default: nil
         }
     }
+
+    /// As duas palavras, para quem chega pela data e não pelo offset — a
+    /// linha da lista, que carimba por `MessageStamp`. Mesma palavra, uma
+    /// definição só: duas cópias divergem no primeiro ajuste.
+    public static let today = "Hoje"
+    public static let yesterday = "Ontem"
 
     /// Se a coluna de horário da linha deve escrever a hora ou o dia.
     ///

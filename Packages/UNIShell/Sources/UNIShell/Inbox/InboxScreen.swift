@@ -146,6 +146,10 @@ public struct InboxScreen: View {
                 MessageList(
                     store: store,
                     width: layout.messageListWidth,
+                    // O carimbo de horário de cada linha compara a data da
+                    // mensagem com **este** dia: `Fixtures.today` no mundo
+                    // congelado dos retratos, o dia da máquina com conta real.
+                    today: clock.today,
                     onOpenWindow: openMessageWindow
                 )
 

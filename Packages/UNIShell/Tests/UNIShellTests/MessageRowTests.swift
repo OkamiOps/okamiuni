@@ -407,6 +407,55 @@ struct MessageRowTests {
         #expect(bar == Int(emphasis.barWidth), "a barra de \(emphasis) mede \(bar)")
     }
 
+    /// O carimbo da direita **é** a data, e não o `dayOffset`.
+    ///
+    /// As três mensagens deste teste têm `dayOffset` 0 — o valor que toda
+    /// mensagem vinda de servidor tem, porque ninguém preenche esse campo fora
+    /// das fixtures. Era por isso que a caixa do dono mostrava julho inteiro
+    /// com horário. Aqui elas só diferem no `receivedAt`, e o canto direito da
+    /// linha tem de sair diferente nos três casos: hora, "21 de jul." e a data
+    /// com o ano.
+    @Test("O carimbo segue a data recebida, e não o dayOffset")
+    func carimboSegueAData() throws {
+        func linha(_ receivedAt: Date) throws -> NSBitmapImageRep {
+            let mensagem = Message(
+                id: "m", accountID: "a",
+                from: Contact(name: "Quem Escreveu", address: "quem@exemplo.com"),
+                receivedAt: receivedAt, subject: "Assunto", snippet: "trecho", body: [],
+                tags: [], bucket: .today, isRead: true, summary: nil, detectedEvent: nil,
+                dayOffset: 0
+            )
+            let row = MessageRow(
+                message: mensagem, accountHost: "host", accountTint: .red,
+                isSelected: false, today: Fixtures.today
+            )
+            return try #require(
+                Render.bitmap(
+                    row.frame(width: Self.width, alignment: .topLeading)
+                        .frame(height: Self.canvasHeight, alignment: .top)
+                        .background(Theme.tinta.surface.color),
+                    size: CGSize(width: Self.width, height: Self.canvasHeight), theme: .tinta
+                )
+            )
+        }
+        let calendario = Calendar.current
+        let deJulho = try #require(
+            calendario.date(from: DateComponents(year: 2026, month: 7, day: 21, hour: 16, minute: 55))
+        )
+        let doAnoPassado = try #require(
+            calendario.date(from: DateComponents(year: 2025, month: 7, day: 21, hour: 16, minute: 55))
+        )
+        // Mesma hora de parede, dias diferentes: enquanto a linha carimbava
+        // pelo `dayOffset`, estas duas saíam idênticas — "16:55" e "16:55".
+        let hojeNaMesmaHora = try #require(
+            calendario.date(from: DateComponents(year: 2026, month: 8, day: 25, hour: 16, minute: 55))
+        )
+        #expect(try linha(deJulho).pixelsDiffering(from: linha(hojeNaMesmaHora)) > 0,
+                "a mensagem de julho carimbou igual à de hoje na mesma hora")
+        #expect(try linha(doAnoPassado).pixelsDiffering(from: linha(deJulho)) > 0,
+                "a mensagem do ano passado carimbou igual à deste ano")
+    }
+
     /// Pixels escuros (tinta de texto) numa janela.
     private func inkCount(_ rep: NSBitmapImageRep, x: Range<Int>, y: Range<Int>) -> Int {
         var count = 0

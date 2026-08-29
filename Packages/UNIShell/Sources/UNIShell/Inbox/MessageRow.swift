@@ -28,6 +28,15 @@ public struct MessageRow: View {
     /// linha) continua fazendo.
     let unread: Bool?
 
+    /// Que dia é hoje, para o carimbo da direita saber se escreve hora ou data.
+    ///
+    /// O padrão é `Fixtures.today` pelo mesmo motivo que
+    /// `InboxScreen(clock:)` tem `.fixed(Fixtures.nowMinute)` por padrão: sem
+    /// ninguém dizendo o contrário, esta é a lista do Marco 1, cujas fixtures
+    /// são de 25 de agosto de 2026 e cujos retratos não podem mudar. O app com
+    /// banco aberto passa o dia da máquina — ver `AgendaClock.today`.
+    let today: Date
+
     public init(
         message: Message,
         accountHost: String,
@@ -35,8 +44,10 @@ public struct MessageRow: View {
         isSelected: Bool,
         emphasis: UnreadEmphasis = .standard,
         conversationCount: Int = 1,
-        unread: Bool? = nil
+        unread: Bool? = nil,
+        today: Date = Fixtures.today
     ) {
+        self.today = today
         self.message = message
         self.accountHost = accountHost
         self.accountTint = accountTint
@@ -71,17 +82,27 @@ public struct MessageRow: View {
     /// O canto direito da primeira linha. Design (`MSGS`): a mensagem de hoje
     /// mostra a hora (`time: '09:42'`), a de ontem mostra o dia
     /// (`time: 'Ontem'`) — a hora só informa quando o dia já está implícito.
+    /// Mais para trás, a data; e de outro ano, a data com o ano.
     ///
-    /// A escolha sai de `dayOffset`, a mesma fonte do cabeçalho de grupo, e não
-    /// de uma comparação com o relógio.
+    /// A escolha sai de `MessageStamp`, que compara `receivedAt` com o dia de
+    /// `today`. Saía de `message.dayOffset`, e `dayOffset` só é preenchido
+    /// pelas fixtures: toda mensagem vinda de servidor nasce com `0`, e era
+    /// assim que julho inteiro aparecia carimbado com horário, como se tivesse
+    /// chegado hoje de manhã.
+    ///
+    /// O vocabulário é o do cabeçalho do leitor ("21 de jul., 19:46"), sem a
+    /// hora: `.dateTime.day().month(.abbreviated)`.
     @ViewBuilder
     private var timeStamp: some View {
-        if DayLabel.showsClockTime(forOffset: message.dayOffset) {
+        switch MessageStamp.of(message.receivedAt, now: today) {
+        case .clock:
             Text(message.receivedAt, format: .dateTime.hour().minute())
-        } else if let name = DayLabel.name(forOffset: message.dayOffset) {
-            Text(name)
-        } else {
+        case .yesterday:
+            Text(DayLabel.yesterday)
+        case .dayMonth:
             Text(message.receivedAt, format: .dateTime.day().month(.abbreviated))
+        case .dayMonthYear:
+            Text(message.receivedAt, format: .dateTime.day().month(.abbreviated).year())
         }
     }
 
