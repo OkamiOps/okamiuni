@@ -33,6 +33,7 @@ public struct SidebarRail: View {
         case .all: "tudo"
         case .archived: "arq"
         case .trash: "lixo"
+        case .sent: "env"
         }
     }
 
@@ -96,7 +97,11 @@ public struct SidebarRail: View {
                     .tracking(0.06 * 8.5)  // Tracking em pontos: 0.06em × 8.5pt = 0.51pt
                     .textCase(.uppercase)
 
-                Text("\(store.unreadCount(in: bucket, accountID: store.selectedAccountID))")
+                // O mesmo número da barra larga — total em Enviadas, não lidas
+                // no resto. Ver `FolderSidebar.counter(for:store:)`: a trilha é
+                // a mesma barra recolhida, e dois números diferentes para a
+                // mesma caixa seriam dois aplicativos.
+                Text("\(FolderSidebar.counter(for: bucket, store: store))")
                     // O protótipo não declara família nesta contagem, então ela
                     // herda a sans do corpo — não é mono como a abreviação acima.
                     .font(theme.sans.font(size: 13, weight: .semibold))

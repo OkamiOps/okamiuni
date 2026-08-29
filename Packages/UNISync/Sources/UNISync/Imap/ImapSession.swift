@@ -404,8 +404,18 @@ public actor ImapSession {
     /// (`capabilities()`): ver a nota de `ImapWire.append`. `\Seen` porque a
     /// pessoa acabou de escrever a mensagem — uma cópia da própria mensagem
     /// chegando "não lida" é um contador que sobe sem nada novo ter chegado.
-    public func append(mailbox: String, flags: [String] = ["\\Seen"], raw: String) async throws {
-        _ = try await run { ImapWire.append(tag: $0, mailbox: mailbox, flags: flags, raw: raw) }
+    ///
+    /// Devolve o `APPENDUID` quando o servidor o manda — ver
+    /// `ImapWire.appendUID(from:)`: é o endereço da cópia, e é o que permite
+    /// gravá-la localmente com o mesmo id que a leitura da pasta daria.
+    @discardableResult
+    public func append(
+        mailbox: String, flags: [String] = ["\\Seen"], raw: String
+    ) async throws -> ImapWire.AppendUID? {
+        let resultado = try await run {
+            ImapWire.append(tag: $0, mailbox: mailbox, flags: flags, raw: raw)
+        }
+        return ImapWire.appendUID(from: resultado.text)
     }
 
     /// Quais destes UIDs ainda estão na pasta selecionada.

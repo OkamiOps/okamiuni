@@ -113,6 +113,25 @@ public struct FolderRecord: Codable, FetchableRecord, PersistableRecord, Sendabl
         self.displayName = displayName
     }
 
+    /// A pseudo-pasta do Gmail, que existe só para a chave estrangeira de
+    /// `message` ter para onde apontar — os rótulos é que fazem o papel das
+    /// pastas por lá. O papel é `.other` de propósito: ela guarda mensagem de
+    /// **todas** as caixas, e nenhum papel a descreve (ver `InitialLoader`).
+    ///
+    /// Uma função só porque três lugares a escrevem — a carga inicial, o ciclo
+    /// incremental e a gravação da mensagem enviada —, e um nome de servidor
+    /// digitado diferente num deles daria uma segunda pasta, com as mensagens
+    /// da conta partidas em duas.
+    public static let gmailServerName = "GMAIL"
+
+    public static func gmail(accountID: String) -> FolderRecord {
+        FolderRecord(
+            id: id(accountID: accountID, serverName: gmailServerName),
+            accountID: accountID, serverName: gmailServerName,
+            role: .other, displayName: "Gmail"
+        )
+    }
+
     /// O id de uma pasta é conta + nome no servidor. Determinístico de
     /// propósito: reabrir o app e listar as pastas de novo tem de encontrar as
     /// mesmas linhas, não criar linhas paralelas.

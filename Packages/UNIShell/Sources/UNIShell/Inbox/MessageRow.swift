@@ -147,7 +147,10 @@ public struct MessageRow: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: 3) {  // protótipo: margin-top: 3px
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(message.from.name)
+                // O remetente — ou o destinatário, em Enviadas. Quem decide é
+                // `Message.listHeadline`, no `UNICore`: é regra do produto, e
+                // esta linha só a desenha.
+                Text(message.listHeadline)
                     .font(theme.sans.font(size: 13, weight: message.isRead ? .regular : .semibold))
                     .tracking(-0.005 * 13)  // letter-spacing: -0.005em a 13pt = -0.065pt
                     .foregroundStyle(theme.ink.color)

@@ -75,9 +75,8 @@ public struct ImapIncrementalSync: Sendable {
     /// inicial, e pela mesma razão: uma pasta de arquivo que o servidor recusa
     /// não pode custar a caixa de entrada.
     public func run(account: Account, session: ImapSession, now: Date) async throws -> Outcome {
-        let comPapel = try await session.folders().compactMap { pasta -> (ImapFolder, TriageBucket)? in
-            guard let bucket = TriageProjection.bucket(role: pasta.role) else { return nil }
-            return (pasta, bucket)
+        let comPapel = try await session.folders().map { pasta in
+            (pasta, TriageProjection.bucket(role: pasta.role))
         }
         var total = Outcome()
         for (pasta, bucket) in comPapel {

@@ -38,6 +38,29 @@ struct GmailMirrorTests {
         return json
     }
 
+    // MARK: - O que não é destino
+
+    /// Enviadas é caixa, e não destino: o que põe uma mensagem lá é enviá-la.
+    ///
+    /// O menu não oferece este caminho (`ContextMenus.moveSubmenu` percorre
+    /// `TriageBucket.triage`), então uma linha de fila pedindo isto é pedido
+    /// malformado nosso. **Parar a fila com a frase** é a resposta certa: a
+    /// outra saída — mexer em rótulo nenhum e devolver sucesso — apagaria a
+    /// operação da tabela dizendo que fez.
+    @Test("Mover para Enviadas é recusado, e nada é escrito no servidor")
+    func moverParaEnviadasEhRecusado() async throws {
+        let (espelho, sessao) = par(routes: [
+            "\(base)/messages/batchModify": [.init(status: 204)],
+        ])
+
+        await #expect(throws: SyncError.self) {
+            try await espelho.apply(
+                .move(bucket: TriageBucket.sent.rawValue, messageIDs: ["x"]), targets: [self.alvo("m1")]
+            )
+        }
+        #expect(StubURLProtocol.requests(for: sessao).isEmpty)
+    }
+
     // MARK: - As bandeiras
 
     @Test("Marcar como lida tira UNREAD; marcar como não lida põe de volta")

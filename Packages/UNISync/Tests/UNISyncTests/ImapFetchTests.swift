@@ -351,6 +351,32 @@ struct ImapFetchTests {
         #expect(try nome("* LIST (\\Noselect) \"/\" \"[Gmail]\"") == "[Gmail]")
     }
 
+    /// O `[APPENDUID 42 9]` da resposta do `APPEND` (RFC 4315).
+    ///
+    /// Ele é o endereço da cópia que acabou de ser gravada em Enviadas, e é o
+    /// que dá à linha local o mesmo id que a leitura seguinte da pasta daria —
+    /// sem ele, a mensagem que a pessoa mandou apareceria duas vezes na caixa
+    /// dela: a nossa e a do servidor.
+    @Test("O APPENDUID diz onde a cópia ficou — e a ausência dele não é erro")
+    func appendUIDLido() {
+        let carimbo = ImapWire.appendUID(from: "[APPENDUID 42 9] gravada")
+        #expect(carimbo == ImapWire.AppendUID(uidValidity: 42, uid: 9))
+        // Caixa alta ou baixa é a mesma resposta: o RFC não obriga nenhuma, e
+        // servidor que manda minúscula existe.
+        #expect(ImapWire.appendUID(from: "[appenduid 1755000000 7] ok")
+            == ImapWire.AppendUID(uidValidity: 1_755_000_000, uid: 7))
+
+        // Servidor sem UIDPLUS não manda o código, e isso **não** é falha: a
+        // mensagem já saiu, e a cópia entra pela leitura normal da pasta.
+        #expect(ImapWire.appendUID(from: "APPEND completed") == nil)
+        // Nem código de outro assunto, nem código truncado, viram coordenada
+        // inventada — casar por engano poria a linha de Enviadas num UID que
+        // pertence a outra mensagem.
+        #expect(ImapWire.appendUID(from: "[UIDVALIDITY 42] ok") == nil)
+        #expect(ImapWire.appendUID(from: "[APPENDUID 42] ok") == nil)
+        #expect(ImapWire.appendUID(from: "[APPENDUID quarenta 9] ok") == nil)
+    }
+
     // MARK: De ponta a ponta, contra o servidor falso
 
     @Test("A sessão lista, seleciona, busca e traz envelopes — nessa ordem")

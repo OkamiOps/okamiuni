@@ -573,7 +573,12 @@ public enum ContextMenus {
         // "Mover para ▸ Lixeira" seria a mesma ação com um nome que ninguém
         // usa, dois níveis abaixo — e o mesmo vale na volta: quem está na
         // Lixeira tira de lá por "Mover para ▸ Hoje", que continua ali.
-        let targets = TriageBucket.allCases
+        //
+        // A lista é a da **triagem** (`TriageBucket.triage`), e não `allCases`:
+        // Enviadas não é destino de nada. Mover para lá uma mensagem que
+        // chegou seria dizer que você a escreveu — e no servidor não há
+        // operação que corresponda a isso.
+        let targets = TriageBucket.triage
             .filter { $0 != .all && $0 != .trash && $0 != message.bucket }
         guard !targets.isEmpty else { return nil }
         return .submenu(

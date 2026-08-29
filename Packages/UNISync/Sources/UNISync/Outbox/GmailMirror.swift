@@ -32,7 +32,10 @@ public actor GmailMirror: MailMirror {
         self.now = now
     }
 
-    public func apply(_ operation: MailOperation, targets: [MessageCoordinate]) async throws {
+    @discardableResult
+    public func apply(
+        _ operation: MailOperation, targets: [MessageCoordinate]
+    ) async throws -> MessageCoordinate? {
         let ids = targets.compactMap { alvo -> String? in
             guard case .gmail(let serverID) = alvo else { return nil }
             return serverID
@@ -60,11 +63,19 @@ public actor GmailMirror: MailMirror {
             guard let bucket = TriageBucket(rawValue: bruto) else {
                 throw SyncError.resposta("Caixa de triagem desconhecida na fila: \(bruto).")
             }
+            // Enviadas não é destino: ela guarda o que saiu, e o que a põe lá
+            // é o envio. O menu não oferece este caminho (ver
+            // `ContextMenus.moveSubmenu`), e uma linha de fila que peça isto é
+            // pedido malformado nosso — parar a fila com a frase é melhor do
+            // que mexer em rótulo nenhum e dizer que fez.
+            guard bucket != .sent else {
+                throw SyncError.resposta("Enviadas guarda o que saiu — não há como mover uma mensagem para lá.")
+            }
             // Mover para a Lixeira é o endpoint próprio, e não uma label posta
             // à mão — a mesma rota do `delete` abaixo.
             guard bucket != .trash else {
                 try await client.trash(ids: ids)
-                return
+                return nil
             }
             // O id do rótulo só é pedido (e o rótulo só é criado) quando a
             // operação de fato precisa dele — arquivar não cria pasta nenhuma
@@ -102,19 +113,31 @@ public actor GmailMirror: MailMirror {
             try await client.batchDelete(ids: todos)
 
         case .send(let mensagem):
-            // **A pergunta antes do envio**, e ela é o que faz esta operação
-            // ser repetível: o retry de um tempo esgotado ambíguo não sabe se a
-            // primeira tentativa passou, então ele procura o `Message-ID` na
-            // conta antes de mandar. Sem esta linha — e é exatamente esta a
-            // mutação que o teste do invariante mata — a mesma mensagem chega
-            // duas vezes na caixa de quem recebe, e não há como desfazer.
-            guard try await !client.hasMessage(rfc822MessageID: mensagem.messageID) else { return }
-            // `includeBcc: true` porque a Gmail API monta os destinatários a
-            // partir do texto da mensagem, e tira o cabeçalho antes de
-            // entregar. Sem ele a cópia oculta não é enviada a ninguém.
-            let raw = OutgoingMime.compose(mensagem, date: now(), includeBcc: true)
-            try await client.send(raw: OutgoingMime.base64URL(raw))
+            return try await envia(mensagem)
         }
+        // Nenhuma das operações de triagem grava mensagem nova: elas mexem em
+        // rótulo de linha que já existe.
+        return nil
+    }
+
+    /// Manda, e diz onde o servidor guardou a cópia.
+    private func envia(_ mensagem: OutgoingMessage) async throws -> MessageCoordinate? {
+        // **A pergunta antes do envio**, e ela é o que faz esta operação
+        // ser repetível: o retry de um tempo esgotado ambíguo não sabe se a
+        // primeira tentativa passou, então ele procura o `Message-ID` na
+        // conta antes de mandar. Sem esta linha — e é exatamente esta a
+        // mutação que o teste do invariante mata — a mesma mensagem chega
+        // duas vezes na caixa de quem recebe, e não há como desfazer.
+        guard try await !client.hasMessage(rfc822MessageID: mensagem.messageID) else { return nil }
+        // `includeBcc: true` porque a Gmail API monta os destinatários a
+        // partir do texto da mensagem, e tira o cabeçalho antes de
+        // entregar. Sem ele a cópia oculta não é enviada a ninguém.
+        let raw = OutgoingMime.compose(mensagem, date: now(), includeBcc: true)
+        // O id que volta da `messages.send` é o da cópia que o Gmail acabou
+        // de pôr em SENT — o mesmo id que a sincronização usaria. É por ele
+        // que a linha local e a sincronizada são **a mesma linha**.
+        guard let id = try await client.send(raw: OutgoingMime.base64URL(raw)) else { return nil }
+        return .gmail(serverID: id)
     }
 
     private func removidos(para bucket: TriageBucket, depois: String?) -> [String] {
@@ -124,8 +147,10 @@ public actor GmailMirror: MailMirror {
         case .archived: ["INBOX"] + [depois].compactMap { $0 }
         // A Lixeira nunca chega aqui: ela sai por `messages.trash`, acima.
         case .trash: []
-        // `todos` é uma visão, não um estado — não há para onde mover.
-        case .all: []
+        // `todos` é uma visão, não um estado — não há para onde mover. Enviadas
+        // é caixa de verdade, mas também não é destino: as duas são barradas
+        // antes de chegar aqui, no `.move`.
+        case .all, .sent: []
         }
     }
 

@@ -124,7 +124,7 @@ struct InitialLoaderImapTests {
 
     // MARK: As pastas
 
-    @Test("Só as pastas com papel de triagem são carregadas — Enviados e Noselect ficam de fora")
+    @Test("Todas as pastas de verdade são carregadas — Enviados com o papel dela, Noselect fora")
     func pastasCarregadas() async throws {
         let db = try SyncDatabase.temporary()
         _ = try await carrega(db, script: roteiro())
@@ -136,9 +136,10 @@ struct InitialLoaderImapTests {
         }
         #expect(pastas["INBOX"] == "inbox")
         #expect(pastas["Arquivo"] == "archive")
-        // Enviados existe no servidor e fica fora da triagem — a caixa
-        // Enviadas não existe neste marco.
-        #expect(pastas["Enviados"] == nil)
+        // Enviados entra, com o papel dela. Ficava de fora do banco inteiro
+        // enquanto não havia caixa Enviadas; agora ela tem a sua, e o que a
+        // pessoa mandou de outro cliente aparece aqui também.
+        #expect(pastas["Enviados"] == "sent")
         // Noselect é nó da árvore; SELECT nele devolveria NO.
         #expect(pastas["Projetos"] == nil)
     }
@@ -240,7 +241,10 @@ struct InitialLoaderImapTests {
         let db = try SyncDatabase.temporary()
         _ = try await carrega(db, script: roteiro())
         let buckets = try await db.pool.read { try String.fetchSet($0, sql: "SELECT DISTINCT bucket FROM message") }
-        #expect(buckets == ["hoje", "arquivar"])
+        // Três pastas, três caixas — e Enviados na dela, que não é Arquivado:
+        // enfiar o que a pessoa escreveu no arquivo dela era a outra saída, e
+        // é a que o `TriageProjection` recusa.
+        #expect(buckets == ["hoje", "arquivar", "enviadas"])
     }
 
     // MARK: O UIDVALIDITY
@@ -268,7 +272,9 @@ struct InitialLoaderImapTests {
         let db = try SyncDatabase.temporary()
         _ = try await carrega(db, script: roteiro())
         let antes = try await db.pool.read { try MessageRecord.fetchCount($0) }
-        #expect(antes == 4)
+        // Seis: duas mensagens em cada uma das três pastas (INBOX, Arquivo e
+        // Enviados — que passou a entrar quando a caixa Enviadas nasceu).
+        #expect(antes == 6)
 
         var novo = roteiro()
         novo.replies["SELECT"] = [
@@ -281,7 +287,7 @@ struct InitialLoaderImapTests {
 
         let validades = try await db.pool.read { try Int64.fetchSet($0, sql: "SELECT DISTINCT uidValidity FROM message") }
         #expect(validades == [1_999_999_999])
-        #expect(try await db.pool.read { try MessageRecord.fetchCount($0) } == 4)
+        #expect(try await db.pool.read { try MessageRecord.fetchCount($0) } == 6)
     }
 
     @Test("A geração velha só sai junto com a nova: a pasta nunca fica vazia")
@@ -301,7 +307,7 @@ struct InitialLoaderImapTests {
         // (junto com o `save` da pasta).
         let db = try SyncDatabase.temporary()
         _ = try await carrega(db, script: roteiro())
-        #expect(try await db.pool.read { try MessageRecord.fetchCount($0) } == 4)
+        #expect(try await db.pool.read { try MessageRecord.fetchCount($0) } == 6)
 
         // Segunda carga, com a geração reciclada — e um servidor que **não
         // responde** ao UID FETCH da INBOX: a carga morre no meio, exatamente
@@ -316,10 +322,10 @@ struct InitialLoaderImapTests {
         novo.replies["UID FETCH"] = ["TAG NO Servidor indisponível"]
         _ = try? await carrega(db, script: novo)
 
-        // As quatro velhas continuam lá. Antes, o `DELETE` já teria passado e a
-        // pessoa veria as duas pastas vazias — sem nada ter chegado no lugar.
+        // As seis velhas continuam lá. Antes, o `DELETE` já teria passado e a
+        // pessoa veria as pastas vazias — sem nada ter chegado no lugar.
         #expect(
-            try await db.pool.read { try MessageRecord.fetchCount($0) } == 4,
+            try await db.pool.read { try MessageRecord.fetchCount($0) } == 6,
             "a pasta ficou vazia entre o apagamento e o download"
         )
         let validades = try await db.pool.read {
@@ -395,8 +401,8 @@ struct InitialLoaderImapTests {
         // faz a carga terminar sem erro nenhum e gravar quatro mensagens
         // carimbadas com a geração velha.
         var script = roteiro()
-        // A ordem dos SELECT é: INBOX e Arquivo na primeira passada, INBOX e
-        // Arquivo na segunda. O terceiro — o reselect da INBOX — recicla.
+        // A ordem dos SELECT é: as três pastas na primeira passada, as três na
+        // segunda. O quarto — o reselect da INBOX — recicla.
         let velho = selectOK()
         let reciclado = [
             "* 2 EXISTS",
@@ -404,7 +410,9 @@ struct InitialLoaderImapTests {
             "* OK [UIDNEXT 9003] Predicted next UID",
             "TAG OK [READ-WRITE] SELECT completed",
         ]
-        script.rounds["SELECT"] = [velho, velho, reciclado, velho]
+        // Três pastas: a primeira passada gasta três SELECT (INBOX, Arquivo,
+        // Enviados), e o **quarto** é o reselect da INBOX — o que recicla.
+        script.rounds["SELECT"] = [velho, velho, velho, reciclado, velho]
 
         let db = try SyncDatabase.temporary()
         _ = try await carrega(db, script: script)
@@ -416,7 +424,7 @@ struct InitialLoaderImapTests {
             try Row.fetchAll(conexao, sql: "SELECT folderID, count(*) AS quantas FROM message GROUP BY folderID")
                 .map { ($0["folderID"] as String, $0["quantas"] as Int) }
         }
-        #expect(porPasta.map(\.0) == ["conta-i/Arquivo"])
+        #expect(porPasta.map(\.0) == ["conta-i/Arquivo", "conta-i/Enviados"])
         #expect(porPasta.first?.1 == 2)
 
         // E o `sync_state` da INBOX não foi carimbado: é ele que faz a próxima
@@ -550,9 +558,9 @@ struct InitialLoaderImapTests {
         let devolvida = try await db.pool.read { try AccountRecord.fetchOne($0, key: "conta-i")?.account }
         #expect(devolvida?.state == .ativa)
 
-        // Os quatro envelopes entraram — inclusive o da mensagem cujo corpo
-        // ficou de fora.
-        #expect(try await db.pool.read { try MessageRecord.fetchCount($0) } == 4)
+        // Os envelopes das três pastas entraram — inclusive o da mensagem cujo
+        // corpo ficou de fora.
+        #expect(try await db.pool.read { try MessageRecord.fetchCount($0) } == 6)
 
         let folderID = FolderRecord.id(accountID: "conta-i", serverName: "INBOX")
         func corpo(uid: Int64) async throws -> [String] {
@@ -581,9 +589,9 @@ struct InitialLoaderImapTests {
         _ = try await carrega(db, script: script)
 
         let pastas = try await db.pool.read { try String.fetchSet($0, sql: "SELECT serverName FROM folder") }
-        #expect(pastas == ["Arquivo"])
+        #expect(pastas == ["Arquivo", "Enviados"])
         let buckets = try await db.pool.read { try String.fetchSet($0, sql: "SELECT DISTINCT bucket FROM message") }
-        #expect(buckets == ["arquivar"])
+        #expect(buckets == ["arquivar", "enviadas"])
 
         let devolvida = try await db.pool.read { try AccountRecord.fetchOne($0, key: "conta-i")?.account }
         #expect(devolvida?.state == .ativa)
@@ -596,9 +604,10 @@ struct InitialLoaderImapTests {
         // dela para o buraco: a barra pararia em 0,5 com a conta dizendo
         // "pronto", e nada mais chegaria para movê-la.
         var script = roteiro()
-        // Passada 1: INBOX e Arquivo passam. Passada 2: INBOX morre.
+        // Passada 1: as três pastas passam. Passada 2: a INBOX morre — é o
+        // quarto SELECT, e não o terceiro, desde que Enviados entrou na carga.
         script.rounds["SELECT"] = [
-            selectOK(), selectOK(),
+            selectOK(), selectOK(), selectOK(),
             ["TAG NO [NONEXISTENT] Mailbox doesn't exist"],
             selectOK(),
         ]
@@ -612,7 +621,7 @@ struct InitialLoaderImapTests {
         // A pasta que morreu não gravou mensagem nenhuma — é isso, e não a
         // barra, que conta a história dela.
         let buckets = try await db.pool.read { try String.fetchSet($0, sql: "SELECT DISTINCT bucket FROM message") }
-        #expect(buckets == ["arquivar"])
+        #expect(buckets == ["arquivar", "enviadas"])
     }
 
     // MARK: Sem reconexão

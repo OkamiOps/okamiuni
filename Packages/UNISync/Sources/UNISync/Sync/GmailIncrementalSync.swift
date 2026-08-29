@@ -176,7 +176,7 @@ public struct GmailIncrementalSync: Sendable {
     private func aplica(
         _ ids: [String], account: Account, laterLabelID: String?, gmail: GmailAuthReplay
     ) async throws -> Int {
-        let folderID = FolderRecord.id(accountID: account.id, serverName: "GMAIL")
+        let folderID = FolderRecord.gmail(accountID: account.id).id
         var gravadas = 0
         for lote in stride(from: 0, to: ids.count, by: InitialLoader.defaultBatchSize) {
             try Task.checkCancellation()
@@ -203,10 +203,7 @@ public struct GmailIncrementalSync: Sendable {
                 // para ela, e um banco recarregado sem ela derrubaria a
                 // transação inteira. `save` é upsert — reescrevê-la não custa
                 // nada e fecha o caso.
-                try FolderRecord(
-                    id: folderID, accountID: account.id, serverName: "GMAIL",
-                    role: .other, displayName: "Gmail"
-                ).save(db)
+                try FolderRecord.gmail(accountID: account.id).save(db)
                 return try InitialLoader.gravaMensagensDoGmail(
                     db, lote, account: account, folderID: folderID, laterLabelID: laterLabelID
                 )

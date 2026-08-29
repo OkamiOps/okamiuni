@@ -130,6 +130,104 @@ struct SidebarTests {
         )
     }
 
+    // MARK: A caixa Enviadas
+
+    /// Um store com uma mensagem em cada caixa que este teste precisa: uma
+    /// enviada (lida, como toda mensagem que a pessoa escreveu) e uma que
+    /// chegou e não foi lida.
+    @MainActor
+    private func storeComEnviada() async -> MailStore {
+        let conta = Account(
+            id: "a0", address: "eu@meudominio.com.br", displayName: "Eu",
+            provider: .imap, host: "meudominio",
+            tintLightHex: "#3E6FA8", tintDarkHex: "#7BA8D9"
+        )
+        let recebida = Message(
+            id: "r1", accountID: "a0",
+            from: Contact(name: "Marina Duarte", address: "marina@clientepremium.com"),
+            receivedAt: Date(timeIntervalSince1970: 1_800_000_000),
+            subject: "Contrato", snippet: "Segue", body: [], tags: [],
+            bucket: .today, isRead: false, summary: nil, detectedEvent: nil
+        )
+        let enviada = Message(
+            id: "e1", accountID: "a0",
+            from: Contact(name: "Eu", address: "eu@meudominio.com.br"),
+            receivedAt: Date(timeIntervalSince1970: 1_800_000_100),
+            subject: "Contrato", snippet: "Segue a versão final.", body: [], tags: [],
+            bucket: .sent, isRead: true, summary: nil, detectedEvent: nil,
+            to: [Contact(name: "Marina Duarte", address: "marina@clientepremium.com")]
+        )
+        let store = MailStore(
+            source: InMemoryMailSource(accounts: [conta], messages: [recebida, enviada], agenda: [])
+        )
+        await store.load()
+        return store
+    }
+
+    /// **O contador de Enviadas é o total, e não as não lidas.**
+    ///
+    /// Uma mensagem que você escreveu nasce lida: "não lidas" ali seria zero
+    /// para sempre, e um número que nunca se move é ruído com cara de
+    /// informação. É a única caixa em que a regra do dono ("quero não lidas")
+    /// não se aplica, porque nela ela não diz nada.
+    ///
+    /// MUTAÇÃO QUE ISTO PEGA: `counter(for:store:)` voltar a chamar
+    /// `unreadCount` para todas as caixas.
+    @Test("Enviadas conta o total; as caixas do fluxo continuam contando não lidas")
+    @MainActor
+    func contadorDeEnviadas() async {
+        let store = await storeComEnviada()
+        #expect(FolderSidebar.counter(for: .sent, store: store) == 1)
+        #expect(store.unreadCount(in: .sent) == 0)
+        #expect(FolderSidebar.counter(for: .today, store: store) == 1)
+        // E a enviada não infla "Tudo": ela não é triagem.
+        #expect(FolderSidebar.counter(for: .all, store: store) == 1)
+        #expect(store.count(for: .all) == 1)
+    }
+
+    /// A caixa nova é **desenhada**, e não só declarada: sem esta prova, um
+    /// `ForEach` que percorresse `TriageBucket.triage` (as cinco do fluxo) em
+    /// vez de `allCases` continuaria compilando, e Enviadas não apareceria em
+    /// barra nenhuma.
+    @Test("a barra desenha a caixa Enviadas — e a trilha também")
+    @MainActor
+    func aBarraDesenhaEnviadas() async throws {
+        let comEnviada = await storeComEnviada()
+        let store = comEnviada
+
+        // O instrumento é o contador: com a caixa desenhada, mandar a única
+        // enviada para a lixeira muda o que a barra escreve. Sem a linha
+        // desenhada, os dois bitmaps saem idênticos.
+        let antes = try #require(Render.bitmap(
+            FolderSidebar(store: store),
+            size: CGSize(width: FolderSidebar.expandedWidth, height: 420), theme: .tinta
+        ))
+        store.move(store.messages.first { $0.bucket == .sent }!, to: .trash)
+        let depois = try #require(Render.bitmap(
+            FolderSidebar(store: store),
+            size: CGSize(width: FolderSidebar.expandedWidth, height: 420), theme: .tinta
+        ))
+        #expect(
+            antes.pixelsDiffering(from: depois) > 0,
+            "esvaziar Enviadas não mudou nada na barra — a caixa não está sendo desenhada"
+        )
+
+        let outro = await storeComEnviada()
+        let trilhaAntes = try #require(Render.bitmap(
+            SidebarRail(store: outro),
+            size: CGSize(width: SidebarRail.width, height: 420), theme: .tinta
+        ))
+        outro.move(outro.messages.first { $0.bucket == .sent }!, to: .trash)
+        let trilhaDepois = try #require(Render.bitmap(
+            SidebarRail(store: outro),
+            size: CGSize(width: SidebarRail.width, height: 420), theme: .tinta
+        ))
+        #expect(
+            trilhaAntes.pixelsDiffering(from: trilhaDepois) > 0,
+            "esvaziar Enviadas não mudou nada na trilha — a caixa não está sendo desenhada lá"
+        )
+    }
+
     @Test("a largura expandida é 236")
     @MainActor
     func expandedWidth() {

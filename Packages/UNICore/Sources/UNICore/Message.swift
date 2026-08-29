@@ -22,6 +22,19 @@ public enum TriageBucket: String, Sendable, CaseIterable {
     /// no store, na caixa Lixeira, até alguém a apagar definitivamente ou
     /// esvaziar a caixa.
     case trash = "lixeira"
+    /// O que **você** mandou. É caixa, e não estado de triagem: uma mensagem
+    /// enviada não é "não lida", não entra em Hoje e não conta em selo de não
+    /// lidas nenhum — ver `contains(_:)` e `TriageBucket.triage`.
+    case sent = "enviadas"
+
+    /// As caixas do **fluxo** de triagem, na ordem da barra lateral.
+    ///
+    /// Enviadas fica de fora, e é para isso que esta lista existe: `allCases`
+    /// serve para desenhar a barra (que mostra a caixa nova) e esta serve para
+    /// tudo o que é triagem — mover uma mensagem recebida para Enviadas não
+    /// quer dizer nada, e "Marcar tudo como lido" numa caixa que nasce lida
+    /// também não.
+    public static let triage: [TriageBucket] = [.today, .later, .all, .archived, .trash]
 
     public var label: String {
         switch self {
@@ -30,6 +43,7 @@ public enum TriageBucket: String, Sendable, CaseIterable {
         case .all: "Tudo"
         case .archived: "Arquivado"
         case .trash: "Lixeira"
+        case .sent: "Enviadas"
         }
     }
 
@@ -42,8 +56,13 @@ public enum TriageBucket: String, Sendable, CaseIterable {
     ///
     /// O mesmo vale para os contadores e para `markAllRead`, que passam por
     /// aqui: eles herdam a regra em vez de a repetirem.
+    /// Enviadas fica de fora de "Tudo" pela mesma razão que a Lixeira: "Tudo" é
+    /// a visão da **triagem**, do que chegou e ainda pede decisão. Com o que
+    /// você escreveu dentro dela, a caixa que a pessoa deixa aberta o dia
+    /// inteiro passaria a crescer a cada mensagem respondida — e o contador
+    /// dela contaria as respostas como se fossem trabalho por fazer.
     public func contains(_ message: Message) -> Bool {
-        if self == .all { return message.bucket != .trash }
+        if self == .all { return message.bucket != .trash && message.bucket != .sent }
         return message.bucket == self
     }
 }
@@ -170,6 +189,24 @@ public struct Message: Sendable, Hashable, Identifiable {
 }
 
 extension Message {
+    /// Quem a linha da lista escreve na primeira linha.
+    ///
+    /// O remetente, quase sempre — mas **o destinatário em Enviadas**, como
+    /// Mail.app e Gmail fazem. Numa caixa em que o remetente é sempre você, a
+    /// coluna do remetente repetiria o seu nome em toda linha e esconderia a
+    /// única informação que distingue uma mensagem da outra: para quem ela foi.
+    ///
+    /// Aqui, e não dentro da `View`: é regra do produto, e a mesma pergunta é
+    /// feita pela linha da lista e por quem a testa. Uma mensagem enviada sem
+    /// destinatário nenhum (a que só tem cópia oculta, por exemplo) cai no
+    /// remetente — dizer o seu nome é menos errado do que uma linha vazia.
+    public var listHeadline: String {
+        guard bucket == .sent else { return from.name }
+        let nomes = to.map { $0.name.isEmpty ? $0.address : $0.name }
+            .filter { !$0.isEmpty }
+        return nomes.isEmpty ? from.name : nomes.joined(separator: ", ")
+    }
+
     /// A mesma mensagem com outro estado de leitura.
     ///
     /// Existe porque `Message` é imutável e reconstruí-la à mão em cada ponto

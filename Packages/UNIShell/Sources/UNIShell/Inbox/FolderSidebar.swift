@@ -115,7 +115,7 @@ public struct FolderSidebar: View {
                     .font(theme.sans.font(size: 13, weight: .medium))
                     .foregroundStyle((active ? theme.accentInk : theme.ink2).color)
                 Spacer(minLength: 0)
-                Text("\(store.unreadCount(in: bucket, accountID: store.selectedAccountID))")
+                Text("\(Self.counter(for: bucket, store: store))")
                     .font(theme.mono.font(size: 10))
                     .foregroundStyle((active ? theme.accentInk : theme.ink4).color)
             }
@@ -157,8 +157,30 @@ public struct FolderSidebar: View {
     }
 
     /// O símbolo de uma caixa, quando ela tem um.
+    ///
+    /// Duas têm, e pela mesma razão: elas são as que **não** são triagem. A
+    /// Lixeira é a única cujo conteúdo se perde; Enviadas é a única que guarda
+    /// o que saiu. O ícone é o que as distingue à primeira vista de
+    /// "Arquivado", entre as quais elas estão. As outras quatro continuam só
+    /// com o nome, como no protótipo.
     static func symbol(for bucket: TriageBucket) -> String? {
-        bucket == .trash ? "trash" : nil
+        switch bucket {
+        case .trash: "trash"
+        case .sent: "paperplane"
+        default: nil
+        }
+    }
+
+    /// O número que a caixa mostra à direita.
+    ///
+    /// Não lidas em toda caixa da triagem — é o que o dono pediu, e o que o
+    /// webmail mostra. **Menos em Enviadas**, que mostra o total: uma mensagem
+    /// que você escreveu nasce lida, então "não lidas" ali seria zero para
+    /// sempre — um contador que nunca se move é ruído com cara de informação.
+    static func counter(for bucket: TriageBucket, store: MailStore) -> Int {
+        bucket == .sent
+            ? store.count(for: bucket)
+            : store.unreadCount(in: bucket, accountID: store.selectedAccountID)
     }
 
     private func accountRow(_ account: Account) -> some View {

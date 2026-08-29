@@ -15,16 +15,25 @@ public enum TriageProjection {
     // divergir entre o rótulo do Gmail e a pasta `OkamiUNI/Depois`.
     public static let laterLabelName = FolderRoles.laterFolderName
 
-    public static func bucket(role: FolderRole) -> TriageBucket? {
+    /// **Não devolve mais `nil`.** Ele devolvia, e o `nil` queria dizer "esta
+    /// pasta não entra no banco" — a saída que existia enquanto Enviadas não
+    /// tinha caixa. Com a caixa, toda pasta do servidor tem para onde ir, e um
+    /// opcional que nunca é nulo é um `guard` que ninguém sabe mais por que
+    /// está lá.
+    public static func bucket(role: FolderRole) -> TriageBucket {
         switch role {
         case .inbox: .today
         case .later: .later
         case .archive: .archived
         case .trash: .trash
-        // Enviadas ficam **fora** da triagem. A caixa não existe no shell do
-        // Marco 1, e enfiá-las em Arquivado encheria a caixa do que a pessoa
-        // escreveu, não do que ela recebeu.
-        case .sent: nil
+        // Enviadas continua **fora do fluxo de triagem** — mas agora tem caixa
+        // própria, e é para lá que ela vai. Era `nil`, "não grava": a pasta de
+        // Enviados do servidor ficava fora do banco inteiro, e o shell não
+        // tinha onde a mostrar. Enfiá-la em Arquivado, que era a outra saída,
+        // encheria a caixa do que a pessoa escreveu; `.sent` é a caixa que diz
+        // a verdade, e ela não entra em Hoje nem em "Tudo" (ver
+        // `TriageBucket.contains`).
+        case .sent: .sent
         // Pasta que a pessoa criou não tem papel nosso, e "arquivada" é a
         // resposta certa: a mensagem existe, não está na entrada, não está na
         // lixeira. Some da triagem só o que ela mandou sumir.
@@ -66,18 +75,25 @@ public enum TriageProjection {
     ///
     /// A ordem de precedência é o que importa aqui, e cada degrau custou um
     /// defeito para alguém em algum cliente:
-    /// 1. `SENT` sai de tudo — o que a pessoa escreveu não é triagem dela.
-    /// 2. `TRASH` ganha de tudo o que sobra — uma mensagem apagada continua
-    ///    carregando `INBOX` por um tempo, e se `INBOX` vencesse ela voltaria
-    ///    para Hoje. Apagar tem de parecer apagar.
+    /// 1. `TRASH` ganha de tudo — uma mensagem apagada continua carregando
+    ///    `INBOX` (e, se você a escreveu, `SENT`) por um tempo, e se qualquer
+    ///    um deles vencesse ela voltaria para a caixa de onde saiu. Apagar tem
+    ///    de parecer apagar.
+    /// 2. `SENT` vai para Enviadas, e sai da triagem — o que a pessoa escreveu
+    ///    não é caixa de entrada dela. Ganha de `INBOX` porque a mensagem de
+    ///    uma conversa consigo mesma carrega os dois rótulos, e a resposta
+    ///    certa ali é "eu escrevi".
     /// 3. `OkamiUNI/Depois` ganha de `INBOX` — é decisão explícita da pessoa,
     ///    tomada nesta ferramenta; `INBOX` é só "ainda não triada".
     /// 4. `INBOX` → Hoje.
     /// 5. O resto → Arquivado.
-    public static func bucket(gmailLabelIDs: [String], laterLabelID: String?) -> TriageBucket? {
+    public static func bucket(gmailLabelIDs: [String], laterLabelID: String?) -> TriageBucket {
         let rotulos = Set(gmailLabelIDs)
-        if rotulos.contains("SENT") { return nil }
+        // A Lixeira ganha até de Enviadas: uma mensagem que você escreveu e
+        // depois apagou está apagada, e apagar tem de parecer apagar em toda
+        // caixa — inclusive na sua.
         if rotulos.contains("TRASH") { return .trash }
+        if rotulos.contains("SENT") { return .sent }
         if let laterLabelID, rotulos.contains(laterLabelID) { return .later }
         if rotulos.contains("INBOX") { return .today }
         return .archived

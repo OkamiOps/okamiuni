@@ -242,6 +242,42 @@ public enum ImapWire {
         return "\(tag) APPEND \(quoted(mailbox))\(bandeiras) {\(raw.utf8.count)+}\r\n\(raw)"
     }
 
+    /// Onde o `APPEND` gravou: a geração de UIDs da pasta e o UID que a cópia
+    /// recebeu.
+    public struct AppendUID: Sendable, Hashable {
+        public let uidValidity: Int64
+        public let uid: Int64
+
+        public init(uidValidity: Int64, uid: Int64) {
+            self.uidValidity = uidValidity
+            self.uid = uid
+        }
+    }
+
+    /// O `[APPENDUID 42 9]` da resposta tagueada do `APPEND` (RFC 4315).
+    ///
+    /// **É o endereço da cópia em Enviadas**, e é por ele que a linha gravada
+    /// no envio tem o mesmo `MessageIdentity.imap` que a leitura seguinte da
+    /// pasta daria à mesma mensagem — sem ele, a mensagem que você mandou
+    /// apareceria duas vezes na sua caixa: a nossa e a do servidor.
+    ///
+    /// `nil` é legítimo: o código só existe em servidor com `UIDPLUS`, e o
+    /// envio não pode falhar por causa disso — a mensagem já saiu. Sem ele, a
+    /// cópia entra pela leitura normal da pasta, no ciclo seguinte.
+    ///
+    /// A leitura é tolerante de propósito: caixa alta ou baixa, e o texto que
+    /// vem depois do `]` (que é livre) é ignorado.
+    public static func appendUID(from texto: String) -> AppendUID? {
+        guard let abre = texto.firstIndex(of: "["),
+              let fecha = texto[abre...].firstIndex(of: "]")
+        else { return nil }
+        let partes = texto[texto.index(after: abre)..<fecha].split(separator: " ")
+        guard partes.count == 3, partes[0].uppercased() == "APPENDUID",
+              let uidValidity = Int64(partes[1]), let uid = Int64(partes[2])
+        else { return nil }
+        return AppendUID(uidValidity: uidValidity, uid: uid)
+    }
+
     /// `UID SEARCH UID 42` — "este UID ainda está nesta pasta?".
     public static func uidSearchUID(tag: String, uids: [Int64]) -> String {
         "\(tag) UID SEARCH UID \(uidSet(uids))"

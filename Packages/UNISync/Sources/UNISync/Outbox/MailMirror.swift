@@ -17,7 +17,24 @@ import UNICore
 public protocol MailMirror: Sendable {
     /// Aplica a operação no servidor. Lança `SyncError` — é o executor quem
     /// decide o que é transitório e o que para a fila.
-    func apply(_ operation: MailOperation, targets: [MessageCoordinate]) async throws
+    ///
+    /// Devolve **onde a cópia do que saiu ficou**, e só o envio devolve alguma
+    /// coisa: o `id` do Gmail que a `messages.send` criou, o `APPENDUID` que o
+    /// IMAP carimbou. Todo o resto devolve `nil`, porque não gravou nada novo
+    /// em lugar nenhum — mudou bandeira e pasta de mensagem que já existia.
+    ///
+    /// Por que a coordenada, e não um simples "deu certo": é ela que faz a
+    /// linha de Enviadas gravada aqui ter **o mesmo id** que a sincronização
+    /// daria à mesma mensagem quando a trouxer do servidor
+    /// (`MessageIdentity.gmail`/`.imap`). Mesmo id, `save` é upsert, e a
+    /// mensagem que você mandou não aparece duas vezes na sua caixa. Um id
+    /// inventado aqui seria a duplicata garantida no ciclo seguinte.
+    ///
+    /// `nil` num envio é legítimo e quer dizer "saiu, mas não há cópia nossa
+    /// para gravar": servidor sem `LITERAL+`, conta sem pasta de Enviadas, ou
+    /// a reexecução que descobriu que a mensagem já estava lá.
+    @discardableResult
+    func apply(_ operation: MailOperation, targets: [MessageCoordinate]) async throws -> MessageCoordinate?
 }
 
 /// O nome da pasta/rótulo "Depois" no servidor. Uma constante só para os dois

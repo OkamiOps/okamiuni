@@ -14,15 +14,24 @@ actor EspelhoFalso: MailMirror {
     /// acabando significa "daqui em diante, sucesso".
     private var roteiro: [SyncError?]
     private(set) var chamadas: [(MailOperation, [MessageCoordinate])] = []
+    /// Onde o "servidor" diz ter guardado a cópia do que saiu. `nil` é o
+    /// espelho que não gravou cópia nenhuma — o normal fora do envio.
+    private let gravouEm: MessageCoordinate?
 
-    init(roteiro: [SyncError?] = []) {
+    init(roteiro: [SyncError?] = [], gravouEm: MessageCoordinate? = nil) {
         self.roteiro = roteiro
+        self.gravouEm = gravouEm
     }
 
-    func apply(_ operation: MailOperation, targets: [MessageCoordinate]) async throws {
+    func apply(
+        _ operation: MailOperation, targets: [MessageCoordinate]
+    ) async throws -> MessageCoordinate? {
         chamadas.append((operation, targets))
-        guard !roteiro.isEmpty else { return }
-        if let erro = roteiro.removeFirst() { throw erro }
+        if !roteiro.isEmpty, let erro = roteiro.removeFirst() { throw erro }
+        // Devolvida em **qualquer** operação, de propósito: quem tem de saber
+        // que só o envio grava uma linha de Enviadas é o executor, e um espelho
+        // falso que já filtrasse por operação esconderia a falta desse guarda.
+        return gravouEm
     }
 
     var operacoes: [MailOperation] { chamadas.map(\.0) }

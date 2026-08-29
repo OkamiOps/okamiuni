@@ -132,12 +132,10 @@ public struct InitialLoader: Sendable {
             // via da pasta. O Marco 3 escreve de volta no servidor: um caminho
             // que resolva destino pelo papel da pasta acertaria no IMAP e
             // erraria em todo o Gmail, e é por isso que isto está escrito aqui.
-            let folderID = FolderRecord.id(accountID: account.id, serverName: "GMAIL")
+            let pseudoPasta = FolderRecord.gmail(accountID: account.id)
+            let folderID = pseudoPasta.id
             try await database.pool.write { db in
-                try FolderRecord(
-                    id: folderID, accountID: account.id, serverName: "GMAIL",
-                    role: .other, displayName: "Gmail"
-                ).save(db)
+                try pseudoPasta.save(db)
             }
 
             // 1. Os ids, paginados.
@@ -264,8 +262,7 @@ public struct InitialLoader: Sendable {
                 }
                 // O progresso conta o que foi **percorrido**, não o que foi
                 // gravado: uma mensagem pulada não pode deixar a barra parada a
-                // 3/4 para sempre, e uma Enviada — que nunca vira linha — muito
-                // menos.
+                // 3/4 para sempre.
                 progress(LoadProgress(accountID: account.id, done: fimDoLote, total: ids.count))
             }
 
@@ -283,8 +280,8 @@ public struct InitialLoader: Sendable {
             // na API do Gmail, que reprova TODA mensagem com `.resposta` —
             // classificado como não-fatal aqui em cima, de propósito.
             //
-            // A conta sem nenhuma mensagem de verdade (só Enviadas, ou caixa
-            // vazia) não é atingida: sem falhas, o guarda não fecha.
+            // A conta sem mensagem nenhuma (caixa vazia) não é atingida: sem
+            // falhas, o guarda não fecha.
             if let primeiroErroDeMensagem, gravadas == 0, !ids.isEmpty {
                 throw primeiroErroDeMensagem
             }
@@ -343,8 +340,7 @@ public struct InitialLoader: Sendable {
 
     /// Um lote inteiro numa transação: ou entra tudo, ou nada.
     ///
-    /// Devolve **quantas linhas entraram** — que não é `lote.count`: as
-    /// Enviadas ficam fora da triagem. Quem chama usa isso para saber se a
+    /// Devolve **quantas linhas entraram**. Quem chama usa isso para saber se a
     /// carga produziu alguma coisa.
     @discardableResult
     private func grava(
@@ -366,8 +362,7 @@ public struct InitialLoader: Sendable {
     /// avisava — divergiria no primeiro rótulo novo, e a mesma mensagem cairia
     /// numa caixa pela carga inicial e noutra pelo incremental.
     ///
-    /// Devolve **quantas linhas entraram**, que não é `lote.count`: as Enviadas
-    /// ficam fora da triagem.
+    /// Devolve **quantas linhas entraram**.
     @discardableResult
     static func gravaMensagensDoGmail(
         _ db: Database, _ lote: [(GmailMessage, Bool)],
@@ -375,10 +370,9 @@ public struct InitialLoader: Sendable {
     ) throws -> Int {
         var entraram = 0
         for (mensagem, temCorpo) in lote {
-            guard let bucket = TriageProjection.bucket(
+            let bucket = TriageProjection.bucket(
                 gmailLabelIDs: mensagem.labelIDs, laterLabelID: laterLabelID
-            ) else { continue }   // Enviadas ficam fora da triagem.
-
+            )
             let id = MessageIdentity.gmail(accountID: account.id, serverID: mensagem.id)
             let nossa = Message(
                 id: id, accountID: account.id, from: mensagem.from,
@@ -451,9 +445,10 @@ public struct InitialLoader: Sendable {
         do {
             try await marca(account.id, estado: .carregando)
 
-            // As pastas que a triagem sabe onde pôr. Enviados fica de fora — a
-            // caixa não existe neste marco, e o que a pessoa escreveu não é
-            // triagem dela.
+            // Todas as pastas do servidor: a triagem sabe onde pôr cada uma.
+            // Enviados entrava aqui como `nil` e ficava fora do banco inteiro,
+            // enquanto não havia caixa para ela; agora ela tem a sua, e o que
+            // a pessoa escreveu aparece sem sair da caixa dela.
             //
             // As que a **pessoa** criou entram, em Arquivado, com o nome delas
             // como etiqueta. Esta linha já excluía `.other` de propósito, e a
@@ -465,9 +460,8 @@ public struct InitialLoader: Sendable {
             //
             // O `bucket` sai resolvido aqui, junto com o filtro, para não haver
             // uma segunda decisão (e um `?? .archived` inalcançável) lá embaixo.
-            let comPapel = try await sessao.folders().compactMap { pasta -> (ImapFolder, TriageBucket)? in
-                guard let bucket = TriageProjection.bucket(role: pasta.role) else { return nil }
-                return (pasta, bucket)
+            let comPapel = try await sessao.folders().map { pasta in
+                (pasta, TriageProjection.bucket(role: pasta.role))
             }
 
             let desde = since(now: now)

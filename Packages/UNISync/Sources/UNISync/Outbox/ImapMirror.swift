@@ -76,9 +76,12 @@ public actor ImapMirror: MailMirror {
         pastas = nil
     }
 
-    public func apply(_ operation: MailOperation, targets: [MessageCoordinate]) async throws {
+    @discardableResult
+    public func apply(
+        _ operation: MailOperation, targets: [MessageCoordinate]
+    ) async throws -> MessageCoordinate? {
         do {
-            try await aplica(operation, targets: targets)
+            return try await aplica(operation, targets: targets)
         } catch let erro as SyncError {
             if case .rede = erro { derruba() }
             if case .tls = erro { derruba() }
@@ -86,7 +89,9 @@ public actor ImapMirror: MailMirror {
         }
     }
 
-    private func aplica(_ operation: MailOperation, targets: [MessageCoordinate]) async throws {
+    private func aplica(
+        _ operation: MailOperation, targets: [MessageCoordinate]
+    ) async throws -> MessageCoordinate? {
         let session = try await sessaoAtiva()
         switch operation {
         case .setRead(let isRead, _):
@@ -118,8 +123,11 @@ public actor ImapMirror: MailMirror {
             try await session.expunge()
 
         case .send(let mensagem):
-            try await envia(mensagem)
+            return try await envia(mensagem)
         }
+        // Só o envio grava mensagem nova; o resto mexe em pasta e bandeira do
+        // que já estava lá.
+        return nil
     }
 
     // MARK: O envio
@@ -140,7 +148,7 @@ public actor ImapMirror: MailMirror {
     ///    mensagem já saiu, e dizer que o envio falhou faria a pessoa mandá-la
     ///    de novo. A falha vai para o log; a cópia aparece no próximo ciclo se
     ///    o servidor a tiver por conta própria (vários põem), ou não aparece.
-    private func envia(_ mensagem: OutgoingMessage) async throws {
+    private func envia(_ mensagem: OutgoingMessage) async throws -> MessageCoordinate? {
         guard let conectarSmtp else {
             throw SyncError.resposta(
                 "A conta não tem servidor de envio, e enviar precisa de um."
@@ -151,7 +159,7 @@ public actor ImapMirror: MailMirror {
         // saber se a tentativa anterior passou, e mandar às cegas é escolher a
         // duplicata. A fila tenta de novo com o recuo dela.
         let enviadas = try await nome(de: .sent, em: lista())
-        if let enviadas, try await jaEstaEnviada(mensagem.messageID, em: enviadas) { return }
+        if let enviadas, try await jaEstaEnviada(mensagem.messageID, em: enviadas) { return nil }
 
         // `includeBcc: false`: no SMTP a cópia oculta viaja no `RCPT TO`, e um
         // cabeçalho `Bcc` no texto a mostraria para todo mundo que recebeu.
@@ -169,19 +177,31 @@ public actor ImapMirror: MailMirror {
 
         guard let enviadas else {
             log.notice("A conta não tem pasta de Enviadas: a cópia da mensagem não foi guardada.")
-            return
+            return nil
         }
         do {
             let session = try await sessaoAtiva()
             guard try await session.capabilities().contains("LITERAL+") else {
                 log.notice("O servidor não anuncia LITERAL+: a cópia em Enviadas não foi gravada.")
-                return
+                return nil
             }
-            try await session.append(mailbox: enviadas, raw: raw)
+            // O `APPENDUID` é onde a cópia ficou — e é ele que faz a linha
+            // gravada aqui ter o mesmo id que a próxima leitura da pasta daria
+            // à mesma mensagem. Servidor sem `UIDPLUS` não o manda, e aí não há
+            // coordenada honesta a devolver: a cópia aparece no ciclo seguinte,
+            // pela leitura normal da pasta.
+            guard let carimbo = try await session.append(mailbox: enviadas, raw: raw) else {
+                log.notice("O servidor não devolveu APPENDUID: a cópia em Enviadas aparece no próximo ciclo.")
+                return nil
+            }
+            return .imap(
+                folderName: enviadas, uidValidity: carimbo.uidValidity, uid: carimbo.uid
+            )
         } catch {
             // Registrado e seguido: a mensagem **já saiu**, e transformar isto
             // em falha faria a fila tentar de novo um envio que já aconteceu.
             log.error("A cópia em Enviadas não foi gravada: \(error)")
+            return nil
         }
     }
 
@@ -311,6 +331,11 @@ public actor ImapMirror: MailMirror {
             return pasta
         case .all:
             throw SyncError.resposta("\"Tudo\" é uma visão, não uma pasta — não há para onde mover.")
+        case .sent:
+            // Enviadas é pasta de verdade no servidor, e mesmo assim não é
+            // destino: o que põe uma mensagem lá é enviá-la. Ver a mesma
+            // recusa no `GmailMirror`.
+            throw SyncError.resposta("Enviadas guarda o que saiu — não há como mover uma mensagem para lá.")
         }
     }
 

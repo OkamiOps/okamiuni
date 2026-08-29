@@ -164,7 +164,7 @@ struct InitialLoaderGmailTests {
 
     // MARK: A projeção
 
-    @Test("As quatro mensagens caem nas caixas certas — e a enviada não entra")
+    @Test("As quatro mensagens caem nas caixas certas — a enviada em Enviadas")
     func projecaoNaEntrada() async throws {
         let db = try SyncDatabase.temporary()
         try await carrega(db)
@@ -179,9 +179,10 @@ struct InitialLoaderGmailTests {
         #expect(porBucket["m1"] == "hoje")
         #expect(porBucket["m2"] == "lixeira")
         #expect(porBucket["m4"] == "depois")
-        // A enviada não entra: a caixa Enviadas não existe neste marco.
-        #expect(porBucket["m3"] == nil)
-        #expect(porBucket.count == 3)
+        // A enviada tem caixa agora, e ela é a dela — não Arquivado, e não a
+        // ausência que este teste afirmava enquanto a caixa não existia.
+        #expect(porBucket["m3"] == "enviadas")
+        #expect(porBucket.count == 4)
     }
 
     @Test("`UNREAD` e `STARRED` viram não lida e sinalizada na linha gravada")
@@ -230,11 +231,11 @@ struct InitialLoaderGmailTests {
         )
         let depoisDaSegunda = try await db.pool.read { try MessageRecord.fetchCount($0) }
         #expect(depoisDaPrimeira == depoisDaSegunda)
-        #expect(depoisDaPrimeira == 3)
+        #expect(depoisDaPrimeira == 4)
         // O corpo também é um por mensagem: `messageID` é UNIQUE, e uma
         // segunda inserção derrubaria a transação do lote inteiro.
         let corpos = try await db.pool.read { try MessageBodyRecord.fetchCount($0) }
-        #expect(corpos == 3)
+        #expect(corpos == 4)
     }
 
     @Test("Interromper no meio commita os lotes fechados e retomar completa a caixa")
@@ -280,8 +281,9 @@ struct InitialLoaderGmailTests {
         let db = try SyncDatabase.temporary()
         try await carrega(db, roteiro: roteiro)
 
-        // `m3` é Enviada e nunca vira linha; sobram `m1` e `m4`.
-        #expect(try await servidorIDs(db) == ["m1", "m4"])
+        // `m2` morreu com o lote aberto; sobram `m1`, `m3` (a enviada, que
+        // agora tem caixa) e `m4`.
+        #expect(try await servidorIDs(db) == ["m1", "m3", "m4"])
         #expect(try await estado(db) == .ativa)
         let sync = try await db.pool.read { conexao in
             try SyncStateRecord.fetchOne(conexao, key: ["accountID": "conta-g", "folderID": ""])
@@ -731,7 +733,8 @@ struct InitialLoaderGmailTests {
         let servidorIDs = try await db.pool.read { conexao in
             Set(try MessageRecord.fetchAll(conexao).compactMap(\.serverID))
         }
-        #expect(servidorIDs == ["m1", "m2"])
+        // `m3` é a enviada, e entra: a caixa Enviadas existe.
+        #expect(servidorIDs == ["m1", "m2", "m3"])
         let estado = try await db.pool.read { conexao in
             try AccountRecord.fetchOne(conexao, key: "conta-g")?.account.state
         }
@@ -806,7 +809,7 @@ struct InitialLoaderGmailTests {
         let servidorIDs = try await db.pool.read { conexao in
             Set(try MessageRecord.fetchAll(conexao).compactMap(\.serverID))
         }
-        #expect(servidorIDs == ["m1", "m2", "m4"])
+        #expect(servidorIDs == ["m1", "m2", "m3", "m4"])
         let estado = try await db.pool.read { conexao in
             try AccountRecord.fetchOne(conexao, key: "conta-g")?.account.state
         }
@@ -882,7 +885,7 @@ struct InitialLoaderGmailTests {
         )
 
         // As duas páginas entraram inteiras.
-        #expect(try await servidorIDs(db) == ["m1", "m2", "m4"])
+        #expect(try await servidorIDs(db) == ["m1", "m2", "m3", "m4"])
         #expect(try await estado(db) == .ativa)
 
         let listagens = StubURLProtocol.requests(for: session).filter { $0.path.hasSuffix("/messages") }
