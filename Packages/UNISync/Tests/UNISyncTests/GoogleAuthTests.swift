@@ -21,11 +21,12 @@ struct GoogleAuthTests {
                 + (URLComponents(url: url, resolvingAgainstBaseURL: false)?
                     .queryItems?.first { $0.name == "state" }?.value ?? ""))!
         },
-        now: @Sendable @escaping () -> Date = { Date(timeIntervalSince1970: 10_000) }
+        now: @Sendable @escaping () -> Date = { Date(timeIntervalSince1970: 10_000) },
+        config configuracao: GoogleAuthConfig? = nil
     ) -> (auth: GoogleAuth, session: URLSession) {
         let session = StubURLProtocol.session(routes: routes)
         let auth = GoogleAuth(
-            config: config, session: session, secrets: secrets,
+            config: configuracao ?? config, session: session, secrets: secrets,
             presenter: StubAuthorizationPresenter(redirect: redirect), now: now
         )
         return (auth, session)
@@ -155,8 +156,42 @@ struct GoogleAuthTests {
         #expect(pedido.body.contains("grant_type=authorization_code"))
         #expect(pedido.body.contains("code=codigo-devolvido"))
         #expect(pedido.body.contains("code_verifier="))
-        // Client de desktop é público: não há segredo nenhum no corpo.
+        // Sem segredo configurado, nada de segredo no corpo — mandar
+        // `client_secret=` vazio também seria recusado pelo Google.
         #expect(!pedido.body.contains("client_secret"))
+    }
+
+    @Test("O client_secret configurado vai na troca e na renovação")
+    func segredoVaiNosDoisPosts() async throws {
+        // A premissa original ("client de desktop é público, não há segredo
+        // no corpo") era falsa no mundo real: o token endpoint do Google
+        // responde `400 client_secret is missing` para client Desktop sem o
+        // segredo, PKCE ou não. Este teste inverte aquela asserção de
+        // propósito.
+        let cofre = InMemorySecretStore()
+        let comSegredo = GoogleAuthConfig(
+            clientID: config.clientID, clientSecret: "segredo-de-desktop",
+            tokenEndpoint: config.tokenEndpoint,
+            revocationEndpoint: config.revocationEndpoint)
+        let (login, http) = auth(secrets: cofre, routes: [
+            "/token": [
+                .json("""
+                    {"access_token":"at-1","refresh_token":"rt-1","expires_in":3600,"token_type":"Bearer"}
+                    """),
+                .json("""
+                    {"access_token":"at-2","expires_in":3600,"token_type":"Bearer"}
+                    """),
+            ],
+        ], config: comSegredo)
+
+        _ = try await login.connect(accountID: "conta-g", loginHint: nil)
+        _ = try await login.renewedAccessToken(for: "conta-g")
+
+        let pedidos = StubURLProtocol.requests(for: http)
+        #expect(pedidos.count == 2)
+        for pedido in pedidos {
+            #expect(pedido.body.contains("client_secret=segredo-de-desktop"))
+        }
     }
 
     @Test("Token válido é devolvido sem tocar a rede")

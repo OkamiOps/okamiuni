@@ -61,7 +61,14 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.okamiops.okamiuni
         INFOPLIST_FILE: App/Info.plist
         CODE_SIGN_ENTITLEMENTS: App/OkamiUNI.entitlements
-        CODE_SIGN_STYLE: Automatic
+        # Assinatura manual com a identidade de desenvolvimento da máquina.
+        # Automatic sem time assinava ad-hoc, e assinatura ad-hoc muda a cada
+        # build — o Keychain deixava de reconhecer o app e pedia a senha de
+        # login a CADA abertura. Com o certificado estável, "Sempre Permitir"
+        # vale para todos os builds seguintes.
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: Apple Development
+        DEVELOPMENT_TEAM: 7U9S5DB9K9
         ENABLE_HARDENED_RUNTIME: YES
         COMBINE_HIDPI_IMAGES: YES
       configs:

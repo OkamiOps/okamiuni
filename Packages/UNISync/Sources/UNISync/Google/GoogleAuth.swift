@@ -44,13 +44,18 @@ public actor GoogleAuth {
         let callback = try await presenter.authorize(url: url, callbackScheme: config.callbackScheme)
         let code = try OAuthCallback.code(from: callback, expectedState: state)
 
-        let tokens = try await postToken([
+        // O Google exige `client_secret` também no client de app desktop —
+        // sem ele o endpoint devolve `400 client_secret is missing`, PKCE ou
+        // não. Vai junto sempre que a configuração o tiver.
+        var campos = [
             "grant_type": "authorization_code",
             "code": code,
             "code_verifier": pkce.verifier,
             "client_id": config.clientID,
             "redirect_uri": config.redirectURI,
-        ], keepingRefreshToken: nil)
+        ]
+        campos["client_secret"] = config.clientSecret
+        let tokens = try await postToken(campos, keepingRefreshToken: nil)
 
         try secrets.store(.oauth(tokens), for: accountID)
         return tokens
@@ -101,11 +106,14 @@ public actor GoogleAuth {
 
         let tarefa = Task<OAuthTokens, any Error> { [config, secrets] in
             do {
-                let novos = try await self.postToken([
+                var campos = [
                     "grant_type": "refresh_token",
                     "refresh_token": guardados.refreshToken,
                     "client_id": config.clientID,
-                ], keepingRefreshToken: guardados.refreshToken)
+                ]
+                campos["client_secret"] = config.clientSecret
+                let novos = try await self.postToken(
+                    campos, keepingRefreshToken: guardados.refreshToken)
                 try secrets.store(.oauth(novos), for: accountID)
                 return novos
             } catch SyncError.autorizacaoRevogada {

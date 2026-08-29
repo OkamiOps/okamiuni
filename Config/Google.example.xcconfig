@@ -4,3 +4,9 @@
 // Vazio é legítimo: sem client ID a rota Google da janela de Contas explica o
 // que falta e aponta para o roteiro, e a rota IMAP continua inteira.
 OKAMIUNI_GOOGLE_CLIENT_ID =
+
+// O client de app desktop do Google vem com um "client secret" que é
+// obrigatório na troca do código (400 client_secret is missing sem ele),
+// embora não seja tratado como confidencial em app instalado. Está no mesmo
+// JSON baixado do console, campo client_secret.
+OKAMIUNI_GOOGLE_CLIENT_SECRET =

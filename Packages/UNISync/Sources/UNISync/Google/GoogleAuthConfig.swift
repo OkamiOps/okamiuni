@@ -2,6 +2,13 @@ import Foundation
 
 public struct GoogleAuthConfig: Sendable, Hashable {
     public let clientID: String
+    /// O "segredo" do client de app desktop, exigido pelo Google na troca do
+    /// código e na renovação — sem ele o token endpoint responde
+    /// `400 client_secret is missing` mesmo com PKCE correto. Não é segredo
+    /// de verdade (o RFC 8252 e a própria doc do Google assumem que app
+    /// instalado não guarda confidência), mas é obrigatório. `nil` é legítimo:
+    /// clients antigos do tipo certo podem não tê-lo.
+    public let clientSecret: String?
     /// Esquema próprio de app desktop. O `Info.plist` registra o esquema em
     /// `CFBundleURLTypes`; sem esse registro o macOS não devolve o redirect.
     public let redirectURI: String
@@ -50,6 +57,7 @@ public struct GoogleAuthConfig: Sendable, Hashable {
 
     public init(
         clientID: String,
+        clientSecret: String? = nil,
         redirectURI: String? = nil,
         callbackScheme: String? = nil,
         scopes: [String] = GoogleAuthConfig.defaultScopes,
@@ -58,6 +66,7 @@ public struct GoogleAuthConfig: Sendable, Hashable {
         revocationEndpoint: URL = URL(string: "https://oauth2.googleapis.com/revoke")!
     ) {
         self.clientID = clientID
+        self.clientSecret = clientSecret
         let esquema = callbackScheme ?? Self.reversedScheme(forClientID: clientID)
         self.redirectURI = redirectURI ?? "\(esquema):/oauth"
         self.callbackScheme = esquema
@@ -79,7 +88,10 @@ public struct GoogleAuthConfig: Sendable, Hashable {
         let bruto = bundle.object(forInfoDictionaryKey: "OkamiUNIGoogleClientID") as? String
         let limpo = (bruto ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !limpo.isEmpty, !limpo.hasPrefix("$(") else { throw SyncError.semClientID }
-        return GoogleAuthConfig(clientID: limpo)
+        let segredoBruto = bundle.object(forInfoDictionaryKey: "OkamiUNIGoogleClientSecret") as? String
+        let segredo = (segredoBruto ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let segredoValido = (segredo.isEmpty || segredo.hasPrefix("$(")) ? nil : segredo
+        return GoogleAuthConfig(clientID: limpo, clientSecret: segredoValido)
     }
 
     public func authorizationURL(pkce: PKCEPair, state: String, loginHint: String?) -> URL {
