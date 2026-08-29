@@ -103,7 +103,14 @@ extension MimeBody {
         // parte de texto nenhuma — e trocar um corpo cru e legível-com-esforço
         // por nada é uma perda, não um conserto. Igual significa que não havia
         // o que consertar.
-        guard !novo.isEmpty, novo != paragrafos || pagina != nil else { return nil }
+        //
+        // **A exceção é a página.** Uma newsletter que é só imagem não tem uma
+        // palavra a extrair, e a guarda do vazio abortava o conserto inteiro:
+        // sem texto, sem página, e o **fonte** continuava sendo a leitura. Onde
+        // há página sanitizada há conserto, com ou sem texto ao lado.
+        guard !novo.isEmpty || pagina != nil, novo != paragrafos || pagina != nil else {
+            return nil
+        }
         return Redecoded(paragraphs: novo, html: pagina)
     }
 
@@ -123,6 +130,19 @@ extension MimeBody {
         // reclamaria primeiro — devolvendo a mesma marcação, só que sem os
         // `=3D`. O leitor continuaria mostrando código-fonte.
         if pareceHTMLCru(texto) { return .htmlCru }
+        // E de novo, com o transporte desfeito. A quebra suave do QP cai onde a
+        // linha completa 76 colunas — o que pode ser no meio de `<!DOCTYPE` ou
+        // de `<html`. Enquanto o `=\n` estiver lá não há prefixo nenhum a
+        // casar, e a família de quoted-printable reclamava o caso: devolvia a
+        // mesma marcação sem os `=3D`, e o leitor continuava desenhando fonte.
+        // É a tela "Zoho Workplace — Informações alteradas" da M3-21.
+        //
+        // Só um prefixo é desfeito: a pergunta é sobre o **começo** do corpo, e
+        // decodificar cem kB para olhar os primeiros cem caracteres seria pagar
+        // a decodificação duas vezes em toda mensagem do banco.
+        if pareceQuotedPrintable(texto), pareceHTMLCru(semQuotedPrintable(texto)) {
+            return .htmlCru
+        }
         // Base64 **antes** de quoted-printable, e não por gosto: o `=` de
         // enchimento no fim de um bloco base64 é indistinguível de uma quebra
         // suave de QP, e a ordem inversa classificava todo corpo base64 como
@@ -148,6 +168,19 @@ extension MimeBody {
         cabecalhosNaFrente(texto) != nil || fronteiraSolta(texto) != nil
     }
 
+    /// Um prefixo do corpo com o quoted-printable desfeito, para farejar.
+    ///
+    /// Só o prefixo, e de propósito: quem pergunta é `pareceHTMLCru`, e a
+    /// pergunta dele é sobre os primeiros caracteres. A folga de 512 cabe o
+    /// `DOCTYPE` mais comprido que existe (o XHTML Transitional tem 109) com o
+    /// prólogo XML e um comentário na frente.
+    private static func semQuotedPrintable(_ texto: String) -> String {
+        string(
+            de: quotedPrintable(String(texto.prefix(512)), sublinhadoEhEspaco: false),
+            charset: .utf8
+        )
+    }
+
     /// O corpo **começa** sendo um documento HTML?
     ///
     /// A exigência é a posição, não a presença: `<!doctype html`, `<html`,
@@ -156,17 +189,34 @@ extension MimeBody {
     /// fala sobre HTML e tem um `<div>` no meio da terceira frase" — o segundo
     /// não pode virar página, e um teste de presença o transformaria.
     ///
-    /// O prefixo é procurado depois de pular linhas em branco e comentários
-    /// (`<!-- … -->`), que é onde alguns geradores põem a condicional do
-    /// Outlook antes do `<html>`.
+    /// O prefixo é procurado depois de pular linhas em branco, comentários
+    /// (`<!-- … -->`, que é onde alguns geradores põem a condicional do
+    /// Outlook antes do `<html>`) e o prólogo XML (`<?xml … ?>`), que é como
+    /// meio gerador de XHTML abre o documento — e que não é prosa de ninguém.
+    ///
+    /// O `DOCTYPE` é aceito **em qualquer caixa e com qualquer declaração**:
+    /// o `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" …>`
+    /// do Zoho é tão documento quanto o `<!doctype html>` do HTML5, e o espaço
+    /// entre `<!doctype` e `html` pode ser mais de um.
     private static func pareceHTMLCru(_ texto: String) -> Bool {
         var inicio = Substring(texto).drop { $0.isWhitespace }
-        // Um comentário na frente ainda é "a página começa aqui".
-        while inicio.hasPrefix("<!--"), let fim = inicio.range(of: "-->") {
-            inicio = inicio[fim.upperBound...].drop { $0.isWhitespace }
+        // Comentário e prólogo na frente ainda são "a página começa aqui".
+        var pulou = true
+        while pulou {
+            pulou = false
+            if inicio.hasPrefix("<!--"), let fim = inicio.range(of: "-->") {
+                inicio = inicio[fim.upperBound...].drop { $0.isWhitespace }
+                pulou = true
+            }
+            if inicio.hasPrefix("<?xml"), let fim = inicio.range(of: "?>") {
+                inicio = inicio[fim.upperBound...].drop { $0.isWhitespace }
+                pulou = true
+            }
         }
         let cabeca = inicio.prefix(120).lowercased()
-        return ["<!doctype html", "<html", "<head", "<body"].contains { cabeca.hasPrefix($0) }
+        if ["<html", "<head", "<body"].contains(where: cabeca.hasPrefix) { return true }
+        guard cabeca.hasPrefix("<!doctype") else { return false }
+        return cabeca.dropFirst("<!doctype".count).drop { $0.isWhitespace }.hasPrefix("html")
     }
 
     /// Uma quebra suave (`=` sozinho no fim da linha) ou dois escapes `=XX`.
@@ -174,7 +224,7 @@ extension MimeBody {
     /// Dois, e não um: `=20` aparece em texto sobre protocolos, e uma ocorrência
     /// isolada não é evidência. Uma quebra suave, por outro lado, não acontece
     /// em prosa nenhuma — linha terminada em `=` é assinatura do formato.
-    private static func pareceQuotedPrintable(_ texto: String) -> Bool {
+    static func pareceQuotedPrintable(_ texto: String) -> Bool {
         var escapes = 0
         for linha in texto.split(separator: "\n", omittingEmptySubsequences: false) {
             if linha.count > 1, linha.hasSuffix("=") { return true }

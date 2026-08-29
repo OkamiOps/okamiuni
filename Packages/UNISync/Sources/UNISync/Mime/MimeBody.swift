@@ -81,6 +81,27 @@ public enum MimeBody {
         if tipo == nil || tipo?.isEmpty == true, let limite = fronteiraSolta(corpo) {
             tipo = "multipart/mixed; boundary=\"\(limite)\""
         }
+        // E, por último, a sondagem: o corpo é uma **página** que chegou sem
+        // ninguém dizer que era.
+        //
+        // Assumir `text/plain` aqui é o que punha o `<!DOCTYPE html PUBLIC …>`
+        // do Zoho no leitor do dono, com `=3D` e quebra suave inteiros — a tela
+        // da M3-21. A M3-12 já sabia reconhecer esse corpo, mas só pela porta
+        // do banco (`redecodedBody`, na varredura da abertura); a mensagem sem
+        // corpo gravado passa pela busca por demanda, que vem parar aqui, e
+        // aqui ninguém perguntava. **Uma regra, um lugar:** é a mesma
+        // `familia`, feita a mesma pergunta.
+        //
+        // Só quando não sobrou `Content-Type` nenhum. Servidor que declara
+        // `text/plain` está declarando, e adivinhar por cima dele seria
+        // transformar em página o email que só fala sobre HTML.
+        if tipo == nil || tipo?.isEmpty == true, familia(de: corpo) == .htmlCru {
+            tipo = "text/html; charset=utf-8"
+            if codificacao == nil || codificacao?.isEmpty == true,
+               pareceQuotedPrintable(normaliza(corpo)) {
+                codificacao = "quoted-printable"
+            }
+        }
 
         return resolve(
             corpo: corpo, tipo: tipo ?? "text/plain",
