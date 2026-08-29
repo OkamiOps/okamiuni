@@ -448,6 +448,75 @@ struct AccountsModelTests {
         )
     }
 
+    /// **O "Tentar de novo" da fila parada religa a fila de verdade.**
+    ///
+    /// A janela tinha as duas ações do erro de ciclo caindo em `loadInitial`, e
+    /// nenhuma que chegasse ao `retryAfterPermanentFailure` do executor. Uma
+    /// fila parada não sai do lugar por carga nenhuma: a trava mora no executor
+    /// e as linhas `falhou` só voltam para `pendente` por ali.
+    ///
+    /// MUTAÇÃO QUE ISTO PEGA: fazer `retryQueue` chamar `loadInitial`. A linha
+    /// continua `falhou` e a última afirmação cai.
+    @Test("Tentar de novo na fila parada devolve as operações à fila")
+    func tentarDeNovoNaFilaParada() async throws {
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+        let db = try SyncDatabase.temporary()
+        let conta = Account(
+            id: "conta-a", address: "eu@meudominio.com.br", displayName: "Eu",
+            provider: .imap, host: "meudominio",
+            tintLightHex: "#3F6AA1", tintDarkHex: "#8CBAF7", signature: "Eu",
+            imap: ImapEndpoint(host: "imap.meudominio.com.br", port: 993, security: .tls),
+            state: .ativa
+        )
+        try await db.pool.write { try AccountRecord(conta, createdAt: self.agora).insert($0) }
+        let cofre = InMemorySecretStore()
+        try cofre.store(.password("senha-de-app"), for: "conta-a")
+
+        // A fila parada que a sessão anterior deixou no banco.
+        let registro = try OutboxRecord(
+            accountID: "conta-a", operation: .delete(messageIDs: ["conta-a:i:INBOX:1"]),
+            nextAttemptAt: Date(timeIntervalSince1970: 0), createdAt: self.agora
+        )
+        try await db.pool.write { try registro.insert($0) }
+        try await db.pool.write {
+            try $0.execute(
+                sql: "UPDATE outbox SET state = 'falhou', lastError = ? WHERE id = ?",
+                arguments: [
+                    String(data: try JSONEncoder().encode(SyncError.autorizacaoRevogada), encoding: .utf8),
+                    registro.id,
+                ]
+            )
+        }
+
+        // A conexão não existe: o que este teste mede é a fila voltando a
+        // andar, não o servidor respondendo. Uma falha de rede é transitória —
+        // a linha volta para `pendente`, que é o oposto de `falhou`.
+        let fila = OutboxRunner(
+            database: db, secrets: cofre, auth: nil, session: StubURLProtocol.session(),
+            eventLoopGroup: grupo, signal: OutboxSignal(),
+            imapConnect: { _, _ in throw SyncError.rede("sem rota") }
+        )
+        await fila.start()
+        defer { Task { await fila.stop() } }
+
+        let director = diretor(db: db, secrets: cofre, grupo: grupo, porta: 0)
+        let modelo = await AccountsModel(director: director, outbox: fila)
+
+        // A trava está de pé: o executor nasceu parado por causa da linha
+        // `falhou`, e a linha continua lá.
+        try await esperaAte { (try? await self.estado(db, registro.id)) == "falhou" }
+
+        await modelo.retryQueue("conta-a")
+        try await esperaAte { (try? await self.estado(db, registro.id)) != "falhou" }
+    }
+
+    private func estado(_ db: SyncDatabase, _ id: String) async throws -> String? {
+        try await db.pool.read {
+            try String.fetchOne($0, sql: "SELECT state FROM outbox WHERE id = ?", arguments: [id])
+        }
+    }
+
     /// Espera uma condição virar verdadeira, com teto — a assinatura do fluxo
     /// entrega o primeiro valor por `Task`, e não há evento a que se prender.
     private func esperaAte(

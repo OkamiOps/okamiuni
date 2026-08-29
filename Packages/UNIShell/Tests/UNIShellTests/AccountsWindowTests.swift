@@ -24,13 +24,74 @@ struct AccountsWindowTests {
         progresso: LoadProgress? = nil,
         sincronizada: Date? = Date(timeIntervalSince1970: 1_799_996_400),
         mensagens: Int = 1_284,
-        aguardando: Int = 0
+        aguardando: Int = 0,
+        fila: SyncError? = nil
     ) -> AccountStatus {
         AccountStatus(
             accountID: "conta-a", address: "contato@meusite.com", hostMark: "meusite",
             state: state, messageCount: mensagens, lastSyncedAt: sincronizada,
-            error: erro, progress: progresso, pendingOperations: aguardando
+            error: erro, progress: progresso, pendingOperations: aguardando,
+            queueError: fila
         )
+    }
+
+    // MARK: A fila parada
+
+    /// **O defeito relatado.** A conta do dono tinha 3 operações `falhou` e 2
+    /// `pendente` na `outbox`, a fila parada desde as 09:21 — e a linha dizia
+    /// "Sincronizada às 00:59 · 48 mensagens · 5 aguardando". Saudável. Sem a
+    /// causa, sem a parada, sem saída.
+    ///
+    /// O número sozinho não denuncia nada: "5 aguardando" é o que uma fila
+    /// andando também mostra. O que falta é a palavra que separa uma da outra.
+    ///
+    /// MUTAÇÃO QUE ISTO PEGA: tirar `queueError` de `AccountsCopy.fila`. O
+    /// texto volta a ser o da conta saudável e as três primeiras afirmações
+    /// caem.
+    @Test("A conta com a fila parada diz que está parada, por quê, e oferece tentar de novo")
+    func filaParadaApareceNaLinha() {
+        let parada = SyncError.autorizacaoRevogada
+        let texto = AccountsCopy.status(
+            status(aguardando: 5, fila: parada), now: agora, calendar: calendario
+        )
+        #expect(texto.contains("5 aguardando"))
+        #expect(texto.contains("parada:"))
+        #expect(texto.contains(parada.mensagem))
+        // O que a conta já dizia continua dito: a fila parada não é o único
+        // fato da linha.
+        #expect(texto.hasPrefix("Sincronizada às "))
+        // E a linha lê como quebrada — é o realce que a janela pinta.
+        #expect(AccountsCopy.isFailing(status(aguardando: 5, fila: parada)))
+        // A saída: uma ação para a fila, ao lado do remover. O ciclo está bem,
+        // então não há ação de ciclo nenhuma aqui.
+        #expect(AccountsCopy.actions(for: status(aguardando: 5, fila: parada))
+            == [.retryQueue(parada), .remove])
+    }
+
+    /// **"Tentar de novo" da fila religa a fila — não recarrega a conta.**
+    ///
+    /// As duas ações do erro de ciclo (`reconnect`, `retry`) caem em
+    /// `loadInitial`, que baixa mensagens. A fila parada não precisa de carga
+    /// nenhuma: ela precisa que a trava saia e as linhas `falhou` voltem para
+    /// `pendente` — `OutboxExecutor.retryAfterPermanentFailure`. Mandá-la para
+    /// `onRetry` refaria a carga inicial inteira e deixaria a fila parada
+    /// exatamente onde estava.
+    @Test("A ação da fila parada não cai no mesmo caminho do erro de ciclo")
+    func filaParadaTemCaminhoProprio() {
+        var reconectou = 0
+        var tentou = 0
+        var religou: [String] = []
+        let lista = AccountsList(
+            statuses: [],
+            onReconnect: { _ in reconectou += 1 },
+            onRetry: { _ in tentou += 1 },
+            onRetryQueue: { id in religou.append(id) },
+            onRemove: { _ in }
+        )
+        lista.execute(.retryQueue(.autorizacaoRevogada), on: "conta-a")
+        #expect(religou == ["conta-a"])
+        #expect(reconectou == 0, "a fila parada chamou onReconnect")
+        #expect(tentou == 0, "a fila parada chamou onRetry")
     }
 
     // MARK: O selo da fila de saída
@@ -143,7 +204,7 @@ struct AccountsWindowTests {
             let bitmap = try #require(Render.bitmap(
                 AccountsList(
                     statuses: [status()],
-                    onReconnect: { _ in }, onRetry: { _ in }, onRemove: { _ in }
+                    onReconnect: { _ in }, onRetry: { _ in }, onRetryQueue: { _ in }, onRemove: { _ in }
                 ),
                 size: CGSize(width: 720, height: 400),
                 theme: tema
@@ -181,7 +242,7 @@ struct AccountsWindowTests {
             let bitmap = try #require(Render.bitmap(
                 AccountsList(
                     statuses: [status(), status()],
-                    onReconnect: { _ in }, onRetry: { _ in }, onRemove: { _ in }
+                    onReconnect: { _ in }, onRetry: { _ in }, onRetryQueue: { _ in }, onRemove: { _ in }
                 ),
                 size: CGSize(width: 720, height: 200),
                 theme: tema, scale: escala
@@ -261,7 +322,7 @@ struct AccountsWindowTests {
                 )
             }
             let bitmap = try #require(Render.bitmap(
-                AccountsList(statuses: lista, onReconnect: { _ in }, onRetry: { _ in }, onRemove: { _ in }),
+                AccountsList(statuses: lista, onReconnect: { _ in }, onRetry: { _ in }, onRetryQueue: { _ in }, onRemove: { _ in }),
                 size: CGSize(width: 720, height: 400), theme: tema
             ))
             larguras.insert(bitmap.pixelsWide)
@@ -288,7 +349,7 @@ struct AccountsWindowTests {
         let tema = try #require(Theme.named("tinta"))
         func desenho(_ s: AccountStatus) throws -> NSBitmapImageRep {
             try #require(Render.bitmap(
-                AccountsList(statuses: [s], onReconnect: { _ in }, onRetry: { _ in }, onRemove: { _ in }),
+                AccountsList(statuses: [s], onReconnect: { _ in }, onRetry: { _ in }, onRetryQueue: { _ in }, onRemove: { _ in }),
                 size: CGSize(width: 720, height: 120), theme: tema
             ))
         }
@@ -355,6 +416,7 @@ struct AccountsWindowTests {
             statuses: [],
             onReconnect: { _ in reconectou += 1 },
             onRetry: { _ in tentou += 1 },
+            onRetryQueue: { _ in },
             onRemove: { _ in }
         )
         lista.execute(.openRoteiro, on: "conta-a")
@@ -436,7 +498,7 @@ struct AccountsWindowTests {
 
     private func realce(of s: AccountStatus, tema: Theme) throws -> Realce {
         let bitmap = try #require(Render.bitmap(
-            AccountsList(statuses: [s], onReconnect: { _ in }, onRetry: { _ in }, onRemove: { _ in }),
+            AccountsList(statuses: [s], onReconnect: { _ in }, onRetry: { _ in }, onRetryQueue: { _ in }, onRemove: { _ in }),
             size: CGSize(width: 720, height: 120), theme: tema
         ))
         return Realce(
@@ -477,7 +539,7 @@ struct AccountsWindowTests {
         let tema = try #require(Theme.named("tinta"))
         func realce(_ s: AccountStatus) throws -> Int {
             let bitmap = try #require(Render.bitmap(
-                AccountsList(statuses: [s], onReconnect: { _ in }, onRetry: { _ in }, onRemove: { _ in }),
+                AccountsList(statuses: [s], onReconnect: { _ in }, onRetry: { _ in }, onRetryQueue: { _ in }, onRemove: { _ in }),
                 size: CGSize(width: 720, height: 120), theme: tema
             ))
             return bitmap.pixels(matching: tema.accent, tolerance: 0.06)

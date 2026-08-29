@@ -14,6 +14,11 @@ public enum AccountRowAction: Hashable, Sendable, Identifiable {
     case reconnect(SyncError)
     /// Repetir a operação. Para o que passa sozinho: rede, TLS, quota.
     case retry(SyncError)
+    /// Religar a **fila de saída** parada. Ação própria, e não `.retry`, porque
+    /// o caminho é outro: `.retry` cai na carga inicial, que baixa mensagens e
+    /// não sabe da fila; uma fila parada só anda quando o executor devolve as
+    /// linhas `falhou` a `pendente` (`retryAfterPermanentFailure`).
+    case retryQueue(SyncError)
     /// Abrir `docs/oauth-google.md`. Só para `.semClientID` — não há
     /// credencial para refazer nem operação para repetir: falta configurar o
     /// app, e o roteiro é o que diz como.
@@ -25,6 +30,7 @@ public enum AccountRowAction: Hashable, Sendable, Identifiable {
         switch self {
         case .reconnect: "reconnect"
         case .retry: "retry"
+        case .retryQueue: "retryQueue"
         case .openRoteiro: "openRoteiro"
         case .remove: "remove"
         }
@@ -33,6 +39,10 @@ public enum AccountRowAction: Hashable, Sendable, Identifiable {
     public var label: String {
         switch self {
         case .reconnect(let erro), .retry(let erro): AccountsCopy.action(for: erro)
+        // Sempre "Tentar de novo", qualquer que seja a causa: o que ela pede é
+        // repetir a operação de saída, e não refazer credencial nenhuma —
+        // mesmo quando quem a recusou foi uma autorização revogada.
+        case .retryQueue: "Tentar de novo"
         case .openRoteiro: AccountsCopy.action(for: .semClientID)
         case .remove: "Remover"
         }
@@ -41,6 +51,7 @@ public enum AccountRowAction: Hashable, Sendable, Identifiable {
     public var help: String {
         switch self {
         case .reconnect(let erro), .retry(let erro): AccountsCopy.actionHelp(for: erro)
+        case .retryQueue: "Voltar a tentar as operações paradas na fila desta conta"
         case .openRoteiro: AccountsCopy.actionHelp(for: .semClientID)
         case .remove: "Apagar esta conta, as mensagens baixadas dela e a senha guardada"
         }
@@ -94,9 +105,21 @@ public enum AccountsCopy {
     /// Aparece **junto do erro**, e isso é de propósito: fila parada é
     /// exatamente quando o número importa — é ele que diz quanta coisa está
     /// esperando o "Tentar de novo" ao lado.
+    ///
+    /// E quando a fila **parou**, o número ganha a palavra que o explica:
+    /// "· 5 aguardando · parada: <causa>". O número sozinho não denuncia nada —
+    /// "5 aguardando" é o que uma fila andando também mostra —, e foi
+    /// exatamente assim que a conta do dono passou um dia inteiro travada
+    /// parecendo saudável.
     static func fila(_ s: AccountStatus) -> String {
-        guard s.pendingOperations > 0 else { return "" }
-        return " · \(numero(s.pendingOperations)) aguardando"
+        var texto = ""
+        if s.pendingOperations > 0 {
+            texto += " · \(numero(s.pendingOperations)) aguardando"
+        }
+        if let parada = s.queueError {
+            texto += " · parada: \(parada.mensagem)"
+        }
+        return texto
     }
 
     /// A ação que o erro pede. Duas ações diferentes porque são dois problemas
@@ -121,8 +144,12 @@ public enum AccountsCopy {
     /// (que `status(_:)` tira do estado) sem oferecer saída nenhuma. Conta
     /// parada com a queixa na tela e nenhum botão é o defeito que esta janela
     /// existe para não repetir.
+    ///
+    /// A fila parada conta como quebrada pelo mesmo motivo: a conta pode estar
+    /// sincronizando bem e ainda assim ter cinco ações da pessoa presas no meio
+    /// do caminho.
     public static func isFailing(_ s: AccountStatus) -> Bool {
-        s.error != nil || s.state == .erroDeAutenticacao
+        s.error != nil || s.state == .erroDeAutenticacao || s.queueError != nil
     }
 
     /// O erro que a linha trata — o desta sessão, quando há; senão o que o
@@ -156,6 +183,11 @@ public enum AccountsCopy {
             default:
                 acoes.append(.retry(erro))
             }
+        }
+        // A fila parada tem saída própria, e ela **soma** à do ciclo: as duas
+        // podem estar quebradas ao mesmo tempo, e tratar uma não trata a outra.
+        if let parada = s.queueError {
+            acoes.append(.retryQueue(parada))
         }
         acoes.append(.remove)
         return acoes
@@ -221,17 +253,20 @@ public struct AccountsList: View {
     private let statuses: [AccountStatus]
     private let onReconnect: (String) -> Void
     private let onRetry: (String) -> Void
+    private let onRetryQueue: (String) -> Void
     private let onRemove: (String) -> Void
 
     public init(
         statuses: [AccountStatus],
         onReconnect: @escaping (String) -> Void,
         onRetry: @escaping (String) -> Void,
+        onRetryQueue: @escaping (String) -> Void,
         onRemove: @escaping (String) -> Void
     ) {
         self.statuses = statuses
         self.onReconnect = onReconnect
         self.onRetry = onRetry
+        self.onRetryQueue = onRetryQueue
         self.onRemove = onRemove
     }
 
@@ -313,6 +348,9 @@ public struct AccountsList: View {
         switch acao {
         case .reconnect: onReconnect(accountID)
         case .retry: onRetry(accountID)
+        // Caminho próprio: `onRetry` recarrega a conta, e recarregar não
+        // destrava fila nenhuma.
+        case .retryQueue: onRetryQueue(accountID)
         // Abre o arquivo direto — não passa pelo `model`, porque não há carga
         // nenhuma para refazer aqui, só um roteiro para ler.
         case .openRoteiro: AccountsDocs.open(AccountsDocs.oauthGoogle)

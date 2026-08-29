@@ -31,6 +31,10 @@ public final class AccountsModel {
     public private(set) var isBusy = false
 
     private let director: AccountDirector
+    /// Quem leva a fila de saída ao servidor. Opcional porque nem toda montagem
+    /// tem uma — os testes de janela montam o modelo só com o diretor, e o app
+    /// sem banco não tem fila nenhuma para religar.
+    private let outbox: OutboxRunner?
     /// A última ação enfileirada. As ações da janela correm **uma de cada
     /// vez**: dois cliques no mesmo botão, ou remover enquanto adiciona,
     /// escreveriam no mesmo `lastError` e no mesmo `isBusy` e a segunda
@@ -42,8 +46,9 @@ public final class AccountsModel {
     /// justificar uma mensagem de "ocupado".
     private var fila: Task<Void, Never>?
 
-    public init(director: AccountDirector) {
+    public init(director: AccountDirector, outbox: OutboxRunner? = nil) {
         self.director = director
+        self.outbox = outbox
     }
 
     /// Assina o diretor. Chamada uma vez, na montagem da cena.
@@ -91,6 +96,20 @@ public final class AccountsModel {
 
     public func loadInitial(_ accountID: String) async {
         await director.loadInitial(accountID: accountID)
+    }
+
+    /// Religa a fila de saída parada desta conta.
+    ///
+    /// **Não é `loadInitial`.** As duas ações do erro de ciclo (reconectar,
+    /// tentar de novo) caem na carga, e a carga baixa mensagens — ela não sabe
+    /// da fila. Uma fila parada só sai do lugar por aqui: a trava mora no
+    /// executor, e é ele quem devolve as linhas `falhou` a `pendente`.
+    ///
+    /// Fora do `roda`: não é ação de formulário, não tem erro a mostrar (o do
+    /// executor já chega pela linha da conta) e não pode ficar esperando a vez
+    /// atrás de uma carga de noventa dias.
+    public func retryQueue(_ accountID: String) async {
+        await outbox?.executor(for: accountID)?.retryAfterPermanentFailure()
     }
 
     /// A carga que segue sozinha depois de a conta entrar.

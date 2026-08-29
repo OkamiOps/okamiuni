@@ -66,6 +66,10 @@ public struct AccountsWindow: View {
             // decide.
             onReconnect: { id in Task { await model.loadInitial(id) } },
             onRetry: { id in Task { await model.loadInitial(id) } },
+            // A fila parada **não** cai na carga: a trava dela mora no
+            // executor, e nenhuma quantidade de mensagens baixadas a tira de
+            // lá. Ver `AccountsModel.retryQueue`.
+            onRetryQueue: { id in Task { await model.retryQueue(id) } },
             onRemove: { id in removendo = id }
         )
         Rectangle()

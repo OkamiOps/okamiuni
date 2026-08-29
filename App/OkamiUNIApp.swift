@@ -64,7 +64,11 @@ struct OkamiUNIApp: App {
             agendaReferenceDay: { relogio.today }
         ))
         if let diretor = composicao.director {
-            _accountsModel = State(initialValue: AccountsModel(director: diretor))
+            // A fila junto: é por ela que o "Tentar de novo" de uma fila parada
+            // chega ao executor daquela conta.
+            _accountsModel = State(initialValue: AccountsModel(
+                director: diretor, outbox: composicao.outbox
+            ))
         }
         if let erro = composicao.configError {
             // Falha de configuração nunca some: vai para o log estruturado
