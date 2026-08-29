@@ -78,7 +78,7 @@ public struct ReaderPane: View {
                     // exatamente o de antes desta tarefa — o `else` é o mesmo
                     // bloco que sempre esteve aqui.
                     if let conversa = store.conversation(of: message.id), conversa.count > 1 {
-                        conversationStack(conversa, aberta: message)
+                        conversationStack(conversa)
                     } else {
                         cardsAndBody(message)
                     }
@@ -159,53 +159,66 @@ public struct ReaderPane: View {
 
     // MARK: - A conversa empilhada
 
-    /// Quais mensagens da conversa a pessoa abriu à mão, além da que o leitor
-    /// já abre por conta própria.
+    /// Quais mensagens da conversa estão abertas — e de qual conversa esse
+    /// estado é.
+    ///
+    /// `nil` é "ainda ninguém clicou nesta pilha", e aí vale o estado inicial
+    /// (`ConversationStack.initialExpanded`). Guardar a chave junto é o que
+    /// zera a pilha ao trocar de conversa **sem** um `.task` que só corre
+    /// depois do primeiro desenho: a conversa nova já nasce com a mais recente
+    /// aberta, no mesmo quadro.
     ///
     /// Vive aqui e não no `MailStore` porque é estado **de leitura desta
     /// janela**: duas janelas sobre a mesma conversa podem ter mensagens
     /// diferentes abertas, e nada disso precisa sobreviver a nada.
-    @State private var expandedIDs: Set<String> = []
+    @State private var stackState: (key: String, ids: Set<String>)?
 
-    /// A conversa inteira, em ordem cronológica: as anteriores recolhidas (quem
-    /// escreveu e a primeira linha), a mais recente aberta com o corpo
-    /// completo. É a pilha do webmail, e é o que faltava aqui.
+    private func expandedIDs(_ conversa: Conversation) -> Set<String> {
+        if let stackState, stackState.key == conversa.key { return stackState.ids }
+        return ConversationStack.initialExpanded(conversa)
+    }
+
+    /// A conversa inteira, em ordem cronológica: a mais recente aberta com o
+    /// corpo completo, as anteriores recolhidas (quem escreveu e a primeira
+    /// linha). É a pilha do webmail, e é o que faltava aqui.
     ///
     /// Sem árvore e sem preferência de "agrupar sim/não": os grandes empilham
     /// em ordem, e é o que a conversa é.
-    private func conversationStack(_ conversa: Conversation, aberta: Message) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+    ///
+    /// **Toda** mensagem da pilha tem a linha de cabeçalho, aberta ou não —
+    /// inclusive a que o leitor abriu sozinho. Era ela que não tinha: sem
+    /// cabeçalho, não havia onde clicar para recolhê-la, e a pilha só sabia
+    /// crescer.
+    private func conversationStack(_ conversa: Conversation) -> some View {
+        let abertas = expandedIDs(conversa)
+        return VStack(alignment: .leading, spacing: 0) {
             ForEach(conversa.messages) { message in
-                if message.id == aberta.id {
-                    cardsAndBody(message)
-                } else if expandedIDs.contains(message.id) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        stackHeader(message, aberta: true)
-                        body(message)
-                            .padding(.top, 12)
-                            .padding(.bottom, 20)
-                    }
-                } else {
-                    collapsedMessage(message)
+                let aberta = abertas.contains(message.id)
+                VStack(alignment: .leading, spacing: 0) {
+                    stackButton(message, aberta: aberta, in: conversa)
+                    if aberta { cardsAndBody(message) }
                 }
             }
         }
     }
 
-    /// Uma mensagem recolhida: quem escreveu, a primeira linha e o horário.
-    /// Clicar abre — e abrir **é** ler, então ela deixa de ser não lida, a
+    /// A linha clicável de uma mensagem da pilha. Clicar abre a recolhida e
+    /// recolhe a aberta — e abrir **é** ler, então ela deixa de ser não lida, a
     /// mesma regra que `MailStore.select(message:)` já aplica à mensagem que o
     /// leitor abre sozinho.
-    private func collapsedMessage(_ message: Message) -> some View {
+    private func stackButton(
+        _ message: Message, aberta: Bool, in conversa: Conversation
+    ) -> some View {
         Button {
-            expandedIDs.insert(message.id)
-            store.setRead(true, for: message.id)
+            let ids = ConversationStack.toggle(message.id, in: expandedIDs(conversa))
+            stackState = (conversa.key, ids)
+            if ids.contains(message.id) { store.setRead(true, for: message.id) }
         } label: {
-            stackHeader(message, aberta: false)
+            stackHeader(message, aberta: aberta)
         }
         .buttonStyle(.plain)
         .focusRing(in: Rectangle())
-        .help("Abrir esta mensagem da conversa")
+        .help(aberta ? "Recolher esta mensagem da conversa" : "Abrir esta mensagem da conversa")
     }
 
     /// A linha de cabeçalho de uma mensagem da pilha. Recolhida, ela mostra a
