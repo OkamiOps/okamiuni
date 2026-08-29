@@ -76,7 +76,11 @@ public enum InviteAgenda {
             .map { EventPerson(name: pessoaNome($0), address: $0.address, role: papelConvidado, status: .pending) }
 
         return EventDetail(
-            place: invite.location ?? Fixtures.eventDefault.place,
+            // O `LOCATION` cru punha o cartão de entrada do Google Meet inteiro
+            // na linha "LOCAL" — título, horário, fuso e o link que a janela já
+            // mostra em cima. `EventPlace` deixa passar o endereço de verdade e
+            // devolve `nil` quando o campo só trazia despejo.
+            place: EventPlace.limpa(invite.location, summary: invite.summary) ?? EventPlace.semLocal,
             link: invite.meetingURL,
             organizer: EventPerson(
                 name: pessoaNome(organizador), address: organizador.address,
