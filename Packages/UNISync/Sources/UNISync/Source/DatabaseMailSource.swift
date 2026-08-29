@@ -177,7 +177,18 @@ public struct DatabaseMailSource: MailSource, Sendable {
         // violação disso com `fatalError` — o app inteiro caindo por causa de
         // uma linha duplicada num banco de disco. Ficar com uma delas é pior
         // do que nada e melhor do que morrer.
-        let porID = Dictionary(corpos.map { ($0.messageID, $0.body) }, uniquingKeysWith: { primeiro, _ in primeiro })
-        return registros.map { $0.message(body: porID[$0.id] ?? []) }
+        let porID = Dictionary(
+            corpos.map { ($0.messageID, $0) }, uniquingKeysWith: { primeiro, _ in primeiro }
+        )
+        return registros.map { registro in
+            let corpo = porID[registro.id]
+            return registro.message(
+                body: corpo?.body ?? [],
+                // A mensagem **sem linha nenhuma** em `message_body` continua
+                // com `nil` aqui — e é assim que o leitor sabe que ainda há o
+                // que buscar. Trocar por `""` a daria por decodificada.
+                bodyHTML: corpo?.html, calendarICS: corpo?.calendarICS
+            )
+        }
     }
 }

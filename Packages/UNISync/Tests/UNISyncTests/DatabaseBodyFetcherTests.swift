@@ -140,11 +140,14 @@ struct DatabaseBodyFetcherTests {
         #expect(try await db.pool.read { try MessageBodyRecord.fetchCount($0) } == 0)
 
         try await comBuscador(db, script: roteiro()) { buscador, _ in
-            let paragrafos = try await buscador.fetchBody(
+            let corpo = try await buscador.fetchBody(
                 accountID: "conta-i", messageID: self.messageID
             )
             // Decodificado: nem fronteira, nem sub-cabeçalho, nem `=C3`.
-            #expect(paragrafos == ["A revisão do orçamento ficou pronta."])
+            #expect(corpo.paragraphs == ["A revisão do orçamento ficou pronta."])
+            // E o HTML vem junto, já limpo — era ele que a busca por demanda
+            // jogava fora antes da M3-8.
+            #expect(corpo.html == "<p>tags</p>")
         }
 
         // **Prova por mutação do "grava".** Um `fetchBody` que devolvesse os
@@ -156,6 +159,7 @@ struct DatabaseBodyFetcherTests {
             try MessageBodyRecord.filter(Column("messageID") == self.messageID).fetchOne(conexao)
         }
         #expect(gravado?.body == ["A revisão do orçamento ficou pronta."])
+        #expect(gravado?.html == "<p>tags</p>")
     }
 
     @Test("O retrato seguinte entrega o corpo à tela, e a busca passa a achá-lo")

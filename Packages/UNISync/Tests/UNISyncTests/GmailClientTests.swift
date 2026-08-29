@@ -91,10 +91,30 @@ struct GmailClientTests {
         #expect(mensagem.subject == "Só HTML")
     }
 
+    @Test("A parte HTML deixou de ser jogada fora: ela sai ao lado do texto")
+    func htmlSaiAoLado() throws {
+        // **Isto é a M3-8.** O parser escolhia o `text/plain` e descartava a
+        // parte `text/html` — o email do provedor chegava ao leitor como prosa
+        // seca. A escolha do texto continua a mesma; o que mudou é que o HTML
+        // não é mais perdido no caminho.
+        let mensagem = try GmailMessageParser.parse(fixture("gmail-message-full"))
+        let html = try #require(mensagem.html)
+        #expect(html.contains("<p>"))
+        #expect(!mensagem.body.contains { $0.contains("<p>") })
+    }
+
+    @Test("Mensagem só de HTML guarda o HTML dela, já limpo")
+    func htmlDaMensagemSoDeHTML() throws {
+        let mensagem = try GmailMessageParser.parse(fixture("gmail-message-html-only"))
+        let html = try #require(mensagem.html)
+        #expect(html.contains("Só HTML."))
+    }
+
     @Test("A mensagem em formato `metadata` vem sem corpo, e isso não é erro")
     func mensagemSemCorpo() throws {
         let mensagem = try GmailMessageParser.parse(fixture("gmail-message-metadata"))
         #expect(mensagem.body.isEmpty)
+        #expect(mensagem.html == nil)
         #expect(mensagem.subject == "Boletim de agosto")
         #expect(mensagem.to.isEmpty)
         #expect(mensagem.from.address == "noticias@exemplo.com")

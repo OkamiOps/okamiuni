@@ -37,6 +37,11 @@ public struct GmailMessage: Sendable, Hashable {
     public let snippet: String
     /// Vazio em formato `metadata` — ausência legítima, não erro.
     public let body: [String]
+    /// O HTML sanitizado da mensagem, quando ela tem uma parte `text/html`.
+    /// `nil` em formato `metadata` e nas mensagens só-texto.
+    public let html: String?
+    /// O `text/calendar` cru do convite, quando houver.
+    public let calendarICS: String?
 }
 
 /// Cabeçalhos de endereço, do jeito que eles chegam de verdade.

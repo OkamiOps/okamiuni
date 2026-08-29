@@ -111,6 +111,25 @@ public struct Message: Sendable, Hashable, Identifiable {
     public let subject: String
     public let snippet: String
     public let body: [String]
+
+    /// O HTML da mensagem, já sanitizado por quem a decodificou.
+    ///
+    /// **Três valores, três significados** — os mesmos da coluna `html` da v3:
+    /// `nil` é "esta mensagem nunca passou pelo decodificador que conhece
+    /// HTML", e é o que faz o leitor pedir o corpo uma vez ao abrir; `""` é
+    /// "passou, e ela não tem HTML" — só-texto fica só-texto; e o resto é o
+    /// HTML que o leitor desenha. Ver `hasHTML` e `htmlResolved`, que são as
+    /// duas perguntas que a interface faz de verdade.
+    ///
+    /// Aditivo (`nil` no `init`): as fixtures do Marco 1 não têm HTML nenhum, e
+    /// é por isso que o leitor delas continua desenhando exatamente os mesmos
+    /// parágrafos de antes.
+    public let bodyHTML: String?
+
+    /// O `text/calendar` cru do convite, quando a mensagem trouxe um. Quem o
+    /// lê é `ICalendar`; quem o desenha é o cartão do leitor.
+    public let calendarICS: String?
+
     public let tags: [Tag]
     public let bucket: TriageBucket
     public let isRead: Bool
@@ -164,8 +183,11 @@ public struct Message: Sendable, Hashable, Identifiable {
         summary: String?, detectedEvent: DetectedEvent?,
         dayOffset: Int = 0, replyHints: [String] = [],
         to: [Contact] = [], cc: [Contact] = [], isFlagged: Bool = false,
-        serverID: String? = nil, uidValidity: Int64? = nil
+        serverID: String? = nil, uidValidity: Int64? = nil,
+        bodyHTML: String? = nil, calendarICS: String? = nil
     ) {
+        self.bodyHTML = bodyHTML
+        self.calendarICS = calendarICS
         self.serverID = serverID
         self.uidValidity = uidValidity
         self.to = to
@@ -229,6 +251,20 @@ extension Message {
         copy(isFlagged: isFlagged)
     }
 
+    /// A mensagem tem HTML para desenhar?
+    ///
+    /// `""` não conta: ele é o carimbo de "decodificada, e sem HTML". Sem esta
+    /// distinção o leitor abriria uma WebView vazia por cima do texto.
+    public var hasHTML: Bool { !(bodyHTML ?? "").isEmpty }
+
+    /// Alguém já perguntou ao decodificador se esta mensagem tem HTML?
+    ///
+    /// É a guarda contra a rebusca eterna: `false` só nas linhas gravadas antes
+    /// da v3, e cada uma delas custa **uma** ida ao servidor, na primeira vez
+    /// que a pessoa a abrir. Depois disso a resposta está no banco, seja ela
+    /// qual for.
+    public var htmlResolved: Bool { bodyHTML != nil }
+
     /// A mesma mensagem com o corpo que a busca por demanda acabou de trazer.
     ///
     /// A porta (`BodyFetching`) grava no banco, e o retrato seguinte traria o
@@ -236,8 +272,10 @@ extension Message {
     /// assíncrona, e a mensagem está **aberta na tela** enquanto isso. Pôr o
     /// corpo aqui é o que faz o texto aparecer no instante em que ele chega, em
     /// vez de no instante em que o SQLite acorda quem observa.
-    public func withBody(_ body: [String]) -> Message {
-        copy(body: body)
+    public func withBody(
+        _ body: [String], html: String?, calendarICS: String?
+    ) -> Message {
+        copy(body: body, bodyHTML: html, calendarICS: calendarICS)
     }
 
     /// O único lugar que reconstrói uma `Message`.
@@ -251,7 +289,9 @@ extension Message {
         bucket: TriageBucket? = nil,
         isRead: Bool? = nil,
         isFlagged: Bool? = nil,
-        body: [String]? = nil
+        body: [String]? = nil,
+        bodyHTML: String?? = nil,
+        calendarICS: String?? = nil
     ) -> Message {
         Message(
             id: id, accountID: accountID, from: from, receivedAt: receivedAt,
@@ -260,7 +300,12 @@ extension Message {
             summary: summary, detectedEvent: detectedEvent,
             dayOffset: dayOffset, replyHints: replyHints,
             to: to, cc: cc, isFlagged: isFlagged ?? self.isFlagged,
-            serverID: serverID, uidValidity: uidValidity
+            serverID: serverID, uidValidity: uidValidity,
+            // `String??` e não `String?`: o `nil` de fora é "não mexe", e o
+            // `.some(nil)` é "apaga". Sem os dois níveis não haveria como
+            // devolver uma mensagem ao estado de "nunca decodificada".
+            bodyHTML: bodyHTML ?? self.bodyHTML,
+            calendarICS: calendarICS ?? self.calendarICS
         )
     }
 

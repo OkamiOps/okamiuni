@@ -392,8 +392,15 @@ public struct InitialLoader: Sendable {
             // idempotente, que é o que faz "parar no meio" ser seguro.
             try MessageRecord(nossa, folderID: folderID).save(db)
             entraram += 1
-            if temCorpo, !mensagem.body.isEmpty {
-                try Self.gravaCorpo(db, id: id, paragrafos: mensagem.body)
+            // O convite de agenda é mensagem sem parágrafo nenhum: só a parte
+            // `text/calendar`. Exigir texto para gravar a linha o deixaria de
+            // fora do banco, e o cartão do leitor nunca teria o que desenhar.
+            if temCorpo, !mensagem.body.isEmpty
+                || mensagem.html != nil || mensagem.calendarICS != nil {
+                try Self.gravaCorpo(
+                    db, id: id, paragrafos: mensagem.body,
+                    html: mensagem.html ?? "", calendarICS: mensagem.calendarICS
+                )
             }
         }
         return entraram
@@ -408,14 +415,29 @@ public struct InitialLoader: Sendable {
     /// Uma função só para os dois provedores: `save` num `MutablePersistableRecord`
     /// com o `rowid` nulo é sempre um `insert`, e a armadilha é a mesma no
     /// Gmail e no IMAP — escrita duas vezes, seria consertada uma vez.
-    static func gravaCorpo(_ db: Database, id: String, paragrafos: [String]) throws {
+    ///
+    /// - Parameter html: o HTML sanitizado, **ou `""`** quando a mensagem foi
+    ///   decodificada e não tinha parte HTML nenhuma. Nunca `nil` vindo de um
+    ///   decodificador: `nil` é o valor das linhas antigas, e é o único que faz
+    ///   o leitor rebuscar. Escrever `nil` aqui depois de já ter decodificado
+    ///   condenaria a mensagem a uma viagem à rede por abertura, para sempre.
+    static func gravaCorpo(
+        _ db: Database, id: String, paragrafos: [String],
+        html: String, calendarICS: String?
+    ) throws {
         if var existente = try MessageBodyRecord.filter(Column("messageID") == id).fetchOne(db) {
-            let novo = MessageBodyRecord(messageID: id, paragraphs: paragrafos)
+            let novo = MessageBodyRecord(
+                messageID: id, paragraphs: paragrafos, html: html, calendarICS: calendarICS
+            )
             existente.paragraphs = novo.paragraphs
             existente.plain = novo.plain
+            existente.html = novo.html
+            existente.calendarICS = novo.calendarICS
             try existente.update(db)
         } else {
-            var corpo = MessageBodyRecord(messageID: id, paragraphs: paragrafos)
+            var corpo = MessageBodyRecord(
+                messageID: id, paragraphs: paragrafos, html: html, calendarICS: calendarICS
+            )
             try corpo.insert(db)
         }
     }
@@ -685,13 +707,13 @@ public struct InitialLoader: Sendable {
         pasta: ImapFolder,
         sessao: inout ImapSession,
         reconnect: (@Sendable () async throws -> ImapSession)?
-    ) async throws -> [Int64: [String]] {
+    ) async throws -> [Int64: MimeBody.Decoded] {
         let maisRecentes = envelopes.sorted { $0.date > $1.date }.prefix(Self.fullBodyCount)
-        var corpos: [Int64: [String]] = [:]
+        var corpos: [Int64: MimeBody.Decoded] = [:]
         for envelope in maisRecentes {
             try Task.checkCancellation()
             do {
-                corpos[envelope.uid] = try await sessao.bodyText(uid: envelope.uid)
+                corpos[envelope.uid] = try await sessao.bodyDecoded(uid: envelope.uid)
             } catch let erro as SyncError where !Self.derrubaACarga(erro) {
                 log.error(
                     "O corpo do UID \(envelope.uid, privacy: .public) ficou de fora da carga: \(erro.mensagem)"
@@ -707,7 +729,7 @@ public struct InitialLoader: Sendable {
     private func gravaImap(
         _ envelopes: [ImapEnvelope], account: Account, folderID: String,
         uidValidity: Int64, bucket: TriageBucket, etiqueta: Tag?,
-        corpos: [Int64: [String]],
+        corpos: [Int64: MimeBody.Decoded],
         apagandoAGeracaoVelha apagar: Bool = false
     ) async throws {
         try await database.pool.write { db in
@@ -721,26 +743,30 @@ public struct InitialLoader: Sendable {
                     accountID: account.id, folderID: folderID,
                     uidValidity: uidValidity, uid: envelope.uid
                 )
-                let corpo = corpos[envelope.uid] ?? []
+                let corpo = corpos[envelope.uid] ?? MimeBody.Decoded(text: "")
+                let paragrafos = corpo.paragraphs
                 let nossa = Message(
                     id: id, accountID: account.id, from: envelope.from,
                     receivedAt: envelope.date,
                     subject: envelope.subject,
                     // Sem corpo baixado, a prévia é o assunto: melhor do que
                     // uma linha vazia onde o design desenha o trecho.
-                    snippet: corpo.first ?? envelope.subject,
+                    snippet: paragrafos.first ?? envelope.subject,
                     // A etiqueta é o nome da pasta que a PESSOA criou, e quem
                     // decide isso é o `TriageProjection` — o mesmo lugar que
                     // decide o `bucket`. Sem ela, cair em Arquivado perderia a
                     // única informação que a pasta carregava.
-                    body: corpo, tags: etiqueta.map { [$0] } ?? [], bucket: bucket,
+                    body: paragrafos, tags: etiqueta.map { [$0] } ?? [], bucket: bucket,
                     isRead: envelope.isRead, summary: nil, detectedEvent: nil,
                     to: envelope.to, cc: envelope.cc, isFlagged: envelope.isFlagged,
                     serverID: String(envelope.uid), uidValidity: uidValidity
                 )
                 try MessageRecord(nossa, folderID: folderID).save(db)
-                if !corpo.isEmpty {
-                    try Self.gravaCorpo(db, id: id, paragrafos: corpo)
+                if corpos[envelope.uid] != nil {
+                    try Self.gravaCorpo(
+                        db, id: id, paragrafos: paragrafos,
+                        html: corpo.html ?? "", calendarICS: corpo.calendar
+                    )
                 }
             }
         }

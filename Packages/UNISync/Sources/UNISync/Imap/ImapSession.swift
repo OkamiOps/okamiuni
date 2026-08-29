@@ -348,8 +348,14 @@ public actor ImapSession {
 
     /// O corpo em texto de uma mensagem, por demanda.
     public func bodyText(uid: Int64) async throws -> [String] {
+        try await bodyDecoded(uid: uid).paragraphs
+    }
+
+    /// O corpo inteiro: texto, HTML e convite. Uma viagem só — o `UID FETCH` é
+    /// o mesmo, o que muda é o que se faz com a resposta.
+    public func bodyDecoded(uid: Int64) async throws -> MimeBody.Decoded {
         let resultado = try await run { ImapWire.uidFetchBody(tag: $0, uid: uid) }
-        return ImapWire.bodyText(from: resultado.untagged, uid: uid)
+        return ImapWire.bodyDecoded(from: resultado.untagged, uid: uid)
     }
 
     // MARK: A escrita — o espelho da triagem

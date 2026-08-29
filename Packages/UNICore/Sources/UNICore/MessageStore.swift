@@ -866,11 +866,18 @@ public final class MailStore {
     public func loadBodyIfNeeded(_ messageID: String) async {
         guard let bodyPort, bodyLoads[messageID] == nil else { return }
         guard let message = messages.first(where: { $0.id == messageID }),
-              message.body.isEmpty else { return }
+              // Duas razões para buscar, e a segunda é da M3-8: a mensagem sem
+              // corpo nenhum (as 39 do dono) e a mensagem cujo corpo foi
+              // gravado por uma versão do app que ainda jogava o HTML fora.
+              // **Uma tentativa por abertura, e nunca duas**: a resposta é
+              // gravada no banco seja ela qual for (`""` para a mensagem que de
+              // fato não tem HTML), então `htmlResolved` passa a dizer sim e
+              // nem esta guarda nem a rede são incomodadas de novo.
+              message.body.isEmpty || !message.htmlResolved else { return }
 
         bodyLoads[messageID] = .carregando
         do {
-            let paragrafos = try await bodyPort.fetchBody(
+            let corpo = try await bodyPort.fetchBody(
                 accountID: message.accountID, messageID: messageID
             )
             bodyLoads[messageID] = .buscado
@@ -878,9 +885,15 @@ public final class MailStore {
             // retrato seguinte o traria — mas a mensagem está aberta na tela
             // enquanto isso, e esperar a observação acordar é um piscar de
             // "Carregando…" a mais por nada.
-            guard !paragrafos.isEmpty,
-                  let indice = messages.firstIndex(where: { $0.id == messageID }) else { return }
-            messages[indice] = messages[indice].withBody(paragrafos)
+            guard let indice = messages.firstIndex(where: { $0.id == messageID }) else { return }
+            messages[indice] = messages[indice].withBody(
+                // Parágrafos vazios não apagam o que já estava lá: uma rebusca
+                // feita só pelo HTML não pode custar o texto que a mensagem já
+                // mostrava.
+                corpo.paragraphs.isEmpty ? messages[indice].body : corpo.paragraphs,
+                html: corpo.html,
+                calendarICS: corpo.calendarICS ?? messages[indice].calendarICS
+            )
         } catch is CancellationError {
             // A pessoa trocou de mensagem antes de a resposta chegar. Isso não
             // é falha e não pode virar uma faixa vermelha: o estado volta a

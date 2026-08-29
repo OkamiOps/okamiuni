@@ -290,6 +290,25 @@ public struct SyncDatabase: Sendable {
                 ON outbox(accountID, state, nextAttemptAt)
                 """)
         }
+        // A v3 da M3-8: o HTML da mensagem, e o convite dela. **Ao lado** das
+        // duas anteriores, e só acrescentando colunas — pelo mesmo motivo de
+        // sempre, e agora com duas migrações de história para o provar.
+        //
+        // `ALTER TABLE ADD COLUMN` não recria a tabela, então os três gatilhos
+        // do FTS da v1 continuam válidos sem serem tocados — e o FTS continua
+        // indexando `plain`, que é texto. Indexar HTML poria `<td>`,
+        // `background-color` e o base64 de um logotipo no índice de busca.
+        //
+        // `html` aceita três valores, e os três significam coisas diferentes:
+        // NULL é "esta linha nunca passou pelo decodificador que conhece HTML"
+        // (é o estado de toda linha gravada antes desta migração, e é o que faz
+        // o leitor rebuscar uma vez ao abrir); `''` é "passou, e a mensagem não
+        // tem parte HTML" — só-texto fica só-texto, sem rebusca nenhuma; e o
+        // resto é o HTML sanitizado.
+        migrator.registerMigration("v3") { db in
+            try db.execute(sql: "ALTER TABLE message_body ADD COLUMN html TEXT")
+            try db.execute(sql: "ALTER TABLE message_body ADD COLUMN calendarICS TEXT")
+        }
         return migrator
     }
 }

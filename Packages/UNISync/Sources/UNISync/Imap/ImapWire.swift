@@ -478,14 +478,21 @@ public enum ImapWire {
     /// Quem decide agora é o `MimeBody` — o mesmo, e único, que a carga do
     /// Gmail e a busca por demanda usam.
     public static func bodyText(from respostas: [Untagged], uid: Int64) -> [String] {
+        bodyDecoded(from: respostas, uid: uid).paragraphs
+    }
+
+    /// O mesmo, sem jogar fora o que não é texto: o HTML sanitizado e o
+    /// convite vêm junto. É esta a entrada desde a M3-8; `bodyText` é a vista
+    /// em parágrafos dela.
+    public static func bodyDecoded(from respostas: [Untagged], uid: Int64) -> MimeBody.Decoded {
         for resposta in respostas {
             guard case .fetch(let linha) = resposta, linha.uid == uid, let texto = linha.text else { continue }
             let (tipo, codificacao) = conteudo(de: linha.contentHeader)
-            return MimeBody.paragraphs(
+            return MimeBody.decode(
                 raw: texto, contentType: tipo, contentTransferEncoding: codificacao
             )
         }
-        return []
+        return MimeBody.Decoded(text: "")
     }
 
     /// O bloco de cabeçalho cru virando o par que o decodificador pede.

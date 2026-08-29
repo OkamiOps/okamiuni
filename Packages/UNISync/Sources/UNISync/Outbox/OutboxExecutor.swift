@@ -467,7 +467,13 @@ public actor OutboxExecutor {
                 try MessageRecord(linhas.message, folderID: linhas.folder.id).save(db)
                 if !linhas.message.body.isEmpty {
                     try InitialLoader.gravaCorpo(
-                        db, id: linhas.message.id, paragrafos: linhas.message.body
+                        db, id: linhas.message.id, paragrafos: linhas.message.body,
+                        // `""`: a cópia local do que **nós** enviamos é o texto
+                        // que foi composto. Ela não passa pelo decodificador de
+                        // MIME, e deixar `nil` aqui mandaria o leitor buscar no
+                        // servidor o HTML de uma mensagem que ele mesmo
+                        // escreveu — uma viagem por abertura, para nada.
+                        html: "", calendarICS: nil
                     )
                 }
             }

@@ -220,7 +220,9 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
     /// O corpo vem de fora porque mora noutra tabela: a lista mostra centenas
     /// de linhas e não precisa de nenhum corpo, e carregar todos por tabela
     /// única faria a abertura pagar por texto que ninguém vai ler.
-    public func message(body: [String]) -> Message {
+    public func message(
+        body: [String], bodyHTML: String? = nil, calendarICS: String? = nil
+    ) -> Message {
         Message(
             id: id, accountID: accountID,
             from: Contact(name: fromName, address: fromAddress),
@@ -231,7 +233,8 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
             dayOffset: dayOffset, replyHints: Self.decodeStrings(replyHintsJSON),
             to: Self.decode(toJSON), cc: Self.decode(ccJSON),
             isFlagged: isFlagged,
-            serverID: serverID, uidValidity: uidValidity
+            serverID: serverID, uidValidity: uidValidity,
+            bodyHTML: bodyHTML, calendarICS: calendarICS
         )
     }
 
@@ -320,13 +323,27 @@ public struct MessageBodyRecord: Codable, FetchableRecord, MutablePersistableRec
     /// FTS5 indexa**: indexar o JSON faria os colchetes e as aspas entrarem no
     /// índice e a busca por `"` casar com tudo.
     public var plain: String
+    /// O HTML sanitizado da mensagem, da v3.
+    ///
+    /// Três valores, três significados — ver o comentário da migração v3.
+    /// `nil` é "nunca decodificado com o decodificador que conhece HTML" e é o
+    /// que faz o leitor rebuscar uma vez; `""` é "decodificado, e a mensagem
+    /// não tem HTML"; o resto é o HTML.
+    public var html: String?
+    /// O `text/calendar` cru do convite, quando a mensagem trouxe um.
+    public var calendarICS: String?
 
-    public init(messageID: String, paragraphs: [String]) {
+    public init(
+        messageID: String, paragraphs: [String],
+        html: String? = nil, calendarICS: String? = nil
+    ) {
         self.rowid = nil
         self.messageID = messageID
         let dados = (try? JSONEncoder().encode(paragraphs)) ?? Data("[]".utf8)
         self.paragraphs = String(data: dados, encoding: .utf8) ?? "[]"
         plain = paragraphs.joined(separator: "\n")
+        self.html = html
+        self.calendarICS = calendarICS
     }
 
     public var body: [String] {

@@ -44,6 +44,7 @@ public enum GmailMessageParser {
         // sai fora de ordem — e como o campo é `String`, o erro compila.
         let milissegundos = Double(fio.internalDate ?? "0") ?? 0
 
+        let corpo = corpoDe(payload)
         return GmailMessage(
             id: fio.id,
             labelIDs: fio.labelIds ?? [],
@@ -54,30 +55,62 @@ public enum GmailMessageParser {
             cc: MailAddress.parseList(cabecalho("Cc") ?? ""),
             subject: MailAddress.decodeRFC2047(cabecalho("Subject") ?? ""),
             snippet: fio.snippet ?? "",
-            body: paragraphs(from: bodyText(in: payload))
+            body: corpo.paragraphs,
+            html: corpo.html,
+            calendarICS: corpo.calendar
         )
     }
 
-    /// O texto da mensagem: a parte `text/plain` da árvore MIME; se não houver
-    /// nenhuma, a `text/html` virada texto.
+    /// O corpo da mensagem do Gmail nas três formas que o app guarda.
     ///
-    /// **A segunda metade é nova, e é o conserto de uma ausência.** Antes, uma
-    /// mensagem só de HTML — newsletter, recibo, notificação de sistema, que é
-    /// um terço largo do que chega — devolvia `nil`, e o leitor mostrava a tela
-    /// vazia do "Nada aqui. Bom sinal." sobre uma mensagem que tinha conteúdo.
-    /// Vazio calado é pior do que texto simples: a pessoa não sabe se a
-    /// mensagem é vazia, se o app quebrou, ou se ela precisa abrir o webmail.
+    /// A árvore da API é outra (JSON, base64url, `mimeType` por nó), mas as
+    /// **decisões** são as mesmas do MIME cru, e é por isso que elas moram lá:
+    /// a limpeza do HTML e os tetos das imagens embutidas são de `MimeSanitize`,
+    /// não uma segunda opinião escrita aqui.
     ///
-    /// A preferência continua sendo o texto — o leitor desenha `[String]` de
-    /// parágrafos, e a parte mais rica é a que ele menos consegue mostrar. Quem
-    /// converte é o `MimeBody`, o mesmo que a carga IMAP e a busca por demanda
-    /// usam: uma regra, um lugar.
-    private static func bodyText(in part: Wire.Part) -> String {
-        if let texto = firstPart(in: part, mimeType: "text/plain") { return texto }
-        if let html = firstPart(in: part, mimeType: "text/html") {
-            return MimeBody.textFromHTML(html)
+    /// **Dívida conhecida:** a imagem embutida do Gmail quase sempre vem como
+    /// `attachmentId` em vez de `body.data` — quem a quiser inteira precisa de
+    /// outra chamada à API. As que já vêm com `data` são embutidas; as outras
+    /// caem no vazio de 1×1 de `MimeSanitize.placeholder`, como qualquer `cid:`
+    /// órfão. Está registrado no relatório da M3-8.
+    private static func corpoDe(_ payload: Wire.Part) -> MimeBody.Decoded {
+        let plano = firstPart(in: payload, mimeType: "text/plain")
+        let html = firstPart(in: payload, mimeType: "text/html")
+        let agenda = firstPart(in: payload, mimeType: "text/calendar")
+            ?? firstPart(in: payload, mimeType: "application/ics")
+
+        let texto: String
+        if let plano {
+            texto = plano
+        } else if let html {
+            texto = MimeBody.textFromHTML(html)
+        } else {
+            texto = ""
         }
-        return ""
+        return MimeBody.Decoded(
+            text: texto,
+            html: html.flatMap {
+                MimeSanitize.sanitize(html: $0, imagens: imagensInline(in: payload))
+            },
+            calendar: agenda
+        )
+    }
+
+    /// As imagens que a própria mensagem carrega, na ordem do documento.
+    private static func imagensInline(in part: Wire.Part) -> [MimeSanitize.ImagemInline] {
+        var achadas: [MimeSanitize.ImagemInline] = []
+        let mime = part.mimeType?.lowercased() ?? ""
+        if mime.hasPrefix("image/"),
+           let id = part.headers?.first(where: { $0.name.lowercased() == "content-id" })?.value,
+           let dado = part.body?.data,
+           let dados = MimeBody.base64(
+               dado.replacingOccurrences(of: "-", with: "+")
+                   .replacingOccurrences(of: "_", with: "/")
+           ) {
+            achadas.append(.init(contentID: id, mime: mime, dados: dados))
+        }
+        for filha in part.parts ?? [] { achadas += imagensInline(in: filha) }
+        return achadas
     }
 
     /// A primeira parte de um tipo, em profundidade, já decodificada.

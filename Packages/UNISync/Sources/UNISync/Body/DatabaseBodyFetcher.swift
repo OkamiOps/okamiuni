@@ -49,7 +49,7 @@ public actor DatabaseBodyFetcher: BodyFetching {
         self.imapConnect = imapConnect
     }
 
-    public func fetchBody(accountID: String, messageID: String) async throws -> [String] {
+    public func fetchBody(accountID: String, messageID: String) async throws -> FetchedBody {
         guard let conta = try await database.pool.read({ db in
             try AccountRecord.fetchOne(db, key: accountID)?.account
         }) else {
@@ -62,18 +62,25 @@ public actor DatabaseBodyFetcher: BodyFetching {
             throw SyncError.resposta("Não foi possível descobrir onde esta mensagem está no servidor.")
         }
 
-        let paragrafos = try await busca(onde, conta: conta)
+        let corpo = try await busca(onde, conta: conta)
         // **Gravar é parte do contrato, não efeito colateral.** Sem esta
         // escrita, sair da mensagem e voltar pagaria a viagem de novo, a busca
         // continuaria sem achar o que a pessoa acabou de ler, e o app offline
         // voltaria a mostrar a coluna em branco.
-        try await grava(paragrafos, messageID: messageID)
-        return paragrafos
+        try await grava(corpo, messageID: messageID)
+        return FetchedBody(
+            paragraphs: corpo.paragraphs,
+            // `""` e não `nil`: a mensagem passou pelo decodificador, e a
+            // resposta "ela não tem HTML" é uma resposta. Devolver `nil` aqui
+            // faria o leitor rebuscá-la a cada abertura, para sempre.
+            html: corpo.html ?? "",
+            calendarICS: corpo.calendar
+        )
     }
 
     // MARK: A viagem
 
-    private func busca(_ onde: MessageCoordinate, conta: Account) async throws -> [String] {
+    private func busca(_ onde: MessageCoordinate, conta: Account) async throws -> MimeBody.Decoded {
         switch onde {
         case .gmail(let serverID):
             guard let auth else { throw SyncError.semClientID }
@@ -86,7 +93,11 @@ public actor DatabaseBodyFetcher: BodyFetching {
             // `.full`, e não `.metadata`: é justamente o corpo que falta. O
             // parser é o mesmo da carga — inclusive o caminho novo que converte
             // a mensagem só de HTML em texto.
-            return try await cliente.message(id: serverID, format: .full).body
+            let mensagem = try await cliente.message(id: serverID, format: .full)
+            return MimeBody.Decoded(
+                text: mensagem.body.joined(separator: "\n\n"),
+                html: mensagem.html, calendar: mensagem.calendarICS
+            )
 
         case .imap(let pasta, let uidValidity, let uid):
             do {
@@ -108,7 +119,7 @@ public actor DatabaseBodyFetcher: BodyFetching {
 
     private func buscaNoImap(
         conta: Account, pasta: String, uidValidity: Int64, uid: Int64
-    ) async throws -> [String] {
+    ) async throws -> MimeBody.Decoded {
         let sessao = try await sessaoAtiva(conta)
         let status = try await sessao.select(ImapFolder(name: pasta, specialUse: nil))
         // O UID sozinho não identifica nada: o servidor pode ter reciclado os
@@ -122,7 +133,7 @@ public actor DatabaseBodyFetcher: BodyFetching {
                 + "esta mensagem será recarregada."
             )
         }
-        return try await sessao.bodyText(uid: uid)
+        return try await sessao.bodyDecoded(uid: uid)
     }
 
     private func sessaoAtiva(_ conta: Account) async throws -> ImapSession {
@@ -160,18 +171,26 @@ public actor DatabaseBodyFetcher: BodyFetching {
 
     // MARK: A escrita
 
-    private func grava(_ paragrafos: [String], messageID: String) async throws {
-        guard !paragrafos.isEmpty else { return }
+    private func grava(_ corpo: MimeBody.Decoded, messageID: String) async throws {
+        let paragrafos = corpo.paragraphs
+        // Sem texto, sem HTML e sem convite não há linha a gravar — mas basta
+        // **um** dos três para haver: o convite de agenda é justamente a
+        // mensagem sem parágrafo nenhum.
+        guard !paragrafos.isEmpty || corpo.html != nil || corpo.calendar != nil else { return }
         try await database.pool.write { db in
-            try InitialLoader.gravaCorpo(db, id: messageID, paragrafos: paragrafos)
+            try InitialLoader.gravaCorpo(
+                db, id: messageID, paragrafos: paragrafos,
+                html: corpo.html ?? "", calendarICS: corpo.calendar
+            )
             // A prévia da lista de uma mensagem sem corpo é o **assunto** (ver
             // `InitialLoader.gravaImap`): a linha repetia o assunto duas vezes,
             // uma em cima da outra. Agora que há corpo, ela mostra a primeira
             // linha dele — e a troca é condicional para nunca sobrescrever a
             // prévia que o servidor deu (o `snippet` do Gmail).
+            guard let primeiro = paragrafos.first else { return }
             try db.execute(
                 sql: "UPDATE message SET snippet = ? WHERE id = ? AND snippet = subject",
-                arguments: [paragrafos[0], messageID]
+                arguments: [primeiro, messageID]
             )
         }
     }
