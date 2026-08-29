@@ -184,16 +184,47 @@ public final class MailStore {
     /// dizer a verdade sobre isso em vez de fingir que enviou.
     private let sendPort: MailSendPort?
 
+    /// De onde vem o catálogo real de contatos. `nil` nas fixtures e em todo
+    /// teste que não passa uma — e nesse caso `contactPool` fica em
+    /// `Fixtures.contacts`, que é o comportamento de sempre.
+    private let contactPort: ContactDirectoryPort?
+
+    /// Os contatos que o campo de destinatário oferece. `Fixtures.contacts`
+    /// até a primeira sincronização; a lista real do banco depois — ver
+    /// `refreshContactPoolIfNeeded()`.
+    ///
+    /// **Sem conta conectada, é sempre `Fixtures.contacts`** — a regra do
+    /// app inteiro. É por isso que o valor inicial já é o catálogo de
+    /// exemplo, e não uma lista vazia: um teste que nunca chama `load()` nem
+    /// `observe()` (a maioria da suíte de hoje) continua vendo exatamente o
+    /// que via antes desta tarefa.
+    public private(set) var contactPool: [DirectoryContact] = Fixtures.contacts
+
+    /// O conjunto de contas na última vez que `contactPool` foi montado.
+    /// `nil` até a primeira chamada — é o que faz `refreshContactPoolIfNeeded`
+    /// rodar ao menos uma vez mesmo quando a lista de contas continua vazia
+    /// (o caso das fixtures, cujo `contactPool` já nasce correto mas cujo
+    /// carimbo precisa existir para a próxima comparação fazer sentido).
+    private var contactPoolAccountIDs: Set<String>?
+
+    /// Protege contra a resposta de uma consulta de contatos que ficou presa
+    /// atrás de uma troca de conta mais recente — o mesmo carimbo que
+    /// `refreshBodyMatches()` usa para o termo de busca, aqui sobre o
+    /// conjunto de contas em vez do texto digitado.
+    private var contactPoolGeneration = 0
+
     public init(
         source: MailSource,
         commandPort: MailCommandPort? = nil,
         bodyPort: BodyFetching? = nil,
-        sendPort: MailSendPort? = nil
+        sendPort: MailSendPort? = nil,
+        contactPort: ContactDirectoryPort? = nil
     ) {
         self.source = source
         self.commandPort = commandPort
         self.bodyPort = bodyPort
         self.sendPort = sendPort
+        self.contactPort = contactPort
     }
 
     /// Há por onde enviar de verdade?
@@ -241,6 +272,7 @@ public final class MailStore {
             // Em erro, nenhuma propriedade muda; o estado anterior continua válido.
             report(error)
         }
+        await refreshContactPoolIfNeeded()
     }
 
     /// Assina a fonte e aplica cada retrato que chegar.
@@ -253,10 +285,56 @@ public final class MailStore {
         do {
             for try await snapshot in source.snapshots() {
                 apply(snapshot)
+                await refreshContactPoolIfNeeded()
             }
         } catch {
             // O que já foi aplicado fica: a lista não pode esvaziar porque a
             // observação caiu. O erro aparece, com ação, na janela de Contas.
+            report(error)
+        }
+    }
+
+    /// Remonta `contactPool` quando o conjunto de contas mudou desde a última
+    /// vez — a primeira conta a entrar, a última a sair, ou uma troca de
+    /// conta no meio. Comparar o **conjunto**, e não a contagem, é o que
+    /// impede um retrato que troca uma conta pela outra (mesmo total) de
+    /// passar batido.
+    ///
+    /// Fora de `apply(_:)` de propósito: `apply` é síncrona (a lista de
+    /// mensagens não pode esperar disco a cada retrato) e isto é uma consulta
+    /// ao banco.
+    private func refreshContactPoolIfNeeded() async {
+        let atuais = Set(accounts.map(\.id))
+        guard contactPoolAccountIDs != atuais else { return }
+        contactPoolAccountIDs = atuais
+        await refreshContactPool()
+    }
+
+    /// A consulta em si, sempre a mais nova vence.
+    ///
+    /// **Sem porta** (fixtures e todo teste que não passa uma), o catálogo é
+    /// `Fixtures.contacts` — o Marco 1 intacto. **Com porta**, quem decide se
+    /// há conta é ela: `nil` de volta é "o banco não tem conta nenhuma", e
+    /// cai no mesmo `Fixtures.contacts`; uma lista (mesmo vazia) é o
+    /// catálogo real.
+    private func refreshContactPool() async {
+        contactPoolGeneration += 1
+        let geracao = contactPoolGeneration
+        guard let contactPort else {
+            contactPool = Fixtures.contacts
+            return
+        }
+        do {
+            let contatos = try await contactPort.contacts(accountID: nil)
+            // O carimbo: entre o `await` acima e esta linha outra troca de
+            // conta pode ter começado uma segunda consulta. Se essa outra já
+            // respondeu, gravar aqui por cima devolveria o catálogo à conta
+            // velha — a mesma guarda de `refreshBodyMatches()`, sobre o
+            // conjunto de contas em vez do termo de busca.
+            guard geracao == contactPoolGeneration else { return }
+            contactPool = contatos ?? Fixtures.contacts
+        } catch {
+            guard geracao == contactPoolGeneration else { return }
             report(error)
         }
     }

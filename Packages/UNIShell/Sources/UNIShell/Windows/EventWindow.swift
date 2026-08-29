@@ -436,7 +436,7 @@ public struct EventWindow: View {
                 placeholder: "quem do time precisa entrar; ",
                 inputMinWidth: 150,
                 menuWidth: 320,
-                pool: Fixtures.contacts,
+                pool: store.contactPool,
                 chips: $forwardTo
             )
             .padding(.bottom, 9)

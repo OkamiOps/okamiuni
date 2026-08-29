@@ -461,7 +461,7 @@ public struct ComposerWindow: View {
                 placeholder: isReply ? "nome ou email; " : "comece a digitar um nome; ",
                 inputMinWidth: isReply ? 140 : 160,
                 menuWidth: 340,
-                pool: Fixtures.contacts,
+                pool: store.contactPool,
                 chips: $to,
                 seededQuery: seededQuery(.to)
             )
@@ -496,7 +496,7 @@ public struct ComposerWindow: View {
             placeholder: placeholder,
             inputMinWidth: 140,
             menuWidth: 330,
-            pool: Fixtures.contacts,
+            pool: store.contactPool,
             chips: chips,
             seededQuery: seededQuery(slot)
         )

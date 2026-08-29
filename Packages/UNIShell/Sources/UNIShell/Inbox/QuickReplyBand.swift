@@ -82,11 +82,17 @@ struct QuickReplyBand: View {
 
     // MARK: - Catálogo
 
-    /// Os contatos que o app conhece: os remetentes das mensagens que existem,
-    /// mais o caderno de endereços. Nenhum filtro por conta, host ou domínio.
-    private var pool: [DirectoryContact] {
-        QuickReply.directory(messages: store.messages, catalog: Fixtures.contacts)
-    }
+    /// Os contatos que o app conhece.
+    ///
+    /// `store.contactPool` já resolve a regra inteira — fixtures sem conta,
+    /// banco com conta — e é a mesma lista que o composer em janela usa.
+    /// `QuickReply.directory` continua existindo (e testado) como a
+    /// implementação de referência de "mesclar remetentes com um caderno",
+    /// mas chamá-la aqui **misturaria** o catálogo de exemplo do protótipo
+    /// (`Fixtures.contacts`) com contatos de uma conta de verdade — o defeito
+    /// que esta tarefa veio consertar. Nenhum filtro por conta, host ou
+    /// domínio.
+    private var pool: [DirectoryContact] { store.contactPool }
 
     private var plainText: String { String(draft.characters) }
 

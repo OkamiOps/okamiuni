@@ -45,6 +45,11 @@ public struct AppComposition: Sendable {
     /// Ao contrário de `commandPort`, esta porta é **rede**: é a única do app
     /// cuja espera o leitor precisa mostrar na tela.
     public let bodyPort: BodyFetching?
+    /// De onde vem o catálogo real de contatos — quem já mandou, recebeu ou
+    /// entrou em cópia numa mensagem sincronizada. `nil` quando o banco não
+    /// abriu, pela mesma razão de `bodyPort`: sem banco não há onde
+    /// consultar, e `MailStore` fica com `Fixtures.contacts`.
+    public let contactPort: ContactDirectoryPort?
     /// Quem leva a fila de saída ao servidor, uma conta por vez. Nulo pelo
     /// mesmo motivo do banco. Já vem **ligado**: a fila começa a andar ao
     /// abrir o app, que é o que faz uma ação feita offline chegar ao servidor
@@ -94,6 +99,7 @@ public struct AppComposition: Sendable {
             return AppComposition(
                 database: nil, director: nil,
                 source: InMemoryMailSource.fixtures, commandPort: nil, sendPort: nil, bodyPort: nil,
+                contactPort: nil,
                 outbox: nil, outboxSignal: nil, sync: nil, network: nil, configError: falha
             )
         }
@@ -199,6 +205,7 @@ public struct AppComposition: Sendable {
                 database: banco, secrets: cofre, auth: auth,
                 session: .shared, eventLoopGroup: grupo
             ),
+            contactPort: DatabaseContactDirectory(database: banco),
             outbox: fila,
             outboxSignal: sinal,
             sync: sincronizacao,

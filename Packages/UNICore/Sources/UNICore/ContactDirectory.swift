@@ -31,6 +31,63 @@ public struct DirectoryContact: Sendable, Hashable, Identifiable {
 /// O catálogo por trás dos campos Para/Cc/Cco. Puro de propósito: um `View` do
 /// SwiftUI é `@MainActor` e esta aritmética precisa ser chamável de teste.
 public enum ContactDirectory {
+    /// O catálogo **real**: quem já apareceu como remetente, destinatário ou
+    /// cópia em alguma mensagem. Pura e testável sem banco — `Message` já
+    /// chega com `from`/`to`/`cc`/`receivedAt` decodificados, venha ela do
+    /// banco (`DatabaseContactDirectory`, no `UNISync`) ou das fixtures.
+    ///
+    /// Deduplicado por endereço, sem diferenciar caixa — é `Contact.id` quem
+    /// decide isso. Relevância simples: quem apareceu mais vezes primeiro;
+    /// empate desfeito por quem apareceu mais recentemente; empate nisso, por
+    /// nome e depois endereço, para a lista não dançar entre duas chamadas
+    /// com a mesma entrada.
+    public static func build(fromMessages messages: [Message]) -> [DirectoryContact] {
+        var order: [String] = []
+        var seen: Set<String> = []
+        var address: [String: String] = [:]
+        var name: [String: String] = [:]
+        var frequency: [String: Int] = [:]
+        var latest: [String: Date] = [:]
+
+        func touch(_ contact: Contact, at date: Date) {
+            guard !contact.address.isEmpty else { return }
+            let key = contact.id
+            if seen.insert(key).inserted {
+                order.append(key)
+                address[key] = contact.address
+            }
+            frequency[key, default: 0] += 1
+            if let atual = latest[key] {
+                if date > atual { latest[key] = date }
+            } else {
+                latest[key] = date
+            }
+            if (name[key] ?? "").isEmpty, !contact.name.isEmpty {
+                name[key] = contact.name
+            }
+        }
+
+        for message in messages {
+            touch(message.from, at: message.receivedAt)
+            for destinatario in message.to { touch(destinatario, at: message.receivedAt) }
+            for copia in message.cc { touch(copia, at: message.receivedAt) }
+        }
+
+        return order.map { key in
+            DirectoryContact(
+                name: name[key] ?? "", address: address[key] ?? key,
+                org: "", frequency: frequency[key] ?? 0
+            )
+        }.sorted { left, right in
+            if left.frequency != right.frequency { return left.frequency > right.frequency }
+            let dataEsquerda = latest[left.id] ?? .distantPast
+            let dataDireita = latest[right.id] ?? .distantPast
+            if dataEsquerda != dataDireita { return dataEsquerda > dataDireita }
+            if left.name != right.name { return left.name < right.name }
+            return left.address < right.address
+        }
+    }
+
     /// Protótipo: `.slice(0, 5)`.
     public static let suggestionLimit = 5
 
