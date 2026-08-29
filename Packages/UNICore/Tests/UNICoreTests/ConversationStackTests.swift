@@ -66,3 +66,60 @@ struct ConversationStackTests {
         #expect(ConversationStack.toggle("resposta", in: inicial).isEmpty)
     }
 }
+
+/// A outra metade da tela do dono: a conversa que **abre já recolhida
+/// inteira**, sem uma linha aberta sequer.
+///
+/// Como se chega lá: recolher a última aberta (o que a M3-10 passou a
+/// permitir, e com razão), sair para outra conversa e voltar. O estado ficava
+/// guardado com a chave da conversa de origem, e voltar a ela o encontrava
+/// intacto — três linhas recolhidas e nenhum corpo à vista.
+@Suite("A pilha ao trocar de conversa")
+struct ConversationStackResetTests {
+
+    private var outra: Conversation {
+        Conversation(key: "t2", messages: [msg("z", at: 300, thread: "t2")])!
+    }
+
+    @Test("Numa conversa, o que abre é o estado dela")
+    func oEstadoDaPropriaConversa() {
+        let recolhida = ConversationStack.Opened(conversationKey: "t1", ids: [])
+        #expect(ConversationStack.expanded(conversa, opened: recolhida).isEmpty)
+        #expect(ConversationStack.expanded(conversa, opened: nil) == ["resposta"])
+    }
+
+    @Test("O estado de outra conversa não vale nesta")
+    func oEstadoDeOutraConversaNaoVale() {
+        let recolhida = ConversationStack.Opened(conversationKey: "t1", ids: [])
+        #expect(ConversationStack.expanded(outra, opened: recolhida) == ["z"])
+    }
+
+    /// O caminho inteiro do dono, em três passos: recolher tudo, ir para outra
+    /// conversa, voltar. Voltar é abrir de novo — e abrir é a mais recente
+    /// aberta.
+    @Test("Ir para outra conversa e voltar abre a mais recente de novo")
+    func voltarAbreDeNovo() {
+        // 1. Na conversa, a pessoa recolhe a última aberta.
+        var guardado: ConversationStack.Opened? = ConversationStack.Opened(
+            conversationKey: conversa.key,
+            ids: ConversationStack.toggle("resposta", in: ConversationStack.initialExpanded(conversa))
+        )
+        #expect(ConversationStack.expanded(conversa, opened: guardado).isEmpty)
+
+        // 2. Ela vai para outra conversa. O estado da anterior não a acompanha.
+        guardado = ConversationStack.carried(guardado, to: outra)
+        #expect(guardado == nil)
+
+        // 3. E volta. A pilha nasce como toda pilha nasce.
+        #expect(ConversationStack.expanded(conversa, opened: guardado) == ["resposta"])
+    }
+
+    /// Trocar de mensagem **dentro** da mesma conversa não é trocar de
+    /// conversa: quem abriu uma mensagem antiga da pilha e clicou noutra linha
+    /// da lista da mesma conversa não pode perder o que estava lendo.
+    @Test("Ficar na mesma conversa preserva o que está aberto")
+    func amesmaConversaPreserva() {
+        let aberto = ConversationStack.Opened(conversationKey: "t1", ids: ["original"])
+        #expect(ConversationStack.carried(aberto, to: conversa) == aberto)
+    }
+}

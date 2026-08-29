@@ -68,7 +68,9 @@ public struct ReaderPane: View {
     /// `flex: none`. O cabeçalho estava dentro da rolagem aqui, e embaixo do
     /// corpo sobrava exatamente o vazio que a faixa ocupa.
     private func content(_ message: Message) -> some View {
-        VStack(spacing: 0) {
+        let conversa = store.conversation(of: message.id)
+
+        return VStack(spacing: 0) {
             header(message)
 
             ScrollView {
@@ -77,8 +79,10 @@ public struct ReaderPane: View {
                     // recolhidas, esta aberta. Com uma mensagem só, o desenho é
                     // exatamente o de antes desta tarefa — o `else` é o mesmo
                     // bloco que sempre esteve aqui.
-                    if let conversa = store.conversation(of: message.id), conversa.count > 1 {
-                        conversationStack(conversa)
+                    if let conversa, conversa.count > 1 {
+                        ConversationStackView(store: store, conversa: conversa, opened: $stackState) {
+                            cardsAndBody($0)
+                        }
                     } else {
                         cardsAndBody(message)
                     }
@@ -124,6 +128,15 @@ public struct ReaderPane: View {
         // não faz nada — `loadBodyIfNeeded` sai na primeira guarda.
         .task(id: message.id) {
             await store.loadBodyIfNeeded(message.id)
+        }
+        // Voltar a uma conversa é abri-la de novo, com a mais recente aberta.
+        // Sem isto o estado ficava guardado com a chave da conversa de origem e
+        // uma ida-e-volta o encontrava intacto — ver `ConversationStack.carried`.
+        // Mora aqui, e não dentro da pilha, porque a conversa de **uma**
+        // mensagem não desenha pilha nenhuma: a passagem por ela também tem de
+        // limpar o que ficou.
+        .onChange(of: conversa?.key) {
+            stackState = conversa.flatMap { ConversationStack.carried(stackState, to: $0) }
         }
     }
 
@@ -171,84 +184,7 @@ public struct ReaderPane: View {
     /// Vive aqui e não no `MailStore` porque é estado **de leitura desta
     /// janela**: duas janelas sobre a mesma conversa podem ter mensagens
     /// diferentes abertas, e nada disso precisa sobreviver a nada.
-    @State private var stackState: (key: String, ids: Set<String>)?
-
-    private func expandedIDs(_ conversa: Conversation) -> Set<String> {
-        if let stackState, stackState.key == conversa.key { return stackState.ids }
-        return ConversationStack.initialExpanded(conversa)
-    }
-
-    /// A conversa inteira, em ordem cronológica: a mais recente aberta com o
-    /// corpo completo, as anteriores recolhidas (quem escreveu e a primeira
-    /// linha). É a pilha do webmail, e é o que faltava aqui.
-    ///
-    /// Sem árvore e sem preferência de "agrupar sim/não": os grandes empilham
-    /// em ordem, e é o que a conversa é.
-    ///
-    /// **Toda** mensagem da pilha tem a linha de cabeçalho, aberta ou não —
-    /// inclusive a que o leitor abriu sozinho. Era ela que não tinha: sem
-    /// cabeçalho, não havia onde clicar para recolhê-la, e a pilha só sabia
-    /// crescer.
-    private func conversationStack(_ conversa: Conversation) -> some View {
-        let abertas = expandedIDs(conversa)
-        return VStack(alignment: .leading, spacing: 0) {
-            ForEach(conversa.messages) { message in
-                let aberta = abertas.contains(message.id)
-                VStack(alignment: .leading, spacing: 0) {
-                    stackButton(message, aberta: aberta, in: conversa)
-                    if aberta { cardsAndBody(message) }
-                }
-            }
-        }
-    }
-
-    /// A linha clicável de uma mensagem da pilha. Clicar abre a recolhida e
-    /// recolhe a aberta — e abrir **é** ler, então ela deixa de ser não lida, a
-    /// mesma regra que `MailStore.select(message:)` já aplica à mensagem que o
-    /// leitor abre sozinho.
-    private func stackButton(
-        _ message: Message, aberta: Bool, in conversa: Conversation
-    ) -> some View {
-        Button {
-            let ids = ConversationStack.toggle(message.id, in: expandedIDs(conversa))
-            stackState = (conversa.key, ids)
-            if ids.contains(message.id) { store.setRead(true, for: message.id) }
-        } label: {
-            stackHeader(message, aberta: aberta)
-        }
-        .buttonStyle(.plain)
-        .focusRing(in: Rectangle())
-        .help(aberta ? "Recolher esta mensagem da conversa" : "Abrir esta mensagem da conversa")
-    }
-
-    /// A linha de cabeçalho de uma mensagem da pilha. Recolhida, ela mostra a
-    /// primeira linha do texto ao lado do nome; aberta, o nome e a data bastam
-    /// — o texto está logo abaixo.
-    private func stackHeader(_ message: Message, aberta: Bool) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(message.from.name.isEmpty ? message.from.address : message.from.name)
-                .font(theme.sans.font(size: 12.5, weight: message.isRead ? .medium : .semibold))
-                .foregroundStyle(theme.ink.color)
-                .lineLimit(1)
-                .fixedSize()
-            if !aberta {
-                Text(Self.primeiraLinha(de: message))
-                    .font(theme.sans.font(size: 12))
-                    .foregroundStyle(theme.ink3.color)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 10)
-            Text(message.receivedAt, format: .dateTime.day().month(.abbreviated).hour().minute())
-                .font(theme.mono.font(size: 10))
-                .foregroundStyle(theme.ink4.color)
-                .fixedSize()
-        }
-        .padding(.horizontal, 28)
-        .frame(height: 38)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-        .hairline(theme.line2, edges: .bottom)
-    }
+    @State private var stackState: ConversationStack.Opened?
 
     /// A primeira linha da mensagem recolhida.
     ///

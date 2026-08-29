@@ -43,4 +43,50 @@ public enum ConversationStack {
         }
         return novo
     }
+
+    /// O que o leitor guarda entre um clique e o seguinte: quais mensagens
+    /// estão abertas, **e de qual conversa esse estado é**.
+    ///
+    /// A chave junto não é contabilidade: sem ela, o conjunto de ids da
+    /// conversa anterior valeria na seguinte, e uma conversa nova nasceria com
+    /// o recorte de outra.
+    public struct Opened: Sendable, Hashable {
+        public let conversationKey: String
+        public let ids: Set<String>
+
+        public init(conversationKey: String, ids: Set<String>) {
+            self.conversationKey = conversationKey
+            self.ids = ids
+        }
+    }
+
+    /// Quais mensagens desta conversa estão abertas agora.
+    ///
+    /// Sem estado guardado — ou com estado de **outra** conversa — vale o
+    /// começo: a mais recente aberta, e só ela.
+    public static func expanded(_ conversation: Conversation, opened: Opened?) -> Set<String> {
+        guard let opened, opened.conversationKey == conversation.key else {
+            return initialExpanded(conversation)
+        }
+        return opened.ids
+    }
+
+    /// O estado que **atravessa** uma troca de conversa: nenhum.
+    ///
+    /// Era esta a outra metade da tela do dono. A M3-10 passou a permitir
+    /// recolher a última aberta (e com razão: clicar na única aberta tinha de
+    /// fazer alguma coisa), mas o estado "tudo recolhido" ficava guardado com a
+    /// chave da conversa. Ir para outra conversa só o **escondia** —
+    /// `expanded` já ignora estado de chave alheia —, e voltar o encontrava
+    /// inteiro: a conversa reabria com as três linhas recolhidas e nenhum corpo
+    /// à vista, que foi exatamente o print.
+    ///
+    /// Voltar a uma conversa é abri-la, e abrir é a mais recente aberta. Dentro
+    /// da mesma conversa nada se perde: quem abriu uma mensagem antiga da pilha
+    /// e clicou noutra linha da mesma conversa continua lendo o que estava
+    /// lendo.
+    public static func carried(_ opened: Opened?, to conversation: Conversation) -> Opened? {
+        guard let opened, opened.conversationKey == conversation.key else { return nil }
+        return opened
+    }
 }
