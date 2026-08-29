@@ -73,25 +73,15 @@ public struct ReaderPane: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    if let summary = message.summary {
-                        summaryCard(summary, event: message.detectedEvent, message: message)
-                            .padding(.horizontal, 28)
-                            // Protótipo: o corpo do leitor tem `padding: 22px 28px 28px`.
-                            .padding(.top, 22)
-                            // Protótipo: `margin-bottom: 24px` no cartão de resumo.
-                            .padding(.bottom, 24)
+                    // A conversa, quando há mais de uma mensagem: as anteriores
+                    // recolhidas, esta aberta. Com uma mensagem só, o desenho é
+                    // exatamente o de antes desta tarefa — o `else` é o mesmo
+                    // bloco que sempre esteve aqui.
+                    if let conversa = store.conversation(of: message.id), conversa.count > 1 {
+                        conversationStack(conversa, aberta: message)
+                    } else {
+                        cardsAndBody(message)
                     }
-
-                    if let convite = Self.convite(de: message) {
-                        inviteCard(convite, message: message)
-                            .padding(.horizontal, 28)
-                            .padding(.top, message.summary == nil ? 22 : 0)
-                            .padding(.bottom, 24)
-                    }
-
-                    body(message)
-                        .padding(.top, temCartao(message) ? 0 : 22)
-                        .padding(.bottom, 28)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 // Botão direito no corpo. Fica no bloco que rola, não no
@@ -135,6 +125,131 @@ public struct ReaderPane: View {
         .task(id: message.id) {
             await store.loadBodyIfNeeded(message.id)
         }
+    }
+
+    /// Os cartões (resumo, convite) e o corpo de **uma** mensagem — o miolo do
+    /// leitor, exatamente como ele sempre foi.
+    ///
+    /// Virou função própria porque agora ele é desenhado em dois contextos: a
+    /// mensagem sozinha, e a mensagem aberta dentro de uma pilha de conversa.
+    /// Uma segunda cópia para o segundo caso divergiria da primeira no próximo
+    /// conserto de espaçamento.
+    @ViewBuilder
+    private func cardsAndBody(_ message: Message) -> some View {
+        if let summary = message.summary {
+            summaryCard(summary, event: message.detectedEvent, message: message)
+                .padding(.horizontal, 28)
+                // Protótipo: o corpo do leitor tem `padding: 22px 28px 28px`.
+                .padding(.top, 22)
+                // Protótipo: `margin-bottom: 24px` no cartão de resumo.
+                .padding(.bottom, 24)
+        }
+
+        if let convite = Self.convite(de: message) {
+            inviteCard(convite, message: message)
+                .padding(.horizontal, 28)
+                .padding(.top, message.summary == nil ? 22 : 0)
+                .padding(.bottom, 24)
+        }
+
+        body(message)
+            .padding(.top, temCartao(message) ? 0 : 22)
+            .padding(.bottom, 28)
+    }
+
+    // MARK: - A conversa empilhada
+
+    /// Quais mensagens da conversa a pessoa abriu à mão, além da que o leitor
+    /// já abre por conta própria.
+    ///
+    /// Vive aqui e não no `MailStore` porque é estado **de leitura desta
+    /// janela**: duas janelas sobre a mesma conversa podem ter mensagens
+    /// diferentes abertas, e nada disso precisa sobreviver a nada.
+    @State private var expandedIDs: Set<String> = []
+
+    /// A conversa inteira, em ordem cronológica: as anteriores recolhidas (quem
+    /// escreveu e a primeira linha), a mais recente aberta com o corpo
+    /// completo. É a pilha do webmail, e é o que faltava aqui.
+    ///
+    /// Sem árvore e sem preferência de "agrupar sim/não": os grandes empilham
+    /// em ordem, e é o que a conversa é.
+    private func conversationStack(_ conversa: Conversation, aberta: Message) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(conversa.messages) { message in
+                if message.id == aberta.id {
+                    cardsAndBody(message)
+                } else if expandedIDs.contains(message.id) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        stackHeader(message, aberta: true)
+                        body(message)
+                            .padding(.top, 12)
+                            .padding(.bottom, 20)
+                    }
+                } else {
+                    collapsedMessage(message)
+                }
+            }
+        }
+    }
+
+    /// Uma mensagem recolhida: quem escreveu, a primeira linha e o horário.
+    /// Clicar abre — e abrir **é** ler, então ela deixa de ser não lida, a
+    /// mesma regra que `MailStore.select(message:)` já aplica à mensagem que o
+    /// leitor abre sozinho.
+    private func collapsedMessage(_ message: Message) -> some View {
+        Button {
+            expandedIDs.insert(message.id)
+            store.setRead(true, for: message.id)
+        } label: {
+            stackHeader(message, aberta: false)
+        }
+        .buttonStyle(.plain)
+        .focusRing(in: Rectangle())
+        .help("Abrir esta mensagem da conversa")
+    }
+
+    /// A linha de cabeçalho de uma mensagem da pilha. Recolhida, ela mostra a
+    /// primeira linha do texto ao lado do nome; aberta, o nome e a data bastam
+    /// — o texto está logo abaixo.
+    private func stackHeader(_ message: Message, aberta: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(message.from.name.isEmpty ? message.from.address : message.from.name)
+                .font(theme.sans.font(size: 12.5, weight: message.isRead ? .medium : .semibold))
+                .foregroundStyle(theme.ink.color)
+                .lineLimit(1)
+                .fixedSize()
+            if !aberta {
+                Text(Self.primeiraLinha(de: message))
+                    .font(theme.sans.font(size: 12))
+                    .foregroundStyle(theme.ink3.color)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 10)
+            Text(message.receivedAt, format: .dateTime.day().month(.abbreviated).hour().minute())
+                .font(theme.mono.font(size: 10))
+                .foregroundStyle(theme.ink4.color)
+                .fixedSize()
+        }
+        .padding(.horizontal, 28)
+        .frame(height: 38)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .hairline(theme.line2, edges: .bottom)
+    }
+
+    /// A primeira linha da mensagem recolhida.
+    ///
+    /// O primeiro parágrafo, e a prévia quando não há corpo baixado — que é o
+    /// caso comum de uma mensagem antiga da conversa, cujo corpo só desce
+    /// quando alguém a abre. `nonisolated` e `static` pelo motivo de sempre: o
+    /// que a pessoa lê é comportamento, e o teste o afirma sem montar janela.
+    nonisolated static func primeiraLinha(de message: Message) -> String {
+        let bruto = message.body.first ?? message.snippet
+        return bruto
+            .split(whereSeparator: \.isNewline)
+            .first
+            .map(String.init)?
+            .trimmingCharacters(in: .whitespaces) ?? ""
     }
 
     /// Protótipo: um bloco só — `padding: 16px 28px 16px;
