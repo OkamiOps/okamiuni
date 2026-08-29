@@ -87,11 +87,11 @@ public struct DatabaseCommandPort: MailCommandPort, MailSendPort, Sendable {
     /// **Sem projeção**, ao contrário das seis mutações acima, e é uma
     /// diferença de fato e não de gosto: aquelas mudam uma linha que já existe
     /// na tela, e a tela tem de refletir a mudança na hora. Esta não tem linha
-    /// nenhuma para mudar — a mensagem enviada não entra na triagem (ver
-    /// `TriageProjection.bucket(role:)`: `.sent` devolve `nil`, de propósito,
-    /// porque o que a pessoa escreveu não é caixa de entrada dela). Gravar uma
-    /// linha que nenhuma visão desenha seria escrever no banco para ninguém
-    /// ler.
+    /// nenhuma para mudar — a mensagem enviada **ainda não existe em lugar
+    /// nenhum**. Ela vira linha da caixa Enviadas quando o servidor confirmar,
+    /// no `OutboxExecutor` (ver `gravaAEnviada`), com o id que o próprio
+    /// servidor deu. Gravá-la aqui mostraria como enviado o que ainda está na
+    /// fila — e o que a fila recusasse ficaria lá para sempre dizendo que saiu.
     ///
     /// O que a pessoa vê é a janela fechando e, se algo der errado, a mesma
     /// falha de fila que as outras operações já mostram, com "tentar de novo"

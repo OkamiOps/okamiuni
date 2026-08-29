@@ -219,7 +219,8 @@ public actor OutboxExecutor {
         var executadas = 0
         while let lote = await proximoLote() {
             do {
-                try await mirror.apply(lote.operacao, targets: lote.alvos)
+                let onde = try await mirror.apply(lote.operacao, targets: lote.alvos)
+                await gravaAEnviada(lote.operacao, gravadaEm: onde)
                 await conclui(lote.ids)
                 executadas += lote.ids.count
             } catch {
@@ -435,6 +436,43 @@ public actor OutboxExecutor {
             }
         } catch {
             log.error("Não foi possível tirar da fila as operações concluídas: \(error)")
+        }
+    }
+
+    /// A mensagem enviada vira linha da caixa Enviadas — **depois** de o
+    /// servidor confirmar, e nunca antes.
+    ///
+    /// Aqui, e não no enfileiramento: a linha só existe quando a mensagem de
+    /// fato saiu. Gravá-la no "Enviar" mostraria em Enviadas o que ainda está
+    /// na fila, e o que a fila recusar (endereço inexistente) ficaria lá para
+    /// sempre dizendo que foi enviado.
+    ///
+    /// E aqui, e não no espelho: o espelho fala com o servidor e não toca o
+    /// banco — é isso que deixa os dois serem testados sem o outro. O que o
+    /// espelho devolve é a coordenada; quem escreve é quem já escreve.
+    ///
+    /// Falhar aqui **não** desfaz o envio nem para a fila: a mensagem já saiu,
+    /// e a cópia chega pela sincronização de qualquer jeito — o servidor
+    /// guardou a dele. Vai para o log, como a falha do `APPEND`.
+    private func gravaAEnviada(_ operacao: MailOperation, gravadaEm onde: MessageCoordinate?) async {
+        guard case .send(let mensagem) = operacao, let onde else { return }
+        let agora = now()
+        let conta = accountID
+        do {
+            try await database.pool.write { db in
+                let linhas = SentCopy.linhas(
+                    mensagem, gravadaEm: onde, accountID: conta, now: agora
+                )
+                try linhas.folder.save(db)
+                try MessageRecord(linhas.message, folderID: linhas.folder.id).save(db)
+                if !linhas.message.body.isEmpty {
+                    try InitialLoader.gravaCorpo(
+                        db, id: linhas.message.id, paragrafos: linhas.message.body
+                    )
+                }
+            }
+        } catch {
+            log.error("A mensagem enviada não pôde ser gravada em Enviadas: \(error)")
         }
     }
 

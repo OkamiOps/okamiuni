@@ -70,10 +70,14 @@ struct SendTests {
             "\(base)/messages/send": [.json(#"{"id": "1a2b3c"}"#)],
         ])
 
-        try await espelho.apply(
+        let onde = try await espelho.apply(
             .send(message: mensagem(bcc: [OutgoingAddress(name: "", address: "socio@meudominio.com.br")])),
             targets: []
         )
+        // O id que a `messages.send` devolveu é onde a cópia ficou em SENT — e
+        // é ele que faz a linha de Enviadas gravada agora ser a **mesma linha**
+        // que a sincronização traria depois.
+        #expect(onde == .gmail(serverID: "1a2b3c"))
 
         let raw = try rawEnviado(sessao)
         #expect(raw.contains("From: Eu <eu@meudominio.com.br>"))
@@ -170,10 +174,14 @@ struct SendTests {
             grupo.shutdownGracefully { _ in }
         }
 
-        try await espelho.apply(
+        let onde = try await espelho.apply(
             .send(message: mensagem(bcc: [OutgoingAddress(name: "", address: "socio@meudominio.com.br")])),
             targets: []
         )
+        // O `APPENDUID` do roteiro (`[APPENDUID 42 9]`) volta como coordenada:
+        // é o endereço da cópia, e é o que dá à linha de Enviadas o mesmo id
+        // que a leitura seguinte da pasta daria.
+        #expect(onde == .imap(folderName: "Enviados", uidValidity: 42, uid: 9))
 
         // Entregue: envelope com os três destinatários e o corpo no `DATA`.
         #expect(servidorSmtp.comandos.contains("MAIL FROM:<eu@meudominio.com.br>"))
@@ -234,10 +242,14 @@ struct SendTests {
             grupo.shutdownGracefully { _ in }
         }
 
-        try await espelho.apply(.send(message: mensagem()), targets: [])
+        let onde = try await espelho.apply(.send(message: mensagem()), targets: [])
 
         #expect(servidorSmtp.corpos.count == 1)
         #expect(!servidorImap.commands.contains { $0.contains("APPEND") })
+        // Sem cópia gravada não há coordenada honesta a devolver — e é isso
+        // que impede o executor de inventar uma linha de Enviadas para uma
+        // mensagem que só existe na caixa de quem recebeu.
+        #expect(onde == nil)
     }
 
     @Test("Conta sem servidor de envio diz isso, em vez de fingir que enviou")
@@ -319,15 +331,122 @@ struct SendTests {
         #expect(restantes == 0)
     }
 
-    @Test("Enviar não grava mensagem nenhuma na triagem")
-    func envioNaoEntraNaTriagem() throws {
-        // O que a pessoa escreveu não é caixa de entrada dela — a projeção já
-        // decide isso na leitura (`TriageProjection.bucket(role: .sent)` é
-        // `nil`). Gravar uma linha aqui seria escrever no banco para nenhuma
-        // visão ler, e ela apareceria em Arquivado.
+    /// O executor com o relógio adiantado que estes testes usam — a porta
+    /// carimba com o relógio de verdade, e um "agora" no passado deixaria a
+    /// linha eternamente no futuro para o `drain`.
+    private func executor(
+        _ db: SyncDatabase, espelho: any MailMirror
+    ) -> OutboxExecutor {
+        OutboxExecutor(
+            accountID: "conta-a", database: db, mirror: espelho,
+            now: { Date(timeIntervalSince1970: 4_000_000_000) },
+            sleeper: { _ in }, jitter: { 0 }
+        )
+    }
+
+    /// **Este teste foi invertido, e o relatório da M3-7 registra por quê.**
+    ///
+    /// Ele se chamava "Enviar não grava mensagem nenhuma na triagem" e travava
+    /// a não-gravação: sem caixa Enviadas no shell, gravar a linha seria
+    /// escrever no banco para nenhuma visão ler — e ela apareceria em
+    /// Arquivado. A caixa existe agora, e o sentido mudou **de propósito**.
+    ///
+    /// O que sobrevive da versão anterior, e é a primeira metade deste teste:
+    /// **enfileirar continua não gravando nada**. Quem grava é a confirmação do
+    /// servidor. Gravar no "Enviar" mostraria como enviado o que ainda está na
+    /// fila — e o que a fila recusasse (um endereço que não existe) ficaria lá
+    /// para sempre dizendo que saiu.
+    @Test("Enviar não grava nada; quem grava em Enviadas é a confirmação do servidor")
+    func oEnvioConfirmadoViraLinhaDeEnviadas() async throws {
         let db = try banco()
         try DatabaseCommandPort(database: db).send(mensagem())
-        #expect(try db.pool.read { try MessageRecord.fetchCount($0) } == 0)
+        // Enfileirado, e mais nada: a mensagem ainda não saiu.
+        #expect(try await db.pool.read { try MessageRecord.fetchCount($0) } == 0)
+
+        let onde = MessageCoordinate.imap(folderName: "Enviados", uidValidity: 42, uid: 9)
+        let resultado = await executor(db, espelho: EspelhoFalso(gravouEm: onde)).drain()
+        #expect(resultado.executadas == 1)
+
+        let linha = try await db.pool.read { try MessageRecord.fetchAll($0) }.first
+        let gravada = try #require(linha)
+        // Na caixa dela, lida, e com o id que o **servidor** deu: é o mesmo que
+        // `MessageIdentity` daria à mesma mensagem lida da pasta de Enviados.
+        #expect(gravada.bucket == "enviadas")
+        #expect(gravada.isRead)
+        #expect(gravada.id == MessageIdentity.imap(
+            accountID: "conta-a",
+            folderID: FolderRecord.id(accountID: "conta-a", serverName: "Enviados"),
+            uidValidity: 42, uid: 9
+        ))
+        #expect(gravada.subject == "Contrato")
+        #expect(gravada.fromAddress == "eu@meudominio.com.br")
+        // O destinatário viaja junto: é ele que a linha da lista escreve em
+        // Enviadas (`Message.listHeadline`).
+        #expect(gravada.toJSON.contains("marina@clientepremium.com"))
+        // E o corpo, para a mensagem enviada abrir no leitor como qualquer
+        // outra em vez de aparecer vazia.
+        let corpo = try await db.pool.read {
+            try MessageBodyRecord.filter(Column("messageID") == gravada.id).fetchOne($0)?.body
+        }
+        #expect(corpo == ["Segue a versão final."])
+
+        // A pasta veio junto — `message` tem chave estrangeira para ela, e no
+        // primeiro envio de uma conta nova ela pode não estar no banco.
+        let pasta = try await db.pool.read {
+            try FolderRecord.fetchOne($0, key: FolderRecord.id(accountID: "conta-a", serverName: "Enviados"))
+        }
+        #expect(pasta?.role == "sent")
+    }
+
+    @Test("A mesma mensagem gravada duas vezes continua sendo uma linha só")
+    func aEnviadaNaoDuplica() async throws {
+        // O caso real: o servidor já pôs a cópia em Enviadas, e a próxima
+        // sincronização vai trazê-la. Ela chega com o id que `MessageIdentity`
+        // monta a partir da coordenada do servidor — o **mesmo** que a linha
+        // gravada no envio. Mesmo id, `save` é upsert, uma linha.
+        //
+        // MUTAÇÃO QUE ISTO PEGA: dar à linha do envio um id nosso (um
+        // `conta:enviada:message-id`, por exemplo). A mensagem que a pessoa
+        // mandou apareceria duas vezes na caixa dela, e não haveria como
+        // desfazer sem apagar a certa junto.
+        let db = try banco()
+        let onde = MessageCoordinate.imap(folderName: "Enviados", uidValidity: 42, uid: 9)
+
+        try DatabaseCommandPort(database: db).send(mensagem())
+        _ = await executor(db, espelho: EspelhoFalso(gravouEm: onde)).drain()
+        try DatabaseCommandPort(database: db).send(mensagem())
+        _ = await executor(db, espelho: EspelhoFalso(gravouEm: onde)).drain()
+
+        #expect(try await db.pool.read { try MessageRecord.fetchCount($0) } == 1)
+        #expect(try await db.pool.read { try MessageBodyRecord.fetchCount($0) } == 1)
+    }
+
+    @Test("Envio sem cópia gravada no servidor não inventa linha nenhuma")
+    func semCoordenadaNaoGravaNada() async throws {
+        // Servidor sem `LITERAL+`, conta sem pasta de Enviadas, ou a
+        // reexecução que descobriu que a mensagem já estava lá: o espelho
+        // devolve `nil`, e `nil` quer dizer "não sei onde ela está". Inventar
+        // um lugar aqui seria pôr na caixa da pessoa uma linha que o servidor
+        // não tem — e que a sincronização seguinte duplicaria.
+        let db = try banco()
+        try DatabaseCommandPort(database: db).send(mensagem())
+        let resultado = await executor(db, espelho: EspelhoFalso()).drain()
+        #expect(resultado.executadas == 1)
+        #expect(try await db.pool.read { try MessageRecord.fetchCount($0) } == 0)
+    }
+
+    @Test("A operação que não é envio nunca grava mensagem nenhuma")
+    func soOEnvioGrava() async throws {
+        // O espelho falso devolve a coordenada só no `.send` — mas o executor
+        // não pode depender disso: é ele que confere a operação antes de
+        // gravar. Aqui a fila leva um `move`, e o banco continua sem linha.
+        let db = try banco()
+        try DatabaseCommandPort(database: db).move(
+            to: .archived, accountID: "conta-a", messageIDs: ["conta-a:i:conta-a/INBOX:42:7"]
+        )
+        let onde = MessageCoordinate.imap(folderName: "Enviados", uidValidity: 42, uid: 9)
+        _ = await executor(db, espelho: EspelhoFalso(gravouEm: onde)).drain()
+        #expect(try await db.pool.read { try MessageRecord.fetchCount($0) } == 0)
     }
 
     @Test("Uma recusa definitiva do envio para a fila, com a frase do servidor")
