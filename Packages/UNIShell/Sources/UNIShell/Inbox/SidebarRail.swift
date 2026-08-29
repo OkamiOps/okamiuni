@@ -13,14 +13,26 @@ public struct SidebarRail: View {
     /// A largura resolvida que a janela concedeu.
     let railWidth: CGFloat
 
+    /// A trilha precisa carregar a mesma porta de entrada da barra aberta: a
+    /// janela pode recolher, mas a pergunta não pode desaparecer junto.
+    let intelligencePresentation: IntelligencePresentation
+    let onOpenAssistant: () -> Void
+
     /// Ver `FolderSidebar.confirmingEmptyTrash`: a trilha é a mesma barra
     /// lateral, recolhida, e a ação destrutiva não pode perder a pergunta só
     /// porque a janela apertou.
     @State private var confirmingEmptyTrash = false
 
-    public init(store: MailStore, width: CGFloat = PaneLayout.railWidth) {
+    public init(
+        store: MailStore,
+        width: CGFloat = PaneLayout.railWidth,
+        intelligencePresentation: IntelligencePresentation = .available,
+        onOpenAssistant: @escaping () -> Void = {}
+    ) {
         self.store = store
         self.railWidth = width
+        self.intelligencePresentation = intelligencePresentation
+        self.onOpenAssistant = onOpenAssistant
     }
 
     /// Abreviação de três a quatro letras que a trilha usa no lugar do rótulo
@@ -70,12 +82,54 @@ public struct SidebarRail: View {
                         }
                     }
                 }
+                .frame(maxHeight: .infinity)
             }
+
+            Spacer(minLength: 8)
+            assistantButton
         }
         .frame(width: railWidth, alignment: .center)
         .padding(.vertical, 14)
         .background(theme.surface2.color)
         .hairline(theme.line, edges: .trailing)
+    }
+
+    private var assistantButton: some View {
+        Button(action: onOpenAssistant) {
+            VStack(spacing: 4) {
+                Image(systemName: intelligencePresentation.symbol)
+                    .font(.system(size: 22, weight: .medium))
+                    .symbolRenderingMode(.hierarchical)
+                    .accessibilityHidden(true)
+                // A trilha tem só 62pt: "perguntar" virava uma palavra
+                // cortada. A abreviação conserva o verbo e deixa o ícone ser a
+                // âncora visual, enquanto `help` e acessibilidade dizem a ação
+                // inteira.
+                Text("perg.")
+                    .font(theme.mono.font(size: 7.5, weight: .medium))
+                    .tracking(theme.capsTracking(at: 7.5))
+                    .textCase(.uppercase)
+                    .lineLimit(1)
+            }
+            .foregroundStyle((intelligencePresentation.isAvailable ? theme.accentInk : theme.ink4).color)
+            .frame(width: 46, height: 50)
+            .background(intelligencePresentation.isAvailable ? theme.accentSoft.color : theme.surface3.color)
+            .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+            .overlay {
+                RoundedRectangle(cornerRadius: theme.radiusSmall)
+                    .strokeBorder(
+                        (intelligencePresentation.isAvailable ? theme.accentLine : theme.line2).color,
+                        lineWidth: Hairline.thickness(displayScale)
+                    )
+            }
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
+        .disabled(!intelligencePresentation.isAvailable)
+        .help(intelligencePresentation.actionHelp)
+        .accessibilityLabel(intelligencePresentation.actionTitle)
+        .accessibilityValue(intelligencePresentation.isAvailable ? "Disponível" : "Indisponível")
+        .accessibilityHint(intelligencePresentation.actionHelp)
     }
 
     private func bucketButton(_ bucket: TriageBucket) -> some View {

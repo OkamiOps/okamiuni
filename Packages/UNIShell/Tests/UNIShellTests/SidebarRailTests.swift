@@ -84,4 +84,36 @@ struct SidebarRailTests {
         #expect(hosts.contains("hostinger"))
         #expect(hosts.contains("host") == false)
     }
+
+    @Test("a trilha fixa chama a mesma intenção de perguntar")
+    @MainActor
+    func railAssistantCallsItsClosure() async {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        var opens = 0
+
+        CliqueDeEnsaio.em(
+            SidebarRail(store: store, onOpenAssistant: { opens += 1 }),
+            size: CGSize(width: SidebarRail.width, height: 620),
+            aY: 580,
+            x: SidebarRail.width / 2
+        )
+
+        #expect(opens == 1)
+    }
+
+    @Test("a trilha renderiza o botão de perguntas no rodapé")
+    @MainActor
+    func railRendersAssistantAction() async throws {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+
+        let rep = try #require(Render.snapshot(
+            SidebarRail(store: store),
+            named: "m5-assistant-sidebar-rail",
+            size: CGSize(width: SidebarRail.width, height: 620),
+            theme: .tinta
+        ))
+        #expect(rep.pixelsHigh == 620)
+    }
 }

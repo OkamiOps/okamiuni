@@ -14,10 +14,19 @@ public enum IntelligencePresentation: CaseIterable, Sendable {
     case appleIntelligenceNotEnabled
     case modelNotReady
 
-    var title: String {
+    /// O rótulo da ação fica estável; o estado explica se ela pode ser usada.
+    /// Mudar o texto do botão conforme o motor oscila esconderia justamente a
+    /// porta que a pessoa procura para entender o que está acontecendo.
+    public var actionTitle: String { "Perguntar ao email" }
+
+    /// Se o motor está pronto para receber uma pergunta. O shell só desenha
+    /// esta decisão: quem a mede continua sendo o compositor do app.
+    public var isAvailable: Bool { self == .available }
+
+    public var title: String {
         switch self {
         case .available:
-            "Resumos e compromissos no dispositivo"
+            "Inteligência local disponível"
         case .deviceNotEligible:
             "Apple Intelligence indisponível"
         case .appleIntelligenceNotEnabled:
@@ -30,7 +39,7 @@ public enum IntelligencePresentation: CaseIterable, Sendable {
     var detail: String {
         switch self {
         case .available:
-            "Este Mac resume emails e identifica compromissos. Nada sai daqui."
+            "Pergunte sobre emails e conversas. Nada sai deste Mac."
         case .deviceNotEligible:
             "Este Mac não é compatível com Apple Intelligence. Seus emails continuam locais."
         case .appleIntelligenceNotEnabled:
@@ -40,35 +49,66 @@ public enum IntelligencePresentation: CaseIterable, Sendable {
         }
     }
 
-    var symbol: String {
-        switch self {
-        case .available: "sparkles"
-        case .deviceNotEligible: "desktopcomputer.trianglebadge.exclamationmark"
-        case .appleIntelligenceNotEnabled: "switch.2"
-        case .modelNotReady: "arrow.down.circle"
-        }
+    /// Este é o glifo da função, não do estado. A disponibilidade aparece em
+    /// texto para que o botão não vire uma coleção de símbolos ambíguos.
+    public var symbol: String { "apple.intelligence" }
+
+    public var actionHelp: String {
+        isAvailable
+            ? "Abre um painel para perguntar sobre o email e a conversa aberta."
+            : detail
     }
 }
 
 struct IntelligenceFooter: View {
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
     let presentation: IntelligencePresentation
+    let onOpenAssistant: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 7) {
-                Image(systemName: presentation.symbol)
-                    .font(.system(size: 11, weight: .medium))
-                    .frame(width: 12, height: 12)
-                    .foregroundStyle(statusColor.color)
-                    .accessibilityHidden(true)
-                Text(presentation.title)
-                    .font(theme.sans.font(size: 11.5, weight: .semibold))
-                    .foregroundStyle(theme.ink2.color)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+            Button(action: onOpenAssistant) {
+                HStack(spacing: 11) {
+                    Image(systemName: presentation.symbol)
+                        .font(.system(size: 22, weight: .medium))
+                        .symbolRenderingMode(.hierarchical)
+                        .frame(width: 24, height: 24)
+                        .foregroundStyle(statusColor.color)
+                        .accessibilityHidden(true)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(presentation.actionTitle)
+                            .font(theme.sans.font(size: 13, weight: .semibold))
+                            .foregroundStyle((presentation.isAvailable ? theme.accentInk : theme.ink3).color)
+                        Text(presentation.title)
+                            .font(theme.mono.font(size: 9.5, weight: .medium))
+                            .tracking(theme.capsTracking(at: 9.5))
+                            .textCase(.uppercase)
+                            .foregroundStyle(theme.ink4.color)
+                    }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+                .padding(.horizontal, 12)
+                .background(presentation.isAvailable ? theme.accentSoft.color : theme.surface3.color)
+                .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+                .overlay {
+                    RoundedRectangle(cornerRadius: theme.radiusSmall)
+                        .strokeBorder(
+                            (presentation.isAvailable ? theme.accentLine : theme.line2).color,
+                            lineWidth: Hairline.thickness(displayScale)
+                        )
+                }
             }
+            .buttonStyle(.plain)
+            .focusRing(cornerRadius: theme.radiusSmall)
+            .disabled(!presentation.isAvailable)
+            .help(presentation.actionHelp)
+            .accessibilityLabel(presentation.actionTitle)
+            .accessibilityValue(presentation.isAvailable ? "Disponível" : "Indisponível")
+            .accessibilityHint(presentation.actionHelp)
+
             Text(presentation.detail)
                 .font(theme.sans.font(size: 11))
                 .lineSpacing(5.5)  // line-height: 1.5 × 11pt − 11pt = 16.5 − 11 = 5.5
@@ -76,18 +116,10 @@ struct IntelligenceFooter: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(presentation.title). \(presentation.detail)")
     }
 
     private var statusColor: TokenColor {
-        switch presentation {
-        case .available:
-            let hexColor = theme.isDark ? "#89D298" : "#317A45"
-            return TokenColor(css: hexColor) ?? theme.ink2
-        case .deviceNotEligible, .appleIntelligenceNotEnabled, .modelNotReady:
-            return theme.ink3
-        }
+        presentation.isAvailable ? theme.accent : theme.ink4
     }
 }
 
@@ -124,6 +156,11 @@ public struct FolderSidebar: View {
     /// de chamada existentes até que ele conecte o estado real do motor.
     let intelligencePresentation: IntelligencePresentation
 
+    /// A janela dona da navegação decide como apresentar o painel. A barra
+    /// apenas entrega uma intenção — não conhece Foundation Models nem o motor
+    /// que vai responder.
+    let onOpenAssistant: () -> Void
+
     /// Qual caixa está esperando a confirmação de "Esvaziar lixeira".
     ///
     /// É o **único** destrutivo sem volta do app, e o único que pergunta antes.
@@ -137,11 +174,13 @@ public struct FolderSidebar: View {
     public init(
         store: MailStore,
         width: CGFloat = PaneLayout.expandedSidebarWidth,
-        intelligencePresentation: IntelligencePresentation = .available
+        intelligencePresentation: IntelligencePresentation = .available,
+        onOpenAssistant: @escaping () -> Void = {}
     ) {
         self.store = store
         self.width = width
         self.intelligencePresentation = intelligencePresentation
+        self.onOpenAssistant = onOpenAssistant
     }
 
     public var body: some View {
@@ -196,7 +235,10 @@ public struct FolderSidebar: View {
             Rectangle()
                 .fill(theme.line.color)
                 .frame(height: Hairline.thickness(displayScale))
-            IntelligenceFooter(presentation: intelligencePresentation)
+            IntelligenceFooter(
+                presentation: intelligencePresentation,
+                onOpenAssistant: onOpenAssistant
+            )
                 .padding(16)
         }
         // A barra ocupa toda a altura que o painel conceder. Sem esse limite,
