@@ -17,7 +17,7 @@ private actor PortaSegurada: BodyFetching {
 
     init(falhandoCom erro: (any Error)? = nil) { self.erro = erro }
 
-    func fetchBody(accountID: String, messageID: String) async throws -> [String] {
+    func fetchBody(accountID: String, messageID: String) async throws -> FetchedBody {
         entrou = true
         avisaEntrada?.resume()
         avisaEntrada = nil
@@ -25,7 +25,7 @@ private actor PortaSegurada: BodyFetching {
         if !liberada {
             await withCheckedContinuation { continuation in liberacao = continuation }
         }
-        return ["Chegou."]
+        return FetchedBody(paragraphs: ["Chegou."])
     }
 
     func esperaEntrada() async {
@@ -138,5 +138,7 @@ struct ReaderBodyStateTests {
 /// A mensagem sem parte de texto nenhuma: um convite de calendário, um anexo
 /// sozinho. Lista vazia é resposta, não erro.
 private struct PortaVazia: BodyFetching {
-    func fetchBody(accountID: String, messageID: String) async throws -> [String] { [] }
+    func fetchBody(accountID: String, messageID: String) async throws -> FetchedBody {
+        FetchedBody(paragraphs: [])
+    }
 }

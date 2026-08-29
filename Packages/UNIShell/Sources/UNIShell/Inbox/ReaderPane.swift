@@ -82,8 +82,15 @@ public struct ReaderPane: View {
                             .padding(.bottom, 24)
                     }
 
+                    if let convite = Self.convite(de: message) {
+                        inviteCard(convite, message: message)
+                            .padding(.horizontal, 28)
+                            .padding(.top, message.summary == nil ? 22 : 0)
+                            .padding(.bottom, 24)
+                    }
+
                     body(message)
-                        .padding(.top, message.summary == nil ? 22 : 0)
+                        .padding(.top, temCartao(message) ? 0 : 22)
                         .padding(.bottom, 28)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -340,6 +347,113 @@ public struct ReaderPane: View {
         }
     }
 
+    // MARK: - O convite de agenda
+
+    /// O convite desta mensagem, quando ela trouxe um `text/calendar`.
+    ///
+    /// `static` e `nonisolated` para o teste o afirmar sem montar a janela — a
+    /// mesma regra das frases do corpo. A leitura é barata e pura
+    /// (`ICalendar.parse` não toca em nada), então ela acontece no desenho em
+    /// vez de virar mais um campo a manter em dia no `MailStore`.
+    nonisolated static func convite(de message: Message) -> CalendarInvite? {
+        guard let ics = message.calendarICS else { return nil }
+        return ICalendar.parse(ics)
+    }
+
+    private func temCartao(_ message: Message) -> Bool {
+        message.summary != nil || Self.convite(de: message) != nil
+    }
+
+    /// "Convite de agenda", "Convite cancelado", e o rótulo de quem foi
+    /// convidado. Estáticas pelo mesmo motivo de `carregandoCorpo`: o que a
+    /// pessoa lê é comportamento.
+    nonisolated static let conviteTitulo = "Convite de agenda"
+    nonisolated static let conviteCancelado = "Convite cancelado"
+
+    /// Quem está no convite, numa linha só.
+    ///
+    /// O organizador primeiro e sem repetir: ele quase sempre também está na
+    /// lista de participantes, e o cartão mostraria o nome dele duas vezes
+    /// seguidas.
+    nonisolated static func participantes(_ convite: CalendarInvite) -> String? {
+        var nomes: [String] = []
+        if let quem = convite.organizer { nomes.append(quem) }
+        for quem in convite.attendees where !nomes.contains(quem) { nomes.append(quem) }
+        return nomes.isEmpty ? nil : nomes.joined(separator: ", ")
+    }
+
+    /// O cartão do convite, no idioma do cartão de resumo — mesma superfície,
+    /// mesma linha, mesmo raio. Duas superfícies diferentes para duas coisas
+    /// que aparecem no mesmo lugar seriam duas gramáticas na mesma tela.
+    private func inviteCard(_ convite: CalendarInvite, message: Message) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(convite.isCancelled ? Self.conviteCancelado : Self.conviteTitulo).capsLabel()
+
+            Text(convite.summary.isEmpty ? "Compromisso" : convite.summary)
+                .font(theme.serif.font(size: 15))
+                .lineSpacing(8.25)
+                .foregroundStyle(theme.ink.color)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let inicio = convite.start {
+                linhaDoCartao(quando(inicio, convite: convite))
+            }
+            if let onde = convite.location {
+                linhaDoCartao(onde)
+            }
+            if let quem = Self.participantes(convite) {
+                linhaDoCartao(quem)
+            }
+
+            // O botão só existe quando há o que criar: sem `DTSTART` não há
+            // compromisso, e um convite cancelado não vira compromisso novo.
+            if let evento = convite.detectedEvent, !convite.isCancelled {
+                Rectangle()
+                    .fill(theme.accentLine.color)
+                    .frame(height: Hairline.thickness(displayScale))
+                    .padding(.top, 6)
+                    .padding(.bottom, 5)
+                HStack(spacing: 12) {
+                    Spacer(minLength: 8)
+                    if let agendaReceipt, agendaReceipt.messageID == message.id {
+                        agendaConfirmation(agendaReceipt)
+                    } else {
+                        addToAgendaButton(evento, for: message)
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 15)
+        .padding(.horizontal, 17)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.accentSoft.color)
+        .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
+        .overlay {
+            RoundedRectangle(cornerRadius: theme.radiusLarge)
+                .strokeBorder(theme.accentLine.color, lineWidth: Hairline.thickness(displayScale))
+        }
+    }
+
+    private func linhaDoCartao(_ texto: String) -> some View {
+        Text(texto)
+            .font(theme.sans.font(size: 12.5))
+            .foregroundStyle(theme.ink2.color)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// A data do convite em hora **local**, que é a única que a pessoa
+    /// consegue usar: o `DTSTART` pode ter chegado em UTC ou no fuso de quem
+    /// convidou, e mostrar qualquer um dos dois pediria uma conta de cabeça.
+    private func quando(_ inicio: Date, convite: CalendarInvite) -> String {
+        if convite.isAllDay {
+            return inicio.formatted(date: .complete, time: .omitted)
+        }
+        let comeco = inicio.formatted(date: .abbreviated, time: .shortened)
+        guard let fim = convite.end, fim > inicio else { return comeco }
+        return comeco + " – " + fim.formatted(date: .omitted, time: .shortened)
+    }
+
     // MARK: - Colocar na agenda
 
     /// O compromisso desta mensagem já está em `store.agenda` — não só "o
@@ -447,7 +561,16 @@ public struct ReaderPane: View {
     /// saída, e a mensagem que de fato não tem texto.
     @ViewBuilder
     private func body(_ message: Message) -> some View {
-        if !message.body.isEmpty {
+        if message.hasHTML, let html = message.bodyHTML {
+            // **O email de verdade.** O texto continua existindo (é ele que a
+            // busca indexa e que a lista mostra na prévia), mas quem a pessoa
+            // lê é isto. `.id` porque a permissão de carregar imagens remotas é
+            // **por mensagem**: sem ele, o "Carregar" de uma valeria para a
+            // seguinte, que é exatamente a permissão global que esta tela não
+            // tem.
+            ReaderHTMLSection(html: html)
+                .id(message.id)
+        } else if !message.body.isEmpty {
             VStack(alignment: .leading, spacing: 16) {
                 ForEach(Array(message.body.enumerated()), id: \.offset) { _, para in
                     Text(para)
@@ -466,9 +589,12 @@ public struct ReaderPane: View {
             case .falhou(let causa):
                 bodyFailure(causa, message: message)
             case .buscado:
-                // Buscamos e não havia texto: um anexo sozinho, um convite de
-                // calendário. Dizer isso é diferente de não dizer nada.
-                bodyNote(Self.semTexto)
+                // Buscamos e não havia texto: um anexo sozinho. Dizer isso é
+                // diferente de não dizer nada — mas **não** por cima de um
+                // cartão de convite, que é a mensagem inteira ali desenhada:
+                // era essa a frase que o convite de agenda ganhava no lugar do
+                // evento.
+                if Self.convite(de: message) == nil { bodyNote(Self.semTexto) }
             case nil:
                 // Sem porta de corpo — as fixtures do Marco 1. A coluna fica
                 // como sempre esteve, e nenhuma captura muda.
