@@ -58,5 +58,15 @@ if [[ "$1" == "--capturar" ]]; then
   exit 0
 fi
 
+if [[ "$1" == --ensaiar-* ]]; then
+  # O ensaio fala pelo stderr (ver `RehearsalStage`), e `open` entrega o stderr
+  # do app ao log do sistema em vez do terminal. Rodar o binário de dentro do
+  # bundle dá as mesmas entitlements (elas vêm da assinatura) e devolve as
+  # linhas aqui, que é o ponto de um instrumento de medida.
+  echo "▸ ensaiando $* (o app se encerra sozinho)"
+  "$APP/Contents/MacOS/OkamiUNI" "$@" 2>&1
+  exit 0
+fi
+
 echo "▸ abrindo"
 open "$APP"

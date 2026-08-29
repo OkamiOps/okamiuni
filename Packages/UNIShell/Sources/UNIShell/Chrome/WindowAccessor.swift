@@ -180,12 +180,14 @@ struct TrafficLightAlignment: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSView {
         let view = WindowReachingView()
+        view.barHeight = barHeight
         let aligner = context.coordinator
         view.onWindow = { window in aligner.attach(to: window) }
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
+        (nsView as? WindowReachingView)?.barHeight = barHeight
         if let window = nsView.window {
             context.coordinator.attach(to: window)
         }
@@ -198,8 +200,15 @@ struct TrafficLightAlignment: NSViewRepresentable {
 
 /// `viewDidMoveToWindow` é o primeiro momento em que `self.window` existe — o
 /// `makeNSView` roda antes da view entrar na hierarquia.
-private final class WindowReachingView: NSView {
+///
+/// Ela também é a **régua da barra**: por ser um ponto de tamanho zero no canto
+/// superior esquerdo da barra, a posição dela na janela **é** o topo da barra.
+/// É o que `TrafficLightAudit` lê para comparar o cabeçalho com o semáforo sem
+/// depender de bitmap nenhum.
+final class WindowReachingView: NSView {
     var onWindow: ((NSWindow) -> Void)?
+    /// A altura da barra que este ponto ancora.
+    var barHeight: CGFloat = 0
 
     override var isOpaque: Bool { false }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -207,6 +216,78 @@ private final class WindowReachingView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if let window { onWindow?(window) }
+    }
+}
+
+/// Mede, **dentro do processo**, o desencontro entre os botões do sistema e a
+/// barra que a janela desenha.
+///
+/// ## Por que não por bitmap
+///
+/// A M3-21 mediu o alinhamento fotografando o `contentView` e não reproduziu o
+/// defeito: **os semáforos não são desenhados ali**. Eles são views do AppKit
+/// que moram no `NSThemeFrame`, fora do conteúdo — a foto mostra a barra e um
+/// vazio onde eles estão. Uma medida que não pode ver metade do que compara não
+/// é medida.
+///
+/// Aqui a fonte é a moldura de verdade: `NSWindow.standardWindowButton`, e a
+/// posição real da barra na janela (o ponto de tamanho zero que o alinhador
+/// pendura no canto superior esquerdo dela). Tudo contado **do topo da janela
+/// para baixo**, que é a referência da regra da casa.
+@MainActor
+enum TrafficLightAudit {
+    struct Leitura: Sendable {
+        let janela: String
+        /// Centro do botão de fechar, contado do topo da janela.
+        let semaforo: CGFloat
+        let miniaturizar: CGFloat
+        let zoom: CGFloat
+        /// Onde a barra custom começa, contada do topo da janela. **Zero na
+        /// janela principal**; era 28 nas secundárias, e é esse o defeito.
+        let barraTopo: CGFloat
+        let barraAltura: CGFloat
+
+        /// A linha em que o cabeçalho centra o que desenha.
+        var linhaDoCabecalho: CGFloat { barraTopo + TrafficLightLayout.contentCenterFromTop }
+        var diferenca: CGFloat { semaforo - linhaDoCabecalho }
+
+        var descricao: String {
+            let n = { (v: CGFloat) in String(format: "%.1f", v) }
+            return "\(janela): fechar=\(n(semaforo)) min=\(n(miniaturizar)) zoom=\(n(zoom)) · "
+                + "barra topo=\(n(barraTopo)) altura=\(n(barraAltura)) centro=\(n(linhaDoCabecalho)) · "
+                + "diferença=\(n(diferenca))"
+        }
+    }
+
+    /// Quanto de desencontro ainda é alinhamento. Um ponto: abaixo disso é
+    /// arredondamento de tela, acima disso o olho vê.
+    static let tolerancia: CGFloat = 1
+
+    static func ler(_ window: NSWindow, nome: String) -> Leitura? {
+        guard let close = window.standardWindowButton(.closeButton),
+              let min = window.standardWindowButton(.miniaturizeButton),
+              let zoom = window.standardWindowButton(.zoomButton),
+              let raiz = window.contentView,
+              let barra = procurar(WindowReachingView.self, in: raiz)
+        else { return nil }
+        let altura = window.frame.height
+        let doTopo = { (view: NSView) -> CGFloat in
+            altura - view.convert(view.bounds, to: nil).midY
+        }
+        let topoDaBarra = altura - barra.convert(barra.bounds, to: nil).maxY
+        return Leitura(
+            janela: nome,
+            semaforo: doTopo(close), miniaturizar: doTopo(min), zoom: doTopo(zoom),
+            barraTopo: topoDaBarra, barraAltura: barra.barHeight
+        )
+    }
+
+    private static func procurar<T: NSView>(_ type: T.Type, in view: NSView) -> T? {
+        if let found = view as? T { return found }
+        for subview in view.subviews {
+            if let found = procurar(type, in: subview) { return found }
+        }
+        return nil
     }
 }
 

@@ -123,6 +123,12 @@ struct OkamiUNIApp: App {
                 // `--ensaiar-barra`: dois cliques na área vazia da barra de
                 // título e a moldura da janela antes e depois.
                 .rehearseTitleBarIfRequested(TitleBarRehearsal.fromProcess)
+                // `--ensaiar-semaforos`: abre a 03 e a 04 e mede a moldura de
+                // verdade dos botões do sistema contra o cabeçalho de cada
+                // janela. Sem a bandeira, não faz nada.
+                .rehearseTrafficLightsIfRequested(
+                    TrafficLightRehearsal.fromProcess, store: mailStore
+                )
         }
     }
 
@@ -132,11 +138,7 @@ struct OkamiUNIApp: App {
                 .environment(themes)
                 .environment(swipes)
                 .theme(themes.theme)
-                // A barra de 58pt é a barra de título: o conteúdo desenha
-                // debaixo dela, com os semáforos nativos dentro. Sem isto o
-                // SwiftUI empurra tudo para baixo da área segura e sobra uma
-                // faixa vazia entre os botões do sistema e as nossas ações.
-                .ignoresSafeArea(.container, edges: .top)
+                .barraColadaNoTopo()
                 // 860 é o piso da faixa mais estreita da Task R: trilha de
                 // 62 + lista de 320 ainda deixam 478pt para o leitor.
                 //
@@ -189,6 +191,7 @@ struct OkamiUNIApp: App {
         WindowGroup(id: UNIWindow.composer, for: String.self) { $route in
             ComposerWindow(store: mailStore, mode: .init(ComposerRoute.parse(route ?? "")))
                 .themed(themes)
+                .barraColadaNoTopo()
                 .frame(minWidth: 620, minHeight: 460)
         }
         .windowStyle(.hiddenTitleBar)
@@ -197,6 +200,7 @@ struct OkamiUNIApp: App {
         WindowGroup(id: UNIWindow.newMessage, for: String.self) { $accountID in
             ComposerWindow(store: mailStore, mode: .new(accountID: accountID))
                 .themed(themes)
+                .barraColadaNoTopo()
                 .frame(minWidth: 620, minHeight: 440)
         }
         .windowStyle(.hiddenTitleBar)
@@ -205,6 +209,7 @@ struct OkamiUNIApp: App {
         WindowGroup(id: UNIWindow.message, for: String.self) { $messageID in
             MessageWindow(store: mailStore, messageID: messageID ?? "")
                 .themed(themes)
+                .barraColadaNoTopo()
                 .frame(minWidth: 520, minHeight: 380)
         }
         .windowStyle(.hiddenTitleBar)
@@ -213,6 +218,7 @@ struct OkamiUNIApp: App {
         WindowGroup(id: UNIWindow.event, for: String.self) { $itemID in
             EventWindow(store: mailStore, itemID: itemID ?? "")
                 .themed(themes)
+                .barraColadaNoTopo()
                 .frame(minWidth: 460, minHeight: 380)
         }
         .windowStyle(.hiddenTitleBar)
@@ -238,6 +244,7 @@ struct OkamiUNIApp: App {
                 }
             }
             .themed(themes)
+            .barraColadaNoTopo()
             .frame(minWidth: 560, minHeight: 420)
         }
         .windowStyle(.hiddenTitleBar)
@@ -263,6 +270,26 @@ private struct LaunchWindowOpener: ViewModifier {
 }
 
 extension View {
+    /// A barra custom desta janela **é** a barra de título: ela encosta no topo
+    /// e os semáforos nativos moram dentro dela.
+    ///
+    /// Sem isto o SwiftUI empurra o conteúdo para baixo da área segura — os
+    /// 32pt que a `.hiddenTitleBar` continua reservando no quadro — e sobra uma
+    /// faixa vazia entre os botões do sistema e o que a barra desenha.
+    ///
+    /// **É o defeito da M3-22.** Só a janela principal chamava isto; as cinco
+    /// auxiliares desenhavam a barra 32pt abaixo do topo enquanto o alinhador
+    /// punha os semáforos em 22 — medido pelo `--ensaiar-semaforos` na 03 e na
+    /// 04: `diferença = -32`, ou seja, os botões do sistema 32 pontos **acima**
+    /// da linha do cabeçalho. Era exatamente o que o dono via na janela de
+    /// responder e na de compromisso.
+    ///
+    /// A M3-21 não pegou porque mediu por bitmap do conteúdo, onde os semáforos
+    /// não aparecem — eles não são desenhados pelo AppKit do conteúdo.
+    fileprivate func barraColadaNoTopo() -> some View {
+        ignoresSafeArea(.container, edges: .top)
+    }
+
     /// O tema atravessa para as janelas novas: o `ThemeStore` no ambiente (para
     /// quem troca de tema) e o `Theme` resolvido (para quem só desenha).
     /// As duas coisas, sempre — só o `.theme(...)` deixaria o seletor mudo, e
