@@ -222,6 +222,26 @@ public enum ImapWire {
         "\(tag) CREATE \(quoted(mailbox))"
     }
 
+    /// `APPEND` com literal **não sincronizado** (`{n+}`), a mensagem inteira
+    /// numa escrita só.
+    ///
+    /// O `+` é o que dispensa a resposta `+ ready` do servidor no meio do
+    /// comando — e é ele que deixa este `APPEND` caber no mesmo caminho de
+    /// todos os outros comandos daqui, que é "mandar uma linha e esperar a
+    /// resposta tagueada". Sem `LITERAL+`, o `APPEND` precisaria de uma espera
+    /// no meio que nenhum outro comando tem; quem chama confere a capacidade
+    /// antes e deixa de gravar a cópia se ela não estiver lá, em vez de
+    /// arrastar essa espera para dentro do handler por causa de uma cópia que
+    /// é conveniência.
+    ///
+    /// O tamanho é em **bytes**, não em caracteres: um assunto com acento tem
+    /// mais bytes que letras, e um número curto demais faria o servidor ler o
+    /// resto da mensagem como comandos.
+    public static func append(tag: String, mailbox: String, flags: [String], raw: String) -> String {
+        let bandeiras = flags.isEmpty ? "" : " (\(flags.joined(separator: " ")))"
+        return "\(tag) APPEND \(quoted(mailbox))\(bandeiras) {\(raw.utf8.count)+}\r\n\(raw)"
+    }
+
     /// `UID SEARCH UID 42` — "este UID ainda está nesta pasta?".
     public static func uidSearchUID(tag: String, uids: [Int64]) -> String {
         "\(tag) UID SEARCH UID \(uidSet(uids))"

@@ -152,6 +152,41 @@ public struct GmailClient: Sendable {
         _ = try await postData(path: "messages/batchDelete", body: ["ids": ids])
     }
 
+    // MARK: O envio
+
+    /// `messages.send`: a mensagem RFC 5322 inteira, em base64url.
+    ///
+    /// Não há endpoint de rascunho no caminho: o Gmail **grava sozinho** a
+    /// cópia em Enviadas quando a mensagem sai por aqui, e é por isso que este
+    /// método não tem par de `insert`. Devolve o id que o Gmail deu, que é o
+    /// que um log de envio precisa para ser rastreável de fora.
+    ///
+    /// O `raw` já vem pronto de `OutgoingMime.compose` — inclusive com o
+    /// cabeçalho `Bcc`, que aqui é obrigatório: o Gmail monta os destinatários
+    /// **a partir do texto** e tira o cabeçalho antes de entregar. Sem ele, a
+    /// cópia oculta simplesmente não é enviada.
+    @discardableResult
+    public func send(raw: String) async throws -> String? {
+        struct Wire: Decodable { let id: String }
+        let dados = try await postData(path: "messages/send", body: ["raw": raw])
+        return (try? JSONDecoder().decode(Wire.self, from: dados))?.id
+    }
+
+    /// Já existe na conta uma mensagem com este `Message-ID`?
+    ///
+    /// **É a pergunta que torna o envio repetível.** Um tempo esgotado ambíguo
+    /// — o Gmail aceitou e a resposta não voltou — faz a fila tentar de novo, e
+    /// sem esta pergunta a segunda tentativa manda a mesma mensagem outra vez
+    /// para as mesmas pessoas. Essa é a duplicata que ninguém consegue
+    /// desfazer.
+    ///
+    /// `rfc822msgid:` é o operador de busca do Gmail para o cabeçalho
+    /// `Message-ID`, e ele enxerga Enviadas sem precisar de escopo a mais.
+    public func hasMessage(rfc822MessageID: String) async throws -> Bool {
+        let pagina = try await messageIDs(query: "rfc822msgid:\(rfc822MessageID)", pageToken: nil)
+        return !pagina.ids.isEmpty
+    }
+
     /// `labels.create`. Devolve o id do rótulo recém-criado.
     ///
     /// `409 Conflict` é a resposta do Gmail para "esse rótulo já existe", e ela

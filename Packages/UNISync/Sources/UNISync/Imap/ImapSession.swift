@@ -397,6 +397,17 @@ public actor ImapSession {
         }
     }
 
+    /// Grava uma mensagem inteira numa pasta — é assim que a cópia do que foi
+    /// enviado aparece em Enviadas numa conta IMAP.
+    ///
+    /// Exige `LITERAL+` no servidor, e quem chama confere antes
+    /// (`capabilities()`): ver a nota de `ImapWire.append`. `\Seen` porque a
+    /// pessoa acabou de escrever a mensagem — uma cópia da própria mensagem
+    /// chegando "não lida" é um contador que sobe sem nada novo ter chegado.
+    public func append(mailbox: String, flags: [String] = ["\\Seen"], raw: String) async throws {
+        _ = try await run { ImapWire.append(tag: $0, mailbox: mailbox, flags: flags, raw: raw) }
+    }
+
     /// Quais destes UIDs ainda estão na pasta selecionada.
     public func existingUIDs(_ uids: [Int64]) async throws -> [Int64] {
         guard !uids.isEmpty else { return [] }
