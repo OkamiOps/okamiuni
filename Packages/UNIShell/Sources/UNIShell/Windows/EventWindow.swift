@@ -604,23 +604,25 @@ public struct EventWindow: View {
             HStack(spacing: 8) {
                 ChromeButton(
                     "Encaminhar",
-                    appearance: forwardTo.isEmpty ? .muted : .accent,
+                    appearance: canForwardInvite ? .accent : .muted,
                     size: 12.5, weight: .semibold, height: 30
                 ) {
-                    guard !forwardTo.isEmpty else { return }
-                    UNIWindow.logSend(
-                        "Encaminharia o convite para [\(forwardTo.map(\.address).joined(separator: ", "))]."
-                    )
-                    forwardSent = true
-                    forwardOpen = false
+                    forwardInvite()
                 }
+                .disabled(!canForwardInvite)
+                .help(forwardHelp)
                 ChromeButton("Cancelar", appearance: .outlined, height: 30, horizontalPadding: 12) {
                     forwardOpen = false
                     forwardTo = []
                     forwardNote = ""
                 }
                 Spacer(minLength: 8)
-                Text("o convite vai com o link e a pauta")
+                // Protótipo: "o convite vai com o link e a pauta". A pauta não
+                // vai — o corpo é o **mesmo** texto de "Copiar convite"
+                // (`ContextMenus.inviteText`): título, dia e horário, local,
+                // link e participantes. Dizer "pauta" numa mensagem que não a
+                // leva é a legenda mentindo sobre o botão.
+                Text("o convite vai com o link e os participantes")
                     .capsLabel()
                     .lineLimit(1)
             }
@@ -748,6 +750,115 @@ public struct EventWindow: View {
         .padding(.bottom, 15)
         .background(theme.surface2.color)
         .hairline(theme.line2, edges: .top)
+    }
+
+    // MARK: - Encaminhar o convite
+
+    /// O "Encaminhar" do painel só age com destinatário **e** conta.
+    ///
+    /// Sem conta não há de quem mandar: o convite sai por email, e email sai de
+    /// uma conta. O botão apaga com o motivo no `help` — a regra do controle
+    /// mudo, a mesma do "Email" do rodapé.
+    private var canForwardInvite: Bool {
+        Self.canForward(recipients: forwardTo.count, hasAccount: account != nil)
+    }
+
+    private var forwardHelp: String {
+        Self.forwardHelp(
+            recipients: forwardTo.count, account: account?.host, canSend: store.canSend
+        )
+    }
+
+    nonisolated static func canForward(recipients: Int, hasAccount: Bool) -> Bool {
+        recipients > 0 && hasAccount
+    }
+
+    nonisolated static func forwardHelp(recipients: Int, account: String?, canSend: Bool) -> String {
+        guard let account else {
+            return "Encaminhar — indisponível: este compromisso não está ligado a nenhuma conta, "
+                + "e o convite sai por email de uma conta."
+        }
+        guard recipients > 0 else {
+            return "Encaminhar — indisponível: escolha quem vai receber o convite."
+        }
+        guard canSend else {
+            return "Este marco não tem rede: o convite fica registrado no console."
+        }
+        return "Põe o convite na fila de saída da conta \(account)."
+    }
+
+    private func forwardInvite() {
+        guard let item, canForwardInvite else { return }
+        guard Self.forwardInvite(
+            item, detail: detail,
+            // A mesma data que o cabeçalho desta janela mostra: o corpo do
+            // convite e o que se lê na tela não podem discordar.
+            date: Fixtures.today,
+            to: forwardTo, note: forwardNote, in: store
+        ) else { return }
+        forwardSent = true
+        forwardOpen = false
+        forwardNote = ""
+    }
+
+    /// O que o "Encaminhar convite" de fato faz, num lugar que o teste alcança
+    /// sem clique — o `@MainActor` é do `MailStore`, não da `View`.
+    ///
+    /// **Sem protocolo novo, e sem anexo.** O app ainda não tem anexos, então o
+    /// `.ics` original não vai junto — dívida registrada. O que vai é o convite
+    /// em texto, o **mesmo** de "Copiar convite" (`ContextMenus.inviteText`):
+    /// título, dia e horário, local, link e participantes. Um segundo formato
+    /// aqui divergiria do que a agenda copia no primeiro ajuste, e o link é o
+    /// mínimo útil de verdade para quem recebe.
+    ///
+    /// A conta é a do compromisso (`AgendaItem.accountID`, desde a M3-11) —
+    /// nunca um endereço cravado. Sem conta, ou sem porta de envio, vale o que
+    /// valia: a linha no console e a confirmação na janela.
+    ///
+    /// Devolve se o painel pode fechar. `false` é "não saiu": o painel fica
+    /// aberto com quem já foi escolhido, e o erro já está no `loadError`.
+    @MainActor
+    static func forwardInvite(
+        _ item: AgendaItem,
+        detail: EventDetail,
+        date: Date,
+        to: [Contact],
+        note: String,
+        in store: MailStore
+    ) -> Bool {
+        guard !to.isEmpty, let account = store.account(item.accountID) else { return false }
+        guard store.canSend else {
+            UNIWindow.logSend(
+                "Encaminharia o convite para [\(to.map(\.address).joined(separator: ", "))]."
+            )
+            return true
+        }
+        let mensagem = ComposerOutgoing.message(
+            accountID: account.id,
+            from: Contact(name: account.displayName, address: account.address),
+            to: to, cc: [], bcc: [],
+            subject: forwardSubject(item.title),
+            plainText: inviteBody(item, detail: detail, date: date, note: note),
+            html: nil
+        )
+        return store.send(mensagem)
+    }
+
+    /// "Enc: " como em `ComposerSeed.forward` — encaminhar um convite e
+    /// encaminhar um email não podem chegar com dois prefixos diferentes na
+    /// mesma caixa. Compromisso sem título não vira "Enc: " pendurado.
+    nonisolated static func forwardSubject(_ title: String) -> String {
+        title.isEmpty ? "Enc: convite" : "Enc: \(title)"
+    }
+
+    /// O recado opcional em cima, o convite embaixo, separados por uma linha em
+    /// branco. Recado só de espaços não abre parágrafo nenhum.
+    nonisolated static func inviteBody(
+        _ item: AgendaItem, detail: EventDetail, date: Date, note: String
+    ) -> String {
+        let convite = ContextMenus.inviteText(item, detail: detail, date: date)
+        let recado = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        return recado.isEmpty ? convite : "\(recado)\n\n\(convite)"
     }
 
     /// O que o botão "Email" faz.
