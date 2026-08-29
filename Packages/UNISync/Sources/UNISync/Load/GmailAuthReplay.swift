@@ -56,6 +56,17 @@ public struct GmailAuthReplay: Sendable {
         try await comReplay { try await client.message(id: id, format: format) }
     }
 
+    /// O incremental passa por aqui pela razão que o comentário do tipo já
+    /// antecipava: a segunda chance é regra do provedor, não da carga inicial.
+    /// Um app aberto o dia inteiro atravessa mais renovações de token do que
+    /// qualquer carga, e é justamente ele que não pode cair em
+    /// `erroDeAutenticacao` por causa de um relógio adiantado.
+    public func history(startHistoryID: String, pageToken: String?) async throws -> GmailHistoryPage {
+        try await comReplay {
+            try await client.history(startHistoryID: startHistoryID, pageToken: pageToken)
+        }
+    }
+
     /// A dança inteira, num lugar só.
     ///
     /// O segundo 401 vira `autorizacaoRevogada`, e não `autenticacao`, porque

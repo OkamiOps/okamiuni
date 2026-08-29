@@ -351,37 +351,58 @@ public struct InitialLoader: Sendable {
         _ lote: [(GmailMessage, Bool)], account: Account, folderID: String, laterLabelID: String?
     ) async throws -> Int {
         try await database.pool.write { db in
-            var entraram = 0
-            for (mensagem, temCorpo) in lote {
-                guard let bucket = TriageProjection.bucket(
-                    gmailLabelIDs: mensagem.labelIDs, laterLabelID: laterLabelID
-                ) else { continue }   // Enviadas ficam fora da triagem.
-
-                let id = MessageIdentity.gmail(accountID: account.id, serverID: mensagem.id)
-                let nossa = Message(
-                    id: id, accountID: account.id, from: mensagem.from,
-                    receivedAt: mensagem.internalDate,
-                    subject: mensagem.subject, snippet: mensagem.snippet,
-                    body: mensagem.body, tags: [], bucket: bucket,
-                    // As bandeiras também são projeção, e a regra mora junto
-                    // das outras em `TriageProjection` — não escrita à mão
-                    // aqui dentro, onde a carga do Marco 3 teria de a copiar.
-                    isRead: TriageProjection.isRead(gmailLabelIDs: mensagem.labelIDs),
-                    summary: nil, detectedEvent: nil,
-                    to: mensagem.to, cc: mensagem.cc,
-                    isFlagged: TriageProjection.isFlagged(gmailLabelIDs: mensagem.labelIDs),
-                    serverID: mensagem.id
-                )
-                // `save` é upsert: id determinístico + upsert = recarga
-                // idempotente, que é o que faz "parar no meio" ser seguro.
-                try MessageRecord(nossa, folderID: folderID).save(db)
-                entraram += 1
-                if temCorpo, !mensagem.body.isEmpty {
-                    try Self.gravaCorpo(db, id: id, paragrafos: mensagem.body)
-                }
-            }
-            return entraram
+            try Self.gravaMensagensDoGmail(
+                db, lote, account: account, folderID: folderID, laterLabelID: laterLabelID
+            )
         }
+    }
+
+    /// A projeção de uma mensagem do Gmail para uma linha nossa.
+    ///
+    /// `static`, e fora da transação, porque a **carga contínua** (Marco 3)
+    /// grava exatamente a mesma coisa: mesma projeção de caixa, mesmas duas
+    /// bandeiras, mesmo id determinístico, mesmo upsert. Uma segunda cópia
+    /// desta função — que é o caminho que o comentário de `TriageProjection`
+    /// avisava — divergiria no primeiro rótulo novo, e a mesma mensagem cairia
+    /// numa caixa pela carga inicial e noutra pelo incremental.
+    ///
+    /// Devolve **quantas linhas entraram**, que não é `lote.count`: as Enviadas
+    /// ficam fora da triagem.
+    @discardableResult
+    static func gravaMensagensDoGmail(
+        _ db: Database, _ lote: [(GmailMessage, Bool)],
+        account: Account, folderID: String, laterLabelID: String?
+    ) throws -> Int {
+        var entraram = 0
+        for (mensagem, temCorpo) in lote {
+            guard let bucket = TriageProjection.bucket(
+                gmailLabelIDs: mensagem.labelIDs, laterLabelID: laterLabelID
+            ) else { continue }   // Enviadas ficam fora da triagem.
+
+            let id = MessageIdentity.gmail(accountID: account.id, serverID: mensagem.id)
+            let nossa = Message(
+                id: id, accountID: account.id, from: mensagem.from,
+                receivedAt: mensagem.internalDate,
+                subject: mensagem.subject, snippet: mensagem.snippet,
+                body: mensagem.body, tags: [], bucket: bucket,
+                // As bandeiras também são projeção, e a regra mora junto
+                // das outras em `TriageProjection` — não escrita à mão
+                // aqui dentro, onde a carga do Marco 3 teria de a copiar.
+                isRead: TriageProjection.isRead(gmailLabelIDs: mensagem.labelIDs),
+                summary: nil, detectedEvent: nil,
+                to: mensagem.to, cc: mensagem.cc,
+                isFlagged: TriageProjection.isFlagged(gmailLabelIDs: mensagem.labelIDs),
+                serverID: mensagem.id
+            )
+            // `save` é upsert: id determinístico + upsert = recarga
+            // idempotente, que é o que faz "parar no meio" ser seguro.
+            try MessageRecord(nossa, folderID: folderID).save(db)
+            entraram += 1
+            if temCorpo, !mensagem.body.isEmpty {
+                try Self.gravaCorpo(db, id: id, paragrafos: mensagem.body)
+            }
+        }
+        return entraram
     }
 
     /// O corpo, gravado de forma idempotente.

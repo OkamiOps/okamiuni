@@ -53,6 +53,35 @@ public struct GmailClient: Sendable {
         return GmailPage(ids: (fio.messages ?? []).map(\.id), nextPageToken: fio.nextPageToken)
     }
 
+    /// `users.history.list` — o que mudou desde um `historyId`.
+    ///
+    /// **É a peça que faz a conta continuar sincronizando** depois da carga
+    /// inicial: sem ela, o app baixa noventa dias uma vez e nunca mais vê nada
+    /// chegar.
+    ///
+    /// Os quatro `historyTypes` são pedidos por nome, e a lista não é
+    /// decorativa: sem `historyTypes` o Gmail devolve **todos** os tipos, e os
+    /// que sobram (mudanças de rascunho, de thread) viram viagens de rede para
+    /// mensagens que nunca entram na triagem.
+    ///
+    /// **404 é resposta esperada, e não defeito.** O Gmail guarda o histórico
+    /// por tempo limitado; um `historyId` velho demais (app fechado por uma
+    /// semana) devolve 404, que o `apiError` traduz para
+    /// `.servidor(codigo: 404, …)`. Quem chama reconhece esse caso e recarrega
+    /// a janela — ver `GmailIncrementalSync`.
+    public func history(startHistoryID: String, pageToken: String?) async throws -> GmailHistoryPage {
+        var itens = [
+            URLQueryItem(name: "startHistoryId", value: startHistoryID),
+            URLQueryItem(name: "maxResults", value: "500"),
+        ]
+        for tipo in ["messageAdded", "messageDeleted", "labelAdded", "labelRemoved"] {
+            itens.append(URLQueryItem(name: "historyTypes", value: tipo))
+        }
+        if let pageToken { itens.append(URLQueryItem(name: "pageToken", value: pageToken)) }
+        let dados = try await getData(path: "history", query: itens)
+        return try GmailHistoryParser.parse(dados)
+    }
+
     public func message(id: String, format: GmailFormat) async throws -> GmailMessage {
         var itens = [URLQueryItem(name: "format", value: format.rawValue)]
         if format == .metadata {
