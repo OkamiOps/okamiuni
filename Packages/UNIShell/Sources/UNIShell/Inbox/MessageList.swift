@@ -416,14 +416,14 @@ public struct MessageList: View {
     /// vez de ser engolida por um atalho que não fez nada.
     func deleteSelected() -> Bool {
         guard let message = store.selectedMessage else { return false }
-        let command = ContextMenus.deleteItem(message).command
-        // A tecla age onde o clique agiria: na linha, que é a conversa. Sem a
-        // conversa aberta (a mensagem revelada de fora da visão), a mensagem —
-        // que é o comportamento de sempre.
-        guard let conversation = store.conversation(of: message.id) else {
-            return receipted(command)
+        // A decisão inteira mora em `ActionReceipts.delete`, e não aqui: desde a
+        // M3-18 o **botão "Apagar" da barra do leitor** faz exatamente a mesma
+        // coisa, e duas cópias divergiriam no primeiro conserto.
+        var apagou = false
+        withAnimation(SwipeMotion.transition) {
+            apagou = receipts.delete(message, on: store)
         }
-        return act(command, on: conversation)
+        return apagou
     }
 
     private func undo(_ receipt: SwipeReceipt) {

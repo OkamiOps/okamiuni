@@ -37,7 +37,15 @@ public struct ReaderPane: View {
     /// nele e não o desenha: apagar daqui tira a mensagem do leitor, e uma
     /// faixa presa a ele iria embora junto com o que precisava desfazer. Quem
     /// sobrevive à ação é a lista — ver `ActionReceipts`.
-    @Environment(ActionReceipts.self) private var receipts: ActionReceipts?
+    @Environment(ActionReceipts.self) private var sharedReceipts: ActionReceipts?
+
+    /// O objeto próprio de quando ninguém proveu um — o harness de renderização,
+    /// uma preview. Mesmo alcance e mesma razão que `MessageList`: sem ele, o
+    /// "Apagar" da barra seria um botão que não faz nada em metade dos
+    /// contextos, que é o defeito que ele veio consertar.
+    @State private var ownReceipts = ActionReceipts()
+
+    private var receipts: ActionReceipts { sharedReceipts ?? ownReceipts }
 
     public init(
         store: MailStore,
@@ -111,8 +119,7 @@ public struct ReaderPane: View {
                     ),
                     store: store,
                     intercept: { command in
-                        guard let receipts else { return false }
-                        return receipts.intercept(
+                        receipts.intercept(
                             command, on: store, stamp: ActionReceipts.stamp
                         )
                     }
@@ -263,28 +270,29 @@ public struct ReaderPane: View {
             // Protótipo: `on` é a caixa **da mensagem**, e clicar move a
             // mensagem — não troca a visão da lista.
             ForEach(triageButtons, id: \.0) { label, bucket in
-                let isActive = message.bucket == bucket
-                Button {
+                triageChip(
+                    label, isActive: message.bucket == bucket, accent: accentColor,
+                    help: ""
+                ) {
                     store.move(message, to: bucket)
-                } label: {
-                    Text(label)
-                        .font(theme.sans.font(size: 11.5, weight: .semibold))
-                        .foregroundStyle(isActive ? theme.accentInk.color : theme.ink.color)
-                        .frame(height: 26)
-                        .padding(.horizontal, 12)
-                        .background(isActive ? theme.accentSoft.color : theme.btn.color)
-                        .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: theme.radiusSmall)
-                                .strokeBorder(
-                                    isActive ? accentColor : theme.btnLine.color,
-                                    lineWidth: Hairline.thickness(displayScale)
-                                )
-                        }
-                        .shadow(theme.btnShadow)
                 }
-                .buttonStyle(.plain)
-                .focusRing(cornerRadius: theme.radiusSmall)
+            }
+
+            // **"Apagar", que faltava.** A barra oferecia Hoje · Depois ·
+            // Arquivar · Responder, e a ação que o dono mais usa vivia só no
+            // botão direito e no ⌫ — os dois continuam valendo, e os três agora
+            // fazem exatamente a mesma coisa (`ActionReceipts.delete`).
+            //
+            // No idioma dos vizinhos, e não numa cor nova: o app não tem token
+            // destrutivo, e inventar um vermelho aqui seria a única cor do
+            // aplicativo que não sai do desenho. O que carrega o peso da ação é
+            // a palavra — "Apagar", a mesma do menu, do arraste e da tela de
+            // ajustes — e a faixa "Desfazer" que ela deixa na lista.
+            triageChip(
+                Self.apagarLabel(message), isActive: false, accent: accentColor,
+                help: ContextMenus.deleteItem(message).help
+            ) {
+                _ = receipts.delete(message, on: store)
             }
 
             // "Responder" **expande a faixa de baixo** e põe o cursor nela —
@@ -311,6 +319,56 @@ public struct ReaderPane: View {
             // chip da barra lateral e da lista, na cor da conta.
             TintChip(label: account?.host ?? "", tint: accentColor, emphasized: true)
         }
+    }
+
+    /// O que o botão escreve — e ele diz a verdade sobre o que vai fazer.
+    ///
+    /// Na Lixeira, apagar não é mover para a Lixeira: é tirar de lá de vez. É a
+    /// mesma decisão que `ContextMenus.deleteItem` toma no rótulo do menu, e a
+    /// frase é a que `SwipeReceipt` já usa quando isso acontece ("Apagada de
+    /// vez") — três superfícies, uma palavra.
+    ///
+    /// `nonisolated` e `static` pelo motivo de sempre: o que a pessoa lê é
+    /// comportamento, e o teste o afirma sem montar janela.
+    nonisolated static func apagarLabel(_ message: Message) -> String {
+        message.bucket == .trash ? "Apagar de vez" : "Apagar"
+    }
+
+    /// A pastilha da fila de triagem, uma só vez.
+    ///
+    /// Protótipo: `height: 26px; padding: 0 12px; border-radius: var(--r2);
+    /// font-size: 11.5px; font-weight: 590; box-shadow: var(--btn-shadow)`, com
+    /// `accent`/`accent-soft`/`accent-ink` quando a caixa é a da mensagem e
+    /// `btn-line`/`btn`/`ink` quando não é. Virou função porque "Apagar" entrou
+    /// na barra e uma segunda cópia do mesmo desenho divergiria da primeira no
+    /// próximo conserto de espaçamento.
+    private func triageChip(
+        _ label: String,
+        isActive: Bool,
+        accent: Color,
+        help: String?,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(theme.sans.font(size: 11.5, weight: .semibold))
+                .foregroundStyle(isActive ? theme.accentInk.color : theme.ink.color)
+                .frame(height: 26)
+                .padding(.horizontal, 12)
+                .background(isActive ? theme.accentSoft.color : theme.btn.color)
+                .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+                .overlay {
+                    RoundedRectangle(cornerRadius: theme.radiusSmall)
+                        .strokeBorder(
+                            isActive ? accent : theme.btnLine.color,
+                            lineWidth: Hairline.thickness(displayScale)
+                        )
+                }
+                .shadow(theme.btnShadow)
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
+        .help(help ?? "")
     }
 
     private func subject(_ message: Message) -> some View {
