@@ -15,6 +15,13 @@ public actor MessageIntelligenceCoordinator {
     private let analyzer: any OnDeviceMessageAnalyzing
     private let timeZone: @Sendable () -> TimeZone
     private var observationTask: Task<Void, Never>?
+    /// A mensagem que a pessoa está lendo fura a fila histórica. Guardamos
+    /// somente a seleção mais recente: clicar rapidamente em cinco mensagens
+    /// não deve obrigar o modelo a resumir quatro telas que já ficaram para trás.
+    private var priorityMessageID: String?
+    /// `actor` é reentrante durante a geração. Esta guarda preserva um único
+    /// worker mesmo quando a observação do banco e a seleção acordam juntas.
+    private var isProcessing = false
 
     private static let log = Logger(
         subsystem: "com.okamiops.okamiuni",
@@ -63,30 +70,52 @@ public actor MessageIntelligenceCoordinator {
         observationTask = nil
     }
 
+    /// Coloca a mensagem aberta na frente do backlog sem cancelar a inferência
+    /// já em andamento. Se o worker estiver ocioso, este próprio pedido o
+    /// acorda; se estiver ocupado, a prioridade é relida antes do próximo item.
+    public func prioritize(messageID: String) async {
+        guard !messageID.isEmpty else { return }
+        priorityMessageID = messageID
+        guard !isProcessing else { return }
+        _ = await processPending()
+    }
+
     /// Processa um lote pequeno. É público para permitir uma prova
     /// determinística da integração sem depender do agendamento de uma View.
     /// A observação coalesce as escritas do lote e chama outro quando ainda há
     /// trabalho, portanto o limite contém o uso de memória sem deixar fila.
     @discardableResult
     public func processPending(limit: Int = 20) async -> Int {
-        guard limit > 0, await analyzer.availability() == .available else { return 0 }
-
-        let works: [MessageIntelligenceWork]
-        do {
-            works = try store.pendingWork(limit: limit)
-        } catch {
-            Self.log.error("Não foi possível ler a fila de inteligência: \(error)")
-            return 0
-        }
+        guard limit > 0, !isProcessing else { return 0 }
+        isProcessing = true
+        defer { isProcessing = false }
+        guard await analyzer.availability() == .available else { return 0 }
 
         var completed = 0
-        for work in works {
+        for _ in 0..<limit {
             if Task.isCancelled { break }
+
+            let work: MessageIntelligenceWork
+            do {
+                guard let next = try store.pendingWork(
+                    limit: 1,
+                    modelVersion: analyzer.modelVersion,
+                    priorityMessageID: priorityMessageID
+                ).first else { break }
+                work = next
+            } catch {
+                Self.log.error("Não foi possível ler a fila de inteligência: \(error)")
+                break
+            }
+
             do {
                 guard try store.markProcessing(
                     work,
                     modelVersion: analyzer.modelVersion
                 ) else { continue }
+                if priorityMessageID == work.messageID {
+                    priorityMessageID = nil
+                }
 
                 let sender = work.fromName.isEmpty
                     ? work.fromAddress
@@ -104,7 +133,8 @@ public actor MessageIntelligenceCoordinator {
                     work,
                     modelVersion: result.modelVersion,
                     summary: result.summary,
-                    detectedEventJSON: MessageRecord.encodeDetectedEvent(result.detectedEvent)
+                    detectedEventJSON: MessageRecord.encodeDetectedEvent(result.detectedEvent),
+                    category: result.category
                 )
                 if saved { completed += 1 }
             } catch is CancellationError {

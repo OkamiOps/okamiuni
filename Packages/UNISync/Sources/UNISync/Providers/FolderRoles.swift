@@ -37,27 +37,35 @@ public enum FolderRoles {
 
         let dobrado = fold(name)
         if dobrado == "inbox" || dobrado == "caixa de entrada" { return .inbox }
+        let folha = lastPathComponent(of: dobrado)
         for sufixo in ["archive", "arquivo", "all mail", "todos os e-mails", "todos os emails"]
-        where dobrado == sufixo || dobrado.hasSuffix("/" + sufixo) {
+        where folha == sufixo {
             return .archive
         }
         for sufixo in ["trash", "lixeira", "deleted messages", "deleted items", "itens excluidos"]
-        where dobrado == sufixo || dobrado.hasSuffix("/" + sufixo) {
+        where folha == sufixo {
             return .trash
         }
         for sufixo in ["sent", "sent items", "sent messages", "enviados", "itens enviados"]
-        where dobrado == sufixo || dobrado.hasSuffix("/" + sufixo) {
+        where folha == sufixo {
             return .sent
         }
         for sufixo in ["drafts", "draft", "rascunhos", "rascunho"]
-        where dobrado == sufixo || dobrado.hasSuffix("/" + sufixo) {
+        where folha == sufixo {
             return .drafts
         }
         for sufixo in ["junk", "junk email", "spam", "lixo eletronico", "bulk mail"]
-        where dobrado == sufixo || dobrado.hasSuffix("/" + sufixo) {
+        where folha == sufixo {
             return .junk
         }
         return .other
+    }
+
+    /// O servidor anuncia o delimitador no `LIST`/`NAMESPACE`, mas o papel só
+    /// precisa da folha. Aceitar os três delimitadores comuns também faz
+    /// `INBOX.Sent` (Dovecot) cair no mesmo papel de `[Gmail]/Sent`.
+    private static func lastPathComponent(of text: String) -> String {
+        text.split(whereSeparator: { $0 == "/" || $0 == "." || $0 == "\\" }).last.map(String.init) ?? text
     }
 
     /// Caixa e acento fora. A mesma dobra do resto do app —

@@ -236,7 +236,8 @@ struct EventWindowFooterTests {
     static func detalheDeConvite(
         link: String?,
         extras: [EventPerson] = [],
-        assuntoDoEmail: String = "Convite: DreamSquad <> Vantion"
+        assuntoDoEmail: String = "Convite: DreamSquad <> Vantion",
+        descricao: String? = nil
     ) -> EventDetail {
         EventDetail(
             place: EventPlace.semLocal, link: link,
@@ -254,7 +255,7 @@ struct EventWindowFooterTests {
                     what: assuntoDoEmail, kind: .email
                 )
             ],
-            descricao: nil
+            descricao: descricao
         )
     }
 
@@ -301,6 +302,43 @@ struct EventWindowFooterTests {
         )
 
         #expect(caixa.abertos.map(\.absoluteString) == ["https://meet.google.com/abc-defg-hij"])
+    }
+
+    @Test("Meet enterrado na descrição ainda cria «Entrar» e cartão próprio")
+    func entrarUsaLinkDaDescricao() async throws {
+        let blocoDoGoogle = """
+            -::~:~::~:~:~:~:~:~:~:~:~:~:~:~:~:~:~:~:~:~::~:~::-
+            --
+            Entrar com o Google Meet: https://meet.google.com/us-qnjh-suq
+
+            Saiba mais sobre o Meet em: https://support.google.com/a/users/answer/9282720
+
+            Não edite esta seção.
+            -::~:~::~:~:~:~:~:~:~:~:~:~:~:~:~:~:~:~:~:~::~:~::-
+            --
+            """
+        let detail = Self.detalheDeConvite(link: nil, descricao: blocoDoGoogle)
+        let store = await Self.loja(detail)
+        let caixa = CaixaDeLinks()
+        var janela = EventWindow(store: store, itemID: "email-m1")
+        janela.abreLink = { caixa.abertos.append($0) }
+
+        let rep = try #require(Render.snapshot(
+            janela.environment(ThemeStore()),
+            named: "evento-04-meet-da-descricao",
+            size: CGSize(width: 560, height: 700),
+            theme: .tinta
+        ))
+        #expect(Self.pills(in: rep, y: 660, width: 560) == 4)
+
+        CliqueDeEnsaio.em(
+            janela,
+            size: CGSize(width: 560, height: 700),
+            aY: Self.yDoRodape,
+            x: 40
+        )
+
+        #expect(caixa.abertos.map(\.absoluteString) == ["https://meet.google.com/us-qnjh-suq"])
     }
 
     /// Sem sala reconhecida o botão **não aparece** — é o que o protótipo

@@ -138,9 +138,10 @@ public enum QuickReply {
 
     /// Os contatos que o app conhece, montados a partir do que existe.
     ///
-    /// A base são os **remetentes das mensagens** — qualquer nome, qualquer
-    /// domínio, qualquer provedor. Nada aqui olha para conta nem para host: uma
-    /// lista fixa de domínios seria exatamente o que este projeto não faz.
+    /// A base são os destinatários das mensagens em **Enviadas** — qualquer
+    /// nome, qualquer domínio, qualquer provedor. Receber newsletter não cria
+    /// contato e a própria conta remetente fica fora. Nada aqui olha para host:
+    /// uma lista fixa de domínios seria exatamente o que este projeto não faz.
     /// `catalog` é o caderno de endereços que o app já tenha (no Marco 1, o do
     /// protótipo); quem aparece nos dois soma as duas frequências e fica com o
     /// nome e a organização do caderno, que são os mais completos.
@@ -172,14 +173,8 @@ public enum QuickReply {
             }
         }
 
-        for message in messages where !message.from.address.isEmpty {
-            merge(
-                DirectoryContact(
-                    name: message.from.name, address: message.from.address,
-                    org: "", frequency: 0
-                ),
-                addingFrequency: 1
-            )
+        for entry in ContactDirectory.build(fromMessages: messages) {
+            merge(entry, addingFrequency: entry.frequency)
         }
         for entry in catalog where !entry.address.isEmpty {
             merge(entry, addingFrequency: entry.frequency)

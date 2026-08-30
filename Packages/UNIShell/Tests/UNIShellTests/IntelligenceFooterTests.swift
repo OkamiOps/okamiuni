@@ -17,6 +17,12 @@ struct IntelligenceFooterTests {
     func copyForEveryPresentation() {
         let expected: [(IntelligencePresentation, String, String, Bool)] = [
             (
+                .configuredAssistant,
+                "Assistente configurável disponível",
+                "Pergunte sobre suas caixas, emails e agenda. O processamento segue o provedor escolhido em Configurações.",
+                true
+            ),
+            (
                 .available,
                 "Inteligência local disponível",
                 "Pergunte sobre suas caixas, emails e agenda. Nada sai deste Mac.",
@@ -46,7 +52,10 @@ struct IntelligenceFooterTests {
         for (presentation, title, detail, isAvailable) in expected {
             #expect(presentation.title == title)
             #expect(presentation.detail == detail)
-            #expect(presentation.symbol == "apple.intelligence")
+            #expect(
+                presentation.symbol == (presentation == .configuredAssistant
+                    ? "sparkles" : "apple.intelligence")
+            )
             #expect(presentation.actionTitle == "Perguntar ao ambiente")
             #expect(presentation.isAvailable == isAvailable)
             #expect(!presentation.title.localizedCaseInsensitiveContains("classificação"))
@@ -54,6 +63,10 @@ struct IntelligenceFooterTests {
             #expect(!presentation.title.localizedCaseInsensitiveContains("busca semântica"))
             #expect(!presentation.detail.localizedCaseInsensitiveContains("busca semântica"))
         }
+        #expect(IntelligencePresentation.configuredAssistant.scopeLabel
+            == "Todo o OkamiUNI · provedor configurado")
+        #expect(IntelligencePresentation.available.scopeLabel
+            == "Todo o OkamiUNI · local")
     }
 
     @Test("o inicializador preserva o estado disponível até o compositor conectar o motor")

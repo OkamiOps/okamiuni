@@ -235,6 +235,30 @@ struct OutboxExecutorTests {
 
     // MARK: - Falha permanente
 
+    @Test("ID local sem coordenada remota nunca vira sucesso vazio")
+    func identidadeInvalidaParaAFila() async throws {
+        let db = try banco()
+        let espelho = EspelhoFalso()
+        let id = try enfileira(
+            db,
+            .placeInFolder(
+                folderID: "conta-a/Label_42",
+                serverName: "Label_42",
+                mode: FolderPlacement.label.rawValue,
+                messageIDs: ["m1"]
+            ),
+            criadaEm: 10
+        )
+
+        let resultado = await executor(db, espelho).drain()
+
+        #expect(resultado.executadas == 0)
+        #expect(resultado.falhaPermanente != nil)
+        #expect(resultado.pendentes == 1)
+        #expect(try estado(db, id) == "falhou")
+        #expect(await espelho.chamadas.isEmpty)
+    }
+
     @Test("Autorização revogada para a fila da conta e marca o erro nela")
     func falhaPermanenteParaAFila() async throws {
         let db = try banco()

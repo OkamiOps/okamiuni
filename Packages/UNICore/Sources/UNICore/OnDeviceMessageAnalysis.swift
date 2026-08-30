@@ -35,11 +35,20 @@ public struct OnDeviceMessageAnalysisInput: Sendable, Hashable {
 public struct OnDeviceMessageAnalysisResult: Sendable, Hashable {
     public let summary: String
     public let detectedEvent: DetectedEvent?
+    /// Categoria fechada devolvida pelo modelo; `nil` quando a resposta veio
+    /// ausente ou não passou pela validação do enum.
+    public let category: MailCategory?
     public let modelVersion: String
 
-    public init(summary: String, detectedEvent: DetectedEvent?, modelVersion: String) {
+    public init(
+        summary: String,
+        detectedEvent: DetectedEvent?,
+        modelVersion: String,
+        category: MailCategory? = nil
+    ) {
         self.summary = summary
         self.detectedEvent = detectedEvent
+        self.category = category
         self.modelVersion = modelVersion
     }
 }

@@ -223,7 +223,25 @@ struct ThreadKeyPersistenceTests {
         try SyncDatabase.migrator.migrate(pool, upTo: "v3")
 
         try pool.write { db in
-            try AccountRecord(conta, createdAt: Date(timeIntervalSince1970: 1)).insert(db)
+            // O banco está deliberadamente parado na v3. Inserir o record
+            // atual tentaria escrever colunas acrescentadas por migrações
+            // posteriores (como `signatureJSON`) e deixaria de testar a
+            // atualização de um esquema antigo real.
+            try db.execute(
+                sql: """
+                    INSERT INTO account
+                      (id, address, displayName, provider, host, tintLightHex,
+                       tintDarkHex, signature, imapHost, imapPort, imapSecurity,
+                       state, lastSyncedAt, createdAt)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [
+                    conta.id, conta.address, conta.displayName, conta.provider.rawValue,
+                    conta.host, conta.tintLightHex, conta.tintDarkHex, conta.signature,
+                    conta.imap?.host, conta.imap?.port, conta.imap?.security.rawValue,
+                    conta.state.rawValue, conta.lastSyncedAt, 1.0,
+                ]
+            )
             try FolderRecord(
                 id: "c1/INBOX", accountID: "c1", serverName: "INBOX",
                 role: .inbox, displayName: "INBOX"

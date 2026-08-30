@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import GRDB
+import UNICore
 
 /// O ciclo de vida do resultado local de inteligência de uma mensagem.
 ///
@@ -50,7 +51,11 @@ public struct MessageIntelligenceStore: Sendable {
     /// entra uma vez de novo, inclusive se a tentativa anterior falhou. Um
     /// `processing` é retomável: após um crash, o único runner serial o assume
     /// de novo na próxima abertura em vez de deixá-lo preso para sempre.
-    public func pendingWork(limit: Int = 20) throws -> [MessageIntelligenceWork] {
+    public func pendingWork(
+        limit: Int = 20,
+        modelVersion: String? = nil,
+        priorityMessageID: String? = nil
+    ) throws -> [MessageIntelligenceWork] {
         guard limit > 0 else { return [] }
         return try database.pool.read { db in
             let rows = try Row.fetchAll(
@@ -65,15 +70,22 @@ public struct MessageIntelligenceStore: Sendable {
                       m.receivedAt,
                       b.plain,
                       i.contentHash,
-                      i.state
+                      i.state,
+                      i.modelVersion
                     FROM message m
                     JOIN message_body b ON b.messageID = m.id
                     LEFT JOIN message_intelligence i ON i.messageID = m.id
                     WHERE b.plain != ''
-                    ORDER BY m.receivedAt DESC, m.id ASC
-                    """
+                    ORDER BY
+                      CASE WHEN m.id = ? THEN 0 ELSE 1 END,
+                      m.receivedAt DESC,
+                      m.id ASC
+                    """,
+                arguments: [priorityMessageID]
             )
-            return rows.compactMap(Self.workIfPending).prefix(limit).map { $0 }
+            return rows.compactMap {
+                Self.workIfPending($0, modelVersion: modelVersion)
+            }.prefix(limit).map { $0 }
         }
     }
 
@@ -90,18 +102,21 @@ public struct MessageIntelligenceStore: Sendable {
             guard try Self.currentContentMatches(work, in: db) else { return false }
 
             let existing = try MessageIntelligenceRecord.fetchOne(db, key: work.messageID)
+            let modelChanged = existing?.modelVersion != modelVersion
             if let existing,
                existing.contentHash == work.contentHash,
                existing.state != MessageIntelligenceState.pending.rawValue,
-               existing.state != MessageIntelligenceState.processing.rawValue {
+               existing.state != MessageIntelligenceState.processing.rawValue,
+               !modelChanged {
                 return false
             }
 
             // Um resultado de um corpo antigo não pode continuar visível
             // enquanto a nova versão espera processamento.
-            if let existing, existing.contentHash != work.contentHash {
+            if let existing,
+               existing.contentHash != work.contentHash || modelChanged {
                 try db.execute(
-                    sql: "UPDATE message SET summary = NULL, detectedEventJSON = NULL WHERE id = ?",
+                    sql: "UPDATE message SET summary = NULL, detectedEventJSON = NULL, category = NULL WHERE id = ?",
                     arguments: [work.messageID]
                 )
             }
@@ -123,6 +138,7 @@ public struct MessageIntelligenceStore: Sendable {
         modelVersion: String,
         summary: String?,
         detectedEventJSON: String?,
+        category: MailCategory? = nil,
         at: Date = Date()
     ) throws -> Bool {
         try database.pool.write { db in
@@ -130,10 +146,10 @@ public struct MessageIntelligenceStore: Sendable {
             try db.execute(
                 sql: """
                     UPDATE message
-                    SET summary = ?, detectedEventJSON = ?
+                    SET summary = ?, detectedEventJSON = ?, category = ?
                     WHERE id = ?
                     """,
-                arguments: [summary, detectedEventJSON, work.messageID]
+                arguments: [summary, detectedEventJSON, category?.rawValue, work.messageID]
             )
             try Self.updateTerminal(
                 db, work: work, state: .completed, modelVersion: modelVersion,
@@ -188,13 +204,19 @@ public struct MessageIntelligenceStore: Sendable {
         }
     }
 
-    private static func workIfPending(_ row: Row) -> MessageIntelligenceWork? {
+    private static func workIfPending(
+        _ row: Row,
+        modelVersion: String?
+    ) -> MessageIntelligenceWork? {
         let plainBody: String = row["plain"]
         guard hasUsableBody(plainBody) else { return nil }
         let contentHash = MessageIntelligenceWork.contentHash(for: plainBody)
         let storedHash: String? = row["contentHash"]
+        let storedModelVersion: String? = row["modelVersion"]
         let state = (row["state"] as String?).flatMap(MessageIntelligenceState.init(rawValue:))
-        guard storedHash == nil || storedHash != contentHash || state == .pending || state == .processing
+        let modelChanged = modelVersion.map { $0 != storedModelVersion } ?? false
+        guard storedHash == nil || storedHash != contentHash || state == .pending
+            || state == .processing || modelChanged
         else { return nil }
         return MessageIntelligenceWork(
             messageID: row["messageID"], accountID: row["accountID"],
@@ -310,6 +332,7 @@ extension MessageRecord {
             if record.detectedEventJSON == nil {
                 record.detectedEventJSON = current.detectedEventJSON
             }
+            if record.category == nil { record.category = current.category }
         }
         try record.save(db)
     }

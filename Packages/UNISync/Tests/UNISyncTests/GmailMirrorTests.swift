@@ -111,6 +111,47 @@ struct GmailMirrorTests {
         #expect((pedido["addLabelIds"] as? [String])?.isEmpty == true)
     }
 
+    @Test("Aplicar marcador usa o serverName escolhido, não o nome exibido")
+    func aplicaMarcadorEscolhido() async throws {
+        let (espelho, sessao) = par(routes: [
+            "\(base)/messages/batchModify": [.init(status: 204)],
+        ])
+
+        try await espelho.apply(
+            .placeInFolder(
+                folderID: "conta-a/Clientes", serverName: "Label_42",
+                mode: FolderPlacement.label.rawValue, messageIDs: ["x"]
+            ),
+            targets: [alvo("m1"), alvo("m2")]
+        )
+
+        let pedido = try corpo(sessao, caminho: "\(base)/messages/batchModify")
+        #expect(pedido["ids"] as? [String] == ["m1", "m2"])
+        #expect(pedido["addLabelIds"] as? [String] == ["Label_42"])
+        #expect((pedido["removeLabelIds"] as? [String])?.isEmpty == true)
+    }
+
+    @Test("Mover no Gmail adiciona o destino e remove somente a origem")
+    func moveMarcadorEscolhido() async throws {
+        let (espelho, sessao) = par(routes: [
+            "\(base)/messages/batchModify": [.init(status: 204)],
+        ])
+
+        try await espelho.apply(
+            .moveGmailLabel(
+                destinationLabelID: "Label_42",
+                sourceLabelID: "INBOX",
+                messageIDs: ["x"]
+            ),
+            targets: [alvo("m1"), alvo("m2")]
+        )
+
+        let pedido = try corpo(sessao, caminho: "\(base)/messages/batchModify")
+        #expect(pedido["ids"] as? [String] == ["m1", "m2"])
+        #expect(pedido["addLabelIds"] as? [String] == ["Label_42"])
+        #expect(pedido["removeLabelIds"] as? [String] == ["INBOX"])
+    }
+
     @Test("Apagar usa messages.trash, e não uma label TRASH posta à mão")
     func lixeira() async throws {
         let (espelho, sessao) = par(routes: [

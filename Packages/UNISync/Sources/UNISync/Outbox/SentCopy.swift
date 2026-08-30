@@ -85,6 +85,12 @@ enum SentCopy {
             cc: mensagem.cc.map { Contact(name: $0.name, address: $0.address) },
             isFlagged: false,
             serverID: serverID, uidValidity: uidValidity,
+            // A cópia local precisa do mesmo HTML que foi para o transportador;
+            // guardar só `plainText` faria uma assinatura formatada voltar
+            // como texto pelado na caixa Enviadas.
+            bodyHTML: EmailSignature.sanitizedHTML(
+                mensagem.html, inlineResources: mensagem.inlineResources
+            ) ?? "",
             // O `Message-ID` que **nós** geramos e escrevemos no cabeçalho: é
             // ele que faz a resposta seguinte (de quem receber, ou nossa) achar
             // esta mensagem como mãe.

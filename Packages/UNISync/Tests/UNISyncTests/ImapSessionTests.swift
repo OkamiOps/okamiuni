@@ -437,7 +437,47 @@ struct ImapSessionTests {
         let verbos = servidor.commands.compactMap {
             $0.split(separator: " ").dropFirst().first.map(String.init)
         }
-        #expect(verbos == ["LOGIN", "LIST"], "ordem no fio: \(verbos)")
+        #expect(verbos == ["LOGIN", "NAMESPACE", "LIST"], "ordem no fio: \(verbos)")
+        await sessao.logout()
+    }
+
+    @Test("Namespace pessoal normaliza o LIST e também atende nome relativo legado")
+    func namespacePessoalNormalizaELegado() async throws {
+        let servidor = FakeImapServer(script: .init(replies: [
+            "LOGIN": ["TAG OK LOGIN completed"],
+            "NAMESPACE": [
+                "* NAMESPACE ((\"INBOX.\" \".\")) NIL NIL",
+                "TAG OK NAMESPACE completed",
+            ],
+            "LIST": [
+                "* LIST (\\HasNoChildren) \".\" \"INBOX\"",
+                "* LIST (\\HasNoChildren) \".\" \"Sent\"",
+                "TAG OK LIST completed",
+            ],
+            "SELECT": [
+                "* 1 EXISTS",
+                "* OK [UIDVALIDITY 42] UIDs valid",
+                "TAG OK SELECT completed",
+            ],
+            "LOGOUT": ["TAG OK LOGOUT completed"],
+        ]))
+        let porta = try servidor.start()
+        defer { servidor.stop() }
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+
+        let sessao = try await ImapSession.connect(
+            endpoint: endpoint(porta: porta), group: grupo, allowInsecure: true, teto: .seconds(5)
+        )
+        try await sessao.login(user: "eu@x.com", password: "senha")
+        let pastas = try await sessao.folders()
+        #expect(pastas.map(\.name) == ["INBOX", "INBOX.Sent"])
+        #expect(pastas.last?.role == .sent)
+
+        // Linha de banco antiga, antes da normalização: a sessão deve aceitar
+        // o nome relativo sem exigir migração destrutiva de folders/messages.
+        _ = try await sessao.select(ImapFolder(name: "Sent", specialUse: nil))
+        #expect(servidor.commands.contains { $0.hasSuffix(#"SELECT "INBOX.Sent""#) })
         await sessao.logout()
     }
 

@@ -31,26 +31,34 @@ public struct DirectoryContact: Sendable, Hashable, Identifiable {
 /// O catálogo por trás dos campos Para/Cc/Cco. Puro de propósito: um `View` do
 /// SwiftUI é `@MainActor` e esta aritmética precisa ser chamável de teste.
 public enum ContactDirectory {
-    /// O catálogo **real**: quem já apareceu como remetente, destinatário ou
-    /// cópia em alguma mensagem. Pura e testável sem banco — `Message` já
-    /// chega com `from`/`to`/`cc`/`receivedAt` decodificados, venha ela do
-    /// banco (`DatabaseContactDirectory`, no `UNISync`) ou das fixtures.
+    /// O catálogo **real**: para quem a pessoa já escreveu. Só destinatários e
+    /// cópias de mensagens em Enviadas entram; receber newsletter, recibo ou
+    /// campanha de marketing não cria contato e não polui "Mais usados".
+    /// Pura e testável sem banco — `Message` já chega com
+    /// `bucket`/`to`/`cc`/`receivedAt` decodificados, venha ela do banco
+    /// (`DatabaseContactDirectory`, no `UNISync`) ou das fixtures.
     ///
     /// Deduplicado por endereço, sem diferenciar caixa — é `Contact.id` quem
     /// decide isso. Relevância simples: quem apareceu mais vezes primeiro;
     /// empate desfeito por quem apareceu mais recentemente; empate nisso, por
     /// nome e depois endereço, para a lista não dançar entre duas chamadas
     /// com a mesma entrada.
-    public static func build(fromMessages messages: [Message]) -> [DirectoryContact] {
+    public static func build(
+        fromMessages messages: [Message], excluding ownAddresses: Set<String> = []
+    ) -> [DirectoryContact] {
         var order: [String] = []
         var seen: Set<String> = []
         var address: [String: String] = [:]
         var name: [String: String] = [:]
         var frequency: [String: Int] = [:]
         var latest: [String: Date] = [:]
+        var excluded = Set(ownAddresses.map { $0.lowercased() })
+        excluded.formUnion(
+            messages.lazy.filter { $0.bucket == .sent }.map { $0.from.id }
+        )
 
         func touch(_ contact: Contact, at date: Date) {
-            guard !contact.address.isEmpty else { return }
+            guard !contact.address.isEmpty, !excluded.contains(contact.id) else { return }
             let key = contact.id
             if seen.insert(key).inserted {
                 order.append(key)
@@ -67,10 +75,15 @@ public enum ContactDirectory {
             }
         }
 
-        for message in messages {
-            touch(message.from, at: message.receivedAt)
-            for destinatario in message.to { touch(destinatario, at: message.receivedAt) }
-            for copia in message.cc { touch(copia, at: message.receivedAt) }
+        for message in messages where message.bucket == .sent {
+            // Uma pessoa em To e Cc no mesmo email conta como uma interação,
+            // não duas. Entre mensagens diferentes a frequência continua
+            // subindo, que é exatamente o significado de "Mais usados".
+            var touchedInMessage: Set<String> = []
+            for recipient in message.to + message.cc
+            where touchedInMessage.insert(recipient.id).inserted {
+                touch(recipient, at: message.receivedAt)
+            }
         }
 
         return order.map { key in

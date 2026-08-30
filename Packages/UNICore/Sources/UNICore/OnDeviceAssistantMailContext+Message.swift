@@ -50,9 +50,9 @@ public extension OnDeviceAssistantMailContext {
                     sentAt: message.receivedAt,
                     snippet: message.snippet
                 )
-            }
+        }
         let mailboxes = TriageBucket.allCases.map { bucket in
-            let messages = store.messages.filter(bucket.contains)
+            let messages = store.messages.filter { store.includes($0, in: bucket) }
             return OnDeviceAssistantMailboxContext(
                 name: bucket.label,
                 totalCount: messages.count,

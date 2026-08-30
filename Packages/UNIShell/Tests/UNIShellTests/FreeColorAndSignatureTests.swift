@@ -2,6 +2,7 @@ import SwiftUI
 import Testing
 import UNICore
 import UNIDesign
+import WebKit
 @testable import UNIShell
 
 /// A caixa que envolve todos os pixels em que dois desenhos diferem.
@@ -215,78 +216,87 @@ struct SignatureButtonTests {
         #expect(!Signature.canInsert(account.signature, into: String(body.characters)))
     }
 
-    /// **O botão insere.** Era o que faltava: a revisão gutou
-    /// `insertSignature()` para `return` e a suíte inteira continuou verde,
-    /// porque os dois testes que diziam cobrir o botão só chamavam a regra pura
-    /// de `UNICore` (já travada em `SignatureTests`) e comparavam pixels de uma
-    /// faixa que muda de conta para conta por outros motivos.
-    ///
-    /// Aqui corre a ação do botão dentro da janela de verdade, e o que se afirma
-    /// é o **texto que sai no `NSTextStorage`** — o que o editor desenha.
-    @Test("o botão insere a assinatura da conta no fim do corpo")
-    func insertsIntoTheStorage() async throws {
-        let store = MailStore(source: InMemoryMailSource.fixtures)
+    /// O defeito do print: Configurações mostrava tabela e logo, mas o botão
+    /// achatava o HTML em texto, com toda a indentação da tabela transformada
+    /// em vazios. Agora o editor continua contendo somente o corpo digitável e
+    /// a assinatura rica nasce como uma `WKWebView` segura separada.
+    @Test("o botão renderiza a assinatura HTML fora do texto editável")
+    func rendersRichSignatureOutsideTheStorage() async throws {
+        let image = try InlineSignatureResource(
+            contentID: "logo@vantion.local",
+            mimeType: "image/png",
+            data: try #require(Data(base64Encoded:
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+            ))
+        )
+        let rich = try EmailSignature(
+            plainText: "Marcos Santos\nCAIO · Software Development",
+            html: """
+            <table role="presentation" cellpadding="0" cellspacing="0" style="width:600px">
+              <tr>
+                <td style="width:180px;background:#121415;padding:16px">
+                  <img src="cid:logo@vantion.local" width="120" height="80" alt="Vantion">
+                </td>
+                <td style="padding:16px"><strong>Marcos Santos</strong><br>CAIO · Software Development</td>
+              </tr>
+            </table>
+            """,
+            inlineResources: [image]
+        )
+        let base = try #require(Fixtures.accounts.first)
+        let account = base.withEmailSignature(rich)
+        let store = MailStore(source: InMemoryMailSource(
+            accounts: [account], messages: Fixtures.messages, agenda: Fixtures.month
+        ))
         await store.load()
-        let account = try #require(store.accounts.first { !$0.signature.isEmpty })
-        let expected = account.signature.trimmingCharacters(in: .whitespacesAndNewlines)
-        try #require(!expected.isEmpty)
 
-        var inserted: String?
-        var untouched: String?
+        var insertedText: String?
+        var insertedPreview: WKWebView?
+        var untouchedPreview: WKWebView?
         EditorProbe.withHostedView(
             ComposerWindow(
                 store: store, mode: .new(accountID: account.id), debugInsertSignature: true
             ),
             size: CGSize(width: 820, height: 620), theme: .tinta
         ) { content in
-            inserted = EditorProbe.anyTextView(in: content)?.string
+            insertedText = EditorProbe.anyTextView(in: content)?.string
+            insertedPreview = EditorProbe.signaturePreview(in: content)
         }
-        // A mesma janela sem apertar o botão: a assinatura não aparece sozinha.
         EditorProbe.withHostedView(
             ComposerWindow(store: store, mode: .new(accountID: account.id)),
             size: CGSize(width: 820, height: 620), theme: .tinta
         ) { content in
-            untouched = EditorProbe.anyTextView(in: content)?.string
+            untouchedPreview = EditorProbe.signaturePreview(in: content)
         }
 
-        let text = try #require(inserted)
-        #expect(text.hasSuffix(expected), "o corpo terminou em «\(text)»")
-        #expect(untouched?.contains(expected) == false, "a assinatura apareceu sem o botão")
+        #expect(insertedText == "", "a assinatura ainda foi achatada no editor: «\(insertedText ?? "nil")»")
+        let preview = try #require(insertedPreview)
+        #expect(preview.frame.height >= 44)
+        #expect(preview.frame.height <= 380)
+        #expect(untouchedPreview == nil, "a assinatura apareceu sem apertar o botão")
+
+        if Render.outputDirectory != nil {
+            #expect(Render.snapshot(
+                ComposerWindow(
+                    store: store,
+                    mode: .new(accountID: account.id),
+                    debugInsertSignature: true
+                ),
+                named: "composer-assinatura-rica",
+                size: CGSize(width: 820, height: 620),
+                theme: .tinta
+            ) != nil)
+        }
     }
+}
 
-    /// E ela entra **com atributo**, não como texto cru: o estilo do fim do
-    /// corpo, sem herdar o realce. `Signature.style(endingIn:)` decide isso, e
-    /// a janela tem de passar por lá — inserir sem estilo sai em Newsreader 15
-    /// no meio de um corpo escrito em outro corpo.
-    @Test("a assinatura inserida carrega o estilo do fim do corpo, sem o realce")
-    func insertedSignatureCarriesTheStyle() async throws {
-        let store = MailStore(source: InMemoryMailSource.fixtures)
-        await store.load()
-        let account = try #require(store.accounts.first { !$0.signature.isEmpty })
-        let expected = account.signature.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        var style: BodyStyle?
-        var face: NSFont?
-        EditorProbe.withHostedView(
-            ComposerWindow(
-                store: store, mode: .new(accountID: account.id), debugInsertSignature: true
-            ),
-            size: CGSize(width: 820, height: 620), theme: .tinta
-        ) { content in
-            guard let view = EditorProbe.anyTextView(in: content),
-                  let storage = view.textStorage,
-                  storage.length >= expected.count else { return }
-            let at = storage.length - expected.count
-            style = ComposerTextKit.model(storage).runs.last
-                .map { RichBody.style(of: $0.attributes) }
-            face = storage.attribute(.font, at: at, effectiveRange: nil) as? NSFont
+@MainActor
+private extension EditorProbe {
+    static func signaturePreview(in view: NSView) -> WKWebView? {
+        if let preview = view as? WKWebView { return preview }
+        for child in view.subviews {
+            if let preview = signaturePreview(in: child) { return preview }
         }
-
-        let written = try #require(style)
-        #expect(written.highlightHex == BodyStyle.noHighlight)
-        #expect(written.size == BodyStyle.defaultSize)
-        // E o trecho tem fonte de verdade no storage, não o atributo ausente que
-        // um `append` de texto cru deixaria.
-        #expect(face != nil)
+        return nil
     }
 }

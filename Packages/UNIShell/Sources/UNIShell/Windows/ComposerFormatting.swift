@@ -113,8 +113,20 @@ enum ComposerFormatting {
         return style.italic ? base.italic() : base
     }
 
+    /// Resolve a tinta que a interface desenha. A cor padrão do modelo é uma
+    /// literal estável para rascunhos e exportação, mas no editor acompanha a
+    /// tinta do tema ativo; as cores escolhidas pela pessoa continuam literais.
+    static func resolvedTextColor(
+        _ hex: String, theme: Theme, resolvesDefaultColorForPresentation: Bool = true
+    ) -> TokenColor {
+        if resolvesDefaultColorForPresentation, hex == BodyStyle.defaultColorHex {
+            return theme.ink
+        }
+        return TokenColor(css: hex) ?? theme.ink
+    }
+
     static func color(_ hex: String, theme: Theme) -> Color {
-        TokenColor(css: hex)?.color ?? theme.ink.color
+        resolvedTextColor(hex, theme: theme).color
     }
 
     /// `transparent` é ausência de realce, não uma cor — devolve nulo para o
@@ -212,9 +224,10 @@ enum GlyphMetrics {
     static func nsFont(
         _ family: FontFamily, size: CGFloat, weight: NSFont.Weight, italic: Bool
     ) -> NSFont {
+        let resolvedSize = size * family.scale
         var font: NSFont
         if let name = family.name, FontRegistry.isAvailable(name),
-           let custom = NSFont(name: name, size: size) {
+           let custom = NSFont(name: name, size: resolvedSize) {
             font = custom
             // `NSFont(name:size:)` devolve a **face regular** da família: o
             // `weight` não entra por aqui. Sem a conversão abaixo o B acendia,
@@ -225,10 +238,10 @@ enum GlyphMetrics {
             //
             // O itálico já fazia isto; é a chamada equivalente para o peso.
             if weight.rawValue >= NSFont.Weight.semibold.rawValue {
-                font = bolded(font, size: size, weight: weight)
+                font = bolded(font, size: resolvedSize, weight: weight)
             }
         } else {
-            font = .systemFont(ofSize: size, weight: weight)
+            font = .systemFont(ofSize: resolvedSize, weight: weight)
         }
         if italic {
             font = NSFontManager.shared.convert(font, toHaveTrait: .italicFontMask)

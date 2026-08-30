@@ -16,19 +16,23 @@ struct ReaderAssistantButton: View {
             : presentation.detail
     }
 
+    private var statusColor: Color {
+        presentation.usesConfiguredProvider ? theme.accent.color : foundationColor
+    }
+
     var body: some View {
         Button(action: action) {
             Image(systemName: presentation.symbol)
                 .font(.system(size: 15, weight: .medium))
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(presentation.isAvailable ? foundationColor : theme.ink4.color)
+                .foregroundStyle(presentation.isAvailable ? statusColor : theme.ink4.color)
                 .frame(width: 32, height: 30)
-                .background(presentation.isAvailable ? foundationColor.opacity(0.08) : theme.surface3.color)
+                .background(presentation.isAvailable ? statusColor.opacity(0.08) : theme.surface3.color)
                 .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
                 .overlay {
                     RoundedRectangle(cornerRadius: theme.radiusSmall)
                         .strokeBorder(
-                            presentation.isAvailable ? foundationColor.opacity(0.34) : theme.line.color,
+                            presentation.isAvailable ? statusColor.opacity(0.34) : theme.line.color,
                             lineWidth: Hairline.thickness(displayScale)
                         )
                 }
@@ -68,6 +72,17 @@ public struct ReaderPane: View {
     /// não uma configuração global.
     let intelligencePresentation: IntelligencePresentation
     let onOpenAssistant: () -> Void
+    let onAskAssistant: ((String, LocalAssistantRequest) async throws -> String)?
+    /// A mensagem visível deve saltar a fila de resumos históricos. O app
+    /// injeta a coordenação real; previews e testes podem deixar a porta vazia.
+    let onMessagePresented: (String) -> Void
+    /// Informa ao shell quando o popover transborda o leitor. O layout de
+    /// três colunas precisa elevar o painel inteiro e suspender as calhas de
+    /// redimensionamento enquanto essa superfície estiver aberta.
+    let onEmailAssistantOpenChange: (Bool) -> Void
+    /// Porta exclusiva do harness offscreen: mantém o painel contextual aberto
+    /// sem automatizar a interface da sessão.
+    let debugEmailAssistantOpen: Bool
     /// Destino injetável do anexo: evita painel do sistema no harness e deixa
     /// a ação testável sem automação da área de trabalho.
     let attachmentSaver: (any AttachmentSaving)?
@@ -87,6 +102,9 @@ public struct ReaderPane: View {
     /// topo (ou por ⌘R). A faixa de baixo ouve o número mudar e se expande —
     /// ver `QuickReplyBand.expandRequest`.
     @State private var pedidoDeResposta = 0
+    @State private var quickReplyRevision = 0
+    @State private var emailAssistantOpen = false
+    @State private var emailAssistantPanelSize = ReaderIntelligencePopover.defaultSize
 
     /// O mesmo retorno com "Desfazer" que a lista desenha. O leitor **posta**
     /// nele e não o desenha: apagar daqui tira a mensagem do leitor, e uma
@@ -110,7 +128,36 @@ public struct ReaderPane: View {
         attachmentSaver: (any AttachmentSaving)? = NativeAttachmentSaver(),
         intelligence: ComposerIntelligenceGenerator? = nil,
         intelligencePresentation: IntelligencePresentation = .available,
-        onOpenAssistant: @escaping () -> Void = {}
+        onOpenAssistant: @escaping () -> Void = {},
+        onAskAssistant: ((String, LocalAssistantRequest) async throws -> String)? = nil,
+        onMessagePresented: @escaping (String) -> Void = { _ in },
+        onEmailAssistantOpenChange: @escaping (Bool) -> Void = { _ in }
+    ) {
+        self.init(
+            store: store,
+            debugEmailAssistantOpen: false,
+            onReply: onReply,
+            attachmentSaver: attachmentSaver,
+            intelligence: intelligence,
+            intelligencePresentation: intelligencePresentation,
+            onOpenAssistant: onOpenAssistant,
+            onAskAssistant: onAskAssistant,
+            onMessagePresented: onMessagePresented,
+            onEmailAssistantOpenChange: onEmailAssistantOpenChange
+        )
+    }
+
+    init(
+        store: MailStore,
+        debugEmailAssistantOpen: Bool,
+        onReply: @escaping (Message) -> Void = { _ in },
+        attachmentSaver: (any AttachmentSaving)? = nil,
+        intelligence: ComposerIntelligenceGenerator? = nil,
+        intelligencePresentation: IntelligencePresentation = .available,
+        onOpenAssistant: @escaping () -> Void = {},
+        onAskAssistant: ((String, LocalAssistantRequest) async throws -> String)? = nil,
+        onMessagePresented: @escaping (String) -> Void = { _ in },
+        onEmailAssistantOpenChange: @escaping (Bool) -> Void = { _ in }
     ) {
         self.store = store
         self.onReply = onReply
@@ -118,6 +165,11 @@ public struct ReaderPane: View {
         self.intelligence = intelligence
         self.intelligencePresentation = intelligencePresentation
         self.onOpenAssistant = onOpenAssistant
+        self.onAskAssistant = onAskAssistant
+        self.onMessagePresented = onMessagePresented
+        self.onEmailAssistantOpenChange = onEmailAssistantOpenChange
+        self.debugEmailAssistantOpen = debugEmailAssistantOpen
+        _emailAssistantOpen = State(initialValue: debugEmailAssistantOpen)
     }
 
     public var body: some View {
@@ -153,6 +205,10 @@ public struct ReaderPane: View {
 
         return VStack(spacing: 0) {
             header(message)
+                // O painel é um overlay dentro do botão, mas quem disputa com
+                // o corpo é o cabeçalho inteiro. Sem elevar este irmão, o
+                // ScrollView posterior pinta por cima e também rouba o clique.
+                .zIndex(emailAssistantOpen ? 100 : 0)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -180,7 +236,11 @@ public struct ReaderPane: View {
                 .uniContextMenu(
                     ContextMenus.reader(
                         message,
-                        accountAddress: store.account(message.accountID)?.address ?? ""
+                        accountAddress: store.account(message.accountID)?.address ?? "",
+                        provider: store.account(message.accountID)?.provider,
+                        folders: store.folders(of: message.accountID),
+                        selectedFolderID: store.selectedFolderID,
+                        currentBucket: store.bucket
                     ),
                     store: store,
                     intercept: { command in
@@ -201,7 +261,7 @@ public struct ReaderPane: View {
                 expandRequest: pedidoDeResposta,
                 intelligence: intelligence
             )
-            .id(message.id)
+            .id("\(message.id)-\(quickReplyRevision)")
         }
         // Abrir uma mensagem sem corpo **é** o pedido de busca. `id:` para que
         // trocar de mensagem cancele a busca da anterior e comece a desta: sem
@@ -211,6 +271,8 @@ public struct ReaderPane: View {
         // Sem porta de corpo (fixtures, e todo teste que não passa uma) isto
         // não faz nada — `loadBodyIfNeeded` sai na primeira guarda.
         .task(id: message.id) {
+            setEmailAssistantOpen(debugEmailAssistantOpen)
+            messageDidAppear(message.id)
             await store.loadBodyIfNeeded(message.id)
         }
         // Voltar a uma conversa é abri-la de novo, com a mais recente aberta.
@@ -222,6 +284,12 @@ public struct ReaderPane: View {
         .onChange(of: conversa?.key) {
             stackState = conversa.flatMap { ConversationStack.carried(stackState, to: $0) }
         }
+    }
+
+    /// Mantém a chamada isolada e diretamente testável sem precisar simular
+    /// seleção ou depender da duração de uma inferência real.
+    func messageDidAppear(_ messageID: String) {
+        onMessagePresented(messageID)
     }
 
     /// Os cartões (resumo, convite) e o corpo de **uma** mensagem — o miolo do
@@ -380,13 +448,18 @@ public struct ReaderPane: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 28)
         .padding(.vertical, 20)
-        .background(theme.surface.color)
-        .hairline(theme.line2, edges: .bottom)
-        .overlay(alignment: .leading) {
-            Rectangle()
-                .fill(accentColor)
-                .frame(width: 3)
+        // A faixa da conta é fundo do cabeçalho, não overlay. Como overlay ela
+        // atravessava o popover que nasce dentro deste conteúdo e desenhava a
+        // linha verde/azul por cima do modal.
+        .background {
+            ZStack(alignment: .leading) {
+                theme.surface.color
+                Rectangle()
+                    .fill(accentColor)
+                    .frame(width: 3)
+            }
         }
+        .hairline(theme.line2, edges: .bottom)
     }
 
     private func accountTint(_ message: Message) -> Color {
@@ -398,6 +471,7 @@ public struct ReaderPane: View {
     private func triageBar(_ message: Message) -> some View {
         let account = store.account(message.accountID)
         let accentColor = accountTint(message)
+        let markers = Self.appliedMarkers(for: message, in: store.folders)
 
         return VStack(alignment: .leading, spacing: 9) {
             // Contexto primeiro: o ícone da IA fica literalmente ao lado do
@@ -406,10 +480,56 @@ public struct ReaderPane: View {
                 TintChip(label: account?.host ?? "", tint: accentColor, emphasized: true)
                 ReaderAssistantButton(
                     presentation: intelligencePresentation,
-                    action: onOpenAssistant
+                    action: {
+                        setEmailAssistantOpen(!emailAssistantOpen)
+                        onOpenAssistant()
+                    }
                 )
+                .overlay(alignment: .topTrailing) {
+                    if emailAssistantOpen {
+                        ReaderIntelligencePopover(
+                            context: assistantContext(message),
+                            isAvailable: intelligencePresentation.isAvailable
+                                && onAskAssistant != nil
+                                && intelligence != nil,
+                            panelSize: $emailAssistantPanelSize,
+                            onAsk: { request in
+                                guard let onAskAssistant else {
+                                    throw OnDeviceTextAssistantError.invalidRequest(
+                                        "O assistente local não foi conectado a esta janela."
+                                    )
+                                }
+                                return try await onAskAssistant(message.id, request)
+                            },
+                            onGenerateReply: { try await generateReply(for: message.id) },
+                            onUseReply: { useGeneratedReply($0, for: message) },
+                            onClose: { setEmailAssistantOpen(false) }
+                        )
+                        .offset(
+                            x: ReaderIntelligencePopover.anchorOffset(
+                                for: emailAssistantPanelSize.width
+                            ),
+                            y: 34
+                        )
+                    }
+                }
+                .zIndex(80)
+                ForEach(Array(markers.prefix(1))) { marker in
+                    TintChip(
+                        label: Self.markerChipLabel(marker.displayName),
+                        tint: theme.ink3.color
+                    )
+                    .help("Marcador aplicado: \(marker.displayName)")
+                }
+                if markers.count > 1 {
+                    TintChip(label: "+\(markers.count - 1)", tint: theme.ink3.color)
+                        .help(markers.dropFirst().map(\.displayName).joined(separator: " · "))
+                }
                 Spacer(minLength: 0)
             }
+            // O popover vive dentro do botão, mas a fileira de triagem é irmã
+            // desta HStack. Elevar apenas o botão não atravessa esse limite.
+            .zIndex(emailAssistantOpen ? 90 : 0)
 
             HStack(spacing: 7) {
                 let triageButtons = [
@@ -429,7 +549,8 @@ public struct ReaderPane: View {
 
                 triageChip(
                     Self.apagarLabel(message), isActive: false, accent: accentColor,
-                    help: ContextMenus.deleteItem(message).help
+                    help: ContextMenus.deleteItem(message).help,
+                    tone: .danger
                 ) {
                     _ = receipts.delete(message, on: store)
                 }
@@ -453,6 +574,80 @@ public struct ReaderPane: View {
         }
     }
 
+    private func assistantContext(_ message: Message) -> LocalAssistantContext {
+        let count = store.conversation(of: message.id)?.count ?? 1
+        return LocalAssistantContext(
+            subject: message.subject,
+            sender: message.from.display,
+            conversationLabel: count > 1 ? "\(count) mensagens" : nil
+        )
+    }
+
+    nonisolated static func appliedMarkers(
+        for message: Message,
+        in folders: [MailFolder]
+    ) -> [MailFolder] {
+        folders.filter {
+            $0.accountID == message.accountID
+                && $0.role == .other
+                && message.folderIDs.contains($0.id)
+        }
+    }
+
+    nonisolated static func markerChipLabel(_ displayName: String) -> String {
+        let leaf = displayName
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .last
+            .map(String.init) ?? displayName
+        guard leaf.count > 18 else { return leaf }
+        return String(leaf.prefix(17)) + "…"
+    }
+
+    private func setEmailAssistantOpen(_ open: Bool) {
+        emailAssistantOpen = open
+        onEmailAssistantOpenChange(open)
+    }
+
+    private func generateReply(for messageID: String) async throws -> String {
+        guard let intelligence else {
+            throw OnDeviceTextAssistantError.invalidRequest(
+                "A inteligência de escrita não foi conectada a esta janela."
+            )
+        }
+        let ids = store.conversation(of: messageID)?.messageIDs ?? [messageID]
+        for id in ids { await store.loadBodyIfNeeded(id) }
+
+        guard let message = store.messages.first(where: { $0.id == messageID }) else {
+            throw OnDeviceTextAssistantError.invalidRequest(
+                "O email selecionado não está mais disponível."
+            )
+        }
+        let context: OnDeviceAssistantMailContext
+        if let conversation = store.conversation(of: messageID), conversation.count > 1 {
+            context = OnDeviceAssistantMailContext(conversation: conversation)
+        } else {
+            context = OnDeviceAssistantMailContext(message: message)
+        }
+        let request = ComposerIntelligenceRequest(
+            action: .createReply,
+            target: .draft,
+            source: store.replyDraft(for: messageID)?.text ?? "",
+            sourceMessage: message,
+            sourceContext: context
+        )
+        return try await ComposerIntelligence.generate(request, using: intelligence).result
+    }
+
+    private func useGeneratedReply(_ text: String, for message: Message) {
+        var draft = store.replyDraft(for: message.id)
+            ?? ReplyDraft(to: [message.from], body: AttributedString())
+        draft.body = AttributedString(text)
+        draft.sentAt = nil
+        store.setReplyDraft(draft, for: message.id)
+        quickReplyRevision += 1
+        pedidoDeResposta += 1
+    }
+
     /// O que o botão escreve — e ele diz a verdade sobre o que vai fazer.
     ///
     /// Na Lixeira, apagar não é mover para a Lixeira: é tirar de lá de vez. É a
@@ -464,6 +659,29 @@ public struct ReaderPane: View {
     /// comportamento, e o teste o afirma sem montar janela.
     nonisolated static func apagarLabel(_ message: Message) -> String {
         message.bucket == .trash ? "Apagar de vez" : "Apagar"
+    }
+
+    /// A ação continua reversível fora da Lixeira, mas não pode parecer igual a
+    /// "Arquivar": magenta suave deixa explícito que ela tira a conversa da
+    /// caixa atual sem transformar uma ida para a Lixeira em botão alarmista.
+    ///
+    /// Estes três tokens vivem juntos porque a cor é semântica da ação, não do
+    /// tema/conta que recebeu a mensagem. O teste renderiza a pastilha com a
+    /// paleta real para impedir que ela volte a ser um botão neutro.
+    nonisolated static func apagarPalette(isDark: Bool) -> ReaderDangerPalette {
+        if isDark {
+            ReaderDangerPalette(
+                ink: TokenColor(css: "#FF9ACC")!,
+                fill: TokenColor(css: "#351024")!,
+                line: TokenColor(css: "#B83C78")!
+            )
+        } else {
+            ReaderDangerPalette(
+                ink: TokenColor(css: "#A3135A")!,
+                fill: TokenColor(css: "#FDE7F2")!,
+                line: TokenColor(css: "#E580B5")!
+            )
+        }
     }
 
     /// A pastilha da fila de triagem, uma só vez.
@@ -479,20 +697,25 @@ public struct ReaderPane: View {
         isActive: Bool,
         accent: Color,
         help: String?,
+        tone: TriageChipTone = .normal,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
+        let danger = Self.apagarPalette(isDark: theme.isDark)
+        let isDanger = tone == .danger
+        return Button(action: action) {
             Text(label)
                 .font(theme.sans.font(size: 11.5, weight: .semibold))
-                .foregroundStyle(isActive ? theme.accentInk.color : theme.ink.color)
+                .foregroundStyle(
+                    isDanger ? danger.ink.color : (isActive ? theme.accentInk.color : theme.ink.color)
+                )
                 .frame(height: 26)
                 .padding(.horizontal, 12)
-                .background(isActive ? theme.accentSoft.color : theme.btn.color)
+                .background(isDanger ? danger.fill.color : (isActive ? theme.accentSoft.color : theme.btn.color))
                 .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
                 .overlay {
                     RoundedRectangle(cornerRadius: theme.radiusSmall)
                         .strokeBorder(
-                            isActive ? accent : theme.btnLine.color,
+                            isDanger ? danger.line.color : (isActive ? accent : theme.btnLine.color),
                             lineWidth: Hairline.thickness(displayScale)
                         )
                 }
@@ -581,7 +804,21 @@ public struct ReaderPane: View {
 
     private func summaryCard(_ summary: String, event: DetectedEvent?, message: Message) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Resumo no dispositivo").capsLabel()
+            HStack(spacing: 8) {
+                Text("TL;DR · neste Mac").capsLabel()
+                Spacer(minLength: 0)
+                if intelligencePresentation.usesConfiguredProvider,
+                   onAskAssistant != nil {
+                    Button("Usar IA configurada") {
+                        setEmailAssistantOpen(true)
+                        onOpenAssistant()
+                    }
+                    .buttonStyle(.plain)
+                    .font(theme.sans.font(size: 10.5, weight: .semibold))
+                    .foregroundStyle(theme.accentInk.color)
+                    .help("Abre o painel para resumir com o provedor e o modelo escolhidos em Configurações.")
+                }
+            }
             Text(summary)
                 .font(theme.serif.font(size: 15))
                 .lineSpacing(8.25)
@@ -1009,7 +1246,7 @@ public struct ReaderPane: View {
         } else {
             switch store.bodyLoad(for: message.id) {
             case .carregando:
-                bodyNote(Self.carregandoCorpo)
+                ReaderSpinnerNote(Self.carregandoCorpo)
             case .falhou(let causa):
                 bodyFailure(causa, message: message)
             case .buscado:
@@ -1193,6 +1430,22 @@ struct ReaderSpinnerNote: View {
         .frame(maxWidth: ReaderPane.readingWidth, alignment: .leading)
         .padding(.horizontal, 28)
     }
+}
+
+/// A intenção visual da pastilha de triagem. O tipo separado impede que a
+/// ação perigosa receba por acidente os mesmos tokens neutros da triagem.
+private enum TriageChipTone {
+    case normal
+    case danger
+}
+
+/// Tokens da ação destrutiva do leitor. Não entram em `Theme`: são semântica
+/// local de uma ação, enquanto o tema continua responsável pela identidade da
+/// conta e pelos controles normais.
+struct ReaderDangerPalette: Sendable, Hashable {
+    let ink: TokenColor
+    let fill: TokenColor
+    let line: TokenColor
 }
 
 /// A coluna de texto plano do leitor.

@@ -57,6 +57,136 @@ public enum SwipeTint: String, Sendable, Hashable, Codable {
 
 // MARK: - Ação
 
+/// Uma referência persistível a uma pasta do provedor.
+///
+/// `MailFolder` é um retrato que também carrega contador de não lidas. A
+/// configuração do gesto precisa só da identidade e do vocabulário necessários
+/// para montar a operação real depois de reiniciar; guardar o contador aqui
+/// transformaria estado de tela em preferência.
+public struct SwipeFolderReference: Sendable, Hashable, Codable, Identifiable {
+    public let id: String
+    public let accountID: String
+    public let serverName: String
+    public let displayName: String
+    public let role: FolderRole
+
+    public init(folder: MailFolder) {
+        id = folder.id
+        accountID = folder.accountID
+        serverName = folder.serverName
+        displayName = folder.displayName
+        role = folder.role
+    }
+
+    public init(
+        id: String,
+        accountID: String,
+        serverName: String,
+        displayName: String,
+        role: FolderRole
+    ) {
+        self.id = id
+        self.accountID = accountID
+        self.serverName = serverName
+        self.displayName = displayName
+        self.role = role
+    }
+
+    public var folder: MailFolder {
+        MailFolder(
+            id: id, accountID: accountID, serverName: serverName,
+            displayName: displayName, role: role
+        )
+    }
+}
+
+/// O destino concreto da ação de arraste "Mover para…".
+///
+/// A configuração é deliberadamente explícita sobre o transporte. IMAP move
+/// entre pastas; Gmail aplica o marcador escolhido e remove `INBOX`. Não há
+/// inferência por nome nem uma lista fechada de provedores: a tela que cria
+/// este valor informa a pasta/marcador real que a conta descobriu.
+public struct SwipeMoveDestination: Sendable, Hashable, Codable, Identifiable {
+    public enum Transport: String, Sendable, Hashable, Codable {
+        case imapFolder
+        case gmailLabelFromInbox
+    }
+
+    public let transport: Transport
+    public let target: SwipeFolderReference
+    /// Obrigatória no Gmail para a operação remover exatamente `INBOX`, e
+    /// ausente no IMAP, onde a origem vem da própria mensagem.
+    public let source: SwipeFolderReference?
+    /// O endereço (ou outro identificador apresentado pela conta) salvo junto
+    /// do destino. Não participa da operação no servidor; serve somente para
+    /// a pessoa diferenciar, por exemplo, dois marcadores chamados “Clientes”.
+    /// Opcional para decodificar escolhas gravadas antes deste campo existir.
+    public let accountLabel: String?
+
+    public var id: String { "\(transport.rawValue):\(target.accountID):\(target.id)" }
+    public var displayName: String { target.displayName }
+    public var accountID: String { target.accountID }
+    public var settingsLabel: String {
+        "\(displayName) · \(accountLabel?.isEmpty == false ? accountLabel! : accountID)"
+    }
+
+    public init(imapFolder folder: MailFolder, accountLabel: String? = nil) {
+        transport = .imapFolder
+        target = SwipeFolderReference(folder: folder)
+        source = nil
+        self.accountLabel = accountLabel
+    }
+
+    /// Cria o gesto Gmail que esvazia a Caixa de entrada ao colocar a
+    /// mensagem no marcador escolhido. Só `INBOX` é uma origem aceitável:
+    /// retirar um marcador qualquer seria uma segunda semântica escondida no
+    /// mesmo controle.
+    public init?(
+        gmailLabel folder: MailFolder,
+        removing inbox: MailFolder,
+        accountLabel: String? = nil
+    ) {
+        guard folder.accountID == inbox.accountID,
+              folder.id != inbox.id,
+              inbox.role == .inbox
+        else { return nil }
+        transport = .gmailLabelFromInbox
+        target = SwipeFolderReference(folder: folder)
+        source = SwipeFolderReference(folder: inbox)
+        self.accountLabel = accountLabel
+    }
+
+    /// A ação só vale para a conta dona e, no Gmail, enquanto a mensagem ainda
+    /// estiver em INBOX. Um gesto que não pode cumprir essa promessa fica
+    /// desabilitado em vez de sumir com a mensagem e não alterar o servidor.
+    public func isNoOp(for message: Message) -> Bool {
+        guard message.accountID == target.accountID else { return true }
+        switch transport {
+        case .imapFolder:
+            return message.folderIDs == [target.id]
+        case .gmailLabelFromInbox:
+            guard let source else { return true }
+            return !message.folderIDs.contains(source.id)
+        }
+    }
+
+    public func command(for message: Message) -> ContextCommand? {
+        guard !isNoOp(for: message) else { return nil }
+        switch transport {
+        case .imapFolder:
+            return .placeMessage(messageID: message.id, folder: target.folder, mode: .move)
+        case .gmailLabelFromInbox:
+            guard let source else { return nil }
+            return .moveGmailMessage(
+                messageID: message.id, from: source.folder, to: target.folder
+            )
+        }
+    }
+
+    public func receiptTitle() -> String { "Movida para \(displayName)" }
+    public func help() -> String { "Mover esta mensagem para \(displayName)" }
+}
+
 /// As ações que uma linha pode oferecer sob o dedo.
 ///
 /// Nenhuma é inventada: as três de triagem são `MailStore.move(_:to:)` e a de
@@ -75,6 +205,10 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
     /// Sinalizar e tirar a sinalização. Como a de leitura, ela é **uma** ação
     /// com dois rótulos: o botão diz o contrário do estado corrente.
     case toggleFlag = "sinal"
+    /// Destino persistido por lado em `SwipeConfiguration`. A ação não entra
+    /// na configuração sem esse destino, portanto uma instalação antiga nunca
+    /// ganha um botão sem operação por causa de uma atualização.
+    case moveToDestination = "mover-destino"
 
     public var id: String { rawValue }
 
@@ -89,7 +223,7 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
         case .later: .later
         case .today: .today
         case .trash: .trash
-        case .toggleRead, .toggleFlag: nil
+        case .toggleRead, .toggleFlag, .moveToDestination: nil
         }
     }
 
@@ -103,6 +237,7 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
         case .today: "Hoje"
         case .trash: "Apagar"
         case .toggleFlag: "Sinalizar / tirar a sinalização"
+        case .moveToDestination: "Mover para pasta ou marcador"
         }
     }
 
@@ -120,6 +255,7 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
         case .today: "Hoje"
         case .trash: "Apagar"
         case .toggleFlag: message.isFlagged ? "Tirar" : "Sinalizar"
+        case .moveToDestination: "Mover"
         }
     }
 
@@ -133,6 +269,7 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
         case .today: "tray.and.arrow.down"
         case .trash: "trash"
         case .toggleFlag: message.isFlagged ? "star.slash" : "star"
+        case .moveToDestination: "folder"
         }
     }
 
@@ -143,7 +280,7 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
     public var tint: SwipeTint {
         switch self {
         case .archive, .trash: .strong
-        case .toggleRead, .toggleFlag, .later, .today: .quiet
+        case .toggleRead, .toggleFlag, .later, .today, .moveToDestination: .quiet
         }
     }
 
@@ -155,13 +292,32 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
     /// caixa corrente, e sumir com uma coluna mudaria a largura do painel de
     /// linha para linha — mas ele não dispara e não pode ser a ação armada.
     public func isNoOp(for message: Message) -> Bool {
+        isNoOp(for: message, destination: nil)
+    }
+
+    /// A variante que conhece o destino persistido do gesto. As ações antigas
+    /// mantêm exatamente a semântica anterior quando o destino é `nil`.
+    public func isNoOp(for message: Message, destination: SwipeMoveDestination?) -> Bool {
+        if self == .moveToDestination {
+            return destination?.isNoOp(for: message) ?? true
+        }
         guard let target else { return false }  // leitura e estrela sempre fazem algo
         return message.bucket == target
     }
 
     /// O que a ação manda fazer. `nil` quando não faria nada.
     public func command(for message: Message) -> ContextCommand? {
-        guard !isNoOp(for: message) else { return nil }
+        command(for: message, destination: nil)
+    }
+
+    public func command(
+        for message: Message,
+        destination: SwipeMoveDestination?
+    ) -> ContextCommand? {
+        if self == .moveToDestination {
+            return destination?.command(for: message)
+        }
+        guard !isNoOp(for: message, destination: destination) else { return nil }
         if let target { return .move(messageID: message.id, to: target) }
         if self == .toggleFlag {
             return .setFlagged(messageID: message.id, isFlagged: !message.isFlagged)
@@ -193,13 +349,24 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
         case .today: "Trazida para hoje"
         case .trash: "Movida para a Lixeira"
         case .toggleFlag: message.isFlagged ? "Sinalização retirada" : "Sinalizada"
+        case .moveToDestination: "Movida"
         }
     }
 
     /// O `help` do botão. Numa ação que não faria nada ele diz o porquê, em vez
     /// de deixar a pessoa clicando num botão calado.
     public func help(for message: Message) -> String {
-        if isNoOp(for: message), let target {
+        help(for: message, destination: nil)
+    }
+
+    public func help(for message: Message, destination: SwipeMoveDestination?) -> String {
+        if self == .moveToDestination {
+            if destination?.isNoOp(for: message) ?? true {
+                return "Escolha uma pasta ou marcador para este gesto"
+            }
+            return destination?.help() ?? "Escolha uma pasta ou marcador para este gesto"
+        }
+        if isNoOp(for: message, destination: destination), let target {
             return "Esta mensagem já está em \(target.label)"
         }
         switch self {
@@ -210,6 +377,8 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
         case .trash: return "Mover esta mensagem para a Lixeira"
         case .toggleFlag:
             return message.isFlagged ? "Tirar a sinalização" : "Sinalizar esta mensagem"
+        case .moveToDestination:
+            return destination?.help() ?? "Escolha uma pasta ou marcador para este gesto"
         }
     }
 }
@@ -225,18 +394,58 @@ public struct SwipeConfiguration: Sendable, Hashable, Codable {
 
     public let leading: [SwipeAction]
     public let trailing: [SwipeAction]
+    /// Os destinos são por conta e por lado; as ações em si continuam globais.
+    /// Assim, “Mover” pode existir em ambos os gestos sem tentar aplicar uma
+    /// pasta da conta A numa mensagem da conta B.
+    public let leadingDestinations: [String: SwipeMoveDestination]
+    public let trailingDestinations: [String: SwipeMoveDestination]
 
-    public init(leading: [SwipeAction], trailing: [SwipeAction]) {
-        self.leading = Self.normalize(leading)
-        self.trailing = Self.normalize(trailing)
+    /// Compatibilidade de fonte para consumidores da versão de um destino por
+    /// lado. Só retorna valor quando há exatamente uma conta configurada —
+    /// escolher uma arbitrária depois que há múltiplas contas seria tão ruim
+    /// quanto o antigo cross-account silencioso.
+    public var leadingDestination: SwipeMoveDestination? {
+        Self.onlyDestination(in: leadingDestinations)
+    }
+    public var trailingDestination: SwipeMoveDestination? {
+        Self.onlyDestination(in: trailingDestinations)
+    }
+
+    public init(
+        leading: [SwipeAction],
+        trailing: [SwipeAction],
+        leadingDestination: SwipeMoveDestination? = nil,
+        trailingDestination: SwipeMoveDestination? = nil,
+        leadingDestinations: [String: SwipeMoveDestination] = [:],
+        trailingDestinations: [String: SwipeMoveDestination] = [:]
+    ) {
+        let leadingDestinations = Self.destinations(
+            leadingDestinations, addingLegacy: leadingDestination
+        )
+        let trailingDestinations = Self.destinations(
+            trailingDestinations, addingLegacy: trailingDestination
+        )
+        let normalizedLeading = Self.normalize(leading, destinations: leadingDestinations)
+        let normalizedTrailing = Self.normalize(trailing, destinations: trailingDestinations)
+        self.leading = normalizedLeading
+        self.trailing = normalizedTrailing
+        self.leadingDestinations = normalizedLeading.contains(.moveToDestination)
+            ? leadingDestinations : [:]
+        self.trailingDestinations = normalizedTrailing.contains(.moveToDestination)
+            ? trailingDestinations : [:]
     }
 
     /// Sem repetição e dentro do teto, preservando a ordem escolhida — a
     /// primeira é a que o arraste longo dispara.
-    static func normalize(_ actions: [SwipeAction]) -> [SwipeAction] {
+    static func normalize(
+        _ actions: [SwipeAction], destinations: [String: SwipeMoveDestination]
+    ) -> [SwipeAction] {
         var seen: Set<SwipeAction> = []
         var out: [SwipeAction] = []
         for action in actions where seen.insert(action).inserted {
+            // Não há destino, não há ação. Isso impede que um array de uma
+            // versão futura, mas sem seu dado associado, crie um gesto mudo.
+            guard action != .moveToDestination || !destinations.isEmpty else { continue }
             out.append(action)
             if out.count == maxPerSide { break }
         }
@@ -245,6 +454,83 @@ public struct SwipeConfiguration: Sendable, Hashable, Codable {
 
     public func actions(on side: SwipeSide) -> [SwipeAction] {
         side == .leading ? leading : trailing
+    }
+
+    public func destination(on side: SwipeSide) -> SwipeMoveDestination? {
+        Self.onlyDestination(in: destinations(on: side))
+    }
+
+    /// Escolhe somente o destino da conta da mensagem. O segundo `guard` é
+    /// defesa de dados corrompidos: nem uma chave de dicionário alterada à mão
+    /// pode fazer o gesto mandar um id de uma conta para outro provedor.
+    public func destination(on side: SwipeSide, for accountID: String) -> SwipeMoveDestination? {
+        guard let destination = destinations(on: side)[accountID],
+              destination.accountID == accountID
+        else { return nil }
+        return destination
+    }
+
+    /// Destinos efetivos do lado, indexados pelo `Account.id` real.
+    public func destinations(on side: SwipeSide) -> [String: SwipeMoveDestination] {
+        side == .leading ? leadingDestinations : trailingDestinations
+    }
+
+    private static func destinations(
+        _ destinations: [String: SwipeMoveDestination],
+        addingLegacy legacy: SwipeMoveDestination?
+    ) -> [String: SwipeMoveDestination] {
+        var valid = destinations.filter { accountID, destination in
+            accountID == destination.accountID
+        }
+        if let legacy { valid[legacy.accountID] = legacy }
+        return valid
+    }
+
+    private static func onlyDestination(
+        in destinations: [String: SwipeMoveDestination]
+    ) -> SwipeMoveDestination? {
+        guard destinations.count == 1 else { return nil }
+        return destinations.values.first
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case leading
+        case trailing
+        case leadingDestination
+        case trailingDestination
+        case leadingDestinations
+        case trailingDestinations
+    }
+
+    /// O decodificador aceita o formato anterior de um destino por lado. A
+    /// leitura normaliza esse valor em uma entrada cujo id é a conta contida
+    /// nele; nunca o replica para as demais contas do perfil.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            leading: try container.decodeIfPresent([SwipeAction].self, forKey: .leading) ?? [],
+            trailing: try container.decodeIfPresent([SwipeAction].self, forKey: .trailing) ?? [],
+            leadingDestination: try container.decodeIfPresent(
+                SwipeMoveDestination.self, forKey: .leadingDestination
+            ),
+            trailingDestination: try container.decodeIfPresent(
+                SwipeMoveDestination.self, forKey: .trailingDestination
+            ),
+            leadingDestinations: try container.decodeIfPresent(
+                [String: SwipeMoveDestination].self, forKey: .leadingDestinations
+            ) ?? [:],
+            trailingDestinations: try container.decodeIfPresent(
+                [String: SwipeMoveDestination].self, forKey: .trailingDestinations
+            ) ?? [:]
+        )
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(leading, forKey: .leading)
+        try container.encode(trailing, forKey: .trailing)
+        try container.encode(leadingDestinations, forKey: .leadingDestinations)
+        try container.encode(trailingDestinations, forKey: .trailingDestinations)
     }
 
     /// O padrão do marco: duas de cada lado, todas com caminho real no
@@ -450,7 +736,10 @@ public enum SwipeGesture {
         let magnitude = max(0, side == .leading ? translation.width : -translation.width)
 
         let revealed = SwipeMetrics.reveal(magnitude: magnitude, actions: actions.count)
-        let armed = actions.first { !$0.isNoOp(for: message) }
+        let destination = configuration.destination(on: side, for: message.accountID)
+        let armed = actions.first {
+            !$0.isNoOp(for: message, destination: destination)
+        }
 
         return SwipeResolution(
             side: side,
@@ -623,7 +912,7 @@ public struct SwipeReceipt: Sendable, Hashable, Identifiable {
     /// Uma função para os dois casos: com `count == 1` ela devolve exatamente a
     /// frase de antes desta tarefa, sem a contagem — a linha de uma mensagem só
     /// não ganha um "· 1 mensagens".
-    static func note(
+    public static func note(
         _ head: String,
         message: Message,
         count: Int,
@@ -660,6 +949,12 @@ public struct SwipeReceipt: Sendable, Hashable, Identifiable {
 public final class SwipeSettingsStore {
     private static let leadingKey = "okamiuni.swipe.leading"
     private static let trailingKey = "okamiuni.swipe.trailing"
+    /// Formato anterior: uma escolha global por lado. É lido somente para
+    /// migrar a conta que está dentro do próprio destino.
+    private static let leadingDestinationKey = "okamiuni.swipe.leading.destination"
+    private static let trailingDestinationKey = "okamiuni.swipe.trailing.destination"
+    private static let leadingDestinationsKey = "okamiuni.swipe.leading.destinations"
+    private static let trailingDestinationsKey = "okamiuni.swipe.trailing.destinations"
 
     public private(set) var configuration: SwipeConfiguration
 
@@ -667,10 +962,29 @@ public final class SwipeSettingsStore {
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        let legacyLeading = Self.readDestination(defaults, Self.leadingDestinationKey)
+        let legacyTrailing = Self.readDestination(defaults, Self.trailingDestinationKey)
+        let persistedLeading = Self.readDestinations(defaults, Self.leadingDestinationsKey)
+        let persistedTrailing = Self.readDestinations(defaults, Self.trailingDestinationsKey)
+        let leadingDestinations = persistedLeading ?? Self.destinations(from: legacyLeading)
+        let trailingDestinations = persistedTrailing ?? Self.destinations(from: legacyTrailing)
         self.configuration = SwipeConfiguration(
             leading: Self.read(defaults, Self.leadingKey) ?? SwipeConfiguration.default.leading,
-            trailing: Self.read(defaults, Self.trailingKey) ?? SwipeConfiguration.default.trailing
+            trailing: Self.read(defaults, Self.trailingKey) ?? SwipeConfiguration.default.trailing,
+            leadingDestinations: leadingDestinations,
+            trailingDestinations: trailingDestinations
         )
+        // Migração de preferência, não de conta: o destino global antigo vira
+        // uma única entrada pelo `accountID` que ele já carregava. Não há
+        // fallback para as outras contas e a chave antiga some em seguida.
+        if persistedLeading == nil, legacyLeading != nil {
+            Self.write(leadingDestinations, to: Self.leadingDestinationsKey, defaults: defaults)
+            defaults.removeObject(forKey: Self.leadingDestinationKey)
+        }
+        if persistedTrailing == nil, legacyTrailing != nil {
+            Self.write(trailingDestinations, to: Self.trailingDestinationsKey, defaults: defaults)
+            defaults.removeObject(forKey: Self.trailingDestinationKey)
+        }
     }
 
     /// `nil` quer dizer "não há escolha gravada, vale o padrão".
@@ -689,18 +1003,137 @@ public final class SwipeSettingsStore {
         return decoded
     }
 
+    /// Destino inválido é tratado como ausência. A lista de ações é então
+    /// normalizada e o gesto especial some, sem afetar as ações antigas da
+    /// pessoa nem abrir uma rota para um comando que não se sabe executar.
+    private static func readDestination(
+        _ defaults: UserDefaults, _ key: String
+    ) -> SwipeMoveDestination? {
+        guard let data = defaults.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode(SwipeMoveDestination.self, from: data)
+    }
+
+    private static func readDestinations(
+        _ defaults: UserDefaults, _ key: String
+    ) -> [String: SwipeMoveDestination]? {
+        guard let data = defaults.data(forKey: key),
+              let decoded = try? JSONDecoder().decode([String: SwipeMoveDestination].self, from: data)
+        else { return nil }
+        return decoded.filter { accountID, destination in accountID == destination.accountID }
+    }
+
+    private static func destinations(
+        from destination: SwipeMoveDestination?
+    ) -> [String: SwipeMoveDestination] {
+        guard let destination else { return [:] }
+        return [destination.accountID: destination]
+    }
+
     public func select(_ configuration: SwipeConfiguration) {
         self.configuration = configuration
         defaults.set(configuration.leading.map(\.rawValue), forKey: Self.leadingKey)
         defaults.set(configuration.trailing.map(\.rawValue), forKey: Self.trailingKey)
+        Self.write(configuration.leadingDestinations, to: Self.leadingDestinationsKey, defaults: defaults)
+        Self.write(configuration.trailingDestinations, to: Self.trailingDestinationsKey, defaults: defaults)
+        defaults.removeObject(forKey: Self.leadingDestinationKey)
+        defaults.removeObject(forKey: Self.trailingDestinationKey)
     }
 
     public func setActions(_ actions: [SwipeAction], on side: SwipeSide) {
         select(
             side == .leading
-                ? SwipeConfiguration(leading: actions, trailing: configuration.trailing)
-                : SwipeConfiguration(leading: configuration.leading, trailing: actions)
+                ? SwipeConfiguration(
+                    leading: actions, trailing: configuration.trailing,
+                    // Tirar "Mover" da lista também tira seu dado associado;
+                    // deixar um destino órfão faria ele reaparecer depois de
+                    // uma escolha futura sem a pessoa tê-lo selecionado.
+                    leadingDestinations: actions.contains(.moveToDestination)
+                        ? configuration.leadingDestinations : [:],
+                    trailingDestinations: configuration.trailingDestinations
+                )
+                : SwipeConfiguration(
+                    leading: configuration.leading, trailing: actions,
+                    leadingDestinations: configuration.leadingDestinations,
+                    trailingDestinations: actions.contains(.moveToDestination)
+                        ? configuration.trailingDestinations : [:]
+                )
         )
+    }
+
+    /// Configura ou remove o gesto "Mover para…" de um lado. A escolha
+    /// guarda a ação e o destino como uma unidade: remover o destino remove a
+    /// ação, e escolher um destino garante que ela está na lista sem apagar a
+    /// ordem das demais colunas.
+    /// - Returns: `false` quando o lado já alcançou o teto de colunas e ainda
+    ///   não tem a ação Mover. Assim a tela pode pedir que a pessoa libere uma
+    ///   vaga, sem salvar um destino que nunca apareceria no gesto.
+    @discardableResult
+    public func setMoveDestination(_ destination: SwipeMoveDestination?, on side: SwipeSide) -> Bool {
+        if let destination {
+            return setMoveDestination(destination, on: side, for: destination.accountID)
+        }
+        // A API anterior não tinha como expressar de qual conta remover. Para
+        // não apagar decisões de várias contas pelo controle legado, ela só
+        // remove quando há uma única escolha naquele lado.
+        guard let existing = configuration.destination(on: side) else { return false }
+        return setMoveDestination(nil, on: side, for: existing.accountID)
+    }
+
+    /// Configura ou remove o destino de uma conta num dos lados. A lista de
+    /// ações segue global: só o dado associado a Mover é por conta.
+    @discardableResult
+    public func setMoveDestination(
+        _ destination: SwipeMoveDestination?,
+        on side: SwipeSide,
+        for accountID: String
+    ) -> Bool {
+        guard destination?.accountID == nil || destination?.accountID == accountID else { return false }
+        var leading = configuration.leading
+        var trailing = configuration.trailing
+        var leadingDestinations = configuration.leadingDestinations
+        var trailingDestinations = configuration.trailingDestinations
+
+        switch side {
+        case .leading:
+            guard destination == nil
+                || leading.contains(.moveToDestination)
+                || leading.count < SwipeConfiguration.maxPerSide
+            else { return false }
+            if let destination { leadingDestinations[accountID] = destination }
+            else { leadingDestinations.removeValue(forKey: accountID) }
+            leading = Self.actions(leading, hasMoveDestinations: !leadingDestinations.isEmpty)
+        case .trailing:
+            guard destination == nil
+                || trailing.contains(.moveToDestination)
+                || trailing.count < SwipeConfiguration.maxPerSide
+            else { return false }
+            if let destination { trailingDestinations[accountID] = destination }
+            else { trailingDestinations.removeValue(forKey: accountID) }
+            trailing = Self.actions(trailing, hasMoveDestinations: !trailingDestinations.isEmpty)
+        }
+        select(SwipeConfiguration(
+            leading: leading, trailing: trailing,
+            leadingDestinations: leadingDestinations, trailingDestinations: trailingDestinations
+        ))
+        return true
+    }
+
+    private static func actions(
+        _ actions: [SwipeAction], hasMoveDestinations: Bool
+    ) -> [SwipeAction] {
+        guard hasMoveDestinations else { return actions.filter { $0 != .moveToDestination } }
+        return actions.contains(.moveToDestination) ? actions : actions + [.moveToDestination]
+    }
+
+    private static func write(
+        _ destinations: [String: SwipeMoveDestination], to key: String, defaults: UserDefaults
+    ) {
+        guard !destinations.isEmpty else {
+            defaults.removeObject(forKey: key)
+            return
+        }
+        guard let data = try? JSONEncoder().encode(destinations) else { return }
+        defaults.set(data, forKey: key)
     }
 
     /// Volta ao padrão **apagando** as chaves, para o estado voltar a ser "nunca
@@ -709,6 +1142,10 @@ public final class SwipeSettingsStore {
     public func resetToDefault() {
         defaults.removeObject(forKey: Self.leadingKey)
         defaults.removeObject(forKey: Self.trailingKey)
+        defaults.removeObject(forKey: Self.leadingDestinationKey)
+        defaults.removeObject(forKey: Self.trailingDestinationKey)
+        defaults.removeObject(forKey: Self.leadingDestinationsKey)
+        defaults.removeObject(forKey: Self.trailingDestinationsKey)
         configuration = .default
     }
 }

@@ -151,6 +151,10 @@ public struct Message: Sendable, Hashable, Identifiable {
     public let summary: String?
     public let detectedEvent: DetectedEvent?
 
+    /// A intenção primária detectada para a mensagem. `nil` enquanto a saída
+    /// estruturada ainda não trouxe uma categoria válida.
+    public let category: MailCategory?
+
     /// As respostas de um toque que o design oferece por mensagem —
     /// `replyHints: ['Confirmar quinta 15h', 'Pedir mais um dia']`. Vazio é
     /// legítimo: no design a newsletter e o recibo não têm nenhuma.
@@ -229,6 +233,7 @@ public struct Message: Sendable, Hashable, Identifiable {
         subject: String, snippet: String, body: [String],
         tags: [Tag], bucket: TriageBucket, isRead: Bool,
         summary: String?, detectedEvent: DetectedEvent?,
+        category: MailCategory? = nil,
         dayOffset: Int = 0, replyHints: [String] = [],
         to: [Contact] = [], cc: [Contact] = [], isFlagged: Bool = false,
         serverID: String? = nil, uidValidity: Int64? = nil,
@@ -263,6 +268,7 @@ public struct Message: Sendable, Hashable, Identifiable {
         self.isRead = isRead
         self.summary = summary
         self.detectedEvent = detectedEvent
+        self.category = category
     }
 }
 
@@ -356,6 +362,11 @@ extension Message {
         copy(body: body, bodyHTML: html, calendarICS: calendarICS, attachments: attachments)
     }
 
+    /// A mesma mensagem em outras pastas/rótulos do provedor.
+    public func withFolderIDs(_ folderIDs: [String]) -> Message {
+        copy(folderIDs: folderIDs)
+    }
+
     /// O único lugar que reconstrói uma `Message`.
     ///
     /// Cada campo novo com default no `init` é uma armadilha a mais para quem
@@ -370,13 +381,14 @@ extension Message {
         body: [String]? = nil,
         bodyHTML: String?? = nil,
         calendarICS: String?? = nil,
-        attachments: [MailAttachment]? = nil
+        attachments: [MailAttachment]? = nil,
+        folderIDs: [String]? = nil
     ) -> Message {
         Message(
             id: id, accountID: accountID, from: from, receivedAt: receivedAt,
             subject: subject, snippet: snippet, body: body ?? self.body, tags: tags,
             bucket: bucket ?? self.bucket, isRead: isRead ?? self.isRead,
-            summary: summary, detectedEvent: detectedEvent,
+            summary: summary, detectedEvent: detectedEvent, category: category,
             dayOffset: dayOffset, replyHints: replyHints,
             to: to, cc: cc, isFlagged: isFlagged ?? self.isFlagged,
             serverID: serverID, uidValidity: uidValidity,
@@ -393,7 +405,8 @@ extension Message {
             // da pasta do provedor em que ela está, e esquecê-la aqui **compila**
             // — a mensagem sumiria da pasta aberta no instante em que alguém a
             // marcasse como lida.
-            folderIDs: folderIDs, attachments: attachments ?? self.attachments
+            folderIDs: folderIDs ?? self.folderIDs,
+            attachments: attachments ?? self.attachments
         )
     }
 

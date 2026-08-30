@@ -1,6 +1,8 @@
 import AppKit
 import Testing
 import CoreGraphics
+import SwiftUI
+import UNIDesign
 @testable import UNIShell
 
 /// A barra superior é o que o dono do projeto mais olha, e o que ele já
@@ -59,6 +61,71 @@ struct WindowChromeLayoutTests {
         #expect(WindowChrome.controlOrder.contains(.search))
     }
 
+    @Test("a barra usa o lockup oficial completo nos dois temas")
+    @MainActor
+    func fullBrandLockup() {
+        #expect(WindowChrome.lockupAssetName(isDark: false) == "uni-lockup-light")
+        #expect(WindowChrome.lockupAssetName(isDark: true) == "uni-lockup-dark")
+        #expect(WindowChrome.lockupSize == CGSize(width: 138, height: 38))
+        #expect(WindowChrome.lockupSize.height <= WindowChrome.height)
+    }
+
+    @Test("o lockup completo não corta a busca nem os controles na janela compacta")
+    @MainActor
+    func fullLockupFitsSupportedWidths() throws {
+        // O catálogo pertence ao bundle do app, não ao pacote UNIShell. Para
+        // fotografar a View de produção no teste offscreen, registra o mesmo
+        // PNG oficial no cache nomeado do AppKit durante este caso apenas.
+        var repositoryRoot = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { repositoryRoot.deleteLastPathComponent() }
+        let assetURL = repositoryRoot.appending(
+            path: "App/Resources/Assets.xcassets/uni-lockup-light.imageset/uni-lockup-light.png"
+        )
+        let lockupImage = try #require(NSImage(contentsOf: assetURL))
+        let assetName = NSImage.Name(WindowChrome.lockupAssetName(isDark: false))
+        #expect(lockupImage.setName(assetName))
+        defer { lockupImage.setName(nil) }
+
+        for width in [CGFloat(860), 1_200, 1_440] {
+            let recorder = ChromeFrameRecorder()
+            let chrome = WindowChrome(
+                workspace: .constant(.mail),
+                query: .constant(""),
+                accountCount: 3,
+                onToggleSidebar: {},
+                onToggleAgenda: {}
+            )
+            .environment(ThemeStore())
+            .onPreferenceChange(ChromeControlFrames.self) { frames in
+                MainActor.assumeIsolated { recorder.frames = frames }
+            }
+
+            _ = try #require(Render.snapshot(
+                chrome,
+                named: "window-chrome-lockup-\(Int(width))",
+                size: CGSize(width: width, height: WindowChrome.height),
+                theme: .tinta
+            ))
+
+            let frames = recorder.frames.sorted { $0.minX < $1.minX }
+            #expect(frames.count == WindowChrome.controlOrder.count)
+            guard frames.count == WindowChrome.controlOrder.count else { continue }
+
+            let lockup = frames[1]
+            let search = frames[2]
+            let rightEdge = try #require(frames.last?.maxX)
+            #expect(abs(lockup.width - WindowChrome.lockupSize.width) < 0.5)
+            #expect(abs(lockup.height - WindowChrome.lockupSize.height) < 0.5)
+            #expect(search.width >= WindowChrome.searchMinimumWidth)
+            #expect(rightEdge > width - 13)
+            #expect(rightEdge <= width - 11)
+
+            for pair in zip(frames, frames.dropFirst()) {
+                #expect(pair.0.maxX <= pair.1.minX)
+            }
+        }
+    }
+
     // MARK: alinhamento vertical
 
     /// O macOS centra os semáforos na barra de título de 32pt que reserva mesmo
@@ -79,20 +146,17 @@ struct WindowChromeLayoutTests {
         #expect(TrafficLightLayout.centerFromTop(barHeight: 64, buttonHeight: 14) == 22)
     }
 
-    /// Duas literais independentes que têm de se encontrar: a linha média que a
-    /// barra usa para os controles dela (`WindowChrome.centerY`) e a que a conta
-    /// do semáforo produz a partir da altura da barra.
-    @Test("o semáforo cai na mesma linha média que os nossos controles")
+    /// Os semáforos ficam na linha nativa; a fileira de controles desce para o
+    /// centro da toolbar e ganha a folga superior pedida pelo design.
+    @Test("os controles têm respiro no centro da toolbar")
     func trafficLightMeetsOurControls() {
-        #expect(WindowChrome.centerY == 22)
+        #expect(WindowChrome.centerY == WindowChrome.height / 2)
         #expect(WindowChrome.height == 64)
         let semaphore = TrafficLightLayout.centerFromTop(
             barHeight: WindowChrome.height, buttonHeight: 14
         )
-        #expect(
-            semaphore == WindowChrome.centerY,
-            "semáforo em y=\(semaphore), nossos controles em y=\(WindowChrome.centerY)"
-        )
+        #expect(WindowChrome.centerY > semaphore)
+        #expect(WindowChrome.centerY - 19 >= 12)
     }
 
     /// O semáforo nativo nasce com centro em 16 numa barra de título comum.
@@ -148,6 +212,11 @@ struct WindowChromeLayoutTests {
     func containerFollowsTheWindow(size: CGSize, expected: CGRect) {
         #expect(TrafficLightLayout.containerFrame(windowSize: size, barHeight: 64) == expected)
     }
+}
+
+@MainActor
+private final class ChromeFrameRecorder {
+    var frames: [CGRect] = []
 }
 
 @Suite("Duplo clique na barra")

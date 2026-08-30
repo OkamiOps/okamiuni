@@ -80,6 +80,7 @@ struct ConversationStackClickTests {
             bodyPort: porta
         )
         await store.load()
+        store.select(bucket: .all)
         store.select(message: "c")
         return store
     }

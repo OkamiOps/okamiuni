@@ -9,8 +9,8 @@ Baixado em 2026-08-26.
 
 | Arquivo | O quê |
 |---|---|
-| `OkamiUNI - Mail + Agenda.dc.html` | Protótipo completo (fonte da verdade: cores, espaçamentos, tipografia, estados) |
-| `tokens.json` | 26 temas extraídos + tokens base |
+| `design/tokens.json` | Fonte canônica estruturada dos valores de cor e tokens do tema (26 temas + fallback `base`) |
+| `OkamiUNI - Mail + Agenda.dc.html` | Referência visual do protótipo; fornece nomes, notas, estados e proporções para conferência |
 | `assets/uni-lockup-light.png` | Lockup da marca (tema claro) |
 
 Assets ainda não baixados do projeto: `uni-lockup-dark.png`, `uni-mark-light.png`, `uni-mark-dark.png`.
@@ -28,16 +28,25 @@ Janela principal: **1440×916**, chrome de macOS (semáforo), barra de 58px.
 
 ## Sistema de temas
 
-26 temas, cada um definindo os mesmos 18 tokens:
+São 26 temas. Cada tema resolve os mesmos **29 tokens**: **19 tokens visuais
+por tema** e **10 tokens de tipografia/métrica** vindos do bloco `base` quando
+o tema não os sobrescreve.
 
 `--paper --surface --surface2 --surface3` · superfícies
 `--ink --ink2 --ink3 --ink4` · texto
 `--line --line2` · divisórias
-`--accent --accent-ink --accent-soft --accent-line` · destaque
+`--accent --accent-ink --accent-soft --accent-line --on-accent` · destaque e tinta sobre destaque
 `--btn --btn-line --btn-shadow --shadow` · controles
 
-Tokens base (comuns): `--serif` (Newsreader), `--sans` (SF Pro), `--mono` (IBM Plex Mono),
-`--r2` 8px, `--r3` 10px, `--caps` 0.12em, `--rowpad`, `--subj-weight`, `--subj-size`, `--body-font`.
+Tokens base de tipografia/métrica (10): `--serif` (Newsreader), `--sans` (SF Pro),
+`--mono` (IBM Plex Mono), `--r2` 8px, `--r3` 10px, `--caps` 0.12em,
+`--rowpad`, `--subj-weight`, `--subj-size`, `--body-font`. `--on-accent` também
+existe no `base` como fallback de cor; temas que precisam de tinta escura sobre
+o destaque o sobrescrevem.
+
+`design/tokens.json` é a fonte canônica estruturada das cores e dos tokens. O HTML é
+referência visual e de nomes/notas; não é a fonte estruturada dos valores de
+cor.
 
 Temas: tinta, linho, barro, noite, grafite, okami, brutal, vapor, papel, neon, clinico,
 nexus, sinal, aura, whitex, blackbox, magenta, neural, corsa, corsaluz, brutalnoite,

@@ -16,7 +16,12 @@ public struct AccountRecord: Codable, FetchableRecord, PersistableRecord, Sendab
     public var host: String
     public var tintLightHex: String
     public var tintDarkHex: String
+    /// Texto legado, mantido em sincronia com `signatureJSON.plainText` para
+    /// bancos/consumidores que ainda não conhecem assinatura estruturada.
     public var signature: String
+    /// A representação rica aditiva introduzida na v12. `nil` significa que a
+    /// instalação ainda tem apenas o texto legado em `signature`.
+    public var signatureJSON: String?
     public var imapHost: String?
     public var imapPort: Int?
     public var imapSecurity: String?
@@ -46,7 +51,8 @@ public struct AccountRecord: Codable, FetchableRecord, PersistableRecord, Sendab
         host = account.host
         tintLightHex = account.tintLightHex
         tintDarkHex = account.tintDarkHex
-        signature = account.signature
+        signature = account.emailSignature.plainText
+        signatureJSON = Self.encodeSignature(account.emailSignature)
         imapHost = account.imap?.host
         imapPort = account.imap?.port
         imapSecurity = account.imap?.security.rawValue
@@ -69,14 +75,38 @@ public struct AccountRecord: Codable, FetchableRecord, PersistableRecord, Sendab
             else { return nil }
             return ImapEndpoint(host: imapHost, port: imapPort, security: security)
         }()
+        let richSignature = signatureJSON.flatMap(Self.decodeSignature)
+            ?? EmailSignature(legacyText: signature)
         return Account(
             id: id, address: address, displayName: displayName,
             provider: Account.Provider(rawValue: provider) ?? .imap,
             host: host, tintLightHex: tintLightHex, tintDarkHex: tintDarkHex,
-            signature: signature, imap: endpoint,
+            signature: richSignature.plainText, emailSignature: richSignature, imap: endpoint,
             state: Account.State(rawValue: state) ?? .ativa,
             lastSyncedAt: lastSyncedAt
         )
+    }
+
+    /// O lugar único que mantém as duas colunas compatíveis durante a
+    /// transição. Escrever o JSON sem atualizar `signature` faria uma versão
+    /// anterior perder o fallback em texto; fazer o oposto perderia o HTML e
+    /// as imagens locais na próxima abertura.
+    public var emailSignature: EmailSignature {
+        get { signatureJSON.flatMap(Self.decodeSignature) ?? EmailSignature(legacyText: signature) }
+        set {
+            signature = newValue.plainText
+            signatureJSON = Self.encodeSignature(newValue)
+        }
+    }
+
+    private static func encodeSignature(_ signature: EmailSignature) -> String? {
+        guard let data = try? JSONEncoder().encode(signature) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private static func decodeSignature(_ value: String) -> EmailSignature? {
+        guard let data = value.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(EmailSignature.self, from: data)
     }
 }
 
@@ -180,6 +210,10 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
     public var summary: String?
     /// O compromisso que o app achou dentro do corpo, se achou algum.
     public var detectedEventJSON: String?
+    /// A categoria fechada da análise local, como o `rawValue` de
+    /// `MailCategory`. Nulo mantém compatibilidade com mensagens sem resposta
+    /// válida do modelo e com bancos anteriores à v13.
+    public var category: String?
     /// As sugestões de resposta de um toque. Sem esta coluna, a faixa de
     /// sugestões da mensagem reaberta vem sempre vazia, mensagem nenhuma
     /// tendo sugestão nenhuma — o cartão de resumo do leitor depende disto.
@@ -235,6 +269,7 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
         tagsJSON = Self.encodeTags(message.tags)
         summary = message.summary
         detectedEventJSON = Self.encodeDetectedEvent(message.detectedEvent)
+        category = message.category?.rawValue
         replyHintsJSON = Self.encodeStrings(message.replyHints)
         rfcMessageID = message.rfcMessageID
         referencesJSON = Self.encodeStrings(message.references)
@@ -260,6 +295,7 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
             subject: subject, snippet: snippet, body: body,
             tags: Self.decodeTags(tagsJSON), bucket: TriageBucket(rawValue: bucket) ?? .archived,
             isRead: isRead, summary: summary, detectedEvent: Self.decodeDetectedEvent(detectedEventJSON),
+            category: category.flatMap(MailCategory.init(rawValue:)),
             dayOffset: dayOffset, replyHints: Self.decodeStrings(replyHintsJSON),
             to: Self.decode(toJSON), cc: Self.decode(ccJSON),
             isFlagged: isFlagged,
@@ -297,7 +333,7 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
         return fio.map { Contact(name: $0.name, address: $0.address) }
     }
 
-    private static func encodeStrings(_ items: [String]) -> String {
+    static func encodeStrings(_ items: [String]) -> String {
         guard let dados = try? JSONEncoder().encode(items),
               let texto = String(data: dados, encoding: .utf8) else { return "[]" }
         return texto

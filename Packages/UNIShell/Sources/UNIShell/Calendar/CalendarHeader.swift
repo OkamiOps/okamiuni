@@ -26,6 +26,7 @@ struct CalendarHeader: View {
     let onGoToday: () -> Void
     let onTogglePicker: () -> Void
     let onPickDay: (Int) -> Void
+    var onCreate: () -> Void = {}
 
     var body: some View {
         HStack(spacing: 14) {
@@ -51,6 +52,21 @@ struct CalendarHeader: View {
                 .fixedSize()
 
             Spacer(minLength: 0)
+
+            CalendarButton(
+                appearance: .strong,
+                horizontalPadding: 11,
+                action: onCreate
+            ) {
+                HStack(spacing: 5) {
+                    Image(systemName: "plus")
+                        .font(theme.sans.font(size: 11, weight: .semibold))
+                    Text("Novo compromisso")
+                        .font(theme.sans.font(size: 11.5, weight: .semibold))
+                }
+            }
+            .help("Adicionar um compromisso à agenda")
+            .accessibilityLabel("Novo compromisso")
 
             accountLegend
         }

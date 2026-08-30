@@ -308,6 +308,33 @@ struct ComposerJustifyTests {
 @MainActor
 struct ComposerBridgeTests {
 
+    @Test("a tinta padrão segue o tema só no desenho")
+    func defaultColorIsThemedOnlyForPresentation() throws {
+        let dark = try #require(Theme.all.filter(\.isDark).first)
+        let explicit = try #require(TokenColor(css: "#8E2020"))
+
+        #expect(
+            ComposerFormatting.resolvedTextColor(BodyStyle.defaultColorHex, theme: dark) == dark.ink
+        )
+        #expect(
+            ComposerTextKit.nsColor(BodyStyle.defaultColorHex, theme: dark)
+                .isEqual(dark.ink.nsColor)
+        )
+        #expect(
+            ComposerFormatting.resolvedTextColor("#8E2020", theme: dark) == explicit
+        )
+        #expect(
+            ComposerTextKit.nsColor("#8E2020", theme: dark).isEqual(explicit.nsColor)
+        )
+
+        let exported = ComposerTextKit.nsColor(
+            BodyStyle.defaultColorHex,
+            theme: dark,
+            resolvesDefaultColorForPresentation: false
+        )
+        #expect(exported.isEqual(TokenColor(css: BodyStyle.defaultColorHex)?.nsColor))
+    }
+
     /// O que a declaração de escopo fazia no `TextEditor`: impedir que o editor
     /// jogasse fora o `BodyStyleAttribute`, que é a única coisa que sabe dizer
     /// se um trecho está em negrito. Com o `NSTextView` quem garante isso é a

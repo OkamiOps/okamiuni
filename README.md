@@ -75,7 +75,7 @@ Cliente de email é o app que mais horas passa aberto — e o que menos respeito
 | ✉️ **Envio** | RFC 5322 de verdade (RFC 2047 no assunto, multipart texto+HTML, Message-ID próprio); Gmail pela API, IMAP por SMTP (EHLO→STARTTLS→AUTH, dot-stuffing) + APPEND em Enviadas; **pela fila**: offline funciona, greylisting re-tenta, endereço recusado explica, timeout ambíguo checa antes de reenviar |
 | 🗂️ **Pastas do provedor** | LIST com special-use (RFC 6154) e labels do Gmail na barra lateral, expansíveis por conta, não-lidas por pasta; destino de move que não existe é **criado** no servidor e a operação repete |
 | 📅 **Agenda que lembra** | Convite (`text/calendar`) vira cartão com organizador, participantes, local limpo, link da reunião e "Colocar na agenda" — dedup por UID (50 encaminhamentos = 1 evento), "Convite atualizado" **atualiza**. Compromisso criado sobrevive ao reinício; "Entrar" abre a reunião; a mensagem de origem se lê dentro do compromisso |
-| 👥 **Contatos reais** | O autocomplete sugere quem troca email com as contas conectadas, por frequência e recência — as fixtures só ficam para quem não conectou nada |
+| 👥 **Contatos reais** | O autocomplete sugere para quem você já escreveu, por frequência e recência — newsletters e outros remetentes recebidos não viram contatos; as fixtures só ficam para quem não conectou nada |
 
 ### Marco 4 — agenda real, RSVP e anexos
 

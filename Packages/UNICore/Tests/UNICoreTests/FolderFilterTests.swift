@@ -183,6 +183,90 @@ struct FolderFilterTests {
         #expect(store.selectedFolderID == "c1/Faturas")
     }
 
+    // MARK: Ações do menu
+
+    @Test("Mover para pasta IMAP troca a pertinência e a projeção local")
+    func moveParaPasta() async throws {
+        let store = await store()
+        let message = try #require(store.messages.first { $0.id == "m3" })
+        let target = try #require(store.folders.first { $0.id == "c1/Faturas" })
+
+        store.place(message, in: target, mode: .move)
+
+        let updated = try #require(store.messages.first { $0.id == "m3" })
+        #expect(updated.folderIDs == ["c1/Faturas"])
+        #expect(updated.bucket == .archived)
+    }
+
+    @Test("Aplicar marcador Gmail preserva os marcadores existentes")
+    func aplicaMarcador() async throws {
+        let store = await store()
+        let message = try #require(store.messages.first { $0.id == "m4" })
+        let target = Self.pasta("Cliente", conta: "c2")
+
+        store.place(message, in: target, mode: .label)
+
+        let updated = try #require(store.messages.first { $0.id == "m4" })
+        #expect(updated.folderIDs == ["c2/Label_9", "c2/Cliente"])
+        #expect(updated.bucket == .archived)
+    }
+
+    @Test("Mover no Gmail troca só o marcador de origem e preserva os demais")
+    func moveMarcadorGmail() async throws {
+        let store = await store()
+        let original = try #require(store.messages.first { $0.id == "m4" })
+        let source = Self.pasta("Label_9", conta: "c2")
+        let preserved = Self.pasta("VIP", conta: "c2")
+        let target = Self.pasta("Projetos", conta: "c2")
+
+        store.place(original, in: preserved, mode: .label)
+        let labelled = try #require(store.messages.first { $0.id == "m4" })
+        store.moveGmail(labelled, from: source, to: target)
+
+        let updated = try #require(store.messages.first { $0.id == "m4" })
+        #expect(updated.folderIDs == [preserved.id, target.id])
+        #expect(updated.bucket == .archived)
+    }
+
+    @Test("Desfazer Mover para marcador Gmail repõe INBOX sem retirar marcador prévio")
+    func undoMoveDestinationGmailKeepsExistingLabels() async throws {
+        let inbox = Self.pasta("INBOX", conta: "c2", role: .inbox)
+        let destination = Self.pasta("Projetos", conta: "c2")
+        let preserved = Self.pasta("VIP", conta: "c2")
+        let original = Self.mensagem(
+            "mover-para", conta: "c2", pastas: ["INBOX", "Projetos", "VIP"], bucket: .today
+        )
+        let store = MailStore(source: FonteComPastas(
+            contas: [Self.outraConta], mensagens: [original],
+            pastas: [inbox, destination, preserved]
+        ))
+        await store.load()
+
+        store.moveGmail(original, from: inbox, to: destination)
+        let moved = try #require(store.messages.first)
+        #expect(moved.folderIDs == [destination.id, preserved.id])
+        #expect(moved.bucket == .archived)
+
+        store.restoreFolderPlacements([
+            .restoreGmailInbox(messageID: original.id, inbox: inbox)
+        ])
+        let restored = try #require(store.messages.first)
+        #expect(restored.folderIDs == [destination.id, preserved.id, inbox.id])
+        #expect(restored.bucket == .today)
+    }
+
+    @Test("Mudar a cor da caixa atualiza a conta na hora")
+    func mudaCor() async throws {
+        let store = await store()
+        store.setAccountTint(
+            accountID: "c1", lightHex: "#A92769", darkHex: "#F18BBE"
+        )
+
+        let account = try #require(store.account("c1"))
+        #expect(account.tintLightHex == "#A92769")
+        #expect(account.tintDarkHex == "#F18BBE")
+    }
+
     // MARK: Sem conta, nada muda
 
     /// A promessa do app inteiro, aplicada às pastas: as fixtures não têm

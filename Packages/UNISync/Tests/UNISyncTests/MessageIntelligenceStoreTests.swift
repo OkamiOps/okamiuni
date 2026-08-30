@@ -29,11 +29,16 @@ struct MessageIntelligenceStoreTests {
         return database
     }
 
-    private func gravaMensagem(id: String, corpo: [String], in db: Database) throws {
+    private func gravaMensagem(
+        id: String,
+        corpo: [String],
+        receivedAt: Date = Date(timeIntervalSince1970: 1_800_000_000),
+        in db: Database
+    ) throws {
         let mensagem = Message(
             id: id, accountID: "conta-a",
             from: Contact(name: "Marina", address: "marina@cliente.com"),
-            receivedAt: Date(timeIntervalSince1970: 1_800_000_000),
+            receivedAt: receivedAt,
             subject: "Contrato", snippet: "Vamos revisar", body: corpo,
             tags: [], bucket: .today, isRead: false, summary: nil, detectedEvent: nil
         )
@@ -71,6 +76,27 @@ struct MessageIntelligenceStoreTests {
         #expect(work.contentHash.count == 64)
     }
 
+    @Test("A mensagem aberta fura a ordem cronológica da fila")
+    func prioridadeDaMensagemAberta() throws {
+        let database = try banco()
+        try database.pool.write { db in
+            try self.gravaMensagem(
+                id: "m-antiga",
+                corpo: ["Este é o conteúdo que a pessoa abriu."],
+                receivedAt: Date(timeIntervalSince1970: 1_700_000_000),
+                in: db
+            )
+        }
+
+        let pendentes = try MessageIntelligenceStore(database: database).pendingWork(
+            limit: 2,
+            modelVersion: "analysis-v2-tldr",
+            priorityMessageID: "m-antiga"
+        )
+
+        #expect(pendentes.map(\.messageID) == ["m-antiga", "m1"])
+    }
+
     @Test("Uma mensagem gravada em v10 entra como pendente implícita após a v11")
     func mensagemLegadaEntraSemBackfill() throws {
         let directory = FileManager.default.temporaryDirectory
@@ -84,12 +110,57 @@ struct MessageIntelligenceStoreTests {
         let legacyPool = try DatabasePool(path: path, configuration: configuration)
         try SyncDatabase.migrator.migrate(legacyPool, upTo: "v10")
         try legacyPool.write { db in
-            try AccountRecord(self.conta, createdAt: Date(timeIntervalSince1970: 1)).insert(db)
+            // Escreve no esquema **da v10**. `AccountRecord` acompanha a
+            // versão atual e já contém `signatureJSON` (v12), portanto usá-lo
+            // aqui deixaria de testar um banco legado e tentaria inserir uma
+            // coluna que ainda não existe.
+            try db.execute(
+                sql: """
+                    INSERT INTO account (
+                      id, address, displayName, provider, host,
+                      tintLightHex, tintDarkHex, signature,
+                      imapHost, imapPort, imapSecurity, state,
+                      lastSyncedAt, createdAt
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [
+                    self.conta.id, self.conta.address, self.conta.displayName,
+                    self.conta.provider.rawValue, self.conta.host,
+                    self.conta.tintLightHex, self.conta.tintDarkHex,
+                    self.conta.signature, nil, nil, nil,
+                    self.conta.state.rawValue, nil, 1.0,
+                ]
+            )
             try FolderRecord(
                 id: "conta-a/INBOX", accountID: "conta-a",
                 serverName: "INBOX", role: .inbox, displayName: "Entrada"
             ).insert(db)
-            try self.gravaMensagem(id: "m1", corpo: ["Corpo que já existia."], in: db)
+            // Mesma razão da conta acima: `MessageRecord` atual já conhece a
+            // coluna `category` da v13. A linha abaixo é deliberadamente a
+            // forma que uma instalação v10 tinha no disco.
+            try db.execute(
+                sql: """
+                    INSERT INTO message (
+                      id, accountID, folderID, serverID, uidValidity,
+                      fromName, fromAddress, toJSON, ccJSON,
+                      subject, snippet, receivedAt, dayOffset,
+                      isRead, isFlagged, bucket, tagsJSON,
+                      summary, detectedEventJSON, replyHintsJSON,
+                      rfcMessageID, referencesJSON, threadKey, folderMembershipJSON
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                arguments: [
+                    "m1", "conta-a", "conta-a/INBOX", nil, nil,
+                    "Marina", "marina@cliente.com", "[]", "[]",
+                    "Contrato", "Corpo que já existia.", 1_800_000_000.0, 0,
+                    false, false, TriageBucket.today.rawValue, "[]",
+                    nil, nil, "[]", nil, "[]", "m1", "[]",
+                ]
+            )
+            var body = MessageBodyRecord(
+                messageID: "m1", paragraphs: ["Corpo que já existia."]
+            )
+            try body.insert(db)
         }
 
         let upgraded = try SyncDatabase(path: path)
@@ -137,14 +208,15 @@ struct MessageIntelligenceStoreTests {
         #expect(try store.markProcessing(terceiro, modelVersion: "m5.3", at: t1.addingTimeInterval(5)))
         #expect(try store.markCompleted(
             terceiro, modelVersion: "m5.3", summary: "Revisão confirmada.",
-            detectedEventJSON: eventJSON, at: t1.addingTimeInterval(6)
+            detectedEventJSON: eventJSON, category: .transactions,
+            at: t1.addingTimeInterval(6)
         ))
         #expect(try store.pendingWork().isEmpty)
 
         try database.pool.read { db in
             let state = try #require(try MessageIntelligenceRecord.fetchOne(db, key: "m1"))
             let row = try #require(try Row.fetchOne(
-                db, sql: "SELECT summary, detectedEventJSON FROM message WHERE id = 'm1'"
+                db, sql: "SELECT summary, detectedEventJSON, category FROM message WHERE id = 'm1'"
             ))
             let summary: String? = row["summary"]
             let detectedEventJSON: String? = row["detectedEventJSON"]
@@ -155,6 +227,8 @@ struct MessageIntelligenceStoreTests {
             #expect(state.updatedAt == t1.addingTimeInterval(6))
             #expect(summary == "Revisão confirmada.")
             #expect(detectedEventJSON == eventJSON)
+            let category: String? = row["category"]
+            #expect(category == MailCategory.transactions.rawValue)
         }
     }
 
@@ -174,15 +248,56 @@ struct MessageIntelligenceStoreTests {
 
         try database.pool.read { db in
             let row = try #require(try Row.fetchOne(
-                db, sql: "SELECT summary, detectedEventJSON FROM message WHERE id = 'm1'"
+                db, sql: "SELECT summary, detectedEventJSON, category FROM message WHERE id = 'm1'"
             ))
             let summary: String? = row["summary"]
             let detectedEventJSON: String? = row["detectedEventJSON"]
+            let category: String? = row["category"]
             #expect(summary == nil)
             #expect(detectedEventJSON == nil)
+            #expect(category == nil)
         }
         let novo = try #require(try store.pendingWork().first)
         #expect(novo.contentHash != antigo.contentHash)
+    }
+
+    @Test("Uma política nova reprocessa o mesmo corpo uma vez e limpa o resumo antigo")
+    func modelVersionReopensCompletedWork() throws {
+        let database = try banco()
+        let store = MessageIntelligenceStore(database: database)
+        let workV1 = try #require(try store.pendingWork(modelVersion: "analysis-v1").first)
+
+        #expect(try store.markProcessing(workV1, modelVersion: "analysis-v1"))
+        #expect(try store.markCompleted(
+            workV1,
+            modelVersion: "analysis-v1",
+            summary: "Mensagem de e-mail recebida hoje.",
+            detectedEventJSON: nil,
+            category: .updates
+        ))
+        #expect(try store.pendingWork(modelVersion: "analysis-v1").isEmpty)
+
+        let workV2 = try #require(try store.pendingWork(modelVersion: "analysis-v2-tldr").first)
+        #expect(workV2.contentHash == workV1.contentHash)
+        #expect(try store.markProcessing(workV2, modelVersion: "analysis-v2-tldr"))
+        try database.pool.read { db in
+            let row = try #require(try Row.fetchOne(
+                db,
+                sql: "SELECT summary, category FROM message WHERE id = 'm1'"
+            ))
+            let summary: String? = row["summary"]
+            let category: String? = row["category"]
+            #expect(summary == nil)
+            #expect(category == nil)
+        }
+
+        #expect(try store.markCompleted(
+            workV2,
+            modelVersion: "analysis-v2-tldr",
+            summary: "Marina pede a revisão do contrato na sexta às 14h.",
+            detectedEventJSON: nil
+        ))
+        #expect(try store.pendingWork(modelVersion: "analysis-v2-tldr").isEmpty)
     }
 
     @Test("O upsert de sync não apaga a projeção de inteligência")
@@ -193,7 +308,8 @@ struct MessageIntelligenceStoreTests {
         #expect(try store.markProcessing(work, modelVersion: "m5.1", at: Date(timeIntervalSince1970: 10)))
         #expect(try store.markCompleted(
             work, modelVersion: "m5.1", summary: "Resumo local",
-            detectedEventJSON: "{\"event\":true}", at: Date(timeIntervalSince1970: 11)
+            detectedEventJSON: "{\"event\":true}", category: .promotions,
+            at: Date(timeIntervalSince1970: 11)
         ))
 
         try database.pool.write { db in
@@ -201,6 +317,7 @@ struct MessageIntelligenceStoreTests {
             doServidor.subject = "Contrato atualizado no servidor"
             doServidor.summary = nil
             doServidor.detectedEventJSON = nil
+            doServidor.category = nil
             try doServidor.savePreservingIntelligenceProjection(db)
         }
         try database.pool.read { db in
@@ -208,6 +325,7 @@ struct MessageIntelligenceStoreTests {
             #expect(record.subject == "Contrato atualizado no servidor")
             #expect(record.summary == "Resumo local")
             #expect(record.detectedEventJSON == "{\"event\":true}")
+            #expect(record.category == MailCategory.promotions.rawValue)
         }
     }
 }

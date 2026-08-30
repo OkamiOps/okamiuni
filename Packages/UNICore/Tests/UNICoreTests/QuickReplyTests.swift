@@ -5,17 +5,18 @@ import Testing
 @Suite("Resposta rápida — catálogo e sugestões")
 struct QuickReplyDirectoryTests {
 
-    /// Remetentes inventados, de domínios que não existem nas fixtures. Se
+    /// Destinatários inventados, de domínios que não existem nas fixtures. Se
     /// alguma regra filtrasse por conta, host ou provedor, estes sumiriam.
     private static func message(
         _ id: String, _ name: String, _ address: String, account: String = "qualquer"
     ) -> Message {
         Message(
             id: id, accountID: account,
-            from: Contact(name: name, address: address),
+            from: Contact(name: "Eu", address: "eu@exemplo.com"),
             receivedAt: Date(timeIntervalSince1970: 0),
             subject: "assunto \(id)", snippet: "", body: [], tags: [],
-            bucket: .today, isRead: true, summary: nil, detectedEvent: nil
+            bucket: .sent, isRead: true, summary: nil, detectedEvent: nil,
+            to: [Contact(name: name, address: address)]
         )
     }
 

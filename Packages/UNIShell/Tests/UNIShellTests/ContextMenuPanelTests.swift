@@ -326,4 +326,41 @@ struct ContextMenuPanelTests {
         #expect(Self.count(rep, matching: Theme.tinta.surface, in: Self.interior(90)) > 5000)
         #expect(Self.count(rep, matching: Theme.tinta.accentSoft, in: Self.interior(90)) > 1500)
     }
+
+    @Test("o menu Gmail desenha mover e aplicar como ações distintas")
+    func gmailMoveAndApplyDraw() throws {
+        let base = Fixtures.messages[0]
+        let inbox = MailFolder(
+            id: "\(base.accountID)/INBOX", accountID: base.accountID,
+            serverName: "INBOX", displayName: "Entrada", role: .inbox
+        )
+        let clients = MailFolder(
+            id: "\(base.accountID)/Label_7", accountID: base.accountID,
+            serverName: "Label_7", displayName: "Clientes", role: .other
+        )
+        let projects = MailFolder(
+            id: "\(base.accountID)/Label_9", accountID: base.accountID,
+            serverName: "Label_9", displayName: "Projetos", role: .other
+        )
+        let message = base.withFolderIDs([inbox.id])
+        let entries = ContextMenus.messageRow(
+            message,
+            provider: .gmail,
+            folders: [inbox, clients, projects],
+            selectedFolderID: nil,
+            currentBucket: .today
+        )
+        #expect(entries.titles.contains("Mover para marcador"))
+        #expect(entries.titles.contains("Aplicar marcador"))
+
+        let size = CGSize(width: 300, height: 500)
+        let rep = try #require(Render.snapshot(
+            Self.stage(entries, highlighted: 10, theme: .tinta, size: size),
+            named: "menu-gmail-mover-aplicar",
+            size: size,
+            theme: .tinta
+        ))
+        #expect(rep.pixelsWide == 300)
+        #expect(rep.pixelsHigh == 500)
+    }
 }

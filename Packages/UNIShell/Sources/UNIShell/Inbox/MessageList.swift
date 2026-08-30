@@ -2,6 +2,65 @@ import SwiftUI
 import UNIDesign
 import UNICore
 
+/// A apresentação dos filtros de categoria na caixa Hoje.
+///
+/// O estado continua no `MailStore`: esta enum só dá à superfície os textos e
+/// símbolos estáveis que ela precisa. A lista de casos é deliberadamente
+/// fechada — "Todos" permanece a visão sem filtro, em vez de a classificação
+/// criar abas arbitrárias cujo significado ninguém consegue explicar.
+enum InboxCategoryFilter: CaseIterable, Identifiable {
+    case all
+    case primary
+    case transactions
+    case updates
+    case promotions
+    case social
+
+    var id: String {
+        switch self {
+        case .all: "all"
+        case .primary: "primary"
+        case .transactions: "transactions"
+        case .updates: "updates"
+        case .promotions: "promotions"
+        case .social: "social"
+        }
+    }
+
+    var category: MailCategory? {
+        switch self {
+        case .all: nil
+        case .primary: .primary
+        case .transactions: .transactions
+        case .updates: .updates
+        case .promotions: .promotions
+        case .social: .social
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .all: "Todos"
+        case .primary: "Principal"
+        case .transactions: "Transações"
+        case .updates: "Atualizações"
+        case .promotions: "Promoções"
+        case .social: "Social"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .all: "tray.full"
+        case .primary: "person.crop.circle"
+        case .transactions: "creditcard"
+        case .updates: "bell"
+        case .promotions: "tag"
+        case .social: "person.2"
+        }
+    }
+}
+
 /// Um dia de **conversas**, com o rótulo que a lista mostra no cabeçalho.
 public struct MessageGroup: Identifiable {
     /// O dia do grupo, em dias a partir de hoje: `0`, `-1`, ...
@@ -146,9 +205,21 @@ public struct MessageList: View {
     }
 
     public var body: some View {
+        let visibleMessages = store.visibleMessages
+        let conversations = store.visibleConversations
+        let foldersByAccount = Dictionary(
+            uniqueKeysWithValues: Set(conversations.map { $0.latest.accountID }).map {
+                ($0, store.folders(of: $0))
+            }
+        )
+
         VStack(spacing: 0) {
-            header
-            list
+            header(messageCount: visibleMessages.count)
+            messageList(
+                conversations,
+                foldersByAccount: foldersByAccount,
+                isEmpty: visibleMessages.isEmpty
+            )
         }
         .frame(width: listWidth)
         .background(theme.surface.color)
@@ -179,21 +250,94 @@ public struct MessageList: View {
 
     /// Cabeçalho de produto do novo shell: título forte e a contagem como
     /// metadado, em vez da antiga faixa tipográfica de uma linha.
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(headerTitle)
-                .font(theme.serif.font(size: 20, weight: .semibold))
-                .foregroundStyle(theme.ink.color)
-                .lineLimit(1)
-            Text(Self.messageCountLabel(store.visibleMessages.count))
-                .font(theme.sans.font(size: 11.5))
-                .foregroundStyle(theme.ink2.color)
+    private func header(messageCount: Int) -> some View {
+        VStack(alignment: .leading, spacing: showsCategoryFilters ? 8 : 3) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(headerTitle)
+                    .font(theme.serif.font(size: 20, weight: .semibold))
+                    .foregroundStyle(theme.ink.color)
+                    .lineLimit(1)
+                Text(Self.messageCountLabel(messageCount))
+                    .font(theme.sans.font(size: 11.5))
+                    .foregroundStyle(theme.ink2.color)
+            }
+
+            if showsCategoryFilters {
+                categoryFilterRail
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 18)
-        .frame(height: 74)
+        .frame(height: Self.headerHeight(for: store.bucket))
         .background(theme.surface.color)
         .hairline(theme.line2, edges: .bottom)
+    }
+
+    /// Só Hoje recebe esta camada de organização. Depois continua sendo a
+    /// decisão explícita de adiar, e as outras caixas são o mapa do servidor —
+    /// duplicar categorias nelas esconderia a navegação que a pessoa escolheu.
+    private var showsCategoryFilters: Bool { store.bucket == .today }
+
+    /// A altura antiga fica intacta em toda caixa exceto Hoje; é importante
+    /// para não deslocar a lista quando a pessoa troca entre Arquivado, Tudo e
+    /// Depois.
+    static func headerHeight(for bucket: TriageBucket) -> CGFloat {
+        bucket == .today ? 118 : 74
+    }
+
+    /// A coluna mede 400pt: seis controles completos não cabem sem encolher
+    /// texto, então a faixa rola na horizontal como os filtros do Mail. Cada
+    /// cápsula mantém uma área de clique de 28pt e pode receber foco de teclado.
+    private var categoryFilterRail: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(InboxCategoryFilter.allCases) { filter in
+                    categoryFilterChip(filter)
+                }
+            }
+            .padding(.vertical, 1)
+        }
+        .frame(height: 30)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Categorias de Hoje")
+    }
+
+    private func categoryFilterChip(_ filter: InboxCategoryFilter) -> some View {
+        let active = store.categoryFilter == filter.category
+        let count = store.categoryCount(filter.category)
+        let cornerRadius: CGFloat = 14
+
+        return Button {
+            store.select(category: filter.category)
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: filter.symbol)
+                    .font(.system(size: 10.5, weight: .medium))
+                    .accessibilityHidden(true)
+                Text(filter.label)
+                    .font(theme.sans.font(size: 11.5, weight: active ? .semibold : .medium))
+                    .lineLimit(1)
+                Text("\(count)")
+                    .font(theme.mono.font(size: 10, weight: .semibold))
+                    .monospacedDigit()
+            }
+            .foregroundStyle((active ? theme.accentInk : theme.ink2).color)
+            .padding(.horizontal, 9)
+            .frame(height: 28)
+            .background {
+                Capsule().fill(
+                    active ? theme.accentSoft.color : theme.surface2.color.opacity(0.72)
+                )
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: cornerRadius)
+        .help("Filtrar Hoje por \(filter.label)")
+        .accessibilityLabel("Filtrar por \(filter.label)")
+        .accessibilityValue(active ? "Selecionado, \(count) mensagens" : "\(count) mensagens")
+        .accessibilityHint(active ? "Filtro atual" : "Mostra somente mensagens desta categoria")
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 
     /// A cor da conta, que a linha usa na barra da borda e no chip do host.
@@ -212,14 +356,21 @@ public struct MessageList: View {
         return store.bucket == .all ? "Caixa unificada" : store.bucket.label
     }
 
-    private var list: some View {
+    private func messageList(
+        _ conversations: [Conversation],
+        foldersByAccount: [String: [MailFolder]],
+        isEmpty: Bool
+    ) -> some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                ForEach(Conversation.build(from: store.visibleMessages)) { conversation in
-                    row(conversation)
+                ForEach(conversations) { conversation in
+                    row(
+                        conversation,
+                        folders: foldersByAccount[conversation.latest.accountID] ?? []
+                    )
                 }
             }
-            footer
+            footer(isEmpty: isEmpty)
         }
         .overlay(alignment: .bottom) { undoBand }
     }
@@ -240,7 +391,7 @@ public struct MessageList: View {
     /// Uma linha é **uma conversa**. Quando ela tem uma mensagem só — o caso
     /// das fixtures e de quase toda caixa — tudo aqui dentro se resolve na
     /// mensagem dela, e o desenho é exatamente o de antes desta tarefa.
-    private func row(_ conversation: Conversation) -> some View {
+    private func row(_ conversation: Conversation, folders: [MailFolder]) -> some View {
         let message = conversation.latest
         let account = store.account(message.accountID)
         return SwipeRow(
@@ -251,7 +402,10 @@ public struct MessageList: View {
             // alguma coisa se a linha souber quanto mede.
             rowWidth: listWidth,
             openRowID: $openSwipeRowID,
-            onFire: { fire($0, on: conversation) }
+            onFire: { fire($0, on: conversation, side: nil, folders: folders) },
+            onFireWithSide: { action, side in
+                fire(action, on: conversation, side: side, folders: folders)
+            }
         ) { swipe in
             Button {
                 if swipe.isBlocked { swipe.dismiss() } else { store.select(message: message.id) }
@@ -292,7 +446,14 @@ public struct MessageList: View {
             // "Marcar como não lida" só aparece em mensagem lida, e "Mover
             // para" não oferece a caixa em que ela já está.
             .uniContextMenu(
-                ContextMenus.messageRow(message, accountAddress: account?.address ?? ""),
+                ContextMenus.messageRow(
+                    message,
+                    accountAddress: account?.address ?? "",
+                    provider: account?.provider,
+                    folders: folders,
+                    selectedFolderID: store.selectedFolderID,
+                    currentBucket: store.bucket
+                ),
                 store: store,
                 // O menu é montado sobre a mensagem mais recente (é ela que
                 // decide os rótulos: "Marcar como não lida" só numa lida), mas
@@ -309,9 +470,23 @@ public struct MessageList: View {
     /// O recibo tem de nascer aqui, antes da mudança: depois de arquivada a
     /// mensagem não sabe mais de que caixa veio, e um "Desfazer" que
     /// adivinhasse a caixa seria a versão silenciosa do botão mudo.
-    private func fire(_ action: SwipeAction, on conversation: Conversation) {
+    private func fire(
+        _ action: SwipeAction,
+        on conversation: Conversation,
+        side: SwipeSide?,
+        folders: [MailFolder]
+    ) {
         let message = conversation.latest
-        guard let command = action.command(for: message) else { return }
+        let destination = side.flatMap {
+            swipeConfiguration.destination(on: $0, for: message.accountID)
+        }
+        guard let command = action.command(for: message, destination: destination) else { return }
+        if action == .moveToDestination, let destination {
+            fireMoveDestination(
+                destination, command: command, on: conversation, folders: folders
+            )
+            return
+        }
         guard conversation.count > 1 else {
             // O caminho de sempre, intocado: uma conversa de uma mensagem só é
             // a mensagem.
@@ -329,6 +504,62 @@ public struct MessageList: View {
         )
         _ = act(command, on: conversation)
         withAnimation(SwipeMotion.transition) { receipt = made }
+    }
+
+    /// Executa a coluna configurada "Mover para…" e monta o inverso antes da
+    /// projeção otimista alterar as associações de pasta. A operação ainda é
+    /// um `ContextCommand` comum (`placeMessage` ou `moveGmailMessage`): este
+    /// método só conhece o detalhe adicional que um gesto precisa para desfazer.
+    private func fireMoveDestination(
+        _ destination: SwipeMoveDestination,
+        command: ContextCommand,
+        on conversation: Conversation,
+        folders: [MailFolder]
+    ) {
+        let undos = conversation.messages.compactMap {
+            folderUndo(for: $0, destination: destination, folders: folders)
+        }
+        let stamp = ActionReceipts.stamp
+        let made = undos.isEmpty ? nil : SwipeReceipt(
+            messageID: conversation.latest.id,
+            note: SwipeReceipt.note(
+                destination.receiptTitle(), message: conversation.latest,
+                count: conversation.count, stamp: stamp
+            ),
+            undo: .restoreFolderPlacements(undos)
+        )
+
+        if conversation.count == 1 {
+            StoreCommand.run(command, on: store)
+        } else {
+            _ = act(command, on: conversation)
+        }
+        if let made {
+            withAnimation(SwipeMotion.transition) { receipt = made }
+        }
+    }
+
+    /// O Gmail precisa apenas recolocar `INBOX`: remover o marcador destino ao
+    /// desfazer apagaria uma associação que talvez já existisse antes do
+    /// gesto. No IMAP, a mensagem tem uma única pasta e a referência real vem
+    /// do retrato de pastas que a linha recebeu.
+    private func folderUndo(
+        for message: Message,
+        destination: SwipeMoveDestination,
+        folders: [MailFolder]
+    ) -> FolderPlacementUndo? {
+        guard destination.command(for: message) != nil else { return nil }
+        switch destination.transport {
+        case .gmailLabelFromInbox:
+            guard let inbox = destination.source?.folder else { return nil }
+            return .restoreGmailInbox(messageID: message.id, inbox: inbox)
+
+        case .imapFolder:
+            guard let sourceID = message.folderIDs.first,
+                  let source = folders.first(where: { $0.id == sourceID })
+            else { return nil }
+            return .moveToFolder(messageID: message.id, folder: source)
+        }
     }
 
     /// O comando, aplicado à **conversa**.
@@ -357,6 +588,14 @@ public struct MessageList: View {
                 : nil
             store.move(conversation, to: bucket)
             if let made { withAnimation(SwipeMotion.transition) { receipt = made } }
+            return true
+
+        case .placeMessage(_, let folder, let mode):
+            store.place(conversation, in: folder, mode: mode)
+            return true
+
+        case .moveGmailMessage(_, let source, let target):
+            store.moveGmail(conversation, from: source, to: target)
             return true
 
         case .setRead(_, let isRead):
@@ -430,9 +669,9 @@ public struct MessageList: View {
         }
     }
 
-    private var footer: some View {
+    private func footer(isEmpty: Bool) -> some View {
         VStack(spacing: 0) {
-            Text(store.visibleMessages.isEmpty ? "Nada nesta caixa agora." : "Fim da lista")
+            Text(isEmpty ? "Nada nesta caixa agora." : "Fim da lista")
                 .font(theme.sans.font(size: 11.5))
                 .foregroundStyle(theme.ink4.color)
         }

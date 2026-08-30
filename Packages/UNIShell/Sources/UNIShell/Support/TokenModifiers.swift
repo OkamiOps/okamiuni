@@ -77,7 +77,7 @@ public struct CapsLabel: ViewModifier {
             .font(theme.mono.font(size: size, weight: .medium))
             .tracking(theme.capsTracking(at: size))
             .textCase(.uppercase)
-            .foregroundStyle(theme.ink4.color)
+            .foregroundStyle(theme.ink3.color)
     }
 }
 

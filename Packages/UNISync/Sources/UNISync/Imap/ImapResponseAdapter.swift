@@ -26,6 +26,7 @@ enum ImapResponseAdapter {
         let analise = try Analise(corpo)
 
         if analise.comecaCom("LIST ") { return list(analise) }
+        if analise.comecaCom("NAMESPACE ") { return namespace(analise) }
         if analise.comecaCom("SEARCH") { return search(corpo) }
         if analise.comecaCom("CAPABILITY ") { return capability(corpo) }
         if analise.comecaCom("OK [") { return okCode(corpo) }
@@ -299,6 +300,27 @@ enum ImapResponseAdapter {
             ? analise.valor(de: itens[1])
             : itens.last.flatMap { analise.valor(de: $0) }
         return .list(name: nome ?? "", attributes: atributos)
+    }
+
+    /// `NAMESPACE (("INBOX." ".")) NIL NIL` → `INBOX.`.
+    ///
+    /// Só o primeiro grupo (pessoal) interessa: os seguintes são namespaces
+    /// compartilhado e público. A resposta também pode trazer `NIL`, extensões
+    /// depois do delimitador ou mais de uma entrada pessoal; o primeiro prefixo
+    /// ainda é a raiz que a sessão deve usar para os comandos da própria conta.
+    private static func namespace(_ analise: Analise) -> ImapWire.Untagged {
+        guard let pessoais = analise.grupo(depoisDe: "NAMESPACE") else {
+            return .namespace(personalPrefix: nil)
+        }
+        let entradas = analise.itens(de: pessoais)
+        guard let primeira = entradas.first,
+              primeira.lowerBound < analise.bytes.count,
+              analise.bytes[primeira.lowerBound] == UInt8(ascii: "("),
+              primeira.upperBound > primeira.lowerBound + 1
+        else { return .namespace(personalPrefix: nil) }
+
+        let valores = analise.itens(de: (primeira.lowerBound + 1)..<(primeira.upperBound - 1))
+        return .namespace(personalPrefix: valores.first.flatMap { analise.valor(de: $0) })
     }
 
     /// `SEARCH 9001 9002`

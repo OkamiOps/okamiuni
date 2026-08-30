@@ -34,11 +34,13 @@ struct OnDeviceMessageAnalysisTests {
         let result = OnDeviceMessageAnalysisResult(
             summary: "Marina propõe uma reunião de produto.",
             detectedEvent: event,
-            modelVersion: "foundation-models/message-analysis-v1"
+            modelVersion: "foundation-models/message-analysis-v1",
+            category: .primary
         )
 
         #expect(result.summary.contains("Marina"))
         #expect(result.detectedEvent == event)
+        #expect(result.category == .primary)
         #expect(result.modelVersion == "foundation-models/message-analysis-v1")
     }
 

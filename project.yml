@@ -73,10 +73,10 @@ targets:
         ENABLE_HARDENED_RUNTIME: YES
         COMBINE_HIDPI_IMAGES: YES
       configs:
-        # As permissões de Debug têm uma chave a mais — `network.server` —, e
-        # ela existe por causa de um instrumento: `--ensaiar-contas` sobe um
-        # IMAP falso em 127.0.0.1, e o sandbox recusa `bind` sem ela. O app de
-        # Release continua sem escutar porta nenhuma. Ver o comentário dentro
-        # de `App/OkamiUNI-Debug.entitlements`.
+        # Debug mantém um arquivo separado porque `--ensaiar-contas` também
+        # sobe um IMAP falso. `network.server` agora existe nas duas
+        # configurações: em produção, o OAuth PKCE recebe um único callback em
+        # 127.0.0.1 numa porta efêmera e o sandbox recusa `bind` sem ela. Ver os
+        # comentários nos dois arquivos de entitlements.
         Debug:
           CODE_SIGN_ENTITLEMENTS: App/OkamiUNI-Debug.entitlements

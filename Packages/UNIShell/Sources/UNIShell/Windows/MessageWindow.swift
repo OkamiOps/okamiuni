@@ -1,6 +1,7 @@
 import SwiftUI
 import UNIDesign
 import UNICore
+import UNISync
 
 /// A tela **05 Email em janela** (linhas 743–787 do protótipo, 800×600).
 ///
@@ -15,19 +16,25 @@ public struct MessageWindow: View {
     let store: MailStore
     let messageID: String
     let textAssistant: (any OnDeviceTextAssisting)?
+    let assistantSettings: AssistantSettingsStore?
     let intelligencePresentation: IntelligencePresentation
+    let onMessagePresented: (String) -> Void
     @State private var assistantOpen = false
 
     public init(
         store: MailStore,
         messageID: String,
         textAssistant: (any OnDeviceTextAssisting)? = nil,
-        intelligencePresentation: IntelligencePresentation = .available
+        assistantSettings: AssistantSettingsStore? = nil,
+        intelligencePresentation: IntelligencePresentation = .available,
+        onMessagePresented: @escaping (String) -> Void = { _ in }
     ) {
         self.store = store
         self.messageID = messageID
         self.textAssistant = textAssistant
+        self.assistantSettings = assistantSettings
         self.intelligencePresentation = intelligencePresentation
+        self.onMessagePresented = onMessagePresented
     }
 
     private var message: Message? {
@@ -36,6 +43,10 @@ public struct MessageWindow: View {
 
     private var account: Account? {
         message.flatMap { store.account($0.accountID) }
+    }
+
+    private var assistantProviderLabel: String {
+        assistantSettings?.snapshot().interactiveProviderLabel ?? "Provedor configurado"
     }
 
     private var tint: Color {
@@ -61,6 +72,7 @@ public struct MessageWindow: View {
             if assistantOpen, let message {
                 LocalAssistantPanel(
                     context: localContext(for: message),
+                    providerLabel: assistantProviderLabel,
                     onAsk: askAssistant,
                     onClose: closeAssistant
                 )
@@ -72,7 +84,10 @@ public struct MessageWindow: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(theme.surface.color)
-        .task { if store.messages.isEmpty { await store.load() } }
+        .task(id: messageID) {
+            onMessagePresented(messageID)
+            if store.messages.isEmpty { await store.load() }
+        }
     }
 
     /// Protótipo: `padding: 20px 26px 16px; border-bottom: 0.5px solid var(--line2)`.
@@ -168,7 +183,7 @@ public struct MessageWindow: View {
 
     private func summaryCard(_ summary: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Resumo no dispositivo").capsLabel(size: 9.5)
+            Text("TL;DR · neste Mac").capsLabel(size: 9.5)
             Text(summary)
                 .font(theme.serif.font(size: 15))
                 .lineSpacing(0.55 * 15)   // line-height: 1.55

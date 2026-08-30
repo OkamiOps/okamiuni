@@ -2,9 +2,9 @@ import Foundation
 import GRDB
 import UNICore
 
-/// `ContactDirectoryPort` lendo do banco: os remetentes, destinatários e
-/// cópias de toda mensagem sincronizada, agregados por
-/// `ContactDirectory.build`.
+/// `ContactDirectoryPort` lendo do banco: os destinatários e cópias das
+/// mensagens em Enviadas, agregados por `ContactDirectory.build`. Remetentes
+/// recebidos não entram automaticamente no catálogo.
 ///
 /// **Sem consulta nova de verdade.** A leitura é a mesma que
 /// `DatabaseMailSource.messages(in:)` já faz para a lista "Tudo" —
@@ -13,7 +13,7 @@ import UNICore
 /// `message_on_account_received` que a Task 5 provou por `EXPLAIN QUERY
 /// PLAN`. O teste desta tarefa reprova o mesmo plano para o filtro de conta;
 /// nenhum índice novo entra. `ContactDirectory.build` faz a agregação (quem
-/// apareceu, quantas vezes, quando pela última vez) em memória — pura e
+/// recebeu mensagem do usuário, quantas vezes e quando pela última vez) em memória — pura e
 /// testável sem banco.
 ///
 /// **Não é FTS.** Casar prefixo/substring no nome e no endereço, com dobra de
@@ -34,14 +34,18 @@ public struct DatabaseContactDirectory: ContactDirectoryPort, Sendable {
             // substitui por `Fixtures.contacts` é o `MailStore` — `nil` é
             // como esta porta pede isso, para não duplicar a regra dos dois
             // lados.
-            guard try AccountRecord.fetchCount(db) > 0 else { return nil }
+            let accounts = try AccountRecord.fetchAll(db)
+            guard !accounts.isEmpty else { return nil }
 
             var query = MessageRecord.order(Column("receivedAt").desc)
             if let accountID {
                 query = query.filter(Column("accountID") == accountID)
             }
             let mensagens = try query.fetchAll(db).map { $0.message(body: []) }
-            return ContactDirectory.build(fromMessages: mensagens)
+            let ownAddresses = Set(accounts.map { $0.address.lowercased() })
+            return ContactDirectory.build(
+                fromMessages: mensagens, excluding: ownAddresses
+            )
         }
     }
 }

@@ -544,3 +544,32 @@ struct BoldFaceTests {
         #expect(NSFontManager.shared.traits(of: boldFace).contains(.boldFontMask))
     }
 }
+
+@Suite("Composer — escala tipográfica da interface")
+@MainActor
+struct ComposerTypographyScaleTests {
+
+    @Test("fonte e altura de linha crescem juntas no TextKit")
+    func textKitUsesResolvedThemeScale() throws {
+        let body = AttributedString("Escala")
+        let standard = ComposerTextKit.nsAttributed(body, theme: .tinta)
+        let enlarged = ComposerTextKit.nsAttributed(
+            body, theme: Theme.tinta.applyingTypography(.enlarged)
+        )
+
+        let baseFont = try #require(standard.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        let enlargedFont = try #require(enlarged.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        let baseParagraph = try #require(
+            standard.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        )
+        let enlargedParagraph = try #require(
+            enlarged.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        )
+        let factor = TypographyPreset.enlarged.scale
+
+        #expect(abs(enlargedFont.pointSize - baseFont.pointSize * factor) < 0.01)
+        #expect(
+            abs(enlargedParagraph.minimumLineHeight - baseParagraph.minimumLineHeight * factor) < 0.01
+        )
+    }
+}

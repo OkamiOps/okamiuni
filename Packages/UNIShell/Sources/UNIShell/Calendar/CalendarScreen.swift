@@ -54,6 +54,7 @@ public struct CalendarScreen: View {
     @State private var selectedDayOffset = 0
     /// Protótipo: `st.picker`.
     @State private var pickerOpen = false
+    @State private var creatingAppointment = false
 
     public init(
         store: MailStore,
@@ -153,6 +154,14 @@ public struct CalendarScreen: View {
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
             .animation(.easeInOut(duration: 0.18), value: expanded)
         }
+        .sheet(isPresented: $creatingAppointment) {
+            NewAppointmentSheet(
+                store: store,
+                anchor: anchor,
+                initialDayOffset: selectedDayOffset,
+                onClose: { creatingAppointment = false }
+            )
+        }
     }
 
     private var calendarColumn: some View {
@@ -167,7 +176,8 @@ public struct CalendarScreen: View {
                 onStepDay: step(_:),
                 onGoToday: goToday,
                 onTogglePicker: { pickerOpen.toggle() },
-                onPickDay: pickDay(_:)
+                onPickDay: pickDay(_:),
+                onCreate: { creatingAppointment = true }
             )
             // A faixa vem por cima da grade: o seletor de data é desenhado
             // dentro dela e passa 231pt abaixo do seu limite. Sem o `zIndex`,

@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  As permissões do app **em Debug**, e a única diferença para as de Release é
-  `network.server`.
+  As permissões do app **em Debug**. `network.server` também existe em Release
+  porque o OAuth PKCE do LiteLLM recebe o redirect numa porta efêmera restrita
+  a 127.0.0.1; em Debug ela atende ainda o ensaio de contas abaixo.
 
   Ela existe por causa de um instrumento: `--ensaiar-contas` sobe o
   `RehearsalImapServer` em 127.0.0.1 numa porta que o sistema escolhe, e o
@@ -10,10 +11,8 @@
   Um servidor falso dentro do processo é o que faz o ensaio do fluxo de contas
   rodar num notebook desligado da internet, sem tocar servidor de ninguém.
 
-  Fica **só aqui**. O app que sai para o mundo (`App/OkamiUNI.entitlements`,
-  usado em Release) não escuta em porta nenhuma, porque não tem nada para
-  escutar: um cliente de e-mail só fala de fora para dentro. Capacidade que o
-  produto não usa não viaja com o produto — mesmo confinada pelo sandbox.
+  O receptor de produção não é um servidor genérico: faz bind apenas em
+  127.0.0.1, aceita uma resposta GET limitada e se encerra após o callback.
 -->
 <plist version="1.0">
 <dict>

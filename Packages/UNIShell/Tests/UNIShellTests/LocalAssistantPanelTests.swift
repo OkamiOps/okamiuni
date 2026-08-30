@@ -88,6 +88,32 @@ struct LocalAssistantPanelTests {
         #expect(conversation.errorMessage == nil)
     }
 
+    @Test("pergunta seguinte recebe a conversa anterior e mantém a instrução atual")
+    func followUpCarriesConversationHistory() async throws {
+        var requests: [LocalAssistantRequest] = []
+        let conversation = LocalAssistantConversation(context: context) { request in
+            requests.append(request)
+            return requests.count == 1
+                ? "- Confirmar a pauta\n- Responder até segunda-feira"
+                : "- Confirmar a pauta com Produto\n- Responder até segunda-feira"
+        }
+
+        conversation.draft = "Gere em lista."
+        await conversation.submit()
+        conversation.draft = "Agora detalhe o primeiro item, mantendo a lista."
+        await conversation.submit()
+
+        let followUp = try #require(requests.last)
+        #expect(followUp.question == "Agora detalhe o primeiro item, mantendo a lista.")
+        #expect(followUp.conversation.map(\.speaker) == [.user, .assistant, .user])
+        #expect(followUp.conversation.map(\.text) == [
+            "Gere em lista.",
+            "- Confirmar a pauta\n- Responder até segunda-feira",
+            "Agora detalhe o primeiro item, mantendo a lista.",
+        ])
+        #expect(conversation.messages.count == 4)
+    }
+
     @Test("erro mantém a pergunta e tentar de novo usa a mesma closure")
     func failedQuestionCanRetry() async {
         var attempts = 0

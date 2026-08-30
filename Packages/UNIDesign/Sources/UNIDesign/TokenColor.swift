@@ -27,9 +27,20 @@ public struct TokenColor: Sendable, Hashable {
     /// Relative luminance (WCAG). Used to tell light themes from dark ones.
     public var luminance: Double {
         func linear(_ c: Double) -> Double {
-            c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
+            c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4)
         }
         return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
+    }
+
+    /// Razão de contraste WCAG entre duas cores sólidas.
+    ///
+    /// Os papéis semânticos do catálogo são opacos. Manter o cálculo aqui,
+    /// junto da luminância, evita que testes e componentes inventem versões
+    /// ligeiramente diferentes da mesma regra.
+    public func contrastRatio(with other: TokenColor) -> Double {
+        let lighter = max(luminance, other.luminance)
+        let darker = min(luminance, other.luminance)
+        return (lighter + 0.05) / (darker + 0.05)
     }
 }
 

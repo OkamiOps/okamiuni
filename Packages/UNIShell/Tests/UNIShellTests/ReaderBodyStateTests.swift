@@ -133,6 +133,26 @@ struct ReaderBodyStateTests {
         #expect(ReaderPane.carregandoCorpo == "Carregando corpo…")
         #expect(ReaderPane.semTexto == "Esta mensagem não tem texto.")
     }
+
+    /// A diferença não é só de texto: o estado de rede do corpo precisa ter a
+    /// roda nativa, para não parecer uma legenda estática enquanto o fetch
+    /// está em andamento.
+    @Test("A espera do corpo usa a roda nativa")
+    @MainActor
+    func esperaTemSpinner() throws {
+        let nota = try #require(Render.bitmap(
+            ReaderNote(ReaderPane.carregandoCorpo),
+            size: CGSize(width: 620, height: 90), theme: .tinta
+        ))
+        let espera = try #require(Render.bitmap(
+            ReaderSpinnerNote(ReaderPane.carregandoCorpo),
+            size: CGSize(width: 620, height: 90), theme: .tinta
+        ))
+        #expect(
+            espera.pixelsDiffering(from: nota) > 0,
+            "o carregamento do corpo perdeu a roda e voltou a parecer texto estático"
+        )
+    }
 }
 
 /// A mensagem sem parte de texto nenhuma: um convite de calendário, um anexo

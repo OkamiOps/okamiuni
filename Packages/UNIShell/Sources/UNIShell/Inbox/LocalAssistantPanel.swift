@@ -290,6 +290,9 @@ public struct LocalAssistantPanel: View {
     private let mode: LocalAssistantMode
     private let context: LocalAssistantContext
     private let suggestions: [LocalAssistantSuggestion]
+    /// A rota vem da configuração que o app vai usar para esta pergunta. Não
+    /// descreve o resumo automático, que é um recurso local separado.
+    private let providerLabel: String
     private let onClose: () -> Void
     private let width: CGFloat
 
@@ -297,6 +300,7 @@ public struct LocalAssistantPanel: View {
         mode: LocalAssistantMode = .email,
         context: LocalAssistantContext,
         suggestions: [LocalAssistantSuggestion]? = nil,
+        providerLabel: String = "Provedor configurado",
         width: CGFloat = LocalAssistantPanel.defaultWidth,
         debugState: LocalAssistantPanelDebugState = .empty,
         onAsk: @escaping (LocalAssistantRequest) async throws -> String,
@@ -305,6 +309,7 @@ public struct LocalAssistantPanel: View {
         self.mode = mode
         self.context = context
         self.suggestions = suggestions ?? mode.suggestions
+        self.providerLabel = providerLabel
         self.width = width
         self.onClose = onClose
         _conversation = State(
@@ -357,7 +362,7 @@ public struct LocalAssistantPanel: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "apple.intelligence")
+            Image(systemName: "sparkles")
                 .font(.system(size: 21, weight: .medium))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(theme.accent.color)
@@ -370,7 +375,7 @@ public struct LocalAssistantPanel: View {
                     .foregroundStyle(theme.ink.color)
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
-                Text("PROCESSADO NESTE MAC")
+                Text(providerLabel.uppercased())
                     .font(theme.mono.font(size: 9, weight: .medium))
                     .tracking(theme.capsTracking(at: 9))
                     .foregroundStyle(theme.ink4.color)
@@ -535,7 +540,7 @@ public struct LocalAssistantPanel: View {
                     .font(theme.sans.font(size: 12, weight: .semibold))
                     .foregroundStyle(theme.ink2.color)
             }
-            Text("Tente novamente ou reformule a pergunta.")
+            Text("Confira a orientação acima ou tente novamente.")
                 .font(theme.sans.font(size: 11.5))
                 .foregroundStyle(theme.ink3.color)
             if conversation.canRetry {

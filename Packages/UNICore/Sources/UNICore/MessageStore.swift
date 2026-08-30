@@ -141,11 +141,73 @@ public struct InMemoryMailSource: MailSource {
     public func pendingItems() async throws -> [PendingItem] { _pendingItems }
 }
 
+/// Executa as projeções SQLite sem prender o ator principal.
+///
+/// Uma fila serial é importante aqui: várias ações rápidas sobre a mesma
+/// mensagem precisam chegar ao outbox exatamente na ordem em que aconteceram.
+/// `Task.detached` por operação tiraria o disco da UI, mas poderia inverter
+/// ler -> não ler -> ler sob carga.
+private final class MailCommandDispatcher: @unchecked Sendable {
+    private let port: any MailCommandPort
+    private let queue = DispatchQueue(
+        label: "com.okamiops.okamiuni.mail-commands",
+        qos: .userInitiated
+    )
+
+    init(port: any MailCommandPort) {
+        self.port = port
+    }
+
+    func enqueue(
+        _ operation: @escaping @Sendable (any MailCommandPort) throws -> Void,
+        onError: @escaping @Sendable (String) -> Void
+    ) {
+        queue.async { [port] in
+            do {
+                try operation(port)
+            } catch {
+                onError(error.localizedDescription)
+            }
+        }
+    }
+
+    /// Barreira assíncrona usada pelos testes para observar uma fila vazia sem
+    /// introduzir sleeps nem expor a implementação à interface.
+    func waitUntilIdle() async {
+        await withCheckedContinuation { continuation in
+            queue.async { continuation.resume() }
+        }
+    }
+}
+
 @MainActor
 @Observable
 public final class MailStore {
+    private struct VisibleCacheKey: Equatable {
+        let messagesRevision: UInt
+        let bodyHitsRevision: UInt
+        let bucket: String
+        /// Início do dia local do relógio injetado. Sem ele, a lista de Hoje
+        /// que já foi cacheada continuaria desenhando ontem depois da meia-noite.
+        let referenceDayStart: Date
+        let accountID: String?
+        let folderID: String?
+        let category: String?
+        let query: String
+    }
+
+    // Estes dois carimbos precisam ser observáveis: num cache hit os getters
+    // abaixo não percorrem `messages`/`bodyHits`, então são eles que mantêm a
+    // dependência da View viva até a próxima mutação.
+    private var messagesRevision: UInt = 0
+    private var bodyHitsRevision: UInt = 0
+    @ObservationIgnored private var visibleMessagesCache: (key: VisibleCacheKey, value: [Message])?
+    @ObservationIgnored private var visibleConversationsCache: (key: VisibleCacheKey, value: [Conversation])?
+
     public private(set) var accounts: [Account] = []
-    public private(set) var messages: [Message] = []
+    public private(set) var messages: [Message] = [] {
+        didSet { messagesRevision &+= 1 }
+    }
     public private(set) var agenda: [AgendaItem] = []
     public private(set) var pendingItems: [PendingItem] = []
 
@@ -176,6 +238,9 @@ public final class MailStore {
     public private(set) var revealCount = 0
 
     public private(set) var bucket: TriageBucket = .today
+    /// Categoria aberta dentro de Hoje. `nil` é "Todos" e, fora de Hoje,
+    /// este filtro é sempre ignorado.
+    public private(set) var categoryFilter: MailCategory?
     public private(set) var selectedMessageID: String?
     public private(set) var selectedAccountID: String?
 
@@ -203,7 +268,9 @@ public final class MailStore {
     /// Vive aqui e não em `matches` porque procurar no corpo é `async` (é
     /// consulta ao índice do banco) e `visibleMessages` é síncrono — a lista
     /// não pode esperar disco a cada redesenho.
-    private var bodyHits: Set<String> = []
+    private var bodyHits: Set<String> = [] {
+        didSet { bodyHitsRevision &+= 1 }
+    }
 
     private let source: MailSource
 
@@ -215,7 +282,26 @@ public final class MailStore {
     /// vira `loadError`, pelo mesmo `report(_:)` que a carga usa. A mutação
     /// otimista na lista continua valendo mesmo se a porta falhar: é UI que
     /// nunca espera rede, o mesmo princípio do Marco 2 aplicado à escrita.
-    private let commandPort: MailCommandPort?
+    @ObservationIgnored private let commandDispatcher: MailCommandDispatcher?
+
+    /// Regras criadas em Configurações. O primeiro retrato só estabelece a
+    /// linha de base: filtros novos não devem reprocessar toda a caixa já
+    /// sincronizada. A partir dele, cada id visto uma vez não volta a disparar
+    /// mesmo que a mensagem mude de caixa e reapareça em outro retrato.
+    @ObservationIgnored private let emailRules: EmailRuleStore?
+    @ObservationIgnored private var messageIDsSeenByRules: Set<String>?
+
+    /// A projeção de uma regra é otimista, como as demais ações do leitor.
+    /// Enquanto o banco ainda não publicou a confirmação, um retrato antigo
+    /// não pode desfazer visualmente a ação nem fazê-la ser enfileirada outra
+    /// vez. O mapa vive só nesta sessão; a fonte continua sendo a verdade
+    /// depois que refletir a mudança.
+    @ObservationIgnored private var pendingRuleActions: [String: Set<EmailRuleAction>] = [:]
+    /// O mesmo anteparo para o destino concreto da regra. A representação é o
+    /// próprio `SwipeMoveDestination`, para Gmail e IMAP seguirem exatamente o
+    /// caminho já provado pelos gestos — não uma segunda interpretação de
+    /// "mover" que poderia divergir no servidor.
+    @ObservationIgnored private var pendingRuleMoveDestinations: [String: SwipeMoveDestination] = [:]
 
     /// Quem busca o corpo que o banco não tem. `nil` nas fixtures e em todo
     /// teste que não passa uma — e nesse caso `loadBodyIfNeeded` não faz nada,
@@ -330,18 +416,20 @@ public final class MailStore {
         sendPort: MailSendPort? = nil,
         inviteRSVPPort: InviteRSVPCommandPort? = nil,
         contactPort: ContactDirectoryPort? = nil,
+        emailRules: EmailRuleStore? = nil,
         agendaPort: (any AgendaPersisting)? = nil,
         calendarSync: (any CalendarSyncing)? = nil,
         trustPort: (any SenderTrusting)? = nil,
         agendaReferenceDay: @escaping @Sendable () -> Date = { Fixtures.today }
     ) {
         self.source = source
-        self.commandPort = commandPort
+        self.commandDispatcher = commandPort.map(MailCommandDispatcher.init(port:))
         self.bodyPort = bodyPort
         self.attachmentPort = attachmentPort
         self.sendPort = sendPort
         self.inviteRSVPPort = inviteRSVPPort
         self.contactPort = contactPort
+        self.emailRules = emailRules
         self.agendaPort = agendaPort
         self.calendarSync = calendarSync
         self.trustPort = trustPort
@@ -519,13 +607,20 @@ public final class MailStore {
 
     /// Manda a mutação para a porta, se houver uma. Erro vira `loadError` —
     /// nunca é engolido — mas nunca desfaz o que já mudou em memória.
-    private func send(_ operation: (MailCommandPort) throws -> Void) {
-        guard let commandPort else { return }
-        do {
-            try operation(commandPort)
-        } catch {
-            report(error)
+    private func send(
+        _ operation: @escaping @Sendable (any MailCommandPort) throws -> Void
+    ) {
+        commandDispatcher?.enqueue(operation) { [weak self] message in
+            Task { @MainActor [weak self] in
+                self?.loadError = message
+            }
         }
+    }
+
+    /// Permite que testes de integração esperem as projeções pendentes sem
+    /// transformar as ações públicas em APIs assíncronas.
+    func waitForPendingCommands() async {
+        await commandDispatcher?.waitUntilIdle()
     }
 
     public func load() async {
@@ -621,7 +716,7 @@ public final class MailStore {
     /// um teste que dependesse do tempo entre eles seria intermitente.
     func apply(_ snapshot: MailSnapshot) {
         accounts = snapshot.accounts
-        messages = snapshot.messages
+        messages = reconcilingPendingRuleActions(in: snapshot.messages)
         sourceAgenda = snapshot.agenda
         agenda = mergedAgenda(combinedAgenda())
         pendingItems = snapshot.pendingItems
@@ -652,6 +747,204 @@ public final class MailStore {
         // (`state = { … selected: 'm1' … }`, a primeira da caixa "hoje").
         // O estado vazio fica reservado para uma caixa de fato vazia.
         selectDefaultMessage()
+        applyRulesToNewMessages()
+    }
+
+    /// Executa regras somente sobre mensagens que chegaram depois do primeiro
+    /// retrato desta sessão. A mutação usa os mesmos caminhos públicos da UI,
+    /// portanto atualiza a tela imediatamente e enfileira a projeção no
+    /// servidor em vez de criar um segundo protocolo de escrita.
+    ///
+    /// Limite intencional deste incremento: `messageIDsSeenByRules` é memória
+    /// de sessão, não um ledger SQLite. Portanto a decisão de disparar uma
+    /// regra ainda não sobrevive a uma reinicialização; o que já entrou no
+    /// outbox sobrevive e é repetido com segurança pelo seu `Message-ID`.
+    /// A persistência de execuções de regra precisa de uma migração própria.
+    private func applyRulesToNewMessages() {
+        let currentIDs = Set(messages.map(\.id))
+        guard let known = messageIDsSeenByRules else {
+            messageIDsSeenByRules = currentIDs
+            return
+        }
+        messageIDsSeenByRules = known.union(currentIDs)
+        guard let emailRules, !emailRules.rules.isEmpty else { return }
+
+        let arrivals = messages.filter { message in
+            !known.contains(message.id) && message.bucket != .sent && message.bucket != .trash
+        }
+        for arrival in arrivals {
+            let matchingRules = emailRules.matchingRules(for: arrival)
+            let actions = matchingRules.flatMap(\.actions)
+            let forwardingRules = matchingRules.compactMap(\.forwarding)
+            // Duas regras que casam não podem mover a mesma mensagem para dois
+            // destinos. A ordem persistida já é a prioridade do matcher, então
+            // o primeiro destino vence de forma estável.
+            let moveDestination = matchingRules.compactMap(\.moveDestination).first
+            guard !actions.isEmpty || !forwardingRules.isEmpty || moveDestination != nil else { continue }
+
+            if !actions.isEmpty {
+                pendingRuleActions[arrival.id] = Set(actions)
+            }
+            if actions.contains(.markRead) { setRead(true, for: arrival.id) }
+            if actions.contains(.flag) { setFlagged(true, for: arrival.id) }
+            if actions.contains(.archive),
+               let current = messages.first(where: { $0.id == arrival.id }),
+               current.bucket != .archived {
+                move(current, to: .archived)
+            }
+
+            applyRuleForwarding(forwardingRules, to: arrival)
+
+            if let moveDestination, !moveDestination.isNoOp(for: arrival) {
+                pendingRuleMoveDestinations[arrival.id] = moveDestination
+                applyRuleMove(moveDestination, to: arrival)
+            }
+        }
+    }
+
+    /// Encaminha uma nova mensagem pelo outbox normal. Cada endereço entra uma
+    /// vez mesmo se duas regras que casam carregarem o mesmo destino. O outbox
+    /// preserva o `Message-ID` da cópia que entrou na fila, portanto o retry de
+    /// rede não envia uma segunda cópia.
+    private func applyRuleForwarding(
+        _ forwardings: [EmailRuleForwarding], to message: Message
+    ) {
+        guard let account = account(message.accountID) else { return }
+        let localAddresses = Set(accounts.map(\.address).map(SenderTrust.normalize))
+        var recipients = Set<String>()
+
+        for forwarding in forwardings {
+            guard let recipient = forwarding.validatedAddress else { continue }
+            let normalizedRecipient = SenderTrust.normalize(recipient)
+            // Não encaminhar de volta à própria conta, a outra conta local ou
+            // ao remetente que acabou de trazer a mensagem: são os três ciclos
+            // mais comuns em automações de caixa de entrada.
+            guard !localAddresses.contains(normalizedRecipient),
+                  normalizedRecipient != SenderTrust.normalize(message.from.address),
+                  recipients.insert(normalizedRecipient).inserted,
+                  let outgoing = ruleForwardMessage(
+                      recipient: recipient, account: account, original: message
+                  )
+            else { continue }
+            _ = send(outgoing)
+        }
+    }
+
+    /// A cópia automática é uma mensagem nova, nunca o MIME recebido: não
+    /// carrega Cc/Cco, anexos ou cabeçalhos do original. Além de preservar a
+    /// privacidade, isto impede que um Bcc recebido atravesse a automação.
+    private func ruleForwardMessage(
+        recipient: String, account: Account, original: Message
+    ) -> OutgoingMessage? {
+        guard let safeRecipient = EmailRuleForwarding.normalizedAddress(recipient) else { return nil }
+        let seed = ComposerSeed.forward(
+            of: original, dateLabel: DateLabels.eventDate(original.receivedAt)
+        )
+        return OutgoingMessage(
+            messageID: OutgoingMessage.newMessageID(for: account.address),
+            accountID: account.id,
+            from: OutgoingAddress(name: account.displayName, address: account.address),
+            to: [OutgoingAddress(name: "", address: safeRecipient)],
+            subject: seed.subject,
+            plainText: seed.body.trimmingCharacters(in: .newlines)
+        )
+    }
+
+    /// Executa a mesma operação que um gesto "Mover para…". O destino nasce
+    /// da descoberta real de pastas/marcadores e já carrega a origem INBOX que
+    /// o Gmail precisa remover; IMAP, por sua vez, usa o move de pasta normal.
+    private func applyRuleMove(_ destination: SwipeMoveDestination, to message: Message) {
+        switch destination.transport {
+        case .imapFolder:
+            place(message, in: destination.target.folder, mode: .move)
+        case .gmailLabelFromInbox:
+            guard let source = destination.source else { return }
+            moveGmail(message, from: source.folder, to: destination.target.folder)
+        }
+    }
+
+    /// Mescla a confirmação ainda pendente sobre um retrato novo sem emitir
+    /// outro comando. `MailCommandDispatcher` pode estar alguns instantes
+    /// atrás do stream do banco; sem essa reconciliação, um retrato repetido
+    /// apagaria o estado otimista logo depois de a regra agir.
+    private func reconcilingPendingRuleActions(in incoming: [Message]) -> [Message] {
+        guard !pendingRuleActions.isEmpty || !pendingRuleMoveDestinations.isEmpty else { return incoming }
+
+        var remaining = pendingRuleActions
+        var remainingMoves = pendingRuleMoveDestinations
+        var reconciled: [Message] = []
+        reconciled.reserveCapacity(incoming.count)
+
+        for message in incoming {
+            var current = message
+            if let actions = remaining[message.id] {
+                // Uma exclusão vence uma ação local pendente: reintroduzir uma
+                // mensagem na caixa Arquivados depois de ela ter ido para Lixeira
+                // seria mais surpreendente do que esperar a confirmação anterior.
+                if message.bucket == .trash || ruleActionsAreReflected(actions, by: message) {
+                    remaining.removeValue(forKey: message.id)
+                } else {
+                    let orderedActions = EmailRuleAction.allCases.filter(actions.contains)
+                    current = EmailRuleMatcher.apply(orderedActions, to: current)
+                }
+            }
+
+            if let destination = remainingMoves[message.id] {
+                if message.bucket == .trash || destination.isNoOp(for: message) {
+                    remainingMoves.removeValue(forKey: message.id)
+                } else {
+                    current = projectedRuleMove(destination, on: current)
+                }
+            }
+            reconciled.append(current)
+        }
+
+        // Se a mensagem desapareceu da fonte, não há estado para manter em
+        // sobreposição nesta sessão.
+        let incomingIDs = Set(incoming.map(\.id))
+        pendingRuleActions = remaining.filter { incomingIDs.contains($0.key) }
+        pendingRuleMoveDestinations = remainingMoves.filter { incomingIDs.contains($0.key) }
+        return reconciled
+    }
+
+    private func projectedRuleMove(
+        _ destination: SwipeMoveDestination, on message: Message
+    ) -> Message {
+        switch destination.transport {
+        case .imapFolder:
+            return placing(message, in: destination.target.folder, mode: .move)
+        case .gmailLabelFromInbox:
+            guard let source = destination.source else { return message }
+            return movingGmail(message, from: source.folder, to: destination.target.folder)
+        }
+    }
+
+    private func ruleActionsAreReflected(
+        _ actions: Set<EmailRuleAction>, by message: Message
+    ) -> Bool {
+        actions.allSatisfy { action in
+            switch action {
+            case .markRead:
+                message.isRead
+            case .archive:
+                message.bucket == .archived
+            case .flag:
+                message.isFlagged
+            }
+        }
+    }
+
+    /// Uma escolha explícita da pessoa no sentido contrário vence o retrato
+    /// otimista de uma regra que ainda não voltou do banco. A ação no mesmo
+    /// sentido não precisa limpar nada — a confirmação da fonte faz isso.
+    private func discardPendingRuleAction(_ action: EmailRuleAction, for messageID: String) {
+        guard var actions = pendingRuleActions[messageID] else { return }
+        actions.remove(action)
+        if actions.isEmpty {
+            pendingRuleActions.removeValue(forKey: messageID)
+        } else {
+            pendingRuleActions[messageID] = actions
+        }
     }
 
     /// Põe o erro na tela — **a não ser** que ele seja um cancelamento.
@@ -668,20 +961,109 @@ public final class MailStore {
 
     /// Mensagens da caixa atual que casam com a busca, mais recentes primeiro.
     public var visibleMessages: [Message] {
-        let inBucket = messages.filter { bucket.contains($0) }
-        let inAccount = selectedAccountID == nil
-            ? inBucket
-            : inBucket.filter { $0.accountID == selectedAccountID }
-        // A pasta entra **depois** da conta e **antes** da busca, no lugar em
-        // que ela é mais barata: a conta já cortou a maior parte, e a busca é a
-        // única etapa que olha texto.
-        let inFolder = selectedFolderID == nil
-            ? inAccount
-            : inAccount.filter { $0.folderIDs.contains(selectedFolderID ?? "") }
-        let searched = query.trimmingCharacters(in: .whitespaces).isEmpty
-            ? inFolder
-            : inFolder.filter { matches($0, query) }
-        return searched.sorted { $0.receivedAt > $1.receivedAt }
+        let normalizedQuery = query.trimmingCharacters(in: .whitespaces)
+        // Um único retrato do relógio por leitura evita que a chave e o
+        // predicado discordem se a chamada atravessar a meia-noite.
+        let referenceDay = agendaReferenceDay()
+        let key = visibleCacheKey(query: normalizedQuery, referenceDay: referenceDay)
+        if let cached = visibleMessagesCache, cached.key == key {
+            return cached.value
+        }
+        let result = messages
+            .filter {
+                isInCurrentViewBeforeCategory(
+                    $0, referenceDay: referenceDay, normalizedQuery: normalizedQuery
+                )
+            }
+            .filter { message in
+                guard bucket == .today, let categoryFilter else { return true }
+                return resolvedCategory(for: message) == categoryFilter
+            }
+            .sorted { $0.receivedAt > $1.receivedAt }
+        visibleMessagesCache = (key, result)
+        return result
+    }
+
+    /// O recorte compartilhado pela lista e pelas contagens das cápsulas. A
+    /// categoria fica deliberadamente de fora para cada cápsula poder dizer
+    /// quantas mensagens abrirá sem ser afetada pela cápsula já selecionada.
+    private func isInCurrentViewBeforeCategory(
+        _ message: Message,
+        referenceDay: Date,
+        normalizedQuery: String
+    ) -> Bool {
+        guard isInBucket(message, bucket: bucket, referenceDay: referenceDay) else { return false }
+        if let selectedAccountID, message.accountID != selectedAccountID { return false }
+        if let selectedFolderID, !message.folderIDs.contains(selectedFolderID) { return false }
+        return normalizedQuery.isEmpty || matches(message, normalizedQuery)
+    }
+
+    /// Categoria efetiva da mensagem. A saída persistida da análise local
+    /// vence; enquanto ela ainda não chegou, assunto e remetente dão um
+    /// fallback imediato e conservador, terminando em Principal. O nome da
+    /// pasta é ignorado: um provedor pode colocar uma conversa de cliente na
+    /// pasta Newsletter.
+    public func resolvedCategory(for message: Message) -> MailCategory {
+        MailCategory.resolve(message: message)
+    }
+
+    /// Quantas mensagens uma categoria mostrará no recorte corrente de Hoje.
+    /// `nil` representa Todos. Conta, pasta e busca continuam valendo; somente
+    /// a categoria atualmente selecionada é ignorada.
+    public func categoryCount(_ category: MailCategory?) -> Int {
+        let referenceDay = agendaReferenceDay()
+        let normalizedQuery = query.trimmingCharacters(in: .whitespaces)
+        return messages.reduce(into: 0) { count, message in
+            guard isInCurrentViewBeforeCategory(
+                message, referenceDay: referenceDay, normalizedQuery: normalizedQuery
+            ) else { return }
+            guard let category else {
+                count += 1
+                return
+            }
+            if resolvedCategory(for: message) == category { count += 1 }
+        }
+    }
+
+    /// A projeção do provedor usa `.today` para representar Inbox; na tela,
+    /// porém, Hoje é só a parte dessa Inbox que chegou no dia local corrente.
+    ///
+    /// `receivedAt` é um instante absoluto vindo de Gmail/IMAP. Compará-lo com
+    /// `Calendar` (e não por 86.400 segundos ou dia UTC) preserva meia-noite e
+    /// horário de verão. As demais caixas, especialmente Depois, mantêm sua
+    /// semântica persistida e não recebem corte temporal.
+    private func isInBucket(
+        _ message: Message,
+        bucket: TriageBucket,
+        referenceDay: Date
+    ) -> Bool {
+        guard bucket.contains(message) else { return false }
+        guard bucket == .today else { return true }
+        return Calendar.current.isDate(message.receivedAt, inSameDayAs: referenceDay)
+    }
+
+    /// Predicado público para consumidores que montam projeções da mesma
+    /// caixa, como o contexto factual do assistente. Evita que outro recurso
+    /// volte a interpretar todo INBOX como Hoje.
+    public func includes(_ message: Message, in bucket: TriageBucket) -> Bool {
+        isInBucket(message, bucket: bucket, referenceDay: agendaReferenceDay())
+    }
+
+    private func visibleCacheKey(
+        query: String? = nil,
+        referenceDay: Date? = nil
+    ) -> VisibleCacheKey {
+        let reference = referenceDay ?? agendaReferenceDay()
+        return VisibleCacheKey(
+            messagesRevision: messagesRevision,
+            bodyHitsRevision: bodyHitsRevision,
+            bucket: bucket.rawValue,
+            referenceDayStart: Calendar.current.startOfDay(for: reference),
+            accountID: selectedAccountID,
+            folderID: selectedFolderID,
+            category: bucket == .today ? categoryFilter?.rawValue : nil,
+            query: query ?? self.query.trimmingCharacters(in: .whitespaces)
+        )
     }
 
     // MARK: - As pastas do provedor
@@ -695,9 +1077,15 @@ public final class MailStore {
     /// Enviadas e Lixeira ficam de fora da regra por nada: uma mensagem não
     /// lida é uma mensagem não lida, esteja onde estiver.
     public func folders(of accountID: String) -> [MailFolder] {
+        var unreadByFolder: [String: Int] = [:]
+        for message in messages where message.accountID == accountID && !message.isRead {
+            for folderID in message.folderIDs {
+                unreadByFolder[folderID, default: 0] += 1
+            }
+        }
         let daConta = folders.filter { $0.accountID == accountID }
         return MailFolder.ordered(daConta.map { pasta in
-            pasta.withUnreadCount(unreadCount(inFolder: pasta.id))
+            pasta.withUnreadCount(unreadByFolder[pasta.id, default: 0])
         })
     }
 
@@ -756,7 +1144,13 @@ public final class MailStore {
     /// é o que garante que a contagem da linha ("3") conte o que a caixa
     /// mostra — arquivar uma das três não pode deixar o selo dizendo três.
     public var visibleConversations: [Conversation] {
-        Conversation.build(from: visibleMessages)
+        let key = visibleCacheKey()
+        if let cached = visibleConversationsCache, cached.key == key {
+            return cached.value
+        }
+        let result = Conversation.build(from: visibleMessages)
+        visibleConversationsCache = (key, result)
+        return result
     }
 
     /// A conversa a que uma mensagem pertence, dentro do recorte visível.
@@ -829,6 +1223,68 @@ public final class MailStore {
             messages[index] = messages[index].withBucket(newBucket)
         }
         reselect(from: positionBefore, leaving: Set(conversation.messageIDs))
+    }
+
+    /// Move uma conversa para uma pasta IMAP ou aplica um marcador Gmail.
+    /// A pasta pertence a uma conta, então numa conversa que cruza contas a
+    /// ação alcança somente as mensagens daquela conta — nunca manda ids de
+    /// outro servidor para o provedor errado.
+    public func place(
+        _ conversation: Conversation,
+        in folder: MailFolder,
+        mode: FolderPlacement
+    ) {
+        let candidates = conversation.messages.filter { message in
+            guard message.accountID == folder.accountID else { return false }
+            return mode == .move || !message.folderIDs.contains(folder.id)
+        }
+        guard !candidates.isEmpty else { return }
+        let positionBefore = visibleMessages.firstIndex { $0.id == conversation.latest.id }
+        let ids = candidates.map(\.id)
+
+        send { port in
+            try port.place(
+                in: folder, mode: mode,
+                accountID: folder.accountID, messageIDs: ids
+            )
+        }
+
+        for message in candidates {
+            guard let index = messages.firstIndex(where: { $0.id == message.id }) else { continue }
+            messages[index] = placing(messages[index], in: folder, mode: mode)
+        }
+        reselect(from: positionBefore, leaving: Set(ids))
+    }
+
+    /// “Mover para” do Gmail: troca somente o marcador que representa a
+    /// localização aberta. Uma conversa pode misturar contas ou mensagens que
+    /// não estão nessa origem; só as candidatas entram na operação.
+    public func moveGmail(
+        _ conversation: Conversation,
+        from source: MailFolder,
+        to destination: MailFolder
+    ) {
+        guard source.accountID == destination.accountID, source.id != destination.id else {
+            return
+        }
+        let candidates = conversation.messages.filter {
+            $0.accountID == source.accountID && $0.folderIDs.contains(source.id)
+        }
+        guard !candidates.isEmpty else { return }
+        let positionBefore = visibleMessages.firstIndex { $0.id == conversation.latest.id }
+        let ids = candidates.map(\.id)
+
+        send { port in
+            try port.moveGmailLabel(
+                from: source, to: destination,
+                accountID: source.accountID, messageIDs: ids
+            )
+        }
+        for message in candidates {
+            guard let index = messages.firstIndex(where: { $0.id == message.id }) else { continue }
+            messages[index] = movingGmail(messages[index], from: source, to: destination)
+        }
+        reselect(from: positionBefore, leaving: Set(ids))
     }
 
     /// Marca a conversa inteira como lida (ou não lida).
@@ -1064,6 +1520,70 @@ public final class MailStore {
 
     // MARK: - Agenda a partir de um email
 
+    /// Cria um compromisso diretamente na Agenda. É a contraparte do botão
+    /// “Novo compromisso”: entra na mesma lista, persistência local e ponte do
+    /// EventKit usadas pelos compromissos extraídos de e-mail.
+    @discardableResult
+    public func addManualAgendaItem(
+        title: String,
+        startMinute: Int,
+        endMinute: Int,
+        dayOffset: Int,
+        accountID: String,
+        place: String = "",
+        meetingLink: String = "",
+        note: String = ""
+    ) -> AgendaItem? {
+        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanPlace = place.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rawMeetingLink = meetingLink.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanMeetingLink = MeetingLink.normalizado(rawMeetingLink)
+        let cleanNote = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanTitle.isEmpty,
+              (0..<24 * 60).contains(startMinute),
+              (1...24 * 60).contains(endMinute),
+              endMinute > startMinute,
+              rawMeetingLink.isEmpty || cleanMeetingLink != nil,
+              let account = account(accountID)
+        else { return nil }
+
+        let owner = EventPerson(
+            name: account.displayName,
+            address: account.address,
+            role: "organizador · você",
+            status: .yes
+        )
+        let detail = EventDetail(
+            place: cleanPlace,
+            link: cleanMeetingLink,
+            organizer: owner,
+            people: [],
+            note: "Criado manualmente",
+            recurrence: "Não se repete",
+            notice: "Sem lembrete",
+            agenda: [],
+            thread: [],
+            descricao: cleanNote.isEmpty ? nil : cleanNote
+        )
+        let item = AgendaItem(
+            id: "manual-\(UUID().uuidString)",
+            title: cleanTitle,
+            startMinute: startMinute,
+            endMinute: endMinute,
+            accountID: accountID,
+            dayOffset: dayOffset,
+            detail: detail
+        )
+        agenda.append(item)
+        agenda.sort {
+            $0.dayOffset == $1.dayOffset
+                ? $0.startMinute < $1.startMinute
+                : $0.dayOffset < $1.dayOffset
+        }
+        persist(item)
+        return item
+    }
+
     /// "Colocar na agenda", no cartão de resumo do leitor: cria o
     /// `AgendaItem` que `DetectedEventConversion` deriva do `DetectedEvent`
     /// da mensagem, e o acrescenta a `agenda`.
@@ -1279,9 +1799,22 @@ public final class MailStore {
 
     public func select(bucket newBucket: TriageBucket) {
         bucket = newBucket
+        // Tocar numa caixa é voltar ao recorte inteiro dela. Assim uma
+        // categoria antiga não reaparece invisivelmente ao retornar a Hoje.
+        categoryFilter = nil
         // Limpar sem reescolher deixava o leitor vazio com mensagens na lista.
         // `selectDefaultMessage()` só age quando a seleção saiu da visão, então
         // ele preserva quem continua visível e escolhe a primeira quando não.
+        selectDefaultMessage()
+    }
+
+    /// Abre uma categoria dentro de Hoje. `nil` é a cápsula Todos.
+    public func select(category: MailCategory?) {
+        guard bucket == .today else {
+            categoryFilter = nil
+            return
+        }
+        categoryFilter = category
         selectDefaultMessage()
     }
 
@@ -1320,6 +1853,7 @@ public final class MailStore {
     public func reveal(_ messageID: String) {
         guard let message = messages.first(where: { $0.id == messageID }) else { return }
         revealCount += 1
+        let referenceDay = agendaReferenceDay()
 
         if let filtered = selectedAccountID, filtered != message.accountID {
             selectedAccountID = nil
@@ -1330,8 +1864,17 @@ public final class MailStore {
         if let pasta = selectedFolderID, !message.folderIDs.contains(pasta) {
             selectedFolderID = nil
         }
-        if !bucket.contains(message) {
-            bucket = message.bucket
+        if !isInBucket(message, bucket: bucket, referenceDay: referenceDay) {
+            // Uma Inbox antiga não cabe em Hoje. Revelá-la em Hoje selecionaria
+            // uma linha que a lista não desenha; Tudo é a menor visão que a
+            // contém sem falsificar a data de recebimento.
+            bucket = message.bucket == .today ? .all : message.bucket
+            categoryFilter = nil
+        }
+        if bucket == .today,
+           let categoryFilter,
+           resolvedCategory(for: message) != categoryFilter {
+            self.categoryFilter = nil
         }
         if !query.trimmingCharacters(in: .whitespaces).isEmpty, !matches(message, query) {
             query = ""
@@ -1351,6 +1894,9 @@ public final class MailStore {
     public func move(_ message: Message, to newBucket: TriageBucket) {
         guard let index = messages.firstIndex(where: { $0.id == message.id }) else { return }
         let current = messages[index]
+        if newBucket != .archived {
+            discardPendingRuleAction(.archive, for: current.id)
+        }
         guard current.bucket != newBucket else { return }
 
         // Onde ela estava na lista, para saber quem herda a seleção.
@@ -1387,6 +1933,161 @@ public final class MailStore {
         selectedMessageID = remaining.indices.contains(positionBefore)
             ? remaining[positionBefore].id
             : remaining.last?.id
+    }
+
+    /// Move para uma pasta IMAP ou aplica um marcador Gmail, com projeção
+    /// otimista igual à que o banco grava na mesma transação do outbox.
+    public func place(
+        _ message: Message,
+        in folder: MailFolder,
+        mode: FolderPlacement
+    ) {
+        guard message.accountID == folder.accountID,
+              let index = messages.firstIndex(where: { $0.id == message.id }) else { return }
+        let current = messages[index]
+        if mode == .label, current.folderIDs.contains(folder.id) { return }
+        if mode == .move, current.folderIDs == [folder.id] { return }
+        let positionBefore = visibleMessages.firstIndex { $0.id == current.id }
+
+        send { port in
+            try port.place(
+                in: folder, mode: mode,
+                accountID: current.accountID, messageIDs: [current.id]
+            )
+        }
+        messages[index] = placing(current, in: folder, mode: mode)
+
+        guard selectedMessageID == current.id else { return }
+        let remaining = visibleMessages
+        guard !remaining.contains(where: { $0.id == current.id }) else { return }
+        guard let positionBefore else {
+            selectedMessageID = remaining.first?.id
+            return
+        }
+        selectedMessageID = remaining.indices.contains(positionBefore)
+            ? remaining[positionBefore].id
+            : remaining.last?.id
+    }
+
+    /// A versão por mensagem da movimentação entre marcadores Gmail. Remover a
+    /// Inbox arquiva; remover um marcador do usuário preserva a caixa de
+    /// triagem e todos os demais marcadores.
+    public func moveGmail(
+        _ message: Message,
+        from source: MailFolder,
+        to destination: MailFolder
+    ) {
+        guard source.accountID == destination.accountID,
+              message.accountID == source.accountID,
+              source.id != destination.id,
+              let index = messages.firstIndex(where: { $0.id == message.id })
+        else { return }
+        let current = messages[index]
+        guard current.folderIDs.contains(source.id) else { return }
+        let positionBefore = visibleMessages.firstIndex { $0.id == current.id }
+
+        send { port in
+            try port.moveGmailLabel(
+                from: source, to: destination,
+                accountID: current.accountID, messageIDs: [current.id]
+            )
+        }
+        messages[index] = movingGmail(current, from: source, to: destination)
+
+        guard selectedMessageID == current.id else { return }
+        let remaining = visibleMessages
+        guard !remaining.contains(where: { $0.id == current.id }) else { return }
+        guard let positionBefore else {
+            selectedMessageID = remaining.first?.id
+            return
+        }
+        selectedMessageID = remaining.indices.contains(positionBefore)
+            ? remaining[positionBefore].id
+            : remaining.last?.id
+    }
+
+    /// Reverte a colocação de pasta/marcador guardada por um gesto. Cada item
+    /// volta pelo mesmo caminho persistente (`place`) que uma ação normal,
+    /// portanto a projeção SQLite e o outbox permanecem em sincronia também no
+    /// "Desfazer".
+    public func restoreFolderPlacements(_ placements: [FolderPlacementUndo]) {
+        for placement in placements {
+            switch placement {
+            case .moveToFolder(let messageID, let folder):
+                guard let message = messages.first(where: { $0.id == messageID }) else { continue }
+                place(message, in: folder, mode: .move)
+
+            case .restoreGmailInbox(let messageID, let inbox):
+                guard let message = messages.first(where: { $0.id == messageID }) else { continue }
+                // `label` acrescenta INBOX sem retirar marcadores que já
+                // estavam na mensagem antes do gesto.
+                place(message, in: inbox, mode: .label)
+            }
+        }
+    }
+
+    /// Cor local da caixa/conta. Não há operação remota: ela persiste no
+    /// registro da conta e a observação do banco redesenha a barra lateral.
+    public func setAccountTint(
+        accountID: String,
+        lightHex: String,
+        darkHex: String
+    ) {
+        guard let index = accounts.firstIndex(where: { $0.id == accountID }) else { return }
+        send { port in
+            try port.setAccountTint(
+                lightHex: lightHex, darkHex: darkHex, accountID: accountID
+            )
+        }
+        accounts[index] = accounts[index].withTint(lightHex: lightHex, darkHex: darkHex)
+    }
+
+    private func placing(
+        _ message: Message,
+        in folder: MailFolder,
+        mode: FolderPlacement
+    ) -> Message {
+        switch mode {
+        case .label:
+            var updated = message.withFolderIDs(message.folderIDs + [folder.id])
+            // Em Gmail, recolocar o marcador INBOX é o inverso de tirar a
+            // mensagem da caixa de entrada. Não mexemos em "Depois": uma
+            // mensagem adiada continua adiada mesmo que receba INBOX de novo.
+            if folder.role == .inbox, updated.bucket == .archived {
+                updated = updated.withBucket(.today)
+            }
+            return updated
+        case .move:
+            return message
+                .withFolderIDs([folder.id])
+                .withBucket(Self.bucket(for: folder.role))
+        }
+    }
+
+    private func movingGmail(
+        _ message: Message,
+        from source: MailFolder,
+        to destination: MailFolder
+    ) -> Message {
+        var folderIDs = message.folderIDs.filter { $0 != source.id }
+        if !folderIDs.contains(destination.id) { folderIDs.append(destination.id) }
+        var updated = message.withFolderIDs(folderIDs)
+        if source.role == .inbox, updated.bucket == .today {
+            updated = updated.withBucket(.archived)
+        } else if destination.role == .inbox, updated.bucket == .archived {
+            updated = updated.withBucket(.today)
+        }
+        return updated
+    }
+
+    private static func bucket(for role: FolderRole) -> TriageBucket {
+        switch role {
+        case .inbox: .today
+        case .later: .later
+        case .archive, .drafts, .junk, .other: .archived
+        case .trash: .trash
+        case .sent: .sent
+        }
     }
 
     // MARK: - Lixeira
@@ -1518,6 +2219,9 @@ public final class MailStore {
     /// `select(message:)` só marca lida ao **trocar** de seleção, a mensagem
     /// que já estava aberta continua não lida até você sair dela.
     public func setRead(_ isRead: Bool, for messageID: String) {
+        if !isRead {
+            discardPendingRuleAction(.markRead, for: messageID)
+        }
         guard let index = messages.firstIndex(where: { $0.id == messageID }),
               messages[index].isRead != isRead else { return }
         let accountID = messages[index].accountID
@@ -1536,6 +2240,9 @@ public final class MailStore {
     /// Não há caixa "Sinalizadas" neste marco — dívida registrada no relatório
     /// da Task AR.
     public func setFlagged(_ isFlagged: Bool, for messageID: String) {
+        if !isFlagged {
+            discardPendingRuleAction(.flag, for: messageID)
+        }
         guard let index = messages.firstIndex(where: { $0.id == messageID }),
               messages[index].isFlagged != isFlagged else { return }
         let accountID = messages[index].accountID
@@ -1552,9 +2259,10 @@ public final class MailStore {
     /// olha a busca, continuaria acusando não lidas logo abaixo do item que
     /// acabou de dizer que não havia mais.
     public func markAllRead(in bucket: TriageBucket, accountID: String? = nil) {
+        let referenceDay = agendaReferenceDay()
         for index in messages.indices where !messages[index].isRead {
             let message = messages[index]
-            guard bucket.contains(message) else { continue }
+            guard isInBucket(message, bucket: bucket, referenceDay: referenceDay) else { continue }
             if let accountID, message.accountID != accountID { continue }
             messages[index] = message.withRead(true)
         }
@@ -1567,8 +2275,11 @@ public final class MailStore {
     /// não lidas o item some, em vez de aparecer desabilitado dizendo que a
     /// caixa tem o que marcar.
     public func unreadCount(in bucket: TriageBucket, accountID: String? = nil) -> Int {
-        messages.filter { message in
-            guard !message.isRead, bucket.contains(message) else { return false }
+        let referenceDay = agendaReferenceDay()
+        return messages.filter { message in
+            guard !message.isRead,
+                  isInBucket(message, bucket: bucket, referenceDay: referenceDay)
+            else { return false }
             guard let accountID else { return true }
             return message.accountID == accountID
         }.count
@@ -1701,7 +2412,10 @@ public final class MailStore {
 
     /// Contagem por caixa, para os contadores da barra lateral, respeitando o filtro de conta.
     public func count(for bucket: TriageBucket) -> Int {
-        let inBucket = messages.filter { bucket.contains($0) }
+        let referenceDay = agendaReferenceDay()
+        let inBucket = messages.filter {
+            isInBucket($0, bucket: bucket, referenceDay: referenceDay)
+        }
         if let accountID = selectedAccountID {
             return inBucket.filter { $0.accountID == accountID }.count
         }

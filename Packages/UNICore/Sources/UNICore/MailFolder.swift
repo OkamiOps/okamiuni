@@ -1,5 +1,12 @@
 import Foundation
 
+/// “Mover” no IMAP troca a pasta; no Gmail um rótulo é cumulativo. O menu
+/// usa palavras diferentes e a operação carrega essa diferença até o servidor.
+public enum FolderPlacement: String, Sendable, Hashable, Codable {
+    case move
+    case label
+}
+
 /// O papel de uma pasta, do ponto de vista do app.
 ///
 /// Nome do servidor não serve: "Archive", "Arquivo", "[Gmail]/Todos os e-mails"
@@ -17,7 +24,7 @@ import Foundation
 /// que é de `UNICore` — passe a falar o tipo de outro pacote. Quem usa o papel
 /// para decidir **destino no servidor** continua em `UNISync`; o que desceu foi
 /// só o vocabulário.
-public enum FolderRole: String, Sendable, Hashable, CaseIterable {
+public enum FolderRole: String, Sendable, Hashable, CaseIterable, Codable {
     case inbox
     case archive
     case trash

@@ -62,6 +62,108 @@ struct ComposerOutgoingTests {
         #expect(saida.contains("contrato"))
     }
 
+    @Test("o HTML enviado ignora a escala visual do composer")
+    func htmlUsesStandardTypography() throws {
+        var negrito = rico("contrato")
+        negrito[BodyStyleAttribute.self] = BodyStyle(size: 20, bold: true)
+
+        let standard = try #require(ComposerOutgoing.html(negrito, theme: .tinta))
+        let enlarged = try #require(
+            ComposerOutgoing.html(
+                negrito, theme: Theme.tinta.applyingTypography(.enlarged)
+            )
+        )
+        #expect(enlarged == standard)
+    }
+
+    @Test("Assinatura HTML gerenciada atravessa o composer com sua imagem CID")
+    func assinaturaRica() throws {
+        let imagem = try InlineSignatureResource(
+            contentID: "logo@okamiuni.local", mimeType: "image/png",
+            data: Data([0x89, 0x50, 0x4E, 0x47])
+        )
+        let assinatura = try EmailSignature(
+            plainText: "Marcos\nOkamiUNI",
+            html: "<strong>Marcos</strong><br>OkamiUNI<img src=\"cid:logo@okamiuni.local\">",
+            inlineResources: [imagem]
+        )
+        let conteudo = ComposerOutgoing.content(
+            rico("Olá"), theme: tema, signature: assinatura, signatureIsInserted: true
+        )
+
+        #expect(conteudo.plainText == "Olá\n\nMarcos\nOkamiUNI")
+        #expect(conteudo.html?.contains("<strong>Marcos</strong>") == true)
+        #expect(conteudo.html?.contains("cid:logo@okamiuni.local") == true)
+        #expect(conteudo.inlineResources == [imagem])
+    }
+
+    @Test("Assinatura gerenciada desligada não entra silenciosamente numa mensagem")
+    func assinaturaNaoInserida() throws {
+        let assinatura = try EmailSignature(
+            plainText: "Marcos", html: "<strong>Marcos</strong>"
+        )
+
+        let conteudo = ComposerOutgoing.content(
+            rico("Mensagem sem assinatura"), theme: tema, signature: assinatura,
+            signatureIsInserted: false
+        )
+
+        #expect(conteudo.plainText == "Mensagem sem assinatura")
+        #expect(conteudo.html == nil)
+        #expect(conteudo.inlineResources.isEmpty)
+    }
+
+    @Test("Assinatura só de texto preserva HTML que a pessoa escreveu")
+    func assinaturaDeTextoEmCorpoFormatado() {
+        let assinatura = EmailSignature(legacyText: "Marcos\nOkamiUNI")
+        var corpo = rico("Olá")
+        corpo[BodyStyleAttribute.self] = BodyStyle(bold: true)
+
+        let conteudo = ComposerOutgoing.content(
+            corpo, theme: tema, signature: assinatura, signatureIsInserted: true
+        )
+
+        #expect(conteudo.plainText == "Olá\n\nMarcos\nOkamiUNI")
+        #expect(conteudo.html?.contains("Olá") == true)
+        #expect(conteudo.html?.contains("Marcos<br>OkamiUNI") == true)
+        #expect(conteudo.inlineResources.isEmpty)
+    }
+
+    @Test("Assinatura HTML só com imagem continua sendo incluída")
+    func assinaturaSomenteImagem() throws {
+        let imagem = try InlineSignatureResource(
+            contentID: "marca@okamiuni.local", mimeType: "image/png",
+            data: Data([0x89, 0x50, 0x4E, 0x47])
+        )
+        let assinatura = try EmailSignature(
+            plainText: "",
+            html: "<img src=\"cid:marca@okamiuni.local\" alt=\"\">",
+            inlineResources: [imagem]
+        )
+
+        let conteudo = ComposerOutgoing.content(
+            rico("Olá"), theme: tema, signature: assinatura, signatureIsInserted: true
+        )
+
+        #expect(conteudo.plainText == "Olá")
+        #expect(conteudo.html?.contains("cid:marca@okamiuni.local") == true)
+        #expect(conteudo.inlineResources == [imagem])
+    }
+
+    @Test("API legada continua reconhecendo assinatura no fim do editor")
+    func assinaturaLegadaContinuaCompativel() throws {
+        let assinatura = try EmailSignature(
+            plainText: "Marcos", html: "<strong>Marcos</strong>"
+        )
+        var corpo = rico("Olá")
+        Signature.insert(assinatura.plainText, into: &corpo)
+
+        let conteudo = ComposerOutgoing.content(corpo, theme: tema, signature: assinatura)
+
+        #expect(conteudo.plainText == "Olá\n\nMarcos")
+        #expect(conteudo.html?.contains("<strong>Marcos</strong>") == true)
+    }
+
     // MARK: A mensagem
 
     @Test("A mensagem carrega conta, remetente, destinatários e corpo")

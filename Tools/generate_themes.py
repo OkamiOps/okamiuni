@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""Generates UNIDesign's theme catalogue from the Claude Design prototype.
+"""Generates UNIDesign's theme catalogue from the canonical token data.
 
-The prototype in design/ is the source of truth. Re-run this whenever the
-design changes:
+``design/tokens.json`` is the canonical structured source for colour values and
+theme tokens, including the shared ``base`` fallbacks. The Claude Design HTML
+in ``design/`` remains the visual reference and supplies the theme display
+names and notes; it is not the structured source for colour values. Re-run
+this whenever either source changes:
 
     python3 Tools/generate_themes.py
 
-Reads:  design/tokens.json            (token values, extracted CSS custom properties)
-        design/OkamiUNI*.dc.html      (theme display names and notes)
+Reads:  design/tokens.json            (canonical structured token values and fallbacks)
+        design/OkamiUNI*.dc.html      (visual reference, display names and notes)
 Writes: Packages/UNIDesign/Sources/UNIDesign/Themes+Generated.swift
 """
 

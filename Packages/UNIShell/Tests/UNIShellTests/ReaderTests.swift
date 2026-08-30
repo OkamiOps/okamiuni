@@ -9,6 +9,22 @@ import UNIDesign
 @Suite("ReaderPane")
 struct ReaderTests {
 
+    @Test("abrir uma mensagem pede prioridade para o TL;DR")
+    @MainActor
+    func openingMessagePrioritizesTLDR() async {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        var presentedIDs: [String] = []
+        let reader = ReaderPane(
+            store: store,
+            onMessagePresented: { presentedIDs.append($0) }
+        )
+
+        reader.messageDidAppear("m1")
+
+        #expect(presentedIDs == ["m1"])
+    }
+
     /// O estado vazio do leitor ("Nada aqui. Bom sinal.") é para uma caixa
     /// vazia, não para a abertura do app: o protótipo abre em `selected: 'm1'`.
     /// Este teste trocou de sentido na Task P junto com esse defeito.

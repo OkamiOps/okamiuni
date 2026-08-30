@@ -94,6 +94,34 @@ public final class AccountsModel {
         await roda { try await self.director.remove(accountID: accountID) }
     }
 
+    /// Grava a assinatura da conta e deixa o diretor publicar o retrato novo.
+    ///
+    /// Devolve `false` quando a ação falha; a causa completa continua em
+    /// `lastError`, como nas demais ações da janela. O retorno é conveniente
+    /// para um formulário que só deve fechar depois da confirmação, sem criar
+    /// um segundo canal de erro.
+    @discardableResult
+    public func updateSignature(accountID: String, signature: String) async -> Bool {
+        await updateEmailSignature(
+            accountID: accountID, signature: EmailSignature(legacyText: signature)
+        )
+    }
+
+    /// Grava a assinatura rica e preserva o retorno/erro da API antiga. A
+    /// sanitização e os limites já foram aplicados por `EmailSignature`; este
+    /// método apenas serializa a ação da janela e entrega a escrita ao banco.
+    @discardableResult
+    public func updateEmailSignature(
+        accountID: String, signature: EmailSignature
+    ) async -> Bool {
+        await roda {
+            _ = try await self.director.updateEmailSignature(
+                accountID: accountID, signature: signature
+            )
+        }
+        return lastError == nil
+    }
+
     public func loadInitial(_ accountID: String) async {
         await director.loadInitial(accountID: accountID)
     }

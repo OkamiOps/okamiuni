@@ -1,6 +1,7 @@
 import SwiftUI
 import UNIDesign
 import UNICore
+import UNISync
 
 enum InboxAssistantScope: Sendable, Hashable {
     case workspace
@@ -47,6 +48,7 @@ public struct InboxScreen: View {
     @State private var assistantOpen = false
     @State private var assistantScope: InboxAssistantScope = .workspace
     @State private var assistantSessionID = UUID()
+    @State private var readerAssistantOpen = false
     let store: MailStore
 
     /// De onde vem o "agora" da trilha e das três visões da agenda.
@@ -63,20 +65,30 @@ public struct InboxScreen: View {
     /// Serviço local injetado pelo app. `nil` mantém previews e harnesses
     /// determinísticos, com a superfície ainda renderizável.
     let textAssistant: (any OnDeviceTextAssisting)?
+    /// A mesma preferência que o roteador consulta no momento da pergunta.
+    /// Ela existe aqui só para rotular honestamente a superfície interativa.
+    let assistantSettings: AssistantSettingsStore?
     let composerIntelligence: ComposerIntelligenceGenerator?
+    let onMessagePresented: (String) -> Void
+    let debugReaderAssistantOpen: Bool
 
     public init(
         store: MailStore,
         clock: AgendaClock = .fixed(Fixtures.nowMinute),
         intelligencePresentation: IntelligencePresentation = .available,
-        textAssistant: (any OnDeviceTextAssisting)? = nil
+        textAssistant: (any OnDeviceTextAssisting)? = nil,
+        assistantSettings: AssistantSettingsStore? = nil,
+        onMessagePresented: @escaping (String) -> Void = { _ in }
     ) {
         self.init(
             store: store,
             clock: clock,
             intelligencePresentation: intelligencePresentation,
             textAssistant: textAssistant,
-            debugAssistantOpen: false
+            assistantSettings: assistantSettings,
+            onMessagePresented: onMessagePresented,
+            debugAssistantOpen: false,
+            debugReaderAssistantOpen: false
         )
     }
 
@@ -87,18 +99,25 @@ public struct InboxScreen: View {
         clock: AgendaClock = .fixed(Fixtures.nowMinute),
         intelligencePresentation: IntelligencePresentation = .available,
         textAssistant: (any OnDeviceTextAssisting)? = nil,
+        assistantSettings: AssistantSettingsStore? = nil,
+        onMessagePresented: @escaping (String) -> Void = { _ in },
         debugAssistantOpen: Bool,
-        debugAssistantScope: InboxAssistantScope = .workspace
+        debugAssistantScope: InboxAssistantScope = .workspace,
+        debugReaderAssistantOpen: Bool = false
     ) {
         self.store = store
         self.clock = clock
         self.intelligencePresentation = intelligencePresentation
         self.textAssistant = textAssistant
+        self.assistantSettings = assistantSettings
+        self.onMessagePresented = onMessagePresented
         self.composerIntelligence = textAssistant.map {
             OnDeviceAssistantBridge.composerGenerator(using: $0)
         }
+        self.debugReaderAssistantOpen = debugReaderAssistantOpen
         _assistantOpen = State(initialValue: debugAssistantOpen)
         _assistantScope = State(initialValue: debugAssistantScope)
+        _readerAssistantOpen = State(initialValue: debugReaderAssistantOpen)
     }
 
     /// O **hoje** de tudo que esta tela desenha com data: o carimbo de cada
@@ -135,7 +154,13 @@ public struct InboxScreen: View {
                 // Conteúdo principal
                 switch workspace {
                 case .mail:
-                    mailContent
+                    // A lista depende do mesmo relógio vivo que o MailStore
+                    // recebe. O reader a redesenha a cada minuto; assim, a
+                    // chave temporal do store é relida ao cruzar a meia-noite
+                    // sem criar outro timer nem afetar os retratos `.fixed`.
+                    AgendaClockReader(clock) { _ in
+                        mailContent
+                    }
                 case .calendar:
                     calendarContent
                 }
@@ -252,11 +277,22 @@ public struct InboxScreen: View {
                 // Painel de leitura: fica com tudo o que sobrar.
                 ReaderPane(
                     store: store,
+                    debugEmailAssistantOpen: debugReaderAssistantOpen,
                     onReply: openComposer,
+                    attachmentSaver: NativeAttachmentSaver(),
                     intelligence: composerIntelligence,
                     intelligencePresentation: intelligencePresentation,
-                    onOpenAssistant: openEmailAssistant
+                    onAskAssistant: { messageID, request in
+                        try await askAssistant(request, scope: .email(messageID))
+                    },
+                    onMessagePresented: onMessagePresented,
+                    onEmailAssistantOpenChange: { open in
+                        readerAssistantOpen = open
+                    }
                 )
+                // O popover sai dos limites do leitor para caber ao lado do
+                // ícone. Elevar só o cabeçalho não o coloca acima da lista.
+                .zIndex(readerAssistantOpen ? 100 : 0)
 
                 // Trilha de agenda — o primeiro painel a sair quando aperta.
                 // A data do cabeçalho e o minuto seguem o **mesmo** relógio:
@@ -289,6 +325,11 @@ public struct InboxScreen: View {
             // zero ao layout.
             .overlay(alignment: .topLeading) {
                 dividers(layout: layout, windowWidth: proxy.size.width)
+                    // A calha é um overlay do HStack inteiro; nenhum zIndex de
+                    // um filho passa por ela. Enquanto o popover está aberto,
+                    // a linha some e deixa de roubar clique.
+                    .opacity(readerAssistantOpen ? 0 : 1)
+                    .allowsHitTesting(!readerAssistantOpen)
             }
             // O referencial em que o arraste é medido, e o motivo de ele vir
             // **depois** do `.overlay`: assim as divisórias são descendentes
@@ -484,6 +525,7 @@ public struct InboxScreen: View {
         return LocalAssistantPanel(
             mode: scope.mode,
             context: assistantContext(for: scope),
+            providerLabel: assistantProviderLabel,
             onAsk: { request in
                 try await askAssistant(request, scope: scope)
             },
@@ -491,6 +533,10 @@ public struct InboxScreen: View {
         )
         .id(assistantSessionID)
         .shadow(color: .black.opacity(0.16), radius: 22, x: 0, y: 10)
+    }
+
+    private var assistantProviderLabel: String {
+        assistantSettings?.snapshot().interactiveProviderLabel ?? "Provedor configurado"
     }
 
     private func openWorkspaceAssistant() {

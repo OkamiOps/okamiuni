@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import UNIDesign
 import UNICore
@@ -42,15 +43,12 @@ public struct WindowChrome: View {
     /// estreita.
     public static let flexibleControl: ChromeControl = .search
 
-    /// A linha média da barra, onde tudo o que ela desenha fica centrado — e,
-    /// desde a Task S, também os semáforos nativos.
     /// A linha média da fileira de controles, contada do topo da janela.
     ///
-    /// **22, a convenção da plataforma**, e não 32, que seria o centro da barra
-    /// de 64pt. Chrome, Claude, VSCode e Codex põem em 22; medido no Chrome
-    /// desta máquina: 22. A barra continua com 64
-    /// e a folga fica embaixo.
-    public static let centerY: CGFloat = TrafficLightLayout.contentCenterFromTop
+    /// Os semáforos continuam na linha nativa de 22pt. Os controles ocupam o
+    /// centro da toolbar de 64pt: botões de 38pt ganham 13pt de respiro acima,
+    /// em vez de nascerem praticamente colados ao topo.
+    public static let centerY: CGFloat = height / 2
     /// Onde terminam os semáforos nativos da janela, medido por acessibilidade
     /// numa janela `.hiddenTitleBar`: fechar em x=8, minimizar em x=31, tela cheia
     /// em x=54, todos com 16pt — o último termina em **x=70**.
@@ -87,6 +85,15 @@ public struct WindowChrome: View {
     /// Abaixo disto o campo deixa de ser usável — o placeholder trunca e o
     /// "⌘K" encosta no cursor. A partir daqui quem cede é a folga do `HStack`.
     public static let searchMinimumWidth: CGFloat = 180
+
+    /// O lockup oficial do protótipo: símbolo + grafia. Um quadro comum evita
+    /// que a barra ande ao trocar entre os PNGs claro e escuro, cujas
+    /// proporções diferem por menos de dois pontos nessa altura.
+    static let lockupSize = CGSize(width: 138, height: 38)
+
+    static func lockupAssetName(isDark: Bool) -> String {
+        isDark ? "uni-lockup-dark" : "uni-lockup-light"
+    }
 
     @Environment(\.theme) private var theme
     @Environment(\.displayScale) private var displayScale
@@ -140,11 +147,7 @@ public struct WindowChrome: View {
             }
         }
         .padding(.horizontal, 12)
-        // O conteúdo vive numa faixa de `2 × 22` no topo da barra, para o
-        // centro de cada controle cair em 22 — a mesma linha dos semáforos.
-        // Ver `TrafficLightLayout.contentCenterFromTop`.
-        .frame(height: TrafficLightLayout.contentCenterFromTop * 2)
-        .frame(height: Self.height, alignment: .top)
+        .frame(height: Self.height)
         // O referencial em que as molduras dos controles são medidas. Tem de
         // ficar aqui, sobre a barra já com a altura final: é este retângulo que
         // a captura do duplo clique cobre, e os dois precisam ter a mesma
@@ -218,19 +221,19 @@ public struct WindowChrome: View {
     }
 
     private var lockup: some View {
-        HStack(spacing: 9) {
-            Text("OkamiUNI")
-                .font(theme.serif.font(size: 17, weight: .semibold))
-                .foregroundStyle(theme.ink.color)
-            HStack(spacing: 3) {
-                Circle().fill(theme.accent.color)
-                Circle().fill(Color(red: 0.10, green: 0.64, blue: 0.36))
-                Circle().fill(Color(red: 0.91, green: 0.25, blue: 0.25))
-                Circle().fill(Color(red: 0.92, green: 0.66, blue: 0.08))
+        let name = NSImage.Name(Self.lockupAssetName(isDark: theme.isDark))
+        return Image(nsImage: NSImage(named: name) ?? NSImage(size: Self.lockupSize))
+            .resizable()
+            .interpolation(.high)
+            .scaledToFit()
+            .frame(width: Self.lockupSize.width, height: Self.lockupSize.height)
+            // O PNG oficial claro traz uma hairline residual na última linha.
+            // Ela fica abaixo da arte; mascarar 1pt preserva o lockup e evita
+            // que pareça existir um divisor sob a marca na toolbar.
+            .mask(alignment: .top) {
+                Rectangle().frame(height: Self.lockupSize.height - 1)
             }
-            .frame(width: 29, height: 6)
-        }
-        .fixedSize()
+            .fixedSize()
             .accessibilityLabel("OkamiUNI")
     }
 

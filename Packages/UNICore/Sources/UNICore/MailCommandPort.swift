@@ -26,6 +26,24 @@ public protocol MailCommandPort: Sendable {
     /// `delete(accountID:messageIDs:)`, porque no espelho do servidor as duas
     /// coisas são operações diferentes (label/pasta comum vs. TRASH).
     func move(to bucket: TriageBucket, accountID: String, messageIDs: [String]) throws
+    /// Move para uma pasta IMAP ou aplica um marcador Gmail.
+    func place(
+        in folder: MailFolder,
+        mode: FolderPlacement,
+        accountID: String,
+        messageIDs: [String]
+    ) throws
+    /// Gmail “Mover para”: adiciona o destino e remove apenas o marcador de
+    /// origem. É separado de `place` para a fila nunca confundir mover com
+    /// aplicar cumulativamente.
+    func moveGmailLabel(
+        from source: MailFolder,
+        to destination: MailFolder,
+        accountID: String,
+        messageIDs: [String]
+    ) throws
+    /// Preferência local: muda a cor da conta, sem operação de servidor.
+    func setAccountTint(lightHex: String, darkHex: String, accountID: String) throws
     /// Move para a Lixeira — o "apagar" reversível, que ainda aparece na
     /// caixa Lixeira até `deletePermanently` ou `emptyTrash`.
     func delete(accountID: String, messageIDs: [String]) throws

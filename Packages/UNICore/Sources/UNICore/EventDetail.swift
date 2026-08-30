@@ -126,7 +126,80 @@ public struct EventDetail: Sendable, Hashable {
         1 + people.filter { $0.address.lowercased() != organizer.address.lowercased() }.count
     }
 
-    public var hasLink: Bool { link?.isEmpty == false }
+    /// A sala efetiva do compromisso.
+    ///
+    /// O Calendar do macOS nem sempre preenche `EKEvent.url`: convites do
+    /// Google frequentemente guardam o Meet em `notes`, e alguns provedores o
+    /// repetem em `LOCATION`. A janela, o menu e o encaminhamento precisam
+    /// fazer a mesma pergunta, por isso a resolução mora no modelo.
+    public var meetingLink: String? {
+        // `link` veio de um campo/propiedade explícita e pode ser de qualquer
+        // serviço. Local e descrição são texto livre, então continuam sob a
+        // allowlist de `MeetingLink.first(in:)`.
+        if let link, let explicit = MeetingLink.normalizado(link) { return explicit }
+        for text in [place, descricao].compactMap({ $0 }) {
+            if let found = MeetingLink.first(in: text) { return found }
+        }
+        return nil
+    }
+
+    /// Descrição útil para leitura, sem o cartão automático da videoconferência.
+    ///
+    /// O Google anexa um bloco delimitado por `-::~:~:` contendo o mesmo link,
+    /// ajuda e “Não edite esta seção”. Esse bloco vira cartão + ação “Entrar”;
+    /// repeti-lo como descrição só cria ruído. Fora dele, removemos apenas a
+    /// linha que contém exatamente a sala promovida e preservamos a pauta.
+    public var visibleDescription: String? {
+        Self.cleanDescription(descricao, meetingLink: meetingLink)
+    }
+
+    public static func cleanDescription(
+        _ description: String?, meetingLink: String?
+    ) -> String? {
+        guard let description else { return nil }
+        let normalized = description
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+        var lines = normalized.components(separatedBy: "\n")
+
+        // O bloco gerado pelo Google é sempre apêndice. Preservamos tudo que
+        // veio antes do primeiro delimitador e descartamos somente o apêndice.
+        if let boundary = lines.firstIndex(where: { $0.contains("-::~:~:") }) {
+            lines.removeSubrange(boundary...)
+        }
+
+        lines = lines.filter { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            let lower = trimmed.lowercased()
+            if let meetingLink, trimmed.contains(meetingLink) { return false }
+            if lower.contains("support.google.com/a/users/answer/9282720") { return false }
+            if lower.contains("não edite esta seção") || lower.contains("do not edit this section") {
+                return false
+            }
+            return true
+        }
+
+        while lines.first?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
+            lines.removeFirst()
+        }
+        while lines.last?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
+            lines.removeLast()
+        }
+
+        var compacted: [String] = []
+        for line in lines {
+            let blank = line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            if blank, compacted.last?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true {
+                continue
+            }
+            compacted.append(line)
+        }
+        let visible = compacted.joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return visible.isEmpty ? nil : visible
+    }
+
+    public var hasLink: Bool { meetingLink != nil }
     public var hasAgenda: Bool { !agenda.isEmpty }
     public var hasThread: Bool { !thread.isEmpty }
 }

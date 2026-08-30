@@ -41,6 +41,17 @@ public enum OutgoingMime {
         boundary: String = "okamiuni-\(UUID().uuidString.lowercased())"
     ) -> String {
         var linhas: [String] = []
+        // `EmailSignature` já impede duplicata, mas `OutgoingMessage` também
+        // é uma API pública e pode ser montada por outra superfície. Não há
+        // como dois bytes responderem ao mesmo `cid:` sem cliente dependente
+        // da ordem, então o MIME conserva somente o primeiro de cada ID.
+        let inlineResources = uniqueInlineResources(message.inlineResources)
+        // Segunda defesa no limite de transporte: mesmo um chamador que criou
+        // `OutgoingMessage` sem passar por `EmailSignature` não consegue
+        // colocar pixel remoto, `file:`, SVG ou data URL no e-mail.
+        let safeHTML = EmailSignature.sanitizedHTML(
+            message.html, inlineResources: inlineResources
+        )
         linhas.append("From: \(addressList([message.from]))")
         if !message.to.isEmpty { linhas.append("To: \(addressList(message.to))") }
         if !message.cc.isEmpty { linhas.append("Cc: \(addressList(message.cc))") }
@@ -73,12 +84,15 @@ public enum OutgoingMime {
             return linhas.joined(separator: "\r\n")
         }
 
-        if message.attachments.isEmpty, let html = message.html, !html.isEmpty {
+        if message.attachments.isEmpty, let html = safeHTML, !html.isEmpty {
             linhas.append("Content-Type: multipart/alternative; boundary=\"\(boundary)\"")
             linhas.append("")
             linhas.append("Esta mensagem tem várias partes em MIME.")
             linhas.append("")
-            appendTextParts(&linhas, boundary: boundary, plainText: message.plainText, html: html)
+            appendTextParts(
+                &linhas, boundary: boundary, plainText: message.plainText, html: html,
+                inlineResources: inlineResources
+            )
             return linhas.joined(separator: "\r\n")
         }
 
@@ -99,11 +113,14 @@ public enum OutgoingMime {
         linhas.append("")
         linhas.append("Esta mensagem tem várias partes em MIME.")
         linhas.append("")
-        if let html = message.html, !html.isEmpty {
+        if let html = safeHTML, !html.isEmpty {
             linhas.append("--\(boundary)")
             linhas.append("Content-Type: multipart/alternative; boundary=\"\(alternativeBoundary)\"")
             linhas.append("")
-            appendTextParts(&linhas, boundary: alternativeBoundary, plainText: message.plainText, html: html)
+            appendTextParts(
+                &linhas, boundary: alternativeBoundary, plainText: message.plainText, html: html,
+                inlineResources: inlineResources
+            )
         } else {
             linhas.append("--\(boundary)")
             linhas.append("Content-Type: text/plain; charset=utf-8")
@@ -124,19 +141,81 @@ public enum OutgoingMime {
     }
 
     private static func appendTextParts(
-        _ lines: inout [String], boundary: String, plainText: String, html: String
+        _ lines: inout [String], boundary: String, plainText: String, html: String,
+        inlineResources: [InlineSignatureResource]
     ) {
         lines.append("--\(boundary)")
         lines.append("Content-Type: text/plain; charset=utf-8")
         lines.append("Content-Transfer-Encoding: quoted-printable")
         lines.append("")
         lines.append(quotedPrintable(plainText))
+        if inlineResources.isEmpty {
+            lines.append("--\(boundary)")
+            appendHTMLPart(&lines, html: html)
+        } else {
+            // `related` fica dentro de `alternative`: o cliente primeiro
+            // escolhe a alternativa HTML, e só então resolve os `cid:` que
+            // pertencem a ela. Fazer as imagens irmãs do texto no `mixed`
+            // externo deixa Outlook e Apple Mail tratarem o logo como anexo.
+            let relatedBoundary = "\(boundary)-related"
+            lines.append("--\(boundary)")
+            lines.append(
+                "Content-Type: multipart/related; boundary=\"\(relatedBoundary)\"; type=\"text/html\""
+            )
+            lines.append("")
+            appendRelatedParts(
+                &lines, boundary: relatedBoundary, html: html,
+                inlineResources: inlineResources
+            )
+        }
+        lines.append("--\(boundary)--")
+    }
+
+    private static func appendRelatedParts(
+        _ lines: inout [String], boundary: String, html: String,
+        inlineResources: [InlineSignatureResource]
+    ) {
         lines.append("--\(boundary)")
+        appendHTMLPart(&lines, html: html)
+        for (index, resource) in inlineResources.enumerated() {
+            lines.append("--\(boundary)")
+            lines.append("Content-Type: \(resource.mimeType); name=\"\(inlineFilename(for: resource, index: index))\"")
+            lines.append("Content-Transfer-Encoding: base64")
+            lines.append("Content-ID: <\(resource.contentID)>")
+            lines.append(
+                "Content-Disposition: inline; filename=\"\(inlineFilename(for: resource, index: index))\""
+            )
+            lines.append("")
+            lines.append(base64Lines(resource.data))
+        }
+        lines.append("--\(boundary)--")
+    }
+
+    private static func appendHTMLPart(_ lines: inout [String], html: String) {
         lines.append("Content-Type: text/html; charset=utf-8")
         lines.append("Content-Transfer-Encoding: quoted-printable")
         lines.append("")
         lines.append(quotedPrintable(html))
-        lines.append("--\(boundary)--")
+    }
+
+    /// O recurso não recebe um nome vindo de caminho local; além de não haver
+    /// caminho para vazar, o nome fixo impede caractere estranho em cabeçalho.
+    private static func inlineFilename(for resource: InlineSignatureResource, index: Int) -> String {
+        let suffix: String
+        switch resource.mimeType {
+        case "image/jpeg": suffix = "jpg"
+        case "image/gif": suffix = "gif"
+        case "image/webp": suffix = "webp"
+        default: suffix = "png"
+        }
+        return "signature-image-\(index + 1).\(suffix)"
+    }
+
+    private static func uniqueInlineResources(
+        _ resources: [InlineSignatureResource]
+    ) -> [InlineSignatureResource] {
+        var seen = Set<String>()
+        return resources.filter { seen.insert($0.contentID).inserted }
     }
 
     /// RFC 2045 limita linhas base64 a 76 caracteres. `Data` produz uma linha

@@ -610,6 +610,19 @@ public struct SyncDatabase: Sendable {
                 ON message_intelligence(state, updatedAt)
                 """)
         }
+        // A v12: assinatura rica por conta. A coluna antiga de texto fica
+        // intacta como fallback de versões anteriores e de JSON corrompido;
+        // o JSON é aditivo para não reescrever contas já conectadas nem perder
+        // a assinatura simples que elas já tinham.
+        migrator.registerMigration("v12") { db in
+            try db.execute(sql: "ALTER TABLE account ADD COLUMN signatureJSON TEXT")
+        }
+        // A v13: categoria de intenção produzida pela análise local. O valor
+        // é o rawValue fechado de `MailCategory`; nulo mantém mensagens antigas
+        // e respostas inválidas fora de qualquer categoria forçada.
+        migrator.registerMigration("v13") { db in
+            try db.execute(sql: "ALTER TABLE message ADD COLUMN category TEXT")
+        }
         return migrator
     }
 }

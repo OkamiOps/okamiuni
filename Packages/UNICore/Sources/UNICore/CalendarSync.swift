@@ -21,7 +21,6 @@ public enum CalendarAvailability: Sendable, Hashable {
 /// se um compromisso veio do Calendário do macOS ou de um servidor CalDAV. A
 /// referência de dia é explícita porque a UI usa `dayOffset`, enquanto os
 /// adaptadores trabalham com datas reais.
-@MainActor
 public protocol CalendarSyncing: AnyObject, Sendable {
     func availability() async -> CalendarAvailability
     func synchronize(referenceDay: Date, requestAuthorization: Bool) async throws -> [AgendaItem]

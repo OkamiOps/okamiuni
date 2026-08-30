@@ -9,6 +9,10 @@ import UNICore
 /// Assim, a barra não precisa conhecer a implementação para dizer a verdade
 /// sobre o que a pessoa pode usar.
 public enum IntelligencePresentation: CaseIterable, Sendable {
+    /// Porta do assistente roteável. Ela permanece acessível mesmo quando o
+    /// Foundation Models local não está pronto, porque o provedor escolhido
+    /// pode ser LiteLLM/OAuth ou um CLI autenticado por device flow.
+    case configuredAssistant
     case available
     case deviceNotEligible
     case appleIntelligenceNotEnabled
@@ -21,10 +25,14 @@ public enum IntelligencePresentation: CaseIterable, Sendable {
 
     /// Se o motor está pronto para receber uma pergunta. O shell só desenha
     /// esta decisão: quem a mede continua sendo o compositor do app.
-    public var isAvailable: Bool { self == .available }
+    public var isAvailable: Bool {
+        self == .configuredAssistant || self == .available
+    }
 
     public var title: String {
         switch self {
+        case .configuredAssistant:
+            "Assistente configurável disponível"
         case .available:
             "Inteligência local disponível"
         case .deviceNotEligible:
@@ -38,6 +46,8 @@ public enum IntelligencePresentation: CaseIterable, Sendable {
 
     var detail: String {
         switch self {
+        case .configuredAssistant:
+            "Pergunte sobre suas caixas, emails e agenda. O processamento segue o provedor escolhido em Configurações."
         case .available:
             "Pergunte sobre suas caixas, emails e agenda. Nada sai deste Mac."
         case .deviceNotEligible:
@@ -49,9 +59,22 @@ public enum IntelligencePresentation: CaseIterable, Sendable {
         }
     }
 
-    /// Este é o glifo da função, não do estado. A disponibilidade aparece em
-    /// texto para que o botão não vire uma coleção de símbolos ambíguos.
-    public var symbol: String { "apple.intelligence" }
+    /// O glifo também precisa dizer a verdade sobre a origem. Mostrar o selo
+    /// da Apple depois que a pessoa escolheu Codex, Grok, LiteLLM ou um CLI
+    /// fazia o provedor remoto parecer um modelo local.
+    public var symbol: String {
+        self == .configuredAssistant ? "sparkles" : "apple.intelligence"
+    }
+
+    public var usesConfiguredProvider: Bool { self == .configuredAssistant }
+
+    /// Copy curta do rodapé. Não pode prometer processamento local quando a
+    /// pessoa escolheu OAuth, LiteLLM ou um CLI.
+    public var scopeLabel: String {
+        self == .configuredAssistant
+            ? "Todo o OkamiUNI · provedor configurado"
+            : "Todo o OkamiUNI · local"
+    }
 
     public var actionHelp: String {
         isAvailable
@@ -80,7 +103,7 @@ struct IntelligenceFooter: View {
                     Text(presentation.actionTitle)
                         .font(theme.sans.font(size: 12.5, weight: .semibold))
                         .foregroundStyle((presentation.isAvailable ? theme.ink : theme.ink3).color)
-                    Text("Todo o OkamiUNI · local")
+                    Text(presentation.scopeLabel)
                         .font(theme.sans.font(size: 10.5))
                         .foregroundStyle(theme.ink3.color)
                 }

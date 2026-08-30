@@ -212,3 +212,73 @@ struct BandSuggestionStackingTests {
         )
     }
 }
+
+/// O mesmo defeito na janela de compromisso: o painel de encaminhar é irmão
+/// da nota de origem. Dar `zIndex` só ao `RecipientField` ordena o menu dentro
+/// do painel, mas não impede a nota — desenhada depois — de passar por cima.
+@Suite("Empilhamento das sugestões no compromisso")
+@MainActor
+struct EventSuggestionStackingTests {
+    private static let size = CGSize(width: 560, height: 700)
+
+    private func store(note: String) async throws -> MailStore {
+        let account = try #require(Fixtures.accounts.first)
+        let detail = EventDetail(
+            place: EventPlace.semLocal, link: nil,
+            organizer: EventPerson(
+                name: "Organizador", address: "organizador@exemplo.com",
+                role: "organizador", status: .yes
+            ),
+            people: [], note: note,
+            recurrence: "Evento único", notice: "Sem alerta",
+            agenda: [], thread: []
+        )
+        let item = AgendaItem(
+            id: "evento-sistema", title: "Compromisso",
+            startMinute: 600, endMinute: 660,
+            accountID: account.id, dayOffset: 0, detail: detail
+        )
+        let result = MailStore(source: InMemoryMailSource(
+            accounts: [account], messages: [], agenda: [item]
+        ))
+        await result.load()
+        return result
+    }
+
+    private func image(note: String, named name: String) async throws -> NSBitmapImageRep {
+        let store = try await store(note: note)
+        return try #require(Render.snapshot(
+            EventWindow(store: store, itemID: "evento-sistema", debugForwardQuery: ""),
+            named: name, size: Self.size, theme: .papel
+        ))
+    }
+
+    /// O retângulo é a interseção medida entre a lista (x 34…354,
+    /// y 375…612) e a nota posterior (y 476…515) no render 560×700. Trocar só
+    /// o texto da nota não pode mudar nenhum pixel da lista opaca que está na
+    /// frente. Com o empilhamento quebrado, o texto atravessa a lista e esta
+    /// contagem fica maior que zero — exatamente o print reportado.
+    private func differencesInsideMenu(_ a: NSBitmapImageRep, _ b: NSBitmapImageRep) -> Int {
+        var count = 0
+        for y in 375..<612 {
+            for x in 34..<354 where a.colorAt(x: x, y: y) != b.colorAt(x: x, y: y) {
+                count += 1
+            }
+        }
+        return count
+    }
+
+    @Test("a nota do calendário não atravessa a lista de destinatários")
+    func originNoteDoesNotCrossSuggestions() async throws {
+        let macOS = try await image(
+            note: "Calendário do macOS", named: "evento-sugestoes-calendario-macos"
+        )
+        let sistema = try await image(
+            note: "Calendário do sistema", named: "evento-sugestoes-calendario-sistema"
+        )
+        #expect(
+            differencesInsideMenu(macOS, sistema) == 0,
+            "o texto da nota posterior ainda está sendo pintado dentro do menu"
+        )
+    }
+}

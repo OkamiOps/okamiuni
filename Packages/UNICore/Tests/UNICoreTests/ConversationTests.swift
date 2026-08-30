@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import Testing
 @testable import UNICore
 
@@ -162,6 +163,15 @@ struct ConversationStoreTests {
         func move(to bucket: TriageBucket, accountID: String, messageIDs: [String]) throws {
             moves.append((bucket, messageIDs))
         }
+        func place(
+            in folder: MailFolder, mode: FolderPlacement,
+            accountID: String, messageIDs: [String]
+        ) throws {}
+        func moveGmailLabel(
+            from source: MailFolder, to destination: MailFolder,
+            accountID: String, messageIDs: [String]
+        ) throws {}
+        func setAccountTint(lightHex: String, darkHex: String, accountID: String) throws {}
         func delete(accountID: String, messageIDs: [String]) throws {
             deletes.append(messageIDs)
         }
@@ -171,7 +181,47 @@ struct ConversationStoreTests {
         func emptyTrash(accountID: String) throws {}
     }
 
-    private func store(_ messages: [Message], port: Espia? = nil) async -> MailStore {
+    /// Simula uma transação SQLite presa atrás de outra escrita. O clique não
+    /// pode esperar esta porta terminar para devolver controle à interface.
+    private final class PortaLenta: MailCommandPort, @unchecked Sendable {
+        private let lock = NSLock()
+        private var terminou = false
+
+        var concluiuLeitura: Bool {
+            lock.withLock { terminou }
+        }
+
+        func setRead(_ isRead: Bool, accountID: String, messageIDs: [String]) throws {
+            Thread.sleep(forTimeInterval: 0.25)
+            lock.withLock { terminou = true }
+        }
+        func setFlagged(_ isFlagged: Bool, accountID: String, messageIDs: [String]) throws {}
+        func move(to bucket: TriageBucket, accountID: String, messageIDs: [String]) throws {}
+        func place(
+            in folder: MailFolder, mode: FolderPlacement,
+            accountID: String, messageIDs: [String]
+        ) throws {}
+        func moveGmailLabel(
+            from source: MailFolder, to destination: MailFolder,
+            accountID: String, messageIDs: [String]
+        ) throws {}
+        func setAccountTint(lightHex: String, darkHex: String, accountID: String) throws {}
+        func delete(accountID: String, messageIDs: [String]) throws {}
+        func deletePermanently(accountID: String, messageIDs: [String]) throws {}
+        func emptyTrash(accountID: String) throws {}
+    }
+
+    private final class SinalDeObservacao: @unchecked Sendable {
+        private let lock = NSLock()
+        private var mudou = false
+
+        var foiAcionado: Bool { lock.withLock { mudou } }
+        func aciona() { lock.withLock { mudou = true } }
+    }
+
+    private func store(
+        _ messages: [Message], port: (any MailCommandPort)? = nil
+    ) async -> MailStore {
         let store = MailStore(
             source: InMemoryMailSource(accounts: [], messages: messages, agenda: []),
             commandPort: port
@@ -205,6 +255,7 @@ struct ConversationStoreTests {
         store.move(conversa, to: .archived)
 
         #expect(store.messages.allSatisfy { $0.bucket == .archived })
+        await store.waitForPendingCommands()
         // Uma operação, com os três ids — e não três operações.
         #expect(espia.moves.count == 1)
         #expect(espia.moves.first?.0 == .archived)
@@ -217,6 +268,7 @@ struct ConversationStoreTests {
         let store = await store(trio, port: espia)
         let conversa = try #require(store.visibleConversations.first)
         store.move(conversa, to: .trash)
+        await store.waitForPendingCommands()
         #expect(espia.moves.isEmpty)
         #expect(Set(espia.deletes.first ?? []) == ["a", "b", "c"])
     }
@@ -228,6 +280,7 @@ struct ConversationStoreTests {
         let conversa = try #require(store.visibleConversations.first)
         store.setRead(true, for: conversa)
         #expect(store.messages.allSatisfy { $0.isRead })
+        await store.waitForPendingCommands()
         #expect(Set(espia.reads.first?.1 ?? []) == ["a", "c"])
     }
 
@@ -238,6 +291,7 @@ struct ConversationStoreTests {
         let conversa = try #require(store.visibleConversations.first)
         store.setFlagged(true, for: conversa)
         #expect(store.messages.allSatisfy { $0.isFlagged })
+        await store.waitForPendingCommands()
         #expect(Set(espia.flags.first?.1 ?? []) == ["a", "b", "c"])
     }
 
@@ -266,6 +320,7 @@ struct ConversationStoreTests {
         let conversa = try #require(store.visibleConversations.first)
         store.deleteForever(conversa)
         #expect(store.messages.isEmpty)
+        await store.waitForPendingCommands()
         #expect(Set(espia.apagados.first ?? []) == ["a", "b", "c"])
         for id in conversa.messageIDs { store.restoreDeleted(id) }
         #expect(store.messages.count == 3)
@@ -283,9 +338,48 @@ struct ConversationStoreTests {
         ], port: espia)
         let conversa = try #require(store.visibleConversations.first)
         store.move(conversa, to: .archived)
+        await store.waitForPendingCommands()
         #expect(espia.moves.count == 2)
         // Na ordem em que as contas aparecem na conversa, que é a cronológica.
         #expect(espia.moves.map { Set($0.1) } == [["a"], ["b"]])
+    }
+
+    @Test("Selecionar continua imediato mesmo com a gravação ocupada")
+    func selecaoNaoEsperaDisco() async {
+        let port = PortaLenta()
+        let store = await store(
+            [msg("lenta", at: 100, isRead: false)],
+            port: port
+        )
+
+        store.select(message: "lenta")
+
+        #expect(store.selectedMessageID == "lenta")
+        #expect(store.selectedMessage?.isRead == true)
+        #expect(!port.concluiuLeitura)
+
+        await store.waitForPendingCommands()
+        #expect(port.concluiuLeitura)
+    }
+
+    @Test("Cache hit continua observando mudanças das mensagens")
+    func cacheMantemObservacao() async {
+        let store = await store([msg("cache", at: 100, isRead: true)])
+        _ = store.visibleMessages
+        let changed = SinalDeObservacao()
+
+        withObservationTracking {
+            // Segunda leitura: passa pelo cache e precisa continuar registrando
+            // a dependência que acorda o SwiftUI.
+            _ = store.visibleMessages
+        } onChange: {
+            changed.aciona()
+        }
+
+        store.setRead(false, for: "cache")
+
+        #expect(changed.foiAcionado)
+        #expect(store.visibleMessages.first?.isRead == false)
     }
 
     @Test("A seleção anda para a linha seguinte quando a conversa aberta sai da caixa")

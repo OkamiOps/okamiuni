@@ -9,6 +9,34 @@ import UNIDesign
 @Suite("MessageList")
 struct MessageListTests {
 
+    // MARK: - Filtros de categoria em Hoje
+
+    @Test("a trilha de Hoje oferece categorias estáveis, inclusive Todos")
+    @MainActor
+    func todayCategoryFilters() {
+        #expect(InboxCategoryFilter.allCases.map(\.label) == [
+            "Todos", "Principal", "Transações", "Atualizações", "Promoções", "Social",
+        ])
+        #expect(InboxCategoryFilter.allCases.map(\.symbol) == [
+            "tray.full", "person.crop.circle", "creditcard", "bell", "tag", "person.2",
+        ])
+        #expect(InboxCategoryFilter.all.category == nil)
+        #expect(InboxCategoryFilter.primary.category == .primary)
+        #expect(InboxCategoryFilter.transactions.category == .transactions)
+        #expect(InboxCategoryFilter.updates.category == .updates)
+        #expect(InboxCategoryFilter.promotions.category == .promotions)
+        #expect(InboxCategoryFilter.social.category == .social)
+    }
+
+    @Test("somente Hoje amplia o cabeçalho para a trilha de categorias")
+    @MainActor
+    func categoryHeaderHeightIsExclusiveToToday() {
+        #expect(MessageList.headerHeight(for: .today) == 118)
+        for bucket in [TriageBucket.later, .all, .archived, .trash, .sent] {
+            #expect(MessageList.headerHeight(for: bucket) == 74)
+        }
+    }
+
     /// Uma mensagem qualquer, sem depender das fixtures, para provar regra de
     /// agrupamento em vez de conferir dado.
     private func message(_ id: String, dayOffset: Int, at receivedAt: Date = .now) -> Message {
@@ -131,22 +159,21 @@ struct MessageListTests {
         #expect(groups[1].messages.map(\.id) == ["m3", "m5", "m6", "m7"])
     }
 
-    /// A caixa que a janela abre. Design: `mailbox: 'hoje'` filtra por `bucket`,
-    /// que é triagem — não por dia. Por isso `m6`, que chegou ontem, aparece
-    /// aqui sob o cabeçalho "Ontem": duas mensagens em "Hoje", uma em "Ontem".
-    @Test("a caixa Hoje abre com três mensagens em dois grupos")
+    /// A caixa que a janela abre. Hoje é data de recebimento, não sinônimo de
+    /// Inbox: `m6` continua acessível em Tudo, mas não entra neste recorte por
+    /// ter chegado ontem.
+    @Test("a caixa Hoje abre somente com as duas mensagens recebidas hoje")
     @MainActor
     func todayBucketMatchesDesign() async {
         let store = MailStore(source: InMemoryMailSource.fixtures)
         await store.load()
 
         #expect(store.bucket == .today)
-        #expect(store.visibleMessages.map(\.id) == ["m1", "m4", "m6"])
+        #expect(store.visibleMessages.map(\.id) == ["m1", "m4"])
 
         let groups = MessageGroup.build(from: store.visibleMessages)
-        #expect(groups.map(\.label) == ["Hoje", "Ontem"])
+        #expect(groups.map(\.label) == ["Hoje"])
         #expect(groups[0].messages.map(\.id) == ["m1", "m4"])
-        #expect(groups[1].messages.map(\.id) == ["m6"])
     }
 
     /// `account?.host == "hostinger"` provado por leitura de dado não prova o

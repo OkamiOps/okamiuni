@@ -18,6 +18,7 @@ public enum MeetingLink {
     public static let hosts = [
         "meet.google.com",
         "zoom.us",
+        "webex.com",
         "teams.microsoft.com",
         "teams.live.com",
         "whereby.com",
@@ -64,6 +65,16 @@ public enum MeetingLink {
         }
         guard let host = url.host(), !host.isEmpty else { return nil }
         return url
+    }
+
+    /// O valor de um campo explícito de sala, já limpo para persistência.
+    ///
+    /// Aqui não usamos a allowlist de `first(in:)`: quando a pessoa cola uma
+    /// sala num campo chamado “Link da reunião”, ela já declarou a intenção. A
+    /// allowlist continua valendo ao vasculhar texto livre, onde um mapa ou
+    /// rodapé não pode virar “Entrar” por acidente.
+    public static func normalizado(_ texto: String) -> String? {
+        destino(texto)?.absoluteString
     }
 
     /// O ponto final da frase não faz parte do endereço. `)` e `>` já caíram

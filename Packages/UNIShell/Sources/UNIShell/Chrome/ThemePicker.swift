@@ -132,11 +132,12 @@ struct ThemePreview: View {
         .frame(width: 52, height: 36)
         .clipShape(RoundedRectangle(cornerRadius: max(2, candidate.radiusSmall)))
         .overlay {
-            // Contorno de 0.5px preto 28% — literal do protótipo, não um token.
+            // O contorno usa a borda de controle do tema candidato para manter
+            // uma boundary legível também nas miniaturas escuras.
             // Stroke always drawn, selection ring overlay on top when active.
             RoundedRectangle(cornerRadius: max(2, candidate.radiusSmall))
                 .strokeBorder(
-                    Color.black.opacity(0.28),
+                    candidate.btnLine.color,
                     lineWidth: Hairline.thickness(displayScale)
                 )
         }

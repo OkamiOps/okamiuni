@@ -145,6 +145,10 @@ struct MailStoreObservationTests {
         let fonte = FonteComCorpo(hits: ["m2"])
         let store = MailStore(source: fonte)
         await store.load()
+        // Este ensaio verifica a busca, não a semântica temporal de Hoje.
+        // As datas fixas da fonte pertencem ao passado, então a visão neutra é
+        // Tudo — exatamente onde uma busca global continua encontrando-as.
+        store.select(bucket: .all)
         store.query = "orçamento"
         await store.refreshBodyMatches()
         #expect(store.visibleMessages.map(\.id) == ["m2"])
@@ -155,6 +159,7 @@ struct MailStoreObservationTests {
         let fonte = FonteComCorpo(hits: ["m2"])
         let store = MailStore(source: fonte)
         await store.load()
+        store.select(bucket: .all)
         store.query = "orçamento"
         await store.refreshBodyMatches()
         store.query = ""
@@ -193,6 +198,7 @@ struct MailStoreObservationTests {
         let fonte = FonteControlavel(hits: ["a": ["m1"], "ab": ["m2"]])
         let store = MailStore(source: fonte)
         await store.load()
+        store.select(bucket: .all)
 
         store.query = "a"
         async let buscaA: Void = store.refreshBodyMatches()

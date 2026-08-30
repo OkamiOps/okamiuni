@@ -5,8 +5,7 @@ import UNICore
 /// A única dependência de EventKit que o adaptador enxerga. O protocolo deixa
 /// autorização, leitura e escrita verificáveis sem abrir a agenda da máquina
 /// durante a suíte.
-@MainActor
-protocol SystemCalendarGateway: AnyObject {
+protocol SystemCalendarGateway: Actor {
     func availability() -> CalendarAvailability
     func requestAccess() async throws -> CalendarAvailability
     func events(referenceDay: Date) throws -> [AgendaItem]
@@ -16,8 +15,7 @@ protocol SystemCalendarGateway: AnyObject {
 
 /// Porta de calendário do macOS. Nenhuma chamada de autorização acontece na
 /// abertura: o app só a pede depois da ação explícita da pessoa na aba Agenda.
-@MainActor
-public final class EventKitCalendarAdapter: CalendarSyncing {
+public actor EventKitCalendarAdapter: CalendarSyncing {
     private let gateway: any SystemCalendarGateway
 
     public init() {
@@ -28,31 +26,33 @@ public final class EventKitCalendarAdapter: CalendarSyncing {
         self.gateway = gateway
     }
 
-    public func availability() async -> CalendarAvailability { gateway.availability() }
+    public func availability() async -> CalendarAvailability { await gateway.availability() }
 
     public func synchronize(
         referenceDay: Date, requestAuthorization: Bool
     ) async throws -> [AgendaItem] {
-        var state = gateway.availability()
+        var state = await gateway.availability()
         if case .authorizationRequired = state, requestAuthorization {
             state = try await gateway.requestAccess()
         }
         guard state.isAvailable else { throw CalendarAdapterError(state) }
-        return try gateway.events(referenceDay: referenceDay)
+        return try await gateway.events(referenceDay: referenceDay)
     }
 
     public func save(_ item: AgendaItem, referenceDay: Date) async throws {
-        guard gateway.availability().isAvailable else {
-            throw CalendarAdapterError(gateway.availability())
+        let state = await gateway.availability()
+        guard state.isAvailable else {
+            throw CalendarAdapterError(state)
         }
-        try gateway.save(item, referenceDay: referenceDay)
+        try await gateway.save(item, referenceDay: referenceDay)
     }
 
     public func remove(id: String, referenceDay: Date) async throws {
-        guard gateway.availability().isAvailable else {
-            throw CalendarAdapterError(gateway.availability())
+        let state = await gateway.availability()
+        guard state.isAvailable else {
+            throw CalendarAdapterError(state)
         }
-        try gateway.remove(id: id, referenceDay: referenceDay)
+        try await gateway.remove(id: id, referenceDay: referenceDay)
     }
 }
 
@@ -74,8 +74,7 @@ private struct CalendarAdapterError: LocalizedError {
     }
 }
 
-@MainActor
-private final class EventKitCalendarGateway: SystemCalendarGateway {
+private actor EventKitCalendarGateway: SystemCalendarGateway {
     private let store = EKEventStore()
     private let calendar = Calendar.current
     private static let systemAccountID = "okamiuni.system-calendar"
@@ -121,7 +120,7 @@ private final class EventKitCalendarGateway: SystemCalendarGateway {
         event.startDate = date(for: item.dayOffset, minute: item.startMinute, referenceDay: referenceDay)
         event.endDate = date(for: item.dayOffset, minute: max(item.endMinute, item.startMinute + 1), referenceDay: referenceDay)
         event.location = item.detail?.place
-        event.notes = item.detail?.descricao
+        event.notes = EventKitEventNotes.text(for: item.detail)
         event.url = markerURL(for: item.id)
         try store.save(event, span: .thisEvent, commit: true)
     }
@@ -189,5 +188,26 @@ private final class EventKitCalendarGateway: SystemCalendarGateway {
     private func externalLink(from url: URL?) -> String? {
         guard let url, url.scheme == "https" || url.scheme == "http" else { return nil }
         return url.absoluteString
+    }
+}
+
+/// O EventKit usa `event.url` para a identidade privada do item criado pelo
+/// OkamiUNI. A sala, portanto, acompanha as notas para sobreviver também no
+/// Calendar do macOS. Ao voltar, `EventDetail` a promove para cartão e remove
+/// esta linha da descrição visível.
+enum EventKitEventNotes {
+    static func text(for detail: EventDetail?) -> String? {
+        guard let detail else { return nil }
+        let description = detail.descricao?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let meetingLink = detail.meetingLink
+
+        var parts: [String] = []
+        if let description, !description.isEmpty { parts.append(description) }
+        if let meetingLink,
+           description?.contains(meetingLink) != true {
+            parts.append("Link da reunião: \(meetingLink)")
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: "\n\n")
     }
 }

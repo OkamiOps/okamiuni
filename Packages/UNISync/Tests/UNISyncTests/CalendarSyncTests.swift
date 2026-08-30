@@ -3,13 +3,20 @@ import Testing
 import UNICore
 @testable import UNISync
 
-@MainActor
-private final class EventKitGatewayDouble: SystemCalendarGateway {
+private actor EventKitGatewayDouble: SystemCalendarGateway {
     var state: CalendarAvailability = .authorizationRequired
     var requests = 0
     var items: [AgendaItem] = []
     var saved: [String] = []
     var removed: [String] = []
+
+    init(
+        state: CalendarAvailability = .authorizationRequired,
+        items: [AgendaItem] = []
+    ) {
+        self.state = state
+        self.items = items
+    }
 
     func availability() -> CalendarAvailability { state }
     func requestAccess() async throws -> CalendarAvailability {
@@ -20,6 +27,10 @@ private final class EventKitGatewayDouble: SystemCalendarGateway {
     func events(referenceDay _: Date) throws -> [AgendaItem] { items }
     func save(_ item: AgendaItem, referenceDay _: Date) throws { saved.append(item.id) }
     func remove(id: String, referenceDay _: Date) throws { removed.append(id) }
+
+    func snapshot() -> (requests: Int, saved: [String], removed: [String]) {
+        (requests, saved, removed)
+    }
 }
 
 private actor CalDAVScript: CalDAVTransport {
@@ -40,34 +51,63 @@ private actor CalDAVScript: CalDAVTransport {
 @Suite("Agenda real")
 @MainActor
 struct EventKitCalendarAdapterTests {
+    private var organizer: EventPerson {
+        EventPerson(
+            name: "Marcos", address: "marcos@okamiops.com",
+            role: "organizador · você", status: .yes
+        )
+    }
+
     @Test("A autorização só é pedida pela ação explícita e então a leitura chega")
     func explicitAuthorization() async throws {
-        let gateway = EventKitGatewayDouble()
-        gateway.items = [AgendaItem(id: "ek-1", title: "Call", startMinute: 540, endMinute: 570, accountID: "system")]
+        let gateway = EventKitGatewayDouble(items: [
+            AgendaItem(
+                id: "ek-1", title: "Call", startMinute: 540, endMinute: 570,
+                accountID: "system"
+            )
+        ])
         let adapter = EventKitCalendarAdapter(gateway: gateway)
 
         await #expect(throws: (any Error).self) {
             _ = try await adapter.synchronize(referenceDay: Fixtures.today, requestAuthorization: false)
         }
-        #expect(gateway.requests == 0)
+        let before = await gateway.snapshot()
+        #expect(before.requests == 0)
 
         let items = try await adapter.synchronize(referenceDay: Fixtures.today, requestAuthorization: true)
-        #expect(gateway.requests == 1)
+        let after = await gateway.snapshot()
+        #expect(after.requests == 1)
         #expect(items.map(\.id) == ["ek-1"])
     }
 
     @Test("Escrita e remoção alcançam o adapter, não só a lista local")
     func writesThroughGateway() async throws {
-        let gateway = EventKitGatewayDouble()
-        gateway.state = .available
+        let gateway = EventKitGatewayDouble(state: .available)
         let adapter = EventKitCalendarAdapter(gateway: gateway)
         let item = AgendaItem(id: "email-1", title: "Contrato", startMinute: 600, endMinute: 660, accountID: "zoho")
 
         try await adapter.save(item, referenceDay: Fixtures.today)
         try await adapter.remove(id: item.id, referenceDay: Fixtures.today)
 
-        #expect(gateway.saved == ["email-1"])
-        #expect(gateway.removed == ["email-1"])
+        let result = await gateway.snapshot()
+        #expect(result.saved == ["email-1"])
+        #expect(result.removed == ["email-1"])
+    }
+
+    @Test("A ponte exporta a sala sem perder as notas")
+    func exportsMeetingInNotes() {
+        let detail = EventDetail(
+            place: "", link: "https://empresa.webex.com/meet/revisao",
+            organizer: organizer, people: [], note: "Criado manualmente",
+            recurrence: "Não se repete", notice: "Sem lembrete",
+            agenda: [], thread: [], descricao: "Levar os números do trimestre."
+        )
+
+        #expect(
+            EventKitEventNotes.text(for: detail)
+                == "Levar os números do trimestre.\n\nLink da reunião: https://empresa.webex.com/meet/revisao"
+        )
+        #expect(EventKitEventNotes.text(for: nil) == nil)
     }
 }
 

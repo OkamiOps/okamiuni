@@ -100,8 +100,23 @@ public struct AppComposition: Sendable {
     /// FoundationModels no shell.
     public let intelligenceAvailability: OnDeviceMessageAnalysisAvailability
     /// Perguntas e transformações de texto usando o mesmo modelo local.
-    /// Existe também no fallback de fixtures: não depende de banco nem rede.
+    /// É um roteador estável: cada pedido lê as preferências atuais e usa o
+    /// modelo local ou o endpoint OpenAI-compatible escolhido. Existe também
+    /// no fallback de fixtures: não depende de banco nem rede.
     public let textAssistant: any OnDeviceTextAssisting
+    /// Preferências não secretas da IA. Elas ficam fora do banco de e-mail
+    /// para uma troca de provedor não depender do estado de uma conta.
+    public let assistantSettings: AssistantSettingsStore
+    /// As chaves dos provedores de IA ficam no Keychain, nunca nas
+    /// preferências, no banco ou nos logs do app.
+    public let assistantCredentials: KeychainAssistantCredentialStore
+    /// Login OAuth PKCE do proxy LiteLLM e fornecedor de tokens renovados ao
+    /// roteador. A interface recebe esta mesma instância, sem acessar segredo.
+    public let liteLLMOAuth: LiteLLMOAuthCoordinator
+    /// Login de assinatura para ChatGPT/Codex e Grok/xAI. O ChatGPT é delegado
+    /// ao runtime oficial Codex deste Mac; o OAuth xAI fica separado no
+    /// Keychain do app.
+    public let assistantProviderOAuth: AssistantProviderOAuthCoordinator
     /// Falha de configuração que o app **mostra** em vez de esconder: banco
     /// que não abriu, client ID que falta. Nunca fatal.
     public let configError: SyncError?
@@ -125,7 +140,16 @@ public struct AppComposition: Sendable {
     @MainActor
     public static func make(databasePath: String? = nil, bundle: Bundle = .main) -> AppComposition {
         let analyzer = FoundationModelsMessageAnalyzer()
-        let textAssistant = FoundationModelsTextAssistant()
+        let assistantSettings = AssistantSettingsStore()
+        let assistantCredentials = KeychainAssistantCredentialStore()
+        let liteLLMOAuth = LiteLLMOAuthCoordinator()
+        let assistantProviderOAuth = AssistantProviderOAuthCoordinator()
+        let textAssistant: any OnDeviceTextAssisting = AssistantRouter(
+            settingsStore: assistantSettings,
+            credentialStore: assistantCredentials,
+            oauthTokenProvider: liteLLMOAuth,
+            providerOAuthTokenProvider: assistantProviderOAuth
+        )
         let intelligenceAvailability = FoundationModelsMessageAnalyzer.systemAvailability
         let banco: SyncDatabase
         do {
@@ -145,6 +169,10 @@ public struct AppComposition: Sendable {
                 outbox: nil, outboxSignal: nil, sync: nil, network: nil,
                 intelligence: nil, intelligenceAvailability: intelligenceAvailability,
                 textAssistant: textAssistant,
+                assistantSettings: assistantSettings,
+                assistantCredentials: assistantCredentials,
+                liteLLMOAuth: liteLLMOAuth,
+                assistantProviderOAuth: assistantProviderOAuth,
                 configError: falha
             )
         }
@@ -289,6 +317,10 @@ public struct AppComposition: Sendable {
             intelligence: intelligence,
             intelligenceAvailability: intelligenceAvailability,
             textAssistant: textAssistant,
+            assistantSettings: assistantSettings,
+            assistantCredentials: assistantCredentials,
+            liteLLMOAuth: liteLLMOAuth,
+            assistantProviderOAuth: assistantProviderOAuth,
             configError: erro
         )
     }

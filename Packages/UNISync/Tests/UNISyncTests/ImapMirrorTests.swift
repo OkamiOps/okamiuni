@@ -125,6 +125,45 @@ struct ImapMirrorTests {
         #expect(servidor.commands.contains { $0.hasSuffix("EXPUNGE") })
     }
 
+    @Test("Mover para a pasta escolhida usa exatamente o serverName")
+    func moveParaPastaEscolhidaUsaServerName() async throws {
+        let servidor = FakeImapServer(script: .init(
+            replies: [
+                "SELECT": Self.selecionada,
+                "UID SEARCH": ["* SEARCH 9001", "TAG OK SEARCH completo"],
+                FakeImapServer.chaveDeCabecalho: [
+                    "* 1 FETCH (UID 9001 BODY[HEADER.FIELDS (MESSAGE-ID)] {40}",
+                    "Message-ID: <abc@clientepremium.com>",
+                    "",
+                    ")",
+                    "TAG OK FETCH completo",
+                ],
+                FakeImapServer.chaveDeBuscaPorHeader: ["* SEARCH", "TAG OK SEARCH completo"],
+                "UID COPY": ["TAG OK COPY completo"],
+                "UID STORE": ["TAG OK STORE completo"],
+                "EXPUNGE": ["TAG OK EXPUNGE completo"],
+            ],
+            mailboxes: ["INBOX", "INBOX.Projetos"]
+        ))
+        let porta = try servidor.start()
+        defer { servidor.stop() }
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+
+        let espelho = ImapMirror(session: try await conecta(porta: porta, grupo: grupo))
+        try await espelho.apply(
+            .placeInFolder(
+                folderID: "conta-a/INBOX.Projetos", serverName: "INBOX.Projetos",
+                mode: FolderPlacement.move.rawValue, messageIDs: ["a"]
+            ),
+            targets: [alvo(9001)]
+        )
+
+        #expect(servidor.commands.contains {
+            $0.hasSuffix(#"UID COPY 9001 "INBOX.Projetos""#)
+        })
+    }
+
     @Test("Depois cria a pasta no primeiro uso — e só no primeiro")
     func depoisCriaUmaVezSo() async throws {
         let servidor = FakeImapServer(script: .init(replies: [

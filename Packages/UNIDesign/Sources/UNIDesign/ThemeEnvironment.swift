@@ -26,7 +26,11 @@ extension View {
             AnyView(
                 view.shadow(
                     color: layer.color.color,
-                    radius: layer.radius,
+                    // SwiftUI não expõe o `spread` do CSS. Somá-lo ao raio é
+                    // a aproximação visual correta para os halos de 0,5–1px
+                    // dos temas dark; ignorá-lo deixava o hairline exatamente
+                    // atrás da própria forma e, portanto, invisível.
+                    radius: layer.radius + max(0, layer.spread),
                     x: layer.x,
                     y: layer.y
                 )
@@ -61,20 +65,35 @@ extension View {
 @Observable
 public final class ThemeStore {
     private static let key = "okamiuni.theme"
+    private static let typographyKey = "okamiuni.typography-preset"
 
-    public private(set) var theme: Theme
+    private var baseTheme: Theme
+    public private(set) var typographyPreset: TypographyPreset
+
+    /// O tema exposto para todas as janelas já incorpora a preferência de
+    /// leitura. Manter a base separada evita que a escala se acumule ao trocar
+    /// de cor ou reiniciar o aplicativo.
+    public var theme: Theme { baseTheme.applyingTypography(typographyPreset) }
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         let saved = defaults.string(forKey: Self.key)
-        self.theme = saved.flatMap(Theme.named) ?? .default
+        self.baseTheme = saved.flatMap(Theme.named) ?? .default
+        self.typographyPreset = defaults.string(forKey: Self.typographyKey)
+            .flatMap(TypographyPreset.init(rawValue:)) ?? .standard
     }
 
     private let defaults: UserDefaults
 
     public func select(_ theme: Theme) {
-        self.theme = theme
-        defaults.set(theme.id, forKey: Self.key)
+        let selected = Theme.named(theme.id) ?? theme
+        self.baseTheme = selected
+        defaults.set(selected.id, forKey: Self.key)
+    }
+
+    public func selectTypography(_ preset: TypographyPreset) {
+        typographyPreset = preset
+        defaults.set(preset.rawValue, forKey: Self.typographyKey)
     }
 
     public var all: [Theme] { Theme.all }

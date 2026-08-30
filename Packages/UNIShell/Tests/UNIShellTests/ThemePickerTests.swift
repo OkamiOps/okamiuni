@@ -37,4 +37,22 @@ struct ThemePickerTests {
         let store = ThemeStore(defaults: suite)
         #expect(store.theme.id == Theme.default.id)
     }
+
+    @Test("a moldura da miniatura usa a borda do tema candidato")
+    @MainActor
+    func previewBoundaryUsesCandidateToken() throws {
+        let candidate = Theme.noite
+        let image = try #require(
+            Render.bitmap(
+                ThemePreview(candidate: candidate),
+                size: CGSize(width: 52, height: 36),
+                theme: .tinta
+            )
+        )
+
+        #expect(
+            image.pixels(matching: candidate.btnLine) > 0,
+            "a borda da miniatura escura deve vir de candidate.btnLine"
+        )
+    }
 }

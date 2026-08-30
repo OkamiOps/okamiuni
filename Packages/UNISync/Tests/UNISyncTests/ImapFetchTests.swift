@@ -351,6 +351,26 @@ struct ImapFetchTests {
         #expect(try nome("* LIST (\\Noselect) \"/\" \"[Gmail]\"") == "[Gmail]")
     }
 
+    @Test("O namespace pessoal qualifica uma pasta relativa uma vez só")
+    func namespaceQualificaPastas() throws {
+        guard case .namespace(let prefixo) = try ImapResponseAdapter.untagged(
+            fromLogicalLine: "* NAMESPACE ((\"INBOX.\" \".\")) NIL NIL"
+        ) else {
+            Issue.record("A resposta NAMESPACE não foi lida.")
+            return
+        }
+        #expect(prefixo == "INBOX.")
+        #expect(ImapWire.qualify(mailbox: "Sent", personalNamespacePrefix: prefixo) == "INBOX.Sent")
+        #expect(ImapWire.qualify(mailbox: "INBOX.Sent", personalNamespacePrefix: prefixo) == "INBOX.Sent")
+        #expect(ImapWire.qualify(mailbox: "INBOX", personalNamespacePrefix: prefixo) == "INBOX")
+
+        let folders = ImapWire.folders(
+            from: [.list(name: "Sent", attributes: [])], personalNamespacePrefix: prefixo
+        )
+        #expect(folders.first?.name == "INBOX.Sent")
+        #expect(folders.first?.role == .sent)
+    }
+
     /// O `[APPENDUID 42 9]` da resposta do `APPEND` (RFC 4315).
     ///
     /// Ele é o endereço da cópia que acabou de ser gravada em Enviadas, e é o

@@ -27,6 +27,429 @@ struct InboxAssistantIntegrationTests {
         #expect(opens == 1)
     }
 
+    @Test("marcador aplicado vira uma pastilha visível no leitor")
+    func appliedLabelHasVisibleFeedback() {
+        let message = Message(
+            id: "gmail:g:42",
+            accountID: "gmail",
+            from: Contact(name: "GitHub", address: "noreply@github.com"),
+            receivedAt: Fixtures.today,
+            subject: "Payment receipt",
+            snippet: "Receipt",
+            body: [],
+            tags: [],
+            bucket: .today,
+            isRead: true,
+            summary: nil,
+            detectedEvent: nil,
+            folderIDs: ["gmail/INBOX", "gmail/Label_42"]
+        )
+        let inbox = MailFolder(
+            id: "gmail/INBOX",
+            accountID: "gmail",
+            serverName: "INBOX",
+            displayName: "Entrada",
+            role: .inbox
+        )
+        let marker = MailFolder(
+            id: "gmail/Label_42",
+            accountID: "gmail",
+            serverName: "Label_42",
+            displayName: "00_Novos/Compras_Recibos",
+            role: .other
+        )
+        let foreign = MailFolder(
+            id: "other/Label_42",
+            accountID: "other",
+            serverName: "Label_42",
+            displayName: "Outra conta",
+            role: .other
+        )
+
+        let visible = ReaderPane.appliedMarkers(
+            for: message,
+            in: [inbox, marker, foreign]
+        )
+
+        #expect(visible == [marker])
+        #expect(ReaderPane.markerChipLabel(marker.displayName) == "Compras_Recibos")
+    }
+
+    @Test("pastilha do marcador renderiza no cabeçalho do email")
+    func appliedLabelRendersInReaderHeader() async throws {
+        let account = Account(
+            id: "gmail",
+            address: "marcos@example.com",
+            displayName: "Marcos",
+            provider: .gmail,
+            host: "GMAIL",
+            tintLightHex: "#2F6FED",
+            tintDarkHex: "#75A7FF"
+        )
+        let marker = MailFolder(
+            id: "gmail/Label_42",
+            accountID: "gmail",
+            serverName: "Label_42",
+            displayName: "00_Novos/Compras_Recibos",
+            role: .other
+        )
+        let message = Message(
+            id: "gmail:g:42",
+            accountID: "gmail",
+            from: Contact(name: "GitHub", address: "noreply@github.com"),
+            receivedAt: Fixtures.today,
+            subject: "Payment receipt",
+            snippet: "Receipt",
+            body: ["Your payment was received."],
+            tags: [],
+            bucket: .today,
+            isRead: true,
+            summary: nil,
+            detectedEvent: nil
+        )
+        let plainStore = MailStore(source: MarkerMailSource(
+            account: account,
+            message: message,
+            folders: [marker]
+        ))
+        let markedStore = MailStore(source: MarkerMailSource(
+            account: account,
+            message: message.withFolderIDs([marker.id]),
+            folders: [marker]
+        ))
+        await plainStore.load()
+        await markedStore.load()
+        plainStore.select(message: message.id)
+        markedStore.select(message: message.id)
+        let size = CGSize(width: 760, height: 700)
+
+        let plain = try #require(Render.bitmap(
+            ReaderPane(store: plainStore), size: size, theme: .tinta
+        ))
+        let marked = try #require(Render.snapshot(
+            ReaderPane(store: markedStore),
+            named: "reader-applied-marker",
+            size: size,
+            theme: .tinta
+        ))
+
+        #expect(
+            marked.pixelsDiffering(
+                from: plain,
+                inColumns: 85..<310,
+                rows: 100..<175
+            ) > 400
+        )
+    }
+
+    @Test("Gerar resposta do leitor usa o gerador do composer, não a pergunta analítica")
+    func readerReplyUsesComposerGenerator() async {
+        var generatedReplies = 0
+        var analyticalQuestions = 0
+        let popover = ReaderIntelligencePopover(
+            context: .init(subject: "Website Revamp & SEO", sender: "Max"),
+            isAvailable: true,
+            onAsk: { _ in
+                analyticalQuestions += 1
+                return "Análise"
+            },
+            onGenerateReply: {
+                generatedReplies += 1
+                return "Hi Max, thank you for the details."
+            },
+            onUseReply: { _ in },
+            onClose: {}
+        )
+        _ = Render.snapshot(
+            popover,
+            named: "reader-intelligence-popover",
+            size: ReaderIntelligencePopover.defaultSize,
+            theme: .tinta
+        )
+
+        // Janela offscreen, evento entregue dentro do processo: não toca no
+        // mouse, teclado ou foco da sessão do usuário.
+        CliqueDeEnsaio.em(
+            popover,
+            size: ReaderIntelligencePopover.defaultSize,
+            aY: 205,
+            x: 260
+        )
+        await Task.yield()
+        try? await Task.sleep(for: .milliseconds(50))
+
+        #expect(generatedReplies == 1)
+        #expect(analyticalQuestions == 0)
+    }
+
+    @Test("listas Markdown mantêm itens separados no mini-chat")
+    func readerMarkdownPreservesRequestedStructure() {
+        let blocks = ReaderAssistantMarkdownBlock.parse("""
+        # Próximos passos
+
+        - Confirmar a pauta com Produto
+        - Responder ao cliente até segunda-feira
+
+        1. Revisar o anexo
+        2) Enviar a versão final
+        """)
+
+        #expect(blocks.map(\.kind) == [
+            .heading("Próximos passos"),
+            .bullet("Confirmar a pauta com Produto"),
+            .bullet("Responder ao cliente até segunda-feira"),
+            .numbered(marker: "1.", text: "Revisar o anexo"),
+            .numbered(marker: "2)", text: "Enviar a versão final"),
+        ])
+    }
+
+    @Test("mini-chat mantém histórico e campo visíveis nos tamanhos mínimo e padrão")
+    func readerMiniChatRendersTranscriptAndComposer() throws {
+        let answer = """
+        ## Situação
+
+        O cliente aprovou a proposta e aguarda a versão final.
+
+        - Confirmar a pauta com Produto
+        - Revisar o anexo financeiro
+        - Responder até segunda-feira
+        """
+
+        for (name, size, theme) in [
+            ("minimum", ReaderIntelligencePopover.minimumSize, Theme.tinta),
+            ("default-dark", ReaderIntelligencePopover.defaultSize, Theme.noite),
+        ] {
+            let bitmap = try #require(Render.snapshot(
+                ReaderIntelligencePopover(
+                    context: .init(subject: "Re: planejamento do lançamento", sender: "Fernanda Lima"),
+                    isAvailable: true,
+                    initialPhase: .preview(.keyPoints, answer),
+                    panelSize: .constant(size),
+                    onAsk: { _ in "Resposta de ensaio" },
+                    onGenerateReply: { "Resposta para revisão" },
+                    onUseReply: { _ in },
+                    onClose: {}
+                ),
+                named: "reader-intelligence-mini-chat-\(name)",
+                size: size,
+                theme: theme
+            ))
+            #expect(bitmap.pixelsWide == Int(size.width))
+            #expect(bitmap.pixelsHigh == Int(size.height))
+        }
+    }
+
+    @Test("painel maior redimensiona dentro dos limites e preserva a âncora")
+    func readerPanelResizeContract() {
+        #expect(ReaderIntelligencePopover.defaultSize == CGSize(width: 520, height: 400))
+        #expect(ReaderIntelligencePopover.minimumSize == CGSize(width: 420, height: 300))
+        #expect(ReaderIntelligencePopover.maximumSize == CGSize(width: 720, height: 500))
+
+        #expect(
+            ReaderIntelligencePopover.resizedSize(
+                from: ReaderIntelligencePopover.defaultSize,
+                translation: CGSize(width: 100, height: 80)
+            ) == CGSize(width: 620, height: 480)
+        )
+        #expect(
+            ReaderIntelligencePopover.resizedSize(
+                from: ReaderIntelligencePopover.defaultSize,
+                translation: CGSize(width: 1_000, height: 1_000)
+            ) == ReaderIntelligencePopover.maximumSize
+        )
+        #expect(
+            ReaderIntelligencePopover.resizedSize(
+                from: ReaderIntelligencePopover.defaultSize,
+                translation: CGSize(width: -1_000, height: -1_000)
+            ) == ReaderIntelligencePopover.minimumSize
+        )
+
+        // O painel maior cresce para a direita sem invadir ainda mais a lista
+        // de mensagens à esquerda do ponto onde o cartão antigo começava.
+        let anchorX: CGFloat = 600
+        let oldLeftEdge = anchorX - ReaderIntelligencePopover.anchorWidth
+        let newLeftEdge = anchorX
+            + ReaderIntelligencePopover.anchorOffset(
+                for: ReaderIntelligencePopover.defaultSize.width
+            )
+            - ReaderIntelligencePopover.defaultSize.width
+        #expect(oldLeftEdge == newLeftEdge)
+    }
+
+    @Test("controle de expansão aumenta o painel sem automação do desktop")
+    func readerPanelExpandControlIsClickable() {
+        var size = ReaderIntelligencePopover.defaultSize
+        let popover = ReaderIntelligencePopover(
+            context: .init(subject: "Quota Increase", sender: "Amazon Web Services"),
+            isAvailable: true,
+            panelSize: Binding(
+                get: { size },
+                set: { size = $0 }
+            ),
+            onAsk: { _ in "" },
+            onGenerateReply: { "" },
+            onUseReply: { _ in },
+            onClose: {}
+        )
+
+        CliqueDeEnsaio.em(
+            popover,
+            size: ReaderIntelligencePopover.defaultSize,
+            aY: 27,
+            x: 460
+        )
+
+        #expect(size == ReaderIntelligencePopover.maximumSize)
+    }
+
+    @Test("resposta longa usa a nova área de leitura")
+    func longReaderAnswerUsesExpandedViewport() throws {
+        let text = """
+        A solicitação aumentou o limite de uso excedente para a conta Kiro.
+
+        A Amazon Web Services recusou a primeira tentativa porque os requisitos necessários não estavam completos. O time precisa revisar a configuração, confirmar o responsável e reenviar a solicitação.
+
+        Próximos passos:
+        • revisar os requisitos da conta;
+        • validar o novo limite com Finanças;
+        • reenviar a solicitação até sexta-feira;
+        • acompanhar a confirmação da AWS.
+
+        Risco: sem a aprovação, o ambiente pode atingir o teto atual durante a migração.
+        """
+        let popover = ReaderIntelligencePopover(
+            context: .init(subject: "Quota Increase", sender: "Amazon Web Services"),
+            isAvailable: true,
+            initialPhase: .preview(.keyPoints, text),
+            panelSize: .constant(ReaderIntelligencePopover.defaultSize),
+            onAsk: { _ in "" },
+            onGenerateReply: { "" },
+            onUseReply: { _ in },
+            onClose: {}
+        )
+
+        _ = try #require(Render.snapshot(
+            popover,
+            named: "reader-intelligence-long-answer",
+            size: ReaderIntelligencePopover.defaultSize,
+            theme: .tinta
+        ))
+    }
+
+    @Test("a resposta da IA continua visível quando o painel nasce no botão")
+    func readerAnswerDoesNotCollapseInsideButtonOverlay() throws {
+        let size = CGSize(width: 620, height: 480)
+
+        func preview(_ text: String, name: String) throws -> NSBitmapImageRep {
+            let popover = ReaderIntelligencePopover(
+                context: .init(subject: "Migração do workspace", sender: "Paulo Silva"),
+                isAvailable: true,
+                initialPhase: .preview(.summary, text),
+                onAsk: { _ in "" },
+                onGenerateReply: { "" },
+                onUseReply: { _ in },
+                onClose: {}
+            )
+
+            // Reproduz a âncora real: o overlay recebe a proposta de tamanho
+            // do botão de 32×30 pt. O painel pode transbordar; a área interna
+            // da resposta não pode aceitar altura zero por causa disso.
+            let anchored = Color.clear
+                .frame(width: 32, height: 30)
+                .overlay(alignment: .topTrailing) {
+                    popover.offset(y: 34)
+                }
+                .frame(width: size.width, height: size.height, alignment: .topTrailing)
+
+            return try #require(Render.snapshot(
+                anchored,
+                named: name,
+                size: size,
+                theme: .tinta
+            ))
+        }
+
+        let first = try preview(
+            "RESPOSTA ALFA: prazo confirmado para sexta-feira.",
+            name: "reader-intelligence-answer-alpha"
+        )
+        let second = try preview(
+            "RESPOSTA BRAVO: reunião confirmada para quarta-feira.",
+            name: "reader-intelligence-answer-bravo"
+        )
+
+        #expect(
+            first.pixelsDiffering(from: second) > 150,
+            "duas respostas diferentes renderizaram como o mesmo painel vazio"
+        )
+    }
+
+    @Test("o painel contextual do leitor fica acima do corpo do email")
+    func readerPanelLayerRendersOffscreen() async throws {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        store.select(bucket: .all)
+        store.select(message: "m1")
+        let size = CGSize(width: 760, height: 700)
+        let generatedReplies = ReaderReplyRecorder()
+        let generator: ComposerIntelligenceGenerator = { _ in
+            await generatedReplies.generate()
+        }
+
+        let closed = try #require(Render.bitmap(
+            ReaderPane(
+                store: store,
+                attachmentSaver: nil,
+                intelligence: generator,
+                onAskAssistant: { _, _ in "Análise" }
+            ),
+            size: size,
+            theme: .tinta
+        ))
+        let open = try #require(Render.snapshot(
+            ReaderPane(
+                store: store,
+                debugEmailAssistantOpen: true,
+                intelligence: generator,
+                onAskAssistant: { _, _ in "Análise" }
+            ),
+            named: "reader-intelligence-layering",
+            size: size,
+            theme: .tinta
+        ))
+
+        #expect(open.pixelsDiffering(from: closed) > 4_000)
+        // Nesta faixa fica o cartão de resumo. Quando o ScrollView ganha a
+        // camada, ele cobre o painel e aberto/fechado saem idênticos aqui.
+        // Com o cabeçalho elevado, o painel redesenha o retângulo inteiro.
+        #expect(
+            open.pixelsDiffering(
+                from: closed,
+                inColumns: 40..<90,
+                rows: 205..<350
+            ) > 1_000
+        )
+
+        // O mesmo retângulo precisa ganhar também o hit-test. Este ponto cai
+        // no botão "Gerar resposta" do painel e, no código defeituoso, caía
+        // no cartão de resumo que estava desenhado por cima.
+        CliqueDeEnsaio.em(
+            ReaderPane(
+                store: store,
+                debugEmailAssistantOpen: true,
+                intelligence: generator,
+                onAskAssistant: { _, _ in "Análise" }
+            ),
+            size: size,
+            aY: 337,
+            x: 50
+        )
+        await Task.yield()
+        try? await Task.sleep(for: .milliseconds(50))
+        let total = await generatedReplies.total()
+        #expect(total == 1)
+    }
+
     @Test("painel abre sobre o email sem quebrar o shell")
     func openPanelRendersOffscreen() async throws {
         let store = MailStore(source: InMemoryMailSource.fixtures)
@@ -70,6 +493,46 @@ struct InboxAssistantIntegrationTests {
         #expect(open.pixelsDiffering(from: emailActions) > 2_000)
     }
 
+    @Test("popover do leitor fica acima das três colunas e das divisórias")
+    func readerPopoverOwnsTheWholeShellLayer() async throws {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        store.select(bucket: .all)
+        store.select(message: "m1")
+        let assistant = IntegrationAssistant()
+        let size = CGSize(width: 1_440, height: 858)
+
+        let closed = try #require(Render.bitmap(
+            InboxScreen(store: store, textAssistant: assistant)
+                .environment(ThemeStore()),
+            size: size,
+            theme: .tinta
+        ))
+        let open = try #require(Render.snapshot(
+            InboxScreen(
+                store: store,
+                textAssistant: assistant,
+                debugAssistantOpen: false,
+                debugReaderAssistantOpen: true
+            )
+            .environment(ThemeStore()),
+            named: "reader-intelligence-shell-layering",
+            size: size,
+            theme: .tinta
+        ))
+
+        // A maior parte do popover cai à esquerda do leitor, por cima da lista
+        // de mensagens. Se o ReaderPane não atravessar o nível do HStack, essa
+        // faixa continua sendo desenhada pela lista e a diferença despenca.
+        #expect(
+            open.pixelsDiffering(
+                from: closed,
+                inColumns: 440..<640,
+                rows: 170..<390
+            ) > 12_000
+        )
+    }
+
     @Test("rodapé usa o ambiente inteiro e ícone do leitor mantém o email")
     func globalAndEmailContextsStaySeparated() async throws {
         let store = MailStore(source: InMemoryMailSource.fixtures)
@@ -101,6 +564,29 @@ struct InboxAssistantIntegrationTests {
             Issue.record("O ícone do leitor perdeu o contexto do email")
         }
     }
+}
+
+private actor ReaderReplyRecorder {
+    private var count = 0
+
+    func generate() -> String {
+        count += 1
+        return "Resposta para revisão."
+    }
+
+    func total() -> Int { count }
+}
+
+private struct MarkerMailSource: MailSource {
+    let account: Account
+    let message: Message
+    let folders: [MailFolder]
+
+    func accounts() async throws -> [Account] { [account] }
+    func messages() async throws -> [Message] { [message] }
+    func agenda() async throws -> [AgendaItem] { [] }
+    func pendingItems() async throws -> [PendingItem] { [] }
+    func folders() async throws -> [MailFolder] { folders }
 }
 
 private struct IntegrationAssistant: OnDeviceTextAssisting {

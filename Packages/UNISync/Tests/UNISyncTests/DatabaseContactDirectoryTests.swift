@@ -9,8 +9,8 @@ import UNICore
 /// A agregação em si (quem conta, como desempata) já está provada em
 /// `ContactDirectoryBuildTests`, no `UNICore` — sem banco. O que esta suíte
 /// prova é o que só existe aqui: o banco sem conta devolve `nil` (não uma
-/// lista vazia), o filtro de conta funciona, e a consulta continua descendo
-/// pelos índices que já existem — nenhum novo.
+/// lista vazia), o filtro de conta funciona, remetente recebido fica fora e a
+/// consulta continua descendo pelos índices que já existem — nenhum novo.
 @Suite("O catálogo real de contatos, lido do banco")
 struct DatabaseContactDirectoryTests {
     private func banco() throws -> SyncDatabase { try SyncDatabase.temporary() }
@@ -25,13 +25,13 @@ struct DatabaseContactDirectoryTests {
     private func mensagem(
         _ id: String, accountID: String,
         de: Contact, para: [Contact] = [], copia: [Contact] = [],
-        recebidaEm: TimeInterval
+        bucket: TriageBucket = .today, recebidaEm: TimeInterval
     ) -> Message {
         Message(
             id: id, accountID: accountID, from: de,
             receivedAt: Date(timeIntervalSince1970: recebidaEm),
             subject: "Assunto \(id)", snippet: "", body: [],
-            tags: [], bucket: .today, isRead: true,
+            tags: [], bucket: bucket, isRead: true,
             summary: nil, detectedEvent: nil, to: para, cc: copia
         )
     }
@@ -71,22 +71,32 @@ struct DatabaseContactDirectoryTests {
         #expect(resultado?.isEmpty == true)
     }
 
-    @Test("Remetente, destinatário e cópia entram todos no catálogo")
-    func colheDosTresLugares() async throws {
+    @Test("Só destinatários de Enviadas entram no catálogo")
+    func colheDeEnviadas() async throws {
         let db = try banco()
         try grava(
-            [mensagem(
-                "m1", accountID: "conta-a",
-                de: Contact(name: "Marina Duarte", address: "marina@x.com"),
-                para: [Contact(name: "Bruno", address: "bruno@x.com")],
-                copia: [Contact(name: "Cláudia", address: "claudia@x.com")],
-                recebidaEm: 1_000
-            )],
+            [
+                mensagem(
+                    "recebida", accountID: "conta-a",
+                    de: Contact(name: "Kickstagogo", address: "team@kickstago.com"),
+                    recebidaEm: 900
+                ),
+                mensagem(
+                    "enviada", accountID: "conta-a",
+                    de: Contact(name: "Eu", address: "conta-a@x.com"),
+                    para: [
+                        Contact(name: "Bruno", address: "bruno@x.com"),
+                        Contact(name: "Eu", address: "CONTA-A@X.COM"),
+                    ],
+                    copia: [Contact(name: "Cláudia", address: "claudia@x.com")],
+                    bucket: .sent, recebidaEm: 1_000
+                ),
+            ],
             in: db, contas: [conta("conta-a")]
         )
         let porta = DatabaseContactDirectory(database: db)
         let resultado = try #require(try await porta.contacts(accountID: nil))
-        #expect(Set(resultado.map(\.address)) == ["marina@x.com", "bruno@x.com", "claudia@x.com"])
+        #expect(Set(resultado.map(\.address)) == ["bruno@x.com", "claudia@x.com"])
     }
 
     @Test("accountID filtra: só as mensagens daquela conta entram no catálogo")
@@ -96,11 +106,15 @@ struct DatabaseContactDirectoryTests {
             [
                 mensagem(
                     "m1", accountID: "conta-a",
-                    de: Contact(name: "Da Conta A", address: "a@x.com"), recebidaEm: 1_000
+                    de: Contact(name: "Conta A", address: "conta-a@x.com"),
+                    para: [Contact(name: "Da Conta A", address: "a@x.com")],
+                    bucket: .sent, recebidaEm: 1_000
                 ),
                 mensagem(
                     "m2", accountID: "conta-b",
-                    de: Contact(name: "Da Conta B", address: "b@x.com"), recebidaEm: 2_000
+                    de: Contact(name: "Conta B", address: "conta-b@x.com"),
+                    para: [Contact(name: "Da Conta B", address: "b@x.com")],
+                    bucket: .sent, recebidaEm: 2_000
                 ),
             ],
             in: db, contas: [conta("conta-a"), conta("conta-b")]
@@ -150,15 +164,21 @@ struct DatabaseContactDirectoryTests {
             [
                 mensagem(
                     "m1", accountID: "conta-a",
-                    de: Contact(name: "Raro", address: "raro@x.com"), recebidaEm: 1_000
+                    de: Contact(name: "Eu", address: "conta-a@x.com"),
+                    para: [Contact(name: "Raro", address: "raro@x.com")],
+                    bucket: .sent, recebidaEm: 1_000
                 ),
                 mensagem(
                     "m2", accountID: "conta-a",
-                    de: Contact(name: "Frequente", address: "frequente@x.com"), recebidaEm: 1_500
+                    de: Contact(name: "Eu", address: "conta-a@x.com"),
+                    para: [Contact(name: "Frequente", address: "frequente@x.com")],
+                    bucket: .sent, recebidaEm: 1_500
                 ),
                 mensagem(
                     "m3", accountID: "conta-a",
-                    de: Contact(name: "Frequente", address: "frequente@x.com"), recebidaEm: 2_000
+                    de: Contact(name: "Eu", address: "conta-a@x.com"),
+                    para: [Contact(name: "Frequente", address: "frequente@x.com")],
+                    bucket: .sent, recebidaEm: 2_000
                 ),
             ],
             in: db, contas: [conta("conta-a")]

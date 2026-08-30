@@ -68,10 +68,14 @@ public struct OutgoingMessage: Codable, Sendable, Hashable {
     /// Arquivos escolhidos pela pessoa, serializados junto da fila local até o
     /// provedor confirmar o envio.
     public let attachments: [OutgoingAttachment]
+    /// Imagens locais referenciadas pelo HTML com `cid:`. Elas não são anexos
+    /// visíveis: saem dentro de `multipart/related`, ao lado da parte HTML.
+    /// A ausência do campo em JSON antigo significa lista vazia.
+    public let inlineResources: [InlineSignatureResource]
 
     private enum CodingKeys: String, CodingKey {
         case messageID, accountID, from, to, cc, bcc, subject, plainText, html, calendarICS
-        case inReplyTo, references, attachments
+        case inReplyTo, references, attachments, inlineResources
     }
 
     public init(
@@ -87,7 +91,8 @@ public struct OutgoingMessage: Codable, Sendable, Hashable {
         calendarICS: String? = nil,
         inReplyTo: String? = nil,
         references: [String] = [],
-        attachments: [OutgoingAttachment] = []
+        attachments: [OutgoingAttachment] = [],
+        inlineResources: [InlineSignatureResource] = []
     ) {
         self.messageID = messageID
         self.accountID = accountID
@@ -102,6 +107,7 @@ public struct OutgoingMessage: Codable, Sendable, Hashable {
         self.inReplyTo = inReplyTo
         self.references = references
         self.attachments = attachments
+        self.inlineResources = inlineResources
     }
 
     /// A fila local pode conter mensagens gravadas antes de anexos existirem.
@@ -122,6 +128,7 @@ public struct OutgoingMessage: Codable, Sendable, Hashable {
         inReplyTo = try values.decodeIfPresent(String.self, forKey: .inReplyTo)
         references = try values.decodeIfPresent([String].self, forKey: .references) ?? []
         attachments = try values.decodeIfPresent([OutgoingAttachment].self, forKey: .attachments) ?? []
+        inlineResources = try values.decodeIfPresent([InlineSignatureResource].self, forKey: .inlineResources) ?? []
     }
 
     /// Todo mundo que vai receber — é a lista do `RCPT TO`, e é por isso que a

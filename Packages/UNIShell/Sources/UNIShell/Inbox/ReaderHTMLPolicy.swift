@@ -9,6 +9,22 @@ import Foundation
 /// saindo: a `WebView` só as obedece.
 enum ReaderHTMLPolicy {
 
+    /// Expressões imutáveis do leitor. Compilá-las em cada recomposição de uma
+    /// newsletter era trabalho de CPU no ator principal sem nenhuma entrada
+    /// nova; agora cada uma é compilada uma vez por processo.
+    private static let referenciaRemota = try! NSRegularExpression(
+        pattern: #"(?i)\b(?:src|srcset|background|poster)\s*=\s*(?:[\"'])?(?:(?:https?:)?//)|url\(\s*(?:[\"'])?(?:(?:https?:)?//)"#
+    )
+    private static let atributoRemoto = try! NSRegularExpression(
+        pattern: #"(?i)\b(src|background|poster)\s*=\s*(?:\"(?:(?:https?:)?//)[^\"]*\"|'(?:(?:https?:)?//)[^']*'|(?:(?:https?:)?//)[^\s>]+)"#
+    )
+    private static let srcsetRemoto = try! NSRegularExpression(
+        pattern: #"(?i)\bsrcset\s*=\s*(?:\"[^\"]*(?:(?:https?:)?//)[^\"]*\"|'[^']*(?:(?:https?:)?//)[^']*'|[^\s>]*(?:(?:https?:)?//)[^\s>]*)"#
+    )
+    private static let urlRemota = try! NSRegularExpression(
+        pattern: #"(?i)url\(\s*(?:[\"'])?(?:(?:https?:)?//)[^\"'\s)]+(?:[\"'])?\s*\)"#
+    )
+
     // MARK: - Nada de rede, por padrão
 
     /// A lista de regras que a `WebView` compila antes de desenhar qualquer
@@ -36,6 +52,13 @@ enum ReaderHTMLPolicy {
     /// regra da versão passada depois de uma atualização.
     static let identificadorDaRegra = "okamiuni-bloqueio-remoto-v1"
 
+    /// Um pixel transparente local no lugar de uma imagem bloqueada. O filtro
+    /// de conteúdo continua sendo a barreira de rede; este valor evita que o
+    /// WebKit desenhe o ícone quebrado ("?") enquanto a pessoa ainda não
+    /// autorizou imagens remotas.
+    static let imagemRemotaBloqueada =
+        "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
+
     /// A mensagem pede alguma coisa de fora?
     ///
     /// É o que decide se a faixa "Imagens remotas bloqueadas · Carregar"
@@ -47,22 +70,53 @@ enum ReaderHTMLPolicy {
     /// seguido ao clicar, e contá-lo poria a faixa em cima de toda mensagem com
     /// um link dentro.
     static func pedeRecursoRemoto(_ html: String) -> Bool {
-        let baixo = html.lowercased()
-        var procura = baixo.startIndex
-        while let achado = baixo.range(of: "http", range: procura..<baixo.endIndex) {
-            procura = achado.upperBound
-            let resto = baixo[achado.lowerBound...]
-            guard resto.hasPrefix("http://") || resto.hasPrefix("https://") else { continue }
-            // Doze caracteres para trás bastam para `href=` com aspas e espaço,
-            // e não alcançam o atributo anterior.
-            let inicio = baixo.index(
-                achado.lowerBound, offsetBy: -12, limitedBy: baixo.startIndex
-            ) ?? baixo.startIndex
-            let antes = baixo[inicio..<achado.lowerBound]
-            if antes.contains("href=") { continue }
-            return true
-        }
-        return false
+        // `//cdn.exemplo.com/logo.png` herda o protocolo do documento. No
+        // leitor, porém, continua sendo rede e também precisa trazer a faixa
+        // de privacidade. Procuramos somente atributos que carregam recursos
+        // e `url(...)`: um `href` protocol-relative ainda é só um link.
+        return aparece(referenciaRemota, em: html)
+    }
+
+    /// Neutraliza as fontes remotas no próprio documento antes de ele entrar
+    /// na WebView. A content-rule bloqueia a saída, mas deixar o `<img>` com a
+    /// URL bloqueada faz o WebKit mostrar o seu ícone de imagem quebrada.
+    ///
+    /// É intencionalmente limitado a atributos que carregam recurso e a
+    /// `url(...)`; links (`href`) nunca são alterados.
+    private static func neutralizaRecursosRemotos(_ html: String) -> String {
+        let fonte = imagemRemotaBloqueada
+        var resultado = substitui(
+            atributoRemoto,
+            em: html,
+            por: "$1=\"\(fonte)\""
+        )
+        // `srcset` pode carregar uma URL remota sem que o `src` do fallback
+        // seja escolhido. Quando há uma URL remota no conjunto, a imagem
+        // inteira fica neutra até a pessoa permitir a carga.
+        resultado = substitui(
+            srcsetRemoto,
+            em: resultado,
+            por: "srcset=\"\(fonte)\""
+        )
+        return substitui(
+            urlRemota,
+            em: resultado,
+            por: "url('\(fonte)')"
+        )
+    }
+
+    private static func aparece(_ expression: NSRegularExpression, em text: String) -> Bool {
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return expression.firstMatch(in: text, range: range) != nil
+    }
+
+    private static func substitui(
+        _ expression: NSRegularExpression,
+        em text: String,
+        por replacement: String
+    ) -> String {
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return expression.stringByReplacingMatches(in: text, range: range, withTemplate: replacement)
     }
 
     // MARK: - Para onde vai um clique
@@ -233,9 +287,11 @@ enum ReaderHTMLPolicy {
     /// ganha do que está aqui. Isto é piso, não opinião.
     static func documento(
         html: String, fundo: String, tinta: String, link: String, fonte: String,
-        larguraDeLeitura: CGFloat = ReaderPane.readingWidth
+        larguraDeLeitura: CGFloat = ReaderPane.readingWidth,
+        bloqueiaRemotas: Bool = false
     ) -> String {
-        let papel = paleta(para: html) == .papel
+        let conteudo = bloqueiaRemotas ? neutralizaRecursosRemotos(html) : html
+        let papel = paleta(para: conteudo) == .papel
         // **A coluna de leitura, e só para quem não trouxe desenho.**
         //
         // O email escrito à mão que chega em HTML é texto corrido, e sem limite
@@ -294,7 +350,7 @@ enum ReaderHTMLPolicy {
                `id`, que ganha de qualquer seletor que a mensagem escreva. */
             #\(involucro) { display: block; }
             </style>
-            <div id="\(involucro)">\(html)</div>
+            <div id="\(involucro)">\(conteudo)</div>
             """
     }
 }

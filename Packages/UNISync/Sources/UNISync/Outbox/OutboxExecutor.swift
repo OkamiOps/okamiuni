@@ -288,12 +288,34 @@ public actor OutboxExecutor {
             return nil
         }
         guard await reivindica(coalescido.ids) else { return nil }
+
+        let messageIDs = operacao.messageIDs
+        let targets = messageIDs.compactMap {
+            MessageIdentity.parse($0, accountID: accountID)
+        }
+        let requiresTargets: Bool
+        switch operacao {
+        case .emptyTrash, .send:
+            requiresTargets = false
+        default:
+            requiresTargets = true
+        }
+        guard !requiresTargets || (!messageIDs.isEmpty && targets.count == messageIDs.count) else {
+            // `compactMap` não pode transformar uma identidade inválida em
+            // sucesso com lote vazio: o espelho não teria o que alterar e o
+            // executor apagaria a operação como se o servidor a aceitasse.
+            let invalid = SyncError.resposta(
+                "Uma operação da fila aponta para uma mensagem sem coordenada remota válida."
+            )
+            await marca(coalescido.ids, estado: .falhou, causa: invalid)
+            parada = invalid
+            report(accountID, invalid)
+            return nil
+        }
         return Lote(
             ids: coalescido.ids,
             operacao: operacao,
-            alvos: operacao.messageIDs.compactMap {
-                MessageIdentity.parse($0, accountID: accountID)
-            },
+            alvos: targets,
             tentativas: coalescido.tentativas
         )
     }
@@ -491,12 +513,13 @@ public actor OutboxExecutor {
                 if !linhas.message.body.isEmpty {
                     try InitialLoader.gravaCorpo(
                         db, id: linhas.message.id, paragrafos: linhas.message.body,
-                        // `""`: a cópia local do que **nós** enviamos é o texto
-                        // que foi composto. Ela não passa pelo decodificador de
-                        // MIME, e deixar `nil` aqui mandaria o leitor buscar no
-                        // servidor o HTML de uma mensagem que ele mesmo
-                        // escreveu — uma viagem por abertura, para nada.
-                        html: "", calendarICS: nil
+                        // A cópia local não passa pelo decodificador MIME, mas
+                        // precisa preservar o HTML que acabou de sair (inclui
+                        // assinatura formatada). `nil` faria o leitor buscar
+                        // de novo no servidor; `""` apagaria a formatação.
+                        html: EmailSignature.sanitizedHTML(
+                            mensagem.html, inlineResources: mensagem.inlineResources
+                        ) ?? "", calendarICS: nil
                     )
                 }
             }

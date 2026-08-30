@@ -88,6 +88,29 @@ struct TokenModifierTests {
         #expect(WindowChrome.searchPlaceholder(count) == expected)
     }
 
+    @Test("CapsLabel usa ink3 para texto funcional pequeno")
+    @MainActor
+    func capsLabelUsesFunctionalTextColor() throws {
+        let theme = Theme.noite
+        let image = try #require(
+            Render.bitmap(
+                Text("SECTION")
+                    .capsLabel(size: 12)
+                    .frame(width: 100, height: 24)
+                    .background(theme.surface.color),
+                size: CGSize(width: 100, height: 24),
+                theme: theme
+            )
+        )
+
+        let ink3Pixels = image.pixels(matching: theme.ink3)
+        let ink4Pixels = image.pixels(matching: theme.ink4)
+        #expect(
+            ink3Pixels > ink4Pixels,
+            "o rótulo deve privilegiar ink3 (pixels ink3: \(ink3Pixels), ink4: \(ink4Pixels))"
+        )
+    }
+
     @Test("o raio da aba nunca é negativo em nenhum tema e bate com o container")
     func tabRadiusNeverNegative() {
         for theme in Theme.all {
