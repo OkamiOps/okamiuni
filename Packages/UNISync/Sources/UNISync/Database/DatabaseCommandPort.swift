@@ -56,6 +56,109 @@ public struct DatabaseCommandPort: MailCommandPort, MailSendPort, Sendable {
         }
     }
 
+    public func place(
+        in folder: MailFolder,
+        mode: FolderPlacement,
+        accountID: String,
+        messageIDs: [String]
+    ) throws {
+        let operation = MailOperation.placeInFolder(
+            folderID: folder.id,
+            serverName: folder.serverName,
+            mode: mode.rawValue,
+            messageIDs: messageIDs
+        )
+        try run(accountID: accountID, operation: operation) { db in
+            switch mode {
+            case .move:
+                try Self.scoped(accountID: accountID, ids: messageIDs).updateAll(
+                    db,
+                    Column("folderID").set(to: folder.id),
+                    Column("folderMembershipJSON").set(to: "[]"),
+                    Column("bucket").set(to: TriageProjection.bucket(role: folder.role).rawValue)
+                )
+
+            case .label:
+                let rows = try Self.scoped(accountID: accountID, ids: messageIDs).fetchAll(db)
+                for row in rows {
+                    var memberships = MessageRecord.folderIDs(
+                        membership: row.folderMembershipJSON,
+                        folderID: row.folderID
+                    )
+                    guard !memberships.contains(folder.id) else { continue }
+                    memberships.append(folder.id)
+                    var updated = row
+                    updated.folderMembershipJSON = MessageRecord.encodeStrings(memberships)
+                    // O "Desfazer" Gmail repõe INBOX pelo mesmo caminho de
+                    // aplicar marcador; com isso a projeção volta à caixa
+                    // Hoje junto com a associação que o servidor receberá.
+                    if folder.role == .inbox,
+                       updated.bucket == TriageBucket.archived.rawValue {
+                        updated.bucket = TriageBucket.today.rawValue
+                    }
+                    try updated.update(db)
+                }
+            }
+        }
+    }
+
+    public func moveGmailLabel(
+        from source: MailFolder,
+        to destination: MailFolder,
+        accountID: String,
+        messageIDs: [String]
+    ) throws {
+        guard source.accountID == accountID,
+              destination.accountID == accountID,
+              source.id != destination.id
+        else {
+            throw SyncError.resposta("Origem e destino do marcador Gmail não pertencem à mesma conta.")
+        }
+        let operation = MailOperation.moveGmailLabel(
+            destinationLabelID: destination.serverName,
+            sourceLabelID: source.serverName,
+            messageIDs: messageIDs
+        )
+        try run(accountID: accountID, operation: operation) { db in
+            let rows = try Self.scoped(accountID: accountID, ids: messageIDs).fetchAll(db)
+            for row in rows {
+                var memberships = MessageRecord.folderIDs(
+                    membership: row.folderMembershipJSON,
+                    folderID: row.folderID
+                ).filter { $0 != source.id }
+                if !memberships.contains(destination.id) {
+                    memberships.append(destination.id)
+                }
+                var updated = row
+                updated.folderMembershipJSON = MessageRecord.encodeStrings(memberships)
+                if source.role == .inbox,
+                   updated.bucket == TriageBucket.today.rawValue {
+                    updated.bucket = TriageBucket.archived.rawValue
+                } else if destination.role == .inbox,
+                          updated.bucket == TriageBucket.archived.rawValue {
+                    updated.bucket = TriageBucket.today.rawValue
+                }
+                try updated.update(db)
+            }
+        }
+    }
+
+    public func setAccountTint(
+        lightHex: String,
+        darkHex: String,
+        accountID: String
+    ) throws {
+        _ = try database.pool.write { db in
+            try AccountRecord
+                .filter(key: accountID)
+                .updateAll(
+                    db,
+                    Column("tintLightHex").set(to: lightHex),
+                    Column("tintDarkHex").set(to: darkHex)
+                )
+        }
+    }
+
     /// Move para a Lixeira. É `bucket = trash`, e não uma linha apagada — a
     /// mensagem continua existindo, visível na caixa Lixeira, até
     /// `deletePermanently` ou `emptyTrash`.
@@ -151,5 +254,50 @@ public struct DatabaseCommandPort: MailCommandPort, MailSendPort, Sendable {
                     record.state, record.createdAt.timeIntervalSince1970,
                 ]
             )
+    }
+}
+
+// MARK: - RSVP/iTIP
+
+extension DatabaseCommandPort: InviteRSVPCommandPort {
+    /// A lista pequena que o `MailStore` consulta na montagem para restaurar o
+    /// estado dos cartões. A resposta e o `send` não são dois commits: mudar
+    /// um sem o outro voltaria a abrir a porta para duplicidade após reiniciar.
+    public func savedInviteRSVPStates() throws -> [InviteRSVPState] {
+        try database.pool.read { db in
+            try Row.fetchAll(
+                db,
+                sql: "SELECT accountID, eventKey, response FROM invite_rsvp"
+            ).compactMap { row in
+                guard let response = InviteRSVPResponse(rawValue: row["response"] as String) else {
+                    return nil
+                }
+                return InviteRSVPState(
+                    accountID: row["accountID"], eventKey: row["eventKey"], response: response
+                )
+            }
+        }
+    }
+
+    /// Grava a decisão e enfileira o `METHOD:REPLY` no outbox existente em uma
+    /// transação SQLite. Assim, offline quer dizer "na fila", nunca "sumiu".
+    public func queueInviteRSVP(_ message: OutgoingMessage, state: InviteRSVPState) throws {
+        try database.pool.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO invite_rsvp (accountID, eventKey, response, updatedAt)
+                    VALUES (?, ?, ?, ?)
+                    ON CONFLICT(accountID, eventKey) DO UPDATE SET
+                      response = excluded.response,
+                      updatedAt = excluded.updatedAt
+                    """,
+                arguments: [
+                    state.accountID, state.eventKey, state.response.rawValue,
+                    Date().timeIntervalSince1970,
+                ]
+            )
+            try Self.enfileira(db, accountID: state.accountID, operation: .send(message: message))
+        }
+        signal?.notify(accountID: state.accountID)
     }
 }

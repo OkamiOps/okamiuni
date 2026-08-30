@@ -30,11 +30,18 @@ public struct FetchedBody: Sendable, Equatable {
     public var html: String
     /// O `text/calendar` cru, quando houver.
     public var calendarICS: String?
+    /// Metadados atualizados junto do corpo. Os bytes continuam na porta de
+    /// anexos, fora do estado da lista.
+    public var attachments: [MailAttachment]
 
-    public init(paragraphs: [String], html: String = "", calendarICS: String? = nil) {
+    public init(
+        paragraphs: [String], html: String = "", calendarICS: String? = nil,
+        attachments: [MailAttachment] = []
+    ) {
         self.paragraphs = paragraphs
         self.html = html
         self.calendarICS = calendarICS
+        self.attachments = attachments
     }
 }
 

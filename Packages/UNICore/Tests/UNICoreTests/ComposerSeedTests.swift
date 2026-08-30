@@ -111,19 +111,23 @@ struct ComposerSeedTests {
     func carriesEverythingTheBandCaptures() {
         let juridico = Contact(name: "Jurídico", address: "juridico@empresa.com")
         let financeiro = Contact(name: "Financeiro", address: "fin@empresa.com")
+        let attachments = [
+            try! OutgoingAttachment(filename: "contrato-v4.docx", data: Data([1])),
+            try! OutgoingAttachment(filename: "anexo-2.pdf", data: Data([2])),
+        ]
         let draft = ReplyDraft(
             to: [Self.outro],
             cc: [juridico],
             bcc: [financeiro],
             body: AttributedString("texto"),
-            attachments: ["contrato-v4.docx", "anexo-2.pdf"]
+            attachments: attachments
         )
         let seed = ComposerSeed.reply(to: Self.message(), draft: draft)
 
         #expect(seed.to == [Self.outro])
         #expect(seed.cc == [juridico])
         #expect(seed.bcc == [financeiro])
-        #expect(seed.attachments == ["contrato-v4.docx", "anexo-2.pdf"])
+        #expect(seed.attachments == attachments)
         #expect(seed.body == "texto")
     }
 
@@ -133,14 +137,15 @@ struct ComposerSeedTests {
     @Test("rascunho sem texto, só com cópia e anexo, ainda atravessa")
     func copiesSurviveWithoutText() {
         let juridico = Contact(name: "Jurídico", address: "juridico@empresa.com")
-        let draft = ReplyDraft(to: [], cc: [juridico], attachments: ["contrato-v4.docx"])
+        let attachment = try! OutgoingAttachment(filename: "contrato-v4.docx", data: Data([1]))
+        let draft = ReplyDraft(to: [], cc: [juridico], attachments: [attachment])
         #expect(draft.isEmpty == false)
 
         let seed = ComposerSeed.reply(to: Self.message(), draft: draft)
         // Sem destinatário no rascunho o remetente da mensagem continua valendo.
         #expect(seed.to == [Self.message().from])
         #expect(seed.cc == [juridico])
-        #expect(seed.attachments == ["contrato-v4.docx"])
+        #expect(seed.attachments == [attachment])
     }
 
     /// Sem rascunho não há cópia nem anexo para inventar.

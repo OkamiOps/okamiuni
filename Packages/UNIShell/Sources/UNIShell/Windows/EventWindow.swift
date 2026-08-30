@@ -64,9 +64,14 @@ public struct EventWindow: View {
     @State private var forwardSent = false
     @State private var copied = false
 
+    /// Abre a lista de destinatários nos renders fora da tela. Nulo no app;
+    /// existe para provar o empilhamento sem clicar nem tomar o foco do Mac.
+    private let seededForwardQuery: String?
+
     public init(store: MailStore, itemID: String) {
         self.store = store
         self.itemID = itemID
+        seededForwardQuery = nil
     }
 
     /// A mesma janela com as seções já abertas. **Só para verificação fora da
@@ -76,7 +81,17 @@ public struct EventWindow: View {
     init(store: MailStore, itemID: String, debugSections: EventSections) {
         self.store = store
         self.itemID = itemID
+        seededForwardQuery = nil
         _sections = State(initialValue: debugSections)
+    }
+
+    /// O painel já aberto e a busca semeada, exclusivamente para renderização
+    /// offscreen nos testes de sobreposição.
+    init(store: MailStore, itemID: String, debugForwardQuery: String) {
+        self.store = store
+        self.itemID = itemID
+        seededForwardQuery = debugForwardQuery
+        _forwardOpen = State(initialValue: true)
     }
 
     private var item: AgendaItem? {
@@ -163,6 +178,10 @@ public struct EventWindow: View {
     }
 
     /// Protótipo: `padding: 13px 18px; background: var(--surface2)`.
+    /// O último semáforo termina em x=70. O mesmo respiro de 14pt da barra
+    /// principal põe o primeiro elemento em x=84, sem parecer grudado nele.
+    static let headerLeadingInset: CGFloat = WindowChrome.trafficLightInset + 14
+
     private var header: some View {
         HStack(spacing: 10) {
             TintChip(label: account?.host ?? "", tint: tint, emphasized: true)
@@ -175,7 +194,7 @@ public struct EventWindow: View {
         // barra. Como a janela é de verdade, os semáforos nativos moram aqui
         // dentro, e o conteúdo começa depois deles — a mesma medida da barra da
         // janela principal.
-        .padding(.leading, WindowChrome.trafficLightInset)
+        .padding(.leading, Self.headerLeadingInset)
         .padding(.trailing, 18)
         // **Altura fixa, e não folga vertical.** Com `padding(.vertical, 13)` a
         // linha média do cabeçalho saía da altura do texto — e caía onde caísse,
@@ -191,13 +210,19 @@ public struct EventWindow: View {
     private func content(_ item: AgendaItem) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             title(item)
-            if let link = detail.link { linkCard(link) }
+            if let link = detail.meetingLink { linkCard(link) }
             fields
             people
             if detail.hasAgenda { agenda }
-            if let texto = detail.descricao, !texto.isEmpty { descricao(texto) }
+            if let texto = detail.visibleDescription { descricao(texto) }
             if detail.hasThread { thread }
-            if forwardOpen { forwardPanel }
+            if forwardOpen {
+                // O menu de destinatários sai do painel por desenho. Este
+                // `zIndex` precisa estar aqui, no nível dos irmãos de
+                // `content`: o valor interno do `RecipientField` não impede a
+                // nota de origem, desenhada depois, de atravessá-lo.
+                forwardPanel.zIndex(100)
+            }
             if forwardSent { forwardConfirmation }
             // A nota de origem tinha cartão próprio no fim da janela, embaixo
             // da seção que fala da mesma coisa — duas caixas dizendo de onde o
@@ -715,7 +740,8 @@ public struct EventWindow: View {
                 inputMinWidth: 150,
                 menuWidth: 320,
                 pool: store.contactPool,
-                chips: $forwardTo
+                chips: $forwardTo,
+                seededQuery: seededForwardQuery
             )
             .padding(.bottom, 9)
             .hairline(theme.line, edges: .bottom)
@@ -825,7 +851,7 @@ public struct EventWindow: View {
             // (`sc-if ev.hasLink`) e como o resto do app faz quando não há para
             // onde ir. Quem decide é `MeetingLink.destino`, o mesmo do cartão
             // acima: um "link" que não se abre no navegador não acende botão.
-            if let destino = MeetingLink.destino(detail.link) {
+            if let destino = MeetingLink.destino(detail.meetingLink) {
                 ChromeButton(
                     "Entrar", appearance: .accent, size: 12.5, weight: .semibold,
                     height: 30, horizontalPadding: 16

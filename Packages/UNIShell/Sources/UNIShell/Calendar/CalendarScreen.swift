@@ -38,6 +38,10 @@ public struct CalendarScreen: View {
     /// topo. O que aparece é isto cruzado com a largura da janela — a mesma
     /// regra do email, em `PaneLayout.sidebarExpanded(width:wantsSidebar:)`.
     let wantsSidebar: Bool
+    let intelligencePresentation: IntelligencePresentation
+    let onOpenAssistant: () -> Void
+    let onCompose: (() -> Void)?
+    let onOpenAccounts: (() -> Void)?
     let onOpenEvent: (AgendaItem) -> Void
     /// "Ir para o email de origem", do menu de contexto do cartão. Sai da aba
     /// Agenda: quem sabe voltar para o email é o `InboxScreen`.
@@ -50,18 +54,26 @@ public struct CalendarScreen: View {
     @State private var selectedDayOffset = 0
     /// Protótipo: `st.picker`.
     @State private var pickerOpen = false
+    @State private var creatingAppointment = false
 
     public init(
         store: MailStore,
         now: Int,
         anchor: Date,
         wantsSidebar: Bool = true,
+        intelligencePresentation: IntelligencePresentation = .available,
+        onOpenAssistant: @escaping () -> Void = {},
+        onCompose: (() -> Void)? = nil,
+        onOpenAccounts: (() -> Void)? = nil,
         onOpenEvent: @escaping (AgendaItem) -> Void = { _ in },
         onRevealMessage: @escaping (String) -> Void = { _ in }
     ) {
         self.init(
             store: store, now: now, anchor: anchor, wantsSidebar: wantsSidebar,
-            initialMode: .week, initialPickerOpen: false, onOpenEvent: onOpenEvent,
+            intelligencePresentation: intelligencePresentation,
+            initialMode: .week, initialPickerOpen: false,
+            onOpenAssistant: onOpenAssistant, onCompose: onCompose,
+            onOpenAccounts: onOpenAccounts, onOpenEvent: onOpenEvent,
             onRevealMessage: onRevealMessage
         )
     }
@@ -80,8 +92,12 @@ public struct CalendarScreen: View {
         now: Int,
         anchor: Date,
         wantsSidebar: Bool = true,
+        intelligencePresentation: IntelligencePresentation = .available,
         initialMode: CalendarViewMode,
         initialPickerOpen: Bool = false,
+        onOpenAssistant: @escaping () -> Void = {},
+        onCompose: (() -> Void)? = nil,
+        onOpenAccounts: (() -> Void)? = nil,
         onOpenEvent: @escaping (AgendaItem) -> Void = { _ in },
         onRevealMessage: @escaping (String) -> Void = { _ in }
     ) {
@@ -89,6 +105,10 @@ public struct CalendarScreen: View {
         self.now = now
         self.anchor = anchor
         self.wantsSidebar = wantsSidebar
+        self.intelligencePresentation = intelligencePresentation
+        self.onOpenAssistant = onOpenAssistant
+        self.onCompose = onCompose
+        self.onOpenAccounts = onOpenAccounts
         self.onOpenEvent = onOpenEvent
         self.onRevealMessage = onRevealMessage
         _mode = State(initialValue: initialMode)
@@ -106,10 +126,24 @@ public struct CalendarScreen: View {
 
             HStack(spacing: 0) {
                 if expanded {
-                    FolderSidebar(store: store, width: sidebarWidth)
+                    FolderSidebar(
+                        store: store,
+                        width: sidebarWidth,
+                        intelligencePresentation: intelligencePresentation,
+                        onOpenAssistant: onOpenAssistant,
+                        onCompose: onCompose,
+                        onOpenAccounts: onOpenAccounts
+                    )
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 } else {
-                    SidebarRail(store: store, width: sidebarWidth)
+                    SidebarRail(
+                        store: store,
+                        width: sidebarWidth,
+                        intelligencePresentation: intelligencePresentation,
+                        onOpenAssistant: onOpenAssistant,
+                        onCompose: onCompose,
+                        onOpenAccounts: onOpenAccounts
+                    )
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 }
                 // A faixa de retorno pende da coluna da agenda, e não da
@@ -119,6 +153,14 @@ public struct CalendarScreen: View {
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
             .animation(.easeInOut(duration: 0.18), value: expanded)
+        }
+        .sheet(isPresented: $creatingAppointment) {
+            NewAppointmentSheet(
+                store: store,
+                anchor: anchor,
+                initialDayOffset: selectedDayOffset,
+                onClose: { creatingAppointment = false }
+            )
         }
     }
 
@@ -134,13 +176,20 @@ public struct CalendarScreen: View {
                 onStepDay: step(_:),
                 onGoToday: goToday,
                 onTogglePicker: { pickerOpen.toggle() },
-                onPickDay: pickDay(_:)
+                onPickDay: pickDay(_:),
+                onCreate: { creatingAppointment = true }
             )
             // A faixa vem por cima da grade: o seletor de data é desenhado
             // dentro dela e passa 231pt abaixo do seu limite. Sem o `zIndex`,
             // o `VStack` empilha o irmão seguinte por cima e o popover fica
             // metade escondido atrás da grade.
             .zIndex(30)
+
+            if let state = store.calendarAvailability {
+                CalendarStatusBand(state: state) {
+                    Task { await store.refreshCalendar(requestAuthorization: true) }
+                }
+            }
 
             content
         }

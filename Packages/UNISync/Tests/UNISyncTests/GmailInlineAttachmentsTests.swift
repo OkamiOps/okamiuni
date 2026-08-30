@@ -102,6 +102,32 @@ struct GmailInlineAttachmentsTests {
         #expect(pendentes.first?.tamanho == 40_000)
     }
 
+    @Test("anexo normal do Gmail conserva metadados para baixar sob demanda")
+    func normalAttachmentMetadata() throws {
+        let raw = Data("""
+        {
+          "id":"m-arquivo", "threadId":"t", "labelIds":["INBOX"],
+          "snippet":"segue", "internalDate":"1800000000000",
+          "payload":{"mimeType":"multipart/mixed", "headers":[
+            {"name":"From", "value":"Ana <ana@example.com>"},
+            {"name":"Subject", "value":"Proposta"}
+          ], "parts":[
+            {"mimeType":"text/plain", "body":{"data":"U2VndWU"}},
+            {"mimeType":"application/pdf", "filename":"../../proposta.pdf",
+             "headers":[{"name":"Content-Disposition", "value":"attachment"}],
+             "body":{"attachmentId":"arquivo-1", "size":321}}
+          ]}
+        }
+        """.utf8)
+        let message = try GmailMessageParser.parse(raw)
+        #expect(message.attachments.count == 1)
+        #expect(message.attachments.first?.attachmentID == "arquivo-1")
+        #expect(message.attachments.first?.filename == "proposta.pdf")
+        #expect(message.attachments.first?.mimeType == "application/pdf")
+        #expect(message.attachments.first?.byteCount == 321)
+        #expect(message.attachments.first?.inlineData == nil)
+    }
+
     /// **A prova do defeito, do lado de cá.** Sem ninguém buscar o anexo, o
     /// lugar da foto fica marcado como *por buscar* — e não como o vazio comum
     /// de "não coube". É essa marca que faz o leitor pedir o corpo outra vez.

@@ -6,8 +6,8 @@ import SwiftUI
 ///
 /// O macOS fixa a barra de título de uma janela `.hiddenTitleBar` em 32pt e
 /// centra os três botões nela — centro em y=16 contando do topo da janela,
-/// medido por acessibilidade. Nossa barra tem 58pt e centra o que desenha em
-/// y=29. Sobram 13pt de desencontro, que é o que o dono do projeto vê.
+/// medido por acessibilidade. Nossa barra tem 64pt, mas mantém a fileira em
+/// y=22 para seguir o alinhamento dos controles nativos da plataforma.
 ///
 /// `NSTitlebarAccessoryViewController` **não** resolve: medido, o AppKit encaixa
 /// o acessório num `NSTitlebarAccessoryClipView` de 32pt e a barra de título não
@@ -37,7 +37,7 @@ enum TrafficLightLayout {
     /// número é o mesmo contado de qualquer um dos lados.
     /// Onde a plataforma põe a fileira de controles, contado do topo da janela.
     ///
-    /// **22, e não o centro da barra.** Centrar numa barra de 58 dá 29, que é o
+    /// **22, e não o centro da barra.** Centrar numa barra de 64 dá 32, que é o
     /// que o protótipo desenha — mas o dono do projeto apontou que Chrome,
     /// Claude, VSCode, Codex e outros põem em 22, e que a nossa ficava
     /// visivelmente baixa ao lado deles. Medido no Chrome desta máquina: 22.
@@ -46,7 +46,7 @@ enum TrafficLightLayout {
     /// protótipo brigar com a convenção do macOS, **a plataforma vence**. Os
     /// semáforos são o exemplo canônico dela.
     ///
-    /// A barra continua com 58pt; o conteúdo ocupa a faixa de cima e a folga
+    /// A barra continua com 64pt; o conteúdo ocupa a faixa de cima e a folga
     /// fica embaixo, como nesses apps.
     static let contentCenterFromTop: CGFloat = 22
 

@@ -31,9 +31,20 @@ struct ComposerToolbar: View {
     let reading: BodyReading
     let density: Density
     let perform: (ComposerCommand) -> Void
+    /// A fronteira editorial é opcional enquanto a composição concreta não
+    /// estiver instalada. Mesmo ausente, o botão continua na barra e explica
+    /// por que não pode agir.
+    let intelligence: ComposerIntelligenceGenerator?
+    let intelligenceSourceMessage: Message?
+    let intelligenceSourceContext: OnDeviceAssistantMailContext?
+    let intelligenceContext: ComposerIntelligenceContext?
+    let applyIntelligence: (ComposerIntelligenceProposal) -> ComposerIntelligenceApplyResult
 
     @State private var openPanel: Panel?
     @State private var moreOpen: Bool
+    @State private var intelligencePhase: ComposerIntelligencePanel.Phase = .ready
+    @State private var intelligenceInstruction = ""
+    @State private var intelligenceTask: Task<Void, Never>?
     /// A identidade desta barra perante o `NSColorPanel`, que é do app inteiro.
     /// Ver `FreeColorPanel`.
     @State private var colorPanelOwner = UUID()
@@ -47,16 +58,26 @@ struct ComposerToolbar: View {
         density: Density = .window,
         openPanel: Panel? = nil,
         moreOpen: Bool = false,
+        intelligence: ComposerIntelligenceGenerator? = nil,
+        intelligenceSourceMessage: Message? = nil,
+        intelligenceSourceContext: OnDeviceAssistantMailContext? = nil,
+        intelligenceContext: ComposerIntelligenceContext? = nil,
+        applyIntelligence: @escaping (ComposerIntelligenceProposal) -> ComposerIntelligenceApplyResult = { _ in .sourceChanged },
         perform: @escaping (ComposerCommand) -> Void
     ) {
         self.reading = reading
         self.density = density
         self.perform = perform
+        self.intelligence = intelligence
+        self.intelligenceSourceMessage = intelligenceSourceMessage
+        self.intelligenceSourceContext = intelligenceSourceContext
+        self.intelligenceContext = intelligenceContext
+        self.applyIntelligence = applyIntelligence
         _openPanel = State(initialValue: openPanel)
         _moreOpen = State(initialValue: moreOpen)
     }
 
-    enum Panel { case color, highlight, link, table }
+    enum Panel { case color, highlight, link, table, intelligence }
 
     /// Onde a barra está desenhada.
     ///
@@ -73,9 +94,14 @@ struct ComposerToolbar: View {
     }
 
     var body: some View {
-        switch density {
-        case .window: windowBar
-        case .band: bandBar
+        Group {
+            switch density {
+            case .window: windowBar
+            case .band: bandBar
+            }
+        }
+        .onDisappear {
+            intelligenceTask?.cancel()
         }
     }
 
@@ -94,6 +120,7 @@ struct ComposerToolbar: View {
             linkButton
             clearFormattingButton
             tableButton
+            intelligenceButton
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 9)
@@ -113,6 +140,7 @@ struct ComposerToolbar: View {
                 marksGroup
                 colorGroup
                 moreButton
+                intelligenceButton
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
@@ -387,6 +415,113 @@ struct ComposerToolbar: View {
         .zIndex(28)
     }
 
+    /// O glifo é o SF Symbol real de Apple Intelligence. Ele está sempre
+    /// presente nas duas densidades; só fica apagado quando não existe motor
+    /// injetado (ou não há texto/contexto com que agir).
+    private var intelligenceButton: some View {
+        SoloToolButton(
+            label: "",
+            symbol: "apple.intelligence",
+            title: intelligenceHelp,
+            on: openPanel == .intelligence,
+            enabled: intelligenceIsEnabled
+        ) {
+            openPanel = openPanel == .intelligence ? nil : .intelligence
+        }
+        .overlay(alignment: .topTrailing) {
+            if openPanel == .intelligence {
+                intelligencePanel(
+                    context: intelligenceContext,
+                    phase: intelligencePhase,
+                    instruction: $intelligenceInstruction,
+                    generate: generateIntelligence,
+                    apply: applyIntelligenceProposal,
+                    cancel: cancelIntelligence
+                )
+                .offset(y: 32)
+            }
+        }
+        .zIndex(40)
+    }
+
+    private var intelligenceIsEnabled: Bool {
+        guard intelligence != nil, let intelligenceContext else { return false }
+        if !intelligenceContext.source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return true
+        }
+        return intelligenceSourceContext != nil || intelligenceSourceMessage != nil
+    }
+
+    private var intelligenceHelp: String {
+        if intelligence == nil {
+            return "Inteligência de escrita — indisponível: nenhum motor foi conectado"
+        }
+        if intelligenceContext?.source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
+           intelligenceSourceContext == nil,
+           intelligenceSourceMessage == nil {
+            return "Inteligência de escrita — escreva ou selecione texto primeiro"
+        }
+        return "Inteligência de escrita"
+    }
+
+    private func generateIntelligence(
+        _ action: ComposerIntelligenceAction,
+        _ instruction: String?
+    ) {
+        guard let intelligence, let context = intelligenceContext else {
+            intelligencePhase = .failure("A inteligência de escrita não está disponível nesta tela.")
+            return
+        }
+        let hasText = !context.source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasMailContext = intelligenceSourceContext != nil || intelligenceSourceMessage != nil
+        guard action == .createReply ? hasMailContext : hasText else {
+            intelligencePhase = .failure("Escreva ou selecione texto antes de gerar uma prévia.")
+            return
+        }
+
+        let request = ComposerIntelligenceRequest(
+            action: action,
+            target: context.target,
+            source: context.source,
+            instruction: instruction?.trimmingCharacters(in: .whitespacesAndNewlines),
+            sourceMessage: intelligenceSourceMessage,
+            sourceContext: intelligenceSourceContext
+        )
+        intelligenceTask?.cancel()
+        intelligencePhase = .loading(action)
+        intelligenceTask = Task { @MainActor in
+            do {
+                let proposal = try await ComposerIntelligence.generate(request, using: intelligence)
+                guard !Task.isCancelled else { return }
+                intelligencePhase = .preview(proposal)
+            } catch is CancellationError {
+                guard !Task.isCancelled else { return }
+                intelligencePhase = .ready
+            } catch {
+                guard !Task.isCancelled else { return }
+                intelligencePhase = .failure(error.localizedDescription)
+            }
+        }
+    }
+
+    private func applyIntelligenceProposal(_ proposal: ComposerIntelligenceProposal) {
+        let result = applyIntelligence(proposal)
+        switch result {
+        case .applied:
+            intelligencePhase = .ready
+            intelligenceInstruction = ""
+            openPanel = nil
+        case .sourceChanged, .emptyResult:
+            intelligencePhase = .failure(result.errorMessage)
+        }
+    }
+
+    private func cancelIntelligence() {
+        intelligenceTask?.cancel()
+        intelligenceTask = nil
+        intelligencePhase = .ready
+    }
+
     /// A paleta do protótipo mais o caminho livre.
     ///
     /// As seis amostras são as do design, com o mesmo desenho e a mesma ordem.
@@ -647,6 +782,7 @@ struct SoloToolButton: View {
     @Environment(\.theme) private var theme
     @Environment(\.displayScale) private var displayScale
     let label: String
+    var symbol: String? = nil
     let title: String
     let on: Bool
     var enabled = true
@@ -656,7 +792,14 @@ struct SoloToolButton: View {
 
     var body: some View {
         Button(action: action) {
-            OpticalGlyph(label: label, family: theme.sans, size: 12)
+            Group {
+                if let symbol {
+                    Image(systemName: symbol)
+                        .font(.system(size: 12, weight: .medium))
+                } else {
+                    OpticalGlyph(label: label, family: theme.sans, size: 12)
+                }
+            }
                 .foregroundStyle(foreground)
                 .frame(width: 30, height: 26)
                 .background(on ? theme.accentSoft.color : theme.btn.color)

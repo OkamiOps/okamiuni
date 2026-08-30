@@ -22,7 +22,8 @@ struct ContextMenuTests {
         body: [String] = ["Primeiro", "Segundo"],
         to: [Contact] = [],
         cc: [Contact] = [],
-        isFlagged: Bool = false
+        isFlagged: Bool = false,
+        folderIDs: [String] = []
     ) -> Message {
         Message(
             id: id, accountID: "zoho",
@@ -30,7 +31,7 @@ struct ContextMenuTests {
             receivedAt: Fixtures.today, subject: subject,
             snippet: "trecho", body: body, tags: [],
             bucket: bucket, isRead: isRead, summary: nil, detectedEvent: nil,
-            to: to, cc: cc, isFlagged: isFlagged
+            to: to, cc: cc, isFlagged: isFlagged, folderIDs: folderIDs
         )
     }
 
@@ -111,6 +112,89 @@ struct ContextMenuTests {
     func archiveIsStillInTheSubmenu() {
         let targets = ContextMenus.messageRow(message()).submenuCommands("Mover para")
         #expect(targets.contains(.move(messageID: "m1", to: .archived)))
+    }
+
+    @Test("IMAP oferece pastas reais e não oferece a atual")
+    func imapOffersRealFolders() {
+        let inbox = MailFolder(
+            id: "zoho/INBOX", accountID: "zoho", serverName: "INBOX",
+            displayName: "Entrada", role: .inbox
+        )
+        let clients = MailFolder(
+            id: "zoho/Clientes", accountID: "zoho", serverName: "Clientes",
+            displayName: "Clientes", role: .other
+        )
+        let commands = ContextMenus.messageRow(
+            message(folderIDs: [inbox.id]),
+            provider: .imap,
+            folders: [inbox, clients]
+        ).submenuCommands("Mover para pasta")
+
+        #expect(commands == [
+            .placeMessage(messageID: "m1", folder: clients, mode: .move)
+        ])
+    }
+
+    @Test("Gmail separa mover de aplicar marcador na Caixa de Entrada")
+    func gmailOffersMoveAndApply() {
+        let inbox = MailFolder(
+            id: "gmail/INBOX", accountID: "zoho", serverName: "INBOX",
+            displayName: "Entrada", role: .inbox
+        )
+        let client = MailFolder(
+            id: "gmail/Label_7", accountID: "zoho", serverName: "Label_7",
+            displayName: "Cliente", role: .other
+        )
+        let entries = ContextMenus.reader(
+            message(folderIDs: [inbox.id]),
+            provider: .gmail,
+            folders: [inbox, client],
+            selectedFolderID: nil,
+            currentBucket: .today
+        )
+
+        #expect(entries.submenuCommands("Mover para marcador") == [
+            .moveGmailMessage(messageID: "m1", from: inbox, to: client)
+        ])
+        #expect(entries.submenuCommands("Aplicar marcador") == [
+            .placeMessage(messageID: "m1", folder: client, mode: .label)
+        ])
+    }
+
+    @Test("Gmail move a partir do marcador aberto e não inventa origem em Tudo")
+    func gmailMoveUsesVisibleSource() {
+        let source = MailFolder(
+            id: "gmail/Label_7", accountID: "zoho", serverName: "Label_7",
+            displayName: "Cliente", role: .other
+        )
+        let target = MailFolder(
+            id: "gmail/Label_9", accountID: "zoho", serverName: "Label_9",
+            displayName: "Projetos", role: .other
+        )
+        let message = message(folderIDs: [source.id])
+
+        let insideLabel = ContextMenus.reader(
+            message,
+            provider: .gmail,
+            folders: [source, target],
+            selectedFolderID: source.id,
+            currentBucket: .archived
+        )
+        #expect(insideLabel.submenuCommands("Mover para marcador") == [
+            .moveGmailMessage(messageID: "m1", from: source, to: target)
+        ])
+
+        let inAll = ContextMenus.reader(
+            message,
+            provider: .gmail,
+            folders: [source, target],
+            selectedFolderID: nil,
+            currentBucket: .all
+        )
+        #expect(inAll.submenuCommands("Mover para marcador").isEmpty)
+        #expect(inAll.submenuCommands("Aplicar marcador") == [
+            .placeMessage(messageID: "m1", folder: target, mode: .label)
+        ])
     }
 
     // MARK: - Copiar
@@ -602,6 +686,7 @@ extension ContextMenuTests {
             "Nova mensagem desta conta",
             "Filtrar só esta conta",
             "Marcar tudo como lido",
+            "Cor da caixa",
             // "Contas…" entrou na Task 16 do Marco 2, entre o que se faz com a
             // lista e o que se copia: é daqui que se chega à janela que explica
             // uma conta parada. O primeiro teste com contas reais renomeou a
@@ -609,6 +694,19 @@ extension ContextMenuTests {
             "Configurações…",
             "Copiar endereço",
         ])
+    }
+
+    @Test("a cor da caixa dispara uma preferência local da conta")
+    func accountColorCommand() {
+        let account = Fixtures.accounts[0]
+        let colors = ContextMenus
+            .accountRow(account, isFiltered: false, unread: 0)
+            .submenuCommands("Cor da caixa")
+
+        #expect(colors.count == 8)
+        #expect(colors.first == .setAccountTint(
+            accountID: account.id, lightHex: "#3F6AA1", darkHex: "#8CBAF7"
+        ))
     }
 
     /// Nenhum `switch` sobre provedor em lugar nenhum: o item sai do que a
@@ -774,9 +872,15 @@ struct ReadStateTests {
         let byAccount = store.accounts.reduce(0) { $0 + store.unreadCount(in: .all, accountID: $1.id) }
         #expect(total == byAccount)
 
-        let byBucket = TriageBucket.allCases
-            .filter { $0 != .all }
-            .reduce(0) { $0 + store.unreadCount(in: $1) }
-        #expect(total == byBucket)
+        // As caixas deixaram de formar uma partição de `Tudo`: uma Inbox
+        // antiga continua em Tudo, mas corretamente não entra em Hoje. Cada
+        // contador deve, portanto, ser verificado contra o predicado público
+        // da própria caixa — somá-los repetiria a premissa que causou o bug.
+        for bucket in TriageBucket.allCases {
+            let expected = store.messages.filter {
+                !$0.isRead && store.includes($0, in: bucket)
+            }.count
+            #expect(store.unreadCount(in: bucket) == expected)
+        }
     }
 }

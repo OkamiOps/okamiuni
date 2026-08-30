@@ -41,8 +41,8 @@ import UNICore
 /// - **Salvar** carimba o rascunho e deixa a faixa aberta; a linha de baixo
 ///   passa de "não salvo" a "rascunho salvo HH:MM". Desabilitado quando não há
 ///   nada novo para salvar.
-/// - **📎** anexa da mesma lista de exemplo que a janela 03 usa, e cada anexo
-///   vira uma etiqueta com × que tira.
+/// - **📎** usa a porta de seleção da janela, e cada arquivo real vira uma
+///   etiqueta com × que tira.
 struct QuickReplyBand: View {
     @Environment(\.theme) private var theme
     @Environment(\.displayScale) private var displayScale
@@ -73,6 +73,15 @@ struct QuickReplyBand: View {
     var debugOpenPanel: ComposerToolbar.Panel?
     var debugMoreFormatting = false
     var debugCopiesOpen = false
+    /// Só para verificação: percorre a mesma ação do botão de assinatura sem
+    /// sintetizar clique na janela fora da tela.
+    var debugInsertSignature = false
+    /// O motor é opcional e vem da composição. A faixa conserva o botão
+    /// visível, mas não tenta escolher nem importar uma implementação.
+    var intelligence: ComposerIntelligenceGenerator?
+    /// Nula apenas quando um harness quer afirmar a falha explícita. No app,
+    /// a implementação nativa abre o painel por ação direta da pessoa.
+    var attachmentSelector: (any AttachmentSelecting)? = NativeAttachmentSelector()
 
     /// A faixa nasce **recolhida** — ver `opensExpanded(for:)`.
     @State private var open = false
@@ -88,11 +97,16 @@ struct QuickReplyBand: View {
     /// barra: uma barra que age sobre a seleção precisa de atributo por trecho.
     @State private var draft = AttributedString("")
     @State private var selection = AttributedTextSelection()
-    @State private var attachments: [String] = []
+    @State private var attachments: [OutgoingAttachment] = []
+    @State private var attachmentError: String?
     @State private var savedAt: Date?
     @State private var sentAt: Date?
     @State private var archivedOriginal = false
     @State private var seeded = false
+    /// A assinatura rica vive como bloco próprio abaixo do editor. Persistir o
+    /// HTML dentro de `ReplyDraft.body` a faria voltar achatada na próxima
+    /// abertura; a decisão de incluí-la pertence a esta resposta em curso.
+    @State private var signatureInserted = false
 
     // MARK: - Catálogo
 
@@ -101,7 +115,7 @@ struct QuickReplyBand: View {
     /// `store.contactPool` já resolve a regra inteira — fixtures sem conta,
     /// banco com conta — e é a mesma lista que o composer em janela usa.
     /// `QuickReply.directory` continua existindo (e testado) como a
-    /// implementação de referência de "mesclar remetentes com um caderno",
+    /// implementação de referência de "mesclar destinatários de Enviadas com um caderno",
     /// mas chamá-la aqui **misturaria** o catálogo de exemplo do protótipo
     /// (`Fixtures.contacts`) com contatos de uma conta de verdade — o defeito
     /// que esta tarefa veio consertar. Nenhum filtro por conta, host ou
@@ -116,30 +130,33 @@ struct QuickReplyBand: View {
     /// seletor de "De", e o protótipo também não põe um aqui.
     private var account: Account? { store.account(message.accountID) }
 
-    private var signature: String { account?.signature ?? "" }
+    private var signature: EmailSignature {
+        account?.emailSignature ?? EmailSignature(legacyText: "")
+    }
+
+    private var hasSignature: Bool {
+        signature.html != nil
+            || !signature.plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     private var canInsertSignature: Bool {
-        Signature.canInsert(signature, into: plainText)
+        hasSignature && !signatureInserted
     }
 
     /// Controle mudo é defeito: ou ele age, ou diz por que não.
     private var signatureHelp: String {
-        if signature.isEmpty {
+        if !hasSignature {
             return "Inserir assinatura — indisponível: a conta \(account?.host ?? "") não tem assinatura"
         }
         if !canInsertSignature {
-            return "Inserir assinatura — a assinatura desta conta já está no fim da resposta"
+            return "Inserir assinatura — a assinatura desta conta já foi incluída nesta resposta"
         }
-        return "Inserir a assinatura de \(account?.host ?? "") no fim da resposta"
+        return "Inserir a assinatura de \(account?.host ?? "") nesta resposta"
     }
 
     private func insertSignature() {
-        let style = Signature.style(endingIn: draft)
-        draft.transform(updating: &selection) { text in
-            Signature.insert(signature, into: &text, style: style)
-            ComposerEditor.decorate(&text, theme: theme)
-        }
-        bodyChanged()
+        guard canInsertSignature else { return }
+        signatureInserted = true
     }
 
     private var savedLabel: String {
@@ -184,6 +201,7 @@ struct QuickReplyBand: View {
         savedAt = stored?.savedAt
         sentAt = stored?.sentAt
         archivedOriginal = stored?.archivedOriginal ?? false
+        signatureInserted = false
         if var body = stored?.body {
             // O tema pode ter mudado desde que o rascunho foi guardado; a
             // projeção do `BodyStyle` em atributos do SwiftUI é reescrita aqui.
@@ -195,6 +213,7 @@ struct QuickReplyBand: View {
         // meio, porque o `onChange` só ouve o que muda **depois**.
         open = Self.opensExpanded(for: stored) || expandRequest > 0
         seeded = true
+        if debugInsertSignature, canInsertSignature { insertSignature() }
     }
 
     /// Quem já está no campo "Para" quando a faixa nasce: o que o rascunho
@@ -292,8 +311,17 @@ struct QuickReplyBand: View {
             toolbar
                 .zIndex(6)
             editor
+            signatureBlock
             if !attachments.isEmpty { attachmentRow }
             actionRow
+            if let attachmentError {
+                Text(attachmentError)
+                    .font(theme.sans.font(size: 11))
+                    .foregroundStyle(theme.accent.color)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+            }
             metaRow
         }
         .background(theme.surface2.color, in: RoundedRectangle(cornerRadius: theme.radiusLarge))
@@ -353,12 +381,35 @@ struct QuickReplyBand: View {
     /// A barra da janela, na densidade da faixa. Ela lê a seleção do editor e
     /// emite comandos; quem aplica é `ComposerEditor`, o mesmo das telas 03 e
     /// 06 — a faixa não sabe editar texto.
+    private var intelligenceSourceContext: OnDeviceAssistantMailContext {
+        if let conversation = store.conversation(of: message.id) {
+            return OnDeviceAssistantMailContext(conversation: conversation)
+        }
+        return OnDeviceAssistantMailContext(message: message)
+    }
+
     private var toolbar: some View {
         ComposerToolbar(
             reading: ComposerEditor.reading(of: draft, selection: selection),
             density: .band,
             openPanel: debugOpenPanel,
             moreOpen: debugMoreFormatting,
+            intelligence: intelligence,
+            intelligenceSourceMessage: message,
+            intelligenceSourceContext: intelligenceSourceContext,
+            intelligenceContext: ComposerEditor.intelligenceContext(
+                of: draft, selection: selection
+            ),
+            applyIntelligence: { proposal in
+                let result = ComposerEditor.apply(
+                    proposal,
+                    on: &draft,
+                    selection: &selection,
+                    theme: theme
+                )
+                if result == .applied { bodyChanged() }
+                return result
+            },
             perform: { command in
                 ComposerEditor.perform(
                     command, on: &draft, selection: &selection, theme: theme
@@ -421,6 +472,18 @@ struct QuickReplyBand: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
+    @ViewBuilder
+    private var signatureBlock: some View {
+        if signatureInserted, hasSignature {
+            ComposerSignatureBlock(signature: signature) {
+                signatureInserted = false
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
+        }
+    }
+
     /// A escrita do corpo passa toda por este `Binding`, e não por um
     /// `.onChange`: assim a semeadura não conta como edição e não apaga o
     /// carimbo do rascunho que acabou de ser lido do `MailStore`.
@@ -438,9 +501,9 @@ struct QuickReplyBand: View {
     /// Protótipo: `padding: 8px 12px; gap: 6px; border-top: 0.5px solid var(--line2)`.
     private var attachmentRow: some View {
         FlowLayout(spacing: 6, rowSpacing: 6) {
-            ForEach(attachments, id: \.self) { name in
-                BandAttachmentChip(name: name, size: Self.sizeLabel(for: name)) {
-                    attachments.removeAll { $0 == name }
+            ForEach(attachments) { attachment in
+                BandAttachmentChip(name: attachment.filename, size: attachment.metadata.sizeLabel) {
+                    attachments.removeAll { $0.id == attachment.id }
                     persist()
                 }
             }
@@ -592,11 +655,6 @@ struct QuickReplyBand: View {
         return "\(head) — \(words) · \(stamp) · sem rede neste marco"
     }
 
-    /// A etiqueta de tamanho do anexo, da mesma lista da janela 03.
-    nonisolated static func sizeLabel(for name: String) -> String {
-        Fixtures.attachments.first { $0.name == name }?.size ?? ""
-    }
-
     // MARK: - Botões pequenos
 
     /// Protótipo: `width: 24px; height: 22px; border-radius: var(--r2);
@@ -625,7 +683,9 @@ struct QuickReplyBand: View {
     private var canSend: Bool { QuickReply.canSend(currentDraft) }
 
     private var sendHelp: String {
-        if !hasBody { return "Enviar — indisponível: a resposta ainda está vazia." }
+        if !hasBody && attachments.isEmpty {
+            return "Enviar — indisponível: escreva uma resposta ou anexe um arquivo."
+        }
         if !hasRecipient { return "Enviar — indisponível: escolha pelo menos um destinatário." }
         // Sem porta de envio a frase continua sendo a do Marco 1, porque o
         // comportamento também é: o `help` não pode prometer rede onde ela não
@@ -662,12 +722,12 @@ struct QuickReplyBand: View {
         return "Guarda o rascunho com carimbo e deixa a faixa aberta."
     }
 
-    private var canAttach: Bool { attachments.count < Fixtures.attachments.count }
+    private var canAttach: Bool { attachmentSelector != nil }
 
     private var attachHelp: String {
         canAttach
             ? "Anexar arquivo"
-            : "Anexar — indisponível: a lista de exemplo do Marco 1 acabou."
+            : "Anexar — indisponível nesta janela."
     }
 
     private var promoteHelp: String {
@@ -686,9 +746,13 @@ struct QuickReplyBand: View {
     private func send(archiving: Bool) {
         guard let updated = Self.send(
             currentDraft, for: message, in: store,
-            archiving: archiving, theme: theme, at: .now
+            archiving: archiving,
+            theme: theme,
+            at: .now,
+            signatureIsInserted: signatureInserted && hasSignature
         ) else { return }
         absorb(updated)
+        signatureInserted = false
         open = false
     }
 
@@ -725,7 +789,8 @@ struct QuickReplyBand: View {
         in store: MailStore,
         archiving: Bool,
         theme: Theme,
-        at now: Date
+        at now: Date,
+        signatureIsInserted: Bool = false
     ) -> ReplyDraft? {
         guard QuickReply.canSend(draft) else { return nil }
 
@@ -745,6 +810,12 @@ struct QuickReplyBand: View {
             return stamped
         }
 
+        let outgoingContent = ComposerOutgoing.content(
+            draft.body,
+            theme: theme,
+            signature: account.emailSignature,
+            signatureIsInserted: signatureIsInserted
+        )
         let mensagem = ComposerOutgoing.message(
             accountID: account.id,
             from: Contact(name: account.displayName, address: account.address),
@@ -753,8 +824,10 @@ struct QuickReplyBand: View {
             // assunto divergiriam no primeiro ajuste, e a faixa e o "⤢" têm de
             // mandar a mesma coisa.
             subject: ComposerSeed.reply(to: message, draft: nil).subject,
-            plainText: draft.text,
-            html: ComposerOutgoing.html(draft.body, theme: theme),
+            plainText: outgoingContent.plainText,
+            html: outgoingContent.html,
+            attachments: draft.attachments,
+            inlineResources: outgoingContent.inlineResources,
             replyingTo: message
         )
         guard store.send(mensagem) else { return nil }
@@ -778,8 +851,23 @@ struct QuickReplyBand: View {
     }
 
     private func attach() {
-        absorb(QuickReply.attaching(currentDraft, from: Fixtures.attachments.map(\.name)))
-        persist()
+        guard let attachmentSelector else {
+            attachmentError = "Anexar indisponível nesta janela."
+            return
+        }
+        Task {
+            do {
+                let selected = try await attachmentSelector.selectAttachments()
+                let ids = Set(attachments.map(\.id))
+                attachments += selected.filter { !ids.contains($0.id) }
+                attachmentError = nil
+                persist()
+            } catch let error as AttachmentError {
+                attachmentError = error.localizedDescription
+            } catch {
+                attachmentError = "Não foi possível ler o arquivo escolhido."
+            }
+        }
     }
 
     /// O "Rascunho sugerido": escreve o texto no corpo, com o estilo padrão.

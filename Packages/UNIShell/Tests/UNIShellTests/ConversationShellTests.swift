@@ -201,6 +201,7 @@ struct ConversationReaderTests {
             source: InMemoryMailSource(accounts: [], messages: messages, agenda: [])
         )
         await store.load()
+        store.select(bucket: .all)
         return store
     }
 

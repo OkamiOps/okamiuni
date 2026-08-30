@@ -19,6 +19,12 @@ struct CompositionTests {
         )
         #expect(composicao.database == nil)
         #expect(composicao.director == nil)
+        #expect(composicao.intelligence == nil)
+        #expect(composicao.textAssistant.modelVersion == AssistantRouter.currentModelVersion)
+        #expect(
+            composicao.assistantSettings.snapshot().schemaVersion
+                == AssistantSettings.currentSchemaVersion
+        )
         #expect(composicao.configError != nil)
         #expect(composicao.source is InMemoryMailSource)
     }
@@ -39,6 +45,12 @@ struct CompositionTests {
         let composicao = AppComposition.make(databasePath: caminho, bundle: .main)
         #expect(composicao.database != nil)
         #expect(composicao.director != nil)
+        #expect(composicao.intelligence != nil)
+        #expect(composicao.textAssistant.modelVersion == AssistantRouter.currentModelVersion)
+        #expect(
+            composicao.assistantSettings.snapshot().schemaVersion
+                == AssistantSettings.currentSchemaVersion
+        )
 
         let retrato = try await composicao.source.snapshot()
         let fixtures = try await InMemoryMailSource.fixtures.snapshot()

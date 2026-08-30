@@ -93,3 +93,69 @@ struct CivilDayTests {
         #expect(guardado.item(referenceDay: hoje, calendar: calendario) == item)
     }
 }
+
+/// O formulário de compromisso chama esta operação: o item precisa entrar na
+/// agenda, sobreviver à persistência e guardar as notas no campo que a ponte
+/// do calendário exporta como descrição — não no rótulo interno de origem.
+@Suite("Compromisso criado na Agenda")
+@MainActor
+struct ManualAgendaItemTests {
+    private let conta = Account(
+        id: "conta", address: "marcos@okamiops.com", displayName: "Marcos",
+        provider: .imap, host: "okamiops",
+        tintLightHex: "#3E6FA8", tintDarkHex: "#7BA8D9"
+    )
+
+    @Test("Cria, persiste e leva notas como descrição do calendário")
+    func criaEPersiste() async throws {
+        let port = AgendaEmMemoria()
+        let source = InMemoryMailSource(accounts: [conta], messages: [], agenda: [])
+        let store = MailStore(
+            source: source, agendaPort: port, agendaReferenceDay: { hoje }
+        )
+        await store.load()
+
+        let criado = try #require(store.addManualAgendaItem(
+            title: "  Revisão do lançamento  ",
+            startMinute: 9 * 60,
+            endMinute: 10 * 60,
+            dayOffset: 2,
+            accountID: conta.id,
+            place: "  Sala 3  ",
+            meetingLink: "  https://empresa.webex.com/meet/revisao  ",
+            note: "  Confirmar a pauta.  "
+        ))
+
+        #expect(criado.title == "Revisão do lançamento")
+        #expect(criado.accountID == conta.id)
+        #expect(criado.dayOffset == 2)
+        #expect(criado.detail?.place == "Sala 3")
+        #expect(criado.detail?.link == "https://empresa.webex.com/meet/revisao")
+        #expect(criado.detail?.meetingLink == "https://empresa.webex.com/meet/revisao")
+        #expect(criado.detail?.note == "Criado manualmente")
+        #expect(criado.detail?.descricao == "Confirmar a pauta.")
+
+        let relido = MailStore(
+            source: source, agendaPort: port, agendaReferenceDay: { hoje }
+        )
+        await relido.load()
+        let salvo = try #require(relido.agenda.first { $0.id == criado.id })
+        #expect(salvo == criado)
+    }
+
+    @Test("Recusa uma reunião que não é endereço web")
+    func recusaLinkInvalido() async {
+        let store = MailStore(
+            source: InMemoryMailSource(accounts: [conta], messages: [], agenda: [])
+        )
+        await store.load()
+
+        let criado = store.addManualAgendaItem(
+            title: "Reunião", startMinute: 540, endMinute: 600,
+            dayOffset: 0, accountID: conta.id, meetingLink: "Sala do Zoom"
+        )
+
+        #expect(criado == nil)
+        #expect(store.agenda.isEmpty)
+    }
+}

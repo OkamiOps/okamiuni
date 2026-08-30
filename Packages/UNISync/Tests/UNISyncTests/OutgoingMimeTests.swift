@@ -85,6 +85,31 @@ struct OutgoingMimeTests {
         #expect(comOculta.recipients.contains("socio@meudominio.com.br"))
     }
 
+    @Test("anexo sai em mixed, com alternativa interna e base64 quebrado em 76")
+    func attachmentUsesCorrectMultipartShape() throws {
+        let attachment = try OutgoingAttachment(
+            filename: "proposta final.pdf", mimeType: "application/pdf",
+            data: Data(repeating: 0x41, count: 80)
+        )
+        let message = OutgoingMessage(
+            messageID: "abc-123@meudominio.com.br", accountID: "conta-a",
+            from: OutgoingAddress(name: "Eu", address: "eu@meudominio.com.br"),
+            to: [OutgoingAddress(name: "Marina", address: "marina@clientepremium.com")],
+            subject: "Contrato", plainText: "Segue.", html: "<strong>Segue.</strong>",
+            attachments: [attachment]
+        )
+        let raw = OutgoingMime.compose(
+            message, date: quando, includeBcc: false, boundary: "outer"
+        )
+        #expect(raw.contains("Content-Type: multipart/mixed; boundary=\"outer\""))
+        #expect(raw.contains("Content-Type: multipart/alternative; boundary=\"outer-alt\""))
+        #expect(raw.contains("Content-Disposition: attachment; filename*=utf-8''proposta%20final.pdf"))
+        let encodedLines = raw.components(separatedBy: "\r\n")
+            .filter { $0.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "+" || $0 == "/" || $0 == "=") } }
+        #expect(encodedLines.contains { $0.count == 76 })
+        #expect(raw.contains("--outer--"))
+    }
+
     @Test("Assunto com acento sai codificado em RFC 2047")
     func assuntoComAcento() {
         let texto = OutgoingMime.compose(

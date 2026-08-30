@@ -9,6 +9,22 @@ import UNIDesign
 @Suite("ReaderPane")
 struct ReaderTests {
 
+    @Test("abrir uma mensagem pede prioridade para o TL;DR")
+    @MainActor
+    func openingMessagePrioritizesTLDR() async {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        var presentedIDs: [String] = []
+        let reader = ReaderPane(
+            store: store,
+            onMessagePresented: { presentedIDs.append($0) }
+        )
+
+        reader.messageDidAppear("m1")
+
+        #expect(presentedIDs == ["m1"])
+    }
+
     /// O estado vazio do leitor ("Nada aqui. Bom sinal.") é para uma caixa
     /// vazia, não para a abertura do app: o protótipo abre em `selected: 'm1'`.
     /// Este teste trocou de sentido na Task P junto com esse defeito.
@@ -55,7 +71,9 @@ struct ReaderTests {
     /// Se o cartão de fato depende do campo, os dois desenhos do `ReaderPane`
     /// saem diferentes; se o cartão foi removido (ou nunca olha
     /// `detectedEvent`), os dois saem pixel a pixel iguais.
-    private func readerMessage(id: String, event: DetectedEvent?) -> Message {
+    private func readerMessage(
+        id: String, event: DetectedEvent?, attachments: [MailAttachment] = []
+    ) -> Message {
         Message(
             id: id, accountID: "a",
             from: Contact(name: "Quem", address: "quem@exemplo.com"),
@@ -63,24 +81,30 @@ struct ReaderTests {
             body: ["Corpo do email, para o leitor ter o que mostrar."],
             tags: [], bucket: .today, isRead: false,
             summary: "Resumo qualquer, para o cartão existir.",
-            detectedEvent: event
+            detectedEvent: event, attachments: attachments
         )
     }
 
     @MainActor
-    private func renderReader(event: DetectedEvent?) async -> NSBitmapImageRep? {
+    private func renderReader(
+        event: DetectedEvent?, attachments: [MailAttachment] = [], snapshotName: String? = nil
+    ) async -> NSBitmapImageRep? {
         let account = Account(
             id: "a", address: "conta@dominio.com", displayName: "Conta",
             provider: .imap, host: "host", tintLightHex: "#3E6FA8", tintDarkHex: "#7BA8D9"
         )
-        let message = readerMessage(id: "m", event: event)
+        let message = readerMessage(id: "m", event: event, attachments: attachments)
         let source = InMemoryMailSource(accounts: [account], messages: [message], agenda: [])
         let store = MailStore(source: source)
         await store.load()
         store.select(message: "m")
-        return Render.bitmap(
-            ReaderPane(store: store), size: CGSize(width: 760, height: 700), theme: .tinta
-        )
+        let reader = ReaderPane(store: store)
+        if let snapshotName {
+            return Render.snapshot(
+                reader, named: snapshotName, size: CGSize(width: 760, height: 700), theme: .tinta
+            )
+        }
+        return Render.bitmap(reader, size: CGSize(width: 760, height: 700), theme: .tinta)
     }
 
     @Test("o cartão \"Compromisso detectado\" só aparece quando a mensagem tem evento")
@@ -96,6 +120,23 @@ struct ReaderTests {
             withEvent.pixelsDiffering(from: withoutEvent) > 0,
             "duas mensagens que só diferem em detectedEvent renderizaram igual — o cartão não está reagindo ao evento"
         )
+    }
+
+    /// A foto é opcional na suíte normal e vai para `UNI_RENDER_DIR` quando o
+    /// harness é chamado para inspeção. A diferença de pixels mata a mutação
+    /// que deixaria `Message.attachments` chegar ao leitor sem superfície.
+    @Test("anexos recebidos aparecem no leitor fora da tela")
+    @MainActor
+    func receivedAttachmentsRender() async throws {
+        let attachment = MailAttachment(
+            id: "contrato", filename: "contrato-final.pdf",
+            mimeType: "application/pdf", byteCount: 1_572_864
+        )
+        let withAttachment = try #require(await renderReader(
+            event: nil, attachments: [attachment], snapshotName: "m4-anexos-recebidos"
+        ))
+        let withoutAttachment = try #require(await renderReader(event: nil))
+        #expect(withAttachment.pixelsDiffering(from: withoutAttachment) > 0)
     }
 
     /// A outra metade: as fixtures continuam tendo dos dois tipos. Sem isto, o

@@ -24,9 +24,9 @@ public struct ReplyDraft: Sendable, Hashable {
     /// projeção dele.
     public var body: AttributedString
 
-    /// Os anexos, pelo nome. Marco 1 não copia arquivo nenhum: é a mesma lista
-    /// de exemplo que a janela 03 usa.
-    public var attachments: [String]
+    /// Arquivos reais escolhidos para a resposta. O nome é metadado do arquivo,
+    /// não uma chave para uma fixture.
+    public var attachments: [OutgoingAttachment]
 
     /// Quando o rascunho foi guardado pela última vez pelo botão "Salvar".
     /// `nil` = nunca guardado explicitamente (só está em memória enquanto se
@@ -50,7 +50,7 @@ public struct ReplyDraft: Sendable, Hashable {
         cc: [Contact] = [],
         bcc: [Contact] = [],
         body: AttributedString = AttributedString(),
-        attachments: [String] = [],
+        attachments: [OutgoingAttachment] = [],
         savedAt: Date? = nil,
         sentAt: Date? = nil,
         archivedOriginal: Bool = false
@@ -138,9 +138,10 @@ public enum QuickReply {
 
     /// Os contatos que o app conhece, montados a partir do que existe.
     ///
-    /// A base são os **remetentes das mensagens** — qualquer nome, qualquer
-    /// domínio, qualquer provedor. Nada aqui olha para conta nem para host: uma
-    /// lista fixa de domínios seria exatamente o que este projeto não faz.
+    /// A base são os destinatários das mensagens em **Enviadas** — qualquer
+    /// nome, qualquer domínio, qualquer provedor. Receber newsletter não cria
+    /// contato e a própria conta remetente fica fora. Nada aqui olha para host:
+    /// uma lista fixa de domínios seria exatamente o que este projeto não faz.
     /// `catalog` é o caderno de endereços que o app já tenha (no Marco 1, o do
     /// protótipo); quem aparece nos dois soma as duas frequências e fica com o
     /// nome e a organização do caderno, que são os mais completos.
@@ -172,14 +173,8 @@ public enum QuickReply {
             }
         }
 
-        for message in messages where !message.from.address.isEmpty {
-            merge(
-                DirectoryContact(
-                    name: message.from.name, address: message.from.address,
-                    org: "", frequency: 0
-                ),
-                addingFrequency: 1
-            )
+        for entry in ContactDirectory.build(fromMessages: messages) {
+            merge(entry, addingFrequency: entry.frequency)
         }
         for entry in catalog where !entry.address.isEmpty {
             merge(entry, addingFrequency: entry.frequency)
@@ -227,11 +222,12 @@ public enum QuickReply {
 
     // MARK: - O que cada botão do rodapé pode fazer
 
-    /// "Enviar" e "Enviar e arquivar" só agem com destinatário **e** texto.
+    /// "Enviar" e "Enviar e arquivar" agem com destinatário e conteúdo:
+    /// texto, anexo, ou ambos. Um PDF sem texto é uma mensagem válida.
     /// Fora disso o botão fica desabilitado, com o motivo no `help` — botão
     /// mudo é defeito, e um "Enviar" que não faz nada é o pior deles.
     public static func canSend(_ draft: ReplyDraft) -> Bool {
-        !draft.to.isEmpty && draft.hasText
+        !draft.to.isEmpty && (draft.hasText || !draft.attachments.isEmpty)
     }
 
     /// "Salvar" precisa de algo para salvar, e de algo **novo**: rascunho já
@@ -268,17 +264,18 @@ public enum QuickReply {
         return next
     }
 
-    /// O 📎: acrescenta o primeiro nome do catálogo que ainda não está anexado.
-    /// Sem nenhum sobrando, devolve o rascunho intacto — e a faixa desabilita
-    /// o botão nesse caso.
-    public static func attaching(_ draft: ReplyDraft, from catalog: [String]) -> ReplyDraft {
-        guard let next = catalog.first(where: { !draft.attachments.contains($0) }) else {
-            return draft
-        }
-        var updated = draft
-        updated.attachments.append(next)
-        return updated
+    /// Acrescenta a seleção real sem duplicar a identidade do arquivo. A UI
+    /// usa a porta de seleção; esta função mantém a transição testável fora da
+    /// `View` e não conhece nenhuma fixture.
+    public static func attaching(
+        _ draft: ReplyDraft, files: [OutgoingAttachment]
+    ) -> ReplyDraft {
+        var next = draft
+        var ids = Set(next.attachments.map(\.id))
+        next.attachments += files.filter { ids.insert($0.id).inserted }
+        return next
     }
+
 
     // MARK: - Rascunhos sugeridos
 

@@ -84,6 +84,10 @@ struct SwipeRow<Content: View>: View {
     /// Só uma linha aberta por vez: abrir uma fecha a outra.
     @Binding var openRowID: String?
     let onFire: (SwipeAction) -> Void
+    /// Variante que preserva o lado do gesto para a ação "Mover para…", cujo
+    /// destino é configurado separadamente em cada lado. `onFire` fica para
+    /// compatibilidade com previews e testes que já dirigem a linha.
+    var onFireWithSide: ((SwipeAction, SwipeSide) -> Void)? = nil
 
     /// Força o deslocamento, **só para verificação fora da tela**.
     ///
@@ -183,6 +187,7 @@ struct SwipeRow<Content: View>: View {
         let actions = side == .leading
             ? configuration.leading
             : configuration.trailing.reversed().map { $0 }
+        let destination = configuration.destination(on: side, for: message.accountID)
 
         // **O estado de armado.** Enquanto o arraste está aquém do limiar, o
         // painel é o de sempre. Cruzado o limiar, ele **inunda**: as colunas
@@ -200,10 +205,11 @@ struct SwipeRow<Content: View>: View {
                 SwipeActionColumn(
                     action: action,
                     message: message,
+                    destination: destination,
                     side: side,
                     isArmed: action == resolution.armed,
                     isFlooded: flooded,
-                    onTap: { fire($0) }
+                    onTap: { fire($0, on: side) }
                 )
             }
         }
@@ -282,17 +288,25 @@ struct SwipeRow<Content: View>: View {
                 machine.settleGrace(seal)
             }
         }
-        if let action = outcome.fired {
-            onFire(action)
+        if let action = outcome.fired, let side = outcome.firedSide {
+            dispatch(action, on: side)
         }
     }
 
     /// Tocar numa coluna revelada. O mesmo caminho do arraste longo, com o
     /// mesmo retorno visível. `force`: o toque na coluna é sempre deliberado —
     /// a carência do clique fantasma não pode segurar o fechamento aqui.
-    private func fire(_ action: SwipeAction) {
+    private func fire(_ action: SwipeAction, on side: SwipeSide) {
         apply(withAnimation(SwipeMotion.transition) { machine.dismiss(force: true) })
-        onFire(action)
+        dispatch(action, on: side)
+    }
+
+    private func dispatch(_ action: SwipeAction, on side: SwipeSide) {
+        if let onFireWithSide {
+            onFireWithSide(action, side)
+        } else {
+            onFire(action)
+        }
     }
 
     /// O pedido de fechar que chega pelo clique na linha. **Sem `force`**: é
@@ -332,6 +346,9 @@ struct SwipeActionColumn: View {
 
     let action: SwipeAction
     let message: Message
+    /// O destino só existe para a coluna "Mover". As demais continuam a usar
+    /// a ação pura, exatamente como antes.
+    let destination: SwipeMoveDestination?
     /// De que lado o painel está. Só serve para saber para onde é "a ponta de
     /// fora" quando a coluna armada salta.
     let side: SwipeSide
@@ -347,7 +364,9 @@ struct SwipeActionColumn: View {
     /// no instante em que soltar passa a disparar.
     static let armNudge: CGFloat = 5
 
-    private var isNoOp: Bool { action.isNoOp(for: message) }
+    private var isNoOp: Bool {
+        action.isNoOp(for: message, destination: destination)
+    }
 
     /// A ponta de fora é a borda da lista: à esquerda no painel `leading`, à
     /// direita no `trailing`.
@@ -377,7 +396,7 @@ struct SwipeActionColumn: View {
         // Desabilitar aqui é a segunda tranca, e o `help` diz o porquê em vez
         // de deixar a pessoa clicando num botão calado.
         .disabled(isNoOp)
-        .help(action.help(for: message))
+        .help(action.help(for: message, destination: destination))
         .hairline(theme.line2, edges: .trailing)
     }
 

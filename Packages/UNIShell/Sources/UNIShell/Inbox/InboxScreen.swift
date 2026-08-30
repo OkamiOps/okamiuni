@@ -1,6 +1,19 @@
 import SwiftUI
 import UNIDesign
 import UNICore
+import UNISync
+
+enum InboxAssistantScope: Sendable, Hashable {
+    case workspace
+    case email(String)
+
+    var mode: LocalAssistantMode {
+        switch self {
+        case .workspace: .workspace
+        case .email: .email
+        }
+    }
+}
 
 public struct InboxScreen: View {
     @Environment(\.theme) private var theme
@@ -32,6 +45,10 @@ public struct InboxScreen: View {
 
     @State private var workspace: Workspace = .mail
     @State private var query = ""
+    @State private var assistantOpen = false
+    @State private var assistantScope: InboxAssistantScope = .workspace
+    @State private var assistantSessionID = UUID()
+    @State private var readerAssistantOpen = false
     let store: MailStore
 
     /// De onde vem o "agora" da trilha e das três visões da agenda.
@@ -42,10 +59,65 @@ public struct InboxScreen: View {
     /// Só quem quer o relógio vivo (o app de verdade, com conta real) passa
     /// `.live` explicitamente — ver `OkamiUNIApp`.
     let clock: AgendaClock
+    /// Estado real do modelo local, traduzido pela composição do app. O padrão
+    /// mantém previews e harnesses no estado disponível das fixtures.
+    let intelligencePresentation: IntelligencePresentation
+    /// Serviço local injetado pelo app. `nil` mantém previews e harnesses
+    /// determinísticos, com a superfície ainda renderizável.
+    let textAssistant: (any OnDeviceTextAssisting)?
+    /// A mesma preferência que o roteador consulta no momento da pergunta.
+    /// Ela existe aqui só para rotular honestamente a superfície interativa.
+    let assistantSettings: AssistantSettingsStore?
+    let composerIntelligence: ComposerIntelligenceGenerator?
+    let onMessagePresented: (String) -> Void
+    let debugReaderAssistantOpen: Bool
 
-    public init(store: MailStore, clock: AgendaClock = .fixed(Fixtures.nowMinute)) {
+    public init(
+        store: MailStore,
+        clock: AgendaClock = .fixed(Fixtures.nowMinute),
+        intelligencePresentation: IntelligencePresentation = .available,
+        textAssistant: (any OnDeviceTextAssisting)? = nil,
+        assistantSettings: AssistantSettingsStore? = nil,
+        onMessagePresented: @escaping (String) -> Void = { _ in }
+    ) {
+        self.init(
+            store: store,
+            clock: clock,
+            intelligencePresentation: intelligencePresentation,
+            textAssistant: textAssistant,
+            assistantSettings: assistantSettings,
+            onMessagePresented: onMessagePresented,
+            debugAssistantOpen: false,
+            debugReaderAssistantOpen: false
+        )
+    }
+
+    /// Porta exclusiva do harness offscreen; não sintetiza clique nem abre
+    /// janela visível.
+    init(
+        store: MailStore,
+        clock: AgendaClock = .fixed(Fixtures.nowMinute),
+        intelligencePresentation: IntelligencePresentation = .available,
+        textAssistant: (any OnDeviceTextAssisting)? = nil,
+        assistantSettings: AssistantSettingsStore? = nil,
+        onMessagePresented: @escaping (String) -> Void = { _ in },
+        debugAssistantOpen: Bool,
+        debugAssistantScope: InboxAssistantScope = .workspace,
+        debugReaderAssistantOpen: Bool = false
+    ) {
         self.store = store
         self.clock = clock
+        self.intelligencePresentation = intelligencePresentation
+        self.textAssistant = textAssistant
+        self.assistantSettings = assistantSettings
+        self.onMessagePresented = onMessagePresented
+        self.composerIntelligence = textAssistant.map {
+            OnDeviceAssistantBridge.composerGenerator(using: $0)
+        }
+        self.debugReaderAssistantOpen = debugReaderAssistantOpen
+        _assistantOpen = State(initialValue: debugAssistantOpen)
+        _assistantScope = State(initialValue: debugAssistantScope)
+        _readerAssistantOpen = State(initialValue: debugReaderAssistantOpen)
     }
 
     /// O **hoje** de tudo que esta tela desenha com data: o carimbo de cada
@@ -73,15 +145,32 @@ public struct InboxScreen: View {
                 accountCount: store.accounts.count,
                 onToggleSidebar: toggleSidebar,
                 onToggleAgenda: toggleAgenda,
-                onCompose: openNewMessage
+                onCompose: openNewMessage,
+                accountMonogram: accountMonogram,
+                onOpenAccounts: openAccounts
             )
 
-            // Conteúdo principal
-            switch workspace {
-            case .mail:
-                mailContent
-            case .calendar:
-                calendarContent
+            ZStack(alignment: .trailing) {
+                // Conteúdo principal
+                switch workspace {
+                case .mail:
+                    // A lista depende do mesmo relógio vivo que o MailStore
+                    // recebe. O reader a redesenha a cada minuto; assim, a
+                    // chave temporal do store é relida ao cruzar a meia-noite
+                    // sem criar outro timer nem afetar os retratos `.fixed`.
+                    AgendaClockReader(clock) { _ in
+                        mailContent
+                    }
+                case .calendar:
+                    calendarContent
+                }
+
+                if assistantOpen {
+                    assistantPanel
+                        .padding(12)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                        .zIndex(50)
+                }
             }
         }
         .environment(receipts)
@@ -153,10 +242,24 @@ public struct InboxScreen: View {
                 // Barra lateral. Ela nunca some por completo: recolhida, é a
                 // trilha de 62pt da Task 7B.
                 if layout.sidebarExpanded {
-                    FolderSidebar(store: store, width: layout.sidebarWidth)
+                    FolderSidebar(
+                        store: store,
+                        width: layout.sidebarWidth,
+                        intelligencePresentation: intelligencePresentation,
+                        onOpenAssistant: openWorkspaceAssistant,
+                        onCompose: openNewMessage,
+                        onOpenAccounts: openAccounts
+                    )
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 } else {
-                    SidebarRail(store: store, width: layout.sidebarWidth)
+                    SidebarRail(
+                        store: store,
+                        width: layout.sidebarWidth,
+                        intelligencePresentation: intelligencePresentation,
+                        onOpenAssistant: openWorkspaceAssistant,
+                        onCompose: openNewMessage,
+                        onOpenAccounts: openAccounts
+                    )
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 }
 
@@ -172,7 +275,24 @@ public struct InboxScreen: View {
                 )
 
                 // Painel de leitura: fica com tudo o que sobrar.
-                ReaderPane(store: store, onReply: openComposer)
+                ReaderPane(
+                    store: store,
+                    debugEmailAssistantOpen: debugReaderAssistantOpen,
+                    onReply: openComposer,
+                    attachmentSaver: NativeAttachmentSaver(),
+                    intelligence: composerIntelligence,
+                    intelligencePresentation: intelligencePresentation,
+                    onAskAssistant: { messageID, request in
+                        try await askAssistant(request, scope: .email(messageID))
+                    },
+                    onMessagePresented: onMessagePresented,
+                    onEmailAssistantOpenChange: { open in
+                        readerAssistantOpen = open
+                    }
+                )
+                // O popover sai dos limites do leitor para caber ao lado do
+                // ícone. Elevar só o cabeçalho não o coloca acima da lista.
+                .zIndex(readerAssistantOpen ? 100 : 0)
 
                 // Trilha de agenda — o primeiro painel a sair quando aperta.
                 // A data do cabeçalho e o minuto seguem o **mesmo** relógio:
@@ -205,6 +325,11 @@ public struct InboxScreen: View {
             // zero ao layout.
             .overlay(alignment: .topLeading) {
                 dividers(layout: layout, windowWidth: proxy.size.width)
+                    // A calha é um overlay do HStack inteiro; nenhum zIndex de
+                    // um filho passa por ela. Enquanto o popover está aberto,
+                    // a linha some e deixa de roubar clique.
+                    .opacity(readerAssistantOpen ? 0 : 1)
+                    .allowsHitTesting(!readerAssistantOpen)
             }
             // O referencial em que o arraste é medido, e o motivo de ele vir
             // **depois** do `.overlay`: assim as divisórias são descendentes
@@ -222,7 +347,7 @@ public struct InboxScreen: View {
     /// já desenham: lista ↔ leitor e leitor ↔ agenda.
     ///
     /// A da lateral fica de fora de propósito. A lateral não tem largura
-    /// contínua: ela é aberta (236) ou trilha (62), duas medidas canônicas que
+    /// contínua: ela é aberta (248) ou trilha (72), duas medidas canônicas que
     /// a `SidebarRail` e a `FolderSidebar` usam para escolher o que desenham em
     /// cada uma. Torná-la arrastável não é acrescentar um alvo, é trocar o
     /// modelo dela — e o botão da barra do topo já faz o que ela precisa.
@@ -291,6 +416,10 @@ public struct InboxScreen: View {
                 now: now,
                 anchor: agendaAnchor,
                 wantsSidebar: wantsSidebar,
+                intelligencePresentation: intelligencePresentation,
+                onOpenAssistant: openWorkspaceAssistant,
+                onCompose: openNewMessage,
+                onOpenAccounts: openAccounts,
                 onOpenEvent: openEventWindow,
                 onRevealMessage: reveal
             )
@@ -337,6 +466,19 @@ public struct InboxScreen: View {
         openWindow(id: UNIWindow.newMessage, value: store.selectedAccountID ?? "")
     }
 
+    private func openAccounts() {
+        openWindow(id: UNIWindow.accounts)
+    }
+
+    private var accountMonogram: String {
+        let selected = store.selectedAccountID.flatMap { store.account($0) }
+        let address = selected?.address
+            ?? store.accounts.first?.address
+            ?? "UNI"
+        let local = address.split(separator: "@", maxSplits: 1).first.map(String.init) ?? address
+        return String(local.prefix(2)).uppercased()
+    }
+
     private func toggleSidebar() {
         withAnimation(Self.paneTransition) {
             wantsSidebar.toggle()
@@ -347,6 +489,108 @@ public struct InboxScreen: View {
         withAnimation(Self.paneTransition) {
             wantsAgenda.toggle()
         }
+    }
+
+    // MARK: - Assistente local
+
+    private func assistantContext(for scope: InboxAssistantScope) -> LocalAssistantContext {
+        switch scope {
+        case .workspace:
+            let accountCount = store.accounts.count
+            let emailCount = store.messages.count
+            let agendaCount = store.agenda.count
+            return LocalAssistantContext(
+                subject: "Todo o OkamiUNI",
+                sender: "\(accountCount) \(accountCount == 1 ? "conta" : "contas") · \(emailCount) \(emailCount == 1 ? "email" : "emails")",
+                conversationLabel: "\(agendaCount) \(agendaCount == 1 ? "compromisso" : "compromissos")"
+            )
+        case let .email(messageID):
+            guard let message = store.messages.first(where: { $0.id == messageID }) else {
+                return LocalAssistantContext(
+                    subject: "Email indisponível",
+                    sender: "A mensagem saiu da caixa"
+                )
+            }
+            let count = store.conversation(of: messageID)?.count ?? 1
+            return LocalAssistantContext(
+                subject: message.subject,
+                sender: message.from.display,
+                conversationLabel: count > 1 ? "\(count) mensagens" : nil
+            )
+        }
+    }
+
+    private var assistantPanel: some View {
+        let scope = assistantScope
+        return LocalAssistantPanel(
+            mode: scope.mode,
+            context: assistantContext(for: scope),
+            providerLabel: assistantProviderLabel,
+            onAsk: { request in
+                try await askAssistant(request, scope: scope)
+            },
+            onClose: closeAssistant
+        )
+        .id(assistantSessionID)
+        .shadow(color: .black.opacity(0.16), radius: 22, x: 0, y: 10)
+    }
+
+    private var assistantProviderLabel: String {
+        assistantSettings?.snapshot().interactiveProviderLabel ?? "Provedor configurado"
+    }
+
+    private func openWorkspaceAssistant() {
+        assistantScope = .workspace
+        assistantSessionID = UUID()
+        withAnimation(Self.paneTransition) { assistantOpen = true }
+    }
+
+    private func openEmailAssistant() {
+        guard let messageID = store.selectedMessageID else { return }
+        assistantScope = .email(messageID)
+        assistantSessionID = UUID()
+        withAnimation(Self.paneTransition) { assistantOpen = true }
+    }
+
+    private func closeAssistant() {
+        withAnimation(Self.paneTransition) { assistantOpen = false }
+    }
+
+    func askAssistant(
+        _ request: LocalAssistantRequest,
+        scope: InboxAssistantScope
+    ) async throws -> String {
+        guard let textAssistant else {
+            throw OnDeviceTextAssistantError.invalidRequest(
+                "O assistente local não foi conectado a esta janela."
+            )
+        }
+        let mailContext: OnDeviceAssistantMailContext
+        switch scope {
+        case .workspace:
+            // O snapshot é global e leve: cabeçalhos/prévias, contagens e
+            // agenda. Corpos integrais continuam no botão do próprio e-mail.
+            mailContext = OnDeviceAssistantMailContext(workspace: store)
+        case let .email(messageID):
+            let ids = store.conversation(of: messageID)?.messageIDs ?? [messageID]
+            for id in ids { await store.loadBodyIfNeeded(id) }
+
+            guard let message = store.messages.first(where: { $0.id == messageID }) else {
+                throw OnDeviceTextAssistantError.invalidRequest(
+                    "O email selecionado não está mais disponível."
+                )
+            }
+            if let conversation = store.conversation(of: messageID), conversation.count > 1 {
+                mailContext = OnDeviceAssistantMailContext(conversation: conversation)
+            } else {
+                mailContext = OnDeviceAssistantMailContext(message: message)
+            }
+        }
+        return try await OnDeviceAssistantBridge.answer(
+            request,
+            mailContext: mailContext,
+            using: textAssistant
+        )
     }
 }
 

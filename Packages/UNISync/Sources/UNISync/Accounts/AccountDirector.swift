@@ -208,7 +208,9 @@ public actor AccountDirector {
                 messageCount: linha.mensagens, lastSyncedAt: linha.conta.lastSyncedAt,
                 error: errors[linha.conta.id], progress: progresses[linha.conta.id],
                 pendingOperations: linha.aguardando,
-                queueError: queueErrors[linha.conta.id]
+                queueError: queueErrors[linha.conta.id],
+                signature: linha.conta.signature,
+                emailSignature: linha.conta.emailSignature
             )
         }
     }
@@ -218,6 +220,47 @@ public actor AccountDirector {
         let conta: Account
         let mensagens: Int
         let aguardando: Int
+    }
+
+    // MARK: Assinatura
+
+    /// Atualiza só a assinatura rica da conta e publica o novo retrato.
+    ///
+    /// A leitura e a escrita acontecem na mesma transação. Alterar uma
+    /// `Account` reconstruindo-a fora do banco seria perigoso: estado, carimbo
+    /// de sincronização, cores e endpoint IMAP são história da conta e não
+    /// fazem parte desta edição. Mutar o `AccountRecord` já lido torna esse
+    /// contrato explícito e preserva todos os demais campos.
+    @discardableResult
+    public func updateEmailSignature(
+        accountID: String, signature: EmailSignature
+    ) async throws -> Account {
+        do {
+            let atualizada = try await database.pool.write { db -> Account in
+                guard var registro = try AccountRecord.fetchOne(db, key: accountID) else {
+                    throw SyncError.resposta("A conta não existe.")
+                }
+                registro.emailSignature = signature
+                try registro.update(db)
+                return registro.account
+            }
+            await refresh()
+            return atualizada
+        } catch let erro as SyncError {
+            throw erro
+        } catch {
+            throw SyncError.banco("Não foi possível gravar a assinatura: \(error)")
+        }
+    }
+
+    /// API temporária de compatibilidade para quem ainda edita somente texto.
+    /// A gravação passa pelo mesmo caminho rico, com HTML e recursos vazios,
+    /// para as duas colunas nunca divergirem.
+    @discardableResult
+    public func updateSignature(accountID: String, signature: String) async throws -> Account {
+        try await updateEmailSignature(
+            accountID: accountID, signature: EmailSignature(legacyText: signature)
+        )
     }
 
     // MARK: Adicionar

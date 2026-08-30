@@ -1,5 +1,21 @@
 import Foundation
 
+/// O estado mínimo para desfazer um movimento de pasta/marcador iniciado por
+/// gesto. Não vai para o banco: ele vive só no recibo visível da sessão, como
+/// os demais comandos de desfazer.
+///
+/// Gmail não remove o marcador de destino ao desfazer. A mensagem pode já tê-
+/// lo tido antes do gesto; recolocar `INBOX` é o único inverso que preserva
+/// essa associação pré-existente.
+public enum FolderPlacementUndo: Sendable, Hashable {
+    /// IMAP tem uma única pasta: devolver a mensagem para ela restaura a
+    /// localização anterior.
+    case moveToFolder(messageID: String, folder: MailFolder)
+    /// Gmail: volta a colocar a mensagem na caixa de entrada sem tocar nos
+    /// demais marcadores.
+    case restoreGmailInbox(messageID: String, inbox: MailFolder)
+}
+
 /// O conteúdo dos menus de contexto do app, como **dado**.
 ///
 /// Mora aqui, e não dentro das `View`, por dois motivos que já custaram caro
@@ -44,6 +60,16 @@ public enum ContextCommand: Sendable, Hashable {
     case setRead(messageID: String, isRead: Bool)
     /// Triagem: move a mensagem de caixa.
     case move(messageID: String, to: TriageBucket)
+    /// Pasta IMAP ou marcador Gmail, com o modo explícito para não tratar label
+    /// cumulativa como move destrutivo.
+    case placeMessage(messageID: String, folder: MailFolder, mode: FolderPlacement)
+    /// Gmail: aplica o destino e remove somente a localização de onde a ação
+    /// partiu. Os demais marcadores continuam na mensagem.
+    case moveGmailMessage(messageID: String, from: MailFolder, to: MailFolder)
+    /// O caminho de volta de um gesto "Mover para…". Diferente de uma simples
+    /// troca Gmail, ele preserva um marcador de destino que já existia antes
+    /// do gesto.
+    case restoreFolderPlacements([FolderPlacementUndo])
     /// Percorre uma caixa marcando tudo como lido. `accountID` nulo = todas.
     case markAllRead(bucket: TriageBucket, accountID: String?)
     /// 06 Nova mensagem, com a conta já escolhida na linha "De".
@@ -52,6 +78,7 @@ public enum ContextCommand: Sendable, Hashable {
     case filterAccount(accountID: String)
     /// Desliga o filtro de conta.
     case clearAccountFilter
+    case setAccountTint(accountID: String, lightHex: String, darkHex: String)
     /// Abre a janela de Configurações. Cena própria (`UNIWindow.accounts`,
     /// nome interno que não muda — só o rótulo que a pessoa lê), como as
     /// outras quatro: não é folha, e por isso tem ⌘W e entra no menu Janela.
@@ -274,7 +301,11 @@ public enum ContextMenus {
     /// encaminhamento de verdade — assunto "Enc: ", corpo citado, "Para" vazio.
     public static func messageRow(
         _ message: Message,
-        accountAddress: String = ""
+        accountAddress: String = "",
+        provider: Account.Provider? = nil,
+        folders: [MailFolder] = [],
+        selectedFolderID: String? = nil,
+        currentBucket: TriageBucket? = nil
     ) -> [ContextMenuEntry] {
         var entries: [ContextMenuEntry] = [
             .item(ContextMenuItem("Abrir em janela", .openMessageWindow(messageID: message.id))),
@@ -290,6 +321,10 @@ public enum ContextMenus {
             .item(flagToggle(message)),
         ]
         if let move = moveSubmenu(message) { entries.append(move) }
+        entries.append(contentsOf: folderSubmenus(
+            message, provider: provider, folders: folders,
+            selectedFolderID: selectedFolderID, currentBucket: currentBucket
+        ))
         entries.append(.separator)
         entries.append(contentsOf: copyEntries(message))
         return entries.tidied
@@ -316,7 +351,11 @@ public enum ContextMenus {
     ///   item de menu que finge ter voltado.
     public static func reader(
         _ message: Message,
-        accountAddress: String = ""
+        accountAddress: String = "",
+        provider: Account.Provider? = nil,
+        folders: [MailFolder] = [],
+        selectedFolderID: String? = nil,
+        currentBucket: TriageBucket? = nil
     ) -> [ContextMenuEntry] {
         var entries: [ContextMenuEntry] = [
             .item(ContextMenuItem("Copiar texto da mensagem", .copy(bodyText(message)))),
@@ -333,6 +372,10 @@ public enum ContextMenus {
         entries.append(.item(archiveItem(message)))
         entries.append(.item(deleteItem(message)))
         if let move = moveSubmenu(message) { entries.append(move) }
+        entries.append(contentsOf: folderSubmenus(
+            message, provider: provider, folders: folders,
+            selectedFolderID: selectedFolderID, currentBucket: currentBucket
+        ))
         entries.append(.separator)
         entries.append(.item(readToggle(message)))
         entries.append(.item(flagToggle(message)))
@@ -409,6 +452,19 @@ public enum ContextMenus {
                 .markAllRead(bucket: .all, accountID: account.id)
             )))
         }
+        entries.append(.submenu(
+            title: "Cor da caixa",
+            items: accountColors.map { color in
+                ContextMenuItem(
+                    color.name,
+                    .setAccountTint(
+                        accountID: account.id,
+                        lightHex: color.light,
+                        darkHex: color.dark
+                    )
+                )
+            }
+        ))
         // A linha da conta é onde se descobre que uma conta parou: é ela que
         // mostra o estado. O caminho até "o que fazer com isso" sai daqui.
         entries.append(.item(ContextMenuItem(
@@ -444,7 +500,7 @@ public enum ContextMenus {
             .item(ContextMenuItem("Abrir detalhe", .openEvent(itemID: item.id))),
             .separator,
         ]
-        if let link = detail.link, !link.isEmpty {
+        if let link = detail.meetingLink {
             entries.append(.item(ContextMenuItem("Copiar link da reunião", .copy(link))))
         }
         entries.append(.item(ContextMenuItem(
@@ -607,6 +663,113 @@ public enum ContextMenus {
         )
     }
 
+    /// Pastas reais do provedor. No IMAP há uma localização única. No Gmail,
+    /// aplicar é cumulativo e mover troca apenas a localização visível — a
+    /// Inbox ou o marcador cuja pasta está aberta — sem apagar os demais.
+    static func folderSubmenus(
+        _ message: Message,
+        provider: Account.Provider?,
+        folders: [MailFolder],
+        selectedFolderID: String?,
+        currentBucket: TriageBucket?
+    ) -> [ContextMenuEntry] {
+        switch provider {
+        case .imap:
+            let targets = folders.filter {
+                $0.accountID == message.accountID
+                    && !message.folderIDs.contains($0.id)
+                    && ![FolderRole.sent, .drafts, .trash].contains($0.role)
+            }
+            guard !targets.isEmpty else { return [] }
+            return [.submenu(
+                title: "Mover para pasta",
+                items: targets.map {
+                    ContextMenuItem(
+                        $0.displayName,
+                        .placeMessage(messageID: message.id, folder: $0, mode: .move)
+                    )
+                }
+            )]
+        case .gmail:
+            let userLabels = folders.filter {
+                $0.accountID == message.accountID && $0.role == .other
+            }
+            var entries: [ContextMenuEntry] = []
+
+            if let source = gmailMoveSource(
+                message,
+                folders: folders,
+                selectedFolderID: selectedFolderID,
+                currentBucket: currentBucket
+            ) {
+                let moveTargets = userLabels.filter { $0.id != source.id }
+                if !moveTargets.isEmpty {
+                    entries.append(.submenu(
+                        title: "Mover para marcador",
+                        items: moveTargets.map {
+                            ContextMenuItem(
+                                $0.displayName,
+                                .moveGmailMessage(messageID: message.id, from: source, to: $0)
+                            )
+                        }
+                    ))
+                }
+            }
+
+            let labelTargets = userLabels.filter { !message.folderIDs.contains($0.id) }
+            if !labelTargets.isEmpty {
+                entries.append(.submenu(
+                    title: "Aplicar marcador",
+                    items: labelTargets.map {
+                        ContextMenuItem(
+                            $0.displayName,
+                            .placeMessage(messageID: message.id, folder: $0, mode: .label)
+                        )
+                    }
+                ))
+            }
+            return entries
+        case .microsoft, .none:
+            return []
+        }
+    }
+
+    /// Só oferece mover quando a origem é inequívoca. Em Tudo/Arquivado sem
+    /// pasta selecionada não há marcador de origem para retirar; nesse caso o
+    /// menu conserva apenas “Aplicar marcador”.
+    private static func gmailMoveSource(
+        _ message: Message,
+        folders: [MailFolder],
+        selectedFolderID: String?,
+        currentBucket: TriageBucket?
+    ) -> MailFolder? {
+        if let selectedFolderID {
+            return folders.first {
+                $0.id == selectedFolderID
+                    && $0.accountID == message.accountID
+                    && message.folderIDs.contains($0.id)
+                    && [.inbox, .other].contains($0.role)
+            }
+        }
+        guard currentBucket == .today else { return nil }
+        return folders.first {
+            $0.accountID == message.accountID
+                && $0.role == .inbox
+                && message.folderIDs.contains($0.id)
+        }
+    }
+
+    private static let accountColors: [(name: String, light: String, dark: String)] = [
+        ("Azul", "#3F6AA1", "#8CBAF7"),
+        ("Violeta", "#725B9A", "#C2A7F4"),
+        ("Verde", "#397852", "#88D1A2"),
+        ("Turquesa", "#298084", "#71D0D5"),
+        ("Magenta", "#A92769", "#F18BBE"),
+        ("Laranja", "#A85424", "#F3A46F"),
+        ("Vermelho", "#A23B43", "#EF8C92"),
+        ("Grafite", "#59616C", "#ABB4C0"),
+    ]
+
     /// Assunto vazio não vira item: copiar string vazia é o botão mudo com
     /// outra roupa.
     static func copyEntries(_ message: Message) -> [ContextMenuEntry] {
@@ -645,7 +808,7 @@ public enum ContextMenus {
             lines.append(item.rangeLabel)
         }
         if !detail.place.isEmpty { lines.append(detail.place) }
-        if let link = detail.link, !link.isEmpty { lines.append(link) }
+        if let link = detail.meetingLink { lines.append(link) }
 
         let roster = detail.guests(me: "")
         if !roster.isEmpty {

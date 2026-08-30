@@ -1,9 +1,73 @@
 import Testing
 import SwiftUI
+import Foundation
 @testable import UNIDesign
 
 @Suite("Theme catalogue")
 struct ThemeCatalogueTests {
+
+    @Test("os três presets têm escalas ordenadas e padrão neutro")
+    func typographyPresetsAreOrdered() {
+        #expect(TypographyPreset.allCases == [.compact, .standard, .enlarged])
+        #expect(TypographyPreset.compact.scale < TypographyPreset.standard.scale)
+        #expect(TypographyPreset.standard.scale == 1)
+        #expect(TypographyPreset.enlarged.scale > TypographyPreset.standard.scale)
+    }
+
+    @Test("a escala preserva os tokens do tema e atinge as três famílias")
+    func applyingTypographyPreservesThemeTokens() {
+        let base = Theme.tinta
+        let enlarged = base.applyingTypography(.enlarged)
+
+        #expect(enlarged.id == base.id)
+        #expect(enlarged.paper == base.paper)
+        #expect(enlarged.accent == base.accent)
+        #expect(enlarged.subjectSize == base.subjectSize)
+        #expect(enlarged.typographyScale == TypographyPreset.enlarged.scale)
+        #expect(enlarged.serif.scale == TypographyPreset.enlarged.scale)
+        #expect(enlarged.sans.scale == TypographyPreset.enlarged.scale)
+        #expect(enlarged.mono.scale == TypographyPreset.enlarged.scale)
+        #expect(
+            enlarged.applyingTypography(.standard).sans.scale == 1,
+            "voltar ao padrão não pode acumular a escala anterior"
+        )
+    }
+
+    @Test("tema e tamanho do texto persistem de modo independente")
+    @MainActor
+    func themeAndTypographyPersistIndependently() throws {
+        let name = "TypographyPresetTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        let first = ThemeStore(defaults: defaults)
+        first.select(try #require(Theme.named("okami")))
+        first.selectTypography(.enlarged)
+
+        let restored = ThemeStore(defaults: defaults)
+        #expect(restored.theme.id == "okami")
+        #expect(restored.typographyPreset == .enlarged)
+        #expect(restored.theme.typographyScale == TypographyPreset.enlarged.scale)
+
+        restored.select(Theme.tinta)
+        #expect(restored.typographyPreset == .enlarged)
+
+        restored.selectTypography(.compact)
+        #expect(restored.theme.id == "tinta")
+    }
+
+    @Test("valor salvo inválido volta ao tamanho padrão")
+    @MainActor
+    func invalidSavedTypographyFallsBack() throws {
+        let name = "TypographyPresetTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        defaults.set("gigante-inexistente", forKey: "okamiuni.typography-preset")
+
+        let store = ThemeStore(defaults: defaults)
+        #expect(store.typographyPreset == .standard)
+        #expect(store.theme.typographyScale == 1)
+    }
 
     @Test("every theme from the design is present")
     func catalogueIsComplete() {
@@ -59,11 +123,88 @@ struct ThemeCatalogueTests {
         }
     }
 
-    @Test("text has usable contrast against its surface")
-    func inkContrastsWithSurface() {
+    @Test("todo papel de texto atende contraste AA sobre a superfície")
+    func textRolesMeetAAContrast() {
         for theme in Theme.all {
-            let delta = abs(theme.ink.luminance - theme.surface.luminance)
-            #expect(delta > 0.3, "\(theme.id): ink barely separates from surface")
+            for (name, color) in [
+                ("ink", theme.ink), ("ink2", theme.ink2),
+                ("ink3", theme.ink3), ("ink4", theme.ink4),
+            ] {
+                #expect(
+                    color.contrastRatio(with: theme.surface) >= 4.5,
+                    "\(theme.id): \(name)/surface abaixo de 4.5:1"
+                )
+            }
+        }
+    }
+
+    @Test("ações e texto de destaque mantêm contraste sem depender do tema")
+    func accentRolesStayUsable() {
+        for theme in Theme.all {
+            #expect(
+                theme.onAccent.contrastRatio(with: theme.accent) >= 4.5,
+                "\(theme.id): onAccent/accent abaixo de 4.5:1"
+            )
+            #expect(
+                theme.accentInk.contrastRatio(with: theme.accentSoft) >= 4.5,
+                "\(theme.id): accentInk/accentSoft abaixo de 4.5:1"
+            )
+            #expect(
+                theme.accent.contrastRatio(with: theme.surface) >= 3,
+                "\(theme.id): accent/surface abaixo de 3:1 para foco e ícones"
+            )
+        }
+    }
+
+    @Test("temas escuros separam superfícies sem virar uma grade de linhas claras")
+    func darkThemesHaveFunctionalHierarchy() {
+        let expectedDark = Set([
+            "noite", "grafite", "okami", "vapor", "neon", "sinal", "blackbox",
+            "magenta", "neural", "corsa", "brutalnoite", "contraste", "comando",
+            "override",
+        ])
+        let darkThemes = Theme.all.filter(\.isDark)
+        #expect(Set(darkThemes.map(\.id)) == expectedDark)
+
+        for theme in darkThemes {
+            let structuralLine = theme.line.contrastRatio(with: theme.surface)
+            let detailLine = theme.line2.contrastRatio(with: theme.surface)
+            let buttonLine = theme.btnLine.contrastRatio(with: theme.btn)
+            let selectionLine = theme.accentLine.contrastRatio(with: theme.accentSoft)
+            let raisedSurface = theme.surface2.contrastRatio(with: theme.surface)
+            let panelSurface = theme.surface3.contrastRatio(with: theme.surface)
+
+            // Estes são contratos de conforto visual, não mínimos WCAG. Foco,
+            // texto e ícones são validados separadamente; hairlines decorativas
+            // precisam orientar sem formar a grade branca vista no app real.
+            #expect(
+                (1.25 ... 2).contains(structuralLine),
+                "\(theme.id): line/surface fora da faixa suave"
+            )
+            #expect(
+                (1.08 ... 1.45).contains(detailLine),
+                "\(theme.id): line2/surface fora da faixa de hairline"
+            )
+            #expect(
+                structuralLine >= detailLine + 0.08,
+                "\(theme.id): line e line2 perderam a hierarquia"
+            )
+            #expect(
+                (1.35 ... 2.5).contains(buttonLine),
+                "\(theme.id): btnLine/btn agressivo ou invisível"
+            )
+            #expect(
+                (1.5 ... 2.5).contains(selectionLine),
+                "\(theme.id): accentLine/accentSoft agressivo ou invisível"
+            )
+            #expect(
+                (1.08 ... 1.25).contains(raisedSurface),
+                "\(theme.id): surface2/surface perdeu a transição suave"
+            )
+            #expect(
+                (1.18 ... 1.45).contains(panelSurface),
+                "\(theme.id): surface3/surface perdeu a transição suave"
+            )
         }
     }
 
@@ -78,23 +219,23 @@ struct ThemeCatalogueTests {
         }
     }
 
-    @Test("tinta matches the values in the prototype")
-    func tintaIsFaithful() {
+    @Test("tinta mantém o conjunto canônico do tema padrão")
+    func tintaMatchesCanonicalTokens() {
         let t = Theme.tinta
         #expect(t.name == "Tinta")
         #expect(t.isDark == false)
-        #expect(t.paper == TokenColor(css: "#F4F2EE"))
-        #expect(t.surface == TokenColor(css: "#FDFCFA"))
-        #expect(t.ink == TokenColor(css: "#1D1D1B"))
-        #expect(t.accent == TokenColor(css: "#2F4B7C"))
+        #expect(t.paper == TokenColor(css: "#FFFFFF"))
+        #expect(t.surface == TokenColor(css: "#FFFFFF"))
+        #expect(t.ink == TokenColor(css: "#222222"))
+        #expect(t.accent == TokenColor(css: "#1456F0"))
         #expect(t.radiusSmall == 8)
-        #expect(t.radiusLarge == 10)
-        #expect(t.subjectSize == 14.5)
-        #expect(t.subjectWeight == .regular)
-        #expect(t.serif.name == "Newsreader")
+        #expect(t.radiusLarge == 13)
+        #expect(t.subjectSize == 13)
+        #expect(t.subjectWeight == .semibold)
+        #expect(t.serif.name == "Space Grotesk")
         #expect(t.mono.name == "IBM Plex Mono")
-        #expect(t.sans.name == nil)          // the design asks for the system face
-        #expect(t.bodyFont == .serif)
+        #expect(t.sans.name == "Inter")
+        #expect(t.bodyFont == .sans)
     }
 
     @Test("shadow layers keep x, y and blur in the right order")
@@ -102,13 +243,13 @@ struct ThemeCatalogueTests {
         let inner = try #require(Theme.tinta.btnShadow.first)
         #expect(inner.x == 0)
         #expect(inner.y == 1)
-        #expect(inner.blur == 1.5)
+        #expect(inner.blur == 2)
 
         #expect(Theme.tinta.shadow.count == 2)
         let drop = Theme.tinta.shadow[0]
         #expect(drop.x == 0)
-        #expect(drop.y == 30)
-        #expect(drop.blur == 80)
+        #expect(drop.y == 24)
+        #expect(drop.blur == 64)
 
         let hairline = Theme.tinta.shadow[1]
         #expect(hairline.spread == 0.5)
@@ -131,7 +272,7 @@ struct ThemeCatalogueTests {
     /// A versão que vale trava a família que cada tema realmente usa, extraída
     /// do protótipo. Um erro no gerador de temas cai aqui.
     @Test("cada tema usa a família de corpo que o design manda", arguments: [
-        ("tinta", "Newsreader"), ("linho", "Newsreader"), ("barro", "Newsreader"),
+        ("tinta", "Inter"), ("linho", "Newsreader"), ("barro", "Newsreader"),
         ("noite", "Newsreader"), ("grafite", "Newsreader"), ("vapor", "Newsreader"),
         ("papel", "Newsreader"), ("aura", "Newsreader"), ("ambar", "Newsreader"),
         ("okami", "Space Grotesk"), ("brutal", "Space Grotesk"), ("neon", "Space Grotesk"),
@@ -147,15 +288,54 @@ struct ThemeCatalogueTests {
         #expect(theme.body.name == family)
     }
 
-    /// O protótipo declara `--body-font: var(--serif)` uma única vez, na raiz:
-    /// vale para os 26. Se algum dia um tema divergir, este teste avisa em vez
-    /// de o corpo mudar de família em silêncio.
-    @Test("o design põe o corpo em serifa em todos os temas")
-    func everyThemeUsesSerifForBody() {
+    /// O redesenho usa Inter no tema padrão; os temas alternativos preservam a
+    /// tipografia que já tinham.
+    @Test("só o tema padrão migra o corpo para sans")
+    func onlyDefaultThemeUsesSansForBody() {
         for theme in Theme.all {
-            #expect(theme.bodyFont == .serif, "\(theme.id)")
+            #expect(theme.bodyFont == (theme.id == "tinta" ? .sans : .serif), "\(theme.id)")
         }
     }
+}
+
+@Suite("Semantic status colours")
+struct SemanticStatusColorTests {
+
+    @Test("os papéis de status se adaptam entre temas claros e escuros")
+    func statusColorsAdaptToThemeAppearance() {
+        let light = Theme.tinta
+        let dark = Theme.noite
+
+        #expect(light.isDark == false)
+        #expect(dark.isDark == true)
+        #expect(light.danger != dark.danger)
+        #expect(light.success != dark.success)
+        #expect(light.warning != dark.warning)
+        #expect(light.info != dark.info)
+    }
+
+    @Test("os papéis de status têm contraste AA sobre papel e superfície")
+    func statusColorsMeetAAContrastOnThemeSurfaces() {
+        let roles: [(name: String, color: KeyPath<Theme, TokenColor>)] = [
+            ("danger", \.danger),
+            ("success", \.success),
+            ("warning", \.warning),
+            ("info", \.info),
+        ]
+
+        for theme in Theme.all {
+            for role in roles {
+                let status = theme[keyPath: role.color]
+                for (name, background) in [("paper", theme.paper), ("surface", theme.surface)] {
+                    #expect(
+                        status.contrastRatio(with: background) >= 4.5,
+                        "\(theme.id) \(role.name) on \(name) must meet AA text contrast"
+                    )
+                }
+            }
+        }
+    }
+
 }
 
 @Suite("TokenColor parsing")
@@ -197,6 +377,15 @@ struct TokenColorTests {
         #expect(mid.luminance > black.luminance)
         #expect(abs(white.luminance - 1) < 0.001)
         #expect(abs(black.luminance) < 0.001)
+    }
+
+    @Test("a razão WCAG usa a fórmula de luminância relativa")
+    func contrastRatioUsesWCAGFormula() throws {
+        let white = try #require(TokenColor(css: "#FFFFFF"))
+        let black = try #require(TokenColor(css: "#000000"))
+        #expect(abs(white.contrastRatio(with: black) - 21) < 0.001)
+        #expect(white.contrastRatio(with: white) == 1)
+        #expect(black.contrastRatio(with: white) == white.contrastRatio(with: black))
     }
 }
 

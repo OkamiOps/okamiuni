@@ -91,7 +91,7 @@ struct UnreadEmphasisRenderTests {
                     theme: .tinta
                 )
             )
-            return rep.pixels(matching: Theme.tinta.accentSoft)
+            return rep.pixels(matching: Theme.tinta.surface2, tolerance: 0.008)
         }
 
         let dot = try softPixels(.dot)
@@ -99,10 +99,7 @@ struct UnreadEmphasisRenderTests {
         let both = try softPixels(.both)
         // A conta é a **diferença**, não o número absoluto: a lista já tem
         // pixels nessa vizinhança de cor sem nenhuma variante de campo — o
-        // fundo da linha selecionada é a cor da conta a 10% sobre `surface`, e
-        // com a conta azul do primeiro grupo ele cai dentro da tolerância de
-        // `accentSoft`. Medido na variante A, que não pinta campo nenhum:
-        // ~34,5 mil pixels de base.
+        // cabeçalho e outras superfícies neutras já usam `surface2`.
         #expect(
             field - dot > 50_000,
             "a variante B acrescentou só \(field - dot)px de fundo sobre a base de \(dot)"

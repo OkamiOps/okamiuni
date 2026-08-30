@@ -39,6 +39,10 @@ struct ReaderDeleteTests {
             source: InMemoryMailSource(accounts: [conta], messages: mensagens, agenda: [])
         )
         await store.load()
+        // Estes ensaios verificam a ação do leitor sobre conversas, não o
+        // recorte temporal de Hoje. As datas sintéticas ficam visíveis em
+        // Tudo para a pilha inteira participar da operação.
+        store.select(bucket: .all)
         store.select(message: seleciona)
         return store
     }
@@ -140,5 +144,21 @@ struct ReaderDeleteTests {
             size: CGSize(width: 760, height: 700), theme: .tinta
         ))
         #expect(rep.pixels(matching: Theme.tinta.btnLine, tolerance: 0.01) > 540)
+    }
+
+    @Test("Apagar é destacado em magenta suave, sem herdar a cor neutra da barra")
+    func apagarTemTomPerigoso() async throws {
+        let store = await Self.store([Self.mensagem(id: "m1")], seleciona: "m1")
+        let rep = try #require(Render.bitmap(
+            ReaderPane(store: store).environment(ThemeStore()),
+            size: CGSize(width: 760, height: 700), theme: .tinta
+        ))
+        let danger = ReaderPane.apagarPalette(isDark: Theme.tinta.isDark)
+        #expect(danger.fill != Theme.tinta.btn)
+        #expect(danger.ink != Theme.tinta.ink)
+        #expect(
+            rep.pixels(matching: danger.fill, tolerance: 0.03) > 80,
+            "Apagar voltou a ser uma pastilha neutra em vez de uma ação perigosa"
+        )
     }
 }

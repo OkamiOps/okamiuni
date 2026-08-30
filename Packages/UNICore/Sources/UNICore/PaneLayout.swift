@@ -23,7 +23,7 @@ public struct PaneLayout: Sendable, Hashable {
     public let messageListWidth: CGFloat
 
     /// Largura que a trilha de agenda recebe neste layout. É `0` quando a
-    /// agenda não aparece; caso contrário, a canônica de 262 ou o que o usuário
+    /// agenda não aparece; caso contrário, a canônica de 276 ou o que o usuário
     /// arrastou, depois de passar pelas mesmas travas da lista.
     public let agendaRailWidth: CGFloat
 
@@ -32,51 +32,51 @@ public struct PaneLayout: Sendable, Hashable {
     // Estes são os valores de origem. As `View`s os consomem daqui em vez de
     // cravar `.frame(width:)` com a mesma literal repetida em quatro arquivos.
 
-    /// Barra lateral aberta. Protótipo: 236px.
-    public static let expandedSidebarWidth: CGFloat = 236
+    /// Barra lateral aberta no novo shell.
+    public static let expandedSidebarWidth: CGFloat = 248
 
     /// Barra lateral recolhida — a trilha da Task 7B. A lateral nunca some por
     /// completo; recolhida ela é isto.
-    public static let railWidth: CGFloat = 62
+    public static let railWidth: CGFloat = 72
 
-    /// Trilha da agenda. Protótipo: 262px.
-    public static let agendaWidth: CGFloat = 262
+    /// Resumo da agenda à direita.
+    public static let agendaWidth: CGFloat = 276
 
-    /// O leitor nunca fica abaixo disto. Abaixo de ~420pt o corpo serif 16
-    /// deixa de caber numa medida legível e o cartão de resumo quebra.
-    public static let readerMinimumWidth: CGFloat = 420
+    /// Piso do leitor. O novo corpo sans e os cartões responsivos continuam
+    /// legíveis nessa medida, inclusive na transição da lateral para o rail.
+    public static let readerMinimumWidth: CGFloat = 320
 
     /// A medida que o leitor tem no ponto de fidelidade da Task P (1440 com
-    /// tudo visível: 1440 − 236 − 370 − 262). É o ponto de equilíbrio: até o
+    /// tudo visível: 1440 − 248 − 400 − 276). É o ponto de equilíbrio: até o
     /// leitor alcançar isto, a lista cede; a partir daí, a lista volta a
     /// crescer com a janela até o teto da sua faixa.
     ///
     /// É esta constante que faz `resolve(width: 1440, …)` devolver exatamente
-    /// os 370 da lista que a Task P alinhou. Mexer nela desloca a tela inteira
-    /// em 1440 e quebra o marco anterior.
-    public static let readerComfortableWidth: CGFloat = 572
+    /// os 400 da lista do novo shell. Mexer nela desloca a tela inteira em
+    /// 1440 e quebra o ponto de fidelidade do redesenho.
+    public static let readerComfortableWidth: CGFloat = 516
 
     // MARK: - As fronteiras
 
     /// Abaixo disto a lateral recolhe para a trilha.
-    public static let sidebarBreakpoint: CGFloat = 1120
+    public static let sidebarBreakpoint: CGFloat = 920
 
     /// Abaixo disto a agenda sai. É o primeiro painel a sair porque é o único
     /// cujo conteúdo o leitor não precisa para ser útil.
-    public static let agendaBreakpoint: CGFloat = 1360
+    public static let agendaBreakpoint: CGFloat = 1280
 
     /// Faixa da lista quando a lateral está aberta.
-    static let wideListRange: ClosedRange<CGFloat> = 340...420
+    static let wideListRange: ClosedRange<CGFloat> = 340...400
 
     /// Faixa da lista quando a lateral está recolhida — janela apertada, a
     /// lista pode ceder mais 20pt de cada lado.
-    static let narrowListRange: ClosedRange<CGFloat> = 320...380
+    static let narrowListRange: ClosedRange<CGFloat> = 320...340
 
     // MARK: - As faixas do arraste
     //
     // As duas faixas acima foram escolhidas para o **recolhimento automático**:
     // são a margem de manobra que a janela tem para acomodar a lista sozinha,
-    // e é dela que sai o ponto de fidelidade de 370 em 1440. Elas continuam
+    // e é dela que sai o ponto de fidelidade de 400 em 1440. Elas continuam
     // valendo intactas enquanto o usuário não arrastar nada.
     //
     // O gesto é outra pergunta. Quem agarra a divisória está dizendo qual
@@ -194,7 +194,7 @@ public struct PaneLayout: Sendable, Hashable {
         let sidebar = sidebarExpanded ? expandedSidebarWidth : railWidth
 
         // A agenda arrastada vive na sua própria faixa; sem arraste, é a
-        // canônica de 262 de sempre.
+        // canônica de 276 do novo shell.
         var agenda: CGFloat = 0
         if agendaVisible {
             agenda = draggedAgendaWidth.map(clampDraggedAgendaWidth) ?? agendaWidth

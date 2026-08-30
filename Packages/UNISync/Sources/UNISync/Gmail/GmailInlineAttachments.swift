@@ -98,7 +98,7 @@ extension GmailClient {
     /// base64**url** (`-` e `_` no lugar de `+` e `/`), como todo corpo desta
     /// API: decodificá-lo como base64 comum devolve nulo, que viraria imagem
     /// faltando com cara de imagem grande demais.
-    public func inlineAttachment(messageID: String, attachmentID: String) async throws -> Data {
+    public func attachment(messageID: String, attachmentID: String) async throws -> Data {
         struct Wire: Decodable { let data: String? }
         let cru = try await getData(
             path: "messages/\(messageID)/attachments/\(attachmentID)", query: []
@@ -113,5 +113,11 @@ extension GmailClient {
             throw SyncError.resposta("O anexo veio num base64 que não conseguimos ler.")
         }
         return dados
+    }
+
+    /// Compatibilidade para o fluxo de imagens `cid:`. O endpoint é o mesmo;
+    /// "inline" descrevia quem chamava, não o recurso da Gmail API.
+    public func inlineAttachment(messageID: String, attachmentID: String) async throws -> Data {
+        try await attachment(messageID: messageID, attachmentID: attachmentID)
     }
 }

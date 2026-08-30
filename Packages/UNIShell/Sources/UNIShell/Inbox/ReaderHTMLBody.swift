@@ -102,6 +102,25 @@ struct ReaderHTMLBody: NSViewRepresentable {
         /// noutro painel.
         private var ultimoCarregado: String?
 
+        /// Entradas que realmente mudam o documento. SwiftUI chama
+        /// `updateNSView` por mudanças vizinhas (seleção, painel de IA,
+        /// rascunho); uma newsletter grande não deve repetir sanitização,
+        /// regex e montagem de CSS em cada uma delas.
+        private struct EntradaDocumento: Equatable {
+            let html: String
+            let permiteRemotas: Bool
+            let fundo: String
+            let tinta: String
+            let link: String
+            let fonte: String
+        }
+
+        private var documentoEmCache: (
+            entrada: EntradaDocumento,
+            assinatura: String,
+            html: String
+        )?
+
         /// O teto da espera, armado quando a navegação termina. Ver
         /// `ReaderHTMLSection.tetoDaEspera`.
         private var tetoDaRegua: Task<Void, Never>?
@@ -138,15 +157,29 @@ struct ReaderHTMLBody: NSViewRepresentable {
         /// mensagens diferentes, dois documentos; a mesma mensagem com as
         /// imagens liberadas, outro documento — e é por isso que apertar
         /// "Carregar" recarrega.
-        nonisolated func documento(de corpo: ReaderHTMLBody) -> (assinatura: String, html: String) {
+        func documento(de corpo: ReaderHTMLBody) -> (assinatura: String, html: String) {
+            let entrada = EntradaDocumento(
+                html: corpo.html,
+                permiteRemotas: corpo.permiteRemotas,
+                fundo: corpo.fundo,
+                tinta: corpo.tinta,
+                link: corpo.link,
+                fonte: corpo.fonte
+            )
+            if let cache = documentoEmCache, cache.entrada == entrada {
+                return (cache.assinatura, cache.html)
+            }
             let documento = ReaderHTMLPolicy.documento(
                 html: corpo.html, fundo: corpo.fundo, tinta: corpo.tinta,
-                link: corpo.link, fonte: corpo.fonte
+                link: corpo.link, fonte: corpo.fonte,
+                bloqueiaRemotas: !corpo.permiteRemotas
             )
-            return ("\(corpo.permiteRemotas)\n\(documento)", documento)
+            let assinatura = "\(corpo.permiteRemotas)\n\(documento)"
+            documentoEmCache = (entrada, assinatura, documento)
+            return (assinatura, documento)
         }
 
-        nonisolated func assinatura(de corpo: ReaderHTMLBody) -> String {
+        func assinatura(de corpo: ReaderHTMLBody) -> String {
             documento(de: corpo).assinatura
         }
 

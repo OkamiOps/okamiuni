@@ -1,6 +1,7 @@
 import SwiftUI
 import UNIDesign
 import UNICore
+import UNISync
 
 /// A tela **05 Email em janela** (linhas 743–787 do protótipo, 800×600).
 ///
@@ -14,10 +15,26 @@ public struct MessageWindow: View {
 
     let store: MailStore
     let messageID: String
+    let textAssistant: (any OnDeviceTextAssisting)?
+    let assistantSettings: AssistantSettingsStore?
+    let intelligencePresentation: IntelligencePresentation
+    let onMessagePresented: (String) -> Void
+    @State private var assistantOpen = false
 
-    public init(store: MailStore, messageID: String) {
+    public init(
+        store: MailStore,
+        messageID: String,
+        textAssistant: (any OnDeviceTextAssisting)? = nil,
+        assistantSettings: AssistantSettingsStore? = nil,
+        intelligencePresentation: IntelligencePresentation = .available,
+        onMessagePresented: @escaping (String) -> Void = { _ in }
+    ) {
         self.store = store
         self.messageID = messageID
+        self.textAssistant = textAssistant
+        self.assistantSettings = assistantSettings
+        self.intelligencePresentation = intelligencePresentation
+        self.onMessagePresented = onMessagePresented
     }
 
     private var message: Message? {
@@ -28,27 +45,49 @@ public struct MessageWindow: View {
         message.flatMap { store.account($0.accountID) }
     }
 
+    private var assistantProviderLabel: String {
+        assistantSettings?.snapshot().interactiveProviderLabel ?? "Provedor configurado"
+    }
+
     private var tint: Color {
         account.flatMap { TokenColor(css: $0.tint(isDark: theme.isDark))?.color } ?? theme.accent.color
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
-            WindowTitleBar(title: message?.subject ?? "Mensagem") {
-                TintChip(label: account?.host ?? "", tint: tint, emphasized: true)
+        ZStack(alignment: .trailing) {
+            VStack(spacing: 0) {
+                WindowTitleBar(title: message?.subject ?? "Mensagem") {
+                    TintChip(label: account?.host ?? "", tint: tint, emphasized: true)
+                }
+
+                if let message {
+                    header(message)
+                    body(message)
+                    footer(message)
+                } else {
+                    missing
+                }
             }
 
-            if let message {
-                header(message)
-                body(message)
-                footer(message)
-            } else {
-                missing
+            if assistantOpen, let message {
+                LocalAssistantPanel(
+                    context: localContext(for: message),
+                    providerLabel: assistantProviderLabel,
+                    onAsk: askAssistant,
+                    onClose: closeAssistant
+                )
+                .id(store.conversation(of: message.id)?.key ?? message.id)
+                .padding(12)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+                .shadow(color: .black.opacity(0.16), radius: 22, x: 0, y: 10)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(theme.surface.color)
-        .task { if store.messages.isEmpty { await store.load() } }
+        .task(id: messageID) {
+            onMessagePresented(messageID)
+            if store.messages.isEmpty { await store.load() }
+        }
     }
 
     /// Protótipo: `padding: 20px 26px 16px; border-bottom: 0.5px solid var(--line2)`.
@@ -144,7 +183,7 @@ public struct MessageWindow: View {
 
     private func summaryCard(_ summary: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Resumo no dispositivo").capsLabel(size: 9.5)
+            Text("TL;DR · neste Mac").capsLabel(size: 9.5)
             Text(summary)
                 .font(theme.serif.font(size: 15))
                 .lineSpacing(0.55 * 15)   // line-height: 1.55
@@ -172,6 +211,15 @@ public struct MessageWindow: View {
                 openWindow(id: UNIWindow.composer, value: message.id)
                 dismiss()
             }
+            ChromeButton("Perguntar", appearance: .outlined) {
+                withAnimation(.easeInOut(duration: 0.18)) { assistantOpen = true }
+            }
+            .disabled(!intelligencePresentation.isAvailable)
+            .help(
+                intelligencePresentation.isAvailable
+                    ? "Abre ações rápidas e perguntas sobre este email."
+                    : intelligencePresentation.detail
+            )
             ChromeButton("Arquivar", appearance: .outlined) {
                 store.move(message, to: .archived)
                 dismiss()
@@ -192,6 +240,47 @@ public struct MessageWindow: View {
             .italic()
             .foregroundStyle(theme.ink4.color)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func localContext(for message: Message) -> LocalAssistantContext {
+        let count = store.conversation(of: message.id)?.count ?? 1
+        return LocalAssistantContext(
+            subject: message.subject,
+            sender: message.from.display,
+            conversationLabel: count > 1 ? "\(count) mensagens" : nil
+        )
+    }
+
+    private func closeAssistant() {
+        withAnimation(.easeInOut(duration: 0.18)) { assistantOpen = false }
+    }
+
+    private func askAssistant(_ request: LocalAssistantRequest) async throws -> String {
+        guard let textAssistant else {
+            throw OnDeviceTextAssistantError.invalidRequest(
+                "O assistente local não foi conectado a esta janela."
+            )
+        }
+
+        let ids = store.conversation(of: messageID)?.messageIDs ?? [messageID]
+        for id in ids { await store.loadBodyIfNeeded(id) }
+
+        guard let current = store.messages.first(where: { $0.id == messageID }) else {
+            throw OnDeviceTextAssistantError.invalidRequest(
+                "O email selecionado não está mais disponível."
+            )
+        }
+        let mailContext: OnDeviceAssistantMailContext
+        if let conversation = store.conversation(of: current.id), conversation.count > 1 {
+            mailContext = .init(conversation: conversation)
+        } else {
+            mailContext = .init(message: current)
+        }
+        return try await OnDeviceAssistantBridge.answer(
+            request,
+            mailContext: mailContext,
+            using: textAssistant
+        )
     }
 }
 

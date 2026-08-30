@@ -112,6 +112,10 @@ public struct Message: Sendable, Hashable, Identifiable {
     public let snippet: String
     public let body: [String]
 
+    /// Anexos recebidos. São só metadados; os bytes saem de `AttachmentFetching`
+    /// quando a pessoa decide salvar um deles.
+    public let attachments: [MailAttachment]
+
     /// O HTML da mensagem, já sanitizado por quem a decodificou.
     ///
     /// **Três valores, três significados** — os mesmos da coluna `html` da v3:
@@ -146,6 +150,10 @@ public struct Message: Sendable, Hashable, Identifiable {
     /// Resumo gerado no dispositivo. `nil` enquanto não houver.
     public let summary: String?
     public let detectedEvent: DetectedEvent?
+
+    /// A intenção primária detectada para a mensagem. `nil` enquanto a saída
+    /// estruturada ainda não trouxe uma categoria válida.
+    public let category: MailCategory?
 
     /// As respostas de um toque que o design oferece por mensagem —
     /// `replyHints: ['Confirmar quinta 15h', 'Pedir mais um dia']`. Vazio é
@@ -225,12 +233,14 @@ public struct Message: Sendable, Hashable, Identifiable {
         subject: String, snippet: String, body: [String],
         tags: [Tag], bucket: TriageBucket, isRead: Bool,
         summary: String?, detectedEvent: DetectedEvent?,
+        category: MailCategory? = nil,
         dayOffset: Int = 0, replyHints: [String] = [],
         to: [Contact] = [], cc: [Contact] = [], isFlagged: Bool = false,
         serverID: String? = nil, uidValidity: Int64? = nil,
         bodyHTML: String? = nil, calendarICS: String? = nil,
         rfcMessageID: String? = nil, references: [String] = [],
-        threadKey: String? = nil, folderIDs: [String] = []
+        threadKey: String? = nil, folderIDs: [String] = [],
+        attachments: [MailAttachment] = []
     ) {
         self.folderIDs = folderIDs
         self.rfcMessageID = rfcMessageID
@@ -252,11 +262,13 @@ public struct Message: Sendable, Hashable, Identifiable {
         self.subject = subject
         self.snippet = snippet
         self.body = body
+        self.attachments = attachments
         self.tags = tags
         self.bucket = bucket
         self.isRead = isRead
         self.summary = summary
         self.detectedEvent = detectedEvent
+        self.category = category
     }
 }
 
@@ -345,9 +357,14 @@ extension Message {
     /// corpo aqui é o que faz o texto aparecer no instante em que ele chega, em
     /// vez de no instante em que o SQLite acorda quem observa.
     public func withBody(
-        _ body: [String], html: String?, calendarICS: String?
+        _ body: [String], html: String?, calendarICS: String?, attachments: [MailAttachment]? = nil
     ) -> Message {
-        copy(body: body, bodyHTML: html, calendarICS: calendarICS)
+        copy(body: body, bodyHTML: html, calendarICS: calendarICS, attachments: attachments)
+    }
+
+    /// A mesma mensagem em outras pastas/rótulos do provedor.
+    public func withFolderIDs(_ folderIDs: [String]) -> Message {
+        copy(folderIDs: folderIDs)
     }
 
     /// O único lugar que reconstrói uma `Message`.
@@ -363,13 +380,15 @@ extension Message {
         isFlagged: Bool? = nil,
         body: [String]? = nil,
         bodyHTML: String?? = nil,
-        calendarICS: String?? = nil
+        calendarICS: String?? = nil,
+        attachments: [MailAttachment]? = nil,
+        folderIDs: [String]? = nil
     ) -> Message {
         Message(
             id: id, accountID: accountID, from: from, receivedAt: receivedAt,
             subject: subject, snippet: snippet, body: body ?? self.body, tags: tags,
             bucket: bucket ?? self.bucket, isRead: isRead ?? self.isRead,
-            summary: summary, detectedEvent: detectedEvent,
+            summary: summary, detectedEvent: detectedEvent, category: category,
             dayOffset: dayOffset, replyHints: replyHints,
             to: to, cc: cc, isFlagged: isFlagged ?? self.isFlagged,
             serverID: serverID, uidValidity: uidValidity,
@@ -386,7 +405,8 @@ extension Message {
             // da pasta do provedor em que ela está, e esquecê-la aqui **compila**
             // — a mensagem sumiria da pasta aberta no instante em que alguém a
             // marcasse como lida.
-            folderIDs: folderIDs
+            folderIDs: folderIDs ?? self.folderIDs,
+            attachments: attachments ?? self.attachments
         )
     }
 

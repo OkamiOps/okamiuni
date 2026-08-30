@@ -68,7 +68,7 @@ struct DatabaseCommandPortTests {
         #expect(indices.contains("outbox_on_account_state_next"))
 
         let versoes = try db.pool.read { try SyncDatabase.migrator.appliedIdentifiers($0) }
-        #expect(versoes == ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8"])
+        #expect(versoes == ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13"])
     }
 
     @Test("As colunas do outbox são as da spec, e o estado nasce pendente")
@@ -146,6 +146,145 @@ struct DatabaseCommandPortTests {
             try #require(try OutboxRecord.fetchOne(conexao)).operation
         }
         #expect(operacao == .delete(messageIDs: ["m1"]))
+    }
+
+    // MARK: - Pasta, marcador e cor da conta
+
+    @Test("Mover para uma pasta IMAP persiste a pasta e o serverName escolhido")
+    func moverParaPastaIMAPPersisteDestinoEscolhido() throws {
+        let db = try banco()
+        try semear(db, mensagens: [mensagem("m1", bucket: .today)])
+        let pasta = MailFolder(
+            id: "conta-a/INBOX.Projetos", accountID: "conta-a",
+            serverName: "INBOX.Projetos", displayName: "Projetos", role: .other
+        )
+        try db.pool.write { conexao in
+            try FolderRecord(
+                id: pasta.id, accountID: pasta.accountID, serverName: pasta.serverName,
+                role: pasta.role, displayName: pasta.displayName
+            ).insert(conexao)
+        }
+        let porta = DatabaseCommandPort(database: db)
+
+        try porta.place(in: pasta, mode: .move, accountID: "conta-a", messageIDs: ["m1"])
+
+        let (registro, operacao) = try db.pool.read { conexao in
+            (
+                try #require(try MessageRecord.fetchOne(conexao, key: "m1")),
+                try #require(try OutboxRecord.fetchOne(conexao)).operation
+            )
+        }
+        #expect(registro.folderID == pasta.id)
+        #expect(registro.folderMembershipJSON == "[]")
+        #expect(registro.bucket == TriageBucket.archived.rawValue)
+        #expect(operacao == .placeInFolder(
+            folderID: pasta.id, serverName: "INBOX.Projetos",
+            mode: FolderPlacement.move.rawValue, messageIDs: ["m1"]
+        ))
+    }
+
+    @Test("Aplicar marcador Gmail persiste a associação e o label ID escolhido")
+    func aplicarMarcadorGmailPersisteDestinoEscolhido() throws {
+        let db = try banco()
+        try semear(db, mensagens: [mensagem("m1", bucket: .today)])
+        let marcador = MailFolder(
+            id: "conta-a/Label_42", accountID: "conta-a",
+            serverName: "Label_42", displayName: "Clientes", role: .other
+        )
+        try db.pool.write { conexao in
+            try FolderRecord(
+                id: marcador.id, accountID: marcador.accountID, serverName: marcador.serverName,
+                role: marcador.role, displayName: marcador.displayName
+            ).insert(conexao)
+        }
+        let porta = DatabaseCommandPort(database: db)
+
+        try porta.place(in: marcador, mode: .label, accountID: "conta-a", messageIDs: ["m1"])
+
+        let (registro, operacao) = try db.pool.read { conexao in
+            (
+                try #require(try MessageRecord.fetchOne(conexao, key: "m1")),
+                try #require(try OutboxRecord.fetchOne(conexao)).operation
+            )
+        }
+        #expect(registro.folderID == "conta-a/INBOX")
+        #expect(MessageRecord.folderIDs(
+            membership: registro.folderMembershipJSON, folderID: registro.folderID
+        ) == ["conta-a/INBOX", marcador.id])
+        #expect(operacao == .placeInFolder(
+            folderID: marcador.id, serverName: "Label_42",
+            mode: FolderPlacement.label.rawValue, messageIDs: ["m1"]
+        ))
+    }
+
+    @Test("Mover no Gmail remove só a origem e preserva os outros marcadores")
+    func moverMarcadorGmailPersisteOrigemEDestino() throws {
+        let db = try banco()
+        let inbox = MailFolder(
+            id: "conta-a/INBOX", accountID: "conta-a", serverName: "INBOX",
+            displayName: "Entrada", role: .inbox
+        )
+        let current = MailFolder(
+            id: "conta-a/Label_9", accountID: "conta-a", serverName: "Label_9",
+            displayName: "Cliente", role: .other
+        )
+        let preserved = MailFolder(
+            id: "conta-a/Label_11", accountID: "conta-a", serverName: "Label_11",
+            displayName: "VIP", role: .other
+        )
+        let target = MailFolder(
+            id: "conta-a/Label_42", accountID: "conta-a", serverName: "Label_42",
+            displayName: "Projetos", role: .other
+        )
+        try semear(db, mensagens: [
+            mensagem("m1", bucket: .today).withFolderIDs([inbox.id, current.id, preserved.id])
+        ])
+        try db.pool.write { conexao in
+            for folder in [current, preserved, target] {
+                try FolderRecord(
+                    id: folder.id, accountID: folder.accountID,
+                    serverName: folder.serverName, role: folder.role,
+                    displayName: folder.displayName
+                ).insert(conexao)
+            }
+        }
+        let porta = DatabaseCommandPort(database: db)
+
+        try porta.moveGmailLabel(
+            from: inbox, to: target, accountID: "conta-a", messageIDs: ["m1"]
+        )
+
+        let (registro, operacao) = try db.pool.read { conexao in
+            (
+                try #require(try MessageRecord.fetchOne(conexao, key: "m1")),
+                try #require(try OutboxRecord.fetchOne(conexao)).operation
+            )
+        }
+        #expect(MessageRecord.folderIDs(
+            membership: registro.folderMembershipJSON, folderID: registro.folderID
+        ) == [current.id, preserved.id, target.id])
+        #expect(registro.bucket == TriageBucket.archived.rawValue)
+        #expect(operacao == .moveGmailLabel(
+            destinationLabelID: "Label_42", sourceLabelID: "INBOX", messageIDs: ["m1"]
+        ))
+    }
+
+    @Test("Mudar a cor da conta persiste localmente sem enfileirar operação remota")
+    func mudarCorDaContaPersisteLocalmente() throws {
+        let db = try banco()
+        try semear(db, mensagens: [])
+        let porta = DatabaseCommandPort(database: db)
+
+        try porta.setAccountTint(
+            lightHex: "#A92769", darkHex: "#F18BBE", accountID: "conta-a"
+        )
+
+        let registro = try db.pool.read { conexao in
+            try #require(try AccountRecord.fetchOne(conexao, key: "conta-a"))
+        }
+        #expect(registro.tintLightHex == "#A92769")
+        #expect(registro.tintDarkHex == "#F18BBE")
+        #expect(try db.pool.read { try OutboxRecord.fetchCount($0) } == 0)
     }
 
     @Test("Apagar definitivamente remove a linha, sem deixá-la para trás")

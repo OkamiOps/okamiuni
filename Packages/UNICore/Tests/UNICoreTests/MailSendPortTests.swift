@@ -68,4 +68,31 @@ struct MailSendPortTests {
         #expect(!store.send(mensagem()))
         #expect(store.loadError != nil)
     }
+
+    @Test("Outbox preserva RSVP e anexos, e ainda abre o JSON antigo")
+    func codableAditivo() throws {
+        let attachment = try OutgoingAttachment(
+            id: "arquivo-1", filename: "contrato.pdf", mimeType: "application/pdf",
+            data: Data([1, 2, 3])
+        )
+        let original = OutgoingMessage(
+            messageID: "rsvp-1@x.com", accountID: "conta-a",
+            from: OutgoingAddress(name: "Eu", address: "eu@x.com"),
+            to: [OutgoingAddress(name: "Ela", address: "ela@y.com")],
+            subject: "Resposta", plainText: "Aceito",
+            calendarICS: "BEGIN:VCALENDAR\r\nMETHOD:REPLY\r\nEND:VCALENDAR\r\n",
+            attachments: [attachment]
+        )
+        let roundTrip = try JSONDecoder().decode(
+            OutgoingMessage.self, from: JSONEncoder().encode(original)
+        )
+        #expect(roundTrip == original)
+
+        let legacy = Data("""
+            {"messageID":"old@x.com","accountID":"conta-a","from":{"name":"Eu","address":"eu@x.com"},"to":[],"cc":[],"bcc":[],"subject":"Antiga","plainText":"corpo","references":[]}
+            """.utf8)
+        let decodedLegacy = try JSONDecoder().decode(OutgoingMessage.self, from: legacy)
+        #expect(decodedLegacy.calendarICS == nil)
+        #expect(decodedLegacy.attachments.isEmpty)
+    }
 }

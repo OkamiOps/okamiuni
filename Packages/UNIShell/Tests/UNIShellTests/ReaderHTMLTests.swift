@@ -35,6 +35,25 @@ struct ReaderHTMLPolicyTests {
         #expect(ReaderHTMLPolicy.pedeRecursoRemoto("<div style=\"background:url(https://x/y)\">"))
     }
 
+    @Test("Imagem protocol-relative é bloqueada sem deixar ícone quebrado")
+    func imagemProtocolRelative() {
+        let html = """
+            <a href="//okamiops.com">Abrir</a>
+            <img src="//cdn.exemplo.com/logo.png">
+            <div style="background-image: url('//cdn.exemplo.com/fundo.png')"></div>
+            """
+        #expect(ReaderHTMLPolicy.pedeRecursoRemoto(html))
+
+        let bloqueado = ReaderHTMLPolicy.documento(
+            html: html, fundo: "#fff", tinta: "#000", link: "#00f", fonte: "ui-serif",
+            bloqueiaRemotas: true
+        )
+        #expect(bloqueado.contains("href=\"//okamiops.com\""))
+        #expect(!bloqueado.contains("src=\"//cdn.exemplo.com/logo.png\""))
+        #expect(!bloqueado.contains("url('//cdn.exemplo.com/fundo.png')"))
+        #expect(bloqueado.contains(ReaderHTMLPolicy.imagemRemotaBloqueada))
+    }
+
     @Test("Um link não é um recurso: a faixa não aparece por causa dele")
     func linkNaoContaComoRecurso() {
         // `href` não é carregado ao abrir, é seguido ao clicar. Contá-lo poria

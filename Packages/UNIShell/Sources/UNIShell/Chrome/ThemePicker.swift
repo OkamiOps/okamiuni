@@ -11,20 +11,11 @@ public struct ThemePicker: View {
 
     public var body: some View {
         Button { open.toggle() } label: {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(theme.accent.color)
-                    .frame(width: 8, height: 8)
-                Text(theme.name)
-                    .font(theme.sans.font(size: 11.5))
-                    .foregroundStyle(theme.ink2.color)
-                Text("▼")
-                    .font(.system(size: 7))
-                    .foregroundStyle(theme.ink3.color)
-            }
-            .padding(.horizontal, 9)
-            .frame(height: 26)
-            .background(theme.btn.color)
+            Image(systemName: theme.isDark ? "moon.stars" : "sun.max")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(theme.ink2.color)
+                .frame(width: 38, height: 38)
+            .background(theme.surface.color)
             .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
             .overlay {
                 RoundedRectangle(cornerRadius: theme.radiusSmall)
@@ -141,11 +132,12 @@ struct ThemePreview: View {
         .frame(width: 52, height: 36)
         .clipShape(RoundedRectangle(cornerRadius: max(2, candidate.radiusSmall)))
         .overlay {
-            // Contorno de 0.5px preto 28% — literal do protótipo, não um token.
+            // O contorno usa a borda de controle do tema candidato para manter
+            // uma boundary legível também nas miniaturas escuras.
             // Stroke always drawn, selection ring overlay on top when active.
             RoundedRectangle(cornerRadius: max(2, candidate.radiusSmall))
                 .strokeBorder(
-                    Color.black.opacity(0.28),
+                    candidate.btnLine.color,
                     lineWidth: Hairline.thickness(displayScale)
                 )
         }

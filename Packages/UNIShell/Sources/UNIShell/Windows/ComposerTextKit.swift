@@ -64,7 +64,11 @@ enum ComposerTextKit {
     // MARK: - Modelo → desenho
 
     /// O corpo pronto para o `NSTextStorage`.
-    static func nsAttributed(_ model: AttributedString, theme: Theme) -> NSAttributedString {
+    static func nsAttributed(
+        _ model: AttributedString,
+        theme: Theme,
+        resolvesDefaultColorForPresentation: Bool = true
+    ) -> NSAttributedString {
         let plain = String(model.characters)
         let result = NSMutableAttributedString(string: plain)
         guard !plain.isEmpty else { return result }
@@ -72,7 +76,14 @@ enum ComposerTextKit {
         for run in model.runs {
             guard let range = nsRange(run.range, in: model, plain: plain) else { continue }
             let style = RichBody.style(of: run.attributes)
-            result.addAttributes(characterAttributes(style, theme: theme), range: range)
+            result.addAttributes(
+                characterAttributes(
+                    style,
+                    theme: theme,
+                    resolvesDefaultColorForPresentation: resolvesDefaultColorForPresentation
+                ),
+                range: range
+            )
             if let link = run.attributes.link {
                 result.addAttribute(.link, value: link, range: range)
             }
@@ -85,11 +96,17 @@ enum ComposerTextKit {
     /// Os atributos de caractere de um trecho: fonte, cor, realce, sublinhado,
     /// tachado, e o próprio `BodyStyle` para a volta.
     static func characterAttributes(
-        _ style: BodyStyle, theme: Theme
+        _ style: BodyStyle,
+        theme: Theme,
+        resolvesDefaultColorForPresentation: Bool = true
     ) -> [NSAttributedString.Key: Any] {
         var attributes: [NSAttributedString.Key: Any] = [
             .font: nsFont(for: style, theme: theme),
-            .foregroundColor: nsColor(style.colorHex, theme: theme),
+            .foregroundColor: nsColor(
+                style.colorHex,
+                theme: theme,
+                resolvesDefaultColorForPresentation: resolvesDefaultColorForPresentation
+            ),
         ]
         if let highlight = highlightColor(style.highlightHex) {
             attributes[.backgroundColor] = highlight
@@ -132,7 +149,7 @@ enum ComposerTextKit {
 
             let style = NSMutableParagraphStyle()
             style.alignment = nsAlignment(RichBody.alignment(of: model, at: paragraph))
-            let box = lineHeight(of: model, in: paragraph)
+            let box = lineHeight(of: model, in: paragraph, scale: theme.typographyScale)
             style.minimumLineHeight = box
             style.maximumLineHeight = box
             style.lineSpacing = 0
@@ -164,7 +181,9 @@ enum ComposerTextKit {
     /// corta glifo: pelo menor, um trecho de 32 dentro de uma linha de 15
     /// sairia decepado.
     static func lineHeight(
-        of model: AttributedString, in paragraph: Range<AttributedString.Index>
+        of model: AttributedString,
+        in paragraph: Range<AttributedString.Index>,
+        scale: CGFloat = 1
     ) -> CGFloat {
         var largest = BodyStyle.defaultSize
         for run in model[paragraph].runs {
@@ -173,7 +192,7 @@ enum ComposerTextKit {
         if let terminator = model[RichBody.span(of: paragraph, in: model)].runs.last {
             largest = max(largest, RichBody.style(of: terminator.attributes).size)
         }
-        return ComposerFormatting.lineHeight(for: largest)
+        return ComposerFormatting.lineHeight(for: largest * scale)
     }
 
     /// A identidade de uma célula no desenho. Dois parágrafos com esta mesma
@@ -277,8 +296,16 @@ enum ComposerTextKit {
         )
     }
 
-    static func nsColor(_ hex: String, theme: Theme) -> NSColor {
-        TokenColor(css: hex)?.nsColor ?? theme.ink.nsColor
+    static func nsColor(
+        _ hex: String,
+        theme: Theme,
+        resolvesDefaultColorForPresentation: Bool = true
+    ) -> NSColor {
+        ComposerFormatting.resolvedTextColor(
+            hex,
+            theme: theme,
+            resolvesDefaultColorForPresentation: resolvesDefaultColorForPresentation
+        ).nsColor
     }
 
     /// `transparent` é ausência de realce, não uma cor.

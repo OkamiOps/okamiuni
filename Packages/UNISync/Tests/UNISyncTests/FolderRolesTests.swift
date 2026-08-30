@@ -31,6 +31,8 @@ struct FolderRolesTests {
         #expect(FolderRoles.role(specialUse: nil, name: "Deleted Messages") == .trash)
         #expect(FolderRoles.role(specialUse: nil, name: "Enviados") == .sent)
         #expect(FolderRoles.role(specialUse: nil, name: "Sent Items") == .sent)
+        #expect(FolderRoles.role(specialUse: nil, name: "INBOX.Sent") == .sent)
+        #expect(FolderRoles.role(specialUse: nil, name: "INBOX.Enviados") == .sent)
         #expect(FolderRoles.role(specialUse: nil, name: "Projetos/2026") == .other)
     }
 

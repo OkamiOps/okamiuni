@@ -4,6 +4,9 @@
 <dict>
   <key>com.apple.security.app-sandbox</key><true/>
   <key>com.apple.security.network.client</key><true/>
+  <!-- OAuth PKCE do LiteLLM recebe o callback somente em 127.0.0.1 e numa
+       porta efêmera; sem esta entitlement o App Sandbox recusa o bind. -->
+  <key>com.apple.security.network.server</key><true/>
   <key>com.apple.security.personal-information.calendars</key><true/>
   <key>com.apple.security.files.user-selected.read-write</key><true/>
 </dict>

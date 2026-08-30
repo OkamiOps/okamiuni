@@ -140,24 +140,22 @@ public struct AgendaRail: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            ScrollViewReader { proxy in
-                ScrollView {
-                    ZStack(alignment: .topLeading) {
-                        hourLines
-                        nowMarker
-                        scrollAnchor
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    if todayItems.isEmpty {
+                        Text("Nenhum compromisso hoje.")
+                            .font(theme.sans.font(size: 12))
+                            .foregroundStyle(theme.ink3.color)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 8)
+                    } else {
                         ForEach(todayItems) { item in
                             eventBlock(item)
-                                .offset(y: layout.offset(for: item))
                         }
                     }
-                    .frame(height: layout.totalHeight, alignment: .top)
-                    // Protótipo: `padding: 12px 14px 18px` na calha da trilha.
-                    .padding(.horizontal, 14)
-                    .padding(.top, 12)
-                    .padding(.bottom, 18)
                 }
-                .onAppear { proxy.scrollTo(Self.scrollAnchorID, anchor: .top) }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 14)
             }
             pendingSection
         }
@@ -182,19 +180,14 @@ public struct AgendaRail: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 3) {  // protótipo: margin-top: 3px
-            Text(Self.headerDateString(headerDate))
-                .font(theme.serif.font(size: 15, weight: .semibold))
+        VStack(alignment: .leading, spacing: 7) {
+            Text("Agenda de hoje")
+                .font(theme.serif.font(size: 15.5, weight: .semibold))
                 .foregroundStyle(theme.ink.color)
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(liveColor())
-                    .frame(width: 5, height: 5)
-                Text(Self.nextUpLabel(for: todayItems, now: now))
-                    .font(theme.mono.font(size: 10))
-                    .foregroundStyle(theme.ink2.color)
-                    .lineLimit(1)
-            }
+            Text("\(headerDate.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))) · \(todayItems.count) \(todayItems.count == 1 ? "compromisso" : "compromissos")")
+                .font(theme.sans.font(size: 11.5))
+                .foregroundStyle(theme.ink2.color)
+                .lineLimit(1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         // Protótipo: `padding: 12px 16px 11px` no cabeçalho da trilha.
@@ -263,12 +256,7 @@ public struct AgendaRail: View {
             eventCard(item)
         }
         .buttonStyle(.plain)
-        .focusRing(in: UnevenRoundedRectangle(
-            topLeadingRadius: 0,
-            bottomLeadingRadius: 0,
-            bottomTrailingRadius: theme.radiusSmall,
-            topTrailingRadius: theme.radiusSmall
-        ))
+        .focusRing(cornerRadius: theme.radiusLarge)
         .help("Abre o compromisso")
         // O mesmo menu das três visões da agenda. A trilha mostra sempre
         // hoje, então o dia do compromisso é o do cabeçalho.
@@ -290,50 +278,39 @@ public struct AgendaRail: View {
     private func eventCard(_ item: AgendaItem) -> some View {
         let tint = store.account(item.accountID)
             .flatMap { TokenColor(css: theme.isDark ? $0.tintDarkHex : $0.tintLightHex) } ?? theme.accent
-        let tight = layout.isTight(for: item)
-        let softColor = soft(tint.color, theme.isDark ? 0.18 : 0.10)
+        let account = store.account(item.accountID)
 
-        return HStack(spacing: 0) {
-            // Protótipo: `border-left: 2px solid c`.
+        return HStack(alignment: .top, spacing: 10) {
             Rectangle()
                 .fill(tint.color)
-                .frame(width: 2)
-            // Protótipo: `padding: 5px 8px` (ou `0 8px` quando apertado) e
-            // `justify-content: center` — conteúdo centrado na altura do cartão.
-            VStack(alignment: .leading, spacing: tight ? 0 : 2) {
-                Text(tight ? "\(item.title) · \(item.startLabel)" : item.title)
-                    .font(theme.sans.font(size: 11.5, weight: .semibold))
-                    .foregroundStyle(tint.color)
+                .frame(width: 3)
+
+            Text(item.startLabel)
+                .font(theme.mono.font(size: 10))
+                .foregroundStyle(theme.ink2.color)
+                .frame(width: 39, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.title)
+                    .font(theme.sans.font(size: 12.5, weight: .semibold))
+                    .foregroundStyle(theme.ink.color)
+                    .lineLimit(2)
+                Text([account?.host, item.endLabel].compactMap { $0 }.joined(separator: " · "))
+                    .font(theme.sans.font(size: 10.5))
+                    .foregroundStyle(theme.ink2.color)
                     .lineLimit(1)
-                if !tight {
-                    Text("\(item.startLabel)–\(item.endLabel)")
-                        .font(theme.mono.font(size: 9))
-                        .foregroundStyle(tint.color.opacity(0.7))
-                        .lineLimit(1)
-                }
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, tight ? 0 : 5)
             Spacer(minLength: 0)
         }
-        .frame(height: layout.height(for: item), alignment: .leading)
-        .background(softColor)
-        // Protótipo: `border-radius: 0 var(--r2) var(--r2) 0` — quadrado do lado
-        // da barra colorida, arredondado do lado de fora.
-        .clipShape(
-            UnevenRoundedRectangle(
-                topLeadingRadius: 0,
-                bottomLeadingRadius: 0,
-                bottomTrailingRadius: theme.radiusSmall,
-                topTrailingRadius: theme.radiusSmall
-            )
-        )
-        // Só o cartão clica; a calha da hora à esquerda continua livre.
+        .padding(10)
+        .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
+        .background(theme.surface.color)
+        .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
+        .overlay {
+            RoundedRectangle(cornerRadius: theme.radiusLarge)
+                .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
+        }
         .contentShape(Rectangle())
-        // Protótipo: `left: 32px; right: 2px`. O 32 é a calha de 26 mais a folga
-        // de 6 — é o que impede o cartão de cobrir o rótulo da hora.
-        .padding(.leading, layout.eventLeading)
-        .padding(.trailing, layout.eventTrailing)
     }
 
     /// `internal`, não `private`: `AgendaRailTests` precisa renderizar isto

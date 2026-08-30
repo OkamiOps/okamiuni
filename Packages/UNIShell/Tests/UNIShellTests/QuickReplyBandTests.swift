@@ -4,6 +4,7 @@ import SwiftUI
 import Testing
 import UNICore
 import UNIDesign
+import WebKit
 @testable import UNIShell
 
 @Suite("Faixa de resposta rápida — abertura e retorno")
@@ -114,11 +115,16 @@ struct QuickReplyBandActionTests {
         ReplyDraft(to: [marina], body: AttributedString(text))
     }
 
-    @Test("sem destinatário ou sem texto, os dois 'Enviar' ficam desabilitados")
+    private static func file(_ name: String, id: String) -> OutgoingAttachment {
+        try! OutgoingAttachment(id: id, filename: name, data: Data([1]))
+    }
+
+    @Test("sem destinatário ou conteúdo, os dois 'Enviar' ficam desabilitados")
     func sendNeedsRecipientAndText() {
         #expect(QuickReply.canSend(Self.written("Fecho quinta.")))
         #expect(QuickReply.canSend(ReplyDraft(to: [], body: AttributedString("Fecho quinta."))) == false)
         #expect(QuickReply.canSend(ReplyDraft(to: [Self.marina], body: AttributedString("   \n "))) == false)
+        #expect(QuickReply.canSend(ReplyDraft(to: [Self.marina], attachments: [Self.file("proposta.pdf", id: "p")])) )
         #expect(QuickReply.canSend(ReplyDraft()) == false)
     }
 
@@ -127,7 +133,7 @@ struct QuickReplyBandActionTests {
         #expect(QuickReply.canSave(Self.written("Fecho quinta.")))
         // Só um anexo, sem uma palavra escrita, ainda é algo a guardar.
         var onlyFile = ReplyDraft(to: [Self.marina])
-        onlyFile.attachments = ["contrato-v4.pdf"]
+        onlyFile.attachments = [Self.file("contrato-v4.pdf", id: "c")]
         #expect(QuickReply.canSave(onlyFile))
         // Nada escrito e nada anexado: não há o que salvar.
         #expect(QuickReply.canSave(ReplyDraft(to: [Self.marina])) == false)
@@ -158,16 +164,16 @@ struct QuickReplyBandActionTests {
         #expect(edited.archivedOriginal)
     }
 
-    @Test("o 📎 anexa o próximo da lista e para quando ela acaba")
-    func attachWalksTheCatalog() {
-        let catalog = ["contrato-v4.pdf", "planilha.xlsx"]
-        let one = QuickReply.attaching(Self.written("Segue."), from: catalog)
-        #expect(one.attachments == ["contrato-v4.pdf"])
-        let two = QuickReply.attaching(one, from: catalog)
-        #expect(two.attachments == ["contrato-v4.pdf", "planilha.xlsx"])
-        // Sem nada sobrando, devolve o rascunho intacto — e a faixa desabilita.
-        let three = QuickReply.attaching(two, from: catalog)
-        #expect(three.attachments == ["contrato-v4.pdf", "planilha.xlsx"])
+    @Test("o 📎 acrescenta a seleção real sem duplicar a identidade")
+    func attachSelectionDeduplicates() {
+        let contract = Self.file("contrato-v4.pdf", id: "c")
+        let sheet = Self.file("planilha.xlsx", id: "p")
+        let one = QuickReply.attaching(Self.written("Segue."), files: [contract])
+        #expect(one.attachments == [contract])
+        let two = QuickReply.attaching(one, files: [contract, sheet])
+        #expect(two.attachments == [contract, sheet])
+        let three = QuickReply.attaching(two, files: [contract])
+        #expect(three.attachments == [contract, sheet])
     }
 }
 
@@ -387,6 +393,28 @@ struct QuickReplyBandOutgoingTests {
         #expect(html.contains("combinado"))
     }
 
+    @Test("a assinatura gerenciada entra no envio sem invadir o rascunho")
+    func enviaAssinaturaGerenciada() async throws {
+        let porta = PortaFalsa()
+        let store = await loaded(porta)
+        let message = Self.respondida()
+        let reply = draft(to: message)
+
+        _ = QuickReplyBand.send(
+            reply,
+            for: message,
+            in: store,
+            archiving: false,
+            theme: .tinta,
+            at: Self.now,
+            signatureIsInserted: true
+        )
+
+        let enviada = try #require(porta.enviadas.first)
+        #expect(enviada.plainText == "Quinta às 15h está de pé.\n\nRicardo Alves\nEmpresa · ricardo@empresa.com")
+        #expect(reply.text == "Quinta às 15h está de pé.")
+    }
+
     /// A metade que já era real continua real — e acontece **depois** de a
     /// mensagem entrar na fila.
     @Test("'Enviar e arquivar' enfileira e arquiva a original")
@@ -545,6 +573,62 @@ struct QuickReplyBandRichBodyTests {
         let drafts = QuickReply.suggestedDrafts(for: withEvent)
         #expect(drafts.map(\.label) == ["Confirmar", "Remarcar", "Peço um prazo"])
         #expect(drafts[0].text.contains("Call de contrato · qui 27, 15:00"))
+    }
+}
+
+@Suite("Faixa de resposta rápida — assinatura rica")
+@MainActor
+struct QuickReplyBandSignatureTests {
+    private func firstWebView(in view: NSView) -> WKWebView? {
+        if let webView = view as? WKWebView { return webView }
+        for child in view.subviews {
+            if let webView = firstWebView(in: child) { return webView }
+        }
+        return nil
+    }
+
+    @Test("a assinatura HTML fica fora do editor da resposta")
+    func rendersManagedSignatureOutsideEditor() async throws {
+        let image = try InlineSignatureResource(
+            contentID: "logo@vantion.local",
+            mimeType: "image/png",
+            data: try #require(Data(base64Encoded:
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+            ))
+        )
+        let rich = try EmailSignature(
+            plainText: "Marcos Santos\nCAIO · Software Development",
+            html: "<table role=\"presentation\"><tr><td><img src=\"cid:logo@vantion.local\" width=\"1\" height=\"1\"></td><td><strong>Marcos Santos</strong><br>CAIO · Software Development</td></tr></table>",
+            inlineResources: [image]
+        )
+        let account = try #require(Fixtures.accounts.first).withEmailSignature(rich)
+        let store = MailStore(source: InMemoryMailSource(
+            accounts: [account], messages: Fixtures.messages, agenda: Fixtures.month
+        ))
+        await store.load()
+        let message = try #require(store.messages.first { $0.accountID == account.id })
+
+        var editorContainsSignature = false
+        var preview: WKWebView?
+        EditorProbe.withHostedView(
+            QuickReplyBand(
+                store: store,
+                message: message,
+                onPromote: { _ in },
+                expandRequest: 1,
+                debugInsertSignature: true
+            ),
+            size: CGSize(width: 760, height: 780),
+            theme: .tinta
+        ) { content in
+            editorContainsSignature = EditorProbe.textView(
+                in: content, containing: "Marcos Santos"
+            ) != nil
+            preview = firstWebView(in: content)
+        }
+
+        #expect(!editorContainsSignature, "a assinatura HTML voltou a ser texto do editor")
+        #expect(try #require(preview).frame.height >= 44)
     }
 }
 

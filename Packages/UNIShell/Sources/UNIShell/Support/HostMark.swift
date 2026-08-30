@@ -2,7 +2,7 @@ import Foundation
 
 /// Como o nome do provedor cabe na trilha recolhida.
 ///
-/// A trilha tem `PaneLayout.railWidth` (62pt) e a marca da conta ocupa 40 deles
+/// A trilha tem `PaneLayout.railWidth` (72pt) e a marca da conta ocupa 40 deles
 /// — "HOSTINGER" a 10pt mono mede bem mais que isso. O design já resolve assim:
 /// `mark: ACC[k].host.slice(0, 3)`.
 ///

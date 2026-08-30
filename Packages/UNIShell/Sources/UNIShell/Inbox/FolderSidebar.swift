@@ -2,6 +2,145 @@ import SwiftUI
 import UNIDesign
 import UNICore
 
+/// O que a lateral pode afirmar sobre a inteligência local neste momento.
+///
+/// O shell não pergunta ao Foundation Models nem persiste esta decisão: o
+/// compositor do app traduz o estado real do motor para esta apresentação.
+/// Assim, a barra não precisa conhecer a implementação para dizer a verdade
+/// sobre o que a pessoa pode usar.
+public enum IntelligencePresentation: CaseIterable, Sendable {
+    /// Porta do assistente roteável. Ela permanece acessível mesmo quando o
+    /// Foundation Models local não está pronto, porque o provedor escolhido
+    /// pode ser LiteLLM/OAuth ou um CLI autenticado por device flow.
+    case configuredAssistant
+    case available
+    case deviceNotEligible
+    case appleIntelligenceNotEnabled
+    case modelNotReady
+
+    /// O rótulo da ação fica estável; o estado explica se ela pode ser usada.
+    /// Mudar o texto do botão conforme o motor oscila esconderia justamente a
+    /// porta que a pessoa procura para entender o que está acontecendo.
+    public var actionTitle: String { "Perguntar ao ambiente" }
+
+    /// Se o motor está pronto para receber uma pergunta. O shell só desenha
+    /// esta decisão: quem a mede continua sendo o compositor do app.
+    public var isAvailable: Bool {
+        self == .configuredAssistant || self == .available
+    }
+
+    public var title: String {
+        switch self {
+        case .configuredAssistant:
+            "Assistente configurável disponível"
+        case .available:
+            "Inteligência local disponível"
+        case .deviceNotEligible:
+            "Apple Intelligence indisponível"
+        case .appleIntelligenceNotEnabled:
+            "Ative a Apple Intelligence"
+        case .modelNotReady:
+            "Modelo ainda não está pronto"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .configuredAssistant:
+            "Pergunte sobre suas caixas, emails e agenda. O processamento segue o provedor escolhido em Configurações."
+        case .available:
+            "Pergunte sobre suas caixas, emails e agenda. Nada sai deste Mac."
+        case .deviceNotEligible:
+            "Este Mac não é compatível com Apple Intelligence. Seus emails continuam locais."
+        case .appleIntelligenceNotEnabled:
+            "Ative-a nos Ajustes do Sistema para gerar resumos e identificar compromissos."
+        case .modelNotReady:
+            "A Apple Intelligence ainda está sendo preparada. Resumos e compromissos ficam disponíveis quando terminar."
+        }
+    }
+
+    /// O glifo também precisa dizer a verdade sobre a origem. Mostrar o selo
+    /// da Apple depois que a pessoa escolheu Codex, Grok, LiteLLM ou um CLI
+    /// fazia o provedor remoto parecer um modelo local.
+    public var symbol: String {
+        self == .configuredAssistant ? "sparkles" : "apple.intelligence"
+    }
+
+    public var usesConfiguredProvider: Bool { self == .configuredAssistant }
+
+    /// Copy curta do rodapé. Não pode prometer processamento local quando a
+    /// pessoa escolheu OAuth, LiteLLM ou um CLI.
+    public var scopeLabel: String {
+        self == .configuredAssistant
+            ? "Todo o OkamiUNI · provedor configurado"
+            : "Todo o OkamiUNI · local"
+    }
+
+    public var actionHelp: String {
+        isAvailable
+            ? "Abre o assistente global para suas caixas, emails e agenda."
+            : detail
+    }
+}
+
+struct IntelligenceFooter: View {
+    @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
+    let presentation: IntelligencePresentation
+    let onOpenAssistant: () -> Void
+
+    var body: some View {
+        Button(action: onOpenAssistant) {
+            HStack(spacing: 10) {
+                Image(systemName: presentation.symbol)
+                    .font(.system(size: 19, weight: .medium))
+                    .symbolRenderingMode(.hierarchical)
+                    .frame(width: 24, height: 24)
+                    .foregroundStyle(statusColor.color)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(presentation.actionTitle)
+                        .font(theme.sans.font(size: 12.5, weight: .semibold))
+                        .foregroundStyle((presentation.isAvailable ? theme.ink : theme.ink3).color)
+                    Text(presentation.scopeLabel)
+                        .font(theme.sans.font(size: 10.5))
+                        .foregroundStyle(theme.ink3.color)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Circle()
+                    .fill(presentation.isAvailable ? statusColor.color : theme.ink4.color)
+                    .frame(width: 6, height: 6)
+            }
+            .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+            .padding(.horizontal, 12)
+            .background(presentation.isAvailable ? statusColor.color.opacity(0.08) : theme.surface3.color)
+            .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
+            .overlay {
+                RoundedRectangle(cornerRadius: theme.radiusLarge)
+                    .strokeBorder(
+                        presentation.isAvailable ? statusColor.color.opacity(0.28) : theme.line2.color,
+                        lineWidth: Hairline.thickness(displayScale)
+                    )
+            }
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusLarge)
+        .disabled(!presentation.isAvailable)
+        .help(presentation.actionHelp)
+        .accessibilityLabel(presentation.actionTitle)
+        .accessibilityValue(presentation.isAvailable ? "Disponível" : "Indisponível")
+        .accessibilityHint(presentation.actionHelp)
+    }
+
+    private var statusColor: TokenColor {
+        presentation.isAvailable
+            ? TokenColor(red: 1, green: 90 / 255, blue: 31 / 255, opacity: 1)
+            : theme.ink4
+    }
+}
+
 public struct FolderSidebar: View {
     /// A largura canônica mora em `PaneLayout`, que é quem decide o que cabe.
     /// Este nome continua existindo porque o resto do shell já o usa — mas ele
@@ -31,6 +170,17 @@ public struct FolderSidebar: View {
     /// que previews e testes não precisem calcular layout.
     let width: CGFloat
 
+    /// A apresentação vem do compositor do app. O padrão preserva os pontos
+    /// de chamada existentes até que ele conecte o estado real do motor.
+    let intelligencePresentation: IntelligencePresentation
+
+    /// A janela dona da navegação decide como apresentar o painel. A barra
+    /// apenas entrega uma intenção — não conhece Foundation Models nem o motor
+    /// que vai responder.
+    let onOpenAssistant: () -> Void
+    let onCompose: (() -> Void)?
+    let onOpenAccounts: (() -> Void)?
+
     /// Qual caixa está esperando a confirmação de "Esvaziar lixeira".
     ///
     /// É o **único** destrutivo sem volta do app, e o único que pergunta antes.
@@ -41,13 +191,31 @@ public struct FolderSidebar: View {
     /// `id` e não um `Bool` por linha.
     @State private var chevronHovering: String?
 
-    public init(store: MailStore, width: CGFloat = PaneLayout.expandedSidebarWidth) {
+    public init(
+        store: MailStore,
+        width: CGFloat = PaneLayout.expandedSidebarWidth,
+        intelligencePresentation: IntelligencePresentation = .available,
+        onOpenAssistant: @escaping () -> Void = {},
+        onCompose: (() -> Void)? = nil,
+        onOpenAccounts: (() -> Void)? = nil
+    ) {
         self.store = store
         self.width = width
+        self.intelligencePresentation = intelligencePresentation
+        self.onOpenAssistant = onOpenAssistant
+        self.onCompose = onCompose
+        self.onOpenAccounts = onOpenAccounts
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if onCompose != nil {
+                composeButton
+                    .padding(.horizontal, 10)
+                    .padding(.top, 14)
+                    .padding(.bottom, 10)
+            }
+
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     // Seção "Fluxo"
@@ -87,7 +255,7 @@ public struct FolderSidebar: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 14)  // padding-top: 14 do container
+                .padding(.top, onCompose == nil ? 14 : 0)
             }
 
             // Rodapé fixo
@@ -98,26 +266,66 @@ public struct FolderSidebar: View {
             Rectangle()
                 .fill(theme.line.color)
                 .frame(height: Hairline.thickness(displayScale))
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 7) {
-                    Circle()
-                        .fill(triageDotColor(isDark: theme.isDark).color)
-                        .frame(width: 5, height: 5)
-                    Text("Triagem local ativa")
-                        .font(theme.sans.font(size: 11.5, weight: .semibold))
-                        // Peso 590 do protótipo arredondado para .semibold (600) — sem peso intermediário em SwiftUI
-                        .foregroundStyle(theme.ink2.color)
+            VStack(spacing: 8) {
+                IntelligenceFooter(
+                    presentation: intelligencePresentation,
+                    onOpenAssistant: onOpenAssistant
+                )
+                if onOpenAccounts != nil {
+                    accountsButton
                 }
-                Text("Classificação, resumo e busca semântica rodam no Mac. Nada sai daqui.")
-                    .font(theme.sans.font(size: 11))
-                    .lineSpacing(5.5)  // line-height: 1.5 × 11pt − 11pt = 16.5 − 11 = 5.5
-                    .foregroundStyle(theme.ink3.color)
             }
-            .padding(16)
+            .padding(10)
         }
+        // A barra ocupa toda a altura que o painel conceder. Sem esse limite,
+        // um rodapé com três linhas pode disputar a altura ideal com o
+        // `ScrollView` e esmagar a lista acima dele no primeiro passe.
         .frame(width: width, alignment: .leading)
+        .frame(maxHeight: .infinity, alignment: .topLeading)
         .background(theme.surface2.color)
         .hairline(theme.line, edges: .trailing)
+    }
+
+    private var composeButton: some View {
+        Button { onCompose?() } label: {
+            HStack(spacing: 9) {
+                Image(systemName: "square.and.pencil")
+                    .font(.system(size: 14, weight: .semibold))
+                Text("Escrever")
+                    .font(theme.sans.font(size: 13, weight: .semibold))
+            }
+            .foregroundStyle(theme.surface.color)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .background(theme.ink.color)
+            .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall, tint: \.surface)
+        .help("Nova mensagem (⌘N)")
+        .accessibilityLabel("Escrever uma nova mensagem")
+    }
+
+    private var accountsButton: some View {
+        Button { onOpenAccounts?() } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "shippingbox")
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(width: 20)
+                Text("Contas e providers")
+                    .font(theme.sans.font(size: 12.5, weight: .medium))
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(theme.ink4.color)
+            }
+            .foregroundStyle(theme.ink2.color)
+            .frame(maxWidth: .infinity, minHeight: 40)
+            .padding(.horizontal, 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
+        .help("Gerenciar contas, providers e sincronização")
     }
 
     private func sectionHeader(_ title: String, padding: EdgeInsets) -> some View {
@@ -130,16 +338,11 @@ public struct FolderSidebar: View {
         let active = bucket == store.bucket
         return Button { store.select(bucket: bucket) } label: {
             HStack(spacing: 9) {
-                // A Lixeira é a única caixa com símbolo, e ele não é enfeite:
-                // ela é a única cujo conteúdo se perde, e o ícone é o que a
-                // distingue à primeira vista de "Arquivado", logo acima. As
-                // outras quatro continuam só com o nome, como no protótipo.
-                if let symbol = Self.symbol(for: bucket) {
-                    Image(systemName: symbol)
-                        .font(.system(size: 11))
-                        .foregroundStyle((active ? theme.accentInk : theme.ink3).color)
-                        .accessibilityHidden(true)
-                }
+                Image(systemName: Self.navigationSymbol(for: bucket))
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle((active ? theme.accentInk : theme.ink3).color)
+                    .frame(width: 18)
+                    .accessibilityHidden(true)
                 Text(bucket.label)
                     .font(theme.sans.font(size: 13, weight: .medium))
                     .foregroundStyle((active ? theme.accentInk : theme.ink2).color)
@@ -148,8 +351,8 @@ public struct FolderSidebar: View {
                     .font(theme.mono.font(size: 10))
                     .foregroundStyle((active ? theme.accentInk : theme.ink4).color)
             }
-            .frame(height: 30)
-            .padding(.horizontal, 8)
+            .frame(height: 40)
+            .padding(.horizontal, 10)
             .contentShape(Rectangle())
             .background {
                 if active {
@@ -200,6 +403,17 @@ public struct FolderSidebar: View {
         }
     }
 
+    private static func navigationSymbol(for bucket: TriageBucket) -> String {
+        switch bucket {
+        case .today: "sun.max"
+        case .later: "clock"
+        case .all: "tray"
+        case .archived: "archivebox"
+        case .trash: "trash"
+        case .sent: "paperplane"
+        }
+    }
+
     /// O número que a caixa mostra à direita.
     ///
     /// Não lidas em toda caixa da triagem — é o que o dono pediu, e o que o
@@ -220,7 +434,6 @@ public struct FolderSidebar: View {
     private func folderRow(_ folder: MailFolder, account: Account) -> some View {
         let active = folder.id == store.selectedFolderID
         let tintColor = account.tint(isDark: theme.isDark)
-        let tintTokenColor = TokenColor(css: tintColor) ?? theme.ink4
 
         return Button { store.select(folder: folder.id) } label: {
             HStack(spacing: 7) {
@@ -260,7 +473,7 @@ public struct FolderSidebar: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 26)
+            .frame(height: 34)
             .padding(.leading, 22)
             .padding(.trailing, 8)
             .contentShape(Rectangle())
@@ -361,7 +574,7 @@ public struct FolderSidebar: View {
                     .foregroundStyle(theme.ink4.color)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 32)
+            .frame(height: 40)
             .padding(.horizontal, 8)
             .contentShape(Rectangle())
             .background {
@@ -401,13 +614,4 @@ public struct FolderSidebar: View {
         return tokenColor.color.opacity(Double(percentage) / 100.0)
     }
 
-    private func triageDotColor(isDark: Bool) -> TokenColor {
-        // Cor semântica "ok" do protótipo (semC('ok') no JavaScript do protótipo).
-        // Adapta conforme o tema para manter contraste e legibilidade.
-        let hexColor = isDark
-            ? "#89D298"  // tema escuro: oklch(0.80 0.11 150)
-            : "#317A45"  // tema claro: oklch(0.52 0.11 150)
-        return TokenColor(css: hexColor) ?? theme.ink2
-    }
 }
-

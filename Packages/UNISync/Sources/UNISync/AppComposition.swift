@@ -39,12 +39,17 @@ public struct AppComposition: Sendable {
     /// enfileira uma triagem e quem enfileira um envio escrevem na mesma
     /// tabela, e duas instâncias dariam dois avisos ao executor por engano.
     public let sendPort: MailSendPort?
+    /// A mesma porta de saída, agora também responsável por gravar a decisão
+    /// RSVP junto do `METHOD:REPLY` que ela enfileira.
+    public let inviteRSVPPort: InviteRSVPCommandPort?
     /// Quem busca o corpo que a carga inicial não trouxe. `nil` quando o banco
     /// não abriu — e nesse caso a fonte são as fixtures, que já têm corpo.
     ///
     /// Ao contrário de `commandPort`, esta porta é **rede**: é a única do app
     /// cuja espera o leitor precisa mostrar na tela.
     public let bodyPort: BodyFetching?
+    /// Recupera os bytes de um anexo recebido quando a pessoa pede para salvar.
+    public let attachmentPort: AttachmentFetching?
     /// De onde vem o catálogo real de contatos — quem já mandou, recebeu ou
     /// entrou em cópia numa mensagem sincronizada. `nil` quando o banco não
     /// abriu, pela mesma razão de `bodyPort`: sem banco não há onde
@@ -60,6 +65,10 @@ public struct AppComposition: Sendable {
     /// continua sendo um compromisso que a pessoa criou, e a tabela da v5 não
     /// tem chave estrangeira para `account` justamente por isso.
     public let agendaPort: (any AgendaPersisting)?
+    /// A agenda real do macOS. EventKit inclui calendários iCloud, Exchange e
+    /// CalDAV já configurados no sistema; adaptadores CalDAV diretos podem ser
+    /// compostos aqui quando a conta tiver uma configuração explícita.
+    public let calendarSync: (any CalendarSyncing)?
     /// De quem as imagens remotas podem carregar sozinhas — o "sempre carregar
     /// deste remetente" da faixa do leitor. `nil` quando o banco não abriu, e
     /// aí ninguém é confiável: o bloqueio da M3-8 sem memória, que é o pior
@@ -84,6 +93,30 @@ public struct AppComposition: Sendable {
     /// Quem repara que a rede voltou e acorda os dois — a sincronização e a
     /// fila. Nulo quando não há banco, como todo o resto.
     public let network: NetworkWatcher?
+    /// O ciclo serial que transforma corpos completos em resumo e compromisso
+    /// usando somente o modelo local do sistema.
+    public let intelligence: MessageIntelligenceCoordinator?
+    /// O estado que a lateral explica já na primeira janela, sem importar
+    /// FoundationModels no shell.
+    public let intelligenceAvailability: OnDeviceMessageAnalysisAvailability
+    /// Perguntas e transformações de texto usando o mesmo modelo local.
+    /// É um roteador estável: cada pedido lê as preferências atuais e usa o
+    /// modelo local ou o endpoint OpenAI-compatible escolhido. Existe também
+    /// no fallback de fixtures: não depende de banco nem rede.
+    public let textAssistant: any OnDeviceTextAssisting
+    /// Preferências não secretas da IA. Elas ficam fora do banco de e-mail
+    /// para uma troca de provedor não depender do estado de uma conta.
+    public let assistantSettings: AssistantSettingsStore
+    /// As chaves dos provedores de IA ficam no Keychain, nunca nas
+    /// preferências, no banco ou nos logs do app.
+    public let assistantCredentials: KeychainAssistantCredentialStore
+    /// Login OAuth PKCE do proxy LiteLLM e fornecedor de tokens renovados ao
+    /// roteador. A interface recebe esta mesma instância, sem acessar segredo.
+    public let liteLLMOAuth: LiteLLMOAuthCoordinator
+    /// Login de assinatura para ChatGPT/Codex e Grok/xAI. O ChatGPT é delegado
+    /// ao runtime oficial Codex deste Mac; o OAuth xAI fica separado no
+    /// Keychain do app.
+    public let assistantProviderOAuth: AssistantProviderOAuthCoordinator
     /// Falha de configuração que o app **mostra** em vez de esconder: banco
     /// que não abriu, client ID que falta. Nunca fatal.
     public let configError: SyncError?
@@ -106,6 +139,18 @@ public struct AppComposition: Sendable {
     /// tipo é o que troca um aviso de concorrência por uma garantia.
     @MainActor
     public static func make(databasePath: String? = nil, bundle: Bundle = .main) -> AppComposition {
+        let analyzer = FoundationModelsMessageAnalyzer()
+        let assistantSettings = AssistantSettingsStore()
+        let assistantCredentials = KeychainAssistantCredentialStore()
+        let liteLLMOAuth = LiteLLMOAuthCoordinator()
+        let assistantProviderOAuth = AssistantProviderOAuthCoordinator()
+        let textAssistant: any OnDeviceTextAssisting = AssistantRouter(
+            settingsStore: assistantSettings,
+            credentialStore: assistantCredentials,
+            oauthTokenProvider: liteLLMOAuth,
+            providerOAuthTokenProvider: assistantProviderOAuth
+        )
+        let intelligenceAvailability = FoundationModelsMessageAnalyzer.systemAvailability
         let banco: SyncDatabase
         do {
             banco = try SyncDatabase(path: try databasePath ?? SyncDatabase.defaultPath())
@@ -117,9 +162,18 @@ public struct AppComposition: Sendable {
             log.error("Banco não abriu: \(falha.mensagem, privacy: .public)")
             return AppComposition(
                 database: nil, director: nil,
-                source: InMemoryMailSource.fixtures, commandPort: nil, sendPort: nil, bodyPort: nil,
-                contactPort: nil, agendaPort: nil, trustPort: nil,
-                outbox: nil, outboxSignal: nil, sync: nil, network: nil, configError: falha
+                source: InMemoryMailSource.fixtures, commandPort: nil, sendPort: nil,
+                inviteRSVPPort: nil, bodyPort: nil,
+                attachmentPort: nil,
+                contactPort: nil, agendaPort: nil, calendarSync: EventKitCalendarAdapter(), trustPort: nil,
+                outbox: nil, outboxSignal: nil, sync: nil, network: nil,
+                intelligence: nil, intelligenceAvailability: intelligenceAvailability,
+                textAssistant: textAssistant,
+                assistantSettings: assistantSettings,
+                assistantCredentials: assistantCredentials,
+                liteLLMOAuth: liteLLMOAuth,
+                assistantProviderOAuth: assistantProviderOAuth,
+                configError: falha
             )
         }
 
@@ -214,6 +268,16 @@ public struct AppComposition: Sendable {
             }
         }
 
+        // Resumo e compromisso entram pelo mesmo princípio do sync: o banco é
+        // a fronteira. Uma observação barata acorda quando um corpo aparece;
+        // o coordenador processa em série e a ValueObservation da tela mostra
+        // o resultado, sem callback paralelo para a UI.
+        let intelligence = MessageIntelligenceCoordinator(
+            database: banco,
+            analyzer: analyzer
+        )
+        Task { await intelligence.start() }
+
         // Tem conta? Então o banco é a fonte. Não tem? Fixtures — e é isso que
         // mantém os ensaios e as capturas do Marco 1 idênticos.
         //
@@ -234,17 +298,29 @@ public struct AppComposition: Sendable {
             source: DatabaseMailSource(database: banco, emptyFallback: .fixtures),
             commandPort: porta,
             sendPort: porta,
+            inviteRSVPPort: porta,
             bodyPort: DatabaseBodyFetcher(
                 database: banco, secrets: cofre, auth: auth,
                 session: .shared, eventLoopGroup: grupo
             ),
+            attachmentPort: DatabaseAttachmentFetcher(
+                database: banco, auth: auth, session: .shared
+            ),
             contactPort: DatabaseContactDirectory(database: banco),
             agendaPort: DatabaseAgendaStore(database: banco),
+            calendarSync: EventKitCalendarAdapter(),
             trustPort: DatabaseTrustedSenderStore(database: banco),
             outbox: fila,
             outboxSignal: sinal,
             sync: sincronizacao,
             network: rede,
+            intelligence: intelligence,
+            intelligenceAvailability: intelligenceAvailability,
+            textAssistant: textAssistant,
+            assistantSettings: assistantSettings,
+            assistantCredentials: assistantCredentials,
+            liteLLMOAuth: liteLLMOAuth,
+            assistantProviderOAuth: assistantProviderOAuth,
             configError: erro
         )
     }

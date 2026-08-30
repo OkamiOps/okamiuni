@@ -60,6 +60,9 @@ public struct ComposerWindow: View {
 
     let store: MailStore
     let mode: Mode
+    /// Injetado pela composição do app. A superfície do composer não escolhe
+    /// nem importa um motor de IA por conta própria.
+    let intelligence: ComposerIntelligenceGenerator?
 
     @State private var to: [Contact] = []
     @State private var cc: [Contact] = []
@@ -73,10 +76,15 @@ public struct ComposerWindow: View {
     @State private var draft = AttributedString("")
     @State private var selection = AttributedTextSelection()
     @State private var fromAccountID: String?
-    @State private var attachments: [String] = []
+    @State private var attachments: [OutgoingAttachment] = []
+    @State private var attachmentError: String?
     @State private var savedStamp: String?
     @State private var historyOpen = true
     @State private var seeded = false
+    /// A assinatura rica não pertence ao `NSTextStorage` do corpo. Mantê-la
+    /// como bloco gerenciado preserva tabela, imagens CID e hyperlinks na
+    /// tela, sem transformar o HTML em dezenas de linhas vazias.
+    @State private var signatureInserted = false
 
     /// Só para verificação: abre um painel da barra sem clique, para dar para
     /// provar fora da tela que as amostras aparecem inteiras.
@@ -102,6 +110,9 @@ public struct ComposerWindow: View {
     /// inteiro só escrevendo no console. O que corre aqui é a **ação do
     /// botão**, não uma cópia dela.
     let debugSend: Bool
+    /// Porta injetável: o app usa o seletor nativo, e o harness pode escolher
+    /// arquivos sem abrir painel nem controlar mouse/teclado.
+    let attachmentSelector: (any AttachmentSelecting)?
 
     /// Qual campo de destinatário a porta do harness abre.
     enum RecipientSlot: Sendable { case to, cc, bcc }
@@ -115,13 +126,19 @@ public struct ComposerWindow: View {
         var query: String?
     }
 
-    public init(store: MailStore, mode: Mode) {
+    public init(
+        store: MailStore,
+        mode: Mode,
+        intelligence: ComposerIntelligenceGenerator? = nil
+    ) {
         self.store = store
         self.mode = mode
+        self.intelligence = intelligence
         self.debugOpenPanel = nil
         self.debugSuggestion = nil
         self.debugInsertSignature = false
         self.debugSend = false
+        self.attachmentSelector = NativeAttachmentSelector()
     }
 
     init(
@@ -130,14 +147,18 @@ public struct ComposerWindow: View {
         debugOpenPanel: ComposerToolbar.Panel? = nil,
         debugSuggestion: DebugSuggestion? = nil,
         debugInsertSignature: Bool = false,
-        debugSend: Bool = false
+        debugSend: Bool = false,
+        attachmentSelector: (any AttachmentSelecting)? = nil,
+        intelligence: ComposerIntelligenceGenerator? = nil
     ) {
         self.store = store
         self.mode = mode
+        self.intelligence = intelligence
         self.debugOpenPanel = debugOpenPanel
         self.debugSuggestion = debugSuggestion
         self.debugInsertSignature = debugInsertSignature
         self.debugSend = debugSend
+        self.attachmentSelector = attachmentSelector
         // As linhas Cc e Cco nascem fechadas; para desenhar a lista de uma
         // delas o harness precisa da linha aberta desde o primeiro passe.
         _ccOpen = State(initialValue: debugSuggestion?.slot == .cc)
@@ -193,6 +214,17 @@ public struct ComposerWindow: View {
         return store.messages.first { $0.id == id }
     }
 
+    /// O modelo recebe o fio inteiro quando ele existe. A mensagem atual
+    /// continua sendo a âncora visual, mas uma resposta útil precisa enxergar
+    /// perguntas, decisões e compromissos que vieram antes dela.
+    private var intelligenceSourceContext: OnDeviceAssistantMailContext? {
+        guard let repliedMessage else { return nil }
+        if let conversation = store.conversation(of: repliedMessage.id) {
+            return OnDeviceAssistantMailContext(conversation: conversation)
+        }
+        return OnDeviceAssistantMailContext(message: repliedMessage)
+    }
+
     /// A mensagem a que esta janela **responde** — não a que ela encaminha.
     ///
     /// A distinção é do RFC 5322 §3.6.4 e importa na caixa de quem recebe:
@@ -223,34 +255,43 @@ public struct ComposerWindow: View {
     // MARK: - Assinatura
 
     /// A assinatura da conta que está enviando. Trocar a conta na linha "De"
-    /// troca esta — é o que a legenda do protótipo promete.
-    private var signature: String { account?.signature ?? "" }
+    /// troca o bloco inteiro — HTML, imagens e alternativa textual — sem
+    /// reescrever o corpo que a pessoa está digitando.
+    private var signature: EmailSignature {
+        account?.emailSignature ?? EmailSignature(legacyText: "")
+    }
+
+    private var hasSignature: Bool {
+        signature.html != nil
+            || !signature.plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     private var canInsertSignature: Bool {
-        Signature.canInsert(signature, into: plainDraft)
+        hasSignature && !signatureInserted
     }
 
     /// A legenda da linha "De". Ela dizia sempre a mesma frase; agora diz de
     /// quem é a assinatura que o botão vai inserir, porque a partir daqui isso
     /// é um fato verificável e não uma promessa.
     private var signatureNote: String {
-        guard !signature.isEmpty else { return "esta conta não tem assinatura" }
-        let firstLine = signature.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? ""
+        guard hasSignature else { return "esta conta não tem assinatura" }
+        let firstLine = signature.plainText
+            .split(separator: "\n", maxSplits: 1)
+            .first
+            .map(String.init) ?? "HTML configurado"
         return "assinatura: \(firstLine)"
     }
 
     /// Protótipo: não tem este botão — é a parte pedida pelo dono do projeto,
     /// registrada como divergência no relatório da tarefa.
     ///
-    /// Escrever no corpo passa por `transform(updating:)` como qualquer outra
-    /// escrita: sem isso a seleção da pessoa se perde no meio da inserção. Ver
-    /// a nota de `ComposerEditor`.
+    /// O HTML não é convertido em `AttributedString`: TextKit não representa
+    /// fielmente tabelas e recursos CID importados. O botão inclui um bloco
+    /// renderizado abaixo do corpo e a fronteira de envio recebe esta decisão
+    /// explicitamente.
     private func insertSignature() {
-        let style = Signature.style(endingIn: draft)
-        draft.transform(updating: &selection) { text in
-            Signature.insert(signature, into: &text, style: style)
-            ComposerEditor.decorate(&text, theme: theme)
-        }
+        guard canInsertSignature else { return }
+        signatureInserted = true
     }
 
     public var body: some View {
@@ -276,6 +317,20 @@ public struct ComposerWindow: View {
             ComposerToolbar(
                 reading: ComposerEditor.reading(of: draft, selection: selection),
                 openPanel: debugOpenPanel,
+                intelligence: intelligence,
+                intelligenceSourceMessage: repliedMessage,
+                intelligenceSourceContext: intelligenceSourceContext,
+                intelligenceContext: ComposerEditor.intelligenceContext(
+                    of: draft, selection: selection
+                ),
+                applyIntelligence: { proposal in
+                    ComposerEditor.apply(
+                        proposal,
+                        on: &draft,
+                        selection: &selection,
+                        theme: theme
+                    )
+                },
                 perform: { command in
                     ComposerEditor.perform(command, on: &draft, selection: &selection, theme: theme)
                 }
@@ -546,6 +601,8 @@ public struct ComposerWindow: View {
             VStack(alignment: .leading, spacing: 0) {
                 editor(minHeight: 200, placeholder: "Escreva a resposta… selecione o texto para formatar")
 
+                signatureBlock
+
                 VStack(alignment: .leading, spacing: 12) {
                     ChromeButton(
                         appearance: .outlined, height: 26, horizontalPadding: 11,
@@ -573,8 +630,24 @@ public struct ComposerWindow: View {
 
     /// 06: o editor ocupa toda a altura livre.
     private var newBody: some View {
-        editor(minHeight: 0, placeholder: "Escreva a mensagem…")
-            .frame(maxHeight: .infinity)
+        VStack(alignment: .leading, spacing: 0) {
+            editor(minHeight: 0, placeholder: "Escreva a mensagem…")
+                .frame(maxHeight: .infinity)
+            signatureBlock
+        }
+        .frame(maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var signatureBlock: some View {
+        if signatureInserted, hasSignature {
+            ComposerSignatureBlock(signature: signature) {
+                signatureInserted = false
+            }
+            .padding(.horizontal, 22)
+            .padding(.bottom, 16)
+            .transition(.opacity.combined(with: .move(edge: .bottom)))
+        }
     }
 
     /// Protótipo: `padding: 20px 22px; font-size: 16px; line-height: 1.7`,
@@ -658,9 +731,9 @@ public struct ComposerWindow: View {
 
     private var attachmentRow: some View {
         HStack(spacing: 6) {
-            ForEach(attachments, id: \.self) { name in
-                AttachmentChip(name: name, size: sizeLabel(for: name)) {
-                    attachments.removeAll { $0 == name }
+            ForEach(attachments) { attachment in
+                AttachmentChip(name: attachment.filename, size: attachment.metadata.sizeLabel) {
+                    attachments.removeAll { $0.id == attachment.id }
                 }
             }
             Spacer(minLength: 0)
@@ -668,10 +741,6 @@ public struct ComposerWindow: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 10)
         .hairline(theme.line2, edges: .top)
-    }
-
-    private func sizeLabel(for name: String) -> String {
-        Fixtures.attachments.first { $0.name == name }?.size ?? ""
     }
 
     private var footer: some View {
@@ -724,25 +793,48 @@ public struct ComposerWindow: View {
         .padding(.bottom, 14)
         .background(theme.surface2.color)
         .hairline(theme.line2, edges: .top)
+        .overlay(alignment: .topLeading) {
+            if let attachmentError {
+                Text(attachmentError)
+                    .font(theme.sans.font(size: 11))
+                    .foregroundStyle(theme.accent.color)
+                    .padding(.horizontal, 18)
+                    .padding(.top, 4)
+            }
+        }
     }
 
     // MARK: - Ações
 
     private func addAttachment() {
-        guard let next = Fixtures.attachments.first(where: { !attachments.contains($0.name) }) else { return }
-        attachments.append(next.name)
+        guard let attachmentSelector else {
+            attachmentError = "Anexar indisponível nesta janela."
+            return
+        }
+        Task {
+            do {
+                let selected = try await attachmentSelector.selectAttachments()
+                let ids = Set(attachments.map(\.id))
+                attachments += selected.filter { !ids.contains($0.id) }
+                attachmentError = nil
+            } catch let error as AttachmentError {
+                attachmentError = error.localizedDescription
+            } catch {
+                attachmentError = "Não foi possível ler o arquivo escolhido."
+            }
+        }
     }
 
     /// O motivo, quando o botão está apagado. Controle mudo é defeito: ou ele
     /// age, ou diz por que não.
     private var signatureHelp: String {
-        if signature.isEmpty {
+        if !hasSignature {
             return "Inserir assinatura — indisponível: a conta \(account?.host ?? "") não tem assinatura"
         }
         if !canInsertSignature {
-            return "Inserir assinatura — a assinatura desta conta já está no fim do rascunho"
+            return "Inserir assinatura — a assinatura desta conta já está incluída"
         }
-        return "Inserir a assinatura de \(account?.host ?? "") no fim do rascunho"
+        return "Inserir a assinatura de \(account?.host ?? "") abaixo da mensagem"
     }
 
     private func saveDraft() {
@@ -785,13 +877,21 @@ public struct ComposerWindow: View {
             return
         }
 
+        let outgoingContent = ComposerOutgoing.content(
+            draft,
+            theme: theme,
+            signature: account.emailSignature,
+            signatureIsInserted: signatureInserted && hasSignature
+        )
         let mensagem = ComposerOutgoing.message(
             accountID: account.id,
             from: Contact(name: account.displayName, address: account.address),
             to: to, cc: cc, bcc: bcc,
             subject: subject,
-            plainText: plainDraft,
-            html: ComposerOutgoing.html(draft, theme: theme),
+            plainText: outgoingContent.plainText,
+            html: outgoingContent.html,
+            attachments: attachments,
+            inlineResources: outgoingContent.inlineResources,
             // A mensagem respondida, quando há uma: é dela que saem
             // `In-Reply-To` e `References` — a dívida da M3-5, paga em
             // `ComposerOutgoing.conversa`.
@@ -839,6 +939,87 @@ private struct MiniToggle: View {
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall)
+    }
+}
+
+/// A assinatura aparece como o mesmo documento HTML que foi conferido em
+/// Configurações, mas continua separada da área editável. Isso evita que uma
+/// tabela importada vire espaços no `NSTextView` e deixa claro que o botão de
+/// remover afeta só a assinatura, não o texto da mensagem.
+struct ComposerSignatureBlock: View {
+    @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
+
+    let signature: EmailSignature
+    let remove: () -> Void
+
+    @State private var measuredHeight: CGFloat = 150
+
+    private var previewDocument: String? {
+        SignatureRichDocument.previewDocument(
+            html: signature.html,
+            resources: signature.inlineResources,
+            theme: theme,
+            bodyPadding: 0
+        )
+    }
+
+    /// Uma assinatura pode ser grande, mas não pode engolir o composer
+    /// inteiro. As assinaturas usuais crescem até a altura real; acima desse
+    /// limite o bloco fica contido e o corpo ainda mantém área de escrita.
+    private var previewHeight: CGFloat {
+        min(max(measuredHeight, 44), 380)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text("Assinatura incluída")
+                    .capsLabel(size: 9.5)
+                Spacer(minLength: 8)
+                Button(action: remove) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(theme.ink3.color)
+                        .frame(width: 24, height: 24)
+                        .background(theme.btn.color)
+                        .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: theme.radiusSmall)
+                                .strokeBorder(
+                                    theme.btnLine.color,
+                                    lineWidth: Hairline.thickness(displayScale)
+                                )
+                        }
+                }
+                .buttonStyle(.plain)
+                .focusRing(cornerRadius: theme.radiusSmall)
+                .help("Remover assinatura desta mensagem")
+                .accessibilityLabel("Remover assinatura")
+            }
+
+            if let previewDocument {
+                SignaturePreviewWebView(
+                    html: previewDocument,
+                    measuredHeight: $measuredHeight
+                )
+                .frame(height: previewHeight)
+                .frame(maxWidth: 720, alignment: .leading)
+                .clipped()
+                .accessibilityLabel("Prévia da assinatura")
+            } else {
+                Text(signature.plainText)
+                    .font(theme.sans.font(size: 13))
+                    .foregroundStyle(theme.ink.color)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 720, alignment: .leading)
+            }
+        }
+        .padding(.top, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .hairline(theme.line2, edges: .top)
+        .accessibilityIdentifier("composer-signature-block")
     }
 }
 

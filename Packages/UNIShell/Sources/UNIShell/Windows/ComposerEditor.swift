@@ -43,6 +43,78 @@ enum ComposerEditor {
         )
     }
 
+    // MARK: - Inteligência de escrita
+
+    /// Congela a origem que o gerador pode ler. Uma seleção vale somente se
+    /// for um intervalo contínuo e não vazio — é o tipo de seleção que o
+    /// `NSTextView` do composer produz. Sem uma seleção assim, o alvo é o
+    /// rascunho inteiro.
+    static func intelligenceContext(
+        of text: AttributedString,
+        selection: AttributedTextSelection
+    ) -> ComposerIntelligenceContext? {
+        let selected = ranges(selection, in: text).filter { !$0.isEmpty }
+        if selected.count == 1, let range = selected.first {
+            let source = String(text[range].characters)
+            return ComposerIntelligenceContext(target: .selection, source: source)
+        }
+
+        return ComposerIntelligenceContext(
+            target: .draft,
+            source: String(text.characters)
+        )
+    }
+
+    /// Aplica uma prévia apenas se ela ainda aponta para a mesma origem. Isso
+    /// impede que uma resposta assíncrona troque o texto que a pessoa acabou
+    /// de editar enquanto o painel estava aberto.
+    @discardableResult
+    static func apply(
+        _ proposal: ComposerIntelligenceProposal,
+        on text: inout AttributedString,
+        selection: inout AttributedTextSelection,
+        theme: Theme
+    ) -> ComposerIntelligenceApplyResult {
+        guard !proposal.result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .emptyResult
+        }
+        guard let context = intelligenceContext(of: text, selection: selection),
+              context.target == proposal.request.target,
+              context.source == proposal.request.source
+        else {
+            return .sourceChanged
+        }
+        let selectedRange = ranges(selection, in: text).first(where: { !$0.isEmpty })
+        if proposal.request.target == .selection, selectedRange == nil {
+            return .sourceChanged
+        }
+
+        text.transform(updating: &selection) { body in
+            let range: Range<AttributedString.Index>
+            switch proposal.request.target {
+            case .selection:
+                // A faixa foi colhida antes da transação para não sobrepor o
+                // acesso exclusivo à seleção que a própria transação mantém.
+                guard let selectedRange else { return }
+                range = selectedRange
+            case .draft:
+                range = body.startIndex..<body.endIndex
+            }
+
+            var replacement = AttributedString(proposal.result)
+            let inherited = body[range].runs.first?.attributes ?? AttributeContainer()
+            let style = inherited[BodyStyleAttribute.self] ?? .default
+            replacement[BodyStyleAttribute.self] = style
+            if !replacement.characters.isEmpty {
+                replacement[replacement.startIndex..<replacement.endIndex]
+                    .mergeAttributes(inherited, mergePolicy: .keepNew)
+            }
+            body.replaceSubrange(range, with: replacement)
+            decorate(&body, theme: theme)
+        }
+        return .applied
+    }
+
     // MARK: - Escrita
 
     /// **Toda** escrita passa por `transform(updating:)`, inclusive a que só

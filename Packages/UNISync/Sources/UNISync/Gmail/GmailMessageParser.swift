@@ -39,6 +39,7 @@ public enum GmailMessageParser {
         }
         struct Part: Decodable {
             let mimeType: String?
+            let filename: String?
             let headers: [Header]?
             let body: Body?
             let parts: [Part]?
@@ -118,7 +119,8 @@ public enum GmailMessageParser {
             html: corpo.html,
             calendarICS: corpo.calendar,
             rfcMessageID: ThreadKey.ids(inHeader: cabecalho("Message-ID") ?? "").first,
-            references: corrente.isEmpty ? respondendo : corrente
+            references: corrente.isEmpty ? respondendo : corrente,
+            attachments: attachments(in: payload)
         )
     }
 
@@ -211,6 +213,38 @@ public enum GmailMessageParser {
         }
         for filha in part.parts ?? [] { achadas += imagensInline(in: filha) }
         return achadas
+    }
+
+    /// Partes normais de anexo. Imagens com `Content-ID` são conteúdo do HTML
+    /// e continuam no fluxo `GmailInlineAttachments`; expô-las aqui duplicaria
+    /// o logo da mensagem como download.
+    private static func attachments(in part: Wire.Part) -> [GmailMessage.Attachment] {
+        let mime = part.mimeType?.lowercased() ?? "application/octet-stream"
+        let filename = part.filename?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let disposition = part.headers?.first {
+            $0.name.lowercased() == "content-disposition"
+        }?.value.lowercased() ?? ""
+        let contentID = part.headers?.contains { $0.name.lowercased() == "content-id" } == true
+        let isAttachment = !filename.isEmpty || disposition.contains("attachment")
+        var found: [GmailMessage.Attachment] = []
+        if isAttachment, !contentID {
+            let declaredSize = max(0, part.body?.size ?? 0)
+            let inline: Data? = {
+                guard declaredSize <= OutgoingAttachment.maximumByteCount,
+                      let encoded = part.body?.data else { return nil }
+                return MimeBody.base64(encoded.replacingOccurrences(of: "-", with: "+")
+                    .replacingOccurrences(of: "_", with: "/"))
+            }()
+            found.append(.init(
+                attachmentID: part.body?.attachmentId,
+                filename: filename.isEmpty ? "anexo" : filename,
+                mimeType: mime,
+                byteCount: declaredSize,
+                inlineData: inline
+            ))
+        }
+        for child in part.parts ?? [] { found += attachments(in: child) }
+        return found
     }
 
     /// Uma parte já decodificada, com o `Content-Type` dela ao lado.

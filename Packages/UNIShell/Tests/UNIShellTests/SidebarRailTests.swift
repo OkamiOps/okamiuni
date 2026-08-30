@@ -12,7 +12,7 @@ struct SidebarRailTests {
     @Test("a trilha tem a largura do design")
     @MainActor
     func railWidth() {
-        #expect(SidebarRail.width == 62)
+        #expect(SidebarRail.width == 72)
     }
 
     @Test("as abreviações das quatro pastas estão na ordem certa", arguments: [
@@ -72,8 +72,8 @@ struct SidebarRailTests {
         #expect(account.host != account.id)
     }
 
-    /// A barra expandida tem 236pt e mostra o nome inteiro. O encurtamento é
-    /// só da trilha de 62 — se o modelo guardasse a versão curta, este teste
+    /// A barra expandida tem 248pt e mostra o nome inteiro. O encurtamento é
+    /// só da trilha de 72 — se o modelo guardasse a versão curta, este teste
     /// não teria como distinguir os dois lugares.
     @Test("a conta entrega o nome inteiro; encurtar é escolha de quem desenha")
     @MainActor
@@ -83,5 +83,37 @@ struct SidebarRailTests {
         let hosts = store.accounts.map(\.host)
         #expect(hosts.contains("hostinger"))
         #expect(hosts.contains("host") == false)
+    }
+
+    @Test("a trilha fixa chama a mesma intenção de perguntar")
+    @MainActor
+    func railAssistantCallsItsClosure() async {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        var opens = 0
+
+        CliqueDeEnsaio.em(
+            SidebarRail(store: store, onOpenAssistant: { opens += 1 }),
+            size: CGSize(width: SidebarRail.width, height: 620),
+            aY: 580,
+            x: SidebarRail.width / 2
+        )
+
+        #expect(opens == 1)
+    }
+
+    @Test("a trilha renderiza o botão de perguntas no rodapé")
+    @MainActor
+    func railRendersAssistantAction() async throws {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+
+        let rep = try #require(Render.snapshot(
+            SidebarRail(store: store),
+            named: "m5-assistant-sidebar-rail",
+            size: CGSize(width: SidebarRail.width, height: 620),
+            theme: .tinta
+        ))
+        #expect(rep.pixelsHigh == 620)
     }
 }

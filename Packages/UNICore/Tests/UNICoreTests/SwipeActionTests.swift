@@ -10,19 +10,22 @@ struct SwipeActionTests {
 
     private func message(
         id: String = "m1",
+        accountID: String = "zoho",
         bucket: TriageBucket = .today,
         isRead: Bool = false,
         isFlagged: Bool = false,
         name: String = "Marina Duarte",
-        address: String = "marina@clientepremium.com"
+        address: String = "marina@clientepremium.com",
+        folderIDs: [String] = []
     ) -> Message {
         Message(
-            id: id, accountID: "zoho",
+            id: id, accountID: accountID,
             from: Contact(name: name, address: address),
             receivedAt: Date(timeIntervalSince1970: 0),
             subject: "Assunto", snippet: "Trecho", body: ["Corpo"],
             tags: [], bucket: bucket, isRead: isRead,
-            summary: nil, detectedEvent: nil, isFlagged: isFlagged
+            summary: nil, detectedEvent: nil, isFlagged: isFlagged,
+            folderIDs: folderIDs
         )
     }
 
@@ -36,6 +39,192 @@ struct SwipeActionTests {
         #expect(SwipeAction.allCases.contains(.toggleFlag))
         #expect(SwipeConfiguration.default.leading == [.archive, .toggleRead])
         #expect(SwipeConfiguration.default.trailing == [.later, .today])
+    }
+
+    @Test("Mover para persistido escolhe a operação real de cada protocolo")
+    func moveDestinationUsesProtocolCorrectly() throws {
+        let inbox = MailFolder(
+            id: "zoho/INBOX", accountID: "zoho", serverName: "INBOX",
+            displayName: "Entrada", role: .inbox
+        )
+        let label = MailFolder(
+            id: "zoho/Label_42", accountID: "zoho", serverName: "Label_42",
+            displayName: "Clientes", role: .other
+        )
+        let gmail = try #require(SwipeMoveDestination(gmailLabel: label, removing: inbox))
+        let gmailMessage = message(folderIDs: [inbox.id, "zoho/Label_VIP"])
+        let configuration = SwipeConfiguration(
+            leading: [.moveToDestination], trailing: [], leadingDestination: gmail
+        )
+
+        #expect(SwipeAction.moveToDestination.command(for: gmailMessage, destination: gmail)
+            == .moveGmailMessage(messageID: gmailMessage.id, from: inbox, to: label))
+        #expect(!SwipeAction.moveToDestination.isNoOp(for: gmailMessage, destination: gmail))
+        #expect(SwipeGesture.release(
+            translation: CGSize(width: 300, height: 0), configuration: configuration,
+            message: gmailMessage
+        ) == .fire(.moveToDestination, .leading))
+
+        var machine = SwipeGestureMachine()
+        let context = SwipeContext(configuration: configuration, message: gmailMessage)
+        _ = machine.dragChanged(
+            translation: CGSize(width: 300, height: 0), startLocation: .zero, context
+        )
+        let outcome = machine.dragEnded(
+            translation: CGSize(width: 300, height: 0), startLocation: .zero, context
+        )
+        #expect(outcome.fired == .moveToDestination)
+        #expect(outcome.firedSide == .leading)
+
+        let source = MailFolder(
+            id: "zoho/INBOX.Financeiro", accountID: "zoho", serverName: "INBOX.Financeiro",
+            displayName: "Financeiro", role: .other
+        )
+        let destination = MailFolder(
+            id: "zoho/INBOX.Clientes", accountID: "zoho", serverName: "INBOX.Clientes",
+            displayName: "Clientes", role: .other
+        )
+        let imap = SwipeMoveDestination(imapFolder: destination)
+        let imapMessage = message(folderIDs: [source.id])
+        #expect(SwipeAction.moveToDestination.command(for: imapMessage, destination: imap)
+            == .placeMessage(messageID: imapMessage.id, folder: destination, mode: .move))
+    }
+
+    @Test("O destino torna a ação de gesto persistível sem alterar preferências antigas")
+    @MainActor
+    func moveDestinationPersistsAlongsideLegacyArrays() throws {
+        let name = "okamiuni.swipe.test.destination"
+        let suite = try #require(UserDefaults(suiteName: name))
+        suite.removePersistentDomain(forName: name)
+        // Uma configuração já existente, gravada antes desta funcionalidade.
+        suite.set([SwipeAction.archive.rawValue], forKey: "okamiuni.swipe.leading")
+
+        let inbox = MailFolder(
+            id: "zoho/INBOX", accountID: "zoho", serverName: "INBOX",
+            displayName: "Entrada", role: .inbox
+        )
+        let label = MailFolder(
+            id: "zoho/Label_42", accountID: "zoho", serverName: "Label_42",
+            displayName: "Clientes", role: .other
+        )
+        let destination = try #require(SwipeMoveDestination(gmailLabel: label, removing: inbox))
+
+        let first = SwipeSettingsStore(defaults: suite)
+        #expect(first.configuration.leading == [.archive])
+        first.setMoveDestination(destination, on: .trailing)
+
+        let reopened = SwipeSettingsStore(defaults: suite)
+        #expect(reopened.configuration.leading == [.archive])
+        #expect(reopened.configuration.trailing.contains(.moveToDestination))
+        #expect(reopened.configuration.destination(on: .trailing) == destination)
+
+        reopened.setActions([.today], on: .trailing)
+        #expect(reopened.configuration.destination(on: .trailing) == nil)
+
+        suite.removePersistentDomain(forName: name)
+    }
+
+    @Test("Mover escolhe um destino por conta sem vazar para a outra")
+    @MainActor
+    func moveDestinationsAreScopedToAccounts() throws {
+        let name = "okamiuni.swipe.test.destinations-by-account"
+        let suite = try #require(UserDefaults(suiteName: name))
+        suite.removePersistentDomain(forName: name)
+
+        let gmailInbox = MailFolder(
+            id: "a/INBOX", accountID: "a", serverName: "INBOX",
+            displayName: "Entrada", role: .inbox
+        )
+        let gmailLabel = MailFolder(
+            id: "a/Projetos", accountID: "a", serverName: "Projetos",
+            displayName: "Projetos", role: .other
+        )
+        let a = try #require(SwipeMoveDestination(
+            gmailLabel: gmailLabel, removing: gmailInbox, accountLabel: "trabalho@okamiops.com"
+        ))
+        let imapFolder = MailFolder(
+            id: "b/Clientes", accountID: "b", serverName: "Clientes",
+            displayName: "Clientes", role: .other
+        )
+        let b = SwipeMoveDestination(imapFolder: imapFolder, accountLabel: "pessoal@example.com")
+
+        let store = SwipeSettingsStore(defaults: suite)
+        #expect(store.setMoveDestination(a, on: .leading, for: "a"))
+        #expect(store.setMoveDestination(b, on: .leading, for: "b"))
+        #expect(!store.setMoveDestination(a, on: .leading, for: "b"))
+
+        let aMessage = message(id: "a1", accountID: "a", folderIDs: [gmailInbox.id])
+        let bMessage = message(id: "b1", accountID: "b", folderIDs: ["b/INBOX"])
+        let otherMessage = message(id: "c1", accountID: "c", folderIDs: ["c/INBOX"])
+        let configuration = store.configuration
+
+        #expect(configuration.destination(on: .leading, for: "a") == a)
+        #expect(configuration.destination(on: .leading, for: "b") == b)
+        #expect(configuration.destination(on: .leading, for: "c") == nil)
+        #expect(configuration.destination(on: .leading) == nil)
+        #expect(a.settingsLabel == "Projetos · trabalho@okamiops.com")
+        #expect(SwipeAction.moveToDestination.command(
+            for: aMessage, destination: configuration.destination(on: .leading, for: aMessage.accountID)
+        ) == .moveGmailMessage(messageID: "a1", from: gmailInbox, to: gmailLabel))
+        #expect(SwipeAction.moveToDestination.command(
+            for: bMessage, destination: configuration.destination(on: .leading, for: bMessage.accountID)
+        ) == .placeMessage(messageID: "b1", folder: imapFolder, mode: .move))
+        #expect(SwipeAction.moveToDestination.command(
+            for: otherMessage, destination: configuration.destination(on: .leading, for: otherMessage.accountID)
+        ) == nil)
+
+        let reopened = SwipeSettingsStore(defaults: suite)
+        #expect(reopened.configuration.destinations(on: .leading) == ["a": a, "b": b])
+        suite.removePersistentDomain(forName: name)
+    }
+
+    @Test("Destino global legado migra somente para a conta que ele contém")
+    @MainActor
+    func legacyGlobalDestinationMigratesToItsOwningAccount() throws {
+        let name = "okamiuni.swipe.test.destination-legacy-migration"
+        let suite = try #require(UserDefaults(suiteName: name))
+        suite.removePersistentDomain(forName: name)
+
+        let folder = MailFolder(
+            id: "a/Projetos", accountID: "a", serverName: "Projetos",
+            displayName: "Projetos", role: .other
+        )
+        let legacy = SwipeMoveDestination(imapFolder: folder)
+        suite.set(
+            [SwipeAction.archive.rawValue, SwipeAction.moveToDestination.rawValue],
+            forKey: "okamiuni.swipe.leading"
+        )
+        suite.set(
+            try JSONEncoder().encode(legacy),
+            forKey: "okamiuni.swipe.leading.destination"
+        )
+
+        let store = SwipeSettingsStore(defaults: suite)
+        #expect(store.configuration.destination(on: .leading, for: "a") == legacy)
+        #expect(store.configuration.destination(on: .leading, for: "b") == nil)
+        #expect(store.configuration.leading == [.archive, .moveToDestination])
+        #expect(suite.data(forKey: "okamiuni.swipe.leading.destination") == nil)
+        #expect(suite.data(forKey: "okamiuni.swipe.leading.destinations") != nil)
+        suite.removePersistentDomain(forName: name)
+    }
+
+    @Test("Destino de gesto não é salvo silenciosamente quando o lado está cheio")
+    @MainActor
+    func moveDestinationRequiresAvailableSlot() throws {
+        let name = "okamiuni.swipe.test.destination-full"
+        let suite = try #require(UserDefaults(suiteName: name))
+        suite.removePersistentDomain(forName: name)
+        let folder = MailFolder(
+            id: "zoho/INBOX.Clientes", accountID: "zoho", serverName: "INBOX.Clientes",
+            displayName: "Clientes", role: .other
+        )
+        let store = SwipeSettingsStore(defaults: suite)
+        store.setActions([.archive, .toggleRead, .later], on: .leading)
+
+        #expect(!store.setMoveDestination(SwipeMoveDestination(imapFolder: folder), on: .leading))
+        #expect(store.configuration.leading == [.archive, .toggleRead, .later])
+        #expect(store.configuration.destination(on: .leading) == nil)
+        suite.removePersistentDomain(forName: name)
     }
 
     /// O arraste apaga **para a Lixeira**, e nunca de vez: jogar fora sem volta

@@ -75,7 +75,10 @@ public struct SwipeContext: Sendable, Hashable {
     func actions(on side: SwipeSide) -> [SwipeAction] { configuration.actions(on: side) }
 
     func armed(on side: SwipeSide) -> SwipeAction? {
-        actions(on: side).first { !$0.isNoOp(for: message) }
+        let destination = configuration.destination(on: side, for: message.accountID)
+        return actions(on: side).first {
+            !$0.isNoOp(for: message, destination: destination)
+        }
     }
 
     func panelWidth(on side: SwipeSide) -> CGFloat {
@@ -98,6 +101,10 @@ public struct SwipeOutcome: Sendable, Hashable {
     /// A ação que o arraste longo disparou. `nil` na esmagadora maioria dos
     /// eventos — e **nunca** mais de uma por gesto.
     public var fired: SwipeAction?
+    /// O lado é necessário quando a mesma ação configurável existe nos dois
+    /// lados com destinos diferentes. `SwipeAction` continua sendo a unidade
+    /// do gesto; este campo só identifica qual configuração a resolveu.
+    public var firedSide: SwipeSide?
     /// A linha passou a ser a aberta: escreva o id dela em `openRowID`.
     public var claimsOpenRow: Bool
     /// A linha deixou de ser a aberta: limpe `openRowID` se ele for dela.
@@ -114,6 +121,7 @@ public struct SwipeOutcome: Sendable, Hashable {
 
     public init(
         fired: SwipeAction? = nil,
+        firedSide: SwipeSide? = nil,
         claimsOpenRow: Bool = false,
         releasesOpenRow: Bool = false,
         settleSeal: Int? = nil,
@@ -121,6 +129,7 @@ public struct SwipeOutcome: Sendable, Hashable {
         animates: Bool = false
     ) {
         self.fired = fired
+        self.firedSide = firedSide
         self.claimsOpenRow = claimsOpenRow
         self.releasesOpenRow = releasesOpenRow
         self.settleSeal = settleSeal
@@ -248,6 +257,7 @@ public struct SwipeGestureMachine: Sendable, Hashable {
         if let armed = context.armed(on: side), magnitude >= context.commitThreshold(on: side) {
             var outcome = shut()
             outcome.fired = armed
+            outcome.firedSide = side
             return outcome
         }
 

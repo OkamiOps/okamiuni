@@ -27,6 +27,19 @@ public enum MailOperation: Codable, Sendable, Equatable {
     /// dar a `TriageBucket` uma conformância `Codable` que ninguém mais no
     /// `UNICore` pede, só para este arquivo poder guardá-lo.
     case move(bucket: String, messageIDs: [String])
+    /// Pasta/etiqueta escolhida no menu de contexto. `folderID` mantém a
+    /// identidade local; `serverName` é o valor opaco que o provedor recebe.
+    /// `mode` é o `rawValue` de `FolderPlacement` para a fila continuar
+    /// autossuficiente ao reabrir o app.
+    case placeInFolder(
+        folderID: String, serverName: String, mode: String, messageIDs: [String]
+    )
+    /// Movimento entre localizações do Gmail. Caso próprio para manter
+    /// compatíveis as operações `placeInFolder` que já estejam gravadas no
+    /// outbox de uma instalação anterior.
+    case moveGmailLabel(
+        destinationLabelID: String, sourceLabelID: String, messageIDs: [String]
+    )
     case delete(messageIDs: [String])
     case deletePermanently(messageIDs: [String])
     case emptyTrash
@@ -54,6 +67,8 @@ public enum MailOperation: Codable, Sendable, Equatable {
         case .setRead: "setRead"
         case .setFlagged: "setFlagged"
         case .move: "move"
+        case .placeInFolder: "placeInFolder"
+        case .moveGmailLabel: "moveGmailLabel"
         case .delete: "delete"
         case .deletePermanently: "deletePermanently"
         case .emptyTrash: "emptyTrash"
@@ -66,7 +81,9 @@ public enum MailOperation: Codable, Sendable, Equatable {
     var messageIDs: [String] {
         switch self {
         case .setRead(_, let ids), .setFlagged(_, let ids),
-             .move(_, let ids), .delete(let ids), .deletePermanently(let ids):
+             .move(_, let ids), .placeInFolder(_, _, _, let ids),
+             .moveGmailLabel(_, _, let ids),
+             .delete(let ids), .deletePermanently(let ids):
             ids
         // `emptyTrash` não tem ids próprios — ela é "a conta inteira". O envio
         // também não: a mensagem dele ainda não existe em lugar nenhum, e o

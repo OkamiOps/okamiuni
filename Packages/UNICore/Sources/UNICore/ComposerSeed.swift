@@ -18,9 +18,8 @@ public struct ComposerSeed: Sendable, Hashable {
     /// de perda que `body` documenta para a formatação, pela outra porta.
     public let cc: [Contact]
     public let bcc: [Contact]
-    /// Os anexos, pelo nome — o Marco 1 não copia arquivo nenhum, é a mesma
-    /// lista de exemplo que a janela 03 usa.
-    public let attachments: [String]
+    /// Arquivos reais da resposta promovida da faixa para a janela.
+    public let attachments: [OutgoingAttachment]
     public let subject: String
     /// O corpo em texto simples — a projeção de `rich`.
     ///
@@ -39,7 +38,7 @@ public struct ComposerSeed: Sendable, Hashable {
         to: [Contact],
         cc: [Contact] = [],
         bcc: [Contact] = [],
-        attachments: [String] = [],
+        attachments: [OutgoingAttachment] = [],
         subject: String,
         body: String
     ) {
@@ -53,7 +52,7 @@ public struct ComposerSeed: Sendable, Hashable {
         to: [Contact],
         cc: [Contact] = [],
         bcc: [Contact] = [],
-        attachments: [String] = [],
+        attachments: [OutgoingAttachment] = [],
         subject: String,
         rich: AttributedString
     ) {

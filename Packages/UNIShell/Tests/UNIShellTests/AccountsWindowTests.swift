@@ -216,6 +216,68 @@ struct AccountsWindowTests {
         }
     }
 
+    /// A janela redesenhada não pode voltar a renderizar apenas a lista antiga:
+    /// as duas colunas precisam existir no primeiro quadro, antes mesmo de
+    /// qualquer conta estar selecionada.
+    @Test("a nova janela renderiza lateral e detalhe em superfícies distintas")
+    func janelaNovaTemDuasColunas() async throws {
+        let tema = Theme.tinta
+        let database = try SyncDatabase.temporary()
+        let contas = [
+            Account(
+                id: "okamiops", address: "marcos@okamiops.com", displayName: "Marcos",
+                provider: .imap, host: "okamiops",
+                tintLightHex: "#CE2968", tintDarkHex: "#FF78AD",
+                imap: ImapEndpoint(host: "imap.okamiops.com", port: 993, security: .tls),
+                state: .erroDeAutenticacao
+            ),
+            Account(
+                id: "vantion", address: "marcos@vantion.com.br", displayName: "Marcos",
+                provider: .imap, host: "vantion",
+                tintLightHex: "#3E6FA8", tintDarkHex: "#7BA8D9",
+                imap: ImapEndpoint(host: "imap.vantion.com.br", port: 993, security: .tls)
+            ),
+            Account(
+                id: "gmail", address: "msant262@gmail.com", displayName: "Marcos",
+                provider: .gmail, host: "gmail",
+                tintLightHex: "#41845B", tintDarkHex: "#74C58F"
+            ),
+        ]
+        try await database.pool.write { connection in
+            for account in contas {
+                try AccountRecord(account, createdAt: Date(timeIntervalSince1970: 1)).insert(connection)
+            }
+        }
+        let director = AccountDirector(
+            database: database,
+            secrets: InMemorySecretStore(),
+            auth: nil,
+            session: .shared,
+            eventLoopGroup: MultiThreadedEventLoopGroup.singleton,
+            imapConnect: { _, _ in throw SyncError.rede("o teste não abre conexão") }
+        )
+        let model = AccountsModel(director: director)
+        let subscription = Task { await model.start() }
+        for _ in 0..<20 where model.statuses.isEmpty {
+            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        subscription.cancel()
+        #expect(model.statuses.count == 3)
+        let bitmap = try #require(Render.snapshot(
+            AccountsWindow(model: model),
+            named: "accounts-window-redesign",
+            size: CGSize(width: 780, height: 560), theme: tema
+        ))
+        // Abaixo das três linhas, ainda dentro da superfície da lateral. Não
+        // medir em cima da seleção azul da primeira conta.
+        let lateral = try #require(bitmap.colorAt(x: 24, y: 300))
+        let detalhe = try #require(bitmap.colorAt(x: 740, y: 500))
+
+        #expect(proximo(lateral, tema.surface2), "a lateral da nova janela não usou sua superfície")
+        #expect(proximo(detalhe, tema.paper), "o painel de detalhe não foi renderizado ao lado da lateral")
+    }
+
     /// A divisória **chega na cor do token**, cheia, nas duas escalas.
     ///
     /// Só medir `pixelsWide` seria repetir o número passado ao `Render` — uma
@@ -573,7 +635,9 @@ struct AccountsWindowTests {
     /// proíbe, só que agora provado no pixel.
     @Test("O formulário desenha no token e só abre os campos com rota")
     func formularioNoToken() throws {
-        let tema = try #require(Theme.named("tinta"))
+        // O Tinta redesenhado usa caixas brancas sobre superfície branca; este
+        // ensaio estrutural usa Papel para a área dos campos continuar mensurável.
+        let tema = try #require(Theme.named("papel"))
         let modelo = AccountsModel(director: try Self.diretorDeTeste())
         let vazio = try #require(Render.bitmap(
             AddAccountForm(model: modelo),
@@ -635,12 +699,15 @@ struct AccountsWindowTests {
             size: medida, theme: tema
         ))
 
-        // A nota é desenhada em `--ink4`, o mesmo tom das outras legendas do
-        // formulário — então o que a distingue é haver **mais** desse tom.
-        let semNota = comNome.pixels(matching: tema.ink4)
-        let comNota = comIP.pixels(matching: tema.ink4)
+        // É uma advertência de segurança em corpo pequeno, portanto usa
+        // `--ink3`: continua secundária, mas não cai no papel mais discreto da
+        // interface. O limiar só precisa separar uma linha de texto real de
+        // ruído de antialiasing; se a condição que desenha a nota sumir, a
+        // diferença volta a zero.
+        let semNota = comNome.pixels(matching: tema.ink3, tolerance: 0.08)
+        let comNota = comIP.pixels(matching: tema.ink3, tolerance: 0.08)
         #expect(
-            comNota > semNota + 200,
+            comNota > semNota + 120,
             "a nota do endereço numérico não apareceu: \(semNota) contra \(comNota)"
         )
     }

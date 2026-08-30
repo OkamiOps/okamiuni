@@ -29,6 +29,11 @@ struct OkamiUNIApp: App {
     /// Quais ações o arraste lateral da linha revela de cada lado. Persistido
     /// em `UserDefaults` como o tema — ver `SwipeSettingsStore`.
     @State private var swipes = SwipeSettingsStore()
+    /// Regras globais, persistidas fora das contas para continuarem valendo
+    /// quando a pessoa alternar entre caixas. A mesma instância entra no
+    /// `MailStore`, que aplica as regras em mensagens novas, e na janela de
+    /// Configurações, que as edita.
+    @State private var emailRules: EmailRuleStore
     /// O modelo de Contas **do ensaio**, e só dele: banco temporário, cofre em
     /// memória, sem OAuth. Nulo sem `--ensaiar-contas`, que é o caso de todo
     /// mundo — ver `AccountsRehearsal.makeModel()`.
@@ -41,6 +46,10 @@ struct OkamiUNIApp: App {
     /// deixa o instrumento rodar antes da tarefa que registra a cena de
     /// verdade, e sai daqui quando ela chegar.
     @State private var accountsRehearsalModel = AccountsRehearsal.makeModel()
+
+    private var composerIntelligence: ComposerIntelligenceGenerator {
+        OnDeviceAssistantBridge.composerGenerator(using: composition.textAssistant)
+    }
 
     init() {
         FontRegistry.registerBundledFonts()
@@ -55,11 +64,17 @@ struct OkamiUNIApp: App {
         let relogio: AgendaClock = composicao.database != nil
             ? .live : .fixed(Fixtures.nowMinute)
         agendaClock = relogio
+        let regras = EmailRuleStore(defaults: .standard)
+        _emailRules = State(initialValue: regras)
         _mailStore = State(initialValue: MailStore(
             source: composicao.source, commandPort: composicao.commandPort,
-            bodyPort: composicao.bodyPort, sendPort: composicao.sendPort,
+            bodyPort: composicao.bodyPort, attachmentPort: composicao.attachmentPort,
+            sendPort: composicao.sendPort,
+            inviteRSVPPort: composicao.inviteRSVPPort,
             contactPort: composicao.contactPort,
+            emailRules: regras,
             agendaPort: composicao.agendaPort,
+            calendarSync: composicao.calendarSync,
             trustPort: composicao.trustPort,
             agendaReferenceDay: { relogio.today }
         ))
@@ -104,7 +119,14 @@ struct OkamiUNIApp: App {
                     AccountsRehearsal.fromProcess, model: accountsRehearsalModel
                 )
         } else {
-            InboxScreen(store: mailStore, clock: agendaClock)
+            InboxScreen(
+                store: mailStore,
+                clock: agendaClock,
+                intelligencePresentation: .configuredAssistant,
+                textAssistant: composition.textAssistant,
+                assistantSettings: composition.assistantSettings,
+                onMessagePresented: prioritizeMessageSummary
+            )
                 // Porta de depuração: `open -g --args --nova-mensagem` abre a
                 // janela auxiliar pelo mesmo `openWindow` do menu, sem trazer o
                 // app à frente e sem sintetizar tecla nenhuma. Sem a bandeira,
@@ -189,7 +211,11 @@ struct OkamiUNIApp: App {
         // sem prefixo, continua sendo uma resposta simples: nenhuma janela
         // restaurada muda de significado.
         WindowGroup(id: UNIWindow.composer, for: String.self) { $route in
-            ComposerWindow(store: mailStore, mode: .init(ComposerRoute.parse(route ?? "")))
+            ComposerWindow(
+                store: mailStore,
+                mode: .init(ComposerRoute.parse(route ?? "")),
+                intelligence: composerIntelligence
+            )
                 .themed(themes)
                 .barraColadaNoTopo()
                 .frame(minWidth: 620, minHeight: 460)
@@ -198,7 +224,11 @@ struct OkamiUNIApp: App {
         .defaultSize(UNIWindow.Size.composer)
 
         WindowGroup(id: UNIWindow.newMessage, for: String.self) { $accountID in
-            ComposerWindow(store: mailStore, mode: .new(accountID: accountID))
+            ComposerWindow(
+                store: mailStore,
+                mode: .new(accountID: accountID),
+                intelligence: composerIntelligence
+            )
                 .themed(themes)
                 .barraColadaNoTopo()
                 .frame(minWidth: 620, minHeight: 440)
@@ -207,7 +237,14 @@ struct OkamiUNIApp: App {
         .defaultSize(UNIWindow.Size.newMessage)
 
         WindowGroup(id: UNIWindow.message, for: String.self) { $messageID in
-            MessageWindow(store: mailStore, messageID: messageID ?? "")
+            MessageWindow(
+                store: mailStore,
+                messageID: messageID ?? "",
+                textAssistant: composition.textAssistant,
+                assistantSettings: composition.assistantSettings,
+                intelligencePresentation: .configuredAssistant,
+                onMessagePresented: prioritizeMessageSummary
+            )
                 .themed(themes)
                 .barraColadaNoTopo()
                 .frame(minWidth: 520, minHeight: 380)
@@ -236,7 +273,19 @@ struct OkamiUNIApp: App {
         Window("Configurações", id: UNIWindow.accounts) {
             Group {
                 if let accountsModel {
-                    AccountsWindow(model: accountsModel)
+                    AccountsWindow(
+                        model: accountsModel,
+                        initialSection: .general,
+                        assistantSettings: composition.assistantSettings,
+                        assistantCredentials: composition.assistantCredentials,
+                        textAssistant: composition.textAssistant,
+                        liteLLMOAuthAuthorizer: composition.liteLLMOAuth,
+                        providerOAuthAuthorizer: composition.assistantProviderOAuth,
+                        emailRules: emailRules,
+                        themes: themes,
+                        swipes: swipes,
+                        mailStore: mailStore
+                    )
                 } else {
                     // Sem diretor não há o que gerenciar — e dizer isso é
                     // melhor do que uma janela vazia.
@@ -245,10 +294,34 @@ struct OkamiUNIApp: App {
             }
             .themed(themes)
             .barraColadaNoTopo()
-            .frame(minWidth: 560, minHeight: 420)
+            .frame(minWidth: 820, minHeight: 560)
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(UNIWindow.Size.accounts)
+    }
+
+    /// A leitura atual tem prioridade sobre o reprocessamento histórico. A
+    /// coordenação continua serial para não disputar o modelo local nem gerar
+    /// análises duplicadas; a mensagem aberta entra logo depois da inferência
+    /// que já estiver em andamento.
+    private func prioritizeMessageSummary(_ messageID: String) {
+        guard let intelligence = composition.intelligence else { return }
+        Task { await intelligence.prioritize(messageID: messageID) }
+    }
+}
+
+private extension OnDeviceMessageAnalysisAvailability {
+    var presentation: IntelligencePresentation {
+        switch self {
+        case .available:
+            .available
+        case .deviceNotEligible:
+            .deviceNotEligible
+        case .appleIntelligenceNotEnabled:
+            .appleIntelligenceNotEnabled
+        case .modelNotReady:
+            .modelNotReady
+        }
     }
 }
 

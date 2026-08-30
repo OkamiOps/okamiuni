@@ -41,6 +41,17 @@ public enum OutgoingMime {
         boundary: String = "okamiuni-\(UUID().uuidString.lowercased())"
     ) -> String {
         var linhas: [String] = []
+        // `EmailSignature` já impede duplicata, mas `OutgoingMessage` também
+        // é uma API pública e pode ser montada por outra superfície. Não há
+        // como dois bytes responderem ao mesmo `cid:` sem cliente dependente
+        // da ordem, então o MIME conserva somente o primeiro de cada ID.
+        let inlineResources = uniqueInlineResources(message.inlineResources)
+        // Segunda defesa no limite de transporte: mesmo um chamador que criou
+        // `OutgoingMessage` sem passar por `EmailSignature` não consegue
+        // colocar pixel remoto, `file:`, SVG ou data URL no e-mail.
+        let safeHTML = EmailSignature.sanitizedHTML(
+            message.html, inlineResources: inlineResources
+        )
         linhas.append("From: \(addressList([message.from]))")
         if !message.to.isEmpty { linhas.append("To: \(addressList(message.to))") }
         if !message.cc.isEmpty { linhas.append("Cc: \(addressList(message.cc))") }
@@ -60,7 +71,32 @@ public enum OutgoingMime {
         }
         linhas.append("MIME-Version: 1.0")
 
-        guard let html = message.html, !html.isEmpty else {
+        // RSVP/iTIP é calendário, não uma mensagem rica com um texto que o
+        // cliente do organizador precise adivinhar. A mesma `OutgoingMessage`
+        // segue pelo mesmo SMTP/Gmail/outbox; muda somente a representação MIME.
+        if let calendar = message.calendarICS, !calendar.isEmpty {
+            let method = calendarMethod(in: calendar)
+            let suffix = method.map { "; method=\($0)" } ?? ""
+            linhas.append("Content-Type: text/calendar\(suffix); charset=utf-8")
+            linhas.append("Content-Transfer-Encoding: quoted-printable")
+            linhas.append("")
+            linhas.append(quotedPrintable(calendar))
+            return linhas.joined(separator: "\r\n")
+        }
+
+        if message.attachments.isEmpty, let html = safeHTML, !html.isEmpty {
+            linhas.append("Content-Type: multipart/alternative; boundary=\"\(boundary)\"")
+            linhas.append("")
+            linhas.append("Esta mensagem tem várias partes em MIME.")
+            linhas.append("")
+            appendTextParts(
+                &linhas, boundary: boundary, plainText: message.plainText, html: html,
+                inlineResources: inlineResources
+            )
+            return linhas.joined(separator: "\r\n")
+        }
+
+        if message.attachments.isEmpty {
             linhas.append("Content-Type: text/plain; charset=utf-8")
             linhas.append("Content-Transfer-Encoding: quoted-printable")
             linhas.append("")
@@ -68,24 +104,137 @@ public enum OutgoingMime {
             return linhas.joined(separator: "\r\n")
         }
 
-        linhas.append("Content-Type: multipart/alternative; boundary=\"\(boundary)\"")
+        // O arquivo fica no `multipart/mixed` externo, e texto/HTML continuam
+        // irmãos dentro de `multipart/alternative`. Pôr o anexo dentro do
+        // alternative faz clientes escolherem o PDF *ou* o texto como se uma
+        // fosse alternativa do outro.
+        let alternativeBoundary = "\(boundary)-alt"
+        linhas.append("Content-Type: multipart/mixed; boundary=\"\(boundary)\"")
         linhas.append("")
-        // A frase de cortesia para quem abre a mensagem num programa que não
-        // entende MIME nenhum. Ela nunca é mostrada por um cliente moderno.
         linhas.append("Esta mensagem tem várias partes em MIME.")
         linhas.append("")
-        linhas.append("--\(boundary)")
-        linhas.append("Content-Type: text/plain; charset=utf-8")
-        linhas.append("Content-Transfer-Encoding: quoted-printable")
-        linhas.append("")
-        linhas.append(quotedPrintable(message.plainText))
-        linhas.append("--\(boundary)")
-        linhas.append("Content-Type: text/html; charset=utf-8")
-        linhas.append("Content-Transfer-Encoding: quoted-printable")
-        linhas.append("")
-        linhas.append(quotedPrintable(html))
+        if let html = safeHTML, !html.isEmpty {
+            linhas.append("--\(boundary)")
+            linhas.append("Content-Type: multipart/alternative; boundary=\"\(alternativeBoundary)\"")
+            linhas.append("")
+            appendTextParts(
+                &linhas, boundary: alternativeBoundary, plainText: message.plainText, html: html,
+                inlineResources: inlineResources
+            )
+        } else {
+            linhas.append("--\(boundary)")
+            linhas.append("Content-Type: text/plain; charset=utf-8")
+            linhas.append("Content-Transfer-Encoding: quoted-printable")
+            linhas.append("")
+            linhas.append(quotedPrintable(message.plainText))
+        }
+        for attachment in message.attachments {
+            linhas.append("--\(boundary)")
+            linhas.append("Content-Type: \(attachment.mimeType); name*=utf-8''\(encodedFilename(attachment.filename))")
+            linhas.append("Content-Transfer-Encoding: base64")
+            linhas.append("Content-Disposition: attachment; filename*=utf-8''\(encodedFilename(attachment.filename))")
+            linhas.append("")
+            linhas.append(base64Lines(attachment.data))
+        }
         linhas.append("--\(boundary)--")
         return linhas.joined(separator: "\r\n")
+    }
+
+    private static func appendTextParts(
+        _ lines: inout [String], boundary: String, plainText: String, html: String,
+        inlineResources: [InlineSignatureResource]
+    ) {
+        lines.append("--\(boundary)")
+        lines.append("Content-Type: text/plain; charset=utf-8")
+        lines.append("Content-Transfer-Encoding: quoted-printable")
+        lines.append("")
+        lines.append(quotedPrintable(plainText))
+        if inlineResources.isEmpty {
+            lines.append("--\(boundary)")
+            appendHTMLPart(&lines, html: html)
+        } else {
+            // `related` fica dentro de `alternative`: o cliente primeiro
+            // escolhe a alternativa HTML, e só então resolve os `cid:` que
+            // pertencem a ela. Fazer as imagens irmãs do texto no `mixed`
+            // externo deixa Outlook e Apple Mail tratarem o logo como anexo.
+            let relatedBoundary = "\(boundary)-related"
+            lines.append("--\(boundary)")
+            lines.append(
+                "Content-Type: multipart/related; boundary=\"\(relatedBoundary)\"; type=\"text/html\""
+            )
+            lines.append("")
+            appendRelatedParts(
+                &lines, boundary: relatedBoundary, html: html,
+                inlineResources: inlineResources
+            )
+        }
+        lines.append("--\(boundary)--")
+    }
+
+    private static func appendRelatedParts(
+        _ lines: inout [String], boundary: String, html: String,
+        inlineResources: [InlineSignatureResource]
+    ) {
+        lines.append("--\(boundary)")
+        appendHTMLPart(&lines, html: html)
+        for (index, resource) in inlineResources.enumerated() {
+            lines.append("--\(boundary)")
+            lines.append("Content-Type: \(resource.mimeType); name=\"\(inlineFilename(for: resource, index: index))\"")
+            lines.append("Content-Transfer-Encoding: base64")
+            lines.append("Content-ID: <\(resource.contentID)>")
+            lines.append(
+                "Content-Disposition: inline; filename=\"\(inlineFilename(for: resource, index: index))\""
+            )
+            lines.append("")
+            lines.append(base64Lines(resource.data))
+        }
+        lines.append("--\(boundary)--")
+    }
+
+    private static func appendHTMLPart(_ lines: inout [String], html: String) {
+        lines.append("Content-Type: text/html; charset=utf-8")
+        lines.append("Content-Transfer-Encoding: quoted-printable")
+        lines.append("")
+        lines.append(quotedPrintable(html))
+    }
+
+    /// O recurso não recebe um nome vindo de caminho local; além de não haver
+    /// caminho para vazar, o nome fixo impede caractere estranho em cabeçalho.
+    private static func inlineFilename(for resource: InlineSignatureResource, index: Int) -> String {
+        let suffix: String
+        switch resource.mimeType {
+        case "image/jpeg": suffix = "jpg"
+        case "image/gif": suffix = "gif"
+        case "image/webp": suffix = "webp"
+        default: suffix = "png"
+        }
+        return "signature-image-\(index + 1).\(suffix)"
+    }
+
+    private static func uniqueInlineResources(
+        _ resources: [InlineSignatureResource]
+    ) -> [InlineSignatureResource] {
+        var seen = Set<String>()
+        return resources.filter { seen.insert($0.contentID).inserted }
+    }
+
+    /// RFC 2045 limita linhas base64 a 76 caracteres. `Data` produz uma linha
+    /// só, que funcionaria em servidores permissivos e falharia no primeiro
+    /// relay estrito ou em anexos maiores.
+    private static func base64Lines(_ data: Data) -> String {
+        let encoded = data.base64EncodedString()
+        return stride(from: 0, to: encoded.count, by: 76).map { start in
+            let lower = encoded.index(encoded.startIndex, offsetBy: start)
+            let upper = encoded.index(lower, offsetBy: min(76, encoded.count - start))
+            return String(encoded[lower..<upper])
+        }.joined(separator: "\r\n")
+    }
+
+    /// `filename*` usa RFC 2231/RFC 5987: cabeçalho ASCII e UTF-8 percent
+    /// encoded. Nome cru com acento, aspas ou CRLF não pode entrar num header.
+    private static func encodedFilename(_ filename: String) -> String {
+        filename.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "-._~")))
+            ?? "anexo"
     }
 
     /// O `raw` que a Gmail API pede: base64 **url-safe**, sem preenchimento.
@@ -230,6 +379,24 @@ public enum OutgoingMime {
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
             .replacingOccurrences(of: "\n", with: "\r\n")
+    }
+
+    /// `METHOD` pertence ao VCALENDAR, mas o parâmetro do Content-Type é o
+    /// que muitos clientes usam para despachar iTIP. Aceita só token ASCII para
+    /// que uma parte malformada não consiga injetar um cabeçalho.
+    static func calendarMethod(in calendar: String) -> String? {
+        for rawLine in normalizaQuebras(calendar).components(separatedBy: "\r\n") {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard line.uppercased().hasPrefix("METHOD:") else { continue }
+            let value = String(line.dropFirst("METHOD:".count)).uppercased()
+            guard !value.isEmpty,
+                  value.utf8.allSatisfy({
+                      ($0 >= 65 && $0 <= 90) || ($0 >= 48 && $0 <= 57) || $0 == 45
+                  })
+            else { return nil }
+            return value
+        }
+        return nil
     }
 
     // MARK: Data

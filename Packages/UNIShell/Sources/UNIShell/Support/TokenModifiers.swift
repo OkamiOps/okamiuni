@@ -6,8 +6,8 @@ import UNIDesign
 /// A faixa precisa **começar num ponto inteiro** para existir: quando ela cai
 /// na metade de trás de um pixel, o compositor a apaga. Era o que acontecia
 /// nas bordas `trailing` quando a espessura era meio **ponto** cravado — as
-/// divisórias verticais entre barra lateral e lista (x=236) e entre lista e
-/// leitor (x=606) não desenhavam nada. O conserto foi a espessura virar um
+/// divisórias verticais entre barra lateral e lista e entre lista e leitor não
+/// desenhavam nada. O conserto foi a espessura virar um
 /// pixel do dispositivo (`thickness(_:)`): a faixa encostada na borda de fim
 /// já nasce alinhada à grade em qualquer escala, e não precisa recuar.
 ///
@@ -77,7 +77,7 @@ public struct CapsLabel: ViewModifier {
             .font(theme.mono.font(size: size, weight: .medium))
             .tracking(theme.capsTracking(at: size))
             .textCase(.uppercase)
-            .foregroundStyle(theme.ink4.color)
+            .foregroundStyle(theme.ink3.color)
     }
 }
 

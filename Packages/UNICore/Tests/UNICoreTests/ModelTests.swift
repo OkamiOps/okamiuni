@@ -182,13 +182,14 @@ struct FixtureContentTests {
     }
 
     /// O contador da barra lateral é `count(for:)`. Estes são os números que o
-    /// design mostra: 3 / 3 / 7 / 1.
+    /// design mostra: 2 / 3 / 7 / 1. A terceira Inbox é de ontem e agora fica
+    /// disponível em Tudo, em vez de fazer Hoje mentir sobre a data.
     @Test("os contadores por caixa batem com o design")
     @MainActor
     func bucketCountsFromTheDesign() async {
         let store = MailStore(source: InMemoryMailSource.fixtures)
         await store.load()
-        #expect(store.count(for: .today) == 3)
+        #expect(store.count(for: .today) == 2)
         #expect(store.count(for: .later) == 3)
         #expect(store.count(for: .all) == 7)
         #expect(store.count(for: .archived) == 1)

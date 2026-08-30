@@ -20,12 +20,12 @@ struct PaneDividerTests {
 
     @Test("o alvo fica centrado na linha, alcançável pelos dois painéis")
     func theTargetIsCenteredOnTheLine() {
-        let boundary: CGFloat = 606        // 236 de lateral + 370 de lista
+        let boundary: CGFloat = 648        // 248 de lateral + 400 de lista
         let leading = PaneDivider.leadingEdge(centeredOn: boundary)
         let trailing = leading + PaneDivider.hitWidth
 
-        #expect(leading == 603)
-        #expect(trailing == 609)
+        #expect(leading == 645)
+        #expect(trailing == 651)
         // três pontos de cada lado da linha
         #expect(boundary - leading == 3)
         #expect(trailing - boundary == 3)
@@ -37,38 +37,38 @@ struct PaneDividerTests {
 
         // A linha da lista é a `hairline(.trailing)` de `MessageList`, que fica
         // no fim da lateral mais a lista.
-        #expect(layout.messageListTrailingEdge == 606)
+        #expect(layout.messageListTrailingEdge == 648)
 
         // A da agenda é a `hairline(.leading)` de `AgendaRail`.
-        #expect(layout.agendaLeadingEdge(inWindowOfWidth: 1440) == 1178)
+        #expect(layout.agendaLeadingEdge(inWindowOfWidth: 1440) == 1164)
 
         // E o leitor é o que fica entre as duas.
-        #expect(layout.readerWidth(inWindowOfWidth: 1440) == 572)
+        #expect(layout.readerWidth(inWindowOfWidth: 1440) == 516)
     }
 
     @Test("arrastar a divisória da lista move a linha junto")
     func draggingTheListDividerMovesTheLine() {
         let before = PaneLayout.resolve(width: 1440, wantsSidebar: true, wantsAgenda: true)
-        // O usuário agarrou a linha em 606 e puxou 80pt para a direita.
+        // O usuário agarrou a linha em 648 e puxou 80pt para a direita.
         let after = PaneLayout.resolve(
             width: 1440, wantsSidebar: true, wantsAgenda: true,
             draggedListWidth: before.messageListWidth + 80
         )
-        #expect(before.messageListTrailingEdge == 606)
-        #expect(after.messageListTrailingEdge == 686)
-        #expect(after.readerWidth(inWindowOfWidth: 1440) == 492)
+        #expect(before.messageListTrailingEdge == 648)
+        #expect(after.messageListTrailingEdge == 728)
+        #expect(after.readerWidth(inWindowOfWidth: 1440) == 436)
     }
 
     @Test("arrastar a divisória da agenda move a linha junto")
     func draggingTheAgendaDividerMovesTheLine() {
         let before = PaneLayout.resolve(width: 1440, wantsSidebar: true, wantsAgenda: true)
-        // Agarrou a linha em 1178 e puxou 50pt para a esquerda: a agenda alarga.
+        // Agarrou a linha em 1164 e puxou 50pt para a esquerda: a agenda alarga.
         let after = PaneLayout.resolve(
             width: 1440, wantsSidebar: true, wantsAgenda: true,
             draggedAgendaWidth: before.agendaRailWidth + 50
         )
-        #expect(before.agendaLeadingEdge(inWindowOfWidth: 1440) == 1178)
-        #expect(after.agendaRailWidth == 312)
-        #expect(after.agendaLeadingEdge(inWindowOfWidth: 1440) == 1128)
+        #expect(before.agendaLeadingEdge(inWindowOfWidth: 1440) == 1164)
+        #expect(after.agendaRailWidth == 326)
+        #expect(after.agendaLeadingEdge(inWindowOfWidth: 1440) == 1114)
     }
 }

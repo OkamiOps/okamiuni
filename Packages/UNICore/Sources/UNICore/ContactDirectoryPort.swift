@@ -22,10 +22,11 @@ import Foundation
 /// entrar) — por isso quem decide "há conta?" é ela, igual
 /// `DatabaseMailSource.bodyMatches` já decide para o corpo, e não quem chama.
 public protocol ContactDirectoryPort: Sendable {
-    /// Todo mundo que já apareceu — como remetente, destinatário ou cópia —
-    /// em alguma mensagem sincronizada. `accountID` nulo abrange todas as
-    /// contas: o campo de destinatário do composer não filtra por conta, só
-    /// a linha "De" escolhe quem envia.
+    /// Para quem a pessoa já escreveu, lido dos destinatários e cópias da
+    /// caixa Enviadas. Remetente de mensagem recebida não vira contato só por
+    /// ter entrado na caixa. `accountID` nulo abrange todas as contas: o campo
+    /// de destinatário do composer não filtra por conta, só a linha "De"
+    /// escolhe quem envia.
     ///
     /// `nil` significa "o banco não tem conta nenhuma" — e não "procurei e
     /// não achei". A diferença é o que faz o `MailStore` saber quando voltar

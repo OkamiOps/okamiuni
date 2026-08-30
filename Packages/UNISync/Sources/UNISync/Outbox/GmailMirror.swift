@@ -92,6 +92,26 @@ public actor GmailMirror: MailMirror {
                 removeLabelIDs: removidos(para: bucket, depois: depois)
             )
 
+        case .placeInFolder(_, let serverName, let bruto, _):
+            guard bruto == FolderPlacement.label.rawValue else {
+                throw SyncError.resposta("O Gmail aplica marcadores; esta operação pediu um movimento de pasta.")
+            }
+            try await client.batchModify(
+                ids: ids,
+                addLabelIDs: [serverName],
+                removeLabelIDs: []
+            )
+
+        case .moveGmailLabel(let destination, let source, _):
+            guard destination != source else {
+                throw SyncError.resposta("O marcador de origem e o de destino são o mesmo.")
+            }
+            try await client.batchModify(
+                ids: ids,
+                addLabelIDs: [destination],
+                removeLabelIDs: [source]
+            )
+
         case .delete:
             try await client.trash(ids: ids)
 

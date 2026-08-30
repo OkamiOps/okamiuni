@@ -146,9 +146,12 @@ public struct WeekScreen: View {
     var showsNow: Bool { days.contains { $0.isToday } }
 
     public var body: some View {
+        let visibleDays = days
+        let displaysNow = visibleDays.contains { $0.isToday }
+
         VStack(spacing: 0) {
-            dayHeaderStrip
-            grid
+            dayHeaderStrip(visibleDays)
+            grid(days: visibleDays, showsNow: displaysNow)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(theme.surface.color)
@@ -158,7 +161,7 @@ public struct WeekScreen: View {
 
     /// Protótipo: `padding-left: 54px`, uma coluna por dia com
     /// `padding: 9px 12px 8px` e divisória à esquerda.
-    private var dayHeaderStrip: some View {
+    private func dayHeaderStrip(_ days: [WeekAgenda.Day]) -> some View {
         HStack(spacing: 0) {
             Color.clear.frame(width: layout.labelGutter, height: 0)
             ForEach(days) { day in
@@ -185,7 +188,7 @@ public struct WeekScreen: View {
 
     // MARK: - A grade
 
-    private var grid: some View {
+    private func grid(days: [WeekAgenda.Day], showsNow: Bool) -> some View {
         ScrollViewReader { proxy in
             ScrollView {
                 GeometryReader { geometry in
@@ -197,9 +200,9 @@ public struct WeekScreen: View {
                         // cima das linhas, que somem dentro dela. Continuar a
                         // grade por baixo do realce lê como grade; interrompê-la
                         // leria como defeito.
-                        columnBackgrounds(columnWidth: columnWidth)
+                        columnBackgrounds(columnWidth: columnWidth, days: days)
                         hourLines
-                        events(columnWidth: columnWidth)
+                        events(columnWidth: columnWidth, days: days)
                         if showsNow { nowMarker }
                         scrollAnchor
                     }
@@ -232,7 +235,10 @@ public struct WeekScreen: View {
 
     /// Protótipo: `flex: 1; border-left: 0.5px solid line2` e
     /// `background: accent-soft` na coluna de hoje.
-    private func columnBackgrounds(columnWidth: CGFloat) -> some View {
+    private func columnBackgrounds(
+        columnWidth: CGFloat,
+        days: [WeekAgenda.Day]
+    ) -> some View {
         HStack(spacing: 0) {
             Color.clear.frame(width: layout.labelGutter)
             ForEach(days) { day in
@@ -267,9 +273,9 @@ public struct WeekScreen: View {
         }
     }
 
-    private func events(columnWidth: CGFloat) -> some View {
+    private func events(columnWidth: CGFloat, days: [WeekAgenda.Day]) -> some View {
         ForEach(days) { day in
-            let columnX = layout.labelGutter + CGFloat(dayIndex(day)) * columnWidth
+            let columnX = layout.labelGutter + CGFloat(dayIndex(day, in: days)) * columnWidth
             ForEach(day.events) { placed in
                 let laneWidth = columnWidth / CGFloat(placed.columns)
                 let x = columnX + layout.eventLeading
@@ -282,7 +288,7 @@ public struct WeekScreen: View {
         }
     }
 
-    private func dayIndex(_ day: WeekAgenda.Day) -> Int {
+    private func dayIndex(_ day: WeekAgenda.Day, in days: [WeekAgenda.Day]) -> Int {
         days.firstIndex { $0.dayOffset == day.dayOffset } ?? 0
     }
 

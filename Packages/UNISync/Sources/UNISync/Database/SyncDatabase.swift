@@ -549,6 +549,80 @@ public struct SyncDatabase: Sendable {
                 ADD COLUMN folderMembershipJSON TEXT NOT NULL DEFAULT '[]'
                 """)
         }
+        // A v9 do Marco 4: a resposta RSVP que a pessoa já pôs na fila.
+        // Não mora no corpo da mensagem: uma recusa não cria compromisso na
+        // agenda, mas ainda precisa sobreviver ao reinício para o cartão não
+        // oferecer o mesmo clique novamente. A chave inclui a conta porque a
+        // mesma reunião pode chegar em mais de uma identidade da pessoa.
+        migrator.registerMigration("v9") { db in
+            try db.execute(sql: """
+                CREATE TABLE invite_rsvp (
+                  accountID TEXT NOT NULL,
+                  eventKey TEXT NOT NULL,
+                  response TEXT NOT NULL,
+                  updatedAt DOUBLE NOT NULL,
+                  PRIMARY KEY (accountID, eventKey)
+                )
+                """)
+        }
+        // A v10 do Marco 4: metadados e cache local de anexos. Os bytes só entram nesta
+        // tabela quando o IMAP já os trouxe no corpo ou quando a pessoa pediu o
+        // download Gmail; a lista de mensagens jamais carrega o BLOB.
+        migrator.registerMigration("v10") { db in
+            try db.execute(sql: """
+                CREATE TABLE message_attachment (
+                  id TEXT PRIMARY KEY NOT NULL,
+                  messageID TEXT NOT NULL REFERENCES message(id) ON DELETE CASCADE,
+                  filename TEXT NOT NULL,
+                  mimeType TEXT NOT NULL,
+                  byteCount INTEGER NOT NULL,
+                  remoteID TEXT,
+                  data BLOB
+                )
+                """)
+            try db.execute(sql: """
+                CREATE INDEX message_attachment_on_message
+                ON message_attachment(messageID)
+                """)
+        }
+        // A v11 do Marco 5: o estado local do processamento de inteligência
+        // por mensagem. A ausência da linha é deliberadamente "pendente":
+        // assim, mensagens gravadas antes desta versão e mensagens novas que
+        // chegam pelos sincronizadores existentes entram na mesma fila, sem
+        // exigir um backfill que reescreva a caixa inteira durante a abertura.
+        //
+        // `contentHash` amarra cada resultado ao corpo que o produziu. Quando
+        // o corpo muda, a fila percebe o hash diferente, limpa uma projeção
+        // antiga ao assumir o trabalho e processa a nova versão uma vez.
+        migrator.registerMigration("v11") { db in
+            try db.execute(sql: """
+                CREATE TABLE message_intelligence (
+                  messageID TEXT PRIMARY KEY NOT NULL REFERENCES message(id) ON DELETE CASCADE,
+                  contentHash TEXT NOT NULL,
+                  state TEXT NOT NULL DEFAULT 'pending',
+                  modelVersion TEXT,
+                  lastError TEXT,
+                  updatedAt DOUBLE NOT NULL
+                )
+                """)
+            try db.execute(sql: """
+                CREATE INDEX message_intelligence_on_state_updated
+                ON message_intelligence(state, updatedAt)
+                """)
+        }
+        // A v12: assinatura rica por conta. A coluna antiga de texto fica
+        // intacta como fallback de versões anteriores e de JSON corrompido;
+        // o JSON é aditivo para não reescrever contas já conectadas nem perder
+        // a assinatura simples que elas já tinham.
+        migrator.registerMigration("v12") { db in
+            try db.execute(sql: "ALTER TABLE account ADD COLUMN signatureJSON TEXT")
+        }
+        // A v13: categoria de intenção produzida pela análise local. O valor
+        // é o rawValue fechado de `MailCategory`; nulo mantém mensagens antigas
+        // e respostas inválidas fora de qualquer categoria forçada.
+        migrator.registerMigration("v13") { db in
+            try db.execute(sql: "ALTER TABLE message ADD COLUMN category TEXT")
+        }
         return migrator
     }
 }

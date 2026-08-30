@@ -61,9 +61,11 @@ struct TitleBarAlignmentTests {
         #expect(abs(centro - Double(TrafficLightLayout.contentCenterFromTop)) <= 1)
     }
 
-    /// **A prova por bitmap, lado da janela principal.** O "+ Escrever" — o
-    /// único desenho da barra na cor de destaque — tem centro na mesma linha.
-    @Test("os controles da barra principal caem na linha 22")
+    /// **A prova por bitmap, lado da janela principal.** A barra principal é
+    /// mais alta que as janelas auxiliares e, por pedido de design, seus
+    /// controles ficam no centro dos 64pt: 13pt de respiro acima do botão de
+    /// 38pt. O semáforo nativo preserva sua posição própria.
+    @Test("os controles da barra principal ficam no centro dos 64pt")
     func barraPrincipalNaLinha() throws {
         let rep = try #require(
             Render.bitmap(
@@ -74,24 +76,12 @@ struct TitleBarAlignmentTests {
                 size: CGSize(width: 1200, height: WindowChrome.height), theme: .tinta
             )
         )
-        var ys: [Int] = []
-        let destaque = try #require(Theme.tinta.accent.nsColor.usingColorSpace(.sRGB))
-        for y in 0..<rep.pixelsHigh {
-            for x in 0..<rep.pixelsWide {
-                guard let cor = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
-                      cor.alphaComponent > 0.9 else { continue }
-                if abs(cor.redComponent - destaque.redComponent) < 0.02,
-                   abs(cor.greenComponent - destaque.greenComponent) < 0.02,
-                   abs(cor.blueComponent - destaque.blueComponent) < 0.02 {
-                    ys.append(y)
-                    break
-                }
-            }
-        }
-        let primeira = try #require(ys.first)
-        let ultima = try #require(ys.last)
-        let centro = (Double(primeira) + Double(ultima)) / 2
-        #expect(centro == Double(TrafficLightLayout.contentCenterFromTop))
+        // x=82…120 é o botão da barra lateral depois do espaço reservado aos
+        // semáforos. Medir só ele evita confundir a hairline com o conteúdo.
+        let centro = try #require(
+            Self.linhaMedia(rep, papel: Theme.tinta.surface2, x: 82..<121)
+        )
+        #expect(abs(centro - Double(WindowChrome.centerY)) <= 1)
     }
 
     /// A barra das janelas mede o dobro da linha — e é isso que faz o centro
@@ -114,5 +104,13 @@ struct TitleBarAlignmentTests {
             TrafficLightLayout.centerFromTop(barHeight: altura, buttonHeight: 14)
                 == TrafficLightLayout.contentCenterFromTop
         )
+    }
+
+    /// O último semáforo termina em x=70. O cabeçalho do compromisso não pode
+    /// começar no mesmo pixel: ele segue o respiro de 14pt da barra principal.
+    @Test("o cabeçalho do compromisso deixa respiro após os semáforos")
+    func compromissoRespeitaSemaforos() {
+        #expect(EventWindow.headerLeadingInset == WindowChrome.trafficLightInset + 14)
+        #expect(EventWindow.headerLeadingInset == 84)
     }
 }

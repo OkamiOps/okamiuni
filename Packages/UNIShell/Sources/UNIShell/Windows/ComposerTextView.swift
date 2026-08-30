@@ -296,7 +296,7 @@ struct ComposerTextView: NSViewRepresentable {
             var attributes = ComposerTextKit.characterAttributes(style, theme: theme)
             let paragraph = NSMutableParagraphStyle()
             paragraph.alignment = ComposerTextKit.nsAlignment(reading.alignment ?? .left)
-            let box = ComposerFormatting.lineHeight(for: style.size)
+            let box = ComposerFormatting.lineHeight(for: style.size * theme.typographyScale)
             paragraph.minimumLineHeight = box
             paragraph.maximumLineHeight = box
             // **Os blocos de tabela vêm junto.** O que se digita herda estes

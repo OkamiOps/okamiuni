@@ -104,6 +104,66 @@ struct InviteDetailTests {
         )
     }
 
+    @Test("Meet nas notas vira sala e o bloco automático não vira descrição")
+    func linkNasNotasDoCalendar() {
+        let automatic = """
+            -::~:~::~:~:~:~:~:~:~:~:~:~:~:~:~:~:~:~:~:~::~:~::-
+            --
+            Entrar com o Google Meet: https://meet.google.com/us-qnjh-suq
+
+            Saiba mais sobre o Meet em: https://support.google.com/a/users/answer/9282720
+
+            Não edite esta seção.
+            -::~:~::~:~:~:~:~:~:~:~:~:~:~:~:~:~:~:~:~:~::~:~::-
+            --
+            """
+        let detail = EventDetail(
+            place: EventPlace.semLocal,
+            link: nil,
+            organizer: EventPerson(
+                name: "Vanderson",
+                address: "vanderson@example.com",
+                role: "organizador",
+                status: .yes
+            ),
+            people: [],
+            note: "Calendário do macOS",
+            recurrence: "Evento único",
+            notice: "Consulte o Calendário para alertas",
+            agenda: [],
+            thread: [],
+            descricao: automatic
+        )
+
+        #expect(detail.meetingLink == "https://meet.google.com/us-qnjh-suq")
+        #expect(detail.visibleDescription == nil)
+        #expect(detail.hasLink)
+    }
+
+    @Test("Ao promover a sala, a pauta escrita pela pessoa permanece")
+    func pautaPermaneceSemLinkRepetido() {
+        let detail = EventDetail(
+            place: EventPlace.semLocal,
+            link: nil,
+            organizer: EventPerson(
+                name: "Time",
+                address: "time@example.com",
+                role: "organizador",
+                status: .yes
+            ),
+            people: [],
+            note: "Convite",
+            recurrence: "Evento único",
+            notice: "Sem alerta",
+            agenda: [],
+            thread: [],
+            descricao: "Pauta: revisar a entrega.\nEntrar: https://zoom.us/j/123456\nLevar os números."
+        )
+
+        #expect(detail.meetingLink == "https://zoom.us/j/123456")
+        #expect(detail.visibleDescription == "Pauta: revisar a entrega.\nLevar os números.")
+    }
+
     // MARK: - O detalhe do compromisso
 
     private func detalhe(_ convite: CalendarInvite) -> EventDetail {

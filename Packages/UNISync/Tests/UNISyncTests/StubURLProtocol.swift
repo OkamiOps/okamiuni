@@ -80,6 +80,7 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         var body: String
         var query: String
         var authorization: String?
+        var headers: [String: String]
     }
 
     /// Uma `URLSession` isolada, com o roteiro já instalado na criação: cada
@@ -171,7 +172,8 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
             Self.recordedByID[sessaoID, default: []].append(Recorded(
                 path: caminho, body: corpo,
                 query: request.url?.query ?? "",
-                authorization: request.value(forHTTPHeaderField: "Authorization")
+                authorization: request.value(forHTTPHeaderField: "Authorization"),
+                headers: request.allHTTPHeaderFields ?? [:]
             ))
         }
         let resposta: Reply?

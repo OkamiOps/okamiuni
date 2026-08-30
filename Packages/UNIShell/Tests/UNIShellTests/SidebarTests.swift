@@ -21,19 +21,20 @@ struct SidebarTests {
     /// e é isso que este teste passa a proxiar. Os literais não mudam porque
     /// as sete mensagens das fixtures nascem todas não lidas — `unreadCount`
     /// e `count(for:)` coincidem aqui por acaso, não por serem a mesma coisa;
-    /// `bucketUnreadDiffersFromTotal` abaixo é quem prova a diferença.
+    /// `bucketUnreadDiffersFromTotal` abaixo é quem prova a diferença. Hoje é
+    /// agora estrito ao dia local: a Inbox de ontem fica acessível em Tudo.
     @Test("os contadores por caixa são os do design")
     @MainActor
     func counts() async {
         let store = MailStore(source: InMemoryMailSource.fixtures)
         await store.load()
-        #expect(store.unreadCount(in: .today) == 3)
+        #expect(store.unreadCount(in: .today) == 2)
         #expect(store.unreadCount(in: .later) == 3)
         #expect(store.unreadCount(in: .all) == 7)
         #expect(store.unreadCount(in: .archived) == 1)
-        // "Tudo" é uma visão, não um estado: nenhuma mensagem fica de fora dela.
+        // Uma Inbox antiga aparece em Tudo, mas não infla Hoje.
         #expect(store.unreadCount(in: .today) + store.unreadCount(in: .later)
-            + store.unreadCount(in: .archived) == store.unreadCount(in: .all))
+            + store.unreadCount(in: .archived) + 1 == store.unreadCount(in: .all))
     }
 
     /// O contador respeita o filtro de conta — é o que a barra mostra depois de
@@ -46,7 +47,7 @@ struct SidebarTests {
         await store.load()
         store.select(account: "host")
         #expect(store.unreadCount(in: .all, accountID: store.selectedAccountID) == 2)
-        #expect(store.unreadCount(in: .today, accountID: store.selectedAccountID) == 1)
+        #expect(store.unreadCount(in: .today, accountID: store.selectedAccountID) == 0)
         #expect(store.unreadCount(in: .later, accountID: store.selectedAccountID) == 1)
         #expect(store.unreadCount(in: .archived, accountID: store.selectedAccountID) == 0)
     }
@@ -61,8 +62,8 @@ struct SidebarTests {
         let store = MailStore(source: InMemoryMailSource.fixtures)
         await store.load()
         store.setRead(true, for: "m1") // m1 é "Hoje", conta zoho.
-        #expect(store.count(for: .today) == 3)
-        #expect(store.unreadCount(in: .today) == 2)
+        #expect(store.count(for: .today) == 2)
+        #expect(store.unreadCount(in: .today) == 1)
     }
 
     /// `store.accounts.count == quantidade` é verdade mesmo se o desenho só
@@ -158,7 +159,8 @@ struct SidebarTests {
             to: [Contact(name: "Marina Duarte", address: "marina@clientepremium.com")]
         )
         let store = MailStore(
-            source: InMemoryMailSource(accounts: [conta], messages: [recebida, enviada], agenda: [])
+            source: InMemoryMailSource(accounts: [conta], messages: [recebida, enviada], agenda: []),
+            agendaReferenceDay: { Date(timeIntervalSince1970: 1_800_000_000) }
         )
         await store.load()
         return store
@@ -228,10 +230,10 @@ struct SidebarTests {
         )
     }
 
-    @Test("a largura expandida é 236")
+    @Test("a largura expandida é 248")
     @MainActor
     func expandedWidth() {
-        #expect(FolderSidebar.expandedWidth == 236)
+        #expect(FolderSidebar.expandedWidth == 248)
     }
 
     // MARK: As pastas do provedor

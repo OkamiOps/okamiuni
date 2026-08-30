@@ -31,6 +31,12 @@ public actor ImapSession {
     private let teto: TimeAmount
     private var tagCounter = 0
     private var closed = false
+    /// Descoberto depois do LOGIN. Fica na sessão porque cada nova conexão pode
+    /// receber um namespace diferente; não é uma configuração global do host.
+    private var personalNamespacePrefix: String?
+    private var namespaceDiscovered = false
+    private var discoveringNamespace = false
+    private var namespaceWaiters: [CheckedContinuation<Void, Error>] = []
 
     // O cadeado do "um comando por vez".
     private var ocupado = false
@@ -301,12 +307,16 @@ public actor ImapSession {
 
     public func login(user: String, password: String) async throws {
         _ = try await run { ImapWire.login(tag: $0, user: user, password: password) }
+        try await discoverPersonalNamespace()
     }
 
     /// As pastas do servidor, com o papel já resolvido.
     public func folders() async throws -> [ImapFolder] {
+        try await discoverPersonalNamespace()
         let resultado = try await run { ImapWire.list(tag: $0) }
-        return ImapWire.folders(from: resultado.untagged)
+        return ImapWire.folders(
+            from: resultado.untagged, personalNamespacePrefix: personalNamespacePrefix
+        )
     }
 
     /// Seleciona a pasta e devolve `UIDVALIDITY`, `UIDNEXT` e o total.
@@ -315,9 +325,11 @@ public actor ImapSession {
     /// identidade estável para UID nenhum, e seguir em frente gravaria
     /// mensagens que o Marco 3 não conseguiria casar de volta.
     public func select(_ folder: ImapFolder) async throws -> ImapMailboxStatus {
-        let resultado = try await run { ImapWire.select(tag: $0, mailbox: folder.name) }
+        try await discoverPersonalNamespace()
+        let mailbox = qualifiedMailbox(folder.name)
+        let resultado = try await run { ImapWire.select(tag: $0, mailbox: mailbox) }
         guard let status = ImapWire.status(from: resultado.untagged) else {
-            throw SyncError.resposta("O servidor selecionou \(folder.name) sem informar UIDVALIDITY.")
+            throw SyncError.resposta("O servidor selecionou \(mailbox) sem informar UIDVALIDITY.")
         }
         return status
     }
@@ -373,7 +385,9 @@ public actor ImapSession {
     /// Copia UIDs da pasta selecionada para outra.
     public func copy(uids: [Int64], to mailbox: String) async throws {
         guard !uids.isEmpty else { return }
-        _ = try await run { ImapWire.uidCopy(tag: $0, uids: uids, mailbox: mailbox) }
+        try await discoverPersonalNamespace()
+        let destination = qualifiedMailbox(mailbox)
+        _ = try await run { ImapWire.uidCopy(tag: $0, uids: uids, mailbox: destination) }
     }
 
     /// Remove de vez as mensagens marcadas `\Deleted` na pasta selecionada.
@@ -393,8 +407,10 @@ public actor ImapSession {
     /// pararia a fila da conta por causa de uma pasta que está exatamente como
     /// precisamos que esteja.
     public func create(mailbox: String) async throws {
+        try await discoverPersonalNamespace()
+        let destination = qualifiedMailbox(mailbox)
         do {
-            _ = try await run { ImapWire.create(tag: $0, mailbox: mailbox) }
+            _ = try await run { ImapWire.create(tag: $0, mailbox: destination) }
         } catch SyncError.servidor(_, let mensagem) {
             let dobrado = mensagem.uppercased()
             guard dobrado.contains("ALREADYEXISTS") || dobrado.contains("ALREADY EXISTS")
@@ -418,10 +434,67 @@ public actor ImapSession {
     public func append(
         mailbox: String, flags: [String] = ["\\Seen"], raw: String
     ) async throws -> ImapWire.AppendUID? {
+        try await discoverPersonalNamespace()
+        let destination = qualifiedMailbox(mailbox)
         let resultado = try await run {
-            ImapWire.append(tag: $0, mailbox: mailbox, flags: flags, raw: raw)
+            ImapWire.append(tag: $0, mailbox: destination, flags: flags, raw: raw)
         }
         return ImapWire.appendUID(from: resultado.text)
+    }
+
+    /// Descobre o namespace sem tornar um servidor antigo incompatível. RFC 2342
+    /// é extensão: `NO`/`BAD` significam apenas "continue sem prefixo"; perda de
+    /// rede, TLS ou cancelamento continuam sendo falhas reais da sessão.
+    private func discoverPersonalNamespace() async throws {
+        guard !namespaceDiscovered else { return }
+        if discoveringNamespace {
+            try await withCheckedThrowingContinuation { continuation in
+                namespaceWaiters.append(continuation)
+            }
+            return
+        }
+        discoveringNamespace = true
+        do {
+            let resultado = try await run { ImapWire.namespace(tag: $0) }
+            personalNamespacePrefix = ImapWire.personalNamespacePrefix(from: resultado.untagged)
+            namespaceDiscovered = true
+            finishNamespaceDiscovery()
+        } catch is CancellationError {
+            let error = CancellationError()
+            finishNamespaceDiscovery(error: error)
+            throw CancellationError()
+        } catch let error as SyncError {
+            switch error {
+            case .servidor, .resposta:
+                personalNamespacePrefix = nil
+                namespaceDiscovered = true
+                finishNamespaceDiscovery()
+            default:
+                finishNamespaceDiscovery(error: error)
+                throw error
+            }
+        } catch {
+            finishNamespaceDiscovery(error: error)
+            throw error
+        }
+    }
+
+    /// Uma descoberta em voo é compartilhada por todos os chamadores. Sem isto,
+    /// `login` e um `folders()` que chegue no mesmo instante mandariam dois
+    /// `NAMESPACE`; pior, o segundo poderia seguir para `LIST` antes de conhecer
+    /// o prefixo que o primeiro ainda estava esperando.
+    private func finishNamespaceDiscovery(error: Error? = nil) {
+        discoveringNamespace = false
+        let waiters = namespaceWaiters
+        namespaceWaiters.removeAll()
+        for waiter in waiters {
+            if let error { waiter.resume(throwing: error) }
+            else { waiter.resume(returning: ()) }
+        }
+    }
+
+    private func qualifiedMailbox(_ mailbox: String) -> String {
+        ImapWire.qualify(mailbox: mailbox, personalNamespacePrefix: personalNamespacePrefix)
     }
 
     /// Quais destes UIDs ainda estão na pasta selecionada.

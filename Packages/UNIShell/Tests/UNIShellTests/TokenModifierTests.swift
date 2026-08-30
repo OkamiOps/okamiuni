@@ -14,7 +14,7 @@ struct TokenModifierTests {
 
     @Test("a barra tem a altura do design")
     func chromeHeight() {
-        #expect(WindowChrome.height == 58)
+        #expect(WindowChrome.height == 64)
     }
 
     @Test("o vazio dos semáforos termina exatamente onde eles terminam")
@@ -31,7 +31,7 @@ struct TokenModifierTests {
     /// porque nenhum deles é lido de `WindowChrome.body`. Prova de verdade:
     /// renderizar a barra e medir onde o primeiro controle (o botão da
     /// lateral) de fato começa a pintar.
-    @Test("o primeiro controle nasce 14pt depois dos semáforos, como no protótipo")
+    @Test("o primeiro controle nasce 12pt depois dos semáforos no novo shell")
     @MainActor
     func firstControlOffset() throws {
         let rep = try #require(
@@ -73,8 +73,8 @@ struct TokenModifierTests {
             "nenhum pixel diferente do fundo apareceu na linha média da barra"
         )
         #expect(
-            abs(x - 84) <= 2,
-            "o primeiro controle começou a pintar em x=\(x), não perto de 84"
+            abs(x - 82) <= 2,
+            "o primeiro controle começou a pintar em x=\(x), não perto de 82"
         )
     }
 
@@ -88,6 +88,29 @@ struct TokenModifierTests {
         #expect(WindowChrome.searchPlaceholder(count) == expected)
     }
 
+    @Test("CapsLabel usa ink3 para texto funcional pequeno")
+    @MainActor
+    func capsLabelUsesFunctionalTextColor() throws {
+        let theme = Theme.noite
+        let image = try #require(
+            Render.bitmap(
+                Text("SECTION")
+                    .capsLabel(size: 12)
+                    .frame(width: 100, height: 24)
+                    .background(theme.surface.color),
+                size: CGSize(width: 100, height: 24),
+                theme: theme
+            )
+        )
+
+        let ink3Pixels = image.pixels(matching: theme.ink3)
+        let ink4Pixels = image.pixels(matching: theme.ink4)
+        #expect(
+            ink3Pixels > ink4Pixels,
+            "o rótulo deve privilegiar ink3 (pixels ink3: \(ink3Pixels), ink4: \(ink4Pixels))"
+        )
+    }
+
     @Test("o raio da aba nunca é negativo em nenhum tema e bate com o container")
     func tabRadiusNeverNegative() {
         for theme in Theme.all {
@@ -96,10 +119,7 @@ struct TokenModifierTests {
                 r >= 0,
                 "tabCornerRadius é \(r) no tema \(theme.name) — aba fica com raio negativo"
             )
-            #expect(
-                r == theme.radiusSmall,
-                "a aba usa o mesmo raio do container, como no protótipo"
-            )
+            #expect(r == max(theme.radiusLarge, 17))
         }
     }
 }

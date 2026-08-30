@@ -2,6 +2,55 @@ import SwiftUI
 import UNIDesign
 import UNICore
 
+/// Acesso contextual à IA no próprio cabeçalho do e-mail. Separado apenas
+/// para o clique real do controle ser verificável fora da tela.
+struct ReaderAssistantButton: View {
+    @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
+    let presentation: IntelligencePresentation
+    let action: () -> Void
+
+    private var help: String {
+        presentation.isAvailable
+            ? "Abre resumo, pontos-chave, insights, pendências e geração de resposta para este email."
+            : presentation.detail
+    }
+
+    private var statusColor: Color {
+        presentation.usesConfiguredProvider ? theme.accent.color : foundationColor
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: presentation.symbol)
+                .font(.system(size: 15, weight: .medium))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(presentation.isAvailable ? statusColor : theme.ink4.color)
+                .frame(width: 32, height: 30)
+                .background(presentation.isAvailable ? statusColor.opacity(0.08) : theme.surface3.color)
+                .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+                .overlay {
+                    RoundedRectangle(cornerRadius: theme.radiusSmall)
+                        .strokeBorder(
+                            presentation.isAvailable ? statusColor.opacity(0.34) : theme.line.color,
+                            lineWidth: Hairline.thickness(displayScale)
+                        )
+                }
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
+        .disabled(!presentation.isAvailable)
+        .help(help)
+        .accessibilityLabel("Ações de inteligência deste email")
+        .accessibilityValue(presentation.isAvailable ? "Disponível" : "Indisponível")
+        .accessibilityHint(help)
+    }
+
+    private var foundationColor: Color {
+        Color(red: 1, green: 90 / 255, blue: 31 / 255)
+    }
+}
+
 public struct ReaderPane: View {
     @Environment(\.theme) private var theme
     @Environment(\.displayScale) private var displayScale
@@ -16,6 +65,27 @@ public struct ReaderPane: View {
     /// expande a faixa de baixo e põe o cursor nela — pedido do dono. A janela
     /// continua a um clique dali, e é o mesmo caminho de sempre.
     let onReply: (Message) -> Void
+    /// Mesmo motor da janela cheia, reaproveitado na resposta rápida.
+    let intelligence: ComposerIntelligenceGenerator?
+    /// Estado real do modelo local e ação que abre o painel contextual do
+    /// leitor. O botão fica junto da caixa porque é uma ação sobre este e-mail,
+    /// não uma configuração global.
+    let intelligencePresentation: IntelligencePresentation
+    let onOpenAssistant: () -> Void
+    let onAskAssistant: ((String, LocalAssistantRequest) async throws -> String)?
+    /// A mensagem visível deve saltar a fila de resumos históricos. O app
+    /// injeta a coordenação real; previews e testes podem deixar a porta vazia.
+    let onMessagePresented: (String) -> Void
+    /// Informa ao shell quando o popover transborda o leitor. O layout de
+    /// três colunas precisa elevar o painel inteiro e suspender as calhas de
+    /// redimensionamento enquanto essa superfície estiver aberta.
+    let onEmailAssistantOpenChange: (Bool) -> Void
+    /// Porta exclusiva do harness offscreen: mantém o painel contextual aberto
+    /// sem automatizar a interface da sessão.
+    let debugEmailAssistantOpen: Bool
+    /// Destino injetável do anexo: evita painel do sistema no harness e deixa
+    /// a ação testável sem automação da área de trabalho.
+    let attachmentSaver: (any AttachmentSaving)?
 
     /// O retorno de "Colocar na agenda": qual mensagem, qual item criado, e a
     /// nota que a confirmação mostra. `nil` a maior parte do tempo — só existe
@@ -32,6 +102,9 @@ public struct ReaderPane: View {
     /// topo (ou por ⌘R). A faixa de baixo ouve o número mudar e se expande —
     /// ver `QuickReplyBand.expandRequest`.
     @State private var pedidoDeResposta = 0
+    @State private var quickReplyRevision = 0
+    @State private var emailAssistantOpen = false
+    @State private var emailAssistantPanelSize = ReaderIntelligencePopover.defaultSize
 
     /// O mesmo retorno com "Desfazer" que a lista desenha. O leitor **posta**
     /// nele e não o desenha: apagar daqui tira a mensagem do leitor, e uma
@@ -44,15 +117,59 @@ public struct ReaderPane: View {
     /// "Apagar" da barra seria um botão que não faz nada em metade dos
     /// contextos, que é o defeito que ele veio consertar.
     @State private var ownReceipts = ActionReceipts()
+    @State private var attachmentError: String?
+    @State private var savingAttachmentID: String?
 
     private var receipts: ActionReceipts { sharedReceipts ?? ownReceipts }
 
     public init(
         store: MailStore,
-        onReply: @escaping (Message) -> Void = { _ in }
+        onReply: @escaping (Message) -> Void = { _ in },
+        attachmentSaver: (any AttachmentSaving)? = NativeAttachmentSaver(),
+        intelligence: ComposerIntelligenceGenerator? = nil,
+        intelligencePresentation: IntelligencePresentation = .available,
+        onOpenAssistant: @escaping () -> Void = {},
+        onAskAssistant: ((String, LocalAssistantRequest) async throws -> String)? = nil,
+        onMessagePresented: @escaping (String) -> Void = { _ in },
+        onEmailAssistantOpenChange: @escaping (Bool) -> Void = { _ in }
+    ) {
+        self.init(
+            store: store,
+            debugEmailAssistantOpen: false,
+            onReply: onReply,
+            attachmentSaver: attachmentSaver,
+            intelligence: intelligence,
+            intelligencePresentation: intelligencePresentation,
+            onOpenAssistant: onOpenAssistant,
+            onAskAssistant: onAskAssistant,
+            onMessagePresented: onMessagePresented,
+            onEmailAssistantOpenChange: onEmailAssistantOpenChange
+        )
+    }
+
+    init(
+        store: MailStore,
+        debugEmailAssistantOpen: Bool,
+        onReply: @escaping (Message) -> Void = { _ in },
+        attachmentSaver: (any AttachmentSaving)? = nil,
+        intelligence: ComposerIntelligenceGenerator? = nil,
+        intelligencePresentation: IntelligencePresentation = .available,
+        onOpenAssistant: @escaping () -> Void = {},
+        onAskAssistant: ((String, LocalAssistantRequest) async throws -> String)? = nil,
+        onMessagePresented: @escaping (String) -> Void = { _ in },
+        onEmailAssistantOpenChange: @escaping (Bool) -> Void = { _ in }
     ) {
         self.store = store
         self.onReply = onReply
+        self.attachmentSaver = attachmentSaver
+        self.intelligence = intelligence
+        self.intelligencePresentation = intelligencePresentation
+        self.onOpenAssistant = onOpenAssistant
+        self.onAskAssistant = onAskAssistant
+        self.onMessagePresented = onMessagePresented
+        self.onEmailAssistantOpenChange = onEmailAssistantOpenChange
+        self.debugEmailAssistantOpen = debugEmailAssistantOpen
+        _emailAssistantOpen = State(initialValue: debugEmailAssistantOpen)
     }
 
     public var body: some View {
@@ -88,6 +205,10 @@ public struct ReaderPane: View {
 
         return VStack(spacing: 0) {
             header(message)
+                // O painel é um overlay dentro do botão, mas quem disputa com
+                // o corpo é o cabeçalho inteiro. Sem elevar este irmão, o
+                // ScrollView posterior pinta por cima e também rouba o clique.
+                .zIndex(emailAssistantOpen ? 100 : 0)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -115,7 +236,11 @@ public struct ReaderPane: View {
                 .uniContextMenu(
                     ContextMenus.reader(
                         message,
-                        accountAddress: store.account(message.accountID)?.address ?? ""
+                        accountAddress: store.account(message.accountID)?.address ?? "",
+                        provider: store.account(message.accountID)?.provider,
+                        folders: store.folders(of: message.accountID),
+                        selectedFolderID: store.selectedFolderID,
+                        currentBucket: store.bucket
                     ),
                     store: store,
                     intercept: { command in
@@ -133,9 +258,10 @@ public struct ReaderPane: View {
             // `MailStore`, e volta quando a mensagem voltar.
             QuickReplyBand(
                 store: store, message: message, onPromote: onReply,
-                expandRequest: pedidoDeResposta
+                expandRequest: pedidoDeResposta,
+                intelligence: intelligence
             )
-            .id(message.id)
+            .id("\(message.id)-\(quickReplyRevision)")
         }
         // Abrir uma mensagem sem corpo **é** o pedido de busca. `id:` para que
         // trocar de mensagem cancele a busca da anterior e comece a desta: sem
@@ -145,6 +271,8 @@ public struct ReaderPane: View {
         // Sem porta de corpo (fixtures, e todo teste que não passa uma) isto
         // não faz nada — `loadBodyIfNeeded` sai na primeira guarda.
         .task(id: message.id) {
+            setEmailAssistantOpen(debugEmailAssistantOpen)
+            messageDidAppear(message.id)
             await store.loadBodyIfNeeded(message.id)
         }
         // Voltar a uma conversa é abri-la de novo, com a mais recente aberta.
@@ -156,6 +284,12 @@ public struct ReaderPane: View {
         .onChange(of: conversa?.key) {
             stackState = conversa.flatMap { ConversationStack.carried(stackState, to: $0) }
         }
+    }
+
+    /// Mantém a chamada isolada e diretamente testável sem precisar simular
+    /// seleção ou depender da duração de uma inferência real.
+    func messageDidAppear(_ messageID: String) {
+        onMessagePresented(messageID)
     }
 
     /// Os cartões (resumo, convite) e o corpo de **uma** mensagem — o miolo do
@@ -183,9 +317,82 @@ public struct ReaderPane: View {
                 .padding(.bottom, 24)
         }
 
+        if !message.attachments.isEmpty {
+            attachmentSection(message)
+                .padding(.horizontal, 28)
+                .padding(.top, temCartao(message) ? 0 : 22)
+                .padding(.bottom, 12)
+        }
+
         body(message)
             .padding(.top, temCartao(message) ? 0 : 22)
             .padding(.bottom, 28)
+    }
+
+    private func attachmentSection(_ message: Message) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(message.attachments.count == 1 ? "ANEXO" : "ANEXOS")
+                .capsLabel(size: 10)
+                .foregroundStyle(theme.ink4.color)
+            FlowLayout(spacing: 6, rowSpacing: 6) {
+                ForEach(message.attachments) { attachment in
+                    Button {
+                        save(attachment, from: message)
+                    } label: {
+                        HStack(spacing: 7) {
+                            Image(systemName: "paperclip")
+                                .font(.system(size: 10, weight: .semibold))
+                            Text(attachment.filename)
+                                .lineLimit(1)
+                            Text(attachment.sizeLabel)
+                                .font(theme.mono.font(size: 9.5))
+                                .foregroundStyle(theme.ink4.color)
+                        }
+                        .font(theme.sans.font(size: 12, weight: .medium))
+                        .foregroundStyle(theme.accentInk.color)
+                        .frame(height: 28)
+                        .padding(.horizontal, 10)
+                        .background(theme.accentSoft.color)
+                        .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: theme.radiusSmall)
+                                .strokeBorder(theme.accentLine.color, lineWidth: Hairline.thickness(displayScale))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .focusRing(cornerRadius: theme.radiusSmall)
+                    .disabled(savingAttachmentID == attachment.id)
+                    .help(savingAttachmentID == attachment.id
+                        ? "Baixando \(attachment.filename)…"
+                        : "Baixar \(attachment.filename) (\(attachment.mimeType), \(attachment.sizeLabel))")
+                }
+            }
+            if let attachmentError {
+                Text(attachmentError)
+                    .font(theme.sans.font(size: 11))
+                    .foregroundStyle(theme.accent.color)
+            }
+        }
+    }
+
+    private func save(_ attachment: MailAttachment, from message: Message) {
+        guard let attachmentSaver else {
+            attachmentError = "Salvar anexo indisponível nesta janela."
+            return
+        }
+        savingAttachmentID = attachment.id
+        attachmentError = nil
+        Task {
+            defer { savingAttachmentID = nil }
+            do {
+                let fetched = try await store.fetchAttachment(attachment, from: message)
+                try await attachmentSaver.save(fetched)
+            } catch let error as AttachmentError {
+                attachmentError = error.localizedDescription
+            } catch {
+                attachmentError = "Não foi possível baixar ou salvar o anexo."
+            }
+        }
     }
 
     // MARK: - A conversa empilhada
@@ -232,22 +439,27 @@ public struct ReaderPane: View {
         let accentColor = accountTint(message)
 
         return VStack(alignment: .leading, spacing: 0) {
-            triageBar(message)
-                .padding(.bottom, 12)  // protótipo: margin-bottom: 12px
             subject(message)
             sender(message)
-                .padding(.top, 10)  // protótipo: margin-top: 10px
+                .padding(.top, 9)
+            triageBar(message)
+                .padding(.top, 14)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 28)
-        .padding(.vertical, 16)
-        .background(theme.surface.color)
-        .hairline(theme.line2, edges: .bottom)
-        .overlay(alignment: .leading) {
-            Rectangle()
-                .fill(accentColor)
-                .frame(width: 3)
+        .padding(.vertical, 20)
+        // A faixa da conta é fundo do cabeçalho, não overlay. Como overlay ela
+        // atravessava o popover que nasce dentro deste conteúdo e desenhava a
+        // linha verde/azul por cima do modal.
+        .background {
+            ZStack(alignment: .leading) {
+                theme.surface.color
+                Rectangle()
+                    .fill(accentColor)
+                    .frame(width: 3)
+            }
         }
+        .hairline(theme.line2, edges: .bottom)
     }
 
     private func accountTint(_ message: Message) -> Color {
@@ -259,66 +471,181 @@ public struct ReaderPane: View {
     private func triageBar(_ message: Message) -> some View {
         let account = store.account(message.accountID)
         let accentColor = accountTint(message)
+        let markers = Self.appliedMarkers(for: message, in: store.folders)
 
-        return HStack(spacing: 7) {  // protótipo: gap: 7px
-            let triageButtons = [
-                ("Hoje", TriageBucket.today),
-                ("Depois", TriageBucket.later),
-                ("Arquivar", TriageBucket.archived)
-            ]
-
-            // Protótipo: `on` é a caixa **da mensagem**, e clicar move a
-            // mensagem — não troca a visão da lista.
-            ForEach(triageButtons, id: \.0) { label, bucket in
-                triageChip(
-                    label, isActive: message.bucket == bucket, accent: accentColor,
-                    help: ""
-                ) {
-                    store.move(message, to: bucket)
+        return VStack(alignment: .leading, spacing: 9) {
+            // Contexto primeiro: o ícone da IA fica literalmente ao lado do
+            // chip da caixa, sem competir com as ações de triagem.
+            HStack(spacing: 7) {
+                TintChip(label: account?.host ?? "", tint: accentColor, emphasized: true)
+                ReaderAssistantButton(
+                    presentation: intelligencePresentation,
+                    action: {
+                        setEmailAssistantOpen(!emailAssistantOpen)
+                        onOpenAssistant()
+                    }
+                )
+                .overlay(alignment: .topTrailing) {
+                    if emailAssistantOpen {
+                        ReaderIntelligencePopover(
+                            context: assistantContext(message),
+                            isAvailable: intelligencePresentation.isAvailable
+                                && onAskAssistant != nil
+                                && intelligence != nil,
+                            panelSize: $emailAssistantPanelSize,
+                            onAsk: { request in
+                                guard let onAskAssistant else {
+                                    throw OnDeviceTextAssistantError.invalidRequest(
+                                        "O assistente local não foi conectado a esta janela."
+                                    )
+                                }
+                                return try await onAskAssistant(message.id, request)
+                            },
+                            onGenerateReply: { try await generateReply(for: message.id) },
+                            onUseReply: { useGeneratedReply($0, for: message) },
+                            onClose: { setEmailAssistantOpen(false) }
+                        )
+                        .offset(
+                            x: ReaderIntelligencePopover.anchorOffset(
+                                for: emailAssistantPanelSize.width
+                            ),
+                            y: 34
+                        )
+                    }
                 }
+                .zIndex(80)
+                ForEach(Array(markers.prefix(1))) { marker in
+                    TintChip(
+                        label: Self.markerChipLabel(marker.displayName),
+                        tint: theme.ink3.color
+                    )
+                    .help("Marcador aplicado: \(marker.displayName)")
+                }
+                if markers.count > 1 {
+                    TintChip(label: "+\(markers.count - 1)", tint: theme.ink3.color)
+                        .help(markers.dropFirst().map(\.displayName).joined(separator: " · "))
+                }
+                Spacer(minLength: 0)
             }
+            // O popover vive dentro do botão, mas a fileira de triagem é irmã
+            // desta HStack. Elevar apenas o botão não atravessa esse limite.
+            .zIndex(emailAssistantOpen ? 90 : 0)
 
-            // **"Apagar", que faltava.** A barra oferecia Hoje · Depois ·
-            // Arquivar · Responder, e a ação que o dono mais usa vivia só no
-            // botão direito e no ⌫ — os dois continuam valendo, e os três agora
-            // fazem exatamente a mesma coisa (`ActionReceipts.delete`).
-            //
-            // No idioma dos vizinhos, e não numa cor nova: o app não tem token
-            // destrutivo, e inventar um vermelho aqui seria a única cor do
-            // aplicativo que não sai do desenho. O que carrega o peso da ação é
-            // a palavra — "Apagar", a mesma do menu, do arraste e da tela de
-            // ajustes — e a faixa "Desfazer" que ela deixa na lista.
-            triageChip(
-                Self.apagarLabel(message), isActive: false, accent: accentColor,
-                help: ContextMenus.deleteItem(message).help
-            ) {
-                _ = receipts.delete(message, on: store)
+            HStack(spacing: 7) {
+                let triageButtons = [
+                    ("Hoje", TriageBucket.today),
+                    ("Depois", TriageBucket.later),
+                    ("Arquivar", TriageBucket.archived)
+                ]
+
+                ForEach(triageButtons, id: \.0) { label, bucket in
+                    triageChip(
+                        label, isActive: message.bucket == bucket, accent: accentColor,
+                        help: ""
+                    ) {
+                        store.move(message, to: bucket)
+                    }
+                }
+
+                triageChip(
+                    Self.apagarLabel(message), isActive: false, accent: accentColor,
+                    help: ContextMenus.deleteItem(message).help,
+                    tone: .danger
+                ) {
+                    _ = receipts.delete(message, on: store)
+                }
+
+                Button { pedidoDeResposta += 1 } label: {
+                    Text("Responder")
+                        .font(theme.sans.font(size: 11.5, weight: .semibold))
+                        .foregroundStyle(theme.onAccent.color)
+                        .frame(height: 26)
+                        .padding(.horizontal, 12)
+                        .background(theme.accent.color)
+                        .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+                        .contentShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+                }
+                .buttonStyle(.plain)
+                .focusRing(cornerRadius: theme.radiusSmall, tint: \.onAccent)
+                .keyboardShortcut("r", modifiers: .command)
+
+                Spacer(minLength: 0)
             }
-
-            // "Responder" **expande a faixa de baixo** e põe o cursor nela —
-            // não abre janela. Pedido do dono: a resposta começa embaixo da
-            // mensagem que se está lendo, e a janela cheia continua a um clique
-            // dali, no "⤢" da própria faixa, que leva o rascunho junto.
-            Button { pedidoDeResposta += 1 } label: {
-                Text("Responder")
-                    .font(theme.sans.font(size: 11.5, weight: .semibold))
-                    .foregroundStyle(theme.onAccent.color)
-                    .frame(height: 26)
-                    .padding(.horizontal, 12)
-                    .background(theme.accent.color)
-                    .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-                    .contentShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-            }
-            .buttonStyle(.plain)
-            .focusRing(cornerRadius: theme.radiusSmall, tint: \.onAccent)
-            .keyboardShortcut("r", modifiers: .command)
-
-            Spacer(minLength: 8)
-
-            // Protótipo: `selChipStyle: this.chip(selAcc.c, true)` — o mesmo
-            // chip da barra lateral e da lista, na cor da conta.
-            TintChip(label: account?.host ?? "", tint: accentColor, emphasized: true)
         }
+    }
+
+    private func assistantContext(_ message: Message) -> LocalAssistantContext {
+        let count = store.conversation(of: message.id)?.count ?? 1
+        return LocalAssistantContext(
+            subject: message.subject,
+            sender: message.from.display,
+            conversationLabel: count > 1 ? "\(count) mensagens" : nil
+        )
+    }
+
+    nonisolated static func appliedMarkers(
+        for message: Message,
+        in folders: [MailFolder]
+    ) -> [MailFolder] {
+        folders.filter {
+            $0.accountID == message.accountID
+                && $0.role == .other
+                && message.folderIDs.contains($0.id)
+        }
+    }
+
+    nonisolated static func markerChipLabel(_ displayName: String) -> String {
+        let leaf = displayName
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .last
+            .map(String.init) ?? displayName
+        guard leaf.count > 18 else { return leaf }
+        return String(leaf.prefix(17)) + "…"
+    }
+
+    private func setEmailAssistantOpen(_ open: Bool) {
+        emailAssistantOpen = open
+        onEmailAssistantOpenChange(open)
+    }
+
+    private func generateReply(for messageID: String) async throws -> String {
+        guard let intelligence else {
+            throw OnDeviceTextAssistantError.invalidRequest(
+                "A inteligência de escrita não foi conectada a esta janela."
+            )
+        }
+        let ids = store.conversation(of: messageID)?.messageIDs ?? [messageID]
+        for id in ids { await store.loadBodyIfNeeded(id) }
+
+        guard let message = store.messages.first(where: { $0.id == messageID }) else {
+            throw OnDeviceTextAssistantError.invalidRequest(
+                "O email selecionado não está mais disponível."
+            )
+        }
+        let context: OnDeviceAssistantMailContext
+        if let conversation = store.conversation(of: messageID), conversation.count > 1 {
+            context = OnDeviceAssistantMailContext(conversation: conversation)
+        } else {
+            context = OnDeviceAssistantMailContext(message: message)
+        }
+        let request = ComposerIntelligenceRequest(
+            action: .createReply,
+            target: .draft,
+            source: store.replyDraft(for: messageID)?.text ?? "",
+            sourceMessage: message,
+            sourceContext: context
+        )
+        return try await ComposerIntelligence.generate(request, using: intelligence).result
+    }
+
+    private func useGeneratedReply(_ text: String, for message: Message) {
+        var draft = store.replyDraft(for: message.id)
+            ?? ReplyDraft(to: [message.from], body: AttributedString())
+        draft.body = AttributedString(text)
+        draft.sentAt = nil
+        store.setReplyDraft(draft, for: message.id)
+        quickReplyRevision += 1
+        pedidoDeResposta += 1
     }
 
     /// O que o botão escreve — e ele diz a verdade sobre o que vai fazer.
@@ -334,6 +661,29 @@ public struct ReaderPane: View {
         message.bucket == .trash ? "Apagar de vez" : "Apagar"
     }
 
+    /// A ação continua reversível fora da Lixeira, mas não pode parecer igual a
+    /// "Arquivar": magenta suave deixa explícito que ela tira a conversa da
+    /// caixa atual sem transformar uma ida para a Lixeira em botão alarmista.
+    ///
+    /// Estes três tokens vivem juntos porque a cor é semântica da ação, não do
+    /// tema/conta que recebeu a mensagem. O teste renderiza a pastilha com a
+    /// paleta real para impedir que ela volte a ser um botão neutro.
+    nonisolated static func apagarPalette(isDark: Bool) -> ReaderDangerPalette {
+        if isDark {
+            ReaderDangerPalette(
+                ink: TokenColor(css: "#FF9ACC")!,
+                fill: TokenColor(css: "#351024")!,
+                line: TokenColor(css: "#B83C78")!
+            )
+        } else {
+            ReaderDangerPalette(
+                ink: TokenColor(css: "#A3135A")!,
+                fill: TokenColor(css: "#FDE7F2")!,
+                line: TokenColor(css: "#E580B5")!
+            )
+        }
+    }
+
     /// A pastilha da fila de triagem, uma só vez.
     ///
     /// Protótipo: `height: 26px; padding: 0 12px; border-radius: var(--r2);
@@ -347,20 +697,25 @@ public struct ReaderPane: View {
         isActive: Bool,
         accent: Color,
         help: String?,
+        tone: TriageChipTone = .normal,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
+        let danger = Self.apagarPalette(isDark: theme.isDark)
+        let isDanger = tone == .danger
+        return Button(action: action) {
             Text(label)
                 .font(theme.sans.font(size: 11.5, weight: .semibold))
-                .foregroundStyle(isActive ? theme.accentInk.color : theme.ink.color)
+                .foregroundStyle(
+                    isDanger ? danger.ink.color : (isActive ? theme.accentInk.color : theme.ink.color)
+                )
                 .frame(height: 26)
                 .padding(.horizontal, 12)
-                .background(isActive ? theme.accentSoft.color : theme.btn.color)
+                .background(isDanger ? danger.fill.color : (isActive ? theme.accentSoft.color : theme.btn.color))
                 .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
                 .overlay {
                     RoundedRectangle(cornerRadius: theme.radiusSmall)
                         .strokeBorder(
-                            isActive ? accent : theme.btnLine.color,
+                            isDanger ? danger.line.color : (isActive ? accent : theme.btnLine.color),
                             lineWidth: Hairline.thickness(displayScale)
                         )
                 }
@@ -373,9 +728,9 @@ public struct ReaderPane: View {
 
     private func subject(_ message: Message) -> some View {
         Text(message.subject)
-            .font(theme.serif.font(size: 26, weight: .medium))
-            .tracking(-0.01 * 26)   // letter-spacing: -0.01em a 26pt = -0.26pt
-            .lineSpacing(0.22 * 26)  // line-height: 1.22 × 26 − 26 = 5.72
+            .font(theme.serif.font(size: 22, weight: .semibold))
+            .tracking(-0.01 * 22)
+            .lineSpacing(0.20 * 22)
             .foregroundStyle(theme.ink.color)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -449,7 +804,21 @@ public struct ReaderPane: View {
 
     private func summaryCard(_ summary: String, event: DetectedEvent?, message: Message) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Resumo no dispositivo").capsLabel()
+            HStack(spacing: 8) {
+                Text("TL;DR · neste Mac").capsLabel()
+                Spacer(minLength: 0)
+                if intelligencePresentation.usesConfiguredProvider,
+                   onAskAssistant != nil {
+                    Button("Usar IA configurada") {
+                        setEmailAssistantOpen(true)
+                        onOpenAssistant()
+                    }
+                    .buttonStyle(.plain)
+                    .font(theme.sans.font(size: 10.5, weight: .semibold))
+                    .foregroundStyle(theme.accentInk.color)
+                    .help("Abre o painel para resumir com o provedor e o modelo escolhidos em Configurações.")
+                }
+            }
             Text(summary)
                 .font(theme.serif.font(size: 15))
                 .lineSpacing(8.25)
@@ -550,6 +919,12 @@ public struct ReaderPane: View {
                 linhaDoCartao(quem)
             }
 
+            if convite.isCancelled {
+                linhaDoCartao("Este convite foi cancelado pelo organizador.")
+            } else {
+                inviteRSVPControls(convite, for: message)
+            }
+
             // O botão só existe quando há o que criar: sem `DTSTART` não há
             // compromisso, e um convite cancelado não vira compromisso novo.
             if convite.detectedEvent != nil, !convite.isCancelled {
@@ -585,6 +960,80 @@ public struct ReaderPane: View {
             .foregroundStyle(theme.ink2.color)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// As três decisões iTIP vivem no próprio cartão do convite. O estado
+    /// vem do store (e do disco no app conectado), então o botão repetido fica
+    /// apagado enquanto os outros dois continuam permitindo mudar de ideia.
+    private func inviteRSVPControls(_ convite: CalendarInvite, for message: Message) -> some View {
+        let selected = store.inviteRSVPState(for: convite, from: message)
+        let unavailable = store.inviteRSVPUnavailableReason(for: convite, from: message)
+
+        return VStack(alignment: .leading, spacing: 7) {
+            Text(selected.map { "Resposta na fila: \($0.label)" } ?? "Responder ao convite")
+                .font(theme.sans.font(size: 11.5, weight: .semibold))
+                .foregroundStyle(selected == nil ? theme.ink2.color : theme.accentInk.color)
+
+            HStack(spacing: 6) {
+                ForEach(InviteRSVPResponse.allCases, id: \.self) { response in
+                    inviteRSVPButton(
+                        response, convite: convite, message: message,
+                        selected: selected, unavailable: unavailable
+                    )
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+
+            if let unavailable {
+                Text(unavailable.message)
+                    .font(theme.sans.font(size: 11))
+                    .foregroundStyle(theme.ink3.color)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.top, 4)
+    }
+
+    private func inviteRSVPButton(
+        _ response: InviteRSVPResponse,
+        convite: CalendarInvite,
+        message: Message,
+        selected: InviteRSVPResponse?,
+        unavailable: InviteRSVPUnavailableReason?
+    ) -> some View {
+        let isSelected = selected == response
+        let disabled = isSelected || unavailable != nil
+        let help: String
+        if isSelected {
+            help = "\(response.label) — esta resposta já está na fila de saída"
+        } else if let unavailable {
+            help = unavailable.message
+        } else {
+            help = "\(response.actionLabel) e enviar ao organizador pela fila de saída"
+        }
+
+        return Button {
+            _ = store.respondToInvite(convite, from: message, response: response)
+        } label: {
+            Text(response.actionLabel)
+                .font(theme.sans.font(size: 11.5, weight: .semibold))
+                .foregroundStyle(isSelected ? theme.ink4.color : theme.onAccent.color)
+                .frame(height: 26)
+                .padding(.horizontal, 10)
+                .background(isSelected ? theme.surface3.color : theme.accent.color)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(
+                            isSelected ? theme.line.color : theme.accent.color,
+                            lineWidth: Hairline.thickness(displayScale)
+                        )
+                }
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .focusRing(cornerRadius: 8, tint: \.onAccent)
+        .help(help)
     }
 
     /// A data do convite em hora **local**, que é a única que a pessoa
@@ -797,7 +1246,7 @@ public struct ReaderPane: View {
         } else {
             switch store.bodyLoad(for: message.id) {
             case .carregando:
-                bodyNote(Self.carregandoCorpo)
+                ReaderSpinnerNote(Self.carregandoCorpo)
             case .falhou(let causa):
                 bodyFailure(causa, message: message)
             case .buscado:
@@ -981,6 +1430,22 @@ struct ReaderSpinnerNote: View {
         .frame(maxWidth: ReaderPane.readingWidth, alignment: .leading)
         .padding(.horizontal, 28)
     }
+}
+
+/// A intenção visual da pastilha de triagem. O tipo separado impede que a
+/// ação perigosa receba por acidente os mesmos tokens neutros da triagem.
+private enum TriageChipTone {
+    case normal
+    case danger
+}
+
+/// Tokens da ação destrutiva do leitor. Não entram em `Theme`: são semântica
+/// local de uma ação, enquanto o tema continua responsável pela identidade da
+/// conta e pelos controles normais.
+struct ReaderDangerPalette: Sendable, Hashable {
+    let ink: TokenColor
+    let fill: TokenColor
+    let line: TokenColor
 }
 
 /// A coluna de texto plano do leitor.

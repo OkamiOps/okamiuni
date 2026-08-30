@@ -76,6 +76,10 @@ enum StoreCommand {
             for messageID in messageIDs { store.restoreDeleted(messageID) }
             return true
 
+        case .restoreFolderPlacements(let placements):
+            store.restoreFolderPlacements(placements)
+            return true
+
         case .emptyTrash(let accountID):
             store.emptyTrash(accountID: accountID)
             return true
@@ -95,6 +99,26 @@ enum StoreCommand {
             // A seleção andar para a próxima quando a mensagem sai da visão é
             // trabalho de `move`, e tem teste em `UNICore`. Não se repete aqui.
             store.move(message, to: bucket)
+            return true
+
+        case .placeMessage(let messageID, let folder, let mode):
+            guard let message = store.messages.first(where: { $0.id == messageID }) else {
+                return false
+            }
+            store.place(message, in: folder, mode: mode)
+            return true
+
+        case .moveGmailMessage(let messageID, let source, let target):
+            guard let message = store.messages.first(where: { $0.id == messageID }) else {
+                return false
+            }
+            store.moveGmail(message, from: source, to: target)
+            return true
+
+        case .setAccountTint(let accountID, let lightHex, let darkHex):
+            store.setAccountTint(
+                accountID: accountID, lightHex: lightHex, darkHex: darkHex
+            )
             return true
 
         case .removeFromAgenda(let itemID):
@@ -168,13 +192,15 @@ struct MenuCommandRunner {
                 value: ComposerRoute.forward(messageID: messageID).value
             )
 
-        case .setRead, .setFlagged, .move, .markAllRead,
+        case .setRead, .setFlagged, .move, .placeMessage, .moveGmailMessage,
+             .setAccountTint, .markAllRead,
              .deleteForever, .restoreDeleted, .emptyTrash,
              .removeFromAgenda, .restoreToAgenda,
              // Os dois de conversa não vêm de menu nenhum — eles nascem dentro
              // do recibo de uma ação de conversa e chegam aqui pelo "Desfazer"
              // da faixa, que é o mesmo caminho de todos os outros.
-             .restoreConversation, .restoreDeletedConversation:
+             .restoreConversation, .restoreDeletedConversation,
+             .restoreFolderPlacements:
             StoreCommand.run(command, on: store)
 
         case .composeFrom(let accountID):

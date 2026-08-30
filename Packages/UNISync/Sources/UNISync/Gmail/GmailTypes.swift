@@ -43,6 +43,26 @@ public enum GmailFormat: String, Sendable {
 }
 
 public struct GmailMessage: Sendable, Hashable {
+    public struct Attachment: Sendable, Hashable {
+        public let attachmentID: String?
+        public let filename: String
+        public let mimeType: String
+        public let byteCount: Int
+        /// Algumas respostas pequenas trazem os bytes no próprio payload. As
+        /// maiores trazem só `attachmentId`, que só será baixado ao salvar.
+        public let inlineData: Data?
+
+        public init(
+            attachmentID: String?, filename: String, mimeType: String,
+            byteCount: Int, inlineData: Data? = nil
+        ) {
+            self.attachmentID = attachmentID
+            self.filename = AttachmentName.sanitize(filename)
+            self.mimeType = AttachmentName.mimeType(mimeType)
+            self.byteCount = max(0, byteCount)
+            self.inlineData = inlineData
+        }
+    }
     public let id: String
     /// A conversa **segundo o Gmail**.
     ///
@@ -80,6 +100,31 @@ public struct GmailMessage: Sendable, Hashable {
     /// escreve `In-Reply-To` e `References`, e é o que faz a resposta cair na
     /// conversa certa na caixa de quem recebe.
     public let references: [String]
+    /// Arquivos recebidos, com bytes só quando o Gmail os trouxe no payload.
+    public let attachments: [Attachment]
+
+    public init(
+        id: String, threadID: String, labelIDs: [String], internalDate: Date,
+        from: Contact, to: [Contact], cc: [Contact], subject: String,
+        snippet: String, body: [String], html: String?, calendarICS: String?,
+        rfcMessageID: String?, references: [String], attachments: [Attachment] = []
+    ) {
+        self.id = id
+        self.threadID = threadID
+        self.labelIDs = labelIDs
+        self.internalDate = internalDate
+        self.from = from
+        self.to = to
+        self.cc = cc
+        self.subject = subject
+        self.snippet = snippet
+        self.body = body
+        self.html = html
+        self.calendarICS = calendarICS
+        self.rfcMessageID = rfcMessageID
+        self.references = references
+        self.attachments = attachments
+    }
 }
 
 /// Cabeçalhos de endereço, do jeito que eles chegam de verdade.

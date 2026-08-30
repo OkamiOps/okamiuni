@@ -36,6 +36,26 @@ public enum BodyFont: String, Sendable, Hashable {
     case serif, sans
 }
 
+/// A escala tipográfica da interface. Ela é uma preferência do aplicativo,
+/// não parte do conteúdo que a pessoa escreve ou recebe.
+public enum TypographyPreset: String, CaseIterable, Codable, Sendable, Hashable, Identifiable {
+    case compact
+    case standard
+    case enlarged
+
+    public var id: String { rawValue }
+
+    /// Factores deliberadamente conservadores: ampliado melhora a leitura sem
+    /// transformar as janelas compactas em layouts de acessibilidade dinâmica.
+    public var scale: CGFloat {
+        switch self {
+        case .compact: 0.9
+        case .standard: 1
+        case .enlarged: 1.125
+        }
+    }
+}
+
 /// Padding from the tokens. Its own type rather than SwiftUI's `EdgeInsets`,
 /// which is not `Hashable` and would block `Theme`'s synthesis.
 public struct Insets: Sendable, Hashable {
@@ -63,19 +83,30 @@ public struct FontFamily: Sendable, Hashable {
     /// `nil` means the design asked for the system face.
     public let name: String?
     public let design: Font.Design
+    /// Multiplicador visual aplicado à interface. O nome e o desenho da fonte
+    /// continuam sendo os tokens do tema.
+    public let scale: CGFloat
 
-    public init(name: String?, design: Font.Design) {
+    public init(name: String?, design: Font.Design, scale: CGFloat = 1) {
         self.name = name
         self.design = design
+        self.scale = scale
     }
 
     public static let system = FontFamily(name: nil, design: .default)
 
     public func font(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        let resolvedSize = size * scale
         guard let name, FontRegistry.isAvailable(name) else {
-            return .system(size: size, weight: weight, design: design)
+            return .system(size: resolvedSize, weight: weight, design: design)
         }
-        return .custom(name, size: size).weight(weight)
+        return .custom(name, size: resolvedSize).weight(weight)
+    }
+
+    /// Aplica uma escala absoluta, para que voltar a `standard` não acumule
+    /// transformações sobre uma família já resolvida.
+    public func applying(scale: CGFloat) -> FontFamily {
+        FontFamily(name: name, design: design, scale: scale)
     }
 }
 
@@ -121,6 +152,9 @@ public struct Theme: Sendable, Hashable, Identifiable {
     public let sans: FontFamily
     public let mono: FontFamily
     public let bodyFont: BodyFont
+    /// Escala visual resolvida para os caminhos AppKit que precisam medir
+    /// fontes e alturas de linha, além do SwiftUI.
+    public let typographyScale: CGFloat
 
     // Metrics.
     public let radiusSmall: CGFloat   // --r2
@@ -141,7 +175,8 @@ public struct Theme: Sendable, Hashable, Identifiable {
         btnShadow: [ShadowToken], shadow: [ShadowToken],
         serif: FontFamily, sans: FontFamily, mono: FontFamily, bodyFont: BodyFont,
         radiusSmall: CGFloat, radiusLarge: CGFloat, capsTracking: CGFloat,
-        rowPadding: Insets, subjectWeight: Font.Weight, subjectSize: CGFloat
+        rowPadding: Insets, subjectWeight: Font.Weight, subjectSize: CGFloat,
+        typographyScale: CGFloat = 1
     ) {
         self.id = id
         self.name = name
@@ -170,6 +205,7 @@ public struct Theme: Sendable, Hashable, Identifiable {
         self.sans = sans
         self.mono = mono
         self.bodyFont = bodyFont
+        self.typographyScale = typographyScale
         self.radiusSmall = radiusSmall
         self.radiusLarge = radiusLarge
         self.capsTracking = capsTracking
@@ -183,6 +219,56 @@ extension Theme {
     /// The family the message body is set in.
     public var body: FontFamily { bodyFont == .serif ? serif : sans }
 
+    /// Status roles stay readable on a theme's paper and primary surface.
+    /// They intentionally adapt as text colours, rather than inheriting an
+    /// accent whose contrast and meaning vary from one theme to the next.
+    public var danger: TokenColor {
+        isDark
+            ? TokenColor(red: 255 / 255, green: 177 / 255, blue: 194 / 255)
+            : TokenColor(red: 176 / 255, green: 0 / 255, blue: 32 / 255)
+    }
+
+    public var success: TokenColor {
+        isDark
+            ? TokenColor(red: 140 / 255, green: 232 / 255, blue: 177 / 255)
+            : TokenColor(red: 0 / 255, green: 109 / 255, blue: 58 / 255)
+    }
+
+    public var warning: TokenColor {
+        isDark
+            ? TokenColor(red: 255 / 255, green: 217 / 255, blue: 139 / 255)
+            : TokenColor(red: 128 / 255, green: 86 / 255, blue: 0 / 255)
+    }
+
+    public var info: TokenColor {
+        isDark
+            ? TokenColor(red: 169 / 255, green: 199 / 255, blue: 255 / 255)
+            : TokenColor(red: 0 / 255, green: 87 / 255, blue: 184 / 255)
+    }
+
     /// Tracking in points for a small-caps label at a given size.
     public func capsTracking(at size: CGFloat) -> CGFloat { capsTracking * size }
+
+    /// Resolve a escala de interface sem alterar os tokens de cor, métrica ou
+    /// identidade do tema. Os temas gerados continuam sendo a base canônica.
+    public func applyingTypography(_ preset: TypographyPreset) -> Theme {
+        Theme(
+            id: id, name: name, note: note, isDark: isDark,
+            paper: paper, surface: surface, surface2: surface2, surface3: surface3,
+            ink: ink, ink2: ink2, ink3: ink3, ink4: ink4,
+            line: line, line2: line2,
+            accent: accent, accentInk: accentInk, accentSoft: accentSoft,
+            accentLine: accentLine, onAccent: onAccent,
+            btn: btn, btnLine: btnLine,
+            btnShadow: btnShadow, shadow: shadow,
+            serif: serif.applying(scale: preset.scale),
+            sans: sans.applying(scale: preset.scale),
+            mono: mono.applying(scale: preset.scale),
+            bodyFont: bodyFont,
+            radiusSmall: radiusSmall, radiusLarge: radiusLarge,
+            capsTracking: capsTracking, rowPadding: rowPadding,
+            subjectWeight: subjectWeight, subjectSize: subjectSize,
+            typographyScale: preset.scale
+        )
+    }
 }

@@ -76,8 +76,8 @@ public struct Account: Sendable, Hashable, Identifiable {
     /// Cor em temas escuros, já convertida para sRGB.
     public let tintDarkHex: String
 
-    /// A assinatura desta conta, em texto simples, com as linhas separadas por
-    /// `\n`.
+    /// A assinatura desta conta em texto simples, preservada por
+    /// compatibilidade com quem ainda não entende HTML.
     ///
     /// **É da conta, não do app.** O design escreve isso na linha "De" da tela
     /// 06: *"a assinatura muda com a conta"*. Uma assinatura só, guardada em
@@ -88,6 +88,11 @@ public struct Account: Sendable, Hashable, Identifiable {
     /// Vazia é ausência de assinatura, não uma assinatura em branco: o botão
     /// fica desabilitado e diz por quê, em vez de inserir duas linhas vazias.
     public let signature: String
+
+    /// A assinatura estruturada que o composer/transportador pode colocar em
+    /// `text/plain`, `text/html` e recursos `cid:`. `signature` acima continua
+    /// sendo a alternativa em texto e nunca vira uma segunda fonte de verdade.
+    public let emailSignature: EmailSignature
 
     /// Nulo para contas que não falam IMAP (uma conta Google, por exemplo).
     public let imap: ImapEndpoint?
@@ -109,6 +114,7 @@ public struct Account: Sendable, Hashable, Identifiable {
         id: String, address: String, displayName: String,
         provider: Provider, host: String, tintLightHex: String, tintDarkHex: String,
         signature: String = "",
+        emailSignature: EmailSignature? = nil,
         imap: ImapEndpoint? = nil,
         state: State = .ativa,
         lastSyncedAt: Date? = nil
@@ -120,7 +126,9 @@ public struct Account: Sendable, Hashable, Identifiable {
         self.host = host
         self.tintLightHex = tintLightHex
         self.tintDarkHex = tintDarkHex
-        self.signature = signature
+        let resolvedSignature = emailSignature ?? EmailSignature(legacyText: signature)
+        self.signature = resolvedSignature.plainText
+        self.emailSignature = resolvedSignature
         self.imap = imap
         self.state = state
         self.lastSyncedAt = lastSyncedAt
@@ -144,6 +152,22 @@ public struct Account: Sendable, Hashable, Identifiable {
         copy(imap: .some(endpoint))
     }
 
+    /// A mesma conta com outra assinatura, sem perder o estado corrente.
+    public func withSignature(_ signature: String) -> Account {
+        copy(signature: signature)
+    }
+
+    /// A mesma conta com uma assinatura rica. A versão textual dela continua
+    /// disponível em `signature` para os consumidores legados.
+    public func withEmailSignature(_ signature: EmailSignature) -> Account {
+        copy(emailSignature: signature)
+    }
+
+    /// A mesma conta com outra identidade cromática local.
+    public func withTint(lightHex: String, darkHex: String) -> Account {
+        copy(tintLightHex: lightHex, tintDarkHex: darkHex)
+    }
+
     /// O único lugar que reconstrói uma `Account`.
     ///
     /// Onze campos, três deles com default no `init`: reconstruir à mão em
@@ -157,13 +181,22 @@ public struct Account: Sendable, Hashable, Identifiable {
     private func copy(
         state: State? = nil,
         imap: ImapEndpoint?? = nil,
-        lastSyncedAt: Date?? = nil
+        lastSyncedAt: Date?? = nil,
+        tintLightHex: String? = nil,
+        tintDarkHex: String? = nil,
+        signature: String? = nil,
+        emailSignature: EmailSignature? = nil
     ) -> Account {
-        Account(
+        let resolvedSignature = emailSignature
+            ?? signature.map(EmailSignature.init(legacyText:))
+            ?? self.emailSignature
+        return Account(
             id: id, address: address, displayName: displayName,
             provider: provider, host: host,
-            tintLightHex: tintLightHex, tintDarkHex: tintDarkHex,
-            signature: signature,
+            tintLightHex: tintLightHex ?? self.tintLightHex,
+            tintDarkHex: tintDarkHex ?? self.tintDarkHex,
+            signature: resolvedSignature.plainText,
+            emailSignature: resolvedSignature,
             imap: imap ?? self.imap,
             state: state ?? self.state,
             lastSyncedAt: lastSyncedAt ?? self.lastSyncedAt

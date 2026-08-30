@@ -57,10 +57,26 @@ public struct OutgoingMessage: Codable, Sendable, Hashable {
     /// O corpo em HTML, ou `nil` quando o rascunho não tinha formatação
     /// nenhuma. `nil` é uma mensagem `text/plain` simples, sem `multipart`.
     public let html: String?
+    /// O iCalendar de uma resposta de convite. Quando existe, o transportador
+    /// envia esta mensagem como `text/calendar` — o composer comum continua
+    /// sem esta parte e preserva o MIME atual.
+    public let calendarICS: String?
     /// O `Message-ID` da mensagem respondida, sem `<>`.
     public let inReplyTo: String?
     /// A corrente da conversa, sem `<>`, da mais antiga para a mais nova.
     public let references: [String]
+    /// Arquivos escolhidos pela pessoa, serializados junto da fila local até o
+    /// provedor confirmar o envio.
+    public let attachments: [OutgoingAttachment]
+    /// Imagens locais referenciadas pelo HTML com `cid:`. Elas não são anexos
+    /// visíveis: saem dentro de `multipart/related`, ao lado da parte HTML.
+    /// A ausência do campo em JSON antigo significa lista vazia.
+    public let inlineResources: [InlineSignatureResource]
+
+    private enum CodingKeys: String, CodingKey {
+        case messageID, accountID, from, to, cc, bcc, subject, plainText, html, calendarICS
+        case inReplyTo, references, attachments, inlineResources
+    }
 
     public init(
         messageID: String,
@@ -72,8 +88,11 @@ public struct OutgoingMessage: Codable, Sendable, Hashable {
         subject: String,
         plainText: String,
         html: String? = nil,
+        calendarICS: String? = nil,
         inReplyTo: String? = nil,
-        references: [String] = []
+        references: [String] = [],
+        attachments: [OutgoingAttachment] = [],
+        inlineResources: [InlineSignatureResource] = []
     ) {
         self.messageID = messageID
         self.accountID = accountID
@@ -84,8 +103,32 @@ public struct OutgoingMessage: Codable, Sendable, Hashable {
         self.subject = subject
         self.plainText = plainText
         self.html = html
+        self.calendarICS = calendarICS
         self.inReplyTo = inReplyTo
         self.references = references
+        self.attachments = attachments
+        self.inlineResources = inlineResources
+    }
+
+    /// A fila local pode conter mensagens gravadas antes de anexos existirem.
+    /// Sem `decodeIfPresent`, abrir o app depois da atualização transformaria
+    /// uma linha velha do outbox em falha permanente em vez de enviá-la.
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        messageID = try values.decode(String.self, forKey: .messageID)
+        accountID = try values.decode(String.self, forKey: .accountID)
+        from = try values.decode(OutgoingAddress.self, forKey: .from)
+        to = try values.decode([OutgoingAddress].self, forKey: .to)
+        cc = try values.decodeIfPresent([OutgoingAddress].self, forKey: .cc) ?? []
+        bcc = try values.decodeIfPresent([OutgoingAddress].self, forKey: .bcc) ?? []
+        subject = try values.decode(String.self, forKey: .subject)
+        plainText = try values.decode(String.self, forKey: .plainText)
+        html = try values.decodeIfPresent(String.self, forKey: .html)
+        calendarICS = try values.decodeIfPresent(String.self, forKey: .calendarICS)
+        inReplyTo = try values.decodeIfPresent(String.self, forKey: .inReplyTo)
+        references = try values.decodeIfPresent([String].self, forKey: .references) ?? []
+        attachments = try values.decodeIfPresent([OutgoingAttachment].self, forKey: .attachments) ?? []
+        inlineResources = try values.decodeIfPresent([InlineSignatureResource].self, forKey: .inlineResources) ?? []
     }
 
     /// Todo mundo que vai receber — é a lista do `RCPT TO`, e é por isso que a

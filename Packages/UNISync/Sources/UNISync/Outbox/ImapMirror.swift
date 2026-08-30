@@ -119,6 +119,15 @@ public actor ImapMirror: MailMirror {
             }
             try await mover(targets, para: try await destino(de: bucket))
 
+        case .placeInFolder(_, let serverName, let bruto, _):
+            guard bruto == FolderPlacement.move.rawValue else {
+                throw SyncError.resposta("O IMAP move mensagens entre pastas; esta operação pediu um marcador.")
+            }
+            try await mover(targets, para: serverName)
+
+        case .moveGmailLabel:
+            throw SyncError.resposta("Uma operação de marcador Gmail chegou a uma conta IMAP.")
+
         case .delete:
             try await mover(targets, para: try await destino(de: .trash))
 

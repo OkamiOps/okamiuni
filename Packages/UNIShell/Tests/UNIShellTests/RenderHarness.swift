@@ -252,9 +252,71 @@ struct RenderHarnessTests {
         #expect(rep.pixelsHigh == 916)
     }
 
+    @Test("os filtros de Hoje preservam contraste no claro e no escuro")
+    func todayCategoryFiltersRenderInLightAndDark() async throws {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        #expect(store.bucket == .today)
+
+        for theme in [Theme.tinta, Theme.noite] {
+            let rep = try #require(Render.snapshot(
+                MessageList(store: store)
+                    .frame(maxHeight: .infinity, alignment: .top),
+                named: "categorias-hoje-\(theme.id)",
+                size: CGSize(width: MessageList.width, height: 220),
+                theme: theme
+            ))
+
+            #expect(rep.pixelsWide == Int(MessageList.width))
+            #expect(rep.pixelsHigh == 220)
+            #expect(
+                rep.pixels(matching: theme.accentSoft, tolerance: 0.02) > 100,
+                "\(theme.id) perdeu o estado ativo do filtro"
+            )
+            #expect(
+                rep.pixels(matching: theme.surface2, tolerance: 0.03) > 100,
+                "\(theme.id) perdeu os filtros inativos"
+            )
+        }
+    }
+
+    @Test("os catorze temas escuros preservam hierarquia na caixa real")
+    func everyDarkThemeRendersTheInbox() async throws {
+        let darkThemes = Theme.all.filter(\.isDark)
+        #expect(darkThemes.count == 14)
+
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        store.select(bucket: .all)
+
+        for theme in darkThemes {
+            let rep = try #require(Render.snapshot(
+                InboxScreen(store: store).environment(ThemeStore()),
+                named: "inbox-dark-\(theme.id)",
+                size: CGSize(width: 1_180, height: 760),
+                theme: theme
+            ))
+
+            #expect(rep.pixelsWide == 1_180, "\(theme.id) mudou a largura pedida")
+            #expect(rep.pixelsHigh == 760, "\(theme.id) mudou a altura pedida")
+            #expect(
+                rep.pixels(matching: theme.surface, tolerance: 0.01) > 10_000,
+                "\(theme.id) perdeu a superfície principal"
+            )
+            #expect(
+                rep.pixels(matching: theme.surface2, tolerance: 0.01) > 10_000,
+                "\(theme.id) perdeu a navegação elevada"
+            )
+            #expect(
+                rep.pixels(matching: theme.line, tolerance: 0.02) > 100,
+                "\(theme.id) não desenhou limites perceptíveis"
+            )
+        }
+    }
+
     /// A caixa "Tudo", que é onde as sete mensagens do design aparecem juntas
-    /// nos dois grupos. A caixa que abre por padrão mostra três — o design
-    /// filtra por triagem, não por dia.
+    /// nos dois grupos. A caixa que abre por padrão mostra somente as duas
+    /// recebidas hoje; a Inbox antiga permanece acessível em Tudo.
     ///
     /// Renderizar não prova rótulo (a comparação é humana, olhando o PNG), mas
     /// prova que a lista inteira desenha sem estourar altura nem sumir. As
@@ -482,4 +544,3 @@ extension NSBitmapImageRep {
     }
 
 }
-

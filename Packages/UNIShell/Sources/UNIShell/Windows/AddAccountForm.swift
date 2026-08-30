@@ -241,7 +241,7 @@ public struct AddAccountForm: View {
     private var notaDoEnderecoNumerico: some View {
         Text("Endereço numérico: o certificado do servidor não é conferido pelo nome.")
             .font(theme.sans.font(size: 11))
-            .foregroundStyle(theme.ink4.color)
+            .foregroundStyle(theme.ink3.color)
             .fixedSize(horizontal: false, vertical: true)
             .help("""
                 O SNI do TLS não aceita endereço numérico, então o app não tem \

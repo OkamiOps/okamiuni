@@ -51,6 +51,11 @@ public enum ImapWire {
     /// no primeiro byte e este comando seria um erro de protocolo.
     public static func startTLS(tag: String) -> String { "\(tag) STARTTLS" }
 
+    /// O namespace pessoal que a sessão autenticada publica. Alguns servidores
+    /// devolvem `Sent` no `LIST`, mas só aceitam `INBOX.Sent` no `SELECT`; este
+    /// comando é a fonte do prefixo, em vez de uma tabela por provedor.
+    public static func namespace(tag: String) -> String { "\(tag) NAMESPACE" }
+
     public static func list(tag: String) -> String { "\(tag) LIST \"\" \"*\"" }
 
     /// Este `NO` está dizendo "a caixa de destino não existe"?
@@ -354,6 +359,9 @@ public enum ImapWire {
     /// de forma, quebra um arquivo.
     public enum Untagged: Sendable, Hashable {
         case list(name: String, attributes: [String])
+        /// O prefixo do namespace pessoal do RFC 2342. `nil` cobre `NIL` e
+        /// servidores que não trouxeram uma entrada pessoal utilizável.
+        case namespace(personalPrefix: String?)
         case search([Int64])
         case exists(Int)
         /// `* 3 EXPUNGE` — a mensagem de número de sequência 3 saiu da pasta.
@@ -447,7 +455,36 @@ public enum ImapWire {
     /// caber numa transação e o "parar no meio" custar pouco.
     public static let fetchBatchSize = 200
 
-    public static func folders(from respostas: [Untagged]) -> [Folder] {
+    /// O prefixo pessoal anunciado por `NAMESPACE`, se houver um. A primeira
+    /// entrada é a que o RFC define como namespace pessoal; os namespaces
+    /// compartilhado e público não pertencem à caixa da pessoa.
+    public static func personalNamespacePrefix(from respostas: [Untagged]) -> String? {
+        for resposta in respostas {
+            if case .namespace(let prefix) = resposta { return prefix }
+        }
+        return nil
+    }
+
+    /// Nome que o servidor aceita para uma caixa no namespace pessoal.
+    ///
+    /// É idempotente porque esta função também recebe coordenadas antigas do
+    /// banco, gravadas antes de o app saber do namespace. `INBOX` é a raiz do
+    /// prefixo `INBOX.` e não pode virar `INBOX.INBOX`.
+    public static func qualify(mailbox: String, personalNamespacePrefix prefix: String?) -> String {
+        guard let prefix, !prefix.isEmpty, !mailbox.isEmpty else { return mailbox }
+        if mailbox.range(of: prefix, options: [.anchored, .caseInsensitive]) != nil {
+            return mailbox
+        }
+        let root = prefix.trimmingCharacters(in: CharacterSet(charactersIn: ".\\/"))
+        if !root.isEmpty, mailbox.compare(root, options: .caseInsensitive) == .orderedSame {
+            return mailbox
+        }
+        return prefix + mailbox
+    }
+
+    public static func folders(
+        from respostas: [Untagged], personalNamespacePrefix prefix: String? = nil
+    ) -> [Folder] {
         respostas.compactMap { resposta in
             guard case .list(let nome, let atributos) = resposta else { return nil }
             // `\Noselect` é nó da árvore, não pasta. `SELECT` nele devolve NO,
@@ -459,7 +496,10 @@ public enum ImapWire {
                 ["\\inbox", "\\archive", "\\all", "\\trash", "\\sent", "\\drafts", "\\junk"]
                     .contains(atributo.lowercased())
             }
-            return Folder(name: nome, specialUse: especial)
+            return Folder(
+                name: qualify(mailbox: nome, personalNamespacePrefix: prefix),
+                specialUse: especial
+            )
         }
     }
 
