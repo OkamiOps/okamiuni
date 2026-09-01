@@ -75,6 +75,8 @@ public actor AccountSyncCoordinator {
     private let sleeper: @Sendable (TimeInterval) async throws -> Void
     private let jitter: @Sendable () -> Double
     private let report: @Sendable (String, SyncError?) -> Void
+    private let reportSyncing: @Sendable (String, Bool) -> Void
+    private let reportRemoteInbox: @Sendable (String, Int) -> Void
     private let log = Logger(subsystem: "com.okamiops.okamiuni", category: "SyncCoordinator")
 
     private var loop: Task<Void, Never>?
@@ -104,7 +106,9 @@ public actor AccountSyncCoordinator {
             try await Task.sleep(for: .seconds(segundos))
         },
         jitter: @Sendable @escaping () -> Double = { Double.random(in: 0...1) },
-        report: @Sendable @escaping (String, SyncError?) -> Void = { _, _ in }
+        report: @Sendable @escaping (String, SyncError?) -> Void = { _, _ in },
+        reportSyncing: @Sendable @escaping (String, Bool) -> Void = { _, _ in },
+        reportRemoteInbox: @Sendable @escaping (String, Int) -> Void = { _, _ in }
     ) {
         self.accountID = accountID
         self.database = database
@@ -118,6 +122,8 @@ public actor AccountSyncCoordinator {
         self.sleeper = sleeper
         self.jitter = jitter
         self.report = report
+        self.reportSyncing = reportSyncing
+        self.reportRemoteInbox = reportRemoteInbox
     }
 
     // MARK: O laço
@@ -231,6 +237,9 @@ public actor AccountSyncCoordinator {
             return Outcome()
         }
 
+        reportSyncing(accountID, true)
+        defer { reportSyncing(accountID, false) }
+
         do {
             let resultado: Outcome
             switch conta.provider {
@@ -261,7 +270,29 @@ public actor AccountSyncCoordinator {
             renewAccessToken: { _ = try await auth.renewedAccessToken(for: id) },
             now: now()
         )
+        if let total = saida.remoteInboxCount {
+            reportRemoteInbox(id, total)
+        }
+        await persisteAliasesGmail(conta, cliente: cliente)
         return Outcome(gravadas: saida.gravadas, apagadas: saida.apagadas)
+    }
+
+    private func persisteAliasesGmail(_ conta: Account, cliente: GmailClient) async {
+        guard let remotos = try? await cliente.sendAsAliases() else { return }
+        let fundidos = SendAlias.merging(
+            gmail: remotos.map {
+                ($0.email, $0.displayName, $0.isPrimary, $0.isDefault)
+            },
+            existing: conta.sendAliases,
+            primary: conta.address
+        )
+        let atuais = SendAlias.normalized(conta.sendAliases, excluding: conta.address)
+        guard fundidos != atuais else { return }
+        _ = try? await database.pool.write { db in
+            guard var registro = try AccountRecord.fetchOne(db, key: conta.id) else { return }
+            registro.sendAliases = fundidos
+            try registro.update(db)
+        }
     }
 
     private func cicloDoImap(_ conta: Account) async throws -> Outcome {

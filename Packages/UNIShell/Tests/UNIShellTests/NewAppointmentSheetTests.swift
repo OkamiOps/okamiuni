@@ -23,23 +23,25 @@ struct NewAppointmentSheetTests {
         return store
     }
 
-    @Test("o botão do cabeçalho abre o fluxo de criação")
+    @Test("o botão da lateral abre o fluxo de criação")
     func buttonCallsCreate() async {
         let store = await store()
         var creates = 0
 
         // Janela de ensaio fora da tela: o clique não toca no mouse nem no
-        // foco de quem está usando o desktop.
+        // foco de quem está usando o desktop. O "Novo compromisso" mora na
+        // lateral da Agenda — o cabeçalho não tem mais essa ação.
         CliqueDeEnsaio.em(
-            CalendarHeader(
-                store: store, anchor: Fixtures.today, mode: .week,
-                selectedDayOffset: 0, pickerOpen: false,
-                onPick: { _ in }, onStepDay: { _ in }, onGoToday: {},
-                onTogglePicker: {}, onPickDay: { _ in }, onCreate: { creates += 1 }
+            CalendarSidebar(
+                store: store,
+                width: PaneLayout.expandedSidebarWidth,
+                intelligencePresentation: .available,
+                onOpenAssistant: {},
+                onCreate: { creates += 1 }
             ),
-            size: CGSize(width: 900, height: CalendarHeader.height),
-            aY: CalendarHeader.height / 2,
-            x: 790
+            size: CGSize(width: PaneLayout.expandedSidebarWidth, height: 80),
+            aY: 36,
+            x: PaneLayout.expandedSidebarWidth / 2
         )
 
         #expect(creates == 1, "Novo compromisso desenhou, mas não abriu o editor")
@@ -48,7 +50,7 @@ struct NewAppointmentSheetTests {
     @Test("o editor desenha os campos em uma janela offscreen")
     func sheetRendersItsFields() async throws {
         let store = await store()
-        let size = CGSize(width: 470, height: 470)
+        let size = NewAppointmentSheet.size
         let editor = try #require(Render.snapshot(
             NewAppointmentSheet(
                 store: store, anchor: Fixtures.today, initialDayOffset: 1,
@@ -73,7 +75,7 @@ struct NewAppointmentSheetTests {
     func addCarriesMeetingLink() async throws {
         let store = await store()
         var closes = 0
-        let size = CGSize(width: 470, height: 470)
+        let size = NewAppointmentSheet.size
 
         CliqueDeEnsaio.em(
             NewAppointmentSheet(
@@ -82,7 +84,7 @@ struct NewAppointmentSheetTests {
                 initialMeetingLink: "https://teams.microsoft.com/l/meetup-join/19%3ameeting",
                 onClose: { closes += 1 }
             ),
-            size: size, aY: 445, x: 420
+            size: size, aY: size.height - 28, x: size.width - 50
         )
 
         #expect(closes == 1)

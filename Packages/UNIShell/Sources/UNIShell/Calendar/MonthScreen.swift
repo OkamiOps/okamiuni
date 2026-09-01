@@ -48,7 +48,7 @@ public struct MonthScreen: View {
     }
 
     private var weeks: [MonthAgenda.Week] {
-        MonthAgenda.weeks(from: store.visibleAgenda, anchor: anchor, focusOffset: focusOffset)
+        MonthAgenda.weeks(from: store.calendarAgenda, anchor: anchor, focusOffset: focusOffset)
     }
 
     public var body: some View {
@@ -139,7 +139,7 @@ public struct MonthScreen: View {
 
     /// Protótipo: `e.style` (linhas 2415–2416).
     private func eventChip(_ event: AgendaItem) -> some View {
-        let color = CalendarTint.color(of: event.accountID, in: store, theme: theme)
+        let swatch = CalendarTint.token(of: event, in: store, theme: theme)
         let shape = UnevenRoundedRectangle(
             topLeadingRadius: 0,
             bottomLeadingRadius: 0,
@@ -147,10 +147,11 @@ public struct MonthScreen: View {
             topTrailingRadius: theme.radiusSmall
         )
 
+        let cancelled = event.isCancelled
         return Button { onOpenEvent(event) } label: {
-            Text(event.title)
+            CalendarEventChrome.title(event.title, cancelled: cancelled)
                 .font(theme.sans.font(size: 10.5, weight: .medium))
-                .foregroundStyle(color)
+                .foregroundStyle(CalendarEventChrome.ink(swatch, cancelled: cancelled, theme: theme))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 // Protótipo: `padding: 2px 6px`, e o 6 conta a partir da faixa
@@ -159,8 +160,7 @@ public struct MonthScreen: View {
                 .padding(.trailing, 6)
                 .padding(.vertical, 2)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                // Protótipo: `soft(c, 14)`.
-                .background(color.opacity(0.14))
+                .background(CalendarEventChrome.fill(swatch, cancelled: cancelled, theme: theme))
                 // A faixa de 2pt vem por **sobreposição**, não como irmã num
                 // `HStack`. Uma `Rectangle` irmã não tem altura própria e pede
                 // o máximo disponível: dentro de uma célula do mês, que tem
@@ -169,9 +169,12 @@ public struct MonthScreen: View {
                 // semana e do dia o mesmo `HStack` funciona porque lá a altura
                 // do cartão é imposta por fora.
                 .overlay(alignment: .leading) {
-                    Rectangle().fill(color).frame(width: 2)
+                    Rectangle().fill(CalendarEventChrome.bar(swatch, cancelled: cancelled, theme: theme)).frame(width: 2)
                 }
                 .clipShape(shape)
+                .overlay {
+                    shape.strokeBorder(CalendarEventChrome.border(cancelled: cancelled, theme: theme), lineWidth: 1)
+                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

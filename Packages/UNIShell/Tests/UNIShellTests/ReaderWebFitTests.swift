@@ -119,6 +119,56 @@ struct ReaderWebFitTests {
         #expect(sobra <= visivel)
     }
 
+    /// O email de notificação do GitHub Actions, reduzido ao que o dono viu:
+    /// uma tabela fluida (`width=100%`) com colunas Status / Job / Annotations,
+    /// o nome longo do job, e o rodapé depois. Com a folha antiga, "Status"
+    /// pintava letra a letra e o rodapé sumia — o Gmail desenhava as três
+    /// colunas numa linha só.
+    private static let githubActions = """
+        <table width="100%" cellpadding="0" cellspacing="0">
+        <tr><td>
+        <table id="jobs" width="100%" cellpadding="8" cellspacing="0" border="1">
+        <tr>
+        <td id="status" style="font-weight:bold">Status</td>
+        <td id="job" style="font-weight:bold">Job</td>
+        <td id="ann" style="font-weight:bold">Annotations</td>
+        </tr>
+        <tr>
+        <td>●</td>
+        <td>Quality gate / Application and workflow Failed in 1 minute and 16 seconds</td>
+        <td>3</td>
+        </tr>
+        </table>
+        <p id="footer">You are receiving this because you are subscribed to this thread.</p>
+        <p>GitHub, Inc. · 88 Colin P Kelly Jr Street · San Francisco, CA 94107</p>
+        </td></tr></table>
+        """
+
+    @Test("A coluna Status de uma tabela fluida cabe numa linha, como no Gmail")
+    func tabelaFluidaNaoPartePalavra() async throws {
+        let sonda = SondaDeWebView(largura: 500)
+        await sonda.carrega(ReaderHTMLPolicy.documento(
+            html: Self.githubActions, fundo: "#ffffff", tinta: "#1a1a1a",
+            link: "#1155cc", fonte: "-apple-system, BlinkMacSystemFont, sans-serif"
+        ))
+
+        let larguraDoStatus = try #require(
+            await sonda.numero("document.getElementById('status').getBoundingClientRect().width")
+        )
+        let alturaDoStatus = try #require(
+            await sonda.numero("document.getElementById('status').getBoundingClientRect().height")
+        )
+        // Uma letra de 16px cabe em ~12pt; "Status" numa linha precisa de ~50.
+        // A queixa era largura de um caractere e altura de seis linhas.
+        #expect(larguraDoStatus > 40, "Status mediu \(larguraDoStatus)pt — coluna espremida")
+        #expect(alturaDoStatus < 40, "Status mediu \(alturaDoStatus)pt de altura — partiu letra a letra")
+
+        let alturaDoRodape = try #require(
+            await sonda.numero("document.getElementById('footer').getBoundingClientRect().height")
+        )
+        #expect(alturaDoRodape > 8, "o rodapé colapsou — \(alturaDoRodape)pt")
+    }
+
     /// **Encolher, e não espremer.** A tabela de 640 do remetente sai da folha
     /// de estilo do leitor com os 640 dela — e é por ela medir 640 que existe
     /// algo a encolher. Se um dia a folha passar a espremê-la, o documento
@@ -314,6 +364,42 @@ struct ReaderWebFitTests {
     /// `WebView` do leitor recusa o script **da mensagem**, e é o app que
     /// pergunta a altura. Verificado na prática, e não deduzido do nome da
     /// propriedade.
+    /// O email de verificação da Hostinger: um `div` com `display:none
+    /// !important` que nunca fecha de verdade (`<="" div="">` no lugar de
+    /// `</div>`). O motor esconde logo, título e código; o Gmail mostra. A
+    /// recuperação tem de acontecer **antes** de a `WebView` desenhar, porque
+    /// a mensagem já está gravada assim no banco.
+    private static let preCabecalhoQueEngole = """
+        <div style="display:none !important;visibility:hidden;max-height:0px;\
+        overflow:hidden;">Confirme sua identidade</div>
+        <div style="display:none !important;overflow:hidden;" >\
+        \u{034F}="" \u{FEFF}="" <="" div="">
+        <table class="nl-container" width="600" bgcolor="#ffffff">
+        <tr><td id="codigo" style="font-size:32px;color:#673de6;text-align:center">\
+        <b>615211</b></td></tr>
+        </table>
+        """
+
+    @Test("O pré-cabeçalho escondido quebrado não engole o código da Hostinger")
+    func preCabecalhoQuebradoNaoEngole() async throws {
+        let sonda = SondaDeWebView(largura: 500)
+        await sonda.carrega(ReaderHTMLPolicy.documento(
+            html: Self.preCabecalhoQueEngole, fundo: "#ffffff", tinta: "#1a1a1a",
+            link: "#1155cc", fonte: "ui-serif"
+        ))
+        let visivel = try #require(await sonda.numero("""
+            (function () {
+              var el = document.getElementById('codigo');
+              if (!el) { return 0; }
+              var r = el.getBoundingClientRect();
+              return (r.height > 0 && r.width > 0) ? 1 : 0;
+            })()
+            """))
+        #expect(visivel == 1)
+        let medida = try #require(await sonda.numero(ReaderHTMLPolicy.medidaDaAltura))
+        #expect(medida > 20)
+    }
+
     @Test("Com o script da mensagem desligado, o app ainda consegue medir")
     func appMedeMesmoComScriptDesligado() async throws {
         let sonda = SondaDeWebView(largura: 500)

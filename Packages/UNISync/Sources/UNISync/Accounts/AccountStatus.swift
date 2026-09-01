@@ -24,10 +24,17 @@ public struct AccountStatus: Sendable, Hashable, Identifiable {
     public let state: Account.State
     public let messageCount: Int
     public let lastSyncedAt: Date?
+    /// Total da Entrada no provedor. Gmail: `labels.get(INBOX).messagesTotal`.
+    /// `nil` é "ainda não sabemos" — IMAP, ou o ciclo ainda não pediu.
+    public let remoteInboxCount: Int?
     /// O erro da última operação desta conta. Nulo é "nada de errado".
     public let error: SyncError?
     /// Nulo quando não há carga em curso.
     public let progress: LoadProgress?
+    /// Um ciclo incremental está no ar — o `SyncRunner` acordado, não a carga
+    /// inicial. A barra da caixa usa isto para não fingir "atualizada" no
+    /// meio de um `history.list`.
+    public let isSyncing: Bool
     /// Quantas operações desta conta continuam na fila de saída — pendentes ou
     /// paradas por uma falha permanente. Zero é fila vazia.
     ///
@@ -46,6 +53,9 @@ public struct AccountStatus: Sendable, Hashable, Identifiable {
     /// prateleira só esse `nil` apagava o erro que a fila tinha posto ali —
     /// o defeito que este campo desfaz. Ver `AccountDirector.reportQueue`.
     public let queueError: SyncError?
+    /// Aliases de envio desta conta. Vazio é "só o endereço principal".
+    public let sendAliases: [SendAlias]
+    public let provider: Account.Provider
 
     public init(
         accountID: String, address: String, hostMark: String,
@@ -54,11 +64,17 @@ public struct AccountStatus: Sendable, Hashable, Identifiable {
         pendingOperations: Int = 0,
         queueError: SyncError? = nil,
         signature: String = "",
-        emailSignature: EmailSignature? = nil
+        emailSignature: EmailSignature? = nil,
+        isSyncing: Bool = false,
+        remoteInboxCount: Int? = nil,
+        sendAliases: [SendAlias] = [],
+        provider: Account.Provider = .imap
     ) {
         let resolvedSignature = emailSignature ?? EmailSignature(legacyText: signature)
         self.pendingOperations = pendingOperations
         self.queueError = queueError
+        self.sendAliases = sendAliases
+        self.provider = provider
         self.accountID = accountID
         self.address = address
         self.hostMark = hostMark
@@ -69,5 +85,7 @@ public struct AccountStatus: Sendable, Hashable, Identifiable {
         self.lastSyncedAt = lastSyncedAt
         self.error = error
         self.progress = progress
+        self.isSyncing = isSyncing
+        self.remoteInboxCount = remoteInboxCount
     }
 }

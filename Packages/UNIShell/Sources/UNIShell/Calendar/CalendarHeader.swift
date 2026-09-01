@@ -2,17 +2,15 @@ import SwiftUI
 import UNIDesign
 import UNICore
 
-/// A faixa de 46pt no topo da tela 02 (protótipo, linhas 1395–1438).
+/// A faixa no topo da tela 02.
 ///
-/// Ela é a **mesma** nas três visões: título, as três abas, o navegador de dia
-/// (só na visão Dia), a contagem e a legenda de contas. Estava dentro da
-/// `WeekScreen` enquanto só existia uma visão; agora que existem três, mora
-/// aqui — senão as outras duas teriam de reimplementá-la, e o cabeçalho é
-/// justamente o que não pode mudar ao trocar de aba.
+/// Ela é a **mesma** nas três visões: título, as três abas, o navegador e a
+/// contagem. O "Novo compromisso" mora só na lateral — dois botões na mesma
+/// faixa repetiam a ação e brigavam com o navegador.
 struct CalendarHeader: View {
 
-    /// Protótipo: `height: 46px; gap: 14px; padding: 0 22px`.
-    static let height: CGFloat = 46
+    static let height: CGFloat = 52
+    static let controlHeight: CGFloat = 32
 
     @Environment(\.theme) private var theme
 
@@ -26,23 +24,19 @@ struct CalendarHeader: View {
     let onGoToday: () -> Void
     let onTogglePicker: () -> Void
     let onPickDay: (Int) -> Void
-    var onCreate: () -> Void = {}
 
     var body: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 12) {
             // Largura reservada, e não largura medida: era daqui que vinha o
             // defeito dos "controles que andam". Ver `ReservedText`.
             ReservedText(
                 text: title,
                 groups: titleCandidates,
-                font: theme.serif.font(size: 19, weight: .semibold),
+                font: theme.serif.font(size: 18, weight: .semibold),
                 color: theme.ink.color
             )
 
             viewTabs
-
-            // Nas três visões. Antes só a Dia tinha, e semana e mês ficavam
-            // presas na semana e no mês da âncora.
             dayNavigator
 
             Text(meta)
@@ -53,24 +47,9 @@ struct CalendarHeader: View {
 
             Spacer(minLength: 0)
 
-            CalendarButton(
-                appearance: .strong,
-                horizontalPadding: 11,
-                action: onCreate
-            ) {
-                HStack(spacing: 5) {
-                    Image(systemName: "plus")
-                        .font(theme.sans.font(size: 11, weight: .semibold))
-                    Text("Novo compromisso")
-                        .font(theme.sans.font(size: 11.5, weight: .semibold))
-                }
-            }
-            .help("Adicionar um compromisso à agenda")
-            .accessibilityLabel("Novo compromisso")
-
             accountLegend
         }
-        .padding(.horizontal, 22)
+        .padding(.horizontal, 20)
         .frame(height: Self.height)
         .hairline(theme.line2, edges: .bottom)
     }
@@ -119,12 +98,12 @@ struct CalendarHeader: View {
         switch mode {
         case .day:
             DayAgenda.blockCountLabel(
-                WeekAgenda.items(on: selectedDayOffset, in: store.visibleAgenda).count
+                WeekAgenda.items(on: selectedDayOffset, in: store.calendarAgenda).count
             )
         case .week:
             "semana \(WeekAgenda.weekNumber(for: focusedDate))"
         case .month:
-            "\(MonthAgenda.eventCount(from: store.visibleAgenda, anchor: anchor, focusOffset: selectedDayOffset)) compromissos"
+            "\(MonthAgenda.eventCount(from: store.calendarAgenda, anchor: anchor, focusOffset: selectedDayOffset)) compromissos"
         }
     }
 
@@ -139,99 +118,47 @@ struct CalendarHeader: View {
                 tab(candidate)
             }
         }
-        .padding(2)
+        .padding(3)
         .background(theme.surface3.color)
-        .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+        .clipShape(Capsule())
     }
 
-    /// Protótipo: `tab(on)` — `height: 24px; padding: 0 13px; font-size: 12.5px;
-    /// font-weight: 550`, e a ativa com fundo `surface` e sombra leve.
     private func tab(_ candidate: CalendarViewMode) -> some View {
         let isActive = candidate == mode
         return Button { onPick(candidate) } label: {
             Text(candidate.label)
-                .font(theme.sans.font(size: 12.5, weight: .medium))
+                .font(theme.sans.font(size: 12.5, weight: isActive ? .semibold : .medium))
                 .foregroundStyle(isActive ? theme.ink.color : theme.ink3.color)
-                .padding(.horizontal, 13)
-                .frame(height: 24)
+                .padding(.horizontal, 12)
+                .frame(height: Self.controlHeight - 6)
                 .background {
                     if isActive {
-                        RoundedRectangle(cornerRadius: theme.radiusSmall)
+                        Capsule()
                             .fill(theme.surface.color)
-                            // CSS `0 1px 2px rgba(0,0,0,0.08)`: o raio do SwiftUI
-                            // é metade do blur do CSS.
                             .shadow(color: .black.opacity(0.08), radius: 1, x: 0, y: 1)
                     }
                 }
-                .contentShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .focusRing(cornerRadius: theme.radiusSmall)
+        .focusRing(in: Capsule())
         .accessibilityLabel(candidate.label)
         .accessibilityAddTraits(isActive ? [.isSelected] : [])
     }
 
     // MARK: - O navegador de dia
 
-    /// Protótipo: linhas 1403–1408 — `‹`, o botão do seletor, `›` e "Hoje",
-    /// com `gap: 6px`.
+    /// Quatro chips com borda — não uma cápsula cinza. A cápsula recortava o
+    /// seletor (231pt dentro de 32pt) e o dono via um botão morto. O overlay
+    /// mora neste `HStack`, **sem** `clipShape`, para pintar por cima do `›`
+    /// e do Hoje e descer pela grade.
     private var dayNavigator: some View {
         HStack(spacing: 6) {
-            CalendarButton(
-                appearance: .quiet, width: 26, horizontalPadding: 0,
-                action: { onStepDay(-1) }
-            ) {
-                Text("‹").font(theme.sans.font(size: 13))
-            }
-            .help("Dia anterior")
-            .accessibilityLabel("Dia anterior")
-
-            CalendarButton(
-                appearance: pickerOpen ? .active : .strong, horizontalPadding: 11,
-                action: onTogglePicker
-            ) {
-                HStack(spacing: 5) {
-                    ReservedText(
-                        text: MonthAgenda.shortDayLabel(
-                            dayOffset: selectedDayOffset, anchor: anchor
-                        ),
-                        groups: dayLabelCandidates,
-                        font: theme.sans.font(size: 12, weight: .medium),
-                        color: nil
-                    )
-                    // Protótipo: `font-size: 8px; opacity: 0.6` no mono.
-                    Text("▾")
-                        .font(theme.mono.font(size: 8))
-                        .opacity(0.6)
-                }
-            }
-            .help("Escolher o dia")
-            .accessibilityLabel("Escolher o dia")
-
-            CalendarButton(
-                appearance: .quiet, width: 26, horizontalPadding: 0,
-                action: { onStepDay(1) }
-            ) {
-                Text("›").font(theme.sans.font(size: 13))
-            }
-            .help("Próximo dia")
-            .accessibilityLabel("Próximo dia")
-
-            CalendarButton(appearance: .quiet, horizontalPadding: 10, action: onGoToday) {
-                Text("Hoje").font(theme.sans.font(size: 11.5, weight: .medium))
-            }
-            .accessibilityLabel("Ir para hoje")
+            stepButton(direction: -1, symbol: "chevron.left", label: previousLabel)
+            datePickerButton
+            stepButton(direction: 1, symbol: "chevron.right", label: nextLabel)
+            todayButton
         }
-        // O popover pousa **no navegador**, não na faixa: no protótipo o
-        // container das setas é o `position: relative` de quem tem
-        // `position: absolute` (linha 1403 e 1410). Pendurá-lo na faixa
-        // obrigaria a medir onde o navegador começa — e ele começa depois do
-        // título, cuja largura muda com o dia, e depois das abas, cuja largura
-        // muda com a fonte do tema.
-        //
-        // `top: 32px; left: 32px`: 32 à esquerda são a seta `‹` (26) mais o
-        // intervalo (6), o que alinha o popover ao botão que o abriu; 32 abaixo
-        // são os 26 do botão mais 6 de folga.
         .overlay(alignment: .topLeading) {
             if pickerOpen {
                 DatePickerPopover(
@@ -239,8 +166,81 @@ struct CalendarHeader: View {
                     selectedDayOffset: selectedDayOffset,
                     onPickDay: onPickDay
                 )
-                .offset(x: 32, y: 32)
+                // Depois da seta esquerda (32) e do vão (6), alinhado ao chip
+                // da data; 4pt abaixo do próprio chip.
+                .offset(x: Self.controlHeight + 6, y: Self.controlHeight + 4)
             }
+        }
+    }
+
+    private func stepButton(direction: Int, symbol: String, label: String) -> some View {
+        CalendarButton(
+            appearance: .quiet,
+            width: Self.controlHeight,
+            height: Self.controlHeight,
+            horizontalPadding: 0,
+            action: { onStepDay(direction) }
+        ) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .semibold))
+        }
+        .help(label)
+        .accessibilityLabel(label)
+    }
+
+    private var datePickerButton: some View {
+        CalendarButton(
+            appearance: pickerOpen ? .active : .strong,
+            height: Self.controlHeight,
+            horizontalPadding: 11,
+            action: onTogglePicker
+        ) {
+            HStack(spacing: 6) {
+                ReservedText(
+                    text: MonthAgenda.shortDayLabel(
+                        dayOffset: selectedDayOffset, anchor: anchor
+                    ),
+                    groups: dayLabelCandidates,
+                    font: theme.sans.font(size: 12.5, weight: .semibold),
+                    color: nil
+                )
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                    .opacity(0.7)
+            }
+        }
+        .help("Escolher o dia")
+        .accessibilityLabel("Escolher o dia")
+    }
+
+    private var todayButton: some View {
+        CalendarButton(
+            appearance: .quiet,
+            height: Self.controlHeight,
+            horizontalPadding: 12,
+            action: onGoToday
+        ) {
+            Text("Hoje")
+                .font(theme.sans.font(size: 12.5, weight: .semibold))
+        }
+        .disabled(selectedDayOffset == 0)
+        .help("Ir para hoje")
+        .accessibilityLabel("Ir para hoje")
+    }
+
+    private var previousLabel: String {
+        switch mode {
+        case .day: "Dia anterior"
+        case .week: "Semana anterior"
+        case .month: "Mês anterior"
+        }
+    }
+
+    private var nextLabel: String {
+        switch mode {
+        case .day: "Próximo dia"
+        case .week: "Próxima semana"
+        case .month: "Próximo mês"
         }
     }
 
@@ -335,11 +335,27 @@ private struct ReservedText: View {
     }
 }
 
-/// A cor da caixa a que um compromisso pertence, nas quatro visões.
+/// A cor do compromisso nas quatro visões — a mesma da bolinha na lateral.
 ///
-/// Conta desconhecida cai no acento do tema: nada aqui presume quais contas
-/// existem, nem quantas.
+/// Pintar pela caixa de email (ou pelo acento do tema) fazia o bloco nascer
+/// numa cor que nenhuma agenda listada tem. O calendário da lateral manda.
 enum CalendarTint {
+    @MainActor
+    static func token(of item: AgendaItem, in store: MailStore, theme: Theme) -> TokenColor? {
+        if let hex = store.calendarSwatchHex(for: item), let token = TokenColor(css: hex) {
+            return token
+        }
+        return store.account(item.accountID).flatMap {
+            TokenColor(css: $0.tint(isDark: theme.isDark))
+        }
+    }
+
+    @MainActor
+    static func color(of item: AgendaItem, in store: MailStore, theme: Theme) -> Color {
+        token(of: item, in: store, theme: theme)?.color
+            ?? color(of: item.accountID, in: store, theme: theme)
+    }
+
     @MainActor
     static func color(of accountID: String, in store: MailStore, theme: Theme) -> Color {
         store.account(accountID)

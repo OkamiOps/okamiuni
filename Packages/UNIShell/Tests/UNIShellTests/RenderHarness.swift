@@ -523,12 +523,18 @@ extension NSBitmapImageRep {
     /// muda, estas colunas mudam junto — e é isso que o caso mede, em vez de
     /// comparar a imagem inteira, que muda de qualquer jeito porque o título
     /// mudou.
-    func columns(matching token: TokenColor, tolerance: Double = 0.02) -> ClosedRange<Int>? {
+    func columns(
+        matching token: TokenColor,
+        tolerance: Double = 0.02,
+        inRows recorte: Range<Int>? = nil
+    ) -> ClosedRange<Int>? {
         guard let wanted = token.nsColor.usingColorSpace(.sRGB) else { return nil }
+        let linhas = recorte.map { max(0, $0.lowerBound)..<min(pixelsHigh, $0.upperBound) }
+            ?? 0..<pixelsHigh
         var menor: Int?
         var maior: Int?
         for x in 0..<pixelsWide {
-            for y in 0..<pixelsHigh {
+            for y in linhas {
                 guard let c = colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
                       c.alphaComponent > 0.9,
                       abs(c.redComponent - wanted.redComponent) < tolerance,
@@ -536,6 +542,36 @@ extension NSBitmapImageRep {
                       abs(c.blueComponent - wanted.blueComponent) < tolerance else { continue }
                 if menor == nil { menor = x }
                 maior = x
+                break
+            }
+        }
+        guard let menor, let maior else { return nil }
+        return menor...maior
+    }
+
+    /// Em que linhas esta cor aparece, opcionalmente num recorte vertical.
+    ///
+    /// Irmã de `columns(matching:)`: a fila de triagem do leitor tem fundo
+    /// `btn` nas pastilhas inativas, e o assunto longo não pode empurrá-la.
+    func rows(
+        matching token: TokenColor,
+        tolerance: Double = 0.02,
+        inRows recorte: Range<Int>? = nil
+    ) -> ClosedRange<Int>? {
+        guard let wanted = token.nsColor.usingColorSpace(.sRGB) else { return nil }
+        let linhas = recorte.map { max(0, $0.lowerBound)..<min(pixelsHigh, $0.upperBound) }
+            ?? 0..<pixelsHigh
+        var menor: Int?
+        var maior: Int?
+        for y in linhas {
+            for x in 0..<pixelsWide {
+                guard let c = colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
+                      c.alphaComponent > 0.9,
+                      abs(c.redComponent - wanted.redComponent) < tolerance,
+                      abs(c.greenComponent - wanted.greenComponent) < tolerance,
+                      abs(c.blueComponent - wanted.blueComponent) < tolerance else { continue }
+                if menor == nil { menor = y }
+                maior = y
                 break
             }
         }

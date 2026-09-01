@@ -2992,6 +2992,131 @@ struct RulesSettingsView: View {
     }
 }
 
+// MARK: - Agenda
+
+/// Serviço padrão por conta e conexão das APIs. O editor cria uma sala nova
+/// a cada compromisso — nunca um link permanente.
+struct AgendaSettingsView: View {
+    @Environment(\.theme) private var theme
+
+    let rooms: MeetingRoomSettingsStore?
+    let accounts: [AccountStatus]
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                SettingsIntro(
+                    symbol: "video.fill",
+                    eyebrow: "REUNIÕES",
+                    title: "Sala nova a cada compromisso",
+                    text: "Meet nasce do Google já conectado. Zoom, Teams e Zoho usam a API de cada um. Um link fixo vira reunião eterna, com o título errado — por isso o OkamiUNI cria a sala na hora de adicionar."
+                )
+
+                if accounts.isEmpty {
+                    SettingsEmptyState(
+                        symbol: "at",
+                        title: "Nenhuma conta conectada",
+                        text: "Conecte uma caixa em Contas. O Meet usa o Google OAuth dessa caixa."
+                    )
+                    .frame(minHeight: 180)
+                } else if let rooms {
+                    ForEach(accounts) { account in
+                        accountCard(account, rooms: rooms)
+                    }
+                } else {
+                    SettingsNotice(
+                        symbol: "exclamationmark.triangle",
+                        title: "Preferências indisponíveis",
+                        text: "Não foi possível abrir as preferências de reunião neste Mac."
+                    )
+                }
+
+                if let rooms {
+                    ForEach(MeetingService.allCases.filter(\.needsAPIConnection)) { service in
+                        apiCard(service, rooms: rooms)
+                    }
+                }
+            }
+            .padding(.horizontal, 28)
+            .padding(.vertical, 24)
+            .frame(maxWidth: 840, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(theme.paper.color)
+    }
+
+    private func accountCard(_ account: AccountStatus, rooms: MeetingRoomSettingsStore) -> some View {
+        let profile = rooms.profile(for: account.accountID)
+        let isGmail = account.hostMark.lowercased() == "gmail"
+            || account.address.lowercased().hasSuffix("@gmail.com")
+            || account.address.lowercased().hasSuffix("@googlemail.com")
+        return SettingsCard(
+            eyebrow: account.hostMark.uppercased(),
+            title: account.address,
+            subtitle: isGmail
+                ? "Meet cria uma sala nova via Google. Reconecte a caixa se o Google pedir acesso ao Meet."
+                : "O serviço padrão desta caixa. Meet exige uma conta Google conectada."
+        ) {
+            SettingsLabeledRow(label: "Padrão") {
+                Picker("Serviço padrão", selection: Binding(
+                    get: { profile.defaultService?.rawValue ?? "" },
+                    set: { raw in
+                        rooms.setDefault(MeetingService(rawValue: raw), for: account.accountID)
+                    }
+                )) {
+                    Text("Nenhum").tag("")
+                    ForEach(MeetingService.allCases) { service in
+                        Text(service.label).tag(service.rawValue)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+            }
+        }
+    }
+
+    private func apiCard(_ service: MeetingService, rooms: MeetingRoomSettingsStore) -> some View {
+        let connection = rooms.connection(for: service)
+        return SettingsCard(
+            eyebrow: service.shortLabel.uppercased(),
+            title: service.label,
+            subtitle: rooms.isConnected(service)
+                ? "Conectado. Cada compromisso ganha uma sala nova."
+                : "Credenciais da API — não é o link de uma reunião."
+        ) {
+            SettingsLabeledRow(label: "Client ID") {
+                TextField("Client ID", text: Binding(
+                    get: { connection.clientID },
+                    set: { rooms.setConnection(connection.updating(clientID: $0), for: service) }
+                ))
+                .settingsTextField()
+            }
+            SettingsLabeledRow(label: "Client secret") {
+                SecureField("Client secret", text: Binding(
+                    get: { connection.clientSecret },
+                    set: { rooms.setConnection(connection.updating(clientSecret: $0), for: service) }
+                ))
+                .settingsTextField()
+            }
+            SettingsLabeledRow(label: service.extraFieldLabel) {
+                if service == .zoho {
+                    SecureField(service.extraFieldLabel, text: Binding(
+                        get: { connection.extra },
+                        set: { rooms.setConnection(connection.updating(extra: $0), for: service) }
+                    ))
+                    .settingsTextField()
+                } else {
+                    TextField(service.extraFieldLabel, text: Binding(
+                        get: { connection.extra },
+                        set: { rooms.setConnection(connection.updating(extra: $0), for: service) }
+                    ))
+                    .settingsTextField()
+                }
+            }
+        }
+    }
+}
+
 // MARK: - Peças comuns
 
 private struct SettingsIntro: View {
@@ -3138,7 +3263,7 @@ private struct SettingsNotice: View {
     }
 }
 
-private struct SettingsEmptyState: View {
+struct SettingsEmptyState: View {
     @Environment(\.theme) private var theme
     let symbol: String
     let title: String
@@ -3197,7 +3322,7 @@ private struct SettingsBehaviorMenu<Option: Identifiable & Hashable>: View {
     }
 }
 
-private extension View {
+extension View {
     func settingsTextField() -> some View {
         modifier(SettingsTextFieldStyle())
     }

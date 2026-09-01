@@ -74,7 +74,8 @@ public enum DetectedEventConversion {
         id: String,
         accountID: String,
         referenceDay: Date,
-        calendar: Calendar = .current
+        calendar: Calendar = .current,
+        detail: EventDetail? = nil
     ) -> AgendaItem {
         let referenceDayStart = calendar.startOfDay(for: referenceDay)
         let eventDayStart = calendar.startOfDay(for: event.start)
@@ -100,7 +101,8 @@ public enum DetectedEventConversion {
             // acima devolver um minuto menor que o de início.
             endMinute: max(startMinute, endMinute),
             accountID: accountID,
-            dayOffset: dayOffset
+            dayOffset: dayOffset,
+            detail: detail
         )
     }
 
@@ -139,5 +141,10 @@ public struct AgendaAddReceipt: Sendable, Hashable, Identifiable {
     /// conversão de fuso que este arquivo inteiro existe para evitar.
     public static func note(eventLabel: String, stamp: String) -> String {
         "Na agenda — \(eventLabel) · \(stamp)"
+    }
+
+    /// O retorno de "Remover da agenda" no cartão de cancelamento.
+    public static func removedNote(eventLabel: String, stamp: String) -> String {
+        "Tirada da agenda — \(eventLabel) · \(stamp)"
     }
 }

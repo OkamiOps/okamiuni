@@ -24,22 +24,44 @@ struct RecipientField: View {
     var menuWidth: CGFloat = 340
     let pool: [DirectoryContact]
     @Binding var chips: [Contact]
+    /// Texto ainda não fechado em etiqueta. O pai lê isto ao enviar/adicionar
+    /// para não perder o email que estava no campo.
+    var typed: Binding<String>? = nil
     /// Porta do harness: o menu só abre com foco, e a renderização fora da tela
     /// nunca entrega foco a ninguém. Semear a busca abre o menu sem clique — é
     /// a mesma porta que `BandRecipientRow` já tem na faixa do leitor. Nula no
     /// app.
     var seededQuery: String?
+    /// `true` (composer): o menu flutua por cima da linha de baixo. `false`
+    /// (formulário com scroll): entra no fluxo, senão Local/Notas e o rodapé
+    /// roubam o clique.
+    var floatsMenu: Bool = true
 
     @State private var query = ""
     @State private var seeded = false
     @State private var fieldHeight: CGFloat = 24
+    @State private var hoveringMenu = false
     @FocusState private var focused: Bool
 
-    private var suggestions: [DirectoryContact] {
-        ContactDirectory.suggestions(matching: query, excluding: chips, in: pool)
+    private var queryBinding: Binding<String> {
+        Binding(
+            get: { typed?.wrappedValue ?? query },
+            set: { new in
+                query = new
+                typed?.wrappedValue = new
+            }
+        )
     }
 
-    private var menuOpen: Bool { (focused || seededQuery != nil) && !suggestions.isEmpty }
+    private var liveQuery: String { queryBinding.wrappedValue }
+
+    private var suggestions: [DirectoryContact] {
+        ContactDirectory.suggestions(matching: liveQuery, excluding: chips, in: pool)
+    }
+
+    private var menuOpen: Bool {
+        !suggestions.isEmpty && (focused || hoveringMenu || seededQuery != nil)
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -61,11 +83,31 @@ struct RecipientField: View {
     }
 
     private var field: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            inputRow
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { fieldHeight = $0 }
+            if menuOpen && !floatsMenu {
+                menu
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay(alignment: .topLeading) {
+            if menuOpen && floatsMenu {
+                menu
+                    // Protótipo: o cartão nasce `top: 30px` abaixo do campo de
+                    // 24pt — 6pt de folga, a mesma nos três campos.
+                    .offset(y: fieldHeight + 6)
+                    .zIndex(40)
+            }
+        }
+    }
+
+    private var inputRow: some View {
         FlowLayout(spacing: 5, rowSpacing: 5, stretchesLast: true) {
             ForEach(chips) { chip in
                 self.chip(chip)
             }
-            TextField(placeholder, text: $query)
+            TextField(placeholder, text: queryBinding)
                 .textFieldStyle(.plain)
                 .font(theme.sans.font(size: 13))
                 .foregroundStyle(theme.ink.color)
@@ -80,21 +122,11 @@ struct RecipientField: View {
                     return .handled
                 }
                 .onKeyPress(.escape) {
-                    guard focused else { return .ignored }
+                    guard focused || hoveringMenu else { return .ignored }
                     focused = false
+                    hoveringMenu = false
                     return .handled
                 }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { fieldHeight = $0 }
-        .overlay(alignment: .topLeading) {
-            if menuOpen {
-                menu
-                    // Protótipo: o cartão nasce `top: 30px` abaixo do campo de
-                    // 24pt — 6pt de folga, a mesma nos três campos.
-                    .offset(y: fieldHeight + 6)
-                    .zIndex(40)
-            }
         }
     }
 
@@ -153,12 +185,13 @@ struct RecipientField: View {
         }
         // `0 18px 40px rgba(0,0,0,0.24)` — o blur do CSS vale o dobro do raio.
         .shadow(color: .black.opacity(0.24), radius: 20, x: 0, y: 18)
+        .onHover { hoveringMenu = $0 }
     }
 
     private func add(_ suggestion: DirectoryContact) {
         guard !chips.contains(where: { $0.id == suggestion.contact.id }) else { return }
         chips.append(suggestion.contact)
-        query = ""
+        queryBinding.wrappedValue = ""
     }
 
     private func commitFirst() {
@@ -171,7 +204,7 @@ struct RecipientField: View {
         guard text.hasSuffix(";") || text.hasSuffix(",") else { return }
         let raw = String(text.dropLast())
         guard let resolved = ContactDirectory.resolve(typed: raw, in: pool) else {
-            query = ""
+            queryBinding.wrappedValue = ""
             return
         }
         add(resolved)
@@ -223,5 +256,8 @@ private struct SuggestionRow: View {
         .buttonStyle(.plain)
         .focusRing(in: Rectangle())
         .onHover { hovering = $0 }
+        // O clique não pode depender só do Button: o TextField perde o foco
+        // primeiro, o menu some e o clique cai no campo de baixo.
+        .simultaneousGesture(TapGesture().onEnded(action))
     }
 }

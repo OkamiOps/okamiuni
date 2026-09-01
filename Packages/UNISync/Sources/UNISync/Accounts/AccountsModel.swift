@@ -35,6 +35,9 @@ public final class AccountsModel {
     /// tem uma — os testes de janela montam o modelo só com o diretor, e o app
     /// sem banco não tem fila nenhuma para religar.
     private let outbox: OutboxRunner?
+    /// Quem acorda o ciclo incremental. Nulo nos testes da janela, que não
+    /// montam o `SyncRunner`.
+    private let sync: SyncRunner?
     /// A última ação enfileirada. As ações da janela correm **uma de cada
     /// vez**: dois cliques no mesmo botão, ou remover enquanto adiciona,
     /// escreveriam no mesmo `lastError` e no mesmo `isBusy` e a segunda
@@ -46,9 +49,12 @@ public final class AccountsModel {
     /// justificar uma mensagem de "ocupado".
     private var fila: Task<Void, Never>?
 
-    public init(director: AccountDirector, outbox: OutboxRunner? = nil) {
+    public init(
+        director: AccountDirector, outbox: OutboxRunner? = nil, sync: SyncRunner? = nil
+    ) {
         self.director = director
         self.outbox = outbox
+        self.sync = sync
     }
 
     /// Assina o diretor. Chamada uma vez, na montagem da cena.
@@ -122,8 +128,41 @@ public final class AccountsModel {
         return lastError == nil
     }
 
+    @discardableResult
+    public func updateSendAliases(accountID: String, aliases: [SendAlias]) async -> Bool {
+        await roda {
+            _ = try await self.director.updateSendAliases(
+                accountID: accountID, aliases: aliases
+            )
+        }
+        return lastError == nil
+    }
+
+    @discardableResult
+    public func refreshGmailSendAliases(accountID: String) async -> Bool {
+        await roda {
+            _ = try await self.director.refreshGmailSendAliases(accountID: accountID)
+        }
+        return lastError == nil
+    }
+
     public func loadInitial(_ accountID: String) async {
         await director.loadInitial(accountID: accountID)
+    }
+
+    /// Sincroniza agora, sem esperar o ciclo de um minuto.
+    ///
+    /// Conta ativa é acordada no coordenador que já existe. Conta em erro
+    /// retoma a carga — o mesmo caminho do "Tentar de novo" da janela.
+    /// `.carregando` já está no ar; outra carga em cima leria o `sync_state`
+    /// pela metade.
+    public func syncNow() async {
+        await sync?.wakeAll()
+        for status in statuses {
+            if status.error != nil || status.state == .erroDeAutenticacao {
+                await loadInitial(status.accountID)
+            }
+        }
     }
 
     /// Religa a fila de saída parada desta conta.

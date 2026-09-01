@@ -21,6 +21,33 @@ public struct GmailClient: Sendable {
         self.baseURL = baseURL
     }
 
+    /// Os "Enviar como" da conta, inclusive aliases de Workspace.
+    /// Só `declined` fica de fora: o Admin coloca alias como `pending` e
+    /// mesmo assim o Gmail já envia por eles.
+    public func sendAsAliases() async throws -> [GmailSendAs] {
+        struct Wire: Decodable {
+            struct Item: Decodable {
+                let sendAsEmail: String
+                let displayName: String?
+                let isPrimary: Bool?
+                let isDefault: Bool?
+                let verificationStatus: String?
+            }
+            let sendAs: [Item]?
+        }
+        let fio: Wire = try await get(path: "settings/sendAs", query: [])
+        return (fio.sendAs ?? []).compactMap { item in
+            let status = (item.verificationStatus ?? "").lowercased()
+            guard status != "declined" else { return nil }
+            return GmailSendAs(
+                email: item.sendAsEmail,
+                displayName: item.displayName ?? "",
+                isPrimary: item.isPrimary == true,
+                isDefault: item.isDefault == true
+            )
+        }
+    }
+
     public func profile() async throws -> GmailProfile {
         struct Wire: Decodable { let emailAddress: String; let historyId: String }
         let fio: Wire = try await get(path: "profile", query: [])
@@ -47,6 +74,7 @@ public struct GmailClient: Sendable {
             struct Item: Decodable { let id: String }
             let messages: [Item]?
             let nextPageToken: String?
+            let resultSizeEstimate: Int?
         }
         var itens = [
             URLQueryItem(name: "q", value: query),
@@ -56,7 +84,26 @@ public struct GmailClient: Sendable {
         let fio: Wire = try await get(path: "messages", query: itens)
         // `messages` some do JSON quando não há nenhuma. Ausência é lista
         // vazia, não erro: conta nova não está quebrada, está vazia.
-        return GmailPage(ids: (fio.messages ?? []).map(\.id), nextPageToken: fio.nextPageToken)
+        return GmailPage(
+            ids: (fio.messages ?? []).map(\.id),
+            nextPageToken: fio.nextPageToken,
+            resultSizeEstimate: fio.resultSizeEstimate
+        )
+    }
+
+    /// `labels.get` — o total da Entrada, que a listagem de rótulos não traz.
+    public func label(id: String) async throws -> GmailLabel {
+        struct Wire: Decodable {
+            let id: String
+            let name: String
+            let type: String?
+            let messagesTotal: Int?
+        }
+        let fio: Wire = try await get(path: "labels/\(id)", query: [])
+        return GmailLabel(
+            id: fio.id, name: fio.name, type: fio.type ?? "user",
+            messagesTotal: fio.messagesTotal
+        )
     }
 
     /// `users.history.list` — o que mudou desde um `historyId`.
@@ -253,7 +300,7 @@ public struct GmailClient: Sendable {
         path: String, query: [URLQueryItem], method: String, body: Data?
     ) async throws -> Data {
         var components = URLComponents(
-            url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: false
+            url: Self.url(base: baseURL, path: path), resolvingAgainstBaseURL: false
         )!
         if !query.isEmpty { components.queryItems = query }
 
@@ -285,6 +332,15 @@ public struct GmailClient: Sendable {
         }
         guard (200..<300).contains(http.statusCode) else { throw apiError(status: http.statusCode, body: dados) }
         return dados
+    }
+
+    /// Junta `settings/sendAs` em dois componentes. `appendingPathComponent`
+    /// com barra no meio já chegou a gravar `settings%2FsendAs` e a API
+    /// respondia 404 — zero alias.
+    static func url(base: URL, path: String) -> URL {
+        path.split(separator: "/").reduce(base) { url, piece in
+            url.appendingPathComponent(String(piece))
+        }
     }
 
     /// Cada código vira o caso que pede a ação certa: 401 manda reconectar,

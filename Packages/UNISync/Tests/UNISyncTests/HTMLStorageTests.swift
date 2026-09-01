@@ -112,16 +112,14 @@ struct HTMLStorageTests {
         #expect(try achou("crimson") == 0)
     }
 
-    @Test("O retrato leva o HTML à tela — e a mensagem sem linha de corpo continua sem resposta")
-    func oRetratoLevaOHtml() async throws {
+    @Test("O retrato da lista não leva o HTML — o leitor busca ao abrir")
+    func oRetratoNaoLevaOHtml() async throws {
         let db = try banco()
         try semeia(db)
         let fonte = DatabaseMailSource(database: db)
 
         let antes = try await fonte.snapshot()
         let mudaAinda = try #require(antes.messages.first)
-        // Sem linha em `message_body`, `bodyHTML` é `nil` — "ninguém perguntou
-        // ainda", que é o que faz o leitor buscar uma vez ao abrir.
         #expect(mudaAinda.htmlResolved == false)
 
         try await db.pool.write { conexao in
@@ -130,11 +128,15 @@ struct HTMLStorageTests {
                 html: "<p>O texto.</p>", calendarICS: "BEGIN:VCALENDAR"
             )
         }
-        let depois = try await fonte.snapshot()
-        let mensagem = try #require(depois.messages.first)
-        #expect(mensagem.hasHTML)
-        #expect(mensagem.bodyHTML == "<p>O texto.</p>")
-        #expect(mensagem.calendarICS == "BEGIN:VCALENDAR")
+        let lista = try await fonte.snapshot()
+        let naLista = try #require(lista.messages.first)
+        #expect(naLista.htmlResolved == false)
+        #expect(naLista.bodyHTML == nil)
+
+        let cheia = try #require(try await fonte.messages().first)
+        #expect(cheia.hasHTML)
+        #expect(cheia.bodyHTML == "<p>O texto.</p>")
+        #expect(cheia.calendarICS == "BEGIN:VCALENDAR")
     }
 
     @Test("Decodificada e sem HTML é `\"\"`, não ausência — só-texto fica só-texto")
@@ -146,7 +148,7 @@ struct HTMLStorageTests {
                 conexao, id: "m1", paragrafos: ["Bom dia."], html: "", calendarICS: nil
             )
         }
-        let mensagem = try #require(try await DatabaseMailSource(database: db).snapshot().messages.first)
+        let mensagem = try #require(try await DatabaseMailSource(database: db).messages().first)
         #expect(mensagem.htmlResolved)
         #expect(!mensagem.hasHTML)
     }

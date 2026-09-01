@@ -2,9 +2,8 @@ import SwiftUI
 import UNICore
 import UNIDesign
 
-/// A conversa inteira, em ordem cronológica: a mais recente aberta com o corpo
-/// completo, as anteriores recolhidas (quem escreveu e a primeira linha). É a
-/// pilha do webmail.
+/// A conversa inteira, **mais nova no topo**: a recente abre com o corpo
+/// completo, as mais antigas ficam recolhidas embaixo. É a pilha do Gmail.
 ///
 /// Sem árvore e sem preferência de "agrupar sim/não": os grandes empilham em
 /// ordem, e é o que a conversa é.
@@ -42,7 +41,7 @@ struct ConversationStackView<Corpo: View>: View {
         let abertas = ConversationStack.expanded(conversa, opened: opened)
         VStack(alignment: .leading, spacing: 0) {
             cabecalhoDaPilha
-            ForEach(conversa.messages) { message in
+            ForEach(conversa.newestFirst) { message in
                 let aberta = abertas.contains(message.id)
                 VStack(alignment: .leading, spacing: 0) {
                     linha(message, aberta: aberta)
@@ -70,6 +69,15 @@ struct ConversationStackView<Corpo: View>: View {
                     await store.loadBodyIfNeeded(message.id)
                 }
             }
+        }
+        // A pilha nasce com a mais recente já expandida. Isso **é** ler a
+        // última: o clique na linha da lista não precisa ser repetido no
+        // cabeçalho da pilha — expandir e recolher a aberta era o único jeito
+        // de o clique de "abrir" disparar.
+        .task(id: conversa.key) {
+            let abertasAgora = ConversationStack.expanded(conversa, opened: opened)
+            guard abertasAgora.contains(conversa.latest.id) else { return }
+            store.setRead(true, for: conversa)
         }
     }
 
@@ -101,16 +109,23 @@ struct ConversationStackView<Corpo: View>: View {
     }
 
     /// A linha clicável de uma mensagem da pilha. Clicar abre a recolhida e
-    /// recolhe a aberta — e abrir **é** ler, então ela deixa de ser não lida, a
-    /// mesma regra que `MailStore.select(message:)` já aplica à mensagem que o
-    /// leitor abre sozinho.
+    /// recolhe a aberta — e abrir **é** ler. A mais recente lê a conversa
+    /// inteira; uma antiga, só ela. É a mesma regra de `MailStore.select`.
     private func linha(_ message: Message, aberta: Bool) -> some View {
         Button {
             let ids = ConversationStack.toggle(
                 message.id, in: ConversationStack.expanded(conversa, opened: opened)
             )
             opened = ConversationStack.Opened(conversationKey: conversa.key, ids: ids)
-            if ids.contains(message.id) { store.setRead(true, for: message.id) }
+            if ids.contains(message.id) {
+                // Abrir a mais recente é ler a conversa. Uma antiga continua
+                // sendo só ela — a mesma regra de `MailStore.select(message:)`.
+                if message.id == conversa.latest.id {
+                    store.setRead(true, for: conversa)
+                } else {
+                    store.setRead(true, for: message.id)
+                }
+            }
         } label: {
             cabecalho(message, aberta: aberta)
         }

@@ -216,6 +216,7 @@ public actor OutboxExecutor {
             // não relatava nada — a conta aparecia saudável com a fila parada
             // desde a véspera — e ainda executava **por cima** da falha as
             // operações que estavam atrás dela, quebrando a ordem em silêncio.
+            await libertaParadasLocais()
             if let gravada = await paradaGravada() {
                 parada = gravada
                 report(accountID, gravada)
@@ -290,7 +291,8 @@ public actor OutboxExecutor {
         guard await reivindica(coalescido.ids) else { return nil }
 
         let messageIDs = operacao.messageIDs
-        let targets = messageIDs.compactMap {
+        let remotos = messageIDs.filter { !MessageIdentity.isLocalDraft($0) }
+        let targets = remotos.compactMap {
             MessageIdentity.parse($0, accountID: accountID)
         }
         let requiresTargets: Bool
@@ -300,17 +302,27 @@ public actor OutboxExecutor {
         default:
             requiresTargets = true
         }
-        guard !requiresTargets || (!messageIDs.isEmpty && targets.count == messageIDs.count) else {
-            // `compactMap` não pode transformar uma identidade inválida em
-            // sucesso com lote vazio: o espelho não teria o que alterar e o
-            // executor apagaria a operação como se o servidor a aceitasse.
-            let invalid = SyncError.resposta(
-                "Uma operação da fila aponta para uma mensagem sem coordenada remota válida."
-            )
-            await marca(coalescido.ids, estado: .falhou, causa: invalid)
-            parada = invalid
-            report(accountID, invalid)
-            return nil
+        if requiresTargets {
+            if remotos.isEmpty {
+                // Rascunho local: não há o que mandar ao servidor. Concluir
+                // em silêncio **não** é o sucesso vazio que o invariante
+                // proíbe — o espelho nem é chamado. Falhar permanente aqui
+                // parava a fila e os deletes reais do Gmail ficavam presos.
+                await conclui(coalescido.ids)
+                return await proximoLote()
+            }
+            guard !remotos.isEmpty && targets.count == remotos.count else {
+                // `compactMap` não pode transformar uma identidade inválida em
+                // sucesso com lote vazio: o espelho não teria o que alterar e o
+                // executor apagaria a operação como se o servidor a aceitasse.
+                let invalid = SyncError.resposta(
+                    "Uma operação da fila aponta para uma mensagem sem coordenada remota válida."
+                )
+                await marca(coalescido.ids, estado: .falhou, causa: invalid)
+                parada = invalid
+                report(accountID, invalid)
+                return nil
+            }
         }
         return Lote(
             ids: coalescido.ids,
@@ -318,6 +330,33 @@ public actor OutboxExecutor {
             alvos: targets,
             tentativas: coalescido.tentativas
         )
+    }
+
+    /// Linhas `falhou` que só apontam para rascunho local: tira da frente
+    /// para a fila voltar a andar. É o conserto da sessão que apagou um
+    /// rascunho e, desde então, nada mais chegou no Gmail.
+    private func libertaParadasLocais() async {
+        let conta = accountID
+        let falhou = OutboxState.falhou.rawValue
+        let linhas = (try? await database.pool.read { db in
+            try OutboxRecord.fetchAll(
+                db,
+                sql: """
+                    SELECT * FROM outbox
+                    WHERE accountID = ? AND state = ?
+                    ORDER BY createdAt, rowid
+                    """,
+                arguments: [conta, falhou]
+            )
+        }) ?? []
+        var libertar: [String] = []
+        for linha in linhas {
+            guard let operacao = linha.operation else { break }
+            let ids = operacao.messageIDs
+            guard !ids.isEmpty, ids.allSatisfy(MessageIdentity.isLocalDraft) else { break }
+            libertar.append(linha.id)
+        }
+        await conclui(libertar)
     }
 
     /// A coalescência, e só ela: **N `setRead` consecutivos do mesmo valor

@@ -26,7 +26,7 @@ import UNIDesign
 /// 1. **Dentro** da forma do próprio controle, nunca por fora.
 /// 2. **Encostado** na borda do controle (recuo = espessura da hairline), para
 ///    não reabrir a folga que faz o do sistema parecer contorno duplo.
-/// 3. Cor do `Theme` — `accent` por padrão, `onAccent` sobre fundo de acento.
+/// 3. Cor do `Theme` — `focus` por padrão (ciano no Okami), `onAccent` no acento.
 ///
 /// ## Como se verifica sem lançar o app
 ///
@@ -90,7 +90,7 @@ extension View {
     func focusRing<S: InsettableShape>(
         in shape: S,
         forced: Bool = false,
-        tint: KeyPath<Theme, TokenColor> = \.accent
+        tint: KeyPath<Theme, TokenColor> = \.focus
     ) -> some View {
         modifier(FocusRing(shape: shape, forced: forced, tint: tint))
     }
@@ -99,7 +99,7 @@ extension View {
     func focusRing(
         cornerRadius: CGFloat,
         forced: Bool = false,
-        tint: KeyPath<Theme, TokenColor> = \.accent
+        tint: KeyPath<Theme, TokenColor> = \.focus
     ) -> some View {
         focusRing(
             in: RoundedRectangle(cornerRadius: cornerRadius),

@@ -4,6 +4,20 @@ import Testing
 
 @Suite("Anexos: limites e nomes")
 struct MailAttachmentTests {
+    @Test("invite.ics conta como convite, PDF não")
+    func icsLooksLikeCalendarInvite() {
+        #expect(
+            MailAttachment(
+                id: "a", filename: "invite.ics", mimeType: "application/octet-stream", byteCount: 441
+            ).looksLikeCalendarInvite
+        )
+        #expect(
+            MailAttachment(
+                id: "b", filename: "proposta.pdf", mimeType: "application/pdf", byteCount: 12
+            ).looksLikeCalendarInvite == false
+        )
+    }
+
     @Test("nome vindo da rede não atravessa a pasta escolhida")
     func sanitizesFilename() {
         #expect(AttachmentName.sanitize("../../relatorio.pdf") == "relatorio.pdf")

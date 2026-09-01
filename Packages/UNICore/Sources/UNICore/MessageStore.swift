@@ -108,14 +108,18 @@ public struct InMemoryMailSource: MailSource {
     private let _agenda: [AgendaItem]
     private let _pendingItems: [PendingItem]
 
+    private let _folders: [MailFolder]
+
     public init(
         accounts: [Account], messages: [Message], agenda: [AgendaItem],
-        pendingItems: [PendingItem] = []
+        pendingItems: [PendingItem] = [],
+        folders: [MailFolder] = []
     ) {
         self._accounts = accounts
         self._messages = messages
         self._agenda = agenda
         self._pendingItems = pendingItems
+        self._folders = folders
     }
 
     /// A agenda entra pelo **mês inteiro**, não só por hoje nem só pela semana.
@@ -139,6 +143,7 @@ public struct InMemoryMailSource: MailSource {
     public func messages() async throws -> [Message] { _messages }
     public func agenda() async throws -> [AgendaItem] { _agenda }
     public func pendingItems() async throws -> [PendingItem] { _pendingItems }
+    public func folders() async throws -> [MailFolder] { _folders }
 }
 
 /// Executa as projeções SQLite sem prender o ator principal.
@@ -180,10 +185,21 @@ private final class MailCommandDispatcher: @unchecked Sendable {
     }
 }
 
+/// Cache da agenda visível. Classe, e não struct no `MailStore`, para as
+/// escritas do getter não acordarem o Observation a cada quadro da grade.
+private final class AgendaProjectionCache {
+    var fingerprint = 0
+    var hidden: Set<String> = []
+    var concealed: Set<String> = []
+    var selectedAccount: String?
+    var calendar: [AgendaItem] = []
+    var visible: [AgendaItem] = []
+}
+
 @MainActor
 @Observable
 public final class MailStore {
-    private struct VisibleCacheKey: Equatable {
+    private struct VisibleCacheKey: Equatable, Hashable {
         let messagesRevision: UInt
         let bodyHitsRevision: UInt
         let bucket: String
@@ -194,6 +210,45 @@ public final class MailStore {
         let folderID: String?
         let category: String?
         let query: String
+        let searchEverywhere: Bool
+    }
+
+    /// Recorte da lista **sem** o carimbo do retrato. A página de Tudo tem
+    /// de sobreviver a uma ida a Hoje; a revisão entra no carimbo ao lado,
+    /// não nesta chave, senão cada mutação deixaria páginas velhas no dicionário.
+    private struct RecortePageKey: Hashable {
+        let bucket: String
+        let referenceDayStart: Date
+        let accountID: String?
+        let folderID: String?
+        let category: String?
+        let query: String
+        let searchEverywhere: Bool
+
+        init(_ visible: VisibleCacheKey) {
+            bucket = visible.bucket
+            referenceDayStart = visible.referenceDayStart
+            accountID = visible.accountID
+            folderID = visible.folderID
+            category = visible.category
+            query = visible.query
+            searchEverywhere = visible.searchEverywhere
+        }
+    }
+
+    /// Campos baratos da caixa, paralelos a `messages`. Tudo não pode copiar
+    /// `bodyHTML` só para saber bucket, data e chave da conversa.
+    private struct MessageListIndex {
+        let revision: UInt
+        let dates: [Date]
+        let buckets: [TriageBucket]
+        let accountIDs: [String]
+        let conversationKeys: [String]
+        let folderIDs: [[String]]
+        let ids: [String]
+        let isRead: [Bool]
+        let idIndex: [String: Int]
+        let ranked: [Int]
     }
 
     // Estes dois carimbos precisam ser observáveis: num cache hit os getters
@@ -203,18 +258,80 @@ public final class MailStore {
     private var bodyHitsRevision: UInt = 0
     @ObservationIgnored private var visibleMessagesCache: (key: VisibleCacheKey, value: [Message])?
     @ObservationIgnored private var visibleConversationsCache: (key: VisibleCacheKey, value: [Conversation])?
+    @ObservationIgnored private var countsCacheRevision: UInt = .max
+    @ObservationIgnored private var unreadCountCache: [CountCacheKey: Int] = [:]
+    @ObservationIgnored private var bucketCountCache: [CountCacheKey: Int] = [:]
+    @ObservationIgnored private var foldersByAccountCache: [String: [MailFolder]] = [:]
+    @ObservationIgnored private var conversationPagesStamp: (messages: UInt, bodyHits: UInt) = (.max, .max)
+    @ObservationIgnored private var conversationPages: [RecortePageKey: (limit: Int, page: ConversationPage)] = [:]
+    @ObservationIgnored private var listIndexCache: MessageListIndex?
+    @ObservationIgnored private var accountCountCache: [String: Int] = [:]
+    @ObservationIgnored private var dashboardFocusCache: (key: DashboardFocusCacheKey, value: DashboardFocus)?
+
+    private struct DashboardFocusCacheKey: Equatable {
+        var messagesRevision: UInt
+        var accountID: String?
+        var nowMinute: Int
+        var agendaFingerprint: Int
+        var pendingCount: Int
+    }
+    @ObservationIgnored private var bodyStore: [String: LoadedBody] = [:]
+    @ObservationIgnored private var rebuildIndexOnNextDidSet = true
+    /// O leitor observa isto, não `messages`: gravar HTML na lista
+    /// invalidava o cache de Tudo e o segundo clique reconstruía a caixa.
+    private var bodiesRevision: UInt = 0
+
+    private struct LoadedBody {
+        var body: [String]
+        var bodyHTML: String?
+        var calendarICS: String?
+        var attachments: [MailAttachment]
+    }
+    /// Quantas vezes a página foi montada de verdade. O teste da ida e volta
+    /// a Tudo lê isto: o clique seguinte não pode voltar a varrer a caixa.
+    @ObservationIgnored var conversationPageBuildCount = 0
+
+    private struct CountCacheKey: Hashable {
+        let bucket: String
+        let accountID: String?
+        let dayStart: Date
+    }
 
     public private(set) var accounts: [Account] = []
     public private(set) var messages: [Message] = [] {
-        didSet { messagesRevision &+= 1 }
+        didSet {
+            messagesRevision &+= 1
+            if rebuildIndexOnNextDidSet || listIndexCache?.ids.count != messages.count {
+                listIndexCache = makeListIndex()
+                rebuildIndexOnNextDidSet = false
+            }
+        }
     }
     public private(set) var agenda: [AgendaItem] = []
     public private(set) var pendingItems: [PendingItem] = []
+
+    /// A coalescência da agenda é cara se repetida a cada quadro. A caixa é
+    /// uma classe para o Observation não enxergar as escritas do cache.
+    private let agendaProjection = AgendaProjectionCache()
 
     /// `nil` preserva o mundo sem calendário conectado (fixtures e testes do
     /// Marco 1). Quando há uma porta real, a aba Agenda mostra um estado que a
     /// pessoa consegue agir, em vez de parecer vazia por algum motivo oculto.
     public private(set) var calendarAvailability: CalendarAvailability?
+    /// Calendários do macOS (Todoist, iCloud, Gmail…) visíveis na lateral da
+    /// Agenda. Vazio sem autorização ou sem porta.
+    public private(set) var connectedCalendars: [ConnectedCalendar] = []
+    /// Calendários que a pessoa desligou na lateral. Os novos nascem ligados.
+    public private(set) var hiddenCalendarIDs: Set<String> = []
+    /// Origens recolhidas na lateral (Todoist, iCloud…). Os novos grupos
+    /// nascem abertos.
+    public private(set) var collapsedCalendarSources: Set<String> = []
+    /// Calendários tirados da lista pelo clique direito. Continuam no EventKit;
+    /// só não ocupam a lateral nem a trilha recolhida.
+    public private(set) var concealedCalendarIDs: Set<String> = []
+    /// Compromissos que um `METHOD:CANCEL` marcou. Continuam no dia, como o
+    /// Google Agenda — só mudam de desenho.
+    private var cancelledAgendaKeys: Set<String> = []
 
     /// As pastas do provedor, como o último retrato as trouxe — **sem**
     /// contador. Quem quer a lista de uma conta pronta para desenhar chama
@@ -244,6 +361,14 @@ public final class MailStore {
     public private(set) var selectedMessageID: String?
     public private(set) var selectedAccountID: String?
 
+    /// As conversas marcadas na lista, para ação em lote.
+    ///
+    /// **Não** é a seleção do leitor: o clique na linha continua abrindo. A
+    /// marca é um conjunto paralelo, da lista inteira — Hoje, Depois,
+    /// Arquivado, Lixeira, pasta do provedor. Trocar de recorte descarta o
+    /// que saiu da visão.
+    public private(set) var checkedConversationKeys: Set<String> = []
+
     /// A pasta do provedor aberta, quando há uma.
     ///
     /// **É uma dimensão paralela à caixa do Fluxo, não um substituto dela.**
@@ -260,7 +385,28 @@ public final class MailStore {
     /// da faixa de resposta do leitor.
     public private(set) var expandedAccountIDs: Set<String> = []
 
-    public var query: String = ""
+    public var query: String = "" {
+        didSet {
+            if oldValue != query {
+                if query.trimmingCharacters(in: .whitespaces).isEmpty {
+                    searchEverywhere = false
+                }
+                pruneChecked()
+            }
+        }
+    }
+
+    /// A busca sai da caixa aberta e cobre pastas, Arquivar, Enviadas…
+    /// Só vale com termo; apagar o campo desliga. Padrão falso: Hoje continua
+    /// sendo Hoje até a pessoa pedir Tudo.
+    public var searchEverywhere: Bool = false {
+        didSet { if oldValue != searchEverywhere { pruneChecked() } }
+    }
+
+    /// Tem termo **e** a pessoa pediu Tudo. É o predicado que a lista lê.
+    public var searchesEverywhereNow: Bool {
+        searchEverywhere && !query.trimmingCharacters(in: .whitespaces).isEmpty
+    }
     public private(set) var loadError: String?
 
     /// Os ids que a fonte achou pelo **corpo**, para a busca corrente.
@@ -317,6 +463,10 @@ public final class MailStore {
     /// mandar nada, que é o Marco 1 intacto. `canSend` é o que deixa a janela
     /// dizer a verdade sobre isso em vez de fingir que enviou.
     private let sendPort: MailSendPort?
+
+    /// Para onde o "Salvar rascunho" grava. `nil` nas fixtures — e nesse
+    /// caso o rascunho vive só nesta sessão, como o resto do Marco 1.
+    private let draftPort: MailDraftPort?
 
     /// A extensão da mesma fila que grava uma resposta RSVP junto da mensagem
     /// iTIP. Nula nos previews/fixtures; nesses casos ainda é possível testar
@@ -391,6 +541,15 @@ public final class MailStore {
     /// **têm** de concordar, senão um compromisso criado hoje aparece no dia
     /// errado da grade.
     private let agendaReferenceDay: @Sendable () -> Date
+    private let calendarDefaults: UserDefaults?
+    private static let hiddenCalendarsKey = "uni.hiddenCalendarIDs"
+    private static let collapsedCalendarSourcesKey = "uni.collapsedCalendarSources"
+    private static let concealedCalendarsKey = "uni.concealedCalendarIDs"
+    private static let cancelledAgendaKeysKey = "uni.cancelledAgendaKeys"
+
+    /// Nome da seção da lateral onde ficam os calendários ocultados pelo
+    /// clique direito. Não é origem do EventKit.
+    public static let concealedCalendarsSection = "Ocultos"
 
     /// O dia de calendário de um item da agenda — o "hoje" injetado mais o
     /// deslocamento do item. É o que a janela de compromisso mostra como
@@ -414,19 +573,22 @@ public final class MailStore {
         bodyPort: BodyFetching? = nil,
         attachmentPort: AttachmentFetching? = nil,
         sendPort: MailSendPort? = nil,
+        draftPort: MailDraftPort? = nil,
         inviteRSVPPort: InviteRSVPCommandPort? = nil,
         contactPort: ContactDirectoryPort? = nil,
         emailRules: EmailRuleStore? = nil,
         agendaPort: (any AgendaPersisting)? = nil,
         calendarSync: (any CalendarSyncing)? = nil,
         trustPort: (any SenderTrusting)? = nil,
-        agendaReferenceDay: @escaping @Sendable () -> Date = { Fixtures.today }
+        agendaReferenceDay: @escaping @Sendable () -> Date = { Fixtures.today },
+        calendarDefaults: UserDefaults? = nil
     ) {
         self.source = source
         self.commandDispatcher = commandPort.map(MailCommandDispatcher.init(port:))
         self.bodyPort = bodyPort
         self.attachmentPort = attachmentPort
         self.sendPort = sendPort
+        self.draftPort = draftPort
         self.inviteRSVPPort = inviteRSVPPort
         self.contactPort = contactPort
         self.emailRules = emailRules
@@ -434,6 +596,19 @@ public final class MailStore {
         self.calendarSync = calendarSync
         self.trustPort = trustPort
         self.agendaReferenceDay = agendaReferenceDay
+        self.calendarDefaults = calendarDefaults
+        if let stored = calendarDefaults?.stringArray(forKey: Self.hiddenCalendarsKey) {
+            hiddenCalendarIDs = Set(stored)
+        }
+        if let stored = calendarDefaults?.stringArray(forKey: Self.collapsedCalendarSourcesKey) {
+            collapsedCalendarSources = Set(stored)
+        }
+        if let stored = calendarDefaults?.stringArray(forKey: Self.concealedCalendarsKey) {
+            concealedCalendarIDs = Set(stored)
+        }
+        if let stored = calendarDefaults?.stringArray(forKey: Self.cancelledAgendaKeysKey) {
+            cancelledAgendaKeys = Set(stored)
+        }
         // Uma leitura de uma tabela de dezenas de linhas, na montagem. Adiá-la
         // faria o primeiro email aberto mostrar a faixa de bloqueio antes de a
         // lista chegar — e piscar depois.
@@ -527,6 +702,51 @@ public final class MailStore {
         }
     }
 
+    /// Grava (ou atualiza) um rascunho na caixa Rascunhos.
+    ///
+    /// Sem porta, fica só na memória desta sessão — o botão ainda funciona,
+    /// a linha aparece na barra, e fecha o app some. Com banco, a mesma
+    /// linha sobrevive ao reinício. Falha de disco devolve `false` e deixa
+    /// o texto na janela: gravar não pode apagar o que a pessoa escreveu.
+    @discardableResult
+    public func saveDraft(_ message: Message) -> Bool {
+        let rascunho = message.withBucket(.drafts).withRead(true)
+        rebuildIndexOnNextDidSet = true
+        if let index = messages.firstIndex(where: { $0.id == rascunho.id }) {
+            messages[index] = rascunho
+        } else {
+            messages.insert(rascunho, at: 0)
+        }
+        bodyStore[rascunho.id] = LoadedBody(
+            body: rascunho.body,
+            bodyHTML: rascunho.bodyHTML,
+            calendarICS: rascunho.calendarICS,
+            attachments: rascunho.attachments
+        )
+        guard let draftPort else { return true }
+        do {
+            try draftPort.saveDraft(rascunho)
+            return true
+        } catch {
+            report(error)
+            return false
+        }
+    }
+
+    /// Tira o rascunho da caixa — depois de enviar, ou se a pessoa descartar.
+    public func discardDraft(id: String) {
+        guard messages.contains(where: { $0.id == id && $0.bucket == .drafts }) else { return }
+        rebuildIndexOnNextDidSet = true
+        messages.removeAll { $0.id == id }
+        bodyStore.removeValue(forKey: id)
+        guard let draftPort else { return }
+        do {
+            try draftPort.deleteDraft(id: id)
+        } catch {
+            report(error)
+        }
+    }
+
     // MARK: - Respostas RSVP/iTIP
 
     /// A resposta já gravada para este convite, se houver. O cartão usa isto
@@ -564,6 +784,11 @@ public final class MailStore {
             return .unavailable(reason)
         }
         if inviteRSVPState(for: invite, from: message) == response {
+            if response.placesOnAgenda {
+                _ = addToAgenda(invite, from: message)
+            } else {
+                removeDeclinedInvite(invite, from: message)
+            }
             return .alreadyQueued(response)
         }
         guard let account = account(message.accountID),
@@ -590,10 +815,66 @@ public final class MailStore {
                 return .unavailable(.sendQueueMissing)
             }
             inviteRSVPStates[Self.inviteRSVPStateKey(state)] = state
+            if response.placesOnAgenda {
+                _ = addToAgenda(invite, from: message)
+            } else {
+                removeDeclinedInvite(invite, from: message)
+            }
             return .queued(response)
         } catch {
             report(error)
             return .failed
+        }
+    }
+
+    /// Aceitar/Talvez já gravados, sem o compromisso: o cartão pergunta isto
+    /// ao abrir a mensagem. Sem isto, quem aceitou antes desta regra via
+    /// "Colocar na agenda" num convite que já tinha resposta.
+    public func ensureAgendaForRSVP(_ invite: CalendarInvite, from message: Message) {
+        guard let response = inviteRSVPState(for: invite, from: message),
+              response.placesOnAgenda
+        else { return }
+        _ = addToAgenda(invite, from: message)
+    }
+
+    /// Recusar tira o compromisso **nascido deste email**. Cópias do EventKit
+    /// ficam: o Google Agenda só as some depois de processar o DECLINED.
+    func removeDeclinedInvite(_ invite: CalendarInvite, from message: Message) {
+        let id = DetectedEventConversion.agendaID(forMessageID: message.id)
+        var alvos: [AgendaItem] = []
+        if let existente = InviteAgenda.existing(
+            for: invite, id: id, accountID: message.accountID, in: agenda
+        ), DetectedEventConversion.isFromEmail(existente.id) {
+            alvos.append(existente)
+        }
+        if let proposto = proposedItem(for: invite, from: message, id: id) {
+            alvos.append(contentsOf: agenda.filter {
+                DetectedEventConversion.isFromEmail($0.id) && InviteAgenda.sameMeeting($0, proposto)
+            })
+        }
+        var vistos = Set<String>()
+        for item in alvos where vistos.insert(item.id).inserted {
+            removeFromAgenda(item.id)
+        }
+    }
+
+    /// Abriu o convite: Aceitar/Talvez grava; um SEQUENCE novo atualiza o
+    /// compromisso que já está lá, sem um segundo cartão pedindo clique.
+    public func syncInviteWithAgenda(_ invite: CalendarInvite, from message: Message) {
+        if invite.isCancelled {
+            _ = applyCancelledInvite(invite, from: message)
+            return
+        }
+        if let response = inviteRSVPState(for: invite, from: message) {
+            if response.placesOnAgenda {
+                _ = addToAgenda(invite, from: message)
+            } else {
+                removeDeclinedInvite(invite, from: message)
+            }
+            return
+        }
+        if agendaState(for: invite, from: message) == .desatualizado {
+            _ = addToAgenda(invite, from: message)
         }
     }
 
@@ -716,9 +997,16 @@ public final class MailStore {
     /// um teste que dependesse do tempo entre eles seria intermitente.
     func apply(_ snapshot: MailSnapshot) {
         accounts = snapshot.accounts
-        messages = reconcilingPendingRuleActions(in: snapshot.messages)
+        let incoming = reconcilingPendingRuleActions(in: snapshot.messages)
+        let ids = Set(incoming.map(\.id))
+        if bodyStore.count != ids.count {
+            bodyStore = bodyStore.filter { ids.contains($0.key) }
+        }
+        conversationPages.removeAll(keepingCapacity: true)
+        rebuildIndexOnNextDidSet = true
+        messages = incoming
         sourceAgenda = snapshot.agenda
-        agenda = mergedAgenda(combinedAgenda())
+        agenda = mergedAgenda(combinedAgenda()).map(overlayCancelled)
         pendingItems = snapshot.pendingItems
         folders = snapshot.folders
         loadError = nil
@@ -770,7 +1058,10 @@ public final class MailStore {
         guard let emailRules, !emailRules.rules.isEmpty else { return }
 
         let arrivals = messages.filter { message in
-            !known.contains(message.id) && message.bucket != .sent && message.bucket != .trash
+            !known.contains(message.id)
+                && message.bucket != .sent
+                && message.bucket != .trash
+                && message.bucket != .drafts
         }
         for arrival in arrivals {
             let matchingRules = emailRules.matchingRules(for: arrival)
@@ -971,17 +1262,36 @@ public final class MailStore {
         }
         let result = messages
             .filter {
-                isInCurrentViewBeforeCategory(
-                    $0, referenceDay: referenceDay, normalizedQuery: normalizedQuery
-                )
-            }
-            .filter { message in
-                guard bucket == .today, let categoryFilter else { return true }
-                return resolvedCategory(for: message) == categoryFilter
+                matchesCurrentView($0, referenceDay: referenceDay, normalizedQuery: normalizedQuery)
             }
             .sorted { $0.receivedAt > $1.receivedAt }
         visibleMessagesCache = (key, result)
         return result
+    }
+
+    /// A mensagem entra no recorte aberto agora? Uma função só, usada pela
+    /// lista paginada e por `selectDefaultMessage`, para Tudo não montar um
+    /// array de dezenas de milhares só para saber se a seleção ainda vale.
+    private func matchesCurrentView(_ message: Message) -> Bool {
+        matchesCurrentView(
+            message,
+            referenceDay: agendaReferenceDay(),
+            normalizedQuery: query.trimmingCharacters(in: .whitespaces)
+        )
+    }
+
+    private func matchesCurrentView(
+        _ message: Message,
+        referenceDay: Date,
+        normalizedQuery: String
+    ) -> Bool {
+        guard isInCurrentViewBeforeCategory(
+            message, referenceDay: referenceDay, normalizedQuery: normalizedQuery
+        ) else { return false }
+        if bucket == .today, let categoryFilter {
+            return resolvedCategory(for: message) == categoryFilter
+        }
+        return true
     }
 
     /// O recorte compartilhado pela lista e pelas contagens das cápsulas. A
@@ -992,6 +1302,10 @@ public final class MailStore {
         referenceDay: Date,
         normalizedQuery: String
     ) -> Bool {
+        if searchesEverywhereNow {
+            if let selectedAccountID, message.accountID != selectedAccountID { return false }
+            return matches(message, normalizedQuery)
+        }
         guard isInBucket(message, bucket: bucket, referenceDay: referenceDay) else { return false }
         if let selectedAccountID, message.accountID != selectedAccountID { return false }
         if let selectedFolderID, !message.folderIDs.contains(selectedFolderID) { return false }
@@ -1013,20 +1327,38 @@ public final class MailStore {
     public func categoryCount(_ category: MailCategory?) -> Int {
         let referenceDay = agendaReferenceDay()
         let normalizedQuery = query.trimmingCharacters(in: .whitespaces)
-        return messages.reduce(into: 0) { count, message in
-            guard isInCurrentViewBeforeCategory(
-                message, referenceDay: referenceDay, normalizedQuery: normalizedQuery
-            ) else { return }
-            guard let category else {
-                count += 1
-                return
+        let index = messageListIndex()
+        var n = 0
+        for i in 0..<index.ids.count {
+            guard isInBucket(
+                messageBucket: index.buckets[i],
+                receivedAt: index.dates[i],
+                folderIDs: index.folderIDs[i],
+                accountID: index.accountIDs[i],
+                bucket: .today,
+                referenceDay: referenceDay
+            ) else { continue }
+            if let selectedAccountID, index.accountIDs[i] != selectedAccountID { continue }
+            if let selectedFolderID, !index.folderIDs[i].contains(selectedFolderID) { continue }
+            if !normalizedQuery.isEmpty {
+                guard matches(messages[i], normalizedQuery) else { continue }
             }
-            if resolvedCategory(for: message) == category { count += 1 }
+            guard let category else {
+                n += 1
+                continue
+            }
+            if resolvedCategory(for: messages[i]) == category { n += 1 }
         }
+        return n
     }
 
-    /// A projeção do provedor usa `.today` para representar Inbox; na tela,
-    /// porém, Hoje é só a parte dessa Inbox que chegou no dia local corrente.
+    /// A projeção do provedor usa `.today` para representar Inbox. Na tela,
+    /// Hoje é o recorte do **dia local corrente**: Inbox de hoje, e o que o
+    /// IMAP entregou numa subpasta (grava `.archived`, mas ainda chegou
+    /// hoje). No Gmail, "Mover para marcador" tira `INBOX` e aplica o
+    /// rótulo — isso é arquivar, e a mensagem some de Hoje. Arquivar uma
+    /// Inbox continua saindo da lista. Depois, Enviadas, Rascunhos e Lixeira
+    /// ficam de fora — são destinos explícitos, não "ainda não vi".
     ///
     /// `receivedAt` é um instante absoluto vindo de Gmail/IMAP. Compará-lo com
     /// `Calendar` (e não por 86.400 segundos ou dia UTC) preserva meia-noite e
@@ -1037,9 +1369,92 @@ public final class MailStore {
         bucket: TriageBucket,
         referenceDay: Date
     ) -> Bool {
-        guard bucket.contains(message) else { return false }
-        guard bucket == .today else { return true }
-        return Calendar.current.isDate(message.receivedAt, inSameDayAs: referenceDay)
+        isInBucket(
+            messageBucket: message.bucket,
+            receivedAt: message.receivedAt,
+            folderIDs: message.folderIDs,
+            accountID: message.accountID,
+            bucket: bucket,
+            referenceDay: referenceDay
+        )
+    }
+
+    private func isInBucket(
+        messageBucket: TriageBucket,
+        receivedAt: Date,
+        folderIDs: [String],
+        accountID: String,
+        bucket: TriageBucket,
+        referenceDay: Date
+    ) -> Bool {
+        if bucket == .today {
+            switch messageBucket {
+            case .later, .trash, .drafts, .junk:
+                return false
+            case .sent:
+                // RSVP / mail para si: o Gmail deixa INBOX+SENT. A cópia da
+                // caixa é caixa — Enviadas sem INBOX continua fora de Hoje.
+                guard Calendar.current.isDate(receivedAt, inSameDayAs: referenceDay) else {
+                    return false
+                }
+                return belongsToFolder(role: .inbox, folderIDs: folderIDs)
+            case .today, .all:
+                return Calendar.current.isDate(receivedAt, inSameDayAs: referenceDay)
+            case .archived:
+                guard Calendar.current.isDate(receivedAt, inSameDayAs: referenceDay) else {
+                    return false
+                }
+                return arrivedInImapUserFolder(folderIDs, accountID: accountID)
+            }
+        }
+        if bucket == .all {
+            if messageBucket == .trash
+                || messageBucket == .drafts
+                || messageBucket == .junk
+            {
+                return false
+            }
+            if messageBucket == .sent {
+                return belongsToFolder(role: .inbox, folderIDs: folderIDs)
+                    && !belongsToJunkFolder(folderIDs)
+            }
+            // Projeção antiga gravava spam como Arquivado. A pertinência à
+            // pasta de lixo ainda o tira de Tudo — senão a caixa unificada
+            // só limpa depois do próximo sync.
+            if belongsToJunkFolder(folderIDs) { return false }
+            return true
+        }
+        if bucket == .junk {
+            return messageBucket == .junk || belongsToJunkFolder(folderIDs)
+        }
+        if bucket == .sent {
+            return messageBucket == .sent
+                || belongsToFolder(role: .sent, folderIDs: folderIDs)
+        }
+        return messageBucket == bucket
+    }
+
+    /// Só o IMAP: a mensagem nasceu numa pasta da pessoa, não na Inbox.
+    /// Gmail trata marcador como arquivo — "Mover para marcador" tira de
+    /// Hoje, mesmo que o rótulo seja pasta `.other` e o dia seja hoje.
+    private func arrivedInImapUserFolder(_ folderIDs: [String], accountID: String) -> Bool {
+        guard !folderIDs.isEmpty,
+              accounts.contains(where: { $0.id == accountID && $0.provider == .imap })
+        else { return false }
+        let owned = folders.filter { folderIDs.contains($0.id) }
+        if owned.contains(where: { $0.role == .inbox }) { return false }
+        return owned.contains { $0.role == .other }
+    }
+
+    /// A mensagem está na pasta de spam do provedor, mesmo que o bucket
+    /// gravado ainda seja Arquivado (carga antiga).
+    private func belongsToJunkFolder(_ folderIDs: [String]) -> Bool {
+        belongsToFolder(role: .junk, folderIDs: folderIDs)
+    }
+
+    private func belongsToFolder(role: FolderRole, folderIDs: [String]) -> Bool {
+        guard !folderIDs.isEmpty else { return false }
+        return folders.contains { folderIDs.contains($0.id) && $0.role == role }
     }
 
     /// Predicado público para consumidores que montam projeções da mesma
@@ -1062,7 +1477,8 @@ public final class MailStore {
             accountID: selectedAccountID,
             folderID: selectedFolderID,
             category: bucket == .today ? categoryFilter?.rawValue : nil,
-            query: query ?? self.query.trimmingCharacters(in: .whitespaces)
+            query: query ?? self.query.trimmingCharacters(in: .whitespaces),
+            searchEverywhere: searchEverywhere
         )
     }
 
@@ -1077,21 +1493,32 @@ public final class MailStore {
     /// Enviadas e Lixeira ficam de fora da regra por nada: uma mensagem não
     /// lida é uma mensagem não lida, esteja onde estiver.
     public func folders(of accountID: String) -> [MailFolder] {
+        resetCountsCacheIfNeeded()
+        if let cached = foldersByAccountCache[accountID] { return cached }
+        let index = messageListIndex()
         var unreadByFolder: [String: Int] = [:]
-        for message in messages where message.accountID == accountID && !message.isRead {
-            for folderID in message.folderIDs {
+        for i in 0..<index.ids.count {
+            guard index.accountIDs[i] == accountID, !index.isRead[i] else { continue }
+            for folderID in index.folderIDs[i] {
                 unreadByFolder[folderID, default: 0] += 1
             }
         }
         let daConta = folders.filter { $0.accountID == accountID }
-        return MailFolder.ordered(daConta.map { pasta in
+        let result = MailFolder.ordered(daConta.map { pasta in
             pasta.withUnreadCount(unreadByFolder[pasta.id, default: 0])
         })
+        foldersByAccountCache[accountID] = result
+        return result
     }
 
     /// Quantas mensagens não lidas esta pasta tem.
     public func unreadCount(inFolder folderID: String) -> Int {
-        messages.filter { !$0.isRead && $0.folderIDs.contains(folderID) }.count
+        let index = messageListIndex()
+        var n = 0
+        for i in 0..<index.ids.count {
+            if !index.isRead[i], index.folderIDs[i].contains(folderID) { n += 1 }
+        }
+        return n
     }
 
     /// As pastas desta conta estão abertas na barra?
@@ -1129,9 +1556,19 @@ public final class MailStore {
             if let id, let pasta = folders.first(where: { $0.id == id }) {
                 selectedAccountID = pasta.accountID
                 expandedAccountIDs.insert(pasta.accountID)
+                // Pastas que Tudo recusa: abrir Spam/Lixeira/Enviadas com a
+                // visão Tudo ainda ligada deixaria a lista vazia.
+                switch pasta.role {
+                case .junk: self.bucket = .junk
+                case .trash: self.bucket = .trash
+                case .sent: self.bucket = .sent
+                case .drafts: self.bucket = .drafts
+                default: break
+                }
             }
         }
         selectDefaultMessage()
+        pruneChecked()
     }
 
     // MARK: - As conversas
@@ -1153,19 +1590,290 @@ public final class MailStore {
         return result
     }
 
+    /// As primeiras `limit` conversas da caixa, mais a contagem da caixa
+    /// inteira. Um passe só: não aloca o recorte visível nem agrupa Tudo.
+    ///
+    /// A página fica por recorte: Tudo → Hoje → Tudo devolve a mesma página
+    /// sem varrer a caixa de novo.
+    public func conversationPage(limit: Int) -> ConversationPage {
+        let cap = max(1, limit)
+        resetConversationPagesIfNeeded()
+        let recorte = RecortePageKey(visibleCacheKey())
+        if let cached = conversationPages[recorte] {
+            if cached.limit >= cap {
+                let prefix = Array(cached.page.conversations.prefix(cap))
+                let live = rehydratePage(prefix)
+                if live.count == prefix.count {
+                    return ConversationPage(
+                        conversations: live,
+                        messageCount: live.reduce(0) { $0 + $1.count },
+                        hasMore: cached.page.conversations.count > cap || cached.page.hasMore
+                    )
+                }
+            }
+        }
+        let page = buildConversationPage(limit: cap)
+        conversationPages[recorte] = (cap, page)
+        return page
+    }
+
+    private func resetConversationPagesIfNeeded() {
+        // Só a busca invalida a página. Ler um email (isRead) não pode
+        // obrigar Tudo a reconstruir a caixa no clique seguinte.
+        guard conversationPagesStamp.bodyHits != bodyHitsRevision else { return }
+        conversationPagesStamp.bodyHits = bodyHitsRevision
+        conversationPages.removeAll(keepingCapacity: true)
+    }
+
+    private func messageListIndex() -> MessageListIndex {
+        if let cached = listIndexCache, cached.revision == messagesRevision {
+            return cached
+        }
+        let built = makeListIndex()
+        listIndexCache = built
+        return built
+    }
+
+    private func makeListIndex() -> MessageListIndex {
+        let n = messages.count
+        var dates: [Date] = []
+        var buckets: [TriageBucket] = []
+        var accountIDs: [String] = []
+        var conversationKeys: [String] = []
+        var folderIDs: [[String]] = []
+        var ids: [String] = []
+        var isRead: [Bool] = []
+        dates.reserveCapacity(n)
+        buckets.reserveCapacity(n)
+        accountIDs.reserveCapacity(n)
+        conversationKeys.reserveCapacity(n)
+        folderIDs.reserveCapacity(n)
+        ids.reserveCapacity(n)
+        isRead.reserveCapacity(n)
+        var idIndex: [String: Int] = [:]
+        idIndex.reserveCapacity(n)
+        for (i, message) in messages.enumerated() {
+            dates.append(message.receivedAt)
+            buckets.append(message.bucket)
+            accountIDs.append(message.accountID)
+            conversationKeys.append(message.conversationKey)
+            folderIDs.append(message.folderIDs)
+            ids.append(message.id)
+            isRead.append(message.isRead)
+            idIndex[message.id] = i
+        }
+        let ranked = dates.indices.sorted { dates[$0] > dates[$1] }
+        let index = MessageListIndex(
+            revision: messagesRevision,
+            dates: dates,
+            buckets: buckets,
+            accountIDs: accountIDs,
+            conversationKeys: conversationKeys,
+            folderIDs: folderIDs,
+            ids: ids,
+            isRead: isRead,
+            idIndex: idIndex,
+            ranked: ranked
+        )
+        listIndexCache = index
+        return index
+    }
+
+    private func matchesCurrentView(
+        at i: Int,
+        index: MessageListIndex,
+        referenceDay: Date,
+        normalizedQuery: String
+    ) -> Bool {
+        if searchesEverywhereNow {
+            if let selectedAccountID, index.accountIDs[i] != selectedAccountID { return false }
+            return matches(messages[i], normalizedQuery)
+        }
+        guard isInBucket(
+            messageBucket: index.buckets[i],
+            receivedAt: index.dates[i],
+            folderIDs: index.folderIDs[i],
+            accountID: index.accountIDs[i],
+            bucket: bucket,
+            referenceDay: referenceDay
+        ) else { return false }
+        if let selectedAccountID, index.accountIDs[i] != selectedAccountID { return false }
+        if let selectedFolderID, !index.folderIDs[i].contains(selectedFolderID) { return false }
+        if !normalizedQuery.isEmpty {
+            guard matches(messages[i], normalizedQuery) else { return false }
+        }
+        if bucket == .today, let categoryFilter {
+            return resolvedCategory(for: messages[i]) == categoryFilter
+        }
+        return true
+    }
+
+    private func buildConversationPage(limit: Int) -> ConversationPage {
+        conversationPageBuildCount += 1
+        let referenceDay = agendaReferenceDay()
+        let normalizedQuery = query.trimmingCharacters(in: .whitespaces)
+        let index = messageListIndex()
+
+        var order: [String] = []
+        var latest: [String: Message] = [:]
+        var hasMore = false
+        order.reserveCapacity(min(limit, 32))
+
+        for i in index.ranked {
+            guard matchesCurrentView(
+                at: i, index: index,
+                referenceDay: referenceDay, normalizedQuery: normalizedQuery
+            ) else { continue }
+            let key = index.conversationKeys[i]
+            if latest[key] != nil { continue }
+            if order.count >= limit {
+                hasMore = true
+                break
+            }
+            order.append(key)
+            latest[key] = messages[i].withoutHeavyPayload()
+        }
+
+        let conversations = order.compactMap { key in
+            latest[key].flatMap { Conversation(key: key, messages: [$0]) }
+        }
+        let loaded = conversations.reduce(0) { $0 + $1.count }
+        return ConversationPage(
+            conversations: conversations, messageCount: loaded, hasMore: hasMore
+        )
+    }
+
+    private func rehydratePage(_ conversations: [Conversation]) -> [Conversation] {
+        guard let index = listIndexCache, index.revision == messagesRevision
+                || index.ids.count == messages.count
+        else { return [] }
+        return conversations.compactMap { conv -> Conversation? in
+            guard let i = index.idIndex[conv.latest.id] else { return nil }
+            return Conversation(key: conv.key, messages: [messages[i].withoutHeavyPayload()])
+        }
+    }
+
     /// A conversa a que uma mensagem pertence, dentro do recorte visível.
     ///
     /// `nil` quando a mensagem não está na visão — o que é normal: o leitor
     /// mostra a mensagem revelada por "Ir para o email de origem" antes de a
     /// lista alcançá-la.
     public func conversation(of messageID: String) -> Conversation? {
-        visibleConversations.first { $0.contains(messageID) }
+        buildConversation(containing: messageID)
+    }
+
+    private func buildConversation(containing messageID: String) -> Conversation? {
+        let referenceDay = agendaReferenceDay()
+        let normalizedQuery = query.trimmingCharacters(in: .whitespaces)
+        if let cached = listIndexCache, cached.revision == messagesRevision,
+           let seed = cached.idIndex[messageID] {
+            let threadKey = cached.conversationKeys[seed]
+            var thread: [Message] = []
+            for i in 0..<cached.ids.count {
+                guard cached.conversationKeys[i] == threadKey,
+                      matchesCurrentView(
+                        at: i, index: cached,
+                        referenceDay: referenceDay, normalizedQuery: normalizedQuery
+                      )
+                else { continue }
+                thread.append(messages[i])
+            }
+            guard thread.contains(where: { $0.id == messageID }) else { return nil }
+            thread.sort {
+                $0.receivedAt == $1.receivedAt ? $0.id < $1.id : $0.receivedAt < $1.receivedAt
+            }
+            return Conversation(key: threadKey, messages: thread.map(hydrate))
+        }
+        guard let seed = messages.first(where: { $0.id == messageID }) else { return nil }
+        let threadKey = seed.conversationKey
+        var thread: [Message] = []
+        for message in messages {
+            guard message.conversationKey == threadKey,
+                  matchesCurrentView(
+                    message, referenceDay: referenceDay, normalizedQuery: normalizedQuery
+                  )
+            else { continue }
+            thread.append(hydrate(message))
+        }
+        guard thread.contains(where: { $0.id == messageID }) else { return nil }
+        thread.sort {
+            $0.receivedAt == $1.receivedAt ? $0.id < $1.id : $0.receivedAt < $1.receivedAt
+        }
+        return Conversation(key: threadKey, messages: thread)
     }
 
     /// A conversa aberta no leitor.
     public var selectedConversation: Conversation? {
         guard let selectedMessageID else { return nil }
         return conversation(of: selectedMessageID)
+    }
+
+    /// As conversas marcadas que ainda estão na visão.
+    public var checkedConversations: [Conversation] {
+        let wanted = checkedConversationKeys
+        return visibleConversations.filter { wanted.contains($0.key) }
+    }
+
+    public func isChecked(_ conversationKey: String) -> Bool {
+        checkedConversationKeys.contains(conversationKey)
+    }
+
+    /// Todas as conversas visíveis estão marcadas? Caixa vazia é `false`.
+    public var allVisibleChecked: Bool {
+        guard !checkedConversationKeys.isEmpty else { return false }
+        let visible = visibleConversations
+        guard !visible.isEmpty else { return false }
+        return visible.allSatisfy { checkedConversationKeys.contains($0.key) }
+    }
+
+    /// Algumas, mas não todas. É o estado misto do checkbox do cabeçalho.
+    public var someVisibleChecked: Bool {
+        guard !checkedConversationKeys.isEmpty else { return false }
+        let visible = visibleConversations
+        guard !visible.isEmpty else { return false }
+        let n = visible.filter { checkedConversationKeys.contains($0.key) }.count
+        return n > 0 && n < visible.count
+    }
+
+    /// Há alguma conversa marcada, nesta caixa ou noutra. A faixa de lote
+    /// pergunta isto, e não se a caixa é Hoje: a seleção vale no sistema todo.
+    public var hasChecked: Bool { !checkedConversationKeys.isEmpty }
+
+    /// A conta comum das conversas marcadas. `nil` quando o lote mistura
+    /// contas — aí "Mover para pasta" não tem um servidor só a quem falar.
+    public var checkedAccountID: String? {
+        let ids = Set(checkedConversations.map(\.latest.accountID))
+        return ids.count == 1 ? ids.first : nil
+    }
+
+    public func toggleChecked(_ conversationKey: String) {
+        if checkedConversationKeys.contains(conversationKey) {
+            checkedConversationKeys.remove(conversationKey)
+        } else {
+            checkedConversationKeys.insert(conversationKey)
+        }
+    }
+
+    public func selectAllVisible() {
+        checkedConversationKeys = Set(visibleConversations.map(\.key))
+    }
+
+    public func clearChecked() {
+        checkedConversationKeys = []
+    }
+
+    /// Marca todas se falta alguma; senão, limpa. É o clique do checkbox do
+    /// cabeçalho da lista, em qualquer caixa.
+    public func toggleSelectAllVisible() {
+        if allVisibleChecked { clearChecked() } else { selectAllVisible() }
+    }
+
+    /// Descarta marcas que saíram da visão. Sem isto, trocar de Hoje para
+    /// Depois deixaria um conjunto invisível governando a faixa de lote.
+    private func pruneChecked() {
+        guard !checkedConversationKeys.isEmpty else { return }
+        let visible = Set(visibleConversations.map(\.key))
+        checkedConversationKeys = checkedConversationKeys.intersection(visible)
     }
 
     /// O estado de triagem destas mensagens, agora. Quem vai agir sobre a
@@ -1218,11 +1926,9 @@ public final class MailStore {
             }
         }
 
-        for message in movendo {
-            guard let index = messages.firstIndex(where: { $0.id == message.id }) else { continue }
-            messages[index] = messages[index].withBucket(newBucket)
-        }
+        updateMessages(ids: Set(movendo.map(\.id))) { $0.withBucket(newBucket) }
         reselect(from: positionBefore, leaving: Set(conversation.messageIDs))
+        pruneChecked()
     }
 
     /// Move uma conversa para uma pasta IMAP ou aplica um marcador Gmail.
@@ -1249,11 +1955,9 @@ public final class MailStore {
             )
         }
 
-        for message in candidates {
-            guard let index = messages.firstIndex(where: { $0.id == message.id }) else { continue }
-            messages[index] = placing(messages[index], in: folder, mode: mode)
-        }
+        updateMessages(ids: Set(ids)) { placing($0, in: folder, mode: mode) }
         reselect(from: positionBefore, leaving: Set(ids))
+        pruneChecked()
     }
 
     /// “Mover para” do Gmail: troca somente o marcador que representa a
@@ -1280,11 +1984,9 @@ public final class MailStore {
                 accountID: source.accountID, messageIDs: ids
             )
         }
-        for message in candidates {
-            guard let index = messages.firstIndex(where: { $0.id == message.id }) else { continue }
-            messages[index] = movingGmail(messages[index], from: source, to: destination)
-        }
+        updateMessages(ids: Set(ids)) { movingGmail($0, from: source, to: destination) }
         reselect(from: positionBefore, leaving: Set(ids))
+        pruneChecked()
     }
 
     /// Marca a conversa inteira como lida (ou não lida).
@@ -1294,10 +1996,7 @@ public final class MailStore {
         for (accountID, ids) in Self.porConta(mudando) {
             send { port in try port.setRead(isRead, accountID: accountID, messageIDs: ids) }
         }
-        for message in mudando {
-            guard let index = messages.firstIndex(where: { $0.id == message.id }) else { continue }
-            messages[index] = messages[index].withRead(isRead)
-        }
+        updateMessages(ids: Set(mudando.map(\.id)), preservesListPages: true) { $0.withRead(isRead) }
     }
 
     /// Liga ou desliga a estrela da conversa inteira.
@@ -1307,10 +2006,7 @@ public final class MailStore {
         for (accountID, ids) in Self.porConta(mudando) {
             send { port in try port.setFlagged(isFlagged, accountID: accountID, messageIDs: ids) }
         }
-        for message in mudando {
-            guard let index = messages.firstIndex(where: { $0.id == message.id }) else { continue }
-            messages[index] = messages[index].withFlagged(isFlagged)
-        }
+        updateMessages(ids: Set(mudando.map(\.id)), preservesListPages: true) { $0.withFlagged(isFlagged) }
     }
 
     /// Apaga a conversa inteira de vez. Só faz sentido na Lixeira, como
@@ -1326,6 +2022,7 @@ public final class MailStore {
         let indo = Set(conversation.messageIDs)
         messages.removeAll { indo.contains($0.id) }
         reselect(from: positionBefore, leaving: indo)
+        pruneChecked()
     }
 
     /// Os ids agrupados por conta, na ordem em que as contas apareceram.
@@ -1334,6 +2031,60 @@ public final class MailStore {
     /// trabalho e no pessoal, e as duas mensagens compartilham a raiz de
     /// `References`. A porta é por conta; mandar os ids das duas numa chamada
     /// só faria o espelho procurar no servidor errado.
+    /// Uma atribuição só em `messages`. Cada `messages[i] =` dispara a
+    /// observação e refaz o recorte visível; numa thread de treze do GitHub
+    /// isso eram treze redesenhos da caixa — a trava ao andar com as setas.
+    private func updateMessages(
+        ids: Set<String>,
+        preservesListPages: Bool = false,
+        _ transform: (Message) -> Message
+    ) {
+        guard !ids.isEmpty else { return }
+        var found = false
+        let next = messages.map { message -> Message in
+            guard ids.contains(message.id) else { return message }
+            found = true
+            return transform(message)
+        }
+        guard found else { return }
+        if preservesListPages { rebuildIndexOnNextDidSet = false }
+        else { conversationPages.removeAll(keepingCapacity: true) }
+        messages = next
+        if preservesListPages { patchIndex(ids: ids) }
+    }
+
+    private func patchIndex(ids: Set<String>) {
+        // `move` altera um bucket sem reconstruir o índice. Se o cache ainda
+        // tiver a revisão anterior, copiar os buckets dele carimba a revisão
+        // nova em cima da caixa antiga — e Hoje/Lixeira passam a mentir.
+        guard let index = listIndexCache,
+              index.ids.count == messages.count,
+              index.revision == messagesRevision else {
+            listIndexCache = makeListIndex()
+            return
+        }
+        var isRead = index.isRead
+        var buckets = index.buckets
+        for id in ids {
+            guard let i = index.idIndex[id] else { continue }
+            let live = messages[i]
+            isRead[i] = live.isRead
+            buckets[i] = live.bucket
+        }
+        listIndexCache = MessageListIndex(
+            revision: messagesRevision,
+            dates: index.dates,
+            buckets: buckets,
+            accountIDs: index.accountIDs,
+            conversationKeys: index.conversationKeys,
+            folderIDs: index.folderIDs,
+            ids: index.ids,
+            isRead: isRead,
+            idIndex: index.idIndex,
+            ranked: index.ranked
+        )
+    }
+
     private static func porConta(_ messages: [Message]) -> [(String, [String])] {
         var order: [String] = []
         var byAccount: [String: [String]] = [:]
@@ -1370,27 +2121,195 @@ public final class MailStore {
     /// selecionada que não mexe na agenda deixa metade da janela mentindo sobre
     /// o que está sendo mostrado.
     public var visibleAgenda: [AgendaItem] {
-        guard let selectedAccountID else { return agenda }
-        return agenda.filter { $0.accountID == selectedAccountID }
+        projectedAgenda().visible
+    }
+
+    /// A grade da aba Agenda: todos os calendários ligados, **sem** o filtro
+    /// da caixa de email. Filtrar por conta de correio escondia Todoist,
+    /// iCloud e o resto do macOS no momento em que uma caixa estava selecionada.
+    public var calendarAgenda: [AgendaItem] {
+        projectedAgenda().calendar
+    }
+
+    /// Uma passada só: coalescer a agenda inteira em cada `body` da grade
+    /// (cabeçalho, mini-mês, semana, seletor) é o que congelava o `‹ ›`.
+    private func projectedAgenda() -> (calendar: [AgendaItem], visible: [AgendaItem]) {
+        let cache = agendaProjection
+        let fingerprint = agendaProjectionFingerprint()
+        if cache.fingerprint == fingerprint,
+           cache.hidden == hiddenCalendarIDs,
+           cache.concealed == concealedCalendarIDs,
+           cache.selectedAccount == selectedAccountID
+        {
+            return (cache.calendar, cache.visible)
+        }
+        let hidden = hiddenCalendarIDs
+        let concealed = concealedCalendarIDs
+        let calendar = InviteAgenda.coalesce(
+            agenda.filter { item in
+                let id = calendarFilterID(for: item)
+                return !hidden.contains(id) && !concealed.contains(id)
+            }
+        )
+        let visible: [AgendaItem]
+        if let selectedAccountID {
+            visible = InviteAgenda.coalesce(agenda.filter { $0.accountID == selectedAccountID })
+        } else {
+            visible = InviteAgenda.coalesce(agenda)
+        }
+        cache.fingerprint = fingerprint
+        cache.hidden = hidden
+        cache.concealed = concealed
+        cache.selectedAccount = selectedAccountID
+        cache.calendar = calendar
+        cache.visible = visible
+        return (calendar, visible)
+    }
+
+    private func agendaProjectionFingerprint() -> Int {
+        var hasher = Hasher()
+        hasher.combine(agenda.count)
+        for item in agenda {
+            hasher.combine(item.id)
+            hasher.combine(item.dayOffset)
+            hasher.combine(item.startMinute)
+            hasher.combine(item.endMinute)
+            hasher.combine(item.isCancelled)
+            hasher.combine(item.calendarSequence)
+            hasher.combine(item.calendarUID)
+            hasher.combine(item.calendarID)
+        }
+        return hasher.finalize()
+    }
+
+    /// Calendários da lateral: os do macOS, os CalDAV das caixas IMAP, e um
+    /// calendário OkamiUNI por conta que o EventKit não cobre (Zoho,
+    /// Hostinger, Yahoo, Microsoft…).
+    public var calendarsForSidebar: [ConnectedCalendar] {
+        var list = connectedCalendars
+        let calDAVAccounts = Set(list.compactMap { ConnectedCalendar.calDAVAccountID(from: $0.id) })
+        for account in accounts where ConnectedCalendar.needsMailboxCalendar(account) {
+            if calDAVAccounts.contains(account.id) { continue }
+            let mailbox = ConnectedCalendar.mailbox(for: account)
+            if !list.contains(where: { $0.id == mailbox.id }) {
+                list.append(mailbox)
+            }
+        }
+        if agenda.contains(where: { calendarFilterID(for: $0) == ConnectedCalendar.email.id }),
+           !list.contains(where: { $0.id == ConnectedCalendar.email.id })
+        {
+            list.append(.email)
+        }
+        return list
+    }
+
+    /// A lista visível: sem os calendários que a pessoa ocultou.
+    public var visibleCalendarsForSidebar: [ConnectedCalendar] {
+        calendarsForSidebar.filter { !concealedCalendarIDs.contains($0.id) }
+    }
+
+    /// Os que foram para a seção Ocultos.
+    public var concealedCalendarsForSidebar: [ConnectedCalendar] {
+        calendarsForSidebar.filter { concealedCalendarIDs.contains($0.id) }
+    }
+
+    /// O calendário da lateral a que um compromisso pertence. Item sem
+    /// `calendarID` de uma caixa IMAP cai no calendário OkamiUNI daquela
+    /// conta — era isso que fazia Zoho e Hostinger existirem no correio e
+    /// sumirem na Agenda.
+    func calendarFilterID(for item: AgendaItem) -> String {
+        if let id = item.calendarID { return id }
+        if ConnectedCalendar.needsMailboxCalendar(account(item.accountID)) {
+            return ConnectedCalendar.mailboxID(forAccountID: item.accountID)
+        }
+        return ConnectedCalendar.email.id
+    }
+
+    /// A cor da bolinha na lateral, para o bloco na grade pintar a mesma.
+    /// Sem isto o Termin de Odette nascia no acento verde do tema — cor que
+    /// nenhuma agenda da lista tem.
+    public func calendarSwatchHex(for item: AgendaItem) -> String? {
+        if let hex = item.calendarColorHex?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !hex.isEmpty {
+            return hex
+        }
+        let id = calendarFilterID(for: item)
+        if let calendar = calendarsForSidebar.first(where: { $0.id == id }) {
+            return calendar.colorHex
+        }
+        return account(item.accountID)?.tintLightHex
+    }
+
+    public func isCalendarEnabled(_ id: String) -> Bool {
+        !hiddenCalendarIDs.contains(id)
+    }
+
+    public func toggleCalendar(_ id: String) {
+        if hiddenCalendarIDs.contains(id) {
+            hiddenCalendarIDs.remove(id)
+        } else {
+            hiddenCalendarIDs.insert(id)
+        }
+        calendarDefaults?.set(Array(hiddenCalendarIDs), forKey: Self.hiddenCalendarsKey)
+    }
+
+    public func isCalendarConcealed(_ id: String) -> Bool {
+        concealedCalendarIDs.contains(id)
+    }
+
+    /// Some da lista e da trilha. Os compromissos saem da grade até a pessoa
+    /// devolver o calendário em Ocultos.
+    public func concealCalendar(_ id: String) {
+        concealedCalendarIDs.insert(id)
+        persistConcealedCalendars()
+        collapsedCalendarSources.remove(Self.concealedCalendarsSection)
+        calendarDefaults?.set(
+            Array(collapsedCalendarSources), forKey: Self.collapsedCalendarSourcesKey
+        )
+    }
+
+    public func revealCalendar(_ id: String) {
+        concealedCalendarIDs.remove(id)
+        persistConcealedCalendars()
+    }
+
+    private func persistConcealedCalendars() {
+        calendarDefaults?.set(Array(concealedCalendarIDs), forKey: Self.concealedCalendarsKey)
+    }
+
+    public func calendarSourceExpanded(_ source: String) -> Bool {
+        !collapsedCalendarSources.contains(source)
+    }
+
+    /// Recolher é só espaço na barra: os calendários do grupo continuam
+    /// ligados ou desligados na grade.
+    public func toggleCalendarSource(_ source: String) {
+        if collapsedCalendarSources.contains(source) {
+            collapsedCalendarSources.remove(source)
+        } else {
+            collapsedCalendarSources.insert(source)
+        }
+        calendarDefaults?.set(
+            Array(collapsedCalendarSources), forKey: Self.collapsedCalendarSourcesKey
+        )
     }
 
     /// Atualiza a agenda conectada. Sem `requestAuthorization`, a abertura só
     /// lê o estado do sistema — nunca dispara uma caixa de permissão por trás
     /// da tela. O botão visível da Agenda chama a mesma função com `true`.
+    ///
+    /// Mesmo sem autorização do EventKit a sincronização roda: CalDAV das
+    /// caixas IMAP (Zoho, Yahoo, Fastmail) não depende do Calendário do macOS.
     public func refreshCalendar(requestAuthorization: Bool = false) async {
         guard let calendarSync else { return }
-        let before = await calendarSync.availability()
-        guard before.isAvailable || requestAuthorization else {
-            calendarAvailability = before
-            return
-        }
         calendarAvailability = .loading
         do {
             synchronizedAgenda = try await calendarSync.synchronize(
                 referenceDay: agendaReferenceDay(), requestAuthorization: requestAuthorization
             )
+            connectedCalendars = await calendarSync.calendars()
             calendarAvailability = await calendarSync.availability()
-            agenda = mergedAgenda(combinedAgenda())
+            agenda = mergedAgenda(combinedAgenda()).map(overlayCancelled)
         } catch {
             let reported = await calendarSync.availability()
             calendarAvailability = reported.isAvailable
@@ -1406,6 +2325,46 @@ public final class MailStore {
     public var visiblePendingItems: [PendingItem] {
         guard let selectedAccountID else { return pendingItems }
         return pendingItems.filter { $0.accountID == selectedAccountID }
+    }
+
+    /// Recorte da aba Dashboard. Cacheado: o `body` da aba lia a caixa
+    /// inteira várias vezes por quadro, e era isso que congelava a troca.
+    public func dashboardFocus(nowMinute: Int) -> DashboardFocus {
+        let revision = messagesRevision
+        let account = selectedAccountID
+        let pending = visiblePendingItems
+        let agendaVisible = visibleAgenda
+        let key = DashboardFocusCacheKey(
+            messagesRevision: revision,
+            accountID: account,
+            nowMinute: nowMinute,
+            agendaFingerprint: agendaProjectionFingerprint(),
+            pendingCount: pending.count
+        )
+        if let cached = dashboardFocusCache, cached.key == key {
+            return cached.value
+        }
+        let index = messageListIndex()
+        var candidates: [Message] = []
+        candidates.reserveCapacity(min(DashboardFocus.candidateCap, index.ranked.count))
+        for i in index.ranked {
+            if let account, index.accountIDs[i] != account { continue }
+            switch index.buckets[i] {
+            case .junk, .trash, .drafts, .sent: continue
+            case .today, .later, .all, .archived: break
+            }
+            candidates.append(messages[i])
+            if candidates.count >= DashboardFocus.candidateCap { break }
+        }
+        let value = DashboardFocus.snapshot(
+            messages: candidates,
+            agenda: agendaVisible,
+            pending: pending,
+            nowMinute: nowMinute,
+            accountID: nil
+        )
+        dashboardFocusCache = (key, value)
+        return value
     }
 
     // MARK: - A agenda que sobrevive ao fechar o app
@@ -1437,11 +2396,15 @@ public final class MailStore {
     /// nascendo das fixtures a cada abertura, byte a byte como no Marco 1 —
     /// sem porta, `persistedAgenda` é vazia e isto é a ordenação de sempre.
     private func mergedAgenda(_ daFonte: [AgendaItem]) -> [AgendaItem] {
-        guard !persistedAgenda.isEmpty else {
-            return daFonte.sorted { $0.startMinute < $1.startMinute }
+        let juntos: [AgendaItem]
+        if persistedAgenda.isEmpty {
+            juntos = daFonte
+        } else {
+            let guardados = Set(persistedAgenda.map(\.id))
+            juntos = daFonte.filter { !guardados.contains($0.id) } + persistedAgenda
         }
-        let guardados = Set(persistedAgenda.map(\.id))
-        return (daFonte.filter { !guardados.contains($0.id) } + persistedAgenda)
+        return juntos
+            .map(stampedForMailbox)
             .sorted { $0.startMinute < $1.startMinute }
     }
 
@@ -1460,7 +2423,7 @@ public final class MailStore {
     ///
     /// Na **mesma ação** que o pôs na tela, e não numa tarefa depois: era essa
     /// a distância entre "coloquei na agenda" e "sumiu ao reabrir".
-    private func persist(_ item: AgendaItem) {
+    private func persist(_ item: AgendaItem, writeToSystemCalendar: Bool = true) {
         if let agendaPort {
             persistedAgenda.removeAll { $0.id == item.id }
             persistedAgenda.append(item)
@@ -1472,7 +2435,9 @@ public final class MailStore {
                 report(error)
             }
         }
-        writeToConnectedCalendar(item)
+        if writeToSystemCalendar {
+            writeToConnectedCalendar(item)
+        }
     }
 
     /// O contrário: some do disco e da lista. É o "Desfazer" e o "Tirar da
@@ -1492,7 +2457,19 @@ public final class MailStore {
 
     /// A escrita no calendário real é assíncrona; a confirmação local continua
     /// imediata e qualquer falha fica declarada na própria aba Agenda.
+    ///
+    /// Calendário OkamiUNI de uma caixa IMAP fica só no disco do app: mandar
+    /// para o EventKit ia pousar no calendário padrão do macOS (quase sempre
+    /// o Gmail) e misturar a agenda de outra conta.
     private func writeToConnectedCalendar(_ item: AgendaItem) {
+        if let id = item.calendarID, id.hasPrefix(ConnectedCalendar.mailboxPrefix) {
+            return
+        }
+        if item.calendarID == nil,
+           ConnectedCalendar.needsMailboxCalendar(account(item.accountID))
+        {
+            return
+        }
         guard let calendarSync else { return }
         let referenceDay = agendaReferenceDay()
         Task { [weak self, calendarSync] in
@@ -1532,7 +2509,12 @@ public final class MailStore {
         accountID: String,
         place: String = "",
         meetingLink: String = "",
-        note: String = ""
+        note: String = "",
+        recurrence: RecurrenceRule = .none,
+        guests: [Contact] = [],
+        syncToSystemCalendar: Bool = true,
+        sendInvites: Bool = true,
+        calendarUID: String? = nil
     ) -> AgendaItem? {
         let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanPlace = place.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1553,26 +2535,43 @@ public final class MailStore {
             role: "organizador · você",
             status: .yes
         )
+        let people = guests
+            .filter {
+                !$0.address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    && $0.address.lowercased() != account.address.lowercased()
+            }
+            .map { guest in
+                EventPerson(
+                    name: guest.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? guest.address : guest.name,
+                    address: guest.address.trimmingCharacters(in: .whitespacesAndNewlines),
+                    role: "convidado",
+                    status: .pending
+                )
+            }
         let detail = EventDetail(
             place: cleanPlace,
             link: cleanMeetingLink,
             organizer: owner,
-            people: [],
+            people: people,
             note: "Criado manualmente",
-            recurrence: "Não se repete",
+            recurrence: recurrence.storage,
             notice: "Sem lembrete",
             agenda: [],
             thread: [],
             descricao: cleanNote.isEmpty ? nil : cleanNote
         )
-        let item = AgendaItem(
-            id: "manual-\(UUID().uuidString)",
-            title: cleanTitle,
-            startMinute: startMinute,
-            endMinute: endMinute,
-            accountID: accountID,
-            dayOffset: dayOffset,
-            detail: detail
+        let item = stampedForMailbox(
+            AgendaItem(
+                id: "manual-\(UUID().uuidString)",
+                title: cleanTitle,
+                startMinute: startMinute,
+                endMinute: endMinute,
+                accountID: accountID,
+                dayOffset: dayOffset,
+                calendarUID: calendarUID,
+                detail: detail
+            )
         )
         agenda.append(item)
         agenda.sort {
@@ -1580,8 +2579,56 @@ public final class MailStore {
                 ? $0.startMinute < $1.startMinute
                 : $0.dayOffset < $1.dayOffset
         }
-        persist(item)
+        persist(item, writeToSystemCalendar: syncToSystemCalendar)
+        if sendInvites {
+            sendMeetingInvite(
+                item,
+                guests: people.map { Contact(name: $0.name, address: $0.address) },
+                account: account
+            )
+        }
         return item
+    }
+
+    /// Manda o `METHOD:REQUEST` para quem entrou em Convidados. Sem porta de
+    /// envio o compromisso existe mesmo assim — o convite é o extra.
+    private func sendMeetingInvite(_ item: AgendaItem, guests: [Contact], account: Account) {
+        guard canSend, !guests.isEmpty, let detail = item.detail else { return }
+        let start = date(dayOffset: item.dayOffset, minute: item.startMinute)
+        let end = date(dayOffset: item.dayOffset, minute: item.endMinute)
+        let ics = ICalendar.request(
+            uid: item.calendarUID ?? item.id,
+            title: item.title,
+            start: start,
+            end: end,
+            organizer: Contact(name: account.displayName, address: account.address),
+            attendees: guests,
+            location: detail.place.isEmpty ? nil : detail.place,
+            url: detail.meetingLink,
+            description: [detail.visibleDescription, detail.meetingLink]
+                .compactMap { $0 }
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n"),
+            rrule: RecurrenceRule.parse(detail.recurrence)?.rfc5545
+        )
+        let mensagem = OutgoingMessage(
+            messageID: OutgoingMessage.newMessageID(for: account.address),
+            accountID: account.id,
+            from: OutgoingAddress(name: account.displayName, address: account.address),
+            to: guests.map(OutgoingAddress.init),
+            subject: item.title,
+            plainText: ContextMenus.inviteText(item, detail: detail, date: agendaDate(for: item)),
+            calendarICS: ics
+        )
+        _ = send(mensagem)
+    }
+
+    private func date(dayOffset: Int, minute: Int) -> Date {
+        let day = Calendar.current.date(
+            byAdding: .day, value: dayOffset, to: Calendar.current.startOfDay(for: agendaReferenceDay())
+        ) ?? agendaReferenceDay()
+        return Calendar.current.date(byAdding: .minute, value: minute, to: Calendar.current.startOfDay(for: day))
+            ?? day
     }
 
     /// "Colocar na agenda", no cartão de resumo do leitor: cria o
@@ -1603,14 +2650,32 @@ public final class MailStore {
     /// Devolve o item criado, ou `nil` quando ele já existia. É o sinal que
     /// diz ao chamador se há retorno visível **novo** para mostrar; um
     /// segundo clique não ganha uma segunda confirmação.
+    /// O compromisso que este evento detectado já é na agenda, se houver.
+    /// O cartão de "Compromisso detectado" pergunta isto **ao desenhar**.
+    public func existingAgendaItem(for event: DetectedEvent, from message: Message) -> AgendaItem? {
+        InviteAgenda.existing(
+            for: event,
+            messageID: message.id,
+            accountID: message.accountID,
+            referenceDay: agendaReferenceDay(),
+            in: agenda
+        )
+    }
+
     @discardableResult
     public func addToAgenda(_ event: DetectedEvent, from message: Message) -> AgendaItem? {
+        guard existingAgendaItem(for: event, from: message) == nil else { return nil }
         let id = DetectedEventConversion.agendaID(forMessageID: message.id)
-        guard !agenda.contains(where: { $0.id == id }) else { return nil }
 
-        let item = DetectedEventConversion.agendaItem(
-            from: event, id: id, accountID: message.accountID,
-            referenceDay: agendaReferenceDay()
+        let item = stampedForMailbox(
+            DetectedEventConversion.agendaItem(
+                from: event, id: id, accountID: message.accountID,
+                referenceDay: agendaReferenceDay(),
+                detail: InviteAgenda.detail(
+                    from: message,
+                    accountHost: account(message.accountID)?.host
+                )
+            )
         )
         agenda.append(item)
         agenda.sort { $0.startMinute < $1.startMinute }
@@ -1628,13 +2693,25 @@ public final class MailStore {
     /// e duplica — e o cartão que já abre dizendo "Na agenda".
     public func agendaState(for invite: CalendarInvite, from message: Message) -> InviteAgendaState {
         let id = DetectedEventConversion.agendaID(forMessageID: message.id)
+        let proposto = proposedItem(for: invite, from: message, id: id)
         return InviteAgenda.state(
             for: invite,
-            existing: InviteAgenda.existing(
-                for: invite, id: id, accountID: message.accountID, in: agenda
-            ),
-            proposed: proposedItem(for: invite, from: message, id: id)
+            existing: existingAgendaItem(for: invite, proposed: proposto, id: id, accountID: message.accountID),
+            proposed: proposto
         )
+    }
+
+    /// UID, id da mensagem, ou o mesmo título+horário que o EventKit já trouxe.
+    private func existingAgendaItem(
+        for invite: CalendarInvite, proposed: AgendaItem?, id: String, accountID: String
+    ) -> AgendaItem? {
+        if let porIdentidade = InviteAgenda.existing(
+            for: invite, id: id, accountID: accountID, in: agenda
+        ) {
+            return porIdentidade
+        }
+        guard let proposed else { return nil }
+        return InviteAgenda.existing(matching: proposed, in: agenda)
     }
 
     /// O compromisso que este convite pede, com tudo o que a janela 04 mostra
@@ -1644,7 +2721,7 @@ public final class MailStore {
     private func proposedItem(
         for invite: CalendarInvite, from message: Message, id: String
     ) -> AgendaItem? {
-        InviteAgenda.item(
+        let proposto = InviteAgenda.item(
             for: invite, id: id, accountID: message.accountID,
             referenceDay: agendaReferenceDay(),
             detail: InviteAgenda.detail(
@@ -1657,6 +2734,7 @@ public final class MailStore {
                 accountHost: account(message.accountID)?.host
             )
         )
+        return proposto.map(stampedForMailbox)
     }
 
     /// "Colocar na agenda" / "Atualizar na agenda", a partir do convite.
@@ -1675,8 +2753,8 @@ public final class MailStore {
         let id = DetectedEventConversion.agendaID(forMessageID: message.id)
         guard let proposto = proposedItem(for: invite, from: message, id: id) else { return nil }
 
-        let existente = InviteAgenda.existing(
-            for: invite, id: id, accountID: message.accountID, in: agenda
+        let existente = existingAgendaItem(
+            for: invite, proposed: proposto, id: id, accountID: message.accountID
         )
         switch InviteAgenda.state(for: invite, existing: existente, proposed: proposto) {
         case .naAgenda:
@@ -1698,6 +2776,66 @@ public final class MailStore {
         }
     }
 
+    /// O compromisso que um `METHOD:CANCEL` deve tirar, se ainda estiver lá.
+    public func cancelledAgendaItem(
+        for invite: CalendarInvite, from message: Message
+    ) -> AgendaItem? {
+        matchingCancelledInvite(invite, from: message)
+    }
+
+    /// `METHOD:CANCEL`: o compromisso continua no dia, transparente — o jeito
+    /// do Google Agenda. `nil` quando o cancelamento não encontra nada.
+    @discardableResult
+    public func applyCancelledInvite(
+        _ invite: CalendarInvite, from message: Message
+    ) -> AgendaItem? {
+        guard invite.isCancelled, let item = matchingCancelledInvite(invite, from: message)
+        else { return nil }
+        rememberCancelled(item, uid: invite.uid)
+        let marcado = overlayCancelled(item)
+        agenda = agenda.map { $0.id == item.id ? marcado : overlayCancelled($0) }
+        return marcado
+    }
+
+    /// Ainda existe para quem quer tirar de vez. O cartão do convite passou a
+    /// marcar como cancelado, não a apagar.
+    @discardableResult
+    public func removeCancelledInvite(
+        _ invite: CalendarInvite, from message: Message
+    ) -> AgendaItem? {
+        applyCancelledInvite(invite, from: message)
+    }
+
+    private func matchingCancelledInvite(
+        _ invite: CalendarInvite, from message: Message
+    ) -> AgendaItem? {
+        let id = DetectedEventConversion.agendaID(forMessageID: message.id)
+        return InviteAgenda.matchingCancellation(
+            invite, messageID: message.id, in: agenda,
+            proposed: proposedItem(for: invite, from: message, id: id)
+        )
+    }
+
+    private func overlayCancelled(_ item: AgendaItem) -> AgendaItem {
+        if item.isCancelled { return item }
+        if cancelledAgendaKeys.contains(item.id) { return item.markingCancelled() }
+        if let uid = item.calendarUID, cancelledAgendaKeys.contains(uid) {
+            return item.markingCancelled()
+        }
+        if cancelledAgendaKeys.contains(item.cancellationFingerprint) {
+            return item.markingCancelled()
+        }
+        return item
+    }
+
+    private func rememberCancelled(_ item: AgendaItem, uid: String?) {
+        cancelledAgendaKeys.insert(item.id)
+        cancelledAgendaKeys.insert(item.cancellationFingerprint)
+        if let uid, !uid.isEmpty { cancelledAgendaKeys.insert(uid) }
+        if let calendarUID = item.calendarUID { cancelledAgendaKeys.insert(calendarUID) }
+        calendarDefaults?.set(Array(cancelledAgendaKeys), forKey: Self.cancelledAgendaKeysKey)
+    }
+
     /// O "Desfazer" de `addToAgenda`. Tira o item pelo `id` que ela devolveu.
     ///
     /// Sem guarda contra `id` ausente: desfazer o que já não está lá — outra
@@ -1709,10 +2847,58 @@ public final class MailStore {
         forget(id)
     }
 
+    /// Cancela um compromisso criado no OkamiUNI: manda `METHOD:CANCEL` para
+    /// os convidados e tira da agenda. A sala no Google some pelo caminho da
+    /// fábrica, que precisa do OAuth.
+    public func cancelMeeting(_ id: String) {
+        if let item = agenda.first(where: { $0.id == id }) {
+            sendMeetingCancellation(item)
+        }
+        removeFromAgenda(id)
+    }
+
+    private func sendMeetingCancellation(_ item: AgendaItem) {
+        guard canSend, let account = account(item.accountID), let detail = item.detail else { return }
+        let guests = detail.people.map { Contact(name: $0.name, address: $0.address) }
+            .filter { $0.address.lowercased() != account.address.lowercased() }
+        guard !guests.isEmpty else { return }
+        let start = date(dayOffset: item.dayOffset, minute: item.startMinute)
+        let end = date(dayOffset: item.dayOffset, minute: item.endMinute)
+        let ics = ICalendar.cancellation(
+            uid: item.calendarUID ?? item.id,
+            title: item.title,
+            start: start,
+            end: end,
+            organizer: Contact(name: account.displayName, address: account.address),
+            attendees: guests
+        )
+        let mensagem = OutgoingMessage(
+            messageID: OutgoingMessage.newMessageID(for: account.address),
+            accountID: account.id,
+            from: OutgoingAddress(name: account.displayName, address: account.address),
+            to: guests.map(OutgoingAddress.init),
+            subject: "Cancelado: \(item.title)",
+            plainText: "A reunião \"\(item.title)\" foi cancelada.",
+            calendarICS: ics
+        )
+        _ = send(mensagem)
+    }
+
     /// O que saiu da agenda, para "Desfazer" ter o que devolver — o mesmo
     /// cofre de sessão que `deleteForever` usa, e pelo mesmo motivo: fora da
     /// lista, o compromisso não sabe mais o horário nem a conta dele.
     private var removedFromAgenda: [String: AgendaItem] = [:]
+
+    /// Caixa IMAP ganha o calendário OkamiUNI da conta. Gmail fica sem, para
+    /// o EventKit continuar sendo a fonte daquela agenda. Item que já veio
+    /// com calendário (EventKit, CalDAV) não é tocado.
+    private func stampedForMailbox(_ item: AgendaItem) -> AgendaItem {
+        guard item.calendarID == nil,
+              let account = account(item.accountID),
+              ConnectedCalendar.needsMailboxCalendar(account)
+        else { return item }
+        return item.withCalendar(.mailbox(for: account))
+    }
 
     /// O "Desfazer" de "Tirar da agenda". Devolve o compromisso à ordenação
     /// por horário em que a trilha e as três grades o esperam.
@@ -1781,16 +2967,75 @@ public final class MailStore {
     /// aponta para fora do que a lista mostra — e numa caixa vazia ela é `nil`,
     /// que é quando o estado vazio do leitor deve aparecer.
     private func selectDefaultMessage() {
-        let visible = visibleMessages
-        if let current = selectedMessageID, visible.contains(where: { $0.id == current }) {
+        let referenceDay = agendaReferenceDay()
+        let normalizedQuery = query.trimmingCharacters(in: .whitespaces)
+        if let current = selectedMessageID {
+            if let cached = listIndexCache, cached.revision == messagesRevision,
+               let i = cached.idIndex[current],
+               matchesCurrentView(
+                at: i, index: cached,
+                referenceDay: referenceDay, normalizedQuery: normalizedQuery
+               ) {
+                return
+            }
+            if let message = messages.first(where: { $0.id == current }),
+               matchesCurrentView(
+                message, referenceDay: referenceDay, normalizedQuery: normalizedQuery
+               ) {
+                return
+            }
+        }
+        if let cached = listIndexCache, cached.revision == messagesRevision {
+            for i in cached.ranked {
+                guard matchesCurrentView(
+                    at: i, index: cached,
+                    referenceDay: referenceDay, normalizedQuery: normalizedQuery
+                ) else { continue }
+                selectedMessageID = cached.ids[i]
+                return
+            }
+            selectedMessageID = nil
             return
         }
-        selectedMessageID = visible.first?.id
+        // Sem índice: o retrato já vem da mais nova. Para no primeiro acerto.
+        for message in messages {
+            guard matchesCurrentView(
+                message, referenceDay: referenceDay, normalizedQuery: normalizedQuery
+            ) else { continue }
+            selectedMessageID = message.id
+            return
+        }
+        selectedMessageID = nil
     }
 
     public var selectedMessage: Message? {
         guard let selectedMessageID else { return nil }
-        return messages.first { $0.id == selectedMessageID }
+        _ = bodiesRevision
+        return message(selectedMessageID)
+    }
+
+    /// A mensagem com o corpo que o leitor já buscou, se buscou.
+    public func message(_ id: String) -> Message? {
+        _ = bodiesRevision
+        let raw: Message?
+        if let cached = listIndexCache, cached.revision == messagesRevision,
+           let i = cached.idIndex[id] {
+            raw = messages[i]
+        } else {
+            raw = messages.first { $0.id == id }
+        }
+        guard let raw else { return nil }
+        return hydrate(raw)
+    }
+
+    private func hydrate(_ message: Message) -> Message {
+        guard let loaded = bodyStore[message.id] else { return message }
+        return message.withBody(
+            loaded.body.isEmpty ? message.body : loaded.body,
+            html: loaded.bodyHTML ?? message.bodyHTML,
+            calendarICS: loaded.calendarICS ?? message.calendarICS,
+            attachments: loaded.attachments.isEmpty ? message.attachments : loaded.attachments
+        )
     }
 
     public func account(_ id: String) -> Account? {
@@ -1802,9 +3047,7 @@ public final class MailStore {
         // Tocar numa caixa é voltar ao recorte inteiro dela. Assim uma
         // categoria antiga não reaparece invisivelmente ao retornar a Hoje.
         categoryFilter = nil
-        // Limpar sem reescolher deixava o leitor vazio com mensagens na lista.
-        // `selectDefaultMessage()` só age quando a seleção saiu da visão, então
-        // ele preserva quem continua visível e escolhe a primeira quando não.
+        pruneChecked()
         selectDefaultMessage()
     }
 
@@ -1816,6 +3059,7 @@ public final class MailStore {
         }
         categoryFilter = category
         selectDefaultMessage()
+        pruneChecked()
     }
 
     public func select(account id: String?) {
@@ -1831,11 +3075,58 @@ public final class MailStore {
         // sem nada na tela que explique por quê.
         selectedFolderID = nil
         selectDefaultMessage()
+        pruneChecked()
     }
 
     public func select(message id: String) {
         selectedMessageID = id
         markRead(id)
+    }
+
+    /// Anda uma conversa na lista visível. `+1` é para baixo (a seguinte na
+    /// ordem da caixa, mais antiga); `-1` é para cima.
+    ///
+    /// A unidade é a **linha**, que é a conversa — não a mensagem de dentro
+    /// da pilha. É o que as setas fazem no Mail e no Gmail.
+    ///
+    /// Devolve `false` só quando não há lista: aí a tecla segue o caminho
+    /// dela. No começo ou no fim da caixa a seleção fica onde está, e a
+    /// tecla é consumida — um beep no fim da lista seria a tecla falhando.
+    @discardableResult
+    public func selectAdjacentConversation(offset: Int) -> Bool {
+        guard offset != 0 else { return false }
+        let referenceDay = agendaReferenceDay()
+        let normalizedQuery = query.trimmingCharacters(in: .whitespaces)
+        let index = messageListIndex()
+        var order: [String] = []
+        var latestID: [String: String] = [:]
+        var seen = Set<String>()
+        for i in index.ranked {
+            guard matchesCurrentView(
+                at: i, index: index,
+                referenceDay: referenceDay, normalizedQuery: normalizedQuery
+            ) else { continue }
+            let key = index.conversationKeys[i]
+            if seen.insert(key).inserted {
+                order.append(key)
+                latestID[key] = index.ids[i]
+            }
+        }
+        guard !order.isEmpty else { return false }
+        let currentKey = selectedMessageID.flatMap { id in
+            index.idIndex[id].map { index.conversationKeys[$0] }
+        }
+        let current = currentKey.flatMap { order.firstIndex(of: $0) }
+        let target: Int
+        if let current {
+            target = current + offset
+            guard order.indices.contains(target) else { return true }
+        } else {
+            target = offset > 0 ? 0 : order.count - 1
+        }
+        guard let id = latestID[order[target]] else { return false }
+        select(message: id)
+        return true
     }
 
     /// Traz uma mensagem para a tela, custe o que custar em filtros.
@@ -1892,6 +3183,7 @@ public final class MailStore {
     /// não pode ficar apontando para fora da visão, então ela passa para a
     /// próxima mensagem da lista (ou a anterior, se a movida era a última).
     public func move(_ message: Message, to newBucket: TriageBucket) {
+        defer { pruneChecked() }
         guard let index = messages.firstIndex(where: { $0.id == message.id }) else { return }
         let current = messages[index]
         if newBucket != .archived {
@@ -1942,6 +3234,7 @@ public final class MailStore {
         in folder: MailFolder,
         mode: FolderPlacement
     ) {
+        defer { pruneChecked() }
         guard message.accountID == folder.accountID,
               let index = messages.firstIndex(where: { $0.id == message.id }) else { return }
         let current = messages[index]
@@ -1977,6 +3270,7 @@ public final class MailStore {
         from source: MailFolder,
         to destination: MailFolder
     ) {
+        defer { pruneChecked() }
         guard source.accountID == destination.accountID,
               message.accountID == source.accountID,
               source.id != destination.id,
@@ -2053,7 +3347,8 @@ public final class MailStore {
             // Em Gmail, recolocar o marcador INBOX é o inverso de tirar a
             // mensagem da caixa de entrada. Não mexemos em "Depois": uma
             // mensagem adiada continua adiada mesmo que receba INBOX de novo.
-            if folder.role == .inbox, updated.bucket == .archived {
+            if folder.role == .inbox,
+               updated.bucket == .archived || updated.bucket == .junk {
                 updated = updated.withBucket(.today)
             }
             return updated
@@ -2072,7 +3367,11 @@ public final class MailStore {
         var folderIDs = message.folderIDs.filter { $0 != source.id }
         if !folderIDs.contains(destination.id) { folderIDs.append(destination.id) }
         var updated = message.withFolderIDs(folderIDs)
-        if source.role == .inbox, updated.bucket == .today {
+        if destination.role == .junk {
+            updated = updated.withBucket(.junk)
+        } else if source.role == .junk {
+            updated = updated.withBucket(destination.role == .inbox ? .today : .archived)
+        } else if source.role == .inbox, updated.bucket == .today {
             updated = updated.withBucket(.archived)
         } else if destination.role == .inbox, updated.bucket == .archived {
             updated = updated.withBucket(.today)
@@ -2084,7 +3383,9 @@ public final class MailStore {
         switch role {
         case .inbox: .today
         case .later: .later
-        case .archive, .drafts, .junk, .other: .archived
+        case .archive, .other: .archived
+        case .junk: .junk
+        case .drafts: .drafts
         case .trash: .trash
         case .sent: .sent
         }
@@ -2112,6 +3413,7 @@ public final class MailStore {
     /// A seleção anda como em `move(_:to:)`, e pelo mesmo motivo: ela não pode
     /// ficar apontando para uma mensagem que não está mais na lista.
     public func deleteForever(_ messageID: String) {
+        defer { pruneChecked() }
         guard let index = messages.firstIndex(where: { $0.id == messageID }) else { return }
         let going = messages[index]
         let positionBefore = visibleMessages.firstIndex { $0.id == messageID }
@@ -2194,14 +3496,47 @@ public final class MailStore {
     /// com a lixeira vazia o item some, em vez de aparecer prometendo esvaziar
     /// o que já não está lá.
     public func trashCount(accountID: String? = nil) -> Int {
-        messages.filter { message in
-            guard message.bucket == .trash else { return false }
-            guard let accountID else { return true }
-            return message.accountID == accountID
-        }.count
+        let referenceDay = agendaReferenceDay()
+        resetCountsCacheIfNeeded()
+        let key = CountCacheKey(
+            bucket: TriageBucket.trash.rawValue,
+            accountID: accountID,
+            dayStart: Calendar.current.startOfDay(for: referenceDay)
+        )
+        if let cached = bucketCountCache[key] { return cached }
+        let index = messageListIndex()
+        var n = 0
+        for i in 0..<index.buckets.count {
+            guard index.buckets[i] == .trash else { continue }
+            if let accountID, index.accountIDs[i] != accountID { continue }
+            n += 1
+        }
+        bucketCountCache[key] = n
+        return n
     }
 
+    /// Quantas mensagens esta conta tem, em qualquer caixa. É o número da
+    /// linha da conta na barra — e não pode copiar Tudo só para contar.
+    public func count(forAccount accountID: String) -> Int {
+        resetCountsCacheIfNeeded()
+        if accountCountCache.isEmpty, !messages.isEmpty {
+            var counts: [String: Int] = [:]
+            for id in messageListIndex().accountIDs {
+                counts[id, default: 0] += 1
+            }
+            accountCountCache = counts
+        }
+        return accountCountCache[accountID, default: 0]
+    }
+
+    /// Abrir uma mensagem para ler. Se ela é a mais recente da conversa, a
+    /// conversa inteira deixa de ser trabalho: as anteriores que ficaram por
+    /// ler são o contexto da última, não uma linha marcada sem dizer qual.
     private func markRead(_ id: String) {
+        if let conversation = conversation(of: id), conversation.latest.id == id {
+            setRead(true, for: conversation)
+            return
+        }
         setRead(true, for: id)
     }
 
@@ -2260,12 +3595,14 @@ public final class MailStore {
     /// acabou de dizer que não havia mais.
     public func markAllRead(in bucket: TriageBucket, accountID: String? = nil) {
         let referenceDay = agendaReferenceDay()
-        for index in messages.indices where !messages[index].isRead {
-            let message = messages[index]
-            guard isInBucket(message, bucket: bucket, referenceDay: referenceDay) else { continue }
-            if let accountID, message.accountID != accountID { continue }
-            messages[index] = message.withRead(true)
-        }
+        let ids = Set(messages.compactMap { message -> String? in
+            guard !message.isRead,
+                  isInBucket(message, bucket: bucket, referenceDay: referenceDay)
+            else { return nil }
+            if let accountID, message.accountID != accountID { return nil }
+            return message.id
+        })
+        updateMessages(ids: ids, preservesListPages: true) { $0.withRead(true) }
     }
 
     /// Quantas não lidas há numa caixa, com o mesmo recorte de
@@ -2276,13 +3613,40 @@ public final class MailStore {
     /// caixa tem o que marcar.
     public func unreadCount(in bucket: TriageBucket, accountID: String? = nil) -> Int {
         let referenceDay = agendaReferenceDay()
-        return messages.filter { message in
-            guard !message.isRead,
-                  isInBucket(message, bucket: bucket, referenceDay: referenceDay)
-            else { return false }
-            guard let accountID else { return true }
-            return message.accountID == accountID
-        }.count
+        resetCountsCacheIfNeeded()
+        let key = CountCacheKey(
+            bucket: bucket.rawValue,
+            accountID: accountID,
+            dayStart: Calendar.current.startOfDay(for: referenceDay)
+        )
+        if let cached = unreadCountCache[key] { return cached }
+        let index = messageListIndex()
+        var n = 0
+        for i in 0..<index.ids.count {
+            guard !index.isRead[i],
+                  isInBucket(
+                    messageBucket: index.buckets[i],
+                    receivedAt: index.dates[i],
+                    folderIDs: index.folderIDs[i],
+                    accountID: index.accountIDs[i],
+                    bucket: bucket,
+                    referenceDay: referenceDay
+                  )
+            else { continue }
+            if let accountID, index.accountIDs[i] != accountID { continue }
+            n += 1
+        }
+        unreadCountCache[key] = n
+        return n
+    }
+
+    private func resetCountsCacheIfNeeded() {
+        guard countsCacheRevision != messagesRevision else { return }
+        countsCacheRevision = messagesRevision
+        unreadCountCache.removeAll(keepingCapacity: true)
+        bucketCountCache.removeAll(keepingCapacity: true)
+        foldersByAccountCache.removeAll(keepingCapacity: true)
+        accountCountCache.removeAll(keepingCapacity: true)
     }
 
     // MARK: - O corpo por demanda
@@ -2307,6 +3671,9 @@ public final class MailStore {
     }
 
     private var bodyLoads: [String: BodyLoad] = [:]
+    /// Já tentamos buscar o `.ics` desta mensagem. Sem isto, um cancelamento
+    /// cujo anexo não veio ainda reabria a viagem a cada redesenho.
+    private var icsBuscado: Set<String> = []
 
     /// Em que pé está o corpo desta mensagem. `nil` é "nunca foi preciso".
     public func bodyLoad(for messageID: String) -> BodyLoad? { bodyLoads[messageID] }
@@ -2319,44 +3686,34 @@ public final class MailStore {
     /// corpo, já buscando, já buscado ou já falhado — sai. A falha só volta a
     /// ser tentada por `retryBody(_:)`, que é a pessoa pedindo.
     public func loadBodyIfNeeded(_ messageID: String) async {
-        guard let bodyPort, bodyLoads[messageID] == nil else { return }
-        guard let message = messages.first(where: { $0.id == messageID }),
-              // Duas razões para buscar, e a segunda é da M3-8: a mensagem sem
-              // corpo nenhum (as 39 do dono) e a mensagem cujo corpo foi
-              // gravado por uma versão do app que ainda jogava o HTML fora.
-              // **Uma tentativa por abertura, e nunca duas**: a resposta é
-              // gravada no banco seja ela qual for (`""` para a mensagem que de
-              // fato não tem HTML), então `htmlResolved` passa a dizer sim e
-              // nem esta guarda nem a rede são incomodadas de novo.
-              // A terceira é da M3-18: o corpo veio inteiro, mas com o vazio de
-              // 1×1 no lugar de uma imagem que o Gmail só entrega por uma
-              // segunda chamada. Uma tentativa por abertura, como as outras
-              // duas — e a rebusca grava ou a imagem (e a marca some) ou o
-              // placeholder de "não coube" (que não é pendente), então nem esta
-              // guarda nem a rede voltam a ser incomodadas.
-              message.body.isEmpty || !message.htmlResolved
-                || message.hasPendingInlineImages else { return }
+        guard let bodyPort else { return }
+        if case .carregando = bodyLoads[messageID] { return }
+        guard let raw = message(messageID) else { return }
+        let faltaCorpo = raw.body.isEmpty || !raw.htmlResolved || raw.hasPendingInlineImages
+        let faltaICS = raw.calendarICS == nil
+            && raw.attachments.contains(where: \.looksLikeCalendarInvite)
+            && !icsBuscado.contains(messageID)
+        guard faltaCorpo || faltaICS else { return }
+        if bodyLoads[messageID] != nil, !faltaICS { return }
+        if faltaICS { icsBuscado.insert(messageID) }
 
         bodyLoads[messageID] = .carregando
         do {
             let corpo = try await bodyPort.fetchBody(
-                accountID: message.accountID, messageID: messageID
+                accountID: raw.accountID, messageID: messageID
             )
             bodyLoads[messageID] = .buscado
-            // O corpo entra na lista agora. A porta já o gravou no banco, e o
-            // retrato seguinte o traria — mas a mensagem está aberta na tela
-            // enquanto isso, e esperar a observação acordar é um piscar de
-            // "Carregando…" a mais por nada.
-            guard let indice = messages.firstIndex(where: { $0.id == messageID }) else { return }
-            messages[indice] = messages[indice].withBody(
-                // Parágrafos vazios não apagam o que já estava lá: uma rebusca
-                // feita só pelo HTML não pode custar o texto que a mensagem já
-                // mostrava.
-                corpo.paragraphs.isEmpty ? messages[indice].body : corpo.paragraphs,
-                html: corpo.html,
-                calendarICS: corpo.calendarICS ?? messages[indice].calendarICS,
+            // O corpo **não** entra em `messages`: gravar HTML na lista
+            // invalidava o cache de Tudo e o clique seguinte reconstruía a
+            // caixa. O leitor lê `bodyStore` via `message(_:)`.
+            let atual = message(messageID) ?? raw
+            bodyStore[messageID] = LoadedBody(
+                body: corpo.paragraphs.isEmpty ? atual.body : corpo.paragraphs,
+                bodyHTML: corpo.html,
+                calendarICS: corpo.calendarICS ?? atual.calendarICS,
                 attachments: corpo.attachments
             )
+            bodiesRevision &+= 1
         } catch is CancellationError {
             // A pessoa trocou de mensagem antes de a resposta chegar. Isso não
             // é falha e não pode virar uma faixa vermelha: o estado volta a
@@ -2374,6 +3731,7 @@ public final class MailStore {
     /// O "Tentar de novo" da faixa de erro. Limpa a falha e busca outra vez.
     public func retryBody(_ messageID: String) async {
         bodyLoads[messageID] = nil
+        icsBuscado.remove(messageID)
         await loadBodyIfNeeded(messageID)
     }
 
@@ -2413,12 +3771,28 @@ public final class MailStore {
     /// Contagem por caixa, para os contadores da barra lateral, respeitando o filtro de conta.
     public func count(for bucket: TriageBucket) -> Int {
         let referenceDay = agendaReferenceDay()
-        let inBucket = messages.filter {
-            isInBucket($0, bucket: bucket, referenceDay: referenceDay)
+        resetCountsCacheIfNeeded()
+        let key = CountCacheKey(
+            bucket: bucket.rawValue,
+            accountID: selectedAccountID,
+            dayStart: Calendar.current.startOfDay(for: referenceDay)
+        )
+        if let cached = bucketCountCache[key] { return cached }
+        let index = messageListIndex()
+        var n = 0
+        for i in 0..<index.ids.count {
+            guard isInBucket(
+                messageBucket: index.buckets[i],
+                receivedAt: index.dates[i],
+                folderIDs: index.folderIDs[i],
+                accountID: index.accountIDs[i],
+                bucket: bucket,
+                referenceDay: referenceDay
+            ) else { continue }
+            if let accountID = selectedAccountID, index.accountIDs[i] != accountID { continue }
+            n += 1
         }
-        if let accountID = selectedAccountID {
-            return inBucket.filter { $0.accountID == accountID }.count
-        }
-        return inBucket.count
+        bucketCountCache[key] = n
+        return n
     }
 }

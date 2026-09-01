@@ -13,12 +13,13 @@ public struct AgendaSummary {
             String(format: "%02d:%02d", m / 60, m % 60)
         }
 
-        let running = items.first { now >= $0.startMinute && now < $0.endMinute }
+        let vivos = items.filter { !$0.isCancelled }
+        let running = vivos.first { now >= $0.startMinute && now < $0.endMinute }
         if let running = running {
             return "agora: \(running.title) · termina \(fmt(running.endMinute))"
         }
 
-        let upcoming = items.first { $0.startMinute > now }
+        let upcoming = vivos.first { $0.startMinute > now }
         if let upcoming = upcoming {
             let minLeft = upcoming.startMinute - now
             let duration = durationString(minLeft)

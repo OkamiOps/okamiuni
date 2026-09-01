@@ -97,13 +97,16 @@ struct ShellTrashTests {
     /// "env" não se distinguem no canto do olho numa trilha de 62pt.
     @Test("só a Lixeira e Enviadas têm símbolo, e a trilha as abrevia")
     func onlyTheTrashCarriesASymbol() {
-        for bucket in TriageBucket.allCases where bucket != .trash && bucket != .sent {
+        for bucket in TriageBucket.allCases
+        where bucket != .trash && bucket != .sent && bucket != .drafts {
             #expect(FolderSidebar.symbol(for: bucket) == nil)
         }
         #expect(FolderSidebar.symbol(for: .trash) == "trash")
         #expect(FolderSidebar.symbol(for: .sent) == "paperplane")
+        #expect(FolderSidebar.symbol(for: .drafts) == "square.and.pencil")
         #expect(SidebarRail.abbreviation(for: .trash) == "lixo")
         #expect(SidebarRail.abbreviation(for: .sent) == "env")
+        #expect(SidebarRail.abbreviation(for: .drafts) == "rasc")
     }
 }
 

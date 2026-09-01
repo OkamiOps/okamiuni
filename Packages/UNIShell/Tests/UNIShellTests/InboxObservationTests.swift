@@ -58,6 +58,39 @@ struct InboxObservationTests {
 
         #expect(fonte.termosBuscados.isEmpty)
     }
+
+    @Test("Esc na busca apaga o termo")
+    func escCancelaABusca() async {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        let tela = InboxScreen(store: store)
+        await tela.searchChanged(to: "beatriz")
+        #expect(store.query == "beatriz")
+        #expect(tela.handleEscape(searchFocused: true))
+        #expect(store.query.isEmpty)
+    }
+
+    @Test("Esc com termo e sem foco devolve a caixa")
+    func escLimpaORecorteDaBusca() async {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        let tela = InboxScreen(store: store)
+        await tela.searchChanged(to: "beatriz")
+        #expect(tela.handleEscape(searchFocused: false))
+        #expect(store.query.isEmpty)
+    }
+
+    @Test("Esc no lote limpa a seleção, não a busca")
+    func escCancelaOLote() async throws {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        let tela = InboxScreen(store: store)
+        let key = try #require(store.visibleConversations.first?.key)
+        store.toggleChecked(key)
+        #expect(store.hasChecked)
+        #expect(tela.handleEscape(searchFocused: false))
+        #expect(!store.hasChecked)
+    }
 }
 
 /// Uma fonte que anota **o que lhe pediram**: quantas assinaturas, quantos

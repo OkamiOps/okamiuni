@@ -1,5 +1,6 @@
 import SwiftUI
 import UNIDesign
+import UNICore
 
 /// O bloco de HTML dentro do leitor: a faixa das imagens bloqueadas em cima, a
 /// `WebView` embaixo.
@@ -33,6 +34,8 @@ struct ReaderHTMLSection: View {
     var confiavel: Bool = false
     var aoConfiar: () -> Void = {}
     var aoRevogar: () -> Void = {}
+    /// Clique em Sim/Não/Talvez no HTML do convite.
+    var aoRSVP: (InviteRSVPResponse) -> Void = { _ in }
 
     /// O estado de "já pintou" forçado, para o retrato conseguir medir os dois
     /// lados da espera. Mesmo idioma do `debugSections` da janela 04: a `View`
@@ -44,6 +47,8 @@ struct ReaderHTMLSection: View {
     @State private var altura: CGFloat = 1
     /// A mensagem já está desenhada na `WebView`?
     @State private var pintou = false
+    /// `nil` segue o HTML. A pessoa pode forçar papel ou o tema nesta abertura.
+    @State private var paletaForcada: ReaderHTMLPolicy.Paleta?
 
     private var jaPintou: Bool { debugPintou ?? pintou }
 
@@ -52,16 +57,11 @@ struct ReaderHTMLSection: View {
     /// vindo do servidor, aqui ele já chegou e está sendo desenhado.
     nonisolated static let carregando = "Carregando a mensagem…"
 
-    /// Quanto a espera dura depois de a navegação terminar.
+    /// Quanto a espera dura, contada **do começo da carga**.
     ///
-    /// **Teto da régua, e não da rede — mudou na M3-22.** Ele era contado da
-    /// abertura, e por isso mentia no caso que interessa: com onze imagens
-    /// remotas descendo, aos cinco segundos ele declarava "pintou" e a coluna
-    /// voltava a ser um fio em branco por mais quinze. Agora a contagem começa
-    /// no fim da navegação (`didFinish` ou `didFail`), que é quando a régua
-    /// deveria responder: enquanto a rede trabalha, a roda gira e o texto plano
-    /// está na tela — e se a régua é que quebrou, o leitor cai para o que tiver
-    /// cinco segundos depois, em vez de girar para sempre.
+    /// Imagem remota de rastreio (HubSpot e similares) nunca dispara
+    /// `didFinish`. Sem teto na abertura, "Carregando a mensagem…" girava
+    /// para sempre, com o texto já na tela.
     nonisolated static let tetoDaEspera: Duration = .seconds(5)
 
     /// As imagens desta mensagem carregam?
@@ -70,19 +70,28 @@ struct ReaderHTMLSection: View {
     /// fica guardado em lugar nenhum) e a confiança no remetente (que fica).
     private var permiteRemotas: Bool { carregaRemotas || confiavel }
 
+    private var paletaEfetiva: ReaderHTMLPolicy.Paleta {
+        ReaderHTMLPolicy.paleta(para: html, forçada: paletaForcada)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if ReaderHTMLPolicy.pedeRecursoRemoto(html) {
-                if confiavel {
-                    faixaConfiavel
-                        .padding(.horizontal, 28)
-                        .padding(.bottom, 12)
-                } else if !carregaRemotas {
-                    faixa
-                        .padding(.horizontal, 28)
-                        .padding(.bottom, 12)
+            HStack(alignment: .center, spacing: 12) {
+                if ReaderHTMLPolicy.pedeRecursoRemoto(html) {
+                    if confiavel {
+                        faixaConfiavel
+                    } else if !carregaRemotas {
+                        faixa
+                    } else {
+                        Spacer(minLength: 0)
+                    }
+                } else {
+                    Spacer(minLength: 0)
                 }
+                paletaToggle
             }
+            .padding(.horizontal, 28)
+            .padding(.bottom, 12)
 
             // **O vazio que parecia defeito.** A `WebView` nasce com um ponto
             // de altura e só cresce quando a régua responde; até lá o leitor
@@ -93,12 +102,14 @@ struct ReaderHTMLSection: View {
                 ReaderHTMLBody(
                     html: html,
                     permiteRemotas: permiteRemotas,
+                    paleta: paletaForcada,
                     fundo: Self.css(theme.surface),
-                    tinta: Self.css(theme.ink),
-                    link: Self.css(theme.accent),
+                    tinta: Self.css(paletaForcada == .doTema ? theme.ink : theme.ink2),
+                    link: Self.css(theme.link),
                     fonte: Self.familia(theme),
                     altura: $altura,
-                    pintou: $pintou
+                    pintou: $pintou,
+                    aoRSVP: aoRSVP
                 )
                 .frame(height: max(1, altura))
                 .padding(.horizontal, 28)
@@ -137,6 +148,8 @@ struct ReaderHTMLSection: View {
     nonisolated static let carregar = "Carregar"
     nonisolated static let imagensCarregadas = "Imagens carregadas · remetente confiável"
     nonisolated static let rever = "Rever"
+    nonisolated static let comoEnviado = "Como enviado"
+    nonisolated static let comoOTema = "Como o tema"
 
     /// "Sempre carregar de noreply@calendly.com" — o endereço **inteiro**,
     /// escrito no botão.
@@ -153,6 +166,46 @@ struct ReaderHTMLSection: View {
         let podado = remetente.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !podado.isEmpty else { return nil }
         return "Sempre carregar de \(podado)"
+    }
+
+    private var paletaToggle: some View {
+        HStack(spacing: 0) {
+            paletaBotao(.papel, Self.comoEnviado)
+            Rectangle()
+                .fill(theme.line.color)
+                .frame(width: Hairline.thickness(displayScale), height: 14)
+            paletaBotao(.doTema, Self.comoOTema)
+        }
+        .fixedSize(horizontal: true, vertical: true)
+        .background(theme.surface2.color)
+        .clipShape(RoundedRectangle(cornerRadius: 7))
+        .overlay {
+            RoundedRectangle(cornerRadius: 7)
+                .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
+        }
+        .help("Como enviado guarda as cores do remetente. Como o tema pinta com as cores do app.")
+        .accessibilityLabel("Cores da mensagem")
+        .accessibilityValue(paletaEfetiva == .papel ? Self.comoEnviado : Self.comoOTema)
+    }
+
+    private func paletaBotao(_ alvo: ReaderHTMLPolicy.Paleta, _ rotulo: String) -> some View {
+        let ativo = paletaEfetiva == alvo
+        return Button {
+            paletaForcada = alvo
+        } label: {
+            Text(rotulo)
+                .font(theme.sans.font(size: 11.5, weight: ativo ? .semibold : .medium))
+                .foregroundStyle(ativo ? theme.accentInk.color : theme.ink2.color)
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, 10)
+                .frame(height: 26)
+                .background(ativo ? theme.accentSoft.color : Color.clear)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: 6)
+        .accessibilityAddTraits(ativo ? .isSelected : [])
     }
 
     private var faixa: some View {

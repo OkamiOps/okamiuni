@@ -141,23 +141,30 @@ public struct AgendaRail: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
+                LazyVStack(alignment: .leading, spacing: 0) {
                     if todayItems.isEmpty {
-                        Text("Nenhum compromisso hoje.")
-                            .font(theme.sans.font(size: 12))
-                            .foregroundStyle(theme.ink3.color)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.vertical, 8)
+                        emptyDay
                     } else {
-                        ForEach(todayItems) { item in
-                            eventBlock(item)
+                        ForEach(Self.dayRows(items: todayItems, now: now)) { row in
+                            switch row {
+                            case .period(let name):
+                                periodLabel(name)
+                            case .now:
+                                nowRule
+                            case .item(let item):
+                                eventBlock(item)
+                                    .padding(.bottom, 10)
+                            }
                         }
                     }
                 }
                 .padding(.horizontal, 14)
-                .padding(.vertical, 14)
+                .padding(.top, 12)
+                .padding(.bottom, 16)
             }
-            pendingSection
+            if !store.visiblePendingItems.isEmpty {
+                pendingSection
+            }
         }
         .frame(width: railWidth)
         .background(theme.surface2.color)
@@ -165,90 +172,85 @@ public struct AgendaRail: View {
         .hairline(theme.line, edges: .leading)
     }
 
-    private static let scrollAnchorID = "agendaRail.scroll.morning"
-
-    /// Ver `DayScreen.scrollAnchor`: o alvo precisa ser altura de verdade,
-    /// não `.offset`, senão `scrollTo` não o encontra e a trilha abre na
-    /// meia-noite em vez das 08:00.
-    private var scrollAnchor: some View {
-        VStack(spacing: 0) {
-            Color.clear.frame(height: layout.initialScrollTarget)
-            Color.clear.frame(height: 1).id(Self.scrollAnchorID)
-            Spacer(minLength: 0)
-        }
-        .allowsHitTesting(false)
-    }
-
     private var header: some View {
-        VStack(alignment: .leading, spacing: 7) {
+        VStack(alignment: .leading, spacing: 8) {
             Text("Agenda de hoje")
-                .font(theme.serif.font(size: 15.5, weight: .semibold))
+                .font(theme.serif.font(size: 16, weight: .semibold))
                 .foregroundStyle(theme.ink.color)
-            Text("\(headerDate.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated))) · \(todayItems.count) \(todayItems.count == 1 ? "compromisso" : "compromissos")")
-                .font(theme.sans.font(size: 11.5))
+            Text(Self.headerDateString(headerDate))
+                .font(theme.sans.font(size: 12))
                 .foregroundStyle(theme.ink2.color)
                 .lineLimit(1)
+            nextUpLine
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        // Protótipo: `padding: 12px 16px 11px` no cabeçalho da trilha.
         .padding(.horizontal, 16)
-        .padding(.top, 12)
-        .padding(.bottom, 11)
+        .padding(.top, 14)
+        .padding(.bottom, 14)
         .hairline(theme.line2, edges: .bottom)
     }
 
-    /// Uma linha por hora, cada uma posicionada pelo minuto do dia — como o
-    /// protótipo, que usa `position: absolute; top: (min - 480) * 0.78`.
-    ///
-    /// O quadro de altura zero deixa o rótulo transbordar simetricamente, então
-    /// ele fica **centrado na linha** (o `align-items: center` do protótipo) em
-    /// vez de pendurado abaixo dela. A linha continua no minuto exato da hora,
-    /// que é o que mantém os cartões alinhados com a hora que dizem começar.
-    private var hourLines: some View {
-        ForEach(0...24, id: \.self) { hour in
-            HStack(spacing: layout.gutterGap) {
-                Text(Self.hourLabel(minuteOfDay: hour * 60))
-                    .font(theme.mono.font(size: 9))
-                    .foregroundStyle(theme.ink4.color)
-                    .frame(width: layout.labelGutter, alignment: .trailing)
-                Rectangle()
-                    .fill(theme.line2.color)
-                    .frame(height: Hairline.thickness(displayScale))
-            }
-            .frame(height: 0, alignment: .center)
-            .offset(y: CGFloat(hour * 60) * layout.pointsPerMinute)
+    private var nextUpLine: some View {
+        let label = Self.nextUpLabel(for: todayItems, now: now)
+        let live = label.hasPrefix("agora:")
+        return HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Circle()
+                .fill(live ? liveColor() : theme.ink4.color)
+                .frame(width: 6, height: 6)
+                .offset(y: 1)
+            Text(label)
+                .font(theme.sans.font(size: 11.5))
+                .foregroundStyle(live ? theme.ink.color : theme.ink2.color)
+                .lineLimit(2)
         }
+        .accessibilityLabel(label)
     }
 
-    /// O traço de "agora". Protótipo: `left: 26px; right: 0` — ele encosta na
-    /// calha dos rótulos e não a atravessa.
-    ///
-    /// A trilha cobre o dia inteiro agora, então "agora" está sempre dentro
-    /// da faixa (0...1440) — a checagem que existia aqui era o resquício da
-    /// faixa 480-1140 e sumiu junto com ela.
-    private var nowMarker: some View {
-        HStack(spacing: 0) {
-            Color.clear
-                .frame(width: layout.nowMarkerLeading, height: 0)
-            ZStack(alignment: .leading) {
-                Rectangle()
-                    .fill(liveColor())
-                    .frame(height: 1.5)
-                nowDot
-                    .frame(width: 4, height: 4)
-            }
+    private var emptyDay: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Dia livre")
+                .font(theme.serif.font(size: 15, weight: .semibold))
+                .foregroundStyle(theme.ink.color)
+            Text("Nenhum compromisso nesta caixa.")
+                .font(theme.sans.font(size: 12))
+                .foregroundStyle(theme.ink3.color)
         }
-        .frame(height: 0, alignment: .center)
-        .offset(y: CGFloat(now) * layout.pointsPerMinute)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 20)
+        .padding(.horizontal, 2)
     }
 
-    private var nowDot: some View {
-        Circle()
-            .fill(liveColor())
+    private func periodLabel(_ name: String) -> some View {
+        Text(name)
+            .font(theme.mono.font(size: 9, weight: .medium))
+            .tracking(theme.capsTracking(at: 9))
+            .textCase(.uppercase)
+            .foregroundStyle(theme.ink4.color)
+            .padding(.top, 6)
+            .padding(.bottom, 8)
+    }
+
+    private var nowRule: some View {
+        HStack(spacing: 8) {
+            Rectangle()
+                .fill(liveColor().opacity(0.55))
+                .frame(height: 1)
+            Text("agora")
+                .font(theme.mono.font(size: 8.5, weight: .medium))
+                .tracking(theme.capsTracking(at: 8.5))
+                .textCase(.uppercase)
+                .foregroundStyle(liveColor())
+            Rectangle()
+                .fill(liveColor().opacity(0.55))
+                .frame(height: 1)
+        }
+        .padding(.vertical, 8)
+        .padding(.bottom, 4)
+        .accessibilityLabel("Agora")
     }
 
     private func liveColor() -> Color {
-        SemanticColor.live(isDark: theme.isDark)
+        theme.live.color
     }
 
     private func eventBlock(_ item: AgendaItem) -> some View {
@@ -257,7 +259,7 @@ public struct AgendaRail: View {
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusLarge)
-        .help("Abre o compromisso")
+        .help(item.isCancelled ? "Compromisso cancelado" : "Abre o compromisso")
         // O mesmo menu das três visões da agenda. A trilha mostra sempre
         // hoje, então o dia do compromisso é o do cabeçalho.
         .uniContextMenu(
@@ -276,41 +278,66 @@ public struct AgendaRail: View {
     }
 
     private func eventCard(_ item: AgendaItem) -> some View {
-        let tint = store.account(item.accountID)
-            .flatMap { TokenColor(css: theme.isDark ? $0.tintDarkHex : $0.tintLightHex) } ?? theme.accent
-        let account = store.account(item.accountID)
-
-        return HStack(alignment: .top, spacing: 10) {
+        let tint = CalendarTint.token(of: item, in: store, theme: theme)
+        let cancelled = item.isCancelled
+        let running = !cancelled && now >= item.startMinute && now < item.endMinute
+        let past = !cancelled && item.endMinute <= now
+        let shape = RoundedRectangle(cornerRadius: theme.radiusLarge, style: .continuous)
+        let ink = CalendarEventChrome.ink(tint, cancelled: cancelled, theme: theme)
+        return HStack(alignment: .top, spacing: 0) {
             Rectangle()
-                .fill(tint.color)
+                .fill(CalendarEventChrome.bar(tint, cancelled: cancelled, theme: theme))
                 .frame(width: 3)
-
-            Text(item.startLabel)
-                .font(theme.mono.font(size: 10))
-                .foregroundStyle(theme.ink2.color)
-                .frame(width: 39, alignment: .leading)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(item.title)
-                    .font(theme.sans.font(size: 12.5, weight: .semibold))
-                    .foregroundStyle(theme.ink.color)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(item.startLabel)
+                        .font(theme.mono.font(size: 15, weight: .medium))
+                        .foregroundStyle(cancelled ? theme.ink4.color : theme.ink.color)
+                    if running {
+                        Text("Agora")
+                            .font(theme.mono.font(size: 8, weight: .medium))
+                            .tracking(theme.capsTracking(at: 8))
+                            .textCase(.uppercase)
+                            .foregroundStyle(liveColor())
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(liveColor().opacity(theme.isDark ? 0.2 : 0.1), in: Capsule())
+                    }
+                    Spacer(minLength: 4)
+                    Text(cancelled ? "Cancelado" : item.durationLabel)
+                        .font(theme.mono.font(size: 9, weight: .medium))
+                        .tracking(theme.capsTracking(at: 9))
+                        .textCase(.uppercase)
+                        .foregroundStyle(cancelled ? theme.ink4.color : theme.ink3.color)
+                }
+                CalendarEventChrome.title(item.title, cancelled: cancelled)
+                    .font(theme.sans.font(size: 13.5, weight: .semibold))
+                    .foregroundStyle(cancelled ? theme.ink4.color : theme.ink.color)
                     .lineLimit(2)
-                Text([account?.host, item.endLabel].compactMap { $0 }.joined(separator: " · "))
-                    .font(theme.sans.font(size: 10.5))
-                    .foregroundStyle(theme.ink2.color)
-                    .lineLimit(1)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let meta = Self.metaLine(for: item, host: store.account(item.accountID)?.host) {
+                    Text(meta)
+                        .font(theme.sans.font(size: 11))
+                        .foregroundStyle(cancelled ? theme.ink4.color : ink.opacity(0.78))
+                        .lineLimit(1)
+                }
             }
-            Spacer(minLength: 0)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 11)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
-        .background(theme.surface.color)
-        .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
+        .background(CalendarEventChrome.fill(tint, cancelled: cancelled, theme: theme))
+        .clipShape(shape)
         .overlay {
-            RoundedRectangle(cornerRadius: theme.radiusLarge)
-                .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
+            shape.strokeBorder(
+                cancelled
+                    ? CalendarEventChrome.border(cancelled: true, theme: theme)
+                    : (tint ?? theme.accent).color.opacity(theme.isDark ? 0.35 : 0.22),
+                lineWidth: Hairline.thickness(displayScale)
+            )
         }
         .contentShape(Rectangle())
+        .opacity(past ? 0.55 : (cancelled ? 0.88 : 1))
     }
 
     /// `internal`, não `private`: `AgendaRailTests` precisa renderizar isto
@@ -366,6 +393,70 @@ public struct AgendaRail: View {
         AgendaSummary.nextUpLabel(for: items, now: now)
     }
 
+    /// Parte o dia em períodos e põe o "agora" no vão entre o que já passou
+    /// e o que ainda vem — senão a trilha é só uma lista de cartões.
+    nonisolated static func dayRows(items: [AgendaItem], now: Int) -> [RailRow] {
+        let sorted = items.sorted { $0.startMinute < $1.startMinute }
+        var rows: [RailRow] = []
+        var lastPeriod: String?
+        var previous: AgendaItem?
+        for item in sorted {
+            if let previous, previous.endMinute <= now, item.startMinute > now {
+                rows.append(.now)
+            }
+            let period = periodName(for: item.startMinute)
+            if lastPeriod != period {
+                lastPeriod = period
+                rows.append(.period(period))
+            }
+            rows.append(.item(item))
+            previous = item
+        }
+        return rows
+    }
+
+    nonisolated static func periodName(for minute: Int) -> String {
+        switch minute {
+        case ..<360: "Madrugada"
+        case ..<720: "Manhã"
+        case ..<1080: "Tarde"
+        default: "Noite"
+        }
+    }
+
+    /// Local, sala ou host — o que couber numa linha, sem repetir o horário
+    /// que o cartão já escreve em cima.
+    nonisolated static func metaLine(for item: AgendaItem, host: String?) -> String? {
+        if item.isCancelled { return nil }
+        var parts: [String] = []
+        if let place = item.detail?.place,
+           place != EventPlace.semLocal,
+           !place.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            parts.append(place)
+        }
+        if let room = roomLabel(for: item.detail) {
+            parts.append(room)
+        }
+        if parts.isEmpty, let host, !host.isEmpty {
+            parts.append(host)
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    nonisolated static func roomLabel(for detail: EventDetail?) -> String? {
+        guard let link = detail?.meetingLink ?? detail?.link,
+              let host = URL(string: link)?.host()?.lowercased()
+        else { return nil }
+        if host == "meet.google.com" || host.hasSuffix(".meet.google.com") { return "Google Meet" }
+        if host == "zoom.us" || host.hasSuffix(".zoom.us") { return "Zoom" }
+        if host.contains("teams.microsoft.com") || host.contains("teams.live.com") { return "Teams" }
+        if host.contains("meeting.zoho.com") || host.contains("meet.zoho.com") { return "Zoho Meeting" }
+        if host == "webex.com" || host.hasSuffix(".webex.com") { return "Webex" }
+        if host == "whereby.com" || host.hasSuffix(".whereby.com") { return "Whereby" }
+        if host == "meet.jit.si" || host.hasSuffix(".meet.jit.si") { return "Jitsi" }
+        return "Videoconferência"
+    }
+
     /// O rótulo da calha das horas: "08:00", "09:00", …
     /// Protótipo: `label: fmt(min)`, com
     /// `fmt = (m) => pad(floor(m / 60)) + ':' + pad(m % 60)`.
@@ -396,13 +487,17 @@ extension Date {
     }
 }
 
-extension AgendaItem {
-    fileprivate var endLabel: String {
-        String(format: "%02d:%02d", endMinute / 60, endMinute % 60)
-    }
-}
+/// As linhas da trilha de hoje: período, compromisso, e o "agora" no vão.
+enum RailRow: Equatable, Identifiable {
+    case period(String)
+    case item(AgendaItem)
+    case now
 
-/// Mistura uma cor com transparência usando color-mix (simulado com SwiftUI).
-private func soft(_ color: Color, _ opacity: CGFloat) -> Color {
-    color.opacity(opacity)
+    var id: String {
+        switch self {
+        case .period(let name): "period-\(name)"
+        case .item(let item): "item-\(item.id)"
+        case .now: "now"
+        }
+    }
 }

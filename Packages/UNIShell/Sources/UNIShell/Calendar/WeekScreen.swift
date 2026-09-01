@@ -129,7 +129,7 @@ public struct WeekScreen: View {
     }
 
     private var days: [WeekAgenda.Day] {
-        WeekAgenda.days(from: store.visibleAgenda, anchor: anchor, focusOffset: focusOffset)
+        WeekAgenda.days(from: store.calendarAgenda, anchor: anchor, focusOffset: focusOffset)
     }
 
     /// Só desenha o traço de "agora" quando hoje está dentro da semana em
@@ -303,7 +303,7 @@ public struct WeekScreen: View {
             bottomTrailingRadius: theme.radiusSmall,
             topTrailingRadius: theme.radiusSmall
         ))
-        .help("Abre o compromisso")
+        .help(item.isCancelled ? "Compromisso cancelado" : "Abre o compromisso")
         .uniContextMenu(
             AgendaContextMenu.entries(for: item, store: store, anchor: anchor),
             store: store,
@@ -320,27 +320,37 @@ public struct WeekScreen: View {
     }
 
     private func eventCard(_ item: AgendaItem) -> some View {
-        let color = tint(of: item.accountID)
+        let swatch = CalendarTint.token(of: item, in: store, theme: theme)
         let tight = layout.isTight(for: item)
 
+        let cancelled = item.isCancelled
+        let shape = UnevenRoundedRectangle(
+            topLeadingRadius: 0,
+            bottomLeadingRadius: 0,
+            bottomTrailingRadius: theme.radiusSmall,
+            topTrailingRadius: theme.radiusSmall
+        )
         return HStack(spacing: 0) {
             // Protótipo: `border-left: 2px solid c`.
             Rectangle()
-                .fill(color)
+                .fill(CalendarEventChrome.bar(swatch, cancelled: cancelled, theme: theme))
                 .frame(width: 2)
             VStack(alignment: .leading, spacing: tight ? 0 : 2) {
                 // O título completo, com reticências quando a coluna aperta —
                 // é o que o protótipo faz com `text-overflow: ellipsis`, e é
                 // por isso que a fixture não guarda um segundo título curto.
-                Text(tight ? "\(item.title) · \(item.startLabel)" : item.title)
+                CalendarEventChrome.title(
+                    tight ? "\(item.title) · \(item.startLabel)" : item.title,
+                    cancelled: cancelled
+                )
                     .font(theme.sans.font(size: 11, weight: .semibold))
-                    .foregroundStyle(color)
+                    .foregroundStyle(CalendarEventChrome.ink(swatch, cancelled: cancelled, theme: theme))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 if !tight {
                     Text("\(item.startLabel)–\(item.endLabel)")
                         .font(theme.mono.font(size: 9))
-                        .foregroundStyle(color.opacity(0.7))
+                        .foregroundStyle(CalendarEventChrome.ink(swatch, cancelled: cancelled, theme: theme).opacity(0.85))
                         .lineLimit(1)
                 }
             }
@@ -350,16 +360,11 @@ public struct WeekScreen: View {
             .padding(.vertical, tight ? 0 : 5)
         }
         .frame(maxHeight: .infinity, alignment: .center)
-        // Protótipo: `soft(c, 15)`.
-        .background(color.opacity(0.15))
-        .clipShape(
-            UnevenRoundedRectangle(
-                topLeadingRadius: 0,
-                bottomLeadingRadius: 0,
-                bottomTrailingRadius: theme.radiusSmall,
-                topTrailingRadius: theme.radiusSmall
-            )
-        )
+        .background(CalendarEventChrome.fill(swatch, cancelled: cancelled, theme: theme))
+        .clipShape(shape)
+        .overlay {
+            shape.strokeBorder(CalendarEventChrome.border(cancelled: cancelled, theme: theme), lineWidth: 1)
+        }
         .contentShape(Rectangle())
     }
 
@@ -370,7 +375,7 @@ public struct WeekScreen: View {
             HStack(spacing: 0) {
                 Color.clear.frame(width: layout.labelGutter, height: 0)
                 Rectangle()
-                    .fill(SemanticColor.live(isDark: theme.isDark))
+                    .fill(theme.live.color)
                     .frame(height: 2)
             }
             .frame(height: 0, alignment: .center)
@@ -381,23 +386,13 @@ public struct WeekScreen: View {
                 .foregroundStyle(theme.onAccent.color)
                 .padding(.horizontal, 6)
                 .frame(height: 18)
-                .background(SemanticColor.live(isDark: theme.isDark))
+                .background(theme.live.color)
                 .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
                 // Protótipo: `left: 6px; top: now * 0.9 - 9` — os 9 são metade
                 // da pastilha, que a deixa centrada no traço.
                 .offset(x: 6, y: layout.offset(minuteOfDay: now) - 9)
         }
         .allowsHitTesting(false)
-    }
-
-    // MARK: - Cor por conta
-
-    /// A cor da caixa a que o compromisso pertence. Conta desconhecida cai no
-    /// acento do tema: nada aqui presume quais contas existem.
-    private func tint(of accountID: String) -> Color {
-        store.account(accountID)
-            .flatMap { TokenColor(css: $0.tint(isDark: theme.isDark))?.color }
-            ?? theme.accent.color
     }
 
     /// "00:00", "09:00", … Protótipo: `fmt(min % 1440)`, que é o que faz a

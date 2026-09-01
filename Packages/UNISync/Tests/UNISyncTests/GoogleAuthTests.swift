@@ -207,6 +207,39 @@ struct GoogleAuthTests {
         #expect(StubURLProtocol.requests(for: http).isEmpty)
     }
 
+    @Test("Escopo do Meet no cofre dispensa tokeninfo")
+    func meetScopeNoCofreNaoConsulta() async throws {
+        let cofre = InMemorySecretStore()
+        try cofre.store(.oauth(OAuthTokens(
+            accessToken: "at-vivo", refreshToken: "rt",
+            expiresAt: Date(timeIntervalSince1970: 99_999),
+            scopes: ["https://www.googleapis.com/auth/meetings.space.created"]
+        )), for: "conta-g")
+        let (login, http) = auth(secrets: cofre)
+        #expect(await login.hasMeetAccess(for: "conta-g") == true)
+        #expect(StubURLProtocol.requests(for: http).isEmpty)
+    }
+
+    @Test("Token antigo pergunta ao tokeninfo e grava o escopo")
+    func tokeninfoCompletaEscopoDoMeet() async throws {
+        let cofre = InMemorySecretStore()
+        try cofre.store(.oauth(OAuthTokens(
+            accessToken: "at-vivo", refreshToken: "rt",
+            expiresAt: Date(timeIntervalSince1970: 99_999)
+        )), for: "conta-g")
+        let (login, _) = auth(secrets: cofre, routes: [
+            "/tokeninfo": [.json("""
+                {"scope":"https://mail.google.com/ https://www.googleapis.com/auth/meetings.space.created"}
+                """)],
+        ])
+        #expect(await login.hasMeetAccess(for: "conta-g") == true)
+        guard case .oauth(let guardados)? = try cofre.secret(for: "conta-g") else {
+            Issue.record("o cofre perdeu o token")
+            return
+        }
+        #expect(guardados.canCreateMeet)
+    }
+
     @Test("Token vencido é renovado, e o refresh antigo é preservado quando o Google não manda um novo")
     func refreshPreservaRefreshToken() async throws {
         let cofre = InMemorySecretStore()

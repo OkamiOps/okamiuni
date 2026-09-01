@@ -17,37 +17,33 @@ struct ReaderAssistantButton: View {
     }
 
     private var statusColor: Color {
-        presentation.usesConfiguredProvider ? theme.accent.color : foundationColor
+        theme.info.color
     }
 
     var body: some View {
         Button(action: action) {
             Image(systemName: presentation.symbol)
-                .font(.system(size: 15, weight: .medium))
+                .font(.system(size: 13, weight: .semibold))
                 .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(presentation.isAvailable ? statusColor : theme.ink4.color)
-                .frame(width: 32, height: 30)
-                .background(presentation.isAvailable ? statusColor.opacity(0.08) : theme.surface3.color)
-                .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+                .frame(width: 28, height: 28)
+                .background(presentation.isAvailable ? statusColor.opacity(0.12) : theme.surface3.color)
+                .clipShape(Circle())
                 .overlay {
-                    RoundedRectangle(cornerRadius: theme.radiusSmall)
+                    Circle()
                         .strokeBorder(
-                            presentation.isAvailable ? statusColor.opacity(0.34) : theme.line.color,
+                            presentation.isAvailable ? statusColor.opacity(0.38) : theme.line.color,
                             lineWidth: Hairline.thickness(displayScale)
                         )
                 }
         }
         .buttonStyle(.plain)
-        .focusRing(cornerRadius: theme.radiusSmall)
+        .focusRing(cornerRadius: 14)
         .disabled(!presentation.isAvailable)
         .help(help)
         .accessibilityLabel("Ações de inteligência deste email")
         .accessibilityValue(presentation.isAvailable ? "Disponível" : "Indisponível")
         .accessibilityHint(help)
-    }
-
-    private var foundationColor: Color {
-        Color(red: 1, green: 90 / 255, blue: 31 / 255)
     }
 }
 
@@ -61,10 +57,10 @@ public struct ReaderPane: View {
     /// grava o rascunho em `store.replyDraft(for:)` antes de chamar, para a
     /// janela cheia continuar de onde a faixa parou.
     ///
-    /// O botão "Responder" da fila de triagem deixou de abrir janela: ele
-    /// expande a faixa de baixo e põe o cursor nela — pedido do dono. A janela
-    /// continua a um clique dali, e é o mesmo caminho de sempre.
-    let onReply: (Message) -> Void
+    /// Abre a janela 03 na intenção pedida — responder, responder a todos,
+    /// encaminhar ou continuar rascunho. O ícone Responder da barra **não**
+    /// passa por aqui: ele expande a faixa de baixo.
+    let onCompose: (ComposerRoute) -> Void
     /// Mesmo motor da janela cheia, reaproveitado na resposta rápida.
     let intelligence: ComposerIntelligenceGenerator?
     /// Estado real do modelo local e ação que abre o painel contextual do
@@ -83,6 +79,8 @@ public struct ReaderPane: View {
     /// Porta exclusiva do harness offscreen: mantém o painel contextual aberto
     /// sem automatizar a interface da sessão.
     let debugEmailAssistantOpen: Bool
+    /// Força o TL;DR aberto — o harness que prova o cartão de compromisso.
+    let debugResumoAberto: Bool
     /// Destino injetável do anexo: evita painel do sistema no harness e deixa
     /// a ação testável sem automação da área de trabalho.
     let attachmentSaver: (any AttachmentSaving)?
@@ -91,7 +89,7 @@ public struct ReaderPane: View {
     /// nota que a confirmação mostra. `nil` a maior parte do tempo — só existe
     /// enquanto a confirmação está na tela.
     ///
-    /// Mora aqui, e não como fechamento para fora (como `onReply`), porque
+    /// Mora aqui, e não como fechamento para fora (como `onCompose`), porque
     /// "Colocar na agenda" não abre janela nem precisa de nada que só o
     /// `InboxScreen` tenha: é uma mutação de `store`, do mesmo jeito que a
     /// fila de triagem chama `store.move(_:to:)` direto, sem passar por um
@@ -102,9 +100,11 @@ public struct ReaderPane: View {
     /// topo (ou por ⌘R). A faixa de baixo ouve o número mudar e se expande —
     /// ver `QuickReplyBand.expandRequest`.
     @State private var pedidoDeResposta = 0
+    @State private var folderPickerOpen = false
     @State private var quickReplyRevision = 0
     @State private var emailAssistantOpen = false
     @State private var emailAssistantPanelSize = ReaderIntelligencePopover.defaultSize
+    @State private var assistantAnchor: CGPoint = .zero
 
     /// O mesmo retorno com "Desfazer" que a lista desenha. O leitor **posta**
     /// nele e não o desenha: apagar daqui tira a mensagem do leitor, e uma
@@ -119,12 +119,26 @@ public struct ReaderPane: View {
     @State private var ownReceipts = ActionReceipts()
     @State private var attachmentError: String?
     @State private var savingAttachmentID: String?
+    /// A primeira pintura mostra o leitor (testes e abertura). Trocar de
+    /// caixa (Tudo) espera a lista pintar — senão a WebView trava o clique.
+    @State private var readerDidAppear = false
+    @State private var readerReadyRecorte: String?
+    /// Convite aberto ou recolhido, por mensagem. Sem entrada: aberto se
+    /// ainda não respondeu, recolhido depois de Aceitar/Talvez/Recusar.
+    @State private var conviteAbertoPorID: [String: Bool] = [:]
+    /// Resumo de IA aberto ou recolhido. Sem entrada: recolhido — o email
+    /// cabe na tela; quem quiser o TL;DR expande.
+    @State private var resumoAbertoPorID: [String: Bool] = [:]
+    /// Cabeçalho compacto vs. expandido, por mensagem. Sem entrada: compacto.
+    /// O clique na linha revela email do remetente, destinatários e o assunto
+    /// inteiro — o que a faixa de uma linha esconde.
+    @State private var cabecalhoAbertoPorID: [String: Bool] = [:]
 
     private var receipts: ActionReceipts { sharedReceipts ?? ownReceipts }
 
     public init(
         store: MailStore,
-        onReply: @escaping (Message) -> Void = { _ in },
+        onCompose: @escaping (ComposerRoute) -> Void = { _ in },
         attachmentSaver: (any AttachmentSaving)? = NativeAttachmentSaver(),
         intelligence: ComposerIntelligenceGenerator? = nil,
         intelligencePresentation: IntelligencePresentation = .available,
@@ -136,7 +150,8 @@ public struct ReaderPane: View {
         self.init(
             store: store,
             debugEmailAssistantOpen: false,
-            onReply: onReply,
+            debugResumoAberto: false,
+            onCompose: onCompose,
             attachmentSaver: attachmentSaver,
             intelligence: intelligence,
             intelligencePresentation: intelligencePresentation,
@@ -150,7 +165,8 @@ public struct ReaderPane: View {
     init(
         store: MailStore,
         debugEmailAssistantOpen: Bool,
-        onReply: @escaping (Message) -> Void = { _ in },
+        debugResumoAberto: Bool = false,
+        onCompose: @escaping (ComposerRoute) -> Void = { _ in },
         attachmentSaver: (any AttachmentSaving)? = nil,
         intelligence: ComposerIntelligenceGenerator? = nil,
         intelligencePresentation: IntelligencePresentation = .available,
@@ -160,7 +176,7 @@ public struct ReaderPane: View {
         onEmailAssistantOpenChange: @escaping (Bool) -> Void = { _ in }
     ) {
         self.store = store
-        self.onReply = onReply
+        self.onCompose = onCompose
         self.attachmentSaver = attachmentSaver
         self.intelligence = intelligence
         self.intelligencePresentation = intelligencePresentation
@@ -169,12 +185,20 @@ public struct ReaderPane: View {
         self.onMessagePresented = onMessagePresented
         self.onEmailAssistantOpenChange = onEmailAssistantOpenChange
         self.debugEmailAssistantOpen = debugEmailAssistantOpen
+        self.debugResumoAberto = debugResumoAberto
         _emailAssistantOpen = State(initialValue: debugEmailAssistantOpen)
     }
 
     public var body: some View {
+        let recorte = [
+            store.bucket.rawValue,
+            store.selectedAccountID ?? "",
+            store.selectedFolderID ?? "",
+        ].joined(separator: "|")
+        let showReader = readerReadyRecorte == recorte
+            || (!readerDidAppear && readerReadyRecorte == nil)
         Group {
-            if let message = store.selectedMessage {
+            if showReader, let message = store.selectedMessage {
                 content(message)
             } else {
                 empty
@@ -182,6 +206,17 @@ public struct ReaderPane: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(theme.surface.color)
+        .onAppear {
+            readerDidAppear = true
+            if readerReadyRecorte == nil { readerReadyRecorte = recorte }
+        }
+        .onChange(of: recorte) { _, novo in
+            readerReadyRecorte = nil
+            Task { @MainActor in
+                await Task.yield()
+                readerReadyRecorte = novo
+            }
+        }
         // O retorno de "Colocar na agenda" some sozinho, mas nunca **antes**
         // de dar tempo de "Desfazer" — mesma vida útil e mesma reinicialização
         // por `id` que o retorno de arraste da lista já usa
@@ -205,10 +240,13 @@ public struct ReaderPane: View {
 
         return VStack(spacing: 0) {
             header(message)
-                // O painel é um overlay dentro do botão, mas quem disputa com
-                // o corpo é o cabeçalho inteiro. Sem elevar este irmão, o
-                // ScrollView posterior pinta por cima e também rouba o clique.
-                .zIndex(emailAssistantOpen ? 100 : 0)
+
+            // A divisória dados/corpo é irmã, não overlay do cabeçalho. Como
+            // overlay ela atravessava o painel da IA na borda de baixo — o
+            // mesmo defeito da faixa da conta, que já saiu do overlay.
+            Rectangle()
+                .fill(theme.line2.color)
+                .frame(height: Hairline.thickness(displayScale))
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -256,12 +294,30 @@ public struct ReaderPane: View {
             // aberta: trocar de mensagem tem de trocar de rascunho, não herdar
             // o texto da anterior. O que já foi escrito não se perde — fica no
             // `MailStore`, e volta quando a mensagem voltar.
-            QuickReplyBand(
-                store: store, message: message, onPromote: onReply,
-                expandRequest: pedidoDeResposta,
-                intelligence: intelligence
-            )
-            .id("\(message.id)-\(quickReplyRevision)")
+            if message.bucket != .drafts {
+                QuickReplyBand(
+                    store: store, message: message,
+                    onPromote: { onCompose(.reply(messageID: $0.id)) },
+                    expandRequest: pedidoDeResposta,
+                    intelligence: intelligence
+                )
+                .id("\(message.id)-\(quickReplyRevision)")
+            }
+        }
+        .coordinateSpace(.named(Self.assistantAnchorSpace))
+        .onPreferenceChange(ReaderAssistantAnchorKey.self) { point in
+            if point != assistantAnchor { assistantAnchor = point }
+        }
+        .overlay(alignment: .topLeading) {
+            if emailAssistantOpen, assistantAnchor != .zero {
+                emailAssistantPopover(message)
+                    .offset(
+                        x: assistantAnchor.x - ReaderIntelligencePopover.clampedSize(
+                            emailAssistantPanelSize
+                        ).width,
+                        y: assistantAnchor.y + 34
+                    )
+            }
         }
         // Abrir uma mensagem sem corpo **é** o pedido de busca. `id:` para que
         // trocar de mensagem cancele a busca da anterior e comece a desta: sem
@@ -304,75 +360,20 @@ public struct ReaderPane: View {
         if let summary = message.summary {
             summaryCard(summary, event: message.detectedEvent, message: message)
                 .padding(.horizontal, 28)
-                // Protótipo: o corpo do leitor tem `padding: 22px 28px 28px`.
                 .padding(.top, 22)
-                // Protótipo: `margin-bottom: 24px` no cartão de resumo.
-                .padding(.bottom, 24)
+                .padding(.bottom, Self.convite(de: message) != nil ? 8 : 16)
         }
 
         if let convite = Self.convite(de: message) {
             inviteCard(convite, message: message)
                 .padding(.horizontal, 28)
-                .padding(.top, message.summary == nil ? 22 : 0)
-                .padding(.bottom, 24)
-        }
-
-        if !message.attachments.isEmpty {
-            attachmentSection(message)
-                .padding(.horizontal, 28)
-                .padding(.top, temCartao(message) ? 0 : 22)
-                .padding(.bottom, 12)
+                .padding(.top, message.summary == nil ? 22 : 8)
+                .padding(.bottom, 16)
         }
 
         body(message)
-            .padding(.top, temCartao(message) ? 0 : 22)
+            .padding(.top, temCartao(message) ? 0 : 16)
             .padding(.bottom, 28)
-    }
-
-    private func attachmentSection(_ message: Message) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(message.attachments.count == 1 ? "ANEXO" : "ANEXOS")
-                .capsLabel(size: 10)
-                .foregroundStyle(theme.ink4.color)
-            FlowLayout(spacing: 6, rowSpacing: 6) {
-                ForEach(message.attachments) { attachment in
-                    Button {
-                        save(attachment, from: message)
-                    } label: {
-                        HStack(spacing: 7) {
-                            Image(systemName: "paperclip")
-                                .font(.system(size: 10, weight: .semibold))
-                            Text(attachment.filename)
-                                .lineLimit(1)
-                            Text(attachment.sizeLabel)
-                                .font(theme.mono.font(size: 9.5))
-                                .foregroundStyle(theme.ink4.color)
-                        }
-                        .font(theme.sans.font(size: 12, weight: .medium))
-                        .foregroundStyle(theme.accentInk.color)
-                        .frame(height: 28)
-                        .padding(.horizontal, 10)
-                        .background(theme.accentSoft.color)
-                        .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: theme.radiusSmall)
-                                .strokeBorder(theme.accentLine.color, lineWidth: Hairline.thickness(displayScale))
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .focusRing(cornerRadius: theme.radiusSmall)
-                    .disabled(savingAttachmentID == attachment.id)
-                    .help(savingAttachmentID == attachment.id
-                        ? "Baixando \(attachment.filename)…"
-                        : "Baixar \(attachment.filename) (\(attachment.mimeType), \(attachment.sizeLabel))")
-                }
-            }
-            if let attachmentError {
-                Text(attachmentError)
-                    .font(theme.sans.font(size: 11))
-                    .foregroundStyle(theme.accent.color)
-            }
-        }
     }
 
     private func save(_ attachment: MailAttachment, from message: Message) {
@@ -430,24 +431,31 @@ public struct ReaderPane: View {
             .trimmingCharacters(in: .whitespaces) ?? ""
     }
 
-    /// Protótipo: um bloco só — `padding: 16px 28px 16px;
-    /// border-bottom: 0.5px solid var(--line2); border-left: 3px solid selColor` —
-    /// com a fila de triagem, o assunto e o remetente dentro dele. Aqui isso
-    /// estava partido em três, com a barra colorida e a divisória cercando só a
-    /// fila de triagem e um fundo `surface2` que o protótipo não tem.
+    /// Fila de triagem em cima; remetente, assunto, hora e anexos numa linha
+    /// só. O corpo passa a ser o centro da coluna — o bloco de 22pt de assunto
+    /// mais o avatar de 26pt empurravam o email para fora da primeira tela.
     private func header(_ message: Message) -> some View {
         let accentColor = accountTint(message)
 
         return VStack(alignment: .leading, spacing: 0) {
-            subject(message)
-            sender(message)
-                .padding(.top, 9)
             triageBar(message)
-                .padding(.top, 14)
+                // O painel da IA é overlay do botão, irmão **anterior** do
+                // assunto. Sem isto o VStack pinta o título por cima e o
+                // clique cai no texto, não no modal.
+                .zIndex(emailAssistantOpen ? 2 : 0)
+            identityBlock(message)
+                .padding(.top, 28)
+                .allowsHitTesting(!emailAssistantOpen)
+            if let attachmentError {
+                Text(attachmentError)
+                    .font(theme.sans.font(size: 11))
+                    .foregroundStyle(theme.danger.color)
+                    .padding(.top, 6)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 28)
-        .padding(.vertical, 20)
+        .padding(.vertical, 12)
         // A faixa da conta é fundo do cabeçalho, não overlay. Como overlay ela
         // atravessava o popover que nasce dentro deste conteúdo e desenhava a
         // linha verde/azul por cima do modal.
@@ -459,7 +467,211 @@ public struct ReaderPane: View {
                     .frame(width: 3)
             }
         }
-        .hairline(theme.line2, edges: .bottom)
+    }
+
+    /// Remetente · assunto numa linha. O clique expande: email, destinatários
+    /// e o assunto inteiro. Os anexos ficam **fora** do botão para o clique
+    /// no clipe continuar baixando, e não abrir o cabeçalho.
+    private func identityBlock(_ message: Message) -> some View {
+        let aberto = cabecalhoEstaAberto(message)
+        return VStack(alignment: .leading, spacing: aberto ? 10 : 0) {
+            if aberto {
+                identityExpanded(message)
+                if !message.attachments.isEmpty {
+                    attachmentChips(message)
+                }
+            } else {
+                HStack(alignment: .center, spacing: 8) {
+                    Button {
+                        abrirCabecalho(message)
+                    } label: {
+                        identityCollapsed(message)
+                    }
+                    .buttonStyle(.plain)
+                    .help(Self.expandirCabecalho)
+                    .accessibilityLabel(Self.expandirCabecalho)
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityValue("Recolhido")
+
+                    if !message.attachments.isEmpty {
+                        attachmentChips(message)
+                    }
+                }
+            }
+        }
+    }
+
+    private func abrirCabecalho(_ message: Message) {
+        withAnimation(.easeOut(duration: 0.15)) {
+            cabecalhoAbertoPorID[message.id] = true
+        }
+    }
+
+    private func recolherCabecalho(_ message: Message) {
+        withAnimation(.easeOut(duration: 0.15)) {
+            cabecalhoAbertoPorID[message.id] = false
+        }
+    }
+
+    private func cabecalhoEstaAberto(_ message: Message) -> Bool {
+        cabecalhoAbertoPorID[message.id] ?? false
+    }
+
+    private func identityCollapsed(_ message: Message) -> some View {
+        let tint = accountTint(message)
+        return HStack(alignment: .center, spacing: 8) {
+            senderAvatar(message.from.initials, tint: tint, size: 20, font: 9)
+            Text(Self.identityCaption(name: message.from.name, subject: message.subject))
+                .font(theme.sans.font(size: 13, weight: .semibold))
+                .foregroundStyle(theme.ink.color)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            identityStamp(message)
+            identityChevron(aberto: false)
+        }
+        .contentShape(Rectangle())
+    }
+
+    private func identityExpanded(_ message: Message) -> some View {
+        let tint = accountTint(message)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 10) {
+                senderAvatar(message.from.initials, tint: tint, size: 26, font: 10)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(message.from.name.isEmpty ? message.from.address : message.from.name)
+                        .font(theme.sans.font(size: 13, weight: .semibold))
+                        .foregroundStyle(theme.ink.color)
+                    if !message.from.address.isEmpty, !message.from.name.isEmpty {
+                        Text(message.from.address)
+                            .font(theme.sans.font(size: 12))
+                            .foregroundStyle(theme.ink3.color)
+                            .textSelection(.enabled)
+                    }
+                    if let para = Self.destinatarios(message) {
+                        Text(para)
+                            .font(theme.sans.font(size: 12))
+                            .foregroundStyle(theme.ink3.color)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                    }
+                }
+                Spacer(minLength: 8)
+                identityStamp(message)
+                Button {
+                    recolherCabecalho(message)
+                } label: {
+                    identityChevron(aberto: true)
+                }
+                .buttonStyle(.plain)
+                .help(Self.recolherCabecalho)
+                .accessibilityLabel(Self.recolherCabecalho)
+            }
+            Text(message.subject)
+                .font(theme.serif.font(size: 17, weight: .semibold))
+                .tracking(-0.01 * 17)
+                .foregroundStyle(theme.ink.color)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        }
+        .contentShape(Rectangle())
+    }
+
+    private func senderAvatar(_ initials: String, tint: Color, size: CGFloat, font: CGFloat) -> some View {
+        Text(initials)
+            .font(theme.sans.font(size: font, weight: .bold))
+            .foregroundStyle(tint)
+            .frame(width: size, height: size)
+            .background(tint.opacity(0.16))
+            .clipShape(Circle())
+            .overlay(
+                Circle()
+                    .strokeBorder(
+                        tint.opacity(0.30),
+                        lineWidth: Hairline.thickness(displayScale)
+                    )
+            )
+    }
+
+    private func identityStamp(_ message: Message) -> some View {
+        Text(message.receivedAt, format: .dateTime.day().month(.abbreviated).hour().minute())
+            .font(theme.mono.font(size: 10.5))
+            .foregroundStyle(theme.ink4.color)
+            .fixedSize()
+    }
+
+    private func identityChevron(aberto: Bool) -> some View {
+        Image(systemName: aberto ? "chevron.up" : "chevron.down")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(theme.ink3.color)
+            .frame(width: 18, height: 18)
+    }
+
+    /// "Marina Duarte · Revisão do contrato"
+    nonisolated static func identityCaption(name: String, subject: String) -> String {
+        let quem = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let oQue = subject.trimmingCharacters(in: .whitespacesAndNewlines)
+        if quem.isEmpty { return oQue }
+        if oQue.isEmpty { return quem }
+        return "\(quem) · \(oQue)"
+    }
+
+    nonisolated static let expandirCabecalho = "Mostra o email do remetente e o assunto completo"
+    nonisolated static let recolherCabecalho = "Recolhe remetente e assunto"
+
+    /// "Para Ana, Bruno · Cc Carla"
+    nonisolated static func destinatarios(_ message: Message) -> String? {
+        func nomes(_ lista: [Contact]) -> String {
+            lista.map { $0.name.isEmpty ? $0.address : $0.name }.joined(separator: ", ")
+        }
+        let para = nomes(message.to)
+        let cc = nomes(message.cc)
+        switch (para.isEmpty, cc.isEmpty) {
+        case (true, true): return nil
+        case (false, true): return "Para \(para)"
+        case (true, false): return "Cc \(cc)"
+        case (false, false): return "Para \(para) · Cc \(cc)"
+        }
+    }
+
+    private func attachmentChips(_ message: Message) -> some View {
+        HStack(spacing: 5) {
+            ForEach(Array(message.attachments.prefix(2))) { attachment in
+                Button {
+                    save(attachment, from: message)
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "paperclip")
+                            .font(.system(size: 9, weight: .semibold))
+                        Text(attachment.filename)
+                            .lineLimit(1)
+                    }
+                    .font(theme.sans.font(size: 11, weight: .medium))
+                    .foregroundStyle(theme.ink2.color)
+                    .frame(height: 22)
+                    .padding(.horizontal, 8)
+                    .background(theme.surface3.color)
+                    .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: theme.radiusSmall)
+                            .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
+                    }
+                }
+                .buttonStyle(.plain)
+                .focusRing(cornerRadius: theme.radiusSmall)
+                .disabled(savingAttachmentID == attachment.id)
+                .help(savingAttachmentID == attachment.id
+                    ? "Baixando \(attachment.filename)…"
+                    : "Baixar \(attachment.filename) (\(attachment.mimeType), \(attachment.sizeLabel))")
+            }
+            if message.attachments.count > 2 {
+                Text("+\(message.attachments.count - 2)")
+                    .font(theme.sans.font(size: 11, weight: .medium))
+                    .foregroundStyle(theme.ink3.color)
+                    .help(message.attachments.dropFirst(2).map(\.filename).joined(separator: " · "))
+            }
+        }
+        .fixedSize(horizontal: true, vertical: true)
     }
 
     private func accountTint(_ message: Message) -> Color {
@@ -472,48 +684,15 @@ public struct ReaderPane: View {
         let account = store.account(message.accountID)
         let accentColor = accountTint(message)
         let markers = Self.appliedMarkers(for: message, in: store.folders)
+        let buckets: [(String, TriageBucket)] = [
+            ("Hoje", .today),
+            ("Depois", .later),
+            ("Arquivar", .archived),
+        ]
 
-        return VStack(alignment: .leading, spacing: 9) {
-            // Contexto primeiro: o ícone da IA fica literalmente ao lado do
-            // chip da caixa, sem competir com as ações de triagem.
+        return VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 7) {
                 TintChip(label: account?.host ?? "", tint: accentColor, emphasized: true)
-                ReaderAssistantButton(
-                    presentation: intelligencePresentation,
-                    action: {
-                        setEmailAssistantOpen(!emailAssistantOpen)
-                        onOpenAssistant()
-                    }
-                )
-                .overlay(alignment: .topTrailing) {
-                    if emailAssistantOpen {
-                        ReaderIntelligencePopover(
-                            context: assistantContext(message),
-                            isAvailable: intelligencePresentation.isAvailable
-                                && onAskAssistant != nil
-                                && intelligence != nil,
-                            panelSize: $emailAssistantPanelSize,
-                            onAsk: { request in
-                                guard let onAskAssistant else {
-                                    throw OnDeviceTextAssistantError.invalidRequest(
-                                        "O assistente local não foi conectado a esta janela."
-                                    )
-                                }
-                                return try await onAskAssistant(message.id, request)
-                            },
-                            onGenerateReply: { try await generateReply(for: message.id) },
-                            onUseReply: { useGeneratedReply($0, for: message) },
-                            onClose: { setEmailAssistantOpen(false) }
-                        )
-                        .offset(
-                            x: ReaderIntelligencePopover.anchorOffset(
-                                for: emailAssistantPanelSize.width
-                            ),
-                            y: 34
-                        )
-                    }
-                }
-                .zIndex(80)
                 ForEach(Array(markers.prefix(1))) { marker in
                     TintChip(
                         label: Self.markerChipLabel(marker.displayName),
@@ -527,51 +706,131 @@ public struct ReaderPane: View {
                 }
                 Spacer(minLength: 0)
             }
-            // O popover vive dentro do botão, mas a fileira de triagem é irmã
-            // desta HStack. Elevar apenas o botão não atravessa esse limite.
-            .zIndex(emailAssistantOpen ? 90 : 0)
 
-            HStack(spacing: 7) {
-                let triageButtons = [
-                    ("Hoje", TriageBucket.today),
-                    ("Depois", TriageBucket.later),
-                    ("Arquivar", TriageBucket.archived)
-                ]
-
-                ForEach(triageButtons, id: \.0) { label, bucket in
-                    triageChip(
-                        label, isActive: message.bucket == bucket, accent: accentColor,
-                        help: ""
+            HStack(spacing: 8) {
+                if message.bucket == .drafts {
+                    triageAction(
+                        "Editar rascunho",
+                        symbol: "square.and.pencil",
+                        help: "Continua o que já estava escrito",
+                        tone: .primary
                     ) {
+                        onCompose(ComposerRoute.editor(for: message))
+                    }
+                    .keyboardShortcut("r", modifiers: .command)
+
+                    triageAction(
+                        "Apagar",
+                        symbol: SwipeAction.trash.symbol(for: message),
+                        help: "Joga o rascunho fora",
+                        tone: .danger,
+                        showsLabel: false
+                    ) {
+                        _ = receipts.delete(message, on: store)
+                    }
+                } else {
+                    bucketSegment(buckets, current: message.bucket) { bucket in
                         store.move(message, to: bucket)
                     }
+
+                    triageAction(
+                        Self.apagarLabel(message),
+                        symbol: SwipeAction.trash.symbol(for: message),
+                        help: ContextMenus.deleteItem(message).help,
+                        tone: .danger,
+                        showsLabel: false
+                    ) {
+                        _ = receipts.delete(message, on: store)
+                    }
+
+                    moveFolderButton(for: message)
+
+                    composeIconRow(for: message)
                 }
 
-                triageChip(
-                    Self.apagarLabel(message), isActive: false, accent: accentColor,
-                    help: ContextMenus.deleteItem(message).help,
-                    tone: .danger
-                ) {
-                    _ = receipts.delete(message, on: store)
-                }
+                Spacer(minLength: 16)
 
-                Button { pedidoDeResposta += 1 } label: {
-                    Text("Responder")
-                        .font(theme.sans.font(size: 11.5, weight: .semibold))
-                        .foregroundStyle(theme.onAccent.color)
-                        .frame(height: 26)
-                        .padding(.horizontal, 12)
-                        .background(theme.accent.color)
-                        .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-                        .contentShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+                ReaderAssistantButton(
+                    presentation: intelligencePresentation,
+                    action: {
+                        setEmailAssistantOpen(!emailAssistantOpen)
+                        onOpenAssistant()
+                    }
+                )
+                .background {
+                    GeometryReader { proxy in
+                        let frame = proxy.frame(in: .named(Self.assistantAnchorSpace))
+                        Color.clear.preference(
+                            key: ReaderAssistantAnchorKey.self,
+                            value: CGPoint(x: frame.maxX, y: frame.minY)
+                        )
+                    }
+                }
+            }
+            .zIndex(emailAssistantOpen ? 90 : 0)
+        }
+    }
+
+    /// Destinos da conversa num **trilho só**. Cada rótulo tem largura própria
+    /// (`.fixedSize`) — espremer o HStack pai quebrava "Hoje" no meio.
+    private func bucketSegment(
+        _ buckets: [(String, TriageBucket)],
+        current: TriageBucket,
+        action: @escaping (TriageBucket) -> Void
+    ) -> some View {
+        HStack(spacing: 0) {
+            ForEach(Array(buckets.enumerated()), id: \.offset) { index, item in
+                let (label, bucket) = item
+                let ativo = current == bucket
+                if index > 0 {
+                    Rectangle()
+                        .fill(theme.line.color)
+                        .frame(width: Hairline.thickness(displayScale), height: 14)
+                }
+                Button { action(bucket) } label: {
+                    Text(label)
+                        .font(theme.sans.font(size: 11.5, weight: ativo ? .semibold : .medium))
+                        .foregroundStyle(ativo ? theme.accentInk.color : theme.ink2.color)
+                        .lineLimit(1)
+                        .fixedSize()
+                        .padding(.horizontal, 11)
+                        .frame(height: 28)
+                        .background(ativo ? theme.accentSoft.color : Color.clear)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .focusRing(cornerRadius: theme.radiusSmall, tint: \.onAccent)
-                .keyboardShortcut("r", modifiers: .command)
-
-                Spacer(minLength: 0)
+                .focusRing(cornerRadius: 6)
             }
         }
+        .fixedSize(horizontal: true, vertical: true)
+        .background(theme.surface2.color)
+        .clipShape(RoundedRectangle(cornerRadius: 7))
+        .overlay {
+            RoundedRectangle(cornerRadius: 7)
+                .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
+        }
+    }
+
+    @ViewBuilder
+    private func emailAssistantPopover(_ message: Message) -> some View {
+        ReaderIntelligencePopover(
+            context: assistantContext(message),
+            isAvailable: intelligencePresentation.isAvailable
+                && onAskAssistant != nil
+                && intelligence != nil,
+            panelSize: $emailAssistantPanelSize,
+            onAsk: { request in
+                guard let onAskAssistant else {
+                    throw OnDeviceTextAssistantError.invalidRequest(
+                        "O assistente local não foi conectado a esta janela."
+                    )
+                }
+                return try await onAskAssistant(message.id, request)
+            },
+            onGenerateReply: { try await generateReply(for: message.id) },
+            onUseReply: { useGeneratedReply($0, for: message) },
+            onClose: { setEmailAssistantOpen(false) }
+        )
     }
 
     private func assistantContext(_ message: Message) -> LocalAssistantContext {
@@ -671,9 +930,9 @@ public struct ReaderPane: View {
     nonisolated static func apagarPalette(isDark: Bool) -> ReaderDangerPalette {
         if isDark {
             ReaderDangerPalette(
-                ink: TokenColor(css: "#FF9ACC")!,
-                fill: TokenColor(css: "#351024")!,
-                line: TokenColor(css: "#B83C78")!
+                ink: TokenColor(css: "#FE39D1")!,
+                fill: TokenColor(css: "#3A0828")!,
+                line: TokenColor(css: "#C41A8A")!
             )
         } else {
             ReaderDangerPalette(
@@ -684,125 +943,203 @@ public struct ReaderPane: View {
         }
     }
 
-    /// A pastilha da fila de triagem, uma só vez.
-    ///
-    /// Protótipo: `height: 26px; padding: 0 12px; border-radius: var(--r2);
-    /// font-size: 11.5px; font-weight: 590; box-shadow: var(--btn-shadow)`, com
-    /// `accent`/`accent-soft`/`accent-ink` quando a caixa é a da mensagem e
-    /// `btn-line`/`btn`/`ink` quando não é. Virou função porque "Apagar" entrou
-    /// na barra e uma segunda cópia do mesmo desenho divergiria da primeira no
-    /// próximo conserto de espaçamento.
-    private func triageChip(
+    /// Três ícones no lugar do antigo "Responder" com texto: responder,
+    /// responder a todos, encaminhar. Hover pinta o acento; o rótulo vive no
+    /// `help`.
+    private func composeIconRow(for message: Message) -> some View {
+        let conta = store.account(message.accountID)?.address ?? ""
+        let podeTodos = ComposerSeed.replyAllExtras(message, accountAddress: conta) > 0
+        return HStack(spacing: 4) {
+            ReaderChromeIcon(
+                symbol: "arrowshape.turn.up.left.fill",
+                label: "Responder",
+                help: "Responder a este email"
+            ) {
+                pedidoDeResposta += 1
+            }
+            .keyboardShortcut("r", modifiers: .command)
+
+            ReaderChromeIcon(
+                symbol: "arrowshape.turn.up.left.2.fill",
+                label: "Responder a todos",
+                help: podeTodos
+                    ? "Responder ao remetente e a todos que estavam na mensagem"
+                    : "Não há mais ninguém além do remetente para incluir",
+                enabled: podeTodos
+            ) {
+                onCompose(.replyAll(messageID: message.id))
+            }
+            .keyboardShortcut("r", modifiers: [.command, .shift])
+
+            ReaderChromeIcon(
+                symbol: "arrowshape.turn.up.right.fill",
+                label: "Encaminhar",
+                help: "Encaminhar este email"
+            ) {
+                onCompose(.forward(messageID: message.id))
+            }
+            .keyboardShortcut("f", modifiers: [.command, .shift])
+        }
+    }
+
+    /// Ação solta da barra: Apagar (só o ícone) e Editar rascunho.
+    private func triageAction(
         _ label: String,
-        isActive: Bool,
-        accent: Color,
+        symbol: String,
         help: String?,
-        tone: TriageChipTone = .normal,
+        tone: TriageChipTone,
+        showsLabel: Bool = true,
         action: @escaping () -> Void
     ) -> some View {
         let danger = Self.apagarPalette(isDark: theme.isDark)
         let isDanger = tone == .danger
+        let isPrimary = tone == .primary
         return Button(action: action) {
-            Text(label)
-                .font(theme.sans.font(size: 11.5, weight: .semibold))
-                .foregroundStyle(
-                    isDanger ? danger.ink.color : (isActive ? theme.accentInk.color : theme.ink.color)
-                )
-                .frame(height: 26)
-                .padding(.horizontal, 12)
-                .background(isDanger ? danger.fill.color : (isActive ? theme.accentSoft.color : theme.btn.color))
-                .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+            HStack(spacing: 5) {
+                Image(systemName: symbol)
+                    .font(.system(size: 11, weight: .semibold))
+                if showsLabel {
+                    Text(label)
+                        .font(theme.sans.font(size: 11.5, weight: .semibold))
+                        .lineLimit(1)
+                        .fixedSize()
+                }
+            }
+            .foregroundStyle(
+                isDanger ? danger.ink.color
+                    : (isPrimary ? theme.accentInk.color : theme.ink.color)
+            )
+            .padding(.horizontal, showsLabel ? 11 : 0)
+            .frame(width: showsLabel ? nil : 28, height: 28)
+            .fixedSize(horizontal: showsLabel, vertical: true)
+            .background(
+                isDanger ? danger.fill.color
+                    : (isPrimary ? theme.accentSoft.color : Color.clear)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 7))
+            .overlay {
+                RoundedRectangle(cornerRadius: 7)
+                    .strokeBorder(
+                        isDanger ? danger.line.color
+                            : (isPrimary ? theme.accentLine.color : Color.clear),
+                        lineWidth: Hairline.thickness(displayScale)
+                    )
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: 7, tint: \.accent)
+        .help(help ?? "")
+        .accessibilityLabel(label)
+    }
+
+    /// Pasta com seta. Abre o painel nosso — o `Menu` do sistema estourava
+    /// a tela com a lista de marcadores do Gmail.
+    private func moveFolderButton(for message: Message) -> some View {
+        let entries = Self.folderMenuEntries(for: message, store: store)
+        return Button {
+            folderPickerOpen.toggle()
+        } label: {
+            MoveToFolderGlyph()
+                .foregroundStyle(folderPickerOpen ? theme.accentInk.color : theme.ink2.color)
+                .frame(width: 28, height: 28)
+                .background(folderPickerOpen ? theme.accentSoft.color : theme.btn.color)
+                .clipShape(RoundedRectangle(cornerRadius: 7))
                 .overlay {
-                    RoundedRectangle(cornerRadius: theme.radiusSmall)
+                    RoundedRectangle(cornerRadius: 7)
                         .strokeBorder(
-                            isDanger ? danger.line.color : (isActive ? accent : theme.btnLine.color),
+                            folderPickerOpen ? theme.accent.color : theme.btnLine.color,
                             lineWidth: Hairline.thickness(displayScale)
                         )
                 }
-                .shadow(theme.btnShadow)
+                .contentShape(RoundedRectangle(cornerRadius: 7))
         }
         .buttonStyle(.plain)
-        .focusRing(cornerRadius: theme.radiusSmall)
-        .help(help ?? "")
+        .help("Mover para pasta ou marcador")
+        .accessibilityLabel("Mover para pasta ou marcador")
+        .popover(isPresented: $folderPickerOpen, arrowEdge: .bottom) {
+            MoveFolderPanel(
+                groups: MoveFolderPanel.groups(from: entries),
+                onPick: { command in
+                    runFolderCommand(command)
+                    folderPickerOpen = false
+                }
+            )
+        }
+        .onChange(of: message.id) { _, _ in folderPickerOpen = false }
     }
 
-    private func subject(_ message: Message) -> some View {
-        Text(message.subject)
-            .font(theme.serif.font(size: 22, weight: .semibold))
-            .tracking(-0.01 * 22)
-            .lineSpacing(0.20 * 22)
-            .foregroundStyle(theme.ink.color)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: .infinity, alignment: .leading)
+    private func runFolderCommand(_ command: ContextCommand) {
+        if receipts.intercept(command, on: store, stamp: ActionReceipts.stamp) { return }
+        StoreCommand.run(command, on: store)
     }
 
-    private func sender(_ message: Message) -> some View {
-        let tint = accountTint(message)
+    /// A lista que o menu da barra oferece — a mesma regra do menu de contexto.
+    static func folderMenuEntries(for message: Message, store: MailStore) -> [ContextMenuEntry] {
+        ContextMenus.folderSubmenus(
+            message,
+            provider: store.account(message.accountID)?.provider,
+            folders: store.folders(of: message.accountID),
+            selectedFolderID: store.selectedFolderID,
+            currentBucket: store.bucket
+        )
+    }
 
-        return HStack(spacing: 10) {
-            // Protótipo (`selAvatarStyle`): `width/height: 26px; font-size:
-            // 10px; font-weight: 650`, **na fonte do painel** — o estilo não
-            // troca a família. Aqui a inicial estava em `mono`/600: uma
-            // tipografia que o desenho não pediu, e a única do leitor que não
-            // combinava com a mesma bolinha da janela 05, que já traduz o mesmo
-            // `font-weight: 650` como `sans`/`bold` (ver `MessageWindow`).
-            Text(message.from.initials)
-                .font(theme.sans.font(size: 10, weight: .bold))  // CSS 650
-                .foregroundStyle(tint)
-                .frame(width: 26, height: 26)
-                .background(tint.opacity(0.16))
-                .clipShape(Circle())
-                .overlay(
-                    Circle()
-                        .strokeBorder(
-                            tint.opacity(0.30),
-                            lineWidth: Hairline.thickness(displayScale)
-                        )
-                )
-
-            // Protótipo: nome e email na **mesma linha** (nome em `ink`/590,
-            // email em `ink3`), com o carimbo empurrado para a direita por
-            // `margin-left: auto`. Aqui o carimbo estava embaixo do nome.
-            Text(Self.senderLine(
-                name: message.from.name,
-                address: message.from.address,
-                ink: theme.ink.color,
-                ink3: theme.ink3.color
-            ))
-            .font(theme.sans.font(size: 12.5))
-            .lineLimit(1)
-
-            Spacer(minLength: 10)
-
-            Text(message.receivedAt, format: .dateTime.day().month(.abbreviated).hour().minute())
-                .font(theme.mono.font(size: 10.5))
-                .foregroundStyle(theme.ink4.color)
-                .fixedSize()
+    @ViewBuilder
+    private func summaryCard(_ summary: String, event: DetectedEvent?, message: Message) -> some View {
+        let aberto = resumoEstaAberto(message)
+        let miolo = summaryCardBody(summary, event: event, message: message, aberto: aberto)
+        if aberto {
+            miolo
+                .onTapGesture { toggleResumo(message, aberto: true) }
+                .accessibilityAction(named: Text(Self.recolherResumo)) {
+                    toggleResumo(message, aberto: true)
+                }
+        } else {
+            Button {
+                toggleResumo(message, aberto: false)
+            } label: {
+                miolo
+            }
+            .buttonStyle(.plain)
+            .help("Mostra o resumo gerado neste Mac")
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("TL;DR. \(summary)")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint(Self.mostrarResumo)
         }
     }
 
-    /// "Marina Duarte · marina@clientepremium.com" com o nome em `ink` e o
-    /// endereço em `ink3`, como o protótipo faz com dois `<span>`.
-    nonisolated static func senderLine(
-        name: String,
-        address: String,
-        ink: Color,
-        ink3: Color
-    ) -> AttributedString {
-        var line = AttributedString(name)
-        line.foregroundColor = ink
-        var strong = AttributeContainer()
-        strong.inlinePresentationIntent = .stronglyEmphasized
-        line.mergeAttributes(strong)
-
-        guard !address.isEmpty else { return line }
-        var tail = AttributedString(" · \(address)")
-        tail.foregroundColor = ink3
-        line.append(tail)
-        return line
+    private func summaryCardBody(
+        _ summary: String, event: DetectedEvent?, message: Message, aberto: Bool
+    ) -> some View {
+        VStack(alignment: .leading, spacing: aberto ? 8 : 0) {
+            if aberto {
+                summaryCardAberto(summary, event: event, message: message)
+            } else {
+                summaryCardRecolhido(summary)
+            }
+        }
+        .padding(.vertical, aberto ? 15 : 8)
+        .padding(.horizontal, 17)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.infoSoft.color)
+        .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
+        .overlay {
+            RoundedRectangle(cornerRadius: theme.radiusLarge)
+                .strokeBorder(theme.infoLine.color, lineWidth: Hairline.thickness(displayScale))
+        }
+        .contentShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
     }
 
-    private func summaryCard(_ summary: String, event: DetectedEvent?, message: Message) -> some View {
+    private func resumoEstaAberto(_ message: Message) -> Bool {
+        if debugResumoAberto { return true }
+        return resumoAbertoPorID[message.id] ?? Self.resumoComecaAberto
+    }
+
+    private func summaryCardAberto(
+        _ summary: String, event: DetectedEvent?, message: Message
+    ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Text("TL;DR · neste Mac").capsLabel()
@@ -815,30 +1152,34 @@ public struct ReaderPane: View {
                     }
                     .buttonStyle(.plain)
                     .font(theme.sans.font(size: 10.5, weight: .semibold))
-                    .foregroundStyle(theme.accentInk.color)
+                    .foregroundStyle(theme.info.color)
                     .help("Abre o painel para resumir com o provedor e o modelo escolhidos em Configurações.")
                 }
+                resumoChevron(aberto: true)
             }
+            .contentShape(Rectangle())
+            .help("Recolhe o resumo para ler o email")
             Text(summary)
                 .font(theme.serif.font(size: 15))
                 .lineSpacing(8.25)
                 .foregroundStyle(theme.ink.color)
                 .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
 
-            if let event {
-                // Protótipo: `margin-top: 14px; padding-top: 13px;
-                // border-top: 0.5px solid var(--accent-line)`. O `spacing: 8`
-                // do VStack já responde por 8 dos 14.
+            if let event, Self.convite(de: message) == nil {
+                // Com `text/calendar` o cartão do convite já diz o compromisso.
+                // "Compromisso detectado" em cima dele era a mesma reunião
+                // duas vezes, e empurrava o email para fora da tela.
                 Rectangle()
-                    .fill(theme.accentLine.color)
+                    .fill(theme.infoLine.color)
                     .frame(height: Hairline.thickness(displayScale))
-                    .padding(.top, 6)   // 8 do spacing + 6 = os 14 do margin-top
-                    .padding(.bottom, 5)  // 5 + 8 do spacing = os 13 do padding-top
+                    .padding(.top, 6)
+                    .padding(.bottom, 5)
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 0) {
-                        // Usa interpolação com AttributedString para evitar deprecação
                         Text(Self.eventLabelFormatted(event.label, ink2: theme.ink2.color, ink: theme.ink.color))
                             .font(theme.sans.font(size: 12.5))
+                            .textSelection(.enabled)
                     }
                     Spacer(minLength: 8)
                     if let agendaReceipt, agendaReceipt.messageID == message.id {
@@ -849,16 +1190,31 @@ public struct ReaderPane: View {
                 }
             }
         }
-        // Protótipo: `padding: 15px 17px`.
-        .padding(.vertical, 15)
-        .padding(.horizontal, 17)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.accentSoft.color)
-        .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
-        .overlay {
-            RoundedRectangle(cornerRadius: theme.radiusLarge)
-                .strokeBorder(theme.accentLine.color, lineWidth: Hairline.thickness(displayScale))
+    }
+
+    private func summaryCardRecolhido(_ summary: String) -> some View {
+        HStack(spacing: 8) {
+            Text("TL;DR · neste Mac").capsLabel()
+            Text(summary)
+                .font(theme.sans.font(size: 12.5))
+                .foregroundStyle(theme.ink2.color)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            resumoChevron(aberto: false)
         }
+    }
+
+    private func toggleResumo(_ message: Message, aberto: Bool) {
+        resumoAbertoPorID[message.id] = !aberto
+    }
+
+    private func resumoChevron(aberto: Bool) -> some View {
+        Image(systemName: aberto ? "chevron.up" : "chevron.down")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(theme.ink3.color)
+            .frame(width: 22, height: 22)
+            .contentShape(Rectangle())
+            .accessibilityHidden(true)
     }
 
     // MARK: - O convite de agenda
@@ -883,6 +1239,22 @@ public struct ReaderPane: View {
     /// pessoa lê é comportamento.
     nonisolated static let conviteTitulo = "Convite de agenda"
     nonisolated static let conviteCancelado = "Convite cancelado"
+    nonisolated static let conviteCanceladoFora = "Este compromisso não está na sua agenda."
+    nonisolated static let conviteCanceladoNaAgenda = "Na agenda como cancelado."
+    nonisolated static let conviteNaAgenda = "Na agenda"
+    nonisolated static let removerDaAgenda = "Remover da agenda"
+    nonisolated static let recolherConvite = "Recolher"
+    nonisolated static let mostrarConvite = "Detalhes"
+    nonisolated static let recolherResumo = "Recolher resumo"
+    nonisolated static let mostrarResumo = "Mostrar resumo"
+    /// O TL;DR nasce recolhido: uma linha, e quem quiser o texto expande.
+    nonisolated static let resumoComecaAberto = false
+
+    /// Aberto enquanto não respondeu; recolhido depois de Aceitar/Talvez/
+    /// Recusar, para o email caber na tela. Cancelado fica aberto.
+    nonisolated static func conviteComecaAberto(responded: Bool, cancelled: Bool) -> Bool {
+        cancelled || !responded
+    }
 
     /// Quem está no convite, numa linha só.
     ///
@@ -890,18 +1262,77 @@ public struct ReaderPane: View {
     /// lista de participantes, e o cartão mostraria o nome dele duas vezes
     /// seguidas.
     nonisolated static func participantes(_ convite: CalendarInvite) -> String? {
-        var nomes: [String] = []
-        if let quem = convite.organizer { nomes.append(quem) }
-        for quem in convite.attendees where !nomes.contains(quem) { nomes.append(quem) }
+        let nomes = listaDeParticipantes(convite)
         return nomes.isEmpty ? nil : nomes.joined(separator: ", ")
     }
 
+    nonisolated static func listaDeParticipantes(_ convite: CalendarInvite) -> [String] {
+        var nomes: [String] = []
+        if let quem = convite.organizer { nomes.append(quem) }
+        for quem in convite.attendees where !nomes.contains(quem) { nomes.append(quem) }
+        return nomes
+    }
+
+    /// A lista inteira empurrava o email para fora. Três nomes e o resto
+    /// vira "e mais N".
+    nonisolated static func participantesResumo(_ convite: CalendarInvite, limite: Int = 3) -> String? {
+        let nomes = listaDeParticipantes(convite)
+        guard !nomes.isEmpty else { return nil }
+        if nomes.count <= limite { return nomes.joined(separator: ", ") }
+        let visiveis = nomes.prefix(limite).joined(separator: ", ")
+        return "\(visiveis) e mais \(nomes.count - limite)"
+    }
+
     /// O cartão do convite, no idioma do cartão de resumo — mesma superfície,
-    /// mesma linha, mesmo raio. Duas superfícies diferentes para duas coisas
-    /// que aparecem no mesmo lugar seriam duas gramáticas na mesma tela.
+    /// mesma linha, mesmo raio. Depois da resposta ele **recolhe**: uma linha
+    /// com o estado e as duas decisões que ainda restam. Recolher à mão
+    /// também vale, para ler o email antes de decidir.
     private func inviteCard(_ convite: CalendarInvite, message: Message) -> some View {
+        let selected = store.inviteRSVPState(for: convite, from: message)
+        let aberto = conviteEstaAberto(
+            message, responded: selected != nil, cancelled: convite.isCancelled
+        )
+
+        return VStack(alignment: .leading, spacing: aberto ? 8 : 0) {
+            if aberto {
+                inviteCardAberto(convite, message: message, selected: selected)
+            } else {
+                inviteCardRecolhido(convite, message: message, selected: selected)
+            }
+        }
+        .padding(.vertical, aberto ? 15 : 8)
+        .padding(.horizontal, 17)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.infoSoft.color)
+        .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
+        .overlay {
+            RoundedRectangle(cornerRadius: theme.radiusLarge)
+                .strokeBorder(theme.infoLine.color, lineWidth: Hairline.thickness(displayScale))
+        }
+        .task(id: message.id) {
+            store.syncInviteWithAgenda(convite, from: message)
+        }
+    }
+
+    private func conviteEstaAberto(
+        _ message: Message, responded: Bool, cancelled: Bool
+    ) -> Bool {
+        conviteAbertoPorID[message.id] ?? Self.conviteComecaAberto(
+            responded: responded, cancelled: cancelled
+        )
+    }
+
+    private func inviteCardAberto(
+        _ convite: CalendarInvite, message: Message, selected: InviteRSVPResponse?
+    ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(convite.isCancelled ? Self.conviteCancelado : Self.conviteTitulo).capsLabel()
+            HStack(spacing: 8) {
+                Text(convite.isCancelled ? Self.conviteCancelado : Self.conviteTitulo).capsLabel()
+                Spacer(minLength: 8)
+                if !convite.isCancelled {
+                    conviteToggle(message, aberto: true)
+                }
+            }
 
             Text(convite.summary.isEmpty ? "Compromisso" : convite.summary)
                 .font(theme.serif.font(size: 15))
@@ -915,42 +1346,96 @@ public struct ReaderPane: View {
             if let onde = convite.location {
                 linhaDoCartao(onde)
             }
-            if let quem = Self.participantes(convite) {
+            if let quem = Self.participantesResumo(convite) {
                 linhaDoCartao(quem)
             }
 
             if convite.isCancelled {
                 linhaDoCartao("Este convite foi cancelado pelo organizador.")
+                if store.cancelledAgendaItem(for: convite, from: message)?.isCancelled == true {
+                    linhaDoCartao(Self.conviteCanceladoNaAgenda)
+                } else if store.cancelledAgendaItem(for: convite, from: message) == nil {
+                    linhaDoCartao(Self.conviteCanceladoFora)
+                }
             } else {
-                inviteRSVPControls(convite, for: message)
+                inviteRSVPControls(convite, for: message, selected: selected)
             }
 
-            // O botão só existe quando há o que criar: sem `DTSTART` não há
-            // compromisso, e um convite cancelado não vira compromisso novo.
-            if convite.detectedEvent != nil, !convite.isCancelled {
-                Rectangle()
-                    .fill(theme.accentLine.color)
-                    .frame(height: Hairline.thickness(displayScale))
-                    .padding(.top, 6)
-                    .padding(.bottom, 5)
-                HStack(spacing: 12) {
-                    Spacer(minLength: 8)
-                    if let agendaReceipt, agendaReceipt.messageID == message.id {
-                        agendaConfirmation(agendaReceipt)
-                    } else {
-                        inviteAgendaButton(convite, for: message)
-                    }
-                }
+            if let agendaReceipt, agendaReceipt.messageID == message.id {
+                inviteAgendaRow { agendaConfirmation(agendaReceipt) }
+            } else if convite.detectedEvent != nil, !convite.isCancelled {
+                inviteAgendaRow { inviteAgendaButton(convite, for: message) }
             }
         }
-        .padding(.vertical, 15)
-        .padding(.horizontal, 17)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.accentSoft.color)
-        .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
-        .overlay {
-            RoundedRectangle(cornerRadius: theme.radiusLarge)
-                .strokeBorder(theme.accentLine.color, lineWidth: Hairline.thickness(displayScale))
+    }
+
+    private func inviteCardRecolhido(
+        _ convite: CalendarInvite, message: Message, selected: InviteRSVPResponse?
+    ) -> some View {
+        let titulo = convite.summary.isEmpty ? "Compromisso" : convite.summary
+        let naAgenda = store.agendaState(for: convite, from: message) != .ausente
+        return HStack(spacing: 8) {
+            if let selected {
+                Text(selected.label)
+                    .font(theme.sans.font(size: 11.5, weight: .semibold))
+                    .foregroundStyle(rsvpFill(selected))
+            }
+            Text(titulo)
+                .font(theme.sans.font(size: 12.5, weight: .medium))
+                .foregroundStyle(theme.ink.color)
+                .lineLimit(1)
+            if naAgenda {
+                Text(Self.conviteNaAgenda)
+                    .font(theme.sans.font(size: 11.5, weight: .semibold))
+                    .foregroundStyle(theme.ink3.color)
+                    .fixedSize()
+            }
+            Spacer(minLength: 8)
+            if !convite.isCancelled, selected == nil {
+                ForEach(InviteRSVPResponse.allCases, id: \.self) { response in
+                    inviteRSVPButton(
+                        response, convite: convite, message: message,
+                        selected: selected,
+                        unavailable: store.inviteRSVPUnavailableReason(for: convite, from: message)
+                    )
+                }
+            }
+            conviteToggle(message, aberto: false)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(
+            [selected?.label, titulo, naAgenda ? Self.conviteNaAgenda : nil]
+                .compactMap { $0 }
+                .joined(separator: ". ")
+        )
+    }
+
+    private func conviteToggle(_ message: Message, aberto: Bool) -> some View {
+        Button {
+            conviteAbertoPorID[message.id] = !aberto
+        } label: {
+            Image(systemName: aberto ? "chevron.up" : "chevron.down")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(theme.ink3.color)
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(aberto ? "Recolhe o convite para ler o email" : "Mostra os detalhes do convite")
+        .accessibilityLabel(aberto ? Self.recolherConvite : Self.mostrarConvite)
+    }
+
+    private func inviteAgendaRow<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(theme.infoLine.color)
+                .frame(height: Hairline.thickness(displayScale))
+                .padding(.top, 6)
+                .padding(.bottom, 5)
+            HStack(spacing: 12) {
+                Spacer(minLength: 8)
+                content()
+            }
         }
     }
 
@@ -962,12 +1447,14 @@ public struct ReaderPane: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// As três decisões iTIP vivem no próprio cartão do convite. O estado
-    /// vem do store (e do disco no app conectado), então o botão repetido fica
-    /// apagado enquanto os outros dois continuam permitindo mudar de ideia.
-    private func inviteRSVPControls(_ convite: CalendarInvite, for message: Message) -> some View {
-        let selected = store.inviteRSVPState(for: convite, from: message)
+    /// As três decisões iTIP vivem no próprio cartão do convite. Depois de
+    /// responder, o botão escolhido vira o rótulo e só as outras duas
+    /// continuam — Aceitar sobe Recusar, Talvez deixa Aceitar e Recusar.
+    private func inviteRSVPControls(
+        _ convite: CalendarInvite, for message: Message, selected: InviteRSVPResponse?
+    ) -> some View {
         let unavailable = store.inviteRSVPUnavailableReason(for: convite, from: message)
+        let respostas = selected?.otherResponses ?? Array(InviteRSVPResponse.allCases)
 
         return VStack(alignment: .leading, spacing: 7) {
             Text(selected.map { "Resposta na fila: \($0.label)" } ?? "Responder ao convite")
@@ -975,7 +1462,7 @@ public struct ReaderPane: View {
                 .foregroundStyle(selected == nil ? theme.ink2.color : theme.accentInk.color)
 
             HStack(spacing: 6) {
-                ForEach(InviteRSVPResponse.allCases, id: \.self) { response in
+                ForEach(respostas, id: \.self) { response in
                     inviteRSVPButton(
                         response, convite: convite, message: message,
                         selected: selected, unavailable: unavailable
@@ -1012,28 +1499,72 @@ public struct ReaderPane: View {
             help = "\(response.actionLabel) e enviar ao organizador pela fila de saída"
         }
 
+        let fill = rsvpFill(response)
+        let ink = rsvpInk(response)
         return Button {
-            _ = store.respondToInvite(convite, from: message, response: response)
+            aplicarRSVP(response, convite: convite, message: message)
         } label: {
             Text(response.actionLabel)
                 .font(theme.sans.font(size: 11.5, weight: .semibold))
-                .foregroundStyle(isSelected ? theme.ink4.color : theme.onAccent.color)
+                .foregroundStyle(isSelected ? theme.ink4.color : ink)
                 .frame(height: 26)
                 .padding(.horizontal, 10)
-                .background(isSelected ? theme.surface3.color : theme.accent.color)
+                .background(isSelected ? theme.surface3.color : fill)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay {
                     RoundedRectangle(cornerRadius: 8)
                         .strokeBorder(
-                            isSelected ? theme.line.color : theme.accent.color,
+                            isSelected ? theme.line.color : fill,
                             lineWidth: Hairline.thickness(displayScale)
                         )
                 }
         }
         .buttonStyle(.plain)
         .disabled(disabled)
-        .focusRing(cornerRadius: 8, tint: \.onAccent)
+        .opacity(disabled && !isSelected ? 0.45 : 1)
+        .focusRing(cornerRadius: 8, tint: rsvpFocus(response))
         .help(help)
+    }
+
+    /// Recolhe o cartão só quando a resposta entrou na fila. Um clique que
+    /// não enviou nada deixava o convite fechado e os botões iguais — parecia
+    /// que o RSVP tinha morrido.
+    private func aplicarRSVP(
+        _ response: InviteRSVPResponse,
+        convite: CalendarInvite?,
+        message: Message
+    ) {
+        guard let convite else { return }
+        switch store.respondToInvite(convite, from: message, response: response) {
+        case .queued, .alreadyQueued:
+            conviteAbertoPorID[message.id] = false
+        case .unavailable, .failed:
+            conviteAbertoPorID[message.id] = true
+        }
+    }
+
+    private func rsvpFill(_ response: InviteRSVPResponse) -> Color {
+        switch response {
+        case .accepted: theme.enter.color
+        case .tentative: theme.accent.color
+        case .declined: theme.remove.color
+        }
+    }
+
+    private func rsvpInk(_ response: InviteRSVPResponse) -> Color {
+        switch response {
+        case .accepted: theme.onEnter.color
+        case .tentative: theme.onAccent.color
+        case .declined: theme.onRemove.color
+        }
+    }
+
+    private func rsvpFocus(_ response: InviteRSVPResponse) -> KeyPath<Theme, TokenColor> {
+        switch response {
+        case .accepted: \.onEnter
+        case .tentative: \.onAccent
+        case .declined: \.onRemove
+        }
     }
 
     /// A data do convite em hora **local**, que é a única que a pessoa
@@ -1058,8 +1589,11 @@ public struct ReaderPane: View {
     /// terceiro clique — depois da confirmação já ter sumido — não pode
     /// voltar a parecer um botão comum.
     private func isOnAgenda(_ message: Message) -> Bool {
-        let id = DetectedEventConversion.agendaID(forMessageID: message.id)
-        return store.agenda.contains { $0.id == id }
+        guard let event = message.detectedEvent else {
+            let id = DetectedEventConversion.agendaID(forMessageID: message.id)
+            return store.agenda.contains { $0.id == id }
+        }
+        return store.existingAgendaItem(for: event, from: message) != nil
     }
 
     /// "Colocar na agenda". Protótipo: botão de acento, raio 8 literal,
@@ -1100,6 +1634,19 @@ public struct ReaderPane: View {
         )
     }
 
+    private func inviteCancelButton(_ convite: CalendarInvite, for message: Message) -> some View {
+        ChromeButton(
+            Self.removerDaAgenda,
+            appearance: .remove,
+            size: 11.5,
+            height: 26,
+            horizontalPadding: 12
+        ) {
+            removeCancelledInvite(convite, for: message)
+        }
+        .help("Tira da agenda o compromisso que este cancelamento anuncia")
+    }
+
     /// O que o botão do convite escreve em cada estado. `nonisolated` e
     /// `static` pelo motivo de sempre: o que a pessoa lê é comportamento, e o
     /// teste o afirma sem montar janela.
@@ -1125,10 +1672,10 @@ public struct ReaderPane: View {
         Button(action: action) {
             Text(label)
                 .font(theme.sans.font(size: 11.5, weight: .semibold))
-                .foregroundStyle(onAgenda ? theme.ink4.color : theme.onAccent.color)
+                .foregroundStyle(onAgenda ? theme.ink4.color : theme.onEnter.color)
                 .frame(height: 26)
                 .padding(.horizontal, 12)
-                .background(onAgenda ? theme.surface3.color : theme.accent.color)
+                .background(onAgenda ? theme.surface3.color : theme.enter.color)
                 // Raio 8 literal no protótipo, não `var(--r2)`.
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .overlay {
@@ -1145,7 +1692,7 @@ public struct ReaderPane: View {
         .buttonStyle(.plain)
         .disabled(onAgenda)
         // Raio 8 literal, o mesmo do `clipShape` acima.
-        .focusRing(cornerRadius: 8, tint: \.onAccent)
+        .focusRing(cornerRadius: 8, tint: \.onEnter)
         .fixedSize()
         .help(help)
     }
@@ -1157,7 +1704,7 @@ public struct ReaderPane: View {
         HStack(spacing: 8) {
             Text("✓")
                 .font(theme.sans.font(size: 11.5, weight: .semibold))
-                .foregroundStyle(theme.accentInk.color)
+                .foregroundStyle(theme.info.color)
             Text(receipt.note)
                 .font(theme.sans.font(size: 11.5))
                 .foregroundStyle(theme.ink2.color)
@@ -1203,8 +1750,24 @@ public struct ReaderPane: View {
         }
     }
 
+    private func removeCancelledInvite(_ convite: CalendarInvite, for message: Message) {
+        guard let item = store.removeCancelledInvite(convite, from: message) else { return }
+        let stamp = Date.now.formatted(date: .omitted, time: .shortened)
+        withAnimation(SwipeMotion.transition) {
+            agendaReceipt = AgendaAddReceipt(
+                messageID: message.id,
+                itemID: item.id,
+                note: AgendaAddReceipt.removedNote(eventLabel: item.title, stamp: stamp)
+            )
+        }
+    }
+
     private func undoAddEvent(_ receipt: AgendaAddReceipt) {
-        store.removeFromAgenda(receipt.itemID)
+        if store.agenda.contains(where: { $0.id == receipt.itemID }) {
+            store.removeFromAgenda(receipt.itemID)
+        } else {
+            store.restoreToAgenda(receipt.itemID)
+        }
         withAnimation(SwipeMotion.transition) { agendaReceipt = nil }
     }
 
@@ -1238,7 +1801,8 @@ public struct ReaderPane: View {
                 remetente: message.from.address,
                 confiavel: store.trustsSender(message.from.address),
                 aoConfiar: { store.trustSender(message.from.address) },
-                aoRevogar: { store.revokeSenderTrust(message.from.address) }
+                aoRevogar: { store.revokeSenderTrust(message.from.address) },
+                aoRSVP: { aplicarRSVP($0, convite: Self.convite(de: message), message: message) }
             )
             .id(message.id)
         } else if !message.body.isEmpty {
@@ -1301,6 +1865,10 @@ public struct ReaderPane: View {
     /// `ReaderHTMLPolicy.documento`), e três cópias divergiriam na primeira vez
     /// que alguém mexesse numa.
     nonisolated static let readingWidth: CGFloat = 500
+
+    /// O espaço em que o sparkle reporta o canto dele para o painel da IA
+    /// nascer **fora** do cabeçalho — senão a hairline de baixo corta o modal.
+    nonisolated static let assistantAnchorSpace = "reader-assistant-anchor"
 
     /// "Carregando corpo…", e a frase da mensagem sem texto. Estáticas e
     /// `nonisolated` para o teste as afirmar sem montar a janela: o que a
@@ -1437,6 +2005,80 @@ struct ReaderSpinnerNote: View {
 private enum TriageChipTone {
     case normal
     case danger
+    case primary
+}
+
+/// O canto superior direito do sparkle, no espaço da coluna do leitor.
+///
+/// O painel da IA não pode nascer overlay do cabeçalho: a hairline de baixo
+/// do cabeçalho é overlay **posterior** e corta o modal ao meio. O sparkle
+/// só reporta onde está; quem desenha o painel é a coluna inteira.
+private struct ReaderAssistantAnchorKey: PreferenceKey {
+    static let defaultValue: CGPoint = .zero
+    static func reduce(value: inout CGPoint, nextValue: () -> CGPoint) {
+        let next = nextValue()
+        if next != .zero { value = next }
+    }
+}
+
+/// Ícone 28×28 da barra do leitor: quieto, acende no hover.
+private struct ReaderChromeIcon: View {
+    @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
+    @State private var hovering = false
+
+    let symbol: String
+    let label: String
+    let help: String
+    var enabled = true
+    let action: () -> Void
+
+    var body: some View {
+        let aceso = hovering && enabled
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(
+                    enabled
+                        ? (aceso ? theme.accentInk.color : theme.ink2.color)
+                        : theme.ink4.color
+                )
+                .frame(width: 28, height: 28)
+                .background(aceso ? theme.accentSoft.color : theme.btn.color)
+                .clipShape(RoundedRectangle(cornerRadius: 7))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 7)
+                        .strokeBorder(
+                            aceso ? theme.accent.color : theme.btnLine.color,
+                            lineWidth: Hairline.thickness(displayScale)
+                        )
+                }
+                .contentShape(RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .onHover { hovering = $0 }
+        .help(help)
+        .accessibilityLabel(label)
+        .accessibilityHint(help)
+    }
+}
+
+/// Pasta com seta para dentro — o "Mover para" da barra, no desenho que o
+/// dono mandou: um folder e a seta caindo nele.
+private struct MoveToFolderGlyph: View {
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            Image(systemName: "folder")
+                .font(.system(size: 12, weight: .semibold))
+                .offset(x: -1, y: -1)
+            Image(systemName: "arrow.down.left")
+                .font(.system(size: 6.5, weight: .bold))
+                .offset(x: 4, y: 3)
+        }
+        .frame(width: 16, height: 14)
+        .accessibilityHidden(true)
+    }
 }
 
 /// Tokens da ação destrutiva do leitor. Não entram em `Theme`: são semântica
@@ -1465,9 +2107,10 @@ struct ReaderPlainText: View {
                 Text(para)
                     .font(theme.serif.font(size: 16))
                     .lineSpacing(10.88)
-                    .foregroundStyle(theme.ink.color)
+                    .foregroundStyle(theme.ink2.color)
                     .frame(maxWidth: ReaderPane.readingWidth, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled)
             }
         }
         .padding(.horizontal, 28)

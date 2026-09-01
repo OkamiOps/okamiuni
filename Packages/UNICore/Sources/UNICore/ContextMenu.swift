@@ -86,6 +86,9 @@ public enum ContextCommand: Sendable, Hashable {
     /// Tira da agenda um compromisso que o app criou a partir de um email —
     /// o inverso de "Colocar na agenda".
     case removeFromAgenda(itemID: String)
+    /// Cancela um compromisso criado no OkamiUNI: avisa os convidados e tira
+    /// da agenda. É o contrário de «Adicionar».
+    case cancelMeeting(itemID: String)
     /// O "Desfazer" de `removeFromAgenda`.
     case restoreToAgenda(itemID: String)
     /// 04 Detalhe do compromisso.
@@ -119,6 +122,11 @@ public enum ContextCommand: Sendable, Hashable {
     /// Área de transferência. O texto já vem pronto — quem executa não formata
     /// nada, e por isso o teste consegue afirmar o conteúdo copiado.
     case copy(String)
+    /// Tira o calendário da lista visível (e da trilha recolhida). Continua
+    /// no EventKit: o que some é só a linha no OkamiUNI.
+    case concealCalendar(id: String)
+    /// Devolve o calendário à lista, na seção de origem.
+    case revealCalendar(id: String)
 }
 
 // MARK: - Atalho
@@ -307,6 +315,13 @@ public enum ContextMenus {
         selectedFolderID: String? = nil,
         currentBucket: TriageBucket? = nil
     ) -> [ContextMenuEntry] {
+        if message.bucket == .drafts {
+            return [
+                .item(ContextMenuItem("Editar rascunho", .reply(messageID: message.id), shortcut: .reply)),
+                .separator,
+                .item(deleteItem(message)),
+            ].tidied
+        }
         var entries: [ContextMenuEntry] = [
             .item(ContextMenuItem("Abrir em janela", .openMessageWindow(messageID: message.id))),
             .item(ContextMenuItem("Responder", .reply(messageID: message.id), shortcut: .reply)),
@@ -336,10 +351,10 @@ public enum ContextMenus {
     ///
     /// Ficaram **fora**, e cada um por um motivo medido no código:
     ///
-    /// - **Copiar (seleção)** — o corpo é `Text`, sem `textSelection`. Não há
-    ///   seleção para copiar, e um "Copiar" que copiasse o corpo inteiro sob
-    ///   o nome de "seleção" mentiria sobre o que faz. O que existe de
-    ///   verdade entrou com o nome certo: "Copiar texto da mensagem".
+    /// - **Copiar (seleção)** — o corpo HTML aceita seleção e ⌘C no próprio
+    ///   `WKWebView`; o texto plano e o cartão da IA usam `textSelection`.
+    ///   O item do menu continua copiando o corpo inteiro, com o nome certo:
+    ///   "Copiar texto da mensagem".
     /// - **Copiar link / Copiar endereço de email** — `Message.body` é
     ///   `[String]` de parágrafos sem marcação, e nenhuma das mensagens tem
     ///   URL. Não há o que o clique acerte.
@@ -454,13 +469,13 @@ public enum ContextMenus {
         }
         entries.append(.submenu(
             title: "Cor da caixa",
-            items: accountColors.map { color in
+            items: AccountTint.catalogue.map { color in
                 ContextMenuItem(
                     color.name,
                     .setAccountTint(
                         accountID: account.id,
-                        lightHex: color.light,
-                        darkHex: color.dark
+                        lightHex: color.lightHex,
+                        darkHex: color.darkHex
                     )
                 )
             }
@@ -474,6 +489,28 @@ public enum ContextMenus {
         )))
         entries.append(.item(ContextMenuItem("Copiar endereço", .copy(account.address))))
         return entries.tidied
+    }
+
+    // MARK: Linha de calendário da Agenda
+
+    /// Clique direito na linha da lateral: ocultar some da lista e da trilha
+    /// recolhida; mostrar devolve à origem. Não apaga no Calendário do macOS
+    /// — várias destas agendas o sistema não deixa excluir.
+    public static func calendarRow(
+        _ calendar: ConnectedCalendar, isConcealed: Bool
+    ) -> [ContextMenuEntry] {
+        let item = isConcealed
+            ? ContextMenuItem(
+                "Mostrar na lista",
+                .revealCalendar(id: calendar.id),
+                help: "Devolve \(calendar.title) à lista de \(calendar.source)"
+            )
+            : ContextMenuItem(
+                "Ocultar calendário",
+                .concealCalendar(id: calendar.id),
+                help: "Tira \(calendar.title) da lista e da trilha recolhida. Os compromissos deixam de aparecer na grade."
+            )
+        return [ContextMenuEntry.item(item)].tidied
     }
 
     // MARK: Bloco de compromisso
@@ -666,7 +703,7 @@ public enum ContextMenus {
     /// Pastas reais do provedor. No IMAP há uma localização única. No Gmail,
     /// aplicar é cumulativo e mover troca apenas a localização visível — a
     /// Inbox ou o marcador cuja pasta está aberta — sem apagar os demais.
-    static func folderSubmenus(
+    public static func folderSubmenus(
         _ message: Message,
         provider: Account.Provider?,
         folders: [MailFolder],
@@ -759,17 +796,6 @@ public enum ContextMenus {
         }
     }
 
-    private static let accountColors: [(name: String, light: String, dark: String)] = [
-        ("Azul", "#3F6AA1", "#8CBAF7"),
-        ("Violeta", "#725B9A", "#C2A7F4"),
-        ("Verde", "#397852", "#88D1A2"),
-        ("Turquesa", "#298084", "#71D0D5"),
-        ("Magenta", "#A92769", "#F18BBE"),
-        ("Laranja", "#A85424", "#F3A46F"),
-        ("Vermelho", "#A23B43", "#EF8C92"),
-        ("Grafite", "#59616C", "#ABB4C0"),
-    ]
-
     /// Assunto vazio não vira item: copiar string vazia é o botão mudo com
     /// outra roupa.
     static func copyEntries(_ message: Message) -> [ContextMenuEntry] {
@@ -821,26 +847,22 @@ public enum ContextMenus {
         return lines.joined(separator: "\n")
     }
 
-    /// "Tirar da agenda" — o inverso do "Colocar na agenda" do cartão de resumo.
+    /// "Cancelar reunião" no que o app criou; "Remover do calendário" no resto.
     ///
-    /// Só age em compromisso **criado a partir de um email**
-    /// (`DetectedEventConversion.isFromEmail`). Num compromisso de fixture ele
-    /// aparece **apagado, com o motivo**: no Marco 1 não há escrita na agenda
-    /// de verdade, então tirá-lo de lá duraria só a sessão e voltaria sozinho
-    /// no próximo lançamento — um botão que desfaz o que fez sem avisar é pior
-    /// que um botão ausente.
-    ///
-    /// Some não é opção aqui pela razão de sempre: a lista de ações de um
-    /// cartão tem de ser a mesma nos quatro lugares que desenham cartão.
+    /// Compromisso `manual-` avisa os convidados. Qualquer outro — EventKit,
+    /// CalDAV, convite por email — só sai da agenda, sem METHOD:CANCEL.
     static func removeFromAgendaItem(_ item: AgendaItem) -> ContextMenuItem {
-        let doEmail = DetectedEventConversion.isFromEmail(item.id)
+        if item.id.hasPrefix("manual-") {
+            return ContextMenuItem(
+                "Cancelar reunião",
+                .cancelMeeting(itemID: item.id),
+                help: "Cancelar, avisar os convidados e tirar da agenda"
+            )
+        }
         return ContextMenuItem(
-            "Tirar da agenda",
+            "Remover do calendário",
             .removeFromAgenda(itemID: item.id),
-            isEnabled: doEmail,
-            help: doEmail
-                ? "Desfazer o «Colocar na agenda» deste email"
-                : "Só dá para tirar o que o app pôs na agenda a partir de um email"
+            help: "Tirar este compromisso da agenda"
         )
     }
 

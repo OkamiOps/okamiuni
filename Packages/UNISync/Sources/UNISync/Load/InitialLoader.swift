@@ -103,7 +103,8 @@ public struct InitialLoader: Sendable {
         client: GmailClient,
         renewAccessToken: (@Sendable () async throws -> Void)? = nil,
         now: Date,
-        progress: @Sendable (LoadProgress) -> Void
+        progress: @Sendable (LoadProgress) -> Void,
+        remoteInbox: @Sendable (Int) -> Void = { _ in }
     ) async throws {
         let gmail = GmailAuthReplay(client: client, renew: renewAccessToken)
         do {
@@ -114,6 +115,9 @@ public struct InitialLoader: Sendable {
             // em vez de cair no vão entre as duas leituras.
             let perfil = try await gmail.profile()
             let rotulos = try await gmail.labels()
+            if let total = try? await gmail.label(id: "INBOX").messagesTotal {
+                remoteInbox(total)
+            }
             let idDoDepois = TriageProjection.laterLabelID(in: rotulos)
 
             // Uma "pasta" só para o Gmail: os rótulos fazem o papel das pastas,
@@ -143,7 +147,8 @@ public struct InitialLoader: Sendable {
                 try pseudoPasta.save(db)
                 try FolderSync.reconcile(
                     db, accountID: account.id,
-                    discovered: pastasDeRotulo, preservando: [folderID]
+                    discovered: pastasDeRotulo,
+                    preservando: [folderID, FolderRecord.localDrafts(accountID: account.id).id]
                 )
             }
 
@@ -437,11 +442,12 @@ public struct InitialLoader: Sendable {
             // O convite de agenda é mensagem sem parágrafo nenhum: só a parte
             // `text/calendar`. Exigir texto para gravar a linha o deixaria de
             // fora do banco, e o cartão do leitor nunca teria o que desenhar.
+            let ics = GmailCalendar.ics(in: mensagem)
             if temCorpo, !mensagem.body.isEmpty
-                || mensagem.html != nil || mensagem.calendarICS != nil {
+                || mensagem.html != nil || ics != nil {
                 try Self.gravaCorpo(
                     db, id: id, paragrafos: mensagem.body,
-                    html: mensagem.html ?? "", calendarICS: mensagem.calendarICS
+                    html: mensagem.html ?? "", calendarICS: ics
                 )
             }
         }
@@ -560,7 +566,8 @@ public struct InitialLoader: Sendable {
             try await database.pool.write { db in
                 try FolderSync.reconcile(
                     db, accountID: account.id,
-                    discovered: Self.registros(doServidor, accountID: account.id)
+                    discovered: Self.registros(doServidor, accountID: account.id),
+                    preservando: [FolderRecord.localDrafts(accountID: account.id).id]
                 )
             }
 

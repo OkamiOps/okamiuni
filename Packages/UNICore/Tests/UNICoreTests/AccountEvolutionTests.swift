@@ -53,6 +53,31 @@ struct AccountEvolutionTests {
         let semImap = carimbada.withImap(nil)
         #expect(semImap.imap == nil)
         #expect(semImap.lastSyncedAt == Date(timeIntervalSince1970: 1_800_000_000))
+        #expect(semImap.sendAliases.isEmpty)
+    }
+
+    @Test("aliases extraem o principal, duplicata e o From padrão")
+    func aliasesDeEnvio() {
+        let aliases = SendAlias.normalized([
+            SendAlias(address: "eu@meudominio.com.br", displayName: "Eu"),
+            SendAlias(address: "financeiro@meudominio.com.br", displayName: "Financeiro", isDefault: true),
+            SendAlias(address: "FINANCEIRO@meudominio.com.br", displayName: "Dup"),
+            SendAlias(address: "invalido", displayName: "X"),
+        ], excluding: "eu@meudominio.com.br")
+        #expect(aliases.map(\.address) == ["financeiro@meudominio.com.br"])
+        #expect(aliases.first?.isDefault == true)
+
+        let conta = Account(
+            id: "novo", address: "eu@meudominio.com.br", displayName: "Meu",
+            provider: .imap, host: "meudominio",
+            tintLightHex: "#725B9A", tintDarkHex: "#C2A7F4",
+            sendAliases: aliases
+        )
+        #expect(conta.defaultSendAddress == "financeiro@meudominio.com.br")
+        #expect(conta.sendIdentities.map(\.address) == [
+            "eu@meudominio.com.br", "financeiro@meudominio.com.br",
+        ])
+        #expect(conta.withState(.carregando).sendAliases.count == 1)
     }
 
     @Test("Os ids de servidor da mensagem sobrevivem a mover, ler e sinalizar")

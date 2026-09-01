@@ -4,13 +4,22 @@ import UNIDesign
 import UNICore
 
 public enum Workspace: String, CaseIterable, Sendable {
-    case mail, calendar
+    case dashboard, mail, calendar
 
     public var label: String {
         switch self {
+        case .dashboard: "Dashboard"
         case .mail: "Caixa"
         case .calendar: "Agenda"
         }
+    }
+
+    /// A busca não tem lista nesta aba. Digitar um termo leva de volta à
+    /// Caixa, que é quem recorta as mensagens.
+    public func switchingToMailIfSearching(_ query: String) -> Workspace {
+        let termo = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard self == .dashboard, !termo.isEmpty else { return self }
+        return .mail
     }
 }
 
@@ -20,17 +29,17 @@ public enum Workspace: String, CaseIterable, Sendable {
 /// montar o `HStack`, então mudar a lista muda o que a janela desenha — e o
 /// teste que trava a lista trava a barra.
 public enum ChromeControl: String, CaseIterable, Sendable {
-    case sidebarToggle, tabs, search, agendaToggle, lockup, themePicker, compose, accounts
+    case sidebarToggle, tabs, search, agendaToggle, themePicker, compose, accounts
 }
 
 public struct WindowChrome: View {
     public static let height: CGFloat = 64
 
-    /// Ordem estrutural do novo shell: navegação e marca à esquerda, busca
-    /// elástica no centro, abas e utilidades à direita.
+    /// Ordem estrutural: recolhe colado nos semáforos, busca elástica no
+    /// centro, abas e utilidades à direita. O lobo da marca fica ao lado
+    /// do recolhe, fora desta lista — não é controle.
     public static let controlOrder: [ChromeControl] = [
         .sidebarToggle,
-        .lockup,
         .search,
         .tabs,
         .agendaToggle,
@@ -45,10 +54,25 @@ public struct WindowChrome: View {
 
     /// A linha média da fileira de controles, contada do topo da janela.
     ///
-    /// Os semáforos continuam na linha nativa de 22pt. Os controles ocupam o
-    /// centro da toolbar de 64pt: botões de 38pt ganham 13pt de respiro acima,
-    /// em vez de nascerem praticamente colados ao topo.
+    /// Os semáforos, o recolhe e o lobo da marca ficam na linha nativa de
+    /// 22pt. A busca, as abas e a conta ocupam o centro da toolbar de 64pt.
     public static let centerY: CGFloat = height / 2
+
+    /// Item de toolbar compacto, o da fileira colada aos semáforos.
+    ///
+    /// Finder, Mail e Notes usam o símbolo `sidebar.left` nesta escala: glifo
+    /// de 14pt numa hit-target de 24pt. A caixa de 38pt com borda e sombra é o
+    /// padrão dos outros botões da barra — colada no semáforo ela fica fora
+    /// da plataforma.
+    static let sidebarControlSize: CGFloat = 24
+    static let sidebarControlSymbolSize: CGFloat = 14
+    static let sidebarControlRadius: CGFloat = 5
+    /// Topo do recolhe para o centro cair na linha dos semáforos (22), não
+    /// na linha média da toolbar (32). O HStack centra tudo em 32; sem este
+    /// empurrão o ícone de 24pt fica 10pt abaixo das bolinhas.
+    static var sidebarControlTopInset: CGFloat {
+        TrafficLightLayout.contentCenterFromTop - sidebarControlSize / 2
+    }
     /// Onde terminam os semáforos nativos da janela, medido por acessibilidade
     /// numa janela `.hiddenTitleBar`: fechar em x=8, minimizar em x=31, tela cheia
     /// em x=54, todos com 16pt — o último termina em **x=70**.
@@ -61,11 +85,17 @@ public struct WindowChrome: View {
     /// nativo. Não aumente sem medir de novo.
     public static let trafficLightInset: CGFloat = 70
 
-    /// Raio dos cantos das abas Caixa/Agenda. O protótipo usa o mesmo `var(--r2)`
-    /// no container e na aba ativa, e alguns temas o definem como 0 — subtrair
-    /// daqui produziria raio negativo.
+    /// Raio dos cantos das abas Dashboard/Caixa/Agenda. Segue o token do tema: o Okami
+    /// pede 2pt (cantos vivos do design system). Antes era `max(r3, 17)` e
+    /// todo tema virava pílula — o Okami nunca chegava a parecer o site.
     public static func tabCornerRadius(for theme: Theme) -> CGFloat {
-        max(theme.radiusLarge, 17)
+        max(theme.radiusLarge, 0)
+    }
+
+    /// Campo de busca e o trilho das abas: cápsula nos temas redondos, o
+    /// raio do token nos temas vivos (Okami, Brutal).
+    public static func chromePillRadius(for theme: Theme) -> CGFloat {
+        theme.radiusLarge <= 4 ? theme.radiusLarge : 20
     }
 
     /// O protótipo diz "Buscar nas 4 caixas…" porque tinha quatro contas.
@@ -78,6 +108,22 @@ public struct WindowChrome: View {
         }
     }
 
+    /// O selo aparece depois da primeira letra. Sem termo, a busca é da caixa
+    /// e o ⌘K continua no canto.
+    public static func showsEverywhereFlag(_ query: String) -> Bool {
+        !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    public static let searchEverywhereLabel = "Tudo"
+    public static let searchEverywhereHelpOff =
+        "Busca nesta caixa. Clique para procurar em todas as pastas."
+    public static let searchEverywhereHelpOn =
+        "Buscando em todas as pastas. Clique para voltar a esta caixa."
+
+    /// Identidade do campo para o Esc achar a busca no respondedor. O editor
+    /// de campo do AppKit é um `NSTextView` filho; a marca fica neste id.
+    public static let searchFieldID = BareKeyFocus.searchFieldID
+
     /// A largura do campo de busca no protótipo. Aqui é um teto, não uma
     /// largura: em 1440 sobra espaço e o campo o alcança, ficando idêntico.
     public static let searchIdealWidth: CGFloat = 720
@@ -86,19 +132,11 @@ public struct WindowChrome: View {
     /// "⌘K" encosta no cursor. A partir daqui quem cede é a folga do `HStack`.
     public static let searchMinimumWidth: CGFloat = 180
 
-    /// O lockup oficial do protótipo: símbolo + grafia. Um quadro comum evita
-    /// que a barra ande ao trocar entre os PNGs claro e escuro, cujas
-    /// proporções diferem por menos de dois pontos nessa altura.
-    static let lockupSize = CGSize(width: 138, height: 38)
-
-    static func lockupAssetName(isDark: Bool) -> String {
-        isDark ? "uni-lockup-dark" : "uni-lockup-light"
-    }
-
     @Environment(\.theme) private var theme
     @Environment(\.displayScale) private var displayScale
     @Binding var workspace: Workspace
     @Binding var query: String
+    @Binding var searchEverywhere: Bool
     let accountCount: Int
     let onToggleSidebar: () -> Void
     let onToggleAgenda: () -> Void
@@ -106,8 +144,17 @@ public struct WindowChrome: View {
     let onCompose: () -> Void
     let accountMonogram: String
     let onOpenAccounts: () -> Void
+    let syncStatus: MailboxChromeStatus
+    /// "há 4 min" — o instante da última sync, fora do enum de estado.
+    let syncCaption: String?
+    let onReloadMailbox: (() -> Void)?
+    /// A caixa precisa saber se a busca está focada: o Esc cancela o campo
+    /// mesmo quando o monitor da lista vê só o editor de campo do AppKit.
+    let onSearchFocusChange: (Bool) -> Void
     @State private var sidebarHovering = false
     @State private var agendaHovering = false
+    @State private var reloadHovering = false
+    @State private var statusPulse = false
     /// O destino do ⌘K. Ver `searchShortcut`.
     @FocusState private var searchFocused: Bool
     /// Onde cada controle da barra ficou. Só a captura do duplo clique lê isto
@@ -121,21 +168,31 @@ public struct WindowChrome: View {
     public init(
         workspace: Binding<Workspace>,
         query: Binding<String>,
+        searchEverywhere: Binding<Bool> = .constant(false),
         accountCount: Int,
         onToggleSidebar: @escaping () -> Void,
         onToggleAgenda: @escaping () -> Void,
         onCompose: @escaping () -> Void = {},
         accountMonogram: String = "UNI",
-        onOpenAccounts: @escaping () -> Void = {}
+        onOpenAccounts: @escaping () -> Void = {},
+        syncStatus: MailboxChromeStatus = .empty,
+        syncCaption: String? = nil,
+        onReloadMailbox: (() -> Void)? = nil,
+        onSearchFocusChange: @escaping (Bool) -> Void = { _ in }
     ) {
         self._workspace = workspace
         self._query = query
+        self._searchEverywhere = searchEverywhere
         self.accountCount = accountCount
         self.onToggleSidebar = onToggleSidebar
         self.onToggleAgenda = onToggleAgenda
         self.onCompose = onCompose
         self.accountMonogram = accountMonogram
         self.onOpenAccounts = onOpenAccounts
+        self.syncStatus = syncStatus
+        self.syncCaption = syncCaption
+        self.onReloadMailbox = onReloadMailbox
+        self.onSearchFocusChange = onSearchFocusChange
     }
 
     public var body: some View {
@@ -144,6 +201,7 @@ public struct WindowChrome: View {
 
             ForEach(Self.controlOrder, id: \.self) { control in
                 view(for: control)
+                if control == .sidebarToggle { brandMark }
             }
         }
         .padding(.horizontal, 12)
@@ -178,10 +236,10 @@ public struct WindowChrome: View {
     @ViewBuilder
     private func view(for control: ChromeControl) -> some View {
         switch control {
-        case .sidebarToggle: sidebarToggle.chromeControlFrame(in: Self.barSpace)
+        case .sidebarToggle: sidebarToggle
         case .tabs: workspaceTabs.chromeControlFrame(in: Self.barSpace)
         case .search:
-            searchField
+            searchCluster
                 .chromeControlFrame(in: Self.barSpace)
                 // Protótipo: `flex: 1; justify-content: center` em volta do
                 // campo. O campo em si tem uma faixa, não uma largura: em 1440
@@ -189,7 +247,6 @@ public struct WindowChrome: View {
                 // janela estreita ele cede antes de espremer as abas.
                 .frame(maxWidth: .infinity)
         case .agendaToggle: agendaToggle.chromeControlFrame(in: Self.barSpace)
-        case .lockup: lockup.chromeControlFrame(in: Self.barSpace)
         case .themePicker: ThemePicker().chromeControlFrame(in: Self.barSpace)
         case .compose: composeButton.chromeControlFrame(in: Self.barSpace)
         case .accounts: accountsButton.chromeControlFrame(in: Self.barSpace)
@@ -220,23 +277,6 @@ public struct WindowChrome: View {
         .help("Nova mensagem (⌘N)")
     }
 
-    private var lockup: some View {
-        let name = NSImage.Name(Self.lockupAssetName(isDark: theme.isDark))
-        return Image(nsImage: NSImage(named: name) ?? NSImage(size: Self.lockupSize))
-            .resizable()
-            .interpolation(.high)
-            .scaledToFit()
-            .frame(width: Self.lockupSize.width, height: Self.lockupSize.height)
-            // O PNG oficial claro traz uma hairline residual na última linha.
-            // Ela fica abaixo da arte; mascarar 1pt preserva o lockup e evita
-            // que pareça existir um divisor sob a marca na toolbar.
-            .mask(alignment: .top) {
-                Rectangle().frame(height: Self.lockupSize.height - 1)
-            }
-            .fixedSize()
-            .accessibilityLabel("OkamiUNI")
-    }
-
     private var accountsButton: some View {
         Button(action: onOpenAccounts) {
             Text(accountMonogram)
@@ -253,96 +293,107 @@ public struct WindowChrome: View {
     }
 
     private var sidebarToggle: some View {
-        Button(action: onToggleSidebar) {
-            HStack(spacing: 2.5) {
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(theme.ink3.color)
-                    .frame(width: 3, height: 11)
-                RoundedRectangle(cornerRadius: 1)
-                    .strokeBorder(theme.ink4.color, lineWidth: Hairline.thickness(displayScale))
-                    .frame(width: 7, height: 11)
-            }
-            .frame(width: 38, height: 38)
-            .background(theme.surface.color)
-            .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-            .overlay {
-                RoundedRectangle(cornerRadius: theme.radiusSmall)
-                    .strokeBorder(
-                        sidebarHovering ? theme.accent.color : theme.btnLine.color,
-                        lineWidth: Hairline.thickness(displayScale)
-                    )
-            }
-            .shadow(theme.btnShadow)
-        }
-        .buttonStyle(.plain)
-        .focusRing(cornerRadius: theme.radiusSmall)
-        .onHover { sidebarHovering = $0 }
-        .animation(.easeOut(duration: 0.12), value: sidebarHovering)
-        .accessibilityLabel("Mostrar ou esconder a barra lateral")
+        paneToggle(
+            systemName: "sidebar.left",
+            hovering: $sidebarHovering,
+            action: onToggleSidebar,
+            accessibilityLabel: "Mostrar ou esconder a barra lateral",
+            help: "Mostrar ou esconder a barra lateral"
+        )
+        .chromeControlFrame(in: Self.barSpace)
+        .padding(.top, Self.sidebarControlTopInset)
+        .frame(height: Self.height, alignment: .top)
+    }
+
+    /// Símbolo só, 22pt, na linha das bolinhas. Não entra em `controlOrder`:
+    /// não é botão, e o duplo clique por cima dele continua sendo da janela.
+    private var brandMark: some View {
+        BrandLockup()
+            .padding(.top, TrafficLightLayout.contentCenterFromTop - BrandLockup.titlebarSize / 2)
+            .frame(height: Self.height, alignment: .top)
     }
 
     /// O protótipo não tem este controle: nele a agenda está sempre visível
     /// porque a página só existe em 1440. Aqui ela sai sozinha abaixo de 1280,
     /// e sem um botão o usuário perderia a função sem meio de recuperá-la.
-    /// O desenho é o do botão da lateral espelhado — mesma caixa de 26×24, mesma
-    /// borda, mesma sombra —, com a barra cheia do lado direito porque é do lado
-    /// direito que a trilha vive.
+    /// É o mesmo item nativo do recolhe da esquerda, espelhado (`sidebar.right`)
+    /// porque a trilha vive à direita.
     private var agendaToggle: some View {
-        Button(action: onToggleAgenda) {
-            HStack(spacing: 2.5) {
-                RoundedRectangle(cornerRadius: 1)
-                    .strokeBorder(theme.ink4.color, lineWidth: Hairline.thickness(displayScale))
-                    .frame(width: 7, height: 11)
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(theme.ink3.color)
-                    .frame(width: 3, height: 11)
-            }
-            .frame(width: 38, height: 38)
-            .background(theme.surface.color)
-            .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-            .overlay {
-                RoundedRectangle(cornerRadius: theme.radiusSmall)
-                    .strokeBorder(
-                        agendaHovering ? theme.accent.color : theme.btnLine.color,
-                        lineWidth: Hairline.thickness(displayScale)
-                    )
-            }
-            .shadow(theme.btnShadow)
+        paneToggle(
+            systemName: "sidebar.right",
+            hovering: $agendaHovering,
+            action: onToggleAgenda,
+            accessibilityLabel: "Mostrar ou esconder a trilha da agenda",
+            help: "Mostrar ou esconder a trilha da agenda"
+        )
+    }
+
+    /// Recolhe de painel no tamanho de um item de toolbar do macOS: o símbolo
+    /// `sidebar.left` / `sidebar.right`, glifo de 14pt, hit-target de 24pt,
+    /// realce só no hover. Sem caixa de 38pt, sem borda, sem sombra — é o que
+    /// Finder, Mail, Notes e o Synara põem ao lado do semáforo.
+    private func paneToggle(
+        systemName: String,
+        hovering: Binding<Bool>,
+        action: @escaping () -> Void,
+        accessibilityLabel: String,
+        help: String
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: Self.sidebarControlSymbolSize, weight: .regular))
+                .foregroundStyle((hovering.wrappedValue ? theme.ink : theme.ink2).color)
+                .frame(width: Self.sidebarControlSize, height: Self.sidebarControlSize)
+                .contentShape(Rectangle())
+                .background {
+                    RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous)
+                        .fill(hovering.wrappedValue ? theme.line2.color : Color.clear)
+                }
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall)
-        .onHover { agendaHovering = $0 }
-        .animation(.easeOut(duration: 0.12), value: agendaHovering)
-        .accessibilityLabel("Mostrar ou esconder a trilha da agenda")
+        .onHover { hovering.wrappedValue = $0 }
+        .animation(.easeOut(duration: 0.12), value: hovering.wrappedValue)
+        .accessibilityLabel(accessibilityLabel)
+        .help(help)
     }
 
     private var workspaceTabs: some View {
-        HStack(spacing: 2) {
+        let radius = Self.tabCornerRadius(for: theme)
+        let sharp = theme.radiusLarge <= 4
+        return HStack(spacing: 2) {
             ForEach(Workspace.allCases, id: \.self) { tab in
                 let active = tab == workspace
                 Button { workspace = tab } label: {
                     Text(tab.label)
-                        .font(theme.sans.font(size: 13, weight: .medium))
+                        .font(theme.sans.font(size: 13, weight: sharp && active ? .semibold : .medium))
                         .foregroundStyle((active ? theme.ink : theme.ink3).color)
                         .padding(.horizontal, 13)
                         .frame(height: 34)
                         .background {
-                            if active {
-                                RoundedRectangle(cornerRadius: Self.tabCornerRadius(for: theme))
+                            if active, !sharp {
+                                RoundedRectangle(cornerRadius: radius)
                                     .fill(theme.surface.color)
                                     // Sombra literal do protótipo (`0 1px 2px rgba(0,0,0,0.08)`), não um token do tema.
                                     // SwiftUI usa metade do blur do CSS — mesma conversão de ShadowToken.radius — então blur 2px vira radius 1.
                                     .shadow(color: .black.opacity(0.08), radius: 1, x: 0, y: 1)
                             }
                         }
+                        .overlay(alignment: .bottom) {
+                            if active, sharp {
+                                Rectangle()
+                                    .fill(theme.accent.color)
+                                    .frame(height: 2)
+                            }
+                        }
                 }
                 .buttonStyle(.plain)
-                .focusRing(cornerRadius: Self.tabCornerRadius(for: theme))
+                .focusRing(cornerRadius: radius)
             }
         }
         .padding(3)
         .background(theme.surface3.color)
-        .clipShape(Capsule())
+        .clipShape(RoundedRectangle(cornerRadius: Self.chromePillRadius(for: theme) == 20 ? 20 : radius + 3, style: .continuous))
     }
 
     /// O ⌘K que o campo de busca promete por escrito.
@@ -363,6 +414,62 @@ public struct WindowChrome: View {
             .accessibilityHidden(true)
     }
 
+    /// Campo, barrinha de estado e o recarregar. O recarregar fica **ao lado**
+    /// da busca; a barrinha, **abaixo** — é o recorte que a pessoa pediu para
+    /// ver se a caixa ainda está no ar sem esperar o ciclo automático.
+    private var searchCluster: some View {
+        HStack(alignment: .center, spacing: 8) {
+            VStack(spacing: 4) {
+                searchField
+                mailboxStatusBar
+            }
+            reloadButton
+        }
+        .frame(minWidth: Self.searchMinimumWidth, maxWidth: Self.searchIdealWidth)
+    }
+
+    /// Esc na busca: apaga o termo e devolve o foco. Uma tecla só cancela a
+    /// ação — não deixa o campo vazio ainda focado pedindo um segundo Esc.
+    private func cancelSearch() {
+        query = ""
+        searchFocused = false
+    }
+
+    /// Selo no canto do campo, no lugar do ⌘K. Desligado pesa como o atalho —
+    /// só a palavra, sem caixa. Ligado vira o acento. A barra não ganha um
+    /// segundo controle permanente.
+    private var searchEverywhereChip: some View {
+        let on = searchEverywhere
+        let radius = Self.chromePillRadius(for: theme)
+        return Button {
+            searchEverywhere.toggle()
+        } label: {
+            Text(Self.searchEverywhereLabel)
+                .font(theme.sans.font(size: 11, weight: on ? .semibold : .medium))
+                .foregroundStyle(on ? theme.accentInk.color : theme.ink4.color)
+                .padding(.horizontal, on ? 8 : 0)
+                .frame(height: 20)
+                .background(on ? theme.accentSoft.color : Color.clear)
+                .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+                .overlay {
+                    if on {
+                        RoundedRectangle(cornerRadius: radius, style: .continuous)
+                            .strokeBorder(
+                                theme.accent.color,
+                                lineWidth: Hairline.thickness(displayScale)
+                            )
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .help(on ? Self.searchEverywhereHelpOn : Self.searchEverywhereHelpOff)
+        .accessibilityLabel(Self.searchEverywhereLabel)
+        .accessibilityValue(on ? "ligado" : "desligado")
+        .accessibilityAddTraits(on ? .isSelected : [])
+        .accessibilityHint(Self.searchEverywhereHelpOff)
+    }
+
     private var searchField: some View {
         HStack(spacing: 8) {
             Circle()
@@ -373,22 +480,138 @@ public struct WindowChrome: View {
                 .font(theme.sans.font(size: 12.5))
                 .foregroundStyle(theme.ink.color)
                 .focused($searchFocused)
-            Text("⌘K")
-                .font(theme.mono.font(size: 10))
-                .foregroundStyle(theme.ink4.color)
+                .accessibilityIdentifier(Self.searchFieldID)
+                .onKeyPress(.escape) {
+                    cancelSearch()
+                    return .handled
+                }
+                .onExitCommand(perform: cancelSearch)
+                .onChange(of: searchFocused) { _, focused in
+                    onSearchFocusChange(focused)
+                }
+            if Self.showsEverywhereFlag(query) {
+                searchEverywhereChip
+            } else {
+                Text("⌘K")
+                    .font(theme.mono.font(size: 10))
+                    .foregroundStyle(theme.ink4.color)
+            }
         }
         .padding(.horizontal, 16)
         // Era `.frame(width: 400)`. Uma largura cravada aqui não encolhe: numa
         // janela estreita ela empurra as abas e o seletor de tema para fora da
         // barra. Como faixa, o campo é o primeiro a ceder — e em 1440 sobra
         // folga de sobra, então ele bate nos 400 do protótipo e não se move.
-        .frame(minWidth: Self.searchMinimumWidth, maxWidth: Self.searchIdealWidth)
+        .frame(maxWidth: .infinity)
         .frame(height: 40)
-        .background(theme.surface2.color)
-        .clipShape(Capsule())
+        .background(theme.surface.color)
+        .clipShape(RoundedRectangle(cornerRadius: Self.chromePillRadius(for: theme), style: .continuous))
         .overlay {
+            RoundedRectangle(cornerRadius: Self.chromePillRadius(for: theme), style: .continuous)
+                .strokeBorder(
+                    searchFocused ? theme.focus.color : theme.line.color,
+                    lineWidth: Hairline.thickness(displayScale)
+                )
+        }
+    }
+
+    private var reloadHelp: String {
+        if let syncCaption {
+            if onReloadMailbox != nil && syncStatus.canReload {
+                return "Atualizada \(syncCaption). Atualizar agora, sem esperar o ciclo automático"
+            }
+            return "Atualizada \(syncCaption)"
+        }
+        if onReloadMailbox != nil && syncStatus.canReload {
+            return "Atualizar a caixa agora, sem esperar o ciclo automático"
+        }
+        return syncStatus.label
+    }
+
+    private var reloadButton: some View {
+        let enabled = onReloadMailbox != nil && syncStatus.canReload
+        return Button {
+            onReloadMailbox?()
+        } label: {
+            Image(systemName: "arrow.clockwise")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle((enabled ? theme.ink2 : theme.ink4).color)
+                .frame(width: 38, height: 38)
+                .background(theme.surface.color)
+                .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+                .overlay {
+                    RoundedRectangle(cornerRadius: theme.radiusSmall)
+                        .strokeBorder(
+                            reloadHovering && enabled ? theme.accent.color : theme.btnLine.color,
+                            lineWidth: Hairline.thickness(displayScale)
+                        )
+                }
+                .shadow(theme.btnShadow)
+                .symbolEffect(.rotate, options: .repeating, isActive: syncStatus.isBusy)
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .focusRing(cornerRadius: theme.radiusSmall)
+        .onHover { reloadHovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: reloadHovering)
+        .help(reloadHelp)
+        .accessibilityLabel("Atualizar a caixa")
+        .accessibilityHint(reloadHelp)
+        .accessibilityIdentifier("mailbox-reload")
+        .accessibilityValue(syncCaption.map { "Atualizada \($0)" } ?? syncStatus.label)
+    }
+
+    private var mailboxStatusBar: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(theme.line.color.opacity(0.55))
+                statusFill(width: geo.size.width)
+            }
+        }
+        .frame(height: 2)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Estado da caixa")
+        .accessibilityValue(syncCaption.map { "Atualizada \($0)" } ?? syncStatus.label)
+        .accessibilityIdentifier("mailbox-sync-status")
+        .help(syncCaption.map { "Atualizada \($0)" } ?? syncStatus.label)
+        .onChange(of: syncStatus.isBusy) { _, busy in
+            statusPulse = busy
+        }
+        .onAppear {
+            statusPulse = syncStatus.isBusy
+        }
+    }
+
+    @ViewBuilder
+    private func statusFill(width: CGFloat) -> some View {
+        switch syncStatus {
+        case .empty:
+            EmptyView()
+        case .loading(let fraction):
+            if let fraction {
+                Capsule()
+                    .fill(theme.activity.color)
+                    .frame(width: max(6, width * fraction))
+                    .animation(.easeInOut(duration: 0.2), value: fraction)
+            } else {
+                Capsule()
+                    .fill(theme.activity.color)
+                    .frame(width: width)
+                    .opacity(statusPulse ? 0.9 : 0.28)
+                    .animation(
+                        .easeInOut(duration: 0.9).repeatForever(autoreverses: true),
+                        value: statusPulse
+                    )
+            }
+        case .ready:
             Capsule()
-                .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
+                .fill(theme.accentSoft.color)
+                .frame(width: width)
+        case .failed:
+            Capsule()
+                .fill(theme.danger.color)
+                .frame(width: width)
         }
     }
 }

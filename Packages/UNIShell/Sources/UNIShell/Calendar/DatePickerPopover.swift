@@ -33,7 +33,7 @@ struct DatePickerPopover: View {
     /// `internal`, não `private`: `DatePickerPopoverTests` precisa ler isto
     /// para provar a navegação sem depender de renderizar pixel.
     var weeks: [MonthAgenda.Week] {
-        MonthAgenda.weeks(from: store.visibleAgenda, anchor: anchor, focusOffset: selectedDayOffset)
+        MonthAgenda.weeks(from: store.calendarAgenda, anchor: anchor, focusOffset: selectedDayOffset)
     }
 
     /// A data que o cabeçalho e a grade devem usar para achar o mês em foco.

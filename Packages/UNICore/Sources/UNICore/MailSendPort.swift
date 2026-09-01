@@ -171,3 +171,14 @@ public struct OutgoingMessage: Codable, Sendable, Hashable {
 public protocol MailSendPort: Sendable {
     func send(_ message: OutgoingMessage) throws
 }
+
+/// Para onde o "Salvar rascunho" da janela manda o que a pessoa escreveu.
+///
+/// Irmã de `MailSendPort`: enfileirar um envio e gravar um rascunho são
+/// escritas locais, e a janela não pode depender de GRDB para apertar o
+/// botão. Sem porta, o `MailStore` guarda só em memória — o caso das
+/// fixtures e de todo teste que não passa uma.
+public protocol MailDraftPort: Sendable {
+    func saveDraft(_ message: Message) throws
+    func deleteDraft(id: String) throws
+}

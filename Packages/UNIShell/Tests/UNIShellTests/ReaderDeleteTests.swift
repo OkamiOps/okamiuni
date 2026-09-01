@@ -136,7 +136,7 @@ struct ReaderDeleteTests {
     ///
     /// Medido neste desenho: 604 pixels de contorno com o "Apagar", 481 sem ele
     /// — a pastilha vale 123. O limite fica no meio dos dois.
-    @Test("A barra do leitor desenha uma pastilha a mais do que antes")
+    @Test("A barra do leitor desenha a pastilha de mover e a de apagar")
     func aBarraTemOBotao() async throws {
         let store = await Self.store([Self.mensagem(id: "m1")], seleciona: "m1")
         let rep = try #require(Render.bitmap(
@@ -144,6 +144,22 @@ struct ReaderDeleteTests {
             size: CGSize(width: 760, height: 700), theme: .tinta
         ))
         #expect(rep.pixels(matching: Theme.tinta.btnLine, tolerance: 0.01) > 540)
+    }
+
+    @Test("o menu de mover pasta é o mesmo do botão direito")
+    func moverPastaSegueOMenuDeContexto() async throws {
+        let store = await Self.store([Self.mensagem(id: "m1")], seleciona: "m1")
+        let message = try #require(store.selectedMessage)
+        #expect(
+            ReaderPane.folderMenuEntries(for: message, store: store)
+                == ContextMenus.folderSubmenus(
+                    message,
+                    provider: store.account(message.accountID)?.provider,
+                    folders: store.folders(of: message.accountID),
+                    selectedFolderID: store.selectedFolderID,
+                    currentBucket: store.bucket
+                )
+        )
     }
 
     @Test("Apagar é destacado em magenta suave, sem herdar a cor neutra da barra")

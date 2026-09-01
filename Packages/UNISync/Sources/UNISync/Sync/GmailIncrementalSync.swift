@@ -42,11 +42,17 @@ public struct GmailIncrementalSync: Sendable {
         public var apagadas: Int
         /// O ciclo teve de recarregar a janela porque o `historyId` expirou.
         public var recarregou: Bool
+        /// Total da Entrada no Gmail, quando o ciclo conseguiu ler o rótulo.
+        public var remoteInboxCount: Int?
 
-        public init(gravadas: Int = 0, apagadas: Int = 0, recarregou: Bool = false) {
+        public init(
+            gravadas: Int = 0, apagadas: Int = 0, recarregou: Bool = false,
+            remoteInboxCount: Int? = nil
+        ) {
             self.gravadas = gravadas
             self.apagadas = apagadas
             self.recarregou = recarregou
+            self.remoteInboxCount = remoteInboxCount
         }
     }
 
@@ -68,6 +74,7 @@ public struct GmailIncrementalSync: Sendable {
         now: Date
     ) async throws -> Outcome {
         let gmail = GmailAuthReplay(client: client, renew: renewAccessToken)
+        let remoteInbox = try? await gmail.label(id: "INBOX").messagesTotal
 
         // Sem marcador não há de onde partir: a conta nunca completou a carga
         // inicial (ou o banco foi apagado por baixo). Recarregar é a única
@@ -75,7 +82,7 @@ public struct GmailIncrementalSync: Sendable {
         // de um ponto que nunca existiu e nunca reconsiderar o que ficou atrás.
         guard let marcador = try await historyIDGravado(account.id), !marcador.isEmpty else {
             try await recarrega(account: account, client: client, renew: renewAccessToken, now: now)
-            return Outcome(recarregou: true)
+            return Outcome(recarregou: true, remoteInboxCount: remoteInbox)
         }
 
         let mudancas: Mudancas
@@ -92,10 +99,10 @@ public struct GmailIncrementalSync: Sendable {
                 recarregando a janela recente.
                 """)
             try await recarrega(account: account, client: client, renew: renewAccessToken, now: now)
-            return Outcome(recarregou: true)
+            return Outcome(recarregou: true, remoteInboxCount: remoteInbox)
         }
 
-        var resultado = Outcome()
+        var resultado = Outcome(remoteInboxCount: remoteInbox)
         // Nada mudou: nem os rótulos são lidos. É o ciclo ocioso, e ele custa
         // uma ida e volta — que é o mínimo que "continuar sincronizando" pode
         // custar.
@@ -132,7 +139,8 @@ public struct GmailIncrementalSync: Sendable {
         let pseudo = FolderRecord.gmail(accountID: account.id).id
         try await database.pool.write { db in
             try FolderSync.reconcile(
-                db, accountID: account.id, discovered: pastas, preservando: [pseudo]
+                db, accountID: account.id, discovered: pastas,
+                preservando: [pseudo, FolderRecord.localDrafts(accountID: account.id).id]
             )
         }
     }

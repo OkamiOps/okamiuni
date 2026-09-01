@@ -1,3 +1,4 @@
+import CoreGraphics
 import EventKit
 import Foundation
 import UNICore
@@ -8,6 +9,7 @@ import UNICore
 protocol SystemCalendarGateway: Actor {
     func availability() -> CalendarAvailability
     func requestAccess() async throws -> CalendarAvailability
+    func calendars() -> [ConnectedCalendar]
     func events(referenceDay: Date) throws -> [AgendaItem]
     func save(_ item: AgendaItem, referenceDay: Date) throws
     func remove(id: String, referenceDay: Date) throws
@@ -27,6 +29,8 @@ public actor EventKitCalendarAdapter: CalendarSyncing {
     }
 
     public func availability() async -> CalendarAvailability { await gateway.availability() }
+
+    public func calendars() async -> [ConnectedCalendar] { await gateway.calendars() }
 
     public func synchronize(
         referenceDay: Date, requestAuthorization: Bool
@@ -102,12 +106,21 @@ private actor EventKitCalendarGateway: SystemCalendarGateway {
         return availability()
     }
 
+    func calendars() -> [ConnectedCalendar] {
+        guard availability().isAvailable else { return [] }
+        return store.calendars(for: .event).map(Self.connected(from:))
+    }
+
     func events(referenceDay: Date) throws -> [AgendaItem] {
+        guard availability().isAvailable else { return [] }
         let start = calendar.date(byAdding: .day, value: -90, to: calendar.startOfDay(for: referenceDay))!
         let end = calendar.date(byAdding: .day, value: 366, to: calendar.startOfDay(for: referenceDay))!
         return store.events(matching: store.predicateForEvents(withStart: start, end: end, calendars: nil))
             .compactMap { item(from: $0, referenceDay: referenceDay) }
-            .sorted { $0.startMinute < $1.startMinute }
+            .sorted {
+                if $0.dayOffset != $1.dayOffset { return $0.dayOffset < $1.dayOffset }
+                return $0.startMinute < $1.startMinute
+            }
     }
 
     func save(_ item: AgendaItem, referenceDay: Date) throws {
@@ -122,7 +135,15 @@ private actor EventKitCalendarGateway: SystemCalendarGateway {
         event.location = item.detail?.place
         event.notes = EventKitEventNotes.text(for: item.detail)
         event.url = markerURL(for: item.id)
-        try store.save(event, span: .thisEvent, commit: true)
+        if let rule = RecurrenceRule.parse(item.detail?.recurrence),
+           let ekRule = EventKitRecurrence.make(rule)
+        {
+            event.recurrenceRules = [ekRule]
+        } else {
+            event.recurrenceRules = []
+        }
+        let span: EKSpan = event.hasRecurrenceRules ? .futureEvents : .thisEvent
+        try store.save(event, span: span, commit: true)
     }
 
     func remove(id: String, referenceDay: Date) throws {
@@ -139,27 +160,42 @@ private actor EventKitCalendarGateway: SystemCalendarGateway {
 
     private func item(from event: EKEvent, referenceDay: Date) -> AgendaItem? {
         guard let start = event.startDate, let end = event.endDate else { return nil }
-        let startParts = calendar.dateComponents([.hour, .minute], from: start)
-        let endParts = calendar.dateComponents([.hour, .minute], from: end)
-        let startMinute = (startParts.hour ?? 0) * 60 + (startParts.minute ?? 0)
-        let endDay = calendar.isDate(end, inSameDayAs: start)
-        let endMinute = endDay
-            ? max(startMinute + 1, (endParts.hour ?? 0) * 60 + (endParts.minute ?? 0))
-            : 1_440
+        let startMinute: Int
+        let endMinute: Int
+        if event.isAllDay {
+            startMinute = 0
+            endMinute = 1_440
+        } else {
+            let startParts = calendar.dateComponents([.hour, .minute], from: start)
+            let endParts = calendar.dateComponents([.hour, .minute], from: end)
+            startMinute = (startParts.hour ?? 0) * 60 + (startParts.minute ?? 0)
+            let endDay = calendar.isDate(end, inSameDayAs: start)
+            endMinute = endDay
+                ? max(startMinute + 1, (endParts.hour ?? 0) * 60 + (endParts.minute ?? 0))
+                : 1_440
+        }
         let organizer = event.organizer
+        let ekCalendar = event.calendar
+        let connected = ekCalendar.map(Self.connected(from:))
+        let sourceName = connected?.source ?? "Calendário do macOS"
         let detail = EventDetail(
             place: event.location ?? "Sem local definido",
             link: externalLink(from: event.url),
             organizer: EventPerson(
-                name: organizer?.name ?? "Calendário do macOS",
+                name: organizer?.name ?? sourceName,
                 address: organizer?.url.absoluteString ?? "",
                 role: "organizador", status: .yes
             ),
-            people: [], note: "Calendário do macOS", recurrence: event.hasRecurrenceRules ? "Recorrente" : "Evento único",
+            people: [], note: sourceName,
+            recurrence: EventKitRecurrence.storage(from: event) ?? (event.hasRecurrenceRules ? "Recorrente" : "Evento único"),
             notice: "Consulte o Calendário para alertas", agenda: [], thread: [], descricao: event.notes
         )
         return AgendaItem(
-            id: markerID(for: event) ?? "eventkit:\(event.calendarItemIdentifier)",
+            id: EventKitItemID.make(
+                marker: markerID(for: event),
+                calendarItemIdentifier: event.calendarItemIdentifier,
+                start: start
+            ),
             title: event.title?.isEmpty == false ? event.title! : "Sem título",
             startMinute: startMinute, endMinute: endMinute,
             accountID: Self.systemAccountID,
@@ -167,7 +203,36 @@ private actor EventKitCalendarGateway: SystemCalendarGateway {
                 [.day], from: calendar.startOfDay(for: referenceDay), to: calendar.startOfDay(for: start)
             ).day ?? 0,
             calendarUID: event.calendarItemExternalIdentifier ?? event.calendarItemIdentifier,
-            detail: detail
+            detail: detail,
+            calendarID: connected?.id,
+            calendarTitle: connected?.title,
+            calendarColorHex: connected?.colorHex,
+            calendarSource: connected?.source,
+            isCancelled: event.status == .canceled
+        )
+    }
+
+    private static func connected(from calendar: EKCalendar) -> ConnectedCalendar {
+        ConnectedCalendar(
+            id: calendar.calendarIdentifier,
+            title: calendar.title,
+            source: calendar.source.title,
+            colorHex: hex(from: calendar.cgColor),
+            allowsModifications: calendar.allowsContentModifications
+        )
+    }
+
+    private static func hex(from color: CGColor) -> String {
+        guard let rgb = color.converted(
+            to: CGColorSpaceCreateDeviceRGB(), intent: .defaultIntent, options: nil
+        ), let c = rgb.components, c.count >= 3 else {
+            return "#5B8DEF"
+        }
+        return String(
+            format: "#%02X%02X%02X",
+            Int((c[0] * 255).rounded()),
+            Int((c[1] * 255).rounded()),
+            Int((c[2] * 255).rounded())
         )
     }
 
@@ -195,6 +260,108 @@ private actor EventKitCalendarGateway: SystemCalendarGateway {
 /// OkamiUNI. A sala, portanto, acompanha as notas para sobreviver também no
 /// Calendar do macOS. Ao voltar, `EventDetail` a promove para cartão e remove
 /// esta linha da descrição visível.
+/// Identidade de um compromisso do EventKit.
+///
+/// A ocorrência entra no id. Sem a data, uma reunião semanal colapsava numa
+/// linha só — o `calendarItemIdentifier` é o mesmo em todas as sessões — e a
+/// grade perdia o dia 31 e o dia 03.
+enum EventKitItemID {
+    static func make(marker: String?, calendarItemIdentifier: String, start: Date) -> String {
+        if let marker, !marker.isEmpty { return marker }
+        return "eventkit:\(calendarItemIdentifier):\(Int(start.timeIntervalSince1970))"
+    }
+}
+
+enum EventKitRecurrence {
+    static func make(_ rule: RecurrenceRule) -> EKRecurrenceRule? {
+        guard rule.frequency != .none else { return nil }
+        let end = ekEnd(rule)
+        switch rule.frequency {
+        case .none:
+            return nil
+        case .daily:
+            return EKRecurrenceRule(recurrenceWith: .daily, interval: rule.interval, end: end)
+        case .weekdays:
+            let days = [EKWeekday.monday, .tuesday, .wednesday, .thursday, .friday]
+                .map { EKRecurrenceDayOfWeek($0) }
+            return EKRecurrenceRule(
+                recurrenceWith: .weekly, interval: 1, daysOfTheWeek: days,
+                daysOfTheMonth: nil, monthsOfTheYear: nil, weeksOfTheYear: nil,
+                daysOfTheYear: nil, setPositions: nil, end: end
+            )
+        case .weekly:
+            let days = rule.weekdays.compactMap { EKWeekday(rawValue: $0) }
+                .map { EKRecurrenceDayOfWeek($0) }
+            return EKRecurrenceRule(
+                recurrenceWith: .weekly, interval: rule.interval,
+                daysOfTheWeek: days.isEmpty ? nil : days,
+                daysOfTheMonth: nil, monthsOfTheYear: nil, weeksOfTheYear: nil,
+                daysOfTheYear: nil, setPositions: nil, end: end
+            )
+        case .monthly:
+            return EKRecurrenceRule(recurrenceWith: .monthly, interval: rule.interval, end: end)
+        case .yearly:
+            return EKRecurrenceRule(recurrenceWith: .yearly, interval: rule.interval, end: end)
+        }
+    }
+
+    static func storage(from event: EKEvent) -> String? {
+        guard let rule = event.recurrenceRules?.first else { return nil }
+        let frequency: RecurrenceRule.Frequency
+        var weekdays: [Int] = []
+        switch rule.frequency {
+        case .daily:
+            frequency = .daily
+        case .weekly:
+            let days = (rule.daysOfTheWeek ?? []).map(\.dayOfTheWeek.rawValue).sorted()
+            if days == [2, 3, 4, 5, 6] {
+                frequency = .weekdays
+            } else {
+                frequency = .weekly
+                weekdays = days
+            }
+        case .monthly:
+            frequency = .monthly
+        case .yearly:
+            frequency = .yearly
+        default:
+            return "Recorrente"
+        }
+        var until: CivilDay?
+        var count: Int?
+        if let end = rule.recurrenceEnd {
+            if end.occurrenceCount > 0 {
+                count = end.occurrenceCount
+            } else if let date = end.endDate {
+                let parts = Calendar.current.dateComponents([.year, .month, .day], from: date)
+                until = CivilDay(year: parts.year ?? 0, month: parts.month ?? 1, day: parts.day ?? 1)
+            }
+        }
+        return RecurrenceRule(
+            frequency: frequency, interval: max(1, rule.interval),
+            weekdays: weekdays, count: count, untilDay: until
+        ).storage
+    }
+
+    private static func ekEnd(_ rule: RecurrenceRule) -> EKRecurrenceEnd? {
+        if let count = rule.count {
+            return EKRecurrenceEnd(occurrenceCount: count)
+        }
+        if let until = rule.untilDay {
+            var parts = DateComponents()
+            parts.year = until.year
+            parts.month = until.month
+            parts.day = until.day
+            parts.hour = 23
+            parts.minute = 59
+            if let date = Calendar.current.date(from: parts) {
+                return EKRecurrenceEnd(end: date)
+            }
+        }
+        return nil
+    }
+}
+
 enum EventKitEventNotes {
     static func text(for detail: EventDetail?) -> String? {
         guard let detail else { return nil }

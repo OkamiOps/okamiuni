@@ -291,17 +291,70 @@ struct ComposerRouteTests {
     @Test("valor vazio é uma resposta simples sem mensagem, nunca um travamento")
     func emptyValueParsesAsReply() {
         #expect(ComposerRoute.parse("") == .reply(messageID: ""))
+        #expect(ComposerRoute.parse("rascunho:local-draft-1") == .draft(messageID: "local-draft-1"))
+    }
+
+    @Test("rascunho reabre o editor, não uma resposta nova")
+    func editorForDraftDoesNotPrefixRe() {
+        let rascunho = Message.preview(id: "local-draft-1", bucket: .drafts)
+        #expect(ComposerRoute.editor(for: rascunho) == .draft(messageID: "local-draft-1"))
+        #expect(ComposerRoute.editor(for: Message.preview(id: "m1")) == .reply(messageID: "m1"))
     }
 
     @Test("as três intenções vão e voltam sem se confundirem")
     func everyRouteSurvivesTheRoundTrip() {
         let rotas: [ComposerRoute] = [
-            .reply(messageID: "m1"), .replyAll(messageID: "m1"), .forward(messageID: "m1"),
+            .reply(messageID: "m1"), .replyAll(messageID: "m1"),
+            .forward(messageID: "m1"), .draft(messageID: "m1"),
         ]
-        #expect(Set(rotas.map(\.value)).count == 3)
+        #expect(Set(rotas.map(\.value)).count == 4)
         for rota in rotas {
             #expect(ComposerRoute.parse(rota.value) == rota)
             #expect(rota.messageID == "m1")
         }
+    }
+}
+
+@Suite("Origem do rascunho")
+struct DraftOriginTests {
+    @Test("casa o rascunho Re: com o email cujo remetente está em Para")
+    func matchesReplyDraftBySubjectAndRecipient() {
+        let original = Message(
+            id: "orig", accountID: "g",
+            from: Contact(name: "Marcos", address: "marcos@okamiops.com"),
+            receivedAt: Date(),
+            subject: "Cancelado: teste okamiUNI",
+            snippet: "", body: ["O teste okamiUNI foi cancelado."], tags: [],
+            bucket: .today, isRead: true, summary: nil, detectedEvent: nil
+        )
+        let rascunho = Message(
+            id: "local-draft-x", accountID: "g",
+            from: Contact(name: "Eu", address: "msant262@gmail.com"),
+            receivedAt: Date(),
+            subject: "Re: Cancelado: teste okamiUNI",
+            snippet: "Testesteste", body: ["Testesteste"], tags: [],
+            bucket: .drafts, isRead: true, summary: nil, detectedEvent: nil,
+            to: [original.from]
+        )
+        let origem = DraftOrigin.matching(for: rascunho, in: [original, rascunho])
+        #expect(origem?.id == "orig")
+    }
+
+    @Test("threadKey aponta para a original quando o rascunho já gravou isso")
+    func prefersStoredThreadKey() {
+        let original = Message.preview(id: "m1")
+        let rascunho = Message(
+            id: "local-draft-y", accountID: "zoho",
+            from: original.from, receivedAt: Date(),
+            subject: "Outro assunto", snippet: "", body: ["x"], tags: [],
+            bucket: .drafts, isRead: true, summary: nil, detectedEvent: nil,
+            threadKey: "m1"
+        )
+        #expect(DraftOrigin.matching(for: rascunho, in: [original, rascunho])?.id == "m1")
+    }
+
+    @Test("Re: Re: ainda casa com o assunto original")
+    func stripsStackedRe() {
+        #expect(DraftOrigin.strippedSubject("Re: Re: Cancelado: teste") == DraftOrigin.strippedSubject("Cancelado: teste"))
     }
 }

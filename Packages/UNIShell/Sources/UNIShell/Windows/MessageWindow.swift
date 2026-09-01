@@ -84,6 +84,14 @@ public struct MessageWindow: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(theme.surface.color)
+        .onExitCommand {
+            if assistantOpen { closeAssistant() }
+        }
+        .bareKeyShortcuts { key in
+            guard key == .escape, assistantOpen else { return false }
+            closeAssistant()
+            return true
+        }
         .task(id: messageID) {
             onMessagePresented(messageID)
             if store.messages.isEmpty { await store.load() }
@@ -193,11 +201,11 @@ public struct MessageWindow: View {
         .padding(.vertical, 15)
         .padding(.horizontal, 17)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.accentSoft.color)
+        .background(theme.infoSoft.color)
         .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
         .overlay {
             RoundedRectangle(cornerRadius: theme.radiusLarge)
-                .strokeBorder(theme.accentLine.color, lineWidth: Hairline.thickness(displayScale))
+                .strokeBorder(theme.infoLine.color, lineWidth: Hairline.thickness(displayScale))
         }
     }
 

@@ -313,6 +313,66 @@ enum ComposerOutgoing {
     /// Sem mensagem de origem, ou com uma que não tem `Message-ID` (linha
     /// antiga, fixture), os dois saem vazios — e a mensagem sai como nova, que
     /// é a verdade: não há a que responder.
+    /// Acrescenta a citação da original no fim do corpo. O compositor mostra o
+    /// histórico na janela; quem recebe precisa dele **no email**, senão um
+    /// cliente que não empilha conversa lê só a resposta solta.
+    static func citing(
+        _ original: Message,
+        dateLabel: String,
+        onto content: Content
+    ) -> Content {
+        let bloco = citation(original, dateLabel: dateLabel)
+        guard !bloco.isEmpty, !content.plainText.contains(bloco) else { return content }
+        let plain = content.plainText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let juntos = plain.isEmpty ? bloco : plain + "\n\n" + bloco
+        let html: String?
+        if let existente = content.html, !existente.isEmpty {
+            let citado = citationHTML(original, dateLabel: dateLabel)
+            html = insertingCitation(citado, into: existente)
+        } else {
+            html = nil
+        }
+        return Content(plainText: juntos, html: html, inlineResources: content.inlineResources)
+    }
+
+    static func citation(_ original: Message, dateLabel: String) -> String {
+        let quem = original.from.display
+        let cabeca = dateLabel.isEmpty
+            ? "\(quem) escreveu:"
+            : "Em \(dateLabel), \(quem) escreveu:"
+        let linhas: [String]
+        if original.body.isEmpty {
+            linhas = original.subject.isEmpty ? [] : ["> \(original.subject)"]
+        } else {
+            linhas = original.body.flatMap { paragrafo -> [String] in
+                paragrafo.split(separator: "\n", omittingEmptySubsequences: false)
+                    .map { "> \($0)" }
+            }
+        }
+        guard !linhas.isEmpty else { return "" }
+        return ([cabeca, ""] + linhas).joined(separator: "\n")
+    }
+
+    private static func citationHTML(_ original: Message, dateLabel: String) -> String {
+        let texto = citation(original, dateLabel: dateLabel)
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\n", with: "<br>")
+        return "<blockquote>\(texto)</blockquote>"
+    }
+
+    private static func insertingCitation(_ citation: String, into document: String) -> String {
+        guard let close = document.range(
+            of: "</body>", options: [.caseInsensitive, .backwards]
+        ) else {
+            return document + citation
+        }
+        var result = document
+        result.insert(contentsOf: "<br>" + citation, at: close.lowerBound)
+        return result
+    }
+
     static func conversa(_ original: Message?) -> (inReplyTo: String?, references: [String]) {
         guard let original, let messageID = original.rfcMessageID, !messageID.isEmpty else {
             return (nil, [])

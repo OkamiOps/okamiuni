@@ -7,21 +7,22 @@
 ![Swift 6.3](https://img.shields.io/badge/Swift-6.3-F05138?logo=swift&logoColor=white)
 ![macOS 26](https://img.shields.io/badge/macOS-26-000000?logo=apple&logoColor=white)
 ![SwiftUI](https://img.shields.io/badge/SwiftUI-nativo-0071e3)
-![Testes](https://img.shields.io/badge/testes-1822%20verdes-2ea44f)
+![Testes](https://img.shields.io/badge/testes-2247%20verdes-2ea44f)
 ![Mutações](https://img.shields.io/badge/provas%20por%20mutação-190%2B-blueviolet)
 ![Temas](https://img.shields.io/badge/temas-26-8a2be2)
-![Marco](https://img.shields.io/badge/marco-5%20·%20inteligência%20local%20✓-success)
+![Release](https://img.shields.io/badge/release-0.2.0-success)
 
-<img src="docs/capturas/janela-principal.png" width="860" alt="A janela principal do OkamiUNI: barra lateral com contas e caixas, lista de mensagens, leitor com resumo no dispositivo e trilha de agenda do dia." />
+<img src="docs/capturas/janela-principal.png" width="860" alt="A janela principal do OkamiUNI no tema Okami: abas Dashboard, Caixa e Agenda, lista de mensagens, leitor e trilha do dia." />
 
 </div>
 
 ## TL;DR
 
-- 📬 **Um app só** para email e agenda — a trilha do dia mora ao lado do leitor, e selecionar uma caixa filtra **as duas**.
+- 📬 **Um app só** para email e agenda — Dashboard, Caixa e Agenda no mesmo chrome. A trilha do dia mora ao lado do leitor, e selecionar uma caixa filtra **as duas**.
+- 🎯 **Dashboard do dia**: prioridades (Alta/Média), eventos de hoje e assistente local — clica o email, lê, pede rascunho. Sem disparar IA sozinho.
 - 🔄 **As contas se mantêm sozinhas**: IMAP IDLE, Gmail incremental por histórico, e a rede que volta acorda tudo. Ação feita offline chega ao servidor quando a conexão volta — com fila transacional, retry e "tentar de novo" explicado.
 - 📖 **Leitor de verdade**: HTML renderizado (JavaScript morto, imagem remota bloqueada por padrão com memória de confiança por remetente), conversas agrupadas em pilha, convite de agenda vira cartão com "Colocar na agenda" — sem duplicar, por UID.
-- ✉️ **Enviar envia**: Gmail pela API, qualquer IMAP por SMTP próprio (STARTTLS antes da senha), caixa Enviadas, resposta com `In-Reply-To`, idempotência por Message-ID — timeout ambíguo nunca duplica email.
+- ✉️ **Enviar envia**: Gmail pela API, qualquer IMAP por SMTP próprio (STARTTLS antes da senha), caixa Enviadas, resposta com `In-Reply-To`, idempotência por Message-ID — timeout ambíguo nunca duplica email. Contas Google escolhem o **alias** na linha De; os 19 “Enviar como” do Workspace entram no sync.
 - 🗂️ **As pastas do provedor** na barra lateral, expansíveis por conta — e um arquivar que **cria** a pasta que falta no servidor em vez de parar a fila.
 - 📅 **Agenda real e convites**: EventKit lê e grava calendários do macOS (inclusive CalDAV configurado no sistema), e o cartão responde `Aceitar · Talvez · Recusar` por iTIP, pela mesma fila offline do email.
 - 📎 **Anexos de verdade**: recebidos aparecem no leitor e salvam sob demanda; o composer envia arquivos em `multipart/mixed`, com limite explícito e nome sanitizado.
@@ -29,7 +30,7 @@
 - 🖱️ **Ações onde a mão espera**: botão direito custom em toda superfície, arraste lateral com Desfazer, atalhos de verdade (`⌘R` `⇧⌘R` `⇧⌘F` `⌘E` `⌫` `⇧⌘L` `⇧⌘U` `⌘N` `⌘K`).
 - 🎨 **26 temas**, hairlines de 1 pixel em telas 1×, semáforos a 22pt **verificados por ensaio** — o polimento é requisito, não acabamento.
 - 🔌 **Qualquer provedor**: nada no código limita provedor, domínio, número de contas ou de pastas.
-- ✅ **1822 testes** que provam por mutação: cada teste novo só conta depois de falhar com o defeito reintroduzido.
+- ✅ **2247 testes** que provam por mutação: cada teste novo só conta depois de falhar com o defeito reintroduzido.
 
 ```bash
 Tools/rodar.sh     # mata a instância antiga, regenera o projeto, compila e abre
@@ -47,7 +48,7 @@ Cliente de email é o app que mais horas passa aberto — e o que menos respeito
 
 | Área | O que tem |
 |---|---|
-| 📥 **Caixa de entrada** | Fluxo de triagem (Hoje · Depois · Tudo · Arquivado · Lixeira · **Enviadas**), busca que dobra acento ("Revisao" acha "Revisão"), filtro por conta que alcança lista **e** agenda, ponto + fundo de não-lida, estrela de sinalizada, data honesta na linha (hoje → hora · "Ontem" · "21 de jul.") |
+| 📥 **Caixa de entrada** | Fluxo de triagem (Hoje · Depois · Tudo · Arquivado · Lixeira · **Spam** · **Enviadas** · **Rascunhos**), busca na caixa atual com selo **Tudo** depois de digitar, filtro por conta que alcança lista **e** agenda, ponto + fundo de não-lida, estrela de sinalizada, data honesta na linha |
 | ↔️ **Arraste na linha** | Duas ações por lado, persistidas e configuráveis; a linha **para** aberta, o disparo longo inunda de cor antes de executar, destrutivo tem Desfazer |
 | 🖱️ **Botão direito** | Menu custom no idioma do design em 10 superfícies — responder, responder a todos, encaminhar, arquivar, apagar, sinalizar, mover, copiar; submenu, atalhos exibidos, navegação por teclado (↑↓⏎→← Esc) |
 | ⌨️ **Atalhos** | Menu **Mensagem** na barra do sistema; `⌘R` responder · `⇧⌘R` responder a todos · `⇧⌘F` encaminhar · `⌘E` arquivar · `⌫` apagar · `⇧⌘L` sinalizar · `⇧⌘U` lida/não lida · `⌘N` nova · `⌘K` busca — e campo de texto nunca perde tecla sem modificador |
@@ -90,6 +91,8 @@ Cliente de email é o app que mais horas passa aberto — e o que menos respeito
 
 | Área | O que tem |
 |---|---|
+| 🏠 **Dashboard** | Terceira aba do chrome: saudação, prioridades ranqueadas sem varrer a caixa inteira, eventos de hoje, tiles e assistente com memória na sessão. Clique no email abre a leitura por cima; Enter envia, Shift+Enter quebra linha |
+| 🪪 **Remetentes** | Configurações → Remetentes. O Gmail traz “Enviar como” no sync; o composer escolhe o From. Alias precisa existir no Workspace para o Gmail não reescrever |
 | ✨ **Análise local** | Foundation Models recebe assunto e corpo, com saída tipada, e produz resumo mais compromisso detectado sem tirar o email do Mac; o corpo tem teto explícito de 12 mil caracteres |
 | 💾 **Pipeline durável** | SQLite guarda hash do conteúdo, estado e resultado; observação reativa acorda uma fila serial, que se recupera de interrupções e só reprocessa quando a mensagem muda |
 | 🛡️ **Compromisso factual** | Data e hora sugeridas só são persistidas quando existem evidências explícitas no texto original — o modelo não pode transformar a data de recebimento em compromisso inventado |
@@ -99,6 +102,10 @@ Cliente de email é o app que mais horas passa aberto — e o que menos respeito
 
 <div align="center">
 <table>
+<tr>
+<td align="center"><img src="docs/capturas/dashboard.png" width="410" alt="Aba Dashboard: prioridades, eventos de hoje e assistente local."/><br/><sub>O <b>Dashboard</b> do dia.</sub></td>
+<td align="center"><img src="docs/capturas/remetentes.png" width="410" alt="Configurações → Remetentes, com aliases da conta Google."/><br/><sub>Aliases na linha <b>De</b>.</sub></td>
+</tr>
 <tr>
 <td align="center"><img src="docs/capturas/arraste-aberto.png" width="410" alt="Linha arrastada descansando aberta com as ações Arquivar e Lida reveladas."/><br/><sub>O arraste <b>para</b> aberto…</sub></td>
 <td align="center"><img src="docs/capturas/arraste-armado.png" width="410" alt="Arraste longo com o painel inteiro inundado pela cor de destaque, pronto para disparar."/><br/><sub>…e <b>inunda</b> antes de disparar.</sub></td>
@@ -140,7 +147,7 @@ O projeto Xcode é gerado por [`project.yml`](project.yml) (XcodeGen) com `SWIFT
 
 ## Como este projeto se testa
 
-**Swift Testing** (nunca XCTest), 1822 testes em quatro pacotes — e uma regra que virou cultura: **teste que passa com o código quebrado é defeito**. Todo teste novo nasce provado vermelho com o defeito reintroduzido; mais de 190 mutações registradas mataram, entre outras, um quoted-printable que comia a última letra de cada linha, uma fila que engolia a terceira ação de um ciclo ler→não ler→ler, e um "esvaziar a lixeira" que só funcionava uma vez na vida da conta.
+**Swift Testing** (nunca XCTest), 2247 testes em quatro pacotes — e uma regra que virou cultura: **teste que passa com o código quebrado é defeito**. Todo teste novo nasce provado vermelho com o defeito reintroduzido; mais de 190 mutações registradas mataram, entre outras, um quoted-printable que comia a última letra de cada linha, uma fila que engolia a terceira ação de um ciclo ler→não ler→ler, e um "esvaziar a lixeira" que só funcionava uma vez na vida da conta.
 
 Seis instrumentos fazem o app testemunhar contra si mesmo, sem tocar no mouse de ninguém:
 
@@ -168,6 +175,7 @@ O registro das decisões — por que o Button do macOS dispara no mouse-up depoi
 - [x] **Marco 3 — Sincronização**: sync contínuo (IDLE + histórico), fila de ações espelhada com autocura, leitor HTML seguro, conversas, envio (API + SMTP), Enviadas, pastas do provedor, convites com dedup, contatos reais
 - [x] **Marco 4 — Agenda real**: EventKit com calendários CalDAV do macOS, cliente CalDAV direto testado, RSVP do convite por iTIP e anexos recebidos/enviados
 - [x] **Marco 5 — Inteligência no dispositivo**: Foundation Models local, pipeline durável, resumo/compromisso persistidos, perguntas contextuais e inteligência de escrita plenamente integrada ao composer
+- [x] **0.2.0 — Dashboard e remetentes**: aba de prioridades, aliases de envio do Gmail/Workspace, Spam na triagem, busca Tudo, leitor HTML com paleta do tema e RSVP nos botões do convite Google
 
 Dívidas deliberadas, registradas onde doem: recorrência de evento, configuração CalDAV direta dentro do app (contas CalDAV já configuradas no macOS funcionam via EventKit), árvore de pastas indentada (o delimitador ainda não sobe pelo fio), encaminhar convite com o `.ics` junto.
 

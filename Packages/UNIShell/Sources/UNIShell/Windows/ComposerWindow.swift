@@ -42,6 +42,8 @@ public struct ComposerWindow: View {
         case forward(messageID: String)
         /// Escrever do zero — a tela 06. `accountID` nulo abre na primeira conta.
         case new(accountID: String?)
+        /// Continuar um rascunho da caixa Rascunhos.
+        case draft(messageID: String)
 
         /// A intenção que a cena carregou. Uma tradução, não uma segunda
         /// decisão: `ComposerRoute` é quem sabe ler o valor.
@@ -50,6 +52,7 @@ public struct ComposerWindow: View {
             case .reply(let id): self = .reply(messageID: id)
             case .replyAll(let id): self = .replyAll(messageID: id)
             case .forward(let id): self = .forward(messageID: id)
+            case .draft(let id): self = .draft(messageID: id)
             }
         }
     }
@@ -76,11 +79,22 @@ public struct ComposerWindow: View {
     @State private var draft = AttributedString("")
     @State private var selection = AttributedTextSelection()
     @State private var fromAccountID: String?
+    @State private var fromAddress: String?
     @State private var attachments: [OutgoingAttachment] = []
     @State private var attachmentError: String?
     @State private var savedStamp: String?
+    /// O id na caixa Rascunhos. Nulo até o primeiro "Salvar rascunho"; nas
+    /// reaberturas já vem preenchido, para o segundo salvar atualizar a mesma
+    /// linha em vez de criar outra.
+    @State private var draftMessageID: String?
+    @State private var savedPlain: String?
+    @State private var savedSubject: String?
     @State private var historyOpen = true
     @State private var seeded = false
+    @State private var leaveConfirm = false
+    @State private var savedFingerprint = DraftFingerprint()
+    @State private var hasBaseline = false
+    @State private var closeController = ComposerCloseController()
     /// A assinatura rica não pertence ao `NSTextStorage` do corpo. Mantê-la
     /// como bloco gerenciado preserva tabela, imagens CID e hyperlinks na
     /// tela, sem transformar o HTML em dezenas de linhas vazias.
@@ -110,6 +124,10 @@ public struct ComposerWindow: View {
     /// inteiro só escrevendo no console. O que corre aqui é a **ação do
     /// botão**, não uma cópia dela.
     let debugSend: Bool
+    /// Porta do harness: aperta **Salvar rascunho** no primeiro passe.
+    let debugSaveDraft: Bool
+    /// Porta do harness: abre o aviso de sair com o cartão já visível.
+    let debugLeaveConfirm: Bool
     /// Porta injetável: o app usa o seletor nativo, e o harness pode escolher
     /// arquivos sem abrir painel nem controlar mouse/teclado.
     let attachmentSelector: (any AttachmentSelecting)?
@@ -138,7 +156,10 @@ public struct ComposerWindow: View {
         self.debugSuggestion = nil
         self.debugInsertSignature = false
         self.debugSend = false
+        self.debugSaveDraft = false
+        self.debugLeaveConfirm = false
         self.attachmentSelector = NativeAttachmentSelector()
+        if case .draft(let id) = mode { _draftMessageID = State(initialValue: id) }
     }
 
     init(
@@ -148,6 +169,8 @@ public struct ComposerWindow: View {
         debugSuggestion: DebugSuggestion? = nil,
         debugInsertSignature: Bool = false,
         debugSend: Bool = false,
+        debugSaveDraft: Bool = false,
+        debugLeaveConfirm: Bool = false,
         attachmentSelector: (any AttachmentSelecting)? = nil,
         intelligence: ComposerIntelligenceGenerator? = nil
     ) {
@@ -158,7 +181,11 @@ public struct ComposerWindow: View {
         self.debugSuggestion = debugSuggestion
         self.debugInsertSignature = debugInsertSignature
         self.debugSend = debugSend
+        self.debugSaveDraft = debugSaveDraft
+        self.debugLeaveConfirm = debugLeaveConfirm
         self.attachmentSelector = attachmentSelector
+        if case .draft(let id) = mode { _draftMessageID = State(initialValue: id) }
+        _leaveConfirm = State(initialValue: debugLeaveConfirm)
         // As linhas Cc e Cco nascem fechadas; para desenhar a lista de uma
         // delas o harness precisa da linha aberta desde o primeiro passe.
         _ccOpen = State(initialValue: debugSuggestion?.slot == .cc)
@@ -194,6 +221,35 @@ public struct ComposerWindow: View {
         static let toolbar: Double = 20
     }
 
+    /// O que a janela tem agora, para saber se sair perderia alguma coisa.
+    private struct DraftFingerprint: Equatable {
+        var plain = ""
+        var subject = ""
+        var to: [String] = []
+        var cc: [String] = []
+        var bcc: [String] = []
+        var attachmentIDs: [String] = []
+        var fromAccountID: String?
+        var signatureInserted = false
+    }
+
+    private var currentFingerprint: DraftFingerprint {
+        DraftFingerprint(
+            plain: plainDraft,
+            subject: subject,
+            to: to.map(\.address),
+            cc: cc.map(\.address),
+            bcc: bcc.map(\.address),
+            attachmentIDs: attachments.map(\.id),
+            fromAccountID: fromAccountID,
+            signatureInserted: signatureInserted
+        )
+    }
+
+    private var isDirty: Bool {
+        hasBaseline && currentFingerprint != savedFingerprint
+    }
+
     /// A 03, em qualquer das suas intenções: responder e responder a todos
     /// desenham a mesma janela — histórico citado, sem linha "De" — e diferem
     /// só em quem já está na linha "Para".
@@ -201,6 +257,7 @@ public struct ComposerWindow: View {
         switch mode {
         case .reply, .replyAll, .forward: true
         case .new: false
+        case .draft: draftOrigin != nil
         }
     }
 
@@ -210,8 +267,20 @@ public struct ComposerWindow: View {
         switch mode {
         case .reply(let value), .replyAll(let value), .forward(let value): id = value
         case .new: return nil
+        case .draft: return draftOrigin
         }
-        return store.messages.first { $0.id == id }
+        return store.message(id)
+    }
+
+    /// O email a que este rascunho responde, se ele nasceu de um Responder.
+    ///
+    /// Rascunho antigo não gravava o id da original em `threadKey`; o casamento
+    /// por assunto e destinatário recupera o histórico — senão o Enviar saía
+    /// como mensagem nova.
+    private var draftOrigin: Message? {
+        guard case .draft(let id) = mode, let gravado = store.message(id) else { return nil }
+        guard let origem = DraftOrigin.matching(for: gravado, in: store.messages) else { return nil }
+        return store.message(origem.id) ?? origem
     }
 
     /// O modelo recebe o fio inteiro quando ele existe. A mensagem atual
@@ -235,6 +304,7 @@ public struct ComposerWindow: View {
     private var answeredMessage: Message? {
         switch mode {
         case .reply, .replyAll: repliedMessage
+        case .draft: draftOrigin
         case .forward, .new: nil
         }
     }
@@ -243,6 +313,22 @@ public struct ComposerWindow: View {
         if let fromAccountID { return store.account(fromAccountID) }
         if let repliedMessage { return store.account(repliedMessage.accountID) }
         return store.accounts.first
+    }
+
+    private var sendingFrom: (name: String, address: String) {
+        guard let account else { return ("", "") }
+        let wanted = fromAddress ?? account.defaultSendAddress
+        if let hit = account.sendIdentities.first(where: {
+            $0.address.compare(wanted, options: .caseInsensitive) == .orderedSame
+        }) {
+            return (hit.displayName, hit.address)
+        }
+        return (account.displayName, account.address)
+    }
+
+    private var showsFromRow: Bool {
+        if !isReply { return true }
+        return store.accounts.contains { $0.sendIdentities.count > 1 }
     }
 
     private var accountTint: Color {
@@ -298,7 +384,7 @@ public struct ComposerWindow: View {
         VStack(spacing: 0) {
             WindowTitleBar(title: title) { WindowBarNote(text: draftCount) }
 
-            if !isReply { fromRow }
+            if showsFromRow { fromRow }
             toRow
             if ccOpen {
                 copyRow(
@@ -357,6 +443,22 @@ public struct ComposerWindow: View {
         // ele três janelas 03 abertas aparecem lá como três "OkamiUNI" iguais.
         // A barra que a gente desenha continua sendo a que se lê na tela.
         .navigationTitle(title)
+        .overlay { if leaveConfirm { leaveConfirmLayer } }
+        .onExitCommand {
+            if leaveConfirm { leaveConfirm = false }
+            else { requestLeave() }
+        }
+        .overlay(alignment: .topLeading) {
+            ComposerCloseGate(
+                controller: closeController,
+                blocksClose: isDirty || leaveConfirm,
+                isDirty: isDirty,
+                onAttemptClose: requestLeave
+            )
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
+        }
+        .onDisappear { closeController.detach() }
         // A janela pode nascer antes da principal (o macOS restaura as janelas
         // da sessão anterior), e aí o `MailStore` ainda está vazio. Carregar
         // primeiro não basta: a tarefa pode ser cancelada no meio da
@@ -367,18 +469,29 @@ public struct ComposerWindow: View {
         // aconteceria uma vez só, na versão vazia.
         .task(id: SeedKey(messageCount: store.messages.count, mode: mode)) {
             if store.messages.isEmpty { await store.load() }
+            if case .draft(let id) = mode {
+                await store.loadBodyIfNeeded(id)
+            }
             seed()
+            if let origem = draftOrigin {
+                await store.loadBodyIfNeeded(origem.id)
+            }
             // A porta do harness: dispara a **mesma** ação do botão, depois da
             // semeadura, para o corpo já estar no estado em que o clique o
             // encontraria.
             if debugInsertSignature, canInsertSignature { insertSignature() }
             if debugSend { send(archiving: false) }
+            if debugSaveDraft { saveDraft() }
         }
     }
 
     private var title: String {
         if case .forward = mode {
             return Self.windowTitle(forwarding: repliedMessage)
+        }
+        if case .draft = mode {
+            let assunto = subject.trimmingCharacters(in: .whitespacesAndNewlines)
+            return assunto.isEmpty ? "Rascunho" : assunto
         }
         return Self.windowTitle(replyingTo: repliedMessage)
     }
@@ -455,11 +568,33 @@ public struct ComposerWindow: View {
             if !seed.rich.characters.isEmpty {
                 draft = seed.rich
             }
+            fromAccountID = repliedMessage.accountID
+            fromAddress = store.account(repliedMessage.accountID)?.defaultSendAddress
         case .new(let accountID):
             guard !store.accounts.isEmpty else { return }
             fromAccountID = accountID.flatMap { $0.isEmpty ? nil : $0 } ?? store.accounts.first?.id
+            fromAddress = store.account(fromAccountID ?? "")?.defaultSendAddress
+        case .draft(let id):
+            guard let gravado = store.message(id) else { return }
+            fromAccountID = gravado.accountID
+            fromAddress = gravado.from.address
+            to = gravado.to
+            cc = gravado.cc
+            ccOpen = ccOpen || !gravado.cc.isEmpty
+            subject = gravado.subject == "(sem assunto)" ? "" : gravado.subject
+            let texto = gravado.body.joined(separator: "\n\n")
+            if !texto.isEmpty {
+                draft = AttributedString(texto)
+            }
+            draftMessageID = gravado.id
+            savedPlain = texto
+            savedSubject = gravado.subject == "(sem assunto)" ? "" : gravado.subject
+            if gravado.receivedAt != .distantPast {
+                savedStamp = gravado.receivedAt.formatted(date: .omitted, time: .shortened)
+            }
         }
         seeded = true
+        rememberSaved()
     }
 
     // MARK: - Linhas de cabeçalho
@@ -479,18 +614,9 @@ public struct ComposerWindow: View {
             // dos menus de fonte e corpo.
             ComposerSelect(
                 title: "Conta que envia",
-                selected: account?.id,
-                groups: [
-                    ComposerSelect.Group(
-                        title: nil,
-                        options: store.accounts.map {
-                            ComposerSelect.Option(
-                                value: $0.id, label: "\($0.displayName) · \($0.host)"
-                            )
-                        }
-                    )
-                ],
-                pick: { fromAccountID = $0 },
+                selected: fromPickerValue,
+                groups: fromPickerGroups,
+                pick: applyFromPicker,
                 labelSize: 12.5,
                 leadingPadding: 10
             )
@@ -521,6 +647,32 @@ public struct ComposerWindow: View {
         .background(theme.surface2.color)
         .hairline(theme.line2, edges: .bottom)
         .zIndex(Depth.from)
+    }
+
+    private var fromPickerValue: String? {
+        guard let account else { return nil }
+        let address = sendingFrom.address
+        return SendIdentity(
+            accountID: account.id, address: address,
+            displayName: sendingFrom.name, isPrimary: false
+        ).pickerValue
+    }
+
+    private var fromPickerGroups: [ComposerSelect.Group] {
+        store.accounts.map { conta in
+            ComposerSelect.Group(
+                title: store.accounts.count > 1 ? conta.host.uppercased() : nil,
+                options: conta.sendIdentities.map {
+                    ComposerSelect.Option(value: $0.pickerValue, label: $0.pickerLabel)
+                }
+            )
+        }
+    }
+
+    private func applyFromPicker(_ value: String) {
+        guard let decoded = SendIdentity.decodePickerValue(value) else { return }
+        fromAccountID = decoded.accountID
+        fromAddress = decoded.address
     }
 
     private var toRow: some View {
@@ -688,7 +840,13 @@ public struct ComposerWindow: View {
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(theme.surface.color)
-        .onChange(of: draft) { _, _ in savedStamp = nil }
+        .onChange(of: draft) { _, novo in
+            if String(novo.characters) != (savedPlain ?? "") { savedStamp = nil }
+        }
+        .onChange(of: subject) { _, novo in
+            if novo != (savedSubject ?? "") { savedStamp = nil }
+        }
+        .onChange(of: to) { _, _ in savedStamp = nil }
     }
 
     /// O histórico citado da 03. Protótipo: `border-left: 2px solid var(--line);
@@ -783,9 +941,9 @@ public struct ComposerWindow: View {
             Spacer(minLength: 8)
 
             if isReply {
-                ChromeButton("Voltar ao painel", appearance: .outlined) { dismiss() }
+                ChromeButton("Voltar ao painel", appearance: .outlined) { requestLeave() }
             } else {
-                ChromeButton("Descartar", appearance: .outlined) { dismiss() }
+                ChromeButton("Descartar", appearance: .outlined) { requestLeave() }
             }
         }
         .padding(.horizontal, 18)
@@ -837,8 +995,107 @@ public struct ComposerWindow: View {
         return "Inserir a assinatura de \(account?.host ?? "") abaixo da mensagem"
     }
 
-    private func saveDraft() {
-        savedStamp = Date.now.formatted(date: .omitted, time: .shortened)
+    @discardableResult
+    private func saveDraft() -> Bool {
+        guard let account else { return false }
+        let texto = plainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let assunto = subject.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !texto.isEmpty || !assunto.isEmpty || to.contains(where: { !$0.address.isEmpty })
+        else { return false }
+
+        let outgoingContent = ComposerOutgoing.content(
+            draft,
+            theme: theme,
+            signature: account.emailSignature,
+            signatureIsInserted: signatureInserted && hasSignature
+        )
+        let paragrafos = outgoingContent.plainText
+            .components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let id = draftMessageID ?? "local-draft-\(UUID().uuidString.lowercased())"
+        let agora = Date()
+        let origem = answeredMessage
+        let conversa = ComposerOutgoing.conversa(origem)
+        let gravado = Message(
+            id: id,
+            accountID: account.id,
+            from: Contact(name: sendingFrom.name, address: sendingFrom.address),
+            receivedAt: agora,
+            subject: assunto.isEmpty ? "(sem assunto)" : assunto,
+            snippet: paragrafos.first ?? assunto,
+            body: paragrafos,
+            tags: [],
+            bucket: .drafts,
+            isRead: true,
+            summary: nil,
+            detectedEvent: nil,
+            to: to.filter { !$0.address.trimmingCharacters(in: .whitespaces).isEmpty },
+            cc: cc.filter { !$0.address.trimmingCharacters(in: .whitespaces).isEmpty },
+            bodyHTML: outgoingContent.html ?? "",
+            rfcMessageID: id,
+            references: conversa.references,
+            threadKey: origem?.id ?? id
+        )
+        guard store.saveDraft(gravado) else { return false }
+        draftMessageID = id
+        savedPlain = plainDraft
+        savedSubject = subject
+        savedStamp = agora.formatted(date: .omitted, time: .shortened)
+        rememberSaved()
+        return true
+    }
+
+    private func rememberSaved() {
+        savedFingerprint = currentFingerprint
+        hasBaseline = true
+    }
+
+    /// Voltar, Descartar, o X da janela e ⌘W passam por aqui. Sem alterações
+    /// a janela fecha; com alterações o cartão pergunta.
+    private func requestLeave() {
+        if leaveConfirm { return }
+        if ComposerLeaveConfirm.shouldPrompt(isDirty: isDirty) {
+            leaveConfirm = true
+        } else {
+            leaveNow()
+        }
+    }
+
+    private func confirmSaveAndLeave() {
+        guard saveDraft() else { return }
+        leaveNow()
+    }
+
+    private func confirmDiscardAndLeave() {
+        leaveNow()
+    }
+
+    /// Fecha a janela do AppKit. `performClose` no botão que nós mesmos
+    /// interceptamos reentrava e crashava no ⌘W; `close()` não clica o botão.
+    private func leaveNow() {
+        leaveConfirm = false
+        closeController.allowNextClose = true
+        if closeController.attachedWindow != nil {
+            closeController.closeNow()
+        } else {
+            dismiss()
+        }
+    }
+
+    private var leaveConfirmLayer: some View {
+        ZStack {
+            theme.ink.color.opacity(theme.isDark ? 0.55 : 0.28)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture { leaveConfirm = false }
+            ComposerLeaveCard(
+                onSave: confirmSaveAndLeave,
+                onDiscard: confirmDiscardAndLeave,
+                onCancel: { leaveConfirm = false }
+            )
+        }
+        .accessibilityAddTraits(.isModal)
     }
 
     /// O que "Enviar" faz agora: **enfileira de verdade**.
@@ -877,15 +1134,25 @@ public struct ComposerWindow: View {
             return
         }
 
-        let outgoingContent = ComposerOutgoing.content(
+        let bruto = ComposerOutgoing.content(
             draft,
             theme: theme,
             signature: account.emailSignature,
             signatureIsInserted: signatureInserted && hasSignature
         )
+        let outgoingContent: ComposerOutgoing.Content
+        if let original = answeredMessage {
+            outgoingContent = ComposerOutgoing.citing(
+                original,
+                dateLabel: DateLabels.eventDate(original.receivedAt),
+                onto: bruto
+            )
+        } else {
+            outgoingContent = bruto
+        }
         let mensagem = ComposerOutgoing.message(
             accountID: account.id,
-            from: Contact(name: account.displayName, address: account.address),
+            from: Contact(name: sendingFrom.name, address: sendingFrom.address),
             to: to, cc: cc, bcc: bcc,
             subject: subject,
             plainText: outgoingContent.plainText,
@@ -901,6 +1168,9 @@ public struct ComposerWindow: View {
         // já está no `loadError` do store — a pessoa não perde o que escreveu
         // por causa de uma escrita de banco que falhou.
         guard store.send(mensagem) else { return }
+        if let rascunho = draftMessageID {
+            store.discardDraft(id: rascunho)
+        }
         if archiving, let original = repliedMessage {
             store.move(original, to: .archived)
         }

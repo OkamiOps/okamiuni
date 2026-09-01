@@ -149,6 +149,41 @@ struct StoreTests {
         #expect(store.visibleMessages.isEmpty)
     }
 
+    @Test("Tudo acha o que saiu de Hoje; apagar o termo desliga o recorte")
+    @MainActor
+    func searchEverywhereFindsArchived() async {
+        let account = Account(
+            id: "acc1", address: "acc1@example.com", displayName: "Conta 1",
+            provider: .imap, host: "acc1host", tintLightHex: "#000000", tintDarkHex: "#FFFFFF"
+        )
+        let hoje = Message(
+            id: "hoje", accountID: account.id,
+            from: Contact(name: "Beatriz", address: "beatriz@x.com"),
+            receivedAt: Fixtures.today, subject: "Na caixa", snippet: "", body: [],
+            tags: [], bucket: .today, isRead: false, summary: nil, detectedEvent: nil
+        )
+        let arquivo = Message(
+            id: "arquivo", accountID: account.id,
+            from: Contact(name: "Beatriz", address: "beatriz@x.com"),
+            receivedAt: Fixtures.today, subject: "Arquivada", snippet: "", body: [],
+            tags: [], bucket: .archived, isRead: true, summary: nil, detectedEvent: nil
+        )
+        let store = MailStore(
+            source: InMemoryMailSource(accounts: [account], messages: [hoje, arquivo], agenda: [])
+        )
+        await store.load()
+        store.select(bucket: .today)
+        store.query = "Beatriz"
+        #expect(Set(store.visibleMessages.map(\.id)) == ["hoje"])
+        store.searchEverywhere = true
+        #expect(store.searchesEverywhereNow)
+        #expect(Set(store.visibleMessages.map(\.id)) == ["hoje", "arquivo"])
+        store.query = ""
+        #expect(store.searchEverywhere == false)
+        #expect(store.visibleMessages.contains { $0.id == "hoje" })
+        #expect(!store.visibleMessages.contains { $0.id == "arquivo" })
+    }
+
     @Test("selecionar uma mensagem marca como lida")
     @MainActor
     func selectionMarksRead() async throws {
@@ -716,6 +751,11 @@ struct AddToAgendaTests {
         let item = try #require(store.addToAgenda(event, from: message))
         #expect(item.accountID == "zoho")
         #expect(store.agenda.contains { $0.id == item.id })
+        let detalhe = try #require(item.detail)
+        #expect(detalhe.organizer.address == message.from.address)
+        #expect(detalhe.organizer.address != "ricardo@empresa.com")
+        #expect(detalhe.note.contains("zoho"))
+        #expect(detalhe.note != Fixtures.eventDefault.note)
     }
 
     /// É o filtro por caixa que o dono do projeto pediu explicitamente
@@ -765,6 +805,25 @@ struct AddToAgendaTests {
         let second = store.addToAgenda(event, from: message)
         #expect(second == nil)
         #expect(store.agenda.count == before + 1)  // continua em +1, não +2
+    }
+
+    /// O aviso "Videoconferência atualizada" é outra mensagem, sem ICS, com
+    /// o mesmo título e horário que o convite já pôs na agenda.
+    @Test("evento detectado noutra mensagem não duplica o compromisso que já está lá")
+    func detectedEventOnUpdateEmailDoesNotDuplicate() async throws {
+        let store = await loaded()
+        let (message, event) = try messageWithEvent(store)
+        let first = try #require(store.addToAgenda(event, from: message))
+        let aviso = Message(
+            id: "aviso-calendar", accountID: message.accountID, from: message.from,
+            receivedAt: message.receivedAt,
+            subject: "Videoconferência atualizada: \(event.label)",
+            snippet: event.label, body: [], tags: [], bucket: .today, isRead: false,
+            summary: "A reunião foi atualizada.", detectedEvent: event
+        )
+        #expect(store.existingAgendaItem(for: event, from: aviso)?.id == first.id)
+        #expect(store.addToAgenda(event, from: aviso) == nil)
+        #expect(store.agenda.filter { $0.title == first.title }.count == 1)
     }
 
     @Test("o id do item criado é o id determinístico da mensagem")

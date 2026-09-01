@@ -237,7 +237,16 @@ public enum MimeSanitize {
                 continue
             }
             if nome.isEmpty {
-                // `<!DOCTYPE …>`, `<?xml …>` e companhia: fora, sem drama.
+                // `<!DOCTYPE …>` e `<?xml …>`: fora. Mas um fechamento que o
+                // gerador escreveu como `<="" div="">` — BOM e atributos vazios
+                // no lugar da barra — não pode sumir: sem ele, o `display:none`
+                // do pré-cabeçalho engole a mensagem inteira. O email de
+                // verificação da Hostinger chegou exatamente assim.
+                if !crua.hasPrefix("!"), !crua.hasPrefix("?"),
+                   let recuperada = Self.tagRecuperada(de: crua)
+                {
+                    saida += "</\(recuperada)>"
+                }
                 continue
             }
             if removidasComConteudo.contains(nome) {
@@ -258,6 +267,21 @@ public enum MimeSanitize {
     private static func nomeDaTag(_ crua: String) -> String {
         let semBarra = crua.hasPrefix("/") ? String(crua.dropFirst()) : crua
         return String(semBarra.prefix { $0.isLetter || $0.isNumber })
+            .lowercased()
+    }
+
+    /// Nomes de etiqueta que um fechamento quebrado ainda pode carregar como
+    /// atributo vazio (`<="" div="">` → `div`).
+    private static let tagsRecuperaveis: Set<String> = [
+        "a", "div", "p", "span", "table", "tbody", "thead", "tfoot",
+        "tr", "td", "th", "section", "article", "header", "footer",
+    ]
+
+    /// O nome escondido num fechamento que o gerador escreveu sem `/`.
+    static func tagRecuperada(de crua: String) -> String? {
+        atributos(de: crua)
+            .first { tagsRecuperaveis.contains($0.0.lowercased()) && $0.1.isEmpty }?
+            .0
             .lowercased()
     }
 

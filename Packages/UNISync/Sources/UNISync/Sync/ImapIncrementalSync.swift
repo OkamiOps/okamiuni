@@ -86,7 +86,8 @@ public struct ImapIncrementalSync: Sendable {
         try await database.pool.write { db in
             try FolderSync.reconcile(
                 db, accountID: account.id,
-                discovered: InitialLoader.registros(doServidor, accountID: account.id)
+                discovered: InitialLoader.registros(doServidor, accountID: account.id),
+                preservando: [FolderRecord.localDrafts(accountID: account.id).id]
             )
         }
         var total = Outcome()

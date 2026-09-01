@@ -28,6 +28,13 @@ struct MessageListTests {
         #expect(InboxCategoryFilter.social.category == .social)
     }
 
+    @Test("contagem zero some da cápsula; número positivo permanece")
+    @MainActor
+    func categoryCountLabelHidesZero() {
+        #expect(MessageList.categoryCountLabel(0) == nil)
+        #expect(MessageList.categoryCountLabel(3) == "3")
+    }
+
     @Test("somente Hoje amplia o cabeçalho para a trilha de categorias")
     @MainActor
     func categoryHeaderHeightIsExclusiveToToday() {
@@ -37,14 +44,65 @@ struct MessageListTests {
         }
     }
 
+    @Test("Tudo na busca recolhe o vão da trilha de categorias")
+    @MainActor
+    func searchEverywhereCollapsesCategoryHeader() {
+        #expect(MessageList.headerHeight(for: .today, searchingEverywhere: true) == 74)
+        #expect(MessageList.headerHeight(for: .today, selecting: true, searchingEverywhere: true) == 118)
+        #expect(MessageList.headerHeight(for: .archived, searchingEverywhere: true) == 74)
+    }
+
+    @Test("o rodapé da busca aponta Tudo quando o termo não está nesta caixa")
+    @MainActor
+    func emptySearchFooterPointsToEverywhere() {
+        #expect(
+            MessageList.emptyFooter(isEmpty: true, query: "", searchingEverywhere: false)
+            == MessageList.emptyBox
+        )
+        #expect(
+            MessageList.emptyFooter(isEmpty: true, query: "beatriz", searchingEverywhere: false)
+            == MessageList.emptySearchHere
+        )
+        #expect(
+            MessageList.emptyFooter(isEmpty: true, query: "beatriz", searchingEverywhere: true)
+            == MessageList.emptySearchEverywhere
+        )
+        #expect(
+            MessageList.emptyFooter(isEmpty: false, query: "beatriz", searchingEverywhere: false)
+            == "Fim da lista"
+        )
+    }
+
+    @Test("com lote, qualquer caixa amplia o cabeçalho para a faixa de ações")
+    @MainActor
+    func selectingHeaderHeightAppliesToEveryBucket() {
+        for bucket in TriageBucket.allCases {
+            #expect(MessageList.headerHeight(for: bucket, selecting: true) == 118)
+        }
+        #expect(MessageList.headerHeight(for: .archived, selecting: false) == 74)
+    }
+
+    @Test("o rótulo do lote usa plural correto")
+    @MainActor
+    func selectedCountPlural() {
+        #expect(MessageList.selectedCountLabel(1) == "1 selecionada")
+        #expect(MessageList.selectedCountLabel(3) == "3 selecionadas")
+    }
+
     /// Uma mensagem qualquer, sem depender das fixtures, para provar regra de
     /// agrupamento em vez de conferir dado.
-    private func message(_ id: String, dayOffset: Int, at receivedAt: Date = .now) -> Message {
+    private func message(
+        _ id: String,
+        dayOffset: Int,
+        at receivedAt: Date = .now,
+        bucket: TriageBucket = .today,
+        subject: String = "Assunto"
+    ) -> Message {
         Message(
             id: id, accountID: "a",
             from: Contact(name: "Quem", address: "quem@exemplo.com"),
-            receivedAt: receivedAt, subject: "Assunto", snippet: "Trecho",
-            body: [], tags: [], bucket: .today, isRead: false,
+            receivedAt: receivedAt, subject: subject, snippet: "Trecho",
+            body: [], tags: [], bucket: bucket, isRead: false,
             summary: nil, detectedEvent: nil, dayOffset: dayOffset
         )
     }
@@ -241,5 +299,66 @@ struct MessageListTests {
     @MainActor
     func pluralMany() {
         #expect(MessageList.messageCountLabel(42) == "42 mensagens")
+        #expect(MessageList.messageCountLabel(20, hasMore: true) == "20+ mensagens")
+    }
+
+    // MARK: - Seleção em lote, em qualquer caixa
+
+    @MainActor
+    private func store(bucket: TriageBucket, ids: [String]) async -> MailStore {
+        let messages = ids.enumerated().map { offset, id in
+            message(
+                id, dayOffset: 0,
+                at: Date(timeIntervalSince1970: 400 - TimeInterval(offset)),
+                bucket: bucket, subject: id
+            )
+        }
+        let store = MailStore(
+            source: InMemoryMailSource(accounts: [], messages: messages, agenda: [])
+        )
+        await store.load()
+        store.select(bucket: bucket)
+        return store
+    }
+
+    @Test("o checkbox do cabeçalho marca todas em Arquivado")
+    @MainActor
+    func headerCheckboxSelectsInArchived() async throws {
+        let store = await store(bucket: .archived, ids: ["a", "b"])
+        CliqueDeEnsaio.em(
+            MessageList(store: store),
+            size: CGSize(width: MessageList.width, height: 400),
+            aY: 37, x: 26
+        )
+        #expect(store.allVisibleChecked)
+        #expect(store.checkedConversations.count == 2)
+    }
+
+    @Test("o clique no avatar marca a conversa sem abrir o leitor")
+    @MainActor
+    func avatarClickChecksWithoutOpening() async throws {
+        let store = await store(bucket: .later, ids: ["a", "b"])
+        store.select(message: "b")
+        CliqueDeEnsaio.em(
+            MessageList(store: store),
+            size: CGSize(width: MessageList.width, height: 400),
+            aY: 74 + 12 + 19, x: 43
+        )
+        #expect(store.selectedMessageID == "b")
+        #expect(store.checkedConversations.map(\.latest.id).contains("a"))
+        #expect(!store.allVisibleChecked)
+    }
+
+    @Test("a faixa de lote oferece destinos em Depois, sem a caixa já aberta")
+    @MainActor
+    func batchTargetsSkipCurrentBucket() async {
+        let store = await store(bucket: .later, ids: ["a"])
+        store.selectAllVisible()
+        let lista = MessageList(store: store)
+        #expect(lista.isSelecting)
+        #expect(lista.batchBucketTargets == [.today, .archived])
+        lista.moveChecked(to: .archived)
+        #expect(store.messages.allSatisfy { $0.bucket == .archived })
+        #expect(!store.hasChecked)
     }
 }

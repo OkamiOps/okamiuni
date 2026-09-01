@@ -24,6 +24,12 @@ enum MenuSurface {
     static let rowVerticalPadding: CGFloat = 5
     /// Folga em volta da divisória entre blocos.
     static let dividerPadding: CGFloat = 5
+    /// Quantas pastas/linhas cabem na janela do menu antes de rolar. A lista
+    /// de marcadores do Gmail passa fácil de cem; sem teto o painel come a tela.
+    static let visibleRows = 20
+    static let listRowHeight: CGFloat = 26
+    static var listMaxHeight: CGFloat { CGFloat(visibleRows) * listRowHeight }
+
     /// O corpo de uma linha de menu.
     static let rowFontSize: CGFloat = 12.5
     /// O atalho e a seta do submenu, um degrau abaixo do rótulo.

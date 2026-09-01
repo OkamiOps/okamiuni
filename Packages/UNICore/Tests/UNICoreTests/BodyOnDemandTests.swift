@@ -97,7 +97,7 @@ struct BodyOnDemandTests {
         await busca.value
 
         #expect(store.bodyLoad(for: "m1") == .buscado)
-        #expect(store.messages.first?.body == ["A revisão do contrato ficou pronta."])
+        #expect(store.message("m1")?.body == ["A revisão do contrato ficou pronta."])
         #expect(await porta.quantasChamadas == 1)
     }
 
@@ -147,7 +147,7 @@ struct BodyOnDemandTests {
         await store.retryBody("m1")
 
         #expect(store.bodyLoad(for: "m1") == .buscado)
-        #expect(store.messages.first?.body == ["Agora foi."])
+        #expect(store.message("m1")?.body == ["Agora foi."])
         #expect(await porta.quantasChamadas == 2)
     }
 
@@ -180,7 +180,7 @@ struct BodyOnDemandTests {
         await store.loadBodyIfNeeded("m1")
 
         #expect(await porta.quantasChamadas == 1)
-        #expect(store.messages.first?.bodyHTML == "<p>A revisão.</p>")
+        #expect(store.message("m1")?.bodyHTML == "<p>A revisão.</p>")
 
         // E **uma** vez: a resposta ficou no retrato, `htmlResolved` passa a
         // dizer sim, e reabrir a mensagem — mesmo depois de limpar o estado da
@@ -198,8 +198,8 @@ struct BodyOnDemandTests {
         let store = store(corpo: ["Bom dia."], porta: porta, html: nil)
         await store.load()
         await store.loadBodyIfNeeded("m1")
-        #expect(store.messages.first?.hasHTML == false)
-        #expect(store.messages.first?.htmlResolved == true)
+        #expect(store.message("m1")?.hasHTML == false)
+        #expect(store.message("m1")?.htmlResolved == true)
 
         await store.retryBody("m1")
         await store.loadBodyIfNeeded("m1")
@@ -214,8 +214,8 @@ struct BodyOnDemandTests {
         let store = store(corpo: ["O texto de antes."], porta: porta, html: nil)
         await store.load()
         await store.loadBodyIfNeeded("m1")
-        #expect(store.messages.first?.body == ["O texto de antes."])
-        #expect(store.messages.first?.bodyHTML == "<p>Oi</p>")
+        #expect(store.message("m1")?.body == ["O texto de antes."])
+        #expect(store.message("m1")?.bodyHTML == "<p>Oi</p>")
     }
 
     /// **A terceira razão para rebuscar, da M3-18.** A mensagem tem HTML — o
@@ -236,8 +236,8 @@ struct BodyOnDemandTests {
 
         await store.loadBodyIfNeeded("m1")
         #expect(await porta.quantasChamadas == 1)
-        #expect(store.messages.first?.bodyHTML == completo)
-        #expect(store.messages.first?.hasPendingInlineImages == false)
+        #expect(store.message("m1")?.bodyHTML == completo)
+        #expect(store.message("m1")?.hasPendingInlineImages == false)
     }
 
     /// E o vazio de "não coube" **não** é rebuscado: ele não tem conserto, e
@@ -266,5 +266,22 @@ struct BodyOnDemandTests {
         await primeira.value
 
         #expect(await porta.quantasChamadas == 1)
+    }
+
+    @Test("Buscar o corpo não apaga a página de Tudo")
+    func corpoNaoInvalidaAPagina() async throws {
+        let porta = PortaConduzida(
+            resposta: .success(FetchedBody(paragraphs: ["texto"], html: "<p>texto</p>"))
+        )
+        let store = store(porta: porta, html: nil)
+        await store.load()
+        store.select(bucket: .all)
+        _ = store.conversationPage(limit: 10)
+        let montagens = store.conversationPageBuildCount
+        await store.loadBodyIfNeeded("m1")
+        store.select(bucket: .today)
+        store.select(bucket: .all)
+        #expect(store.conversationPageBuildCount == montagens)
+        #expect(store.message("m1")?.bodyHTML == "<p>texto</p>")
     }
 }

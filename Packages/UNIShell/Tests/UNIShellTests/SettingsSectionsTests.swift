@@ -81,6 +81,56 @@ struct SettingsSectionsTests {
         }
     }
 
+    @Test("Agenda apresenta o serviço padrão de cada conta")
+    func agendaRenderizaSalas() async throws {
+        let model = try await model(with: [account(
+            id: "trabalho", address: "marcos@trabalho.example", host: "trabalho"
+        )])
+        let suite = try isolatedDefaults()
+        defer { suite.defaults.removePersistentDomain(forName: suite.name) }
+        let rooms = MeetingRoomSettingsStore(defaults: suite.defaults)
+        rooms.setDefault(.meet, for: "trabalho")
+
+        let image = try #require(Render.snapshot(
+            AccountsWindow(
+                model: model,
+                initialSection: .agenda,
+                themes: ThemeStore(defaults: suite.defaults),
+                meetingRooms: rooms
+            ),
+            named: "settings-agenda-salas",
+            size: renderSize,
+            theme: .tinta
+        ))
+
+        #expect(image.pixelsWide == Int(renderSize.width))
+        #expect(image.pixels(matching: Theme.tinta.accentSoft) > 400)
+    }
+
+    @Test("Remetentes mostra o endereço principal da conta")
+    func remetentesRenderizaAliases() async throws {
+        let model = try await model(with: [account(
+            id: "trabalho", address: "marcos@okamiops.com", host: "okamiops"
+        )])
+        let suite = try isolatedDefaults()
+        defer { suite.defaults.removePersistentDomain(forName: suite.name) }
+
+        let image = try #require(Render.snapshot(
+            AccountsWindow(
+                model: model,
+                initialSection: .aliases,
+                themes: ThemeStore(defaults: suite.defaults),
+                swipes: SwipeSettingsStore(defaults: suite.defaults)
+            ),
+            named: "settings-remetentes",
+            size: renderSize,
+            theme: .okami
+        ))
+
+        #expect(image.pixelsWide == Int(renderSize.width))
+        #expect(image.pixelsHigh == Int(renderSize.height))
+    }
+
     @Test("Inteligência renderiza preferências de IA com credencial em memória")
     func inteligenciaRenderiza() async throws {
         let model = try await model(with: [account(

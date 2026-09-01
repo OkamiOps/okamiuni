@@ -40,7 +40,7 @@ struct ContextMenuSurfaceTests {
             "Copiar convite",
             "Copiar resumo",
             "Ir para o email de origem",
-            "Tirar da agenda",
+            "Remover do calendário",
         ])
         #expect(entries.commands.contains(.openEvent(itemID: item.id)))
         // A origem sai do histórico do compromisso, casada com o assunto.
@@ -60,12 +60,11 @@ struct ContextMenuSurfaceTests {
         // O menu encolhe no que depende do dado — link e origem —, e não no
         // que existe em todo cartão.
         #expect(entries.titles == [
-            "Abrir detalhe", "Copiar convite", "Copiar resumo", "Tirar da agenda",
+            "Abrir detalhe", "Copiar convite", "Copiar resumo", "Remover do calendário",
         ])
-        // Compromisso de fixture: o item está lá, apagado, com o motivo.
-        for case .item(let item) in entries where item.title == "Tirar da agenda" {
-            #expect(item.isEnabled == false)
-            #expect(item.help != nil)
+        for case .item(let entry) in entries where entry.title == "Remover do calendário" {
+            #expect(entry.isEnabled == true)
+            #expect(entry.command == .removeFromAgenda(itemID: item.id))
         }
         // E o menu curto continua bem formado: nada de traço solto no fim.
         #expect(entries.last?.isSeparator != true)

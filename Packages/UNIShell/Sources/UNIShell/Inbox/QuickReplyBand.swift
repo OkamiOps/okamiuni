@@ -229,8 +229,8 @@ struct QuickReplyBand: View {
     /// **A faixa nasce recolhida.** Pedido do dono: o editor de resposta
     /// ocupava o rodapé do leitor em toda mensagem, mesmo nas que ninguém vai
     /// responder — e a altura que ele comia é a do texto que a pessoa está
-    /// lendo. Recolhida, a faixa é uma linha ("Responder a Fulano…" e um
-    /// botão), e o editor aparece quando alguém pede.
+    /// lendo. Recolhida, a faixa é uma linha ("Responder a Fulano…"); o
+    /// editor aparece pelo Responder de cima, por ⌘R ou pelo clique nesta linha.
     ///
     /// Duas exceções, e as duas são a mesma regra: **a faixa nunca esconde
     /// trabalho que já existe.**
@@ -599,33 +599,35 @@ struct QuickReplyBand: View {
     /// reabre exatamente onde parou.
     private var closedCard: some View {
         HStack(spacing: 10) {
-            if let sentAt {
-                Text("✓")
-                    .font(theme.sans.font(size: 12, weight: .semibold))
-                    .foregroundStyle(theme.accentInk.color)
-                Text(Self.sentNote(
-                    words: DraftMeta.countLabel(plainText),
-                    stamp: sentAt.formatted(date: .omitted, time: .shortened),
-                    archived: archivedOriginal
-                ))
-                .font(theme.sans.font(size: 12.5))
-                .foregroundStyle(theme.ink2.color)
-                .lineLimit(1)
-            } else {
-                Text("Responder a \(message.from.name.isEmpty ? message.from.address : message.from.name)…")
-                    .font(theme.sans.font(size: 12.5))
-                    .foregroundStyle(theme.ink3.color)
-                    .lineLimit(1)
-            }
-
-            Spacer(minLength: 8)
-
-            ChromeButton(
-                sentAt == nil ? "Responder" : "Retomar",
-                appearance: .outlined, size: 12.5
-            ) {
+            Button {
                 open = true
+            } label: {
+                HStack(spacing: 10) {
+                    if let sentAt {
+                        Text("✓")
+                            .font(theme.sans.font(size: 12, weight: .semibold))
+                            .foregroundStyle(theme.accentInk.color)
+                        Text(Self.sentNote(
+                            words: DraftMeta.countLabel(plainText),
+                            stamp: sentAt.formatted(date: .omitted, time: .shortened),
+                            archived: archivedOriginal
+                        ))
+                        .font(theme.sans.font(size: 12.5))
+                        .foregroundStyle(theme.ink2.color)
+                        .lineLimit(1)
+                    } else {
+                        Text("Responder a \(message.from.name.isEmpty ? message.from.address : message.from.name)…")
+                            .font(theme.sans.font(size: 12.5))
+                            .foregroundStyle(theme.ink3.color)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel(sentAt == nil ? "Responder" : "Retomar")
+
             promoteButton
         }
         .padding(.leading, 14)

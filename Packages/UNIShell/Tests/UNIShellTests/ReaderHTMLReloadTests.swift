@@ -100,11 +100,7 @@ struct ReaderHTMLReloadTests {
         )
     }
 
-    /// O teto conta a partir do fim da navegação, e não da abertura.
-    ///
-    /// Contado da abertura, ele mentia exatamente no caso do dono: aos cinco
-    /// segundos declarava "pintou" com as imagens ainda descendo, e a coluna
-    /// voltava a ser um fio em branco pelos quinze restantes.
+    /// O teto é curto: imagem remota presa não pode girar a espera para sempre.
     @Test("O teto da espera é curto porque só começa quando a navegação acaba")
     func oTetoEDaRegua() {
         #expect(ReaderHTMLSection.tetoDaEspera <= .seconds(8))

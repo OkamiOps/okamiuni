@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import UNIDesign
 import UNICore
@@ -19,6 +20,13 @@ import UNICore
 /// quebraria o ponto de fidelidade da Task P. Por isso o `InboxScreen` a coloca
 /// como sobreposição posicionada por `offset`, fora do `HStack`: o alvo tem 6pt
 /// de largura para o mouse e 0 para o layout.
+///
+/// ## Por que é `NSView`, não `DragGesture`
+///
+/// A janela é `isMovableByWindowBackground`. `Color.clear` no SwiftUI não é
+/// opaco, então o AppKit trata o clique na calha como arraste **da janela** —
+/// o app inteiro anda e a divisória não. `mouseDownCanMoveWindow = false` é o
+/// interruptor que o `NSSplitView` usa; o `NSView` abaixo faz o mesmo.
 public struct PaneDivider: View {
     /// Largura do alvo de arraste.
     ///
@@ -83,39 +91,25 @@ public struct PaneDivider: View {
     }
 
     public var body: some View {
-        Color.clear
-            .frame(width: Self.hitWidth)
-            .frame(maxHeight: .infinity)
-            .contentShape(Rectangle())
-            .overlay(highlight)
-            // Cursor de redimensionamento horizontal. `columnResize` é
-            // exatamente o que o AppKit mostra na calha de um `NSSplitView`
-            // vertical, e o modificador se equilibra sozinho — nada de
-            // `NSCursor.push()` sem o `pop()` correspondente quando o painel
-            // some com o ponteiro em cima.
-            .pointerStyle(.columnResize)
-            .onHover { isHovering = $0 }
-            // Antes do arraste: um `DragGesture` com `minimumDistance` maior
-            // que zero deixa o duplo clique passar.
-            .onTapGesture(count: 2, perform: onReset)
-            .gesture(
-                // O espaço nomeado é obrigatório aqui, não um refinamento: ver
-                // `coordinateSpace` acima. No espaço local a divisória anda
-                // metade do que o cursor anda.
-                DragGesture(minimumDistance: 1, coordinateSpace: .named(Self.coordinateSpace))
-                    .onChanged { value in
-                        isDragging = true
-                        onDrag(value.translation.width)
-                    }
-                    .onEnded { _ in
-                        isDragging = false
-                        onEnd()
-                    }
-            )
-            .accessibilityElement()
-            .accessibilityAddTraits(.isButton)
-            .accessibilityLabel("Divisória de painel")
-            .accessibilityHint("Arraste para redimensionar. Duplo clique volta à largura padrão.")
+        PaneDividerHandle(
+            onDrag: { translation in
+                isDragging = true
+                onDrag(translation)
+            },
+            onEnd: {
+                isDragging = false
+                onEnd()
+            },
+            onReset: onReset,
+            onHover: { isHovering = $0 }
+        )
+        .frame(width: Self.hitWidth)
+        .frame(maxHeight: .infinity)
+        .overlay(highlight)
+        .accessibilityElement()
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Divisória de painel")
+        .accessibilityHint("Arraste para redimensionar. Duplo clique volta à largura padrão.")
     }
 
     private var highlight: some View {
@@ -123,5 +117,86 @@ public struct PaneDivider: View {
             .fill(isDragging ? theme.accent.color : theme.line.color)
             .frame(width: Self.highlightThickness)
             .opacity(isHovering || isDragging ? 1 : 0)
+            .allowsHitTesting(false)
+    }
+}
+
+/// Calha nativa: o clique não move a janela.
+private struct PaneDividerHandle: NSViewRepresentable {
+    var onDrag: (CGFloat) -> Void
+    var onEnd: () -> Void
+    var onReset: () -> Void
+    var onHover: (Bool) -> Void
+
+    func makeNSView(context: Context) -> Catcher {
+        let view = Catcher()
+        view.coordinator = context.coordinator
+        return view
+    }
+
+    func updateNSView(_ view: Catcher, context: Context) {
+        context.coordinator.onDrag = onDrag
+        context.coordinator.onEnd = onEnd
+        context.coordinator.onReset = onReset
+        context.coordinator.onHover = onHover
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator {
+        var onDrag: (CGFloat) -> Void = { _ in }
+        var onEnd: () -> Void = {}
+        var onReset: () -> Void = {}
+        var onHover: (Bool) -> Void = { _ in }
+        var originX: CGFloat = 0
+    }
+
+    final class Catcher: NSView {
+        var coordinator: Coordinator?
+
+        override var mouseDownCanMoveWindow: Bool { false }
+
+        override func resetCursorRects() {
+            addCursorRect(bounds, cursor: .resizeLeftRight)
+        }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            trackingAreas.forEach(removeTrackingArea)
+            addTrackingArea(
+                NSTrackingArea(
+                    rect: bounds,
+                    options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                    owner: self,
+                    userInfo: nil
+                )
+            )
+        }
+
+        override func mouseEntered(with event: NSEvent) {
+            coordinator?.onHover(true)
+        }
+
+        override func mouseExited(with event: NSEvent) {
+            coordinator?.onHover(false)
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            if event.clickCount >= 2 {
+                coordinator?.onReset()
+                return
+            }
+            coordinator?.originX = event.locationInWindow.x
+            coordinator?.onDrag(0)
+        }
+
+        override func mouseDragged(with event: NSEvent) {
+            guard let coordinator else { return }
+            coordinator.onDrag(event.locationInWindow.x - coordinator.originX)
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            coordinator?.onEnd()
+        }
     }
 }

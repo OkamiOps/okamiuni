@@ -907,6 +907,74 @@ public struct SwipeReceipt: Sendable, Hashable, Identifiable {
         )
     }
 
+    /// O recibo de uma ação sobre **várias** conversas, o lote da lista.
+    ///
+    /// Uma conversa só cai no caminho de `ofConversation`, e a frase continua
+    /// falando do remetente. Duas ou mais falam da contagem — "Arquivada —
+    /// 3 conversas · 14:32" — para o Desfazer não devolver um lote depois de
+    /// uma faixa que só nomeou uma pessoa.
+    public static func ofBatch(
+        _ action: SwipeAction,
+        conversations: [Conversation],
+        states: [MessageState],
+        stamp: String,
+        id: UUID = UUID()
+    ) -> SwipeReceipt? {
+        guard let first = conversations.first else { return nil }
+        if conversations.count == 1 {
+            return ofConversation(
+                action, conversation: first, states: states, stamp: stamp, id: id
+            )
+        }
+        return SwipeReceipt(
+            id: id,
+            action: action,
+            messageID: first.latest.id,
+            note: batchNote(
+                action.receiptTitle(for: first.latest),
+                conversations: conversations,
+                stamp: stamp
+            ),
+            undo: .restoreConversation(states: states)
+        )
+    }
+
+    /// O "Apagar definitivamente" de um lote.
+    public static func ofBatchDeleteForever(
+        conversations: [Conversation],
+        stamp: String,
+        id: UUID = UUID()
+    ) -> SwipeReceipt? {
+        guard let first = conversations.first else { return nil }
+        if conversations.count == 1 {
+            return ofConversationDeleteForever(
+                conversation: first, stamp: stamp, id: id
+            )
+        }
+        return SwipeReceipt(
+            id: id,
+            messageID: first.latest.id,
+            note: batchNote("Apagada de vez", conversations: conversations, stamp: stamp),
+            undo: .restoreDeletedConversation(
+                messageIDs: conversations.flatMap(\.messageIDs)
+            )
+        )
+    }
+
+    /// "Arquivada — 3 conversas · 14:32".
+    public static func batchNote(
+        _ head: String,
+        conversations: [Conversation],
+        stamp: String
+    ) -> String {
+        let n = conversations.count
+        guard n > 1 else {
+            guard let first = conversations.first else { return "\(head) · \(stamp)" }
+            return note(head, message: first.latest, count: first.count, stamp: stamp)
+        }
+        return "\(head) — \(n) conversas · \(stamp)"
+    }
+
     /// "Arquivada — Marina Duarte · 3 mensagens · 14:32".
     ///
     /// Uma função para os dois casos: com `count == 1` ela devolve exatamente a

@@ -607,7 +607,7 @@ enum SignatureRichDocument {
         let usesPaper = ReaderHTMLPolicy.paleta(para: safeHTML) == .papel
         let background = usesPaper ? "#ffffff" : css(theme.surface)
         let foreground = usesPaper ? "#1a1a1a" : css(theme.ink)
-        let link = usesPaper ? "#1155cc" : css(theme.accent)
+        let link = usesPaper ? "#1155cc" : css(theme.link)
         let colorScheme = usesPaper ? "light" : "light dark"
         return """
         <!doctype html>

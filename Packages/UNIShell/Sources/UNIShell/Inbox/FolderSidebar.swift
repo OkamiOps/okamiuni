@@ -88,8 +88,15 @@ struct IntelligenceFooter: View {
     @Environment(\.displayScale) private var displayScale
     let presentation: IntelligencePresentation
     let onOpenAssistant: () -> Void
+    /// A trilha de 72pt não cabe o cartão com duas linhas. Aí vira só o
+    /// ícone e "IA", o mesmo desenho da `SidebarRail`.
+    var compact: Bool = false
 
     var body: some View {
+        if compact { compactBody } else { expandedBody }
+    }
+
+    private var expandedBody: some View {
         Button(action: onOpenAssistant) {
             HStack(spacing: 10) {
                 Image(systemName: presentation.symbol)
@@ -134,10 +141,40 @@ struct IntelligenceFooter: View {
         .accessibilityHint(presentation.actionHelp)
     }
 
+    private var compactBody: some View {
+        Button(action: onOpenAssistant) {
+            VStack(spacing: 4) {
+                Image(systemName: presentation.symbol)
+                    .font(.system(size: 22, weight: .medium))
+                    .symbolRenderingMode(.hierarchical)
+                    .accessibilityHidden(true)
+                Text("IA")
+                    .font(theme.sans.font(size: 9, weight: .semibold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(presentation.isAvailable ? statusColor.color : theme.ink4.color)
+            .frame(width: 46, height: 50)
+            .background(presentation.isAvailable ? statusColor.color.opacity(0.08) : theme.surface3.color)
+            .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+            .overlay {
+                RoundedRectangle(cornerRadius: theme.radiusSmall)
+                    .strokeBorder(
+                        presentation.isAvailable ? statusColor.color.opacity(0.28) : theme.line2.color,
+                        lineWidth: Hairline.thickness(displayScale)
+                    )
+            }
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
+        .disabled(!presentation.isAvailable)
+        .help(presentation.actionHelp)
+        .accessibilityLabel(presentation.actionTitle)
+        .accessibilityValue(presentation.isAvailable ? "Disponível" : "Indisponível")
+        .accessibilityHint(presentation.actionHelp)
+    }
+
     private var statusColor: TokenColor {
-        presentation.isAvailable
-            ? TokenColor(red: 1, green: 90 / 255, blue: 31 / 255, opacity: 1)
-            : theme.ink4
+        presentation.isAvailable ? theme.info : theme.ink4
     }
 }
 
@@ -294,13 +331,13 @@ public struct FolderSidebar: View {
                 Text("Escrever")
                     .font(theme.sans.font(size: 13, weight: .semibold))
             }
-            .foregroundStyle(theme.surface.color)
+            .foregroundStyle(theme.onAccent.color)
             .frame(maxWidth: .infinity, minHeight: 44)
-            .background(theme.ink.color)
+            .background(theme.accent.color)
             .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
         }
         .buttonStyle(.plain)
-        .focusRing(cornerRadius: theme.radiusSmall, tint: \.surface)
+        .focusRing(cornerRadius: theme.radiusSmall, tint: \.onAccent)
         .help("Nova mensagem (⌘N)")
         .accessibilityLabel("Escrever uma nova mensagem")
     }
@@ -340,16 +377,16 @@ public struct FolderSidebar: View {
             HStack(spacing: 9) {
                 Image(systemName: Self.navigationSymbol(for: bucket))
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle((active ? theme.accentInk : theme.ink3).color)
+                    .foregroundStyle((active ? theme.ink : theme.ink3).color)
                     .frame(width: 18)
                     .accessibilityHidden(true)
                 Text(bucket.label)
                     .font(theme.sans.font(size: 13, weight: .medium))
-                    .foregroundStyle((active ? theme.accentInk : theme.ink2).color)
+                    .foregroundStyle((active ? theme.ink : theme.ink2).color)
                 Spacer(minLength: 0)
                 Text("\(Self.counter(for: bucket, store: store))")
                     .font(theme.mono.font(size: 10))
-                    .foregroundStyle((active ? theme.accentInk : theme.ink4).color)
+                    .foregroundStyle((active ? theme.ink : theme.ink4).color)
             }
             .frame(height: 40)
             .padding(.horizontal, 10)
@@ -390,15 +427,17 @@ public struct FolderSidebar: View {
 
     /// O símbolo de uma caixa, quando ela tem um.
     ///
-    /// Duas têm, e pela mesma razão: elas são as que **não** são triagem. A
-    /// Lixeira é a única cujo conteúdo se perde; Enviadas é a única que guarda
-    /// o que saiu. O ícone é o que as distingue à primeira vista de
-    /// "Arquivado", entre as quais elas estão. As outras quatro continuam só
-    /// com o nome, como no protótipo.
+    /// Três têm, e pela mesma razão: elas são as que **não** são triagem. A
+    /// Lixeira é a única cujo conteúdo se perde; Enviadas guarda o que saiu;
+    /// Rascunhos guarda o que ainda não saiu. O ícone é o que as distingue à
+    /// primeira vista de "Arquivado". As outras quatro continuam só com o
+    /// nome, como no protótipo.
     static func symbol(for bucket: TriageBucket) -> String? {
         switch bucket {
         case .trash: "trash"
+        case .junk: "exclamationmark.octagon"
         case .sent: "paperplane"
+        case .drafts: "square.and.pencil"
         default: nil
         }
     }
@@ -410,7 +449,9 @@ public struct FolderSidebar: View {
         case .all: "tray"
         case .archived: "archivebox"
         case .trash: "trash"
+        case .junk: "exclamationmark.octagon"
         case .sent: "paperplane"
+        case .drafts: "square.and.pencil"
         }
     }
 
@@ -421,7 +462,7 @@ public struct FolderSidebar: View {
     /// que você escreveu nasce lida, então "não lidas" ali seria zero para
     /// sempre — um contador que nunca se move é ruído com cara de informação.
     static func counter(for bucket: TriageBucket, store: MailStore) -> Int {
-        bucket == .sent
+        bucket == .sent || bucket == .drafts
             ? store.count(for: bucket)
             : store.unreadCount(in: bucket, accountID: store.selectedAccountID)
     }
@@ -445,7 +486,7 @@ public struct FolderSidebar: View {
                     if let symbol = folder.symbol {
                         Image(systemName: symbol)
                             .font(.system(size: 10))
-                            .foregroundStyle((active ? theme.accentInk : theme.ink4).color)
+                            .foregroundStyle((active ? theme.ink : theme.ink4).color)
                     }
                 }
                 .frame(width: 12)
@@ -453,7 +494,7 @@ public struct FolderSidebar: View {
 
                 Text(folder.displayName)
                     .font(theme.sans.font(size: 12))
-                    .foregroundStyle((active ? theme.accentInk : theme.ink2).color)
+                    .foregroundStyle((active ? theme.ink : theme.ink2).color)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     // O caminho inteiro no `help`: a linha corta pelo meio uma
@@ -469,7 +510,7 @@ public struct FolderSidebar: View {
                 if folder.unreadCount > 0 {
                     Text("\(folder.unreadCount)")
                         .font(theme.mono.font(size: 10))
-                        .foregroundStyle((active ? theme.accentInk : theme.ink4).color)
+                        .foregroundStyle((active ? theme.ink : theme.ink4).color)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -569,7 +610,7 @@ public struct FolderSidebar: View {
                 Spacer(minLength: 0)
 
                 // Contador (mensagens da conta)
-                Text("\(store.messages.filter { $0.accountID == account.id }.count)")
+                Text("\(store.count(forAccount: account.id))")
                     .font(theme.mono.font(size: 10))
                     .foregroundStyle(theme.ink4.color)
             }

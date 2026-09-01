@@ -8,11 +8,47 @@ public struct OAuthTokens: Sendable, Hashable, Codable {
     public let accessToken: String
     public let refreshToken: String
     public let expiresAt: Date
+    /// Escopos concedidos neste token. Vazio em tokens antigos — aí
+    /// `GoogleAuth.hasMeetAccess` consulta o tokeninfo e completa o cofre.
+    public let scopes: [String]
 
-    public init(accessToken: String, refreshToken: String, expiresAt: Date) {
+    enum CodingKeys: String, CodingKey {
+        case accessToken, refreshToken, expiresAt, scopes
+    }
+
+    public init(
+        accessToken: String, refreshToken: String, expiresAt: Date, scopes: [String] = []
+    ) {
         self.accessToken = accessToken
         self.refreshToken = refreshToken
         self.expiresAt = expiresAt
+        self.scopes = scopes
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        accessToken = try c.decode(String.self, forKey: .accessToken)
+        refreshToken = try c.decode(String.self, forKey: .refreshToken)
+        expiresAt = try c.decode(Date.self, forKey: .expiresAt)
+        scopes = try c.decodeIfPresent([String].self, forKey: .scopes) ?? []
+    }
+
+    /// Calendar `events` (Gmail pessoal) ou Meet Space (Workspace). Qualquer
+    /// um dos dois permite criar sala nova.
+    public var canCreateMeet: Bool {
+        scopes.contains { scope in
+            scope.contains("meetings.space.created")
+                || scope.contains("auth/calendar.events")
+                || scope.hasSuffix("/auth/calendar")
+                || scope == "https://www.googleapis.com/auth/calendar"
+        }
+    }
+
+    public static func parseScopes(_ raw: String?) -> [String] {
+        (raw ?? "")
+            .split(whereSeparator: \.isWhitespace)
+            .map(String.init)
+            .filter { !$0.isEmpty }
     }
 
     /// Vencido, com folga.

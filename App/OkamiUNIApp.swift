@@ -29,6 +29,10 @@ struct OkamiUNIApp: App {
     /// Quais ações o arraste lateral da linha revela de cada lado. Persistido
     /// em `UserDefaults` como o tema — ver `SwipeSettingsStore`.
     @State private var swipes = SwipeSettingsStore()
+    /// Serviço padrão e credenciais de API. O editor e Ajustes → Agenda leem
+    /// a mesma instância; a fábrica cria a sala nova a cada compromisso.
+    @State private var meetingRooms: MeetingRoomSettingsStore
+    @State private var meetingFactory: MeetingRoomFactory
     /// Regras globais, persistidas fora das contas para continuarem valendo
     /// quando a pessoa alternar entre caixas. A mesma instância entra no
     /// `MailStore`, que aplica as regras em mensagens novas, e na janela de
@@ -66,23 +70,30 @@ struct OkamiUNIApp: App {
         agendaClock = relogio
         let regras = EmailRuleStore(defaults: .standard)
         _emailRules = State(initialValue: regras)
+        let rooms = MeetingRoomSettingsStore()
+        _meetingRooms = State(initialValue: rooms)
+        _meetingFactory = State(initialValue: MeetingRoomFactory(
+            google: composicao.googleAuth, rooms: rooms
+        ))
         _mailStore = State(initialValue: MailStore(
             source: composicao.source, commandPort: composicao.commandPort,
             bodyPort: composicao.bodyPort, attachmentPort: composicao.attachmentPort,
             sendPort: composicao.sendPort,
+            draftPort: composicao.draftPort,
             inviteRSVPPort: composicao.inviteRSVPPort,
             contactPort: composicao.contactPort,
             emailRules: regras,
             agendaPort: composicao.agendaPort,
             calendarSync: composicao.calendarSync,
             trustPort: composicao.trustPort,
-            agendaReferenceDay: { relogio.today }
+            agendaReferenceDay: { relogio.today },
+            calendarDefaults: .standard
         ))
         if let diretor = composicao.director {
             // A fila junto: é por ela que o "Tentar de novo" de uma fila parada
             // chega ao executor daquela conta.
             _accountsModel = State(initialValue: AccountsModel(
-                director: diretor, outbox: composicao.outbox
+                director: diretor, outbox: composicao.outbox, sync: composicao.sync
             ))
         }
         if let erro = composicao.configError {
@@ -125,7 +136,8 @@ struct OkamiUNIApp: App {
                 intelligencePresentation: .configuredAssistant,
                 textAssistant: composition.textAssistant,
                 assistantSettings: composition.assistantSettings,
-                onMessagePresented: prioritizeMessageSummary
+                onMessagePresented: prioritizeMessageSummary,
+                accountsModel: accountsModel
             )
                 // Porta de depuração: `open -g --args --nova-mensagem` abre a
                 // janela auxiliar pelo mesmo `openWindow` do menu, sem trazer o
@@ -159,6 +171,8 @@ struct OkamiUNIApp: App {
             cenaPrincipal
                 .environment(themes)
                 .environment(swipes)
+                .environment(meetingRooms)
+                .environment(meetingFactory)
                 .theme(themes.theme)
                 .barraColadaNoTopo()
                 // 860 é o piso da faixa mais estreita da Task R: trilha de
@@ -284,7 +298,8 @@ struct OkamiUNIApp: App {
                         emailRules: emailRules,
                         themes: themes,
                         swipes: swipes,
-                        mailStore: mailStore
+                        mailStore: mailStore,
+                        meetingRooms: meetingRooms
                     )
                 } else {
                     // Sem diretor não há o que gerenciar — e dizer isso é

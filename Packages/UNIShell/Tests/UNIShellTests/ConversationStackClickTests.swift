@@ -37,14 +37,15 @@ private final class EstadoDaPilha {
 
 private func msg(
     _ id: String, at segundos: TimeInterval, from: String,
-    body: [String] = [], snippet: String = "trecho"
+    body: [String] = [], snippet: String = "trecho",
+    isRead: Bool = true
 ) -> Message {
     Message(
         id: id, accountID: "zoho",
         from: Contact(name: from, address: "\(from.lowercased())@x.com"),
         receivedAt: Date(timeIntervalSince1970: segundos),
         subject: "Lembrete rápido: nossa call amanhã", snippet: snippet, body: body,
-        tags: [], bucket: .today, isRead: true,
+        tags: [], bucket: .today, isRead: isRead,
         summary: nil, detectedEvent: nil, threadKey: "t1"
     )
 }
@@ -97,42 +98,38 @@ struct ConversationStackClickTests {
         }
     }
 
-    /// O clique na linha recolhida do Favini — a primeira da pilha, dentro dos
-    /// 38pt da primeira linha — expande **e pede o corpo dela**.
+    /// O clique na linha recolhida do Favini — agora a **última** da pilha,
+    /// com a mais nova no topo — expande **e pede o corpo dela**.
     ///
-    /// A pilha passou a abrir com o cabeçalho da contagem (M3-21), então toda
-    /// linha desce `alturaDoCabecalho`. O deslocamento entra pela constante, e
-    /// não por um número novo: quem mudar a altura do cabeçalho não precisa
-    /// vir consertar dois cliques aqui.
-    ///
-    /// Cai por mutação: sem o `.task` de `ConversationStackView`, a porta nunca
-    /// é perguntada, `bodyLoad` fica `nil` e a linha expande para o vazio — que
-    /// é exatamente o app que o dono usou.
+    /// Primeiro recolhe a recente (a primeira linha, já aberta); com as três
+    /// compactas, o Favini é a terceira. Sem o `.task` de
+    /// `ConversationStackView`, a porta nunca é perguntada.
     @Test("Clicar na mensagem recolhida abre e busca o corpo dela")
     func oCliqueAbreEBusca() async throws {
         let store = await store(porta: PortaMuda())
         let estado = EstadoDaPilha()
+        let cabeca = ConversationStackView<EmptyView>.alturaDoCabecalho
+        let linha = ConversationStackView<EmptyView>.alturaDaLinha
 
         try CliqueDeEnsaio.em(
             pilha(store, estado: estado),
             size: CGSize(width: 700, height: 400),
-            aY: ConversationStackView<EmptyView>.alturaDoCabecalho
-                + ConversationStackView<EmptyView>.alturaDaLinha / 2
+            aY: cabeca + linha / 2
+        )
+        #expect(estado.opened?.ids.contains("c") == false)
+
+        try CliqueDeEnsaio.em(
+            pilha(store, estado: estado),
+            size: CGSize(width: 700, height: 400),
+            aY: cabeca + linha * 2 + linha / 2
         )
 
-        // Abriu: o estado da pilha passou a ter a mensagem de baixo.
         #expect(estado.opened?.ids.contains("a") == true)
-        // E abrir **pediu o corpo dela** — o defeito era este pedido não
-        // existir. `carregando` é posto por `loadBodyIfNeeded` depois de todas
-        // as guardas e imediatamente antes de chamar a porta: vê-lo aqui é ver
-        // o pedido sair. Sem o `.task`, `bodyLoad` fica `nil` e a linha expande
-        // para o vazio, que é o app que o dono usou.
         #expect(store.bodyLoad(for: "a") == .carregando)
     }
 
-    /// A outra metade do toggle, pelo mesmo cano: clicar na **aberta** recolhe.
-    /// A mais recente é a última linha da pilha — três linhas de 38pt, e o
-    /// clique cai no meio da terceira.
+    /// A outra metade do toggle: a mais recente agora é a **primeira** linha
+    /// da pilha, já aberta. O clique no meio dela recolhe.
     @Test("Clicar na mensagem aberta recolhe")
     func oCliqueRecolhe() async throws {
         let store = await store(porta: nil)
@@ -142,7 +139,7 @@ struct ConversationStackClickTests {
         try CliqueDeEnsaio.em(
             pilha(store, estado: estado),
             size: CGSize(width: 700, height: 400),
-            aY: ConversationStackView<EmptyView>.alturaDoCabecalho + altura * 2 + altura / 2
+            aY: ConversationStackView<EmptyView>.alturaDoCabecalho + altura / 2
         )
 
         #expect(estado.opened?.ids.contains("c") == false)
@@ -167,5 +164,38 @@ struct ConversationStackClickTests {
 
         // Nada abriu, e nada foi lido.
         #expect(estado.opened == nil)
+    }
+
+    /// A queixa do dono depois do primeiro conserto: a pilha já abre com a
+    /// mais recente expandida, então o clique que marcava lida **nunca
+    /// acontecia** — ele só dispara ao abrir uma recolhida. Expandir e
+    /// recolher a última era o único jeito de a conversa sair de não lida.
+    @Test("Mostrar a pilha com a mais recente já aberta marca a conversa inteira")
+    func aparecerComAUltimaAbertaMarcaAConversa() async throws {
+        let store = MailStore(
+            source: InMemoryMailSource(
+                accounts: [],
+                messages: [
+                    msg("c", at: 300, from: "Marina", isRead: false),
+                    msg("a", at: 100, from: "Favini", isRead: false),
+                ],
+                agenda: []
+            )
+        )
+        await store.load()
+        store.select(bucket: .all)
+        // A seleção padrão aponta para a última e não marca como lida — é o
+        // caminho de abrir o app com a conversa já no leitor.
+        #expect(store.messages.contains { !$0.isRead })
+
+        let estado = EstadoDaPilha()
+        try CliqueDeEnsaio.em(
+            pilha(store, estado: estado),
+            size: CGSize(width: 700, height: 400),
+            aY: ConversationStackView<EmptyView>.alturaDoCabecalho / 2
+        )
+
+        #expect(store.messages.allSatisfy { $0.isRead })
+        #expect(store.conversation(of: "c")?.hasUnread == false)
     }
 }

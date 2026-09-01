@@ -146,8 +146,7 @@ public enum GmailMessageParser {
     ) -> MimeBody.Decoded {
         let plano = firstPart(in: payload, mimeType: "text/plain").map(desdobra)
         let html = firstPart(in: payload, mimeType: "text/html")?.texto
-        let agenda = (firstPart(in: payload, mimeType: "text/calendar")
-            ?? firstPart(in: payload, mimeType: "application/ics"))?.texto
+        let agenda = firstCalendar(in: payload)?.texto
 
         let texto: String
         if let plano {
@@ -255,6 +254,28 @@ public enum GmailMessageParser {
     struct Parte {
         let texto: String
         let tipo: String
+    }
+
+    /// O `text/calendar` / `invite.ics`, mesmo quando o Gmail o marca como
+    /// anexo sem o mime do RFC.
+    private static func firstCalendar(in part: Wire.Part) -> Parte? {
+        let mime = part.mimeType?.lowercased() ?? ""
+        let nome = part.filename?.lowercased() ?? ""
+        let calendario = mime == "text/calendar"
+            || mime == "application/ics"
+            || mime == "text/x-vcalendar"
+            || nome.hasSuffix(".ics")
+            || nome.hasSuffix(".ifb")
+        if calendario, let dado = part.body?.data {
+            let tipo = part.headers?.first { $0.name.lowercased() == "content-type" }?.value
+            return Parte(
+                texto: decodeBody(base64URL: dado, contentType: tipo), tipo: tipo ?? mime
+            )
+        }
+        for filha in part.parts ?? [] {
+            if let achada = firstCalendar(in: filha) { return achada }
+        }
+        return nil
     }
 
     /// A primeira parte de um tipo, em profundidade, já decodificada.

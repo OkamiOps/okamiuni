@@ -7,24 +7,15 @@ import UNICore
 /// ## Por que a barra lateral está aqui
 ///
 /// No protótipo ela **não** pertence à tela do email. Ela é do shell: fica
-/// fora do `sc-if` que separa "01 Caixa unificada" de "02 Agenda semanal"
-/// (linhas 1013–1058, contra os gates nas 1059 e 1393). Medido no navegador
-/// com a aba Agenda no ar, as seções "Fluxo" e "Caixas" continuam desenhadas,
-/// em 237px, e a tela da agenda começa depois delas.
+/// fora do `sc-if` que separa "01 Caixa unificada" de "02 Agenda semanal".
+/// A aba Agenda subia sem ela porque a `InboxScreen` montava a lateral só no
+/// ramo do email.
 ///
-/// A aba Agenda subia sem ela porque a `InboxScreen` monta a lateral dentro do
-/// ramo do email. Isso é o que o dono do projeto viu: "agenda não aparece a
-/// barra lateral, eu podia selecionar a agenda, tinha filtros".
+/// ## O que a lateral faz aqui
 ///
-/// ## O que a lateral faz aqui, e o que não faz
-///
-/// Ela é a mesma `FolderSidebar`/`SidebarRail` do email, com o mesmo estado:
-/// as caixas de "Fluxo" e a seleção de conta em "Caixas". **A seleção de conta
-/// não filtra a grade da agenda**, e isso é o protótipo, não esquecimento: lá,
-/// `st.account` entra em `visible()` — a lista de mensagens — e as três visões
-/// da agenda saem de `WEEK`/`MONTH`, que nunca consultam a conta selecionada.
-/// Inventar o filtro aqui seria inventar comportamento que o desenho não tem.
-/// Ele está registrado no relatório da tarefa como pergunta em aberto.
+/// `CalendarSidebar`: os calendários do macOS (Todoist, iCloud, Gmail,
+/// inscritos), um interruptor por calendário. Não é a `FolderSidebar` do
+/// email — filtrar a grade pela caixa de correio escondia o EventKit.
 public struct CalendarScreen: View {
 
     @Environment(\.theme) private var theme
@@ -125,27 +116,18 @@ public struct CalendarScreen: View {
             )
 
             HStack(spacing: 0) {
-                if expanded {
-                    FolderSidebar(
-                        store: store,
-                        width: sidebarWidth,
-                        intelligencePresentation: intelligencePresentation,
-                        onOpenAssistant: onOpenAssistant,
-                        onCompose: onCompose,
-                        onOpenAccounts: onOpenAccounts
-                    )
-                        .transition(.move(edge: .leading).combined(with: .opacity))
-                } else {
-                    SidebarRail(
-                        store: store,
-                        width: sidebarWidth,
-                        intelligencePresentation: intelligencePresentation,
-                        onOpenAssistant: onOpenAssistant,
-                        onCompose: onCompose,
-                        onOpenAccounts: onOpenAccounts
-                    )
-                        .transition(.move(edge: .leading).combined(with: .opacity))
-                }
+                CalendarSidebar(
+                    store: store,
+                    width: sidebarWidth,
+                    intelligencePresentation: intelligencePresentation,
+                    onOpenAssistant: onOpenAssistant,
+                    onCreate: { creatingAppointment = true },
+                    onOpenAccounts: onOpenAccounts,
+                    anchor: anchor,
+                    selectedDayOffset: selectedDayOffset,
+                    onPickDay: pickDay(_:)
+                )
+                .transition(.move(edge: .leading).combined(with: .opacity))
                 // A faixa de retorno pende da coluna da agenda, e não da
                 // tela inteira: a barra lateral tem o menu de caixa dela e
                 // não produz recibo nenhum.
@@ -176,8 +158,7 @@ public struct CalendarScreen: View {
                 onStepDay: step(_:),
                 onGoToday: goToday,
                 onTogglePicker: { pickerOpen.toggle() },
-                onPickDay: pickDay(_:),
-                onCreate: { creatingAppointment = true }
+                onPickDay: pickDay(_:)
             )
             // A faixa vem por cima da grade: o seletor de data é desenhado
             // dentro dela e passa 231pt abaixo do seu limite. Sem o `zIndex`,

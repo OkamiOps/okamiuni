@@ -137,6 +137,36 @@ struct ConversationActionTests {
         #expect(store.messages.allSatisfy { $0.bucket == .trash })
     }
 
+    @Test("A seta para baixo na lista abre a conversa seguinte")
+    func setaDesceNaLista() async throws {
+        let store = await store(
+            trio + [msg("z", at: 400, subject: "Outro")]
+        )
+        let lista = MessageList(store: store)
+        store.select(message: "z")
+        #expect(lista.handleBareKey(.down))
+        #expect(store.selectedMessageID == "c")
+        #expect(lista.handleBareKey(.up))
+        #expect(store.selectedMessageID == "z")
+        #expect(!lista.handleBareKey(.escape))
+    }
+
+    @Test("O ⌫ com lote apaga as marcadas, não a conversa aberta")
+    func teclaApagaOLote() async throws {
+        let store = await store(
+            trio + [msg("z", at: 400, subject: "Outro")]
+        )
+        let lista = MessageList(store: store)
+        store.select(message: "z")
+        let trioKey = try #require(store.conversation(of: "c")?.key)
+        store.toggleChecked(trioKey)
+        #expect(lista.deleteSelected())
+        #expect(store.messages.filter { $0.id == "z" }.map(\.bucket) == [.today])
+        #expect(store.messages.filter { $0.id != "z" }.allSatisfy { $0.bucket == .trash })
+        let recibo = try #require(lista.receipts.current)
+        #expect(recibo.note.contains("3 mensagens"))
+    }
+
     /// A conversa de uma mensagem só continua caindo no caminho de sempre —
     /// é assim que os retratos e os testes do Marco 1 seguem valendo.
     @Test("Numa conversa de uma mensagem, nada de novo acontece")
@@ -217,21 +247,18 @@ struct ConversationReaderTests {
         )
     }
 
-    /// Abrir a conversa abre a mais recente, e marca **ela** como lida — não a
-    /// pilha inteira.
-    @Test("Abrir a conversa marca lida só a mensagem expandida")
-    func abrirMarcaSoAExpandida() async throws {
+    /// Abrir a conversa abre a mais recente — e isso **é** ler a conversa.
+    /// Deixar uma mensagem antiga por ler na pilha mantinha a linha marcada
+    /// sem dizer qual, que é o que enlouquecia numa thread longa.
+    @Test("Abrir a conversa marca a thread inteira como lida")
+    func abrirMarcaAConversaInteira() async throws {
         let store = await store([
             msg("c", thread: "t1", at: 300, isRead: false),
             msg("a", thread: "t1", at: 100, isRead: false),
         ])
         store.select(message: "c")
-        let porID = Dictionary(uniqueKeysWithValues: store.messages.map { ($0.id, $0) })
-        #expect(porID["c"]?.isRead == true)
-        #expect(porID["a"]?.isRead == false)
-        // E a conversa continua marcada como não lida na lista, porque uma
-        // delas ainda está por ler.
-        #expect(store.conversation(of: "c")?.hasUnread == true)
+        #expect(store.messages.allSatisfy { $0.isRead })
+        #expect(store.conversation(of: "c")?.hasUnread == false)
     }
 
     @Test("O leitor da conversa desenha as duas, e o da mensagem só desenha uma")

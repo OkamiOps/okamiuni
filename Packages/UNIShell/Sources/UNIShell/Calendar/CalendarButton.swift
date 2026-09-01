@@ -1,9 +1,10 @@
 import SwiftUI
 import UNIDesign
 
-/// Os quatro botões de 26pt do cabeçalho da agenda: `‹`, `›`, "Hoje" e o que
-/// abre o seletor de data (protótipo, linhas 1404–1407 e `pickerBtnStyle` na
-/// 2373).
+/// Os quatro botões do cabeçalho da agenda: `‹`, `›`, "Hoje" e o que abre o
+/// seletor de data (protótipo, linhas 1404–1407 e `pickerBtnStyle` na 2373).
+///
+/// A faixa usa 32pt — o mesmo das abas. O protótipo pedia 26.
 ///
 /// Não é o `ChromeButton` das janelas por dois motivos que se somam: aquele é
 /// de 32pt com tinta `ink2`, e o seletor fechado é `ink` — um token de
@@ -33,12 +34,12 @@ struct CalendarButton<Label: View>: View {
     let appearance: Appearance
     /// Protótipo: `width: 26px` nas setas, `padding: 0 10/11px` nos outros.
     var width: CGFloat?
+    /// A faixa da agenda usa 32pt, o mesmo das abas Dia/Semana/Mês. O
+    /// protótipo pedia 26; o dono cobrou alvo maior e botão que pareça botão.
+    var height: CGFloat = 26
     var horizontalPadding: CGFloat
     let action: () -> Void
     @ViewBuilder var label: Label
-
-    /// Protótipo: `height: 26px` nos quatro.
-    private static var height: CGFloat { 26 }
 
     var body: some View {
         Button(action: action) {
@@ -46,7 +47,7 @@ struct CalendarButton<Label: View>: View {
                 .lineLimit(1)
                 .foregroundStyle(foreground)
                 .padding(.horizontal, horizontalPadding)
-                .frame(width: width, height: Self.height)
+                .frame(width: width, height: height)
                 .background(background)
                 .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
                 .overlay {

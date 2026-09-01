@@ -13,11 +13,12 @@ import UNIDesign
 /// largo empurra tudo o que vem depois. Quem navega com cliques repetidos em
 /// `›` vê o botão fugir do cursor.
 ///
-/// A régua é o desenho: os quatro botões de 26pt (`‹`, o seletor, `›` e
-/// "Hoje") têm fundo `btn`, e nada mais na faixa tem. A primeira e a última
-/// coluna em que essa cor aparece **são** a posição do navegador inteiro — e a
-/// primeira delas fica logo depois das abas, então ela também prova que as abas
-/// não andaram. As duas têm de ser as mesmas nos dois desenhos.
+/// A régua é o desenho: as abas Dia/Semana/Mês têm fundo `surface3`, e nada
+/// mais na faixa tem. A primeira e a última coluna em que essa cor aparece
+/// **são** a posição das abas — e a primeira delas fica logo depois do título,
+/// então ela também prova que as abas não andaram. As duas têm de ser as
+/// mesmas nos dois desenhos. O navegador (`‹` data `›` Hoje) é chip `btn`
+/// e não entra nesta régua.
 ///
 /// A largura é 1440, a da janela padrão. Não é detalhe: com quatro contas e a
 /// faixa apertada (1100 já basta), o `HStack` passa a comprimir o que não cabe,
@@ -60,7 +61,8 @@ struct CalendarHeaderLayoutTests {
         #expect(agosto.pixelsDiffering(from: julho) > 0)
 
         #expect(
-            agosto.columns(matching: Theme.tinta.btn) == julho.columns(matching: Theme.tinta.btn),
+            agosto.columns(matching: Theme.tinta.surface3)
+                == julho.columns(matching: Theme.tinta.surface3),
             "as abas e os botões ‹ › Hoje mudaram de lugar entre julho e agosto"
         )
     }
@@ -81,7 +83,8 @@ struct CalendarHeaderLayoutTests {
         #expect(curto.pixelsDiffering(from: longo) > 0)
 
         #expect(
-            curto.columns(matching: Theme.tinta.btn) == longo.columns(matching: Theme.tinta.btn),
+            curto.columns(matching: Theme.tinta.surface3)
+                == longo.columns(matching: Theme.tinta.surface3),
             "os botões do navegador mudaram de lugar entre um dia e outro"
         )
     }

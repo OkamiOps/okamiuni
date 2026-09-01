@@ -248,6 +248,102 @@ public enum ICalendar {
         )
     }
 
+    /// `METHOD:REQUEST` para um compromisso que a pessoa acabou de criar.
+    /// Quem recebe abre no calendário com o link da sala e pode responder.
+    public static func request(
+        uid: String,
+        title: String,
+        start: Date,
+        end: Date,
+        organizer: Contact,
+        attendees: [Contact],
+        location: String? = nil,
+        url: String? = nil,
+        description: String? = nil,
+        rrule: String? = nil,
+        method: String = "REQUEST",
+        status: String = "CONFIRMED",
+        sequence: Int = 0,
+        now: Date = Date()
+    ) -> String {
+        func stamp(_ date: Date) -> String {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(secondsFromGMT: 0)
+            formatter.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
+            return formatter.string(from: date)
+        }
+        func mail(_ contact: Contact) -> String {
+            "mailto:\(contact.address.trimmingCharacters(in: .whitespacesAndNewlines))"
+        }
+        func named(_ key: String, _ contact: Contact, extra: String = "") -> String {
+            let nome = contact.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let params = extra.isEmpty ? "" : extra
+            guard !nome.isEmpty, nome.lowercased() != contact.address.lowercased() else {
+                return "\(key)\(params):\(mail(contact))"
+            }
+            return "\(key)\(params);CN=\(escapa(nome)):\(mail(contact))"
+        }
+
+        var lines = [
+            "BEGIN:VCALENDAR",
+            "PRODID:-//OkamiUNI//PT-BR",
+            "VERSION:2.0",
+            "CALSCALE:GREGORIAN",
+            "METHOD:\(method)",
+            "BEGIN:VEVENT",
+            "UID:\(uid)",
+            "DTSTAMP:\(stamp(now))",
+            "DTSTART:\(stamp(start))",
+            "DTEND:\(stamp(end))",
+            "SUMMARY:\(escapa(title))",
+            "STATUS:\(status)",
+            "SEQUENCE:\(sequence)",
+            named("ORGANIZER", organizer),
+        ]
+        for guest in attendees {
+            lines.append(
+                named(
+                    "ATTENDEE", guest,
+                    extra: ";ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE"
+                )
+            )
+        }
+        if let location, !location.isEmpty { lines.append("LOCATION:\(escapa(location))") }
+        if let url, !url.isEmpty { lines.append("URL:\(url)") }
+        if let description, !description.isEmpty {
+            lines.append("DESCRIPTION:\(escapa(description))")
+        }
+        if let rrule, !rrule.isEmpty { lines.append("RRULE:\(rrule)") }
+        lines += ["END:VEVENT", "END:VCALENDAR"]
+        return lines.joined(separator: "\r\n") + "\r\n"
+    }
+
+    /// `METHOD:CANCEL` para os convidados: a reunião sai da agenda deles.
+    public static func cancellation(
+        uid: String,
+        title: String,
+        start: Date,
+        end: Date,
+        organizer: Contact,
+        attendees: [Contact],
+        now: Date = Date()
+    ) -> String {
+        request(
+            uid: uid, title: title, start: start, end: end,
+            organizer: organizer, attendees: attendees,
+            method: "CANCEL", status: "CANCELLED", sequence: 1, now: now
+        )
+    }
+
+    static func escapa(_ valor: String) -> String {
+        valor
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: ";", with: "\\;")
+            .replacingOccurrences(of: ",", with: "\\,")
+    }
+
     // MARK: - As linhas
 
     /// As continuações do RFC 5545 remontadas.

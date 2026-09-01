@@ -7,9 +7,17 @@ import UNIDesign
 @Suite("Chrome")
 struct TokenModifierTests {
 
-    @Test("as duas áreas de trabalho batem com as abas do protótipo")
+    @Test("as três áreas de trabalho batem com as abas da barra")
     func workspaceTabs() {
-        #expect(Workspace.allCases.map(\.label) == ["Caixa", "Agenda"])
+        #expect(Workspace.allCases.map(\.label) == ["Dashboard", "Caixa", "Agenda"])
+    }
+
+    @Test("digitar na busca sai do Dashboard para a Caixa")
+    func dashboardSearchSwitchesToMail() {
+        #expect(Workspace.dashboard.switchingToMailIfSearching("contrato") == .mail)
+        #expect(Workspace.dashboard.switchingToMailIfSearching("  ") == .dashboard)
+        #expect(Workspace.mail.switchingToMailIfSearching("contrato") == .mail)
+        #expect(Workspace.calendar.switchingToMailIfSearching("contrato") == .calendar)
     }
 
     @Test("a barra tem a altura do design")
@@ -49,9 +57,10 @@ struct TokenModifierTests {
             )
         )
 
-        // A linha média da barra, onde o botão da lateral desenha a caixa
-        // inteira (26×24) sem a curva do canto atrapalhar — ver `centerY`.
-        let y = Int(WindowChrome.centerY)
+        // A linha dos semáforos, onde o glifo `sidebar.left` pinta. O item
+        // começa em x=82; o símbolo de 14pt vive centrado na hit-target de 24pt,
+        // então a primeira tinta cai alguns pontos depois da borda do quadro.
+        let y = Int(TrafficLightLayout.contentCenterFromTop)
         let background = Theme.tinta.surface2
 
         var firstControlX: Int?
@@ -72,9 +81,10 @@ struct TokenModifierTests {
             firstControlX,
             "nenhum pixel diferente do fundo apareceu na linha média da barra"
         )
+        #expect(x > Int(WindowChrome.trafficLightInset), "não pode pintar em cima dos semáforos")
         #expect(
-            abs(x - 82) <= 2,
-            "o primeiro controle começou a pintar em x=\(x), não perto de 82"
+            x >= 82 && x <= 94,
+            "o glifo da lateral começou a pintar em x=\(x), fora da faixa nativa após os semáforos"
         )
     }
 
@@ -86,6 +96,15 @@ struct TokenModifierTests {
     ])
     func searchPlaceholderAgrees(count: Int, expected: String) {
         #expect(WindowChrome.searchPlaceholder(count) == expected)
+    }
+
+    @Test("o selo Tudo só aparece depois de digitar")
+    func searchEverywhereFlagAppearsAfterTyping() {
+        #expect(WindowChrome.showsEverywhereFlag("") == false)
+        #expect(WindowChrome.showsEverywhereFlag("   ") == false)
+        #expect(WindowChrome.showsEverywhereFlag("beatriz"))
+        #expect(WindowChrome.searchEverywhereLabel == "Tudo")
+        #expect(WindowChrome.searchFieldID == "uni.busca")
     }
 
     @Test("CapsLabel usa ink3 para texto funcional pequeno")
@@ -111,6 +130,14 @@ struct TokenModifierTests {
         )
     }
 
+    @Test("o Okami usa o raio do token, não a pílula de 17pt")
+    @MainActor
+    func okamiTabsHonorSharpRadius() {
+        #expect(WindowChrome.tabCornerRadius(for: .okami) == Theme.okami.radiusLarge)
+        #expect(WindowChrome.chromePillRadius(for: .okami) == Theme.okami.radiusLarge)
+        #expect(WindowChrome.chromePillRadius(for: .tinta) == 20)
+    }
+
     @Test("o raio da aba nunca é negativo em nenhum tema e bate com o container")
     func tabRadiusNeverNegative() {
         for theme in Theme.all {
@@ -119,7 +146,7 @@ struct TokenModifierTests {
                 r >= 0,
                 "tabCornerRadius é \(r) no tema \(theme.name) — aba fica com raio negativo"
             )
-            #expect(r == max(theme.radiusLarge, 17))
+            #expect(r == max(theme.radiusLarge, 0))
         }
     }
 }

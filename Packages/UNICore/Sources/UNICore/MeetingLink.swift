@@ -23,6 +23,8 @@ public enum MeetingLink {
         "teams.live.com",
         "whereby.com",
         "meet.jit.si",
+        "meeting.zoho.com",
+        "meet.zoho.com",
     ]
 
     /// O primeiro link de reunião do texto, ou `nil`.

@@ -222,6 +222,49 @@ struct InviteDetailTests {
         // um organizador de fixture.
         #expect(detalhe.organizer.address == "favini@vantion.com.br")
     }
+
+    @Test("Email sem ICS não cai no organizador de fixture")
+    func detalheDoTextoDetectado() {
+        let mensagem = Message(
+            id: "vet", accountID: "gmail",
+            from: Contact(name: "Tierarztpraxis", address: "praxis@vet.de"),
+            receivedAt: Fixtures.today, subject: "Termin de Odette",
+            snippet: "consulta", body: [], tags: [], bucket: .today, isRead: true,
+            summary: nil, detectedEvent: nil
+        )
+        let detalhe = InviteAgenda.detail(from: mensagem, accountHost: "gmail")
+        #expect(detalhe.organizer.name == "Tierarztpraxis")
+        #expect(detalhe.organizer.address == "praxis@vet.de")
+        #expect(detalhe.note == "Do convite por email · conta gmail")
+        #expect(detalhe.note != Fixtures.eventDefault.note)
+        #expect(detalhe.organizer.address != Fixtures.eventDefault.organizer.address)
+    }
+
+    @Test("Compromisso de email sem detalhe gravado não reabre o Ricardo Gomes")
+    func resolvedDetailNaoUsaFixture() {
+        let origem = Message(
+            id: "vet", accountID: "gmail",
+            from: Contact(name: "Tierarztpraxis", address: "praxis@vet.de"),
+            receivedAt: Fixtures.today, subject: "Termin de Odette",
+            snippet: "consulta", body: [], tags: [], bucket: .today, isRead: true,
+            summary: nil, detectedEvent: nil
+        )
+        let item = AgendaItem(
+            id: DetectedEventConversion.agendaID(forMessageID: origem.id),
+            title: "Termin de Odette",
+            startMinute: 570, endMinute: 600,
+            accountID: "gmail", dayOffset: 3
+        )
+        let gmail = Account(
+            id: "gmail", address: "marcos@gmail.com", displayName: "Marcos",
+            provider: .gmail, host: "gmail",
+            tintLightHex: "#C5221F", tintDarkHex: "#F28B82"
+        )
+        let detalhe = InviteAgenda.resolvedDetail(for: item, origin: origem, account: gmail)
+        #expect(detalhe.organizer.address == "praxis@vet.de")
+        #expect(detalhe.note != Fixtures.eventDefault.note)
+        #expect(detalhe.notice != Fixtures.eventDefault.notice)
+    }
 }
 
 @Suite("O compromisso criado do convite carrega o detalhe")

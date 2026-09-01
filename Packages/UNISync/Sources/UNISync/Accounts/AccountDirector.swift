@@ -28,6 +28,13 @@ public actor AccountDirector {
     /// O erro da fila de saída, **em prateleira própria** — ver `reportQueue`.
     private var queueErrors: [String: SyncError] = [:]
     private var progresses: [String: LoadProgress] = [:]
+    /// Contas com um ciclo incremental em curso. Separado de `progresses`
+    /// porque o delta não tem numerador/denominador honesto — só "está no ar".
+    private var cycling: Set<String> = []
+    /// Total da Entrada no Gmail, por conta. Vive aqui porque o ciclo o lê
+    /// e a janela o mostra; o banco guarda a caixa local, não o retrato do
+    /// provedor.
+    private var remoteInboxCounts: [String: Int] = [:]
     private var subscribers: [UUID: AsyncStream<[AccountStatus]>.Continuation] = [:]
     /// A carga em curso de cada conta. Guardada para poder ser **cancelada**:
     /// remover uma conta no meio da carga dela precisa matar a carga primeiro,
@@ -177,6 +184,29 @@ public actor AccountDirector {
         await refresh()
     }
 
+    /// Liga ou desliga o selo "sincronizando" de uma conta.
+    ///
+    /// Publica só quando o valor muda: um ciclo que relata `true` duas vezes
+    /// (o `defer` de um `syncOnce` cancelado no mesmo instante do seguinte)
+    /// não pode redesenhar a barra à toa.
+    public func reportSyncing(accountID: String, active: Bool) async {
+        let estava = cycling.contains(accountID)
+        if active {
+            cycling.insert(accountID)
+        } else {
+            cycling.remove(accountID)
+        }
+        guard cycling.contains(accountID) != estava else { return }
+        await refresh()
+    }
+
+    /// O total da Entrada no Gmail. Publica só quando o número muda.
+    public func reportRemoteInbox(accountID: String, count: Int) async {
+        guard remoteInboxCounts[accountID] != count else { return }
+        remoteInboxCounts[accountID] = count
+        await refresh()
+    }
+
     /// Relê o banco e publica.
     public func refresh() async {
         let lista = (try? await montaStatuses()) ?? []
@@ -210,7 +240,11 @@ public actor AccountDirector {
                 pendingOperations: linha.aguardando,
                 queueError: queueErrors[linha.conta.id],
                 signature: linha.conta.signature,
-                emailSignature: linha.conta.emailSignature
+                emailSignature: linha.conta.emailSignature,
+                isSyncing: cycling.contains(linha.conta.id),
+                remoteInboxCount: remoteInboxCounts[linha.conta.id],
+                sendAliases: linha.conta.sendAliases,
+                provider: linha.conta.provider
             )
         }
     }
@@ -261,6 +295,70 @@ public actor AccountDirector {
         try await updateEmailSignature(
             accountID: accountID, signature: EmailSignature(legacyText: signature)
         )
+    }
+
+    /// Grava a lista de aliases desta conta. O endereço principal não entra.
+    @discardableResult
+    public func updateSendAliases(
+        accountID: String, aliases: [SendAlias]
+    ) async throws -> Account {
+        do {
+            let atualizada = try await database.pool.write { db -> Account in
+                guard var registro = try AccountRecord.fetchOne(db, key: accountID) else {
+                    throw SyncError.resposta("A conta não existe.")
+                }
+                registro.sendAliases = SendAlias.normalized(
+                    aliases, excluding: registro.address
+                )
+                try registro.update(db)
+                return registro.account
+            }
+            await refresh()
+            return atualizada
+        } catch let erro as SyncError {
+            throw erro
+        } catch {
+            throw SyncError.banco("Não foi possível gravar os remetentes: \(error)")
+        }
+    }
+
+    /// Lê "Enviar como" no Gmail e funde com os aliases manuais.
+    @discardableResult
+    public func refreshGmailSendAliases(accountID: String) async throws -> Account {
+        guard let auth else { throw SyncError.semClientID }
+        let registro = try await database.pool.read { db in
+            try AccountRecord.fetchOne(db, key: accountID)
+        }
+        guard let registro else { throw SyncError.resposta("A conta não existe.") }
+        guard registro.account.provider == .gmail else {
+            throw SyncError.resposta("Só contas Google trazem aliases do Gmail.")
+        }
+        let cliente = GmailClient(
+            session: session,
+            accessToken: { try await auth.accessToken(for: accountID) },
+            baseURL: gmailBaseURL
+        )
+        let remotos = try await cliente.sendAsAliases()
+        let fundidos = SendAlias.merging(
+            gmail: remotos.map {
+                ($0.email, $0.displayName, $0.isPrimary, $0.isDefault)
+            },
+            existing: registro.sendAliases,
+            primary: registro.address
+        )
+        let atuais = SendAlias.normalized(registro.sendAliases, excluding: registro.address)
+        if fundidos == atuais { return registro.account }
+        return try await updateSendAliases(accountID: accountID, aliases: fundidos)
+    }
+
+    /// A carga e o ciclo chamam isto. Falha aqui não pode derrubar o sync:
+    /// a caixa continua, os aliases tentam de novo na próxima volta.
+    func refreshGmailSendAliasesIfPossible(accountID: String) async {
+        do {
+            _ = try await refreshGmailSendAliases(accountID: accountID)
+        } catch {
+            log.debug("Aliases Gmail de \(accountID, privacy: .private): \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     // MARK: Adicionar
@@ -392,9 +490,10 @@ public actor AccountDirector {
     /// ficou — duas linhas da mesma cor na lateral, que é exatamente o que a
     /// cor existe para evitar.
     ///
-    /// Quando as oito estão ocupadas o laço para no fim e o índice cai fora da
-    /// lista, onde `pair` cicla: a nona conta repete uma cor, que é incômodo
-    /// visual — e nunca recusa, que seria defeito.
+    /// Quando todas as do catálogo estão ocupadas o laço para no fim e o
+    /// índice cai fora da lista, onde `pair` cicla: a conta seguinte
+    /// repete uma cor, que é incômodo visual — e nunca recusa, que seria
+    /// defeito.
     private func indiceDeCorLivre() async throws -> Int {
         let usadas = try await database.pool.read { db in
             try Set(String.fetchAll(db, sql: "SELECT tintLightHex FROM account"))
@@ -454,6 +553,7 @@ public actor AccountDirector {
         errors[accountID] = nil
         queueErrors[accountID] = nil
         progresses[accountID] = nil
+        cycling.remove(accountID)
         generations[accountID] = nil
         await refresh()
     }
@@ -523,8 +623,12 @@ public actor AccountDirector {
                 try await loader.loadGmail(
                     account: conta, client: cliente,
                     renewAccessToken: { _ = try await auth.renewedAccessToken(for: accountID) },
-                    now: now(), progress: publica
+                    now: now(), progress: publica,
+                    remoteInbox: { [weak self] total in
+                        Task { await self?.reportRemoteInbox(accountID: accountID, count: total) }
+                    }
                 )
+                await refreshGmailSendAliasesIfPossible(accountID: accountID)
             case .imap, .microsoft:
                 guard let endpoint = conta.imap else {
                     throw SyncError.resposta("A conta não tem servidor IMAP configurado.")

@@ -197,14 +197,25 @@ struct ThemeCatalogueTests {
                 (1.5 ... 2.5).contains(selectionLine),
                 "\(theme.id): accentLine/accentSoft agressivo ou invisível"
             )
-            #expect(
-                (1.08 ... 1.25).contains(raisedSurface),
-                "\(theme.id): surface2/surface perdeu a transição suave"
-            )
-            #expect(
-                (1.18 ... 1.45).contains(panelSurface),
-                "\(theme.id): surface3/surface perdeu a transição suave"
-            )
+            if theme.id == "okami" {
+                #expect(
+                    (1.0 ... 1.25).contains(raisedSurface),
+                    "\(theme.id): surface2/surface perdeu a transição suave"
+                )
+                #expect(
+                    (1.10 ... 1.45).contains(panelSurface),
+                    "\(theme.id): surface3/surface perdeu a transição suave"
+                )
+            } else {
+                #expect(
+                    (1.08 ... 1.25).contains(raisedSurface),
+                    "\(theme.id): surface2/surface perdeu a transição suave"
+                )
+                #expect(
+                    (1.18 ... 1.45).contains(panelSurface),
+                    "\(theme.id): surface3/surface perdeu a transição suave"
+                )
+            }
         }
     }
 
@@ -258,10 +269,40 @@ struct ThemeCatalogueTests {
     @Test("okami's oklch accent converts to the expected orange")
     func okamiAccent() throws {
         let okami = try #require(Theme.named("okami"))
-        // oklch(72% 0.19 45) -> #FF7527
+        // oklch(72% 0.19 45) -> #FF7527  — Heat Orange do design system
         #expect(abs(okami.accent.red - 1.0) < 0.01)
         #expect(abs(okami.accent.green - 0.459) < 0.01)
         #expect(abs(okami.accent.blue - 0.153) < 0.01)
+    }
+
+    @Test("okami segue a paleta Onyx/Bone do design system")
+    func okamiMatchesDesignSystem() throws {
+        let okami = try #require(Theme.named("okami"))
+        #expect(okami.paper == TokenColor(css: "#060609")!)
+        #expect(okami.surface == TokenColor(css: "#0B0B12")!)
+        #expect(okami.surface2 == TokenColor(css: "#08080E")!)
+        #expect(okami.surface3 == TokenColor(css: "#1A1A26")!)
+        #expect(okami.ink == TokenColor(css: "#E2E3EC")!)
+        #expect(okami.ink2 == TokenColor(css: "#B9BAC8")!)
+        #expect(okami.ink3 == TokenColor(css: "#8A8B9E")!)
+        #expect(okami.ink4 == TokenColor(css: "#7B7C90")!)
+        #expect(okami.line == TokenColor(css: "#252636")!)
+        #expect(okami.onAccent == TokenColor(css: "#060609")!)
+        #expect(okami.mono.name == "JetBrains Mono")
+        #expect(okami.sans.name == "Space Grotesk")
+        #expect(okami.radiusSmall == 2)
+        #expect(okami.capsTracking == 0.18)
+        #expect(okami.focus == okami.enter)
+        #expect(okami.activity == okami.enter)
+        #expect(okami.danger == okami.remove)
+        #expect(okami.enter.green > 0.8)
+        #expect(okami.enter.blue > 0.8)
+        #expect(okami.remove.red > 0.9)
+        #expect(okami.remove.blue > 0.7)
+        #expect(okami.focus != okami.accent)
+        #expect(okami.link == okami.enter)
+        #expect(okami.live == okami.enter)
+        #expect(okami.infoSoft != okami.accentSoft)
     }
 
     /// A versão anterior deste teste recalculava a própria definição de
@@ -312,6 +353,8 @@ struct SemanticStatusColorTests {
         #expect(light.success != dark.success)
         #expect(light.warning != dark.warning)
         #expect(light.info != dark.info)
+        #expect(light.enter != dark.enter)
+        #expect(light.remove != dark.remove)
     }
 
     @Test("os papéis de status têm contraste AA sobre papel e superfície")
@@ -333,6 +376,20 @@ struct SemanticStatusColorTests {
                     )
                 }
             }
+        }
+    }
+
+    @Test("ciano do Entrar e magenta do Remover contrastam com a tinta de cima")
+    func enterAndRemoveMeetAAOnTheirFill() {
+        for theme in Theme.all {
+            #expect(
+                theme.onEnter.contrastRatio(with: theme.enter) >= 4.5,
+                "\(theme.id) onEnter on enter"
+            )
+            #expect(
+                theme.onRemove.contrastRatio(with: theme.remove) >= 4.5,
+                "\(theme.id) onRemove on remove"
+            )
         }
     }
 
@@ -366,6 +423,24 @@ struct TokenColorTests {
     ])
     func rejectsJunk(input: String) {
         #expect(TokenColor(css: input) == nil)
+    }
+
+    @Test("pastel contra branco ganha contraste ao escurecer")
+    func pastelGainsContrastOnWhite() throws {
+        let pastel = try #require(TokenColor(css: "#A4C2F4"))
+        let white = try #require(TokenColor(css: "#FFFFFF"))
+        #expect(pastel.contrastRatio(with: white) < 4.5)
+        let ink = pastel.ensuringContrast(against: white)
+        #expect(ink.contrastRatio(with: white) >= 4.5)
+        #expect(ink.luminance < pastel.luminance)
+    }
+
+    @Test("mistura 0 é a origem, 1 é o destino")
+    func mixingEnds() throws {
+        let red = try #require(TokenColor(css: "#FF0000"))
+        let blue = try #require(TokenColor(css: "#0000FF"))
+        #expect(red.mixing(with: blue, amount: 0) == red)
+        #expect(red.mixing(with: blue, amount: 1) == blue)
     }
 
     @Test("luminance orders light above dark")

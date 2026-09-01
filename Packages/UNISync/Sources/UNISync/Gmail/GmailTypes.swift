@@ -1,6 +1,20 @@
 import Foundation
 import UNICore
 
+public struct GmailSendAs: Sendable, Hashable {
+    public let email: String
+    public let displayName: String
+    public let isPrimary: Bool
+    public let isDefault: Bool
+
+    public init(email: String, displayName: String, isPrimary: Bool, isDefault: Bool) {
+        self.email = email
+        self.displayName = displayName
+        self.isPrimary = isPrimary
+        self.isDefault = isDefault
+    }
+}
+
 public struct GmailProfile: Sendable, Hashable {
     public let emailAddress: String
     /// O ponto de partida do sync incremental do Marco 3. Guardado já aqui,
@@ -22,17 +36,27 @@ public struct GmailLabel: Sendable, Hashable {
     /// Padrão `"user"` no `init` para o campo ser aditivo: os testes que
     /// montavam um rótulo com id e nome continuam valendo.
     public let type: String
+    /// Só no `labels.get`. A listagem não traz total; `nil` é "ainda não pedimos".
+    public let messagesTotal: Int?
 
-    public init(id: String, name: String, type: String = "user") {
+    public init(id: String, name: String, type: String = "user", messagesTotal: Int? = nil) {
         self.id = id
         self.name = name
         self.type = type
+        self.messagesTotal = messagesTotal
     }
 }
 
 public struct GmailPage: Sendable, Hashable {
     public let ids: [String]
     public let nextPageToken: String?
+    public let resultSizeEstimate: Int?
+
+    public init(ids: [String], nextPageToken: String?, resultSizeEstimate: Int? = nil) {
+        self.ids = ids
+        self.nextPageToken = nextPageToken
+        self.resultSizeEstimate = resultSizeEstimate
+    }
 }
 
 public enum GmailFormat: String, Sendable {

@@ -382,6 +382,10 @@ public actor ImapMirror: MailMirror {
             if let pasta = nome(de: .trash, em: disponiveis) { return pasta }
             try await cria(MirrorNames.trash)
             return MirrorNames.trash
+        case .junk:
+            if let pasta = nome(de: .junk, em: disponiveis) { return pasta }
+            try await cria(MirrorNames.junk)
+            return MirrorNames.junk
         case .all:
             throw SyncError.resposta("\"Tudo\" é uma visão, não uma pasta — não há para onde mover.")
         case .sent:
@@ -389,6 +393,8 @@ public actor ImapMirror: MailMirror {
             // destino: o que põe uma mensagem lá é enviá-la. Ver a mesma
             // recusa no `GmailMirror`.
             throw SyncError.resposta("Enviadas guarda o que saiu — não há como mover uma mensagem para lá.")
+        case .drafts:
+            throw SyncError.resposta("Rascunhos guarda o que ainda não saiu — não há como mover uma mensagem para lá.")
         }
     }
 

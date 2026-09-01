@@ -22,19 +22,26 @@ public enum TriageBucket: String, Sendable, CaseIterable {
     /// no store, na caixa Lixeira, até alguém a apagar definitivamente ou
     /// esvaziar a caixa.
     case trash = "lixeira"
+    /// O lixo eletrônico. Quarentena, não triagem: spam não entra em Hoje
+    /// nem em Tudo — é risco, e Gmail/Outlook o isolam da caixa unificada.
+    case junk = "spam"
     /// O que **você** mandou. É caixa, e não estado de triagem: uma mensagem
     /// enviada não é "não lida", não entra em Hoje e não conta em selo de não
     /// lidas nenhum — ver `contains(_:)` e `TriageBucket.triage`.
     case sent = "enviadas"
+    /// O que você está escrevendo e ainda não mandou. Também fica fora da
+    /// triagem: rascunho não é trabalho que chegou, e "Tudo" com ele dentro
+    /// misturaria o que ainda não saiu com o que precisa de decisão.
+    case drafts = "rascunhos"
 
     /// As caixas do **fluxo** de triagem, na ordem da barra lateral.
     ///
-    /// Enviadas fica de fora, e é para isso que esta lista existe: `allCases`
-    /// serve para desenhar a barra (que mostra a caixa nova) e esta serve para
-    /// tudo o que é triagem — mover uma mensagem recebida para Enviadas não
-    /// quer dizer nada, e "Marcar tudo como lido" numa caixa que nasce lida
-    /// também não.
-    public static let triage: [TriageBucket] = [.today, .later, .all, .archived, .trash]
+    /// Enviadas e Rascunhos ficam de fora, e é para isso que esta lista existe:
+    /// `allCases` serve para desenhar a barra (que mostra as caixas novas) e
+    /// esta serve para tudo o que é triagem — mover uma mensagem recebida para
+    /// Enviadas ou Rascunhos não quer dizer nada, e "Marcar tudo como lido"
+    /// numa caixa que nasce lida também não.
+    public static let triage: [TriageBucket] = [.today, .later, .all, .archived, .trash, .junk]
 
     public var label: String {
         switch self {
@@ -43,7 +50,9 @@ public enum TriageBucket: String, Sendable, CaseIterable {
         case .all: "Tudo"
         case .archived: "Arquivado"
         case .trash: "Lixeira"
+        case .junk: "Spam"
         case .sent: "Enviadas"
+        case .drafts: "Rascunhos"
         }
     }
 
@@ -61,8 +70,17 @@ public enum TriageBucket: String, Sendable, CaseIterable {
     /// você escreveu dentro dela, a caixa que a pessoa deixa aberta o dia
     /// inteiro passaria a crescer a cada mensagem respondida — e o contador
     /// dela contaria as respostas como se fossem trabalho por fazer.
+    ///
+    /// Spam também fica de fora: é quarentena, não trabalho. Misturá-lo em
+    /// Tudo é o que o Gmail recusa — e o que expõe a pessoa a phishing na
+    /// caixa que ela deixa aberta.
     public func contains(_ message: Message) -> Bool {
-        if self == .all { return message.bucket != .trash && message.bucket != .sent }
+        if self == .all {
+            return message.bucket != .trash
+                && message.bucket != .sent
+                && message.bucket != .drafts
+                && message.bucket != .junk
+        }
         return message.bucket == self
     }
 }
@@ -285,7 +303,7 @@ extension Message {
     /// destinatário nenhum (a que só tem cópia oculta, por exemplo) cai no
     /// remetente — dizer o seu nome é menos errado do que uma linha vazia.
     public var listHeadline: String {
-        guard bucket == .sent else { return from.name }
+        guard bucket == .sent || bucket == .drafts else { return from.name }
         let nomes = to.map { $0.name.isEmpty ? $0.address : $0.name }
             .filter { !$0.isEmpty }
         return nomes.isEmpty ? from.name : nomes.joined(separator: ", ")
@@ -365,6 +383,12 @@ extension Message {
     /// A mesma mensagem em outras pastas/rótulos do provedor.
     public func withFolderIDs(_ folderIDs: [String]) -> Message {
         copy(folderIDs: folderIDs)
+    }
+
+    /// O que a linha da lista precisa: remetente, assunto, data. Sem corpo,
+    /// HTML nem anexo — copiar isso em Tudo era o tranco a cada clique.
+    public func withoutHeavyPayload() -> Message {
+        copy(body: [], bodyHTML: .some(nil), calendarICS: .some(nil), attachments: [])
     }
 
     /// O único lugar que reconstrói uma `Message`.

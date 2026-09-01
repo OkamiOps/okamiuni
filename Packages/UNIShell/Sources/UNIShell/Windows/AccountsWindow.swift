@@ -5,10 +5,12 @@ import UNISync
 
 public enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
     case general
+    case agenda
     case accounts
     case intelligence
     case gestures
     case signatures
+    case aliases
     case rules
 
     public var id: String { rawValue }
@@ -16,10 +18,12 @@ public enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
     var label: String {
         switch self {
         case .general: "Geral"
+        case .agenda: "Agenda"
         case .accounts: "Contas"
         case .intelligence: "Inteligência"
         case .gestures: "Gestos"
         case .signatures: "Assinaturas"
+        case .aliases: "Remetentes"
         case .rules: "Regras"
         }
     }
@@ -27,10 +31,12 @@ public enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
     var symbol: String {
         switch self {
         case .general: "rectangle.3.group"
+        case .agenda: "calendar"
         case .accounts: "at"
         case .intelligence: "sparkles"
         case .gestures: "hand.draw"
         case .signatures: "signature"
+        case .aliases: "paperplane"
         case .rules: "arrow.triangle.branch"
         }
     }
@@ -40,19 +46,21 @@ public enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
     /// percorrer sem recorrer a uma busca que esconderia opções importantes.
     var navigationGroup: String {
         switch self {
-        case .general, .accounts: "ESTE MAC"
+        case .general, .agenda, .accounts: "ESTE MAC"
         case .intelligence, .gestures: "COMO O OKAMIUNI TRABALHA"
-        case .signatures, .rules: "SEU E-MAIL"
+        case .signatures, .aliases, .rules: "SEU E-MAIL"
         }
     }
 
     var summary: String {
         switch self {
         case .general: "Ambiente e preferências"
+        case .agenda: "Reuniões por conta"
         case .accounts: "Caixas conectadas"
         case .intelligence: "Assistente e instruções"
         case .gestures: "Arrastar mensagens"
         case .signatures: "Identidade por conta"
+        case .aliases: "Enviar por um alias"
         case .rules: "Organização automática"
         }
     }
@@ -79,6 +87,7 @@ public struct AccountsWindow: View {
     /// uma fonte de mensagens; quando existe, Gestos consegue oferecer
     /// destinos concretos em vez de pedir que a pessoa digite um nome.
     private let mailStore: MailStore?
+    private let meetingRooms: MeetingRoomSettingsStore?
     @State private var selectedSection: SettingsSection
     @State private var selectedAccountID: String?
     @State private var addingAccount = false
@@ -95,7 +104,8 @@ public struct AccountsWindow: View {
         emailRules: EmailRuleStore? = nil,
         themes: ThemeStore? = nil,
         swipes: SwipeSettingsStore? = nil,
-        mailStore: MailStore? = nil
+        mailStore: MailStore? = nil,
+        meetingRooms: MeetingRoomSettingsStore? = nil
     ) {
         self.model = model
         self.assistantSettings = assistantSettings
@@ -107,6 +117,7 @@ public struct AccountsWindow: View {
         self.themes = themes
         self.swipes = swipes
         self.mailStore = mailStore
+        self.meetingRooms = meetingRooms
         _selectedSection = State(initialValue: initialSection)
         _selectedAccountID = State(initialValue: model.statuses.first?.accountID)
     }
@@ -242,6 +253,13 @@ public struct AccountsWindow: View {
                     .frame(width: Hairline.thickness(displayScale))
                 accountsDetail
             }
+        case .agenda:
+            sectionPane(
+                title: "Agenda",
+                subtitle: "Uma sala nova a cada compromisso — Meet, Zoom, Teams ou Zoho"
+            ) {
+                AgendaSettingsView(rooms: meetingRooms, accounts: model.statuses)
+            }
         case .general:
             sectionPane(
                 title: "Geral",
@@ -298,6 +316,11 @@ public struct AccountsWindow: View {
                 title: "Assinaturas",
                 subtitle: "Assinaturas de e-mail por conta"
             ) { SignatureSettingsView(model: model) }
+        case .aliases:
+            sectionPane(
+                title: "Remetentes",
+                subtitle: "Aliases pelos quais cada conta pode enviar"
+            ) { AliasSettingsView(model: model) }
         case .rules:
             sectionPane(
                 title: "Regras",

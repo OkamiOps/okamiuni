@@ -194,6 +194,78 @@ struct EventWindowFooterTests {
         )
     }
 
+    @Test("o que eu criei cancela; o resto remove do calendário")
+    func createdHereCancelsTheRestRemoves() {
+        #expect(EventWindow.isCreatedHere("manual-abc"))
+        #expect(!EventWindow.isCreatedHere("e2"))
+        #expect(!EventWindow.isCreatedHere("email-m1"))
+    }
+
+    @Test("o aviso de remover é o cartão do app, não o diálogo do sistema")
+    func customRemoveNotice() async throws {
+        #expect(EventConfirmKind.removeFromCalendar.title == "Remover do calendário?")
+        #expect(EventConfirmKind.cancelMeeting.actionTitle == "Cancelar reunião")
+
+        let store = await Self.loja(Self.detalheDeConvite(link: "https://meet.google.com/abc"))
+        let rep = try #require(
+            Render.snapshot(
+                EventWindow(
+                    store: store, itemID: "email-m1",
+                    debugConfirm: .removeFromCalendar
+                ).environment(ThemeStore()),
+                named: "evento-04-aviso-remover",
+                size: CGSize(width: 560, height: 700),
+                theme: .tinta
+            )
+        )
+        // Magenta no miolo da janela: o cartão. O botão do rodapé mora em y=660.
+        #expect(Self.hasRemoveFill(in: rep, yRange: 250...450, width: 560))
+    }
+
+    @Test("sair do compositor pergunta se grava o rascunho")
+    func composerLeaveCopy() {
+        #expect(ComposerLeaveConfirm.title == "Salvar no rascunho?")
+        #expect(ComposerLeaveConfirm.saveTitle == "Salvar")
+        #expect(ComposerLeaveConfirm.discardTitle == "Não salvar")
+        #expect(ComposerLeaveConfirm.cancelTitle == "Cancelar")
+        #expect(ComposerLeaveConfirm.shouldPrompt(isDirty: true))
+        #expect(!ComposerLeaveConfirm.shouldPrompt(isDirty: false))
+    }
+
+    @Test("o aviso de sair do compositor é o cartão do app")
+    func composerLeaveNotice() async throws {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        let original = try #require(store.messages.first)
+        let comAviso = try #require(
+            Render.snapshot(
+                ComposerWindow(
+                    store: store, mode: .reply(messageID: original.id),
+                    debugLeaveConfirm: true
+                ).environment(ThemeStore()),
+                named: "composer-aviso-salvar",
+                size: CGSize(width: 820, height: 660),
+                theme: .tinta
+            )
+        )
+        let semAviso = try #require(
+            Render.snapshot(
+                ComposerWindow(
+                    store: store, mode: .reply(messageID: original.id)
+                ).environment(ThemeStore()),
+                named: "composer-aviso-salvar-ref",
+                size: CGSize(width: 820, height: 660),
+                theme: .tinta
+            )
+        )
+        #expect(
+            comAviso.pixelsDiffering(from: semAviso) > 0,
+            "o cartão de sair não desenhou por cima da janela"
+        )
+        // O Salvar do cartão é acento no miolo; o Enviar do rodapé fica embaixo.
+        #expect(Self.hasAccentFill(in: comAviso, yRange: 250...430, width: 820))
+    }
+
     /// Sem mensagem casada não há para onde ir, e o botão não pode fingir que
     /// há: a ação sai sem mexer em nada e o botão desenha apagado.
     @Test("sem mensagem de origem o botão não mexe em nada")
@@ -208,13 +280,14 @@ struct EventWindowFooterTests {
         #expect(store.revealCount == before)
     }
 
-    /// "Reagendar" saiu. O rodapé da 04 desenha **quatro** botões — Entrar,
-    /// Encaminhar, Email e Fechar —, e o quinto, mudo, não está mais lá.
+    /// "Reagendar" saiu. O rodapé da 04 desenha **cinco** pastilhas — Entrar,
+    /// Encaminhar, Remover, Email e o × de fechar —, e o sexto, mudo, não está
+    /// mais lá.
     ///
     /// Contado no desenho: numa varredura horizontal na altura dos botões, cada
     /// pastilha é um trecho de cor diferente do fundo do rodapé. Com o botão
-    /// mudo de volta a mesma varredura dá cinco.
-    @Test("o rodapé desenha quatro botões, sem o «Reagendar» mudo")
+    /// mudo de volta a mesma varredura dá seis.
+    @Test("o rodapé desenha cinco botões, sem o «Reagendar» mudo")
     func footerHasFourButtons() async throws {
         let store = await loaded()
         let rep = try #require(
@@ -225,7 +298,7 @@ struct EventWindowFooterTests {
                 theme: .tinta
             )
         )
-        #expect(Self.pills(in: rep, y: 660, width: 560) == 4)
+        #expect(Self.pills(in: rep, y: 660, width: 560) == 5)
     }
 
     // MARK: - "Entrar", que não fazia nada
@@ -329,7 +402,7 @@ struct EventWindowFooterTests {
             size: CGSize(width: 560, height: 700),
             theme: .tinta
         ))
-        #expect(Self.pills(in: rep, y: 660, width: 560) == 4)
+        #expect(Self.pills(in: rep, y: 660, width: 560) == 5)
 
         CliqueDeEnsaio.em(
             janela,
@@ -343,8 +416,8 @@ struct EventWindowFooterTests {
 
     /// Sem sala reconhecida o botão **não aparece** — é o que o protótipo
     /// desenha (`sc-if ev.hasLink`) e o que o resto do app faz quando não há
-    /// para onde ir. O rodapé volta a três pastilhas: Encaminhar, Email e
-    /// Fechar.
+    /// para onde ir. O rodapé volta a quatro pastilhas: Encaminhar, Remover,
+    /// Email e o ×.
     @Test("sem link de reunião o «Entrar» não existe")
     func semLinkSemEntrar() async throws {
         let store = await Self.loja(Self.detalheDeConvite(link: nil))
@@ -354,7 +427,7 @@ struct EventWindowFooterTests {
                 size: CGSize(width: 560, height: 700), theme: .tinta
             )
         )
-        #expect(Self.pills(in: rep, y: 660, width: 560) == 3)
+        #expect(Self.pills(in: rep, y: 660, width: 560) == 4)
     }
 
     /// E um "link" que não se abre no navegador é a mesma coisa que não ter:
@@ -368,7 +441,7 @@ struct EventWindowFooterTests {
                 size: CGSize(width: 560, height: 700), theme: .tinta
             )
         )
-        #expect(Self.pills(in: rep, y: 660, width: 560) == 3)
+        #expect(Self.pills(in: rep, y: 660, width: 560) == 4)
     }
 
     // MARK: - As seções que nascem recolhidas
@@ -427,6 +500,46 @@ struct EventWindowFooterTests {
             um.pixelsDiffering(from: outro) == 0,
             "a janela desenhou o histórico que a seção recolhida esconde"
         )
+    }
+
+    /// O acento do Salvar no miolo da janela — prova de que o aviso de sair
+    /// é o cartão desenhado, não o diálogo nativo.
+    private static func hasAccentFill(
+        in rep: NSBitmapImageRep, yRange: ClosedRange<Int>, width: Int
+    ) -> Bool {
+        let fill = Theme.tinta.accent
+        for y in yRange {
+            for x in 0..<width {
+                guard let color = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                if abs(color.redComponent - fill.red) < 0.08,
+                   abs(color.greenComponent - fill.green) < 0.08,
+                   abs(color.blueComponent - fill.blue) < 0.08
+                {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    /// O magenta do Remover no miolo da janela — prova de que o aviso é o
+    /// cartão desenhado, não o diálogo nativo (que o harness nem renderiza).
+    private static func hasRemoveFill(
+        in rep: NSBitmapImageRep, yRange: ClosedRange<Int>, width: Int
+    ) -> Bool {
+        let fill = Theme.tinta.remove
+        for y in yRange {
+            for x in 0..<width {
+                guard let color = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                if abs(color.redComponent - fill.red) < 0.08,
+                   abs(color.greenComponent - fill.green) < 0.08,
+                   abs(color.blueComponent - fill.blue) < 0.08
+                {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
     /// Quantas pastilhas a linha `y` atravessa: cada entrada num trecho de cor

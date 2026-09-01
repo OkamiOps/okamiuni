@@ -61,11 +61,10 @@ struct TitleBarAlignmentTests {
         #expect(abs(centro - Double(TrafficLightLayout.contentCenterFromTop)) <= 1)
     }
 
-    /// **A prova por bitmap, lado da janela principal.** A barra principal é
-    /// mais alta que as janelas auxiliares e, por pedido de design, seus
-    /// controles ficam no centro dos 64pt: 13pt de respiro acima do botão de
-    /// 38pt. O semáforo nativo preserva sua posição própria.
-    @Test("os controles da barra principal ficam no centro dos 64pt")
+    /// **A prova por bitmap, lado da janela principal.** O recolhe ao lado
+    /// do semáforo cai na linha 22 — a das bolinhas — e não no centro dos
+    /// 64pt. A marca de 38pt segue no centro da toolbar.
+    @Test("o recolhe ao lado do semáforo cai na linha 22")
     func barraPrincipalNaLinha() throws {
         let rep = try #require(
             Render.bitmap(
@@ -76,12 +75,12 @@ struct TitleBarAlignmentTests {
                 size: CGSize(width: 1200, height: WindowChrome.height), theme: .tinta
             )
         )
-        // x=82…120 é o botão da barra lateral depois do espaço reservado aos
+        // x=82…106 é o recolhe de 24pt depois do espaço reservado aos
         // semáforos. Medir só ele evita confundir a hairline com o conteúdo.
         let centro = try #require(
-            Self.linhaMedia(rep, papel: Theme.tinta.surface2, x: 82..<121)
+            Self.linhaMedia(rep, papel: Theme.tinta.surface2, x: 82..<107)
         )
-        #expect(abs(centro - Double(WindowChrome.centerY)) <= 1)
+        #expect(abs(centro - Double(TrafficLightLayout.contentCenterFromTop)) <= 1)
     }
 
     /// A barra das janelas mede o dobro da linha — e é isso que faz o centro

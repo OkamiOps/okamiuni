@@ -196,4 +196,43 @@ struct ICalendarTests {
             """))
         #expect(lido.organizer == "Duarte, Marina: a chefe")
     }
+
+    @Test("O REQUEST de um compromisso novo traz título, sala e convidados")
+    func requestRoundTrip() throws {
+        let start = Date(timeIntervalSince1970: 1_788_163_200)
+        let ics = ICalendar.request(
+            uid: "manual-1",
+            title: "Revisão",
+            start: start,
+            end: start.addingTimeInterval(1_800),
+            organizer: Contact(name: "Marcos", address: "marcos@okamiops.com"),
+            attendees: [Contact(name: "Ana", address: "ana@cliente.com")],
+            url: "https://meet.google.com/aaa-bbbb-ccc",
+            now: start
+        )
+        let lido = try #require(ICalendar.parse(ics))
+        #expect(lido.method == "REQUEST")
+        #expect(lido.summary == "Revisão")
+        #expect(lido.organizer == "Marcos")
+        #expect(lido.attendeeContacts.map(\.address) == ["ana@cliente.com"])
+        #expect(lido.url == "https://meet.google.com/aaa-bbbb-ccc")
+        #expect(lido.uid == "manual-1")
+    }
+
+    @Test("O CANCEL avisa os convidados que a reunião não vai mais acontecer")
+    func cancellationRoundTrip() throws {
+        let start = Date(timeIntervalSince1970: 1_788_163_200)
+        let ics = ICalendar.cancellation(
+            uid: "manual-1",
+            title: "Revisão",
+            start: start,
+            end: start.addingTimeInterval(1_800),
+            organizer: Contact(name: "Marcos", address: "marcos@okamiops.com"),
+            attendees: [Contact(name: "Ana", address: "ana@cliente.com")]
+        )
+        let lido = try #require(ICalendar.parse(ics))
+        #expect(lido.method == "CANCEL")
+        #expect(lido.status == "CANCELLED")
+        #expect(lido.isCancelled)
+    }
 }

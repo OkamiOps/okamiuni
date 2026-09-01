@@ -46,12 +46,13 @@ public struct Conversation: Sendable, Hashable, Identifiable {
     /// resposta nova chegou.
     public let key: String
 
-    /// As mensagens, **da mais antiga para a mais nova** — a ordem em que o
-    /// leitor as empilha, e a ordem em que a conversa aconteceu.
+    /// As mensagens, **da mais antiga para a mais nova** — a ordem em que a
+    /// conversa aconteceu, e a que o modelo de resposta (`References`) lê.
     ///
-    /// Nunca vazia: `init` recusa a lista vazia devolvendo `nil`. Uma conversa
-    /// sem mensagem nenhuma não é um estado, é um defeito — e deixá-la
-    /// existir obrigaria toda leitura de `latest` a um `first` opcional.
+    /// A pilha **na tela** é o contrário: ver `newestFirst`. Nunca vazia:
+    /// `init` recusa a lista vazia devolvendo `nil`. Uma conversa sem
+    /// mensagem nenhuma não é um estado, é um defeito — e deixá-la existir
+    /// obrigaria toda leitura de `latest` a um `first` opcional.
     public let messages: [Message]
 
     public var id: String { key }
@@ -65,6 +66,9 @@ public struct Conversation: Sendable, Hashable, Identifiable {
     /// A mais recente — a que a linha da lista descreve e a que o leitor abre
     /// expandida. As ações da barra miram esta.
     public var latest: Message { messages[messages.count - 1] }
+
+    /// A ordem da pilha no leitor: mais nova no topo, mais antiga embaixo.
+    public var newestFirst: [Message] { Array(messages.reversed()) }
 
     public var count: Int { messages.count }
 
@@ -117,5 +121,20 @@ public struct Conversation: Sendable, Hashable, Identifiable {
             }
             return Conversation(key: key, messages: inThread)
         }
+    }
+}
+
+/// Um recorte da lista: as primeiras conversas da caixa, a contagem total e se
+/// ainda há linha abaixo. A lista pede isto em páginas para Tudo não montar
+/// milhares de `Conversation` no clique.
+public struct ConversationPage: Sendable, Equatable {
+    public let conversations: [Conversation]
+    public let messageCount: Int
+    public let hasMore: Bool
+
+    public init(conversations: [Conversation], messageCount: Int, hasMore: Bool) {
+        self.conversations = conversations
+        self.messageCount = messageCount
+        self.hasMore = hasMore
     }
 }

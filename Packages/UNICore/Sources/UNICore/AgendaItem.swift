@@ -67,23 +67,85 @@ public struct AgendaItem: Sendable, Hashable, Identifiable {
     /// verdade.
     public let detail: EventDetail?
 
+    /// Calendário do macOS de onde o compromisso veio. `nil` é item criado
+    /// pelo OkamiUNI a partir de um email — a lateral agrupa esses em
+    /// `ConnectedCalendar.email`.
+    public let calendarID: String?
+    public let calendarTitle: String?
+    public let calendarColorHex: String?
+    public let calendarSource: String?
+
+    /// Como o Google Agenda: o compromisso continua no dia, desenhado
+    /// transparente. `false` no compromisso ativo.
+    public let isCancelled: Bool
+
     public init(
         id: String, title: String,
         startMinute: Int, endMinute: Int, accountID: String,
         dayOffset: Int = 0,
         calendarUID: String? = nil,
         calendarSequence: Int? = nil,
-        detail: EventDetail? = nil
+        detail: EventDetail? = nil,
+        calendarID: String? = nil,
+        calendarTitle: String? = nil,
+        calendarColorHex: String? = nil,
+        calendarSource: String? = nil,
+        isCancelled: Bool = false
     ) {
         self.calendarUID = calendarUID
         self.calendarSequence = calendarSequence
         self.detail = detail
+        self.calendarID = calendarID
+        self.calendarTitle = calendarTitle
+        self.calendarColorHex = calendarColorHex
+        self.calendarSource = calendarSource
+        self.isCancelled = isCancelled
         self.id = id
         self.title = title
         self.startMinute = startMinute
         self.endMinute = endMinute
         self.accountID = accountID
         self.dayOffset = dayOffset
+    }
+
+    /// O mesmo compromisso noutro calendário da lateral, sem mexer no resto.
+    public func withCalendar(_ calendar: ConnectedCalendar) -> AgendaItem {
+        AgendaItem(
+            id: id, title: title,
+            startMinute: startMinute, endMinute: endMinute,
+            accountID: accountID, dayOffset: dayOffset,
+            calendarUID: calendarUID, calendarSequence: calendarSequence,
+            detail: detail,
+            calendarID: calendar.id, calendarTitle: calendar.title,
+            calendarColorHex: calendar.colorHex, calendarSource: calendar.source,
+            isCancelled: isCancelled
+        )
+    }
+
+    public func markingCancelled() -> AgendaItem {
+        guard !isCancelled else { return self }
+        return AgendaItem(
+            id: id, title: title,
+            startMinute: startMinute, endMinute: endMinute,
+            accountID: accountID, dayOffset: dayOffset,
+            calendarUID: calendarUID, calendarSequence: calendarSequence,
+            detail: detail,
+            calendarID: calendarID, calendarTitle: calendarTitle,
+            calendarColorHex: calendarColorHex, calendarSource: calendarSource,
+            isCancelled: true
+        )
+    }
+
+    /// Chave estável para o cancelamento que chegou por email: o EventKit
+    /// guarda outro `calendarUID` que o `UID` do iCalendar.
+    public var cancellationFingerprint: String {
+        Self.cancellationFingerprint(title: title, startMinute: startMinute)
+    }
+
+    public static func cancellationFingerprint(title: String, startMinute: Int) -> String {
+        let nome = title.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return "\(nome)|\(startMinute)"
     }
 
     public var durationMinutes: Int { endMinute - startMinute }

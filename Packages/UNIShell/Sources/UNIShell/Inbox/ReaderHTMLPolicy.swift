@@ -1,4 +1,5 @@
 import Foundation
+import UNICore
 
 /// As decisões do leitor de HTML, escritas como funções puras.
 ///
@@ -23,6 +24,17 @@ enum ReaderHTMLPolicy {
     )
     private static let urlRemota = try! NSRegularExpression(
         pattern: #"(?i)url\(\s*(?:[\"'])?(?:(?:https?:)?//)[^\"'\s)]+(?:[\"'])?\s*\)"#
+    )
+    /// `src="http://…"`, `src='http://…'` e `src=http://…` — não `href`.
+    private static let httpEmAtributo = try! NSRegularExpression(
+        pattern: #"(?i)(\b(?:src|background|poster)\s*=\s*[\"']?)http://(?!127\.0\.0\.1)(?!localhost)(?!\[::1\])"#
+    )
+    /// `url(http://…)`, com aspas, `&quot;` ou `&#39;` — o fundo do Google Play.
+    private static let httpEmURL = try! NSRegularExpression(
+        pattern: #"(?i)(url\(\s*(?:[\"']|&(?:#(?:34|39)|quot|apos);)?)http://(?!127\.0\.0\.1)(?!localhost)(?!\[::1\])"#
+    )
+    private static let srcsetAtributo = try! NSRegularExpression(
+        pattern: #"(?i)\bsrcset\s*=\s*(\"[^\"]*\"|'[^']*')"#
     )
 
     // MARK: - Nada de rede, por padrão
@@ -105,6 +117,54 @@ enum ReaderHTMLPolicy {
         )
     }
 
+    /// Fecha o que o gerador (e, em mensagens já gravadas, o varredor) deixou
+    /// como `<="" div="">`. Sem isto, o `display:none` do pré-cabeçalho de
+    /// marketing engole logo, código e tabela — o email da Hostinger abria em
+    /// branco com o Gmail ao lado mostrando o código.
+    /// Recurso `http://` vira `https://`. O ATS do macOS recusa HTTP claro, e o
+    /// WebKit desenha o "?" quebrado: o alerta do Google Play era
+    /// `http://www.gstatic.com/…/alert_outline.png` ao lado do logo em HTTPS.
+    ///
+    /// Só atributo que **carrega** (`src`, `srcset`, `background`, `poster`,
+    /// `url(...)`). `href` continua o destino que o remetente escreveu.
+    /// Loopback fica: é o servidor de ensaio das imagens remotas.
+    static func promoveHTTPS(_ html: String) -> String {
+        var resultado = substitui(httpEmAtributo, em: html, por: "$1https://")
+        resultado = substitui(httpEmURL, em: resultado, por: "$1https://")
+        return promoveHTTPSNoSrcset(resultado)
+    }
+
+    private static func promoveHTTPSNoSrcset(_ html: String) -> String {
+        let range = NSRange(html.startIndex..<html.endIndex, in: html)
+        let achados = srcsetAtributo.matches(in: html, range: range)
+        guard !achados.isEmpty else { return html }
+        var resultado = html
+        for achado in achados.reversed() {
+            guard let trecho = Range(achado.range, in: resultado) else { continue }
+            let promovido = resultado[trecho].replacingOccurrences(
+                of: "http://", with: "https://", options: [.caseInsensitive]
+            )
+            // Loopback no srcset de ensaio: devolve o que tirou.
+            let corrigido = promovido
+                .replacingOccurrences(of: "https://127.0.0.1", with: "http://127.0.0.1")
+                .replacingOccurrences(of: "https://localhost", with: "http://localhost", options: [.caseInsensitive])
+            resultado.replaceSubrange(trecho, with: corrigido)
+        }
+        return resultado
+    }
+
+    static func recuperaFechamentosQuebrados(_ html: String) -> String {
+        fechamentoQuebrado.stringByReplacingMatches(
+            in: html,
+            range: NSRange(html.startIndex..<html.endIndex, in: html),
+            withTemplate: "</$1>"
+        )
+    }
+
+    private static let fechamentoQuebrado = try! NSRegularExpression(
+        pattern: #"<=""\s+([A-Za-z][A-Za-z0-9]*)="">"#
+    )
+
     private static func aparece(_ expression: NSRegularExpression, em text: String) -> Bool {
         let range = NSRange(text.startIndex..<text.endIndex, in: text)
         return expression.firstMatch(in: text, range: range) != nil
@@ -128,6 +188,9 @@ enum ReaderHTMLPolicy {
         case permitir
         /// Um link de verdade: sai daqui e vai para o navegador da pessoa.
         case abrirNoNavegador(URL)
+        /// Sim / Não / Talvez do HTML do Google Agenda: a WebView não navega
+        /// e o RSVP entra pela mesma fila do cartão.
+        case rsvp(InviteRSVPResponse)
         /// Qualquer outra coisa — `file:`, um esquema de aplicativo, um clique
         /// sem destino. Não navega e não abre nada.
         case recusar
@@ -142,6 +205,7 @@ enum ReaderHTMLPolicy {
     /// pessoa. Um phishing não precisa de mais do que isso.
     static func decide(url: URL?) -> Navegacao {
         guard let url, let esquema = url.scheme?.lowercased() else { return .recusar }
+        if let resposta = rsvp(from: url) { return .rsvp(resposta) }
         switch esquema {
         case "about", "data":
             return .permitir
@@ -150,6 +214,38 @@ enum ReaderHTMLPolicy {
         default:
             return .recusar
         }
+    }
+
+    /// `action=RESPOND&rst=1|2|3` no Calendar do Google. Sem JavaScript no
+    /// leitor, o botão Sim/Não/Talvez do HTML só vive se o `href` for este
+    /// contrato — e aí a resposta é nossa, não uma aba do navegador.
+    static func rsvp(from url: URL) -> InviteRSVPResponse? {
+        guard isGoogleCalendarRSVP(url) else { return nil }
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        func valor(_ nome: String) -> String? {
+            items.first { $0.name.caseInsensitiveCompare(nome) == .orderedSame }?.value
+        }
+        switch valor("rst") {
+        case "1": return .accepted
+        case "2": return .declined
+        case "3": return .tentative
+        default: return nil
+        }
+    }
+
+    private static func isGoogleCalendarRSVP(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased() else { return false }
+        let path = url.path.lowercased()
+        let noCalendar = host == "calendar.google.com"
+            || host.hasSuffix(".calendar.google.com")
+            || ((host == "google.com" || host.hasSuffix(".google.com")) && path.contains("/calendar"))
+        guard noCalendar else { return false }
+        let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        let action = items.first {
+            $0.name.caseInsensitiveCompare("action") == .orderedSame
+        }?.value?.uppercased()
+        let rst = items.contains { $0.name.caseInsensitiveCompare("rst") == .orderedSame }
+        return action == "RESPOND" || rst
     }
 
     // MARK: - Caber sem cortar
@@ -269,10 +365,27 @@ enum ReaderHTMLPolicy {
     /// É a mesma escolha que o Mail.app faz, e pela mesma razão.
     static func paleta(para html: String) -> Paleta {
         let baixo = html.lowercased()
-        for marca in ["bgcolor", "background-color", "background:", "color:"] {
+        for marca in [
+            "bgcolor", "background-color", "background:", "background=",
+            "color:", "color=", "prefers-color-scheme",
+        ] {
             if baixo.contains(marca) { return .papel }
         }
         return .doTema
+    }
+
+    /// A paleta efetiva: a escolha da pessoa, ou a que o HTML pede.
+    static func paleta(para html: String, forçada: Paleta?) -> Paleta {
+        forçada ?? paleta(para: html)
+    }
+
+    /// Papel, ou tema claro: o WebView **não** pode herdar o dark do app.
+    /// Senão `@media (prefers-color-scheme: dark)` do remetente pinta tinta
+    /// clara em cima da tabela branca — o convite do Calendar ilegível.
+    static func esquemaClaro(
+        html: String, fundo: String, tinta: String, paleta forçada: Paleta? = nil
+    ) -> Bool {
+        paleta(para: html, forçada: forçada) == .papel || !paginaEscura(fundo: fundo, tinta: tinta)
     }
 
     /// O documento que a `WebView` carrega: o HTML da mensagem embrulhado no
@@ -288,10 +401,18 @@ enum ReaderHTMLPolicy {
     static func documento(
         html: String, fundo: String, tinta: String, link: String, fonte: String,
         larguraDeLeitura: CGFloat = ReaderPane.readingWidth,
-        bloqueiaRemotas: Bool = false
+        bloqueiaRemotas: Bool = false,
+        paleta forçada: Paleta? = nil
     ) -> String {
-        let conteudo = bloqueiaRemotas ? neutralizaRecursosRemotos(html) : html
-        let papel = paleta(para: conteudo) == .papel
+        let consertado = recuperaFechamentosQuebrados(html)
+        let preparado = bloqueiaRemotas ? consertado : promoveHTTPS(consertado)
+        let conteudo = bloqueiaRemotas ? neutralizaRecursosRemotos(preparado) : preparado
+        let papel = paleta(para: conteudo, forçada: forçada) == .papel
+        // Só quando a pessoa pediu "Como o tema" num HTML que já tinha cor:
+        // a folha inicial perde para `bgcolor` e para o `@media dark` do
+        // Calendar. A folha extra, **depois** do remetente, pinta fundo e
+        // tinta do app por cima — senão o Meta não muda e o convite some.
+        let restyleTema = forçada == .doTema
         // **A coluna de leitura, e só para quem não trouxe desenho.**
         //
         // O email escrito à mão que chega em HTML é texto corrido, e sem limite
@@ -309,28 +430,43 @@ enum ReaderHTMLPolicy {
         let corDeFundo = papel ? "#ffffff" : fundo
         let corDaTinta = papel ? "#1a1a1a" : tinta
         let corDoLink = papel ? "#1155cc" : link
-        // `light dark` no tema, `light` no papel: declarar `dark` numa página
-        // que vai ser branca faria o WebKit recolorir os controles e as bordas
-        // de sistema dela para escuro sobre branco.
-        let esquema = papel ? "light" : "light dark"
+        // Papel é sempre `light only`. Sem `only`, o WebKit no app escuro
+        // ainda honra `prefers-color-scheme: dark` do remetente e clareia
+        // o texto em cima do fundo branco da tabela. O tema **já** pintou
+        // fundo e tinta: pedir `light dark` usa CanvasText ≈ #fff.
+        let esquema = papel
+            ? "light only"
+            : (paginaEscura(fundo: fundo, tinta: tinta) ? "dark" : "light")
+        let metaEsquema = papel ? "light" : (paginaEscura(fundo: fundo, tinta: tinta) ? "dark" : "light")
+        // Depois do HTML do remetente, para ganhar da folha dele que pede dark.
+        let travaPapel = papel
+            ? "<style>\n:root, html { color-scheme: light only !important; }\n</style>"
+            : ""
+        let travaTema = restyleTema
+            ? folhaDoTema(fundo: corDeFundo, tinta: corDaTinta, link: corDoLink)
+            : ""
         return """
             <meta name="viewport" content="width=device-width, initial-scale=1">
+            <meta name="color-scheme" content="\(metaEsquema)">
+            <meta name="supported-color-schemes" content="\(metaEsquema)">
             <style>
             :root { color-scheme: \(esquema); }
             html { background: \(corDeFundo); color: \(corDaTinta); -webkit-text-size-adjust: 100%; }
             body {
               margin: 0; padding: 0; background: transparent; color: \(corDaTinta);
               font-family: \(fonte); font-size: 16px; line-height: 1.68;
-              overflow-wrap: break-word; word-break: break-word;\(coluna)
+              overflow-wrap: break-word;\(coluna)
             }
             /* A imagem de 900px de uma newsletter não pode empurrar o painel
                para o lado: o leitor rola para baixo, e só.
 
-               O `table` continua aqui, e medido: ele **não** espreme a tabela de
-               largura declarada de um email de marketing — ela sai daqui com os
-               640 pontos que o remetente pediu, e é a `WebView` inteira que
-               encolhe para caber (ver `escala(painel:conteudo:)`). */
-            img, video, table { max-width: 100%; }
+               **Tabela fica de fora de propósito.** Espremer `table` na largura
+               do painel — e deixar o motor partir palavra no meio da célula —
+               é o que pintou "Status" letra a letra no email do GitHub Actions:
+               a coluna fluida passa a ter min-content de um caractere. Quem
+               faz caber um layout de 640 é a régua (`escala(painel:conteudo:)`),
+               não o espremer da célula. */
+            img, video { max-width: 100%; }
             img { height: auto; }
             table { border-collapse: collapse; }
             a { color: \(corDoLink); }
@@ -348,9 +484,78 @@ enum ReaderHTMLPolicy {
                mede (ver `medidaDaAltura`), e por isso ele não pode virar outra
                coisa por causa de um `div { display: ... }` do remetente — daí o
                `id`, que ganha de qualquer seletor que a mensagem escreva. */
+            /* Sem `color` no id: a especificidade do `#uni-root` ganhava das
+               classes do remetente e pintava a tinta do tema em cima da
+               tabela branca — "Quando" e a lista de convidados ilegíveis. */
             #\(involucro) { display: block; }
+            /* Alguns emails (2FA, banco) declaram `user-select: none`. Sem
+               isto o código na tela não se seleciona nem com o WebView
+               aceitando foco. */
+            html, body, #\(involucro), #\(involucro) * {
+              -webkit-user-select: text !important;
+              user-select: text !important;
+            }
             </style>
             <div id="\(involucro)">\(conteudo)</div>
+            \(travaPapel)
+            \(travaTema)
             """
+    }
+
+    /// Folha que ganha do HTML do remetente. Vai depois dele, com `!important`,
+    /// porque `bgcolor="#ffffff"` e `.txt { color:#e8eaed !important }` no
+    /// `@media (prefers-color-scheme: dark)` ganham da folha inicial.
+    static func folhaDoTema(fundo: String, tinta: String, link: String) -> String {
+        """
+        <style id="uni-tema">
+        :root, html { color-scheme: \(paginaEscura(fundo: fundo, tinta: tinta) ? "dark" : "light") only !important; }
+        html, body, #\(involucro) {
+          background: \(fundo) !important;
+          color: \(tinta) !important;
+        }
+        #\(involucro), #\(involucro) *:not(img):not(svg):not(video):not(canvas) {
+          color: \(tinta) !important;
+        }
+        #\(involucro) a, #\(involucro) a * { color: \(link) !important; }
+        #\(involucro) table, #\(involucro) td, #\(involucro) th, #\(involucro) tr,
+        #\(involucro) div, #\(involucro) p, #\(involucro) span, #\(involucro) font,
+        #\(involucro) center, #\(involucro) section, #\(involucro) article,
+        #\(involucro) header, #\(involucro) main, #\(involucro) [bgcolor] {
+          background-color: transparent !important;
+          background-image: none !important;
+        }
+        </style>
+        """
+    }
+
+    /// Fundo mais escuro que a tinta: a página já é dark, e o WebKit não pode
+    /// "completar" o esquema invertendo o texto para branco de sistema.
+    static func paginaEscura(fundo: String, tinta: String) -> Bool {
+        luma(tinta) > luma(fundo)
+    }
+
+    private static func luma(_ css: String) -> Double {
+        let c = rgb(css)
+        return 0.2126 * c.0 + 0.7152 * c.1 + 0.0722 * c.2
+    }
+
+    private static func rgb(_ css: String) -> (Double, Double, Double) {
+        let s = css.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if s.hasPrefix("#") {
+            var hex = String(s.drop(while: { $0 == "#" })).prefix(while: { $0.isHexDigit })
+            if hex.count == 3 {
+                hex = hex.map { String(repeating: $0, count: 2) }.joined()[...]
+            }
+            guard hex.count >= 6,
+                  let r = Int(hex.prefix(2), radix: 16),
+                  let g = Int(hex.dropFirst(2).prefix(2), radix: 16),
+                  let b = Int(hex.dropFirst(4).prefix(2), radix: 16)
+            else { return (0.5, 0.5, 0.5) }
+            return (Double(r) / 255, Double(g) / 255, Double(b) / 255)
+        }
+        let nums = s.split { !$0.isNumber && $0 != "." }.compactMap { Double($0) }
+        guard nums.count >= 3 else { return (0.5, 0.5, 0.5) }
+        let scale: Double = (nums[0] > 1 || nums[1] > 1 || nums[2] > 1) ? 255 : 1
+        return (nums[0] / scale, nums[1] / scale, nums[2] / scale)
     }
 }

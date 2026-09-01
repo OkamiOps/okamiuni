@@ -188,6 +188,26 @@ struct ComposerOutgoingTests {
         #expect(mensagem.messageID.hasSuffix("@meudominio.com.br"))
     }
 
+    @Test("a resposta leva a original citada no corpo")
+    func citingAppendsOriginal() {
+        let original = Message(
+            id: "m1", accountID: "a",
+            from: Contact(name: "Marcos", address: "marcos@okamiops.com"),
+            receivedAt: Date(),
+            subject: "Cancelado: teste okamiUNI",
+            snippet: "", body: ["O teste okamiUNI foi cancelado."], tags: [],
+            bucket: .today, isRead: true, summary: nil, detectedEvent: nil
+        )
+        let citado = ComposerOutgoing.citing(
+            original, dateLabel: "31 de ago.",
+            onto: ComposerOutgoing.Content(plainText: "Testesteste", html: nil, inlineResources: [])
+        )
+        #expect(citado.plainText.contains("Testesteste"))
+        #expect(citado.plainText.contains("marcos@okamiops.com"))
+        #expect(citado.plainText.contains("> O teste okamiUNI foi cancelado."))
+        #expect(ComposerOutgoing.citation(original, dateLabel: "31 de ago.").contains("escreveu:"))
+    }
+
     @Test("Chip sem endereço não vira destinatário")
     func chipVazio() {
         // Acontece quando a pessoa aperta ⌘⏎ com o campo meio digitado. Um
@@ -273,6 +293,30 @@ struct ComposerSendWiringTests {
         ) { _ in }
 
         #expect(porta.enviadas.isEmpty)
+    }
+
+    @Test("apertar Salvar rascunho grava na caixa Rascunhos")
+    func salvaRascunhoDeVerdade() async throws {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        let original = try #require(store.messages.first)
+
+        EditorProbe.withHostedView(
+            ComposerWindow(
+                store: store, mode: .reply(messageID: original.id),
+                debugSaveDraft: true
+            ),
+            size: CGSize(width: 820, height: 660), theme: .tinta
+        ) { _ in }
+
+        let rascunhos = store.messages.filter { $0.bucket == .drafts }
+        #expect(rascunhos.count == 1)
+        #expect(rascunhos.first?.to.map(\.address) == [original.from.address])
+        #expect(rascunhos.first?.subject.hasPrefix("Re:") == true)
+        #expect(store.count(for: .drafts) == 1)
+        #expect(rascunhos.first?.threadKey == original.id)
+        let rota = ComposerRoute.editor(for: try #require(rascunhos.first))
+        #expect(rota == .draft(messageID: try #require(rascunhos.first?.id)))
     }
 
     /// **O encaminhar do email, de ponta a ponta.**

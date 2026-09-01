@@ -37,6 +37,11 @@ public struct GoogleAuthConfig: Sendable, Hashable {
     public static let defaultScopes = [
         "https://mail.google.com/",
         "https://www.googleapis.com/auth/userinfo.email",
+        // Gmail pessoal cria Meet via Calendar (`conferenceData`). A Meet REST
+        // (spaces) é de Workspace e devolve 403 nessa caixa — por isso o
+        // Calendar entra aqui. Reconectar uma vez cobre os dois.
+        "https://www.googleapis.com/auth/calendar.events",
+        "https://www.googleapis.com/auth/meetings.space.created",
     ]
 
     /// O esquema que o Google de fato aceita para client de app desktop.

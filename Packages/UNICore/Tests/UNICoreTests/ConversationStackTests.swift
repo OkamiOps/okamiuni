@@ -28,6 +28,7 @@ struct ConversationStackTests {
     @Test("Quem nasce aberta é a mais recente, não a primeira")
     func aMaisRecenteNasceAberta() {
         #expect(ConversationStack.initialExpanded(conversa) == ["resposta"])
+        #expect(conversa.newestFirst.map(\.id) == ["resposta", "original"])
     }
 
     /// E é a mais recente por `receivedAt`, não pela ordem em que a lista

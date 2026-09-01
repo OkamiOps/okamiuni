@@ -68,7 +68,7 @@ struct DatabaseCommandPortTests {
         #expect(indices.contains("outbox_on_account_state_next"))
 
         let versoes = try db.pool.read { try SyncDatabase.migrator.appliedIdentifiers($0) }
-        #expect(versoes == ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13"])
+        #expect(versoes == ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13", "v14"])
     }
 
     @Test("As colunas do outbox são as da spec, e o estado nasce pendente")
@@ -146,6 +146,25 @@ struct DatabaseCommandPortTests {
             try #require(try OutboxRecord.fetchOne(conexao)).operation
         }
         #expect(operacao == .delete(messageIDs: ["m1"]))
+    }
+
+    @Test("Apagar rascunho local persiste e não enfileira no servidor")
+    func apagarRascunhoLocalNaoEnfileira() throws {
+        let db = try banco()
+        let id = "local-draft-abcd"
+        try semear(db, mensagens: [mensagem(id, bucket: .drafts)])
+        let porta = DatabaseCommandPort(database: db)
+
+        try porta.delete(accountID: "conta-a", messageIDs: [id])
+
+        let bucket = try db.pool.read { conexao in
+            try #require(try MessageRecord.fetchOne(conexao, key: id)).bucket
+        }
+        #expect(bucket == TriageBucket.trash.rawValue)
+        let naFila = try db.pool.read { conexao in
+            try Int.fetchOne(conexao, sql: "SELECT count(*) FROM outbox") ?? 0
+        }
+        #expect(naFila == 0)
     }
 
     // MARK: - Pasta, marcador e cor da conta

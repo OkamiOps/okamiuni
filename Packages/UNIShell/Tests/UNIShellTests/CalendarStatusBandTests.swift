@@ -9,6 +9,7 @@ import UNIDesign
 @MainActor
 private final class CalendarStatusSyncDouble: CalendarSyncing {
     func availability() async -> CalendarAvailability { .authorizationRequired }
+    func calendars() async -> [ConnectedCalendar] { [] }
     func synchronize(referenceDay _: Date, requestAuthorization _: Bool) async throws -> [AgendaItem] { [] }
     func save(_: AgendaItem, referenceDay _: Date) async throws {}
     func remove(id _: String, referenceDay _: Date) async throws {}

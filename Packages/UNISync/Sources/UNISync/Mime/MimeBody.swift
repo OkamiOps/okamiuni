@@ -204,7 +204,9 @@ public enum MimeBody {
         )
         let plana = folhas.first { $0.mime == "text/plain" }
         let html = folhas.first { $0.mime == "text/html" }
-        let agenda = folhas.first { ehCalendario($0.mime) }
+        let agenda = folhas.first {
+            ehCalendario($0.mime) || $0.texto.contains("BEGIN:VCALENDAR")
+        }
 
         let texto: String
         if let plana {
@@ -253,6 +255,12 @@ public enum MimeBody {
         mime == "text/calendar" || mime == "application/ics" || mime == "text/x-vcalendar"
     }
 
+    private static func ehArquivoICS(_ nome: String?) -> Bool {
+        guard let nome else { return false }
+        let baixo = nome.lowercased()
+        return baixo.hasSuffix(".ics") || baixo.hasSuffix(".ifb")
+    }
+
     /// As imagens que a própria mensagem carrega, na ordem do documento — a
     /// ordem importa, porque é nela que o orçamento de `MimeSanitize` é gasto.
     private static func imagensInline(de folhas: [Folha]) -> [MimeSanitize.ImagemInline] {
@@ -283,9 +291,16 @@ public enum MimeBody {
         let mime = mimeType(de: tipo)
         guard mime.hasPrefix("multipart/") else {
             let anexo = disposicao?.lowercased().contains("attachment") == true
+            let nome = filename(disposition: disposicao, contentType: tipo)
+            // Gmail e muitos clientes marcam o `text/calendar` como anexo
+            // (`invite.ics`). Recusar o rótulo deixava o convite só no chip
+            // e o leitor dizia "esta mensagem não tem texto".
+            let calendario = ehCalendario(mime) || ehArquivoICS(nome)
             if mime.hasPrefix("image/") {
                 guard contentID != nil else { return [] }
-            } else if mime.hasPrefix("text/") || ehCalendario(mime) {
+            } else if calendario {
+                ()
+            } else if mime.hasPrefix("text/") {
                 guard !anexo else { return [] }
             } else {
                 return []

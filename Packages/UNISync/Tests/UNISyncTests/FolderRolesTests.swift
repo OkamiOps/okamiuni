@@ -48,13 +48,10 @@ struct FolderRolesTests {
         #expect(FolderRoles.role(specialUse: nil, name: "Spam") == .junk)
         #expect(FolderRoles.role(specialUse: nil, name: "Junk Email") == .junk)
         #expect(FolderRoles.role(specialUse: nil, name: "Lixo eletrônico") == .junk)
-        // E o papel novo não mexeu em caixa nenhuma: as duas continuam em
-        // Arquivado, com o nome da pasta como etiqueta — exatamente onde
-        // estavam quando eram `.other`.
-        #expect(TriageProjection.bucket(role: .drafts) == .archived)
-        #expect(TriageProjection.bucket(role: .junk) == .archived)
-        #expect(TriageProjection.tag(folderRole: .drafts, folderName: "Rascunhos")?.name == "Rascunhos")
-        #expect(TriageProjection.tag(folderRole: .junk, folderName: "Spam")?.name == "Spam")
+        #expect(TriageProjection.bucket(role: .drafts) == .drafts)
+        #expect(TriageProjection.bucket(role: .junk) == .junk)
+        #expect(TriageProjection.tag(folderRole: .drafts, folderName: "Rascunhos") == nil)
+        #expect(TriageProjection.tag(folderRole: .junk, folderName: "Spam") == nil)
     }
 
     @Test("O acento não muda a resposta: 'Lixeira' e 'lixeira' são a mesma pasta")

@@ -24,6 +24,7 @@ private actor EventKitGatewayDouble: SystemCalendarGateway {
         state = .available
         return state
     }
+    func calendars() -> [ConnectedCalendar] { [] }
     func events(referenceDay _: Date) throws -> [AgendaItem] { items }
     func save(_ item: AgendaItem, referenceDay _: Date) throws { saved.append(item.id) }
     func remove(id: String, referenceDay _: Date) throws { removed.append(id) }
@@ -92,6 +93,22 @@ struct EventKitCalendarAdapterTests {
         let result = await gateway.snapshot()
         #expect(result.saved == ["email-1"])
         #expect(result.removed == ["email-1"])
+    }
+
+    @Test("Cada ocorrência de um evento recorrente ganha id próprio")
+    func occurrenceIdentityKeepsEachDay() {
+        let identifier = "recurring-standup"
+        let monday = Date(timeIntervalSince1970: 1_788_163_200) // 2026-08-31
+        let thursday = Date(timeIntervalSince1970: 1_788_422_400) // 2026-09-03
+        let a = EventKitItemID.make(
+            marker: nil, calendarItemIdentifier: identifier, start: monday
+        )
+        let b = EventKitItemID.make(
+            marker: nil, calendarItemIdentifier: identifier, start: thursday
+        )
+        #expect(a != b)
+        #expect(a.hasPrefix("eventkit:\(identifier):"))
+        #expect(b.hasPrefix("eventkit:\(identifier):"))
     }
 
     @Test("A ponte exporta a sala sem perder as notas")
@@ -181,5 +198,69 @@ struct CalDAVClientTests {
         await #expect(throws: SyncError.tls("CalDAV recusou redirect para outro host ou para uma URL insegura")) {
             _ = try await redirectClient.discoverCalendars()
         }
+    }
+}
+
+private struct StaticCalendarAccounts: CalendarAccountListing {
+    let accounts: [Account]
+    init(_ accounts: [Account]) { self.accounts = accounts }
+    func calendarAccounts() async -> [Account] { accounts }
+}
+
+@Suite("Agenda composta: EventKit e CalDAV")
+struct CompositeCalendarSyncTests {
+    @Test("Zoho e Yahoo têm CalDAV; Hostinger não")
+    func presetsFollowImapHost() {
+        let zoho = Account(
+            id: "z", address: "a@empresa.com", displayName: "A",
+            provider: .imap, host: "zoho",
+            tintLightHex: "#3F6AA1", tintDarkHex: "#8CBAF7",
+            imap: ImapEndpoint(host: "imap.zoho.com", port: 993, security: .tls)
+        )
+        let hostinger = Account(
+            id: "h", address: "b@site.com", displayName: "B",
+            provider: .imap, host: "hostinger",
+            tintLightHex: "#397852", tintDarkHex: "#88D1A2",
+            imap: ImapEndpoint(host: "imap.hostinger.com", port: 993, security: .tls)
+        )
+        let yahoo = Account(
+            id: "y", address: "c@yahoo.com", displayName: "C",
+            provider: .imap, host: "yahoo",
+            tintLightHex: "#6A1B9A", tintDarkHex: "#CE93D8",
+            imap: ImapEndpoint(host: "imap.mail.yahoo.com", port: 993, security: .tls)
+        )
+        #expect(CalDAVPresets.preset(for: zoho)?.name == "Zoho")
+        #expect(CalDAVPresets.preset(for: yahoo)?.name == "Yahoo")
+        #expect(CalDAVPresets.preset(for: hostinger) == nil)
+    }
+
+    @Test("Sem contas IMAP, a composta devolve só o EventKit")
+    func fallsBackToEventKit() async throws {
+        let gateway = EventKitGatewayDouble(state: .available, items: [
+            AgendaItem(id: "ek-1", title: "Call", startMinute: 540, endMinute: 570, accountID: "system")
+        ])
+        let composite = CompositeCalendarSync(
+            eventKit: EventKitCalendarAdapter(gateway: gateway),
+            accounts: StaticCalendarAccounts([]),
+            secrets: InMemorySecretStore()
+        )
+        let items = try await composite.synchronize(
+            referenceDay: Fixtures.today, requestAuthorization: false
+        )
+        #expect(items.map(\.id) == ["ek-1"])
+    }
+
+    @Test("EventKit recusado não derruba a composta")
+    func eventKitDeniedDoesNotThrow() async throws {
+        let gateway = EventKitGatewayDouble(state: .authorizationRequired)
+        let composite = CompositeCalendarSync(
+            eventKit: EventKitCalendarAdapter(gateway: gateway),
+            accounts: StaticCalendarAccounts([]),
+            secrets: InMemorySecretStore()
+        )
+        let items = try await composite.synchronize(
+            referenceDay: Fixtures.today, requestAuthorization: false
+        )
+        #expect(items.isEmpty)
     }
 }

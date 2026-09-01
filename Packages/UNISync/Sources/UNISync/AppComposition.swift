@@ -39,6 +39,8 @@ public struct AppComposition: Sendable {
     /// enfileira uma triagem e quem enfileira um envio escrevem na mesma
     /// tabela, e duas instâncias dariam dois avisos ao executor por engano.
     public let sendPort: MailSendPort?
+    /// Para onde o "Salvar rascunho" grava. É o mesmo `DatabaseCommandPort`.
+    public let draftPort: MailDraftPort?
     /// A mesma porta de saída, agora também responsável por gravar a decisão
     /// RSVP junto do `METHOD:REPLY` que ela enfileira.
     public let inviteRSVPPort: InviteRSVPCommandPort?
@@ -117,6 +119,10 @@ public struct AppComposition: Sendable {
     /// ao runtime oficial Codex deste Mac; o OAuth xAI fica separado no
     /// Keychain do app.
     public let assistantProviderOAuth: AssistantProviderOAuthCoordinator
+    /// OAuth Google da sessão, quando o client ID está no bundle. A fábrica
+    /// de salas Meet pede o access token daqui — o mesmo consentimento da
+    /// caixa, agora com o escopo de Space.
+    public let googleAuth: GoogleAuth?
     /// Falha de configuração que o app **mostra** em vez de esconder: banco
     /// que não abriu, client ID que falta. Nunca fatal.
     public let configError: SyncError?
@@ -162,7 +168,7 @@ public struct AppComposition: Sendable {
             log.error("Banco não abriu: \(falha.mensagem, privacy: .public)")
             return AppComposition(
                 database: nil, director: nil,
-                source: InMemoryMailSource.fixtures, commandPort: nil, sendPort: nil,
+                source: InMemoryMailSource.fixtures, commandPort: nil, sendPort: nil, draftPort: nil,
                 inviteRSVPPort: nil, bodyPort: nil,
                 attachmentPort: nil,
                 contactPort: nil, agendaPort: nil, calendarSync: EventKitCalendarAdapter(), trustPort: nil,
@@ -173,6 +179,7 @@ public struct AppComposition: Sendable {
                 assistantCredentials: assistantCredentials,
                 liteLLMOAuth: liteLLMOAuth,
                 assistantProviderOAuth: assistantProviderOAuth,
+                googleAuth: nil,
                 configError: falha
             )
         }
@@ -219,6 +226,12 @@ public struct AppComposition: Sendable {
         let relataCiclo: @Sendable (String, SyncError?) -> Void = { conta, erro in
             Task { await director.report(accountID: conta, error: erro) }
         }
+        let relataAndamento: @Sendable (String, Bool) -> Void = { conta, ativo in
+            Task { await director.reportSyncing(accountID: conta, active: ativo) }
+        }
+        let relataEntrada: @Sendable (String, Int) -> Void = { conta, total in
+            Task { await director.reportRemoteInbox(accountID: conta, count: total) }
+        }
         let relataFila: @Sendable (String, SyncError?) -> Void = { conta, erro in
             Task { await director.reportQueue(accountID: conta, error: erro) }
         }
@@ -241,7 +254,8 @@ public struct AppComposition: Sendable {
         // quem parou de autenticar.
         let sincronizacao = SyncRunner(
             database: banco, secrets: cofre, auth: auth, session: .shared,
-            eventLoopGroup: grupo, director: director, report: relataCiclo
+            eventLoopGroup: grupo, director: director, report: relataCiclo,
+            reportSyncing: relataAndamento, reportRemoteInbox: relataEntrada
         )
         Task { await sincronizacao.start() }
 
@@ -298,6 +312,7 @@ public struct AppComposition: Sendable {
             source: DatabaseMailSource(database: banco, emptyFallback: .fixtures),
             commandPort: porta,
             sendPort: porta,
+            draftPort: porta,
             inviteRSVPPort: porta,
             bodyPort: DatabaseBodyFetcher(
                 database: banco, secrets: cofre, auth: auth,
@@ -308,7 +323,10 @@ public struct AppComposition: Sendable {
             ),
             contactPort: DatabaseContactDirectory(database: banco),
             agendaPort: DatabaseAgendaStore(database: banco),
-            calendarSync: EventKitCalendarAdapter(),
+            calendarSync: CompositeCalendarSync(
+                accounts: DatabaseCalendarAccounts(database: banco),
+                secrets: cofre
+            ),
             trustPort: DatabaseTrustedSenderStore(database: banco),
             outbox: fila,
             outboxSignal: sinal,
@@ -321,6 +339,7 @@ public struct AppComposition: Sendable {
             assistantCredentials: assistantCredentials,
             liteLLMOAuth: liteLLMOAuth,
             assistantProviderOAuth: assistantProviderOAuth,
+            googleAuth: auth,
             configError: erro
         )
     }

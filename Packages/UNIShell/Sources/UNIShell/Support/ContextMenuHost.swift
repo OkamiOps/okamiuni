@@ -125,8 +125,20 @@ enum StoreCommand {
             store.removeFromAgenda(itemID)
             return true
 
+        case .cancelMeeting(let itemID):
+            store.cancelMeeting(itemID)
+            return true
+
         case .restoreToAgenda(let itemID):
             store.restoreToAgenda(itemID)
+            return true
+
+        case .concealCalendar(let id):
+            store.concealCalendar(id)
+            return true
+
+        case .revealCalendar(let id):
+            store.revealCalendar(id)
             return true
 
         case .markAllRead(let bucket, let accountID):
@@ -164,24 +176,32 @@ struct MenuCommandRunner {
         if intercept(command) { return }
         switch command {
         case .openMessageWindow(let messageID):
-            openWindow(id: UNIWindow.message, value: messageID)
+            if let mensagem = store.message(messageID), mensagem.bucket == .drafts {
+                openWindow(id: UNIWindow.composer, value: ComposerRoute.draft(messageID: messageID).value)
+            } else {
+                openWindow(id: UNIWindow.message, value: messageID)
+            }
 
         case .reply(let messageID):
             // Selecionar antes de abrir faz duas coisas de uma vez: põe a
             // mensagem no leitor (com a faixa de resposta nela) e a marca como
             // lida, que é o que responder significa em qualquer cliente.
+            // Rascunho não se responde: reabre o que já estava escrito.
             store.select(message: messageID)
-            openWindow(
-                id: UNIWindow.composer,
-                value: ComposerRoute.reply(messageID: messageID).value
-            )
+            let rota = store.message(messageID).map(ComposerRoute.editor(for:))
+                ?? .reply(messageID: messageID)
+            openWindow(id: UNIWindow.composer, value: rota.value)
 
         case .replyAll(let messageID):
             store.select(message: messageID)
-            openWindow(
-                id: UNIWindow.composer,
-                value: ComposerRoute.replyAll(messageID: messageID).value
-            )
+            if let mensagem = store.message(messageID), mensagem.bucket == .drafts {
+                openWindow(id: UNIWindow.composer, value: ComposerRoute.draft(messageID: messageID).value)
+            } else {
+                openWindow(
+                    id: UNIWindow.composer,
+                    value: ComposerRoute.replyAll(messageID: messageID).value
+                )
+            }
 
         case .forward(let messageID):
             // Encaminhar **não** marca como lida, ao contrário de responder:
@@ -195,7 +215,8 @@ struct MenuCommandRunner {
         case .setRead, .setFlagged, .move, .placeMessage, .moveGmailMessage,
              .setAccountTint, .markAllRead,
              .deleteForever, .restoreDeleted, .emptyTrash,
-             .removeFromAgenda, .restoreToAgenda,
+             .removeFromAgenda, .cancelMeeting, .restoreToAgenda,
+             .concealCalendar, .revealCalendar,
              // Os dois de conversa não vêm de menu nenhum — eles nascem dentro
              // do recibo de uma ação de conversa e chegam aqui pelo "Desfazer"
              // da faixa, que é o mesmo caminho de todos os outros.
@@ -307,12 +328,19 @@ enum AgendaContextMenu {
         store: MailStore,
         anchor: Date
     ) -> [ContextMenuEntry] {
-        let detail = Fixtures.eventDetail(for: item.title)
+        let origin = DetectedEventConversion.messageID(forAgendaID: item.id)
+            .flatMap { store.message($0) }
+        let detail = InviteAgenda.resolvedDetail(
+            for: item,
+            origin: origin,
+            account: store.account(item.accountID)
+        )
         return ContextMenus.agendaBlock(
             item,
             detail: detail,
             date: date(of: item, anchor: anchor),
-            originMessageID: ContextMenus.originMessageID(for: detail, in: store.messages)
+            originMessageID: DetectedEventConversion.messageID(forAgendaID: item.id)
+                ?? ContextMenus.originMessageID(for: detail, in: store.messages)
         )
     }
 

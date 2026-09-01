@@ -36,7 +36,7 @@ public struct DatabaseMailSource: MailSource, Sendable {
     }
 
     public func messages() async throws -> [Message] {
-        try await database.pool.read { try Self.messages(in: $0) }
+        try await database.pool.read { try Self.messages(in: $0, includingBodies: true) }
     }
 
     public func agenda() async throws -> [AgendaItem] {
@@ -166,7 +166,9 @@ public struct DatabaseMailSource: MailSource, Sendable {
     private static func snapshot(in db: Database) throws -> MailSnapshot {
         MailSnapshot(
             accounts: try AccountRecord.order(Column("createdAt")).fetchAll(db).map(\.account),
-            messages: try messages(in: db),
+            // Envelope só: juntar `message_body` aqui copiava o HTML de Tudo
+            // para a MainActor. O leitor busca o corpo ao abrir.
+            messages: try messages(in: db, includingBodies: false),
             agenda: try AgendaItemRecord.fetchAll(db).map(\.item),
             pendingItems: [],
             folders: try folders(in: db)
@@ -180,13 +182,18 @@ public struct DatabaseMailSource: MailSource, Sendable {
         try FolderRecord.fetchAll(db).compactMap(\.folder)
     }
 
-    private static func messages(in db: Database) throws -> [Message] {
+    private static func messages(in db: Database, includingBodies: Bool) throws -> [Message] {
         // `ORDER BY receivedAt DESC` desce pelo índice `message_on_received`,
         // cujo plano a Task 5 provou por `EXPLAIN QUERY PLAN` — nenhuma
         // consulta nova entra aqui.
         let registros = try MessageRecord
             .order(Column("receivedAt").desc)
             .fetchAll(db)
+        guard includingBodies else {
+            return registros.map {
+                $0.message(body: [], bodyHTML: nil, calendarICS: nil, attachments: [])
+            }
+        }
         // Os corpos numa consulta só: um `fetchOne` por mensagem seria uma
         // consulta por linha da lista, e a lista tem milhares.
         let corpos = try MessageBodyRecord.fetchAll(db)

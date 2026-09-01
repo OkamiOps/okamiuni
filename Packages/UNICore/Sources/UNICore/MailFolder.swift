@@ -33,12 +33,9 @@ public enum FolderRole: String, Sendable, Hashable, CaseIterable, Codable {
     case later = "depois"
     /// Rascunhos do provedor (`\Drafts`, `DRAFT` no Gmail).
     ///
-    /// Ele e `junk` entraram na M3-17 e **não mudam projeção nenhuma**: as duas
-    /// pastas caíam em `.other` e iam para Arquivado com o nome delas como
-    /// etiqueta, e continuam indo (ver `TriageProjection`). O que os dois casos
-    /// compram é o ícone da linha na barra lateral — dizer "isto é a lixeira" e
-    /// "isto são os rascunhos" pelo desenho, e não só pelo nome que o servidor
-    /// escolheu.
+    /// Rascunhos têm caixa própria no fluxo. Spam também: quarentena, fora
+    /// de Tudo e de Hoje — o ícone na barra do provedor não basta se a
+    /// mensagem ainda aparece na caixa unificada.
     case drafts = "rascunhos"
     /// Spam/lixo eletrônico (`\Junk`, `SPAM` no Gmail).
     case junk = "spam"

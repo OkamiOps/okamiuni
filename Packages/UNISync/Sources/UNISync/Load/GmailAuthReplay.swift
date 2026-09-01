@@ -48,6 +48,10 @@ public struct GmailAuthReplay: Sendable {
         try await comReplay { try await client.labels() }
     }
 
+    public func label(id: String) async throws -> GmailLabel {
+        try await comReplay { try await client.label(id: id) }
+    }
+
     public func messageIDs(query: String, pageToken: String?) async throws -> GmailPage {
         try await comReplay { try await client.messageIDs(query: query, pageToken: pageToken) }
     }

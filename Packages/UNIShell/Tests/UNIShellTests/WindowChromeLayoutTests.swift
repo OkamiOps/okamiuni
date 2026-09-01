@@ -19,7 +19,6 @@ struct WindowChromeLayoutTests {
         #expect(
             WindowChrome.controlOrder == [
                 .sidebarToggle,
-                .lockup,
                 .search,
                 .tabs,
                 .agendaToggle,
@@ -32,17 +31,16 @@ struct WindowChromeLayoutTests {
     @Test("todo controle aparece uma vez só, e nenhum some da barra")
     func everyControlAppearsExactlyOnce() {
         let order = WindowChrome.controlOrder
-        #expect(order.count == 7)
+        #expect(order.count == 6)
         #expect(order.count == Set(order).count)
         #expect(order.contains(.compose) == false)
         #expect(Set(order) == Set(ChromeControl.allCases.filter { $0 != .compose }))
     }
 
-    @Test("o lockup abre o conteúdo e a conta fecha a barra")
+    @Test("o recolhe abre a fileira e a conta fecha a barra")
     func shellAnchorsStayInPlace() {
         let order = WindowChrome.controlOrder
         guard
-            let lockup = order.firstIndex(of: .lockup),
             let search = order.firstIndex(of: .search),
             let accounts = order.firstIndex(of: .accounts)
         else {
@@ -50,8 +48,7 @@ struct WindowChromeLayoutTests {
             return
         }
         #expect(order.first == .sidebarToggle, "a esquerda tem de abrir com o botão da lateral")
-        #expect(lockup == 1, "a marca deve ficar logo após o botão da lateral")
-        #expect(search == 2, "a busca deve ficar entre a marca e as abas")
+        #expect(search == 1, "a busca segue o recolhe; o lobo não é controle da ordem")
         #expect(accounts == order.count - 1, "a conta deve fechar a barra")
     }
 
@@ -61,31 +58,58 @@ struct WindowChromeLayoutTests {
         #expect(WindowChrome.controlOrder.contains(.search))
     }
 
-    @Test("a barra usa o lockup oficial completo nos dois temas")
-    @MainActor
-    func fullBrandLockup() {
-        #expect(WindowChrome.lockupAssetName(isDark: false) == "uni-lockup-light")
-        #expect(WindowChrome.lockupAssetName(isDark: true) == "uni-lockup-dark")
-        #expect(WindowChrome.lockupSize == CGSize(width: 138, height: 38))
-        #expect(WindowChrome.lockupSize.height <= WindowChrome.height)
+    @Test("o recarregar mora dentro da busca, não como um sétimo controle da ordem")
+    func reloadLivesInsideSearch() {
+        #expect(WindowChrome.controlOrder.contains(.search))
+        #expect(ChromeControl.allCases.contains(where: { $0.rawValue == "reload" }) == false)
     }
 
-    @Test("o lockup completo não corta a busca nem os controles na janela compacta")
-    @MainActor
-    func fullLockupFitsSupportedWidths() throws {
-        // O catálogo pertence ao bundle do app, não ao pacote UNIShell. Para
-        // fotografar a View de produção no teste offscreen, registra o mesmo
-        // PNG oficial no cache nomeado do AppKit durante este caso apenas.
-        var repositoryRoot = URL(fileURLWithPath: #filePath)
-        for _ in 0..<5 { repositoryRoot.deleteLastPathComponent() }
-        let assetURL = repositoryRoot.appending(
-            path: "App/Resources/Assets.xcassets/uni-lockup-light.imageset/uni-lockup-light.png"
-        )
-        let lockupImage = try #require(NSImage(contentsOf: assetURL))
-        let assetName = NSImage.Name(WindowChrome.lockupAssetName(isDark: false))
-        #expect(lockupImage.setName(assetName))
-        defer { lockupImage.setName(nil) }
+    @Test("o recolhe ao lado do semáforo é um item de toolbar nativo")
+    func sidebarToggleMatchesNativeToolbar() {
+        #expect(WindowChrome.sidebarControlSize == 24)
+        #expect(WindowChrome.sidebarControlSymbolSize == 14)
+        #expect(WindowChrome.sidebarControlSize < 28)
+    }
 
+    @Test("o recolhe mede 24pt na barra, não a caixa de 38pt")
+    @MainActor
+    func sidebarToggleFrameIsCompact() throws {
+        let recorder = ChromeFrameRecorder()
+        let chrome = WindowChrome(
+            workspace: .constant(.mail),
+            query: .constant(""),
+            accountCount: 1,
+            onToggleSidebar: {},
+            onToggleAgenda: {}
+        )
+        .environment(ThemeStore())
+        .onPreferenceChange(ChromeControlFrames.self) { frames in
+            MainActor.assumeIsolated { recorder.frames = frames }
+        }
+
+        _ = try #require(Render.snapshot(
+            chrome,
+            named: "window-chrome-sidebar-toggle",
+            size: CGSize(width: 1_200, height: WindowChrome.height),
+            theme: .tinta
+        ))
+
+        let frames = recorder.frames.sorted { $0.minX < $1.minX }
+        let toggle = try #require(frames.first)
+        #expect(abs(toggle.width - WindowChrome.sidebarControlSize) < 0.5)
+        #expect(abs(toggle.height - WindowChrome.sidebarControlSize) < 0.5)
+        #expect(abs(toggle.minX - 82) <= 2)
+        #expect(
+            abs(toggle.midY - TrafficLightLayout.contentCenterFromTop) <= 1,
+            "o recolhe tem de cair na linha dos semáforos, não no centro da toolbar: midY=\(toggle.midY)"
+        )
+        #expect(WindowChrome.sidebarControlTopInset == 10)
+        #expect(toggle.maxY <= WindowChrome.height)
+    }
+
+    @Test("os controles da barra cabem nas larguras suportadas")
+    @MainActor
+    func chromeFitsSupportedWidths() throws {
         for width in [CGFloat(860), 1_200, 1_440] {
             let recorder = ChromeFrameRecorder()
             let chrome = WindowChrome(
@@ -111,11 +135,11 @@ struct WindowChromeLayoutTests {
             #expect(frames.count == WindowChrome.controlOrder.count)
             guard frames.count == WindowChrome.controlOrder.count else { continue }
 
-            let lockup = frames[1]
-            let search = frames[2]
+            let sidebar = frames[0]
+            let search = frames[1]
             let rightEdge = try #require(frames.last?.maxX)
-            #expect(abs(lockup.width - WindowChrome.lockupSize.width) < 0.5)
-            #expect(abs(lockup.height - WindowChrome.lockupSize.height) < 0.5)
+            #expect(abs(sidebar.width - WindowChrome.sidebarControlSize) < 0.5)
+            #expect(search.minX >= sidebar.maxX)
             #expect(search.width >= WindowChrome.searchMinimumWidth)
             #expect(rightEdge > width - 13)
             #expect(rightEdge <= width - 11)
@@ -124,6 +148,33 @@ struct WindowChromeLayoutTests {
                 #expect(pair.0.maxX <= pair.1.minX)
             }
         }
+    }
+
+    @Test("a barrinha de estado e o recarregar cabem na barra de 64pt")
+    @MainActor
+    func statusBarAndReloadFitTheChrome() throws {
+        let rep = try #require(
+            Render.bitmap(
+                WindowChrome(
+                    workspace: .constant(.mail),
+                    query: .constant(""),
+                    accountCount: 1,
+                    onToggleSidebar: {},
+                    onToggleAgenda: {},
+                    syncStatus: .loading(fraction: 0.4),
+                    onReloadMailbox: {}
+                )
+                .environment(ThemeStore()),
+                size: CGSize(width: 1_200, height: WindowChrome.height),
+                theme: .tinta
+            )
+        )
+        #expect(rep.pixelsWide == 1_200)
+        #expect(rep.pixelsHigh == Int(WindowChrome.height))
+        #expect(
+            rep.pixels(matching: Theme.tinta.accent, tolerance: 0.08) > 0,
+            "a barrinha de carregamento não pintou o acento"
+        )
     }
 
     // MARK: alinhamento vertical

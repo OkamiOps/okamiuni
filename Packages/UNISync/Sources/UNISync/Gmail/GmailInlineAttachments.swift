@@ -73,6 +73,50 @@ public enum GmailInlineAttachments {
     }
 }
 
+/// O `.ics` que o Gmail esconde como anexo (`invite.ics`, só `attachmentId`).
+///
+/// Sem isto o cancelamento chega no leitor como "esta mensagem não tem texto"
+/// e um chip de arquivo, e o cartão de convite nunca aparece.
+enum GmailCalendar {
+    static let teto = 256 * 1_024
+
+    static func ics(in mensagem: GmailMessage) -> String? {
+        if let ics = mensagem.calendarICS, ics.contains("BEGIN:VCALENDAR") { return ics }
+        for anexo in mensagem.attachments where isICS(anexo) {
+            if let data = anexo.inlineData,
+               let texto = String(data: data, encoding: .utf8),
+               texto.contains("BEGIN:VCALENDAR")
+            {
+                return texto
+            }
+        }
+        return nil
+    }
+
+    static func completar(
+        _ mensagem: GmailMessage, cliente: GmailClient, serverID: String
+    ) async -> String? {
+        if let ics = ics(in: mensagem) { return ics }
+        guard let anexo = mensagem.attachments.first(where: isICS),
+              let attachmentID = anexo.attachmentID,
+              anexo.byteCount <= teto
+        else { return nil }
+        guard let bytes = try? await cliente.attachment(
+            messageID: serverID, attachmentID: attachmentID
+        ), bytes.count <= teto,
+              let texto = String(data: bytes, encoding: .utf8),
+              texto.contains("BEGIN:VCALENDAR")
+        else { return nil }
+        return texto
+    }
+
+    private static func isICS(_ anexo: GmailMessage.Attachment) -> Bool {
+        MailAttachment.looksLikeCalendarInvite(
+            filename: anexo.filename, mimeType: anexo.mimeType
+        )
+    }
+}
+
 extension GmailClient {
 
     /// `users.messages.get`, crua.

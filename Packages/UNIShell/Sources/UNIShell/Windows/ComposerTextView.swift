@@ -193,7 +193,7 @@ struct ComposerTextView: NSViewRepresentable {
 
         static func linkAttributes(_ theme: Theme) -> [NSAttributedString.Key: Any] {
             [
-                .foregroundColor: theme.accent.nsColor,
+                .foregroundColor: theme.link.nsColor,
                 .underlineStyle: NSUnderlineStyle.single.rawValue,
                 .cursor: NSCursor.pointingHand,
             ]

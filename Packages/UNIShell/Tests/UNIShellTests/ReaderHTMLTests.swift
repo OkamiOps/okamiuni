@@ -4,6 +4,7 @@ import SwiftUI
 import Testing
 import UNICore
 import UNIDesign
+import WebKit
 @testable import UNIShell
 
 /// As decisões do leitor de HTML — todas puras, todas afirmáveis sem abrir
@@ -54,6 +55,45 @@ struct ReaderHTMLPolicyTests {
         #expect(bloqueado.contains(ReaderHTMLPolicy.imagemRemotaBloqueada))
     }
 
+    @Test("Imagem http vira https — senão o ATS quebra o ícone do Google Play")
+    func promoveHTTPParaHTTPS() {
+        let html = """
+            <img src="http://www.gstatic.com/android/market_images/email/alert_outline.png">
+            <a href="http://play.google.com/pay">Atualizar</a>
+            <div style="background: url(&#39;http://www.gstatic.com/android/market_images/email/email_mid_v2.png&#39;)"></div>
+            <html xmlns="http://www.w3.org/1999/xhtml">
+            """
+        let livre = ReaderHTMLPolicy.documento(
+            html: html, fundo: "#fff", tinta: "#000", link: "#00f", fonte: "ui-serif",
+            bloqueiaRemotas: false
+        )
+        #expect(livre.contains("src=\"https://www.gstatic.com/android/market_images/email/alert_outline.png\""))
+        #expect(!livre.contains("src=\"http://www.gstatic.com"))
+        // O destino do clique não muda: HTTP claro num link ainda é o que o
+        // remetente escreveu.
+        #expect(livre.contains("href=\"http://play.google.com/pay\""))
+        #expect(livre.contains("url(&#39;https://www.gstatic.com/android/market_images/email/email_mid_v2.png&#39;)"))
+        #expect(livre.contains("xmlns=\"http://www.w3.org/1999/xhtml\""))
+
+        let bloqueado = ReaderHTMLPolicy.documento(
+            html: html, fundo: "#fff", tinta: "#000", link: "#00f", fonte: "ui-serif",
+            bloqueiaRemotas: true
+        )
+        #expect(bloqueado.contains(ReaderHTMLPolicy.imagemRemotaBloqueada))
+        #expect(!bloqueado.contains("alert_outline.png"))
+    }
+
+    @Test("http no loopback continua: é o servidor de ensaio das imagens")
+    func naoPromoveLoopback() {
+        let html = "<img src=\"http://127.0.0.1:9/pixel.png\">"
+        let livre = ReaderHTMLPolicy.documento(
+            html: html, fundo: "#fff", tinta: "#000", link: "#00f", fonte: "ui-serif",
+            bloqueiaRemotas: false
+        )
+        #expect(livre.contains("http://127.0.0.1:9/pixel.png"))
+        #expect(!livre.contains("https://127.0.0.1"))
+    }
+
     @Test("Um link não é um recurso: a faixa não aparece por causa dele")
     func linkNaoContaComoRecurso() {
         // `href` não é carregado ao abrir, é seguido ao clicar. Contá-lo poria
@@ -75,6 +115,18 @@ struct ReaderHTMLPolicyTests {
         #expect(ReaderHTMLPolicy.decide(url: correio) == .abrirNoNavegador(correio))
     }
 
+    @Test("Sim/Não/Talvez do Google Agenda viram RSVP, não uma aba")
+    func rsvpDoGoogleNaoAbreONavegador() {
+        let sim = URL(string: "https://calendar.google.com/calendar/event?action=RESPOND&eid=abc&rst=1")!
+        let nao = URL(string: "https://www.google.com/calendar/event?action=RESPOND&rst=2&eid=abc")!
+        let talvez = URL(string: "https://calendar.google.com/calendar/event?eid=abc&rst=3")!
+        let soVer = URL(string: "https://calendar.google.com/calendar/event?eid=abc")!
+        #expect(ReaderHTMLPolicy.decide(url: sim) == .rsvp(.accepted))
+        #expect(ReaderHTMLPolicy.decide(url: nao) == .rsvp(.declined))
+        #expect(ReaderHTMLPolicy.decide(url: talvez) == .rsvp(.tentative))
+        #expect(ReaderHTMLPolicy.decide(url: soVer) == .abrirNoNavegador(soVer))
+    }
+
     @Test("A carga do próprio documento passa; o resto é recusado")
     func documentoPassaORestoNao() {
         #expect(ReaderHTMLPolicy.decide(url: URL(string: "about:blank")!) == .permitir)
@@ -90,8 +142,77 @@ struct ReaderHTMLPolicyTests {
     func mensagemComCorViraPapel() {
         #expect(ReaderHTMLPolicy.paleta(para: "<td bgcolor=\"#ffffff\">Oi</td>") == .papel)
         #expect(ReaderHTMLPolicy.paleta(para: "<p style=\"color:#333\">Oi</p>") == .papel)
+        #expect(ReaderHTMLPolicy.paleta(para: "<span color=\"#333\">Oi</span>") == .papel)
+        #expect(
+            ReaderHTMLPolicy.paleta(
+                para: "<style>@media (prefers-color-scheme: dark) { p { color:#eee } }</style><p>Oi</p>"
+            ) == .papel
+        )
         // A mensagem que não disse nada segue o tema — e fica bonita nos dois.
         #expect(ReaderHTMLPolicy.paleta(para: "<p>Bom dia.</p>") == .doTema)
+    }
+
+    @Test("Como o tema força o HTML pintado a seguir o app")
+    func paletaForcadaDoTema() {
+        let html = "<td bgcolor=\"#ffffff\">Oi</td>"
+        #expect(ReaderHTMLPolicy.paleta(para: html) == .papel)
+        #expect(ReaderHTMLPolicy.paleta(para: html, forçada: .doTema) == .doTema)
+        let forçado = ReaderHTMLPolicy.documento(
+            html: html, fundo: "rgba(20, 20, 20, 1.0)",
+            tinta: "rgba(240, 240, 240, 1.0)", link: "rgba(120, 170, 255, 1.0)",
+            fonte: "ui-serif", paleta: .doTema
+        )
+        #expect(forçado.contains("rgba(20, 20, 20, 1.0)"))
+        #expect(!forçado.contains("color-scheme: light only"))
+        #expect(forçado.contains("id=\"uni-tema\""))
+        #expect(forçado.contains("background-color: transparent !important"))
+        #expect(forçado.contains("color: rgba(240, 240, 240, 1.0) !important"))
+        #expect(ReaderHTMLSection.comoEnviado == "Como enviado")
+        #expect(ReaderHTMLSection.comoOTema == "Como o tema")
+    }
+
+    @Test("Como o tema ganha do @media dark do Calendar e do bgcolor branco")
+    func paletaForcadaCobreORemetente() {
+        let convite = """
+            <style>@media (prefers-color-scheme: dark) { .txt { color:#e8eaed !important } }</style>
+            <table bgcolor="#ffffff"><tr><td class="txt">Quando</td></tr></table>
+            """
+        let forçado = ReaderHTMLPolicy.documento(
+            html: convite, fundo: "rgba(11, 11, 18, 1.0)",
+            tinta: "rgba(226, 227, 236, 1.0)", link: "rgba(120, 170, 255, 1.0)",
+            fonte: "ui-serif", paleta: .doTema
+        )
+        let automatico = ReaderHTMLPolicy.documento(
+            html: convite, fundo: "rgba(11, 11, 18, 1.0)",
+            tinta: "rgba(226, 227, 236, 1.0)", link: "rgba(120, 170, 255, 1.0)",
+            fonte: "ui-serif"
+        )
+        #expect(forçado.contains("id=\"uni-tema\""))
+        #expect(!automatico.contains("id=\"uni-tema\""))
+        #expect(automatico.contains("color-scheme: light only"))
+        let indiceTema = forçado.range(of: "id=\"uni-tema\"")!.lowerBound
+        let indiceQuando = forçado.range(of: "Quando")!.lowerBound
+        #expect(indiceTema > indiceQuando)
+    }
+
+    @Test("papel trava o esquema em light only, para o Calendar não clarear o texto")
+    func papelTravaEsquemaClaro() {
+        let convite = """
+            <style>@media (prefers-color-scheme: dark) { .txt { color:#e8eaed !important } }</style>
+            <table bgcolor="#ffffff"><tr><td class="txt">Quando</td></tr></table>
+            """
+        let papel = ReaderHTMLPolicy.documento(
+            html: convite, fundo: "rgba(11, 11, 18, 1.0)",
+            tinta: "rgba(185, 186, 200, 1.0)", link: "rgba(120, 170, 255, 1.0)",
+            fonte: "ui-serif"
+        )
+        #expect(papel.contains("color-scheme: light only"))
+        #expect(papel.contains("name=\"color-scheme\" content=\"light\""))
+        #expect(ReaderHTMLPolicy.esquemaClaro(
+            html: convite, fundo: "rgba(11, 11, 18, 1.0)", tinta: "rgba(185, 186, 200, 1.0)"
+        ))
+        // O id do invólucro não pinta tinta do tema por cima das classes.
+        #expect(!papel.contains("#uni-root { display: block; color:"))
     }
 
     @Test("O documento leva color-scheme, fundo e tinta — nunca texto invisível")
@@ -101,7 +222,8 @@ struct ReaderHTMLPolicyTests {
             tinta: "rgba(240, 240, 240, 1.0)", link: "rgba(120, 170, 255, 1.0)",
             fonte: "ui-serif"
         )
-        #expect(doTema.contains("color-scheme: light dark"))
+        #expect(doTema.contains("color-scheme: dark"))
+        #expect(!doTema.contains("color-scheme: light dark"))
         #expect(doTema.contains("rgba(20, 20, 20, 1.0)"))
         #expect(doTema.contains("rgba(240, 240, 240, 1.0)"))
         #expect(doTema.contains("<p>Bom dia.</p>"))
@@ -116,8 +238,37 @@ struct ReaderHTMLPolicyTests {
         )
         #expect(papel.contains("#ffffff"))
         #expect(!papel.contains("rgba(20, 20, 20, 1.0)"))
-        #expect(papel.contains("color-scheme: light"))
+        #expect(papel.contains("color-scheme: light only"))
         #expect(!papel.contains("color-scheme: light dark"))
+
+        let claro = ReaderHTMLPolicy.documento(
+            html: "<p>Bom dia.</p>", fundo: "#ffffff",
+            tinta: "#222222", link: "#1155cc", fonte: "ui-serif"
+        )
+        #expect(claro.contains("color-scheme: light"))
+        #expect(!claro.contains("color-scheme: dark"))
+    }
+
+    @Test("página escura é a que tem tinta mais clara que o fundo")
+    func paginaEscuraPelaTinta() {
+        #expect(ReaderHTMLPolicy.paginaEscura(fundo: "#0B0B12", tinta: "#B9BAC8"))
+        #expect(ReaderHTMLPolicy.paginaEscura(fundo: "rgba(11, 11, 18, 1.0)", tinta: "rgba(185, 186, 200, 1.0)"))
+        #expect(!ReaderHTMLPolicy.paginaEscura(fundo: "#ffffff", tinta: "#1a1a1a"))
+    }
+
+    @Test("O fechamento quebrado do pré-cabeçalho é recuperado antes de desenhar")
+    func fechamentoQuebradoViraTagDeVerdade() {
+        let consertado = ReaderHTMLPolicy.recuperaFechamentosQuebrados(
+            "<div style=\"display:none\">x<=\"\" div=\"\"><table><tr><td>615211</td></tr></table>"
+        )
+        #expect(consertado.contains("</div>"))
+        #expect(!consertado.contains("<=\"\""))
+        #expect(
+            ReaderHTMLPolicy.documento(
+                html: consertado, fundo: "#fff", tinta: "#000",
+                link: "#00f", fonte: "ui-serif"
+            ).contains("</div>")
+        )
     }
 
     @Test("A imagem larga não empurra o painel para o lado")
@@ -129,6 +280,89 @@ struct ReaderHTMLPolicyTests {
         #expect(documento.contains("max-width: 100%"))
         // A `WebView` não rola: quem rola é o leitor.
         #expect(documento.contains("overflow: hidden"))
+    }
+
+    /// A queixa do GitHub Actions: "Status" pintado letra a letra. A folha
+    /// antiga punha `word-break: break-word` no `body` (herdado por toda
+    /// célula) e `max-width: 100%` em `table`. Numa tabela fluida, a coluna
+    /// estreita passa a ter min-content de um caractere — e "Status" vira
+    /// S / t / a / t / u / s.
+    @Test("A folha não parte palavra no meio nem espreme tabela")
+    func folhaNaoParteCelula() {
+        let documento = ReaderHTMLPolicy.documento(
+            html: "<table><tr><td>Status</td></tr></table>",
+            fundo: "#fff", tinta: "#000", link: "#00f", fonte: "ui-serif"
+        )
+        #expect(!documento.contains("word-break"))
+        #expect(documento.contains("overflow-wrap: break-word"))
+        #expect(documento.contains("img, video { max-width: 100%"))
+        #expect(!documento.contains("img, video, table { max-width: 100%"))
+    }
+
+    @Test("A folha força seleção de texto — emails de 2FA não podem recusar")
+    func folhaForcaSelecao() {
+        let documento = ReaderHTMLPolicy.documento(
+            html: "<p style=\"user-select:none\">482911</p>",
+            fundo: "#fff", tinta: "#000", link: "#00f", fonte: "ui-serif"
+        )
+        #expect(documento.contains("user-select: text !important"))
+        #expect(documento.contains("-webkit-user-select: text !important"))
+    }
+
+    @Test("⌘C e ⌘A passam para o HTML; ⌘R continua do app")
+    @MainActor
+    func atalhosDeCopiaPassam() throws {
+        #expect(WebViewQueNaoRouba(frame: .zero, configuration: .init()).acceptsFirstResponder)
+        let copiar = try #require(Self.atalho("c", .command))
+        let selecionar = try #require(Self.atalho("a", .command))
+        let recarregar = try #require(Self.atalho("r", .command))
+        let escrever = try #require(Self.atalho("n", .command))
+        #expect(WebViewQueNaoRouba.atalhoDeCopia(copiar))
+        #expect(WebViewQueNaoRouba.atalhoDeCopia(selecionar))
+        #expect(!WebViewQueNaoRouba.atalhoDeCopia(recarregar))
+        #expect(!WebViewQueNaoRouba.atalhoDeCopia(escrever))
+    }
+
+    @Test("O HTML do leitor não engole o ⌫ — apagar continua sendo da mensagem")
+    @MainActor
+    func leitorNaoECampoDeTexto() {
+        let web = WebViewQueNaoRouba(frame: .zero, configuration: .init())
+        #expect(!web.eCampoDeTexto)
+        #expect(!BareKeyFocus.isEditingText(web))
+        let campo = NSTextView(frame: .zero)
+        #expect(BareKeyFocus.isEditingText(campo))
+        web.eCampoDeTexto = true
+        #expect(BareKeyFocus.isEditingText(web))
+    }
+
+    @Test("Esc na busca vale; no composer, o documento fica com a tecla")
+    @MainActor
+    func escDistingueBuscaDeDocumento() {
+        let editor = NSTextView(frame: .zero)
+        editor.isFieldEditor = true
+        #expect(!BareKeyFocus.isEditingDocument(editor))
+        let composer = NSTextView(frame: .zero)
+        #expect(BareKeyFocus.isEditingDocument(composer))
+        let field = NSTextField(frame: .zero)
+        field.setAccessibilityIdentifier(BareKeyFocus.searchFieldID)
+        #expect(BareKeyFocus.isSearchField(field))
+        #expect(!BareKeyFocus.isSearchField(composer))
+        #expect(!BareKeyFocus.isEditingDocument(nil))
+    }
+
+    private static func atalho(_ tecla: String, _ flags: NSEvent.ModifierFlags) -> NSEvent? {
+        NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: flags,
+            timestamp: 0,
+            windowNumber: 0,
+            context: nil,
+            characters: tecla,
+            charactersIgnoringModifiers: tecla,
+            isARepeat: false,
+            keyCode: 0
+        )
     }
 
     // MARK: A faixa e as cores do tema
@@ -222,12 +456,38 @@ struct ReaderInviteTests {
             """))
         #expect(ReaderPane.participantes(lido) == "Marina, Eu")
         #expect(ReaderPane.participantes(CalendarInvite(summary: "", start: nil, end: nil)) == nil)
+        #expect(ReaderPane.participantesResumo(lido) == "Marina, Eu")
+        let cheio = try #require(ICalendar.parse("""
+            BEGIN:VCALENDAR
+            BEGIN:VEVENT
+            ORGANIZER;CN=A:mailto:a@x.com
+            ATTENDEE;CN=B:mailto:b@x.com
+            ATTENDEE;CN=C:mailto:c@x.com
+            ATTENDEE;CN=D:mailto:d@x.com
+            ATTENDEE;CN=E:mailto:e@x.com
+            END:VEVENT
+            END:VCALENDAR
+            """))
+        #expect(ReaderPane.participantesResumo(cheio) == "A, B, C e mais 2")
+        #expect(ReaderPane.conviteComecaAberto(responded: false, cancelled: false))
+        #expect(!ReaderPane.conviteComecaAberto(responded: true, cancelled: false))
+        #expect(ReaderPane.conviteComecaAberto(responded: true, cancelled: true))
+        #expect(ReaderPane.recolherConvite == "Recolher")
+        #expect(ReaderPane.mostrarConvite == "Detalhes")
+        #expect(!ReaderPane.resumoComecaAberto)
+        #expect(ReaderPane.recolherResumo == "Recolher resumo")
+        #expect(ReaderPane.mostrarResumo == "Mostrar resumo")
     }
 
     @Test("As frases do cartão")
     func asFrasesDoCartao() {
         #expect(ReaderPane.conviteTitulo == "Convite de agenda")
         #expect(ReaderPane.conviteCancelado == "Convite cancelado")
+        #expect(ReaderPane.removerDaAgenda == "Remover da agenda")
+        #expect(ReaderPane.conviteCanceladoFora == "Este compromisso não está na sua agenda.")
+        #expect(ReaderPane.conviteCanceladoNaAgenda == "Na agenda como cancelado.")
+        #expect(ReaderPane.conviteNaAgenda == "Na agenda")
+        #expect(ReaderPane.identityCaption(name: "Marina", subject: "Contrato") == "Marina · Contrato")
     }
 
     /// O botão do cartão fala os três estados. Ele dizia sempre "Colocar na

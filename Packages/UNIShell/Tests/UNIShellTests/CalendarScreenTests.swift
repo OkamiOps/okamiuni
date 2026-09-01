@@ -229,6 +229,11 @@ struct CalendarRenderTests {
         // …e a agenda começa logo depois.
         let outside = try #require(pixels.color(Int(PaneLayout.railWidth) + 30, 400))
         #expect(levels(outside, token(Theme.tinta.surface)) < 8)
+
+        // O cartão da IA não pode vazar da trilha para a grade, embaixo.
+        let orange = token(TokenColor(red: 1, green: 90 / 255, blue: 31 / 255, opacity: 1))
+        let leaked = try #require(pixels.color(Int(PaneLayout.railWidth) + 16, Int(narrow.height) - 70))
+        #expect(levels(leaked, orange) > 30, "o rodapé da IA vazou para a grade: \(leaked)")
     }
 
     // MARK: A visão Dia

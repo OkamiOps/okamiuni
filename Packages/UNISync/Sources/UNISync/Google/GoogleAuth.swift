@@ -113,7 +113,8 @@ public actor GoogleAuth {
                 ]
                 campos["client_secret"] = config.clientSecret
                 let novos = try await self.postToken(
-                    campos, keepingRefreshToken: guardados.refreshToken)
+                    campos, keepingRefreshToken: guardados.refreshToken,
+                    keepingScopes: guardados.scopes)
                 try secrets.store(.oauth(novos), for: accountID)
                 return novos
             } catch SyncError.autorizacaoRevogada {
@@ -158,8 +159,46 @@ public actor GoogleAuth {
 
     // MARK: O POST do token
 
+    /// Se o cofre já tem `meetings.space.created`, não pede reconectar.
+    /// Tokens antigos sem lista de escopos consultam o tokeninfo uma vez e
+    /// gravam o resultado — a reconexão que a pessoa já fez passa a contar.
+    public func hasMeetAccess(for accountID: String) async -> Bool? {
+        do {
+            guard case .oauth(let guardados)? = try secrets.secret(for: accountID) else {
+                return false
+            }
+            if guardados.canCreateMeet { return true }
+            let access = try await accessToken(for: accountID)
+            var components = URLComponents(
+                url: URL(string: "https://oauth2.googleapis.com/tokeninfo")!,
+                resolvingAgainstBaseURL: false
+            )!
+            components.queryItems = [URLQueryItem(name: "access_token", value: access)]
+            var request = URLRequest(url: components.url!)
+            request.setValue("application/json", forHTTPHeaderField: "Accept")
+            let (dados, resposta) = try await enviar(request)
+            guard let http = resposta as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                return nil
+            }
+            struct Wire: Decodable { let scope: String? }
+            let fio = try JSONDecoder().decode(Wire.self, from: dados)
+            let scopes = OAuthTokens.parseScopes(fio.scope)
+            let atualizados = OAuthTokens(
+                accessToken: access,
+                refreshToken: guardados.refreshToken,
+                expiresAt: guardados.expiresAt,
+                scopes: scopes
+            )
+            try secrets.store(.oauth(atualizados), for: accountID)
+            return atualizados.canCreateMeet
+        } catch {
+            return nil
+        }
+    }
+
     private func postToken(
-        _ campos: [String: String], keepingRefreshToken anterior: String?
+        _ campos: [String: String], keepingRefreshToken anterior: String?,
+        keepingScopes anteriores: [String] = []
     ) async throws -> OAuthTokens {
         var request = URLRequest(url: config.tokenEndpoint)
         request.httpMethod = "POST"
@@ -178,6 +217,7 @@ public actor GoogleAuth {
             let access_token: String
             let refresh_token: String?
             let expires_in: Double?
+            let scope: String?
         }
         let fio: Wire
         do {
@@ -192,10 +232,12 @@ public actor GoogleAuth {
                 "O Google não devolveu refresh token. Reconecte a conta pedindo consentimento de novo."
             )
         }
+        let scopes = OAuthTokens.parseScopes(fio.scope)
         return OAuthTokens(
             accessToken: fio.access_token,
             refreshToken: refresh,
-            expiresAt: now().addingTimeInterval(fio.expires_in ?? 3_600)
+            expiresAt: now().addingTimeInterval(fio.expires_in ?? 3_600),
+            scopes: scopes.isEmpty ? anteriores : scopes
         )
     }
 

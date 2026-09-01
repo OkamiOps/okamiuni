@@ -63,4 +63,8 @@ public enum MirrorNames {
     /// O mesmo para a lixeira, pela mesma razão e com o mesmo critério: é o
     /// nome do `\Trash` do RFC 6154, e `FolderRoles` o reconhece de volta.
     public static let trash = "Trash"
+
+    /// Pasta de spam quando o servidor não anuncia `\Junk`. `FolderRoles`
+    /// reconhece "Spam" de volta.
+    public static let junk = "Spam"
 }

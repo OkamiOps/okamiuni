@@ -160,6 +160,111 @@ struct InviteAgendaTests {
             InviteAgenda.existing(for: convite, id: "email-m2", accountID: "gmail", in: [naZoho]) == nil
         )
     }
+
+    @Test("METHOD:CANCEL encontra o compromisso pelo UID, mesmo noutra conta")
+    func cancelamentoCruzaConta() throws {
+        let naZoho = try #require(item(DreamSquad.convite(sequence: 0)))
+        let cancelamento = ICalendar.parse(
+            """
+            BEGIN:VCALENDAR
+            METHOD:CANCEL
+            BEGIN:VEVENT
+            UID:\(DreamSquad.uid)
+            SUMMARY:DreamSquad
+            STATUS:CANCELLED
+            END:VEVENT
+            END:VCALENDAR
+            """,
+            timeZone: DreamSquad.saoPaulo
+        )!
+        #expect(cancelamento.isCancelled)
+        let achado = InviteAgenda.matchingCancellation(
+            cancelamento, messageID: "m-cancel", in: [naZoho]
+        )
+        #expect(achado?.id == naZoho.id)
+    }
+
+    @Test("METHOD:CANCEL casa pelo título e horário quando o UID do EventKit é outro")
+    func cancelamentoCasaPorHorario() throws {
+        let base = try #require(item(DreamSquad.convite(sequence: 0), id: "ek-google-outro"))
+        let naAgenda = AgendaItem(
+            id: base.id, title: base.title,
+            startMinute: base.startMinute, endMinute: base.endMinute,
+            accountID: "okamiuni.system-calendar", dayOffset: base.dayOffset,
+            calendarUID: "EKEvent-google-xyz"
+        )
+        let cancelamento = ICalendar.parse(
+            DreamSquad.ics(sequence: 1).replacingOccurrences(of: "METHOD:REQUEST", with: "METHOD:CANCEL"),
+            timeZone: DreamSquad.saoPaulo
+        )!
+        let proposto = item(cancelamento, id: "email-cancel")
+        let achado = InviteAgenda.matchingCancellation(
+            cancelamento, messageID: "m-cancel", in: [naAgenda], proposed: proposto
+        )
+        #expect(achado?.id == "ek-google-outro")
+    }
+
+    @Test("O aviso do Calendar reencontra o convite pelo título e horário")
+    func avisoDoCalendarNaoDuplica() throws {
+        var calendario = Calendar(identifier: .gregorian)
+        calendario.timeZone = DreamSquad.saoPaulo
+        let original = try #require(item(DreamSquad.convite(sequence: 0), id: "email-m1"))
+        let aviso = DetectedEvent(
+            label: "DreamSquad",
+            start: originalStart(calendario),
+            duration: 50 * 60
+        )
+        let achado = InviteAgenda.existing(
+            for: aviso, messageID: "aviso-calendar", accountID: "zoho",
+            referenceDay: Fixtures.today, in: [original], calendar: calendario
+        )
+        #expect(achado?.id == "email-m1")
+    }
+
+    @Test("Rótulo com sufixo de data ainda casa com o título do convite")
+    func rotuloComSufixoCasa() throws {
+        var calendario = Calendar(identifier: .gregorian)
+        calendario.timeZone = DreamSquad.saoPaulo
+        let original = try #require(item(DreamSquad.convite(sequence: 0), id: "email-m1"))
+        let aviso = DetectedEvent(
+            label: "DreamSquad · ter 1, 09:54",
+            start: originalStart(calendario),
+            duration: 3600
+        )
+        let achado = InviteAgenda.existing(
+            for: aviso, messageID: "aviso-2", accountID: "zoho",
+            referenceDay: Fixtures.today, in: [original], calendar: calendario
+        )
+        #expect(achado?.id == "email-m1")
+    }
+
+    @Test("Horário diferente não é o mesmo compromisso")
+    func horarioDiferenteNaoCasa() throws {
+        var calendario = Calendar(identifier: .gregorian)
+        calendario.timeZone = DreamSquad.saoPaulo
+        let original = try #require(item(DreamSquad.convite(sequence: 0), id: "email-m1"))
+        let outro = DetectedEvent(
+            label: "DreamSquad",
+            start: originalStart(calendario).addingTimeInterval(3600),
+            duration: 50 * 60
+        )
+        #expect(
+            InviteAgenda.existing(
+                for: outro, messageID: "outro", accountID: "zoho",
+                referenceDay: Fixtures.today, in: [original], calendar: calendario
+            ) == nil
+        )
+    }
+
+    private func originalStart(_ calendar: Calendar) -> Date {
+        var components = DateComponents()
+        components.year = 2026
+        components.month = 9
+        components.day = 1
+        components.hour = 9
+        components.minute = 54
+        return calendar.date(from: components)!
+    }
 }
 
 @Suite("A agenda do MailStore recebe convites sem duplicar")
@@ -208,6 +313,20 @@ struct InviteAgendaStoreTests {
         #expect(store.agenda[0].calendarSequence == 1)
     }
 
+    @Test("Abrir o convite atualizado aplica o SEQUENCE no compromisso que já existe")
+    func syncInviteAtualizaSemClique() async throws {
+        let store = await store()
+        let original = mensagem("m1", ics: DreamSquad.ics(sequence: 0))
+        let atualizado = mensagem("m2", ics: DreamSquad.ics(sequence: 1, hora: "T110000"))
+        let convite1 = try #require(ICalendar.parse(original.calendarICS!, timeZone: DreamSquad.saoPaulo))
+        let convite2 = try #require(ICalendar.parse(atualizado.calendarICS!, timeZone: DreamSquad.saoPaulo))
+        store.addToAgenda(convite1, from: original)
+        store.syncInviteWithAgenda(convite2, from: atualizado)
+        #expect(store.agenda.count == 1)
+        #expect(store.agenda[0].calendarSequence == 1)
+        #expect(store.agendaState(for: convite2, from: atualizado) == .naAgenda)
+    }
+
     @Test("Abrir de novo a mesma mensagem mostra 'Na agenda', sem clique nenhum")
     func jaEstaLa() async throws {
         let store = await store()
@@ -222,6 +341,24 @@ struct InviteAgendaStoreTests {
 
     /// O encaminhamento é a versão feia do mesmo defeito: cinquenta cópias da
     /// mesma reunião, cinquenta blocos na agenda.
+    @Test("A trilha e a grade mostram uma reunião, não cinco cópias")
+    func visibleAgendaCoalescesCopies() async {
+        let copias = (0..<5).map { indice in
+            AgendaItem(
+                id: "c\(indice)", title: "Standup",
+                startMinute: 600, endMinute: 630, accountID: "zoho"
+            )
+        }
+        let store = MailStore(
+            source: InMemoryMailSource(accounts: [], messages: [], agenda: copias)
+        )
+        await store.load()
+        #expect(store.agenda.count == 5)
+        #expect(store.visibleAgenda.count == 1)
+        #expect(store.calendarAgenda.count == 1)
+        #expect(store.visibleAgenda.first?.title == "Standup")
+    }
+
     @Test("Cinquenta encaminhamentos do mesmo convite continuam sendo um compromisso")
     func encaminhamentos() async throws {
         let store = await store()
@@ -231,5 +368,80 @@ struct InviteAgendaStoreTests {
             store.addToAgenda(convite, from: mensagem)
         }
         #expect(store.agenda.count == 1)
+    }
+
+    @Test("Cinco reuniões idênticas no mesmo horário viram uma")
+    func coalescesIdenticalMeetings() {
+        let copias = (0..<5).map { indice in
+            AgendaItem(
+                id: "copia-\(indice)", title: "DreamSquad",
+                startMinute: 594, endMinute: 644, accountID: "conta-\(indice)",
+                calendarUID: indice == 0 ? "uid-google" : nil,
+                calendarID: indice == 0 ? "ek-1" : nil,
+                calendarTitle: indice == 0 ? "Google" : nil,
+                calendarSource: indice == 0 ? "EventKit" : nil
+            )
+        }
+        let outra = AgendaItem(
+            id: "outra", title: "Almoço",
+            startMinute: 594, endMinute: 644, accountID: "conta-0"
+        )
+        let visiveis = InviteAgenda.coalesce(copias + [outra])
+        #expect(visiveis.count == 2)
+        #expect(visiveis.contains { $0.id == "copia-0" })
+        #expect(visiveis.contains { $0.id == "outra" })
+        #expect(!visiveis.contains { $0.id == "copia-1" })
+    }
+
+    @Test("Milhares de cópias coalescem numa passada, não par a par")
+    func coalescesThousandsInLinearTime() {
+        let copias = (0..<4_000).map { indice in
+            AgendaItem(
+                id: "c\(indice)", title: "Standup",
+                startMinute: 600, endMinute: 630, accountID: "zoho"
+            )
+        }
+        let visiveis = InviteAgenda.coalesce(copias)
+        #expect(visiveis.count == 1)
+        #expect(visiveis.first?.title == "Standup")
+    }
+
+    @Test("Horários iguais com títulos diferentes não se misturam")
+    func differentTitlesStayApart() {
+        let a = AgendaItem(
+            id: "a", title: "Call A", startMinute: 600, endMinute: 660, accountID: "x"
+        )
+        let b = AgendaItem(
+            id: "b", title: "Call B", startMinute: 600, endMinute: 660, accountID: "x"
+        )
+        #expect(InviteAgenda.coalesce([a, b]).map(\.id) == ["a", "b"])
+    }
+
+    @Test("METHOD:CANCEL tira da agenda o compromisso do mesmo UID")
+    func cancelamentoTira() async throws {
+        let store = await store()
+        let original = mensagem("m1", ics: DreamSquad.ics(sequence: 0))
+        let convite = try #require(ICalendar.parse(original.calendarICS!, timeZone: DreamSquad.saoPaulo))
+        store.addToAgenda(convite, from: original)
+        #expect(store.agenda.count == 1)
+
+        let cancelamento = ICalendar.parse(
+            """
+            BEGIN:VCALENDAR
+            METHOD:CANCEL
+            BEGIN:VEVENT
+            UID:\(DreamSquad.uid)
+            SUMMARY:DreamSquad
+            STATUS:CANCELLED
+            END:VEVENT
+            END:VCALENDAR
+            """,
+            timeZone: DreamSquad.saoPaulo
+        )!
+        let carta = mensagem("m-cancel", ics: "METHOD:CANCEL")
+        let marcado = try #require(store.applyCancelledInvite(cancelamento, from: carta))
+        #expect(marcado.isCancelled)
+        #expect(store.agenda.count == 1)
+        #expect(store.agenda.first?.isCancelled == true)
     }
 }

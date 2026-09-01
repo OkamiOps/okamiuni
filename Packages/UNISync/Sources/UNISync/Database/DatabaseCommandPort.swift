@@ -22,7 +22,7 @@ import UNICore
 /// obrigaria a disparar um `Task` a partir de um método síncrono — e então
 /// o teste teria de esperar por ele para poder afirmar qualquer coisa,
 /// correndo atrás de uma corrida que não precisa existir.
-public struct DatabaseCommandPort: MailCommandPort, MailSendPort, Sendable {
+public struct DatabaseCommandPort: MailCommandPort, MailSendPort, MailDraftPort, Sendable {
     private let database: SyncDatabase
     /// Quem avisa o executor da conta que há coisa nova. Opcional porque a
     /// porta é útil sem ele — todos os testes da tarefa 1 a exercitam assim, e
@@ -93,7 +93,8 @@ public struct DatabaseCommandPort: MailCommandPort, MailSendPort, Sendable {
                     // aplicar marcador; com isso a projeção volta à caixa
                     // Hoje junto com a associação que o servidor receberá.
                     if folder.role == .inbox,
-                       updated.bucket == TriageBucket.archived.rawValue {
+                       updated.bucket == TriageBucket.archived.rawValue
+                        || updated.bucket == TriageBucket.junk.rawValue {
                         updated.bucket = TriageBucket.today.rawValue
                     }
                     try updated.update(db)
@@ -206,6 +207,30 @@ public struct DatabaseCommandPort: MailCommandPort, MailSendPort, Sendable {
         signal?.notify(accountID: message.accountID)
     }
 
+    /// Grava o rascunho **só no banco**. Não entra na fila: ainda não há o que
+    /// mandar ao servidor, e um `APPEND` de rascunho IMAP/Gmail viria depois.
+    public func saveDraft(_ message: Message) throws {
+        try database.pool.write { db in
+            let pasta = FolderRecord.localDrafts(accountID: message.accountID)
+            try pasta.save(db)
+            var nossa = message
+            if nossa.folderIDs.isEmpty {
+                nossa = nossa.withFolderIDs([pasta.id])
+            }
+            try MessageRecord(nossa, folderID: pasta.id).savePreservingIntelligenceProjection(db)
+            try InitialLoader.gravaCorpo(
+                db, id: nossa.id, paragrafos: nossa.body,
+                html: nossa.bodyHTML ?? "", calendarICS: nossa.calendarICS
+            )
+        }
+    }
+
+    public func deleteDraft(id: String) throws {
+        try database.pool.write { db in
+            try MessageRecord.filter(Column("id") == id).deleteAll(db)
+        }
+    }
+
     private static func scoped(accountID: String, ids: [String]) -> QueryInterfaceRequest<MessageRecord> {
         MessageRecord
             .filter(keys: ids)
@@ -217,14 +242,56 @@ public struct DatabaseCommandPort: MailCommandPort, MailSendPort, Sendable {
     private func run(
         accountID: String, operation: MailOperation, projection: @escaping (Database) throws -> Void
     ) throws {
+        let paraOServidor = Self.semRascunhosLocais(operation)
         try database.pool.write { db in
             try projection(db)
-            try Self.enfileira(db, accountID: accountID, operation: operation)
+            if Self.deveEnfileirar(paraOServidor) {
+                try Self.enfileira(db, accountID: accountID, operation: paraOServidor)
+            }
         }
         // **Depois** da transação, nunca dentro: o executor acordado lê o
         // banco, e um aviso disparado antes do commit o mandaria procurar uma
         // linha que ainda não existe.
-        signal?.notify(accountID: accountID)
+        if Self.deveEnfileirar(paraOServidor) {
+            signal?.notify(accountID: accountID)
+        }
+    }
+
+    /// Rascunho `local-draft-` nunca existiu no servidor. Enfileirar o
+    /// apagamento dele faz o executor falhar permanente e **parar a fila** —
+    /// o email real apagado depois disso não sai da caixa do Gmail.
+    static func semRascunhosLocais(_ operation: MailOperation) -> MailOperation {
+        switch operation {
+        case .setRead(let isRead, let ids):
+            .setRead(isRead: isRead, messageIDs: ids.filter { !MessageIdentity.isLocalDraft($0) })
+        case .setFlagged(let isFlagged, let ids):
+            .setFlagged(isFlagged: isFlagged, messageIDs: ids.filter { !MessageIdentity.isLocalDraft($0) })
+        case .move(let bucket, let ids):
+            .move(bucket: bucket, messageIDs: ids.filter { !MessageIdentity.isLocalDraft($0) })
+        case .placeInFolder(let folderID, let serverName, let mode, let ids):
+            .placeInFolder(
+                folderID: folderID, serverName: serverName, mode: mode,
+                messageIDs: ids.filter { !MessageIdentity.isLocalDraft($0) }
+            )
+        case .moveGmailLabel(let destination, let source, let ids):
+            .moveGmailLabel(
+                destinationLabelID: destination, sourceLabelID: source,
+                messageIDs: ids.filter { !MessageIdentity.isLocalDraft($0) }
+            )
+        case .delete(let ids):
+            .delete(messageIDs: ids.filter { !MessageIdentity.isLocalDraft($0) })
+        case .deletePermanently(let ids):
+            .deletePermanently(messageIDs: ids.filter { !MessageIdentity.isLocalDraft($0) })
+        case .emptyTrash, .send:
+            operation
+        }
+    }
+
+    static func deveEnfileirar(_ operation: MailOperation) -> Bool {
+        switch operation {
+        case .emptyTrash, .send: true
+        default: !operation.messageIDs.isEmpty
+        }
     }
 
     /// O `INSERT` no `outbox`, e só ele. Extraído porque o envio o chama

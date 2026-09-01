@@ -128,6 +128,25 @@ struct GmailInlineAttachmentsTests {
         #expect(message.attachments.first?.inlineData == nil)
     }
 
+    @Test("invite.ics no anexo vira calendarICS mesmo sem parte text/calendar")
+    func icsAnexadoViraConvite() {
+        let ics = "BEGIN:VCALENDAR\nMETHOD:CANCEL\nEND:VCALENDAR"
+        let mensagem = GmailMessage(
+            id: "x", threadID: "t", labelIDs: [], internalDate: .now,
+            from: Contact(name: "A", address: "a@x.com"), to: [], cc: [],
+            subject: "Cancelado", snippet: "", body: [], html: nil, calendarICS: nil,
+            rfcMessageID: nil, references: [],
+            attachments: [
+                .init(
+                    attachmentID: "att", filename: "invite.ics",
+                    mimeType: "application/octet-stream", byteCount: ics.utf8.count,
+                    inlineData: Data(ics.utf8)
+                )
+            ]
+        )
+        #expect(GmailCalendar.ics(in: mensagem)?.contains("METHOD:CANCEL") == true)
+    }
+
     /// **A prova do defeito, do lado de cá.** Sem ninguém buscar o anexo, o
     /// lugar da foto fica marcado como *por buscar* — e não como o vazio comum
     /// de "não coube". É essa marca que faz o leitor pedir o corpo outra vez.

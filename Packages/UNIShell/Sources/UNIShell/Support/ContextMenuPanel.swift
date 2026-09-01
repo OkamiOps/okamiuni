@@ -19,7 +19,14 @@ import UNIDesign
 final class MenuLevel {
     let entries: [ContextMenuEntry]
     var highlighted: Int?
+    /// Não observa: cada scroll mexia nestes números, o painel redesenhava e a
+    /// lista voltava ao topo — o "scroll quebrado" do submenu de pastas.
+    @ObservationIgnored
     var rowTops: [Int: CGFloat] = [:]
+    /// Só as setas pedem `scrollTo`. O ponteiro, não: o item sob o cursor
+    /// muda ao rolar, e seguir o realce puxava a lista de volta.
+    @ObservationIgnored
+    var followHighlight = false
 
     init(entries: [ContextMenuEntry], highlighted: Int? = nil) {
         self.entries = entries
@@ -34,7 +41,14 @@ final class MenuLevel {
 
     /// Move o realce com ↑ / ↓, pulando traço e item apagado.
     func move(_ step: Int) {
+        followHighlight = true
         highlighted = MenuKeyNavigation.next(after: highlighted, step: step, in: entries)
+    }
+
+    /// Realce do ponteiro: pinta a linha e **não** arrasta o scroll.
+    func hover(_ row: Int) {
+        followHighlight = false
+        highlighted = row
     }
 }
 
@@ -64,15 +78,49 @@ struct ContextMenuPanel: View {
     var onActivate: (Int) -> Void = { _ in }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            ForEach(Array(level.entries.enumerated()), id: \.offset) { index, entry in
-                row(index, entry)
+        Group {
+            if Self.needsScroll(level.entries) {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 1) {
+                            rows
+                        }
+                    }
+                    .scrollIndicators(.visible)
+                    .frame(height: MenuSurface.listMaxHeight)
+                    .onChange(of: level.highlighted) { _, row in
+                        guard level.followHighlight, let row else { return }
+                        level.followHighlight = false
+                        proxy.scrollTo(row, anchor: .center)
+                    }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 1) {
+                    rows
+                }
             }
         }
         .frame(minWidth: Self.minWidth - 2 * MenuSurface.panelPadding, alignment: .leading)
         .frame(maxWidth: Self.maxWidth - 2 * MenuSurface.panelPadding, alignment: .leading)
         .menuPanelChrome()
         .coordinateSpace(name: MenuSurface.panelSpace)
+    }
+
+    /// Acima disto o painel vira lista com scroll — o mesmo teto do
+    /// "Mover para pasta" da barra do leitor.
+    static func needsScroll(_ entries: [ContextMenuEntry]) -> Bool {
+        entries.filter {
+            if case .separator = $0 { return false }
+            return true
+        }.count > MenuSurface.visibleRows
+    }
+
+    @ViewBuilder
+    private var rows: some View {
+        ForEach(Array(level.entries.enumerated()), id: \.offset) { index, entry in
+            row(index, entry)
+                .id(index)
+        }
     }
 
     @ViewBuilder

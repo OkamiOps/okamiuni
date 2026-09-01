@@ -26,6 +26,8 @@ public actor SyncRunner {
     private let director: AccountDirector
     private let imapConnect: @Sendable (ImapEndpoint, any EventLoopGroup) async throws -> ImapSession
     private let report: @Sendable (String, SyncError?) -> Void
+    private let reportSyncing: @Sendable (String, Bool) -> Void
+    private let reportRemoteInbox: @Sendable (String, Int) -> Void
     private let log = Logger(subsystem: "com.okamiops.okamiuni", category: "SyncRunner")
 
     private var coordenadores: [String: AccountSyncCoordinator] = [:]
@@ -41,7 +43,9 @@ public actor SyncRunner {
         director: AccountDirector,
         imapConnect: @Sendable @escaping (ImapEndpoint, any EventLoopGroup) async throws -> ImapSession
             = { endpoint, grupo in try await ImapSession.connect(endpoint: endpoint, group: grupo) },
-        report: @Sendable @escaping (String, SyncError?) -> Void = { _, _ in }
+        report: @Sendable @escaping (String, SyncError?) -> Void = { _, _ in },
+        reportSyncing: @Sendable @escaping (String, Bool) -> Void = { _, _ in },
+        reportRemoteInbox: @Sendable @escaping (String, Int) -> Void = { _, _ in }
     ) {
         self.database = database
         self.secrets = secrets
@@ -52,6 +56,8 @@ public actor SyncRunner {
         self.director = director
         self.imapConnect = imapConnect
         self.report = report
+        self.reportSyncing = reportSyncing
+        self.reportRemoteInbox = reportRemoteInbox
     }
 
     /// Assina o diretor e passa a acertar os coordenadores a cada mudança.
@@ -89,7 +95,8 @@ public actor SyncRunner {
             let coordenador = AccountSyncCoordinator(
                 accountID: id, database: database, secrets: secrets, auth: auth,
                 session: urlSession, gmailBaseURL: gmailBaseURL,
-                eventLoopGroup: eventLoopGroup, imapConnect: imapConnect, report: report
+                eventLoopGroup: eventLoopGroup, imapConnect: imapConnect, report: report,
+                reportSyncing: reportSyncing, reportRemoteInbox: reportRemoteInbox
             )
             coordenadores[id] = coordenador
             await coordenador.start()

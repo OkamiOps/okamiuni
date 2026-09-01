@@ -181,7 +181,14 @@ public enum WeekAgenda {
         from items: [AgendaItem], anchor: Date, focusOffset: Int = 0,
         calendar: Calendar = .current
     ) -> [Day] {
-        weekOffsets(for: anchor, focusOffset: focusOffset, calendar: calendar).map { offset in
+        let offsets = weekOffsets(for: anchor, focusOffset: focusOffset, calendar: calendar)
+        let visiveis = Set(offsets)
+        var byDay: [Int: [AgendaItem]] = [:]
+        byDay.reserveCapacity(7)
+        for item in items where visiveis.contains(item.dayOffset) {
+            byDay[item.dayOffset, default: []].append(item)
+        }
+        return offsets.map { offset in
             let date = calendar.date(byAdding: .day, value: offset, to: anchor) ?? anchor
             let weekday = calendar.component(.weekday, from: date)
             return Day(
@@ -189,7 +196,7 @@ public enum WeekAgenda {
                 dayNumber: calendar.component(.day, from: date),
                 weekdayLabel: weekdayLabels[(weekday - 1) % 7],
                 isToday: offset == 0,
-                events: lanes(self.items(on: offset, in: items))
+                events: lanes(byDay[offset] ?? [])
             )
         }
     }

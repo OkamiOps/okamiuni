@@ -21,6 +21,19 @@ public struct MailAttachment: Codable, Sendable, Hashable, Identifiable {
     public var sizeLabel: String {
         ByteCountFormatter.string(fromByteCount: Int64(byteCount), countStyle: .file)
     }
+
+    /// Convite de agenda disfarçado de arquivo: Gmail entrega `invite.ics`
+    /// como anexo, e recusar o rótulo deixava o cartão fora do leitor.
+    public var looksLikeCalendarInvite: Bool {
+        Self.looksLikeCalendarInvite(filename: filename, mimeType: mimeType)
+    }
+
+    public static func looksLikeCalendarInvite(filename: String, mimeType: String) -> Bool {
+        let mime = mimeType.lowercased()
+        let nome = filename.lowercased()
+        return mime == "text/calendar" || mime == "application/ics" || mime == "text/x-vcalendar"
+            || nome.hasSuffix(".ics") || nome.hasSuffix(".ifb")
+    }
 }
 
 /// Um arquivo pronto para entrar numa mensagem de saída.

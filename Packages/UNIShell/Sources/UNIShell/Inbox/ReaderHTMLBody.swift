@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import UNIDesign
+import UNICore
 import WebKit
 
 /// O corpo da mensagem desenhado como HTML.
@@ -24,14 +25,16 @@ import WebKit
 ///   que ele guarda **enquanto o app roda** é comum a todas as mensagens desde
 ///   a M3-22 — ver `ReaderWebSession` para por que isso não é o contrário
 ///   disto.
-/// - **Roubar.** Ela não aceita foco, devolve a roda do mouse para o leitor e
-///   não responde a atalho nenhum — os do app continuam sendo do app.
+/// - **Roubar atalho do app.** A roda do mouse volta para o leitor. ⌘R, ⌘N
+///   e ⌘K também. ⌘C e ⌘A passam: recusar todo atalho recusou copiar o 2FA.
 struct ReaderHTMLBody: NSViewRepresentable {
     /// O HTML **já sanitizado** por `MimeSanitize`. Esta peça não limpa nada:
     /// limpar em dois lugares é divergir em um deles.
     let html: String
     /// A pessoa pediu para carregar as imagens remotas desta mensagem?
     let permiteRemotas: Bool
+    /// `nil` segue o HTML; `.papel` / `.doTema` é o interruptor por mensagem.
+    var paleta: ReaderHTMLPolicy.Paleta? = nil
     let fundo: String
     let tinta: String
     let link: String
@@ -52,6 +55,8 @@ struct ReaderHTMLBody: NSViewRepresentable {
     /// com o sinal ainda ligado — e era esse o caminho dos "trinta segundos de
     /// nada" que o dono relatou.
     @Binding var pintou: Bool
+    /// Sim/Não/Talvez do HTML do Calendar: o cartão do convite responde.
+    var aoRSVP: (InviteRSVPResponse) -> Void = { _ in }
 
     func makeCoordinator() -> Coordenador { Coordenador(self) }
 
@@ -67,6 +72,7 @@ struct ReaderHTMLBody: NSViewRepresentable {
             ?? WebViewQueNaoRouba(frame: .zero, configuration: ReaderWebSession.configuracao())
         webView.navigationDelegate = context.coordinator
         webView.setValue(false, forKey: "drawsBackground")
+        context.coordinator.aplicaEsquema(em: webView)
         // A largura do painel muda quando alguém arrasta a divisória — e a
         // escala de "caber sem cortar" é calculada contra ela. Sem este aviso, o
         // email encolhido para um painel estreito continuaria encolhido depois
@@ -84,6 +90,7 @@ struct ReaderHTMLBody: NSViewRepresentable {
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.pai = self
+        context.coordinator.aplicaEsquema(em: webView)
         context.coordinator.carrega(em: webView)
     }
 
@@ -109,6 +116,7 @@ struct ReaderHTMLBody: NSViewRepresentable {
         private struct EntradaDocumento: Equatable {
             let html: String
             let permiteRemotas: Bool
+            let paleta: ReaderHTMLPolicy.Paleta?
             let fundo: String
             let tinta: String
             let link: String
@@ -121,9 +129,11 @@ struct ReaderHTMLBody: NSViewRepresentable {
             html: String
         )?
 
-        /// O teto da espera, armado quando a navegação termina. Ver
-        /// `ReaderHTMLSection.tetoDaEspera`.
+        /// O teto da espera. Armado **na carga**, não só no `didFinish`:
+        /// newsletter com imagem remota presa nunca dispara o fim da navegação
+        /// e a roda girava para sempre.
         private var tetoDaRegua: Task<Void, Never>?
+        private weak var tela: WKWebView?
 
         deinit { tetoDaRegua?.cancel() }
 
@@ -161,6 +171,7 @@ struct ReaderHTMLBody: NSViewRepresentable {
             let entrada = EntradaDocumento(
                 html: corpo.html,
                 permiteRemotas: corpo.permiteRemotas,
+                paleta: corpo.paleta,
                 fundo: corpo.fundo,
                 tinta: corpo.tinta,
                 link: corpo.link,
@@ -172,9 +183,10 @@ struct ReaderHTMLBody: NSViewRepresentable {
             let documento = ReaderHTMLPolicy.documento(
                 html: corpo.html, fundo: corpo.fundo, tinta: corpo.tinta,
                 link: corpo.link, fonte: corpo.fonte,
-                bloqueiaRemotas: !corpo.permiteRemotas
+                bloqueiaRemotas: !corpo.permiteRemotas,
+                paleta: corpo.paleta
             )
-            let assinatura = "\(corpo.permiteRemotas)\n\(documento)"
+            let assinatura = "\(corpo.permiteRemotas)\n\(corpo.paleta.map { "\($0)" } ?? "auto")\n\(documento)"
             documentoEmCache = (entrada, assinatura, documento)
             return (assinatura, documento)
         }
@@ -213,12 +225,25 @@ struct ReaderHTMLBody: NSViewRepresentable {
             )
         }
 
+        /// O convite do Calendar (e qualquer HTML em papel) precisa da
+        /// aparência clara: o WebView herda o dark do app, e aí o CSS
+        /// `prefers-color-scheme: dark` do remetente clareia o texto em cima
+        /// da tabela branca.
+        func aplicaEsquema(em webView: WKWebView) {
+            let claro = ReaderHTMLPolicy.esquemaClaro(
+                html: pai.html, fundo: pai.fundo, tinta: pai.tinta, paleta: pai.paleta
+            )
+            webView.appearance = NSAppearance(named: claro ? .aqua : .darkAqua)
+        }
+
         func carrega(em webView: WKWebView) {
             let (assinatura, documento) = documento(de: pai)
+            aplicaEsquema(em: webView)
             guard assinatura != ultimoCarregado else { return }
             ultimoCarregado = assinatura
             geracao += 1
             pintouDeVerdade = false
+            tela = webView
 
             // **Carga nova é espera nova — e é o defeito da M3-21.** O sinal só
             // nascia falso; ninguém o devolvia para falso quando um segundo
@@ -229,6 +254,7 @@ struct ReaderHTMLBody: NSViewRepresentable {
             // sem a espera que a M3-21 desenhou.
             tetoDaRegua?.cancel()
             tetoDaRegua = nil
+            armaOTeto()
 
             let permite = pai.permiteRemotas
             Task { @MainActor [self] in
@@ -269,12 +295,16 @@ struct ReaderHTMLBody: NSViewRepresentable {
             decidePolicyFor navigationAction: WKNavigationAction,
             decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
         ) {
+            aplicaEsquema(em: webView)
             switch ReaderHTMLPolicy.decide(url: navigationAction.request.url) {
             case .permitir:
                 decisionHandler(.allow)
             case .abrirNoNavegador(let url):
                 decisionHandler(.cancel)
                 NSWorkspace.shared.open(url)
+            case .rsvp(let response):
+                decisionHandler(.cancel)
+                pai.aoRSVP(response)
             case .recusar:
                 decisionHandler(.cancel)
             }
@@ -309,15 +339,19 @@ struct ReaderHTMLBody: NSViewRepresentable {
             armaOTeto()
         }
 
-        /// O teto começa **aqui**, e não na abertura: enquanto a rede trabalha
-        /// a espera é verdade, e desligá-la no meio devolveria a coluna vazia
-        /// que o dono viu. Ver `ReaderHTMLSection.tetoDaEspera`.
+        /// Teto da espera. Sem isto, um `didFinish` que nunca chega — imagem
+        /// remota de rastreio que não responde — deixa "Carregando a mensagem…"
+        /// para sempre, com o texto já na tela.
         private func armaOTeto() {
             guard tetoDaRegua == nil else { return }
             tetoDaRegua = Task { @MainActor [weak self] in
                 try? await Task.sleep(for: ReaderHTMLSection.tetoDaEspera)
                 guard let self, !Task.isCancelled else { return }
+                if let tela = self.tela { self.ajusta(tela, largura: tela.bounds.width) }
+                try? await Task.sleep(for: .milliseconds(200))
+                guard !Task.isCancelled else { return }
                 if !self.pai.pintou { self.pai.pintou = true }
+                if self.pai.altura < 40 { self.pai.altura = 280 }
             }
         }
 
@@ -374,17 +408,23 @@ struct ReaderHTMLBody: NSViewRepresentable {
     }
 }
 
-/// A `WebView` que devolve o que não é dela.
+/// A `WebView` que devolve o que não é dela — **exceto copiar**.
 ///
-/// Três recusas, e nenhuma é cosmética: a roda do mouse volta para o leitor
-/// (senão a mensagem rola por dentro e a coluna não anda), o atalho volta para
-/// o app (senão ⌘R deixa de responder quando o foco cai aqui), e o foco nunca
-/// vem para cá (a `WebView` não tem nada para digitar).
+/// A roda do mouse volta para o leitor (senão a mensagem rola por dentro e a
+/// coluna não anda). Os atalhos do app (⌘R, ⌘N, ⌘K) também voltam: se a
+/// `WebView` os engolisse, recarregar a caixa parava quando o foco caía no
+/// HTML. Recusar **todo** atalho, porém, recusou também ⌘C — e o 2FA que a
+/// pessoa tentava copiar saía morto. Copiar e selecionar tudo passam; o resto
+/// não. O foco entra para a seleção existir.
 final class WebViewQueNaoRouba: WKWebView {
     /// Avisado quando a largura muda de verdade — a divisória de painéis
     /// arrastada, a janela redimensionada. A altura muda o tempo todo (é a
     /// própria medição que a muda), e reagir a ela seria um laço.
     var aoMudarLargura: ((CGFloat) -> Void)?
+    /// `true` só no editor que de fato apaga caracteres (assinatura rica, se
+    /// um dia o for). O leitor é `false`: o HTML não se edita, e o ⌫ tem de
+    /// apagar a **mensagem**, como no Mail.
+    var eCampoDeTexto = false
     private var ultimaLargura: CGFloat = 0
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -398,7 +438,20 @@ final class WebViewQueNaoRouba: WKWebView {
         nextResponder?.scrollWheel(with: event)
     }
 
-    override func performKeyEquivalent(with event: NSEvent) -> Bool { false }
+    override var acceptsFirstResponder: Bool { true }
 
-    override var acceptsFirstResponder: Bool { false }
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        Self.atalhoDeCopia(event) ? super.performKeyEquivalent(with: event) : false
+    }
+
+    /// ⌘C e ⌘A são da seleção na mensagem. Qualquer outro ⌘ (⌘R, ⌘N, ⌘K)
+    /// continua sendo do app.
+    static func atalhoDeCopia(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags == .command else { return false }
+        switch event.charactersIgnoringModifiers?.lowercased() {
+        case "c", "a": return true
+        default: return false
+        }
+    }
 }

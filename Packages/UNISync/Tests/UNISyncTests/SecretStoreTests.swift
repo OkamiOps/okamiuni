@@ -54,6 +54,35 @@ struct SecretStoreTests {
         #expect(!tokens.isExpired(at: Date(timeIntervalSince1970: 1_970), margin: 10))
     }
 
+    @Test("Token antigo sem escopos ainda lê, e o Meet só conta com o escopo certo")
+    func oldTokenKeepsMeetOffUntilScopeArrives() throws {
+        struct Legacy: Encodable {
+            let accessToken: String
+            let refreshToken: String
+            let expiresAt: Date
+        }
+        let data = try JSONEncoder().encode(
+            Legacy(accessToken: "at", refreshToken: "rt", expiresAt: Date(timeIntervalSince1970: 2_000))
+        )
+        let decoded = try JSONDecoder().decode(OAuthTokens.self, from: data)
+        #expect(decoded.scopes.isEmpty)
+        #expect(decoded.canCreateMeet == false)
+
+        let comMeet = OAuthTokens(
+            accessToken: "at", refreshToken: "rt",
+            expiresAt: Date(timeIntervalSince1970: 2_000),
+            scopes: ["https://mail.google.com/", "https://www.googleapis.com/auth/meetings.space.created"]
+        )
+        #expect(comMeet.canCreateMeet)
+        let comCalendar = OAuthTokens(
+            accessToken: "at", refreshToken: "rt",
+            expiresAt: Date(timeIntervalSince1970: 2_000),
+            scopes: ["https://www.googleapis.com/auth/calendar.events"]
+        )
+        #expect(comCalendar.canCreateMeet)
+        #expect(OAuthTokens.parseScopes("mail.google.com meetings.space.created").count == 2)
+    }
+
     /// O Keychain de verdade só roda quando alguém pede — em CI ele é hostil
     /// (pede desbloqueio, exige assinatura, deixa lixo na keychain do usuário).
     /// `OKAMIUNI_KEYCHAIN_TESTS=1 swift test --filter Keychain` liga.

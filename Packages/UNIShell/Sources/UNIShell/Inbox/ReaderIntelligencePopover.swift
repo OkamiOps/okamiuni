@@ -158,10 +158,10 @@ struct ReaderIntelligencePopover: View {
             // afirmaria uma origem que esta view não conhece.
             Image(systemName: "sparkles")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(foundationColor)
+                .foregroundStyle(theme.info.color)
                 .frame(width: 24, height: 24)
                 .background(
-                    foundationColor.opacity(0.10),
+                    theme.info.color.opacity(0.10),
                     in: RoundedRectangle(cornerRadius: theme.radiusSmall)
                 )
                 .accessibilityHidden(true)
@@ -308,7 +308,7 @@ struct ReaderIntelligencePopover: View {
                     Text("VOCÊ")
                         .font(theme.mono.font(size: 8.5, weight: .medium))
                         .tracking(theme.capsTracking(at: 8.5))
-                        .foregroundStyle(theme.accentInk.color)
+                        .foregroundStyle(theme.info.color)
                     Text(message.text)
                         .font(theme.sans.font(size: 12))
                         .foregroundStyle(theme.ink2.color)
@@ -317,12 +317,12 @@ struct ReaderIntelligencePopover: View {
                 }
                 .padding(.horizontal, 11)
                 .padding(.vertical, 9)
-                .background(theme.accentSoft.color)
+                .background(theme.infoSoft.color)
                 .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
                 .overlay {
                     RoundedRectangle(cornerRadius: theme.radiusSmall)
                         .strokeBorder(
-                            theme.accentLine.color,
+                            theme.infoLine.color,
                             lineWidth: Hairline.thickness(displayScale)
                         )
                 }
@@ -332,7 +332,7 @@ struct ReaderIntelligencePopover: View {
         } else {
             HStack(alignment: .top, spacing: 9) {
                 RoundedRectangle(cornerRadius: 1)
-                    .fill(foundationColor.opacity(0.62))
+                    .fill(theme.info.color.opacity(0.62))
                     .frame(width: 2)
 
                 VStack(alignment: .leading, spacing: 7) {
@@ -350,11 +350,11 @@ struct ReaderIntelligencePopover: View {
                         }
                         .buttonStyle(.plain)
                         .font(theme.sans.font(size: 10.5, weight: .semibold))
-                        .foregroundStyle(theme.onAccent.color)
+                        .foregroundStyle(theme.onEnter.color)
                         .padding(.horizontal, 10)
                         .frame(height: 28)
-                        .background(theme.accent.color, in: RoundedRectangle(cornerRadius: 7))
-                        .focusRing(cornerRadius: 7, tint: \.onAccent)
+                        .background(theme.enter.color, in: RoundedRectangle(cornerRadius: 7))
+                        .focusRing(cornerRadius: 7, tint: \.onEnter)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -369,7 +369,7 @@ struct ReaderIntelligencePopover: View {
         HStack(spacing: 9) {
             ProgressView()
                 .controlSize(.small)
-                .tint(foundationColor)
+                .tint(theme.info.color)
             Text(isReplyConversation ? "Redigindo e considerando a conversa…" : "Analisando a conversa…")
                 .font(theme.sans.font(size: 11.5, weight: .medium))
                 .foregroundStyle(theme.ink3.color)
@@ -398,7 +398,7 @@ struct ReaderIntelligencePopover: View {
                     }
                     .buttonStyle(.plain)
                     .font(theme.sans.font(size: 10.5, weight: .semibold))
-                    .foregroundStyle(theme.accent.color)
+                    .foregroundStyle(theme.info.color)
                     .focusRing(cornerRadius: theme.radiusSmall)
                 }
             }
@@ -445,14 +445,14 @@ struct ReaderIntelligencePopover: View {
                     Text("Enviar")
                         .font(theme.sans.font(size: 11, weight: .semibold))
                 }
-                .foregroundStyle(theme.onAccent.color)
+                .foregroundStyle(theme.onEnter.color)
                 .padding(.horizontal, 10)
                 .frame(height: 32)
-                .background(theme.accent.color)
+                .background(theme.enter.color)
                 .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
             }
             .buttonStyle(.plain)
-            .focusRing(cornerRadius: theme.radiusSmall, tint: \.onAccent)
+            .focusRing(cornerRadius: theme.radiusSmall, tint: \.onEnter)
             .disabled(!canSend)
             .help("Enviar pergunta")
             .accessibilityLabel("Enviar pergunta")
@@ -579,14 +579,14 @@ struct ReaderIntelligencePopover: View {
         Button(action: action) {
             Text(title)
                 .font(theme.sans.font(size: 11, weight: .medium))
-                .foregroundStyle(emphasized ? theme.accent.color : theme.ink2.color)
+                .foregroundStyle(emphasized ? theme.info.color : theme.ink2.color)
                 .frame(maxWidth: .infinity)
                 .frame(height: 29)
                 .background(theme.surface2.color, in: RoundedRectangle(cornerRadius: 8))
                 .overlay {
                     RoundedRectangle(cornerRadius: 8)
                         .strokeBorder(
-                            emphasized ? theme.accentLine.color : theme.line2.color,
+                            emphasized ? theme.infoLine.color : theme.line2.color,
                             lineWidth: Hairline.thickness(displayScale)
                         )
                 }
@@ -645,9 +645,6 @@ struct ReaderIntelligencePopover: View {
         }
     }
 
-    private var foundationColor: Color {
-        Color(red: 1, green: 90 / 255, blue: 31 / 255)
-    }
 }
 
 /// Blocos simples de Markdown voltados ao que o assistente produz no leitor.
@@ -763,7 +760,7 @@ private struct ReaderAssistantMarkdown: View {
         case .bullet(let text):
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Circle()
-                    .fill(theme.accent.color)
+                    .fill(theme.info.color)
                     .frame(width: 4, height: 4)
                     .alignmentGuide(.firstTextBaseline) { dimensions in
                         dimensions[VerticalAlignment.center]
@@ -778,7 +775,7 @@ private struct ReaderAssistantMarkdown: View {
             HStack(alignment: .firstTextBaseline, spacing: 7) {
                 Text(marker)
                     .font(theme.mono.font(size: 10.5, weight: .medium))
-                    .foregroundStyle(theme.accent.color)
+                    .foregroundStyle(theme.info.color)
                     .frame(minWidth: 18, alignment: .trailing)
                 richText(text)
                     .font(theme.sans.font(size: 12.5))

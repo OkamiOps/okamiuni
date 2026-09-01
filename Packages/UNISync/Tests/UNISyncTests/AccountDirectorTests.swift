@@ -488,6 +488,37 @@ struct AccountDirectorTests {
         #expect(ultimo?.queueError == .autorizacaoRevogada)
     }
 
+    @Test("O ciclo incremental publica isSyncing e apaga quando termina")
+    func cicloIncrementalPublicaIsSyncing() async throws {
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+        let db = try SyncDatabase.temporary()
+        let conta = Account(
+            id: "conta-a", address: "eu@meudominio.com.br", displayName: "Eu",
+            provider: .imap, host: "meudominio",
+            tintLightHex: "#3F6AA1", tintDarkHex: "#8CBAF7", signature: "Eu",
+            imap: ImapEndpoint(host: "imap.meudominio.com.br", port: 993, security: .tls),
+            state: .ativa
+        )
+        try await db.pool.write { try AccountRecord(conta, createdAt: self.agora).insert($0) }
+
+        let director = diretor(db: db, secrets: InMemorySecretStore(), grupo: grupo, porta: 0)
+        let caixa = CaixaDeStatus()
+        let assinatura = Task {
+            for await lista in await director.statuses() {
+                guard let status = lista.first else { continue }
+                await caixa.anota(status)
+            }
+        }
+        defer { assinatura.cancel() }
+
+        await director.reportSyncing(accountID: "conta-a", active: true)
+        #expect(await caixa.espera(ate: { $0.isSyncing })?.isSyncing == true)
+
+        await director.reportSyncing(accountID: "conta-a", active: false)
+        #expect(await caixa.espera(ate: { $0.isSyncing == false })?.isSyncing == false)
+    }
+
     @Test("Remover apaga banco e Keychain — os dois, sempre")
     func removerApagaOsDois() async throws {
         let servidor = FakeImapServer(script: roteiroImap())

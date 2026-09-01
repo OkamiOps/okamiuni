@@ -28,6 +28,9 @@ public struct AccountRecord: Codable, FetchableRecord, PersistableRecord, Sendab
     public var state: String
     public var lastSyncedAt: Date?
     public var createdAt: Date
+    /// Aliases de envio. `nil` é conta antiga, sem coluna preenchida — lista
+    /// vazia, não um erro.
+    public var aliasesJSON: String?
 
     /// Datas gravadas como epoch UTC (`Double`), não como o texto
     /// "AAAA-MM-DD HH:MM:SS.SSS" que `.deferredToDate` (o padrão do GRDB)
@@ -59,6 +62,7 @@ public struct AccountRecord: Codable, FetchableRecord, PersistableRecord, Sendab
         state = account.state.rawValue
         lastSyncedAt = account.lastSyncedAt
         self.createdAt = createdAt
+        aliasesJSON = Self.encodeAliases(account.sendAliases)
     }
 
     /// De volta ao tipo do `UNICore`.
@@ -83,7 +87,8 @@ public struct AccountRecord: Codable, FetchableRecord, PersistableRecord, Sendab
             host: host, tintLightHex: tintLightHex, tintDarkHex: tintDarkHex,
             signature: richSignature.plainText, emailSignature: richSignature, imap: endpoint,
             state: Account.State(rawValue: state) ?? .ativa,
-            lastSyncedAt: lastSyncedAt
+            lastSyncedAt: lastSyncedAt,
+            sendAliases: Self.decodeAliases(aliasesJSON)
         )
     }
 
@@ -107,6 +112,22 @@ public struct AccountRecord: Codable, FetchableRecord, PersistableRecord, Sendab
     private static func decodeSignature(_ value: String) -> EmailSignature? {
         guard let data = value.data(using: .utf8) else { return nil }
         return try? JSONDecoder().decode(EmailSignature.self, from: data)
+    }
+
+    public var sendAliases: [SendAlias] {
+        get { Self.decodeAliases(aliasesJSON) }
+        set { aliasesJSON = Self.encodeAliases(newValue) }
+    }
+
+    private static func encodeAliases(_ aliases: [SendAlias]) -> String? {
+        guard !aliases.isEmpty else { return nil }
+        guard let data = try? JSONEncoder().encode(aliases) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private static func decodeAliases(_ value: String?) -> [SendAlias] {
+        guard let value, let data = value.data(using: .utf8) else { return [] }
+        return (try? JSONDecoder().decode([SendAlias].self, from: data)) ?? []
     }
 }
 
@@ -137,12 +158,24 @@ public struct FolderRecord: Codable, FetchableRecord, PersistableRecord, Sendabl
     /// digitado diferente num deles daria uma segunda pasta, com as mensagens
     /// da conta partidas em duas.
     public static let gmailServerName = "GMAIL"
+    /// Pasta local dos rascunhos que o app gravou. Não é listagem do
+    /// servidor — a reconciliação a preserva, senão o próximo `LIST` apagaria
+    /// a pasta e, em cascata, os rascunhos.
+    public static let localDraftsServerName = "LOCAL-DRAFTS"
 
     public static func gmail(accountID: String) -> FolderRecord {
         FolderRecord(
             id: id(accountID: accountID, serverName: gmailServerName),
             accountID: accountID, serverName: gmailServerName,
             role: .other, displayName: "Gmail"
+        )
+    }
+
+    public static func localDrafts(accountID: String) -> FolderRecord {
+        FolderRecord(
+            id: id(accountID: accountID, serverName: localDraftsServerName),
+            accountID: accountID, serverName: localDraftsServerName,
+            role: .drafts, displayName: "Rascunhos"
         )
     }
 
@@ -171,6 +204,7 @@ public struct FolderRecord: Codable, FetchableRecord, PersistableRecord, Sendabl
     /// decisão sobre o Gmail junto, que era a condição.
     public var folder: MailFolder? {
         guard serverName != Self.gmailServerName else { return nil }
+        guard serverName != Self.localDraftsServerName else { return nil }
         return MailFolder(
             id: id, accountID: accountID, serverName: serverName,
             displayName: displayName,

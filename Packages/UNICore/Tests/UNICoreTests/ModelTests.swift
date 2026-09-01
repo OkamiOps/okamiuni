@@ -29,13 +29,15 @@ struct ModelTests {
     @Test("as pastas batem com o protótipo — Lixeira ao fim do fluxo, Enviadas depois")
     func triageBuckets() {
         #expect(TriageBucket.allCases.map(\.rawValue)
-            == ["hoje", "depois", "todos", "arquivar", "lixeira", "enviadas"])
+            == ["hoje", "depois", "todos", "arquivar", "lixeira", "spam", "enviadas", "rascunhos"])
         #expect(TriageBucket.today.label == "Hoje")
         #expect(TriageBucket.later.label == "Depois")
         #expect(TriageBucket.all.label == "Tudo")
         #expect(TriageBucket.archived.label == "Arquivado")
         #expect(TriageBucket.trash.label == "Lixeira")
+        #expect(TriageBucket.junk.label == "Spam")
         #expect(TriageBucket.sent.label == "Enviadas")
+        #expect(TriageBucket.drafts.label == "Rascunhos")
     }
 
     /// A lista da **triagem** é a de antes, e Enviadas não entra nela: ela é a
@@ -44,8 +46,9 @@ struct ModelTests {
     @Test("a triagem continua sendo as cinco de sempre — Enviadas fica fora")
     func triageListExcludesSent() {
         #expect(TriageBucket.triage.map(\.rawValue)
-            == ["hoje", "depois", "todos", "arquivar", "lixeira"])
+            == ["hoje", "depois", "todos", "arquivar", "lixeira", "spam"])
         #expect(!TriageBucket.triage.contains(.sent))
+        #expect(!TriageBucket.triage.contains(.drafts))
     }
 
     /// "Tudo" é a visão da triagem: o que chegou e ainda pede decisão. O que
@@ -56,6 +59,12 @@ struct ModelTests {
         let enviada = Message.preview(id: "e1", bucket: .sent)
         #expect(!TriageBucket.all.contains(enviada))
         #expect(TriageBucket.sent.contains(enviada))
+        let rascunho = Message.preview(id: "d1", bucket: .drafts)
+        #expect(!TriageBucket.all.contains(rascunho))
+        #expect(TriageBucket.drafts.contains(rascunho))
+        let spam = Message.preview(id: "s1", bucket: .junk)
+        #expect(!TriageBucket.all.contains(spam))
+        #expect(TriageBucket.junk.contains(spam))
     }
 
     /// Em Enviadas a linha mostra **para quem** a mensagem foi: o remetente é
@@ -69,6 +78,7 @@ struct ModelTests {
         let para = [Contact(name: "Ricardo Alves", address: "ricardo@meudominio.com.br")]
         #expect(Message.preview(bucket: .today, to: para).listHeadline == "Marina Duarte")
         #expect(Message.preview(bucket: .sent, to: para).listHeadline == "Ricardo Alves")
+        #expect(Message.preview(bucket: .drafts, to: para).listHeadline == "Ricardo Alves")
 
         // Sem nome, o endereço — e todos eles, não só o primeiro.
         let dois = para + [Contact(name: "", address: "socio@meudominio.com.br")]
@@ -127,15 +137,16 @@ struct FixtureTimeZoneTests {
 @Suite("Dia como dado")
 struct DayLabelTests {
 
-    @Test("os dois dias com nome são hoje e ontem")
+    @Test("os três dias com nome são hoje, ontem e amanhã")
     func namedDays() {
         #expect(DayLabel.name(forOffset: 0) == "Hoje")
         #expect(DayLabel.name(forOffset: -1) == "Ontem")
+        #expect(DayLabel.name(forOffset: 1) == "Amanhã")
     }
 
     /// Sem esta metade, "Hoje" viraria o rótulo de qualquer dia sem nome —
     /// que é o erro simétrico ao que a lista tinha.
-    @Test("nenhum outro dia tem nome", arguments: [-30, -7, -2, 1, 2, 365])
+    @Test("nenhum outro dia tem nome", arguments: [-30, -7, -2, 2, 365])
     func unnamedDays(offset: Int) {
         #expect(DayLabel.name(forOffset: offset) == nil)
     }

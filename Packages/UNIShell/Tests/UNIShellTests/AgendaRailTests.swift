@@ -109,6 +109,21 @@ struct AgendaRailTests {
         #expect(label == "em 60 min: 1:1 Marina Duarte")
     }
 
+    @Test("nextUpLabel ignora compromisso cancelado")
+    func nextUpLabelSkipsCancelled() {
+        let cancelado = AgendaItem(
+            id: "c", title: "teste okamiUNI",
+            startMinute: 570, endMinute: 600, accountID: "z",
+            isCancelled: true
+        )
+        let vivo = AgendaItem(
+            id: "v", title: "1:1 Marina Duarte",
+            startMinute: 660, endMinute: 705, accountID: "z"
+        )
+        #expect(AgendaRail.nextUpLabel(for: [cancelado, vivo], now: 580) == "em 80 min: 1:1 Marina Duarte")
+        #expect(AgendaRail.nextUpLabel(for: [cancelado], now: 580) == "nada mais hoje")
+    }
+
     @Test("altura mínima é 42 para modo tight")
     func tightThreshold() {
         // Evento que dá exatamente na borda: 54 min × 0.78 - 3 = 42.12 - 3 = 39.12 < 42
@@ -433,5 +448,100 @@ struct AgendaRailTests {
         // `VStack` em volta), esta mesma medida sobe para a faixa dos 30+pt.
         #expect(gap > 0)
         #expect(gap < 25, "folga medida foi \(gap)pt — o defeito soma mais 15pt aqui")
+    }
+
+    @Test("compromisso cancelado usa cinza, não a tinta da conta")
+    func cancelledChromeIsGray() {
+        let theme = Theme.tinta
+        let tint = theme.accent
+        #expect(CalendarEventChrome.ink(tint, cancelled: true, theme: theme) == theme.ink4.color)
+        #expect(CalendarEventChrome.ink(tint, cancelled: false, theme: theme) != theme.ink4.color)
+        #expect(CalendarEventChrome.bar(tint, cancelled: true, theme: theme) != tint.color)
+        #expect(CalendarEventChrome.bar(tint, cancelled: false, theme: theme) == tint.color)
+        #expect(CalendarEventChrome.fill(tint, cancelled: false, theme: theme) != tint.color)
+        #expect(CalendarEventChrome.fill(tint, cancelled: true, theme: theme)
+            != CalendarEventChrome.fill(tint, cancelled: false, theme: theme))
+    }
+
+    @Test("texto do bloco contrasta com o fundo, mesmo em pastel do Gmail")
+    func eventInkContrastsWithPastelFill() throws {
+        let theme = Theme.tinta
+        let pastel = try #require(TokenColor(css: "#A4C2F4"))
+        let card = CalendarEventChrome.fillSwatch(pastel, cancelled: false, theme: theme)
+        let ink = pastel.ensuringContrast(against: card)
+        #expect(ink.contrastRatio(with: card) >= 4.5)
+        let doEmail = try #require(TokenColor(css: "#3E6FA8"))
+        let cardDoEmail = CalendarEventChrome.fillSwatch(doEmail, cancelled: false, theme: theme)
+        let inkDoEmail = doEmail.ensuringContrast(against: cardDoEmail)
+        #expect(inkDoEmail.contrastRatio(with: cardDoEmail) >= 4.5)
+    }
+
+    @Test("o dia parte em tarde e noite, e o agora cai no vão")
+    func dayRowsInsertNowBetweenPastAndUpcoming() {
+        let tarde = AgendaItem(
+            id: "a", title: "teste okamiUNI",
+            startMinute: 900, endMinute: 930, accountID: "z",
+            isCancelled: true
+        )
+        let noite = AgendaItem(
+            id: "b", title: "Aitherion - Talks",
+            startMinute: 1380, endMinute: 1440, accountID: "z"
+        )
+        #expect(AgendaRail.dayRows(items: [tarde, noite], now: 970) == [
+            .period("Tarde"),
+            .item(tarde),
+            .now,
+            .period("Noite"),
+            .item(noite),
+        ])
+    }
+
+    @Test("com o compromisso em andamento, o agora não vira uma linha extra")
+    func dayRowsSkipNowWhileRunning() {
+        let agora = AgendaItem(
+            id: "a", title: "Standup",
+            startMinute: 570, endMinute: 600, accountID: "z"
+        )
+        let depois = AgendaItem(
+            id: "b", title: "1:1",
+            startMinute: 660, endMinute: 705, accountID: "z"
+        )
+        let rows = AgendaRail.dayRows(items: [agora, depois], now: 580)
+        #expect(rows.contains(.now) == false)
+        #expect(AgendaRail.periodName(for: 570) == "Manhã")
+        #expect(AgendaRail.periodName(for: 0) == "Madrugada")
+        #expect(AgendaRail.periodName(for: 1080) == "Noite")
+    }
+
+    @Test("a linha extra do cartão é local ou sala, não o horário de novo")
+    func metaLinePrefersPlaceAndRoom() {
+        let semDetalhe = AgendaItem(
+            id: "a", title: "Aitherion - Talks",
+            startMinute: 1380, endMinute: 1440, accountID: "z"
+        )
+        #expect(AgendaRail.metaLine(for: semDetalhe, host: "gmail.com") == "gmail.com")
+        #expect(AgendaRail.metaLine(for: semDetalhe, host: nil) == nil)
+
+        let comSala = AgendaItem(
+            id: "b", title: "1:1",
+            startMinute: 660, endMinute: 705, accountID: "z",
+            detail: EventDetail(
+                place: "Sala 3",
+                link: "https://meet.google.com/abc-defg-hij",
+                organizer: EventPerson(
+                    name: "A", address: "a@x.com", role: "organizador", status: .yes
+                ),
+                people: [], note: "", recurrence: "Evento único",
+                notice: "", agenda: [], thread: []
+            )
+        )
+        #expect(AgendaRail.metaLine(for: comSala, host: "zoho.com") == "Sala 3 · Google Meet")
+
+        let cancelado = AgendaItem(
+            id: "c", title: "X",
+            startMinute: 900, endMinute: 930, accountID: "z",
+            isCancelled: true
+        )
+        #expect(AgendaRail.metaLine(for: cancelado, host: "gmail.com") == nil)
     }
 }

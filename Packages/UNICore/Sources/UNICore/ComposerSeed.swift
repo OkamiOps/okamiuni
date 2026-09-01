@@ -188,3 +188,46 @@ public struct ComposerSeed: Sendable, Hashable {
         return lines.joined(separator: "\n")
     }
 }
+
+/// O email a que um rascunho responde. Sem isto, reabrir um rascunho de
+/// "Responder" vira uma mensagem nova: some o histórico, e o Enviar sai
+/// sem `In-Reply-To`.
+public enum DraftOrigin {
+    public static func matching(for draft: Message, in messages: [Message]) -> Message? {
+        let outros = messages.filter { $0.id != draft.id && $0.bucket != .drafts }
+        if let chave = draft.threadKey, chave != draft.id {
+            if let porID = outros.first(where: { $0.id == chave }) { return porID }
+            if let porFio = outros.first(where: { $0.threadKey == chave }) { return porFio }
+        }
+        if let rfc = draft.references.last, !rfc.isEmpty,
+           let porRFC = outros.first(where: { $0.rfcMessageID == rfc }) {
+            return porRFC
+        }
+        let assunto = strippedSubject(draft.subject)
+        guard !assunto.isEmpty else { return nil }
+        let destinatarios = Set(draft.to.map { $0.address.lowercased() }.filter { !$0.isEmpty })
+        let candidatos = outros.filter { strippedSubject($0.subject) == assunto }
+        if let peloRemetente = candidatos.first(where: {
+            destinatarios.contains($0.from.address.lowercased())
+        }) {
+            return peloRemetente
+        }
+        if let mesmaConta = candidatos.first(where: { $0.accountID == draft.accountID }) {
+            return mesmaConta
+        }
+        return candidatos.first
+    }
+
+    /// "Re: Re: Cancelado: x" e "Cancelado: x" são o mesmo assunto da conversa.
+    public static func strippedSubject(_ subject: String) -> String {
+        var texto = subject.trimmingCharacters(in: .whitespacesAndNewlines)
+        let prefixos = ["re:", "res:", "fwd:", "enc:", "fw:"]
+        while true {
+            let minusculo = texto.lowercased()
+            guard let prefixo = prefixos.first(where: { minusculo.hasPrefix($0) }) else { break }
+            texto = String(texto.dropFirst(prefixo.count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return texto.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+}

@@ -195,9 +195,9 @@ struct ComposerIntelligencePanel: View {
             HStack(spacing: 8) {
                 Image(systemName: "apple.intelligence")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(theme.accentInk.color)
+                    .foregroundStyle(theme.info.color)
                     .frame(width: 24, height: 24)
-                    .background(theme.accentSoft.color, in: RoundedRectangle(cornerRadius: theme.radiusSmall))
+                    .background(theme.infoSoft.color, in: RoundedRectangle(cornerRadius: theme.radiusSmall))
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Inteligência de escrita")
                         .font(theme.sans.font(size: 12, weight: .semibold))
@@ -230,7 +230,7 @@ struct ComposerIntelligencePanel: View {
             if case .failure(let message) = phase {
                 Text(message)
                     .font(theme.sans.font(size: 11))
-                    .foregroundStyle(theme.accent.color)
+                    .foregroundStyle(theme.danger.color)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }

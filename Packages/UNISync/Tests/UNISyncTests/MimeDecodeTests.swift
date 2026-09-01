@@ -159,6 +159,32 @@ struct MimeDecodeTests {
         #expect(agenda.contains("VCALENDAR"))
     }
 
+    @Test("invite.ics marcado como anexo ainda vira convite")
+    func icsAnexadoAindaEhConvite() throws {
+        let cru = """
+            --mix
+            Content-Type: text/plain
+
+            Esta mensagem não tem texto.
+            --mix
+            Content-Type: application/octet-stream; name="invite.ics"
+            Content-Disposition: attachment; filename="invite.ics"
+
+            BEGIN:VCALENDAR
+            METHOD:CANCEL
+            BEGIN:VEVENT
+            SUMMARY:teste okamiUNI
+            STATUS:CANCELLED
+            END:VEVENT
+            END:VCALENDAR
+            --mix--
+            """
+        let saida = MimeBody.decode(raw: cru, contentType: "multipart/mixed; boundary=mix")
+        let agenda = try #require(saida.calendar)
+        #expect(agenda.contains("METHOD:CANCEL"))
+        #expect(agenda.contains("teste okamiUNI"))
+    }
+
     @Test("O PDF de quatro megabytes nem é decodificado — ele não é folha nenhuma")
     func anexoBinarioNaoVira() {
         let cru = """

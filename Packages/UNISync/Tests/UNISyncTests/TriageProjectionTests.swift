@@ -25,6 +25,10 @@ struct TriageProjectionTests {
     @Test("Enviadas têm caixa própria — e ela não é Arquivado")
     func enviadasNaCaixaDelas() {
         #expect(TriageProjection.bucket(role: .sent) == .sent)
+        #expect(TriageProjection.bucket(role: .drafts) == .drafts)
+        #expect(TriageProjection.bucket(role: .drafts) != .archived)
+        #expect(TriageProjection.bucket(role: .junk) == .junk)
+        #expect(TriageProjection.bucket(role: .junk) != .archived)
         // A mutação que isto mata: devolver `.archived` aqui, que era a outra
         // saída possível. Ela encheria a caixa Arquivado do que a pessoa
         // escreveu, misturado com o que ela arquivou.
@@ -48,6 +52,7 @@ struct TriageProjectionTests {
         #expect(TriageProjection.tag(folderRole: .later, folderName: "OkamiUNI/Depois") == nil)
         #expect(TriageProjection.tag(folderRole: .trash, folderName: "Lixeira") == nil)
         #expect(TriageProjection.tag(folderRole: .sent, folderName: "Enviados") == nil)
+        #expect(TriageProjection.tag(folderRole: .drafts, folderName: "Rascunhos") == nil)
         // Nome vazio (ou só espaço) não vira etiqueta vazia na linha.
         #expect(TriageProjection.tag(folderRole: .other, folderName: "   ") == nil)
         #expect(TriageProjection.tag(folderRole: .other, folderName: " Faturas ")?.name == "Faturas")
@@ -61,6 +66,10 @@ struct TriageProjectionTests {
         #expect(TriageProjection.bucket(gmailLabelIDs: ["INBOX", "UNREAD"], laterLabelID: nil) == .today)
         #expect(TriageProjection.bucket(gmailLabelIDs: ["TRASH"], laterLabelID: nil) == .trash)
         #expect(TriageProjection.bucket(gmailLabelIDs: ["SENT"], laterLabelID: nil) == .sent)
+        #expect(TriageProjection.bucket(gmailLabelIDs: ["DRAFT"], laterLabelID: nil) == .drafts)
+        #expect(TriageProjection.bucket(gmailLabelIDs: ["SPAM"], laterLabelID: nil) == .junk)
+        #expect(TriageProjection.bucket(gmailLabelIDs: ["INBOX", "SPAM"], laterLabelID: nil) == .junk)
+        #expect(TriageProjection.bucket(gmailLabelIDs: ["SPAM", "TRASH"], laterLabelID: nil) == .trash)
         // Sem INBOX e sem TRASH: é o "Todos os e-mails", que é o arquivo.
         #expect(TriageProjection.bucket(gmailLabelIDs: ["CATEGORY_PROMOTIONS"], laterLabelID: nil) == .archived)
         #expect(TriageProjection.bucket(gmailLabelIDs: [], laterLabelID: nil) == .archived)
@@ -77,9 +86,11 @@ struct TriageProjectionTests {
         #expect(TriageProjection.bucket(gmailLabelIDs: ["INBOX", "Label_7"], laterLabelID: "Label_7") == .later)
         // Mas não ganha da lixeira: apagado é apagado.
         #expect(TriageProjection.bucket(gmailLabelIDs: ["Label_7", "TRASH"], laterLabelID: "Label_7") == .trash)
-        // SENT ganha de INBOX: a mensagem de uma conversa consigo mesma
-        // carrega os dois, e a resposta certa ali é "eu escrevi".
-        #expect(TriageProjection.bucket(gmailLabelIDs: ["SENT", "INBOX"], laterLabelID: nil) == .sent)
+        // INBOX ganha de SENT: RSVP, mail para si e o aviso do Calendar
+        // carregam os dois, e o Gmail mostra na caixa. SENT sozinho
+        // (sem INBOX) continua Enviadas.
+        #expect(TriageProjection.bucket(gmailLabelIDs: ["SENT", "INBOX"], laterLabelID: nil) == .today)
+        #expect(TriageProjection.bucket(gmailLabelIDs: ["SENT"], laterLabelID: nil) == .sent)
         // Mas a lixeira ganha até dela: o que você escreveu e depois apagou
         // está apagado, e não em Enviadas.
         #expect(TriageProjection.bucket(gmailLabelIDs: ["SENT", "TRASH"], laterLabelID: nil) == .trash)

@@ -118,6 +118,32 @@ struct AccountSignatureTests {
             error: nil, progress: nil
         )
         #expect(status.signature.isEmpty)
+        #expect(status.sendAliases.isEmpty)
+    }
+
+    @Test("aliases gravados voltam no retrato da conta")
+    func gravaAliases() async throws {
+        let db = try SyncDatabase.temporary()
+        let original = conta()
+        try await db.pool.write {
+            try AccountRecord(original, createdAt: self.criadaEm).insert($0)
+        }
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerraGrupoDeAssinatura(grupo) }
+        let director = diretor(db, grupo: grupo)
+        let atualizada = try await director.updateSendAliases(
+            accountID: original.id,
+            aliases: [
+                SendAlias(address: "financeiro@exemplo.com", displayName: "Financeiro", isDefault: true),
+            ]
+        )
+        #expect(atualizada.defaultSendAddress == "financeiro@exemplo.com")
+        #expect(atualizada.sendAliases.map(\.address) == ["financeiro@exemplo.com"])
+        let registro = try #require(try await db.pool.read {
+            try AccountRecord.fetchOne($0, key: original.id)
+        })
+        #expect(registro.sendAliases.first?.isDefault == true)
+        #expect(registro.account.withState(.carregando).sendAliases.count == 1)
     }
 
     private func espera(

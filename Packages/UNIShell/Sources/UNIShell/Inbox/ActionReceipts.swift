@@ -45,16 +45,30 @@ public final class ActionReceipts {
     public func interceptAgenda(
         _ command: ContextCommand, on store: MailStore, stamp: String
     ) -> Bool {
-        guard case .removeFromAgenda(let itemID) = command,
-              let item = store.agenda.first(where: { $0.id == itemID })
-        else { return false }
+        let itemID: String
+        let note: String
+        switch command {
+        case .removeFromAgenda(let id):
+            itemID = id
+            note = "Tirada da agenda"
+        case .cancelMeeting(let id):
+            itemID = id
+            note = "Reunião cancelada"
+        default:
+            return false
+        }
+        guard let item = store.agenda.first(where: { $0.id == itemID }) else { return false }
 
         agenda = SwipeReceipt(
             messageID: itemID,
-            note: "Tirada da agenda — \(item.title) · \(stamp)",
+            note: "\(note) — \(item.title) · \(stamp)",
             undo: .restoreToAgenda(itemID: itemID)
         )
-        store.removeFromAgenda(itemID)
+        if case .cancelMeeting = command {
+            store.cancelMeeting(itemID)
+        } else {
+            store.removeFromAgenda(itemID)
+        }
         return true
     }
 

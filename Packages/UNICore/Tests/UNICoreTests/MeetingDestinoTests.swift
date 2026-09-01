@@ -27,6 +27,7 @@ struct MeetingDestinoTests {
         "https://us02web.zoom.us/j/123456789",
         "https://empresa.webex.com/meet/marcos",
         "https://teams.microsoft.com/l/meetup-join/19%3ameeting",
+        "https://meeting.zoho.com/meeting/join?key=abc",
     ])
     func reconheceProvedorNoConvite(link: String) {
         #expect(MeetingLink.first(in: "Entrar na reunião: \(link)") == link)

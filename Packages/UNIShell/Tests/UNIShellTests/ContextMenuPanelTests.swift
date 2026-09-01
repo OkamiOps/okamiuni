@@ -363,4 +363,39 @@ struct ContextMenuPanelTests {
         #expect(rep.pixelsWide == 300)
         #expect(rep.pixelsHigh == 500)
     }
+
+    @Test("seta segue o realce; o ponteiro não puxa a lista")
+    func pointerHoverDoesNotDragScroll() {
+        let entries = (1...25).map {
+            ContextMenuEntry.item(ContextMenuItem("P\($0)", .copy("\($0)")))
+        }
+        let level = MenuLevel(entries: entries)
+        level.move(1)
+        #expect(level.followHighlight)
+        level.hover(10)
+        #expect(!level.followHighlight)
+        #expect(level.highlighted == 10)
+    }
+
+    @Test("submenu com dezenas de pastas cabe 20 linhas e o resto rola")
+    func longFolderSubmenuScrolls() {
+        let entries = (1...40).map {
+            ContextMenuEntry.item(
+                ContextMenuItem(String(format: "Pasta %02d", $0), .copy("\($0)"))
+            )
+        }
+        #expect(ContextMenuPanel.needsScroll(entries))
+        #expect(!ContextMenuPanel.needsScroll(Self.entries))
+
+        let host = NSHostingView(
+            rootView: ContextMenuPanel(level: MenuLevel(entries: entries))
+                .theme(.tinta)
+                .environment(ThemeStore())
+        )
+        host.layoutSubtreeIfNeeded()
+        #expect(
+            host.fittingSize.height <= MenuSurface.listMaxHeight + 24,
+            "o submenu cresceu com as 40 pastas: \(host.fittingSize.height)pt"
+        )
+    }
 }

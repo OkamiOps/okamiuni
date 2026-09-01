@@ -34,6 +34,7 @@ public enum TriageProjection {
         // a verdade, e ela não entra em Hoje nem em "Tudo" (ver
         // `TriageBucket.contains`).
         case .sent: .sent
+        case .drafts: .drafts
         // Pasta que a pessoa criou não tem papel nosso, e "arquivada" é a
         // resposta certa: a mensagem existe, não está na entrada, não está na
         // lixeira. Some da triagem só o que ela mandou sumir.
@@ -44,12 +45,9 @@ public enum TriageProjection {
         // fez), ela tem caminho de produção — e o nome da pasta vem junto, como
         // etiqueta, por `tag(folderRole:folderName:)`.
         case .other: .archived
-        // Rascunhos e spam ganharam papel próprio na M3-17 **sem mudar caixa
-        // nenhuma**: eles eram `.other` e caíam aqui, em Arquivado; continuam
-        // caindo. O papel serve à barra lateral (o ícone da linha), e uma
-        // mudança de projeção junto teria movido de caixa, calada, toda mensagem
-        // de rascunho e de spam de toda conta IMAP já carregada.
-        case .drafts, .junk: .archived
+        // Spam é quarentena: caixa própria, fora de Tudo e de Hoje. O ícone
+        // na barra do provedor não basta se a unificada ainda mostra o lixo.
+        case .junk: .junk
         }
     }
 
@@ -75,13 +73,8 @@ public enum TriageProjection {
         switch folderRole {
         // As nossas continuam sem etiqueta: o nome delas é estrutura, e já está
         // dito pelo `bucket`.
-        case .inbox, .later, .archive, .trash, .sent: return nil
-        // Rascunhos e spam **continuam** ganhando etiqueta. Eles eram `.other`
-        // até a M3-17, e cair em Arquivado com "Rascunhos" ao lado é a única
-        // coisa que distinguia aquela mensagem das outras arquivadas. Deixá-los
-        // sair daqui junto com o papel novo teria apagado a etiqueta de toda
-        // mensagem de rascunho já gravada, na recarga seguinte.
-        case .drafts, .junk, .other:
+        case .inbox, .later, .archive, .trash, .sent, .drafts, .junk: return nil
+        case .other:
             let limpo = folderName.trimmingCharacters(in: .whitespacesAndNewlines)
             return limpo.isEmpty ? nil : Tag(name: limpo)
         }
@@ -95,23 +88,27 @@ public enum TriageProjection {
     ///    `INBOX` (e, se você a escreveu, `SENT`) por um tempo, e se qualquer
     ///    um deles vencesse ela voltaria para a caixa de onde saiu. Apagar tem
     ///    de parecer apagar.
-    /// 2. `SENT` vai para Enviadas, e sai da triagem — o que a pessoa escreveu
-    ///    não é caixa de entrada dela. Ganha de `INBOX` porque a mensagem de
-    ///    uma conversa consigo mesma carrega os dois rótulos, e a resposta
-    ///    certa ali é "eu escrevi".
-    /// 3. `OkamiUNI/Depois` ganha de `INBOX` — é decisão explícita da pessoa,
+    /// 2. `DRAFT` sai da triagem — o que a pessoa ainda escreve não é caixa.
+    /// 3. `SPAM` ganha de `INBOX` — o Gmail às vezes deixa os dois, e a
+    ///    unificada não pode mostrar phishing. Spam é quarentena.
+    /// 4. `OkamiUNI/Depois` ganha de `INBOX` — é decisão explícita da pessoa,
     ///    tomada nesta ferramenta; `INBOX` é só "ainda não triada".
-    /// 4. `INBOX` → Hoje.
-    /// 5. O resto → Arquivado.
+    /// 5. `INBOX` → Hoje, **mesmo com `SENT`**. RSVP de convite, mail para si
+    ///    e o "Videoconferência atualizada" do Calendar carregam os dois; o
+    ///    Gmail mostra na caixa, e SENT sozinho (sem INBOX) continua Enviadas.
+    /// 6. `SENT` sem `INBOX` → Enviadas.
+    /// 7. O resto → Arquivado.
     public static func bucket(gmailLabelIDs: [String], laterLabelID: String?) -> TriageBucket {
         let rotulos = Set(gmailLabelIDs)
         // A Lixeira ganha até de Enviadas: uma mensagem que você escreveu e
         // depois apagou está apagada, e apagar tem de parecer apagar em toda
         // caixa — inclusive na sua.
         if rotulos.contains("TRASH") { return .trash }
-        if rotulos.contains("SENT") { return .sent }
+        if rotulos.contains("DRAFT") { return .drafts }
+        if rotulos.contains("SPAM") { return .junk }
         if let laterLabelID, rotulos.contains(laterLabelID) { return .later }
         if rotulos.contains("INBOX") { return .today }
+        if rotulos.contains("SENT") { return .sent }
         return .archived
     }
 

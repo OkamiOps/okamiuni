@@ -36,6 +36,24 @@ final class MenuHostingView<Content: View>: NSHostingView<Content> {
         }
         return super.hitTest(point)
     }
+
+    /// Janela-filha borderless às vezes não entrega a roda à `NSScrollView`
+    /// do SwiftUI. Encaminha na mão.
+    override func scrollWheel(with event: NSEvent) {
+        if let scroll = Self.firstScrollView(in: self) {
+            scroll.scrollWheel(with: event)
+            return
+        }
+        super.scrollWheel(with: event)
+    }
+
+    private static func firstScrollView(in view: NSView) -> NSScrollView? {
+        if let scroll = view as? NSScrollView { return scroll }
+        for child in view.subviews {
+            if let found = firstScrollView(in: child) { return found }
+        }
+        return nil
+    }
 }
 
 /// Quem abre, fecha e posiciona os painéis de menu de contexto.
@@ -245,7 +263,7 @@ final class ContextMenuPresenter {
 
     private func hover(_ row: Int, at depth: Int) {
         guard panels.indices.contains(depth) else { return }
-        panels[depth].level.highlighted = row
+        panels[depth].level.hover(row)
         if case .submenu = panels[depth].level.entries[row] {
             openSubmenu(row, at: depth)
         } else {

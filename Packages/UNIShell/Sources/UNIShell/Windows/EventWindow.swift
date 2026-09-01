@@ -28,6 +28,78 @@ enum SemanticColor {
     }
 }
 
+/// O aviso de cancelar/remover, no idioma da janela — não o diálogo do macOS.
+enum EventConfirmKind: Equatable {
+    case cancelMeeting
+    case removeFromCalendar
+
+    var title: String {
+        switch self {
+        case .cancelMeeting: "Cancelar esta reunião?"
+        case .removeFromCalendar: "Remover do calendário?"
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .cancelMeeting:
+            "Os convidados recebem o cancelamento e o compromisso sai da agenda."
+        case .removeFromCalendar:
+            "O compromisso sai da agenda. Os convidados não recebem aviso."
+        }
+    }
+
+    var actionTitle: String {
+        switch self {
+        case .cancelMeeting: "Cancelar reunião"
+        case .removeFromCalendar: "Remover"
+        }
+    }
+}
+
+private struct EventConfirmCard: View {
+    @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
+    let kind: EventConfirmKind
+    let onConfirm: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(kind.title)
+                .font(theme.serif.font(size: 18, weight: .semibold))
+                .foregroundStyle(theme.ink.color)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(kind.message)
+                .font(theme.sans.font(size: 13))
+                .foregroundStyle(theme.ink3.color)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                ChromeButton("Voltar", appearance: .outlined, height: 30) {
+                    onCancel()
+                }
+                ChromeButton(kind.actionTitle, appearance: .remove, height: 30) {
+                    onConfirm()
+                }
+            }
+            .padding(.top, 6)
+        }
+        .padding(20)
+        .frame(width: 340, alignment: .leading)
+        .background(theme.surface.color)
+        .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
+        .overlay {
+            RoundedRectangle(cornerRadius: theme.radiusLarge)
+                .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
+        }
+        .shadow(theme.shadow)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(kind.title)
+        .accessibilityHint(kind.message)
+    }
+}
+
 /// A tela **04 Detalhe do compromisso** (linhas 588–742 do protótipo,
 /// 560 de largura). Abre clicando num compromisso da trilha de agenda.
 public struct EventWindow: View {
@@ -63,6 +135,10 @@ public struct EventWindow: View {
     @State private var forwardNote = ""
     @State private var forwardSent = false
     @State private var copied = false
+    @State private var confirm: EventConfirmKind?
+    @State private var cancelling = false
+
+    @Environment(MeetingRoomFactory.self) private var meetingFactory: MeetingRoomFactory?
 
     /// Abre a lista de destinatários nos renders fora da tela. Nulo no app;
     /// existe para provar o empilhamento sem clicar nem tomar o foco do Mac.
@@ -94,6 +170,15 @@ public struct EventWindow: View {
         _forwardOpen = State(initialValue: true)
     }
 
+    /// O aviso já aberto. Só para o teste fotografar o cartão no lugar do
+    /// `confirmationDialog` do sistema.
+    init(store: MailStore, itemID: String, debugConfirm: EventConfirmKind) {
+        self.store = store
+        self.itemID = itemID
+        seededForwardQuery = nil
+        _confirm = State(initialValue: debugConfirm)
+    }
+
     private var item: AgendaItem? {
         store.agenda.first { $0.id == itemID }
     }
@@ -106,10 +191,20 @@ public struct EventWindow: View {
     /// definido", "Ricardo Gomes · ricardo@empresa.com" e "Criado manualmente
     /// na agenda", numa reunião que o Favini tinha convidado.
     ///
-    /// A tabela de fixture continua sendo o caminho de quem não carrega nada —
-    /// os compromissos da agenda de exemplo, que é o que o Marco 1 desenha.
+    /// A tabela de fixture continua sendo o caminho só da agenda de exemplo.
+    /// Compromisso nascido de um email reconstrói o detalhe da mensagem de
+    /// origem em vez de cair no Ricardo Gomes.
     private var detail: EventDetail {
-        item?.detail ?? Fixtures.eventDetail(for: item?.title ?? "")
+        guard let item else { return Fixtures.eventDefault }
+        // Só o id determinístico — `originMessage` passa por `originMessageID`,
+        // que lê `detail`, e os dois juntos seriam um laço.
+        let origem = DetectedEventConversion.messageID(forAgendaID: itemID)
+            .flatMap { store.message($0) }
+        return InviteAgenda.resolvedDetail(
+            for: item,
+            origin: origem,
+            account: account
+        )
     }
 
     private var account: Account? {
@@ -138,8 +233,16 @@ public struct EventWindow: View {
         return ContextMenus.originMessageID(for: detail, in: store.messages)
     }
 
+    private var swatch: TokenColor? {
+        item.flatMap { CalendarTint.token(of: $0, in: store, theme: theme) }
+    }
+
     private var tint: Color {
-        account.flatMap { TokenColor(css: $0.tint(isDark: theme.isDark))?.color } ?? theme.accent.color
+        guard let item else {
+            return account.flatMap { TokenColor(css: $0.tint(isDark: theme.isDark))?.color }
+                ?? theme.accent.color
+        }
+        return CalendarEventChrome.ink(swatch, cancelled: item.isCancelled, theme: theme)
     }
 
     /// O dono da caixa é a conta do compromisso — nunca um endereço fixo: o app
@@ -174,7 +277,49 @@ public struct EventWindow: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(theme.surface.color)
+        .overlay { if let confirm { confirmLayer(confirm) } }
+        .onExitCommand { confirm = nil }
         .task { if store.agenda.isEmpty { await store.load() } }
+    }
+
+    /// Cartão nosso por cima da janela — o `confirmationDialog` do sistema
+    /// não segue o tema, e o magenta do Remover sumia nele.
+    private func confirmLayer(_ kind: EventConfirmKind) -> some View {
+        ZStack {
+            theme.ink.color.opacity(theme.isDark ? 0.55 : 0.28)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture { confirm = nil }
+            EventConfirmCard(
+                kind: kind,
+                onConfirm: {
+                    confirm = nil
+                    switch kind {
+                    case .cancelMeeting: performCancel()
+                    case .removeFromCalendar: performRemove()
+                    }
+                },
+                onCancel: { confirm = nil }
+            )
+        }
+        .accessibilityAddTraits(.isModal)
+    }
+
+    var canCancelMeeting: Bool {
+        Self.isCreatedHere(itemID)
+    }
+
+    /// Compromisso que eu não criei neste app: veio do Calendário, de um
+    /// convite ou da caixa. Tira da agenda; não manda METHOD:CANCEL.
+    var canRemoveFromCalendar: Bool {
+        item != nil && !canCancelMeeting
+    }
+
+    /// O prefixo `manual-` é o que o "Novo compromisso" grava. Sem ele, o
+    /// evento veio de fora — EventKit, CalDAV, email — e cancelar a reunião
+    /// (avisar convidados, apagar a sala) não é o nosso papel.
+    nonisolated static func isCreatedHere(_ itemID: String) -> Bool {
+        itemID.hasPrefix("manual-")
     }
 
     /// Protótipo: `padding: 13px 18px; background: var(--surface2)`.
@@ -188,7 +333,6 @@ public struct EventWindow: View {
             Text("Compromisso")
                 .capsLabel(size: 9.5)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            CloseCross { dismiss() }
         }
         // A 04 não tem a barra de 42pt das outras três: o cabeçalho dela **é** a
         // barra. Como a janela é de verdade, os semáforos nativos moram aqui
@@ -245,21 +389,29 @@ public struct EventWindow: View {
     private func title(_ item: AgendaItem) -> some View {
         HStack(alignment: .top, spacing: 14) {
             RoundedRectangle(cornerRadius: 2)
-                .fill(tint)
+                .fill(CalendarEventChrome.bar(swatch, cancelled: item.isCancelled, theme: theme))
                 .frame(width: 3)
             VStack(alignment: .leading, spacing: 0) {
-                Text(item.title)
+                if item.isCancelled {
+                    Text("Cancelado")
+                        .font(theme.mono.font(size: 8.5, weight: .medium))
+                        .tracking(theme.capsTracking(at: 8.5))
+                        .textCase(.uppercase)
+                        .foregroundStyle(theme.ink4.color)
+                        .padding(.bottom, 6)
+                }
+                CalendarEventChrome.title(item.title, cancelled: item.isCancelled)
                     .font(theme.serif.font(size: 22, weight: .semibold))
                     .lineSpacing(0.25 * 22)   // line-height: 1.25
-                    .foregroundStyle(theme.ink.color)
+                    .foregroundStyle(item.isCancelled ? theme.ink4.color : theme.ink.color)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(DateLabels.eventDate(store.agendaDate(for: item)))
                     .font(theme.sans.font(size: 13))
-                    .foregroundStyle(theme.ink.color)
+                    .foregroundStyle(item.isCancelled ? theme.ink4.color : theme.ink.color)
                     .padding(.top, 7)
-                Text("\(item.rangeLabel) · \(item.durationLabel) · \(detail.recurrence)")
+                Text("\(item.rangeLabel) · \(item.durationLabel) · \(RecurrenceRule.display(detail.recurrence))")
                     .font(theme.mono.font(size: 11))
-                    .foregroundStyle(theme.ink3.color)
+                    .foregroundStyle(item.isCancelled ? theme.ink4.color : theme.ink3.color)
                     .padding(.top, 3)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -719,7 +871,7 @@ public struct EventWindow: View {
     private func dotColor(_ kind: EventThreadEntry.Kind) -> Color {
         switch kind {
         case .email: tint
-        case .ai: theme.accent.color
+        case .ai: theme.info.color
         case .system: theme.ink4.color
         }
     }
@@ -853,7 +1005,7 @@ public struct EventWindow: View {
             // acima: um "link" que não se abre no navegador não acende botão.
             if let destino = MeetingLink.destino(detail.meetingLink) {
                 ChromeButton(
-                    "Entrar", appearance: .accent, size: 12.5, weight: .semibold,
+                    "Entrar", appearance: .enter, size: 12.5, weight: .semibold,
                     height: 30, horizontalPadding: 16
                 ) {
                     abreLink(destino)
@@ -869,6 +1021,27 @@ public struct EventWindow: View {
                 if forwardOpen { forwardSent = false }
             }
             .help("Encaminhar o convite para outras pessoas")
+
+            if canCancelMeeting {
+                ChromeButton(
+                    cancelling ? "Cancelando…" : "Cancelar",
+                    appearance: .remove,
+                    height: 30
+                ) {
+                    confirm = .cancelMeeting
+                }
+                .disabled(cancelling)
+                .help("Cancelar a reunião, avisar os convidados e tirar da agenda")
+            } else if canRemoveFromCalendar {
+                ChromeButton(
+                    "Remover",
+                    appearance: .remove,
+                    height: 30
+                ) {
+                    confirm = .removeFromCalendar
+                }
+                .help("Tirar este compromisso do calendário")
+            }
 
             // "Email" leva ao mesmo lugar que "Ir para o email de origem" dos
             // menus de contexto: `MailStore.reveal` desfaz o filtro, a caixa e
@@ -897,7 +1070,19 @@ public struct EventWindow: View {
             }
 
             Spacer(minLength: 8)
-            ChromeButton("Fechar", appearance: .quiet, height: 30) { dismiss() }
+            // Só o ×, mas com a mesma pastilha dos vizinhos: o glifo solto
+            // no fundo do rodapé sumia. "Fechar" escrito ao lado de "Cancelar"
+            // lia como fechar o modal — o ícone não.
+            ChromeButton(
+                "×",
+                appearance: .outlined,
+                size: 16,
+                weight: .medium,
+                height: 30,
+                horizontalPadding: 9
+            ) { dismiss() }
+            .help("Fechar esta janela")
+            .accessibilityLabel("Fechar")
         }
         .padding(.horizontal, 18)
         .padding(.top, 12)
@@ -1025,6 +1210,35 @@ public struct EventWindow: View {
     ///
     /// `internal` para `WindowTests` provar o destino sem clique nenhum —
     /// evento sintético é proibido neste projeto.
+    func performCancel() {
+        guard let item, canCancelMeeting, !cancelling else { return }
+        cancelling = true
+        let oauthID = account.flatMap {
+            MeetingGoogleAccount.resolve(for: $0, among: store.accounts)?.id
+        } ?? item.accountID
+        let start = Calendar.current.date(
+            byAdding: .minute,
+            value: item.startMinute,
+            to: Calendar.current.startOfDay(for: store.agendaDate(for: item))
+        ) ?? store.agendaDate(for: item)
+        Task { @MainActor in
+            await meetingFactory?.deleteGoogleMeet(
+                accountID: oauthID,
+                eventID: item.calendarUID,
+                hangoutLink: detail.meetingLink,
+                start: start
+            )
+            store.cancelMeeting(item.id)
+            dismiss()
+        }
+    }
+
+    func performRemove() {
+        guard let item, canRemoveFromCalendar else { return }
+        store.removeFromAgenda(item.id)
+        dismiss()
+    }
+
     func revealOriginMessage() {
         guard let id = originMessageID else { return }
         store.reveal(id)
@@ -1095,29 +1309,6 @@ private struct SectionHeader: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-/// O × do canto do cabeçalho. Protótipo: 22×22, raio `var(--r2)`, `--ink3`,
-/// com `--surface3` no hover.
-private struct CloseCross: View {
-    @Environment(\.theme) private var theme
-    @State private var hovering = false
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text("×")
-                .font(theme.sans.font(size: 13))
-                .foregroundStyle(theme.ink3.color)
-                .frame(width: 22, height: 22)
-                .background(hovering ? theme.surface3.color : .clear)
-                .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .focusRing(cornerRadius: theme.radiusSmall)
-        .onHover { hovering = $0 }
     }
 }
 

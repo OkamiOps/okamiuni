@@ -75,6 +75,7 @@ struct ContextMenuTests {
         #expect(targets == [
             .move(messageID: "m1", to: .today),
             .move(messageID: "m1", to: .archived),
+            .move(messageID: "m1", to: .junk),
         ])
         // "Tudo" é visão, não estado de triagem: mover para lá não quer dizer
         // nada, e `move(_:to:.all)` deixaria a mensagem numa caixa que não
@@ -255,6 +256,20 @@ struct ContextMenuTests {
                 detail: Fixtures.eventDefault,
                 date: nil,
                 originMessageID: nil
+            ),
+            ContextMenus.calendarRow(
+                ConnectedCalendar(
+                    id: "todoist-1", title: "Todoist", source: "Todoist",
+                    colorHex: "#E44332", allowsModifications: false
+                ),
+                isConcealed: false
+            ),
+            ContextMenus.calendarRow(
+                ConnectedCalendar(
+                    id: "todoist-1", title: "Todoist", source: "Todoist",
+                    colorHex: "#E44332", allowsModifications: false
+                ),
+                isConcealed: true
             ),
         ]
 
@@ -443,7 +458,7 @@ struct ContextMenuTests {
     /// adiada continua podendo ser sinalizada.
     @Test("a estrela existe em toda caixa, inclusive na Lixeira")
     func flagWorksInEveryBucket() {
-        for bucket in TriageBucket.allCases where bucket != .all {
+        for bucket in TriageBucket.allCases where bucket != .all && bucket != .drafts {
             let entries = ContextMenus.messageRow(message(bucket: bucket))
             #expect(entries.item("Sinalizar")?.isEnabled == true)
         }
@@ -493,6 +508,23 @@ struct ContextMenuTests {
         let deDentro = ContextMenus.messageRow(message(bucket: .sent))
             .submenuCommands("Mover para")
         #expect(deDentro.contains(.move(messageID: "m1", to: .archived)))
+    }
+
+    @Test("no rascunho o menu oferece editar, não responder de novo")
+    func draftRowEditsInsteadOfReplying() {
+        let entries = ContextMenus.messageRow(message(bucket: .drafts))
+        #expect(entries.item("Editar rascunho")?.command == .reply(messageID: "m1"))
+        #expect(entries.item("Responder") == nil)
+        #expect(entries.item("Encaminhar") == nil)
+    }
+
+    @Test("«Mover para» não oferece Rascunhos")
+    func moveSubmenuHasNoDrafts() {
+        for bucket in TriageBucket.allCases {
+            let alvos = ContextMenus.messageRow(message(bucket: bucket))
+                .submenuCommands("Mover para")
+            #expect(!alvos.contains(.move(messageID: "m1", to: .drafts)))
+        }
     }
 
     @Test("«Esvaziar lixeira» só existe na Lixeira, e só com o que esvaziar")
@@ -617,34 +649,43 @@ extension ContextMenuTests {
         #expect(ContextMenus.summaryText(item, date: nil) == "Foco — 10:00 – 11:30")
     }
 
-    /// No Marco 1 não há escrita na agenda de verdade: tirar um compromisso de
-    /// fixture duraria só a sessão e ele voltaria sozinho no próximo
-    /// lançamento. O item aparece apagado com o motivo, e não some — a lista de
-    /// ações de um cartão tem de ser a mesma nos quatro lugares que o desenham.
-    @Test("«Tirar da agenda» só age no que veio de um email, e diz por quê quando não")
-    func removeFromAgendaOnlyForEmailItems() {
+    @Test("«Remover do calendário» age no que eu não criei")
+    func removeFromAgendaForForeignItems() {
         let detail = Fixtures.eventDetail(for: "Standup produto")
 
         let doEmail = AgendaItem(
             id: DetectedEventConversion.agendaID(forMessageID: "m1"),
             title: "Call", startMinute: 900, endMinute: 960, accountID: "zoho"
         )
-        let aceso = ContextMenus
+        let doConvite = ContextMenus
             .agendaBlock(doEmail, detail: detail, date: Fixtures.today, originMessageID: nil)
-            .item("Tirar da agenda")
-        #expect(aceso?.isEnabled == true)
-        #expect(aceso?.command == .removeFromAgenda(itemID: doEmail.id))
+            .item("Remover do calendário")
+        #expect(doConvite?.isEnabled == true)
+        #expect(doConvite?.command == .removeFromAgenda(itemID: doEmail.id))
 
-        let deFixture = AgendaItem(
+        let deCalendario = AgendaItem(
             id: "e1", title: "Standup", startMinute: 570, endMinute: 600, accountID: "zoho"
         )
-        let apagado = ContextMenus
-            .agendaBlock(deFixture, detail: detail, date: Fixtures.today, originMessageID: nil)
-            .item("Tirar da agenda")
-        #expect(apagado != nil)
-        #expect(apagado?.isEnabled == false)
-        #expect(apagado?.help
-            == "Só dá para tirar o que o app pôs na agenda a partir de um email")
+        let doEventKit = ContextMenus
+            .agendaBlock(deCalendario, detail: detail, date: Fixtures.today, originMessageID: nil)
+            .item("Remover do calendário")
+        #expect(doEventKit?.isEnabled == true)
+        #expect(doEventKit?.command == .removeFromAgenda(itemID: deCalendario.id))
+    }
+
+    @Test("Compromisso criado no app oferece Cancelar reunião")
+    func cancelMeetingForManualItems() {
+        let manual = AgendaItem(
+            id: "manual-abc", title: "Standup",
+            startMinute: 540, endMinute: 570, accountID: "conta"
+        )
+        let item = ContextMenus
+            .agendaBlock(
+                manual, detail: Fixtures.eventDefault, date: Fixtures.today, originMessageID: nil
+            )
+            .item("Cancelar reunião")
+        #expect(item?.command == .cancelMeeting(itemID: manual.id))
+        #expect(item?.isEnabled == true)
     }
 
     /// O prefixo não é decoração do `id`: é a única coisa que distingue o que o
@@ -660,6 +701,23 @@ extension ContextMenuTests {
         #expect(!DetectedEventConversion.isFromEmail("email-"))
     }
 
+
+    // MARK: - Linha de calendário
+
+    @Test("a linha visível oferece ocultar, a oculta oferece mostrar")
+    func calendarRowFollowsConcealment() {
+        let calendar = ConnectedCalendar(
+            id: "family", title: "Family", source: "Google",
+            colorHex: "#9C27B0", allowsModifications: false
+        )
+        let visivel = ContextMenus.calendarRow(calendar, isConcealed: false)
+        #expect(visivel.titles == ["Ocultar calendário"])
+        #expect(visivel.commands == [.concealCalendar(id: "family")])
+
+        let oculto = ContextMenus.calendarRow(calendar, isConcealed: true)
+        #expect(oculto.titles == ["Mostrar na lista"])
+        #expect(oculto.commands == [.revealCalendar(id: "family")])
+    }
 
     // MARK: - Linha de conta
 
@@ -703,10 +761,12 @@ extension ContextMenuTests {
             .accountRow(account, isFiltered: false, unread: 0)
             .submenuCommands("Cor da caixa")
 
-        #expect(colors.count == 8)
+        #expect(colors.count == AccountTint.count)
+        #expect(colors.count >= 20)
         #expect(colors.first == .setAccountTint(
             accountID: account.id, lightHex: "#3F6AA1", darkHex: "#8CBAF7"
         ))
+        #expect(Set(colors).count == colors.count)
     }
 
     /// Nenhum `switch` sobre provedor em lugar nenhum: o item sai do que a

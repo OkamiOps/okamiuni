@@ -32,6 +32,17 @@ public enum InviteRSVPResponse: String, Codable, Sendable, Hashable, CaseIterabl
         case .declined: "Recusar"
         }
     }
+
+    /// As outras duas decisões, na ordem da fila. Depois de Talvez sobram
+    /// Aceitar e Recusar; depois de Aceitar sobem Talvez e Recusar.
+    public var otherResponses: [InviteRSVPResponse] {
+        Self.allCases.filter { $0 != self }
+    }
+
+    /// Aceitar e Talvez põem o compromisso na agenda. Recusar não.
+    public var placesOnAgenda: Bool {
+        self == .accepted || self == .tentative
+    }
 }
 
 /// Onde uma resposta não pode ser produzida com segurança. Cada caso tem uma
@@ -43,6 +54,7 @@ public enum InviteRSVPUnavailableReason: Sendable, Hashable {
     case organizerMissing
     case attendeeMissing
     case accountIsNotAttendee
+    case accountIsOrganizer
     case eventIdentifierMissing
     case sendQueueMissing
 
@@ -58,6 +70,8 @@ public enum InviteRSVPUnavailableReason: Sendable, Hashable {
             "Este convite não informa quem foi convidado."
         case .accountIsNotAttendee:
             "A conta que recebeu esta mensagem não aparece entre os convidados."
+        case .accountIsOrganizer:
+            "Você organizou este evento. Quem responde é quem foi convidado."
         case .eventIdentifierMissing:
             "Este convite não informa o identificador do evento para responder com segurança."
         case .sendQueueMissing:
@@ -120,8 +134,13 @@ public enum InviteRSVP {
         guard let organizer = invite.organizerContact, nonEmpty(organizer.address) != nil
         else { return .organizerMissing }
         guard !invite.attendeeContacts.isEmpty else { return .attendeeMissing }
-        guard invite.attendeeContacts.contains(where: { sameAddress($0.address, account.address) })
-        else { return .accountIsNotAttendee }
+        if !invite.attendeeContacts.contains(where: { sameAddress($0.address, account.address) }) {
+            if let organizador = invite.organizerContact,
+               sameAddress(organizador.address, account.address) {
+                return .accountIsOrganizer
+            }
+            return .accountIsNotAttendee
+        }
         guard nonEmpty(invite.uid) != nil else { return .eventIdentifierMissing }
         guard canQueue else { return .sendQueueMissing }
         return nil

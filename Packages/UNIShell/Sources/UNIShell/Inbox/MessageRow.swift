@@ -28,6 +28,12 @@ public struct MessageRow: View {
     /// que toda chamada de antes desta tarefa (previews, harness, os testes de
     /// linha) continua fazendo.
     let unread: Bool?
+    /// Esta conversa está no lote da lista. O círculo do avatar vira o
+    /// check — não há coluna extra de checkbox, de propósito.
+    let isChecked: Bool
+    /// Clique no avatar marca ou desmarca, sem abrir o leitor. `nil` nas
+    /// previews e nos testes de pixel, que só desenham a linha.
+    let onToggleCheck: (() -> Void)?
 
     /// Que dia é hoje, para o carimbo da direita saber se escreve hora ou data.
     ///
@@ -46,7 +52,9 @@ public struct MessageRow: View {
         emphasis: UnreadEmphasis = .standard,
         conversationCount: Int = 1,
         unread: Bool? = nil,
-        today: Date = Fixtures.today
+        today: Date = Fixtures.today,
+        isChecked: Bool = false,
+        onToggleCheck: (() -> Void)? = nil
     ) {
         self.today = today
         self.message = message
@@ -56,6 +64,8 @@ public struct MessageRow: View {
         self.emphasis = emphasis
         self.conversationCount = conversationCount
         self.unread = unread
+        self.isChecked = isChecked
+        self.onToggleCheck = onToggleCheck
     }
 
     /// A marca vale para a **conversa** não lida — e, na falta de conversa,
@@ -216,19 +226,7 @@ public struct MessageRow: View {
 
     private var content: some View {
         HStack(alignment: .top, spacing: 12) {
-            Text(message.from.initials)
-                .font(theme.sans.font(size: 11, weight: .semibold))
-                .foregroundStyle(theme.ink2.color)
-                .frame(width: 38, height: 38)
-                .background(theme.surface2.color)
-                .clipShape(Circle())
-                .overlay {
-                    Circle().strokeBorder(
-                        accountTint.opacity(0.72),
-                        lineWidth: max(1, Hairline.thickness(displayScale))
-                    )
-                }
-                .accessibilityHidden(true)
+            avatar
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 7) {
@@ -268,6 +266,49 @@ public struct MessageRow: View {
         }
         .padding(contentPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// O círculo das iniciais, ou o check quando a conversa está no lote.
+    ///
+    /// É um `Button` próprio para o clique não abrir o leitor: a linha em volta
+    /// continua selecionando. Sem `onToggleCheck` (retratos, testes de pixel)
+    /// o círculo é só desenho, como sempre foi.
+    @ViewBuilder
+    private var avatar: some View {
+        if let onToggleCheck {
+            Button(action: onToggleCheck) { avatarFace }
+                .buttonStyle(.plain)
+                .help(isChecked ? "Desmarcar conversa" : "Marcar conversa")
+                .accessibilityLabel(isChecked ? "Desmarcar conversa" : "Marcar conversa")
+                .accessibilityAddTraits(isChecked ? .isSelected : [])
+        } else {
+            avatarFace
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var avatarFace: some View {
+        Group {
+            if isChecked {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(theme.onAccent.color)
+            } else {
+                Text(message.from.initials)
+                    .font(theme.sans.font(size: 11, weight: .semibold))
+                    .foregroundStyle(theme.ink2.color)
+            }
+        }
+        .frame(width: 38, height: 38)
+        .background((isChecked ? theme.accent.color : theme.surface2.color))
+        .clipShape(Circle())
+        .overlay {
+            Circle().strokeBorder(
+                isChecked ? theme.accent.color : accountTint.opacity(0.72),
+                lineWidth: max(1, Hairline.thickness(displayScale))
+            )
+        }
+        .contentShape(Circle())
     }
 
     /// O recuo do conteúdo — e, nas variantes com ponto, a coluna dele.

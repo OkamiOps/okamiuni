@@ -5,6 +5,8 @@ import UNIDesign
 /// quatro ou cinco vezes por tela, com três aparências:
 ///
 /// - `accent`: `background: var(--accent); color: var(--on-accent); font-weight: 600`
+/// - `enter`: ciano cheio — "Entrar" na reunião
+/// - `remove`: magenta cheio — cancelar reunião ou tirar do calendário
 /// - `outlined`: `border: 0.5px solid var(--btn-line); background: var(--btn);
 ///   box-shadow: var(--btn-shadow)`, com hover em `--accent`
 /// - `quiet`: `background: var(--surface3); color: var(--ink3)`, sem borda
@@ -14,6 +16,8 @@ import UNIDesign
 struct ChromeButton<Label: View>: View {
     enum Appearance {
         case accent
+        case enter
+        case remove
         case outlined
         case outlinedOn
         case quiet
@@ -64,12 +68,19 @@ struct ChromeButton<Label: View>: View {
     /// Sobre o acento cheio, um anel no próprio acento seria invisível: ali o
     /// contraste é a tinta que o design já usa em cima dele.
     private var focusTint: KeyPath<Theme, TokenColor> {
-        appearance == .accent ? \.onAccent : \.accent
+        switch appearance {
+        case .accent: \.onAccent
+        case .enter: \.onEnter
+        case .remove: \.onRemove
+        default: \.focus
+        }
     }
 
     private var foreground: Color {
         switch appearance {
         case .accent: theme.onAccent.color
+        case .enter: theme.onEnter.color
+        case .remove: theme.onRemove.color
         case .outlined: hovering ? theme.accentInk.color : theme.ink2.color
         case .outlinedOn: theme.accentInk.color
         case .quiet: hovering ? theme.ink.color : theme.ink3.color
@@ -80,6 +91,8 @@ struct ChromeButton<Label: View>: View {
     private var background: Color {
         switch appearance {
         case .accent: theme.accent.color
+        case .enter: theme.enter.color
+        case .remove: theme.remove.color
         case .outlined: theme.btn.color
         case .outlinedOn: theme.accentSoft.color
         case .quiet: hovering ? theme.line2.color : theme.surface3.color
@@ -89,7 +102,7 @@ struct ChromeButton<Label: View>: View {
 
     private var border: Color {
         switch appearance {
-        case .accent: .clear
+        case .accent, .enter, .remove: .clear
         case .outlined: hovering ? theme.accent.color : theme.btnLine.color
         case .outlinedOn: theme.accent.color
         case .quiet: .clear
@@ -100,7 +113,7 @@ struct ChromeButton<Label: View>: View {
     private var shadow: [ShadowToken] {
         switch appearance {
         case .outlined, .outlinedOn: theme.btnShadow
-        case .accent, .quiet, .muted: []
+        case .accent, .enter, .remove, .quiet, .muted: []
         }
     }
 }

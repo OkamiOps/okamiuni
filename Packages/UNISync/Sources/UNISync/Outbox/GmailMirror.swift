@@ -77,6 +77,14 @@ public actor GmailMirror: MailMirror {
                 try await client.trash(ids: ids)
                 return nil
             }
+            guard bucket != .junk else {
+                try await client.batchModify(
+                    ids: ids,
+                    addLabelIDs: ["SPAM"],
+                    removeLabelIDs: ["INBOX"]
+                )
+                return nil
+            }
             // O id do rótulo só é pedido (e o rótulo só é criado) quando a
             // operação de fato precisa dele — arquivar não cria pasta nenhuma
             // em quem nunca usou Depois.
@@ -163,14 +171,15 @@ public actor GmailMirror: MailMirror {
     private func removidos(para bucket: TriageBucket, depois: String?) -> [String] {
         switch bucket {
         case .later: ["INBOX"]
-        case .today: [depois].compactMap { $0 }
-        case .archived: ["INBOX"] + [depois].compactMap { $0 }
+        case .today: [depois].compactMap { $0 } + ["SPAM"]
+        case .archived: ["INBOX"] + [depois].compactMap { $0 } + ["SPAM"]
         // A Lixeira nunca chega aqui: ela sai por `messages.trash`, acima.
         case .trash: []
+        case .junk: ["INBOX"] + [depois].compactMap { $0 }
         // `todos` é uma visão, não um estado — não há para onde mover. Enviadas
         // é caixa de verdade, mas também não é destino: as duas são barradas
         // antes de chegar aqui, no `.move`.
-        case .all, .sent: []
+        case .all, .sent, .drafts: []
         }
     }
 

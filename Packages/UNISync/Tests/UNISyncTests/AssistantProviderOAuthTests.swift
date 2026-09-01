@@ -291,6 +291,7 @@ struct AssistantProviderOAuthTests {
         #expect(call.rejectingRedirects)
         #expect(call.request.value(forHTTPHeaderField: "Authorization") == "Bearer subscription-token")
         #expect(call.request.value(forHTTPHeaderField: "Content-Type") == "application/json; charset=utf-8")
+        #expect(call.request.timeoutInterval >= 90)
 
         let body = try #require(call.request.httpBody)
         let object = try JSONSerialization.jsonObject(with: body)

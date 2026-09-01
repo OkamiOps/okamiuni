@@ -259,6 +259,49 @@ struct OutboxExecutorTests {
         #expect(await espelho.chamadas.isEmpty)
     }
 
+    @Test("Apagar rascunho local não para a fila nem fala com o servidor")
+    func rascunhoLocalNaoTravaAFila() async throws {
+        let db = try banco()
+        let espelho = EspelhoFalso()
+        try enfileira(
+            db, .delete(messageIDs: ["local-draft-aaaa-bbbb"]), criadaEm: 10
+        )
+        try enfileira(db, .delete(messageIDs: [idIMAP(1)]), criadaEm: 20)
+
+        let resultado = await executor(db, espelho).drain()
+
+        #expect(resultado.falhaPermanente == nil)
+        #expect(resultado.pendentes == 0)
+        #expect(await espelho.operacoes == [.delete(messageIDs: [idIMAP(1)])])
+        #expect(try naFila(db) == 0)
+    }
+
+    @Test("Falha antiga de rascunho local liberta a fila na próxima abertura")
+    func paradaDeRascunhoLocalELibertada() async throws {
+        let db = try banco()
+        let espelho = EspelhoFalso()
+        let local = try enfileira(
+            db, .delete(messageIDs: ["local-draft-parada"]), criadaEm: 10
+        )
+        try await db.pool.write { conexao in
+            try conexao.execute(
+                sql: "UPDATE outbox SET state = ?, lastError = ? WHERE id = ?",
+                arguments: [
+                    OutboxState.falhou.rawValue,
+                    #"{"resposta":{"mensagem":"Uma operação da fila aponta para uma mensagem sem coordenada remota válida."}}"#,
+                    local,
+                ]
+            )
+        }
+        try enfileira(db, .delete(messageIDs: [idIMAP(2)]), criadaEm: 20)
+
+        let resultado = await executor(db, espelho).drain()
+
+        #expect(resultado.falhaPermanente == nil)
+        #expect(await espelho.operacoes == [.delete(messageIDs: [idIMAP(2)])])
+        #expect(try naFila(db) == 0)
+    }
+
     @Test("Autorização revogada para a fila da conta e marca o erro nela")
     func falhaPermanenteParaAFila() async throws {
         let db = try banco()
@@ -535,6 +578,10 @@ struct OutboxExecutorTests {
 
         // Id de outra conta não é decodificado como se fosse desta.
         #expect(MessageIdentity.parse(gmail, accountID: "conta-b") == nil)
+
+        #expect(MessageIdentity.isLocalDraft("local-draft-abc"))
+        #expect(!MessageIdentity.isLocalDraft(gmail))
+        #expect(MessageIdentity.parse("local-draft-abc", accountID: "conta-a") == nil)
     }
 
     @Test("Apagar definitivamente ainda alcança o servidor com a linha local já apagada")

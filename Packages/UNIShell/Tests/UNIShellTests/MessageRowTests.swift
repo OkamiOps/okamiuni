@@ -167,6 +167,29 @@ struct MessageRowTests {
     /// a constante: uma `.frame(width:)` trocada no `overlay` continuaria
     /// compilando e a constante continuaria dizendo 3 sem que o desenho
     /// concordasse.
+    @Test("o avatar marcado pinta diferente do das iniciais")
+    func checkedAvatarDiffersFromInitials() throws {
+        let plain = try #require(renderRow(snippet: "Um trecho comum, de uma linha."))
+        let checked = try #require(
+            Render.bitmap(
+                MessageRow(
+                    message: message(snippet: "Um trecho comum, de uma linha."),
+                    accountHost: "host", accountTint: .red, isSelected: false,
+                    isChecked: true
+                )
+                .frame(width: Self.width, alignment: .topLeading)
+                .frame(height: Self.canvasHeight, alignment: .top)
+                .background(Theme.tinta.surface.color),
+                size: CGSize(width: Self.width, height: Self.canvasHeight),
+                theme: .tinta
+            )
+        )
+        #expect(
+            checked.pixelsDiffering(from: plain) > 0,
+            "marcar a conversa não mudou o círculo do avatar"
+        )
+    }
+
     @Test("a barra da conta pinta exatamente accountBarWidth pontos de largura")
     func accountBarWidthMatchesDrawing() throws {
         let rep = try #require(renderRow(snippet: "Um trecho comum, de uma linha."))

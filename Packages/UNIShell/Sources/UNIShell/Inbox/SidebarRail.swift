@@ -51,7 +51,9 @@ public struct SidebarRail: View {
         case .all: "tudo"
         case .archived: "arq"
         case .trash: "lixo"
+        case .junk: "spam"
         case .sent: "env"
+        case .drafts: "rasc"
         }
     }
 
@@ -112,13 +114,13 @@ public struct SidebarRail: View {
         Button { onCompose?() } label: {
             Image(systemName: "square.and.pencil")
                 .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(theme.surface.color)
+                .foregroundStyle(theme.onAccent.color)
                 .frame(width: 46, height: 42)
-                .background(theme.ink.color)
+                .background(theme.accent.color)
                 .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
         }
         .buttonStyle(.plain)
-        .focusRing(cornerRadius: theme.radiusSmall, tint: \.surface)
+        .focusRing(cornerRadius: theme.radiusSmall, tint: \.onAccent)
         .help("Nova mensagem (⌘N)")
         .accessibilityLabel("Escrever uma nova mensagem")
     }
@@ -151,14 +153,14 @@ public struct SidebarRail: View {
                     .font(theme.sans.font(size: 9, weight: .semibold))
                     .lineLimit(1)
             }
-            .foregroundStyle(intelligencePresentation.isAvailable ? foundationColor : theme.ink4.color)
+            .foregroundStyle(intelligencePresentation.isAvailable ? theme.info.color : theme.ink4.color)
             .frame(width: 46, height: 50)
-            .background(intelligencePresentation.isAvailable ? foundationColor.opacity(0.08) : theme.surface3.color)
+            .background(intelligencePresentation.isAvailable ? theme.info.color.opacity(0.08) : theme.surface3.color)
             .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
             .overlay {
                 RoundedRectangle(cornerRadius: theme.radiusSmall)
                     .strokeBorder(
-                        intelligencePresentation.isAvailable ? foundationColor.opacity(0.28) : theme.line2.color,
+                        intelligencePresentation.isAvailable ? theme.info.color.opacity(0.28) : theme.line2.color,
                         lineWidth: Hairline.thickness(displayScale)
                     )
             }
@@ -170,10 +172,6 @@ public struct SidebarRail: View {
         .accessibilityLabel(intelligencePresentation.actionTitle)
         .accessibilityValue(intelligencePresentation.isAvailable ? "Disponível" : "Indisponível")
         .accessibilityHint(intelligencePresentation.actionHelp)
-    }
-
-    private var foundationColor: Color {
-        Color(red: 1, green: 90 / 255, blue: 31 / 255)
     }
 
     private func bucketButton(_ bucket: TriageBucket) -> some View {
@@ -196,7 +194,7 @@ public struct SidebarRail: View {
                     // Semibold (600) é o vizinho mais próximo, como em Task 7.
                     // Para peso exato, seria preciso Core Text e fonte variável.
             }
-            .foregroundStyle((active ? theme.accentInk : theme.ink3).color)
+            .foregroundStyle((active ? theme.ink : theme.ink3).color)
             .frame(width: 46, height: 40)
             .background {
                 RoundedRectangle(cornerRadius: theme.radiusSmall)
@@ -247,7 +245,9 @@ public struct SidebarRail: View {
         case .all: "tray"
         case .archived: "archivebox"
         case .trash: "trash"
+        case .junk: "exclamationmark.octagon"
         case .sent: "paperplane"
+        case .drafts: "square.and.pencil"
         }
     }
 

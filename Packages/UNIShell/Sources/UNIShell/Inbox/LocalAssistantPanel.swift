@@ -365,7 +365,7 @@ public struct LocalAssistantPanel: View {
             Image(systemName: "sparkles")
                 .font(.system(size: 21, weight: .medium))
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(theme.accent.color)
+                .foregroundStyle(theme.info.color)
                 .frame(width: 24, height: 24)
                 .accessibilityHidden(true)
 
@@ -505,7 +505,7 @@ public struct LocalAssistantPanel: View {
                 Text(message.speaker == .user ? "VOCÊ" : "ASSISTENTE")
                     .font(theme.mono.font(size: 8.5, weight: .medium))
                     .tracking(theme.capsTracking(at: 8.5))
-                    .foregroundStyle(message.speaker == .user ? theme.accentInk.color : theme.ink4.color)
+                    .foregroundStyle(message.speaker == .user ? theme.info.color : theme.ink4.color)
                 Text(message.text)
                     .font(theme.sans.font(size: 12.5))
                     .foregroundStyle(theme.ink2.color)
@@ -514,12 +514,12 @@ public struct LocalAssistantPanel: View {
             }
             .frame(maxWidth: 274, alignment: .leading)
             .padding(10)
-            .background(message.speaker == .user ? theme.accentSoft.color : theme.surface3.color)
+            .background(message.speaker == .user ? theme.infoSoft.color : theme.surface3.color)
             .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
             .overlay {
                 RoundedRectangle(cornerRadius: theme.radiusSmall)
                     .strokeBorder(
-                        (message.speaker == .user ? theme.accentLine : theme.line2).color,
+                        (message.speaker == .user ? theme.infoLine : theme.line2).color,
                         lineWidth: Hairline.thickness(displayScale)
                     )
             }
@@ -568,7 +568,7 @@ public struct LocalAssistantPanel: View {
         HStack(spacing: 8) {
             ProgressView()
                 .controlSize(.small)
-                .tint(theme.accent.color)
+                .tint(theme.info.color)
             Text("Lendo o contexto local…")
                 .font(theme.sans.font(size: 11.5, weight: .medium))
                 .foregroundStyle(theme.ink3.color)
@@ -604,14 +604,14 @@ public struct LocalAssistantPanel: View {
                         Text("Enviar")
                             .font(theme.sans.font(size: 11.5, weight: .semibold))
                     }
-                    .foregroundStyle(theme.onAccent.color)
+                    .foregroundStyle(theme.onEnter.color)
                     .frame(height: 32)
                     .padding(.horizontal, 10)
-                    .background(theme.accent.color)
+                    .background(theme.enter.color)
                     .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
                 }
                 .buttonStyle(.plain)
-                .focusRing(cornerRadius: theme.radiusSmall, tint: \.onAccent)
+                .focusRing(cornerRadius: theme.radiusSmall, tint: \.onEnter)
                 .disabled(!conversation.canSend || conversation.isLoading)
                 .help("Enviar pergunta")
                 .accessibilityLabel("Enviar pergunta")

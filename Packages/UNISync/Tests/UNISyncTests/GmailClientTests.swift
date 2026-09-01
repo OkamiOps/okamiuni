@@ -167,6 +167,34 @@ struct GmailClientTests {
         #expect(perfil.historyID == "9928471")
     }
 
+    @Test("sendAs lista o principal e os aliases aceitos")
+    func sendAsAceitos() async throws {
+        let lista = try await cliente(routes: [
+            "/gmail/v1/users/me/settings/sendAs": [.json("""
+            {"sendAs":[
+              {"sendAsEmail":"marcos@okamiops.com","displayName":"Marcos","isPrimary":true,"isDefault":true,"verificationStatus":"accepted"},
+              {"sendAsEmail":"financeiro@okamiops.com","displayName":"Financeiro","isPrimary":false,"isDefault":false,"verificationStatus":"accepted"},
+              {"sendAsEmail":"pendente@okamiops.com","displayName":"Pendente","isPrimary":false,"isDefault":false,"verificationStatus":"pending"}
+            ]}
+            """)],
+        ]).sendAsAliases()
+        #expect(lista.map(\.email) == [
+            "marcos@okamiops.com", "financeiro@okamiops.com", "pendente@okamiops.com",
+        ])
+        #expect(lista.first?.isPrimary == true)
+        #expect(lista[1].displayName == "Financeiro")
+    }
+
+    @Test("settings/sendAs não vai percent-encoded")
+    func sendAsURLNaoCodificaABarra() {
+        let url = GmailClient.url(
+            base: URL(string: "https://gmail.example/gmail/v1/users/me")!,
+            path: "settings/sendAs"
+        )
+        #expect(url.absoluteString.hasSuffix("/users/me/settings/sendAs"))
+        #expect(!url.absoluteString.contains("settings%2F"))
+    }
+
     @Test("Toda requisição leva o Bearer, e o token é pedido na hora")
     func bearerEmToda() async throws {
         let pedidos = Contador()
@@ -182,6 +210,17 @@ struct GmailClientTests {
         // que faz o refresh transparente chegar aqui: um token guardado no
         // init venceria no meio da carga inicial.
         #expect(await pedidos.total == 1)
+    }
+
+    @Test("labels.get devolve o total da Entrada")
+    func rotuloDaEntrada() async throws {
+        let rotulo = try await cliente(routes: [
+            "/gmail/v1/users/me/labels/INBOX": [.json(
+                #"{"id":"INBOX","name":"INBOX","type":"system","messagesTotal":165}"#
+            )],
+        ]).label(id: "INBOX")
+        #expect(rotulo.id == "INBOX")
+        #expect(rotulo.messagesTotal == 165)
     }
 
     @Test("Os rótulos vêm com a pasta Depois quando ela existe")
@@ -200,6 +239,7 @@ struct GmailClientTests {
         ]).messageIDs(query: "newer_than:90d", pageToken: nil)
         #expect(pagina.ids == ["18f0a1b2c3", "18f0a1b2c4"])
         #expect(pagina.nextPageToken == "pagina-2")
+        #expect(pagina.resultSizeEstimate == 2)
     }
 
     @Test("Lista vazia devolve página vazia, e não erro")

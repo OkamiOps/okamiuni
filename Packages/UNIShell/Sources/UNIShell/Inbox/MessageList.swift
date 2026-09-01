@@ -141,6 +141,7 @@ public struct MessageList: View {
     static let receiptLifetime: Duration = .seconds(6)
 
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
 
     /// A escolha de quais ações ficam de cada lado.
     ///
@@ -154,6 +155,11 @@ public struct MessageList: View {
     /// Qual linha está com o painel de ações à mostra. Só uma por vez: abrir
     /// uma fecha a outra.
     @State private var openSwipeRowID: String?
+
+    /// Quantas conversas a lista monta. Tudo tem milhares; o clique só pede
+    /// a primeira página, e o final da página pede a seguinte.
+    @State private var rowLimit = MessageList.rowPageSize
+    static let rowPageSize = 20
 
     /// O que a última ação fez, e como desfazê-la.
     ///
@@ -187,50 +193,99 @@ public struct MessageList: View {
     /// `MessageRow.today` e `AgendaClock.today`.
     let today: Date
 
+    /// "Gmail Entrada 165 · aqui 162". Nulo cai no rótulo de sempre.
+    var portraitCaption: String?
+    /// "3 não estão no app" — só quando o provedor tem mais.
+    var gapCaption: String?
+    var onPullMissing: (() -> Void)?
+
     public init(
         store: MailStore,
         width: CGFloat = MessageList.width,
         today: Date = Fixtures.today,
-        onOpenWindow: @escaping (Message) -> Void = { _ in }
+        onOpenWindow: @escaping (Message) -> Void = { _ in },
+        portraitCaption: String? = nil,
+        gapCaption: String? = nil,
+        onPullMissing: (() -> Void)? = nil
     ) {
         self.store = store
         self.listWidth = width
         self.today = today
         self.onOpenWindow = onOpenWindow
+        self.portraitCaption = portraitCaption
+        self.gapCaption = gapCaption
+        self.onPullMissing = onPullMissing
     }
 
     /// Formata o rótulo de contagem de mensagens com plural correto.
     public static func messageCountLabel(_ count: Int) -> String {
-        count == 1 ? "1 mensagem" : "\(count) mensagens"
+        messageCountLabel(count, hasMore: false)
+    }
+
+    public static func messageCountLabel(_ count: Int, hasMore: Bool) -> String {
+        if hasMore { return "\(count)+ mensagens" }
+        return count == 1 ? "1 mensagem" : "\(count) mensagens"
+    }
+
+    /// O que o cabeçalho escreve quando há lote: a contagem das marcadas,
+    /// não a da caixa. Feminino porque é conversa.
+    public static func selectedCountLabel(_ count: Int) -> String {
+        count == 1 ? "1 selecionada" : "\(count) selecionadas"
+    }
+
+    /// Há lote nesta caixa. Vale em Hoje, Depois, Arquivado, Lixeira,
+    /// Enviadas, Tudo e pasta do provedor — a seleção não é um modo de Hoje.
+    var isSelecting: Bool { store.hasChecked }
+
+    private var recorteID: String {
+        [
+            store.bucket.rawValue,
+            store.selectedAccountID ?? "",
+            store.selectedFolderID ?? "",
+            store.categoryFilter?.rawValue ?? "",
+            store.query,
+            store.searchEverywhere ? "tudo" : "caixa",
+        ].joined(separator: "|")
     }
 
     public var body: some View {
-        let visibleMessages = store.visibleMessages
-        let conversations = store.visibleConversations
+        let page = store.conversationPage(limit: rowLimit)
+        // Só as contas das linhas visíveis. Pedir pasta de toda conta em Tudo
+        // copiava a caixa inteira no clique.
+        let accountIDs = Set(page.conversations.map(\.latest.accountID))
         let foldersByAccount = Dictionary(
-            uniqueKeysWithValues: Set(conversations.map { $0.latest.accountID }).map {
-                ($0, store.folders(of: $0))
-            }
+            uniqueKeysWithValues: accountIDs.map { ($0, store.folders(of: $0)) }
         )
 
         VStack(spacing: 0) {
-            header(messageCount: visibleMessages.count)
+            header(messageCount: page.messageCount, hasMore: page.hasMore)
             messageList(
-                conversations,
+                page.conversations,
                 foldersByAccount: foldersByAccount,
-                isEmpty: visibleMessages.isEmpty
+                isEmpty: page.conversations.isEmpty && !page.hasMore,
+                hasMore: page.hasMore
             )
         }
+        // Sem teto de altura a lista pede o tamanho de **todas** as linhas —
+        // clicar em Tudo materializava a caixa inteira e travava. A barra
+        // lateral já documenta o mesmo limite.
         .frame(width: listWidth)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .clipped()
         .background(theme.surface.color)
         .hairline(theme.line, edges: .trailing)
-        // O ⌫. Não é `keyboardShortcut` porque tecla sem modificador seria
-        // roubada do campo de busca e do editor do composer — ver
-        // `BareKeyMonitor`.
+        // O ⌫ e as setas. Não é `keyboardShortcut` porque tecla sem
+        // modificador seria roubada do campo de busca e do editor do
+        // composer — ver `BareKeyMonitor`.
         .bareKeyShortcuts { key in
-            switch key {
-            case .delete: deleteSelected()
-            }
+            handleBareKey(key)
+        }
+        .onExitCommand {
+            guard isSelecting else { return }
+            store.clearChecked()
+        }
+        .onChange(of: recorteID) { _, _ in
+            rowLimit = Self.rowPageSize
         }
         // O retorno some sozinho, mas nunca **antes** de dar tempo de desfazer.
         // A tarefa é reiniciada por `id`: uma segunda ação troca a faixa e
@@ -250,94 +305,439 @@ public struct MessageList: View {
 
     /// Cabeçalho de produto do novo shell: título forte e a contagem como
     /// metadado, em vez da antiga faixa tipográfica de uma linha.
-    private func header(messageCount: Int) -> some View {
-        VStack(alignment: .leading, spacing: showsCategoryFilters ? 8 : 3) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(headerTitle)
-                    .font(theme.serif.font(size: 20, weight: .semibold))
-                    .foregroundStyle(theme.ink.color)
-                    .lineLimit(1)
-                Text(Self.messageCountLabel(messageCount))
-                    .font(theme.sans.font(size: 11.5))
-                    .foregroundStyle(theme.ink2.color)
+    ///
+    /// O checkbox vive **aqui**, na moldura da lista, e não numa coluna de
+    /// cada linha: marca todas as conversas visíveis desta caixa. A faixa de
+    /// lote substitui as categorias de Hoje quando há seleção, e aparece em
+    /// qualquer caixa — não só em Hoje.
+    private func header(messageCount: Int, hasMore: Bool) -> some View {
+        VStack(alignment: .leading, spacing: showsHeaderRail ? 8 : 3) {
+            HStack(alignment: .center, spacing: 10) {
+                headerCheckbox(isEmpty: messageCount == 0 && !hasMore)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(headerTitle)
+                        .font(theme.serif.font(size: 20, weight: .semibold))
+                        .foregroundStyle(theme.ink.color)
+                        .lineLimit(1)
+                    headerCountLine(messageCount: messageCount, hasMore: hasMore)
+                }
+                Spacer(minLength: 8)
+                if isSelecting {
+                    Button {
+                        store.clearChecked()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(theme.ink3.color)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Limpar seleção")
+                    .accessibilityLabel("Limpar seleção")
+                }
             }
 
-            if showsCategoryFilters {
+            if isSelecting {
+                batchActionRail
+            } else if showsCategoryFilters {
                 categoryFilterRail
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 18)
-        .frame(height: Self.headerHeight(for: store.bucket))
+        .frame(height: Self.headerHeight(
+            for: store.bucket,
+            selecting: isSelecting,
+            searchingEverywhere: store.searchesEverywhereNow
+        ))
+        .clipped()
         .background(theme.surface.color)
         .hairline(theme.line2, edges: .bottom)
+    }
+
+    @ViewBuilder
+    private func headerCountLine(messageCount: Int, hasMore: Bool) -> some View {
+        if isSelecting {
+            Text(Self.selectedCountLabel(store.checkedConversations.count))
+                .font(theme.sans.font(size: 11.5))
+                .foregroundStyle(theme.ink2.color)
+        } else {
+            HStack(spacing: 6) {
+                Text(portraitCaption ?? Self.messageCountLabel(messageCount, hasMore: hasMore))
+                    .font(theme.sans.font(size: 11.5))
+                    .foregroundStyle(theme.ink2.color)
+                    .lineLimit(1)
+                if let gapCaption, let puxar = onPullMissing {
+                    Button(gapCaption, action: puxar)
+                        .buttonStyle(.plain)
+                        .font(theme.sans.font(size: 11.5, weight: .semibold))
+                        .foregroundStyle(theme.accentInk.color)
+                        .help("Sincroniza agora para trazer o que falta")
+                        .accessibilityLabel(gapCaption)
+                }
+            }
+        }
     }
 
     /// Só Hoje recebe esta camada de organização. Depois continua sendo a
     /// decisão explícita de adiar, e as outras caixas são o mapa do servidor —
     /// duplicar categorias nelas esconderia a navegação que a pessoa escolheu.
-    private var showsCategoryFilters: Bool { store.bucket == .today }
+    private var showsCategoryFilters: Bool {
+        store.bucket == .today && !store.searchesEverywhereNow
+    }
+
+    private var showsHeaderRail: Bool { isSelecting || showsCategoryFilters }
 
     /// A altura antiga fica intacta em toda caixa exceto Hoje; é importante
     /// para não deslocar a lista quando a pessoa troca entre Arquivado, Tudo e
-    /// Depois.
-    static func headerHeight(for bucket: TriageBucket) -> CGFloat {
-        bucket == .today ? 118 : 74
+    /// Depois. Com lote, todas crescem para caber a faixa de ações. Tudo na
+    /// busca esconde a trilha — o vão das cápsulas não pode ficar vazio.
+    static func headerHeight(
+        for bucket: TriageBucket,
+        selecting: Bool = false,
+        searchingEverywhere: Bool = false
+    ) -> CGFloat {
+        (selecting || (bucket == .today && !searchingEverywhere)) ? 118 : 74
+    }
+
+    /// O checkbox do cabeçalho: marca todas as visíveis, ou limpa. O traço
+    /// no meio é o estado misto (algumas, não todas).
+    private func headerCheckbox(isEmpty: Bool) -> some View {
+        let all = store.allVisibleChecked
+        let some = store.someVisibleChecked
+        return Button {
+            store.toggleSelectAllVisible()
+        } label: {
+            ZStack {
+                RoundedRectangle(cornerRadius: 3.5, style: .continuous)
+                    .fill(all || some ? theme.accent.color : Color.clear)
+                RoundedRectangle(cornerRadius: 3.5, style: .continuous)
+                    .strokeBorder(
+                        all || some ? theme.accent.color : theme.ink3.color,
+                        lineWidth: max(1, Hairline.thickness(displayScale))
+                    )
+                if all {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 8.5, weight: .bold))
+                        .foregroundStyle(theme.onAccent.color)
+                } else if some {
+                    RoundedRectangle(cornerRadius: 1, style: .continuous)
+                        .fill(theme.onAccent.color)
+                        .frame(width: 8, height: 1.5)
+                }
+            }
+            .frame(width: 16, height: 16)
+            .padding(4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // A página já sabe se a caixa está vazia. `visibleConversations`
+        // agrupa Tudo inteiro — era o tranco a cada clique na caixa.
+        .disabled(isEmpty)
+        .help(all ? "Desmarcar todas nesta caixa" : "Selecionar todas nesta caixa")
+        .accessibilityLabel("Selecionar todas")
+        .accessibilityValue(all ? "Tudo" : some ? "Algumas" : "Nenhuma")
+        .accessibilityAddTraits(all ? .isSelected : [])
     }
 
     /// A coluna mede 400pt: seis controles completos não cabem sem encolher
     /// texto, então a faixa rola na horizontal como os filtros do Mail. Cada
     /// cápsula mantém uma área de clique de 28pt e pode receber foco de teclado.
+    /// Clique-arraste **e** roda: `DragScrollRail`, não `ScrollView` — no macOS
+    /// a `ScrollView` ignora o botão esquerdo e o recognizer do AppKit perdia
+    /// para os `Button` de dentro.
     private var categoryFilterRail: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
+        DragScrollRail {
+            HStack(spacing: 5) {
                 ForEach(InboxCategoryFilter.allCases) { filter in
                     categoryFilterChip(filter)
                 }
             }
             .padding(.vertical, 1)
+            .padding(.trailing, 16)
         }
         .frame(height: 30)
+        .mask(railFadeMask)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Categorias de Hoje")
+    }
+
+    /// O corte duro no último chip parecia texto quebrado. O fade diz que a
+    /// faixa continua, em vez de morder "Atualizações" no meio.
+    private var railFadeMask: some View {
+        HStack(spacing: 0) {
+            Color.white
+            LinearGradient(
+                colors: [.white, .white.opacity(0)],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: 14)
+        }
+    }
+
+    /// Zero não é número útil nesta trilha: seis "0" viram ruído. A cápsula
+    /// continua clicável; o valor vai no `accessibilityValue`.
+    nonisolated static func categoryCountLabel(_ count: Int) -> String? {
+        count > 0 ? "\(count)" : nil
     }
 
     private func categoryFilterChip(_ filter: InboxCategoryFilter) -> some View {
         let active = store.categoryFilter == filter.category
         let count = store.categoryCount(filter.category)
-        let cornerRadius: CGFloat = 14
+        let radius = max(theme.radiusSmall, 7)
 
         return Button {
             store.select(category: filter.category)
         } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: 5) {
                 Image(systemName: filter.symbol)
-                    .font(.system(size: 10.5, weight: .medium))
+                    .font(.system(size: 10, weight: .semibold))
                     .accessibilityHidden(true)
                 Text(filter.label)
                     .font(theme.sans.font(size: 11.5, weight: active ? .semibold : .medium))
                     .lineLimit(1)
-                Text("\(count)")
-                    .font(theme.mono.font(size: 10, weight: .semibold))
-                    .monospacedDigit()
+                    .fixedSize()
+                if let label = Self.categoryCountLabel(count) {
+                    Text(label)
+                        .font(theme.mono.font(size: 9.5, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle((active ? theme.accentInk : theme.ink3).color)
+                }
             }
             .foregroundStyle((active ? theme.accentInk : theme.ink2).color)
             .padding(.horizontal, 9)
-            .frame(height: 28)
+            .frame(height: 26)
             .background {
-                Capsule().fill(
-                    active ? theme.accentSoft.color : theme.surface2.color.opacity(0.72)
-                )
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .fill(active ? theme.accentSoft.color : theme.surface2.color.opacity(0.55))
             }
-            .contentShape(Capsule())
+            .overlay {
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .strokeBorder(
+                        active ? theme.accentLine.color : theme.line2.color,
+                        lineWidth: Hairline.thickness(displayScale)
+                    )
+            }
+            .contentShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
         }
         .buttonStyle(.plain)
-        .focusRing(cornerRadius: cornerRadius)
+        .focusRing(cornerRadius: radius)
         .help("Filtrar Hoje por \(filter.label)")
         .accessibilityLabel("Filtrar por \(filter.label)")
         .accessibilityValue(active ? "Selecionado, \(count) mensagens" : "\(count) mensagens")
         .accessibilityHint(active ? "Filtro atual" : "Mostra somente mensagens desta categoria")
         .accessibilityAddTraits(active ? .isSelected : [])
+    }
+
+    /// A faixa de ações do lote. Rola na horizontal, como as categorias: a
+    /// coluna tem 400pt e seis controles com rótulo não cabem sem quebrar.
+    private var batchActionRail: some View {
+        DragScrollRail {
+            HStack(spacing: 6) {
+                ForEach(batchBucketTargets, id: \.self) { bucket in
+                    batchChip(
+                        label: Self.batchBucketLabel(bucket),
+                        symbol: Self.batchBucketSymbol(bucket),
+                        help: "Mover as selecionadas para \(bucket.label)"
+                    ) {
+                        moveChecked(to: bucket)
+                    }
+                }
+                batchChip(
+                    label: store.bucket == .trash ? "Apagar de vez" : "Apagar",
+                    symbol: "trash",
+                    help: store.bucket == .trash
+                        ? "Tirar as selecionadas da Lixeira de vez"
+                        : "Mover as selecionadas para a Lixeira",
+                    destructive: true
+                ) {
+                    _ = deleteChecked()
+                }
+                batchFolderMenu
+                batchChip(
+                    label: batchWillMarkRead ? "Lida" : "Não lida",
+                    symbol: batchWillMarkRead ? "envelope.open" : "envelope.badge",
+                    help: batchWillMarkRead
+                        ? "Marcar as selecionadas como lidas"
+                        : "Marcar as selecionadas como não lidas"
+                ) {
+                    toggleCheckedRead()
+                }
+                batchChip(
+                    label: batchWillFlag ? "Sinalizar" : "Tirar",
+                    symbol: batchWillFlag ? "star" : "star.slash",
+                    help: batchWillFlag
+                        ? "Sinalizar as selecionadas"
+                        : "Tirar a sinalização das selecionadas"
+                ) {
+                    toggleCheckedFlag()
+                }
+            }
+            .padding(.vertical, 1)
+            .padding(.trailing, 16)
+        }
+        .frame(height: 30)
+        .mask(railFadeMask)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Ações em lote")
+    }
+
+    /// Destinos de triagem do lote, sem a caixa já aberta e sem "Tudo", que
+    /// não é estado. Lixeira fica de fora: "Apagar" é o botão ao lado.
+    var batchBucketTargets: [TriageBucket] {
+        [.today, .later, .archived].filter { $0 != store.bucket }
+    }
+
+    nonisolated static func batchBucketLabel(_ bucket: TriageBucket) -> String {
+        bucket == .archived ? "Arquivar" : bucket.label
+    }
+
+    nonisolated static func batchBucketSymbol(_ bucket: TriageBucket) -> String {
+        switch bucket {
+        case .today: "tray.and.arrow.down"
+        case .later: "clock"
+        case .archived: "archivebox"
+        default: "tray"
+        }
+    }
+
+    private var batchWillMarkRead: Bool {
+        store.checkedConversations.contains { $0.hasUnread }
+    }
+
+    private var batchWillFlag: Bool {
+        store.checkedConversations.contains { conversation in
+            conversation.messages.contains { !$0.isFlagged }
+        }
+    }
+
+    @ViewBuilder
+    private var batchFolderMenu: some View {
+        if let accountID = store.checkedAccountID,
+           let account = store.account(accountID) {
+            let folders = store.folders(of: accountID)
+            let sample = store.checkedConversations.first?.latest
+            switch account.provider {
+            case .imap:
+                let targets = folders.filter {
+                    ![FolderRole.sent, .drafts, .trash].contains($0.role)
+                }
+                if !targets.isEmpty {
+                    Menu {
+                        ForEach(targets) { folder in
+                            Button(folder.displayName) {
+                                placeChecked(in: folder, mode: .move)
+                            }
+                        }
+                    } label: {
+                        batchChipLabel(label: "Mover para", symbol: "folder")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("Mover as selecionadas para uma pasta")
+                }
+            case .gmail:
+                let userLabels = folders.filter { $0.role == .other }
+                if !userLabels.isEmpty, let sample {
+                    Menu {
+                        if let source = gmailMoveSource(for: sample, folders: folders) {
+                            Section("Mover para marcador") {
+                                ForEach(userLabels.filter { $0.id != source.id }) { folder in
+                                    Button(folder.displayName) {
+                                        moveCheckedGmail(from: source, to: folder)
+                                    }
+                                }
+                            }
+                        }
+                        Section("Aplicar marcador") {
+                            ForEach(userLabels) { folder in
+                                Button(folder.displayName) {
+                                    placeChecked(in: folder, mode: .label)
+                                }
+                            }
+                        }
+                    } label: {
+                        batchChipLabel(label: "Mover para", symbol: "folder")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("Mover ou aplicar marcador nas selecionadas")
+                }
+            case .microsoft:
+                EmptyView()
+            }
+        }
+    }
+
+    private func gmailMoveSource(
+        for message: Message, folders: [MailFolder]
+    ) -> MailFolder? {
+        if let selectedFolderID = store.selectedFolderID {
+            return folders.first {
+                $0.id == selectedFolderID
+                    && $0.accountID == message.accountID
+                    && message.folderIDs.contains($0.id)
+                    && [.inbox, .other].contains($0.role)
+            }
+        }
+        guard store.bucket == .today else { return nil }
+        return folders.first {
+            $0.accountID == message.accountID
+                && $0.role == .inbox
+                && message.folderIDs.contains($0.id)
+        }
+    }
+
+    private func batchChip(
+        label: String,
+        symbol: String,
+        help: String,
+        destructive: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            batchChipLabel(label: label, symbol: symbol, destructive: destructive)
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(label)
+        .accessibilityHint(help)
+    }
+
+    private func batchChipLabel(
+        label: String, symbol: String, destructive: Bool = false
+    ) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: symbol)
+                .font(.system(size: 10.5, weight: .medium))
+                .accessibilityHidden(true)
+            Text(label)
+                .font(theme.sans.font(size: 11.5, weight: .medium))
+                .lineLimit(1)
+                .fixedSize()
+        }
+        .foregroundStyle(destructive ? theme.ink.color : theme.ink2.color)
+        .padding(.horizontal, 9)
+        .frame(height: 28)
+        .background {
+            Capsule().fill(
+                destructive
+                    ? theme.surface2.color
+                    : theme.surface2.color.opacity(0.72)
+            )
+        }
+        .overlay {
+            if destructive {
+                Capsule().strokeBorder(
+                    theme.line.color, lineWidth: Hairline.thickness(displayScale)
+                )
+            }
+        }
+        .contentShape(Capsule())
     }
 
     /// A cor da conta, que a linha usa na barra da borda e no chip do host.
@@ -349,6 +749,7 @@ public struct MessageList: View {
     }
 
     private var headerTitle: String {
+        if store.searchesEverywhereNow { return "Tudo" }
         if let selectedAccountID = store.selectedAccountID,
            let account = store.account(selectedAccountID) {
             return account.host
@@ -359,20 +760,38 @@ public struct MessageList: View {
     private func messageList(
         _ conversations: [Conversation],
         foldersByAccount: [String: [MailFolder]],
-        isEmpty: Bool
+        isEmpty: Bool,
+        hasMore: Bool
     ) -> some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(conversations) { conversation in
-                    row(
-                        conversation,
-                        folders: foldersByAccount[conversation.latest.accountID] ?? []
-                    )
+        ScrollViewReader { proxy in
+            ScrollView {
+                // O rodapé entra **dentro** do LazyVStack. Como irmão, o
+                // ScrollView precisava da altura de todas as linhas para
+                // posicioná-lo — Tudo deixava de ser preguiçoso.
+                LazyVStack(spacing: 0) {
+                    ForEach(conversations) { conversation in
+                        row(
+                            conversation,
+                            folders: foldersByAccount[conversation.latest.accountID] ?? []
+                        )
+                        .id(conversation.key)
+                        .onAppear {
+                            if hasMore, conversation.key == conversations.last?.key {
+                                rowLimit += Self.rowPageSize
+                            }
+                        }
+                    }
+                    if !hasMore {
+                        footer(isEmpty: isEmpty)
+                    }
                 }
             }
-            footer(isEmpty: isEmpty)
+            .onChange(of: store.selectedMessageID) { _, id in
+                guard let id, let key = store.conversation(of: id)?.key else { return }
+                proxy.scrollTo(key)
+            }
+            .overlay(alignment: .bottom) { undoBand }
         }
-        .overlay(alignment: .bottom) { undoBand }
     }
 
     /// Uma linha da lista, com os quatro gestos que ela responde.
@@ -408,7 +827,12 @@ public struct MessageList: View {
             }
         ) { swipe in
             Button {
-                if swipe.isBlocked { swipe.dismiss() } else { store.select(message: message.id) }
+                if swipe.isBlocked {
+                    swipe.dismiss()
+                } else {
+                    store.select(message: message.id)
+                    if message.bucket == .drafts { onOpenWindow(message) }
+                }
             } label: {
                 MessageRow(
                     message: message,
@@ -424,7 +848,9 @@ public struct MessageList: View {
                     // desenhar o que sempre desenhou.
                     conversationCount: conversation.count,
                     unread: conversation.hasUnread,
-                    today: today
+                    today: today,
+                    isChecked: store.isChecked(conversation.key),
+                    onToggleCheck: { store.toggleChecked(conversation.key) }
                 )
             }
             .buttonStyle(.plain)
@@ -476,6 +902,7 @@ public struct MessageList: View {
         side: SwipeSide?,
         folders: [MailFolder]
     ) {
+        let conversation = store.conversation(of: conversation.latest.id) ?? conversation
         let message = conversation.latest
         let destination = side.flatMap {
             swipeConfiguration.destination(on: $0, for: message.accountID)
@@ -632,13 +1059,27 @@ public struct MessageList: View {
         return acted
     }
 
-    /// O ⌫ da lista: apaga a mensagem selecionada, ou apaga de vez quando ela
-    /// já está na Lixeira — a mesma decisão que `ContextMenus.deleteItem`
+    /// O ⌫ da lista: com lote, apaga as marcadas; sem lote, a conversa aberta.
+    /// Na Lixeira, apaga de vez — a mesma decisão que `ContextMenus.deleteItem`
     /// escreve no rótulo do menu, e por isso ela sai de lá.
     ///
     /// `false` quando não há o que apagar: aí a tecla segue o caminho dela em
     /// vez de ser engolida por um atalho que não fez nada.
+    /// O ⌫ e as setas da lista. Extraído para o teste afirmar a tecla sem
+    /// sintetizar evento de sistema.
+    func handleBareKey(_ key: BareKey) -> Bool {
+        switch key {
+        case .delete: deleteSelected()
+        case .up: store.selectAdjacentConversation(offset: -1)
+        case .down: store.selectAdjacentConversation(offset: 1)
+        case .escape: false
+        }
+    }
+
     func deleteSelected() -> Bool {
+        if !store.checkedConversations.isEmpty {
+            return deleteChecked()
+        }
         guard let message = store.selectedMessage else { return false }
         // A decisão inteira mora em `ActionReceipts.delete`, e não aqui: desde a
         // M3-18 o **botão "Apagar" da barra do leitor** faz exatamente a mesma
@@ -648,6 +1089,86 @@ public struct MessageList: View {
             apagou = receipts.delete(message, on: store)
         }
         return apagou
+    }
+
+    /// Move o lote para uma caixa de triagem. Um recibo só, com o estado de
+    /// cada mensagem fotografado antes — as conversas podiam ter vindo de
+    /// caixas diferentes.
+    func moveChecked(to bucket: TriageBucket) {
+        let batch = store.checkedConversations.filter { conversation in
+            conversation.messages.contains { $0.bucket != bucket }
+        }
+        guard !batch.isEmpty else { return }
+        let states = store.states(of: batch.flatMap(\.messageIDs))
+        let action: SwipeAction? = switch bucket {
+        case .today: .today
+        case .later: .later
+        case .archived: .archive
+        case .trash: .trash
+        default: nil
+        }
+        withAnimation(SwipeMotion.transition) {
+            for conversation in batch { store.move(conversation, to: bucket) }
+            if let action {
+                receipt = SwipeReceipt.ofBatch(
+                    action, conversations: batch, states: states,
+                    stamp: ActionReceipts.stamp
+                )
+            }
+        }
+    }
+
+    @discardableResult
+    func deleteChecked() -> Bool {
+        let batch = store.checkedConversations
+        guard !batch.isEmpty else { return false }
+        let forever = store.bucket == .trash
+        withAnimation(SwipeMotion.transition) {
+            if forever {
+                receipt = SwipeReceipt.ofBatchDeleteForever(
+                    conversations: batch, stamp: ActionReceipts.stamp
+                )
+                for conversation in batch { store.deleteForever(conversation) }
+            } else {
+                let states = store.states(of: batch.flatMap(\.messageIDs))
+                receipt = SwipeReceipt.ofBatch(
+                    .trash, conversations: batch, states: states,
+                    stamp: ActionReceipts.stamp
+                )
+                for conversation in batch { store.move(conversation, to: .trash) }
+            }
+        }
+        return true
+    }
+
+    func toggleCheckedRead() {
+        let batch = store.checkedConversations
+        guard !batch.isEmpty else { return }
+        let markRead = batch.contains { $0.hasUnread }
+        for conversation in batch { store.setRead(markRead, for: conversation) }
+    }
+
+    func toggleCheckedFlag() {
+        let batch = store.checkedConversations
+        guard !batch.isEmpty else { return }
+        let flag = batch.contains { conversation in
+            conversation.messages.contains { !$0.isFlagged }
+        }
+        for conversation in batch { store.setFlagged(flag, for: conversation) }
+    }
+
+    func placeChecked(in folder: MailFolder, mode: FolderPlacement) {
+        let batch = store.checkedConversations
+        guard !batch.isEmpty else { return }
+        for conversation in batch { store.place(conversation, in: folder, mode: mode) }
+    }
+
+    func moveCheckedGmail(from source: MailFolder, to destination: MailFolder) {
+        let batch = store.checkedConversations
+        guard !batch.isEmpty else { return }
+        for conversation in batch {
+            store.moveGmail(conversation, from: source, to: destination)
+        }
     }
 
     private func undo(_ receipt: SwipeReceipt) {
@@ -669,9 +1190,29 @@ public struct MessageList: View {
         }
     }
 
+    nonisolated static let emptyBox = "Nada nesta caixa agora."
+    nonisolated static let emptySearchHere = "Nada nesta caixa. Tudo procura nas outras pastas."
+    nonisolated static let emptySearchEverywhere = "Nada com este termo."
+
+    nonisolated static func emptyFooter(
+        isEmpty: Bool, query: String, searchingEverywhere: Bool
+    ) -> String {
+        guard isEmpty else { return "Fim da lista" }
+        if query.trimmingCharacters(in: .whitespaces).isEmpty { return emptyBox }
+        return searchingEverywhere ? emptySearchEverywhere : emptySearchHere
+    }
+
+    private func emptyFooter(isEmpty: Bool) -> String {
+        Self.emptyFooter(
+            isEmpty: isEmpty,
+            query: store.query,
+            searchingEverywhere: store.searchesEverywhereNow
+        )
+    }
+
     private func footer(isEmpty: Bool) -> some View {
         VStack(spacing: 0) {
-            Text(isEmpty ? "Nada nesta caixa agora." : "Fim da lista")
+            Text(emptyFooter(isEmpty: isEmpty))
                 .font(theme.sans.font(size: 11.5))
                 .foregroundStyle(theme.ink4.color)
         }

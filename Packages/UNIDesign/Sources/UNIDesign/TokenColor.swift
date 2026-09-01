@@ -42,6 +42,35 @@ public struct TokenColor: Sendable, Hashable {
         let darker = min(luminance, other.luminance)
         return (lighter + 0.05) / (darker + 0.05)
     }
+
+    /// `amount` 0 é esta cor; 1 é a outra.
+    public func mixing(with other: TokenColor, amount: Double) -> TokenColor {
+        let t = min(1, max(0, amount))
+        return TokenColor(
+            red: red + (other.red - red) * t,
+            green: green + (other.green - green) * t,
+            blue: blue + (other.blue - blue) * t,
+            opacity: opacity + (other.opacity - opacity) * t
+        )
+    }
+
+    /// Escurece ou clareia até o contraste WCAG mínimo contra o fundo.
+    /// Cores pastéis do EventKit (Gmail azul-claro) não servem de texto no branco.
+    public func ensuringContrast(
+        against background: TokenColor,
+        minimum: Double = 4.5
+    ) -> TokenColor {
+        if contrastRatio(with: background) >= minimum { return self }
+        let toward = background.luminance > 0.5
+            ? TokenColor(red: 0, green: 0, blue: 0)
+            : TokenColor(red: 1, green: 1, blue: 1)
+        var candidate = self
+        for step in 1...12 {
+            candidate = mixing(with: toward, amount: Double(step) * 0.08)
+            if candidate.contrastRatio(with: background) >= minimum { return candidate }
+        }
+        return candidate
+    }
 }
 
 extension TokenColor {

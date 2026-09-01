@@ -222,8 +222,12 @@ extension Theme {
     /// Status roles stay readable on a theme's paper and primary surface.
     /// They intentionally adapt as text colours, rather than inheriting an
     /// accent whose contrast and meaning vary from one theme to the next.
+    ///
+    /// No Okami a tríade do design system vence: perigo é Neon Magenta,
+    /// informar/entrar é Volt Cyan, o acento continua Heat Orange.
     public var danger: TokenColor {
-        isDark
+        if id == "okami" { return Self.okamiMagenta }
+        return isDark
             ? TokenColor(red: 255 / 255, green: 177 / 255, blue: 194 / 255)
             : TokenColor(red: 176 / 255, green: 0 / 255, blue: 32 / 255)
     }
@@ -241,10 +245,85 @@ extension Theme {
     }
 
     public var info: TokenColor {
-        isDark
+        if id == "okami" { return Self.okamiCyan }
+        return isDark
             ? TokenColor(red: 169 / 255, green: 199 / 255, blue: 255 / 255)
             : TokenColor(red: 0 / 255, green: 87 / 255, blue: 184 / 255)
     }
+
+    /// Ciano do "Entrar" na reunião — e, no Okami, do foco e da atividade.
+    /// Volt Cyan do design system: `oklch(82% 0.14 200)`.
+    public var enter: TokenColor {
+        if id == "okami" { return Self.okamiCyan }
+        return isDark
+            ? TokenColor(red: 61 / 255, green: 214 / 255, blue: 245 / 255)
+            : TokenColor(red: 0 / 255, green: 128 / 255, blue: 144 / 255)
+    }
+
+    public var onEnter: TokenColor {
+        if id == "okami" { return Self.okamiOnAccentFill }
+        return isDark
+            ? TokenColor(red: 8 / 255, green: 48 / 255, blue: 56 / 255)
+            : TokenColor(red: 1, green: 1, blue: 1)
+    }
+
+    /// Magenta de cancelar a reunião ou tirar do calendário.
+    /// No Okami é Neon Magenta: `oklch(70% 0.27 340)`.
+    public var remove: TokenColor {
+        if id == "okami" { return Self.okamiMagenta }
+        return isDark
+            ? TokenColor(red: 244 / 255, green: 114 / 255, blue: 182 / 255)
+            : TokenColor(red: 196 / 255, green: 24 / 255, blue: 110 / 255)
+    }
+
+    public var onRemove: TokenColor {
+        if id == "okami" { return Self.okamiOnAccentFill }
+        return isDark
+            ? TokenColor(red: 58 / 255, green: 16 / 255, blue: 40 / 255)
+            : TokenColor(red: 1, green: 1, blue: 1)
+    }
+
+    /// Anel de foco. O design system Okami pede ciano; os outros temas
+    /// continuam no acento, que já é a cor de ação deles.
+    public var focus: TokenColor { id == "okami" ? enter : accent }
+
+    /// Sincronizar, carregar, "o sistema está trabalhando". Ciano no Okami
+    /// para não gastar o laranja em tudo; acento nos demais.
+    public var activity: TokenColor { id == "okami" ? enter : accent }
+
+    /// Links no corpo do email. Ciano no Okami (Volt Cyan); acento nos outros.
+    public var link: TokenColor { id == "okami" ? enter : accent }
+
+    /// Marcador de "agora" na agenda. Ciano no Okami; vermelho semântico nos outros.
+    public var live: TokenColor {
+        if id == "okami" { return Self.okamiCyan }
+        return isDark
+            ? TokenColor(red: 255 / 255, green: 121 / 255, blue: 114 / 255)
+            : TokenColor(red: 215 / 255, green: 51 / 255, blue: 55 / 255)
+    }
+
+    /// Fundo e traço de cartões informativos (IA, TL;DR) no Okami.
+    public var infoSoft: TokenColor {
+        id == "okami"
+            ? TokenColor(red: 10 / 255, green: 32 / 255, blue: 34 / 255)
+            : accentSoft
+    }
+    public var infoLine: TokenColor {
+        id == "okami"
+            ? TokenColor(red: 28 / 255, green: 110 / 255, blue: 118 / 255)
+            : accentLine
+    }
+
+    /// Volt Cyan `oklch(82% 0.14 200)` e Neon Magenta `oklch(70% 0.27 340)`.
+    private static let okamiCyan = TokenColor(
+        red: 0.0, green: 0.8730030221673121, blue: 0.9084924817467284
+    )
+    private static let okamiMagenta = TokenColor(
+        red: 0.9999999999999999, green: 0.22512446190054664, blue: 0.821410839776902
+    )
+    private static let okamiOnAccentFill = TokenColor(
+        red: 6 / 255, green: 6 / 255, blue: 9 / 255
+    )
 
     /// Tracking in points for a small-caps label at a given size.
     public func capsTracking(at size: CGFloat) -> CGFloat { capsTracking * size }

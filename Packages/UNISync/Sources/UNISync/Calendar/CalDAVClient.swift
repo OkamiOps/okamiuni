@@ -51,7 +51,27 @@ public struct CalDAVEvent: Sendable, Hashable, Identifiable {
     public let end: Date
     public let location: String?
     public let notes: String?
+    public let rrule: String?
+    public let isAllDay: Bool
     public var id: String { href.absoluteString }
+
+    public init(
+        href: URL, uid: String, okamiID: String?, title: String,
+        start: Date, end: Date, location: String?, notes: String?,
+        rrule: String? = nil,
+        isAllDay: Bool = false
+    ) {
+        self.href = href
+        self.uid = uid
+        self.okamiID = okamiID
+        self.title = title
+        self.start = start
+        self.end = end
+        self.location = location
+        self.notes = notes
+        self.rrule = rrule
+        self.isAllDay = isAllDay
+    }
 }
 
 /// Descoberta, leitura por intervalo e escrita CalDAV. O construtor aceita só
@@ -62,13 +82,20 @@ public struct CalDAVEvent: Sendable, Hashable, Identifiable {
 public struct CalDAVClient: Sendable {
     private let baseURL: URL
     private let transport: any CalDAVTransport
+    private let allowedHosts: Set<String>
 
-    public init(baseURL: URL, transport: any CalDAVTransport) throws {
-        guard baseURL.scheme?.lowercased() == "https", baseURL.host != nil else {
+    public init(
+        baseURL: URL, transport: any CalDAVTransport,
+        allowedHosts: Set<String> = []
+    ) throws {
+        guard baseURL.scheme?.lowercased() == "https", let host = baseURL.host else {
             throw SyncError.tls("CalDAV exige uma URL HTTPS com host")
         }
         self.baseURL = baseURL
         self.transport = transport
+        var hosts = Set(allowedHosts.map { $0.lowercased() })
+        hosts.insert(host.lowercased())
+        self.allowedHosts = hosts
     }
 
     public func discoverCalendars() async throws -> [CalDAVCalendar] {
@@ -146,14 +173,13 @@ public struct CalDAVClient: Sendable {
     }
 
     private func request(_ request: CalDAVRequest) async throws -> CalDAVResponse {
-        guard request.url.scheme?.lowercased() == "https", request.url.host == baseURL.host else {
+        guard isAllowed(request.url) else {
             throw SyncError.tls("CalDAV recusou URL fora do host HTTPS configurado")
         }
         let response: CalDAVResponse
         do { response = try await transport.send(request) }
         catch { throw SyncError.rede(error.localizedDescription) }
-        if let finalURL = response.finalURL,
-           finalURL.scheme?.lowercased() != "https" || finalURL.host != baseURL.host {
+        if let finalURL = response.finalURL, !isAllowed(finalURL) {
             throw SyncError.tls("CalDAV recusou redirect para outro host ou para uma URL insegura")
         }
         guard (200...299).contains(response.status) else {
@@ -174,21 +200,30 @@ public struct CalDAVClient: Sendable {
         URL(string: "/.well-known/caldav", relativeTo: baseURL)!.absoluteURL
     }
 
+    private func isAllowed(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "https", let host = url.host else { return false }
+        return allowedHosts.contains(host.lowercased())
+    }
+
     private func resolved(_ href: String, relativeTo url: URL) throws -> URL {
-        guard let result = URL(string: href, relativeTo: url)?.absoluteURL,
-              result.scheme?.lowercased() == "https", result.host == baseURL.host
+        guard let result = URL(string: href, relativeTo: url)?.absoluteURL, isAllowed(result)
         else { throw SyncError.tls("O servidor CalDAV apontou para outro host ou para uma URL insegura") }
         return result
     }
 
     private static func event(from text: String, href: URL) -> CalDAVEvent? {
+        guard let invite = ICalendar.parse(text), let start = invite.start, !invite.isCancelled
+        else { return nil }
         let lines = text.replacingOccurrences(of: "\r\n ", with: "").components(separatedBy: .newlines)
-        guard let uid = value("UID", lines), let start = date(value("DTSTART", lines)) else { return nil }
+        let end = invite.end ?? start.addingTimeInterval(invite.isAllDay ? 86_400 : 3_600)
         return CalDAVEvent(
-            href: href, uid: uid, okamiID: value("X-OKAMIUNI-ID", lines),
-            title: value("SUMMARY", lines) ?? "Sem título", start: start,
-            end: date(value("DTEND", lines)) ?? start.addingTimeInterval(3_600),
-            location: value("LOCATION", lines), notes: value("DESCRIPTION", lines)
+            href: href,
+            uid: invite.uid ?? href.absoluteString,
+            okamiID: value("X-OKAMIUNI-ID", lines),
+            title: invite.summary.isEmpty ? "Sem título" : invite.summary,
+            start: start, end: end,
+            location: invite.location, notes: invite.descricao,
+            isAllDay: invite.isAllDay
         )
     }
 
@@ -197,6 +232,7 @@ public struct CalDAVClient: Sendable {
          "UID:\(event.uid)", "DTSTAMP:\(utc(Date()))", "DTSTART:\(utc(event.start))", "DTEND:\(utc(event.end))",
          "SUMMARY:\(escape(event.title))", event.okamiID.map { "X-OKAMIUNI-ID:\(escape($0))" },
          event.location.map { "LOCATION:\(escape($0))" }, event.notes.map { "DESCRIPTION:\(escape($0))" },
+         event.rrule.map { "RRULE:\($0)" },
          "END:VEVENT", "END:VCALENDAR", ""].compactMap { $0 }.joined(separator: "\r\n")
     }
 

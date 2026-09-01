@@ -113,6 +113,12 @@ struct SwipeRow<Content: View>: View {
     @State private var settleTask: Task<Void, Never>?
     /// O adiamento da carência do clique fantasma — ver `dismiss()`.
     @State private var graceTask: Task<Void, Never>?
+    /// Acumulado da roda/Magic Mouse na horizontal, na mesma unidade do
+    /// `DragGesture.translation`. Origem artificial para a máquina tratar cada
+    /// sequência de scroll como um gesto novo.
+    @State private var wheelAccum: CGFloat = 0
+    @State private var wheelOrigin = CGPoint.zero
+    @State private var wheelEngaged = false
 
     private var context: SwipeContext {
         SwipeContext(configuration: configuration, rowWidth: rowWidth, message: message)
@@ -173,6 +179,45 @@ struct SwipeRow<Content: View>: View {
             settleTask?.cancel()
             apply(withAnimation(SwipeMotion.transition) { machine.dismiss(force: true) })
         }
+        .onHover { hovering in
+            if hovering {
+                WheelSwipeSession.shared.attach(
+                    id: message.id,
+                    onDelta: handleWheelDelta,
+                    onEnded: handleWheelEnded
+                )
+            } else {
+                if wheelEngaged { handleWheelEnded() }
+                WheelSwipeSession.shared.detach(id: message.id)
+            }
+        }
+    }
+
+    private func handleWheelDelta(_ dx: CGFloat) {
+        if !wheelEngaged {
+            wheelEngaged = true
+            wheelAccum = 0
+            wheelOrigin = CGPoint(x: Date().timeIntervalSinceReferenceDate, y: 0)
+        }
+        wheelAccum += dx
+        apply(machine.dragChanged(
+            translation: CGSize(width: wheelAccum, height: 0),
+            startLocation: wheelOrigin,
+            context
+        ))
+    }
+
+    private func handleWheelEnded() {
+        guard wheelEngaged else { return }
+        apply(withAnimation(SwipeMotion.transition) {
+            machine.dragEnded(
+                translation: CGSize(width: wheelAccum, height: 0),
+                startLocation: wheelOrigin,
+                context
+            )
+        })
+        wheelEngaged = false
+        wheelAccum = 0
     }
 
     // MARK: - O painel

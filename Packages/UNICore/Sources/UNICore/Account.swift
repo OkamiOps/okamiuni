@@ -110,6 +110,10 @@ public struct Account: Sendable, Hashable, Identifiable {
     /// `Calendar` de quem está lendo.
     public let lastSyncedAt: Date?
 
+    /// Endereços extras pelos quais esta conta envia. O principal continua
+    /// em `address` e não se repete aqui.
+    public let sendAliases: [SendAlias]
+
     public init(
         id: String, address: String, displayName: String,
         provider: Provider, host: String, tintLightHex: String, tintDarkHex: String,
@@ -117,7 +121,8 @@ public struct Account: Sendable, Hashable, Identifiable {
         emailSignature: EmailSignature? = nil,
         imap: ImapEndpoint? = nil,
         state: State = .ativa,
-        lastSyncedAt: Date? = nil
+        lastSyncedAt: Date? = nil,
+        sendAliases: [SendAlias] = []
     ) {
         self.id = id
         self.address = address
@@ -132,6 +137,7 @@ public struct Account: Sendable, Hashable, Identifiable {
         self.imap = imap
         self.state = state
         self.lastSyncedAt = lastSyncedAt
+        self.sendAliases = sendAliases
     }
 
     /// Retorna a cor apropriada para o tema.
@@ -168,6 +174,42 @@ public struct Account: Sendable, Hashable, Identifiable {
         copy(tintLightHex: lightHex, tintDarkHex: darkHex)
     }
 
+    /// A mesma conta com outra lista de aliases. O endereço principal não
+    /// entra nesta lista — ele já é `address`.
+    public func withSendAliases(_ aliases: [SendAlias]) -> Account {
+        copy(sendAliases: aliases)
+    }
+
+    /// Remetentes que o composer oferece: o endereço da conta, depois os
+    /// aliases, sem duplicata.
+    public var sendIdentities: [SendIdentity] {
+        var seen: Set<String> = []
+        var list: [SendIdentity] = []
+        func add(_ address: String, name: String, primary: Bool) {
+            let key = address.lowercased()
+            guard !key.isEmpty, seen.insert(key).inserted else { return }
+            let shown = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            list.append(SendIdentity(
+                accountID: id,
+                address: address,
+                displayName: shown.isEmpty ? displayName : shown,
+                isPrimary: primary
+            ))
+        }
+        add(address, name: displayName, primary: true)
+        for alias in sendAliases.sorted(by: {
+            $0.address.localizedCaseInsensitiveCompare($1.address) == .orderedAscending
+        }) {
+            add(alias.address, name: alias.displayName, primary: false)
+        }
+        return list
+    }
+
+    /// O From pré-selecionado: o alias marcado como padrão, senão o principal.
+    public var defaultSendAddress: String {
+        sendAliases.first(where: \.isDefault)?.address ?? address
+    }
+
     /// O único lugar que reconstrói uma `Account`.
     ///
     /// Onze campos, três deles com default no `init`: reconstruir à mão em
@@ -185,7 +227,8 @@ public struct Account: Sendable, Hashable, Identifiable {
         tintLightHex: String? = nil,
         tintDarkHex: String? = nil,
         signature: String? = nil,
-        emailSignature: EmailSignature? = nil
+        emailSignature: EmailSignature? = nil,
+        sendAliases: [SendAlias]? = nil
     ) -> Account {
         let resolvedSignature = emailSignature
             ?? signature.map(EmailSignature.init(legacyText:))
@@ -199,7 +242,8 @@ public struct Account: Sendable, Hashable, Identifiable {
             emailSignature: resolvedSignature,
             imap: imap ?? self.imap,
             state: state ?? self.state,
-            lastSyncedAt: lastSyncedAt ?? self.lastSyncedAt
+            lastSyncedAt: lastSyncedAt ?? self.lastSyncedAt,
+            sendAliases: sendAliases ?? self.sendAliases
         )
     }
 }

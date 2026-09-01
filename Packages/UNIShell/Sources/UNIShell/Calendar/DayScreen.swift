@@ -121,7 +121,7 @@ public struct DayScreen: View {
     }
 
     private var items: [AgendaItem] {
-        WeekAgenda.items(on: dayOffset, in: store.visibleAgenda)
+        WeekAgenda.items(on: dayOffset, in: store.calendarAgenda)
     }
 
     /// O traço de "agora" só existe no dia de hoje. Protótipo:
@@ -222,7 +222,7 @@ public struct DayScreen: View {
     /// mais que os 2 da semana, porque o cartão do dia é largo o bastante para
     /// a faixa de cor ler como faixa.
     private func eventCard(_ item: AgendaItem) -> some View {
-        let color = CalendarTint.color(of: item.accountID, in: store, theme: theme)
+        let swatch = CalendarTint.token(of: item, in: store, theme: theme)
         let tight = layout.isTight(for: item)
         let shape = UnevenRoundedRectangle(
             topLeadingRadius: 0,
@@ -231,19 +231,23 @@ public struct DayScreen: View {
             topTrailingRadius: theme.radiusSmall
         )
 
+        let cancelled = item.isCancelled
         return Button { onOpenEvent(item) } label: {
             HStack(spacing: 0) {
-                Rectangle().fill(color).frame(width: 3)
+                Rectangle().fill(CalendarEventChrome.bar(swatch, cancelled: cancelled, theme: theme)).frame(width: 3)
                 VStack(alignment: .leading, spacing: tight ? 0 : 3) {
-                    Text(tight ? "\(item.title) · \(item.rangeLabel)" : item.title)
+                    CalendarEventChrome.title(
+                        tight ? "\(item.title) · \(item.rangeLabel)" : item.title,
+                        cancelled: cancelled
+                    )
                         .font(theme.sans.font(size: 13, weight: .semibold))
-                        .foregroundStyle(color)
+                        .foregroundStyle(CalendarEventChrome.ink(swatch, cancelled: cancelled, theme: theme))
                         .lineLimit(1)
                         .truncationMode(.tail)
                     if !tight {
                         Text("\(item.startLabel)–\(item.endLabel) · \(hostLabel(item))")
                             .font(theme.mono.font(size: 10))
-                            .foregroundStyle(color.opacity(0.75))
+                            .foregroundStyle(CalendarEventChrome.ink(swatch, cancelled: cancelled, theme: theme).opacity(0.85))
                             .lineLimit(1)
                     }
                 }
@@ -253,9 +257,11 @@ public struct DayScreen: View {
                 .padding(.vertical, tight ? 0 : 9)
             }
             .frame(maxHeight: .infinity, alignment: .center)
-            // Protótipo: `soft(c, 14)`.
-            .background(color.opacity(0.14))
+            .background(CalendarEventChrome.fill(swatch, cancelled: cancelled, theme: theme))
             .clipShape(shape)
+            .overlay {
+                shape.strokeBorder(CalendarEventChrome.border(cancelled: cancelled, theme: theme), lineWidth: 1)
+            }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -263,7 +269,7 @@ public struct DayScreen: View {
         // Protótipo: `opacity: 0.5` no que já acabou, e só quando o dia no ar é
         // hoje — num outro dia "já passou" não quer dizer nada.
         .opacity(showsNow && item.endMinute < now ? 0.5 : 1)
-        .help("Abre o compromisso")
+        .help(item.isCancelled ? "Compromisso cancelado" : "Abre o compromisso")
         .uniContextMenu(
             AgendaContextMenu.entries(for: item, store: store, anchor: anchor),
             store: store,
@@ -291,7 +297,7 @@ public struct DayScreen: View {
             HStack(spacing: 0) {
                 Color.clear.frame(width: layout.labelGutter, height: 0)
                 Rectangle()
-                    .fill(SemanticColor.live(isDark: theme.isDark))
+                    .fill(theme.live.color)
                     .frame(height: 2)
                     .padding(.trailing, layout.trailingInset)
             }
@@ -303,7 +309,7 @@ public struct DayScreen: View {
                 .foregroundStyle(theme.onAccent.color)
                 .padding(.horizontal, 6)
                 .frame(height: 18)
-                .background(SemanticColor.live(isDark: theme.isDark))
+                .background(theme.live.color)
                 .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
                 // Protótipo: `left: 0; top: now * 0.95 - 9` — os 9 são metade
                 // da pastilha, que a deixa centrada no traço.

@@ -257,7 +257,7 @@ public actor AssistantRouter: OnDeviceTextAssisting {
             accessToken: token,
             additionalInstructions: settings.configuredInstructions(for: promptKind),
             session: session,
-            requestTimeout: requestTimeout
+            requestTimeout: max(requestTimeout, 120)
         )
     }
 }

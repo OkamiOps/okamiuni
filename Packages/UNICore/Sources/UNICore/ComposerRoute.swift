@@ -24,6 +24,9 @@ public enum ComposerRoute: Sendable, Hashable {
     case reply(messageID: String)
     case replyAll(messageID: String)
     case forward(messageID: String)
+    /// Reabre um rascunho da caixa Rascunhos — a mesma janela 03/06, já
+    /// preenchida com o que foi salvo.
+    case draft(messageID: String)
 
     /// O prefixo de cada intenção. Responder **não tem** prefixo: assim todo
     /// valor que já existia — o `openWindow(id:value:messageID)` do leitor, o
@@ -31,6 +34,7 @@ public enum ComposerRoute: Sendable, Hashable {
     /// sistema — continua significando exatamente o que significava.
     public static let replyAllPrefix = "todos:"
     public static let forwardPrefix = "enc:"
+    public static let draftPrefix = "rascunho:"
 
     /// O texto que a cena carrega.
     public var value: String {
@@ -38,13 +42,20 @@ public enum ComposerRoute: Sendable, Hashable {
         case .reply(let id): id
         case .replyAll(let id): Self.replyAllPrefix + id
         case .forward(let id): Self.forwardPrefix + id
+        case .draft(let id): Self.draftPrefix + id
         }
     }
 
     public var messageID: String {
         switch self {
-        case .reply(let id), .replyAll(let id), .forward(let id): id
+        case .reply(let id), .replyAll(let id), .forward(let id), .draft(let id): id
         }
+    }
+
+    /// A janela certa para esta mensagem: rascunho reabre o que já estava
+    /// escrito; o resto responde.
+    public static func editor(for message: Message) -> ComposerRoute {
+        message.bucket == .drafts ? .draft(messageID: message.id) : .reply(messageID: message.id)
     }
 
     /// Lê o valor de volta. Qualquer coisa sem prefixo conhecido é uma
@@ -56,6 +67,9 @@ public enum ComposerRoute: Sendable, Hashable {
         }
         if value.hasPrefix(forwardPrefix) {
             return .forward(messageID: String(value.dropFirst(forwardPrefix.count)))
+        }
+        if value.hasPrefix(draftPrefix) {
+            return .draft(messageID: String(value.dropFirst(draftPrefix.count)))
         }
         return .reply(messageID: value)
     }

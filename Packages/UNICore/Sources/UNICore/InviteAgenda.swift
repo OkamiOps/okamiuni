@@ -108,6 +108,85 @@ public enum InviteAgenda {
         return "Do convite por email · conta \(accountHost)"
     }
 
+    /// Compromisso detectado no texto do email, sem `text/calendar`. O
+    /// organizador é quem mandou, a conta é a caixa da mensagem — nunca o
+    /// Ricardo Gomes das fixtures.
+    public static func detail(
+        from message: Message,
+        accountHost: String?
+    ) -> EventDetail {
+        EventDetail(
+            place: EventPlace.semLocal,
+            link: nil,
+            organizer: EventPerson(
+                name: pessoaNome(message.from),
+                address: message.from.address,
+                role: papelOrganizador,
+                status: .pending
+            ),
+            people: [],
+            note: nota(accountHost: accountHost),
+            recurrence: "Evento único",
+            notice: "Sem alerta",
+            agenda: [],
+            thread: [
+                EventThreadEntry(
+                    when: message.receivedAt.formatted(
+                        .dateTime.day().month(.abbreviated).hour().minute()
+                    ),
+                    who: pessoaNome(message.from),
+                    what: message.subject,
+                    kind: .email
+                )
+            ]
+        )
+    }
+
+    /// Sem detalhe persistido e sem a mensagem de origem, ainda assim não
+    /// inventamos a agenda de exemplo. A conta da caixa, se houver, é o
+    /// único dado honesto que resta.
+    public static func detailWithoutPrototype(account: Account?) -> EventDetail {
+        let dono: EventPerson
+        if let account {
+            dono = EventPerson(
+                name: account.displayName, address: account.address,
+                role: "você", status: .yes
+            )
+        } else {
+            dono = EventPerson(name: "", address: "", role: papelOrganizador, status: .pending)
+        }
+        return EventDetail(
+            place: EventPlace.semLocal,
+            link: nil,
+            organizer: dono,
+            people: [],
+            note: nota(accountHost: account?.host),
+            recurrence: "Evento único",
+            notice: "Sem alerta",
+            agenda: [],
+            thread: []
+        )
+    }
+
+    /// O que a janela 04 desenha: o detalhe gravado, ou o reconstruído da
+    /// mensagem de origem, ou um vazio honesto. Compromisso de email/manual
+    /// **nunca** cai em `Fixtures.eventDefault` — era assim que o veterinário
+    /// da Odette abria com Ricardo Gomes e "Criado manualmente na agenda".
+    public static func resolvedDetail(
+        for item: AgendaItem,
+        origin: Message?,
+        account: Account?
+    ) -> EventDetail {
+        if let own = item.detail { return own }
+        if let origin {
+            return detail(from: origin, accountHost: account?.host)
+        }
+        if DetectedEventConversion.isFromEmail(item.id) || item.id.hasPrefix("manual-") {
+            return detailWithoutPrototype(account: account)
+        }
+        return Fixtures.eventDetail(for: item.title)
+    }
+
     private static func pessoaNome(_ quem: Contact) -> String {
         quem.name.isEmpty ? quem.address : quem.name
     }
@@ -128,6 +207,85 @@ public enum InviteAgenda {
                 return porUID
             }
         }
+        return agenda.first { $0.id == id }
+    }
+
+    /// O compromisso que um evento **detectado no texto** já é, se houver.
+    ///
+    /// O `id` da mensagem é a guarda do segundo clique no mesmo cartão. O
+    /// horário + título é a guarda do aviso do Calendar: outra mensagem, o
+    /// mesmo "Luna - Dev time weekly" que o convite já gravou (ou que o
+    /// EventKit já trouxe do Google Agenda).
+    public static func existing(
+        for event: DetectedEvent,
+        messageID: String,
+        accountID: String,
+        referenceDay: Date,
+        in agenda: [AgendaItem],
+        calendar: Calendar = .current
+    ) -> AgendaItem? {
+        let id = DetectedEventConversion.agendaID(forMessageID: messageID)
+        if let porID = agenda.first(where: { $0.id == id }) { return porID }
+        let proposto = DetectedEventConversion.agendaItem(
+            from: event, id: id, accountID: accountID,
+            referenceDay: referenceDay, calendar: calendar
+        )
+        return existing(matching: proposto, in: agenda)
+    }
+
+    /// Casa título (sem caixa, sem acento) e começo no mesmo dia. A duração
+    /// fica de fora: o texto do email às vezes omite o fim, o convite não.
+    /// O sufixo " · qui 3, 01:00" que o analisador cola no rótulo também
+    /// fica de fora — senão o aviso do Calendar nunca reencontraria o convite.
+    static func existing(matching proposed: AgendaItem, in agenda: [AgendaItem]) -> AgendaItem? {
+        agenda.first {
+            $0.dayOffset == proposed.dayOffset
+                && $0.startMinute == proposed.startMinute
+                && sameEventTitle($0.title, proposed.title)
+        }
+    }
+
+    static func sameEventTitle(_ a: String, _ b: String) -> Bool {
+        let x = eventTitleKey(a)
+        let y = eventTitleKey(b)
+        return !x.isEmpty && x == y
+    }
+
+    static func eventTitleKey(_ title: String) -> String {
+        let folded = title
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let cut = folded.range(of: " · ") {
+            return String(folded[..<cut.lowerBound])
+        }
+        return folded
+    }
+
+    /// O compromisso que um `METHOD:CANCEL` deve tirar.
+    ///
+    /// Casa pelo `UID` **em qualquer conta**: o cancelamento chegou nesta
+    /// caixa, mas o compromisso pode ter sido criado noutra, e o evento é o
+    /// mesmo. Sem UID, cai no `id` da mensagem, como o caminho de sempre.
+    public static func matchingCancellation(
+        _ invite: CalendarInvite, messageID: String, in agenda: [AgendaItem],
+        proposed: AgendaItem? = nil
+    ) -> AgendaItem? {
+        if let uid = invite.uid {
+            if let porUID = agenda.first(where: {
+                $0.calendarUID == uid || $0.id == uid || ($0.calendarUID?.contains(uid) == true)
+            }) {
+                return porUID
+            }
+        }
+        if let proposed {
+            let marca = proposed.cancellationFingerprint
+            if let porHorario = agenda.first(where: {
+                $0.cancellationFingerprint == marca && $0.dayOffset == proposed.dayOffset
+            }) {
+                return porHorario
+            }
+        }
+        let id = DetectedEventConversion.agendaID(forMessageID: messageID)
         return agenda.first { $0.id == id }
     }
 
@@ -163,7 +321,12 @@ public enum InviteAgenda {
             accountID: existing.accountID, dayOffset: proposed.dayOffset,
             calendarUID: proposed.calendarUID ?? existing.calendarUID,
             calendarSequence: proposed.calendarSequence ?? existing.calendarSequence,
-            detail: proposed.detail ?? existing.detail
+            detail: proposed.detail ?? existing.detail,
+            calendarID: proposed.calendarID ?? existing.calendarID,
+            calendarTitle: proposed.calendarTitle ?? existing.calendarTitle,
+            calendarColorHex: proposed.calendarColorHex ?? existing.calendarColorHex,
+            calendarSource: proposed.calendarSource ?? existing.calendarSource,
+            isCancelled: existing.isCancelled || proposed.isCancelled
         )
     }
 
@@ -175,6 +338,117 @@ public enum InviteAgenda {
               a.endMinute == b.endMinute, a.dayOffset == b.dayOffset
         else { return false }
         return sameContent(a.detail, b.detail)
+    }
+
+    /// A mesma reunião, vista de origens diferentes.
+    ///
+    /// O EventKit, o convite por email e o "Colocar na agenda" geram `id`
+    /// distintos para o mesmo horário. Sem isto, a grade mostra cinco blocos
+    /// idênticos no mesmo minuto — e a pessoa trata cada um como um
+    /// compromisso.
+    ///
+    /// Casa pelo `UID` no **mesmo dia** (o evento que mudou de hora continua
+    /// sendo um), ou pelo título+começo+fim+dia quando o UID não atravessa as
+    /// origens.
+    public static func sameMeeting(_ a: AgendaItem, _ b: AgendaItem) -> Bool {
+        if let ua = normalizedUID(a.calendarUID), let ub = normalizedUID(b.calendarUID),
+           ua == ub, a.dayOffset == b.dayOffset
+        {
+            return true
+        }
+        return eventTitleKey(a.title) == eventTitleKey(b.title)
+            && a.startMinute == b.startMinute
+            && a.endMinute == b.endMinute
+            && a.dayOffset == b.dayOffset
+    }
+
+    /// Cinco cópias viram uma. A ordem de chegada se mantém; de cada grupo
+    /// sobra o compromisso mais informativo (EventKit, UID, SEQUENCE, detalhe).
+    ///
+    /// **Linear no tamanho da agenda.** Comparar cada par era o que travava a
+    /// troca de semana: o EventKit traz meses de ocorrências, e a grade pedia
+    /// esta lista várias vezes por quadro.
+    public static func coalesce(_ items: [AgendaItem]) -> [AgendaItem] {
+        guard items.count > 1 else { return items }
+        var parent = Array(items.indices)
+        func find(_ i: Int) -> Int {
+            var x = i
+            while parent[x] != x {
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            }
+            return x
+        }
+        func union(_ i: Int, _ j: Int) {
+            let a = find(i), b = find(j)
+            if a != b { parent[b] = a }
+        }
+        var bySlot: [String: Int] = [:]
+        var byUID: [String: Int] = [:]
+        bySlot.reserveCapacity(items.count)
+        byUID.reserveCapacity(items.count)
+        for i in items.indices {
+            let item = items[i]
+            let slot = slotIdentity(item)
+            if let visto = bySlot[slot] {
+                union(i, visto)
+            } else {
+                bySlot[slot] = i
+            }
+            if let uid = uidIdentity(item) {
+                if let visto = byUID[uid] {
+                    union(i, visto)
+                } else {
+                    byUID[uid] = i
+                }
+            }
+        }
+        var groups: [Int: [AgendaItem]] = [:]
+        var order: [Int] = []
+        groups.reserveCapacity(bySlot.count)
+        order.reserveCapacity(bySlot.count)
+        for i in items.indices {
+            let root = find(i)
+            if groups[root] == nil { order.append(root) }
+            groups[root, default: []].append(items[i])
+        }
+        return order.map { pickSurvivor(groups[$0]!) }
+    }
+
+    static func slotIdentity(_ item: AgendaItem) -> String {
+        "\(eventTitleKey(item.title))|\(item.dayOffset)|\(item.startMinute)|\(item.endMinute)"
+    }
+
+    static func uidIdentity(_ item: AgendaItem) -> String? {
+        guard let uid = normalizedUID(item.calendarUID) else { return nil }
+        return "\(uid)|\(item.dayOffset)"
+    }
+
+    static func pickSurvivor(_ group: [AgendaItem]) -> AgendaItem {
+        guard group.count > 1 else { return group[0] }
+        return group.max(by: { survivorRank($0) < survivorRank($1) }) ?? group[0]
+    }
+
+    /// Ativo ganha de cancelado; calendário do sistema ganha do email; UID e
+    /// versão desempata; o detalhe mais cheio fica.
+    static func survivorRank(_ item: AgendaItem) -> (Int, Int, Int, Int, Int) {
+        let detalhe = item.detail
+        let pesoDetalhe = (detalhe?.people.count ?? 0)
+            + (detalhe?.link == nil ? 0 : 2)
+            + (detalhe?.descricao == nil ? 0 : 2)
+        return (
+            item.isCancelled ? 0 : 1,
+            item.calendarID == nil ? 0 : 1,
+            item.calendarUID == nil ? 0 : 1,
+            item.calendarSequence ?? 0,
+            pesoDetalhe
+        )
+    }
+
+    static func normalizedUID(_ uid: String?) -> String? {
+        guard let uid else { return nil }
+        let podado = uid.trimmingCharacters(in: .whitespacesAndNewlines)
+        return podado.isEmpty ? nil : podado
     }
 
     /// O que mais pode ter mudado num convite atualizado: a sala, o link, quem

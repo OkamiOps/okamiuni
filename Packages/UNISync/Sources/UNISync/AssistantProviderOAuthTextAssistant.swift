@@ -34,7 +34,7 @@ public struct AssistantProviderOAuthTextAssistant: OnDeviceTextAssisting, Sendab
     private let transport: any AssistantProviderOAuthHTTPTransport
     private let requestTimeout: TimeInterval
 
-    public init(configuration: AssistantProviderOAuthConfiguration, accessToken: String, additionalInstructions: String = "", session: URLSession = .shared, requestTimeout: TimeInterval = 30) throws {
+    public init(configuration: AssistantProviderOAuthConfiguration, accessToken: String, additionalInstructions: String = "", session: URLSession = .shared, requestTimeout: TimeInterval = 120) throws {
         try self.init(
             configuration: configuration,
             accessToken: accessToken,
@@ -44,13 +44,15 @@ public struct AssistantProviderOAuthTextAssistant: OnDeviceTextAssisting, Sendab
         )
     }
 
-    public init(configuration: AssistantProviderOAuthConfiguration, accessToken: String, additionalInstructions: String = "", transport: any AssistantProviderOAuthHTTPTransport, requestTimeout: TimeInterval = 30) throws {
+    public init(configuration: AssistantProviderOAuthConfiguration, accessToken: String, additionalInstructions: String = "", transport: any AssistantProviderOAuthHTTPTransport, requestTimeout: TimeInterval = 120) throws {
         self.configuration = try configuration.validated()
         guard self.configuration.kind == .xAI else { throw AssistantProviderOAuthTextAssistantError.managedByCodexRuntime }
         self.accessToken = try AssistantCredentialValidation.apiKey(accessToken)
         self.additionalInstructions = additionalInstructions
         self.transport = transport
-        self.requestTimeout = max(1, requestTimeout)
+        // grok-4.6 numa resposta de email completa passa de 30s fácil; o
+        // catálogo (GET /models) autentica rápido e a geração é que estoura.
+        self.requestTimeout = min(max(requestTimeout, 90), 180)
         modelVersion = "provider-oauth/xai/\(self.configuration.model)"
     }
 

@@ -216,6 +216,9 @@ struct GmailMirrorTests {
         #expect(OutboxExecutor.ehPermanente(.autorizacaoRevogada))
         // E o escopo que o app pede agora é o que cobre essa chamada.
         #expect(GoogleAuthConfig.defaultScopes.contains("https://mail.google.com/"))
+        #expect(GoogleAuthConfig.defaultScopes.contains(
+            "https://www.googleapis.com/auth/meetings.space.created"
+        ))
         #expect(SyncError.autorizacaoRevogada.mensagem.contains("Reconecte"))
     }
 

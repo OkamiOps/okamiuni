@@ -11,6 +11,16 @@ import Foundation
 /// colidirem — e elas colidem: dois Gmail da mesma pessoa compartilham o
 /// formato de id, e dois IMAP compartilham o UID 1.
 public enum MessageIdentity {
+    /// Prefixo dos rascunhos que nunca existiram no servidor. Apagar um
+    /// destes não pode ir para a fila do Gmail/IMAP: não há coordenada
+    /// remota, e a falha permanente **para a fila inteira** — emails reais
+    /// deixam de ser apagados no provedor.
+    public static let localDraftPrefix = "local-draft-"
+
+    public static func isLocalDraft(_ id: String) -> Bool {
+        id.hasPrefix(localDraftPrefix)
+    }
+
     public static func gmail(accountID: String, serverID: String) -> String {
         "\(accountID):g:\(serverID)"
     }

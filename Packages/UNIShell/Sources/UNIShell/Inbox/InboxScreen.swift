@@ -2,6 +2,9 @@ import SwiftUI
 import UNIDesign
 import UNICore
 import UNISync
+#if canImport(AppKit)
+import AppKit
+#endif
 
 enum InboxAssistantScope: Sendable, Hashable {
     case workspace
@@ -45,10 +48,19 @@ public struct InboxScreen: View {
 
     @State private var workspace: Workspace = .mail
     @State private var query = ""
+    /// Espelho do foco da busca. O campo mora na barra; o Esc da janela
+    /// precisa saber se cancelar a busca é a camada de agora.
+    @State private var searchFocused = false
     @State private var assistantOpen = false
     @State private var assistantScope: InboxAssistantScope = .workspace
     @State private var assistantSessionID = UUID()
     @State private var readerAssistantOpen = false
+    /// A conversa do Dashboard vive aqui: a aba some do árvore ao ir para
+    /// Caixa ou Agenda, e o `@State` dela ia embora com ela.
+    @State private var dashboardTranscript: [LocalAssistantMessage] = []
+    @State private var dashboardDraft = ""
+    @State private var dashboardSelectedMailID: String?
+    @State private var dashboardReadingID: String?
     let store: MailStore
 
     /// De onde vem o "agora" da trilha e das três visões da agenda.
@@ -71,6 +83,9 @@ public struct InboxScreen: View {
     let composerIntelligence: ComposerIntelligenceGenerator?
     let onMessagePresented: (String) -> Void
     let debugReaderAssistantOpen: Bool
+    /// Nulo nas previews e no harness: aí não há diretor, e a barra mostra o
+    /// estado vazio com o recarregar desligado.
+    let accountsModel: AccountsModel?
 
     public init(
         store: MailStore,
@@ -78,7 +93,8 @@ public struct InboxScreen: View {
         intelligencePresentation: IntelligencePresentation = .available,
         textAssistant: (any OnDeviceTextAssisting)? = nil,
         assistantSettings: AssistantSettingsStore? = nil,
-        onMessagePresented: @escaping (String) -> Void = { _ in }
+        onMessagePresented: @escaping (String) -> Void = { _ in },
+        accountsModel: AccountsModel? = nil
     ) {
         self.init(
             store: store,
@@ -87,6 +103,7 @@ public struct InboxScreen: View {
             textAssistant: textAssistant,
             assistantSettings: assistantSettings,
             onMessagePresented: onMessagePresented,
+            accountsModel: accountsModel,
             debugAssistantOpen: false,
             debugReaderAssistantOpen: false
         )
@@ -101,6 +118,7 @@ public struct InboxScreen: View {
         textAssistant: (any OnDeviceTextAssisting)? = nil,
         assistantSettings: AssistantSettingsStore? = nil,
         onMessagePresented: @escaping (String) -> Void = { _ in },
+        accountsModel: AccountsModel? = nil,
         debugAssistantOpen: Bool,
         debugAssistantScope: InboxAssistantScope = .workspace,
         debugReaderAssistantOpen: Bool = false
@@ -111,6 +129,7 @@ public struct InboxScreen: View {
         self.textAssistant = textAssistant
         self.assistantSettings = assistantSettings
         self.onMessagePresented = onMessagePresented
+        self.accountsModel = accountsModel
         self.composerIntelligence = textAssistant.map {
             OnDeviceAssistantBridge.composerGenerator(using: $0)
         }
@@ -136,23 +155,55 @@ public struct InboxScreen: View {
     /// `internal`: `AgendaHojeTests` afere a decisão sem renderizar nada.
     var agendaAnchor: Date { clock.today }
 
+    /// Contagem local vs Entrada do Gmail, quando uma conta está selecionada.
+    var mailboxPortrait: MailboxPortrait? {
+        let page = store.conversationPage(limit: MessageList.rowPageSize)
+        let conta = store.selectedAccountID.flatMap { store.account($0) }
+        let status: AccountStatus?
+        if let id = store.selectedAccountID {
+            status = accountsModel?.statuses.first { $0.accountID == id }
+        } else {
+            status = accountsModel?.statuses.count == 1 ? accountsModel?.statuses.first : nil
+        }
+        return MailboxPortrait.from(
+            account: conta,
+            status: status,
+            localCount: page.messageCount,
+            hasMore: page.hasMore
+        )
+    }
+
     public var body: some View {
         VStack(spacing: 0) {
             // Barra do topo (58px)
             WindowChrome(
                 workspace: $workspace,
                 query: $query,
+                searchEverywhere: Binding(
+                    get: { store.searchEverywhere },
+                    set: { store.searchEverywhere = $0 }
+                ),
                 accountCount: store.accounts.count,
                 onToggleSidebar: toggleSidebar,
                 onToggleAgenda: toggleAgenda,
                 onCompose: openNewMessage,
                 accountMonogram: accountMonogram,
-                onOpenAccounts: openAccounts
+                onOpenAccounts: openAccounts,
+                syncStatus: MailboxChromeStatus.from(accountsModel?.statuses ?? []),
+                syncCaption: MailboxChromeStatus.lastSyncedCaption(from: accountsModel?.statuses ?? []),
+                onReloadMailbox: accountsModel == nil ? nil : { [accountsModel] in
+                    Task { await accountsModel?.syncNow() }
+                },
+                onSearchFocusChange: { searchFocused = $0 }
             )
 
             ZStack(alignment: .trailing) {
                 // Conteúdo principal
                 switch workspace {
+                case .dashboard:
+                    AgendaClockReader(clock) { now in
+                        dashboardContent(now: now)
+                    }
                 case .mail:
                     // A lista depende do mesmo relógio vivo que o MailStore
                     // recebe. O reader a redesenha a cada minuto; assim, a
@@ -175,8 +226,10 @@ public struct InboxScreen: View {
         }
         .environment(receipts)
         .task { await subscribeToSource() }
+        .task { await accountsModel?.start() }
         .onChange(of: query) { _, newQuery in
             Task { await searchChanged(to: newQuery) }
+            workspace = workspace.switchingToMailIfSearching(newQuery)
         }
         // Revelar uma mensagem pode vir de **fora** desta tela: o botão "Email"
         // da janela 04 é outra cena e só alcança o `MailStore`. `revealCount`
@@ -185,6 +238,17 @@ public struct InboxScreen: View {
         .onChange(of: store.revealCount) { _, _ in
             workspace = .mail
             query = store.query
+        }
+        .bareKeyShortcuts { key in
+            guard key == .escape else { return false }
+            let wasSearch = searchFocused || BareKeyFocus.isSearchField(
+                NSApp.keyWindow?.firstResponder
+            )
+            let acted = handleEscape()
+            if acted, wasSearch {
+                NSApp.keyWindow?.makeFirstResponder(nil)
+            }
+            return acted
         }
     }
 
@@ -221,6 +285,49 @@ public struct InboxScreen: View {
     func searchChanged(to termo: String) async {
         store.query = termo
         await store.refreshBodyMatches()
+    }
+
+    /// Esc: uma camada por toque. A busca focada, o assistente, o lote, o
+    /// termo que ainda recorta a lista. `searchFocused` o teste passa; na
+    /// tela, o foco vivo da barra e o respondedor do AppKit se combinam.
+    @discardableResult
+    func handleEscape(searchFocused forced: Bool? = nil) -> Bool {
+        let focused: Bool
+        if let forced {
+            focused = forced
+        } else {
+            #if canImport(AppKit)
+            focused = searchFocused || BareKeyFocus.isSearchField(
+                NSApp.keyWindow?.firstResponder
+            )
+            #else
+            focused = searchFocused
+            #endif
+        }
+        let termo = query.isEmpty ? store.query : query
+        guard let step = EscapeCancel.next(
+            searchFocused: focused,
+            query: termo,
+            assistantOpen: assistantOpen,
+            selecting: store.hasChecked,
+            overlayOpen: dashboardReadingID != nil
+        ) else { return false }
+        switch step {
+        case .search, .searchQuery:
+            query = ""
+            store.query = ""
+            searchFocused = false
+            return true
+        case .overlay:
+            dashboardReadingID = nil
+            return true
+        case .assistant:
+            closeAssistant()
+            return true
+        case .selection:
+            store.clearChecked()
+            return true
+        }
     }
 
     /// O `GeometryReader` existe por um motivo só: dar a largura real da janela
@@ -271,14 +378,19 @@ public struct InboxScreen: View {
                     // mensagem com **este** dia: `Fixtures.today` no mundo
                     // congelado dos retratos, o dia da máquina com conta real.
                     today: agendaAnchor,
-                    onOpenWindow: openMessageWindow
+                    onOpenWindow: openMessageWindow,
+                    portraitCaption: mailboxPortrait?.countCaption,
+                    gapCaption: mailboxPortrait?.gapCaption,
+                    onPullMissing: mailboxPortrait?.gapCaption == nil ? nil : { [accountsModel] in
+                        Task { await accountsModel?.syncNow() }
+                    }
                 )
 
                 // Painel de leitura: fica com tudo o que sobrar.
                 ReaderPane(
                     store: store,
                     debugEmailAssistantOpen: debugReaderAssistantOpen,
-                    onReply: openComposer,
+                    onCompose: { openWindow(id: UNIWindow.composer, value: $0.value) },
                     attachmentSaver: NativeAttachmentSaver(),
                     intelligence: composerIntelligence,
                     intelligencePresentation: intelligencePresentation,
@@ -403,6 +515,30 @@ public struct InboxScreen: View {
     /// parecerem a mesma coisa.
     private static let paneTransition: Animation = .easeInOut(duration: 0.18)
 
+    /// Briefing de prioridades. Sem lateral e sem trilha: o recorte já
+    /// mistura e-mail e agenda, e as outras duas abas existem para o
+    /// detalhe. Clicar um e-mail abre a leitura por cima; "Abrir na Caixa"
+    /// é que cai em `reveal`.
+    func dashboardContent(now: Int) -> some View {
+        DashboardScreen(
+            store: store,
+            now: now,
+            today: agendaAnchor,
+            transcript: $dashboardTranscript,
+            draft: $dashboardDraft,
+            selectedMailID: $dashboardSelectedMailID,
+            readingMailID: $dashboardReadingID,
+            onPresented: onMessagePresented,
+            onOpenMessage: { reveal($0.id) },
+            onOpenEvent: openEventWindow,
+            onShowMail: { workspace = .mail },
+            onShowCalendar: { workspace = .calendar },
+            onAsk: { request, scope in
+                try await askAssistant(request, scope: scope)
+            }
+        )
+    }
+
     /// A aba Agenda leva a **mesma** barra lateral do email, porque no
     /// protótipo ela é do shell e não da tela do email — ver `CalendarScreen`.
     /// Por isso `wantsSidebar` atravessa daqui: é a intenção que o botão da
@@ -428,13 +564,12 @@ public struct InboxScreen: View {
 
     // MARK: - Janelas
 
-    /// 03 Composer. Gancho do "Responder" no leitor.
-    private func openComposer(_ message: Message) {
-        openWindow(id: UNIWindow.composer, value: message.id)
-    }
-
     /// 05 Email em janela. Gancho do duplo clique na lista.
     private func openMessageWindow(_ message: Message) {
+        if message.bucket == .drafts {
+            openWindow(id: UNIWindow.composer, value: ComposerRoute.draft(messageID: message.id).value)
+            return
+        }
         openWindow(id: UNIWindow.message, value: message.id)
     }
 
@@ -592,6 +727,7 @@ public struct InboxScreen: View {
             using: textAssistant
         )
     }
+
 }
 
 #if os(macOS)

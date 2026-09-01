@@ -623,6 +623,12 @@ public struct SyncDatabase: Sendable {
         migrator.registerMigration("v13") { db in
             try db.execute(sql: "ALTER TABLE message ADD COLUMN category TEXT")
         }
+        // A v14: aliases de envio por conta. JSON aditivo, como a assinatura
+        // rica: conta antiga abre com lista vazia e o endereço principal
+        // continua sendo o único From.
+        migrator.registerMigration("v14") { db in
+            try db.execute(sql: "ALTER TABLE account ADD COLUMN aliasesJSON TEXT")
+        }
         return migrator
     }
 }

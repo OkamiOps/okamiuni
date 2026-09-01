@@ -87,6 +87,13 @@ struct MimeSanitizeTests {
         #expect(!limpo.lowercased().contains("script:"))
     }
 
+    @Test("O fechamento quebrado do pré-cabeçalho vira </div> — senão a mensagem some")
+    func fechamentoQuebradoNaoEngoleAMensagem() throws {
+        #expect(MimeSanitize.tagRecuperada(de: "=\"\" div=\"\"") == "div")
+        let soOFecho = try #require(MimeSanitize.sanitize(html: "<=\"\" div=\"\">"))
+        #expect(soOFecho == "</div>")
+    }
+
     // MARK: As imagens da própria mensagem
 
     @Test("cid: vira data: com os bytes que vieram na mensagem")

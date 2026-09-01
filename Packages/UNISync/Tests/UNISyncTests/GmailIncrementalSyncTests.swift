@@ -174,10 +174,13 @@ struct GmailIncrementalSyncTests {
         #expect(try await marcador(db) == "777")
     }
 
-    @Test("Nada mudou: um ciclo ocioso não busca rótulo nem mensagem nenhuma")
+    @Test("Nada mudou: um ciclo ocioso não busca mensagem nenhuma")
     func cicloOciosoCustaUmaViagem() async throws {
         let db = try await bancoCarregado()
         let session = StubURLProtocol.session(routes: [
+            "/gmail/v1/users/me/labels/INBOX": [.json(
+                #"{"id":"INBOX","name":"INBOX","type":"system","messagesTotal":165}"#
+            )],
             "/gmail/v1/users/me/history": [.json("{\"historyId\":\"100\"}")],
         ])
 
@@ -186,10 +189,15 @@ struct GmailIncrementalSyncTests {
         )
 
         #expect(saida.gravadas == 0)
-        // Uma ida e volta, e só. O ciclo ocioso é o caso comum — ele roda a
-        // cada minuto, em toda conta, para sempre.
+        #expect(saida.remoteInboxCount == 165)
+        // Duas idas e voltas, e só: o total da Entrada e o histórico vazio.
+        // Sem isto o retrato da caixa mente; sem o teto, o ciclo ocioso
+        // voltaria a listar rótulos e mensagens a cada minuto.
         let caminhos = StubURLProtocol.requests(for: session).map(\.path)
-        #expect(caminhos == ["/gmail/v1/users/me/history"])
+        #expect(caminhos == [
+            "/gmail/v1/users/me/labels/INBOX",
+            "/gmail/v1/users/me/history",
+        ])
     }
 
     // MARK: Bandeiras
@@ -390,6 +398,9 @@ struct GmailIncrementalSyncTests {
             "{\"history\":[],\"nextPageToken\":\"sempre-o-mesmo\",\"historyId\":\"200\"}"
         )
         let session = StubURLProtocol.session(routes: [
+            "/gmail/v1/users/me/labels/INBOX": [.json(
+                #"{"id":"INBOX","name":"INBOX","type":"system","messagesTotal":0}"#
+            )],
             "/gmail/v1/users/me/history": [pagina, pagina, pagina],
         ])
 
@@ -398,7 +409,8 @@ struct GmailIncrementalSyncTests {
                 account: self.conta, client: self.cliente(session), now: self.agora
             )
         }
-        // Duas viagens e para: a segunda é a que reconhece o token repetido.
-        #expect(StubURLProtocol.requests(for: session).count == 2)
+        // Três viagens e para: Entrada, a primeira página, e a que reconhece
+        // o token repetido.
+        #expect(StubURLProtocol.requests(for: session).count == 3)
     }
 }

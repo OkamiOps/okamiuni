@@ -733,6 +733,24 @@ struct SwipeActionTests {
         #expect(SwipeReceipt.of(.today, message: message(bucket: .today), stamp: "14:32") == nil)
     }
 
+    @Test("o recibo de um lote fala da contagem de conversas")
+    func batchReceiptNamesTheCount() throws {
+        let a = try #require(Conversation(key: "a", messages: [message(id: "a")]))
+        let b = try #require(Conversation(key: "b", messages: [message(id: "b")]))
+        let receipt = try #require(
+            SwipeReceipt.ofBatch(
+                .archive,
+                conversations: [a, b],
+                states: [MessageState(a.latest), MessageState(b.latest)],
+                stamp: "14:32"
+            )
+        )
+        #expect(receipt.note == "Arquivada — 2 conversas · 14:32")
+        #expect(receipt.undo == .restoreConversation(states: [
+            MessageState(a.latest), MessageState(b.latest),
+        ]))
+    }
+
     // MARK: - Configuração
 
     @Test("o padrão é duas de cada lado, como foi pedido")

@@ -44,6 +44,7 @@ struct ConversationTests {
         // Dentro da conversa, a ordem é a que ela aconteceu.
         #expect(conversa.messages.map(\.id) == ["a", "b", "c"])
         #expect(conversa.latest.id == "c")
+        #expect(conversa.newestFirst.map(\.id) == ["c", "b", "a"])
         #expect(conversa.countLabel == "3")
     }
 
@@ -362,6 +363,35 @@ struct ConversationStoreTests {
         #expect(port.concluiuLeitura)
     }
 
+    /// A queixa do dono: a conversa agrupada fica marcada como não lida porque
+    /// uma mensagem antiga da pilha nunca foi aberta, e a pilha não diz qual.
+    /// Abrir a mais recente **é** ler a conversa — as anteriores são contexto,
+    /// não trabalho restante.
+    @Test("Selecionar a mais recente marca a conversa inteira como lida")
+    func lerAUltimaMarcaAConversa() async throws {
+        let espia = Espia()
+        let store = await store(trio, port: espia)
+        store.select(message: "c")
+
+        #expect(store.messages.allSatisfy { $0.isRead })
+        #expect(store.conversation(of: "c")?.hasUnread == false)
+        await store.waitForPendingCommands()
+        #expect(Set(espia.reads.first?.1 ?? []) == ["a", "c"])
+    }
+
+    /// Ir para uma mensagem antiga da conversa não é ler a conversa: é ler
+    /// aquela. A mais recente que ainda não foi aberta continua trabalho.
+    @Test("Selecionar uma mensagem antiga marca só ela")
+    func lerAntigaNaoMarcaAConversa() async throws {
+        let store = await store(trio)
+        store.select(message: "a")
+        let porID = Dictionary(uniqueKeysWithValues: store.messages.map { ($0.id, $0) })
+        #expect(porID["a"]?.isRead == true)
+        #expect(porID["b"]?.isRead == true)
+        #expect(porID["c"]?.isRead == false)
+        #expect(store.conversation(of: "c")?.hasUnread == true)
+    }
+
     @Test("Cache hit continua observando mudanças das mensagens")
     func cacheMantemObservacao() async {
         let store = await store([msg("cache", at: 100, isRead: true)])
@@ -404,5 +434,250 @@ struct ConversationStoreTests {
         #expect(store.selectedConversation?.key == "t1")
         #expect(store.conversation(of: "b")?.count == 3)
         #expect(store.conversation(of: "inexistente") == nil)
+    }
+
+    @Test("Marcar e desmarcar uma conversa não mexe no leitor")
+    func marcarNaoAbre() async throws {
+        let store = await store(trio + [msg("z", at: 50, subject: "Outro")])
+        store.select(message: "z")
+        let chave = try #require(store.conversation(of: "c")?.key)
+        store.toggleChecked(chave)
+        #expect(store.isChecked(chave))
+        #expect(store.selectedMessageID == "z")
+        store.toggleChecked(chave)
+        #expect(!store.isChecked(chave))
+    }
+
+    @Test("Selecionar todas marca cada conversa visível, em qualquer caixa")
+    func selecionarTodasEmQualquerCaixa() async throws {
+        let store = await store(trio + [msg("z", at: 50, subject: "Outro")])
+        store.select(bucket: .all)
+        store.selectAllVisible()
+        #expect(store.allVisibleChecked)
+        #expect(store.checkedConversations.count == 2)
+
+        store.select(bucket: .later)
+        #expect(store.checkedConversations.count <= 1)
+    }
+
+    @Test("Trocar de caixa descarta as marcas que saíram da visão")
+    func trocarDeCaixaPodandoMarcas() async throws {
+        let store = await store([
+            msg("hoje", at: 300, bucket: .today),
+            msg("depois", at: 200, bucket: .later),
+        ])
+        store.select(bucket: .later)
+        store.selectAllVisible()
+        #expect(store.checkedConversations.map(\.latest.id) == ["depois"])
+        store.select(bucket: .archived)
+        #expect(store.checkedConversations.map(\.latest.id) == [])
+        #expect(!store.allVisibleChecked)
+    }
+
+    @Test("O checkbox do cabeçalho marca todas ou limpa, em Arquivado também")
+    func checkboxDoCabecalhoEmArquivado() async throws {
+        let store = await store([
+            msg("a", at: 300, subject: "Um", bucket: .archived),
+            msg("b", at: 200, subject: "Dois", bucket: .archived),
+        ])
+        store.select(bucket: .archived)
+        store.toggleSelectAllVisible()
+        #expect(store.allVisibleChecked)
+        store.toggleSelectAllVisible()
+        #expect(store.checkedConversationKeys.isEmpty)
+    }
+
+    @Test("Mover o lote para fora da caixa limpa as marcas")
+    func moverLoteLimpaMarcas() async throws {
+        let store = await store([
+            msg("a", at: 300, subject: "Um", bucket: .archived),
+            msg("b", at: 200, subject: "Dois", bucket: .archived),
+        ])
+        store.select(bucket: .archived)
+        store.selectAllVisible()
+        #expect(store.checkedConversations.count == 2)
+        #expect(store.checkedAccountID == "zoho")
+        for conversa in store.checkedConversations {
+            store.move(conversa, to: .later)
+        }
+        #expect(store.messages.allSatisfy { $0.bucket == .later })
+        #expect(store.checkedConversationKeys.isEmpty)
+        #expect(!store.hasChecked)
+    }
+
+    @Test("A página da lista não materializa a caixa inteira")
+    func paginaNaoMaterializaTudo() async {
+        let muitas = (0..<40).map { i in
+            msg("m\(i)", at: TimeInterval(2000 - i), subject: "S\(i)", bucket: .later)
+        }
+        let store = await store(muitas)
+        store.select(bucket: .all)
+        let page = store.conversationPage(limit: 10)
+        #expect(page.conversations.count == 10)
+        #expect(page.hasMore)
+        #expect(page.messageCount == 10)
+        #expect(page.conversations.first?.latest.id == "m0")
+        #expect(page.conversations.last?.latest.id == "m9")
+        let resto = store.conversationPage(limit: 10)
+        #expect(resto.conversations.map(\.latest.id) == page.conversations.map(\.latest.id))
+        let cheia = store.conversationPage(limit: 40)
+        #expect(cheia.conversations.count == 40)
+        #expect(!cheia.hasMore)
+        #expect(cheia.messageCount == 40)
+        // O clique em Tudo para nas primeiras linhas; o resto entra no scroll.
+        let curta = store.conversationPage(limit: 5)
+        #expect(curta.conversations.map(\.latest.id) == ["m0", "m1", "m2", "m3", "m4"])
+        #expect(curta.hasMore)
+        #expect(curta.messageCount == 5)
+    }
+
+    @Test("Clicar em Tudo para nas primeiras 20 mesmo com milhares de HTML")
+    func cliqueEmTudoParaNasPrimeiras() async {
+        let html = String(repeating: "<p>abcdefghij</p>", count: 80)
+        let muitas = (0..<2_000).map { i in
+            Message(
+                id: "m\(i)", accountID: "zoho",
+                from: Contact(name: "Marina", address: "marina@x.com"),
+                receivedAt: Date(timeIntervalSince1970: TimeInterval(20_000 - i)),
+                subject: "S\(i)", snippet: "trecho", body: ["corpo"], tags: [],
+                bucket: .later, isRead: true, summary: nil, detectedEvent: nil,
+                bodyHTML: html
+            )
+        }
+        let store = await store(muitas)
+        let t0 = ContinuousClock.now
+        store.select(bucket: .all)
+        let page = store.conversationPage(limit: 20)
+        let elapsed = t0.duration(to: .now)
+        #expect(page.conversations.count == 20)
+        #expect(page.hasMore)
+        #expect(page.conversations.first?.latest.id == "m0")
+        #expect(elapsed < .milliseconds(150))
+    }
+
+    @Test("Pastas e página de Tudo não copiam a caixa no clique")
+    func pastasDeTudoNaoCopiamACaixa() async {
+        var muitas: [Message] = []
+        muitas.reserveCapacity(8_000)
+        for i in 0..<8_000 {
+            let caixa: TriageBucket = i % 20 == 0 ? .later : .later
+            let conta = i % 3 == 0 ? "a" : "b"
+            muitas.append(msg("m\(i)", at: TimeInterval(80_000 - i), subject: "S", bucket: caixa, accountID: conta))
+        }
+        let store = await store(muitas)
+        store.select(bucket: TriageBucket.today)
+        _ = store.folders(of: "a")
+        let t0 = ContinuousClock.now
+        store.select(bucket: TriageBucket.all)
+        let page = store.conversationPage(limit: 20)
+        _ = store.folders(of: "a")
+        _ = store.folders(of: "b")
+        let elapsed = t0.duration(to: .now)
+        #expect(page.conversations.count == 20)
+        #expect(elapsed < .milliseconds(40))
+    }
+
+    @Test("Voltar a Tudo reusa a página já montada")
+    func paginaDeTudoSobreviveIdaEVolta() async {
+        let muitas = (0..<40).map { i in
+            msg("m\(i)", at: TimeInterval(2000 - i), subject: "S\(i)", bucket: .later)
+        }
+        let store = await store(muitas)
+        store.select(bucket: .all)
+        let tudo = store.conversationPage(limit: 10)
+        #expect(tudo.conversations.count == 10)
+        store.select(bucket: .today)
+        _ = store.conversationPage(limit: 10)
+        store.select(bucket: .later)
+        _ = store.conversationPage(limit: 10)
+        store.select(bucket: .archived)
+        _ = store.conversationPage(limit: 10)
+        let depoisDasOutras = store.conversationPageBuildCount
+        store.select(bucket: .all)
+        let deNovo = store.conversationPage(limit: 10)
+        #expect(store.conversationPageBuildCount == depoisDasOutras)
+        #expect(deNovo == tudo)
+    }
+
+    @Test("A página da lista não leva o HTML; o leitor ainda o tem")
+    func paginaNaoLevaHTML() async {
+        let html = String(repeating: "<p>x</p>", count: 200)
+        let fat = Message(
+            id: "fat", accountID: "zoho",
+            from: Contact(name: "Marina", address: "marina@x.com"),
+            receivedAt: Date(timeIntervalSince1970: 2000),
+            subject: "HTML", snippet: "trecho", body: ["texto"], tags: [],
+            bucket: .later, isRead: true, summary: nil, detectedEvent: nil,
+            bodyHTML: html
+        )
+        let resto = (1..<20).map {
+            msg("m\($0)", at: TimeInterval(2000 - $0), subject: "S\($0)", bucket: .later)
+        }
+        let store = await store([fat] + resto)
+        store.select(bucket: .all)
+        let page = store.conversationPage(limit: 10)
+        let naLista = page.conversations.first { $0.latest.id == "fat" }
+        #expect(naLista != nil)
+        #expect(naLista?.latest.bodyHTML == nil)
+        #expect(naLista?.latest.body.isEmpty == true)
+        #expect(store.conversation(of: "fat")?.latest.bodyHTML == html)
+        #expect(store.conversation(of: "fat")?.latest.body == ["texto"])
+    }
+
+    @Test("Contar por conta não materializa a caixa")
+    func contarPorContaNaoCopiaTudo() async {
+        let zoho = (0..<8).map {
+            msg("z\($0)", at: TimeInterval(300 - $0), bucket: .later, accountID: "zoho")
+        }
+        let gmail = (0..<3).map {
+            msg("g\($0)", at: TimeInterval(100 - $0), bucket: .later, accountID: "gmail")
+        }
+        let store = await store(zoho + gmail)
+        #expect(store.count(forAccount: "zoho") == 8)
+        #expect(store.count(forAccount: "gmail") == 3)
+        #expect(store.count(forAccount: "nao") == 0)
+        #expect(store.trashCount() == 0)
+        store.select(bucket: .today)
+        store.select(bucket: .all)
+        #expect(store.count(forAccount: "zoho") == 8)
+    }
+
+    @Test("A seta desce e sobe uma conversa na lista, e para na ponta")
+    func setaAndaNaLista() async throws {
+        let store = await store([
+            msg("z", at: 400, subject: "Outro"),
+            msg("c", thread: "t1", at: 300),
+            msg("a", thread: "t1", at: 100),
+        ])
+        store.select(message: "z")
+        #expect(store.selectAdjacentConversation(offset: 1))
+        #expect(store.selectedMessageID == "c")
+        #expect(store.selectedConversation?.key == "t1")
+        #expect(store.selectAdjacentConversation(offset: 1))
+        #expect(store.selectedMessageID == "c")
+        #expect(store.selectAdjacentConversation(offset: -1))
+        #expect(store.selectedMessageID == "z")
+        #expect(store.selectAdjacentConversation(offset: -1))
+        #expect(store.selectedMessageID == "z")
+    }
+
+    @Test("Caixa vazia não engole a seta")
+    func setaEmCaixaVazia() async {
+        let store = await store([msg("z", at: 400, subject: "Outro", bucket: .archived)])
+        store.select(bucket: .today)
+        #expect(!store.selectAdjacentConversation(offset: 1))
+        #expect(!store.selectAdjacentConversation(offset: -1))
+    }
+
+    @Test("O lote mistura contas e aí não há pasta comum")
+    func loteMisturaContas() async throws {
+        let store = await store([
+            msg("a", at: 300, subject: "Um", bucket: .later, accountID: "zoho"),
+            msg("b", at: 200, subject: "Dois", bucket: .later, accountID: "gmail"),
+        ])
+        store.select(bucket: .later)
+        store.selectAllVisible()
+        #expect(store.checkedConversations.count == 2)
+        #expect(store.checkedAccountID == nil)
     }
 }

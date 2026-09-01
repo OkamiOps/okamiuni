@@ -183,4 +183,91 @@ struct BareKeyTests {
         #expect(BareKey(character: "r") == nil)
         #expect(BareKey(character: BareKey.delete.character) == .delete)
     }
+
+    @Test("as setas da lista são as teclas 126 e 125, sem modificador")
+    func arrowsAreTheListKeys() {
+        #expect(BareKey.up.keyCode == 126)
+        #expect(BareKey.down.keyCode == 125)
+        #expect(BareKey.match(keyCode: 126, hasModifier: false) == .up)
+        #expect(BareKey.match(keyCode: 125, hasModifier: false) == .down)
+        #expect(BareKey.match(keyCode: 126, hasModifier: true) == nil)
+        #expect(BareKey.match(keyCode: 125, hasModifier: true) == nil)
+        #expect(BareKey.up.symbol == "↑")
+        #expect(BareKey.down.symbol == "↓")
+    }
+
+    @Test("Esc é a tecla 53, sem modificador")
+    func escapeIsTheCancelKey() {
+        #expect(BareKey.escape.keyCode == 53)
+        #expect(BareKey.escape.symbol == "Esc")
+        #expect(BareKey.match(keyCode: 53, hasModifier: false) == .escape)
+        #expect(BareKey.match(keyCode: 53, hasModifier: true) == nil)
+        #expect(BareKey(character: BareKey.escape.character) == .escape)
+    }
+}
+
+@Suite("Esc cancela a ação mais local")
+struct EscapeCancelTests {
+
+    @Test("na busca, Esc cancela o campo — mesmo com assistente ou lote atrás")
+    func searchWins() {
+        #expect(
+            EscapeCancel.next(
+                searchFocused: true, query: "beatriz",
+                assistantOpen: true, selecting: true
+            ) == .search
+        )
+        #expect(
+            EscapeCancel.next(
+                searchFocused: true, query: "",
+                assistantOpen: false, selecting: false
+            ) == .search
+        )
+    }
+
+    @Test("sem o campo focado, o assistente vence o lote e o termo")
+    func assistantThenSelectionThenQuery() {
+        #expect(
+            EscapeCancel.next(
+                searchFocused: false, query: "beatriz",
+                assistantOpen: true, selecting: true
+            ) == .assistant
+        )
+        #expect(
+            EscapeCancel.next(
+                searchFocused: false, query: "beatriz",
+                assistantOpen: false, selecting: true
+            ) == .selection
+        )
+        #expect(
+            EscapeCancel.next(
+                searchFocused: false, query: "beatriz",
+                assistantOpen: false, selecting: false
+            ) == .searchQuery
+        )
+        #expect(
+            EscapeCancel.next(
+                searchFocused: false, query: "  ",
+                assistantOpen: false, selecting: false
+            ) == nil
+        )
+    }
+
+    @Test("o modal do dashboard vence o assistente e o lote")
+    func overlayWins() {
+        #expect(
+            EscapeCancel.next(
+                searchFocused: false, query: "beatriz",
+                assistantOpen: true, selecting: true,
+                overlayOpen: true
+            ) == .overlay
+        )
+        #expect(
+            EscapeCancel.next(
+                searchFocused: true, query: "",
+                assistantOpen: false, selecting: false,
+                overlayOpen: true
+            ) == .search
+        )
+    }
 }

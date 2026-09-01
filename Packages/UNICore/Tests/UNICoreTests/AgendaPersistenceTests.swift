@@ -134,6 +134,7 @@ struct ManualAgendaItemTests {
         #expect(criado.detail?.meetingLink == "https://empresa.webex.com/meet/revisao")
         #expect(criado.detail?.note == "Criado manualmente")
         #expect(criado.detail?.descricao == "Confirmar a pauta.")
+        #expect(RecurrenceRule.parse(criado.detail?.recurrence) == RecurrenceRule.none)
 
         let relido = MailStore(
             source: source, agendaPort: port, agendaReferenceDay: { hoje }
@@ -157,5 +158,73 @@ struct ManualAgendaItemTests {
 
         #expect(criado == nil)
         #expect(store.agenda.isEmpty)
+    }
+
+    @Test("Recorrência semanal entra no compromisso")
+    func guardaRecorrencia() async throws {
+        let store = MailStore(
+            source: InMemoryMailSource(accounts: [conta], messages: [], agenda: [])
+        )
+        await store.load()
+        let rule = RecurrenceRule(frequency: .weekly, interval: 1, weekdays: [2, 4])
+        let criado = try #require(store.addManualAgendaItem(
+            title: "Standup", startMinute: 540, endMinute: 570,
+            dayOffset: 0, accountID: conta.id, recurrence: rule
+        ))
+        #expect(RecurrenceRule.parse(criado.detail?.recurrence) == rule)
+        #expect(RecurrenceRule.display(criado.detail?.recurrence ?? "") == rule.label)
+    }
+
+    @Test("Convidados entram no compromisso e o convite sai na fila")
+    func convidaEEnvia() async throws {
+        final class SendPort: MailSendPort, @unchecked Sendable {
+            var sent: [OutgoingMessage] = []
+            func send(_ message: OutgoingMessage) throws { sent.append(message) }
+        }
+        let port = SendPort()
+        let store = MailStore(
+            source: InMemoryMailSource(accounts: [conta], messages: [], agenda: []),
+            sendPort: port
+        )
+        await store.load()
+        let convidada = Contact(name: "Ana", address: "ana@cliente.com")
+        let criado = try #require(store.addManualAgendaItem(
+            title: "Kickoff", startMinute: 540, endMinute: 600,
+            dayOffset: 0, accountID: conta.id,
+            meetingLink: "https://meet.google.com/aaa-bbbb-ccc",
+            guests: [convidada]
+        ))
+        #expect(criado.detail?.people.map(\.address) == ["ana@cliente.com"])
+        #expect(criado.detail?.people.first?.role == "convidado")
+        #expect(port.sent.count == 1)
+        let enviado = try #require(port.sent.first)
+        #expect(enviado.to.map(\.address) == ["ana@cliente.com"])
+        #expect(enviado.calendarICS?.contains("METHOD:REQUEST") == true)
+        #expect(enviado.calendarICS?.contains("ana@cliente.com") == true)
+        #expect(enviado.calendarICS?.contains("meet.google.com") == true)
+        #expect(enviado.plainText.contains("Kickoff"))
+    }
+
+    @Test("Cancelar reunião tira da agenda e avisa os convidados")
+    func cancelaReuniao() async throws {
+        final class SendPort: MailSendPort, @unchecked Sendable {
+            var sent: [OutgoingMessage] = []
+            func send(_ message: OutgoingMessage) throws { sent.append(message) }
+        }
+        let port = SendPort()
+        let store = MailStore(
+            source: InMemoryMailSource(accounts: [conta], messages: [], agenda: []),
+            sendPort: port
+        )
+        await store.load()
+        let criado = try #require(store.addManualAgendaItem(
+            title: "Kickoff", startMinute: 540, endMinute: 600,
+            dayOffset: 0, accountID: conta.id,
+            guests: [Contact(name: "Ana", address: "ana@cliente.com")]
+        ))
+        store.cancelMeeting(criado.id)
+        #expect(store.agenda.contains { $0.id == criado.id } == false)
+        #expect(port.sent.contains { $0.calendarICS?.contains("METHOD:CANCEL") == true })
+        #expect(port.sent.contains { $0.subject.hasPrefix("Cancelado:") })
     }
 }

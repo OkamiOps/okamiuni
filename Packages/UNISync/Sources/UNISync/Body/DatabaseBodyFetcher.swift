@@ -50,6 +50,7 @@ public actor DatabaseBodyFetcher: BodyFetching {
     }
 
     public func fetchBody(accountID: String, messageID: String) async throws -> FetchedBody {
+        if let local = try await corpoLocal(messageID) { return local }
         guard let conta = try await database.pool.read({ db in
             try AccountRecord.fetchOne(db, key: accountID)?.account
         }) else {
@@ -84,6 +85,30 @@ public actor DatabaseBodyFetcher: BodyFetching {
             calendarICS: corpo.calendar,
             attachments: attachments
         )
+    }
+
+    /// Corpo que o app já gravou — rascunho local, ou mensagem cujo envelope
+    /// chegou sem o texto na lista. Sem isto, `local-draft-…` não tem
+    /// coordenada de servidor e a busca rebentava com "não foi possível
+    /// descobrir onde esta mensagem está".
+    private func corpoLocal(_ messageID: String) async throws -> FetchedBody? {
+        try await database.pool.read { db in
+            guard let linha = try MessageBodyRecord
+                .filter(Column("messageID") == messageID)
+                .fetchOne(db)
+            else { return nil }
+            let anexos = try MessageAttachmentRecord
+                .filter(Column("messageID") == messageID)
+                .order(Column("id"))
+                .fetchAll(db)
+                .map(\.attachment)
+            return FetchedBody(
+                paragraphs: linha.body,
+                html: linha.html ?? "",
+                calendarICS: linha.calendarICS,
+                attachments: anexos
+            )
+        }
     }
 
     // MARK: A viagem
@@ -125,9 +150,12 @@ public actor DatabaseBodyFetcher: BodyFetching {
                     }
                 )
             }
+            let ics = await GmailCalendar.completar(
+                mensagem, cliente: cliente, serverID: serverID
+            )
             return MimeBody.Decoded(
                 text: mensagem.body.joined(separator: "\n\n"),
-                html: mensagem.html, calendar: mensagem.calendarICS
+                html: mensagem.html, calendar: ics
             )
 
         case .imap(let pasta, let uidValidity, let uid):

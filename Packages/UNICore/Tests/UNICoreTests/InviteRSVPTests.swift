@@ -41,6 +41,60 @@ struct InviteRSVPTests {
     func rotulosDeAcaoEEstado() {
         #expect(InviteRSVPResponse.allCases.map(\.actionLabel) == ["Aceitar", "Talvez", "Recusar"])
         #expect(InviteRSVPResponse.allCases.map(\.label) == ["Aceito", "Talvez", "Recusado"])
+        #expect(InviteRSVPResponse.tentative.otherResponses.map(\.actionLabel) == ["Aceitar", "Recusar"])
+        #expect(InviteRSVPResponse.accepted.otherResponses.map(\.actionLabel) == ["Talvez", "Recusar"])
+        #expect(InviteRSVPResponse.declined.otherResponses.map(\.actionLabel) == ["Aceitar", "Talvez"])
+        #expect(InviteRSVPResponse.accepted.placesOnAgenda)
+        #expect(InviteRSVPResponse.tentative.placesOnAgenda)
+        #expect(!InviteRSVPResponse.declined.placesOnAgenda)
+    }
+
+    @Test("Aceitar e Talvez põem o compromisso na agenda; Recusar tira")
+    func aceitarColocaNaAgenda() async throws {
+        let port = SendPort()
+        let aceitar = MailStore(
+            source: InMemoryMailSource(accounts: [account], messages: [message], agenda: []),
+            sendPort: port
+        )
+        await aceitar.load()
+        #expect(aceitar.respondToInvite(invite, from: message, response: .accepted) == .queued(.accepted))
+        #expect(aceitar.agenda.contains { $0.calendarUID == "evento-42" })
+
+        let recusar = MailStore(
+            source: InMemoryMailSource(accounts: [account], messages: [message], agenda: []),
+            sendPort: SendPort()
+        )
+        await recusar.load()
+        #expect(recusar.respondToInvite(invite, from: message, response: .declined) == .queued(.declined))
+        #expect(recusar.agenda.isEmpty)
+    }
+
+    @Test("Recusar tira o compromisso que o Aceitar tinha posto")
+    func recusarTiraDaAgenda() async throws {
+        let store = MailStore(
+            source: InMemoryMailSource(accounts: [account], messages: [message], agenda: []),
+            sendPort: SendPort()
+        )
+        await store.load()
+        #expect(store.respondToInvite(invite, from: message, response: .accepted) == .queued(.accepted))
+        #expect(!store.agenda.isEmpty)
+        #expect(store.respondToInvite(invite, from: message, response: .declined) == .queued(.declined))
+        #expect(store.agenda.isEmpty)
+    }
+
+    @Test("resposta já gravada ainda coloca na agenda ao reabrir o convite")
+    func ensureAgendaReabre() async throws {
+        let store = MailStore(
+            source: InMemoryMailSource(accounts: [account], messages: [message], agenda: []),
+            sendPort: SendPort()
+        )
+        await store.load()
+        #expect(store.respondToInvite(invite, from: message, response: .tentative) == .queued(.tentative))
+        let id = try #require(store.agenda.first?.id)
+        store.removeFromAgenda(id)
+        #expect(store.agenda.isEmpty)
+        store.ensureAgendaForRSVP(invite, from: message)
+        #expect(store.agenda.contains { $0.calendarUID == "evento-42" })
     }
 
     /// Mutation check: trocar METHOD ou PARTSTAT no construtor abaixo torna
@@ -111,6 +165,20 @@ struct InviteRSVPTests {
         )
         #expect(
             InviteRSVP.unavailableReason(for: cancelado, account: account, canQueue: true) == .cancelled
+        )
+    }
+
+    @Test("Quem organizou o evento não responde como convidado")
+    func organizadorNaoEConvidado() {
+        let proprio = CalendarInvite(
+            summary: "Meet", start: nil, end: nil,
+            organizer: Contact(name: "Eu", address: account.address),
+            attendees: [Contact(name: "Outra", address: "outra@cliente.example")],
+            uid: "meet-1"
+        )
+        #expect(
+            InviteRSVP.unavailableReason(for: proprio, account: account, canQueue: true)
+                == .accountIsOrganizer
         )
     }
 }
