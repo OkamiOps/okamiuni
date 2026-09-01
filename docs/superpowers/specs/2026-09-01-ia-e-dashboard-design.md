@@ -11,8 +11,11 @@ são executados em ordem, cada um com o próprio plano de implementação em
 3. **Triagem por IA** — a análise persistida passa a dizer *por que* um email importa.
 4. **Agente com ações** — o assistente propõe ações tipadas; nada executa sem clique.
 
-Um sub-projeto só começa quando o anterior está verde (compila, 2247+ testes
-passando, capturas conferidas).
+Um sub-projeto só começa quando o anterior está verde (compila, suíte dos quatro pacotes
+sem falha nova, capturas conferidas). Linha de base medida em 2026-09-01 sobre `main`
+(0a6330a): 4 falhas pré-existentes, nenhuma de IA ou dashboard —
+`DatabaseMailSourceTests.swift:57`, `DatabaseBodyFetcherTests.swift:180`,
+`GmailMirrorTests.swift:110` (UNISync) e `QuickReplyBandTests.swift:817` (UNIShell).
 
 ---
 
@@ -162,7 +165,7 @@ Regras:
 
 ### 1.5 Disponibilidade e erros
 
-`AssistantRouter.availability()` vira:
+`AssistantRouter` ganha `assistantAvailability()` (o `availability()` do protocolo `TextAssisting`, que devolve `AppleIntelligenceAvailability` e mora em UNICore, passa a derivar dele):
 
 ```swift
 enum AssistantAvailability: Sendable, Hashable {
@@ -222,7 +225,7 @@ janela de mensagem o usam. Turnos `kind: .draft` não passam por ele.
 - `MessageIntelligenceCoordinator.processPending` consulta `analyzer.availability()`;
   para a rota remota isso é `AssistantAvailability` mapeada. Falha de auth ou rede em
   três mensagens seguidas **pausa a fila** com estado `paused(reason)` persistido em
-  `sync_state`, visível na barra lateral ("Análise pausada: {motivo} · Tentar de novo").
+  `analysis_queue_state` (tabela nova de linha única, migração `v15`; `sync_state` é por conta e a fila é global), visível na barra lateral ("Análise pausada: {motivo} · Tentar de novo").
   Nunca cai para o Mac em silêncio.
 - Ajustes: toggle "Analisar mensagens novas automaticamente com {label}" dentro do
   cartão do provedor, com a frase "Cada mensagem recebida sai deste Mac para {host}." Só
@@ -342,7 +345,7 @@ Após arquivar/depois a linha some com a animação padrão da lista e o
 > "Faça um briefing do meu dia em até 120 palavras: o que exige resposta hoje, os
 > compromissos de hoje em ordem, e o que pode esperar. Cite remetentes e horários."
 
-O resultado vive em `AssistantConversation.briefing: String?` (sessão, não persiste) e é
+O resultado vive em `AssistantConversation.briefingText: String?` (sessão, não persiste; não pode se chamar `briefing` porque o método já ocupa o nome) e é
 independente do transcript. Só dispara por clique.
 
 ### 2.6 Testes
@@ -380,7 +383,7 @@ substring literal do texto analisado; caso contrário é descartado na validaç�
 
 ### 3.2 Persistência
 
-Migração `v15` em `SyncDatabase`: coluna `triage TEXT NULL` (JSON) em
+Migração `v16` em `SyncDatabase` (a `v15` é do sub-projeto 1): coluna `triage TEXT NULL` (JSON) em
 `message_intelligence`, mais `triage_needs_reply INTEGER` e `triage_deadline_at REAL`
 desnormalizados para ordenação. `MessageIntelligenceStore` lê e escreve os três.
 `MailItem` ganha `triage: MessageTriage?` hidratado no `LEFT JOIN` já existente
