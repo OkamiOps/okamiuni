@@ -690,6 +690,66 @@ struct InboxAssistantIntegrationTests {
             Issue.record("O ícone do leitor perdeu o contexto do email")
         }
     }
+
+    @Test("pergunta no email usa o HTML hidratado, não o snippet da lista")
+    func emailQuestionUsesHydratedHTML() async throws {
+        let html = "<p>Hi Marcos,</p><p>1. What is/was your role with IGEL OS?</p>"
+        let message = Message(
+            id: "m1",
+            accountID: "conta-a",
+            from: Contact(name: "Jayden", address: "jayden@x.com"),
+            receivedAt: Date(timeIntervalSince1970: 1_800_000_000),
+            subject: "Paid Consultation",
+            snippet: "Hi Marcos, I'm reaching out",
+            body: [],
+            tags: [],
+            bucket: .today,
+            isRead: false,
+            summary: nil,
+            detectedEvent: nil
+        )
+        let fonte = InMemoryMailSource(
+            accounts: [Account(
+                id: "conta-a", address: "eu@x.com", displayName: "Eu",
+                provider: .imap, host: "x", tintLightHex: "#3F6AA1", tintDarkHex: "#8CBAF7"
+            )],
+            messages: [message],
+            agenda: []
+        )
+        let store = MailStore(
+            source: fonte,
+            bodyPort: ImmediateAssistantBodyPort(
+                body: FetchedBody(
+                    paragraphs: ["Hi Marcos, I'm reaching out to gauge your interest."],
+                    html: html
+                )
+            )
+        )
+        await store.load()
+        store.select(message: "m1")
+        let assistant = RecordingIntegrationAssistant()
+        let screen = InboxScreen(store: store, textAssistant: assistant)
+        let request = LocalAssistantRequest(
+            context: .init(subject: "Paid Consultation"),
+            question: "Traduz e me resume",
+            conversation: []
+        )
+
+        _ = try await screen.askAssistant(request, scope: .email("m1"))
+
+        #expect(store.messages.first?.body.isEmpty == true)
+        guard case let .email(context) = try #require(await assistant.lastContext()) else {
+            Issue.record("A pergunta não entregou o email hidratado")
+            return
+        }
+        #expect(context.html == html)
+        #expect(context.body.contains("Hi Marcos"))
+    }
+}
+
+private struct ImmediateAssistantBodyPort: BodyFetching {
+    let body: FetchedBody
+    func fetchBody(accountID: String, messageID: String) async throws -> FetchedBody { body }
 }
 
 private actor ReaderReplyRecorder {

@@ -876,16 +876,12 @@ public struct ReaderPane: View {
         let ids = store.conversation(of: messageID)?.messageIDs ?? [messageID]
         for id in ids { await store.loadBodyIfNeeded(id) }
 
-        guard let message = store.messages.first(where: { $0.id == messageID }) else {
+        guard let message = store.message(messageID),
+              let context = store.assistantMailContext(for: messageID)
+        else {
             throw OnDeviceTextAssistantError.invalidRequest(
                 "O email selecionado não está mais disponível."
             )
-        }
-        let context: OnDeviceAssistantMailContext
-        if let conversation = store.conversation(of: messageID), conversation.count > 1 {
-            context = OnDeviceAssistantMailContext(conversation: conversation)
-        } else {
-            context = OnDeviceAssistantMailContext(message: message)
         }
         let request = ComposerIntelligenceRequest(
             action: .createReply,

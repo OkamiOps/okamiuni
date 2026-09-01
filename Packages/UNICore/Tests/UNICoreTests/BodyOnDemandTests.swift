@@ -101,6 +101,32 @@ struct BodyOnDemandTests {
         #expect(await porta.quantasChamadas == 1)
     }
 
+    @Test("O assistente lê o HTML hidratado, não o snippet da lista")
+    func assistantUsesHydratedHTMLNotListSnippet() async throws {
+        let html = "<p>Hi Marcos,</p><p>1. What is/was your role with IGEL OS?</p>"
+        let porta = PortaConduzida(resposta: .success(
+            FetchedBody(
+                paragraphs: ["Hi Marcos, I'm reaching out to gauge your interest."],
+                html: html
+            )
+        ))
+        let store = store(porta: porta, html: nil)
+        await store.load()
+        await store.loadBodyIfNeeded("m1")
+
+        #expect(store.messages.first?.body.isEmpty == true)
+        #expect(store.messages.first?.hasHTML == false)
+        #expect(store.message("m1")?.bodyHTML == html)
+
+        guard case let .email(context) = store.assistantMailContext(for: "m1") else {
+            Issue.record("Esperava contexto de um email hidratado")
+            return
+        }
+        #expect(context.html == html)
+        #expect(context.body.contains("Hi Marcos"))
+        #expect(OnDeviceAssistantEmailContext(message: store.messages.first!).html == nil)
+    }
+
     @Test("Mensagem que já tem corpo e já foi decodificada não gasta viagem nenhuma")
     func comCorpoNaoBusca() async throws {
         let porta = PortaConduzida(resposta: .success(FetchedBody(paragraphs: ["não devia ser pedido"])))

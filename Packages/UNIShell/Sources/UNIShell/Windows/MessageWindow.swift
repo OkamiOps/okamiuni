@@ -273,16 +273,10 @@ public struct MessageWindow: View {
         let ids = store.conversation(of: messageID)?.messageIDs ?? [messageID]
         for id in ids { await store.loadBodyIfNeeded(id) }
 
-        guard let current = store.messages.first(where: { $0.id == messageID }) else {
+        guard let mailContext = store.assistantMailContext(for: messageID) else {
             throw OnDeviceTextAssistantError.invalidRequest(
                 "O email selecionado não está mais disponível."
             )
-        }
-        let mailContext: OnDeviceAssistantMailContext
-        if let conversation = store.conversation(of: current.id), conversation.count > 1 {
-            mailContext = .init(conversation: conversation)
-        } else {
-            mailContext = .init(message: current)
         }
         return try await OnDeviceAssistantBridge.answer(
             request,

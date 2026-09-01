@@ -110,7 +110,8 @@ public struct OpenAICompatibleTextAssistant: OnDeviceTextAssisting, Sendable {
             ),
             prompt: FoundationModelsTextAssistantPrompt.answer(
                 question: question,
-                conversation: conversation
+                conversation: conversation,
+                budget: .configured
             )
         )
         return try FoundationModelsTextAssistantValidation.response(response)
@@ -133,7 +134,8 @@ public struct OpenAICompatibleTextAssistant: OnDeviceTextAssisting, Sendable {
             prompt: FoundationModelsTextAssistantPrompt.transform(
                 text: text,
                 action: action,
-                context: context
+                context: context,
+                budget: .configured
             )
         )
         return try FoundationModelsTextAssistantValidation.response(response)

@@ -14,6 +14,17 @@ struct OnDeviceAssistantMailContextTests {
         #expect(context.body == message.body.joined(separator: "\n\n"))
     }
 
+    @Test("HTML da mensagem acompanha o contexto para a IA configurada")
+    func htmlFollowsTheMessage() throws {
+        let original = Fixtures.messages[0]
+        let html = "<p>Hi Marcos,</p><ol><li>What is IGEL OS?</li></ol>"
+        let message = original.withBody(["Hi Marcos, I'm reaching out."], html: html, calendarICS: nil)
+        let context = OnDeviceAssistantEmailContext(message: message)
+
+        #expect(context.body == "Hi Marcos, I'm reaching out.")
+        #expect(context.html == html)
+    }
+
     @Test("Snippet cobre uma mensagem cujo corpo ainda não chegou")
     func snippetFallback() throws {
         let original = Fixtures.messages[0]

@@ -62,7 +62,11 @@ public struct AssistantProviderOAuthTextAssistant: OnDeviceTextAssisting, Sendab
         let question = try FoundationModelsTextAssistantValidation.question(question)
         return try FoundationModelsTextAssistantValidation.response(try await complete(
             instructions: FoundationModelsTextAssistantPrompt.answerInstructions(additionalInstructions: additionalInstructions),
-            input: FoundationModelsTextAssistantPrompt.answer(question: question, conversation: conversation)
+            input: FoundationModelsTextAssistantPrompt.answer(
+                question: question,
+                conversation: conversation,
+                budget: .configured
+            )
         ))
     }
 
@@ -70,7 +74,12 @@ public struct AssistantProviderOAuthTextAssistant: OnDeviceTextAssisting, Sendab
         let text = try FoundationModelsTextAssistantValidation.transformText(text, action: action, context: context)
         return try FoundationModelsTextAssistantValidation.response(try await complete(
             instructions: FoundationModelsTextAssistantPrompt.transformInstructions(additionalInstructions: additionalInstructions),
-            input: FoundationModelsTextAssistantPrompt.transform(text: text, action: action, context: context)
+            input: FoundationModelsTextAssistantPrompt.transform(
+                text: text,
+                action: action,
+                context: context,
+                budget: .configured
+            )
         ))
     }
 

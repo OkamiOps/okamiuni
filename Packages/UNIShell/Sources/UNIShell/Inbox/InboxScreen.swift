@@ -710,16 +710,12 @@ public struct InboxScreen: View {
             let ids = store.conversation(of: messageID)?.messageIDs ?? [messageID]
             for id in ids { await store.loadBodyIfNeeded(id) }
 
-            guard let message = store.messages.first(where: { $0.id == messageID }) else {
+            guard let loaded = store.assistantMailContext(for: messageID) else {
                 throw OnDeviceTextAssistantError.invalidRequest(
                     "O email selecionado não está mais disponível."
                 )
             }
-            if let conversation = store.conversation(of: messageID), conversation.count > 1 {
-                mailContext = OnDeviceAssistantMailContext(conversation: conversation)
-            } else {
-                mailContext = OnDeviceAssistantMailContext(message: message)
-            }
+            mailContext = loaded
         }
         return try await OnDeviceAssistantBridge.answer(
             request,

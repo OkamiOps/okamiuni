@@ -305,6 +305,42 @@ struct AssistantProviderOAuthTests {
         #expect(headerNames.isSubset(of: ["accept", "authorization", "content-type"]))
     }
 
+    @Test("xAI recebe o HTML completo quando o text/plain é só a abertura")
+    func configuredXAIReceivesHTMLWhenPlainIsAStub() async throws {
+        let transport = TextAssistantTransportStub { request in
+            Self.json(request, ["output_text": "Tradução completa."])
+        }
+        let assistant = try AssistantProviderOAuthTextAssistant(
+            configuration: .init(kind: .xAI, model: "grok-4"),
+            accessToken: "subscription-token",
+            transport: transport
+        )
+        let html = """
+        <p>Hi Marcos,</p>
+        <p>1. What is/was your role with IGEL OS, UMS, or Stratodesk?</p>
+        <p>2. What is IGEL's product portfolio?</p>
+        """
+
+        _ = try await assistant.answer(
+            question: "traduz e resume",
+            in: .init(mailContext: .email(.init(
+                subject: "Paid Consultation",
+                sender: "Jayden Sutherland",
+                body: "Hi Marcos, I'm reaching out to gauge your interest.",
+                html: html
+            )))
+        )
+
+        let body = try #require(transport.capturedCalls().first?.request.httpBody)
+        let object = try JSONSerialization.jsonObject(with: body)
+        let payload = try #require(object as? [String: Any])
+        let input = try #require(payload["input"] as? String)
+        #expect(input.contains("IGEL OS"))
+        #expect(input.contains("Stratodesk"))
+        #expect(input.contains("product portfolio"))
+        #expect(!input.contains(FoundationModelsTextAssistantPrompt.omittedMiddleMarker))
+    }
+
     @Test("xAI interrompe redirects antes de reutilizar o bearer")
     func refusesRedirectsForAuthenticatedResponses() async throws {
         let transport = TextAssistantTransportStub { request in

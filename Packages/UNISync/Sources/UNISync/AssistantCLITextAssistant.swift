@@ -476,7 +476,8 @@ public struct AssistantCLITextAssistant: OnDeviceTextAssisting, Sendable {
             ),
             prompt: FoundationModelsTextAssistantPrompt.answer(
                 question: question,
-                conversation: conversation
+                conversation: conversation,
+                budget: .configured
             )
         )
     }
@@ -498,7 +499,8 @@ public struct AssistantCLITextAssistant: OnDeviceTextAssisting, Sendable {
             prompt: FoundationModelsTextAssistantPrompt.transform(
                 text: text,
                 action: action,
-                context: context
+                context: context,
+                budget: .configured
             )
         )
     }

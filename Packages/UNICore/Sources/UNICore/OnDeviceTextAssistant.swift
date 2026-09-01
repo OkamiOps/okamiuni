@@ -10,19 +10,25 @@ public struct OnDeviceAssistantEmailContext: Sendable, Hashable {
     public let recipients: [String]
     public let sentAt: Date?
     public let body: String
+    /// HTML sanitizado da mensagem, quando existe. O adaptador remoto usa isto
+    /// para montar o texto completo: o `text/plain` do Gmail costuma ser só a
+    /// abertura, e o restante mora no HTML.
+    public let html: String?
 
     public init(
         subject: String,
         sender: String,
         recipients: [String] = [],
         sentAt: Date? = nil,
-        body: String
+        body: String,
+        html: String? = nil
     ) {
         self.subject = subject
         self.sender = sender
         self.recipients = recipients
         self.sentAt = sentAt
         self.body = body
+        self.html = html
     }
 }
 

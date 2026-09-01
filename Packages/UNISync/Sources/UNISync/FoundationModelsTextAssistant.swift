@@ -7,7 +7,7 @@ import UNICore
 public struct FoundationModelsTextAssistant: OnDeviceTextAssisting {
     /// Versão da política de prompts deste adaptador, e não da versão interna
     /// do modelo do sistema.
-    public static let currentModelVersion = "foundation-models/text-assistant-v3"
+    public static let currentModelVersion = "foundation-models/text-assistant-v4"
 
     public let modelVersion: String
     /// Preferências editáveis da pessoa. Elas entram em uma camada própria de
@@ -51,7 +51,8 @@ public struct FoundationModelsTextAssistant: OnDeviceTextAssisting {
             let response = try await session.respond(
                 to: FoundationModelsTextAssistantPrompt.answer(
                     question: question,
-                    conversation: conversation
+                    conversation: conversation,
+                    budget: .onDevice
                 )
             ).content
             return try FoundationModelsTextAssistantValidation.response(response)
@@ -87,7 +88,8 @@ public struct FoundationModelsTextAssistant: OnDeviceTextAssisting {
             let response = try await session.respond(to: FoundationModelsTextAssistantPrompt.transform(
                 text: text,
                 action: action,
-                context: context
+                context: context,
+                budget: .onDevice
             )).content
             return try FoundationModelsTextAssistantValidation.response(response)
         } catch let error as OnDeviceTextAssistantError {
@@ -179,6 +181,31 @@ enum FoundationModelsTextAssistantPrompt {
     static let maximumWorkspacePendingCharacters = 600
     static let maximumAdditionalInstructionsCharacters = AssistantSettings.maximumAdditionalInstructionsCharacters
     static let omittedMiddleMarker = "\n[…]\n"
+    /// Teto de segurança da IA configurada: cabe o email inteiro de verdade,
+    /// sem o recorte de 8 mil da Foundation Models.
+    static let configuredBodyCharacters = 400_000
+    static let configuredMaximumEmails = 256
+    static let configuredMaximumHistoryTurns = 64
+
+    /// Orçamento do prompt. A Foundation Models local tem janela curta; Grok,
+    /// LiteLLM e CLI aguentam o email completo — e é isso que a pessoa pediu.
+    struct Budget: Sendable, Equatable {
+        var maximumBodyCharacters: Int
+        var maximumEmails: Int
+        var maximumHistoryTurns: Int
+
+        static let onDevice = Budget(
+            maximumBodyCharacters: FoundationModelsTextAssistantPrompt.maximumTextCharacters,
+            maximumEmails: FoundationModelsTextAssistantPrompt.maximumEmails,
+            maximumHistoryTurns: FoundationModelsTextAssistantPrompt.maximumHistoryTurns
+        )
+
+        static let configured = Budget(
+            maximumBodyCharacters: configuredBodyCharacters,
+            maximumEmails: configuredMaximumEmails,
+            maximumHistoryTurns: configuredMaximumHistoryTurns
+        )
+    }
 
     static let answerInstructions = """
     Você é um copiloto local de e-mail, analítico e prático. Atenda à intenção
@@ -247,7 +274,11 @@ enum FoundationModelsTextAssistantPrompt {
         """
     }
 
-    static func answer(question: String, conversation: OnDeviceAssistantConversation) -> String {
+    static func answer(
+        question: String,
+        conversation: OnDeviceAssistantConversation,
+        budget: Budget = .onDevice
+    ) -> String {
         """
         Responda à pergunta atual em português do Brasil com a profundidade que
         ela exigir. Comece pela resposta mais útil.
@@ -265,11 +296,11 @@ enum FoundationModelsTextAssistantPrompt {
         </current-question>
 
         <untrusted-app-context>
-        \(mailContext(conversation.mailContext))
+        \(mailContext(conversation.mailContext, budget: budget))
         </untrusted-app-context>
 
         <untrusted-assistant-history>
-        \(history(conversation.turns))
+        \(history(conversation.turns, budget: budget))
         </untrusted-assistant-history>
         """
     }
@@ -277,7 +308,8 @@ enum FoundationModelsTextAssistantPrompt {
     static func transform(
         text: String,
         action: OnDeviceWritingAction,
-        context: OnDeviceAssistantMailContext?
+        context: OnDeviceAssistantMailContext?,
+        budget: Budget = .onDevice
     ) -> String {
         let contextBlock: String
         let usesMailContext: Bool
@@ -300,7 +332,7 @@ enum FoundationModelsTextAssistantPrompt {
             contextBlock = """
 
             <untrusted-app-context>
-            \(mailContext(context))
+            \(mailContext(context, budget: budget))
             </untrusted-app-context>
             """
         } else {
@@ -359,22 +391,39 @@ enum FoundationModelsTextAssistantPrompt {
             + String(value.suffix(suffixCount))
     }
 
-    private static func mailContext(_ context: OnDeviceAssistantMailContext) -> String {
+    private static func mailContext(
+        _ context: OnDeviceAssistantMailContext,
+        budget: Budget
+    ) -> String {
         switch context {
         case let .email(email):
-            return render(email, index: 1)
+            return render(email, index: 1, budget: budget)
         case let .conversation(emails):
-            let omitted = max(0, emails.count - maximumEmails)
-            let latestEmails = emails.suffix(maximumEmails)
+            let omitted = max(0, emails.count - budget.maximumEmails)
+            let latestEmails = emails.suffix(budget.maximumEmails)
             let marker = omitted > 0
                 ? "[\(omitted) e-mail(s) anterior(es) removido(s) para caber no contexto.]\n"
                 : ""
             return marker + latestEmails.enumerated().map { offset, email in
-                render(email, index: omitted + offset + 1)
+                render(email, index: omitted + offset + 1, budget: budget)
             }.joined(separator: "\n")
         case let .workspace(workspace):
             return render(workspace)
         }
+    }
+
+    /// O `text/plain` do provedor costuma ser só a abertura; o HTML traz o
+    /// resto (listas, perguntas, rodapé). A IA configurada precisa do maior.
+    static func readableBody(plain: String, html: String?) -> String {
+        let plain = plain.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let html, !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return plain
+        }
+        let fromHTML = MimeBody.textFromHTML(html)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if fromHTML.isEmpty { return plain }
+        if plain.isEmpty { return fromHTML }
+        return fromHTML.count > plain.count ? fromHTML : plain
     }
 
     private static func render(_ workspace: OnDeviceAssistantWorkspaceContext) -> String {
@@ -494,9 +543,17 @@ enum FoundationModelsTextAssistantPrompt {
         """
     }
 
-    private static func render(_ email: OnDeviceAssistantEmailContext, index: Int) -> String {
+    private static func render(
+        _ email: OnDeviceAssistantEmailContext,
+        index: Int,
+        budget: Budget
+    ) -> String {
         let recipients = renderRecipients(email.recipients)
         let timestamp = email.sentAt.map(iso8601) ?? "não informado"
+        let body = bounded(
+            readableBody(plain: email.body, html: email.html),
+            maximumCharacters: budget.maximumBodyCharacters
+        )
         return """
         <email index="\(index)">
         subject: \(escapedData(bounded(email.subject, maximumCharacters: maximumSubjectCharacters)))
@@ -504,7 +561,7 @@ enum FoundationModelsTextAssistantPrompt {
         recipients: \(recipients)
         sentAt: \(timestamp)
         body:
-        \(escapedData(email.body))
+        \(escapedData(body))
         </email>
         """
     }
@@ -521,9 +578,12 @@ enum FoundationModelsTextAssistantPrompt {
         return rendered.joined(separator: ", ")
     }
 
-    private static func history(_ turns: [OnDeviceAssistantTurn]) -> String {
-        let omitted = max(0, turns.count - maximumHistoryTurns)
-        let latestTurns = turns.suffix(maximumHistoryTurns)
+    private static func history(
+        _ turns: [OnDeviceAssistantTurn],
+        budget: Budget
+    ) -> String {
+        let omitted = max(0, turns.count - budget.maximumHistoryTurns)
+        let latestTurns = turns.suffix(budget.maximumHistoryTurns)
         let marker = omitted > 0
             ? "[\(omitted) turno(s) anterior(es) removido(s) para caber no contexto.]\n"
             : ""

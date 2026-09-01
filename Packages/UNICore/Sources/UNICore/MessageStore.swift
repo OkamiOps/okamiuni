@@ -1762,6 +1762,18 @@ public final class MailStore {
         buildConversation(containing: messageID)
     }
 
+    /// Contexto factual para o assistente: o corpo que o leitor já buscou,
+    /// nunca a linha da lista. A lista não guarda HTML de propósito — gravar
+    /// o payload ali invalidava o cache de Tudo. Quem pergunta à IA e usa
+    /// `messages.first` manda só o snippet, e o modelo acha o email incompleto.
+    public func assistantMailContext(for messageID: String) -> OnDeviceAssistantMailContext? {
+        guard let message = message(messageID) else { return nil }
+        if let conversation = conversation(of: messageID), conversation.count > 1 {
+            return OnDeviceAssistantMailContext(conversation: conversation)
+        }
+        return OnDeviceAssistantMailContext(message: message)
+    }
+
     private func buildConversation(containing messageID: String) -> Conversation? {
         let referenceDay = agendaReferenceDay()
         let normalizedQuery = query.trimmingCharacters(in: .whitespaces)

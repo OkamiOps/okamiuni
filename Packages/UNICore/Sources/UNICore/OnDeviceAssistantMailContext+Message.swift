@@ -12,7 +12,8 @@ public extension OnDeviceAssistantEmailContext {
             sender: message.from.display,
             recipients: (message.to + message.cc).map(\.display),
             sentAt: message.receivedAt,
-            body: paragraphs.isEmpty ? message.snippet : paragraphs.joined(separator: "\n\n")
+            body: paragraphs.isEmpty ? message.snippet : paragraphs.joined(separator: "\n\n"),
+            html: message.hasHTML ? message.bodyHTML : nil
         )
     }
 }
