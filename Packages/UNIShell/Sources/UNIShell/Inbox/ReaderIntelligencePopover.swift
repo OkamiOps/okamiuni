@@ -96,7 +96,6 @@ struct ReaderIntelligencePopover: View {
 
     @Binding private var panelSize: CGSize
     @State private var conversation: AssistantConversation
-    @State private var task: Task<Void, Never>?
     @State private var resizeOrigin: CGSize?
 
     init(
@@ -116,14 +115,19 @@ struct ReaderIntelligencePopover: View {
         _panelSize = panelSize
         _conversation = State(
             initialValue: AssistantConversation(
+                scope: .email,
                 context: context,
+                // A Task 9 liga o popover ao destino configurado; aqui ele
+                // ainda não conhece os Ajustes.
+                destination: .unconfigured,
+                engine: AssistantEngine(supportsDraftReply: false) { request in
+                    if request.question == Action.reply.question {
+                        return try await onGenerateReply()
+                    }
+                    return try await onAsk(request)
+                },
                 debugState: Self.debugState(for: initialPhase)
-            ) { request in
-                if request.question == Action.reply.question {
-                    return try await onGenerateReply()
-                }
-                return try await onAsk(request)
-            }
+            )
         )
     }
 
@@ -147,7 +151,7 @@ struct ReaderIntelligencePopover: View {
         }
         .overlay(alignment: .bottomTrailing) { resizeHandle }
         .shadow(color: .black.opacity(0.20), radius: 16, x: 0, y: 10)
-        .onDisappear { task?.cancel() }
+        .onDisappear { conversation.cancel() }
         .accessibilityIdentifier("reader-intelligence-popover")
     }
 
@@ -217,8 +221,8 @@ struct ReaderIntelligencePopover: View {
                         emptyConversation
                     }
 
-                    if let error = conversation.errorMessage {
-                        errorBand(error)
+                    if let failure = conversation.failure {
+                        errorBand(failure.message)
                     }
 
                     if conversation.isLoading {
@@ -394,7 +398,7 @@ struct ReaderIntelligencePopover: View {
 
                 if conversation.canRetry {
                     Button("Tentar de novo") {
-                        task = Task { await conversation.retry() }
+                        conversation.retry()
                     }
                     .buttonStyle(.plain)
                     .font(theme.sans.font(size: 10.5, weight: .semibold))
@@ -598,16 +602,12 @@ struct ReaderIntelligencePopover: View {
 
     private func run(_ action: Action) {
         guard canInteract, !action.question.isEmpty else { return }
-        task = Task {
-            await conversation.run(action.suggestion)
-        }
+        conversation.run(action.suggestion)
     }
 
     private func submit() {
         guard canSend else { return }
-        task = Task {
-            await conversation.submit()
-        }
+        conversation.submit()
     }
 
     private func shouldOfferReplyUse(for message: AssistantMessage) -> Bool {
@@ -630,8 +630,7 @@ struct ReaderIntelligencePopover: View {
                 messages: action.question.isEmpty
                     ? []
                     : [.init(speaker: .user, text: action.question)],
-                isLoading: true,
-                lastQuestion: action.question.isEmpty ? nil : action.question
+                isLoading: true
             )
         case .preview(let action, let text):
             var messages: [AssistantMessage] = []
@@ -641,7 +640,9 @@ struct ReaderIntelligencePopover: View {
             messages.append(.init(speaker: .assistant, text: text))
             return AssistantPanelDebugState(messages: messages)
         case .failure(let message):
-            return AssistantPanelDebugState(errorMessage: message)
+            return AssistantPanelDebugState(
+                failure: AssistantFailure(message: message, recovery: .retry)
+            )
         }
     }
 

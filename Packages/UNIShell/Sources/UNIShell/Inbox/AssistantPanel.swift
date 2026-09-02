@@ -122,159 +122,6 @@ public enum AssistantScope: Sendable, Hashable {
     }
 }
 
-public enum AssistantSpeaker: String, Sendable, Hashable {
-    case user
-    case assistant
-}
-
-public struct AssistantMessage: Identifiable, Sendable, Hashable {
-    public let id: UUID
-    public let speaker: AssistantSpeaker
-    public let text: String
-
-    public init(id: UUID = UUID(), speaker: AssistantSpeaker, text: String) {
-        self.id = id
-        self.speaker = speaker
-        self.text = text
-    }
-}
-
-/// A entrada entregue ao motor por uma fiação externa ao shell.
-public struct AssistantRequest: Sendable, Hashable {
-    public let context: AssistantContext
-    public let question: String
-    public let conversation: [AssistantMessage]
-
-    public init(context: AssistantContext, question: String, conversation: [AssistantMessage]) {
-        self.context = context
-        self.question = question
-        self.conversation = conversation
-    }
-}
-
-/// Estado construível para previews e renderização fora da tela. Ele elimina a
-/// necessidade de disparar uma pergunta de verdade só para conferir a UI.
-public struct AssistantPanelDebugState: Sendable, Hashable {
-    public var messages: [AssistantMessage]
-    public var draft: String
-    public var isLoading: Bool
-    public var errorMessage: String?
-    public var lastQuestion: String?
-
-    public init(
-        messages: [AssistantMessage] = [],
-        draft: String = "",
-        isLoading: Bool = false,
-        errorMessage: String? = nil,
-        lastQuestion: String? = nil
-    ) {
-        self.messages = messages
-        self.draft = draft
-        self.isLoading = isLoading
-        self.errorMessage = errorMessage
-        self.lastQuestion = lastQuestion
-    }
-
-    public static let empty = AssistantPanelDebugState()
-}
-
-/// Estado observável da conversa. Mantê-lo no shell torna a transição
-/// pergunta → carregando → resposta/erro testável sem acoplar a View a um
-/// motor concreto.
-@MainActor
-@Observable
-public final class AssistantConversation {
-    public private(set) var messages: [AssistantMessage]
-    public var draft: String
-    public private(set) var isLoading: Bool
-    public private(set) var errorMessage: String?
-
-    private let context: AssistantContext
-    private let onAsk: (AssistantRequest) async throws -> String
-    private var lastQuestion: String?
-
-    public init(
-        context: AssistantContext,
-        debugState: AssistantPanelDebugState = .empty,
-        onAsk: @escaping (AssistantRequest) async throws -> String
-    ) {
-        self.context = context
-        self.messages = debugState.messages
-        self.draft = debugState.draft
-        self.isLoading = debugState.isLoading
-        self.errorMessage = debugState.errorMessage
-        self.lastQuestion = debugState.lastQuestion
-        self.onAsk = onAsk
-    }
-
-    public var canSend: Bool {
-        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    public var canRetry: Bool {
-        lastQuestion != nil && !isLoading
-    }
-
-    public var hasConversation: Bool { !messages.isEmpty }
-
-    /// Uma ação rápida é realmente de um toque: entra no mesmo fluxo de
-    /// pergunta, carregamento, resposta e retry do campo livre.
-    public func run(_ suggestion: AssistantSuggestion) async {
-        guard !isLoading else { return }
-        draft = suggestion.question
-        await submit()
-    }
-
-    public func clear() {
-        guard !isLoading else { return }
-        messages.removeAll()
-        draft = ""
-        errorMessage = nil
-        lastQuestion = nil
-    }
-
-    public func submit() async {
-        let question = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !question.isEmpty, !isLoading else { return }
-
-        messages.append(.init(speaker: .user, text: question))
-        draft = ""
-        lastQuestion = question
-        await ask(question)
-    }
-
-    public func retry() async {
-        guard let lastQuestion, !isLoading else { return }
-        await ask(lastQuestion)
-    }
-
-    private func ask(_ question: String) async {
-        isLoading = true
-        errorMessage = nil
-        defer { isLoading = false }
-
-        do {
-            let response = try await onAsk(
-                .init(context: context, question: question, conversation: messages)
-            ).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !response.isEmpty else {
-                errorMessage = AssistantCopy.emptyResponse
-                return
-            }
-            messages.append(.init(speaker: .assistant, text: response))
-        } catch is CancellationError {
-            // Fechar uma janela não deve deixar a conversa marcada como falha.
-        } catch {
-            let description = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-            // O estado pode mudar entre abrir o painel e fazer a pergunta
-            // (Apple Intelligence desligada, modelo ainda preparando). Quando o
-            // motor explica o motivo, a pessoa precisa vê-lo; a frase genérica
-            // só cobre erros sem descrição aproveitável.
-            errorMessage = description.isEmpty ? AssistantCopy.requestFailed : description
-        }
-    }
-}
-
 /// Painel de perguntas sobre a mensagem aberta ou sobre o ambiente local.
 ///
 /// A resposta é uma closure assíncrona injetada pelo app. Por isso esta peça
@@ -285,41 +132,31 @@ public struct AssistantPanel: View {
 
     @Environment(\.theme) private var theme
     @Environment(\.displayScale) private var displayScale
-    @State private var conversation: AssistantConversation
 
-    private let mode: AssistantScope
-    private let context: AssistantContext
+    private let conversation: AssistantConversation
     private let suggestions: [AssistantSuggestion]
-    /// A rota vem da configuração que o app vai usar para esta pergunta. Não
-    /// descreve o resumo automático, que é um recurso local separado.
-    private let providerLabel: String
     private let onClose: () -> Void
+    private let onOpenSettings: () -> Void
     private let width: CGFloat
 
     public init(
-        mode: AssistantScope = .email,
-        context: AssistantContext,
+        conversation: AssistantConversation,
         suggestions: [AssistantSuggestion]? = nil,
-        providerLabel: String = "Provedor configurado",
         width: CGFloat = AssistantPanel.defaultWidth,
-        debugState: AssistantPanelDebugState = .empty,
-        onAsk: @escaping (AssistantRequest) async throws -> String,
+        onOpenSettings: @escaping () -> Void = {},
         onClose: @escaping () -> Void
     ) {
-        self.mode = mode
-        self.context = context
-        self.suggestions = suggestions ?? mode.suggestions
-        self.providerLabel = providerLabel
+        self.conversation = conversation
+        self.suggestions = suggestions ?? conversation.scope.suggestions
         self.width = width
+        self.onOpenSettings = onOpenSettings
         self.onClose = onClose
-        _conversation = State(
-            initialValue: AssistantConversation(
-                context: context,
-                debugState: debugState,
-                onAsk: onAsk
-            )
-        )
     }
+
+    /// Atalhos de leitura: o escopo e o contexto são da conversa, que é a
+    /// única dona do estado. O painel não guarda cópia de nenhum dos dois.
+    private var mode: AssistantScope { conversation.scope }
+    private var context: AssistantContext { conversation.context }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -335,8 +172,12 @@ public struct AssistantPanel: View {
                         emptyConversation
                     }
 
-                    if let error = conversation.errorMessage {
-                        errorBand(error)
+                    if let failure = conversation.failure {
+                        AssistantFailureBand(
+                            failure: failure,
+                            onRetry: conversation.retry,
+                            onOpenSettings: onOpenSettings
+                        )
                     }
 
                     if conversation.isLoading {
@@ -357,7 +198,8 @@ public struct AssistantPanel: View {
                 .strokeBorder(theme.line2.color, lineWidth: Hairline.thickness(displayScale))
         }
         .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
-        .accessibilityIdentifier("local-assistant-panel")
+        .accessibilityIdentifier("assistant-panel")
+        .onDisappear { conversation.cancel() }
     }
 
     private var header: some View {
@@ -375,7 +217,7 @@ public struct AssistantPanel: View {
                     .foregroundStyle(theme.ink.color)
                     .lineLimit(1)
                     .minimumScaleFactor(0.82)
-                Text(providerLabel.uppercased())
+                Text(conversation.destination.label.uppercased())
                     .font(theme.mono.font(size: 9, weight: .medium))
                     .tracking(theme.capsTracking(at: 9))
                     .foregroundStyle(theme.ink4.color)
@@ -472,7 +314,7 @@ public struct AssistantPanel: View {
     }
 
     private func suggestionButton(_ suggestion: AssistantSuggestion) -> some View {
-        Button { Task { await conversation.run(suggestion) } } label: {
+        Button { conversation.run(suggestion) } label: {
             HStack(spacing: 10) {
                 Text(suggestion.title)
                     .font(theme.sans.font(size: 12, weight: .medium))
@@ -508,7 +350,7 @@ public struct AssistantPanel: View {
                     .foregroundStyle(message.speaker == .user ? theme.info.color : theme.ink4.color)
                 // Turno de rascunho é prosa de email: asterisco e hífen ali são
                 // literais que a pessoa vai colar no composer.
-                if message.speaker == .user {
+                if message.kind == .draft || message.speaker == .user {
                     Text(message.text)
                         .font(theme.sans.font(size: 12.5))
                         .foregroundStyle(theme.ink2.color)
@@ -535,41 +377,6 @@ public struct AssistantPanel: View {
         .accessibilityLabel("\(message.speaker == .user ? "Você" : "Assistente"): \(message.text)")
     }
 
-    private func errorBand(_ error: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 7) {
-                Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(theme.ink3.color)
-                    .accessibilityHidden(true)
-                Text(error)
-                    .font(theme.sans.font(size: 12, weight: .semibold))
-                    .foregroundStyle(theme.ink2.color)
-            }
-            Text("Confira a orientação acima ou tente novamente.")
-                .font(theme.sans.font(size: 11.5))
-                .foregroundStyle(theme.ink3.color)
-            if conversation.canRetry {
-                ChromeButton(
-                    "Tentar de novo", appearance: .outlined,
-                    size: 11.5, height: 27, horizontalPadding: 10
-                ) {
-                    Task { await conversation.retry() }
-                }
-                .help("Tenta responder a última pergunta novamente")
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(11)
-        .background(theme.surface3.color)
-        .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-        .overlay {
-            RoundedRectangle(cornerRadius: theme.radiusSmall)
-                .strokeBorder(theme.line2.color, lineWidth: Hairline.thickness(displayScale))
-        }
-        .accessibilityElement(children: .combine)
-    }
-
     private var loadingBand: some View {
         HStack(spacing: 8) {
             ProgressView()
@@ -583,10 +390,16 @@ public struct AssistantPanel: View {
         .accessibilityLabel("Respondendo à pergunta")
     }
 
+    /// A conversa é injetada, não é `@State`: a ligação do campo precisa
+    /// ser feita à mão em vez de sair do cifrão.
+    private var draftBinding: Binding<String> {
+        Binding(get: { conversation.draft }, set: { conversation.draft = $0 })
+    }
+
     private var composer: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .bottom, spacing: 8) {
-                TextField(mode.placeholder, text: $conversation.draft, axis: .vertical)
+                TextField(mode.placeholder, text: draftBinding, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(theme.sans.font(size: 12.5))
                     .foregroundStyle(theme.ink.color)
@@ -599,10 +412,10 @@ public struct AssistantPanel: View {
                         RoundedRectangle(cornerRadius: theme.radiusSmall)
                             .strokeBorder(theme.btnLine.color, lineWidth: Hairline.thickness(displayScale))
                     }
-                    .onSubmit { submit() }
+                    .onSubmit { conversation.submit() }
                     .accessibilityLabel("Pergunta sobre \(mode.accessibilitySubject)")
 
-                Button(action: submit) {
+                Button(action: conversation.submit) {
                     HStack(spacing: 5) {
                         Image(systemName: "arrow.up")
                             .font(.system(size: 11, weight: .bold))
@@ -618,12 +431,12 @@ public struct AssistantPanel: View {
                 }
                 .buttonStyle(.plain)
                 .focusRing(cornerRadius: theme.radiusSmall, tint: \.onEnter)
-                .disabled(!conversation.canSend || conversation.isLoading)
+                .disabled(!conversation.canSend)
                 .help("Enviar pergunta")
                 .accessibilityLabel("Enviar pergunta")
             }
 
-            Text(mode.footer)
+            Text(conversation.destination.detail)
                 .font(theme.sans.font(size: 10.5))
                 .foregroundStyle(theme.ink4.color)
         }
@@ -632,14 +445,6 @@ public struct AssistantPanel: View {
         .hairline(theme.line, edges: .top)
     }
 
-    private func submit() {
-        Task { await conversation.submit() }
-    }
-}
-
-private enum AssistantCopy {
-    static let requestFailed = "Não foi possível responder agora."
-    static let emptyResponse = "Não foi possível formar uma resposta."
 }
 
 private struct DividerLine: View {
@@ -654,5 +459,22 @@ private struct DividerLine: View {
         Rectangle()
             .fill(color.color)
             .frame(height: Hairline.thickness(displayScale))
+    }
+}
+
+/// Ponte enquanto a Task 9 não move dashboard, leitor e janela para a
+/// conversa injetada: guarda a instância pelo tempo de vida da superfície,
+/// para o painel receber sempre a mesma dona de estado.
+struct AssistantPanelSession: View {
+    @State private var conversation: AssistantConversation
+    private let onClose: () -> Void
+
+    init(conversation: AssistantConversation, onClose: @escaping () -> Void) {
+        _conversation = State(initialValue: conversation)
+        self.onClose = onClose
+    }
+
+    var body: some View {
+        AssistantPanel(conversation: conversation, onClose: onClose)
     }
 }

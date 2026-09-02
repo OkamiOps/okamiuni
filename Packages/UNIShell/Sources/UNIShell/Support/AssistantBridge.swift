@@ -33,7 +33,7 @@ public enum AssistantBridge {
             history.removeLast()
         }
 
-        let turns = history.map { message in
+        let turns = history.suffix(AssistantConversation.maximumHistoryTurns).map { message in
             AssistantTurn(
                 role: message.speaker == .user ? .user : .assistant,
                 text: message.text
@@ -58,5 +58,42 @@ public enum AssistantBridge {
         case .createReply: .draftReply
         case .custom: .customInstruction(request.instruction ?? "")
         }
+    }
+}
+
+public extension AssistantBridge {
+    /// O contexto é resolvido **no momento da chamada**: a mensagem aberta
+    /// pode ter mudado desde que a superfície abriu, e o corpo pode ter
+    /// acabado de chegar da rede.
+    @MainActor
+    static func engine(
+        using assistant: any TextAssisting,
+        supportsDraftReply: Bool,
+        mailContext: @escaping @MainActor () async throws -> AssistantMailContext,
+        currentDraft: @escaping @MainActor () -> String = { "" }
+    ) -> AssistantEngine {
+        AssistantEngine(
+            supportsDraftReply: supportsDraftReply,
+            answer: { request in
+                try await AssistantBridge.answer(
+                    request,
+                    mailContext: try await mailContext(),
+                    using: assistant
+                )
+            },
+            draftReply: { _ in
+                let context = try await mailContext()
+                if case .workspace = context {
+                    throw TextAssistantError.invalidRequest(
+                        "Criar uma resposta requer contexto de e-mail."
+                    )
+                }
+                return try await assistant.transform(
+                    currentDraft(),
+                    using: .draftReply,
+                    context: context
+                )
+            }
+        )
     }
 }

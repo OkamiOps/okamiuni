@@ -1,6 +1,7 @@
 import SwiftUI
 import Testing
 import UNIDesign
+import UNISync
 @testable import UNIShell
 
 @Suite("Painel do assistente")
@@ -12,6 +13,33 @@ struct AssistantPanelTests {
         conversationLabel: "Conversa com 3 mensagens"
     )
 
+    /// O painel não cria mais a conversa: ele recebe uma. O teste monta a
+    /// dona do estado com um motor de mentira e observa as duas pontas.
+    @MainActor
+    private final class Recorder {
+        var requests: [AssistantRequest] = []
+        var reply: (Int) throws -> String = { _ in "Resposta pronta" }
+    }
+
+    private func makeConversation(
+        scope: AssistantScope = .email,
+        recorder: Recorder,
+        debugState: AssistantPanelDebugState = .empty
+    ) -> AssistantConversation {
+        AssistantConversation(
+            scope: scope,
+            context: context,
+            destination: AssistantDestination(
+                label: "Neste Mac", detail: "Nada sai deste Mac.", isLocal: true
+            ),
+            engine: AssistantEngine(supportsDraftReply: false) { request in
+                recorder.requests.append(request)
+                return try recorder.reply(recorder.requests.count)
+            },
+            debugState: debugState
+        )
+    }
+
     @Test("ações do email têm nomes claros e executam sem segundo clique")
     func emailQuickActionsRunImmediately() async throws {
         let actions = AssistantSuggestion.emailDefaults
@@ -19,14 +47,12 @@ struct AssistantPanelTests {
             "Resumo", "Pontos-chave", "Insights", "Pendências", "Gerar resposta"
         ])
 
-        var received: AssistantRequest?
-        let conversation = AssistantConversation(context: context) { request in
-            received = request
-            return "Resposta pronta"
-        }
-        await conversation.run(try #require(actions.first))
+        let recorder = Recorder()
+        let conversation = makeConversation(recorder: recorder)
+        conversation.run(try #require(actions.first))
+        await conversation.waitForIdle()
 
-        #expect(received?.question == actions.first?.question)
+        #expect(recorder.requests.first?.question == actions.first?.question)
         #expect(conversation.messages.map(\.speaker) == [.user, .assistant])
         #expect(conversation.messages.last?.text == "Resposta pronta")
         #expect(conversation.draft.isEmpty)
@@ -37,16 +63,14 @@ struct AssistantPanelTests {
         let action = try #require(
             AssistantSuggestion.emailDefaults.first { $0.title == "Gerar resposta" }
         )
-        var received: AssistantRequest?
+        let recorder = Recorder()
+        recorder.reply = { _ in "Resposta completa pronta para revisão" }
+        let conversation = makeConversation(recorder: recorder)
 
         CliqueDeEnsaio.em(
             AssistantPanel(
-                context: context,
+                conversation: conversation,
                 suggestions: [action],
-                onAsk: { request in
-                    received = request
-                    return "Resposta completa pronta para revisão"
-                },
                 onClose: {}
             ),
             size: CGSize(width: AssistantPanel.defaultWidth, height: 620),
@@ -54,9 +78,9 @@ struct AssistantPanelTests {
             x: AssistantPanel.defaultWidth / 2
         )
         await Task.yield()
-        try await Task.sleep(for: .milliseconds(50))
+        await conversation.waitForIdle()
 
-        #expect(received?.question == action.question)
+        #expect(recorder.requests.first?.question == action.question)
     }
 
     @Test("assistente global oferece ações de caixas e agenda")
@@ -68,42 +92,43 @@ struct AssistantPanelTests {
         #expect(actions.allSatisfy { !$0.question.localizedCaseInsensitiveContains("este email") })
     }
 
-    @Test("pergunta faz a transição para resposta pela closure injetada")
+    @Test("pergunta faz a transição para resposta pelo motor injetado")
     func questionTransitionsToAnswer() async {
-        var received: AssistantRequest?
-        let conversation = AssistantConversation(context: context) { request in
-            received = request
-            return "A reunião é terça-feira, às 10h."
-        }
+        let recorder = Recorder()
+        recorder.reply = { _ in "A reunião é terça-feira, às 10h." }
+        let conversation = makeConversation(recorder: recorder)
         conversation.draft = "Quando é a reunião?"
 
-        await conversation.submit()
+        conversation.submit()
+        await conversation.waitForIdle()
 
-        #expect(received?.context == context)
-        #expect(received?.question == "Quando é a reunião?")
-        #expect(received?.conversation.map(\.speaker) == [.user])
+        #expect(recorder.requests.first?.context == context)
+        #expect(recorder.requests.first?.question == "Quando é a reunião?")
+        #expect(recorder.requests.first?.conversation.map(\.speaker) == [.user])
         #expect(conversation.messages.map(\.speaker) == [.user, .assistant])
         #expect(conversation.messages.last?.text == "A reunião é terça-feira, às 10h.")
         #expect(conversation.isLoading == false)
-        #expect(conversation.errorMessage == nil)
+        #expect(conversation.failure == nil)
     }
 
     @Test("pergunta seguinte recebe a conversa anterior e mantém a instrução atual")
     func followUpCarriesConversationHistory() async throws {
-        var requests: [AssistantRequest] = []
-        let conversation = AssistantConversation(context: context) { request in
-            requests.append(request)
-            return requests.count == 1
+        let recorder = Recorder()
+        recorder.reply = { attempt in
+            attempt == 1
                 ? "- Confirmar a pauta\n- Responder até segunda-feira"
                 : "- Confirmar a pauta com Produto\n- Responder até segunda-feira"
         }
+        let conversation = makeConversation(recorder: recorder)
 
         conversation.draft = "Gere em lista."
-        await conversation.submit()
+        conversation.submit()
+        await conversation.waitForIdle()
         conversation.draft = "Agora detalhe o primeiro item, mantendo a lista."
-        await conversation.submit()
+        conversation.submit()
+        await conversation.waitForIdle()
 
-        let followUp = try #require(requests.last)
+        let followUp = try #require(recorder.requests.last)
         #expect(followUp.question == "Agora detalhe o primeiro item, mantendo a lista.")
         #expect(followUp.conversation.map(\.speaker) == [.user, .assistant, .user])
         #expect(followUp.conversation.map(\.text) == [
@@ -114,25 +139,27 @@ struct AssistantPanelTests {
         #expect(conversation.messages.count == 4)
     }
 
-    @Test("erro mantém a pergunta e tentar de novo usa a mesma closure")
+    @Test("erro mantém a pergunta e tentar de novo usa o mesmo motor")
     func failedQuestionCanRetry() async {
-        var attempts = 0
-        let conversation = AssistantConversation(context: context) { _ in
-            attempts += 1
-            if attempts == 1 { throw AssistantTestError.unavailable }
+        let recorder = Recorder()
+        recorder.reply = { attempt in
+            if attempt == 1 { throw AssistantTestError.unavailable }
             return "Tentei novamente e encontrei o prazo."
         }
+        let conversation = makeConversation(recorder: recorder)
         conversation.draft = "Qual é o prazo?"
 
-        await conversation.submit()
+        conversation.submit()
+        await conversation.waitForIdle()
         #expect(conversation.messages.map(\.speaker) == [.user])
-        #expect(conversation.errorMessage == "A Apple Intelligence ainda está sendo preparada.")
+        #expect(conversation.failure?.message == "A Apple Intelligence ainda está sendo preparada.")
         #expect(conversation.canRetry)
 
-        await conversation.retry()
-        #expect(attempts == 2)
+        conversation.retry()
+        await conversation.waitForIdle()
+        #expect(recorder.requests.count == 2)
         #expect(conversation.messages.map(\.speaker) == [.user, .assistant])
-        #expect(conversation.errorMessage == nil)
+        #expect(conversation.failure == nil)
 
         conversation.clear()
         #expect(conversation.messages.isEmpty)
@@ -147,8 +174,9 @@ struct AssistantPanelTests {
         ])
         let error = AssistantPanelDebugState(
             messages: [.init(speaker: .user, text: "Há algum prazo?")],
-            errorMessage: "Não foi possível responder agora.",
-            lastQuestion: "Há algum prazo?"
+            failure: AssistantFailure(
+                message: "Não foi possível responder agora.", recovery: .retry
+            )
         )
 
         let states: [(String, AssistantPanelDebugState)] = [
@@ -161,9 +189,9 @@ struct AssistantPanelTests {
         for (name, state) in states {
             let bitmap = try #require(Render.snapshot(
                 AssistantPanel(
-                    context: context,
-                    debugState: state,
-                    onAsk: { _ in "Resposta de ensaio" },
+                    conversation: makeConversation(
+                        recorder: Recorder(), debugState: state
+                    ),
                     onClose: {}
                 ),
                 named: "m5-local-assistant-\(name)",
@@ -181,22 +209,53 @@ struct AssistantPanelTests {
 
     @Test("painel global identifica o ambiente e renderiza as ações")
     func workspacePanelRenders() throws {
-        let bitmap = try #require(Render.snapshot(
-            AssistantPanel(
-                mode: .workspace,
-                context: AssistantContext(
-                    subject: "Todo o OkamiUNI",
-                    sender: "4 contas · 7 emails",
-                    conversationLabel: "38 compromissos"
-                ),
-                onAsk: { _ in "Resposta de ensaio" },
-                onClose: {}
+        let conversation = AssistantConversation(
+            scope: .workspace,
+            context: AssistantContext(
+                subject: "Todo o OkamiUNI",
+                sender: "4 contas · 7 emails",
+                conversationLabel: "38 compromissos"
             ),
+            destination: .unconfigured,
+            engine: AssistantEngine(supportsDraftReply: false) { _ in "Resposta de ensaio" }
+        )
+        let bitmap = try #require(Render.snapshot(
+            AssistantPanel(conversation: conversation, onClose: {}),
             named: "m5-local-assistant-workspace",
             size: CGSize(width: AssistantPanel.defaultWidth, height: 620),
             theme: .tinta
         ))
         #expect(bitmap.pixelsWide == Int(AssistantPanel.defaultWidth))
+    }
+
+    @Test("um turno de rascunho não passa pelo renderizador de Markdown")
+    func draftTurnRendersLiterally() throws {
+        let draft = AssistantPanelDebugState(messages: [
+            .init(speaker: .assistant, text: "Oi Marina,\n\n**Fechado** para amanhã.", kind: .draft),
+        ])
+        let message = AssistantPanelDebugState(messages: [
+            .init(speaker: .assistant, text: "Oi Marina,\n\n**Fechado** para amanhã."),
+        ])
+
+        let asDraft = try #require(Render.snapshot(
+            AssistantPanel(
+                conversation: makeConversation(recorder: Recorder(), debugState: draft),
+                onClose: {}
+            ),
+            named: "m5-local-assistant-draft",
+            size: CGSize(width: AssistantPanel.defaultWidth, height: 620),
+            theme: .tinta
+        ))
+        let asMessage = try #require(Render.snapshot(
+            AssistantPanel(
+                conversation: makeConversation(recorder: Recorder(), debugState: message),
+                onClose: {}
+            ),
+            named: "m5-local-assistant-draft-markdown",
+            size: CGSize(width: AssistantPanel.defaultWidth, height: 620),
+            theme: .tinta
+        ))
+        #expect(asDraft.pixelsDiffering(from: asMessage) > 0)
     }
 }
 

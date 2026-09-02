@@ -657,21 +657,28 @@ public struct InboxScreen: View {
 
     private var assistantPanel: some View {
         let scope = assistantScope
-        return AssistantPanel(
-            mode: scope.mode,
-            context: assistantContext(for: scope),
-            providerLabel: assistantProviderLabel,
-            onAsk: { request in
-                try await askAssistant(request, scope: scope)
-            },
+        return AssistantPanelSession(
+            conversation: makeAssistantConversation(for: scope),
             onClose: closeAssistant
         )
         .id(assistantSessionID)
         .shadow(color: .black.opacity(0.16), radius: 22, x: 0, y: 10)
     }
 
-    private var assistantProviderLabel: String {
-        assistantSettings?.snapshot().interactiveProviderLabel ?? "Provedor configurado"
+    /// A Task 9 move esta fábrica para o dono da tela. Aqui ela existe só
+    /// para o painel receber uma conversa em vez de criar a própria.
+    private func makeAssistantConversation(for scope: InboxAssistantScope) -> AssistantConversation {
+        let settings = assistantSettings?.snapshot()
+        return AssistantConversation(
+            scope: scope.mode,
+            context: assistantContext(for: scope),
+            destination: settings.map(AssistantDestination.init(settings:)) ?? .unconfigured,
+            engine: AssistantEngine(
+                supportsDraftReply: false,
+                answer: { request in try await askAssistant(request, scope: scope) }
+            ),
+            provider: settings.flatMap { $0.provider == .providerOAuth ? $0.providerOAuth.kind : nil }
+        )
     }
 
     private func openWorkspaceAssistant() {

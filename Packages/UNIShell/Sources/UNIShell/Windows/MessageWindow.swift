@@ -45,8 +45,17 @@ public struct MessageWindow: View {
         message.flatMap { store.account($0.accountID) }
     }
 
-    private var assistantProviderLabel: String {
-        assistantSettings?.snapshot().interactiveProviderLabel ?? "Provedor configurado"
+    /// A Task 9 move esta fábrica para fora da janela. Aqui ela existe só
+    /// para o painel receber uma conversa em vez de criar a própria.
+    private func makeAssistantConversation(for message: Message) -> AssistantConversation {
+        let settings = assistantSettings?.snapshot()
+        return AssistantConversation(
+            scope: .email,
+            context: localContext(for: message),
+            destination: settings.map(AssistantDestination.init(settings:)) ?? .unconfigured,
+            engine: AssistantEngine(supportsDraftReply: false, answer: askAssistant),
+            provider: settings.flatMap { $0.provider == .providerOAuth ? $0.providerOAuth.kind : nil }
+        )
     }
 
     private var tint: Color {
@@ -70,10 +79,8 @@ public struct MessageWindow: View {
             }
 
             if assistantOpen, let message {
-                AssistantPanel(
-                    context: localContext(for: message),
-                    providerLabel: assistantProviderLabel,
-                    onAsk: askAssistant,
+                AssistantPanelSession(
+                    conversation: makeAssistantConversation(for: message),
                     onClose: closeAssistant
                 )
                 .id(store.conversation(of: message.id)?.key ?? message.id)
