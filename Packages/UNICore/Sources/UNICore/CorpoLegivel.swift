@@ -197,28 +197,30 @@ public struct CorpoLegivel: Equatable, Sendable {
     /// lista da newsletter e a âncora do link só existem lá. Extrair texto dele
     /// primeiro é justamente jogar fora o que esta peça veio recuperar.
     public static func de(
-        texto: [String], html: String?, flowed: Bool = false, delSp: Bool = false
+        texto: [String], html: String?, flowed: Bool = false, delSp: Bool = false,
+        assunto: String? = nil
     ) -> CorpoLegivel {
         de(
             texto: texto.joined(separator: "\n\n"), html: html,
-            flowed: flowed, delSp: delSp
+            flowed: flowed, delSp: delSp, assunto: assunto
         )
     }
 
     public static func de(
-        texto: String, html: String?, flowed: Bool = false, delSp: Bool = false
+        texto: String, html: String?, flowed: Bool = false, delSp: Bool = false,
+        assunto: String? = nil
     ) -> CorpoLegivel {
         if let html, !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let corpo = deHTML(html)
+            let corpo = deHTML(html, assunto: assunto)
             if !corpo.isEmpty { return corpo }
         }
-        return deTextoSimples(texto, flowed: flowed, delSp: delSp)
+        return deTextoSimples(texto, flowed: flowed, delSp: delSp, assunto: assunto)
     }
 
     // MARK: Texto plano
 
     public static func deTextoSimples(
-        _ raw: String, flowed: Bool = false, delSp: Bool = false
+        _ raw: String, flowed: Bool = false, delSp: Bool = false, assunto: String? = nil
     ) -> CorpoLegivel {
         let refluido = PlainTextReflow.reflow(raw, flowed: flowed, delSp: delSp)
         let linhas = refluido.components(separatedBy: "\n")
@@ -226,14 +228,102 @@ public struct CorpoLegivel: Equatable, Sendable {
 
         var eventos = corpo.map(evento(deLinha:))
         eventos += dobras.map { Evento.dobra($0.genero, $0.texto) }
-        return CorpoLegivel(blocos: desambigua(monta(eventos)))
+        return CorpoLegivel(blocos: desambigua(limpa(monta(eventos), assunto: assunto)))
     }
 
     // MARK: HTML
 
-    public static func deHTML(_ html: String) -> CorpoLegivel {
+    public static func deHTML(_ html: String, assunto: String? = nil) -> CorpoLegivel {
         let eventos = aplicaCortes(LeitorDeHTML.eventos(de: html))
-        return CorpoLegivel(blocos: desambigua(monta(eventos)))
+        return CorpoLegivel(blocos: desambigua(limpa(monta(eventos), assunto: assunto)))
+    }
+}
+
+// MARK: - Fragmentos órfãos
+
+extension CorpoLegivel {
+
+    /// Tira do caminho o que **não é conteúdo**: o eco do assunto no topo e o
+    /// nome da empresa solto no fim.
+    ///
+    /// Os dois apareceram no mesmo email de formulário. Antes da tabela vinham
+    /// "Nova resposta" e "Teste de configuração" — dois fragmentos que, juntos,
+    /// são o assunto que já está desenhado três linhas acima, em corpo 18. Um
+    /// parágrafo próprio para cada um custa duas paradas do olho e não entrega
+    /// informação nenhuma. Depois da tabela vinha "Cartões Digitais Vantion",
+    /// que é assinatura de rodapé com cara de conteúdo.
+    ///
+    /// Nada é jogado fora: o rodapé vai para a dobra, com contagem, como todo
+    /// o resto que dobra.
+    static func limpa(_ blocos: [BlocoDeCorpo], assunto: String?) -> [BlocoDeCorpo] {
+        dobraRodapeFinal(semEcoDoAssunto(blocos, assunto: assunto))
+    }
+
+    /// O texto de um parágrafo curto, sem link e sem título — o único formato
+    /// que pode ser eco ou rodapé.
+    private static func fragmento(_ bloco: BlocoDeCorpo, ate limite: Int) -> String? {
+        guard case let .paragrafo(paragrafo) = bloco, paragrafo.nivel == 0 else { return nil }
+        guard paragrafo.trechos.allSatisfy({ $0.destino == nil }) else { return nil }
+        let texto = paragrafo.texto.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !texto.isEmpty, texto.count <= limite else { return nil }
+        return texto
+    }
+
+    private static func semEcoDoAssunto(
+        _ blocos: [BlocoDeCorpo], assunto: String?
+    ) -> [BlocoDeCorpo] {
+        let alvo = (assunto ?? "").folding(
+            options: [.diacriticInsensitive, .caseInsensitive], locale: nil
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard alvo.count >= 4 else { return blocos }
+
+        let restantes = blocos.filter { bloco in
+            guard let texto = fragmento(bloco, ate: 60) else { return true }
+            let dobrado = texto.folding(
+                options: [.diacriticInsensitive, .caseInsensitive], locale: nil
+            )
+            // Só sai o que o assunto já diz — e só quando o assunto diz mais do
+            // que o fragmento, senão um email cujo corpo **é** a frase do
+            // assunto ficaria sem corpo nenhum.
+            guard dobrado.count < alvo.count, alvo.contains(dobrado) else { return true }
+            return false
+        }
+        // Nunca esvaziar o corpo inteiro por causa desta regra.
+        return restantes.contains { if case .dobra = $0 { false } else { true } }
+            ? restantes : blocos
+    }
+
+    /// A última linha que é nome de empresa, e não frase, vira dobra de rodapé.
+    ///
+    /// As duas cercas existem para não engolir um email curto de verdade: a
+    /// linha não pode terminar frase (`.`, `?`, `!`) e tem de haver conteúdo
+    /// de sobra antes dela. "Obrigado" sozinho num email de uma linha continua
+    /// sendo o email.
+    private static func dobraRodapeFinal(_ blocos: [BlocoDeCorpo]) -> [BlocoDeCorpo] {
+        var saida = blocos
+        var recolhidas: [String] = []
+
+        while let posicao = saida.lastIndex(where: { if case .dobra = $0 { false } else { true } }) {
+            guard let texto = fragmento(saida[posicao], ate: 48) else { break }
+            guard texto.split(separator: " ").count <= 6 else { break }
+            guard !".?!:".contains(texto.last ?? " ") else { break }
+            let antes = saida[..<posicao]
+                .filter { if case .dobra = $0 { false } else { true } }
+                .map(\.textoSimples).joined()
+            guard antes.count >= 40 else { break }
+            recolhidas.insert(texto, at: 0)
+            saida.remove(at: posicao)
+            if recolhidas.count >= 3 { break }
+        }
+
+        guard !recolhidas.isEmpty else { return blocos }
+        let id = (blocos.map(\.id).max() ?? 0) + 1
+        let dobra = Dobra(id: id, genero: .rodape, texto: recolhidas.joined(separator: "\n"))
+        // Junto das outras dobras, no fim: o que não abre sozinho fica todo no
+        // mesmo lugar.
+        let corte = saida.firstIndex { if case .dobra = $0 { true } else { false } } ?? saida.count
+        saida.insert(.dobra(dobra), at: corte)
+        return saida
     }
 }
 
