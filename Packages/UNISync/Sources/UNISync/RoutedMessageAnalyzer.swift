@@ -49,6 +49,18 @@ public struct RoutedMessageAnalyzer: MessageAnalyzing {
         await engine(for: input).availability(for: input)
     }
 
+    /// A rota ativa é a que as configurações usariam para uma mensagem nova:
+    /// o provedor configurado quando o opt-in está ligado, este Mac quando
+    /// não está. Com o opt-in ligado, só o que ele cobre está na rota ativa —
+    /// o histórico anterior ao clique fica na rota inativa, e o motor local
+    /// recusando não é motivo para parar as mensagens novas.
+    public func routesActiveEngine(for input: MessageAnalysisInput) -> Bool {
+        guard routesRemote else { return true }
+        return settingsStore.snapshot().automaticAnalysisCoversMessage(
+            receivedAt: input.arrivedLocallyAt
+        )
+    }
+
     public func analyze(_ input: MessageAnalysisInput) async throws -> MessageAnalysisResult {
         // Sem rede de segurança: se a rota escolhida falhar, a falha sobe. Cair
         // para o motor local em silêncio esconderia da pessoa que o provedor

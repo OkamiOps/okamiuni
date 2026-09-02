@@ -524,6 +524,147 @@ struct MessageIntelligenceCoordinatorTests {
         #expect(fila.reason?.contains("Grok · xAI") == true)
     }
 
+    /// O outro lado do mesmo defeito: quando quem recusa é a rota **inativa**,
+    /// pausar a fila desliga uma rota que funciona por causa de um motor que
+    /// as mensagens novas nem usam — e num Mac sem Apple Intelligence isso é a
+    /// configuração comum, não a exceção.
+    @Test("motor da rota inativa recusando não pausa a fila")
+    func inactiveRouteUnavailabilityDoesNotPauseTheQueue() async throws {
+        let database = try database()
+        let corte = Date(timeIntervalSince1970: 1_787_000_000)
+        // Duas mensagens depois do opt-in: elas vão para o provedor remoto.
+        for indice in 1...2 {
+            try insertMessage(
+                id: "m-nova-\(indice)", subject: "Nova \(indice)",
+                receivedAt: corte.addingTimeInterval(TimeInterval(3_600 * indice)),
+                database: database,
+                firstSeenAt: corte.addingTimeInterval(TimeInterval(3_600 * indice))
+            )
+        }
+        // Três anteriores ao corte: elas só poderiam sair pelo motor local,
+        // que neste Mac não existe.
+        for indice in 1...3 {
+            try insertMessage(
+                id: "m-antiga-\(indice)", subject: "Antiga \(indice)",
+                receivedAt: corte.addingTimeInterval(TimeInterval(-600 * indice)),
+                database: database,
+                firstSeenAt: corte.addingTimeInterval(TimeInterval(-600 * indice))
+            )
+        }
+        try await database.pool.write { db in
+            try db.execute(
+                sql: "UPDATE message SET firstSeenAt = ?, receivedAt = ? WHERE id = 'm'",
+                arguments: [
+                    corte.addingTimeInterval(-9_000).timeIntervalSince1970,
+                    corte.addingTimeInterval(-9_000).timeIntervalSince1970
+                ]
+            )
+        }
+
+        let suite = "okamiuni.rota-inativa.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let settings = AssistantSettingsStore(defaults: defaults, key: "assistant")
+        try settings.save(.init(
+            provider: .providerOAuth,
+            providerOAuth: .init(kind: .xAI, model: "grok-4"),
+            automaticAnalysis: .configuredProvider,
+            automaticAnalysisSince: corte
+        ))
+
+        let local = UnavailableMessageAnalyzer(modelVersion: "local/v1")
+        let remoto = SpyMessageAnalyzer(modelVersion: "remoto/v1")
+        let coordinator = MessageIntelligenceCoordinator(
+            database: database,
+            analyzer: RoutedMessageAnalyzer(
+                settingsStore: settings, onDevice: local, configured: remoto
+            ),
+            timeZone: { self.timeZone }
+        )
+
+        let concluidas = await coordinator.processPending(limit: 10)
+
+        // As mensagens novas têm rota e foram resumidas pelo provedor.
+        #expect(concluidas == 2)
+        #expect(Set(remoto.subjects) == ["Nova 1", "Nova 2"])
+
+        // A fila continua correndo: nada do que ela precisa fazer está travado.
+        let fila = await coordinator.queueState()
+        #expect(!fila.isPaused)
+
+        // E o histórico ficou pendente, não falhado.
+        let estados = try await database.pool.read { db in
+            try MessageIntelligenceRecord
+                .filter(Column("messageID").like("m-antiga-%"))
+                .fetchAll(db)
+                .map(\.state)
+        }
+        #expect(estados.allSatisfy { $0 != "failed" })
+    }
+
+    /// Pular não é trabalhar: se cada recusa gastasse uma volta do lote, um
+    /// bloco de mensagens sem rota na frente da ordem consumiria a rodada
+    /// inteira e o backlog atrás dele nunca andaria, por mais que a pessoa
+    /// tentasse de novo.
+    @Test("mensagens sem rota não gastam o lote de trabalho")
+    func skipsDoNotConsumeTheBatchBudget() async throws {
+        let database = try database()
+        let corte = Date(timeIntervalSince1970: 1_787_000_000)
+        for indice in 1...25 {
+            try insertMessage(
+                id: "m-bloqueada-\(indice)", subject: "Bloqueada \(indice)",
+                receivedAt: corte.addingTimeInterval(TimeInterval(60 * indice)),
+                database: database,
+                firstSeenAt: corte.addingTimeInterval(TimeInterval(60 * indice))
+            )
+        }
+        for indice in 1...3 {
+            try insertMessage(
+                id: "m-antiga-\(indice)", subject: "Antiga \(indice)",
+                receivedAt: corte.addingTimeInterval(TimeInterval(-600 * indice)),
+                database: database,
+                firstSeenAt: corte.addingTimeInterval(TimeInterval(-600 * indice))
+            )
+        }
+        try await database.pool.write { db in
+            try db.execute(
+                sql: "UPDATE message SET firstSeenAt = ?, receivedAt = ? WHERE id = 'm'",
+                arguments: [
+                    corte.addingTimeInterval(-9_000).timeIntervalSince1970,
+                    corte.addingTimeInterval(-9_000).timeIntervalSince1970
+                ]
+            )
+        }
+
+        let suite = "okamiuni.lote-de-trabalho.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let settings = AssistantSettingsStore(defaults: defaults, key: "assistant")
+        try settings.save(.init(
+            provider: .providerOAuth,
+            providerOAuth: .init(kind: .xAI, model: "grok-4"),
+            automaticAnalysis: .configuredProvider,
+            automaticAnalysisSince: corte
+        ))
+
+        let local = SpyMessageAnalyzer(modelVersion: "local/v1")
+        let remoto = UnavailableMessageAnalyzer(modelVersion: "remoto/v1")
+        let coordinator = MessageIntelligenceCoordinator(
+            database: database,
+            analyzer: RoutedMessageAnalyzer(
+                settingsStore: settings, onDevice: local, configured: remoto
+            ),
+            timeZone: { self.timeZone }
+        )
+
+        let concluidas = await coordinator.processPending(limit: 20)
+
+        // As 25 recusas ficaram na frente da ordem e mesmo assim as três
+        // analisáveis (mais a "Revisão" das fixtures) andaram nesta rodada.
+        #expect(concluidas == 4)
+        #expect(Set(local.subjects).isSuperset(of: ["Antiga 1", "Antiga 2", "Antiga 3"]))
+    }
+
     @Test("voltar a rota para este Mac destrava a fila sozinho")
     func returningToOnDeviceClearsThePause() async throws {
         let database = try database()
@@ -633,5 +774,19 @@ final class FailingAnalyzer: MessageAnalyzing, @unchecked Sendable {
             )
         }
         throw error
+    }
+}
+
+/// Um motor que existe mas não responde — a Apple Intelligence de um Mac que
+/// não a tem, ou um provedor sem sessão.
+final class UnavailableMessageAnalyzer: MessageAnalyzing, @unchecked Sendable {
+    let modelVersion: String
+
+    init(modelVersion: String) { self.modelVersion = modelVersion }
+
+    func availability() async -> AppleIntelligenceAvailability { .modelNotReady }
+
+    func analyze(_ input: MessageAnalysisInput) async throws -> MessageAnalysisResult {
+        throw MessageAnalysisError.unavailable(.modelNotReady)
     }
 }

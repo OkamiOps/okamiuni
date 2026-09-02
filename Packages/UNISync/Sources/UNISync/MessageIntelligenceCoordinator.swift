@@ -30,6 +30,13 @@ public actor MessageIntelligenceCoordinator {
     /// e insistir manda a caixa inteira para um endpoint que recusa.
     public static let failuresBeforePause = 3
 
+    /// O teto de voltas de uma rodada. Cada volta ou gasta o lote de trabalho
+    /// (uma tentativa de análise) ou tira uma mensagem da vez, e mensagem
+    /// tirada da vez nunca volta a ser escolhida nesta rodada — logo o laço
+    /// termina mesmo sem este teto. Ele existe para uma caixa enorme sem rota
+    /// não virar milhares de sondas numa única passada.
+    static let maxRoundsPerPass = 200
+
     private static let log = Logger(
         subsystem: "com.okamiops.okamiuni",
         category: "MessageIntelligence"
@@ -108,10 +115,19 @@ public actor MessageIntelligenceCoordinator {
         // isto, `pendingWork` devolve sempre a mesma (ordem `receivedAt DESC`)
         // e a fila inteira fica presa na mensagem mais nova.
         var skipped: Set<String> = []
-        // O motivo da primeira recusa é o que a barra lateral mostra ao final.
-        var skippedReason: String?
+        // O motivo da primeira recusa **da rota ativa** é o que a barra
+        // lateral mostra ao final. Recusa da rota inativa não vira texto
+        // nenhum: ela não bloqueia nada que a fila precise fazer agora.
+        var activeRouteSkipReason: String?
+        var skippedActiveRoute = false
+        // Voltas gastas: só uma tentativa de análise consome o lote. Pular não
+        // é trabalhar, e um bloco de mensagens sem rota na frente da ordem não
+        // pode consumir a rodada inteira e deixar o backlog atrás dele parado.
+        var attempts = 0
+        var rounds = 0
 
-        for _ in 0..<limit {
+        while attempts < limit, rounds < Self.maxRoundsPerPass {
+            rounds += 1
             if Task.isCancelled { break }
 
             let work: MessageIntelligenceWork
@@ -139,11 +155,17 @@ public actor MessageIntelligenceCoordinator {
             let engineAvailability = await analyzer.availability(for: input)
             guard engineAvailability.isAvailable else {
                 skipped.insert(work.messageID)
-                if skippedReason == nil { skippedReason = engineAvailability.reason }
+                if analyzer.routesActiveEngine(for: input) {
+                    skippedActiveRoute = true
+                    if activeRouteSkipReason == nil {
+                        activeRouteSkipReason = engineAvailability.reason
+                    }
+                }
                 if priorityMessageID == work.messageID { priorityMessageID = nil }
                 continue
             }
 
+            attempts += 1
             do {
                 guard try store.markProcessing(
                     work,
@@ -173,8 +195,11 @@ public actor MessageIntelligenceCoordinator {
                 // da vez desta rodada, como se a sonda tivesse recusado.
                 try? store.markPending(work)
                 skipped.insert(work.messageID)
-                if skippedReason == nil {
-                    skippedReason = (error as any LocalizedError).errorDescription
+                if analyzer.routesActiveEngine(for: input) {
+                    skippedActiveRoute = true
+                    if activeRouteSkipReason == nil {
+                        activeRouteSkipReason = (error as any LocalizedError).errorDescription
+                    }
                 }
                 continue
             } catch {
@@ -204,12 +229,17 @@ public actor MessageIntelligenceCoordinator {
             }
         }
 
-        // O backlog que **podia** andar já andou: o laço só sai daqui quando
-        // não sobrou trabalho analisável. Agora a fila pode parar mostrando o
-        // que a pessoa precisa consertar. Uma recusa basta — ao contrário de
-        // rede, "falta a chave" não melhora sozinha na terceira tentativa.
-        if !skipped.isEmpty, case .running = queueState() {
-            let reason = skippedReason ?? "A IA configurada não está pronta para as mensagens novas."
+        // O backlog que **podia** andar já andou. Agora a fila pode parar
+        // mostrando o que a pessoa precisa consertar — mas **só** quando a
+        // recusa foi da rota ativa. Uma recusa basta: ao contrário de rede,
+        // "falta a chave" não melhora sozinha na terceira tentativa. Quando
+        // quem recusou foi a rota inativa (o motor local de um Mac sem Apple
+        // Intelligence, com o histórico anterior ao opt-in), a rodada termina
+        // em silêncio: essas mensagens continuam pendentes e a fila segue
+        // atendendo o que ainda vai chegar.
+        if skippedActiveRoute, case .running = queueState() {
+            let reason = activeRouteSkipReason
+                ?? "A IA configurada não está pronta para as mensagens novas."
             try? queueStateStore.pause(reason: reason, at: Date())
             Self.log.error("Fila de análise pausada: \(reason, privacy: .public)")
         }

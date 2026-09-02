@@ -139,6 +139,16 @@ public protocol MessageAnalyzing: Sendable {
     /// travar o histórico atrás dela, e é o que dá à fila um motivo que a
     /// pessoa consegue resolver.
     func availability(for input: MessageAnalysisInput) async -> MessageAnalysisAvailability
+
+    /// Esta mensagem usa a **rota ativa** — a que as configurações de agora
+    /// escolheriam para uma mensagem nova?
+    ///
+    /// Existe porque recusar não tem o mesmo peso nas duas rotas. Um Mac sem
+    /// Apple Intelligence, com o provedor remoto configurado e funcionando,
+    /// recusa cada mensagem anterior ao opt-in — e parar a fila por isso
+    /// desligaria a rota que atende justamente o que ainda vai chegar. Só a
+    /// recusa da rota ativa bloqueia trabalho que a fila poderia fazer.
+    func routesActiveEngine(for input: MessageAnalysisInput) -> Bool
 }
 
 public extension MessageAnalyzing {
@@ -157,6 +167,9 @@ public extension MessageAnalyzing {
                 : MessageAnalysisError.unavailable(state).errorDescription
         )
     }
+
+    /// Um motor só: a rota dele é a única, e portanto sempre a ativa.
+    func routesActiveEngine(for input: MessageAnalysisInput) -> Bool { true }
 }
 
 /// O que o motor **desta** mensagem pode fazer agora, com o motivo em
