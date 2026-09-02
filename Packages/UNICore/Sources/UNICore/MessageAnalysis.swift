@@ -58,17 +58,23 @@ public struct MessageAnalysisResult: Sendable, Hashable {
     /// Categoria fechada devolvida pelo modelo; `nil` quando a resposta veio
     /// ausente ou não passou pela validação do enum.
     public let category: MailCategory?
+    /// Por que esta mensagem importa. `nil` quando o motor não devolveu
+    /// triagem válida — o resumo continua valendo, e o dashboard volta às
+    /// heurísticas antigas para esta mensagem.
+    public let triage: MessageTriage?
     public let modelVersion: String
 
     public init(
         summary: String,
         detectedEvent: DetectedEvent?,
         modelVersion: String,
-        category: MailCategory? = nil
+        category: MailCategory? = nil,
+        triage: MessageTriage? = nil
     ) {
         self.summary = summary
         self.detectedEvent = detectedEvent
         self.category = category
+        self.triage = triage
         self.modelVersion = modelVersion
     }
 }

@@ -657,6 +657,38 @@ public struct SyncDatabase: Sendable {
                 sql: "UPDATE message SET firstSeenAt = CAST(strftime('%s','now') AS REAL)"
             )
         }
+        // A v17: a triagem por IA. A coluna `triage` guarda o JSON inteiro —
+        // é a fonte, e é dela que a hidratação lê. As duas ao lado são
+        // projeção: `triage_needs_reply` e `triage_deadline_at` existem para
+        // ordenar e contar sem abrir e decodificar o JSON de cada linha da
+        // caixa. Nulas em toda linha anterior, que é exatamente "ainda não
+        // triada" — e a v17 não reprocessa nada: quem devolve o histórico à
+        // fila é a versão nova dos motores, pelo caminho que já existe.
+        //
+        // `analysis_backlog_consent` é a segunda metade da decisão do dono:
+        // o opt-in do §1.8 cobre só mensagens novas, então analisar o acervo
+        // exige um consentimento **por mensagem**, escrito aqui antes de
+        // qualquer byte sair do Mac. Tabela própria e global, como
+        // `analysis_queue_state` da v15, e apagada quando ele manda parar.
+        migrator.registerMigration("v17") { db in
+            try db.execute(sql: "ALTER TABLE message_intelligence ADD COLUMN triage TEXT")
+            try db.execute(
+                sql: "ALTER TABLE message_intelligence ADD COLUMN triage_needs_reply INTEGER"
+            )
+            try db.execute(
+                sql: "ALTER TABLE message_intelligence ADD COLUMN triage_deadline_at REAL"
+            )
+            try db.execute(sql: """
+                CREATE INDEX message_intelligence_on_triage
+                ON message_intelligence(triage_needs_reply, triage_deadline_at)
+                """)
+            try db.execute(sql: """
+                CREATE TABLE analysis_backlog_consent (
+                  messageID TEXT PRIMARY KEY NOT NULL REFERENCES message(id) ON DELETE CASCADE,
+                  approvedAt DOUBLE NOT NULL
+                )
+                """)
+        }
         return migrator
     }
 }

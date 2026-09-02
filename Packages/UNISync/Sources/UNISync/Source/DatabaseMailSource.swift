@@ -192,15 +192,21 @@ public struct DatabaseMailSource: MailSource, Sendable {
         // A proveniência do resumo, numa consulta só: é o que a legenda do
         // TL;DR usa para não dizer "neste Mac" sobre um resumo que saiu daqui,
         // nem o contrário. Linhas pequenas, uma por mensagem já analisada.
-        let versaoDoResumo = try Dictionary(
-            MessageIntelligenceRecord.fetchAll(db).map { ($0.messageID, $0.modelVersion) },
+        // A mesma consulta traz a triagem: ela mora nesta tabela, e abrir uma
+        // segunda leitura para ela seria pagar duas vezes pelo mesmo `LEFT
+        // JOIN` que o retrato já faz.
+        let analises = try Dictionary(
+            MessageIntelligenceRecord.fetchAll(db).map { ($0.messageID, $0) },
             uniquingKeysWith: { primeiro, _ in primeiro }
         )
+        let versaoDoResumo = analises.mapValues(\.modelVersion)
+        let triagem = analises.mapValues { MessageTriage.decoded($0.triage) }
         guard includingBodies else {
             return registros.map {
                 $0.message(
                     body: [], bodyHTML: nil, calendarICS: nil, attachments: [],
-                    summaryModelVersion: versaoDoResumo[$0.id] ?? nil
+                    summaryModelVersion: versaoDoResumo[$0.id] ?? nil,
+                    triage: triagem[$0.id] ?? nil
                 )
             }
         }
@@ -226,8 +232,15 @@ public struct DatabaseMailSource: MailSource, Sendable {
                 // que buscar. Trocar por `""` a daria por decodificada.
                 bodyHTML: corpo?.html, calendarICS: corpo?.calendarICS,
                 attachments: (anexosPorMensagem[registro.id] ?? []).map(\.attachment),
-                summaryModelVersion: versaoDoResumo[registro.id] ?? nil
+                summaryModelVersion: versaoDoResumo[registro.id] ?? nil,
+                triage: triagem[registro.id] ?? nil
             )
         }
+    }
+
+    /// A hidratação exata do retrato, para o teste poder conferi-la sem
+    /// montar uma observação e esperar o SQLite acordar.
+    static func mensagensParaTeste(in db: Database) throws -> [Message] {
+        try messages(in: db, includingBodies: true)
     }
 }

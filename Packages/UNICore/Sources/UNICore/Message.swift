@@ -180,6 +180,14 @@ public struct Message: Sendable, Hashable, Identifiable {
     /// estruturada ainda não trouxe uma categoria válida.
     public let category: MailCategory?
 
+    /// Por que esta mensagem importa, segundo a análise persistida.
+    ///
+    /// Vem de `message_intelligence`, e não da tabela `message`: é resultado
+    /// de análise, hidratado no mesmo `LEFT JOIN` que já traz a proveniência
+    /// do resumo. `nil` enquanto ninguém analisou a mensagem — e é esse `nil`
+    /// que faz o dashboard cair de volta nas etiquetas.
+    public let triage: MessageTriage?
+
     /// As respostas de um toque que o design oferece por mensagem —
     /// `replyHints: ['Confirmar quinta 15h', 'Pedir mais um dia']`. Vazio é
     /// legítimo: no design a newsletter e o recibo não têm nenhuma.
@@ -260,6 +268,7 @@ public struct Message: Sendable, Hashable, Identifiable {
         summary: String?, detectedEvent: DetectedEvent?,
         category: MailCategory? = nil,
         summaryModelVersion: String? = nil,
+        triage: MessageTriage? = nil,
         dayOffset: Int = 0, replyHints: [String] = [],
         to: [Contact] = [], cc: [Contact] = [], isFlagged: Bool = false,
         serverID: String? = nil, uidValidity: Int64? = nil,
@@ -296,6 +305,7 @@ public struct Message: Sendable, Hashable, Identifiable {
         self.detectedEvent = detectedEvent
         self.category = category
         self.summaryModelVersion = summaryModelVersion
+        self.triage = triage
     }
 }
 
@@ -422,6 +432,7 @@ extension Message {
             subject: subject, snippet: snippet, body: body ?? self.body, tags: tags,
             bucket: bucket ?? self.bucket, isRead: isRead ?? self.isRead,
             summary: summary, detectedEvent: detectedEvent, category: category,
+            summaryModelVersion: summaryModelVersion, triage: triage,
             dayOffset: dayOffset, replyHints: replyHints,
             to: to, cc: cc, isFlagged: isFlagged ?? self.isFlagged,
             serverID: serverID, uidValidity: uidValidity,

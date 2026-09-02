@@ -138,6 +138,10 @@ public struct MessageIntelligenceStore: Sendable {
                     sql: "UPDATE message SET summary = NULL, detectedEventJSON = NULL, category = NULL WHERE id = ?",
                     arguments: [work.messageID]
                 )
+                // Pela mesma razão do resumo: uma triagem feita sobre o corpo
+                // antigo não pode continuar mandando a mensagem para o topo
+                // do dashboard enquanto a versão nova espera análise.
+                try Self.writeTriage(db, messageID: work.messageID, triage: nil)
             }
 
             try Self.upsert(
@@ -158,6 +162,7 @@ public struct MessageIntelligenceStore: Sendable {
         summary: String?,
         detectedEventJSON: String?,
         category: MailCategory? = nil,
+        triage: MessageTriage? = nil,
         at: Date = Date()
     ) throws -> Bool {
         try database.pool.write { db in
@@ -174,8 +179,33 @@ public struct MessageIntelligenceStore: Sendable {
                 db, work: work, state: .completed, modelVersion: modelVersion,
                 lastError: nil, at: at
             )
+            // A triagem mora na linha da fila, e não em `message`: ela é
+            // resultado de análise, e apagá-la junto com o resultado quando o
+            // corpo muda tem de ser uma escrita só, na mesma tabela.
+            try Self.writeTriage(db, messageID: work.messageID, triage: triage)
             return true
         }
+    }
+
+    /// A coluna JSON e as duas projeções, sempre juntas. Uma função só porque
+    /// gravar o JSON e esquecer `triage_needs_reply` deixaria a ordenação
+    /// mentindo sobre uma linha que o cartão mostra correta.
+    private static func writeTriage(
+        _ db: Database, messageID: String, triage: MessageTriage?
+    ) throws {
+        try db.execute(
+            sql: """
+                UPDATE message_intelligence
+                SET triage = ?, triage_needs_reply = ?, triage_deadline_at = ?
+                WHERE messageID = ?
+                """,
+            arguments: [
+                MessageTriage.encodedJSON(triage),
+                triage.map { $0.needsReply ? 1 : 0 },
+                triage?.deadline?.date.timeIntervalSince1970,
+                messageID,
+            ]
+        )
     }
 
     /// Fecha uma tentativa que falhou. Ela não volta sozinha para a fila com o
@@ -365,6 +395,25 @@ struct MessageIntelligenceRecord: Codable, FetchableRecord, PersistableRecord, S
     var modelVersion: String?
     var lastError: String?
     var updatedAt: Date
+    /// O JSON da triagem — a fonte. As duas abaixo são projeção para ordenar.
+    var triage: String?
+    var triageNeedsReply: Int?
+    var triageDeadlineAt: Double?
+
+    /// As colunas da v17 usam `snake_case` porque a spec as nomeia assim; as
+    /// propriedades seguem o Swift. O mapeamento vive aqui, e não numa
+    /// consulta escrita à mão em cada leitor.
+    enum CodingKeys: String, CodingKey {
+        case messageID
+        case contentHash
+        case state
+        case modelVersion
+        case lastError
+        case updatedAt
+        case triage
+        case triageNeedsReply = "triage_needs_reply"
+        case triageDeadlineAt = "triage_deadline_at"
+    }
 
     static func databaseDateEncodingStrategy(for column: String) -> DatabaseDateEncodingStrategy {
         .timeIntervalSince1970

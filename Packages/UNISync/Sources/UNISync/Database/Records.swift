@@ -333,7 +333,8 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
     public func message(
         body: [String], bodyHTML: String? = nil, calendarICS: String? = nil,
         attachments: [MailAttachment] = [],
-        summaryModelVersion: String? = nil
+        summaryModelVersion: String? = nil,
+        triage: MessageTriage? = nil
     ) -> Message {
         Message(
             id: id, accountID: accountID,
@@ -344,6 +345,7 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
             isRead: isRead, summary: summary, detectedEvent: Self.decodeDetectedEvent(detectedEventJSON),
             category: category.flatMap(MailCategory.init(rawValue:)),
             summaryModelVersion: summaryModelVersion,
+            triage: triage,
             dayOffset: dayOffset, replyHints: Self.decodeStrings(replyHintsJSON),
             to: Self.decode(toJSON), cc: Self.decode(ccJSON),
             isFlagged: isFlagged,
