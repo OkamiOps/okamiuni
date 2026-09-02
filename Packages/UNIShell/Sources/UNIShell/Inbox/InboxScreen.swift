@@ -555,11 +555,35 @@ public struct InboxScreen: View {
             onOpenEvent: openEventWindow,
             onShowMail: { workspace = .mail },
             onShowCalendar: { workspace = .calendar },
-            onOpenSettings: openAccounts
+            onOpenSettings: openAccounts,
+            // As ações rápidas e o menu da linha caem na **mesma** fila da
+            // Caixa: `ActionReceipts` primeiro (é ele quem dá o "Desfazer"),
+            // e o resto pelo runner de sempre.
+            onCommand: runDashboardCommand
         )
         .task {
             if dashboardConversation == nil { dashboardConversation = conversation }
         }
+    }
+
+    /// A porta única das ações do dashboard.
+    ///
+    /// É o mesmo caminho da Caixa, na mesma ordem: `ActionReceipts.intercept`
+    /// tem a primeira palavra (é ele quem monta a faixa com "Desfazer" antes
+    /// de a mensagem sair do store) e o `MenuCommandRunner` cuida do resto,
+    /// inclusive dos comandos que abrem janela. Um segundo caminho de
+    /// execução para "Arquivar" faria a Caixa e o dashboard divergirem no
+    /// primeiro conserto.
+    private func runDashboardCommand(_ command: ContextCommand) {
+        MenuCommandRunner(
+            store: store,
+            openWindow: openWindow,
+            onReveal: { reveal($0) },
+            intercept: { candidate in
+                receipts.intercept(candidate, on: store, stamp: ActionReceipts.stamp)
+            }
+        )
+        .run(command)
     }
 
     /// A aba Agenda leva a **mesma** barra lateral do email, porque no
