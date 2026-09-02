@@ -28,8 +28,20 @@ public protocol AssistantProviderOAuthAuthorizing: AnyObject, Sendable {
 @Observable
 public final class AssistantProviderOAuthSessionState {
     public private(set) var status: AssistantProviderOAuthStatus = .idle
+    /// A transição mais recente já aplicada. Cada `publish` do ator carrega um
+    /// número que só cresce; a entrega até aqui é um salto para o ator
+    /// principal e nada garante a ordem de chegada. Sem este descarte, o
+    /// `.signedIn` de uma renovação em voo podia pousar **depois** do
+    /// `.signedOut` de um logout e a tela mostraria uma sessão que não existe.
+    @ObservationIgnored private var appliedSequence: UInt64 = 0
+
     public nonisolated init() {}
-    public func apply(_ status: AssistantProviderOAuthStatus) { self.status = status }
+
+    public func apply(_ status: AssistantProviderOAuthStatus, sequence: UInt64) {
+        guard sequence > appliedSequence else { return }
+        appliedSequence = sequence
+        self.status = status
+    }
 }
 
 public extension AssistantProviderOAuthAuthorizing {
@@ -49,6 +61,9 @@ public actor AssistantProviderOAuthCoordinator: AssistantProviderOAuthAuthorizin
     /// A cópia do ator: quem decide dentro dele lê daqui, sem atravessar a
     /// interface. `publish` mantém as duas em passo.
     private var status: AssistantProviderOAuthStatus = .idle
+    /// Só cresce. É o que dá ordem a transições que atravessam o ator
+    /// principal por caminhos diferentes.
+    private var publishSequence: UInt64 = 0
     public nonisolated let sessionState: AssistantProviderOAuthSessionState
 
     private let client: AssistantProviderOAuthClient
@@ -92,26 +107,31 @@ public actor AssistantProviderOAuthCoordinator: AssistantProviderOAuthAuthorizin
     }
 
     public func refreshStatus(configuration: AssistantProviderOAuthConfiguration) async {
+        // A guarda e o `publish` acontecem sem suspensão entre eles: nenhum
+        // `start` consegue se meter no meio e ter seu código de dispositivo
+        // apagado por um "verificar" que começou antes.
         if case .awaitingDeviceCode = status { return }
-        await publish(.checking)
+        let marca = publish(.checking)
         do {
             let configuration = try configuration.validatedForAuthorization()
             switch configuration.kind {
             case .codex:
-                await publish(await measuredCodexSignedIn() ? .signedIn : .signedOut)
+                let codexSignedIn = await measuredCodexSignedIn()
+                guard stillCurrent(marca) else { return }
+                publish(codexSignedIn ? .signedIn : .signedOut)
             case .xAI:
                 guard let session = try sessions.session(for: configuration.credentialID),
                       session.kind == .xAI,
                       !session.accessToken.isEmpty,
                       !session.refreshToken.isEmpty
                 else {
-                    await publish(.signedOut)
+                    publish(.signedOut)
                     return
                 }
-                await publish(.signedIn)
+                publish(.signedIn)
             }
         } catch {
-            await publish(.failed(error.localizedDescription))
+            publish(.failed(error.localizedDescription))
         }
     }
 
@@ -123,7 +143,7 @@ public actor AssistantProviderOAuthCoordinator: AssistantProviderOAuthAuthorizin
         // fechamento do login anterior; disparar isto em uma Task criaria uma
         // corrida que poderia cancelar o código recém-gerado.
         await codexRuntime.cancelDeviceLogin()
-        await publish(.checking)
+        publish(.checking)
         do {
             let configuration = try configuration.validatedForAuthorization()
             switch configuration.kind {
@@ -139,7 +159,7 @@ public actor AssistantProviderOAuthCoordinator: AssistantProviderOAuthAuthorizin
                     expiresAt: .distantFuture,
                     pollInterval: 0
                 )
-                await publish(.awaitingDeviceCode(presentation))
+                publish(.awaitingDeviceCode(presentation))
                 authorizationTask = Task { [weak self, codexRuntime, loginID = login.loginID] in
                     do {
                         try await codexRuntime.waitForDeviceLogin(loginID: loginID)
@@ -153,13 +173,13 @@ public actor AssistantProviderOAuthCoordinator: AssistantProviderOAuthAuthorizin
                 }
             case .xAI:
                 let pending = try await client.begin(configuration: configuration)
-                await publish(.awaitingDeviceCode(pending.presentation))
+                publish(.awaitingDeviceCode(pending.presentation))
                 authorizationTask = Task { [weak self, pending, configuration] in
                     await self?.completeXAIAuthorization(pending, configuration: configuration)
                 }
             }
         } catch {
-            await publish(.failed(error.localizedDescription))
+            publish(.failed(error.localizedDescription))
             throw error
         }
     }
@@ -168,7 +188,7 @@ public actor AssistantProviderOAuthCoordinator: AssistantProviderOAuthAuthorizin
         authorizationTask?.cancel()
         authorizationTask = nil
         Task { [codexRuntime] in await codexRuntime.cancelDeviceLogin() }
-        if case .awaitingDeviceCode = status { await publish(.signedOut) }
+        if case .awaitingDeviceCode = status { publish(.signedOut) }
     }
 
     public func availableModels(configuration: AssistantProviderOAuthConfiguration) async throws -> [AssistantProviderModel] {
@@ -177,10 +197,10 @@ public actor AssistantProviderOAuthCoordinator: AssistantProviderOAuthAuthorizin
         case .codex:
             do {
                 let models = try await codexRuntime.availableModels()
-                await publish(.signedIn)
+                publish(.signedIn)
                 return models
             } catch CodexDeviceLoginRuntimeError.notAuthenticated {
-                await publish(.signedOut)
+                publish(.signedOut)
                 throw CodexDeviceLoginRuntimeError.notAuthenticated
             }
         case .xAI:
@@ -194,7 +214,7 @@ public actor AssistantProviderOAuthCoordinator: AssistantProviderOAuthAuthorizin
     public func signOut(configuration: AssistantProviderOAuthConfiguration) async {
         await cancelAuthorization()
         codexSession = nil
-        await publish(.checking)
+        let marca = publish(.checking)
         do {
             let configuration = try configuration.validatedForAuthorization()
             switch configuration.kind {
@@ -205,14 +225,17 @@ public actor AssistantProviderOAuthCoordinator: AssistantProviderOAuthAuthorizin
                 try sessions.removeSession(for: configuration.credentialID)
             case .xAI:
                 if let stored = try sessions.session(for: configuration.credentialID), stored.kind != .xAI {
-                    await publish(.signedOut)
+                    publish(.signedOut)
                     return
                 }
                 try sessions.removeSession(for: configuration.credentialID)
             }
-            await publish(.signedOut)
+            // Um `start` decidido enquanto o runtime respondia é mais novo do
+            // que esta saída, e a tela fica com a decisão dele. A sessão foi
+            // removida de qualquer forma: isto é só sobre o que a tela mostra.
+            if stillCurrent(marca) { publish(.signedOut) }
         } catch {
-            await publish(.failed(error.localizedDescription))
+            publish(.failed(error.localizedDescription))
         }
     }
 
@@ -252,28 +275,37 @@ public actor AssistantProviderOAuthCoordinator: AssistantProviderOAuthAuthorizin
             try sessions.store(renewed, for: configuration.credentialID)
             // O caminho do pedido não espera pela interface: o token volta
             // agora e a tela recebe a transição quando o ator principal puder.
-            publishWithoutWaiting(.signedIn)
+            publish(.signedIn)
             return renewed.accessToken
         } catch {
-            publishWithoutWaiting(.failed(error.localizedDescription))
+            publish(.failed(error.localizedDescription))
             throw error
         }
     }
 
-    /// Publica o estado na tela. O ator guarda sua própria cópia — quem decide
-    /// aqui dentro nunca precisa perguntar à interface o que ela está
-    /// desenhando.
-    private func publish(_ status: AssistantProviderOAuthStatus) async {
-        self.status = status
-        await MainActor.run { self.sessionState.apply(status) }
-    }
-
-    /// A variante do caminho do pedido: atualiza a cópia do ator na hora e
-    /// entrega a transição à interface sem suspender quem espera pelo token.
-    private func publishWithoutWaiting(_ status: AssistantProviderOAuthStatus) {
+    /// Publica o estado na tela. **Não suspende**: era o `await MainActor.run`
+    /// que transformava cada transição em ponto de suspensão e deixava um
+    /// `if case .awaitingDeviceCode = status` decidir sobre um estado que
+    /// outra chamada já tinha mudado. A tela recebe a transição quando o ator
+    /// principal puder, carimbada com a ordem em que foi decidida aqui.
+    ///
+    /// Devolve o número da transição: quem tem trabalho a fazer depois de um
+    /// `await` confere se ainda é dono do estado antes de publicar de novo.
+    @discardableResult
+    private func publish(_ status: AssistantProviderOAuthStatus) -> UInt64 {
+        publishSequence &+= 1
+        let sequence = publishSequence
         self.status = status
         let state = sessionState
-        Task { @MainActor in state.apply(status) }
+        Task { @MainActor in state.apply(status, sequence: sequence) }
+        return sequence
+    }
+
+    /// Ainda somos a última palavra sobre o estado? `false` significa que
+    /// outra chamada decidiu enquanto esta esperava — e a decisão dela é a
+    /// mais nova.
+    private func stillCurrent(_ sequence: UInt64) -> Bool {
+        publishSequence == sequence
     }
 
     /// A resposta fresca do runtime, guardada para a sonda barata.
@@ -295,15 +327,15 @@ public actor AssistantProviderOAuthCoordinator: AssistantProviderOAuthAuthorizin
         authorizationTask = nil
         codexSession = nil
         if await measuredCodexSignedIn() {
-            await publish(.signedIn)
+            publish(.signedIn)
         } else {
-            await publish(.failed(CodexDeviceLoginRuntimeError.notAuthenticated.localizedDescription))
+            publish(.failed(CodexDeviceLoginRuntimeError.notAuthenticated.localizedDescription))
         }
     }
 
     private func failAuthorization(_ error: Error) async {
         authorizationTask = nil
-        await publish(.failed(error.localizedDescription))
+        publish(.failed(error.localizedDescription))
     }
 
     private func completeXAIAuthorization(_ pending: AssistantProviderOAuthPendingAuthorization, configuration: AssistantProviderOAuthConfiguration) async {
@@ -317,7 +349,7 @@ public actor AssistantProviderOAuthCoordinator: AssistantProviderOAuthAuthorizin
                 case let .completed(session):
                     try sessions.store(session, for: configuration.credentialID)
                     authorizationTask = nil
-                    await publish(.signedIn)
+                    publish(.signedIn)
                     return
                 }
             }
@@ -326,7 +358,7 @@ public actor AssistantProviderOAuthCoordinator: AssistantProviderOAuthAuthorizin
             // Cancelamento voluntário não vira erro visual.
         } catch {
             authorizationTask = nil
-            await publish(.failed(error.localizedDescription))
+            publish(.failed(error.localizedDescription))
         }
     }
 }

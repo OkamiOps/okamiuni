@@ -123,6 +123,57 @@ struct AssistantProviderOAuthTests {
         #expect(sessions.mainThreadLookups() == 0)
     }
 
+    /// A entrega da transição até a tela é um salto para o ator principal, e
+    /// dois saltos disparados de caminhos diferentes não chegam em ordem. Sem
+    /// carimbo, o `.signedIn` de uma renovação em voo pousava depois do
+    /// `.signedOut` de um logout e a tela mostrava uma sessão que não existe.
+    @Test("um .signedIn atrasado não apaga o .signedOut mais novo")
+    @MainActor
+    func staleTransitionNeverOverwritesTheNewerOne() {
+        let state = AssistantProviderOAuthSessionState()
+        state.apply(.checking, sequence: 1)
+        state.apply(.signedOut, sequence: 3)
+        // A renovação decidiu antes do logout e só agora conseguiu o ator
+        // principal. Ela perde — e é isso que a pessoa precisa ver.
+        state.apply(.signedIn, sequence: 2)
+        #expect(state.status == .signedOut)
+
+        // O que vem depois de verdade ainda passa.
+        state.apply(.signedIn, sequence: 4)
+        #expect(state.status == .signedIn)
+
+        let liteLLM = LiteLLMOAuthSessionState()
+        liteLLM.apply(.signedOut, sequence: 3)
+        liteLLM.apply(.signedIn, sequence: 2)
+        #expect(liteLLM.status == .signedOut)
+        liteLLM.apply(.signedIn, sequence: 4)
+        #expect(liteLLM.status == .signedIn)
+    }
+
+    /// Cada transição do ator carrega um número que só cresce, e é ele que
+    /// dá ordem ao que chega na tela. Sem `publish` devolvendo a marca, o
+    /// `guard` depois de um `await` não teria como saber que perdeu a vez.
+    @Test("as transições do coordenador são numeradas em ordem")
+    @MainActor
+    func coordinatorStampsTransitionsInOrder() async throws {
+        let state = AssistantProviderOAuthSessionState()
+        let coordinator = AssistantProviderOAuthCoordinator(
+            sessionState: state,
+            sessions: InMemoryAssistantProviderOAuthSessionStore()
+        )
+        let configuration = AssistantProviderOAuthConfiguration(kind: .xAI, model: "grok-4.6")
+
+        await coordinator.refreshStatus(configuration: configuration)
+        for _ in 0..<200 where state.status == .idle { await Task.yield() }
+        #expect(state.status == .signedOut)
+
+        // Uma segunda rodada não é descartada como se fosse atrasada: os
+        // números continuam crescendo.
+        await coordinator.signOut(configuration: configuration)
+        for _ in 0..<200 where state.status == .checking { await Task.yield() }
+        #expect(state.status == .signedOut)
+    }
+
     @Test("account/read reconhece somente uma sessão ChatGPT estruturada")
     func parsesStructuredCodexAccountState() {
         let chatGPT = Data(#"{"account":{"type":"chatgpt","email":"pessoa@example.com","planType":"plus"}}"#.utf8)
