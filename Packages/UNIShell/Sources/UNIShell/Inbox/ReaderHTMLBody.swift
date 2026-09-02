@@ -58,6 +58,16 @@ struct ReaderHTMLBody: NSViewRepresentable {
     /// Sim/Não/Talvez do HTML do Calendar: o cartão do convite responde.
     var aoRSVP: (InviteRSVPResponse) -> Void = { _ in }
 
+    /// Quem pergunta antes de abrir link. Chega pelo ambiente, e não como
+    /// parâmetro, para o comportamento ser **um só no app inteiro** sem cada
+    /// chamador ter de lembrar de ligá-lo: quem pendura `.linkConfirmation()`
+    /// no painel liga o corpo desenhado e a `WebView` de uma vez.
+    ///
+    /// `nil` quer dizer que ninguém pendurou a pergunta — e aí o link **não**
+    /// abre. É o lado certo de errar: um link que não abre se conserta; um que
+    /// abriu sem perguntar, não.
+    @Environment(\.linkConfirmation) var confirmation
+
     func makeCoordinator() -> Coordenador { Coordenador(self) }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -301,7 +311,11 @@ struct ReaderHTMLBody: NSViewRepresentable {
                 decisionHandler(.allow)
             case .abrirNoNavegador(let url):
                 decisionHandler(.cancel)
-                NSWorkspace.shared.open(url)
+                // **Não abre mais direto.** Era `NSWorkspace.shared.open(url)`
+                // aqui, e é a queixa do dono: o clique saía para o navegador
+                // sem dizer para onde ia. Agora levanta a mesma pergunta da
+                // prévia — mesmo cartão, mesmo anfitrião em destaque.
+                pai.confirmation?.pede(url)
             case .rsvp(let response):
                 decisionHandler(.cancel)
                 pai.aoRSVP(response)

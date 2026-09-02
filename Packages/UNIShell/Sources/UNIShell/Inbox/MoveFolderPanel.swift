@@ -34,7 +34,9 @@ struct MoveFolderPanel: View {
                 return MoveFolderGroup(title: title, items: items)
             case .item(let item):
                 return MoveFolderGroup(title: "", items: [item])
-            case .separator:
+            // Legenda é cabeçalho do menu do link; a lista de pastas não tem
+            // nenhuma, e traço aqui nunca virou grupo.
+            case .separator, .legenda, .aviso:
                 return nil
             }
         }

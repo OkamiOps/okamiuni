@@ -74,6 +74,10 @@ struct DashboardPreviewPane: View {
         .padding(.leading, DashboardMetrics.previewLeadingPadding)
         .frame(maxHeight: .infinity, alignment: .top)
         .hairline(theme.line, edges: .leading)
+        // Link do corpo pergunta antes de abrir, aqui como no leitor. Fica na
+        // coluna inteira, e não dentro da área que rola: um cartão preso à
+        // rolagem sairia da tela junto com o texto.
+        .linkConfirmation()
         // O corpo do email chega por demanda, pela mesma porta do leitor. A
         // espera aparece na barra fina do chrome (ver `ChromeWorkload`), e
         // não numa segunda animação aqui.

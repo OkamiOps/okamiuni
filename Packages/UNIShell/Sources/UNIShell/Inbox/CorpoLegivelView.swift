@@ -32,6 +32,8 @@ struct CorpoLegivelView: View {
 
     @Environment(\.theme) private var theme
     @Environment(\.openURL) private var openURL
+    /// Quem pergunta antes de abrir. Ver `LinkConfirmation`.
+    @Environment(\.linkConfirmation) private var confirmation
 
     let corpo: CorpoLegivel
     /// O corpo da fonte. A prévia usa o dela; o leitor, se um dia reusar isto,
@@ -53,18 +55,20 @@ struct CorpoLegivelView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        // **A mesma política de link do leitor.** `ReaderHTMLPolicy.decide` é
-        // quem diz o que um clique pode fazer, e ela não é afrouxada aqui: o
-        // que não for `http`/`https`/`mailto`/`tel` não abre nada, e o que for
-        // sai para o navegador da pessoa — nunca navega dentro do app.
+        // **A mesma política de link do leitor**, e a mesma pergunta.
+        // `ReaderHTMLPolicy.decide` continua sendo quem diz o que um clique
+        // pode fazer — não é afrouxada aqui: o que não for
+        // `http`/`https`/`mailto`/`tel` não abre nada.
+        //
+        // O que mudou (queixa do dono: "ao clicar no link ele abre direto"): o
+        // que **pode** abrir também não abre no clique. Ele levanta a pergunta,
+        // que mostra o anfitrião de destino; o navegador só entra pelo botão de
+        // lá. `.handled` nos dois casos porque, aberto ou recusado, o clique
+        // acabou aqui: devolver `.discarded` deixaria o SwiftUI tentar o
+        // caminho padrão, que é justamente abrir sem perguntar.
         .environment(\.openURL, OpenURLAction { url in
-            switch ReaderHTMLPolicy.decide(url: url) {
-            case let .abrirNoNavegador(destino):
-                NSWorkspace.shared.open(destino)
-                return .handled
-            case .permitir, .rsvp, .recusar:
-                return .discarded
-            }
+            confirmation?.pede(url)
+            return .handled
         })
     }
 
@@ -229,6 +233,14 @@ struct CorpoLegivelView: View {
             .tint(theme.accentInk.color)
             .textSelection(.enabled)
             .help(destinos.isEmpty ? "" : destinos.joined(separator: "\n"))
+            // **O menu do botão direito é o do app.** `textSelection` entrega a
+            // superfície a um `NSTextView`, e o menu dele — "Abrir Link /
+            // Buscar com Google / Serviços / Fala" — vem com a cara do sistema
+            // e ignora os 26 temas. `uniLinkMenu` põe o `RightClickCatcher` na
+            // frente: ele só existe para o mouse no clique direito, devolve
+            // `nil` em `menu(for:)` e abre o painel do app. A seleção de texto
+            // continua inteira porque o clique esquerdo nunca o vê.
+            .uniLinkMenu(trechos: trechos)
     }
 
     private func fonte(nivel: Int) -> Font {

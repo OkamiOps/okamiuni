@@ -128,6 +128,10 @@ struct ContextMenuPanel: View {
         switch entry {
         case .separator:
             MenuDivider()
+        case .legenda(let texto):
+            caption(texto, alerta: false)
+        case .aviso(let texto):
+            caption(texto, alerta: true)
         case .item(let item):
             line(
                 index,
@@ -147,6 +151,31 @@ struct ContextMenuPanel: View {
                 help: nil
             )
         }
+    }
+
+    /// A linha que **diz** — o anfitrião de destino do link, e o aviso quando o
+    /// domínio está disfarçado.
+    ///
+    /// Mono, e não a sans das outras linhas: endereço é texto que se confere
+    /// caractere por caractere, e é a mesma fonte com que o app já escreve host
+    /// de conta e endereço em toda parte. Duas linhas no máximo — um anfitrião
+    /// longo **envolve**, nunca trunca: cortar `conta.banco.com.br…` é entregar
+    /// ao disfarce exatamente a leitura que ele quer.
+    ///
+    /// Sem `Button`, sem `onHover`, sem realce: não há o que ativar aqui, e um
+    /// alvo de clique que não faz nada é botão mudo.
+    private func caption(_ texto: String, alerta: Bool) -> some View {
+        Text(texto)
+            .font(theme.mono.font(size: MenuSurface.captionFontSize, weight: .medium))
+            .foregroundStyle(alerta ? theme.warning.color : theme.ink2.color)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, MenuSurface.rowHorizontalPadding)
+            .padding(.vertical, MenuSurface.rowVerticalPadding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(theme.surface2.color)
+            .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+            .accessibilityAddTraits(.isHeader)
     }
 
     /// Uma linha do menu.

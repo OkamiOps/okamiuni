@@ -253,6 +253,18 @@ struct MenuCommandRunner {
 
         case .copy(let text):
             Clipboard.copy(text)
+
+        case .abrirLink:
+            // **Nada, de propósito.** Abrir link é a única ação do app que
+            // passa por uma pergunta, e quem sabe perguntar é a superfície que
+            // desenha o corpo (`LinkConfirmation`), não este runner genérico.
+            // Ela intercepta o comando antes de chegar aqui — ver o `intercept`
+            // logo acima e `CorpoLegivelView`.
+            //
+            // Cair aqui significa que alguém pendurou um menu de link numa
+            // superfície sem confirmação: o certo é o link **não** abrir, e não
+            // abrir calado pelas costas da pergunta.
+            break
         }
     }
 }

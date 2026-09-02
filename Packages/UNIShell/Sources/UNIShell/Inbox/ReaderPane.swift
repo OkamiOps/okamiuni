@@ -284,6 +284,10 @@ public struct ReaderPane: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(theme.surface.color)
+        // A pergunta antes de abrir link vale para o leitor inteiro: o HTML da
+        // `WebView` e o texto desenhado passam os dois por aqui. Pendurada no
+        // topo do painel para o cartão ter a largura dele, e não a da coluna.
+        .linkConfirmation()
         .onAppear {
             readerDidAppear = true
             if readerReadyRecorte == nil { readerReadyRecorte = recorte }

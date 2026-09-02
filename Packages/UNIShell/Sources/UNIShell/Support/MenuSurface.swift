@@ -34,6 +34,9 @@ enum MenuSurface {
     static let rowFontSize: CGFloat = 12.5
     /// O atalho e a seta do submenu, um degrau abaixo do rótulo.
     static let hintFontSize: CGFloat = 11
+    /// A legenda de cabeçalho — o anfitrião de destino do menu de link. Meio
+    /// degrau abaixo do rótulo, e em mono: endereço se confere letra a letra.
+    static let captionFontSize: CGFloat = 11.5
     /// O espaço de coordenadas em que a altura de cada linha do menu é medida.
     ///
     /// Mora aqui, e não dentro da `View`, porque `View` é `@MainActor` implícito

@@ -206,14 +206,14 @@ enum ReaderHTMLPolicy {
     static func decide(url: URL?) -> Navegacao {
         guard let url, let esquema = url.scheme?.lowercased() else { return .recusar }
         if let resposta = rsvp(from: url) { return .rsvp(resposta) }
-        switch esquema {
-        case "about", "data":
-            return .permitir
-        case "http", "https", "mailto", "tel":
-            return .abrirNoNavegador(url)
-        default:
-            return .recusar
-        }
+        if esquema == "about" || esquema == "data" { return .permitir }
+        // A lista dos esquemas que saem para o mundo mora em
+        // `UNICore.LinkDoCorpo` desde que o menu do link passou a precisar dela.
+        // Uma fonte só: com duas, o menu ofereceria "Abrir" para um esquema que
+        // esta política recusa — ou o contrário, que é pior.
+        return LinkDoCorpo.esquemasAbriveis.contains(esquema)
+            ? .abrirNoNavegador(url)
+            : .recusar
     }
 
     /// `action=RESPOND&rst=1|2|3` no Calendar do Google. Sem JavaScript no

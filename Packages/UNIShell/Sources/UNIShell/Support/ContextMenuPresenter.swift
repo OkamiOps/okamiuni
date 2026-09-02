@@ -111,6 +111,7 @@ final class ContextMenuPresenter {
         switch level.highlightedEntry {
         case .item(let item): title = item.title
         case .submenu(let name, _): title = name
+        case .legenda(let texto), .aviso(let texto): title = texto
         case .separator, .none: title = "—"
         }
         return "níveis=\(panels.count) realce=\(level.highlighted.map(String.init) ?? "nenhum") “\(title)”"
@@ -283,7 +284,8 @@ final class ContextMenuPresenter {
             let action = run
             dismiss()
             action?(item.command)
-        case .separator:
+        // Nem traço nem legenda executam: a legenda existe para ser lida.
+        case .separator, .legenda, .aviso:
             return
         }
     }
