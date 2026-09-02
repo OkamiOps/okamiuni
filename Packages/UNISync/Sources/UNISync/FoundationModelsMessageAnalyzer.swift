@@ -357,10 +357,21 @@ enum MessageAnalysisEventEvidence {
         _ output: MessageAnalysisGeneratedOutput,
         input: MessageAnalysisInput
     ) -> Bool {
+        supports(input: input, hour: output.eventHour, minute: output.eventMinute)
+    }
+
+    /// A mesma exigência, sem passar pela saída estruturada do motor local:
+    /// é ela que o analisador por JSON reaproveita, para que as duas rotas
+    /// tenham exatamente uma regra de evidência.
+    static func supports(
+        input: MessageAnalysisInput,
+        hour: Int,
+        minute: Int
+    ) -> Bool {
         let source = input.subject + "\n" + input.body
         guard datePatterns.contains(where: { contains($0, in: source) }) else { return false }
         return explicitTimes(in: source).contains {
-            $0.hour == output.eventHour && $0.minute == output.eventMinute
+            $0.hour == hour && $0.minute == minute
         }
     }
 

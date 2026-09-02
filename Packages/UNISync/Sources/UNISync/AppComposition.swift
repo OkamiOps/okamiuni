@@ -150,7 +150,7 @@ public struct AppComposition: Sendable {
     /// tipo é o que troca um aviso de concorrência por uma garantia.
     @MainActor
     public static func make(databasePath: String? = nil, bundle: Bundle = .main) -> AppComposition {
-        let analyzer = FoundationModelsMessageAnalyzer()
+        let foundationModelsAnalyzer = FoundationModelsMessageAnalyzer()
         let assistantSettings = AssistantSettingsStore()
         let assistantCredentials = KeychainAssistantCredentialStore()
         let liteLLMOAuth = LiteLLMOAuthCoordinator()
@@ -171,6 +171,16 @@ public struct AppComposition: Sendable {
         let assistantAvailability = AssistantAvailabilityModel(
             settingsStore: assistantSettings,
             probe: { await router.assistantAvailability() }
+        )
+        // A análise automática é a única coisa que roda sem a pessoa pedir. Ela
+        // só sai deste Mac com opt-in explícito — ver `AutomaticAnalysisRoute`.
+        let analyzer = RoutedMessageAnalyzer(
+            settingsStore: assistantSettings,
+            onDevice: foundationModelsAnalyzer,
+            configured: TextAssistantMessageAnalyzer(
+                assistant: router,
+                availability: { await router.availability() }
+            )
         )
         let intelligenceAvailability = FoundationModelsMessageAnalyzer.systemAvailability
         let banco: SyncDatabase
