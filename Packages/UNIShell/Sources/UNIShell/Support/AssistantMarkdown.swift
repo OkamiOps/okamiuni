@@ -90,9 +90,30 @@ struct AssistantMarkdownBlock: Identifiable, Equatable, Sendable {
 /// literais que a pessoa vai colar no composer — não passe texto de rascunho
 /// para este view.
 struct AssistantMarkdown: View {
+    /// Como o corpo é desenhado.
+    ///
+    /// `.compact` é o que o painel e o popover do leitor sempre desenharam:
+    /// sans 12.5 em `ink2`. `.prose(size:)` é o que a faixa de briefing e o
+    /// transcript do dashboard pedem no mockup — o serif do tema no corpo
+    /// dado, em `ink`, com o `line-height: 1.55` que o CSS escreve.
+    enum Style: Equatable {
+        case compact
+        case prose(size: CGFloat)
+
+        /// `line-height: 1.55` menos a altura natural de linha (≈1.2): é isso
+        /// que o `lineSpacing` do SwiftUI acrescenta.
+        var lineSpacing: CGFloat {
+            switch self {
+            case .compact: 2.5
+            case .prose(let size): size * 0.35
+            }
+        }
+    }
+
     @Environment(\.theme) private var theme
 
     let text: String
+    var style: Style = .compact
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -109,12 +130,12 @@ struct AssistantMarkdown: View {
         switch kind {
         case .paragraph(let text):
             richText(text)
-                .font(theme.sans.font(size: 12.5))
-                .foregroundStyle(theme.ink2.color)
-                .lineSpacing(2.5)
+                .font(bodyFont())
+                .foregroundStyle(bodyInk.color)
+                .lineSpacing(style.lineSpacing)
         case .heading(let text):
             richText(text)
-                .font(theme.sans.font(size: 12.5, weight: .semibold))
+                .font(bodyFont(weight: .semibold))
                 .foregroundStyle(theme.ink.color)
                 .padding(.top, 2)
         case .bullet(let text):
@@ -126,9 +147,9 @@ struct AssistantMarkdown: View {
                         dimensions[VerticalAlignment.center]
                     }
                 richText(text)
-                    .font(theme.sans.font(size: 12.5))
-                    .foregroundStyle(theme.ink2.color)
-                    .lineSpacing(2.5)
+                    .font(bodyFont())
+                    .foregroundStyle(bodyInk.color)
+                    .lineSpacing(style.lineSpacing)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         case .numbered(let marker, let text):
@@ -138,11 +159,27 @@ struct AssistantMarkdown: View {
                     .foregroundStyle(theme.info.color)
                     .frame(minWidth: 18, alignment: .trailing)
                 richText(text)
-                    .font(theme.sans.font(size: 12.5))
-                    .foregroundStyle(theme.ink2.color)
-                    .lineSpacing(2.5)
+                    .font(bodyFont())
+                    .foregroundStyle(bodyInk.color)
+                    .lineSpacing(style.lineSpacing)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+        }
+    }
+
+    private func bodyFont(weight: Font.Weight = .regular) -> Font {
+        switch style {
+        case .compact:
+            theme.sans.font(size: 12.5, weight: weight)
+        case .prose(let size):
+            theme.serif.font(size: size, weight: weight)
+        }
+    }
+
+    private var bodyInk: TokenColor {
+        switch style {
+        case .compact: theme.ink2
+        case .prose: theme.ink
         }
     }
 

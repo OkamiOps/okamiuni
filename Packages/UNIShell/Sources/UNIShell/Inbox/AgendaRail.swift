@@ -100,12 +100,25 @@ public struct AgendaRail: View {
     /// da mensagem; quem sabe levar o leitor até ela é o `InboxScreen`.
     let onRevealMessage: (String) -> Void
 
+    /// A trilha desenha a própria seção "Vindo do email"? O dashboard diz
+    /// `false` porque põe as PENDÊNCIAS dele — com estado vazio, que esta não
+    /// tem — logo abaixo da trilha, e duas seções iguais na mesma coluna seria
+    /// a mesma informação dita duas vezes.
+    let showsPending: Bool
+
+    /// O fundo da coluna. A Caixa a põe sobre `surface2`; o mockup do
+    /// dashboard (`.rail { background: var(--surface) }`) a põe sobre
+    /// `surface`. É token dos dois lados — nenhuma cor literal entra aqui.
+    let background: KeyPath<Theme, TokenColor>
+
     public init(
         store: MailStore,
         layout: Layout = Layout(),
         now: Int? = nil,
         headerDate: Date? = nil,
         width: CGFloat = PaneLayout.agendaWidth,
+        showsPending: Bool = true,
+        background: KeyPath<Theme, TokenColor> = \.surface2,
         onOpenEvent: @escaping (AgendaItem) -> Void = { _ in },
         onRevealMessage: @escaping (String) -> Void = { _ in }
     ) {
@@ -114,6 +127,8 @@ public struct AgendaRail: View {
         self.now = now ?? Self.minutesNow()
         self.headerDate = headerDate ?? Date.now
         self.railWidth = width
+        self.showsPending = showsPending
+        self.background = background
         self.onOpenEvent = onOpenEvent
         self.onRevealMessage = onRevealMessage
     }
@@ -162,12 +177,12 @@ public struct AgendaRail: View {
                 .padding(.top, 12)
                 .padding(.bottom, 16)
             }
-            if !store.visiblePendingItems.isEmpty {
+            if showsPending, !store.visiblePendingItems.isEmpty {
                 pendingSection
             }
         }
         .frame(width: railWidth)
-        .background(theme.surface2.color)
+        .background(theme[keyPath: background].color)
         .agendaUndoBand(store: store)
         .hairline(theme.line, edges: .leading)
     }

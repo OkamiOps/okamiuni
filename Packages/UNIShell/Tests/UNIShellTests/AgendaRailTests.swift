@@ -544,4 +544,46 @@ struct AgendaRailTests {
         )
         #expect(AgendaRail.metaLine(for: cancelado, host: "gmail.com") == nil)
     }
+
+    /// O dashboard reusa a trilha, mas desenha as próprias PENDÊNCIAS embaixo
+    /// dela (com estado vazio, que a trilha não tem). Sem esta porta a seção
+    /// "Vindo do email" apareceria duas vezes na mesma coluna.
+    @Test("a trilha sabe abrir mão da seção de pendências")
+    @MainActor
+    func pendingSectionIsOptional() async throws {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        #expect(!store.visiblePendingItems.isEmpty)
+
+        let comPendencias = try #require(Render.bitmap(
+            AgendaRail(store: store, now: Fixtures.nowMinute, headerDate: Fixtures.today),
+            size: CGSize(width: 300, height: 700), theme: .tinta
+        ))
+        let semPendencias = try #require(Render.bitmap(
+            AgendaRail(
+                store: store, now: Fixtures.nowMinute, headerDate: Fixtures.today,
+                showsPending: false
+            ),
+            size: CGSize(width: 300, height: 700), theme: .tinta
+        ))
+        #expect(comPendencias.pixelsDiffering(from: semPendencias) > 500)
+    }
+
+    /// O mockup do dashboard põe a coluna direita sobre `surface`; a Caixa a
+    /// põe sobre `surface2`. A trilha é a mesma — o que muda é o fundo que
+    /// quem a hospeda pede.
+    @Test("o fundo da trilha vem de quem a hospeda")
+    @MainActor
+    func backgroundIsInjected() async throws {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        let rep = try #require(Render.bitmap(
+            AgendaRail(
+                store: store, now: Fixtures.nowMinute, headerDate: Fixtures.today,
+                background: \.surface
+            ),
+            size: CGSize(width: 300, height: 700), theme: .tinta
+        ))
+        #expect(rep.pixels(matching: Theme.tinta.surface, tolerance: 0.005) > 20_000)
+    }
 }

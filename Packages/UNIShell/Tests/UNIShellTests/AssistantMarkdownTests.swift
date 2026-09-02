@@ -36,4 +36,23 @@ struct AssistantMarkdownTests {
         ))
         #expect(image.pixelsWide == 300)
     }
+
+    /// A faixa de briefing do dashboard pede o corpo em serif 15 (`.briefing
+    /// .text { font-family: var(--serif); font-size: 15px }` no mockup). O
+    /// estilo compacto do painel continua sendo o padrão — quem não pede nada
+    /// desenha o que sempre desenhou.
+    @Test("o estilo de prosa desenha diferente do compacto")
+    @MainActor
+    func proseStyleDiffersFromCompact() async throws {
+        let text = "Dois emails pedem decisão hoje: Marina quer fechar o contrato na quinta."
+        let compacto = try #require(Render.bitmap(
+            AssistantMarkdown(text: text).frame(width: 400),
+            size: CGSize(width: 400, height: 120), theme: .tinta
+        ))
+        let prosa = try #require(Render.bitmap(
+            AssistantMarkdown(text: text, style: .prose(size: 15)).frame(width: 400),
+            size: CGSize(width: 400, height: 120), theme: .tinta
+        ))
+        #expect(compacto.pixelsDiffering(from: prosa) > 300)
+    }
 }
