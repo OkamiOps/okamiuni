@@ -113,6 +113,23 @@ struct OkamiUNIApp: App {
         }
     }
 
+    /// A pausa da fila, quando existe. O modelo observa o banco; ela aparece
+    /// sozinha, sem a pessoa reabrir a janela.
+    private var pausaDaAnalise: AnalysisPauseState? {
+        guard let fila = composition.analysisQueue,
+              let motivo = fila.state.reason
+        else { return nil }
+        return AnalysisPauseState(reason: motivo) {
+            Task { await fila.retry() }
+        }
+    }
+
+    /// Para onde a análise automática vai agora. É lida a cada pintura porque
+    /// `LeituraDoAssistente` repinta a cada save das preferências.
+    private var destinoDaAnalise: AssistantDestination {
+        composition.assistantSettings.snapshot().automaticAnalysisDestination
+    }
+
     /// O conteúdo da cena principal.
     ///
     /// Uma cena só, dois conteúdos, e a bandeira decide. Sem `--ensaiar-contas`
@@ -135,6 +152,8 @@ struct OkamiUNIApp: App {
                     store: mailStore,
                     clock: agendaClock,
                     intelligencePresentation: apresentacao,
+                    analysisPause: pausaDaAnalise,
+                    analysisDestination: destinoDaAnalise,
                     textAssistant: composition.textAssistant,
                     assistantSettings: composition.assistantSettings,
                     onMessagePresented: prioritizeMessageSummary,
@@ -260,6 +279,7 @@ struct OkamiUNIApp: App {
                     textAssistant: composition.textAssistant,
                     assistantSettings: composition.assistantSettings,
                     intelligencePresentation: apresentacao,
+                    analysisDestination: destinoDaAnalise,
                     onMessagePresented: prioritizeMessageSummary
                 )
             }

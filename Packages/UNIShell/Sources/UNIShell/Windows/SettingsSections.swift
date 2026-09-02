@@ -280,7 +280,7 @@ struct GeneralSettingsView: View {
                 SettingsNotice(
                     symbol: "lock.shield",
                     title: "Processamento local",
-                    text: "Perguntas e escrita usam o Foundation Models deste Mac. A análise automática de mensagens segue a rota escolhida abaixo."
+                    text: "Perguntas, escrita e a análise automática de mensagens usam o Foundation Models deste Mac."
                 )
             case .openAICompatible:
                 remoteFields
@@ -295,6 +295,8 @@ struct GeneralSettingsView: View {
             case .cli:
                 cliProviderFields
             }
+
+            automaticAnalysisControls
 
             if let feedback {
                 Text(feedback)
@@ -323,6 +325,45 @@ struct GeneralSettingsView: View {
                 Spacer(minLength: 0)
             }
         }
+    }
+
+    /// A análise automática é a única coisa que roda **sem** a pessoa pedir.
+    /// Por isso ela tem opt-in próprio, desligado de fábrica, e só aparece
+    /// quando existe um destino remoto para ligar.
+    @ViewBuilder
+    private var automaticAnalysisControls: some View {
+        let destination = AssistantDestination(settings: draft)
+        if !destination.isLocal {
+            SettingsLabeledRow(label: "Análise automática") {
+                Toggle(isOn: Binding(
+                    get: { draft.automaticAnalysis == .configuredProvider },
+                    set: { draft.automaticAnalysis = $0 ? .configuredProvider : .onDeviceOnly }
+                )) {
+                    Text(Self.automaticAnalysisToggleLabel(for: draft))
+                        .font(theme.sans.font(size: 12))
+                        .foregroundStyle(theme.ink2.color)
+                }
+                .toggleStyle(.switch)
+                .accessibilityLabel(Self.automaticAnalysisToggleLabel(for: draft))
+            }
+            SettingsNotice(
+                symbol: "network",
+                title: "Cada mensagem recebida sai deste Mac",
+                text: Self.automaticAnalysisWarning(for: draft)
+            )
+        }
+    }
+
+    /// `static` e visível ao pacote para o teste ler a cópia sem montar a view.
+    static func automaticAnalysisToggleLabel(for settings: AssistantSettings) -> String {
+        "Analisar mensagens novas automaticamente com \(AssistantDestination(settings: settings).label)"
+    }
+
+    static func automaticAnalysisWarning(for settings: AssistantSettings) -> String {
+        let destination = AssistantDestination(settings: settings)
+        return "Com isto ligado, assunto e corpo de cada mensagem nova saem deste Mac para "
+            + "\(destination.label). \(destination.detail) Desligado, o resumo automático "
+            + "continua sendo feito pelo Foundation Models deste Mac."
     }
 
     private var assistantRoutingNotice: some View {

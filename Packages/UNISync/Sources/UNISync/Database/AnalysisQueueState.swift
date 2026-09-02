@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import GRDB
 
 /// A fila de análise automática nunca cai para o Mac em silêncio: ela
@@ -62,5 +63,63 @@ public struct AnalysisQueueStateStore: Sendable {
                 isPaused: false, reason: nil, pausedAt: nil
             ).save(db)
         }
+    }
+}
+
+/// O estado que a barra lateral observa.
+///
+/// A fonte é o próprio banco, via `ValueObservation`: a pausa é gravada por
+/// dentro do coordenador, e uma tela que só lesse na abertura mostraria a
+/// fila correndo enquanto ela já tinha parado.
+@MainActor
+@Observable
+public final class AnalysisQueueStateModel {
+    public private(set) var state: AnalysisQueueState = .running
+
+    private let database: SyncDatabase
+    private let coordinator: MessageIntelligenceCoordinator
+    private var observationTask: Task<Void, Never>?
+
+    public init(database: SyncDatabase, coordinator: MessageIntelligenceCoordinator) {
+        self.database = database
+        self.coordinator = coordinator
+        self.state = (try? AnalysisQueueStateStore(database: database).state()) ?? .running
+    }
+
+    /// Idempotente, como a observação do coordenador.
+    public func start() {
+        guard observationTask == nil else { return }
+        let pool = database.pool
+        observationTask = Task { [weak self] in
+            do {
+                let changes = ValueObservation.tracking { db in
+                    try AnalysisQueueStateRecord.fetchOne(
+                        db, key: AnalysisQueueStateRecord.singletonID
+                    )
+                }
+                for try await record in changes.values(in: pool) {
+                    guard let self, !Task.isCancelled else { return }
+                    if let record, record.isPaused, let reason = record.reason {
+                        self.state = .paused(reason: reason)
+                    } else {
+                        self.state = .running
+                    }
+                }
+            } catch is CancellationError {
+                return
+            } catch {
+                return
+            }
+        }
+    }
+
+    public func stop() {
+        observationTask?.cancel()
+        observationTask = nil
+    }
+
+    /// O "Tentar de novo" da barra lateral, ligado ao coordenador de verdade.
+    public func retry() async {
+        await coordinator.resumeAfterPause()
     }
 }

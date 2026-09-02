@@ -76,6 +76,12 @@ public struct InboxScreen: View {
     /// Estado real do modelo local, traduzido pela composição do app. O padrão
     /// mantém previews e harnesses no estado disponível das fixtures.
     let intelligencePresentation: IntelligencePresentation
+    /// A fila de análise automática parada. `nil` enquanto ela corre — e é o
+    /// padrão de previews e harnesses, que não têm coordenador.
+    let analysisPause: AnalysisPauseState?
+    /// Para onde vai a análise automática hoje. É o que a legenda do TL;DR
+    /// mostra: dizer "neste Mac" com o opt-in remoto ligado seria mentira.
+    let analysisDestination: AssistantDestination
     /// Serviço local injetado pelo app. `nil` mantém previews e harnesses
     /// determinísticos, com a superfície ainda renderizável.
     let textAssistant: (any TextAssisting)?
@@ -93,6 +99,8 @@ public struct InboxScreen: View {
         store: MailStore,
         clock: AgendaClock = .fixed(Fixtures.nowMinute),
         intelligencePresentation: IntelligencePresentation = .onThisMac,
+        analysisPause: AnalysisPauseState? = nil,
+        analysisDestination: AssistantDestination = .onThisMac,
         textAssistant: (any TextAssisting)? = nil,
         assistantSettings: AssistantSettingsStore? = nil,
         onMessagePresented: @escaping (String) -> Void = { _ in },
@@ -102,6 +110,8 @@ public struct InboxScreen: View {
             store: store,
             clock: clock,
             intelligencePresentation: intelligencePresentation,
+            analysisPause: analysisPause,
+            analysisDestination: analysisDestination,
             textAssistant: textAssistant,
             assistantSettings: assistantSettings,
             onMessagePresented: onMessagePresented,
@@ -117,6 +127,8 @@ public struct InboxScreen: View {
         store: MailStore,
         clock: AgendaClock = .fixed(Fixtures.nowMinute),
         intelligencePresentation: IntelligencePresentation = .onThisMac,
+        analysisPause: AnalysisPauseState? = nil,
+        analysisDestination: AssistantDestination = .onThisMac,
         textAssistant: (any TextAssisting)? = nil,
         assistantSettings: AssistantSettingsStore? = nil,
         onMessagePresented: @escaping (String) -> Void = { _ in },
@@ -128,6 +140,8 @@ public struct InboxScreen: View {
         self.store = store
         self.clock = clock
         self.intelligencePresentation = intelligencePresentation
+        self.analysisPause = analysisPause
+        self.analysisDestination = analysisDestination
         self.textAssistant = textAssistant
         self.assistantSettings = assistantSettings
         self.onMessagePresented = onMessagePresented
@@ -355,6 +369,7 @@ public struct InboxScreen: View {
                         store: store,
                         width: layout.sidebarWidth,
                         intelligencePresentation: intelligencePresentation,
+                        analysisPause: analysisPause,
                         onOpenAssistant: openWorkspaceAssistant,
                         onOpenSettings: openAccounts,
                         onCompose: openNewMessage,
@@ -398,6 +413,7 @@ public struct InboxScreen: View {
                     attachmentSaver: NativeAttachmentSaver(),
                     intelligence: composerIntelligence,
                     intelligencePresentation: intelligencePresentation,
+                    analysisDestination: analysisDestination,
                     makeAssistantConversation: readerConversationFactory,
                     onMessagePresented: onMessagePresented,
                     onEmailAssistantOpenChange: { open in

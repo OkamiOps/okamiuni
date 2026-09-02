@@ -1,6 +1,7 @@
 import SwiftUI
 import UNIDesign
 import UNICore
+import UNISync
 
 /// Acesso contextual à IA no próprio cabeçalho do e-mail. Separado apenas
 /// para o clique real do controle ser verificável fora da tela.
@@ -67,6 +68,9 @@ public struct ReaderPane: View {
     /// leitor. O botão fica junto da caixa porque é uma ação sobre este e-mail,
     /// não uma configuração global.
     let intelligencePresentation: IntelligencePresentation
+    /// Para onde vai a análise automática. A legenda do TL;DR sai daqui — o
+    /// cartão é feito pela fila, não pelo assistente interativo.
+    let analysisDestination: AssistantDestination
     let onOpenAssistant: () -> Void
     /// Fábrica da conversa do popover, injetada pelo shell: é ele que
     /// conhece o provedor configurado e o motor. Nula = sem assistente.
@@ -150,6 +154,7 @@ public struct ReaderPane: View {
         attachmentSaver: (any AttachmentSaving)? = NativeAttachmentSaver(),
         intelligence: ComposerIntelligenceGenerator? = nil,
         intelligencePresentation: IntelligencePresentation = .onThisMac,
+        analysisDestination: AssistantDestination = .onThisMac,
         onOpenAssistant: @escaping () -> Void = {},
         makeAssistantConversation: ((String) -> AssistantConversation)? = nil,
         onMessagePresented: @escaping (String) -> Void = { _ in },
@@ -163,6 +168,7 @@ public struct ReaderPane: View {
             attachmentSaver: attachmentSaver,
             intelligence: intelligence,
             intelligencePresentation: intelligencePresentation,
+            analysisDestination: analysisDestination,
             onOpenAssistant: onOpenAssistant,
             makeAssistantConversation: makeAssistantConversation,
             onMessagePresented: onMessagePresented,
@@ -178,6 +184,7 @@ public struct ReaderPane: View {
         attachmentSaver: (any AttachmentSaving)? = nil,
         intelligence: ComposerIntelligenceGenerator? = nil,
         intelligencePresentation: IntelligencePresentation = .onThisMac,
+        analysisDestination: AssistantDestination = .onThisMac,
         onOpenAssistant: @escaping () -> Void = {},
         makeAssistantConversation: ((String) -> AssistantConversation)? = nil,
         onMessagePresented: @escaping (String) -> Void = { _ in },
@@ -188,6 +195,7 @@ public struct ReaderPane: View {
         self.attachmentSaver = attachmentSaver
         self.intelligence = intelligence
         self.intelligencePresentation = intelligencePresentation
+        self.analysisDestination = analysisDestination
         self.onOpenAssistant = onOpenAssistant
         self.makeAssistantConversation = makeAssistantConversation
         self.onMessagePresented = onMessagePresented
@@ -1119,6 +1127,12 @@ public struct ReaderPane: View {
         .contentShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
     }
 
+    /// "neste Mac" só quando é verdade. Com o opt-in remoto ligado, a legenda
+    /// nomeia o destino que de fato leu a mensagem.
+    static func summaryCaption(for destination: AssistantDestination) -> String {
+        destination.isLocal ? "TL;DR · neste Mac" : "TL;DR · \(destination.label)"
+    }
+
     private func resumoEstaAberto(_ message: Message) -> Bool {
         if debugResumoAberto { return true }
         return resumoAbertoPorID[message.id] ?? Self.resumoComecaAberto
@@ -1129,7 +1143,7 @@ public struct ReaderPane: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Text("TL;DR · neste Mac").capsLabel()
+                Text(Self.summaryCaption(for: analysisDestination)).capsLabel()
                 Spacer(minLength: 0)
                 if case let .available(destino) = intelligencePresentation, !destino.isLocal,
                    makeAssistantConversation != nil {
@@ -1181,7 +1195,7 @@ public struct ReaderPane: View {
 
     private func summaryCardRecolhido(_ summary: String) -> some View {
         HStack(spacing: 8) {
-            Text("TL;DR · neste Mac").capsLabel()
+            Text(Self.summaryCaption(for: analysisDestination)).capsLabel()
             Text(summary)
                 .font(theme.sans.font(size: 12.5))
                 .foregroundStyle(theme.ink2.color)

@@ -44,6 +44,29 @@ struct SettingsSectionsTests {
         #expect(!rotuloLocal.localizedCaseInsensitiveContains("gpt"))
     }
 
+    /// A análise automática é a única coisa do app que roda sem a pessoa
+    /// pedir. A cópia do opt-in tem de dizer, sem rodeio, para onde cada
+    /// mensagem recebida passa a ir.
+    @Test("o opt-in da análise automática nomeia o destino e avisa o que sai daqui")
+    func automaticAnalysisCopyNamesTheDestination() {
+        var remoto = AssistantSettings.default
+        remoto.provider = .providerOAuth
+        remoto.providerOAuth.kind = .xAI
+        remoto.providerOAuth.model = "grok-4"
+
+        let rotulo = GeneralSettingsView.automaticAnalysisToggleLabel(for: remoto)
+        #expect(rotulo == "Analisar mensagens novas automaticamente com Grok · xAI")
+
+        let aviso = GeneralSettingsView.automaticAnalysisWarning(for: remoto)
+        #expect(aviso.contains("cada mensagem nova saem deste Mac para Grok · xAI"))
+        #expect(aviso.contains("Sai deste Mac para a xAI."))
+        #expect(aviso.contains("Foundation Models"))
+
+        // Desligado de fábrica, mesmo com provedor remoto escolhido.
+        #expect(remoto.automaticAnalysis == .onDeviceOnly)
+        #expect(AssistantDestination(settings: AssistantSettings.default).isLocal)
+    }
+
     @Test("Geral apresenta o ambiente atual sem iniciar o login de IA")
     func geralRenderizaAmbiente() async throws {
         let model = try await model(with: [account(

@@ -98,6 +98,9 @@ public struct AppComposition: Sendable {
     /// O ciclo serial que transforma corpos completos em resumo e compromisso
     /// usando somente o modelo local do sistema.
     public let intelligence: MessageIntelligenceCoordinator?
+    /// A pausa da fila de análise automática, observada do banco. `nil` no
+    /// fallback de fixtures, onde não há fila.
+    public let analysisQueue: AnalysisQueueStateModel?
     /// O estado que a lateral explica já na primeira janela, sem importar
     /// FoundationModels no shell.
     public let intelligenceAvailability: AppleIntelligenceAvailability
@@ -199,7 +202,8 @@ public struct AppComposition: Sendable {
                 attachmentPort: nil,
                 contactPort: nil, agendaPort: nil, calendarSync: EventKitCalendarAdapter(), trustPort: nil,
                 outbox: nil, outboxSignal: nil, sync: nil, network: nil,
-                intelligence: nil, intelligenceAvailability: intelligenceAvailability,
+                intelligence: nil, analysisQueue: nil,
+                intelligenceAvailability: intelligenceAvailability,
                 textAssistant: textAssistant,
                 assistantSettings: assistantSettings,
                 assistantCredentials: assistantCredentials,
@@ -319,6 +323,10 @@ public struct AppComposition: Sendable {
             analyzer: analyzer
         )
         Task { await intelligence.start() }
+        let analysisQueue = AnalysisQueueStateModel(
+            database: banco, coordinator: intelligence
+        )
+        analysisQueue.start()
 
         // Tem conta? Então o banco é a fonte. Não tem? Fixtures — e é isso que
         // mantém os ensaios e as capturas do Marco 1 idênticos.
@@ -361,6 +369,7 @@ public struct AppComposition: Sendable {
             sync: sincronizacao,
             network: rede,
             intelligence: intelligence,
+            analysisQueue: analysisQueue,
             intelligenceAvailability: intelligenceAvailability,
             textAssistant: textAssistant,
             assistantSettings: assistantSettings,

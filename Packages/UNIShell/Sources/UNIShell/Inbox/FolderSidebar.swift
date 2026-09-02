@@ -230,6 +230,42 @@ struct IntelligenceFooter: View {
     }
 }
 
+/// "Nenhum controle mudo": a fila parada aparece com o motivo e um botão
+/// que religa de verdade, como a fila de saída do Marco 3.
+struct AnalysisPausedBand: View {
+    @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
+
+    /// A cópia é a promessa que fica na tela; trocá-la merece revisão.
+    static let title = "ANÁLISE PAUSADA"
+    static let retryTitle = "Tentar de novo"
+
+    let reason: String
+    let onRetry: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(Self.title)
+                .capsLabel(size: 8.5)
+            Text(reason)
+                .font(theme.sans.font(size: 11.5))
+                .foregroundStyle(theme.ink3.color)
+                .fixedSize(horizontal: false, vertical: true)
+            ChromeButton(Self.retryTitle, appearance: .outlined,
+                         size: 11, height: 24, horizontalPadding: 9,
+                         action: onRetry)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(theme.surface2.color)
+        .hairline(theme.line, edges: .top)
+        .accessibilityIdentifier("analysis-paused-band")
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Análise automática pausada. \(reason)")
+    }
+}
+
 public struct FolderSidebar: View {
     /// A largura canônica mora em `PaneLayout`, que é quem decide o que cabe.
     /// Este nome continua existindo porque o resto do shell já o usa — mas ele
@@ -263,6 +299,10 @@ public struct FolderSidebar: View {
     /// de chamada existentes até que ele conecte o estado real do motor.
     let intelligencePresentation: IntelligencePresentation
 
+    /// A fila de análise automática parada, com o motivo e o religar. `nil`
+    /// quando ela está correndo — que é o caso normal.
+    let analysisPause: AnalysisPauseState?
+
     /// A janela dona da navegação decide como apresentar o painel. A barra
     /// apenas entrega uma intenção — não conhece Foundation Models nem o motor
     /// que vai responder.
@@ -286,6 +326,7 @@ public struct FolderSidebar: View {
         store: MailStore,
         width: CGFloat = PaneLayout.expandedSidebarWidth,
         intelligencePresentation: IntelligencePresentation = .onThisMac,
+        analysisPause: AnalysisPauseState? = nil,
         onOpenAssistant: @escaping () -> Void = {},
         onOpenSettings: @escaping () -> Void = {},
         onCompose: (() -> Void)? = nil,
@@ -294,6 +335,7 @@ public struct FolderSidebar: View {
         self.store = store
         self.width = width
         self.intelligencePresentation = intelligencePresentation
+        self.analysisPause = analysisPause
         self.onOpenAssistant = onOpenAssistant
         self.onOpenSettings = onOpenSettings
         self.onCompose = onCompose
@@ -359,6 +401,12 @@ public struct FolderSidebar: View {
             Rectangle()
                 .fill(theme.line.color)
                 .frame(height: Hairline.thickness(displayScale))
+            if let analysisPause {
+                AnalysisPausedBand(
+                    reason: analysisPause.reason,
+                    onRetry: analysisPause.retry
+                )
+            }
             VStack(spacing: 8) {
                 IntelligenceFooter(
                     presentation: intelligencePresentation,
@@ -712,4 +760,19 @@ public struct FolderSidebar: View {
         return tokenColor.color.opacity(Double(percentage) / 100.0)
     }
 
+}
+
+/// A pausa da fila de análise automática, na forma que a tela consome: o
+/// motivo já traduzido pelo coordenador e a ação que religa de verdade.
+///
+/// Existe como tipo, e não como tupla, porque três superfícies a recebem e
+/// uma tupla anônima faria cada uma inventar a própria ordem dos campos.
+public struct AnalysisPauseState {
+    public let reason: String
+    public let retry: () -> Void
+
+    public init(reason: String, retry: @escaping () -> Void) {
+        self.reason = reason
+        self.retry = retry
+    }
 }

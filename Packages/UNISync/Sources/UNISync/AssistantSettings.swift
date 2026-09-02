@@ -570,3 +570,14 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
         try values.encode(automaticAnalysis, forKey: .automaticAnalysis)
     }
 }
+
+public extension AssistantSettings {
+    /// Para onde a análise **automática** vai hoje. Não é o mesmo que o
+    /// destino interativo: a legenda do TL;DR precisa desta, e só desta.
+    var automaticAnalysisDestination: AssistantDestination {
+        switch automaticAnalysis {
+        case .onDeviceOnly: return .onThisMac
+        case .configuredProvider: return AssistantDestination(settings: self)
+        }
+    }
+}
