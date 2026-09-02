@@ -93,7 +93,11 @@ public struct DashboardFocus: Sendable, Hashable {
         agenda: [AgendaItem],
         pending: [PendingItem],
         nowMinute: Int,
-        accountID: String? = nil
+        accountID: String? = nil,
+        /// O instante de referência do prazo. Entra pela porta, como
+        /// `nowMinute`: a triagem mede "faltam 12 h" contra ele, e um relógio
+        /// escondido aqui faria o teste do prazo depender do dia em que roda.
+        now: Date = Date()
     ) -> DashboardFocus {
         let scopedMessages = accountID.map { id in messages.filter { $0.accountID == id } } ?? messages
         let scopedAgenda = accountID.map { id in agenda.filter { $0.accountID == id } } ?? agenda
@@ -112,7 +116,7 @@ public struct DashboardFocus: Sendable, Hashable {
                 break
             }
             scanned += 1
-            if let hit = rank(message) {
+            if let hit = rank(message, now: now) {
                 ranked.append(hit)
             } else if fallback.count < mailLimit, let hit = todayFallback(message) {
                 fallback.append(hit)
@@ -203,7 +207,7 @@ public struct DashboardFocus: Sendable, Hashable {
     /// `nil` é "isto não pede a pessoa agora". Promoções e redes só passam
     /// se já tiverem sido sinalizadas ou marcadas como resposta — o filtro
     /// não esconde um follow-up que a pessoa mesma marcou.
-    private static func rank(_ message: Message) -> Ranked? {
+    private static func rank(_ message: Message, now: Date) -> Ranked? {
         switch message.bucket {
         case .junk, .trash, .drafts, .sent:
             return nil
@@ -211,27 +215,21 @@ public struct DashboardFocus: Sendable, Hashable {
             break
         }
 
-        let needsReply = hasTag(message, "Precisa resposta")
-        let isLead = hasTag(message, "Lead")
-        let isDeadline = hasTag(message, "Prazo")
-        if isPromoOrSocial(message) {
-            guard message.isFlagged || needsReply else { return nil }
+        // A triagem, quando existe, substitui os três sinais de etiqueta —
+        // e só eles. Estrela, leitura e caixa continuam sendo estado da
+        // mensagem, não juízo do modelo, e valem para as duas fontes.
+        let sinais = message.triage.map { triageSignals($0, now: now) }
+            ?? tagSignals(message)
+
+        // Ruído de fundo é o que ninguém marcou: a newsletter e o recibo
+        // saem, mas a estrela da pessoa e um "precisa resposta" os trazem de
+        // volta — o filtro não pode esconder o que ela mesma sinalizou.
+        if sinais.isBackgroundNoise {
+            guard message.isFlagged || sinais.needsReply else { return nil }
         }
 
-        var score = 0
-        var reason: Reason?
-        if needsReply {
-            score += 100
-            reason = .needsReply
-        }
-        if isLead {
-            score += 80
-            reason = reason ?? .lead
-        }
-        if isDeadline {
-            score += 70
-            reason = reason ?? .deadline
-        }
+        var score = sinais.score
+        var reason: Reason? = sinais.reason
         if message.isFlagged {
             score += 50
             reason = reason ?? .flagged
@@ -259,6 +257,78 @@ public struct DashboardFocus: Sendable, Hashable {
             item: MailItem(message: message.withoutHeavyPayload(), reason: reason),
             score: score
         )
+    }
+
+    /// O que sobrou dos três sinais fortes: quanto vale e qual é o motivo.
+    /// Um tipo só para as duas fontes porque o resto do ranking não pode
+    /// saber de qual delas o número veio — a spec é explícita que a origem
+    /// não aparece na tela, e `Reason` não ganha caso novo.
+    private struct Signals {
+        var score: Int
+        var reason: Reason?
+        var needsReply: Bool
+        var isBackgroundNoise: Bool
+    }
+
+    /// A heurística de sempre, para quem ainda não foi analisado. Numa conta
+    /// de verdade ela quase nunca acha nada — as etiquetas do protótipo não
+    /// existem lá —, e é justamente por isso que a triagem existe.
+    private static func tagSignals(_ message: Message) -> Signals {
+        let needsReply = hasTag(message, "Precisa resposta")
+        var signals = Signals(
+            score: 0, reason: nil, needsReply: needsReply,
+            isBackgroundNoise: isPromoOrSocial(message)
+        )
+        if needsReply {
+            signals.score += 100
+            signals.reason = .needsReply
+        }
+        if hasTag(message, "Lead") {
+            signals.score += 80
+            signals.reason = signals.reason ?? .lead
+        }
+        if hasTag(message, "Prazo") {
+            signals.score += 70
+            signals.reason = signals.reason ?? .deadline
+        }
+        return signals
+    }
+
+    /// A mesma escala, agora com o que a análise afirmou. O prazo pesa pela
+    /// distância: o que vence hoje vale mais do que o que vence na semana que
+    /// vem, e sem isso "Prazo" seria um rótulo sem hierarquia nenhuma.
+    private static func triageSignals(_ triage: MessageTriage, now: Date) -> Signals {
+        var signals = Signals(
+            score: 0, reason: nil, needsReply: triage.needsReply,
+            isBackgroundNoise: triage.intent.isBackgroundNoise
+        )
+        if triage.needsReply {
+            signals.score += 100
+            signals.reason = .needsReply
+        }
+        if triage.intent == .lead {
+            signals.score += 80
+            signals.reason = signals.reason ?? .lead
+        }
+        if let deadline = triage.deadline {
+            signals.score += deadlineWeight(deadline.date, now: now)
+            signals.reason = signals.reason ?? .deadline
+        }
+        // Urgência é peso, não motivo: ela desempata duas mensagens do mesmo
+        // tipo sem inventar um sétimo caso de `Reason` para a tela escrever.
+        if triage.urgency == .high {
+            signals.score += 20
+        }
+        return signals
+    }
+
+    /// 70 até 24 h, 50 até 72 h, 30 depois. Um prazo já vencido conta como o
+    /// mais próximo possível — ele é o que mais pede a pessoa agora.
+    static func deadlineWeight(_ deadline: Date, now: Date) -> Int {
+        let horas = deadline.timeIntervalSince(now) / 3_600
+        if horas <= 24 { return 70 }
+        if horas <= 72 { return 50 }
+        return 30
     }
 
     private static func todayFallback(_ message: Message) -> Ranked? {
