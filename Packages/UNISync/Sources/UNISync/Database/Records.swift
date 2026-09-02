@@ -277,7 +277,10 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
     /// Diferente de `receivedAt`, que é o `Date:` do remetente e por isso não
     /// é confiável: é este carimbo, escrito aqui, que decide se uma mensagem
     /// já estava na caixa antes de a pessoa ligar a análise automática.
-    /// `nil` só em linhas anteriores à v16 que a migração não alcançou.
+    /// `nil` em linhas anteriores à v16 que a migração não alcançou e em
+    /// qualquer linha gravada por um caminho que não soube carimbá-la — e é
+    /// por isso que `automaticAnalysisCoversMessage` trata ausência como
+    /// "não sai daqui" em vez de chutar `receivedAt`.
     public var firstSeenAt: Date?
 
     /// Datas gravadas como epoch UTC (`Double`) — ver

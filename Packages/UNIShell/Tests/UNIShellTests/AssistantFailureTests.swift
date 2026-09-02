@@ -19,8 +19,12 @@ struct AssistantFailureTests {
 
     @Test("sessão recusada pede reconexão do provedor certo")
     func authenticationAsksForReconnect() {
-        #expect(AssistantFailure(AssistantProviderOAuthTextAssistantError.authenticationFailed).recovery == nil)
-        #expect(AssistantFailure(AssistantProviderOAuthError.missingSession).recovery == nil)
+        // Sem saber a assinatura, o caminho ainda existe: Ajustes. `nil`
+        // deixava a faixa de erro sem botão nenhum.
+        #expect(AssistantFailure(AssistantProviderOAuthTextAssistantError.authenticationFailed)
+            .recovery == .openSettings)
+        #expect(AssistantFailure(AssistantProviderOAuthError.missingSession)
+            .recovery == .openSettings)
         // A reconexão só sabe o provedor quando quem traduz o informa.
         let grok = AssistantFailure(
             AssistantProviderOAuthTextAssistantError.authenticationFailed,
@@ -43,27 +47,56 @@ struct AssistantFailureTests {
 
     /// A regra de recorte também é verificada direto no ajudante que a
     /// implementa, sem passar pelo erro do transporte.
-    @Test("do stderr do CLI só a primeira linha vira mensagem")
-    func cliMessageKeepsFirstStderrLine() {
+    @Test("do stderr do CLI só a última linha vira mensagem")
+    func cliMessageKeepsLastStderrLine() {
+        // O que chega aqui é uma cauda cortada por byte: a primeira linha é o
+        // meio de uma frase, e a causa está no fim. Pegar a primeira mostrava
+        // um fragmento sem sentido e escondia "not logged in".
         let message = AssistantFailure.cliMessage(
             base: "O CLI de IA não concluiu a resposta.",
-            stderrTail: "error: not logged in\nrun `codex login`"
+            stderrTail: "ing model catalog…\n[####      ] 40%\nerror: not logged in"
         )
         #expect(message.contains("error: not logged in"))
-        #expect(!message.contains("codex login"))
+        #expect(!message.contains("ing model catalog"))
+
+        // O corte também parte sequências UTF-8 ao meio; o resto não é linha.
+        let partida = AssistantFailure.cliMessage(
+            base: "Falhou.",
+            stderrTail: "\u{FFFD}\u{FFFD}\nerror: model not found\n\u{FFFD}"
+        )
+        #expect(partida == "Falhou. error: model not found")
+
         // Cauda vazia não deixa a frase com sobra de espaço.
         #expect(AssistantFailure.cliMessage(base: "Falhou.", stderrTail: "  \n ") == "Falhou.")
     }
 
-    @Test("o CLI que morreu mostra a primeira linha do stderr")
+    @Test("o CLI que morreu mostra a última linha do stderr")
     func cliFailureShowsStderr() {
         let failure = AssistantFailure(AssistantCLITextAssistantError.processFailed(
             exitCode: 1,
-            stderrTail: "error: not logged in\nrun `codex login`"
+            stderrTail: "run `codex login`\nerror: not logged in"
         ))
         #expect(failure.message.contains("error: not logged in"))
         #expect(!failure.message.contains("codex login"))
         #expect(failure.recovery == .openSettings)
+    }
+
+    /// Um provedor desconhecido não pode deixar a faixa de erro sem botão:
+    /// "Abrir Ajustes" é a saída que sempre existe.
+    @Test("sem assinatura conhecida, o 401 ainda oferece Ajustes")
+    func unknownProviderStillOffersSettings() {
+        #expect(
+            AssistantFailure(AssistantProviderOAuthTextAssistantError.missingAuthorization)
+                .recovery == .openSettings
+        )
+        #expect(
+            AssistantFailure(AssistantProviderOAuthError.missingSession).recovery == .openSettings
+        )
+        #expect(
+            AssistantFailure(
+                AssistantProviderOAuthTextAssistantError.missingAuthorization, provider: .xAI
+            ).recovery == .reconnect(.xAI)
+        )
     }
 
     // MARK: - Uma linha por caso de cada enum de adaptador
@@ -109,14 +142,15 @@ struct AssistantFailureTests {
     }
 
     /// A mesma linha vale duas vezes: sem provedor informado, o 401 não pode
-    /// mandar reconectar uma conta que talvez nem seja a configurada.
+    /// mandar reconectar uma conta que talvez nem seja a configurada — mas
+    /// também não pode ficar sem botão. A saída anônima é Ajustes.
     @Test("todo caso de AssistantProviderOAuthTextAssistantError responde igual com e sem provedor",
           arguments: [
               (AssistantProviderOAuthTextAssistantError.missingAuthorization,
-               AssistantFailure.Recovery?.none, AssistantFailure.Recovery.reconnect(.codex)),
-              (.authenticationFailed, nil, .reconnect(.codex)),
-              (.subscriptionNotEligible, nil, .reconnect(.codex)),
-              (.managedByCodexRuntime, nil, .reconnect(.codex)),
+               AssistantFailure.Recovery.openSettings, AssistantFailure.Recovery.reconnect(.codex)),
+              (.authenticationFailed, .openSettings, .reconnect(.codex)),
+              (.subscriptionNotEligible, .openSettings, .reconnect(.codex)),
+              (.managedByCodexRuntime, .openSettings, .reconnect(.codex)),
               (.rateLimited, .retry, .retry),
               (.timedOut, .retry, .retry),
               (.connectionFailed, .retry, .retry),
@@ -127,7 +161,7 @@ struct AssistantFailureTests {
           ])
     func providerOAuthTextAssistantErrorTable(
         error: AssistantProviderOAuthTextAssistantError,
-        semProvedor: AssistantFailure.Recovery?,
+        semProvedor: AssistantFailure.Recovery,
         comProvedor: AssistantFailure.Recovery
     ) {
         let anonima = AssistantFailure(error)
@@ -140,11 +174,11 @@ struct AssistantFailureTests {
     @Test("todo caso de AssistantProviderOAuthError responde igual com e sem provedor",
           arguments: [
               (AssistantProviderOAuthError.missingSession,
-               AssistantFailure.Recovery?.none, AssistantFailure.Recovery.reconnect(.xAI)),
-              (.sessionProviderMismatch, nil, .reconnect(.xAI)),
-              (.authorizationDenied, nil, .reconnect(.xAI)),
-              (.authorizationExpired, nil, .reconnect(.xAI)),
-              (.invalidTokenResponse, nil, .reconnect(.xAI)),
+               AssistantFailure.Recovery.openSettings, AssistantFailure.Recovery.reconnect(.xAI)),
+              (.sessionProviderMismatch, .openSettings, .reconnect(.xAI)),
+              (.authorizationDenied, .openSettings, .reconnect(.xAI)),
+              (.authorizationExpired, .openSettings, .reconnect(.xAI)),
+              (.invalidTokenResponse, .openSettings, .reconnect(.xAI)),
               (.invalidDiscovery, .retry, .retry),
               (.redirectRefused, .retry, .retry),
               (.deviceAuthorizationUnavailable, .retry, .retry),
@@ -155,7 +189,7 @@ struct AssistantFailureTests {
           ])
     func providerOAuthErrorTable(
         error: AssistantProviderOAuthError,
-        semProvedor: AssistantFailure.Recovery?,
+        semProvedor: AssistantFailure.Recovery,
         comProvedor: AssistantFailure.Recovery
     ) {
         let anonima = AssistantFailure(error)

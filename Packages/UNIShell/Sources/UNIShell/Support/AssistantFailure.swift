@@ -60,7 +60,9 @@ public struct AssistantFailure: Sendable, Hashable {
                     switch error {
                     case .missingAuthorization, .authenticationFailed,
                          .subscriptionNotEligible, .managedByCodexRuntime:
-                        provider.map(Recovery.reconnect)
+                        // Sem saber qual assinatura é, o caminho ainda existe:
+                        // Ajustes. `nil` deixaria a faixa de erro sem botão.
+                        provider.map(Recovery.reconnect) ?? .openSettings
                     case .rateLimited, .timedOut, .connectionFailed,
                          .redirectRefused, .upgradeRequired,
                          .server, .invalidResponse:
@@ -76,7 +78,7 @@ public struct AssistantFailure: Sendable, Hashable {
                     case .missingSession, .sessionProviderMismatch,
                          .authorizationDenied, .authorizationExpired,
                          .invalidTokenResponse:
-                        provider.map(Recovery.reconnect)
+                        provider.map(Recovery.reconnect) ?? .openSettings
                     default:
                         .retry
                     }
@@ -125,13 +127,27 @@ public struct AssistantFailure: Sendable, Hashable {
     /// O stderr do CLI é o único lugar onde a causa real aparece ("not
     /// logged in", "model not found"). Uma linha basta: a cauda inteira é
     /// ruído e pode carregar caminho de arquivo da pessoa.
+    ///
+    /// A **última** linha, e não a primeira. O que chega aqui é uma cauda
+    /// cortada por byte (`size - 4096`): a primeira linha é quase sempre o
+    /// meio de uma frase, e pode até começar com o `\u{FFFD}` de uma sequência
+    /// UTF-8 partida ao meio pelo corte. A causa vem no fim, depois do banner
+    /// e da barra de progresso.
     static func cliMessage(base: String, stderrTail: String) -> String {
-        let firstLine = stderrTail
-            .split(separator: "\n", omittingEmptySubsequences: true)
-            .first
-            .map { $0.trimmingCharacters(in: .whitespaces) } ?? ""
-        guard !firstLine.isEmpty else { return base }
-        return "\(base) \(firstLine)"
+        let lastLine = stderrTail
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .last(where: { !Self.isNoise($0) }) ?? ""
+        guard !lastLine.isEmpty else { return base }
+        return "\(base) \(lastLine)"
+    }
+
+    /// Linha vazia, ou o que sobrou de bytes que não formam texto — o resto
+    /// de uma sequência partida pelo corte não diz nada a ninguém.
+    private static func isNoise(_ line: String) -> Bool {
+        line.replacingOccurrences(of: "\u{FFFD}", with: "")
+            .trimmingCharacters(in: .whitespaces)
+            .isEmpty
     }
 
     static let fallbackMessage = "Não foi possível responder agora."

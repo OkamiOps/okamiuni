@@ -958,27 +958,36 @@ struct SettingsSectionsTests {
 @MainActor
 private final class SettingsOAuthAuthorizer: LiteLLMOAuthAuthorizing {
     nonisolated let sessionState = LiteLLMOAuthSessionState()
+    /// A dublê também numera: `apply` descarta o que chega atrasado.
+    private var sequence: UInt64 = 0
 
     var status: LiteLLMOAuthStatus { sessionState.status }
 
     init(status: LiteLLMOAuthStatus) {
-        sessionState.apply(status)
+        publish(status)
+    }
+
+    private func publish(_ status: LiteLLMOAuthStatus) {
+        sequence += 1
+        sessionState.apply(status, sequence: sequence)
     }
 
     func refreshStatus(endpoint: URL, credentialID: String) async {}
 
     func start(endpoint: URL, credentialID: String) async throws {
-        sessionState.apply(.signedIn)
+        publish(.signedIn)
     }
 
     func signOut(endpoint: URL, credentialID: String) async {
-        sessionState.apply(.signedOut)
+        publish(.signedOut)
     }
 }
 
 @MainActor
 private final class SettingsProviderOAuthAuthorizer: AssistantProviderOAuthAuthorizing {
     nonisolated let sessionState = AssistantProviderOAuthSessionState()
+    /// A dublê também numera: `apply` descarta o que chega atrasado.
+    private var sequence: UInt64 = 0
     private let models: [AssistantProviderModel]
     private(set) var modelRequestCount = 0
     private(set) var requestedKinds: [AssistantProviderOAuthKind] = []
@@ -990,7 +999,12 @@ private final class SettingsProviderOAuthAuthorizer: AssistantProviderOAuthAutho
         models: [AssistantProviderModel] = []
     ) {
         self.models = models
-        sessionState.apply(status)
+        publish(status)
+    }
+
+    private func publish(_ status: AssistantProviderOAuthStatus) {
+        sequence += 1
+        sessionState.apply(status, sequence: sequence)
     }
 
     func refreshStatus(configuration: AssistantProviderOAuthConfiguration) async {}
@@ -1006,10 +1020,10 @@ private final class SettingsProviderOAuthAuthorizer: AssistantProviderOAuthAutho
     }
 
     func cancelAuthorization() async {
-        sessionState.apply(.signedOut)
+        publish(.signedOut)
     }
 
     func signOut(configuration: AssistantProviderOAuthConfiguration) async {
-        sessionState.apply(.signedOut)
+        publish(.signedOut)
     }
 }
