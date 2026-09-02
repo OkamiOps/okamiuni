@@ -272,6 +272,14 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
     /// tempo, que nenhuma coluna única representa.
     public var folderMembershipJSON: String
 
+    /// Quando esta mensagem apareceu **neste Mac** — a coluna da v16.
+    ///
+    /// Diferente de `receivedAt`, que é o `Date:` do remetente e por isso não
+    /// é confiável: é este carimbo, escrito aqui, que decide se uma mensagem
+    /// já estava na caixa antes de a pessoa ligar a análise automática.
+    /// `nil` só em linhas anteriores à v16 que a migração não alcançou.
+    public var firstSeenAt: Date?
+
     /// Datas gravadas como epoch UTC (`Double`) — ver
     /// `AccountRecord.databaseDateEncodingStrategy`. `ORDER BY receivedAt
     /// DESC` (a lista "Tudo") depende de a coluna ser numérica de verdade.
@@ -283,7 +291,8 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
         .timeIntervalSince1970
     }
 
-    public init(_ message: Message, folderID: String) {
+    public init(_ message: Message, folderID: String, firstSeenAt: Date = Date()) {
+        self.firstSeenAt = firstSeenAt
         id = message.id
         accountID = message.accountID
         self.folderID = folderID

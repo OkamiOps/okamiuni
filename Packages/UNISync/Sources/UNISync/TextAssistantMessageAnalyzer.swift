@@ -8,6 +8,14 @@ import UNICore
 /// transformar a data de recebimento em compromisso inventado.
 public struct TextAssistantMessageAnalyzer: MessageAnalyzing {
     public static let currentModelVersion = "text-assistant/message-analysis-v1"
+    /// O prefixo que marca uma versão deste analisador — ou seja, um resumo
+    /// que saiu deste Mac. É por ele que a legenda do TL;DR decide, para uma
+    /// versão nova não fazer os resumos antigos mentirem sobre a origem.
+    public static let modelVersionPrefix = "text-assistant/"
+
+    public static func isRemoteModelVersion(_ version: String) -> Bool {
+        version.hasPrefix(modelVersionPrefix)
+    }
     public let modelVersion = TextAssistantMessageAnalyzer.currentModelVersion
 
     private let assistant: any TextAssisting

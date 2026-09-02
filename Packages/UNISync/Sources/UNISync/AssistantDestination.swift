@@ -25,6 +25,16 @@ public struct AssistantDestination: Sendable, Hashable {
         label: "Neste Mac", detail: "Nada sai deste Mac.", isLocal: true
     )
 
+    /// Um resumo que **saiu** deste Mac, mas cujo provedor não dá mais para
+    /// determinar — a pessoa trocou de provedor depois de ele ser gravado.
+    /// Neutro de propósito: a única coisa errada a fazer aqui seria prometer
+    /// que o conteúdo ficou no Mac.
+    public static let configuredProviderUnknown = AssistantDestination(
+        label: "provedor configurado",
+        detail: "Este resumo saiu deste Mac para o provedor que estava configurado.",
+        isLocal: false
+    )
+
     public init(settings: AssistantSettings) {
         switch settings.provider {
         case .foundationModels:

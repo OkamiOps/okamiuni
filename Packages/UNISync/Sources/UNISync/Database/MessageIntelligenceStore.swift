@@ -30,6 +30,8 @@ public struct MessageIntelligenceWork: Sendable, Equatable {
     public let receivedAt: Date
     public let plainBody: String
     public let contentHash: String
+    /// Quando a mensagem apareceu neste Mac — a coluna `firstSeenAt` da v16.
+    public let firstSeenAt: Date?
 
     public static func contentHash(for plainBody: String) -> String {
         SHA256.hash(data: Data(plainBody.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -72,6 +74,7 @@ public struct MessageIntelligenceStore: Sendable {
                       m.fromAddress,
                       m.subject,
                       m.receivedAt,
+                      m.firstSeenAt,
                       b.plain,
                       i.contentHash,
                       i.state,
@@ -235,7 +238,8 @@ public struct MessageIntelligenceStore: Sendable {
             messageID: row["messageID"], accountID: row["accountID"],
             fromName: row["fromName"], fromAddress: row["fromAddress"],
             subject: row["subject"], receivedAt: Date(timeIntervalSince1970: row["receivedAt"]),
-            plainBody: plainBody, contentHash: contentHash
+            plainBody: plainBody, contentHash: contentHash,
+            firstSeenAt: (row["firstSeenAt"] as Double?).map(Date.init(timeIntervalSince1970:))
         )
     }
 
@@ -355,6 +359,12 @@ extension MessageRecord {
                 record.detectedEventJSON = current.detectedEventJSON
             }
             if record.category == nil { record.category = current.category }
+            // "Primeira vez que vi" não anda para a frente: um re-sync da
+            // mesma mensagem não pode fazê-la parecer recém-chegada e cair
+            // no consentimento que a pessoa deu para mensagens novas.
+            if let visto = current.firstSeenAt {
+                record.firstSeenAt = min(visto, record.firstSeenAt ?? visto)
+            }
         }
         try record.save(db)
     }

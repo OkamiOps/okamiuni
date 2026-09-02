@@ -77,22 +77,46 @@ struct AnalysisPausedBandTests {
         #expect(local.isLocal)
         #expect(ReaderPane.summaryCaption(for: local) == "TL;DR · neste Mac")
 
-        // Resumo gravado pelo provedor configurado.
-        let remoto = settings.automaticAnalysisDestination(
+        // Resumo gravado pelo provedor configurado, na versão de hoje.
+        let v1 = settings.automaticAnalysisDestination(
             forSummaryModelVersion: TextAssistantMessageAnalyzer.currentModelVersion
         )
-        #expect(!remoto.isLocal)
-        #expect(ReaderPane.summaryCaption(for: remoto) == "TL;DR · Grok · xAI")
+        #expect(!v1.isLocal)
+        #expect(ReaderPane.summaryCaption(for: v1) == "TL;DR · Grok · xAI")
+
+        // Uma versão futura do mesmo analisador. Decidir por igualdade exata
+        // faria todo resumo v1 se apresentar como "neste Mac" no dia em que a
+        // constante subir — a mentira que a Task 13 tirou da tela.
+        let v2 = settings.automaticAnalysisDestination(
+            forSummaryModelVersion: "text-assistant/message-analysis-v2"
+        )
+        #expect(!v2.isLocal)
+        #expect(ReaderPane.summaryCaption(for: v2) == "TL;DR · Grok · xAI")
 
         // Sem resumo, ou vindo de fixtures: nada de nomear provedor nenhum.
         #expect(settings.automaticAnalysisDestination(forSummaryModelVersion: nil).isLocal)
-
-        // E com o opt-in desligado, um resumo remoto antigo continua sendo
-        // apresentado como remoto — a proveniência é um fato, não uma rota.
-        var desligado = settings
-        desligado.automaticAnalysis = .onDeviceOnly
-        #expect(!desligado.automaticAnalysisDestination(
-            forSummaryModelVersion: TextAssistantMessageAnalyzer.currentModelVersion
+        // Uma versão desconhecida que não é deste analisador continua local:
+        // o motor no dispositivo é o único que grava versões assim.
+        #expect(settings.automaticAnalysisDestination(
+            forSummaryModelVersion: "foundation-models/message-analysis-v9"
         ).isLocal)
+    }
+
+    /// O resumo saiu daqui, mas o provedor de então não dá mais para
+    /// determinar. Uma legenda neutra é a única saída honesta: dizer "neste
+    /// Mac" seria mentira, e nomear o provedor de agora seria invenção.
+    @Test("resumo remoto sem provedor determinável ganha legenda neutra")
+    func remoteSummaryWithUnknownProviderGetsNeutralCaption() {
+        // A pessoa voltou para o Foundation Models depois de o resumo ter sido
+        // gravado por um provedor remoto.
+        var voltou = AssistantSettings.default
+        voltou.automaticAnalysis = .onDeviceOnly
+        let destino = voltou.automaticAnalysisDestination(
+            forSummaryModelVersion: TextAssistantMessageAnalyzer.currentModelVersion
+        )
+        #expect(!destino.isLocal)
+        #expect(destino == .configuredProviderUnknown)
+        #expect(ReaderPane.summaryCaption(for: destino) == "TL;DR · provedor configurado")
+        #expect(!destino.detail.contains("Nada sai"))
     }
 }

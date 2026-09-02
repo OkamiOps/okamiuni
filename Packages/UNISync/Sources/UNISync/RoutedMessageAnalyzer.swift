@@ -52,7 +52,9 @@ public struct RoutedMessageAnalyzer: MessageAnalyzing {
     /// A escolha é **por mensagem**, não por configuração: só o que chegou
     /// depois do clique no opt-in sai deste Mac.
     func engine(for input: MessageAnalysisInput) -> any MessageAnalyzing {
-        settingsStore.snapshot().automaticAnalysisCoversMessage(receivedAt: input.receivedAt)
+        settingsStore.snapshot().automaticAnalysisCoversMessage(
+            receivedAt: input.arrivedLocallyAt
+        )
             ? configured
             : onDevice
     }

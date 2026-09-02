@@ -642,6 +642,21 @@ public struct SyncDatabase: Sendable {
                 )
                 """)
         }
+        // A v16: quando esta mensagem apareceu **neste Mac**.
+        //
+        // `receivedAt` é o cabeçalho `Date:` de quem mandou — dado que o app
+        // não controla. Um remetente com relógio errado (ou um spammer de
+        // propósito) datando uma mensagem no futuro faria o opt-in da análise
+        // automática mandá-la para o provedor, embora ela já estivesse na
+        // caixa antes do clique. A linha que já existe recebe o instante da
+        // migração: tudo que está aqui hoje é, por definição, anterior a
+        // qualquer opt-in futuro.
+        migrator.registerMigration("v16") { db in
+            try db.execute(sql: "ALTER TABLE message ADD COLUMN firstSeenAt DOUBLE")
+            try db.execute(
+                sql: "UPDATE message SET firstSeenAt = CAST(strftime('%s','now') AS REAL)"
+            )
+        }
         return migrator
     }
 }

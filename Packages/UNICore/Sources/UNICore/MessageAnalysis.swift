@@ -11,19 +11,39 @@ public struct MessageAnalysisInput: Sendable, Hashable {
     public let receivedAt: Date
     public let body: String
     public let timeZone: TimeZone
+    /// Quando a mensagem apareceu **neste Mac**.
+    ///
+    /// Separado de `receivedAt` de propósito: aquele é o `Date:` de quem
+    /// mandou, e serve para o cálculo de "amanhã às 15h"; este é um fato
+    /// local, e é o único que pode decidir a quem a mensagem pode ser
+    /// mostrada. `nil` quando não há registro — aí só resta `receivedAt`.
+    public let firstSeenAt: Date?
 
     public init(
         subject: String,
         sender: String,
         receivedAt: Date,
         body: String,
-        timeZone: TimeZone
+        timeZone: TimeZone,
+        firstSeenAt: Date? = nil
     ) {
         self.subject = subject
         self.sender = sender
         self.receivedAt = receivedAt
         self.body = body
         self.timeZone = timeZone
+        self.firstSeenAt = firstSeenAt
+    }
+
+    /// O instante que o app pode defender como "quando isto chegou aqui".
+    ///
+    /// O menor dos dois: um `Date:` no futuro não torna uma mensagem antiga
+    /// recém-chegada, e um `Date:` no passado não torna uma recém-chegada
+    /// antiga o bastante para escapar de um consentimento já dado. Errar para
+    /// o lado de "mais antiga" é errar para o lado de não enviar.
+    public var arrivedLocallyAt: Date {
+        guard let firstSeenAt else { return receivedAt }
+        return min(receivedAt, firstSeenAt)
     }
 }
 

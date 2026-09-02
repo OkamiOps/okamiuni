@@ -139,7 +139,8 @@ public actor MessageIntelligenceCoordinator {
                         sender: sender,
                         receivedAt: work.receivedAt,
                         body: work.plainBody,
-                        timeZone: timeZone()
+                        timeZone: timeZone(),
+                        firstSeenAt: work.firstSeenAt
                     )
                 )
                 let saved = try store.markCompleted(

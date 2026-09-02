@@ -598,25 +598,36 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
 }
 
 public extension AssistantSettings {
-    /// Para onde a análise **automática** vai hoje. Não é o mesmo que o
-    /// destino interativo: a legenda do TL;DR precisa desta, e só desta.
     /// De onde **este** resumo veio, pela versão do motor que o gravou.
     ///
     /// A rota atual não serve para isto: depois do opt-in o histórico continua
     /// tendo sido resumido aqui, e nomear o provedor em cima dele seria a mesma
     /// mentira de antes, só que ao contrário. A proveniência é um fato gravado
     /// com o resumo — `Message.summaryModelVersion` —, não uma preferência.
+    ///
+    /// A decisão é por **prefixo**, e não por igualdade com a constante da
+    /// versão de hoje: subir o analisador para `-v2` faria todo resumo `-v1`
+    /// se apresentar como "neste Mac", que é exatamente a mentira que a
+    /// Task 13 tirou da tela. E um resumo remoto cujo provedor não dá mais
+    /// para determinar recebe uma legenda neutra — nunca a promessa de que
+    /// ficou aqui.
     func automaticAnalysisDestination(forSummaryModelVersion version: String?) -> AssistantDestination {
-        version == TextAssistantMessageAnalyzer.currentModelVersion
-            ? AssistantDestination(settings: self)
-            : .onThisMac
+        guard let version, TextAssistantMessageAnalyzer.isRemoteModelVersion(version) else {
+            return .onThisMac
+        }
+        let destination = AssistantDestination(settings: self)
+        // O provedor de agora só pode ser nomeado quando ele ainda é o destino
+        // remoto configurado. Se a pessoa voltou para o Foundation Models, o
+        // resumo continua tendo saído daqui, mas o app não sabe mais para
+        // quem — e inventar um nome é pior do que não dar nenhum.
+        return destination.isLocal ? .configuredProviderUnknown : destination
     }
 
     /// Esta mensagem entra no consentimento que a pessoa deu?
     ///
     /// "Mensagens novas" é o que a cópia promete, e é literalmente isto: só o
     /// que chegou **depois** do clique. Sem carimbo, ninguém sai daqui.
-    public func automaticAnalysisCoversMessage(receivedAt: Date) -> Bool {
+    func automaticAnalysisCoversMessage(receivedAt: Date) -> Bool {
         guard automaticAnalysis == .configuredProvider,
               provider != .foundationModels,
               let since = automaticAnalysisSince

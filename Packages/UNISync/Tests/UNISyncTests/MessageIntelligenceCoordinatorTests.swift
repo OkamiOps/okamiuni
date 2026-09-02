@@ -44,7 +44,8 @@ struct MessageIntelligenceCoordinatorTests {
         id: String,
         subject: String,
         receivedAt: Date,
-        database: SyncDatabase
+        database: SyncDatabase,
+        firstSeenAt: Date? = nil
     ) throws {
         try database.pool.write { db in
             let message = Message(
@@ -55,7 +56,9 @@ struct MessageIntelligenceCoordinatorTests {
                 body: ["Conteúdo de \(subject)."], tags: [], bucket: .today,
                 isRead: false, summary: nil, detectedEvent: nil
             )
-            try MessageRecord(message, folderID: "a/INBOX").insert(db)
+            try MessageRecord(
+                message, folderID: "a/INBOX", firstSeenAt: firstSeenAt ?? receivedAt
+            ).insert(db)
             var body = MessageBodyRecord(
                 messageID: id,
                 paragraphs: ["Conteúdo de \(subject)."]
@@ -324,6 +327,87 @@ struct MessageIntelligenceCoordinatorTests {
         #expect(await coordinator.processPending() == 0)
         #expect(configured.calls == 1)
         #expect(onDevice.calls == 5)
+    }
+
+    /// `receivedAt` é o `Date:` de quem mandou — dado que o app não controla.
+    /// Um remetente com relógio errado, ou um spammer de propósito, datava a
+    /// mensagem no futuro e ela passava pela porta do opt-in mesmo estando na
+    /// caixa desde antes do clique.
+    @Test("mensagem datada no futuro, mas já guardada antes do clique, não sai daqui")
+    func futureDatedBacklogStaysOnThisMac() async throws {
+        let database = try SyncDatabase.temporary()
+        try await database.pool.write { db in
+            try AccountRecord(
+                Account(
+                    id: "a", address: "eu@example.com", displayName: "Eu",
+                    provider: .imap, host: "example.com",
+                    tintLightHex: "#3F6AA1", tintDarkHex: "#8CBAF7"
+                ),
+                createdAt: Date(timeIntervalSince1970: 1)
+            ).insert(db)
+            try FolderRecord(
+                id: "a/INBOX", accountID: "a", serverName: "INBOX",
+                role: .inbox, displayName: "Entrada"
+            ).insert(db)
+        }
+        let clique = Date(timeIntervalSince1970: 1_788_000_100)
+        // Vista aqui uma hora antes do clique; datada um ano à frente.
+        try insertMessage(
+            id: "m-futura", subject: "Datada no futuro",
+            receivedAt: clique.addingTimeInterval(365 * 24 * 60 * 60),
+            database: database,
+            firstSeenAt: clique.addingTimeInterval(-3_600)
+        )
+
+        let suite = "okamiuni.futuro.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let settings = AssistantSettingsStore(defaults: defaults, key: "assistant")
+        try settings.save(AssistantSettings(
+            provider: .openAICompatible,
+            openAICompatible: .init(
+                endpoint: "https://api.example.com/v1", model: "m",
+                credentialID: "primary", authenticationMode: .apiKey
+            ),
+            automaticAnalysis: .configuredProvider,
+            automaticAnalysisSince: clique
+        ))
+
+        let onDevice = SpyMessageAnalyzer(modelVersion: "on-device")
+        let configured = SpyMessageAnalyzer(modelVersion: "remoto")
+        let coordinator = MessageIntelligenceCoordinator(
+            database: database,
+            analyzer: RoutedMessageAnalyzer(
+                settingsStore: settings, onDevice: onDevice, configured: configured
+            ),
+            timeZone: { self.timeZone }
+        )
+
+        #expect(await coordinator.processPending() == 1)
+        #expect(configured.calls == 0)
+        #expect(onDevice.subjects == ["Datada no futuro"])
+    }
+
+    /// Um re-sync da mesma mensagem não pode fazê-la parecer recém-chegada.
+    @Test("o carimbo de primeira vista não anda para a frente num re-sync")
+    func firstSeenNeverMovesForward() async throws {
+        let database = try database()
+        let primeiro = Date(timeIntervalSince1970: 1_700_000_000)
+        try insertMessage(
+            id: "m-resync", subject: "Resync",
+            receivedAt: Date(timeIntervalSince1970: 1_788_000_000),
+            database: database, firstSeenAt: primeiro
+        )
+        let mensagem = try #require(try await DatabaseMailSource(database: database)
+            .messages().first { $0.id == "m-resync" })
+        try await database.pool.write { db in
+            try MessageRecord(mensagem, folderID: "a/INBOX", firstSeenAt: Date())
+                .savePreservingIntelligenceProjection(db)
+        }
+        let depois = try await database.pool.read { db in
+            try MessageRecord.fetchOne(db, key: "m-resync")?.firstSeenAt
+        }
+        #expect(depois == primeiro)
     }
 
     @Test("a mensagem selecionada é a próxima depois da geração já iniciada")
