@@ -47,9 +47,31 @@ enum LeitorDeHTML {
         var destino: URL?
     }
 
-    // swiftlint:disable:next cyclomatic_complexity
+    /// Uma célula de tabela guarda **eventos**, e não trechos.
+    ///
+    /// Era este o defeito da prévia da Resend. Email de marketing é feito de
+    /// tabelas: react-email, Mailchimp e companhia embrulham a mensagem inteira
+    /// numa `<td>`. A versão anterior despejava o texto de dentro da célula num
+    /// balde de trechos, e o balde não tinha como guardar fronteira nenhuma —
+    /// fim de `<p>`, `<br>` e até `<li>` inteiro caíam ali e eram costurados sem
+    /// espaço. O resultado era o email de boas-vindas da Resend saindo como
+    /// `Hey,My name is Zeno…emailAdd your domainCheck the docs`, e as três
+    /// dicas — que o caminho de texto puro numera direitinho — sumindo, porque
+    /// `fechaItem` perdia o item para a célula antes de o emitir.
+    ///
+    /// Guardando eventos, a célula deixa de ser um balde: tudo que acontece
+    /// dentro dela acontece igual a fora, e a tabela só reaparece na hora de
+    /// decidir se aquela linha de duas colunas é um campo.
+    private struct Tabela {
+        var celulas: [[CorpoLegivel.Evento]] = []
+        var celulaAberta = false
+    }
+
+    // swiftlint:disable:next cyclomatic_complexity function_body_length
     static func eventos(de html: String) -> [CorpoLegivel.Evento] {
-        var eventos: [CorpoLegivel.Evento] = []
+        /// A pilha de saída: o topo é onde os eventos entram. Abrir uma célula
+        /// empurra um nível; fechá-la o devolve.
+        var pilha: [[CorpoLegivel.Evento]] = [[]]
         var pecas: [Peca] = []
 
         var mudo: String?
@@ -62,15 +84,18 @@ enum LeitorDeHTML {
         var itemAberto = false
         var itemTrechos: [Trecho] = []
 
-        var emCelula = false
-        var celulas: [[Trecho]] = []
-        var celulaTrechos: [Trecho] = []
-        var emTabela = 0
+        var tabelas: [Tabela] = []
 
         var citacao = 0
         var citacaoTexto = ""
 
         var nivelTitulo = 0
+
+        func emite(_ evento: CorpoLegivel.Evento) {
+            pilha[pilha.count - 1].append(evento)
+        }
+
+        func ultimo() -> CorpoLegivel.Evento? { pilha[pilha.count - 1].last }
 
         func trechosDaCorrida() -> [Trecho] {
             var saida: [Trecho] = []
@@ -100,21 +125,29 @@ enum LeitorDeHTML {
         func despeja() {
             let trechos = trechosDaCorrida()
             guard !trechos.isEmpty else { return }
-            if emCelula {
-                celulaTrechos += trechos
-            } else if itemAberto {
-                itemTrechos += trechos
-            } else if let campo = campo(de: trechos) {
-                eventos.append(campo)
-            } else {
-                eventos.append(.linha(trechos, nivel: nivelTitulo))
+            if itemAberto {
+                itemTrechos = junta(itemTrechos, trechos)
+                return
             }
+            if let campo = campo(de: trechos) {
+                emite(campo)
+                return
+            }
+            // A mesma leitura de linha do texto puro: um `<p>` que diz
+            // "1. Envie o primeiro email" é a mesma lista que o texto puro
+            // reconhece. Sem isto, o mesmo conteúdo sai pior em HTML do que em
+            // texto — e isso é defeito, não escolha.
+            if let item = item(de: trechos) {
+                emite(item)
+                return
+            }
+            emite(.linha(trechos, nivel: nivelTitulo))
         }
 
         func quebraDeBloco() {
             despeja()
-            if case .vazia = eventos.last {} else if !eventos.isEmpty {
-                eventos.append(.vazia)
+            if case .vazia = ultimo() {} else if ultimo() != nil {
+                emite(.vazia)
             }
         }
 
@@ -131,38 +164,67 @@ enum LeitorDeHTML {
                 contagens[ultima] += 1
                 marcador = "\(contagens[ultima])."
             }
-            eventos.append(.item(marcador: marcador, ordenada: ordenada, trechos: trechos))
+            emite(.item(marcador: marcador, ordenada: ordenada, trechos: trechos))
+        }
+
+        func abreCelula() {
+            guard !tabelas.isEmpty else { return }
+            tabelas[tabelas.count - 1].celulaAberta = true
+            pilha.append([])
         }
 
         func fechaCelula() {
-            guard emCelula else { return }
+            guard var tabela = tabelas.last, tabela.celulaAberta else { return }
+            fechaItem()
             despeja()
-            emCelula = false
-            celulas.append(poda(celulaTrechos))
-            celulaTrechos = []
+            let dentro = pilha.count > 1 ? pilha.removeLast() : []
+            tabela.celulaAberta = false
+            tabela.celulas.append(dentro)
+            tabelas[tabelas.count - 1] = tabela
+        }
+
+        /// A célula que tem exatamente uma linha de prosa — a única forma que
+        /// pode virar metade de um campo.
+        func unicaLinha(_ eventos: [CorpoLegivel.Evento]) -> [Trecho]? {
+            var achada: [Trecho]?
+            for evento in eventos {
+                switch evento {
+                case .vazia: continue
+                case let .linha(trechos, nivel) where nivel == 0:
+                    if achada != nil { return nil }
+                    achada = trechos
+                default: return nil
+                }
+            }
+            return achada
         }
 
         func fechaLinhaDaTabela() {
             fechaCelula()
-            defer { celulas = [] }
+            guard var tabela = tabelas.last else { return }
+            let celulas = tabela.celulas
+            tabela.celulas = []
+            tabelas[tabelas.count - 1] = tabela
             guard !celulas.isEmpty else { return }
             // Duas colunas é a forma do formulário de site e do recibo: rótulo à
             // esquerda, valor à direita. É a única que vira campo — três colunas
             // são uma grade, e achatá-las em campo mentiria sobre o conteúdo.
-            if celulas.count == 2 {
-                let chave = celulas[0].map(\.texto).joined()
+            if celulas.count == 2,
+               let esquerda = unicaLinha(celulas[0]), let valor = unicaLinha(celulas[1]) {
+                let chave = esquerda.map(\.texto).joined()
                     .trimmingCharacters(in: .whitespaces)
                     .trimmingCharacters(in: CharacterSet(charactersIn: ":"))
-                let valor = celulas[1]
                 if !chave.isEmpty, !valor.isEmpty, chave.count <= 40 {
-                    eventos.append(.campo(chave: chave, valor: valor))
+                    emite(.campo(chave: chave, valor: valor))
                     return
                 }
             }
+            // Uma célula só é a casca do email: o que estava dentro dela sai
+            // aqui exatamente como saiu lá — com as fronteiras intactas.
             for celula in celulas where !celula.isEmpty {
-                eventos.append(.linha(celula, nivel: 0))
+                for evento in celula { emite(evento) }
+                if case .vazia = ultimo() {} else { emite(.vazia) }
             }
-            eventos.append(.vazia)
         }
 
         var indice = html.startIndex
@@ -210,7 +272,7 @@ enum LeitorDeHTML {
                     if citacao == 0 {
                         let texto = arruma(decodifica(citacaoTexto))
                         citacaoTexto = ""
-                        if !texto.isEmpty { eventos.append(.dobra(.historico, texto)) }
+                        if !texto.isEmpty { emite(.dobra(.historico, texto)) }
                     }
                 } else if nome == "br" || blocos.contains(nome) || nome == "li" || nome == "tr" {
                     citacaoTexto.append("\n")
@@ -247,16 +309,16 @@ enum LeitorDeHTML {
             case "table":
                 if fechamento {
                     fechaLinhaDaTabela()
-                    emTabela = max(0, emTabela - 1)
+                    if !tabelas.isEmpty { tabelas.removeLast() }
                 } else {
                     quebraDeBloco()
-                    emTabela += 1
+                    tabelas.append(Tabela())
                 }
             case "tr":
                 fechaLinhaDaTabela()
             case "td", "th":
                 fechaCelula()
-                if !fechamento { emCelula = true }
+                if !fechamento { abreCelula() }
             case "h1", "h2", "h3", "h4", "h5", "h6":
                 quebraDeBloco()
                 nivelTitulo = fechamento ? 0 : Int(String(nome.dropFirst())) ?? 0
@@ -266,9 +328,18 @@ enum LeitorDeHTML {
         }
 
         fechaItem()
-        fechaLinhaDaTabela()
+        while !tabelas.isEmpty {
+            fechaLinhaDaTabela()
+            tabelas.removeLast()
+        }
         despeja()
-        return eventos
+        // Uma tag que não fechou não pode engolir o email: o que sobrou na
+        // pilha volta para o fim, na ordem.
+        while pilha.count > 1 {
+            let dentro = pilha.removeLast()
+            pilha[pilha.count - 1] += dentro
+        }
+        return pilha[0]
     }
 
     // MARK: Peças
@@ -296,6 +367,51 @@ enum LeitorDeHTML {
               let url = CorpoLegivel.endereco(decodifica(href))
         else { return }
         links.append(url)
+    }
+
+    /// Duas corridas de trechos vizinhas precisam de **fronteira de palavra**.
+    ///
+    /// `poda` apara o espaço das duas pontas de cada corrida, então costurar
+    /// duas delas cru gruda `email` em `Add`. Um espaço só entra quando não há
+    /// nenhum dos dois lados — dentro de uma frase, `<b>ne</b>gócio` continua
+    /// sendo uma palavra.
+    static func junta(_ acumulado: [Trecho], _ novos: [Trecho]) -> [Trecho] {
+        guard let ultima = acumulado.last, let primeira = novos.first else {
+            return acumulado + novos
+        }
+        if ultima.texto.last?.isWhitespace == true || primeira.texto.first?.isWhitespace == true {
+            return acumulado + novos
+        }
+        return acumulado + [Trecho(texto: " ")] + novos
+    }
+
+    /// `1. Envie o primeiro email` escrito num `<p>` é a mesma lista que o
+    /// texto puro reconhece — e tem de virar item pelos dois caminhos.
+    private static func item(de trechos: [Trecho]) -> CorpoLegivel.Evento? {
+        guard let primeira = trechos.first, primeira.destino == nil else { return nil }
+        let texto = trechos.map(\.texto).joined()
+        guard PlainTextReflow.ehLista(texto),
+              let (marcador, _) = CorpoLegivel.marcador(de: texto)
+        else { return nil }
+        // Tira o marcador só do primeiro trecho; os demais (link, negrito)
+        // seguem inteiros.
+        var resto = Array(trechos)
+        let semMarcador = String(
+            primeira.texto.dropFirst(min(marcador.count, primeira.texto.count))
+        ).trimmingCharacters(in: .whitespaces)
+        guard primeira.texto.hasPrefix(marcador) else { return nil }
+        if semMarcador.isEmpty {
+            resto.removeFirst()
+        } else {
+            resto[0] = Trecho(
+                texto: semMarcador, destino: primeira.destino,
+                forte: primeira.forte, italico: primeira.italico
+            )
+        }
+        guard !resto.isEmpty else { return nil }
+        return .item(
+            marcador: marcador, ordenada: marcador.first?.isNumber == true, trechos: resto
+        )
     }
 
     /// O `Chave: valor` que veio como uma linha de HTML — `Nome: Maria` separado
