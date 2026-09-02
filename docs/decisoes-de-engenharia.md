@@ -551,3 +551,161 @@ E uma terceira, sobre o instrumento: o `.task` de uma `View` é agendado pelo
 laço de execução. Esperar com `Task.sleep` deixa-o por correr, e o ensaio mede
 um app que não existe — a espera tem de ser `RunLoop.run`, como o `Render` já
 fazia.
+
+---
+
+## O prefixo "OnDevice" mentia (2026-09-01, SP1)
+
+`OnDeviceTextAssisting`, `OnDeviceAssistantMailContext`, `LocalAssistantPanel` — o nome do
+tipo e a cópia da tela diziam "local" incondicionalmente, desde antes de o provedor virar
+configurável. Depois que Grok, LiteLLM, Codex e um CLI instalado passaram a poder receber o
+mesmo conteúdo, frases como "Usa todas as caixas e a agenda carregadas neste Mac" e "Lendo o
+contexto local…" continuavam no ar com qualquer um deles selecionado. Ninguém mudou essas
+strings de propósito; elas só nunca foram escritas pensando em provedor remoto.
+
+A correção não foi trocar a frase — foi tirar a decisão da pessoa que escreve a tela.
+`AssistantDestination` carrega `isLocal: Bool`, e é a única fonte de verdade sobre para onde o
+conteúdo vai: `ReaderPane`, `AssistantPanel`, `FolderSidebar` e `SettingsSections` perguntam a
+ele antes de qualquer palavra que implique "aqui" ou "fora". A regra que fica: nenhuma frase no
+app afirma processamento local sem checar `AssistantDestination.isLocal` primeiro — nunca por
+convenção de nome de tipo.
+
+## Timeout de 30 s era errado para prompt de 400 mil caracteres (2026-09-01, SP1)
+
+O roteador nasceu com 30 s para API/LiteLLM, 60 s (teto 120 s) para CLI e 120 s só para OAuth
+direto. Enquanto o orçamento do prompt era o da Foundation Models (8 mil caracteres), 30 s
+bastava. Quando o email inteiro passou a entrar no prompt do provedor configurado (até 400 mil
+caracteres), a mesma pergunta virou uma geração de minutos — e o dono viu o Grok morrer por
+tempo, não por erro de API.
+
+Duas coisas foram corrigidas, não só o número:
+
+1. `URLRequest.timeoutInterval` não é o tempo total da chamada — é o teto entre pacotes. Uma
+   geração que demora a começar estoura mesmo com a rede boa, e uma resposta longa que chega aos
+   poucos pode nunca estourar por aí. O que fecha a conta é
+   `URLSessionConfiguration.timeoutIntervalForResource`, que não estava configurado em lugar
+   nenhum; agora toda sessão HTTP do assistente recebe os dois valores iguais.
+2. O tempo do CLI tem piso, não só teto: um `codex` frio demora a subir. `cliRequestTimeout`
+   passou a valer 120 s por padrão, com a faixa clampada em 30–300 s (era 60 com faixa 5–120).
+
+`AssistantRouter.requestTimeout` e `cliRequestTimeout` foram para 120 s por padrão; `.providerOAuth`
+mantém `max(requestTimeout, 120)`. `AssistantCLIAuthenticationProbe`, que só sonda presença e
+não gera nada, fica com o próprio timeout de 4 s — não é o mesmo problema.
+
+## Orçamento tem de atravessar tudo, não só o caminho que alguém lembrou de tocar (2026-09-01, SP1)
+
+Um commit anterior (`0a6330a`) levou `Budget` até o contexto de um único email
+(`AssistantPrompt.render(email:)`), e isso bastou para calar o sintoma mais visível: o email
+inteiro ia para o provedor configurado. Mas `AssistantPrompt.transform` continuava cortando todo
+texto em 8 000 caracteres fixos, e `render(_ workspace:)` — o prompt do briefing e das perguntas
+sobre o ambiente — ignorava o orçamento e fixava 24 emails e 32 itens de agenda, provedor remoto
+ou não. Corrigir um caminho e deixar os outros dois com constante fixa não é meio-caminho: é dois
+bugs disfarçados de um só resolvido.
+
+`Budget` ganhou `maximumTextCharacters` (8 000 em `.onDevice`, 400 000 em `.configured`),
+`maximumWorkspaceEmails` (24 / 256) e `maximumWorkspaceAgendaItems` (32 / 128), e os três novos
+consumidores (`transform`, `render(workspace:)`) leem os campos em vez de literal. A regra que
+fica: `Budget` é um valor só, passado até a última função que monta texto para o prompt — nenhuma
+função de renderização de contexto tem permissão para um número fixo próprio. Qualquer caminho
+novo de prompt (uma faixa de briefing, uma nova superfície) recebe `budget` no parâmetro, ponto.
+
+## Sem fallback silencioso de provedor (2026-09-01, SP1)
+
+A tentação era óbvia: falhou no Grok, resume no Mac. É exatamente o que não pode acontecer. A
+pessoa escolheu um provedor por uma razão — custo, qualidade, ou justamente privacidade — e um
+fallback automático toma essa decisão por ela, em silêncio, no pior momento possível: bem quando
+o provedor escolhido está com problema.
+
+Nem a rota interativa (`AssistantConversation.ask/draftReply/...`) nem a fila de análise
+automática (`MessageIntelligenceCoordinator.processPending`) caem para
+`FoundationModelsMessageAnalyzer` quando o provedor configurado falha. A fila **pausa** depois de
+três falhas de ambiente seguidas (auth, rede, CLI ausente — não uma só, que é ruído de rede
+normal), grava o estado em `analysis_queue_state` (tabela nova de linha única, migração `v15`) e
+mostra "Análise pausada · Tentar de novo" na barra lateral, com o motivo.
+
+A tabela é própria, e não `sync_state`, pelo mesmo motivo de `created_agenda_item` na v5:
+`sync_state.accountID` tem `REFERENCES account(id)` e as chaves estrangeiras estão ligadas — sem
+conta conectada não haveria onde gravar. A fila é global, não por conta.
+
+## Codex por assinatura roda pelo CLI, não por chave de API (2026-09-01, SP1)
+
+A assinatura ChatGPT não vira crédito de API. O caminho que funciona é o runtime oficial do
+Codex já instalado no Mac: o OkamiUNI executa o binário num processo isolado, e a sessão continua
+sendo do CLI — nenhum token do ChatGPT passa pelo app, nem é lido, nem é serializado.
+
+Consequência prática: `AssistantAvailability` para `.providerOAuth` com `kind == .codex` precisa
+checar duas coisas — sessão presente **e** binário encontrado. Faltando o binário, o estado é
+`.needsSetup`, não `.needsSignIn`; mandar a pessoa fazer login de novo não resolveria nada, porque
+a sessão já existe.
+
+E a sonda de presença não é de graça: `codexRuntime.isSignedIn()` sobe o app-server do Codex por
+processo e faz um JSON-RPC local — não é rede, mas também não é instantâneo, e era chamada a cada
+`save` de preferências. `AssistantProviderOAuthCoordinator` guarda `(signedIn, measuredAt)` com
+TTL de 30 s para `.codex` (xAI e LiteLLM continuam lendo Keychain direto, sem cache — é leitura
+local, já é barata). `AssistantAvailabilityModel.refresh()` também coalesce chamadas
+concorrentes: nunca duas sondas em paralelo, e uma mudança que chega durante uma medida em
+andamento não se perde — refaz a sonda ao terminar em vez de descartar o pedido.
+
+## Dado não confiável vai entre delimitadores escapados, e só dois caracteres (2026-09-01, SP1)
+
+Todo email, conta, caixa, agenda e turno de histórico entra no prompt dentro de
+`<untrusted-app-context>` / `<untrusted-assistant-history>`, com `<` e `>` escapados por
+`AssistantPrompt.escapedData`. Só esses dois: `&` é dado comum em assunto e link, e escapá-lo
+faria o rascunho voltar com `&amp;` literal no corpo do email — a defesa contra injeção de
+delimitador não pode quebrar o produto que ela protege.
+
+A instrução personalizada da pessoa tem camada própria (`<user-configured-assistant-instructions>`),
+abaixo da política fixa e explicitamente marcada como preferência secundária: ela ajusta forma e
+especialidade, nunca revoga uma regra de segurança.
+
+O golden `Packages/UNISync/Tests/UNISyncTests/Golden/workspace-prompt.txt` existe para que
+acrescentar um campo ao contexto do ambiente seja uma decisão, e não um efeito colateral — e
+pegou um bug de verdade na primeira geração: `<workspace-pending-items>` saiu como a descrição de
+depuração de um `GRDB.SQL` (`SQL(elements: [GRDB.SQL.Element.sql("- [", []), ...])`) em vez do
+texto esperado. O fechamento que monta essa seção tem duas `let` antes do `return`, e sem anotação
+explícita `-> String` o solver do Swift 6 preferiu a conformação de `GRDB.SQL` a
+`ExpressibleByStringInterpolation` à de `StringProtocol` que `.joined(separator:)` pedia —
+ambiguidade silenciosa, sem erro de compilação, porque o resultado só era consumido por
+interpolação padrão dentro do template final. Um vazamento real de estrutura interna de query
+para dentro do prompt entregue à IA configurada, e só o golden — comparando texto contra texto —
+tinha como flagrar.
+
+## Opt-in para análise remota, e a porta usa um carimbo que o app controla (2026-09-01, SP1)
+
+`AssistantSettings.automaticAnalysis` nasce `.onDeviceOnly`; ligar o provedor configurado nela é
+opt-in explícito, com a frase "Cada mensagem recebida sai deste Mac para {label}." no toggle. Mas
+a primeira versão do portão media a janela de consentimento contra `receivedAt` — o cabeçalho
+`Date:` de quem mandou o email, não um carimbo que o app controla. Uma mensagem datada no futuro
+(relógio do remetente errado, ou spammer de propósito) passava `receivedAt >= since` e saía para o
+provedor no clique do opt-in, mesmo estando na caixa havia meses: a promessa "só mensagens que
+chegarem depois" dependia de um dado que qualquer remetente escreve.
+
+A migração `v16` acrescenta `message.firstSeenAt` (nova, não uma edição da `v15` já aplicada em
+bancos existentes) com backfill no instante da migração — conservador de propósito: tudo que já
+está na caixa é, por definição, anterior a qualquer opt-in futuro. `savePreservingIntelligenceProjection`,
+o único caminho de gravação de mensagem em produção, guarda `min(atual, novo)`, para um re-sync
+não fazer uma mensagem antiga parecer recém-chegada. A porta passou a comparar contra
+`min(receivedAt, firstSeenAt ?? receivedAt)` — nunca `receivedAt` sozinho, que continua intocado
+onde importa de verdade: é ele que dá sentido a "amanhã às 15h" na detecção de compromisso, e
+clampá-lo ali estragaria a leitura da data real da mensagem.
+
+## Uma máquina de estado só (2026-09-01, SP1)
+
+`DashboardScreen` chegou a reimplementar a máquina de `AssistantConversation` por conta própria —
+o próprio motor virou uma segunda fonte de verdade paralela à que a tela desenhava, e as duas
+divergiram sem ninguém perceber até a revisão: o CTA do dashboard liberava rascunho checando
+`mailInFocus(focus) != nil`, que caía em `focus.mail.first` na ausência de seleção, enquanto o
+motor de verdade resolvia o escopo só pela seleção real (`.workspace` sem ela). Sem nenhum email
+selecionado o botão dizia "Gerar rascunho", ficava habilitado, e falhava com "Criar uma resposta
+requer contexto de e-mail." — e o briefing, que é o que deveria rodar ali, ficava inalcançável. O
+painel do leitor tinha a mesma classe de defeito: o chip "Gerar resposta" chamava `ask()` com uma
+pergunta livre em vez de `transform(.draftReply)`, então o rascunho saía formatado como resposta a
+uma pergunta, não como prosa de email.
+
+A correção não foi consertar cada predicado separadamente — foi tirar a permissão de qualquer
+superfície ter predicado próprio. `DashboardScreen.run/runDraft/runSuggestion` foram removidos;
+`DashboardScreen`, `AssistantPanel`, `MessageWindow` e o popover do leitor recebem uma instância
+de `AssistantConversation` por injeção e chamam `ask/draftReply/briefing` nela, nunca decidem
+sozinhas se um contexto "pode" rascunho. A regra que fica: uma superfície consome
+`AssistantConversation`; ela nunca reimplementa um pedaço da lógica que já mora lá — nem para um
+rótulo de botão.

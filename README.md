@@ -26,7 +26,7 @@
 - 🗂️ **As pastas do provedor** na barra lateral, expansíveis por conta — e um arquivar que **cria** a pasta que falta no servidor em vez de parar a fila.
 - 📅 **Agenda real e convites**: EventKit lê e grava calendários do macOS (inclusive CalDAV configurado no sistema), e o cartão responde `Aceitar · Talvez · Recusar` por iTIP, pela mesma fila offline do email.
 - 📎 **Anexos de verdade**: recebidos aparecem no leitor e salvam sob demanda; o composer envia arquivos em `multipart/mixed`, com limite explícito e nome sanitizado.
-- ✨ **Inteligência no dispositivo**: o Foundation Models resume e identifica compromissos, responde perguntas sobre o email/conversa aberta e atua no composer (resumir, reescrever, encurtar, ajustar tom, corrigir e criar resposta), sem mandar conteúdo para servidor algum.
+- ✨ **Inteligência com destino honesto**: o Foundation Models resume e identifica compromissos, responde perguntas sobre o email/conversa aberta e atua no composer (resumir, reescrever, encurtar, ajustar tom, corrigir e criar resposta) — e, quando você escolhe Grok, LiteLLM, Codex ou um CLI, o app **diz para onde o conteúdo vai**, em cada superfície, antes de mandar.
 - 🖱️ **Ações onde a mão espera**: botão direito custom em toda superfície, arraste lateral com Desfazer, atalhos de verdade (`⌘R` `⇧⌘R` `⇧⌘F` `⌘E` `⌫` `⇧⌘L` `⇧⌘U` `⌘N` `⌘K`).
 - 🎨 **26 temas**, hairlines de 1 pixel em telas 1×, semáforos a 22pt **verificados por ensaio** — o polimento é requisito, não acabamento.
 - 🔌 **Qualquer provedor**: nada no código limita provedor, domínio, número de contas ou de pastas.
@@ -93,12 +93,12 @@ Cliente de email é o app que mais horas passa aberto — e o que menos respeito
 |---|---|
 | 🏠 **Dashboard** | Terceira aba do chrome: saudação, prioridades ranqueadas sem varrer a caixa inteira, eventos de hoje, tiles e assistente com memória na sessão. Clique no email abre a leitura por cima; Enter envia, Shift+Enter quebra linha |
 | 🪪 **Remetentes** | Configurações → Remetentes. O Gmail traz “Enviar como” no sync; o composer escolhe o From. Alias precisa existir no Workspace para o Gmail não reescrever |
-| ✨ **Análise local** | Foundation Models recebe assunto e corpo, com saída tipada, e produz resumo mais compromisso detectado sem tirar o email do Mac; o corpo tem teto explícito de 12 mil caracteres |
+| ✨ **Análise local** | Foundation Models recebe assunto e corpo, com saída tipada, e produz resumo mais compromisso detectado sem tirar o email do Mac; o corpo tem teto explícito de 12 mil caracteres. A análise automática continua no Mac por padrão; usar o provedor configurado nela é opt-in explícito, com a consequência escrita no toggle |
 | 💾 **Pipeline durável** | SQLite guarda hash do conteúdo, estado e resultado; observação reativa acorda uma fila serial, que se recupera de interrupções e só reprocessa quando a mensagem muda |
 | 🛡️ **Compromisso factual** | Data e hora sugeridas só são persistidas quando existem evidências explícitas no texto original — o modelo não pode transformar a data de recebimento em compromisso inventado |
-| 💬 **Perguntas contextuais** | O botão `apple.intelligence` abre um painel sobre o email ou conversa selecionada, com sugestões, pergunta livre, histórico da sessão, retry e erro explicado. A resposta usa apenas o contexto local e diz quando a informação não está nele |
+| 💬 **Perguntas contextuais** | O botão `apple.intelligence` abre um painel sobre o email ou conversa selecionada, com sugestões, pergunta livre, histórico da sessão, retry e erro explicado. A resposta usa apenas o contexto do app e diz quando a informação não está nele; o rodapé mostra o destino (`Neste Mac`, `Grok · xAI`, `LiteLLM · host`…) |
 | ✍️ **Inteligência de escrita** | Composer cheio e resposta rápida oferecem resumo, clareza, versão curta, tom formal ou cordial, correção de português, instrução livre e criação de resposta mesmo com rascunho vazio. Toda geração vira prévia e só substitui seleção/rascunho após confirmação |
-| 🖥️ **Disponibilidade honesta** | A barra lateral e o rail distinguem dispositivo incompatível, Apple Intelligence desativada, modelo ainda preparando e recurso disponível; controles impossíveis ficam desabilitados com a causa |
+| 🖥️ **Disponibilidade honesta** | A barra lateral e o rail distinguem dispositivo incompatível, Apple Intelligence desativada e modelo ainda preparando de um provedor remoto sem credencial (`Configure a IA`) ou sem sessão (`Entre na assinatura`); controles impossíveis ficam desabilitados com a causa e um botão “Abrir Ajustes” |
 
 <div align="center">
 <table>
