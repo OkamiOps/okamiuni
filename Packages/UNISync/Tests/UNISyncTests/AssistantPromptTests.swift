@@ -328,10 +328,10 @@ struct AssistantPromptTests {
         #expect(draft.contains("idioma predominante da conversa"))
         #expect(draft.contains("Não inclua assunto, De, Para, Cc, Data, Corpo"))
         #expect(draft.contains("não transforme lacunas em um questionário"))
-        #expect(!draft.contains("Execute a tarefa de escrita abaixo em português do Brasil."))
+        #expect(!draft.contains("Execute a tarefa de escrita abaixo."))
         #expect(!rewrite.contains("<untrusted-app-context>"))
         #expect(!rewrite.contains("subject: Planejamento"))
-        #expect(rewrite.contains("Execute a tarefa de escrita abaixo em português do Brasil."))
+        #expect(rewrite.contains("Execute a tarefa de escrita abaixo."))
         #expect(custom.contains("<untrusted-app-context>"))
     }
 

@@ -294,8 +294,8 @@ enum AssistantPrompt {
         budget: Budget = .onDevice
     ) -> String {
         """
-        Responda à pergunta atual em português do Brasil com a profundidade que
-        ela exigir. Comece pela resposta mais útil.
+        Responda à pergunta atual com a profundidade que ela exigir. Comece pela
+        resposta mais útil.
         A estrutura explicitamente pedida na pergunta atual é obrigatória.
         Se a pessoa pedir lista, tópicos, checklist ou passos, responda em
         Markdown com um item por linha; não compacte em um parágrafo. Se pedir
@@ -337,10 +337,10 @@ enum AssistantPrompt {
             languageInstruction = "Use o idioma predominante da conversa; se houver conflito, priorize o idioma da mensagem mais recente. Só use português do Brasil se o idioma não puder ser identificado."
         case .customInstruction:
             usesMailContext = true
-            languageInstruction = "Execute a tarefa de escrita abaixo em português do Brasil."
+            languageInstruction = "Execute a tarefa de escrita abaixo."
         default:
             usesMailContext = false
-            languageInstruction = "Execute a tarefa de escrita abaixo em português do Brasil."
+            languageInstruction = "Execute a tarefa de escrita abaixo."
         }
         if usesMailContext, let context {
             contextBlock = """

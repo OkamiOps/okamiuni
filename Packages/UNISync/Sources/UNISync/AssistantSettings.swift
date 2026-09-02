@@ -415,7 +415,9 @@ public struct AssistantBehaviorPreferences: Codable, Sendable, Hashable {
         var instructions: [String] = []
         if tone != .natural { instructions.append(tone.promptInstruction) }
         if detail != .adaptive { instructions.append(detail.promptInstruction) }
-        if language != .portugueseBrazil { instructions.append(language.promptInstruction) }
+        // Sem condição: enquanto pt-BR era o silêncio, a preferência da pessoa
+        // perdia para a linha fixa do prompt, que dizia português sempre.
+        instructions.append(language.promptInstruction)
         if format != .adaptive { instructions.append(format.promptInstruction) }
         if !suggestNextSteps {
             instructions.append("Não acrescente próximos passos que não tenham sido pedidos.")
