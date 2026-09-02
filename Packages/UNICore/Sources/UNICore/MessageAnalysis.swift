@@ -129,9 +129,52 @@ public protocol MessageAnalyzing: Sendable {
 
     func availability() async -> AppleIntelligenceAvailability
     func analyze(_ input: MessageAnalysisInput) async throws -> MessageAnalysisResult
+
+    /// O motor que **esta** mensagem usaria pode responder agora?
+    ///
+    /// Existe porque `availability()` responde pelo app inteiro, e um roteador
+    /// tem mais de um motor: com o opt-in ligado e a assinatura expirada, o
+    /// motor local segue pronto — só a mensagem nova não tem para onde ir.
+    /// Perguntar por mensagem é o que permite pular a que não pode andar sem
+    /// travar o histórico atrás dela, e é o que dá à fila um motivo que a
+    /// pessoa consegue resolver.
+    func availability(for input: MessageAnalysisInput) async -> MessageAnalysisAvailability
 }
 
 public extension MessageAnalyzing {
     /// Um motor só: a única versão aceita é a dele.
     var acceptedModelVersions: Set<String> { [modelVersion] }
+
+    /// Um motor só: a resposta por mensagem é a do app inteiro. O motivo sai
+    /// da mesma frase que a falha usaria, para a barra lateral não precisar
+    /// inventar cópia própria.
+    func availability(for input: MessageAnalysisInput) async -> MessageAnalysisAvailability {
+        let state = await availability()
+        return MessageAnalysisAvailability(
+            state: state,
+            reason: state == .available
+                ? nil
+                : MessageAnalysisError.unavailable(state).errorDescription
+        )
+    }
+}
+
+/// O que o motor **desta** mensagem pode fazer agora, com o motivo em
+/// linguagem de gente quando não pode nada.
+///
+/// `reason` é o texto que a fila pausada mostra ("Adicione a chave de API
+/// deste provedor.", "Entre na assinatura xAI para usar a IA."): sem ele a
+/// barra lateral só saberia dizer que parou.
+public struct MessageAnalysisAvailability: Sendable, Equatable {
+    public let state: AppleIntelligenceAvailability
+    public let reason: String?
+
+    public init(state: AppleIntelligenceAvailability, reason: String? = nil) {
+        self.state = state
+        self.reason = reason
+    }
+
+    public var isAvailable: Bool { state == .available }
+
+    public static let available = MessageAnalysisAvailability(state: .available)
 }

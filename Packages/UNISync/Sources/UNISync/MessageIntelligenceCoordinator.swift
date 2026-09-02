@@ -103,6 +103,14 @@ public actor MessageIntelligenceCoordinator {
         guard await analyzer.availability() == .available else { return 0 }
 
         var completed = 0
+        // As mensagens cujo motor recusou **antes** da primeira palavra. Elas
+        // saem da vez desta rodada para o backlog atrás delas poder andar: sem
+        // isto, `pendingWork` devolve sempre a mesma (ordem `receivedAt DESC`)
+        // e a fila inteira fica presa na mensagem mais nova.
+        var skipped: Set<String> = []
+        // O motivo da primeira recusa é o que a barra lateral mostra ao final.
+        var skippedReason: String?
+
         for _ in 0..<limit {
             if Task.isCancelled { break }
 
@@ -112,12 +120,28 @@ public actor MessageIntelligenceCoordinator {
                     limit: 1,
                     modelVersion: analyzer.modelVersion,
                     acceptedModelVersions: analyzer.acceptedModelVersions,
-                    priorityMessageID: priorityMessageID
+                    priorityMessageID: priorityMessageID,
+                    excludingMessageIDs: skipped
                 ).first else { break }
                 work = next
             } catch {
                 Self.log.error("Não foi possível ler a fila de inteligência: \(error)")
                 break
+            }
+
+            let input = Self.input(for: work, timeZone: timeZone())
+
+            // Perguntar **antes** de assumir. O motor desta mensagem pode não
+            // ser o motor do app: com o opt-in ligado e a assinatura expirada,
+            // o Foundation Models continua pronto e só a mensagem nova não tem
+            // para onde ir. Assumir primeiro deixaria a linha em `processing`
+            // sem nunca ter havido tentativa.
+            let engineAvailability = await analyzer.availability(for: input)
+            guard engineAvailability.isAvailable else {
+                skipped.insert(work.messageID)
+                if skippedReason == nil { skippedReason = engineAvailability.reason }
+                if priorityMessageID == work.messageID { priorityMessageID = nil }
+                continue
             }
 
             do {
@@ -130,19 +154,7 @@ public actor MessageIntelligenceCoordinator {
                     priorityMessageID = nil
                 }
 
-                let sender = work.fromName.isEmpty
-                    ? work.fromAddress
-                    : "\(work.fromName) <\(work.fromAddress)>"
-                let result = try await analyzer.analyze(
-                    MessageAnalysisInput(
-                        subject: work.subject,
-                        sender: sender,
-                        receivedAt: work.receivedAt,
-                        body: work.plainBody,
-                        timeZone: timeZone(),
-                        firstSeenAt: work.firstSeenAt
-                    )
-                )
+                let result = try await analyzer.analyze(input)
                 let saved = try store.markCompleted(
                     work,
                     modelVersion: result.modelVersion,
@@ -154,11 +166,17 @@ public actor MessageIntelligenceCoordinator {
                 consecutivePolicyFailures = 0
             } catch is CancellationError {
                 break
-            } catch MessageAnalysisError.unavailable {
-                // O estado `processing` é retomável na próxima abertura ou
-                // mudança do banco. Marcar como falha tornaria uma condição
-                // global temporária permanente para esta mensagem.
-                break
+            } catch let error as MessageAnalysisError where Self.isUnavailable(error) {
+                // A sonda disse que dava e o motor recusou mesmo assim (uma
+                // sessão que expirou entre as duas). A linha volta para
+                // `pending` — ela não chegou a ser tentada — e a mensagem sai
+                // da vez desta rodada, como se a sonda tivesse recusado.
+                try? store.markPending(work)
+                skipped.insert(work.messageID)
+                if skippedReason == nil {
+                    skippedReason = (error as any LocalizedError).errorDescription
+                }
+                continue
             } catch {
                 if Self.isEnvironmentFailure(error) {
                     consecutivePolicyFailures += 1
@@ -185,13 +203,54 @@ public actor MessageIntelligenceCoordinator {
                 }
             }
         }
+
+        // O backlog que **podia** andar já andou: o laço só sai daqui quando
+        // não sobrou trabalho analisável. Agora a fila pode parar mostrando o
+        // que a pessoa precisa consertar. Uma recusa basta — ao contrário de
+        // rede, "falta a chave" não melhora sozinha na terceira tentativa.
+        if !skipped.isEmpty, case .running = queueState() {
+            let reason = skippedReason ?? "A IA configurada não está pronta para as mensagens novas."
+            try? queueStateStore.pause(reason: reason, at: Date())
+            Self.log.error("Fila de análise pausada: \(reason, privacy: .public)")
+        }
         return completed
+    }
+
+    /// A entrada que o motor recebe. Uma função só para a sonda por mensagem e
+    /// a análise não poderem divergir sobre o que está sendo analisado.
+    static func input(
+        for work: MessageIntelligenceWork,
+        timeZone: TimeZone
+    ) -> MessageAnalysisInput {
+        MessageAnalysisInput(
+            subject: work.subject,
+            sender: work.fromName.isEmpty
+                ? work.fromAddress
+                : "\(work.fromName) <\(work.fromAddress)>",
+            receivedAt: work.receivedAt,
+            body: work.plainBody,
+            timeZone: timeZone,
+            firstSeenAt: work.firstSeenAt
+        )
+    }
+
+    private static func isUnavailable(_ error: MessageAnalysisError) -> Bool {
+        if case .unavailable = error { return true }
+        return false
     }
 
     /// O que a lateral mostra. `try?` porque um banco que não responde não
     /// pode transformar a barra numa tela de erro: a fila segue como corrente.
     public func queueState() -> AnalysisQueueState {
         (try? queueStateStore.state()) ?? .running
+    }
+
+    /// A rota da análise automática voltou para "só neste Mac". Nada mais pode
+    /// sair daqui, então uma fila parada citando um provedor remoto virou
+    /// mentira: ela volta a correr sem a pessoa precisar clicar em nada.
+    public func resumeIfPaused() async {
+        guard queueState().isPaused else { return }
+        await resumeAfterPause()
     }
 
     /// "Tentar de novo" da barra lateral. Zera o contador e destrava a fila.

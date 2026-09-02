@@ -56,11 +56,15 @@ public struct MessageIntelligenceStore: Sendable {
     /// `acceptedModelVersions` vazio significa "só `modelVersion` serve" — o
     /// comportamento de sempre. Um roteador que grava resultados sob mais de
     /// uma versão legítima passa as duas, e nenhuma delas volta para a fila.
+    /// `excludingMessageIDs` é o que o ciclo já tentou e não pôde andar — a
+    /// mensagem cujo motor não responde agora. Sem isto o mesmo item volta ao
+    /// topo a cada volta do laço e o histórico atrás dele nunca é analisado.
     public func pendingWork(
         limit: Int = 20,
         modelVersion: String? = nil,
         acceptedModelVersions: Set<String> = [],
-        priorityMessageID: String? = nil
+        priorityMessageID: String? = nil,
+        excludingMessageIDs: Set<String> = []
     ) throws -> [MessageIntelligenceWork] {
         guard limit > 0 else { return [] }
         return try database.pool.read { db in
@@ -90,9 +94,11 @@ public struct MessageIntelligenceStore: Sendable {
                     """,
                 arguments: [priorityMessageID]
             )
-            return rows.compactMap {
-                Self.workIfPending(
-                    $0,
+            return rows.compactMap { row -> MessageIntelligenceWork? in
+                let id: String = row["messageID"]
+                guard !excludingMessageIDs.contains(id) else { return nil }
+                return Self.workIfPending(
+                    row,
                     modelVersion: modelVersion,
                     acceptedModelVersions: acceptedModelVersions
                 )
@@ -164,7 +170,7 @@ public struct MessageIntelligenceStore: Sendable {
                     """,
                 arguments: [summary, detectedEventJSON, category?.rawValue, work.messageID]
             )
-            try Self.updateTerminal(
+            try Self.updateClaimed(
                 db, work: work, state: .completed, modelVersion: modelVersion,
                 lastError: nil, at: at
             )
@@ -200,7 +206,30 @@ public struct MessageIntelligenceStore: Sendable {
         )
     }
 
+    /// Devolve à fila uma entrada que foi assumida mas **não** chegou a ser
+    /// tentada — o motor dela recusou antes da primeira palavra. Deixá-la em
+    /// `processing` faria a linha parecer trabalho em andamento para sempre;
+    /// marcá-la como falha culparia a mensagem por um defeito de configuração.
+    @discardableResult
+    public func markPending(
+        _ work: MessageIntelligenceWork,
+        modelVersion: String? = nil,
+        at: Date = Date()
+    ) throws -> Bool {
+        try markState(work, state: .pending, modelVersion: modelVersion, lastError: nil, at: at)
+    }
+
     private func markTerminal(
+        _ work: MessageIntelligenceWork,
+        state: MessageIntelligenceState,
+        modelVersion: String?,
+        lastError: String?,
+        at: Date
+    ) throws -> Bool {
+        try markState(work, state: state, modelVersion: modelVersion, lastError: lastError, at: at)
+    }
+
+    private func markState(
         _ work: MessageIntelligenceWork,
         state: MessageIntelligenceState,
         modelVersion: String?,
@@ -209,7 +238,7 @@ public struct MessageIntelligenceStore: Sendable {
     ) throws -> Bool {
         try database.pool.write { db in
             guard try Self.canFinish(work, in: db) else { return false }
-            try Self.updateTerminal(
+            try Self.updateClaimed(
                 db, work: work, state: state, modelVersion: modelVersion,
                 lastError: lastError, at: at
             )
@@ -300,7 +329,7 @@ public struct MessageIntelligenceStore: Sendable {
         )
     }
 
-    private static func updateTerminal(
+    private static func updateClaimed(
         _ db: Database,
         work: MessageIntelligenceWork,
         state: MessageIntelligenceState,

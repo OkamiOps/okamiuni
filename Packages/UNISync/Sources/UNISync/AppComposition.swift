@@ -182,7 +182,7 @@ public struct AppComposition: Sendable {
             onDevice: foundationModelsAnalyzer,
             configured: TextAssistantMessageAnalyzer(
                 assistant: router,
-                availability: { await router.availability() }
+                availability: { await router.assistantAvailability() }
             )
         )
         let intelligenceAvailability = FoundationModelsMessageAnalyzer.systemAvailability
@@ -323,6 +323,13 @@ public struct AppComposition: Sendable {
             analyzer: analyzer
         )
         Task { await intelligence.start() }
+        // Voltar a rota para "só neste Mac" desfaz o motivo de qualquer pausa
+        // remota: nada mais sai daqui, e uma fila parada citando um provedor
+        // que não é mais usado seria um beco sem saída na barra lateral.
+        assistantSettings.addDidChangeHandler { [weak intelligence] settings in
+            guard settings.automaticAnalysis == .onDeviceOnly else { return }
+            Task { await intelligence?.resumeIfPaused() }
+        }
         let analysisQueue = AnalysisQueueStateModel(
             database: banco, coordinator: intelligence
         )

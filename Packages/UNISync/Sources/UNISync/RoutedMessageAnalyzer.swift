@@ -42,6 +42,13 @@ public struct RoutedMessageAnalyzer: MessageAnalyzing {
         return await configured.availability()
     }
 
+    /// A resposta que importa para a fila: **esta** mensagem tem motor?
+    /// Com o opt-in ligado e a assinatura fora do ar, a resposta é "não" só
+    /// para o que chegou depois do clique — o histórico continua andando.
+    public func availability(for input: MessageAnalysisInput) async -> MessageAnalysisAvailability {
+        await engine(for: input).availability(for: input)
+    }
+
     public func analyze(_ input: MessageAnalysisInput) async throws -> MessageAnalysisResult {
         // Sem rede de segurança: se a rota escolhida falhar, a falha sobe. Cair
         // para o motor local em silêncio esconderia da pessoa que o provedor

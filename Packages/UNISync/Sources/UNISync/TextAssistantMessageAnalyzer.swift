@@ -19,11 +19,15 @@ public struct TextAssistantMessageAnalyzer: MessageAnalyzing {
     public let modelVersion = TextAssistantMessageAnalyzer.currentModelVersion
 
     private let assistant: any TextAssisting
-    private let availabilityProbe: @Sendable () async -> AppleIntelligenceAvailability
+    private let availabilityProbe: @Sendable () async -> AssistantAvailability
 
+    /// A sonda é a rica (`AssistantAvailability`), e não o `enum` de três
+    /// estados, porque é dela que sai o motivo acionável — "Adicione a chave
+    /// de API deste provedor.", "Entre na assinatura xAI para usar a IA.".
+    /// Sem ele a fila só saberia dizer que parou.
     public init(
         assistant: any TextAssisting,
-        availability: @escaping @Sendable () async -> AppleIntelligenceAvailability
+        availability: @escaping @Sendable () async -> AssistantAvailability
     ) {
         self.assistant = assistant
         self.availabilityProbe = availability
@@ -35,7 +39,25 @@ public struct TextAssistantMessageAnalyzer: MessageAnalyzing {
     /// Apple Intelligence passa direto, e "falta configurar"/"falta entrar"
     /// viram `.modelNotReady` — o motor existe, mas ainda não responde.
     public func availability() async -> AppleIntelligenceAvailability {
-        await availabilityProbe()
+        Self.state(of: await availabilityProbe())
+    }
+
+    /// Este analisador tem um motor só, mas o motivo dele é bom demais para
+    /// virar a frase genérica do `default` do protocolo.
+    public func availability(for input: MessageAnalysisInput) async -> MessageAnalysisAvailability {
+        let probed = await availabilityProbe()
+        return MessageAnalysisAvailability(state: Self.state(of: probed), reason: probed.reason)
+    }
+
+    /// O mesmo mapeamento do roteador: `.ready` vira `.available`, o caso
+    /// Apple Intelligence passa direto, e "falta configurar"/"falta entrar"
+    /// viram `.modelNotReady` — o motor existe, mas ainda não responde.
+    static func state(of availability: AssistantAvailability) -> AppleIntelligenceAvailability {
+        switch availability {
+        case .ready: .available
+        case let .appleIntelligence(state): state
+        case .needsSetup, .needsSignIn: .modelNotReady
+        }
     }
 
     public func analyze(_ input: MessageAnalysisInput) async throws -> MessageAnalysisResult {

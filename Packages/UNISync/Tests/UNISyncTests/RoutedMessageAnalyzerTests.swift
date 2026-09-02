@@ -160,7 +160,7 @@ struct RoutedMessageAnalyzerTests {
          "detectedEvent":{"title":"Conversa","evidence":"amanhã às 15h",
                           "startMinute":900,"endMinute":960,"dayOffset":1}}
         """
-        let analyzer = TextAssistantMessageAnalyzer(assistant: spy, availability: { .available })
+        let analyzer = TextAssistantMessageAnalyzer(assistant: spy, availability: { .ready(.onThisMac) })
         let result = try await analyzer.analyze(input)
         #expect(result.summary == "Marina propõe amanhã às 15h.")
         #expect(result.detectedEvent != nil)
@@ -192,7 +192,7 @@ struct RoutedMessageAnalyzerTests {
          "detectedEvent":{"title":"Conversa","evidence":"amanhã às 15h",
                           "startMinute":900,"endMinute":960,"dayOffset":1}}
         """
-        let analyzer = TextAssistantMessageAnalyzer(assistant: spy, availability: { .available })
+        let analyzer = TextAssistantMessageAnalyzer(assistant: spy, availability: { .ready(.onThisMac) })
         let event = try #require(try await analyzer.analyze(input).detectedEvent)
 
         var calendar = Calendar(identifier: .gregorian)
@@ -209,7 +209,7 @@ struct RoutedMessageAnalyzerTests {
     func rejectsEmptySummaryAndUnknownCategory() async throws {
         let spy = SpyTextAssistantForAnalysis()
         spy.result = #"{"summary":"   ","detectedEvent":null}"#
-        let analyzer = TextAssistantMessageAnalyzer(assistant: spy, availability: { .available })
+        let analyzer = TextAssistantMessageAnalyzer(assistant: spy, availability: { .ready(.onThisMac) })
         await #expect(throws: MessageAnalysisError.self) {
             _ = try await analyzer.analyze(input)
         }
@@ -223,7 +223,7 @@ struct RoutedMessageAnalyzerTests {
     func unavailablePropagates() async throws {
         let spy = SpyTextAssistantForAnalysis()
         let analyzer = TextAssistantMessageAnalyzer(
-            assistant: spy, availability: { .modelNotReady }
+            assistant: spy, availability: { .appleIntelligence(.modelNotReady) }
         )
         #expect(await analyzer.availability() == .modelNotReady)
         await #expect(throws: MessageAnalysisError.unavailable(.modelNotReady)) {

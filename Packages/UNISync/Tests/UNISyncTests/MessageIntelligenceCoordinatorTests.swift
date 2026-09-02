@@ -440,6 +440,105 @@ struct MessageIntelligenceCoordinatorTests {
         #expect(await background.value == 3)
         #expect(await analyzer.subjects() == ["Revisão", "Prioridade", "Restante"])
     }
+
+    /// O defeito que travava a fila inteira: com o opt-in ligado e a
+    /// assinatura sem sessão, a mensagem mais nova é a primeira da ordem
+    /// (`receivedAt DESC`), o motor dela recusa, e antes disto o ciclo
+    /// simplesmente parava — a mesma mensagem escolhida a cada volta, a linha
+    /// presa em `processing`, o histórico atrás dela nunca resumido e nenhuma
+    /// palavra na barra lateral.
+    @Test("sem credencial, o backlog local anda e a fila para com motivo")
+    func remoteRouteWithoutCredentialDoesNotWedgeTheQueue() async throws {
+        let database = try database()
+        let corte = Date(timeIntervalSince1970: 1_788_000_000)
+        // A nova entra depois do opt-in; as três antigas, antes dele.
+        try insertMessage(
+            id: "m-nova", subject: "Nova",
+            receivedAt: corte.addingTimeInterval(3_600), database: database,
+            firstSeenAt: corte.addingTimeInterval(3_600)
+        )
+        for indice in 1...3 {
+            try insertMessage(
+                id: "m-antiga-\(indice)", subject: "Antiga \(indice)",
+                receivedAt: corte.addingTimeInterval(TimeInterval(-600 * indice)),
+                database: database,
+                firstSeenAt: corte.addingTimeInterval(TimeInterval(-600 * indice))
+            )
+        }
+        // A "Revisão" das fixtures também é anterior ao corte.
+        try await database.pool.write { db in
+            try db.execute(
+                sql: "UPDATE message SET firstSeenAt = ? WHERE id = 'm'",
+                arguments: [corte.addingTimeInterval(-9_000).timeIntervalSince1970]
+            )
+        }
+
+        let suite = "okamiuni.fila-remota.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let settings = AssistantSettingsStore(defaults: defaults, key: "assistant")
+        try settings.save(.init(
+            provider: .providerOAuth,
+            providerOAuth: .init(kind: .xAI, model: "grok-4"),
+            automaticAnalysis: .configuredProvider,
+            automaticAnalysisSince: corte
+        ))
+
+        let local = SpyMessageAnalyzer(modelVersion: "local/v1")
+        // O provedor está escolhido e sem sessão: é exatamente o que
+        // `AssistantRouter.assistantAvailability()` devolve nesse estado.
+        let remoto = TextAssistantMessageAnalyzer(
+            assistant: SpyTextAssistantForAnalysis(),
+            availability: {
+                .needsSignIn(
+                    AssistantDestination(settings: settings.snapshot()),
+                    provider: .xAI
+                )
+            }
+        )
+        let coordinator = MessageIntelligenceCoordinator(
+            database: database,
+            analyzer: RoutedMessageAnalyzer(
+                settingsStore: settings, onDevice: local, configured: remoto
+            ),
+            timeZone: { self.timeZone }
+        )
+
+        let concluidas = await coordinator.processPending(limit: 10)
+
+        // (c) o backlog local andou inteiro, apesar de a mais nova estar na
+        // frente da ordem.
+        #expect(concluidas == 4)
+        #expect(Set(local.subjects) == ["Revisão", "Antiga 1", "Antiga 2", "Antiga 3"])
+
+        // (b) a mensagem que não chegou a ser tentada não ficou presa em
+        // `processing` — ela nem foi assumida.
+        let estado = try await database.pool.read { db in
+            try MessageIntelligenceRecord.fetchOne(db, key: "m-nova")?.state
+        }
+        #expect(estado == nil)
+
+        // (a) e a fila terminou num estado que a pessoa vê e resolve.
+        let fila = await coordinator.queueState()
+        #expect(fila.isPaused)
+        #expect(fila.reason?.contains("Grok · xAI") == true)
+    }
+
+    @Test("voltar a rota para este Mac destrava a fila sozinho")
+    func returningToOnDeviceClearsThePause() async throws {
+        let database = try database()
+        let coordinator = MessageIntelligenceCoordinator(
+            database: database,
+            analyzer: SpyMessageAnalyzer(modelVersion: "local/v1"),
+            timeZone: { self.timeZone }
+        )
+        try AnalysisQueueStateStore(database: database)
+            .pause(reason: "Entre na assinatura Grok · xAI para usar a IA.", at: Date())
+        #expect(await coordinator.queueState().isPaused)
+
+        await coordinator.resumeIfPaused()
+        #expect(await coordinator.queueState() == .running)
+    }
 }
 
 private actor AnalysisSpy: MessageAnalyzing {
