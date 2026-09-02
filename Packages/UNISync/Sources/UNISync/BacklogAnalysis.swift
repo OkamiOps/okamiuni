@@ -15,6 +15,18 @@ import UNICore
 /// sair. E ele fica **escrito**: uma linha por mensagem aprovada, para o
 /// roteador poder responder "esta aqui, sim" sem depender de nenhum estado em
 /// memória que um relançamento do app perderia.
+///
+/// **O consentimento vale para UMA análise.** Duas guardas, e as duas são
+/// necessárias:
+///
+/// 1. A linha é gasta quando a mensagem ganha triagem. É a definição literal
+///    de "uma análise": o que ele autorizou aconteceu.
+/// 2. A linha carrega a `modelVersion` do motor a que o consentimento se
+///    referia. Sem isto, a próxima subida de versão devolveria essas mesmas
+///    mensagens à fila e elas sairiam de novo para o provedor **sem diálogo
+///    nenhum** — exatamente o caminho que esta ação existe para fechar. E a
+///    guarda 1 sozinha não bastaria: uma análise que voltou sem triagem
+///    (o modelo não devolveu nenhuma) deixaria a linha viva para sempre.
 public struct AnalysisBacklogConsentStore: Sendable {
     private let database: SyncDatabase
 
@@ -22,46 +34,88 @@ public struct AnalysisBacklogConsentStore: Sendable {
         self.database = database
     }
 
-    /// Escreve o consentimento de uma vez só. `INSERT OR REPLACE` porque
-    /// aprovar duas vezes a mesma mensagem é a mesma decisão, não um erro.
-    public func approve(_ messageIDs: [String], at: Date = Date()) throws {
+    /// Escreve o consentimento de uma vez só, carimbado com a versão do motor
+    /// a que ele se refere. `INSERT OR REPLACE` porque aprovar duas vezes a
+    /// mesma mensagem é a mesma decisão, não um erro — e porque um
+    /// consentimento novo, para uma versão nova, tem de substituir o velho.
+    ///
+    /// Uma transação só para as N linhas: N transações numa caixa grande é o
+    /// que fazia esta escrita valer meio segundo de janela congelada.
+    public func approve(
+        _ messageIDs: [String],
+        modelVersion: String,
+        at: Date = Date()
+    ) throws {
         guard !messageIDs.isEmpty else { return }
         try database.pool.write { db in
             for id in messageIDs {
                 try db.execute(
                     sql: """
                         INSERT OR REPLACE INTO analysis_backlog_consent
-                          (messageID, approvedAt) VALUES (?, ?)
+                          (messageID, approvedAt, modelVersion) VALUES (?, ?, ?)
                         """,
-                    arguments: [id, at.timeIntervalSince1970]
+                    arguments: [id, at.timeIntervalSince1970, modelVersion]
                 )
             }
         }
     }
 
-    public func approvedIDs() throws -> Set<String> {
-        try database.pool.read { db in
-            try String.fetchSet(db, sql: "SELECT messageID FROM analysis_backlog_consent")
+    /// Esta mensagem pode sair daqui agora?
+    ///
+    /// Só quando existe linha de consentimento **para esta versão de motor** e
+    /// a mensagem ainda não tem triagem. As duas condições numa consulta só,
+    /// porque a fila pergunta isto uma vez por mensagem analisada.
+    public func covers(messageID: String, modelVersion: String) -> Bool {
+        let resposta = try? database.pool.read { db in
+            try Bool.fetchOne(
+                db,
+                sql: """
+                    SELECT 1 FROM analysis_backlog_consent c
+                    LEFT JOIN message_intelligence i ON i.messageID = c.messageID
+                    WHERE c.messageID = ? AND c.modelVersion = ? AND i.triage IS NULL
+                    """,
+                arguments: [messageID, modelVersion]
+            )
         }
+        return (resposta ?? nil) ?? false
     }
 
     /// "Parar" apaga o consentimento inteiro. O que já foi analisado está
-    /// analisado; o que ainda não saiu daqui deixa de ter permissão para
-    /// sair, que é exatamente o que a palavra "parar" promete.
+    /// analisado; o que ainda não saiu deixa de ter permissão para sair, que é
+    /// exatamente o que a palavra "parar" promete.
     public func clear() throws {
         try database.pool.write { db in
             try db.execute(sql: "DELETE FROM analysis_backlog_consent")
         }
     }
 
-    /// Quantas das aprovadas ainda não têm triagem — o progresso da ação.
-    public func remainingCount() throws -> Int {
+    /// Recolhe as linhas já gastas — a mensagem ganhou triagem, o
+    /// consentimento cumpriu o que autorizava. `covers` já as trataria como
+    /// mortas; apagá-las é higiene, para a tabela não crescer sem limite e
+    /// para "o que ainda falta" ser uma contagem de linhas vivas.
+    @discardableResult
+    public func purgeSpent() throws -> Int {
+        try database.pool.write { db in
+            try db.execute(sql: """
+                DELETE FROM analysis_backlog_consent
+                WHERE messageID IN (
+                  SELECT c.messageID FROM analysis_backlog_consent c
+                  JOIN message_intelligence i ON i.messageID = c.messageID
+                  WHERE i.triage IS NOT NULL
+                )
+                """)
+            return db.changesCount
+        }
+    }
+
+    /// Quantas das aprovadas ainda não foram analisadas — o progresso da ação.
+    public func remainingCount(modelVersion: String) throws -> Int {
         try database.pool.read { db in
             try Int.fetchOne(db, sql: """
                 SELECT COUNT(*) FROM analysis_backlog_consent c
                 LEFT JOIN message_intelligence i ON i.messageID = c.messageID
-                WHERE i.triage IS NULL
-                """) ?? 0
+                WHERE c.modelVersion = ? AND i.triage IS NULL
+                """, arguments: [modelVersion]) ?? 0
         }
     }
 }
@@ -72,10 +126,15 @@ public struct AnalysisBacklogConsentStore: Sendable {
 public struct BacklogAnalysisPlan: Sendable, Hashable {
     public let messageIDs: [String]
     public let destination: AssistantDestination
+    /// A versão do motor a que este consentimento se refere. Viaja com o
+    /// plano para o carimbo gravado ser exatamente o do motor que a pessoa
+    /// autorizou, e não o de um motor que mudou entre o diálogo e o clique.
+    public let modelVersion: String
 
-    public init(messageIDs: [String], destination: AssistantDestination) {
+    public init(messageIDs: [String], destination: AssistantDestination, modelVersion: String) {
         self.messageIDs = messageIDs
         self.destination = destination
+        self.modelVersion = modelVersion
     }
 
     public var count: Int { messageIDs.count }
@@ -83,13 +142,31 @@ public struct BacklogAnalysisPlan: Sendable, Hashable {
 
     /// A frase do diálogo. O número exato e o destino nomeado, porque é isso
     /// que a pessoa precisa saber para poder dizer não.
+    ///
+    /// "assunto, remetente, data e corpo" e não "assunto e corpo": é
+    /// literalmente o que `MessageIntelligenceCoordinator.input(for:)` monta e
+    /// o que `AssistantEmailContext` manda. A frase antiga omitia dois campos
+    /// que saem do Mac, e uma tela de consentimento que subdeclara o que envia
+    /// não é consentimento.
     public var confirmationText: String {
-        "Isto envia \(count) mensagens (assunto e corpo) para \(destination.label). Continuar?"
+        "Isto envia \(count) \(count == 1 ? "mensagem" : "mensagens") "
+            + "(assunto, remetente, data e corpo) para \(destination.label). Continuar?"
     }
 
     public static let actionTitle = "Analisar as mensagens já recebidas"
     public static let confirmTitle = "Analisar"
     public static let cancelTitle = "Cancelar"
+
+    /// As caixas que nunca entram: spam é quarentena, lixeira é o que ela já
+    /// jogou fora, e rascunho e enviada são texto **dela**, não trabalho que
+    /// chegou. O ranking do dashboard já as exclui pela mesma razão; mandá-las
+    /// para um provedor seria pior, porque aqui elas saem da máquina.
+    static let excludedBuckets: [String] = [
+        TriageBucket.junk.rawValue,
+        TriageBucket.trash.rawValue,
+        TriageBucket.drafts.rawValue,
+        TriageBucket.sent.rawValue,
+    ]
 }
 
 /// Monta o plano e escreve o consentimento. Não manda nada: quem manda é a
@@ -99,11 +176,40 @@ public struct BacklogAnalysisService: Sendable {
     private let database: SyncDatabase
     private let settingsStore: AssistantSettingsStore
     private let consent: AnalysisBacklogConsentStore
+    /// A versão do motor remoto. Fechada, e não o analisador inteiro, porque
+    /// o serviço não analisa nada — ele só precisa saber sob qual carimbo o
+    /// consentimento vale.
+    private let configuredModelVersion: @Sendable () -> String
 
-    public init(database: SyncDatabase, settingsStore: AssistantSettingsStore) {
+    public init(
+        database: SyncDatabase,
+        settingsStore: AssistantSettingsStore,
+        configuredModelVersion: @escaping @Sendable () -> String = {
+            TextAssistantMessageAnalyzer.currentModelVersion
+        }
+    ) {
         self.database = database
         self.settingsStore = settingsStore
         self.consent = AnalysisBacklogConsentStore(database: database)
+        self.configuredModelVersion = configuredModelVersion
+    }
+
+    public var modelVersion: String { configuredModelVersion() }
+
+    /// Só a contagem, por `COUNT(*)`, sem materializar id nenhum.
+    ///
+    /// Existe porque a tela precisa saber se **oferece** o botão, e ela
+    /// reavalia o corpo muitas vezes; montar a lista inteira de ids a cada
+    /// avaliação era varrer a caixa toda para responder "maior que zero?".
+    public func availableCount() throws -> Int {
+        guard let filtro = candidateFilter() else { return 0 }
+        return try database.pool.read { db in
+            try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM message m \(Self.candidateJoins) WHERE \(filtro.sql)",
+                arguments: filtro.arguments
+            ) ?? 0
+        }
     }
 
     /// As mensagens guardadas que ainda não têm triagem e que o carimbo do
@@ -115,35 +221,30 @@ public struct BacklogAnalysisService: Sendable {
     /// Plano vazio quando a rota é este Mac: não há para onde mandar, e um
     /// botão que oferece enviar para lugar nenhum é pior do que botão nenhum.
     public func plan() throws -> BacklogAnalysisPlan {
-        let settings = settingsStore.snapshot()
-        let destination = AssistantDestination(settings: settings)
-        guard settings.automaticAnalysis == .configuredProvider, !destination.isLocal else {
-            return BacklogAnalysisPlan(messageIDs: [], destination: destination)
+        let destination = AssistantDestination(settings: settingsStore.snapshot())
+        guard let filtro = candidateFilter() else {
+            return BacklogAnalysisPlan(
+                messageIDs: [], destination: destination, modelVersion: modelVersion
+            )
         }
-        let ids = try database.pool.read { db -> [String] in
-            let rows = try Row.fetchAll(db, sql: """
-                SELECT m.id AS messageID, m.receivedAt, m.firstSeenAt
-                FROM message m
-                JOIN message_body b ON b.messageID = m.id
-                LEFT JOIN message_intelligence i ON i.messageID = m.id
-                WHERE b.plain != '' AND i.triage IS NULL
-                ORDER BY m.receivedAt DESC, m.id ASC
-                """)
-            return rows.compactMap { row -> String? in
-                let recebida = Date(timeIntervalSince1970: row["receivedAt"])
-                let vista = (row["firstSeenAt"] as Double?).map(Date.init(timeIntervalSince1970:))
-                let chegou = vista.map { min(recebida, $0) } ?? recebida
-                guard !settings.automaticAnalysisCoversMessage(receivedAt: chegou) else {
-                    return nil
-                }
-                return row["messageID"]
-            }
+        let ids = try database.pool.read { db in
+            try String.fetchAll(
+                db,
+                sql: """
+                    SELECT m.id FROM message m \(Self.candidateJoins)
+                    WHERE \(filtro.sql)
+                    ORDER BY m.receivedAt DESC, m.id ASC
+                    """,
+                arguments: filtro.arguments
+            )
         }
-        return BacklogAnalysisPlan(messageIDs: ids, destination: destination)
+        return BacklogAnalysisPlan(
+            messageIDs: ids, destination: destination, modelVersion: modelVersion
+        )
     }
 
     public func approve(_ plan: BacklogAnalysisPlan, at: Date = Date()) throws {
-        try consent.approve(plan.messageIDs, at: at)
+        try consent.approve(plan.messageIDs, modelVersion: plan.modelVersion, at: at)
     }
 
     public func stop() throws {
@@ -151,19 +252,46 @@ public struct BacklogAnalysisService: Sendable {
     }
 
     public func remainingCount() throws -> Int {
-        try consent.remainingCount()
+        try consent.purgeSpent()
+        return try consent.remainingCount(modelVersion: modelVersion)
     }
 
-    /// A leitura que o roteador faz por mensagem. Síncrona e barata: uma
-    /// chave primária por análise, e a fila é serial.
-    public func covers(messageID: String) -> Bool {
-        ((try? database.pool.read { db in
-            try Bool.fetchOne(
-                db,
-                sql: "SELECT 1 FROM analysis_backlog_consent WHERE messageID = ?",
-                arguments: [messageID]
-            )
-        }) ?? nil) ?? false
+    /// A leitura que o roteador faz por mensagem, com a versão do motor que
+    /// vai de fato analisá-la.
+    public func covers(messageID: String, modelVersion: String) -> Bool {
+        consent.covers(messageID: messageID, modelVersion: modelVersion)
+    }
+
+    // MARK: - A consulta, escrita uma vez
+
+    private static let candidateJoins = """
+        JOIN message_body b ON b.messageID = m.id
+        LEFT JOIN message_intelligence i ON i.messageID = m.id
+        """
+
+    /// O `WHERE` das candidatas, ou `nil` quando não há rota remota nenhuma.
+    ///
+    /// Tudo em SQL, inclusive o carimbo do opt-in: fazer o corte do carimbo em
+    /// Swift obrigava a trazer uma linha por mensagem da caixa só para
+    /// descartar quase todas, e era isso que impedia a contagem por `COUNT(*)`.
+    private func candidateFilter() -> (sql: String, arguments: StatementArguments)? {
+        let settings = settingsStore.snapshot()
+        guard settings.automaticAnalysis == .configuredProvider,
+              !AssistantDestination(settings: settings).isLocal
+        else { return nil }
+        // Sem carimbo, nada é coberto pelo opt-in e tudo é acervo. O futuro
+        // distante deixa a comparação verdadeira para toda linha, sem um
+        // segundo caminho de consulta.
+        let since = settings.automaticAnalysisSince ?? .distantFuture
+        let buckets = BacklogAnalysisPlan.excludedBuckets
+        let vagas = Array(repeating: "?", count: buckets.count).joined(separator: ", ")
+        let sql = """
+            b.plain != ''
+            AND i.triage IS NULL
+            AND m.bucket NOT IN (\(vagas))
+            AND MIN(m.receivedAt, COALESCE(m.firstSeenAt, m.receivedAt)) < ?
+            """
+        return (sql, StatementArguments(buckets + [since.timeIntervalSince1970]))
     }
 }
 
@@ -171,12 +299,19 @@ public struct BacklogAnalysisService: Sendable {
 ///
 /// Vive aqui, e não na `View`, porque ele guarda o consentimento e a fila —
 /// e porque "parar" tem de continuar valendo se a janela for fechada no meio.
+///
+/// **Nenhum toque no banco acontece no ator principal.** Contar, aprovar e
+/// apagar são consultas SQLite síncronas; feitas aqui dentro elas congelariam
+/// os Ajustes numa caixa grande. Todas passam por `Task.detached`.
 @MainActor
 @Observable
 public final class BacklogAnalysisController {
     /// O plano que a pessoa está sendo convidada a confirmar. `nil` quando o
     /// diálogo não está na tela.
     public private(set) var pendingPlan: BacklogAnalysisPlan?
+    /// Quantas mensagens o botão ofereceria agora. Campo, e não função: ler
+    /// isto no corpo da view era uma varredura da caixa por redesenho.
+    public private(set) var availableCount = 0
     public private(set) var total = 0
     public private(set) var remaining = 0
     public private(set) var isRunning = false
@@ -186,23 +321,38 @@ public final class BacklogAnalysisController {
     private let coordinator: MessageIntelligenceCoordinator
     private var task: Task<Void, Never>?
 
+    /// Quanto esperar antes de olhar de novo quando o ciclo de fundo está
+    /// ocupado. Curto: é só para não girar em vazio.
+    static let busyRetryNanoseconds: UInt64 = 200_000_000
+    /// Um teto para a espera do caso ocupado — 600 voltas de 200 ms são dois
+    /// minutos. Sem ele, um ciclo de fundo travado deixaria esta barra girando
+    /// para sempre; com ele, a barra desiste e a pessoa vê o botão de novo.
+    static let maximumBusyWaits = 600
+
     public init(service: BacklogAnalysisService, coordinator: MessageIntelligenceCoordinator) {
         self.service = service
         self.coordinator = coordinator
     }
 
-    /// Quantas mensagens o botão ofereceria agora. A tela usa isto para não
-    /// mostrar um botão que não tem o que fazer.
-    public var availableCount: Int { (try? service.plan().count) ?? 0 }
+    /// Recarrega a contagem oferecida. A tela chama isto ao abrir e quando as
+    /// configurações mudam — não a cada redesenho.
+    public func refreshAvailability() async {
+        let service = self.service
+        let contagem = await Task.detached { (try? service.availableCount()) ?? 0 }.value
+        availableCount = contagem
+    }
 
     /// O clique no botão: monta o plano e pede a confirmação. **Nada sai
     /// daqui nesta etapa** — este passo só produz a frase com o número.
-    public func requestConfirmation() {
+    public func requestConfirmation() async {
         failure = nil
-        do {
-            let plan = try service.plan()
+        let service = self.service
+        let resultado = await Task.detached { Result { try service.plan() } }.value
+        switch resultado {
+        case let .success(plan):
             pendingPlan = plan.isEmpty ? nil : plan
-        } catch {
+            availableCount = plan.count
+        case let .failure(error):
             failure = error.localizedDescription
             pendingPlan = nil
         }
@@ -214,28 +364,62 @@ public final class BacklogAnalysisController {
 
     /// O "Analisar" do diálogo. Só aqui o consentimento é escrito, e só
     /// depois dele a fila pode rotear estas mensagens para o provedor.
-    public func confirm() {
-        guard let plan = pendingPlan else { return }
+    ///
+    /// **O plano vem por parâmetro, e não de `pendingPlan`.** O SwiftUI põe a
+    /// binding do `confirmationDialog` em `false` ao dispensá-lo e só então
+    /// roda a ação do botão: lendo o estado, `confirm()` encontrava
+    /// `pendingPlan` já zerado pelo `cancel()` do `set:` e voltava sem fazer
+    /// nada — o botão "Analisar" não analisava. Quem desenhou o diálogo já
+    /// tinha o plano na mão; passá-lo tira a corrida do caminho.
+    public func confirm(_ plan: BacklogAnalysisPlan) {
         pendingPlan = nil
-        do {
-            try service.approve(plan)
-        } catch {
-            failure = error.localizedDescription
-            return
-        }
+        guard !plan.isEmpty else { return }
         total = plan.count
         remaining = plan.count
         isRunning = true
+        failure = nil
         task?.cancel()
+        let service = self.service
+        let coordinator = self.coordinator
         task = Task { [weak self] in
-            guard let self else { return }
-            while !Task.isCancelled {
-                let feitas = await self.coordinator.processPending()
-                let faltam = (try? self.service.remainingCount()) ?? 0
-                self.remaining = faltam
-                if faltam == 0 || feitas == 0 { break }
+            do {
+                try await Task.detached { try service.approve(plan) }.value
+            } catch {
+                self?.failure = error.localizedDescription
+                self?.isRunning = false
+                return
             }
+            var esperas = 0
+            while !Task.isCancelled {
+                let resultado = await coordinator.runPass()
+                let faltam = await Task.detached {
+                    (try? service.remainingCount()) ?? 0
+                }.value
+                guard let self, !Task.isCancelled else { return }
+                self.remaining = faltam
+                if faltam == 0 { break }
+                switch resultado {
+                case .busy:
+                    // O ciclo de fundo está trabalhando nestas mesmas
+                    // mensagens. A barra **fica**: sumir aqui era o bug que
+                    // devolvia o botão enquanto o envio continuava.
+                    esperas += 1
+                    if esperas >= Self.maximumBusyWaits { break }
+                    try? await Task.sleep(nanoseconds: Self.busyRetryNanoseconds)
+                    continue
+                case .blocked:
+                    // Fila pausada ou motor fora do ar: girar não adianta, e a
+                    // barra lateral já diz o motivo.
+                    break
+                case let .finished(feitas):
+                    esperas = 0
+                    if feitas > 0 { continue }
+                }
+                break
+            }
+            guard let self else { return }
             self.isRunning = false
+            await self.refreshAvailability()
         }
     }
 
@@ -245,13 +429,17 @@ public final class BacklogAnalysisController {
         task?.cancel()
         task = nil
         isRunning = false
-        try? service.stop()
         remaining = 0
+        let service = self.service
+        Task { [weak self] in
+            await Task.detached { try? service.stop() }.value
+            await self?.refreshAvailability()
+        }
     }
 
     /// O texto do progresso. Uma frase, no lugar do botão.
     public var progressText: String {
-        "Analisando… faltam \(remaining) de \(total)."
+        "Analisando… \(remaining == 1 ? "falta 1" : "faltam \(remaining)") de \(total)."
     }
 }
 
@@ -267,8 +455,8 @@ final class BacklogConsentBox: @unchecked Sendable {
         lock.withLock { self.service = service }
     }
 
-    func covers(_ messageID: String) -> Bool {
+    func covers(_ messageID: String, modelVersion: String) -> Bool {
         guard let service = lock.withLock({ self.service }) else { return false }
-        return service.covers(messageID: messageID)
+        return service.covers(messageID: messageID, modelVersion: modelVersion)
     }
 }

@@ -18,11 +18,25 @@ struct BacklogAnalysisSettingsTests {
     func confirmationCopy() {
         let plano = BacklogAnalysisPlan(
             messageIDs: ["a", "b", "c", "d"],
-            destination: destino("Grok · xAI")
+            destination: destino("Grok · xAI"),
+            modelVersion: "remoto/v1"
         )
         #expect(plano.count == 4)
         #expect(plano.confirmationText
-            == "Isto envia 4 mensagens (assunto e corpo) para Grok · xAI. Continuar?")
+            == "Isto envia 4 mensagens (assunto, remetente, data e corpo) "
+                + "para Grok · xAI. Continuar?")
+    }
+
+    @Test("uma mensagem só não é 'mensagens'")
+    func singularCopy() {
+        let plano = BacklogAnalysisPlan(
+            messageIDs: ["a"],
+            destination: destino("Grok · xAI"),
+            modelVersion: "remoto/v1"
+        )
+        #expect(plano.confirmationText
+            == "Isto envia 1 mensagem (assunto, remetente, data e corpo) "
+                + "para Grok · xAI. Continuar?")
     }
 
     @Test("os três rótulos da ação são os da decisão")

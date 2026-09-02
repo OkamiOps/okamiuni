@@ -42,9 +42,20 @@ public enum MessageAnalysisEventEvidence {
     /// triagem precisaria da mesma linha noutro arquivo.
     public static func quotesLiteral(_ evidence: String, in input: MessageAnalysisInput) -> Bool {
         let trecho = evidence.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trecho.isEmpty else { return false }
+        guard trecho.count >= minimumEvidenceCharacters else { return false }
         return input.body.contains(trecho) || input.subject.contains(trecho)
     }
+
+    /// **Quatro caracteres.** "Não vazio" não era piso nenhum: "5", "h" ou
+    /// "de" aparecem em praticamente qualquer email, e uma evidência dessas
+    /// passa por acaso — o modelo não teria citado nada e a regra diria que
+    /// sim. Quatro é o menor número que exclui a partícula solta e ainda
+    /// aceita a citação curta e legítima ("15h30", "sexta", "12/09").
+    ///
+    /// A citação de três caracteres que se perde ("15h") é aceitável: o preço
+    /// de recusá-la é um prazo a menos, e o de aceitá-la é um prazo inventado
+    /// no topo do dashboard.
+    public static let minimumEvidenceCharacters = 4
 
     private static func explicitTimes(in source: String) -> [(hour: Int, minute: Int)] {
         var times: [(Int, Int)] = []

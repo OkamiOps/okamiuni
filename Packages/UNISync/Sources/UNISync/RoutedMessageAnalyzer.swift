@@ -11,13 +11,13 @@ public struct RoutedMessageAnalyzer: MessageAnalyzing {
     /// "Esta mensagem do acervo foi aprovada?" — o consentimento por mensagem
     /// que o dono deu em Ajustes, lido do banco. Fechada, e não um `Store`
     /// inteiro, para o roteador continuar sem saber o que é SQLite.
-    private let backlogConsent: @Sendable (String) -> Bool
+    private let backlogConsent: @Sendable (String, String) -> Bool
 
     public init(
         settingsStore: AssistantSettingsStore,
         onDevice: any MessageAnalyzing,
         configured: any MessageAnalyzing,
-        backlogConsent: @escaping @Sendable (String) -> Bool = { _ in false }
+        backlogConsent: @escaping @Sendable (String, String) -> Bool = { _, _ in false }
     ) {
         self.settingsStore = settingsStore
         self.onDevice = onDevice
@@ -88,7 +88,9 @@ public struct RoutedMessageAnalyzer: MessageAnalyzing {
             return true
         }
         guard routesRemote, let messageID = input.messageID else { return false }
-        return backlogConsent(messageID)
+        // A versão vai junto: o consentimento foi dado para **este** motor, e
+        // uma versão nova é análise nova, que precisa de diálogo novo.
+        return backlogConsent(messageID, configured.modelVersion)
     }
 
     private var routesRemote: Bool {

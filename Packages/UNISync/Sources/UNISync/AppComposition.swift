@@ -191,7 +191,9 @@ public struct AppComposition: Sendable {
                 assistant: router,
                 availability: { await router.assistantAvailability() }
             ),
-            backlogConsent: { [backlogCoverage] id in backlogCoverage.covers(id) }
+            backlogConsent: { [backlogCoverage] id, versao in
+                backlogCoverage.covers(id, modelVersion: versao)
+            }
         )
         let intelligenceAvailability = FoundationModelsMessageAnalyzer.systemAvailability
         let banco: SyncDatabase

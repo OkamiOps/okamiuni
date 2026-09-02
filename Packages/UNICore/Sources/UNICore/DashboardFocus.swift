@@ -215,8 +215,15 @@ public struct DashboardFocus: Sendable, Hashable {
             break
         }
 
-        // A triagem, quando existe, substitui os três sinais de etiqueta —
-        // e só eles. Estrela, leitura e caixa continuam sendo estado da
+        // A triagem, quando existe, substitui **quatro** coisas: os três
+        // sinais de etiqueta e a leitura de ruído de fundo. `isPromoOrSocial`
+        // — a heurística que lê `category` e caça a palavra "newsletter" no
+        // remetente e no assunto — deixa de valer para a mensagem triada, e
+        // quem responde "isto é ruído?" passa a ser `intent`. É de propósito:
+        // um modelo que leu o email inteiro sabe melhor do que uma busca por
+        // substring, e manter as duas faria a mensagem de um cliente chamado
+        // "Newsletter Ltda." sumir do dashboard apesar de a triagem dizer que
+        // é um lead. Estrela, leitura e caixa continuam sendo estado da
         // mensagem, não juízo do modelo, e valem para as duas fontes.
         let sinais = message.triage.map { triageSignals($0, now: now) }
             ?? tagSignals(message)

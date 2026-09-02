@@ -360,14 +360,31 @@ struct GeneralSettingsView: View {
         }
     }
 
-    /// O acervo. A regra do opt-in é "só mensagens novas", e ela fica de pé —
-    /// mas ela deixa o dashboard vazio no dia em que a pessoa liga o
-    /// interruptor, porque nada do que ela já tem foi triado. Este botão é a
-    /// única saída honesta: uma ação que ela inicia, com o número exato e o
-    /// destino na frente antes de qualquer byte sair.
+    /// O acervo. A regra do opt-in é "só mensagens novas", e ela é boa — mas
+    /// ela deixa o dashboard vazio no dia em que a pessoa liga o interruptor,
+    /// porque nada do que ela já tem foi triado. Este botão é a única saída
+    /// honesta: uma ação que ela inicia, com o número exato e o destino na
+    /// frente antes de qualquer byte sair.
     @ViewBuilder
     private var backlogAnalysisControls: some View {
         if let backlogAnalysis, draft.automaticAnalysis == .configuredProvider {
+            Group {
+                backlogAnalysisRow(backlogAnalysis)
+            }
+            // A contagem é uma varredura do banco: ela é carregada **aqui**,
+            // uma vez e a cada troca de destino, e não no corpo da view, que
+            // reavalia a cada redesenho.
+            .task(id: AssistantDestination(settings: draft).label) {
+                await backlogAnalysis.refreshAvailability()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func backlogAnalysisRow(
+        _ backlogAnalysis: BacklogAnalysisController
+    ) -> some View {
+        Group {
             if backlogAnalysis.isRunning {
                 SettingsLabeledRow(label: "Acervo") {
                     HStack(spacing: 9) {
@@ -384,7 +401,7 @@ struct GeneralSettingsView: View {
                 SettingsLabeledRow(label: "Acervo") {
                     HStack(spacing: 9) {
                         Button(BacklogAnalysisPlan.actionTitle) {
-                            backlogAnalysis.requestConfirmation()
+                            Task { await backlogAnalysis.requestConfirmation() }
                         }
                         .settingsQuietButton()
                         Spacer(minLength: 0)
@@ -398,7 +415,16 @@ struct GeneralSettingsView: View {
                     ),
                     titleVisibility: .visible
                 ) {
-                    Button(BacklogAnalysisPlan.confirmTitle) { backlogAnalysis.confirm() }
+                    // O plano é capturado **aqui**, no builder, e passado por
+                    // parâmetro. O SwiftUI zera a binding ao dispensar o
+                    // diálogo e só então roda a ação: lendo `pendingPlan`
+                    // dentro da ação, "Analisar" encontrava nil e não
+                    // analisava nada.
+                    if let plano = backlogAnalysis.pendingPlan {
+                        Button(BacklogAnalysisPlan.confirmTitle) {
+                            backlogAnalysis.confirm(plano)
+                        }
+                    }
                     Button(BacklogAnalysisPlan.cancelTitle, role: .cancel) {
                         backlogAnalysis.cancel()
                     }

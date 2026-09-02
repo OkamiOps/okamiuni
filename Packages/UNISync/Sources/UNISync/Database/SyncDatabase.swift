@@ -689,6 +689,21 @@ public struct SyncDatabase: Sendable {
                 )
                 """)
         }
+        // A v18: o consentimento do acervo passa a carregar a versão do motor
+        // a que ele se referia.
+        //
+        // Sem este carimbo o consentimento era perpétuo: na próxima subida de
+        // `modelVersion` as mesmas mensagens voltariam à fila e sairiam de
+        // novo para o provedor **sem diálogo nenhum** — o caminho exato que a
+        // ação existe para fechar. A linha antiga recebe a versão vazia, que
+        // não casa com motor nenhum: um consentimento cujo alvo não dá mais
+        // para determinar é um consentimento gasto.
+        migrator.registerMigration("v18") { db in
+            try db.execute(sql: """
+                ALTER TABLE analysis_backlog_consent
+                ADD COLUMN modelVersion TEXT NOT NULL DEFAULT ''
+                """)
+        }
         return migrator
     }
 }

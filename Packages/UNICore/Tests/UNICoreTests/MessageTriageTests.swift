@@ -80,6 +80,34 @@ struct MessageTriageTests {
         #expect(triagem.validated(against: input()).deadline == nil)
     }
 
+    @Test("evidência curta demais não conta: 'de' casa por acaso em qualquer email")
+    func evidenceHasAFloor() {
+        #expect(MessageAnalysisEventEvidence.minimumEvidenceCharacters == 4)
+        // "até" está literalmente no corpo, e não prova nada.
+        let curta = MessageTriage(
+            needsReply: true,
+            intent: .request,
+            urgency: .normal,
+            deadline: DetectedDeadline(
+                date: Date(timeIntervalSince1970: 1_756_400_000),
+                evidence: "até"
+            )
+        )
+        #expect(curta.validated(against: input()).deadline == nil)
+
+        // Quatro caracteres, literais, sobrevivem.
+        let minima = MessageTriage(
+            needsReply: true,
+            intent: .request,
+            urgency: .normal,
+            deadline: DetectedDeadline(
+                date: Date(timeIntervalSince1970: 1_756_400_000),
+                evidence: "sexta"
+            )
+        )
+        #expect(minima.validated(against: input()).deadline != nil)
+    }
+
     @Test("ida e volta pelo JSON guardado")
     func jsonRoundTrip() throws {
         let triagem = MessageTriage(

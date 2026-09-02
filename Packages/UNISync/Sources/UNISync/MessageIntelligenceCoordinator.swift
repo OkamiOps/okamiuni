@@ -99,15 +99,32 @@ public actor MessageIntelligenceCoordinator {
     /// determinística da integração sem depender do agendamento de uma View.
     /// A observação coalesce as escritas do lote e chama outro quando ainda há
     /// trabalho, portanto o limite contém o uso de memória sem deixar fila.
+    ///
+    /// Devolve quantas mensagens foram concluídas. **Zero é ambíguo de
+    /// propósito aqui** — pode ser "não havia nada" ou "outro ciclo já estava
+    /// andando" — e por isso quem precisa distinguir os dois chama `runPass`.
     @discardableResult
     public func processPending(limit: Int = 20) async -> Int {
-        guard limit > 0, !isProcessing else { return 0 }
+        await runPass(limit: limit).completedCount
+    }
+
+    /// A mesma rodada, com o **motivo** de ela não ter feito nada.
+    ///
+    /// Existe por causa de um bug real: a barra de progresso do acervo
+    /// interpretava o `0` de "o ciclo de fundo já está trabalhando" como
+    /// "acabou", sumia da tela e devolvia o botão — enquanto o coordenador
+    /// continuava mandando mensagem atrás de mensagem para o provedor. Quem
+    /// desenha progresso precisa saber a diferença entre uma fila vazia e uma
+    /// fila ocupada.
+    public func runPass(limit: Int = 20) async -> AnalysisPassResult {
+        guard limit > 0 else { return .finished(0) }
+        guard !isProcessing else { return .busy }
         // Fila pausada não anda sozinha, e não cai para o motor local: só o
         // "Tentar de novo" da lateral a destrava.
-        guard case .running = queueState() else { return 0 }
+        guard case .running = queueState() else { return .blocked }
         isProcessing = true
         defer { isProcessing = false }
-        guard await analyzer.availability() == .available else { return 0 }
+        guard await analyzer.availability() == .available else { return .blocked }
 
         var completed = 0
         // As mensagens cujo motor recusou **antes** da primeira palavra. Elas
@@ -244,7 +261,7 @@ public actor MessageIntelligenceCoordinator {
             try? queueStateStore.pause(reason: reason, at: Date())
             Self.log.error("Fila de análise pausada: \(reason, privacy: .public)")
         }
-        return completed
+        return .finished(completed)
     }
 
     /// A entrada que o motor recebe. Uma função só para a sonda por mensagem e
@@ -329,4 +346,27 @@ public actor MessageIntelligenceCoordinator {
             return false
         }
     }
+}
+
+/// O resultado de uma rodada da fila, com o motivo de ela não ter feito nada.
+///
+/// `Int` sozinho não servia: `0` significava tanto "a fila está vazia" quanto
+/// "outro ciclo já estava andando", e quem desenha progresso precisa da
+/// diferença — a primeira leitura termina a barra, a segunda tem de mantê-la.
+public enum AnalysisPassResult: Sendable, Equatable {
+    /// Outro ciclo já estava dentro da fila. **Nada foi tentado aqui**, e o
+    /// trabalho continua acontecendo no ciclo que já estava andando.
+    case busy
+    /// A fila está pausada ou o motor não responde. Girar não adianta.
+    case blocked
+    /// A rodada aconteceu; `Int` é quantas mensagens foram concluídas.
+    case finished(Int)
+
+    public var completedCount: Int {
+        if case let .finished(count) = self { return count }
+        return 0
+    }
+
+    /// A rodada tem chance de andar se for chamada de novo daqui a pouco?
+    public var mayProgressLater: Bool { self == .busy }
 }
