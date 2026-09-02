@@ -20,54 +20,52 @@ struct DashboardPriorityRow: View {
     let tint: Color
     let isUnread: Bool
     let isSelected: Bool
-    /// As três ações rápidas da §2.4, que no mockup só aparecem no hover.
-    let showsActions: Bool
     let today: Date
+    /// **Um clique seleciona.** A prévia do meio é que mostra o email, as
+    /// ações e o Contexto — a queixa do dono era literal ("ao clicar ele já
+    /// abre o modal de uma vez").
+    var onSelect: () -> Void = {}
+    /// Abrir de verdade: duplo clique aqui, ⏎ na tela.
     var onOpen: () -> Void = {}
-    var onReply: () -> Void = {}
-    var onArchive: () -> Void = {}
-    var onLater: () -> Void = {}
 
     init(
         item: DashboardFocus.MailItem,
         tint: Color,
         isUnread: Bool,
         isSelected: Bool,
-        showsActions: Bool,
         today: Date,
-        onOpen: @escaping () -> Void = {},
-        onReply: @escaping () -> Void = {},
-        onArchive: @escaping () -> Void = {},
-        onLater: @escaping () -> Void = {}
+        onSelect: @escaping () -> Void = {},
+        onOpen: @escaping () -> Void = {}
     ) {
         self.item = item
         self.tint = tint
         self.isUnread = isUnread
         self.isSelected = isSelected
-        self.showsActions = showsActions
         self.today = today
+        self.onSelect = onSelect
         self.onOpen = onOpen
-        self.onReply = onReply
-        self.onArchive = onArchive
-        self.onLater = onLater
     }
 
     private var message: Message { item.message }
 
-    /// `.prow { --rowbg: var(--paper) }` e `.prow.unread { --rowbg:
-    /// var(--surface2) }`. A seleção manda quando existe, como na Caixa.
+    /// `.prow { --rowbg: var(--paper) }`, `.prow.unread` e `.prow.sel` — as
+    /// duas em `surface2`. O que distingue a selecionada é a barra de tinta
+    /// cheia e o `›` da direita, exatamente como o mockup a distingue.
     private var rowFill: Color {
-        if isSelected { return theme.surface3.color }
-        if isUnread { return theme.surface2.color }
+        if isSelected || isUnread { return theme.surface2.color }
         return theme.paper.color
     }
 
     var body: some View {
-        Button(action: onOpen) {
+        Button(action: onSelect) {
             content
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: 0)
+        // O duplo clique **por cima** do botão: o primeiro toque já
+        // selecionou, e o segundo abre. `simultaneousGesture` para o clique
+        // simples continuar chegando ao botão.
+        .simultaneousGesture(TapGesture(count: 2).onEnded { onOpen() })
         .accessibilityLabel(
             DashboardMetrics.rowAccessibilityLabel(
                 sender: message.listHeadline, subject: message.subject, reason: item.reason
@@ -107,36 +105,18 @@ struct DashboardPriorityRow: View {
                 .fill(tint.opacity(isSelected ? 1 : DashboardMetrics.accountBarOpacity))
                 .frame(width: DashboardMetrics.accountBarWidth)
         }
+        // `.prow.sel::after { content: '›' }` — o único enfeite da seleção
+        // além da barra de tinta.
         .overlay(alignment: .trailing) {
-            if showsActions { actions }
+            if isSelected {
+                Text("›")
+                    .font(theme.sans.font(size: 15))
+                    .foregroundStyle(theme.ink4.color)
+                    .padding(.trailing, 12)
+                    .accessibilityHidden(true)
+            }
         }
         .hairline(theme.line2, edges: .bottom)
-    }
-
-    /// `.prow .acts` — três botões de 24, sobre o fundo da própria linha para
-    /// não ler como se flutuassem.
-    private var actions: some View {
-        HStack(spacing: DashboardMetrics.rowActionSpacing) {
-            rowButton("Responder", action: onReply)
-            rowButton("Arquivar", action: onArchive)
-            rowButton("Depois", action: onLater)
-        }
-        .padding(.leading, 34)
-        .padding(.trailing, 14)
-        .frame(maxHeight: .infinity)
-        .background(rowFill)
-    }
-
-    private func rowButton(_ title: String, action: @escaping () -> Void) -> some View {
-        ChromeButton(
-            appearance: .outlined,
-            height: DashboardMetrics.rowActionHeight,
-            horizontalPadding: DashboardMetrics.rowActionPadding,
-            labelSize: DashboardMetrics.rowActionSize,
-            action: action,
-            label: { Text(title) }
-        )
-        .accessibilityLabel("\(title): \(message.subject)")
     }
 
     /// O mesmo carimbo da `MessageRow`: hora hoje, "Ontem" ontem, data antes.

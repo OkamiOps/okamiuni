@@ -3,13 +3,19 @@ import UNIDesign
 import UNICore
 import UNISync
 
-/// O "Briefing do dia" do mockup `design/07-dashboard.html`.
+/// O tríptico do mockup `design/07-dashboard.html`.
 ///
 /// Fundo `paper` com recuo 22, cabeçalho com a data em versalete e a saudação
-/// em serif, uma faixa de briefing quando ela existe, e duas colunas separadas
-/// por um fio: à esquerda as PRIORIDADES em linhas flush no idioma da
-/// `MessageRow` com o assistente colado no rodapé, à direita a `AgendaRail`
-/// inteira com as PENDÊNCIAS embaixo.
+/// em serif, e logo abaixo a faixa **HOJE** — que substitui o briefing em
+/// prosa por linhas curtas ligadas a mensagens reais, prontas quando a tela
+/// abre. Embaixo, três colunas: a lista de PRIORIDADES à esquerda, a prévia
+/// fixa de 380 no meio, e a `AgendaRail` inteira com as PENDÊNCIAS à direita —
+/// que encolhe para 168 quando o dia está livre.
+///
+/// **Clicar seleciona, não abre.** A prévia do meio mostra o email
+/// selecionado, as ações e o bloco Contexto; abrir de verdade é ⏎ ou duplo
+/// clique, e aí sim a folha do leitor (`DashboardMailSheet`, que é o
+/// `ReaderPane`). O rascunho nasce **dentro** da prévia, colado no email.
 ///
 /// Não há cartão flutuante, tile colorido nem sombra própria: as medidas
 /// moram em `DashboardMetrics`, com o seletor CSS do mockup ao lado de cada
@@ -41,13 +47,6 @@ struct DashboardScreen: View {
     @Binding var readingMailID: String?
     let onPresented: (String) -> Void
 
-    /// Força as ações rápidas de uma linha visíveis, sem ponteiro.
-    ///
-    /// Existe pelo mesmo motivo que `ChromeButton.debugFocused`: um controle
-    /// que só aparece no hover não se deixa clicar num teste fora da tela, e
-    /// um botão sem teste é um botão que se diz mudo sem ninguém desmentir.
-    let debugHoveredMailID: String?
-
     // As dependências que a folha de leitura repassa ao `ReaderPane`. Elas
     // atravessam o dashboard sem que ele as use: quem monta o leitor da Caixa
     // é o `InboxScreen`, e a folha tem de receber exatamente as mesmas — outro
@@ -59,7 +58,6 @@ struct DashboardScreen: View {
     let analysisDestination: @Sendable (String?) -> AssistantDestination
     let makeAssistantConversation: ((String) -> AssistantConversation)?
 
-    @State private var hoveredMailID: String?
     /// A altura do que está dentro do transcript, para o painel abraçar o
     /// conteúdo até o teto de 300 — ver `transcript`.
     @State private var transcriptContentHeight: CGFloat = 0
@@ -82,8 +80,7 @@ struct DashboardScreen: View {
         intelligence: ComposerIntelligenceGenerator? = nil,
         intelligencePresentation: IntelligencePresentation = .onThisMac,
         analysisDestination: @escaping @Sendable (String?) -> AssistantDestination = { _ in .onThisMac },
-        makeAssistantConversation: ((String) -> AssistantConversation)? = nil,
-        debugHoveredMailID: String? = nil
+        makeAssistantConversation: ((String) -> AssistantConversation)? = nil
     ) {
         self.store = store
         self.now = now
@@ -103,24 +100,41 @@ struct DashboardScreen: View {
         self.intelligencePresentation = intelligencePresentation
         self.analysisDestination = analysisDestination
         self.makeAssistantConversation = makeAssistantConversation
-        self.debugHoveredMailID = debugHoveredMailID
     }
 
     var body: some View {
         let focus = store.dashboardFocus(nowMinute: now)
+        let diaLivre = DashboardLayout.isFreeDay(focus)
         VStack(alignment: .leading, spacing: 0) {
             header(focus)
                 .padding(.bottom, DashboardMetrics.headerBottomSpacing)
-            briefingBand
+            todayBand(focus)
+                .padding(.bottom, DashboardMetrics.todayBottomSpacing)
             HStack(spacing: 0) {
                 mainColumn(focus)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .padding(.trailing, DashboardMetrics.mainTrailingPadding)
-                rightColumn(focus)
+                preview(focus)
+                    .frame(width: DashboardLayout.previewWidth(freeDay: diaLivre))
+                    .padding(.trailing, DashboardMetrics.railLeadingSpacing)
+                rightColumn(focus, freeDay: diaLivre)
             }
             .frame(maxHeight: .infinity)
         }
         .padding(DashboardMetrics.outerPadding)
+        // ⏎ abre o que está selecionado. Monitor local com guarda de foco —
+        // um `keyboardShortcut` roubaria a tecla do campo do assistente.
+        .bareKeyShortcuts { key in
+            let alvo = DashboardKeys.opens(
+                key: key,
+                selectedID: selectedMailID,
+                readingID: readingMailID,
+                exists: selectedMailID.flatMap { store.message($0) } != nil
+            )
+            guard let alvo else { return false }
+            readingMailID = alvo
+            return true
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(theme.paper.color)
         .overlay {
@@ -153,8 +167,10 @@ struct DashboardScreen: View {
 
     // MARK: - Cabeçalho
 
-    /// `.head` — data em versalete, saudação em serif 28, e à direita o CTA
-    /// com o destino do assistente embaixo. Sem emoji: o mockup não tem.
+    /// `.head` — data em versalete, saudação em serif 28, e à direita só o
+    /// destino do assistente. **Sem botão de gerar briefing**: a faixa HOJE
+    /// está pronta quando a tela abre, e era o botão que fazia o dono esperar
+    /// por um parágrafo que ele não pediu.
     private func header(_ focus: DashboardFocus) -> some View {
         let account = store.selectedAccountID.flatMap { store.account($0) } ?? store.accounts.first
         let hello = DashboardFocus.greeting(
@@ -172,113 +188,54 @@ struct DashboardScreen: View {
                     .padding(.top, 4)
             }
             Spacer()
-            VStack(alignment: .trailing, spacing: DashboardMetrics.providerSpacing) {
-                ctaButton(focus)
-                Text(conversation.destination.label)
-                    .font(theme.sans.font(size: DashboardMetrics.providerSize))
-                    .foregroundStyle(theme.ink3.color)
-                    .lineLimit(1)
-            }
+            Text(conversation.destination.label)
+                .font(theme.sans.font(size: DashboardMetrics.providerSize))
+                .foregroundStyle(theme.ink3.color)
+                .lineLimit(1)
+                .padding(.top, 4)
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(hello)
     }
 
-    private func ctaButton(_ focus: DashboardFocus) -> some View {
-        // O mesmo predicado que o motor usa para resolver o contexto: ele só
-        // resolve email quando há um **selecionado**. Com o topo da lista
-        // aqui, o botão diria "Gerar rascunho" e o motor recusaria.
-        let draftsReply = DashboardCTA.draftsReply(
-            canDraftReply: conversation.canDraftReply,
-            hasSelectedMail: selectedMail(focus) != nil
+    // MARK: - Faixa HOJE
+
+    /// `.digest` — o que substituiu o briefing em prosa.
+    private func todayBand(_ focus: DashboardFocus) -> some View {
+        DashboardTodayBand(
+            lines: DashboardToday.lines(focus, now: today),
+            restLabel: DashboardToday.restLabel(focus.discardedMailCount),
+            onSelect: { selectedMailID = $0 }
         )
-        return ChromeButton(
-            appearance: .outlined,
-            height: DashboardMetrics.headerButtonHeight,
-            horizontalPadding: DashboardMetrics.headerButtonPadding,
-            labelSize: 12.5,
-            action: {
-                if draftsReply {
-                    conversation.draftReply()
-                } else {
-                    conversation.briefing()
-                }
+    }
+
+    // MARK: - Prévia do meio
+
+    /// `.preview` — a coluna fixa de 380 (440 no dia livre).
+    private func preview(_ focus: DashboardFocus) -> some View {
+        DashboardPreviewPane(
+            store: store,
+            item: selectedItem(focus),
+            focus: focus,
+            today: today,
+            conversation: conversation,
+            onOpen: { if let id = selectedMailID { readingMailID = id } },
+            onCommand: onCommand,
+            onUseDraft: { message, text in
+                store.setReplyDraft(
+                    ReplyDraft(to: [message.from], text: text, savedAt: Date()),
+                    for: message.id
+                )
+                readingMailID = message.id
             },
-            label: { Text(DashboardCTA.title(draftsReply: draftsReply)) }
+            onEditDraft: { message, text in
+                store.setReplyDraft(
+                    ReplyDraft(to: [message.from], text: text, savedAt: Date()),
+                    for: message.id
+                )
+                onCommand(.reply(messageID: message.id))
+            }
         )
-        .disabled(conversation.isLoading)
-        .help(draftsReply ? "Pede um rascunho do email em foco" : "Pede um briefing do dia")
-        .accessibilityLabel(DashboardCTA.title(draftsReply: draftsReply))
-    }
-
-    // MARK: - Faixa de briefing
-
-    /// `.briefing` — superfície plana com fio em cima e embaixo, texto em
-    /// serif 15 e as duas ações à direita. Enquanto o modelo pensa, a faixa
-    /// já aparece dizendo o que está fazendo.
-    @ViewBuilder
-    private var briefingBand: some View {
-        if let text = conversation.briefingText {
-            band {
-                AssistantMarkdown(
-                    text: text,
-                    style: .prose(size: DashboardMetrics.briefingTextSize)
-                )
-            }
-        } else if conversation.isLoading, !conversation.hasConversation {
-            band {
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(theme.accent.color)
-                    Text("Lendo caixa e agenda…")
-                        .font(theme.serif.font(size: DashboardMetrics.briefingTextSize))
-                        .foregroundStyle(theme.ink2.color)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-    }
-
-    private func band(@ViewBuilder content: () -> some View) -> some View {
-        HStack(alignment: .top, spacing: 14) {
-            content()
-            HStack(spacing: 6) {
-                ChromeButton(
-                    appearance: .outlined,
-                    height: DashboardMetrics.miniButtonHeight,
-                    horizontalPadding: 12,
-                    labelSize: 11.5,
-                    action: { conversation.briefing() },
-                    label: { Text("Gerar de novo") }
-                )
-                .disabled(conversation.isLoading)
-                Button {
-                    conversation.clear()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(theme.ink3.color)
-                        .frame(
-                            width: DashboardMetrics.closeButtonSide,
-                            height: DashboardMetrics.closeButtonSide
-                        )
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .focusRing(cornerRadius: theme.radiusSmall)
-                .help("Fechar o briefing")
-                .accessibilityLabel("Fechar o briefing")
-            }
-            .padding(.top, 1)
-        }
-        .padding(DashboardMetrics.briefingPadding)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.surface2.color)
-        .hairline(theme.line2, edges: [.top, .bottom])
-        .padding(.bottom, DashboardMetrics.briefingBottomSpacing)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("Briefing do dia")
     }
 
     // MARK: - Coluna principal
@@ -305,13 +262,12 @@ struct DashboardScreen: View {
 
     private func priorityList(_ focus: DashboardFocus) -> some View {
         let visible = DashboardMetrics.visibleRowCount(
-            total: focus.mail.count,
-            hasBriefing: conversation.briefingText != nil,
-            hasTranscript: conversation.hasConversation
+            total: focus.mail.count, hasTranscript: !transcriptTurns.isEmpty
         )
         return VStack(spacing: 0) {
+            let selecionado = selectedItem(focus)?.id
             ForEach(focus.mail.prefix(visible)) { item in
-                priorityRow(item)
+                priorityRow(item, selectedID: selecionado)
             }
             if let footer = DashboardMetrics.omittedFooterLabel(focus.omittedMailCount) {
                 Button(action: onShowMail) {
@@ -329,26 +285,22 @@ struct DashboardScreen: View {
         .hairline(theme.line2, edges: .top)
     }
 
-    private func priorityRow(_ item: DashboardFocus.MailItem) -> some View {
+    private func priorityRow(_ item: DashboardFocus.MailItem, selectedID: String?) -> some View {
         let message = item.message
         return DashboardPriorityRow(
             item: item,
             tint: accountTint(message.accountID).color,
             isUnread: !message.isRead,
-            isSelected: selectedMailID == message.id,
-            showsActions: (debugHoveredMailID ?? hoveredMailID) == message.id,
+            isSelected: selectedID == message.id,
             today: today,
+            // **Clicar seleciona.** As ações moram na prévia do meio; abrir é
+            // ⏎ ou duplo clique.
+            onSelect: { selectedMailID = message.id },
             onOpen: {
                 selectedMailID = message.id
                 readingMailID = message.id
-            },
-            onReply: { onCommand(.reply(messageID: message.id)) },
-            onArchive: { onCommand(.move(messageID: message.id, to: .archived)) },
-            onLater: { onCommand(.move(messageID: message.id, to: .later)) }
+            }
         )
-        .onHover { inside in
-            hoveredMailID = inside ? message.id : (hoveredMailID == message.id ? nil : hoveredMailID)
-        }
         // O menu da Caixa, na mesma porta das ações rápidas: `intercept`
         // devolve `true` para tudo, e quem hospeda executa — é lá que mora a
         // fila transacional com "Desfazer".
@@ -389,10 +341,20 @@ struct DashboardScreen: View {
 
     /// `.assist` — o transcript (quando existe) por cima, a cápsula do campo,
     /// e o destino do assistente embaixo.
+    /// Os turnos que o transcript mostra.
+    ///
+    /// **Sem os `.draft`**: desde o tríptico o rascunho nasce dentro da
+    /// prévia, colado no email. Repeti-lo aqui embaixo seria o mesmo texto
+    /// duas vezes na mesma tela — e a segunda cópia é justamente o "bloco de
+    /// texto solto" que esta tarefa veio tirar.
+    private var transcriptTurns: [AssistantMessage] {
+        conversation.messages.filter { $0.kind != .draft }
+    }
+
     private var assistant: some View {
         @Bindable var conversation = conversation
         return VStack(alignment: .leading, spacing: 0) {
-            if conversation.hasConversation {
+            if !transcriptTurns.isEmpty {
                 transcript
                     .padding(.bottom, DashboardMetrics.transcriptBottomSpacing)
             }
@@ -441,7 +403,7 @@ struct DashboardScreen: View {
             // sem o teto.
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
-                    ForEach(conversation.messages) { message in
+                    ForEach(transcriptTurns) { message in
                         turn(message)
                     }
                 }
@@ -573,8 +535,40 @@ struct DashboardScreen: View {
     // MARK: - Coluna direita
 
     /// `.rail` — a trilha da agenda **inteira**, sem reimplementar linha de
-    /// evento nenhuma, e as PENDÊNCIAS embaixo dela.
-    private func rightColumn(_ focus: DashboardFocus) -> some View {
+    /// evento nenhuma, e as PENDÊNCIAS embaixo dela. No dia livre ela encolhe
+    /// para 168 e vira um recado: `[data-state="agenda-vazia"] .rail`.
+    @ViewBuilder
+    private func rightColumn(_ focus: DashboardFocus, freeDay: Bool) -> some View {
+        if freeDay {
+            freeRail
+        } else {
+            fullRail(focus)
+        }
+    }
+
+    /// `.rail-free`.
+    private var freeRail: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("Dia livre")
+                .font(theme.serif.font(size: DashboardMetrics.freeRailTitleSize))
+                .foregroundStyle(theme.ink.color)
+            Text("Sem compromissos e sem pendências. A lista ganha a largura.")
+                .font(theme.sans.font(size: DashboardMetrics.freeRailTextSize))
+                .foregroundStyle(theme.ink3.color)
+                .lineSpacing(6)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(DashboardMetrics.freeRailPadding)
+        .frame(width: DashboardMetrics.freeRailWidth, alignment: .topLeading)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(theme.surface.color)
+        .hairline(theme.line, edges: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Dia livre")
+    }
+
+    private func fullRail(_ focus: DashboardFocus) -> some View {
         VStack(spacing: 0) {
             AgendaRail(
                 store: store,
@@ -594,6 +588,7 @@ struct DashboardScreen: View {
         }
         .frame(width: DashboardMetrics.railWidth)
         .background(theme.surface.color)
+        .hairline(theme.line, edges: .leading)
     }
 
     /// `.pend`.
@@ -664,9 +659,14 @@ struct DashboardScreen: View {
 
     // MARK: - Peças
 
-    private func selectedMail(_ focus: DashboardFocus) -> Message? {
-        guard let id = selectedMailID else { return nil }
-        return store.message(id) ?? focus.mail.first { $0.id == id }?.message
+    /// O item de prioridade selecionado. Sem seleção, a **primeira** linha:
+    /// o mockup abre com a prévia cheia, e uma coluna do meio vazia na
+    /// abertura seria a área morta que esta tela veio matar.
+    private func selectedItem(_ focus: DashboardFocus) -> DashboardFocus.MailItem? {
+        guard let id = selectedMailID else { return focus.mail.first }
+        if let hit = focus.mail.first(where: { $0.id == id }) { return hit }
+        guard let message = store.message(id) else { return focus.mail.first }
+        return DashboardFocus.MailItem(message: message, reason: .today)
     }
 
     private func accountTint(_ accountID: String) -> TokenColor {
