@@ -69,6 +69,31 @@ struct DashboardMetricsTests {
         #expect(DashboardMetrics.chipRole(for: .today) == .quiet)
     }
 
+    /// `[data-state="briefing"] .prow:nth-of-type(n+6)` e `n+5` no transcript.
+    @Test("a lista corta em linha inteira, nunca no meio de uma")
+    func visibleRowCount() {
+        #expect(DashboardMetrics.visibleRowCount(total: 7, hasBriefing: false, hasTranscript: false) == 7)
+        #expect(DashboardMetrics.visibleRowCount(total: 7, hasBriefing: true, hasTranscript: false) == 5)
+        #expect(DashboardMetrics.visibleRowCount(total: 7, hasBriefing: false, hasTranscript: true) == 4)
+        // Transcript manda mesmo com briefing: é ele que come a coluna.
+        #expect(DashboardMetrics.visibleRowCount(total: 7, hasBriefing: true, hasTranscript: true) == 4)
+        // Nunca inventa linha que não existe.
+        #expect(DashboardMetrics.visibleRowCount(total: 2, hasBriefing: false, hasTranscript: false) == 2)
+        #expect(DashboardMetrics.visibleRowCount(total: 0, hasBriefing: true, hasTranscript: true) == 0)
+    }
+
+    @Test("a data do cabeçalho é a do mockup, em pt-BR")
+    func headerDate() {
+        var componentes = DateComponents()
+        componentes.year = 2026
+        componentes.month = 9
+        componentes.day = 1
+        var calendario = Calendar(identifier: .gregorian)
+        calendario.locale = Locale(identifier: "pt_BR")
+        let data = calendario.date(from: componentes)!
+        #expect(DashboardMetrics.headerDateLabel(data) == "terça · 1 de setembro")
+    }
+
     @Test("o rótulo do CTA segue a seleção, e não o topo da lista")
     func ctaLabel() {
         #expect(DashboardCTA.draftsReply(canDraftReply: true, hasSelectedMail: true))

@@ -129,6 +129,44 @@ enum DashboardMetrics {
         omitted > 0 ? "+ \(omitted) na Caixa →" : nil
     }
 
+    /// A data do cabeçalho: "Terça · 1 de setembro".
+    ///
+    /// Locale fixo em pt-BR, como `AgendaRail.headerDateString`: o app é em
+    /// português, e ler `Locale.current` faria a mesma linha sair em inglês
+    /// no bundle de teste (ver a nota em `Render.bitmap`).
+    ///
+    /// O "-feira" cai fora: o mockup escreve "Terça · 1 de setembro", e em
+    /// versalete mono o sufixo empurra a data para mais de meia coluna sem
+    /// dizer nada que o dia da semana já não diga.
+    static func headerDateLabel(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "pt_BR")
+        formatter.dateFormat = "EEEE '·' d 'de' MMMM"
+        return formatter.string(from: date).replacingOccurrences(of: "-feira", with: "")
+    }
+
+    /// Quantas linhas de prioridade cabem, dado o que mais está na coluna.
+    ///
+    /// O mockup não mede nada: ele **corta em linha inteira**
+    /// (`[data-state="briefing"] .prow:nth-of-type(n+6) { display: none }` e
+    /// `n+5` no transcript). Sete sem nada por cima, cinco com a faixa de
+    /// briefing, quatro com o transcript aberto — a folga que sobra vai para o
+    /// `.flexpad`, e o assistente continua colado no rodapé. Cortar por altura
+    /// medida daria meia linha, que é justamente o que esta regra impede.
+    static func visibleRowCount(
+        total: Int, hasBriefing: Bool, hasTranscript: Bool
+    ) -> Int {
+        let teto: Int
+        if hasTranscript {
+            teto = 4
+        } else if hasBriefing {
+            teto = 5
+        } else {
+            teto = DashboardFocus.mailLimit
+        }
+        return min(total, teto)
+    }
+
     /// A leitura da linha em voz alta.
     static func rowAccessibilityLabel(
         sender: String, subject: String, reason: DashboardFocus.Reason

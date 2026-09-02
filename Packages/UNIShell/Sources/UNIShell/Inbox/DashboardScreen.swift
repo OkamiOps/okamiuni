@@ -2,13 +2,19 @@ import SwiftUI
 import UNIDesign
 import UNICore
 
-/// O recorte do desenho: saudação, duas colunas de cartão à esquerda
-/// (Prioridades + Eventos) e o assistente largo à direita, com tiles,
-/// sugestão e o CTA em cápsula. A IA não dispara sozinha.
+/// O "Briefing do dia" do mockup `design/07-dashboard.html`.
+///
+/// Fundo `paper` com recuo 22, cabeçalho com a data em versalete e a saudação
+/// em serif, uma faixa de briefing quando ela existe, e duas colunas separadas
+/// por um fio: à esquerda as PRIORIDADES em linhas flush no idioma da
+/// `MessageRow` com o assistente colado no rodapé, à direita a `AgendaRail`
+/// inteira com as PENDÊNCIAS embaixo.
+///
+/// Não há cartão flutuante, tile colorido nem sombra própria: as medidas
+/// moram em `DashboardMetrics`, com o seletor CSS do mockup ao lado de cada
+/// número. A IA não dispara sozinha — quem fala com ela é a
+/// `AssistantConversation` injetada, e só por clique.
 struct DashboardScreen: View {
-
-    static let visibleMail = 3
-    static let visibleMeetings = 3
 
     @Environment(\.theme) private var theme
     @Environment(\.displayScale) private var displayScale
@@ -24,12 +30,27 @@ struct DashboardScreen: View {
     let onShowMail: () -> Void
     let onShowCalendar: () -> Void
     let onOpenSettings: () -> Void
+    /// A porta das ações rápidas (§2.4) e do menu de contexto: o **mesmo**
+    /// `ContextCommand` que a Caixa emite. Quem hospeda o entrega à fila
+    /// transacional, que é onde mora o "Desfazer" — o dashboard não mexe no
+    /// store por um caminho próprio.
+    let onCommand: (ContextCommand) -> Void
 
     @Binding var selectedMailID: String?
     @Binding var readingMailID: String?
     let onPresented: (String) -> Void
 
-    @State private var selectedEventID: String?
+    /// Força as ações rápidas de uma linha visíveis, sem ponteiro.
+    ///
+    /// Existe pelo mesmo motivo que `ChromeButton.debugFocused`: um controle
+    /// que só aparece no hover não se deixa clicar num teste fora da tela, e
+    /// um botão sem teste é um botão que se diz mudo sem ninguém desmentir.
+    let debugHoveredMailID: String?
+
+    @State private var hoveredMailID: String?
+    /// A altura do que está dentro do transcript, para o painel abraçar o
+    /// conteúdo até o teto de 300 — ver `transcript`.
+    @State private var transcriptContentHeight: CGFloat = 0
 
     init(
         store: MailStore,
@@ -43,7 +64,9 @@ struct DashboardScreen: View {
         onOpenEvent: @escaping (AgendaItem) -> Void = { _ in },
         onShowMail: @escaping () -> Void = {},
         onShowCalendar: @escaping () -> Void = {},
-        onOpenSettings: @escaping () -> Void = {}
+        onOpenSettings: @escaping () -> Void = {},
+        onCommand: @escaping (ContextCommand) -> Void = { _ in },
+        debugHoveredMailID: String? = nil
     ) {
         self.store = store
         self.now = now
@@ -57,23 +80,25 @@ struct DashboardScreen: View {
         self.onShowMail = onShowMail
         self.onShowCalendar = onShowCalendar
         self.onOpenSettings = onOpenSettings
+        self.onCommand = onCommand
+        self.debugHoveredMailID = debugHoveredMailID
     }
 
     var body: some View {
         let focus = store.dashboardFocus(nowMinute: now)
-        VStack(alignment: .leading, spacing: 18) {
-            greeting
-            HStack(alignment: .top, spacing: 16) {
-                VStack(spacing: 16) {
-                    priorities(focus)
-                    events(focus)
-                }
-                .frame(minWidth: 340, maxWidth: 440)
-                assistant(focus)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+        VStack(alignment: .leading, spacing: 0) {
+            header(focus)
+                .padding(.bottom, DashboardMetrics.headerBottomSpacing)
+            briefingBand
+            HStack(spacing: 0) {
+                mainColumn(focus)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(.trailing, DashboardMetrics.mainTrailingPadding)
+                rightColumn(focus)
             }
+            .frame(maxHeight: .infinity)
         }
-        .padding(22)
+        .padding(DashboardMetrics.outerPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(theme.paper.color)
         .overlay {
@@ -99,454 +124,378 @@ struct DashboardScreen: View {
         .accessibilityLabel("Dashboard de prioridades")
     }
 
-    // MARK: - Saudação
+    // MARK: - Cabeçalho
 
-    private var greeting: some View {
+    /// `.head` — data em versalete, saudação em serif 28, e à direita o CTA
+    /// com o destino do assistente embaixo. Sem emoji: o mockup não tem.
+    private func header(_ focus: DashboardFocus) -> some View {
         let account = store.selectedAccountID.flatMap { store.account($0) } ?? store.accounts.first
         let hello = DashboardFocus.greeting(
             nowMinute: now,
             displayName: account?.displayName,
             address: account?.address
         )
-        let titled = hello.contains(",") ? "\(hello)!" : hello
-        return HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(titled)
-                .font(theme.sans.font(size: 28, weight: .semibold))
-                .foregroundStyle(theme.ink.color)
-            Text("👋")
-                .font(.system(size: 24))
-                .accessibilityHidden(true)
-            Spacer(minLength: 0)
+        return HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(DashboardMetrics.headerDateLabel(today))
+                    .capsLabel(size: DashboardMetrics.capsSize)
+                Text(hello)
+                    .font(theme.serif.font(size: DashboardMetrics.greetingSize, weight: .semibold))
+                    .foregroundStyle(theme.ink.color)
+                    .padding(.top, 4)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: DashboardMetrics.providerSpacing) {
+                ctaButton(focus)
+                Text(conversation.destination.label)
+                    .font(theme.sans.font(size: DashboardMetrics.providerSize))
+                    .foregroundStyle(theme.ink3.color)
+                    .lineLimit(1)
+            }
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(titled)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(hello)
     }
 
-    // MARK: - Prioridades
-
-    private func priorities(_ focus: DashboardFocus) -> some View {
-        let items = Array(focus.mail.prefix(Self.visibleMail))
-        return board {
-            VStack(alignment: .leading, spacing: 12) {
-                sectionHead(
-                    icon: "star.fill",
-                    iconColor: theme.accent,
-                    title: "Prioridades",
-                    action: "Ver todas",
-                    perform: onShowMail
-                )
-                if items.isEmpty {
-                    emptyCopy("Nada pedindo uma decisão.")
+    private func ctaButton(_ focus: DashboardFocus) -> some View {
+        // O mesmo predicado que o motor usa para resolver o contexto: ele só
+        // resolve email quando há um **selecionado**. Com o topo da lista
+        // aqui, o botão diria "Gerar rascunho" e o motor recusaria.
+        let draftsReply = DashboardCTA.draftsReply(
+            canDraftReply: conversation.canDraftReply,
+            hasSelectedMail: selectedMail(focus) != nil
+        )
+        return ChromeButton(
+            appearance: .outlined,
+            height: DashboardMetrics.headerButtonHeight,
+            horizontalPadding: DashboardMetrics.headerButtonPadding,
+            labelSize: 12.5,
+            action: {
+                if draftsReply {
+                    conversation.draftReply()
                 } else {
-                    VStack(spacing: 8) {
-                        ForEach(items) { item in
-                            mailRow(item)
-                        }
-                    }
+                    conversation.briefing()
                 }
-                Spacer(minLength: 0)
-                footerLink("Ver todas as prioridades →", perform: onShowMail)
+            },
+            label: { Text(DashboardCTA.title(draftsReply: draftsReply)) }
+        )
+        .disabled(conversation.isLoading)
+        .help(draftsReply ? "Pede um rascunho do email em foco" : "Pede um briefing do dia")
+        .accessibilityLabel(DashboardCTA.title(draftsReply: draftsReply))
+    }
+
+    // MARK: - Faixa de briefing
+
+    /// `.briefing` — superfície plana com fio em cima e embaixo, texto em
+    /// serif 15 e as duas ações à direita. Enquanto o modelo pensa, a faixa
+    /// já aparece dizendo o que está fazendo.
+    @ViewBuilder
+    private var briefingBand: some View {
+        if let text = conversation.briefingText {
+            band {
+                AssistantMarkdown(
+                    text: text,
+                    style: .prose(size: DashboardMetrics.briefingTextSize)
+                )
             }
+        } else if conversation.isLoading, !conversation.hasConversation {
+            band {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(theme.accent.color)
+                    Text("Lendo caixa e agenda…")
+                        .font(theme.serif.font(size: DashboardMetrics.briefingTextSize))
+                        .foregroundStyle(theme.ink2.color)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    private func band(@ViewBuilder content: () -> some View) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            content()
+            HStack(spacing: 6) {
+                ChromeButton(
+                    appearance: .outlined,
+                    height: DashboardMetrics.miniButtonHeight,
+                    horizontalPadding: 12,
+                    labelSize: 11.5,
+                    action: { conversation.briefing() },
+                    label: { Text("Gerar de novo") }
+                )
+                .disabled(conversation.isLoading)
+                Button {
+                    conversation.clear()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(theme.ink3.color)
+                        .frame(
+                            width: DashboardMetrics.closeButtonSide,
+                            height: DashboardMetrics.closeButtonSide
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .focusRing(cornerRadius: theme.radiusSmall)
+                .help("Fechar o briefing")
+                .accessibilityLabel("Fechar o briefing")
+            }
+            .padding(.top, 1)
+        }
+        .padding(DashboardMetrics.briefingPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.surface2.color)
+        .hairline(theme.line2, edges: [.top, .bottom])
+        .padding(.bottom, DashboardMetrics.briefingBottomSpacing)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Briefing do dia")
+    }
+
+    // MARK: - Coluna principal
+
+    private func mainColumn(_ focus: DashboardFocus) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Prioridades · \(focus.mail.count)")
+                .capsLabel(size: DashboardMetrics.capsSize)
+                .padding(.bottom, DashboardMetrics.sectionLabelBottomPadding)
+            if focus.mail.isEmpty {
+                emptyPriorities
+            } else {
+                priorityList(focus)
+            }
+            // `.flexpad` do mockup: a folga sobra **aqui**, entre a lista e o
+            // assistente, e é por isso que o campo fica colado no rodapé sem
+            // a lista esticar linha nenhuma.
+            Spacer(minLength: 0)
+            assistant
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Prioridades")
     }
 
-    private func mailRow(_ item: DashboardFocus.MailItem) -> some View {
+    private func priorityList(_ focus: DashboardFocus) -> some View {
+        let visible = DashboardMetrics.visibleRowCount(
+            total: focus.mail.count,
+            hasBriefing: conversation.briefingText != nil,
+            hasTranscript: conversation.hasConversation
+        )
+        return VStack(spacing: 0) {
+            ForEach(focus.mail.prefix(visible)) { item in
+                priorityRow(item)
+            }
+            if let footer = DashboardMetrics.omittedFooterLabel(focus.omittedMailCount) {
+                Button(action: onShowMail) {
+                    Text(footer)
+                        .font(theme.sans.font(size: DashboardMetrics.footerSize, weight: .semibold))
+                        .foregroundStyle(theme.accentInk.color)
+                        .padding(DashboardMetrics.footerPadding)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .focusRing(cornerRadius: theme.radiusSmall)
+            }
+        }
+        .hairline(theme.line2, edges: .top)
+    }
+
+    private func priorityRow(_ item: DashboardFocus.MailItem) -> some View {
         let message = item.message
-        let selected = selectedMailID == message.id
-        let tint = accountTint(message.accountID)
-        return Button {
-            selectedMailID = message.id
-            selectedEventID = nil
-            readingMailID = message.id
-        } label: {
-            HStack(alignment: .top, spacing: 10) {
-                Circle()
-                    .fill(tint.color)
-                    .frame(width: 8, height: 8)
-                    .padding(.top, 5)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(message.subject)
-                            .font(theme.sans.font(size: 13.5, weight: .semibold))
-                            .foregroundStyle(theme.ink.color)
-                            .lineLimit(1)
-                        Spacer(minLength: 8)
-                        rankPill(item.reason)
-                    }
-                    Text(message.listHeadline)
-                        .font(theme.sans.font(size: 12))
-                        .foregroundStyle(theme.ink3.color)
-                        .lineLimit(1)
-                }
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .background(
-                nestFill.color,
-                in: RoundedRectangle(cornerRadius: nestRadius, style: .continuous)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: nestRadius, style: .continuous)
-                    .strokeBorder(
-                        selected ? theme.info.color.opacity(0.55) : theme.line2.color,
-                        lineWidth: Hairline.thickness(displayScale)
-                    )
-            }
+        return DashboardPriorityRow(
+            item: item,
+            tint: accountTint(message.accountID).color,
+            isUnread: !message.isRead,
+            isSelected: selectedMailID == message.id,
+            showsActions: (debugHoveredMailID ?? hoveredMailID) == message.id,
+            today: today,
+            onOpen: {
+                selectedMailID = message.id
+                readingMailID = message.id
+            },
+            onReply: { onCommand(.reply(messageID: message.id)) },
+            onArchive: { onCommand(.move(messageID: message.id, to: .archived)) },
+            onLater: { onCommand(.move(messageID: message.id, to: .later)) }
+        )
+        .onHover { inside in
+            hoveredMailID = inside ? message.id : (hoveredMailID == message.id ? nil : hoveredMailID)
         }
-        .buttonStyle(.plain)
-        .focusRing(cornerRadius: nestRadius)
-        .contextMenu {
-            Button("Abrir na Caixa") { onOpenMessage(message) }
-        }
-        .accessibilityLabel("\(message.subject), \(item.reason.rankLabel), \(message.listHeadline)")
-        .accessibilityAddTraits(selected ? .isSelected : [])
+        // O menu da Caixa, na mesma porta das ações rápidas: `intercept`
+        // devolve `true` para tudo, e quem hospeda executa — é lá que mora a
+        // fila transacional com "Desfazer".
+        .uniContextMenu(
+            ContextMenus.messageRow(
+                message,
+                accountAddress: store.account(message.accountID)?.address ?? "",
+                provider: store.account(message.accountID)?.provider,
+                currentBucket: message.bucket
+            ),
+            store: store,
+            onReveal: { onCommand(.revealMessage(messageID: $0)) },
+            intercept: { command in
+                onCommand(command)
+                return true
+            }
+        )
     }
 
-    private func rankPill(_ reason: DashboardFocus.Reason) -> some View {
-        let pigment = reason.isUrgent ? theme.danger : theme.accent
-        let fill = wash(pigment, amount: theme.isDark ? 0.38 : 0.16)
-        let ink = pigment.ensuringContrast(against: fill, minimum: 3.2)
-        return Text(reason.rankLabel)
-            .font(theme.sans.font(size: 10.5, weight: .semibold))
-            .foregroundStyle(ink.color)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(fill.color, in: Capsule())
-            .accessibilityHidden(true)
-    }
-
-    // MARK: - Eventos
-
-    private func events(_ focus: DashboardFocus) -> some View {
-        let todayItems = focus.meetings.filter { $0.dayOffset == 0 }
-        let showingToday = !todayItems.isEmpty
-        let items = Array((showingToday ? todayItems : focus.meetings).prefix(Self.visibleMeetings))
-        return board {
-            VStack(alignment: .leading, spacing: 12) {
-                sectionHead(
-                    icon: "calendar",
-                    iconColor: theme.info,
-                    title: showingToday ? "Eventos de hoje" : "Próximos",
-                    action: "Ver agenda",
-                    perform: onShowCalendar
-                )
-                if items.isEmpty {
-                    emptyCopy("Nada na frente.")
-                } else {
-                    VStack(spacing: 8) {
-                        ForEach(items) { item in
-                            meetingRow(item, showDay: !showingToday)
-                        }
-                    }
-                }
-                Spacer(minLength: 0)
-                footerLink("Ver agenda completa →", perform: onShowCalendar)
-            }
+    /// `.prio-empty` — o mesmo tom do "Dia livre" da trilha.
+    private var emptyPriorities: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("Nada pedindo uma decisão.")
+                .font(theme.serif.font(size: 15))
+                .foregroundStyle(theme.ink.color)
+            Text("Quando um email precisar de resposta, tiver prazo ou trouxer um lead, ele aparece aqui.")
+                .font(theme.sans.font(size: 12))
+                .foregroundStyle(theme.ink3.color)
+                .lineSpacing(6)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(showingToday ? "Eventos de hoje" : "Próximos compromissos")
-    }
-
-    private func meetingRow(_ item: AgendaItem, showDay: Bool) -> some View {
-        let live = item.dayOffset == 0 && now >= item.startMinute && now < item.endMinute
-        let tint = accountTint(item.accountID)
-        return Button {
-            selectedEventID = item.id
-            selectedMailID = nil
-            onOpenEvent(item)
-        } label: {
-            HStack(spacing: 12) {
-                timeChip(item.startLabel, live: live)
-                Circle()
-                    .fill(live ? theme.live.color : tint.color)
-                    .frame(width: 8, height: 8)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(item.title)
-                        .font(theme.sans.font(size: 13.5, weight: .semibold))
-                        .foregroundStyle(theme.ink.color)
-                        .lineLimit(1)
-                    if let place = honestPlace(item) {
-                        Text(place)
-                            .font(theme.sans.font(size: 12))
-                            .foregroundStyle(theme.ink3.color)
-                            .lineLimit(1)
-                    } else if showDay {
-                        Text(DashboardFocus.meetingDayName(offset: item.dayOffset, anchor: today))
-                            .font(theme.sans.font(size: 12))
-                            .foregroundStyle(theme.ink3.color)
-                    }
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-            .background(
-                nestFill.color,
-                in: RoundedRectangle(cornerRadius: nestRadius, style: .continuous)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: nestRadius, style: .continuous)
-                    .strokeBorder(theme.line2.color, lineWidth: Hairline.thickness(displayScale))
-            }
-        }
-        .buttonStyle(.plain)
-        .focusRing(cornerRadius: nestRadius)
-        .accessibilityLabel("\(item.startLabel), \(item.title)")
-    }
-
-    private func timeChip(_ label: String, live: Bool) -> some View {
-        Text(label)
-            .font(theme.mono.font(size: 12, weight: .medium))
-            .foregroundStyle(live ? theme.live.color : theme.ink.color)
-            .monospacedDigit()
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(
-                (live ? wash(theme.live, amount: theme.isDark ? 0.34 : 0.14) : nestFill).color,
-                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-            )
+        .padding(DashboardMetrics.emptyPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .hairline(theme.line2, edges: .top)
     }
 
     // MARK: - Assistente
 
-    private func assistant(_ focus: DashboardFocus) -> some View {
-        board {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 12) {
-                    robot
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 8) {
-                            Text("IA Assistant")
-                                .font(theme.sans.font(size: 16, weight: .semibold))
-                                .foregroundStyle(theme.ink.color)
-                            betaBadge
-                        }
-                        Text("Resumo do que pede você agora.")
-                            .font(theme.sans.font(size: 12))
-                            .foregroundStyle(theme.ink3.color)
-                    }
-                    Spacer(minLength: 0)
-                    draftButton(focus)
-                    if conversation.hasConversation {
-                        Button("Limpar") { conversation.clear() }
-                        .buttonStyle(.plain)
-                        .font(theme.sans.font(size: 12, weight: .medium))
-                        .foregroundStyle(theme.ink3.color)
-                        .focusRing(cornerRadius: theme.radiusSmall)
-                        .disabled(conversation.isLoading)
-                    }
-                }
-
-                if let mail = selectedMail(focus) ?? store.message(selectedMailID ?? "") {
-                    contextChip(mail)
-                }
-
-                Text("Resumo inteligente")
-                    .font(theme.sans.font(size: 13, weight: .semibold))
-                    .foregroundStyle(theme.ink.color)
-
-                HStack(spacing: 10) {
-                    metricTile(
-                        "\(focus.mail.count)",
-                        caption: "Emails",
-                        pigment: theme.success
-                    )
-                    metricTile(
-                        "\(focus.meetings.filter { $0.dayOffset == 0 }.count)",
-                        caption: "Eventos",
-                        pigment: theme.accent
-                    )
-                    metricTile(
-                        "\(focus.pending.count)",
-                        caption: "Pendências",
-                        pigment: theme.info
-                    )
-                }
-
-                if conversation.hasConversation {
-                    transcriptList
-                } else {
-                    suggestion(focus)
-                }
-
-                if let failure = conversation.failure {
-                    AssistantFailureBand(
-                        failure: failure,
-                        onRetry: conversation.retry,
-                        onOpenSettings: onOpenSettings
-                    )
-                }
-                if conversation.isLoading {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-                            .tint(theme.info.color)
-                        Text("Lendo caixa e agenda…")
-                            .font(theme.sans.font(size: 12.5))
-                            .foregroundStyle(theme.ink3.color)
-                    }
-                }
-
-                Spacer(minLength: 0)
-                briefingBand
-                composer
-                Text(conversation.destination.label)
-                    .font(theme.sans.font(size: 11))
-                    .foregroundStyle(theme.ink3.color)
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("IA Assistant")
-    }
-
-    private func suggestion(_ focus: DashboardFocus) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Sugestão da IA")
-                .font(theme.sans.font(size: 12, weight: .semibold))
-                .foregroundStyle(theme.ink3.color)
-            Text(suggestionCopy(focus))
-                .font(theme.sans.font(size: 14))
-                .foregroundStyle(theme.ink.color)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(14)
-                .background(
-                    nestFill.color,
-                    in: RoundedRectangle(cornerRadius: nestRadius, style: .continuous)
-                )
-        }
-    }
-
-    private var transcriptList: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                ForEach(conversation.messages) { message in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(message.speaker == .user ? "Você" : "Assistente")
-                            .font(theme.sans.font(size: 11, weight: .medium))
-                            .foregroundStyle(theme.ink4.color)
-                        // Rascunho é prosa de email: asterisco ali é
-                        // literal, e por isso não passa pelo Markdown.
-                        if message.speaker == .user || message.kind == .draft {
-                            Text(message.text)
-                                .font(theme.sans.font(size: 13.5))
-                                .foregroundStyle(theme.ink.color)
-                                .textSelection(.enabled)
-                                .fixedSize(horizontal: false, vertical: true)
-                        } else {
-                            AssistantMarkdown(text: message.text)
-                        }
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private func draftButton(_ focus: DashboardFocus) -> some View {
-        // O mesmo predicado que o motor usa para resolver o contexto: ele
-        // só resolve email quando há um **selecionado**. Com o topo da lista
-        // aqui, o botão diria "Gerar rascunho" e o motor recusaria.
-        let canDraft = Self.ctaDraftsReply(
-            canDraftReply: conversation.canDraftReply,
-            hasSelectedMail: selectedMail(focus) != nil
-        )
-        return Button {
-            if canDraft {
-                conversation.draftReply()
-            } else {
-                conversation.briefing()
-            }
-        } label: {
-            Text(Self.ctaTitle(draftsReply: canDraft))
-                .font(theme.sans.font(size: 11.5, weight: .semibold))
-                .foregroundStyle(theme.onAccent.color)
-                .padding(.horizontal, 10)
-                .frame(height: 28)
-                .background(theme.accent.color, in: Capsule())
-        }
-        .buttonStyle(.plain)
-        .focusRing(cornerRadius: 14, tint: \.onAccent)
-        .disabled(conversation.isLoading)
-        .help(canDraft
-            ? "Pede um rascunho do email em foco"
-            : "Pede um briefing do dia")
-        .accessibilityLabel(Self.ctaTitle(draftsReply: canDraft))
-    }
-
-    /// A decisão do CTA, isolada para o teste. Rascunho **só** com email
-    /// selecionado: é o mesmo predicado com que o motor resolve o contexto,
-    /// e desalinhá-los deixava o botão aceso prometendo o que ia falhar.
-    static func ctaDraftsReply(canDraftReply: Bool, hasSelectedMail: Bool) -> Bool {
-        canDraftReply && hasSelectedMail
-    }
-
-    static func ctaTitle(draftsReply: Bool) -> String {
-        draftsReply ? "Gerar rascunho" : "Gerar briefing"
-    }
-
-    /// O briefing do dia mora fora do transcript: superfície plana e
-    /// hairline, sem cartão flutuante.
-    @ViewBuilder
-    private var briefingBand: some View {
-        if let text = conversation.briefingText {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("BRIEFING")
-                    .capsLabel(size: 8.5)
-                AssistantMarkdown(text: text)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(theme.surface2.color)
-            .hairline(theme.line2, edges: [.top, .bottom])
-        }
-    }
-
-    private func contextChip(_ mail: Message) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: "envelope")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(theme.info.color)
-                .accessibilityHidden(true)
-            Text(mail.subject)
-                .font(theme.sans.font(size: 12, weight: .medium))
-                .foregroundStyle(theme.ink.color)
-                .lineLimit(1)
-            Spacer(minLength: 4)
-            Button {
-                selectedMailID = nil
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(theme.ink4.color)
-                    .frame(width: 18, height: 18)
-            }
-            .buttonStyle(.plain)
-            .focusRing(cornerRadius: 9)
-            .accessibilityLabel("Parar de usar este email como contexto")
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(
-            nestFill.color,
-            in: RoundedRectangle(cornerRadius: nestRadius, style: .continuous)
-        )
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Contexto: \(mail.subject)")
-    }
-
-    private var composer: some View {
+    /// `.assist` — o transcript (quando existe) por cima, a cápsula do campo,
+    /// e o destino do assistente embaixo.
+    private var assistant: some View {
         @Bindable var conversation = conversation
-        return HStack(alignment: .bottom, spacing: 8) {
+        return VStack(alignment: .leading, spacing: 0) {
+            if conversation.hasConversation {
+                transcript
+                    .padding(.bottom, DashboardMetrics.transcriptBottomSpacing)
+            }
+            if let failure = conversation.failure {
+                AssistantFailureBand(
+                    failure: failure,
+                    onRetry: conversation.retry,
+                    onOpenSettings: onOpenSettings
+                )
+                .padding(.bottom, DashboardMetrics.transcriptBottomSpacing)
+            }
+            askCapsule
+            Text(conversation.destination.label)
+                .font(theme.sans.font(size: DashboardMetrics.providerSize))
+                .foregroundStyle(theme.ink3.color)
+                .padding(.top, 6)
+        }
+        .padding(.top, DashboardMetrics.assistantTopPadding)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Assistente")
+    }
+
+    /// `.transcript` — teto de 300pt com rolagem por dentro, para o campo
+    /// nunca sair do rodapé por conta de uma resposta longa.
+    private var transcript: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Assistente")
+                    .capsLabel(size: DashboardMetrics.capsSize)
+                Spacer()
+                Button("Limpar") { conversation.clear() }
+                    .buttonStyle(.plain)
+                    .capsLabel(size: DashboardMetrics.capsSize)
+                    .focusRing(cornerRadius: theme.radiusSmall)
+                    .disabled(conversation.isLoading)
+            }
+            .padding(.bottom, 10)
+
+            // `max-height: 300px; overflow-y: auto`.
+            //
+            // A altura sai do conteúdo **medido**, limitada ao teto. Nem
+            // `maxHeight` sozinho (a `ScrollView` é gulosa e come a coluna
+            // inteira, empurrando a lista para longe do cabeçalho) nem
+            // `fixedSize` sozinho (aí ela cresce além dos 300 e estoura a
+            // janela) resolvem: um dá o teto sem o abraço, o outro o abraço
+            // sem o teto.
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(conversation.messages) { message in
+                        turn(message)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    proxy.size.height
+                } action: { height in
+                    transcriptContentHeight = height
+                }
+            }
+            // `maxHeight`, e não `height`: a `ScrollView` é gulosa, então
+            // com este teto ela mede `min(o que cabe, o que tem dentro, 300)`
+            // — abraça o conteúdo curto, para nos 300 no longo, e cede
+            // quando a janela é baixa demais para os 300.
+            .frame(
+                maxHeight: min(
+                    max(transcriptContentHeight, 1), DashboardMetrics.transcriptMaxHeight
+                )
+            )
+        }
+        .padding(DashboardMetrics.transcriptPadding)
+        .frame(maxWidth: .infinity, alignment: .top)
+        .background(theme.surface.color)
+        .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
+        .overlay {
+            RoundedRectangle(cornerRadius: theme.radiusLarge)
+                .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
+        }
+    }
+
+    @ViewBuilder
+    private func turn(_ message: AssistantMessage) -> some View {
+        if message.speaker == .user {
+            // `.turn-q` — encostada à direita, sobre `accent-soft`.
+            Text(message.text)
+                .font(theme.sans.font(size: DashboardMetrics.questionSize))
+                .foregroundStyle(theme.ink.color)
+                .lineSpacing(3.5)
+                .padding(DashboardMetrics.questionPadding)
+                .background(theme.accentSoft.color)
+                .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+                .overlay {
+                    RoundedRectangle(cornerRadius: theme.radiusSmall)
+                        .strokeBorder(
+                            theme.accentLine.color, lineWidth: Hairline.thickness(displayScale)
+                        )
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        } else {
+            // `.turn-a` — sobre `surface3`. Rascunho é prosa de email:
+            // asterisco ali é literal, e por isso não passa pelo Markdown.
+            Group {
+                if message.kind == .draft {
+                    Text(message.text)
+                        .font(theme.serif.font(size: DashboardMetrics.answerSize))
+                        .foregroundStyle(theme.ink.color)
+                        .lineSpacing(DashboardMetrics.answerSize * 0.35)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    AssistantMarkdown(
+                        text: message.text,
+                        style: .prose(size: DashboardMetrics.answerSize)
+                    )
+                }
+            }
+            .padding(DashboardMetrics.answerPadding)
+            .background(theme.surface3.color)
+            .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// `.ask` — cápsula `btn`/`btn-line` com o botão ↑ do acento.
+    private var askCapsule: some View {
+        @Bindable var conversation = conversation
+        return HStack(alignment: .center, spacing: 8) {
             DashboardAskField(
                 text: $conversation.draft,
-                placeholder: "Pergunte algo sobre seus emails…",
+                placeholder: "Pergunte sobre seus emails…",
                 textColor: theme.ink.nsColor,
                 placeholderColor: theme.ink4.nsColor,
                 onSubmit: { conversation.submit() },
@@ -565,195 +514,121 @@ struct DashboardScreen: View {
             } label: {
                 Image(systemName: "arrow.up")
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(conversation.canSend ? theme.onEnter.color : theme.ink4.color)
-                    .frame(width: 28, height: 28)
-                    .background(conversation.canSend ? theme.enter.color : theme.surface3.color)
-                    .clipShape(Circle())
+                    .foregroundStyle(
+                        conversation.canSend ? theme.onAccent.color : theme.ink4.color
+                    )
+                    .frame(
+                        width: DashboardMetrics.sendButtonSide,
+                        height: DashboardMetrics.sendButtonSide
+                    )
+                    .background(conversation.canSend ? theme.accent.color : theme.surface3.color)
+                    .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
             }
             .buttonStyle(.plain)
-            .focusRing(cornerRadius: 14, tint: \.onEnter)
+            .focusRing(cornerRadius: theme.radiusSmall, tint: \.onAccent)
             .disabled(!conversation.canSend)
             .help("Enter envia. Shift+Enter quebra a linha.")
             .accessibilityLabel("Enviar pergunta")
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .frame(minHeight: 40)
-        .background(
-            nestFill.color,
-            in: RoundedRectangle(cornerRadius: 20, style: .continuous)
-        )
+        .padding(.leading, DashboardMetrics.askLeadingPadding)
+        .padding(.trailing, DashboardMetrics.askTrailingPadding)
+        .frame(minHeight: DashboardMetrics.askHeight)
+        .background(theme.btn.color)
+        .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
         .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
+            RoundedRectangle(cornerRadius: theme.radiusLarge)
+                .strokeBorder(theme.btnLine.color, lineWidth: Hairline.thickness(displayScale))
         }
+        .shadow(theme.btnShadow)
         .fixedSize(horizontal: false, vertical: true)
     }
 
-    private func metricTile(_ value: String, caption: String, pigment: TokenColor) -> some View {
-        let fill = wash(pigment, amount: theme.isDark ? 0.44 : 0.16)
-        let ink = theme.ink.ensuringContrast(against: fill, minimum: 3.0)
-        let muted = theme.ink3.ensuringContrast(against: fill, minimum: 2.4)
-        return VStack(alignment: .leading, spacing: 4) {
-            Text(value)
-                .font(theme.sans.font(size: 22, weight: .semibold))
-                .foregroundStyle(ink.color)
-                .monospacedDigit()
-            Text(caption)
-                .font(theme.sans.font(size: 11.5, weight: .medium))
-                .foregroundStyle(muted.color)
+    // MARK: - Coluna direita
+
+    /// `.rail` — a trilha da agenda **inteira**, sem reimplementar linha de
+    /// evento nenhuma, e as PENDÊNCIAS embaixo dela.
+    private func rightColumn(_ focus: DashboardFocus) -> some View {
+        VStack(spacing: 0) {
+            AgendaRail(
+                store: store,
+                now: now,
+                headerDate: today,
+                width: DashboardMetrics.railWidth,
+                showsPending: false,
+                background: \.surface,
+                onOpenEvent: onOpenEvent,
+                onRevealMessage: { onCommand(.revealMessage(messageID: $0)) }
+            )
+            .frame(maxHeight: .infinity)
+            pendingSection(focus)
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            fill.color,
-            in: RoundedRectangle(cornerRadius: nestRadius, style: .continuous)
-        )
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(value) \(caption)")
+        .frame(width: DashboardMetrics.railWidth)
+        .background(theme.surface.color)
     }
 
-    private var robot: some View {
-        let fill = wash(theme.info, amount: theme.isDark ? 0.40 : 0.18)
-        return ZStack {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(fill.color)
-            VStack(spacing: 6) {
-                HStack(spacing: 7) {
-                    Circle().fill(theme.ink.color).frame(width: 6, height: 6)
-                    Circle().fill(theme.ink.color).frame(width: 6, height: 6)
+    /// `.pend`.
+    private func pendingSection(_ focus: DashboardFocus) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Pendências")
+                .capsLabel(size: DashboardMetrics.capsSize)
+                .padding(.bottom, DashboardMetrics.pendingLabelBottomSpacing)
+            if focus.pending.isEmpty {
+                Text("Nada pendente.")
+                    .font(theme.sans.font(size: 12))
+                    .foregroundStyle(theme.ink3.color)
+                    .padding(.vertical, 2)
+            } else {
+                ForEach(focus.pending) { item in
+                    pendingRow(item)
                 }
-                Capsule()
-                    .fill(theme.ink.color.opacity(0.45))
-                    .frame(width: 14, height: 3)
             }
         }
-        .frame(width: 44, height: 44)
-        .accessibilityHidden(true)
+        .padding(DashboardMetrics.pendingPadding)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .hairline(theme.line2, edges: .top)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Pendências")
     }
 
-    private var betaBadge: some View {
-        let fill = wash(theme.info, amount: theme.isDark ? 0.36 : 0.14)
-        let ink = theme.info.ensuringContrast(against: fill, minimum: 3.0)
-        return Text("Beta")
-            .font(theme.sans.font(size: 10, weight: .semibold))
-            .foregroundStyle(ink.color)
-            .padding(.horizontal, 7)
-            .padding(.vertical, 2)
-            .background(fill.color, in: Capsule())
+    private func pendingRow(_ item: PendingItem) -> some View {
+        let account = store.account(item.accountID)
+        let origin = [account?.displayName, account?.host]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
+        return HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Circle()
+                .fill(accountTint(item.accountID).color)
+                .frame(
+                    width: DashboardMetrics.pendingDotSide,
+                    height: DashboardMetrics.pendingDotSide
+                )
+                .offset(y: -2)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(item.text)
+                    .font(theme.sans.font(size: DashboardMetrics.pendingTextSize))
+                    .foregroundStyle(theme.ink2.color)
+                    .lineSpacing(DashboardMetrics.pendingTextSize * 0.45)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !origin.isEmpty {
+                    Text(origin)
+                        .font(theme.sans.font(size: DashboardMetrics.pendingOriginSize))
+                        .foregroundStyle(theme.ink3.color)
+                        .lineLimit(1)
+                }
+            }
+            Spacer()
+        }
+        .padding(.vertical, DashboardMetrics.pendingItemVerticalPadding)
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - Peças
 
-    private func board<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        content()
-            .padding(16)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(
-                boardFill.color,
-                in: RoundedRectangle(cornerRadius: boardRadius, style: .continuous)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: boardRadius, style: .continuous)
-                    .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
-            }
-            .shadow(
-                color: Color.black.opacity(theme.isDark ? 0.38 : 0.07),
-                radius: 18,
-                y: 8
-            )
-    }
-
-    private func sectionHead(
-        icon: String,
-        iconColor: TokenColor,
-        title: String,
-        action: String,
-        perform: @escaping () -> Void
-    ) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: icon)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(iconColor.color)
-                .accessibilityHidden(true)
-            Text(title)
-                .font(theme.sans.font(size: 14, weight: .semibold))
-                .foregroundStyle(theme.ink.color)
-            Spacer(minLength: 8)
-            Button(action, action: perform)
-                .buttonStyle(.plain)
-                .font(theme.sans.font(size: 12, weight: .medium))
-                .foregroundStyle(theme.link.color)
-                .focusRing(cornerRadius: theme.radiusSmall)
-        }
-    }
-
-    private func footerLink(_ title: String, perform: @escaping () -> Void) -> some View {
-        Button(title, action: perform)
-            .buttonStyle(.plain)
-            .font(theme.sans.font(size: 12.5, weight: .medium))
-            .foregroundStyle(theme.link.color)
-            .focusRing(cornerRadius: theme.radiusSmall)
-            .padding(.top, 4)
-    }
-
-    private func emptyCopy(_ text: String) -> some View {
-        Text(text)
-            .font(theme.sans.font(size: 13))
-            .foregroundStyle(theme.ink3.color)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var boardRadius: CGFloat { theme.radiusLarge < 1 ? 0 : 20 }
-    private var nestRadius: CGFloat { theme.radiusSmall < 1 ? 0 : 14 }
-
-    /// No Okami o `surface` cola no `paper`. O cartão precisa de um degrau
-    /// visível — senão o desenho vira um retângulo morto.
-    private var boardFill: TokenColor {
-        theme.surface.contrastRatio(with: theme.paper) >= 1.18
-            ? theme.surface
-            : theme.surface3
-    }
-
-    private var nestFill: TokenColor {
-        boardFill.mixing(with: theme.ink, amount: theme.isDark ? 0.10 : 0.04)
-    }
-
-    /// `amount` é quanto pigmento entra no fundo do cartão. No escuro precisa
-    /// de ~40% — 12% vira lama cinza.
-    private func wash(_ pigment: TokenColor, amount: Double) -> TokenColor {
-        boardFill.mixing(with: pigment, amount: amount)
-    }
-
-    private func suggestionCopy(_ focus: DashboardFocus) -> String {
-        if let mail = selectedMail(focus) ?? focus.mail.first?.message {
-            return "Resposta pendente de \(mail.listHeadline): \(mail.subject). Gerar um rascunho?"
-        }
-        if let item = selectedMeeting(focus) ?? focus.meetings.first {
-            return "Próximo: \(item.title) às \(item.startLabel). Preparar o que importa?"
-        }
-        return "Quando chegar algo que peça você, a sugestão aparece aqui."
-    }
-
     private func selectedMail(_ focus: DashboardFocus) -> Message? {
         guard let id = selectedMailID else { return nil }
         return store.message(id) ?? focus.mail.first { $0.id == id }?.message
-    }
-
-    private func selectedMeeting(_ focus: DashboardFocus) -> AgendaItem? {
-        guard let id = selectedEventID else { return nil }
-        return focus.meetings.first { $0.id == id }
-    }
-
-    private func honestPlace(_ item: AgendaItem) -> String? {
-        if let place = item.detail?.place,
-           !place.isEmpty,
-           place != EventPlace.semLocal {
-            return place
-        }
-        if let title = item.calendarTitle, !title.isEmpty { return title }
-        return nil
     }
 
     private func accountTint(_ accountID: String) -> TokenColor {
