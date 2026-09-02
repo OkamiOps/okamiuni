@@ -43,7 +43,11 @@ struct CorpoLegivelView: View {
     @State private var abertas: Set<Int> = []
 
     var body: some View {
-        VStack(alignment: .leading, spacing: tamanho * 0.85) {
+        // O espaço **entre blocos** é maior do que o espaço entre itens de uma
+        // mesma lista (`tamanho * 0.5`, abaixo). É essa diferença que faz um
+        // grupo parecer um grupo: sem ela, cinco itens e cinco parágrafos têm o
+        // mesmo desenho, e o olho tem de ler para descobrir qual é qual.
+        VStack(alignment: .leading, spacing: tamanho * 1.05) {
             ForEach(corpo.blocos) { bloco in
                 desenho(de: bloco)
             }
@@ -89,9 +93,11 @@ struct CorpoLegivelView: View {
         VStack(alignment: .leading, spacing: tamanho * 0.5) {
             ForEach(lista.itens) { item in
                 HStack(alignment: .firstTextBaseline, spacing: tamanho * 0.55) {
+                    // O marcador em acento, e não em `ink4`: a calha da lista
+                    // é o que o olho segue quando ele desiste de ler a frase.
                     Text(item.marcador)
-                        .font(theme.mono.font(size: tamanho * 0.86))
-                        .foregroundStyle(theme.ink4.color)
+                        .font(theme.mono.font(size: tamanho * 0.86, weight: .semibold))
+                        .foregroundStyle(theme.accentInk.color)
                         .monospacedDigit()
                         .frame(width: tamanho * 1.5, alignment: .trailing)
                     texto(item.trechos, nivel: 0)
@@ -217,7 +223,7 @@ struct CorpoLegivelView: View {
         return Text(atribuido)
             .font(fonte(nivel: nivel))
             .foregroundStyle((nivel > 0 ? theme.ink : theme.ink2).color)
-            .lineSpacing(tamanho * (nivel > 0 ? 0.3 : 0.55))
+            .lineSpacing(tamanho * (nivel > 0 ? 0.3 : 0.62))
             // O azul de link do sistema não é token de tema nenhum. `tint` é
             // quem manda na cor de `.link` dentro de um `Text`.
             .tint(theme.accentInk.color)

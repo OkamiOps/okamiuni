@@ -122,7 +122,7 @@ struct DashboardPreviewPane: View {
     /// coluna e rola por dentro quando é longo.
     private func body(for item: DashboardFocus.MailItem, message: Message) -> some View {
         let corpo = DashboardPreviewBody.state(
-            for: message, load: store.bodyLoad(for: message.id)
+            for: message, load: store.bodyLoad(for: message.id), agora: today
         )
         return VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -159,6 +159,19 @@ struct DashboardPreviewPane: View {
             }
             .padding(.top, DashboardMetrics.previewChipsTopSpacing)
 
+            // **A fronteira.** De um lado, quem mandou e sobre o quê; do outro,
+            // o que está escrito. Antes disto os dois se encostavam com o mesmo
+            // espaçamento de qualquer parágrafo, e o olho tinha de descobrir
+            // sozinho onde o cabeçalho acabava.
+            Rectangle()
+                .fill(theme.line.color)
+                .frame(
+                    height: Hairline.thickness(displayScale)
+                        * DashboardMetrics.previewHeaderRuleScale
+                )
+                .padding(.top, DashboardMetrics.previewHeaderRuleSpacing)
+                .accessibilityHidden(true)
+
             excerptBlock(corpo)
 
             actions(message)
@@ -185,10 +198,13 @@ struct DashboardPreviewPane: View {
     @ViewBuilder
     private func excerptBlock(_ corpo: DashboardPreviewBody.State) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            // **Começa pelo que importa.** Quando a análise já resumiu esta
-            // mensagem, o resumo abre a prévia, separado do corpo por uma
-            // hairline e pela cor do acento. É a resposta direta a "não quero
-            // ler". Sem análise, não há bloco nenhum — nunca um cartão vazio.
+            // **A ordem é a da pergunta.** Primeiro o que este email exige de
+            // você (quando a análise sabe), depois o resumo do que ele diz, e
+            // só então o texto. As duas primeiras peças ficam **fora** da área
+            // rolável: são as que não podem sumir para cima.
+            if let pedido = corpo.pedido {
+                pedidoBlock(pedido)
+            }
             if let resumo = corpo.resumo {
                 resumoBlock(resumo)
             }
@@ -197,11 +213,7 @@ struct DashboardPreviewPane: View {
                     .font(theme.sans.font(size: DashboardMetrics.previewExcerptSize))
                     .foregroundStyle(theme.ink3.color)
             } else {
-                ScrollView {
-                    CorpoLegivelView(corpo: corpo.corpo)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .scrollBounceBehavior(.basedOnSize)
+                CorpoRolavel(corpo: corpo.corpo)
             }
             if let causa = corpo.failure {
                 Button("Tentar de novo") { Task { await retryBody() } }
@@ -230,6 +242,44 @@ struct DashboardPreviewPane: View {
         .padding(.top, DashboardMetrics.previewExcerptTopSpacing)
     }
 
+    /// **O que este email pede de você**, em um selo de uma linha.
+    ///
+    /// É a primeira coisa da coluna porque é a primeira pergunta de quem abre
+    /// o email: "isto exige alguma coisa de mim, e até quando?". O prazo entra
+    /// no mesmo selo — a data estava a duas telas de distância, no cartão de
+    /// compromisso do leitor. Urgente troca o acento suave pelo acento cheio,
+    /// que é o único lugar da prévia onde ele aparece: se tudo grita, nada
+    /// grita.
+    ///
+    /// Só existe quando a análise já rodou. Sem `MessageTriage` não há selo —
+    /// nada aqui é adivinhado por heurística de texto.
+    private func pedidoBlock(_ pedido: PedidoDoEmail) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: pedido.urgente ? "exclamationmark.circle.fill" : "arrow.turn.up.left")
+                .font(.system(size: DashboardMetrics.capsSize, weight: .bold))
+                .accessibilityHidden(true)
+            // O versalete é escrito à mão, e **não** com `capsLabel`: aquele
+            // modificador pinta `ink3` por dentro, e cor pedida por fora não o
+            // vence. Foi assim que a primeira renderização saiu com o selo
+            // cinza sobre laranja, ilegível — o oposto do que ele existe para
+            // fazer. Mesma escrita da etiqueta de razão (`DashboardReasonChip`).
+            Text(pedido.rotulo)
+                .font(theme.mono.font(size: DashboardMetrics.capsSize, weight: .semibold))
+                .tracking(theme.capsTracking(at: DashboardMetrics.capsSize))
+                .textCase(.uppercase)
+                .lineLimit(1)
+        }
+        .foregroundStyle(pedido.urgente ? theme.paper.color : theme.accentInk.color)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 4)
+        .background(pedido.urgente ? theme.accent.color : theme.accentSoft.color)
+        .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+        .padding(.bottom, DashboardMetrics.previewPedidoSpacing)
+        .help(pedido.evidencia ?? pedido.rotulo)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Este email \(pedido.rotulo.lowercased())")
+    }
+
     /// O resumo da análise, no topo e em duas linhas no máximo.
     ///
     /// Deliberadamente **não** é o cartão do leitor (`ReaderPane.summaryCard`):
@@ -237,23 +287,43 @@ struct DashboardPreviewPane: View {
     /// disso cabe em 380pt. Aqui é a frase, marcada pelo acento à esquerda para
     /// não se confundir com o corpo.
     private func resumoBlock(_ resumo: String) -> some View {
-        Text(resumo)
-            .font(theme.sans.font(size: DashboardMetrics.previewExcerptSize, weight: .medium))
-            .foregroundStyle(theme.ink.color)
-            .lineSpacing(DashboardMetrics.previewExcerptSize * 0.35)
-            .fixedSize(horizontal: false, vertical: true)
-            .textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, 10)
-            .padding(.vertical, 2)
-            .overlay(alignment: .leading) {
-                Rectangle()
-                    .fill(theme.accent.color)
-                    .frame(width: DashboardMetrics.draftBarWidth)
-                    .accessibilityHidden(true)
-            }
-            .padding(.bottom, DashboardMetrics.previewExcerptTopSpacing)
-            .accessibilityLabel("Resumo. \(resumo)")
+        VStack(alignment: .leading, spacing: 5) {
+            Text("Resumo")
+                .capsLabel(size: DashboardMetrics.capsSize)
+                .foregroundStyle(theme.accentInk.color)
+            Text(resumo)
+                .font(
+                    theme.sans.font(
+                        size: DashboardMetrics.previewExcerptSize, weight: .semibold
+                    )
+                )
+                .foregroundStyle(theme.ink.color)
+                .lineSpacing(DashboardMetrics.previewExcerptSize * 0.35)
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.surface2.color)
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(theme.accent.color)
+                .frame(width: DashboardMetrics.draftBarWidth)
+                .accessibilityHidden(true)
+        }
+        .clipShape(
+            UnevenRoundedRectangle(
+                topLeadingRadius: 0,
+                bottomLeadingRadius: 0,
+                bottomTrailingRadius: theme.radiusSmall,
+                topTrailingRadius: theme.radiusSmall
+            )
+        )
+        .padding(.bottom, DashboardMetrics.previewExcerptTopSpacing)
+        .accessibilityLabel("Resumo. \(resumo)")
     }
 
     private func retryBody() async {
@@ -282,7 +352,19 @@ struct DashboardPreviewPane: View {
             }
             previewAction("Depois") { onCommand(.move(messageID: message.id, to: .later)) }
         }
+        // **O piso das ações.** Régua em cima e fundo de `paper` embaixo: o
+        // corpo que rola passa por trás do véu e morre aqui, e nunca meia
+        // linha de texto atrás de um botão.
         .padding(.top, DashboardMetrics.previewActionsTopSpacing)
+        .padding(.bottom, 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.paper.color)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(theme.line2.color)
+                .frame(height: Hairline.thickness(displayScale))
+                .accessibilityHidden(true)
+        }
     }
 
     private func previewAction(_ title: String, action: @escaping () -> Void) -> some View {

@@ -33,6 +33,9 @@ enum DashboardPreviewBody {
         let isWaiting: Bool
         /// A busca falhou, no idioma da pessoa.
         let failure: String?
+        /// **O que este email pede de você**, quando a análise já disse. `nil`
+        /// sem análise — nada aqui é adivinhado a partir do texto.
+        let pedido: PedidoDoEmail?
 
         var isEmpty: Bool { text.isEmpty }
     }
@@ -46,12 +49,18 @@ enum DashboardPreviewBody {
         message.body.isEmpty && (message.bodyHTML?.isEmpty ?? true)
     }
 
-    static func state(for message: Message, load: MailStore.BodyLoad?) -> State {
+    static func state(
+        for message: Message, load: MailStore.BodyLoad?, agora: Date = Date()
+    ) -> State {
         let podado = message.summary?.trimmingCharacters(in: .whitespacesAndNewlines)
         let resumo = (podado?.isEmpty ?? true) ? nil : podado
+        let pedido = PedidoDoEmail.de(triagem: message.triage, agora: agora)
 
         func pronto(_ texto: String, _ corpo: CorpoLegivel) -> State {
-            State(text: texto, corpo: corpo, resumo: resumo, isWaiting: false, failure: nil)
+            State(
+                text: texto, corpo: corpo, resumo: resumo,
+                isWaiting: false, failure: nil, pedido: pedido
+            )
         }
 
         let texto = message.body
@@ -69,27 +78,36 @@ enum DashboardPreviewBody {
         // Continua **sem** `WKWebView`: 380pt não são a largura de um email, e
         // o leitor cortado é a área morta que esta tela veio matar.
         if let html = message.bodyHTML, !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            let corpo = CorpoLegivel.deHTML(html)
+            let corpo = CorpoLegivel.deHTML(html, assunto: message.subject)
             if !corpo.isEmpty {
                 return pronto(texto.isEmpty ? corpo.textoVisivel : texto, corpo)
             }
         }
 
         if !texto.isEmpty {
-            return pronto(texto, CorpoLegivel.deTextoSimples(texto))
+            return pronto(texto, CorpoLegivel.deTextoSimples(texto, assunto: message.subject))
         }
 
         // Sem corpo ainda: o trecho da lista segura o lugar, e o estado diz o
         // porquê.
         let trecho = message.snippet.trimmingCharacters(in: .whitespacesAndNewlines)
-        let corpo = CorpoLegivel.deTextoSimples(trecho)
+        let corpo = CorpoLegivel.deTextoSimples(trecho, assunto: message.subject)
         switch load {
         case .carregando:
-            return State(text: trecho, corpo: corpo, resumo: resumo, isWaiting: true, failure: nil)
+            return State(
+                text: trecho, corpo: corpo, resumo: resumo,
+                isWaiting: true, failure: nil, pedido: pedido
+            )
         case let .falhou(causa):
-            return State(text: trecho, corpo: corpo, resumo: resumo, isWaiting: false, failure: causa)
+            return State(
+                text: trecho, corpo: corpo, resumo: resumo,
+                isWaiting: false, failure: causa, pedido: pedido
+            )
         case .buscado, .none:
-            return State(text: trecho, corpo: corpo, resumo: resumo, isWaiting: false, failure: nil)
+            return State(
+                text: trecho, corpo: corpo, resumo: resumo,
+                isWaiting: false, failure: nil, pedido: pedido
+            )
         }
     }
 }

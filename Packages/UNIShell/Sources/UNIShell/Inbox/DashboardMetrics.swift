@@ -86,6 +86,20 @@ enum DashboardMetrics {
         previewExcerptLineHeight * CGFloat(previewExcerptLinesWithDraft)
     /// `.pv-acts { margin-top: 14px; gap: 6px }` e `.act { height: 28px;
     /// padding: 0 12px; font-size: 12px }`.
+    /// A calha à direita do corpo: encurta a medida da linha e deixa a barra
+    /// de rolagem passar sem sentar em cima da palavra.
+    static let previewBodyGutter: CGFloat = 14
+    /// A altura do véu de `paper` no pé do corpo — e a folga que o texto ganha
+    /// embaixo, para a última linha nunca morrer colada na aresta.
+    static let previewBodyFade: CGFloat = 44
+    /// A fronteira entre o cabeçalho do email (remetente, assunto, etiquetas) e
+    /// o corpo. É uma régua de dois fios, e não a hairline de um: essa fronteira
+    /// tem de ser vista sem ser procurada.
+    static let previewHeaderRuleScale: CGFloat = 2
+    static let previewHeaderRuleSpacing: CGFloat = 12
+    /// O selo do que o email pede.
+    static let previewPedidoSpacing: CGFloat = 10
+
     static let previewActionsTopSpacing: CGFloat = 14
     static let previewActionSpacing: CGFloat = 6
     static let previewActionHeight: CGFloat = 28
