@@ -334,7 +334,31 @@ struct GeneralSettingsView: View {
     }
 
     private var assistantRouteLabel: String {
-        AssistantDestination(settings: draft).label
+        Self.assistantRouteLabel(for: draft)
+    }
+
+    /// `AssistantDestination.label` é a cópia canônica (spec 1.2) e não leva
+    /// modelo — o mesmo rótulo serve o painel, o dashboard e o popover, onde
+    /// o modelo não cabe. Aqui, no card de Ajustes que já mostra os campos do
+    /// provedor selecionado, o modelo agrega informação sem repetir a
+    /// promessa de destino, então é anexado só nesta apresentação.
+    ///
+    /// `static` e visível ao pacote (não `private`) para o teste chamar sem
+    /// precisar montar o estado interno da view.
+    static func assistantRouteLabel(for settings: AssistantSettings) -> String {
+        let destination = AssistantDestination(settings: settings)
+        let model: String
+        switch settings.provider {
+        case .foundationModels:
+            model = ""
+        case .providerOAuth:
+            model = settings.providerOAuth.model.trimmingCharacters(in: .whitespacesAndNewlines)
+        case .openAICompatible:
+            model = settings.openAICompatible.model.trimmingCharacters(in: .whitespacesAndNewlines)
+        case .cli:
+            model = ""
+        }
+        return model.isEmpty ? destination.label : "\(destination.label) · \(model)"
     }
 
     @ViewBuilder

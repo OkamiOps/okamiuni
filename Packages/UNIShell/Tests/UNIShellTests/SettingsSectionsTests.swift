@@ -21,6 +21,29 @@ struct SettingsSectionsTests {
     private let compactRenderSize = CGSize(width: 960, height: 680)
     private let createdAt = Date(timeIntervalSince1970: 1_800_000_000)
 
+    @Test("o rótulo da rota interativa mostra o modelo escolhido, exceto no Foundation Models")
+    func assistantRouteLabelCarregaModelo() {
+        var remoto = AssistantSettings.default
+        remoto.provider = .providerOAuth
+        remoto.providerOAuth.kind = .codex
+        remoto.providerOAuth.model = "gpt-4"
+        let rotuloRemoto = GeneralSettingsView.assistantRouteLabel(for: remoto)
+        #expect(rotuloRemoto.contains("gpt-4"))
+        #expect(rotuloRemoto == "Codex · ChatGPT · gpt-4")
+
+        var openAI = AssistantSettings.default
+        openAI.provider = .openAICompatible
+        openAI.openAICompatible.endpoint = "https://api.exemplo.com/v1"
+        openAI.openAICompatible.model = "gpt-4o-mini"
+        let rotuloOpenAI = GeneralSettingsView.assistantRouteLabel(for: openAI)
+        #expect(rotuloOpenAI.contains("gpt-4o-mini"))
+
+        let local = AssistantSettings.default
+        let rotuloLocal = GeneralSettingsView.assistantRouteLabel(for: local)
+        #expect(rotuloLocal == "Neste Mac")
+        #expect(!rotuloLocal.localizedCaseInsensitiveContains("gpt"))
+    }
+
     @Test("Geral apresenta o ambiente atual sem iniciar o login de IA")
     func geralRenderizaAmbiente() async throws {
         let model = try await model(with: [account(
