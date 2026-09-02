@@ -363,6 +363,48 @@ struct GeneralSettingsView: View {
     /// opt-in desligado, quando nada sai daqui. Afirmar no presente o que só
     /// vale ligado transformava o texto em susto falso; o título passa a
     /// dizer se é fato ou condição.
+    /// O consentimento da análise automática é para **uma** empresa, e o
+    /// carimbo dele é o que faz a promessa "só mensagens novas" valer.
+    /// Trocar de provedor, de assinatura, de CLI ou de servidor sem desligar
+    /// a rota mandaria a caixa da pessoa para quem ela nunca autorizou — e
+    /// com o carimbo antigo, ainda por cima. A rota volta para este Mac; a
+    /// pessoa marca de novo, sabendo para onde.
+    static func consentReset(_ settings: AssistantSettings) -> AssistantSettings {
+        guard settings.automaticAnalysis == .configuredProvider else { return settings }
+        var updated = settings
+        updated.automaticAnalysis = .onDeviceOnly
+        updated.automaticAnalysisSince = nil
+        return updated
+    }
+
+    /// Este ajuste muda o **alvo** do consentimento? É a pergunta que os
+    /// quatro pontos de edição fazem antes de tocar no rascunho, e é `static`
+    /// para o teste poder cobrir os quatro sem montar a janela.
+    static func retargetsAutomaticAnalysis(
+        from settings: AssistantSettings,
+        provider: AssistantProvider? = nil,
+        oauthKind: AssistantProviderOAuthKind? = nil,
+        cliKind: AssistantCLIKind? = nil,
+        endpoint: String? = nil
+    ) -> Bool {
+        if let provider, provider != settings.provider { return true }
+        if let oauthKind, oauthKind != settings.providerOAuth.kind { return true }
+        if let cliKind, cliKind != settings.cli.kind { return true }
+        if let endpoint, host(of: endpoint) != host(of: settings.openAICompatible.endpoint) {
+            return true
+        }
+        return false
+    }
+
+    /// Só o host importa: mudar `/v1` para `/v1/chat` é o mesmo servidor, e
+    /// desligar o opt-in por isso seria ruído. Um endereço que nem URL é
+    /// vira o texto cru — comparar duas versões dele ainda responde
+    /// "mudou?" corretamente.
+    static func host(of endpoint: String) -> String {
+        let trimmed = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+        return URL(string: trimmed)?.host()?.lowercased() ?? trimmed.lowercased()
+    }
+
     static func automaticAnalysisNoticeTitle(for settings: AssistantSettings) -> String {
         settings.automaticAnalysis == .configuredProvider
             ? "Cada mensagem recebida sai deste Mac"
@@ -760,7 +802,15 @@ struct GeneralSettingsView: View {
         SettingsLabeledRow(label: "CLI") {
             Picker("", selection: Binding(
                 get: { draft.cli.kind },
-                set: { draft.cli.kind = $0; clearFeedback() }
+                set: {
+                    // Trocar de CLI é trocar de empresa, como trocar de
+                    // provedor: o consentimento não acompanha.
+                    if Self.retargetsAutomaticAnalysis(from: draft, cliKind: $0) {
+                        resetAutomaticAnalysisConsent()
+                    }
+                    draft.cli.kind = $0
+                    clearFeedback()
+                }
             )) {
                 ForEach(AssistantCLIKind.allCases) { kind in
                     Text(kind.authenticationDisplayName).tag(kind)
@@ -997,11 +1047,18 @@ struct GeneralSettingsView: View {
         .settingsQuietButton()
     }
 
+    private func resetAutomaticAnalysisConsent() {
+        draft = Self.consentReset(draft)
+    }
+
     private func updateEndpoint(_ endpoint: String) {
         guard endpoint != draft.openAICompatible.endpoint else { return }
 
         let invalidatedAPIKey = remoteAuthenticationRequiresAPIKey
             && (hasStoredCredential || !credential.isEmpty)
+        if Self.retargetsAutomaticAnalysis(from: draft, endpoint: endpoint) {
+            resetAutomaticAnalysisConsent()
+        }
         draft.openAICompatible.endpoint = endpoint
         if endpoint != credentialScopeEndpoint,
            remoteAuthenticationRequiresAPIKey {
@@ -1029,6 +1086,9 @@ struct GeneralSettingsView: View {
             providerOAuthMonitor = nil
             clearProviderOAuthModels()
         }
+        if Self.retargetsAutomaticAnalysis(from: draft, provider: provider) {
+            resetAutomaticAnalysisConsent()
+        }
         draft.provider = provider
         credential = ""
         clearFeedback()
@@ -1049,6 +1109,9 @@ struct GeneralSettingsView: View {
         clearProviderOAuthModels()
         // Cada provedor recebe uma referência própria. O modelo fica vazio até
         // a conta devolver seu catálogo; não há fallback compilado no app.
+        if Self.retargetsAutomaticAnalysis(from: draft, oauthKind: kind) {
+            resetAutomaticAnalysisConsent()
+        }
         draft.providerOAuth = .init(kind: kind)
         providerOAuthStatus = .checking
         clearFeedback()

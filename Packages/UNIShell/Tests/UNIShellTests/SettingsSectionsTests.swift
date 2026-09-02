@@ -80,6 +80,44 @@ struct SettingsSectionsTests {
         )
     }
 
+    /// O consentimento é para uma empresa nomeada. Trocar de provedor, de
+    /// assinatura, de CLI ou de servidor com a rota ligada mandaria a caixa
+    /// da pessoa para quem ela nunca autorizou — e com o carimbo antigo, que
+    /// é justamente o que limita a promessa a "mensagens novas".
+    @Test("trocar o destino desliga o opt-in e apaga o carimbo")
+    func retargetingTheProviderRequiresConsentAgain() {
+        var ligado = AssistantSettings.default
+        ligado.provider = .providerOAuth
+        ligado.providerOAuth.kind = .xAI
+        ligado.providerOAuth.model = "grok-4"
+        ligado.openAICompatible.endpoint = "https://api.exemplo.com/v1"
+        ligado.automaticAnalysis = .configuredProvider
+        ligado.automaticAnalysisSince = Date(timeIntervalSince1970: 1_788_000_000)
+
+        // (1) outro provedor, (2) outra assinatura, (3) outro servidor,
+        // e o CLI pelo mesmo motivo.
+        #expect(GeneralSettingsView.retargetsAutomaticAnalysis(from: ligado, provider: .cli))
+        #expect(GeneralSettingsView.retargetsAutomaticAnalysis(from: ligado, oauthKind: .codex))
+        #expect(GeneralSettingsView.retargetsAutomaticAnalysis(
+            from: ligado, endpoint: "https://outro.exemplo.com/v1"
+        ))
+        #expect(GeneralSettingsView.retargetsAutomaticAnalysis(from: ligado, cliKind: .openCode))
+
+        // O mesmo destino escrito de outro jeito não é troca: desligar o
+        // opt-in por causa de um caminho diferente no mesmo host seria ruído.
+        #expect(!GeneralSettingsView.retargetsAutomaticAnalysis(from: ligado, provider: .providerOAuth))
+        #expect(!GeneralSettingsView.retargetsAutomaticAnalysis(from: ligado, oauthKind: .xAI))
+        #expect(!GeneralSettingsView.retargetsAutomaticAnalysis(
+            from: ligado, endpoint: "https://API.exemplo.com/v1/chat/completions"
+        ))
+
+        let redefinido = GeneralSettingsView.consentReset(ligado)
+        #expect(redefinido.automaticAnalysis == .onDeviceOnly)
+        #expect(redefinido.automaticAnalysisSince == nil)
+        // Nada além do consentimento é mexido: o provedor continua escolhido.
+        #expect(redefinido.provider == .providerOAuth)
+    }
+
     @Test("Geral apresenta o ambiente atual sem iniciar o login de IA")
     func geralRenderizaAmbiente() async throws {
         let model = try await model(with: [account(
