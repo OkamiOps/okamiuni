@@ -184,7 +184,7 @@ struct InboxAssistantIntegrationTests {
 
     @Test("listas Markdown mantêm itens separados no mini-chat")
     func readerMarkdownPreservesRequestedStructure() {
-        let blocks = ReaderAssistantMarkdownBlock.parse("""
+        let blocks = AssistantMarkdownBlock.parse("""
         # Próximos passos
 
         - Confirmar a pauta com Produto

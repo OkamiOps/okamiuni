@@ -506,11 +506,17 @@ public struct AssistantPanel: View {
                     .font(theme.mono.font(size: 8.5, weight: .medium))
                     .tracking(theme.capsTracking(at: 8.5))
                     .foregroundStyle(message.speaker == .user ? theme.info.color : theme.ink4.color)
-                Text(message.text)
-                    .font(theme.sans.font(size: 12.5))
-                    .foregroundStyle(theme.ink2.color)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .textSelection(.enabled)
+                // Turno de rascunho é prosa de email: asterisco e hífen ali são
+                // literais que a pessoa vai colar no composer.
+                if message.speaker == .user {
+                    Text(message.text)
+                        .font(theme.sans.font(size: 12.5))
+                        .foregroundStyle(theme.ink2.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                } else {
+                    AssistantMarkdown(text: message.text)
+                }
             }
             .frame(maxWidth: 274, alignment: .leading)
             .padding(10)
