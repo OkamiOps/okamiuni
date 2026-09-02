@@ -28,7 +28,7 @@
   ```
   Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
   ```
-- **Cada tarefa termina compilando e com os testes do pacote tocado verdes.** "Verde" significa sem falha nova. A linha de base medida em 2026-09-01 sobre `main` (0a6330a) já tem 4 falhas que não são deste trabalho e não devem ser "consertadas" de passagem: `DatabaseMailSourceTests.swift:57` ("O corpo vem junto para quem já o tem no banco"), `DatabaseBodyFetcherTests.swift:180`, `GmailMirrorTests.swift:110` ("Arquivar tira a INBOX") em UNISync, e `QuickReplyBandTests.swift:817` em UNIShell. Se uma tarefa fizer alguma delas passar ou mudar de mensagem, registre no commit.
+- **Cada tarefa termina compilando e com os testes do pacote tocado verdes.** "Verde" significa sem falha nova. A linha de base medida em 2026-09-01 sobre `main` (0a6330a) já tem 4 falhas que não são deste trabalho e não devem ser "consertadas" de passagem: `DatabaseMailSourceTests.swift:57` ("O corpo vem junto para quem já o tem no banco"), `DatabaseBodyFetcherTests.swift:180`, `GmailMirrorTests.swift:110` ("Arquivar tira a INBOX") em UNISync, e, em UNIShell, `QuickReplyBandTests.swift:817`, `TrashTests.swift:102` ("só a Lixeira e Enviadas têm símbolo"), `ReaderHTMLLoadingTests.swift:62` e `:90` (medidos de novo em 2026-09-02 num checkout limpo de 3d9af34: 7 falhas herdadas no total). Se uma tarefa fizer alguma delas passar ou mudar de mensagem, registre no commit.
 - **A suíte de UNIShell rodou inteira no shell do orquestrador em 2026-09-01** (≈135 s, com sandbox). Se travar no seu ambiente, veja a nota de ambiente no fim do plano antes de suspeitar do código.
 
 ---
