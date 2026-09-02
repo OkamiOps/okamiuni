@@ -124,6 +124,9 @@ public struct AppComposition: Sendable {
     /// caixa, agora com o escopo de Space.
     /// Recalculado a cada save das preferências; a interface só observa.
     public let assistantAvailability: AssistantAvailabilityModel
+    /// A varredura de CLIs guardada por 60 s. É a mesma instância que o
+    /// roteador consulta, e por isso salvar Ajustes precisa invalidá-la.
+    public let assistantCLIDiscovery: CachedAssistantCLIDiscovery
     public let googleAuth: GoogleAuth?
     /// Falha de configuração que o app **mostra** em vez de esconder: banco
     /// que não abriu, client ID que falta. Nunca fatal.
@@ -152,11 +155,17 @@ public struct AppComposition: Sendable {
         let assistantCredentials = KeychainAssistantCredentialStore()
         let liteLLMOAuth = LiteLLMOAuthCoordinator()
         let assistantProviderOAuth = AssistantProviderOAuthCoordinator()
+        let cliDiscovery = CachedAssistantCLIDiscovery()
+        // Salvar Ajustes é exatamente o momento em que "acabei de instalar o
+        // Codex" precisa valer na hora. O gancho do próprio armazém cobre
+        // todos os caminhos de save, inclusive o `reset()`.
+        assistantSettings.addDidChangeHandler { _ in cliDiscovery.invalidate() }
         let router = AssistantRouter(
             settingsStore: assistantSettings,
             credentialStore: assistantCredentials,
             oauthTokenProvider: liteLLMOAuth,
-            providerOAuthTokenProvider: assistantProviderOAuth
+            providerOAuthTokenProvider: assistantProviderOAuth,
+            cliInstallationProvider: { cliDiscovery.installations() }
         )
         let textAssistant: any TextAssisting = router
         let assistantAvailability = AssistantAvailabilityModel(
@@ -187,6 +196,7 @@ public struct AppComposition: Sendable {
                 liteLLMOAuth: liteLLMOAuth,
                 assistantProviderOAuth: assistantProviderOAuth,
                 assistantAvailability: assistantAvailability,
+                assistantCLIDiscovery: cliDiscovery,
                 googleAuth: nil,
                 configError: falha
             )
@@ -348,6 +358,7 @@ public struct AppComposition: Sendable {
             liteLLMOAuth: liteLLMOAuth,
             assistantProviderOAuth: assistantProviderOAuth,
             assistantAvailability: assistantAvailability,
+            assistantCLIDiscovery: cliDiscovery,
             googleAuth: auth,
             configError: erro
         )

@@ -41,8 +41,8 @@ struct AssistantFailureTests {
             == "O assistente devolveu uma resposta vazia.")
     }
 
-    /// Enquanto `processFailed` não carrega o stderr (Task 11), a regra de
-    /// recorte é verificada direto no ajudante que a implementa.
+    /// A regra de recorte também é verificada direto no ajudante que a
+    /// implementa, sem passar pelo erro do transporte.
     @Test("do stderr do CLI só a primeira linha vira mensagem")
     func cliMessageKeepsFirstStderrLine() {
         let message = AssistantFailure.cliMessage(
@@ -55,12 +55,14 @@ struct AssistantFailureTests {
         #expect(AssistantFailure.cliMessage(base: "Falhou.", stderrTail: "  \n ") == "Falhou.")
     }
 
-    @Test("o CLI que morreu mostra a primeira linha do stderr",
-          .disabled("stderr chega na Task 11"))
+    @Test("o CLI que morreu mostra a primeira linha do stderr")
     func cliFailureShowsStderr() {
-        let failure = AssistantFailure(AssistantCLITextAssistantError.processFailed)
-        // Passa quando `processFailed` passar a carregar `stderrTail`.
+        let failure = AssistantFailure(AssistantCLITextAssistantError.processFailed(
+            exitCode: 1,
+            stderrTail: "error: not logged in\nrun `codex login`"
+        ))
         #expect(failure.message.contains("error: not logged in"))
+        #expect(!failure.message.contains("codex login"))
         #expect(failure.recovery == .openSettings)
     }
 
@@ -169,7 +171,7 @@ struct AssistantFailureTests {
                AssistantFailure.Recovery.openSettings),
               (.executableNotFound(.claude), .openSettings),
               (.executableNotAllowed, .openSettings),
-              (.processFailed, .openSettings),
+              (.processFailed(exitCode: 1, stderrTail: ""), .openSettings),
               (.timedOut, .retry),
               (.outputTooLarge, .retry),
               (.invalidResponse, .retry),

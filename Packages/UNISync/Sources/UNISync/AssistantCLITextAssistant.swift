@@ -1,9 +1,9 @@
 import Foundation
 import UNICore
 
-/// Resultado bruto de uma execução de CLI. `standardError` existe para
-/// executores falsos e futuros adaptadores, mas nunca é incluído em uma
-/// mensagem de erro apresentada à pessoa.
+/// Resultado bruto de uma execução de CLI. `standardError` carrega apenas a
+/// cauda do que o processo escreveu; dela só a primeira linha chega à pessoa,
+/// recortada por `AssistantFailure`.
 public struct AssistantCLIProcessResult: Sendable, Hashable {
     public let exitStatus: Int32
     public let standardOutput: Data
@@ -114,8 +114,9 @@ public enum AssistantCLIProcessError: Error, Sendable, Equatable, LocalizedError
 }
 
 /// Executor de produção sem shell. Ele abre o CLI em uma pasta temporária
-/// privada em vez do diretório do app, preserva o prompt em stdin e limita
-/// stdout antes de o analisar e descarta stderr. A sessão OAuth/device continua sendo
+/// privada em vez do diretório do app, preserva o prompt em stdin, limita
+/// stdout antes de o analisar e guarda a cauda do stderr — é lá que a causa
+/// real da falha aparece. A sessão OAuth/device continua sendo
 /// resolvida dentro do processo filho pelo CLI escolhido.
 public struct SystemAssistantCLIProcessExecutor: AssistantCLIProcessExecuting {
     public static let maximumOutputBytes = 1_000_000
@@ -172,6 +173,18 @@ public struct SystemAssistantCLIProcessExecutor: AssistantCLIProcessExecuting {
         }
         defer { try? outputHandle.close() }
 
+        let errorURL = workingDirectory.appendingPathComponent("stderr")
+        guard fileManager.createFile(
+            atPath: errorURL.path, contents: nil, attributes: [.posixPermissions: 0o600]
+        ) else { throw AssistantCLIProcessError.failedToStart }
+        let errorHandle: FileHandle
+        do {
+            errorHandle = try FileHandle(forWritingTo: errorURL)
+        } catch {
+            throw AssistantCLIProcessError.failedToStart
+        }
+        defer { try? errorHandle.close() }
+
         let input = Pipe()
         let inputWriter = StandardInputWriter(
             handle: input.fileHandleForWriting,
@@ -184,7 +197,7 @@ public struct SystemAssistantCLIProcessExecutor: AssistantCLIProcessExecuting {
         process.currentDirectoryURL = workingDirectory
         process.standardInput = input
         process.standardOutput = outputHandle
-        process.standardError = FileHandle.nullDevice
+        process.standardError = errorHandle
 
         do {
             try process.run()
@@ -232,8 +245,24 @@ public struct SystemAssistantCLIProcessExecutor: AssistantCLIProcessExecuting {
         }
         return .init(
             exitStatus: process.terminationStatus,
-            standardOutput: standardOutput
+            standardOutput: standardOutput,
+            standardError: standardErrorTail(at: errorURL)
         )
+    }
+
+    /// Cauda, e não cabeça: a causa real ("not logged in", "model not
+    /// found") vem na última linha, depois de banner e barra de progresso.
+    static let maximumStandardErrorBytes = 4 * 1_024
+
+    static func standardErrorTail(at url: URL) -> Data {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return Data() }
+        defer { try? handle.close() }
+        guard let size = try? handle.seekToEnd() else { return Data() }
+        let offset = size > UInt64(maximumStandardErrorBytes)
+            ? size - UInt64(maximumStandardErrorBytes)
+            : 0
+        try? handle.seek(toOffset: offset)
+        return (try? handle.readToEnd()) ?? Data()
     }
 
     private static func outputSize(at url: URL, fileManager: FileManager) -> Int {
@@ -303,7 +332,7 @@ public enum AssistantCLITextAssistantError: Error, Sendable, Equatable, Localize
     case executableNotAllowed
     case timedOut
     case outputTooLarge
-    case processFailed
+    case processFailed(exitCode: Int32, stderrTail: String)
     case invalidResponse
 
     public var errorDescription: String? {
@@ -317,7 +346,7 @@ public enum AssistantCLITextAssistantError: Error, Sendable, Equatable, Localize
         case .outputTooLarge:
             "O CLI de IA devolveu dados demais para esta ação."
         case .processFailed:
-            "O CLI de IA não concluiu a resposta. Abra-o manualmente para verificar a sessão."
+            "O CLI de IA encerrou com erro."
         case .invalidResponse:
             "O CLI de IA devolveu uma resposta que o OkamiUNI não consegue usar."
         }
@@ -351,6 +380,10 @@ public struct AssistantCLICommand: Sendable, Hashable {
         self.environment = environment
     }
 
+    // Conferido em 2026-09-01 contra os binários instalados nesta máquina:
+    // `codex exec --json`, `claude --print --output-format json`,
+    // `opencode --pure run --format json`. As flags existem; o defeito que
+    // fazia o CLI parecer mudo era o stderr descartado, não o argv.
     public static func make(
         kind: AssistantCLIKind,
         installation: AssistantCLIInstallation
@@ -541,13 +574,17 @@ public struct AssistantCLITextAssistant: TextAssisting, Sendable {
             case .outputTooLarge:
                 throw AssistantCLITextAssistantError.outputTooLarge
             case .failedToStart:
-                throw AssistantCLITextAssistantError.processFailed
+                throw AssistantCLITextAssistantError.processFailed(exitCode: -1, stderrTail: "")
             }
         } catch {
-            throw AssistantCLITextAssistantError.processFailed
+            throw AssistantCLITextAssistantError.processFailed(exitCode: -1, stderrTail: "")
         }
         guard result.exitStatus == 0 else {
-            throw AssistantCLITextAssistantError.processFailed
+            throw AssistantCLITextAssistantError.processFailed(
+                exitCode: result.exitStatus,
+                stderrTail: String(decoding: result.standardError, as: UTF8.self)
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            )
         }
         let response = try AssistantCLIResponseParser.parse(
             result.standardOutput,

@@ -84,7 +84,11 @@ public struct AssistantFailure: Sendable, Hashable {
             )
         case let error as AssistantCLITextAssistantError:
             self.init(
-                message: error.errorDescription ?? Self.fallbackMessage,
+                message: {
+                    let base = error.errorDescription ?? Self.fallbackMessage
+                    guard case let .processFailed(_, stderrTail) = error else { return base }
+                    return Self.cliMessage(base: base, stderrTail: stderrTail)
+                }(),
                 recovery: {
                     switch error {
                     case .executableNotFound, .executableNotAllowed, .processFailed:
@@ -121,9 +125,6 @@ public struct AssistantFailure: Sendable, Hashable {
     /// O stderr do CLI é o único lugar onde a causa real aparece ("not
     /// logged in", "model not found"). Uma linha basta: a cauda inteira é
     /// ruído e pode carregar caminho de arquivo da pessoa.
-    ///
-    /// O ajudante já existe porque a regra é dele; quem lhe passa a cauda é a
-    /// Task 11, quando `processFailed` passar a carregar `stderrTail`.
     static func cliMessage(base: String, stderrTail: String) -> String {
         let firstLine = stderrTail
             .split(separator: "\n", omittingEmptySubsequences: true)

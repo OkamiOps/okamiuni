@@ -188,6 +188,46 @@ struct AssistantCLITextAssistantTests {
             try await assistant.answer(question: "Qual é a prioridade?", in: conversation)
         }
     }
+
+    @Test("o CLI que morreu entrega o stderr, não um silêncio")
+    func processFailureCarriesStderr() async throws {
+        let executor = RecordingCLIExecutor(result: .init(
+            exitStatus: 1,
+            standardOutput: Data(),
+            standardError: Data("error: not logged in\n".utf8)
+        ))
+        let assistant = AssistantCLITextAssistant(
+            command: try AssistantCLICommand.make(
+                kind: .codex,
+                installation: .init(kind: .codex, executablePath: "/usr/local/bin/codex")
+            ),
+            executor: executor
+        )
+        await #expect(throws: AssistantCLITextAssistantError.processFailed(
+            exitCode: 1,
+            stderrTail: "error: not logged in"
+        )) {
+            try await assistant.answer(question: "oi", in: conversation)
+        }
+    }
+
+    @Test("do stderr guardamos a cauda de 4 KiB, não a cabeça")
+    func standardErrorKeepsTailWithinCap() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("okamiuni-stderr-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("stderr")
+
+        let banner = String(repeating: "b", count: 8 * 1_024)
+        try Data((banner + "\nerror: not logged in\n").utf8).write(to: url)
+
+        let tail = SystemAssistantCLIProcessExecutor.standardErrorTail(at: url)
+        #expect(tail.count <= SystemAssistantCLIProcessExecutor.maximumStandardErrorBytes)
+        let text = String(decoding: tail, as: UTF8.self)
+        #expect(text.contains("error: not logged in"))
+        #expect(!text.contains(banner))
+    }
 }
 
 private actor RecordingCLIExecutor: AssistantCLIProcessExecuting {
