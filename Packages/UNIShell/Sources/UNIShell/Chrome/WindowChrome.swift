@@ -578,6 +578,24 @@ public struct WindowChrome: View {
         .accessibilityValue(statusPhrase)
     }
 
+    /// A barra fina, e o que cada estado dela quer dizer.
+    ///
+    /// A regra que a governa: **parada ela é cinza**. A versão anterior pintava
+    /// a barra inteira de `accentSoft` em repouso, e o dono reclamou com razão
+    /// — cheia e colorida sem estar fazendo nada, ela lia como uma barra de
+    /// progresso travada em 100%, e ele não sabia dizer se o app sincronizava
+    /// ou não. Cor nesta barra passou a significar uma coisa só: trabalho
+    /// acontecendo agora.
+    ///
+    /// - Repouso e caixa vazia: só o trilho, `line` a 55%.
+    /// - Trabalhando sem saber quanto falta: um cursor de 35% da largura
+    ///   **atravessa** a barra em 1,1 s, para sempre. Movimento é o sinal —
+    ///   uma faixa que só muda de opacidade passa despercebida, que é
+    ///   exatamente o que aconteceu.
+    /// - Trabalhando com fração conhecida: enchimento de verdade da esquerda
+    ///   para a direita.
+    /// - Falha: `danger` na barra inteira, parada. Vermelho e imóvel não se
+    ///   confunde com nenhum dos outros.
     private var mailboxStatusBar: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
@@ -585,6 +603,7 @@ public struct WindowChrome: View {
                     .fill(theme.line.color.opacity(0.55))
                 statusFill(width: geo.size.width)
             }
+            .clipShape(Capsule())
         }
         .frame(height: 2)
         .accessibilityElement(children: .ignore)
@@ -592,18 +611,15 @@ public struct WindowChrome: View {
         .accessibilityValue(statusPhrase)
         .accessibilityIdentifier("mailbox-sync-status")
         .help(statusPhrase)
-        .onChange(of: syncStatus.isBusy) { _, busy in
-            statusPulse = busy
-        }
-        .onAppear {
-            statusPulse = syncStatus.isBusy
-        }
     }
+
+    /// Quanto da barra o cursor ocupa enquanto atravessa.
+    static let cursorFraction: CGFloat = 0.35
 
     @ViewBuilder
     private func statusFill(width: CGFloat) -> some View {
         switch syncStatus {
-        case .empty:
+        case .empty, .ready:
             EmptyView()
         case .loading(let fraction):
             if let fraction {
@@ -612,23 +628,34 @@ public struct WindowChrome: View {
                     .frame(width: max(6, width * fraction))
                     .animation(.easeInOut(duration: 0.2), value: fraction)
             } else {
-                Capsule()
-                    .fill(theme.activity.color)
-                    .frame(width: width)
-                    .opacity(statusPulse ? 0.9 : 0.28)
-                    .animation(
-                        .easeInOut(duration: 0.9).repeatForever(autoreverses: true),
-                        value: statusPulse
-                    )
+                cursorViajante(width: width)
             }
-        case .ready:
-            Capsule()
-                .fill(theme.accentSoft.color)
-                .frame(width: width)
         case .failed:
             Capsule()
                 .fill(theme.danger.color)
                 .frame(width: width)
+        }
+    }
+
+    /// O cursor que atravessa.
+    ///
+    /// Ele começa **encostado na borda esquerda** — e não fora da barra — para
+    /// que a captura fora de tela, que congela antes de qualquer animação
+    /// rodar, ainda mostre a barra acesa. É o que deixa o estado provável por
+    /// pixel sem depender de o relógio da animação ter andado.
+    private func cursorViajante(width: CGFloat) -> some View {
+        Capsule()
+            .fill(theme.activity.color)
+            .frame(width: max(8, width * Self.cursorFraction))
+            .offset(x: statusPulse ? width : 0)
+            .onAppear { partiu() }
+            .onChange(of: width) { _, _ in partiu() }
+    }
+
+    private func partiu() {
+        statusPulse = false
+        withAnimation(.linear(duration: 1.1).repeatForever(autoreverses: false)) {
+            statusPulse = true
         }
     }
 }

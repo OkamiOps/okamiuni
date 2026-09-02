@@ -143,19 +143,60 @@ struct BarraDeTrabalhoRenderTests {
             tela(store: store, conversation: conversation(), workload: .combining([.sync(.ready)])),
             size: Self.size, theme: .okami
         ))
-        // A barra fina deixou de ser a faixa `accentSoft` da caixa atualizada:
-        // ela virou a de trabalho, que respira em `activity`. Comparar por
-        // `accentSoft` é o teste honesto — o pulso desenha `activity` com
-        // opacidade variável, e uma cor com alfa não casa por igualdade.
+        // Parada, a barra é **só o trilho cinza**: cor nela significa trabalho
+        // acontecendo, e nada mais. Então a conta é direta — com a IA pensando
+        // aparece `activity` na tela; sem ela, nenhum pixel de `activity`.
         #expect(
-            parada.pixels(matching: Theme.okami.accentSoft, tolerance: 0.02)
-                > pensando.pixels(matching: Theme.okami.accentSoft, tolerance: 0.02),
+            parada.pixels(matching: Theme.okami.activity, tolerance: 0.02) == 0,
+            "a barra parada pintou cor, e cor aqui quer dizer trabalho"
+        )
+        #expect(
+            pensando.pixels(matching: Theme.okami.activity, tolerance: 0.02) > 0,
             "a barra não acendeu com a IA pensando"
         )
         _ = try #require(Render.snapshot(
             tela(store: store, conversation: conversa, workload: carga),
             named: "pensando", size: Self.size, theme: .okami
         ))
+    }
+
+    /// O que separa "trabalhando sem saber quanto falta" de "cheio": o cursor
+    /// ocupa uma **fatia** da barra e viaja. Congelado na captura ele ainda é
+    /// uma fatia, e é isso que dá para provar sem relógio de animação — uma
+    /// barra cheia e uma barra com cursor não pintam a mesma quantidade de cor.
+    @Test("trabalhando sem fração, o cursor é uma fatia — não a barra cheia")
+    func indeterminateDrawsATravellingCursor() async throws {
+        let store = await loja(4, corpoLongo: true)
+        func tinta(_ carga: ChromeWorkload) throws -> Int {
+            try #require(Render.bitmap(
+                tela(store: store, conversation: conversation(), workload: carga),
+                size: Self.size, theme: .okami
+            )).pixels(matching: Theme.okami.activity, tolerance: 0.02)
+        }
+
+        let cursor = try tinta(.combining([.sync(.loading(fraction: nil))]))
+        let cheia = try tinta(.combining([.backlog(done: 312, total: 312)]))
+        #expect(cursor > 0, "o cursor não apareceu")
+        #expect(
+            cursor < cheia / 2,
+            "o cursor pintou quase a barra inteira, que é a confusão que ele desfaz"
+        )
+    }
+
+    /// Falha não é uma cor de trabalho: ela é `danger`, ocupa a barra inteira e
+    /// não se mexe. Parada e vermelha, ela não se confunde com o cursor.
+    @Test("a falha pinta a barra inteira de danger, e nada de activity")
+    func failureFillsTheBarInDanger() async throws {
+        let store = await loja(4, corpoLongo: true)
+        let mapa = try #require(Render.bitmap(
+            tela(
+                store: store, conversation: conversation(),
+                workload: .combining([.sync(.failed("sem rede"))])
+            ),
+            size: Self.size, theme: .okami
+        ))
+        #expect(mapa.pixels(matching: Theme.okami.danger, tolerance: 0.02) > 0)
+        #expect(mapa.pixels(matching: Theme.okami.activity, tolerance: 0.02) == 0)
     }
 
     @Test("a análise do acervo desenha a fração de verdade")
