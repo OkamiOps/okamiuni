@@ -179,7 +179,7 @@ struct BareKeyTests {
 
     @Test("outra tecla qualquer não vira ⌫ por engano")
     func otherKeysDoNotMatch() {
-        #expect(BareKey.match(keyCode: 36, hasModifier: false) == nil)  // ⏎
+        #expect(BareKey.match(keyCode: 49, hasModifier: false) == nil)  // espaço
         #expect(BareKey(character: "r") == nil)
         #expect(BareKey(character: BareKey.delete.character) == .delete)
     }
@@ -194,6 +194,17 @@ struct BareKeyTests {
         #expect(BareKey.match(keyCode: 125, hasModifier: true) == nil)
         #expect(BareKey.up.symbol == "↑")
         #expect(BareKey.down.symbol == "↓")
+    }
+
+    /// ⏎ abre o que está selecionado. Entrou com o tríptico do dashboard, em
+    /// que clicar **seleciona** e abrir é ⏎ ou duplo clique.
+    @Test("⏎ é a tecla 36, sem modificador")
+    func enterIsTheOpenKey() {
+        #expect(BareKey.enter.keyCode == 36)
+        #expect(BareKey.enter.symbol == "⏎")
+        #expect(BareKey.match(keyCode: 36, hasModifier: false) == .enter)
+        #expect(BareKey.match(keyCode: 36, hasModifier: true) == nil)
+        #expect(BareKey(character: BareKey.enter.character) == .enter)
     }
 
     @Test("Esc é a tecla 53, sem modificador")

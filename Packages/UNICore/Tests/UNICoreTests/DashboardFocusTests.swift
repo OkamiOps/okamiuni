@@ -205,3 +205,75 @@ struct DashboardFocusTests {
         )
     }
 }
+
+/// O excedente que a faixa HOJE escreve à direita — "12 fora da lista ·
+/// newsletters e avisos".
+///
+/// É outro número que o `omittedMailCount`: aquele conta o que **ranqueou** e
+/// não coube no teto de sete; este conta o que a triagem **descartou** por não
+/// pedir a pessoa. Sem os dois, a faixa mentiria dizendo que a caixa só tem o
+/// que está na lista.
+@Suite("Dashboard · excedente da triagem")
+struct DashboardDiscardedTests {
+
+    private func mensagem(
+        _ id: String, triage: MessageTriage, isRead: Bool = true
+    ) -> Message {
+        Message(
+            id: id,
+            accountID: "a1",
+            from: Contact(name: "Quem \(id)", address: "\(id)@exemplo.com"),
+            receivedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            subject: "Assunto \(id)",
+            snippet: "trecho",
+            body: ["corpo"],
+            tags: [],
+            bucket: .today,
+            isRead: isRead,
+            summary: nil,
+            detectedEvent: nil,
+            triage: triage
+        )
+    }
+
+    @Test("newsletter e transacional entram no excedente, não na lista")
+    func discardedCountsTheNoise() {
+        let pedeResposta = MessageTriage(
+            needsReply: true, intent: .request, urgency: .normal
+        )
+        let ruido = MessageTriage(
+            needsReply: false, intent: .newsletter, urgency: .low
+        )
+        let recibo = MessageTriage(
+            needsReply: false, intent: .transactional, urgency: .low
+        )
+
+        let focus = DashboardFocus.snapshot(
+            messages: [
+                mensagem("m1", triage: pedeResposta),
+                mensagem("m2", triage: ruido),
+                mensagem("m3", triage: recibo),
+                mensagem("m4", triage: ruido),
+            ],
+            agenda: [],
+            pending: [],
+            nowMinute: 600
+        )
+
+        #expect(focus.mail.map(\.id) == ["m1"])
+        #expect(focus.discardedMailCount == 3)
+        #expect(focus.omittedMailCount == 0)
+    }
+
+    @Test("sem ruído, o excedente é zero")
+    func nothingDiscarded() {
+        let pedeResposta = MessageTriage(
+            needsReply: true, intent: .request, urgency: .normal
+        )
+        let focus = DashboardFocus.snapshot(
+            messages: [mensagem("m1", triage: pedeResposta)],
+            agenda: [], pending: [], nowMinute: 600
+        )
+        #expect(focus.discardedMailCount == 0)
+    }
+}

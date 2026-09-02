@@ -20,6 +20,15 @@ public enum BareKey: Sendable, Hashable, CaseIterable {
     case down
     /// Cancela a ação mais local. `kVK_Escape` é 53.
     case escape
+    /// Abre o que está selecionado. `kVK_Return` é 36.
+    ///
+    /// **Entrou porque o dashboard separou selecionar de abrir**: clicar numa
+    /// prioridade agora só a seleciona (a prévia do meio mostra o email e as
+    /// ações), e abrir de verdade é ⏎ ou duplo clique. Um `keyboardShortcut`
+    /// não serviria — a janela consulta `performKeyEquivalent` antes do
+    /// primeiro respondedor, e o ⏎ seria roubado do campo do assistente e da
+    /// busca. Aqui ele passa pelo mesmo guarda de foco do ⌫.
+    case enter
 
     /// O código de tecla virtual do macOS. `kVK_Delete` é 51 — a tecla que o
     /// teclado brasileiro chama de "backspace".
@@ -29,6 +38,7 @@ public enum BareKey: Sendable, Hashable, CaseIterable {
         case .up: 126
         case .down: 125
         case .escape: 53
+        case .enter: 36
         }
     }
 
@@ -42,6 +52,7 @@ public enum BareKey: Sendable, Hashable, CaseIterable {
         case .up: "\u{F700}"
         case .down: "\u{F701}"
         case .escape: "\u{1B}"
+        case .enter: "\r"
         }
     }
 
@@ -52,6 +63,7 @@ public enum BareKey: Sendable, Hashable, CaseIterable {
         case .up: "↑"
         case .down: "↓"
         case .escape: "Esc"
+        case .enter: "⏎"
         }
     }
 

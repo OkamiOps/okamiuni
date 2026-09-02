@@ -66,6 +66,15 @@ public struct DashboardFocus: Sendable, Hashable {
     /// Quantas mensagens ranqueadas ficaram fora do teto. A tela aponta
     /// para a Caixa em vez de alongar a lista.
     public let omittedMailCount: Int
+    /// Quantas mensagens a triagem **descartou** por não pedirem a pessoa —
+    /// newsletter, recibo, aviso.
+    ///
+    /// É outro número que `omittedMailCount`: aquele conta o que ranqueou e
+    /// não coube no teto de sete (o "+ N na Caixa" do rodapé), este conta o
+    /// que nem chegou a ranquear (o "N fora da lista · newsletters e avisos"
+    /// da faixa HOJE). Sem os dois, a faixa diria que a caixa tem só o que
+    /// está na lista.
+    public let discardedMailCount: Int
     public let omittedMeetingCount: Int
     public let nextUpLabel: String
 
@@ -75,12 +84,14 @@ public struct DashboardFocus: Sendable, Hashable {
         pending: [PendingItem],
         omittedMailCount: Int,
         omittedMeetingCount: Int,
-        nextUpLabel: String
+        nextUpLabel: String,
+        discardedMailCount: Int = 0
     ) {
         self.mail = mail
         self.meetings = meetings
         self.pending = pending
         self.omittedMailCount = omittedMailCount
+        self.discardedMailCount = discardedMailCount
         self.omittedMeetingCount = omittedMeetingCount
         self.nextUpLabel = nextUpLabel
     }
@@ -108,6 +119,7 @@ public struct DashboardFocus: Sendable, Hashable {
         ranked.reserveCapacity(mailLimit)
         fallback.reserveCapacity(mailLimit)
         var scanned = 0
+        var descartadas = 0
         for message in scopedMessages {
             switch message.bucket {
             case .junk, .trash, .drafts, .sent:
@@ -118,8 +130,11 @@ public struct DashboardFocus: Sendable, Hashable {
             scanned += 1
             if let hit = rank(message, now: now) {
                 ranked.append(hit)
-            } else if fallback.count < mailLimit, let hit = todayFallback(message) {
-                fallback.append(hit)
+            } else {
+                descartadas += 1
+                if fallback.count < mailLimit, let hit = todayFallback(message) {
+                    fallback.append(hit)
+                }
             }
             if scanned >= candidateCap { break }
         }
@@ -127,7 +142,12 @@ public struct DashboardFocus: Sendable, Hashable {
             if a.score != b.score { return a.score > b.score }
             return a.item.message.receivedAt > b.item.message.receivedAt
         }
-        if ranked.isEmpty { ranked = fallback }
+        if ranked.isEmpty {
+            ranked = fallback
+            // O que virou lista de reserva deixa de ser excedente: ele está
+            // na tela, e contá-lo dos dois lados faria a faixa somar errado.
+            descartadas = max(0, descartadas - ranked.count)
+        }
         let mail = Array(ranked.prefix(mailLimit).map(\.item))
 
         let upcoming = scopedAgenda
@@ -149,7 +169,8 @@ public struct DashboardFocus: Sendable, Hashable {
             pending: Array(scopedPending.prefix(pendingLimit)),
             omittedMailCount: max(0, ranked.count - mailLimit),
             omittedMeetingCount: max(0, upcoming.count - meetingLimit),
-            nextUpLabel: AgendaSummary.nextUpLabel(for: scopedAgenda.filter { $0.dayOffset == 0 }, now: nowMinute)
+            nextUpLabel: AgendaSummary.nextUpLabel(for: scopedAgenda.filter { $0.dayOffset == 0 }, now: nowMinute),
+            discardedMailCount: descartadas
         )
     }
 

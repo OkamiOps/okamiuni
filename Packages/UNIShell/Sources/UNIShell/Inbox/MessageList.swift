@@ -1073,6 +1073,9 @@ public struct MessageList: View {
         case .up: store.selectAdjacentConversation(offset: -1)
         case .down: store.selectAdjacentConversation(offset: 1)
         case .escape: false
+        // A Caixa já abre no clique: selecionar **é** abrir aqui, e o ⏎ não
+        // tem segundo passo para dar. Quem o usa é o dashboard.
+        case .enter: false
         }
     }
 
