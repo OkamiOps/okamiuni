@@ -68,7 +68,9 @@ public struct ReaderPane: View {
     /// não uma configuração global.
     let intelligencePresentation: IntelligencePresentation
     let onOpenAssistant: () -> Void
-    let onAskAssistant: ((String, AssistantRequest) async throws -> String)?
+    /// Fábrica da conversa do popover, injetada pelo shell: é ele que
+    /// conhece o provedor configurado e o motor. Nula = sem assistente.
+    let makeAssistantConversation: ((String) -> AssistantConversation)?
     /// A mensagem visível deve saltar a fila de resumos históricos. O app
     /// injeta a coordenação real; previews e testes podem deixar a porta vazia.
     let onMessagePresented: (String) -> Void
@@ -104,6 +106,9 @@ public struct ReaderPane: View {
     @State private var quickReplyRevision = 0
     @State private var emailAssistantOpen = false
     @State private var emailAssistantPanelSize = ReaderIntelligencePopover.defaultSize
+    /// A conversa do popover: nasce ao abrir, é cancelada ao fechar. Uma só
+    /// máquina de estado, a mesma do painel e do dashboard.
+    @State private var readerConversation: AssistantConversation?
     @State private var assistantAnchor: CGPoint = .zero
 
     /// O mesmo retorno com "Desfazer" que a lista desenha. O leitor **posta**
@@ -143,7 +148,7 @@ public struct ReaderPane: View {
         intelligence: ComposerIntelligenceGenerator? = nil,
         intelligencePresentation: IntelligencePresentation = .available,
         onOpenAssistant: @escaping () -> Void = {},
-        onAskAssistant: ((String, AssistantRequest) async throws -> String)? = nil,
+        makeAssistantConversation: ((String) -> AssistantConversation)? = nil,
         onMessagePresented: @escaping (String) -> Void = { _ in },
         onEmailAssistantOpenChange: @escaping (Bool) -> Void = { _ in }
     ) {
@@ -156,7 +161,7 @@ public struct ReaderPane: View {
             intelligence: intelligence,
             intelligencePresentation: intelligencePresentation,
             onOpenAssistant: onOpenAssistant,
-            onAskAssistant: onAskAssistant,
+            makeAssistantConversation: makeAssistantConversation,
             onMessagePresented: onMessagePresented,
             onEmailAssistantOpenChange: onEmailAssistantOpenChange
         )
@@ -171,7 +176,7 @@ public struct ReaderPane: View {
         intelligence: ComposerIntelligenceGenerator? = nil,
         intelligencePresentation: IntelligencePresentation = .available,
         onOpenAssistant: @escaping () -> Void = {},
-        onAskAssistant: ((String, AssistantRequest) async throws -> String)? = nil,
+        makeAssistantConversation: ((String) -> AssistantConversation)? = nil,
         onMessagePresented: @escaping (String) -> Void = { _ in },
         onEmailAssistantOpenChange: @escaping (Bool) -> Void = { _ in }
     ) {
@@ -181,12 +186,19 @@ public struct ReaderPane: View {
         self.intelligence = intelligence
         self.intelligencePresentation = intelligencePresentation
         self.onOpenAssistant = onOpenAssistant
-        self.onAskAssistant = onAskAssistant
+        self.makeAssistantConversation = makeAssistantConversation
         self.onMessagePresented = onMessagePresented
         self.onEmailAssistantOpenChange = onEmailAssistantOpenChange
         self.debugEmailAssistantOpen = debugEmailAssistantOpen
         self.debugResumoAberto = debugResumoAberto
         _emailAssistantOpen = State(initialValue: debugEmailAssistantOpen)
+        // A porta do harness abre a superfície sem passar pela ação: a
+        // conversa precisa existir já na primeira pintura.
+        _readerConversation = State(
+            initialValue: debugEmailAssistantOpen
+                ? store.selectedMessageID.flatMap { makeAssistantConversation?($0) }
+                : nil
+        )
     }
 
     public var body: some View {
@@ -327,7 +339,7 @@ public struct ReaderPane: View {
         // Sem porta de corpo (fixtures, e todo teste que não passa uma) isto
         // não faz nada — `loadBodyIfNeeded` sai na primeira guarda.
         .task(id: message.id) {
-            setEmailAssistantOpen(debugEmailAssistantOpen)
+            setEmailAssistantOpen(debugEmailAssistantOpen, for: message.id)
             messageDidAppear(message.id)
             await store.loadBodyIfNeeded(message.id)
         }
@@ -753,7 +765,7 @@ public struct ReaderPane: View {
                 ReaderAssistantButton(
                     presentation: intelligencePresentation,
                     action: {
-                        setEmailAssistantOpen(!emailAssistantOpen)
+                        setEmailAssistantOpen(!emailAssistantOpen, for: message.id)
                         onOpenAssistant()
                     }
                 )
@@ -813,24 +825,16 @@ public struct ReaderPane: View {
 
     @ViewBuilder
     private func emailAssistantPopover(_ message: Message) -> some View {
-        ReaderIntelligencePopover(
-            context: assistantContext(message),
-            isAvailable: intelligencePresentation.isAvailable
-                && onAskAssistant != nil
-                && intelligence != nil,
-            panelSize: $emailAssistantPanelSize,
-            onAsk: { request in
-                guard let onAskAssistant else {
-                    throw TextAssistantError.invalidRequest(
-                        "O assistente local não foi conectado a esta janela."
-                    )
-                }
-                return try await onAskAssistant(message.id, request)
-            },
-            onGenerateReply: { try await generateReply(for: message.id) },
-            onUseReply: { useGeneratedReply($0, for: message) },
-            onClose: { setEmailAssistantOpen(false) }
-        )
+        if let readerConversation {
+            ReaderIntelligencePopover(
+                conversation: readerConversation,
+                isAvailable: intelligencePresentation.isAvailable
+                    && makeAssistantConversation != nil,
+                panelSize: $emailAssistantPanelSize,
+                onUseReply: { useGeneratedReply($0, for: message) },
+                onClose: { setEmailAssistantOpen(false) }
+            )
+        }
     }
 
     private func assistantContext(_ message: Message) -> AssistantContext {
@@ -862,35 +866,18 @@ public struct ReaderPane: View {
         return String(leaf.prefix(17)) + "…"
     }
 
-    private func setEmailAssistantOpen(_ open: Bool) {
+    private func setEmailAssistantOpen(_ open: Bool, for messageID: String? = nil) {
+        if open {
+            if readerConversation == nil,
+               let id = messageID ?? store.selectedMessageID {
+                readerConversation = makeAssistantConversation?(id)
+            }
+        } else {
+            readerConversation?.cancel()
+            readerConversation = nil
+        }
         emailAssistantOpen = open
         onEmailAssistantOpenChange(open)
-    }
-
-    private func generateReply(for messageID: String) async throws -> String {
-        guard let intelligence else {
-            throw TextAssistantError.invalidRequest(
-                "A inteligência de escrita não foi conectada a esta janela."
-            )
-        }
-        let ids = store.conversation(of: messageID)?.messageIDs ?? [messageID]
-        for id in ids { await store.loadBodyIfNeeded(id) }
-
-        guard let message = store.message(messageID),
-              let context = store.assistantMailContext(for: messageID)
-        else {
-            throw TextAssistantError.invalidRequest(
-                "O email selecionado não está mais disponível."
-            )
-        }
-        let request = ComposerIntelligenceRequest(
-            action: .createReply,
-            target: .draft,
-            source: store.replyDraft(for: messageID)?.text ?? "",
-            sourceMessage: message,
-            sourceContext: context
-        )
-        return try await ComposerIntelligence.generate(request, using: intelligence).result
     }
 
     private func useGeneratedReply(_ text: String, for message: Message) {
@@ -1141,9 +1128,9 @@ public struct ReaderPane: View {
                 Text("TL;DR · neste Mac").capsLabel()
                 Spacer(minLength: 0)
                 if intelligencePresentation.usesConfiguredProvider,
-                   onAskAssistant != nil {
+                   makeAssistantConversation != nil {
                     Button("Usar IA configurada") {
-                        setEmailAssistantOpen(true)
+                        setEmailAssistantOpen(true, for: message.id)
                         onOpenAssistant()
                     }
                     .buttonStyle(.plain)

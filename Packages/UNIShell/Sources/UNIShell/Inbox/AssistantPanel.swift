@@ -107,13 +107,6 @@ public enum AssistantScope: Sendable, Hashable {
         }
     }
 
-    var footer: String {
-        switch self {
-        case .email: "Usa a mensagem ou conversa aberta."
-        case .workspace: "Usa todas as caixas e a agenda carregadas neste Mac."
-        }
-    }
-
     var suggestions: [AssistantSuggestion] {
         switch self {
         case .email: AssistantSuggestion.emailDefaults
@@ -459,22 +452,5 @@ private struct DividerLine: View {
         Rectangle()
             .fill(color.color)
             .frame(height: Hairline.thickness(displayScale))
-    }
-}
-
-/// Ponte enquanto a Task 9 não move dashboard, leitor e janela para a
-/// conversa injetada: guarda a instância pelo tempo de vida da superfície,
-/// para o painel receber sempre a mesma dona de estado.
-struct AssistantPanelSession: View {
-    @State private var conversation: AssistantConversation
-    private let onClose: () -> Void
-
-    init(conversation: AssistantConversation, onClose: @escaping () -> Void) {
-        _conversation = State(initialValue: conversation)
-        self.onClose = onClose
-    }
-
-    var body: some View {
-        AssistantPanel(conversation: conversation, onClose: onClose)
     }
 }

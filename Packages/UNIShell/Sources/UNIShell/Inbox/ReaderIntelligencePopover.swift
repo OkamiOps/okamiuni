@@ -89,47 +89,31 @@ struct ReaderIntelligencePopover: View {
     @Environment(\.theme) private var theme
     @Environment(\.displayScale) private var displayScale
 
-    let context: AssistantContext
+    /// A conversa é injetada: o popover não constrói motor nem guarda
+    /// transcript próprio. Quem a cria é quem conhece o provedor.
+    let conversation: AssistantConversation
     let isAvailable: Bool
     let onUseReply: (String) -> Void
     let onClose: () -> Void
 
     @Binding private var panelSize: CGSize
-    @State private var conversation: AssistantConversation
     @State private var resizeOrigin: CGSize?
 
     init(
-        context: AssistantContext,
+        conversation: AssistantConversation,
         isAvailable: Bool,
-        initialPhase: Phase = .ready,
         panelSize: Binding<CGSize> = .constant(Self.defaultSize),
-        onAsk: @escaping (AssistantRequest) async throws -> String,
-        onGenerateReply: @escaping () async throws -> String,
         onUseReply: @escaping (String) -> Void,
         onClose: @escaping () -> Void
     ) {
-        self.context = context
+        self.conversation = conversation
         self.isAvailable = isAvailable
         self.onUseReply = onUseReply
         self.onClose = onClose
         _panelSize = panelSize
-        _conversation = State(
-            initialValue: AssistantConversation(
-                scope: .email,
-                context: context,
-                // A Task 9 liga o popover ao destino configurado; aqui ele
-                // ainda não conhece os Ajustes.
-                destination: .unconfigured,
-                engine: AssistantEngine(supportsDraftReply: false) { request in
-                    if request.question == Action.reply.question {
-                        return try await onGenerateReply()
-                    }
-                    return try await onAsk(request)
-                },
-                debugState: Self.debugState(for: initialPhase)
-            )
-        )
     }
+
+    private var context: AssistantContext { conversation.context }
 
     var body: some View {
         let size = Self.clampedSize(panelSize)
@@ -285,8 +269,11 @@ struct ReaderIntelligencePopover: View {
     }
 
     private var replyButton: some View {
-        panelButton(Action.reply.title, enabled: canInteract, emphasized: true) {
-            run(.reply)
+        // "Gerar resposta" é rascunho, não pergunta: sai pelo
+        // `transform(.draftReply)` da conversa e volta como turno `.draft`.
+        panelButton(Action.reply.title, enabled: canInteract && conversation.canDraftReply, emphasized: true) {
+            guard canInteract else { return }
+            conversation.draftReply()
         }
     }
 
@@ -345,7 +332,16 @@ struct ReaderIntelligencePopover: View {
                         .tracking(theme.capsTracking(at: 8.5))
                         .foregroundStyle(theme.ink4.color)
 
-                    AssistantMarkdown(text: message.text)
+                    // Rascunho é prosa de email: asterisco ali é literal.
+                    if message.kind == .draft {
+                        Text(message.text)
+                            .font(theme.sans.font(size: 12))
+                            .foregroundStyle(theme.ink2.color)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                    } else {
+                        AssistantMarkdown(text: message.text)
+                    }
 
                     if shouldOfferReplyUse(for: message) {
                         Button("Usar esta resposta no email") {
@@ -374,7 +370,7 @@ struct ReaderIntelligencePopover: View {
             ProgressView()
                 .controlSize(.small)
                 .tint(theme.info.color)
-            Text(isReplyConversation ? "Redigindo e considerando a conversa…" : "Analisando a conversa…")
+            Text("Analisando a conversa…")
                 .font(theme.sans.font(size: 11.5, weight: .medium))
                 .foregroundStyle(theme.ink3.color)
         }
@@ -417,7 +413,8 @@ struct ReaderIntelligencePopover: View {
     }
 
     private var composer: some View {
-        HStack(alignment: .bottom, spacing: 8) {
+        @Bindable var conversation = conversation
+        return HStack(alignment: .bottom, spacing: 8) {
             TextField(
                 conversation.hasConversation
                     ? "Continue a conversa ou peça outro formato…"
@@ -543,10 +540,10 @@ struct ReaderIntelligencePopover: View {
         canInteract && conversation.canSend
     }
 
-    private var isReplyConversation: Bool {
-        conversation.messages.contains {
-            $0.speaker == .user && $0.text == Action.reply.question
-        }
+    /// O último rascunho gerado — é ele que "Usar esta resposta" leva ao
+    /// composer.
+    private var lastDraft: AssistantMessage? {
+        conversation.messages.last { $0.kind == .draft }
     }
 
     private func toggleExpanded() {
@@ -601,7 +598,8 @@ struct ReaderIntelligencePopover: View {
     }
 
     private func run(_ action: Action) {
-        guard canInteract, !action.question.isEmpty else { return }
+        // "Gerar resposta" não passa por aqui: rascunho tem rota própria.
+        guard canInteract, action != .reply, !action.question.isEmpty else { return }
         conversation.run(action.suggestion)
     }
 
@@ -611,8 +609,7 @@ struct ReaderIntelligencePopover: View {
     }
 
     private func shouldOfferReplyUse(for message: AssistantMessage) -> Bool {
-        guard isReplyConversation, message.speaker == .assistant else { return false }
-        return conversation.messages.last(where: { $0.speaker == .assistant })?.id == message.id
+        message.kind == .draft && lastDraft?.id == message.id
     }
 
     private func scrollToEnd(using proxy: ScrollViewProxy) {
@@ -634,10 +631,12 @@ struct ReaderIntelligencePopover: View {
             )
         case .preview(let action, let text):
             var messages: [AssistantMessage] = []
-            if !action.question.isEmpty {
+            if action != .reply, !action.question.isEmpty {
                 messages.append(.init(speaker: .user, text: action.question))
             }
-            messages.append(.init(speaker: .assistant, text: text))
+            messages.append(
+                .init(speaker: .assistant, text: text, kind: action == .reply ? .draft : .message)
+            )
             return AssistantPanelDebugState(messages: messages)
         case .failure(let message):
             return AssistantPanelDebugState(

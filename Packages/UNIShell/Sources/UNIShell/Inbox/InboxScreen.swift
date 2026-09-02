@@ -55,10 +55,12 @@ public struct InboxScreen: View {
     @State private var assistantScope: InboxAssistantScope = .workspace
     @State private var assistantSessionID = UUID()
     @State private var readerAssistantOpen = false
-    /// A conversa do Dashboard vive aqui: a aba some do árvore ao ir para
+    /// A conversa do painel lateral. Nasce ao abrir e é cancelada ao
+    /// fechar — o dono é esta tela, não o painel.
+    @State private var assistantConversation: AssistantConversation?
+    /// A conversa do Dashboard vive aqui: a aba some da árvore ao ir para
     /// Caixa ou Agenda, e o `@State` dela ia embora com ela.
-    @State private var dashboardTranscript: [AssistantMessage] = []
-    @State private var dashboardDraft = ""
+    @State private var dashboardConversation: AssistantConversation?
     @State private var dashboardSelectedMailID: String?
     @State private var dashboardReadingID: String?
     let store: MailStore
@@ -394,9 +396,7 @@ public struct InboxScreen: View {
                     attachmentSaver: NativeAttachmentSaver(),
                     intelligence: composerIntelligence,
                     intelligencePresentation: intelligencePresentation,
-                    onAskAssistant: { messageID, request in
-                        try await askAssistant(request, scope: .email(messageID))
-                    },
+                    makeAssistantConversation: readerConversationFactory,
                     onMessagePresented: onMessagePresented,
                     onEmailAssistantOpenChange: { open in
                         readerAssistantOpen = open
@@ -520,12 +520,14 @@ public struct InboxScreen: View {
     /// detalhe. Clicar um e-mail abre a leitura por cima; "Abrir na Caixa"
     /// é que cai em `reveal`.
     func dashboardContent(now: Int) -> some View {
-        DashboardScreen(
+        // A conversa é criada uma vez e guardada; construí-la no corpo faria
+        // uma máquina de estado nova a cada repintura.
+        let conversation = dashboardConversation ?? makeDashboardConversation()
+        return DashboardScreen(
             store: store,
             now: now,
             today: agendaAnchor,
-            transcript: $dashboardTranscript,
-            draft: $dashboardDraft,
+            conversation: conversation,
             selectedMailID: $dashboardSelectedMailID,
             readingMailID: $dashboardReadingID,
             onPresented: onMessagePresented,
@@ -533,10 +535,11 @@ public struct InboxScreen: View {
             onOpenEvent: openEventWindow,
             onShowMail: { workspace = .mail },
             onShowCalendar: { workspace = .calendar },
-            onAsk: { request, scope in
-                try await askAssistant(request, scope: scope)
-            }
+            onOpenSettings: openAccounts
         )
+        .task {
+            if dashboardConversation == nil { dashboardConversation = conversation }
+        }
     }
 
     /// A aba Agenda leva a **mesma** barra lateral do email, porque no
@@ -656,34 +659,107 @@ public struct InboxScreen: View {
     }
 
     private var assistantPanel: some View {
-        let scope = assistantScope
-        return AssistantPanelSession(
-            conversation: makeAssistantConversation(for: scope),
+        // A conversa é criada por quem abre o painel. O `??` cobre a porta do
+        // harness, que abre a superfície sem passar pela ação.
+        let conversation = assistantConversation ?? makeConversation(for: assistantScope)
+        return AssistantPanel(
+            conversation: conversation,
+            onOpenSettings: openAccounts,
             onClose: closeAssistant
         )
+        .task {
+            if assistantConversation == nil { assistantConversation = conversation }
+        }
         .id(assistantSessionID)
         .shadow(color: .black.opacity(0.16), radius: 22, x: 0, y: 10)
     }
 
-    /// A Task 9 move esta fábrica para o dono da tela. Aqui ela existe só
-    /// para o painel receber uma conversa em vez de criar a própria.
-    private func makeAssistantConversation(for scope: InboxAssistantScope) -> AssistantConversation {
-        let settings = assistantSettings?.snapshot()
-        return AssistantConversation(
+    /// Nula quando não há assistente: é o que apaga o botão do leitor em
+    /// vez de o deixar aceso sem destino.
+    private var readerConversationFactory: ((String) -> AssistantConversation)? {
+        guard textAssistant != nil else { return nil }
+        return { messageID in makeConversation(for: .email(messageID)) }
+    }
+
+    private var assistantDestination: AssistantDestination {
+        assistantSettings.map { AssistantDestination(settings: $0.snapshot()) } ?? .unconfigured
+    }
+
+    /// Só é conhecido quando o provedor é uma assinatura: sem ele um 401 do
+    /// Grok viraria "tentar de novo" em vez de "reconectar".
+    private var assistantProvider: AssistantProviderOAuthKind? {
+        guard let settings = assistantSettings?.snapshot() else { return nil }
+        return settings.provider == .providerOAuth ? settings.providerOAuth.kind : nil
+    }
+
+    func makeConversation(for scope: InboxAssistantScope) -> AssistantConversation {
+        AssistantConversation(
             scope: scope.mode,
             context: assistantContext(for: scope),
-            destination: settings.map(AssistantDestination.init(settings:)) ?? .unconfigured,
-            engine: AssistantEngine(
-                supportsDraftReply: false,
-                answer: { request in try await askAssistant(request, scope: scope) }
+            destination: assistantDestination,
+            engine: makeEngine(
+                supportsDraftReply: scope.mode == .email,
+                resolving: { scope }
             ),
-            provider: settings.flatMap { $0.provider == .providerOAuth ? $0.providerOAuth.kind : nil }
+            provider: assistantProvider
         )
+    }
+
+    /// O dashboard troca de foco sem trocar de conversa: o escopo é
+    /// resolvido no momento da chamada, a partir do email selecionado.
+    private func makeDashboardConversation() -> AssistantConversation {
+        AssistantConversation(
+            scope: .email,
+            context: AssistantContext(subject: "Caixa e agenda de hoje"),
+            destination: assistantDestination,
+            engine: makeEngine(
+                supportsDraftReply: textAssistant != nil,
+                resolving: { dashboardSelectedMailID.map(InboxAssistantScope.email) ?? .workspace }
+            ),
+            provider: assistantProvider
+        )
+    }
+
+    private func makeEngine(
+        supportsDraftReply: Bool,
+        resolving scope: @escaping @MainActor () -> InboxAssistantScope
+    ) -> AssistantEngine {
+        guard let textAssistant else { return .unavailable }
+        return AssistantBridge.engine(
+            using: textAssistant,
+            supportsDraftReply: supportsDraftReply,
+            mailContext: { try await self.mailContext(for: scope()) },
+            currentDraft: {
+                guard case let .email(id) = scope() else { return "" }
+                return store.replyDraft(for: id)?.text ?? ""
+            }
+        )
+    }
+
+    /// O que `askAssistant` fazia antes, agora só a resolução do contexto —
+    /// a máquina de estado é da conversa.
+    private func mailContext(for scope: InboxAssistantScope) async throws -> AssistantMailContext {
+        switch scope {
+        case .workspace:
+            // O snapshot é global e leve: cabeçalhos/prévias, contagens e
+            // agenda. Corpos integrais continuam no botão do próprio e-mail.
+            return AssistantMailContext(workspace: store)
+        case let .email(messageID):
+            let ids = store.conversation(of: messageID)?.messageIDs ?? [messageID]
+            for id in ids { await store.loadBodyIfNeeded(id) }
+            guard let loaded = store.assistantMailContext(for: messageID) else {
+                throw TextAssistantError.invalidRequest(
+                    "O email selecionado não está mais disponível."
+                )
+            }
+            return loaded
+        }
     }
 
     private func openWorkspaceAssistant() {
         assistantScope = .workspace
         assistantSessionID = UUID()
+        assistantConversation = makeConversation(for: .workspace)
         withAnimation(Self.paneTransition) { assistantOpen = true }
     }
 
@@ -691,44 +767,13 @@ public struct InboxScreen: View {
         guard let messageID = store.selectedMessageID else { return }
         assistantScope = .email(messageID)
         assistantSessionID = UUID()
+        assistantConversation = makeConversation(for: .email(messageID))
         withAnimation(Self.paneTransition) { assistantOpen = true }
     }
 
     private func closeAssistant() {
+        assistantConversation?.cancel()
         withAnimation(Self.paneTransition) { assistantOpen = false }
-    }
-
-    func askAssistant(
-        _ request: AssistantRequest,
-        scope: InboxAssistantScope
-    ) async throws -> String {
-        guard let textAssistant else {
-            throw TextAssistantError.invalidRequest(
-                "O assistente local não foi conectado a esta janela."
-            )
-        }
-        let mailContext: AssistantMailContext
-        switch scope {
-        case .workspace:
-            // O snapshot é global e leve: cabeçalhos/prévias, contagens e
-            // agenda. Corpos integrais continuam no botão do próprio e-mail.
-            mailContext = AssistantMailContext(workspace: store)
-        case let .email(messageID):
-            let ids = store.conversation(of: messageID)?.messageIDs ?? [messageID]
-            for id in ids { await store.loadBodyIfNeeded(id) }
-
-            guard let loaded = store.assistantMailContext(for: messageID) else {
-                throw TextAssistantError.invalidRequest(
-                    "O email selecionado não está mais disponível."
-                )
-            }
-            mailContext = loaded
-        }
-        return try await AssistantBridge.answer(
-            request,
-            mailContext: mailContext,
-            using: textAssistant
-        )
     }
 
 }

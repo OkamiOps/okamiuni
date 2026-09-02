@@ -20,6 +20,9 @@ public struct MessageWindow: View {
     let intelligencePresentation: IntelligencePresentation
     let onMessagePresented: (String) -> Void
     @State private var assistantOpen = false
+    /// A conversa desta janela. Nasce ao abrir o painel e é cancelada ao
+    /// fechar: uma máquina de estado só, a mesma do shell.
+    @State private var conversation: AssistantConversation?
 
     public init(
         store: MailStore,
@@ -45,15 +48,26 @@ public struct MessageWindow: View {
         message.flatMap { store.account($0.accountID) }
     }
 
-    /// A Task 9 move esta fábrica para fora da janela. Aqui ela existe só
-    /// para o painel receber uma conversa em vez de criar a própria.
+    /// A janela é a dona da conversa: o painel só a recebe. O motor é o
+    /// mesmo do shell, com a rota de rascunho ligada.
     private func makeAssistantConversation(for message: Message) -> AssistantConversation {
         let settings = assistantSettings?.snapshot()
+        let engine: AssistantEngine
+        if let textAssistant {
+            engine = AssistantBridge.engine(
+                using: textAssistant,
+                supportsDraftReply: true,
+                mailContext: { try await self.mailContext() },
+                currentDraft: { store.replyDraft(for: messageID)?.text ?? "" }
+            )
+        } else {
+            engine = .unavailable
+        }
         return AssistantConversation(
             scope: .email,
             context: localContext(for: message),
             destination: settings.map(AssistantDestination.init(settings:)) ?? .unconfigured,
-            engine: AssistantEngine(supportsDraftReply: false, answer: askAssistant),
+            engine: engine,
             provider: settings.flatMap { $0.provider == .providerOAuth ? $0.providerOAuth.kind : nil }
         )
     }
@@ -79,8 +93,10 @@ public struct MessageWindow: View {
             }
 
             if assistantOpen, let message {
-                AssistantPanelSession(
-                    conversation: makeAssistantConversation(for: message),
+                AssistantPanel(
+                    conversation: conversation ?? makeAssistantConversation(for: message),
+                    // A janela já sabe abrir cena: é a mesma porta do menu.
+                    onOpenSettings: { openWindow(id: UNIWindow.accounts) },
                     onClose: closeAssistant
                 )
                 .id(store.conversation(of: message.id)?.key ?? message.id)
@@ -227,6 +243,7 @@ public struct MessageWindow: View {
                 dismiss()
             }
             ChromeButton("Perguntar", appearance: .outlined) {
+                conversation = makeAssistantConversation(for: message)
                 withAnimation(.easeInOut(duration: 0.18)) { assistantOpen = true }
             }
             .disabled(!intelligencePresentation.isAvailable)
@@ -267,16 +284,13 @@ public struct MessageWindow: View {
     }
 
     private func closeAssistant() {
+        conversation?.cancel()
+        conversation = nil
         withAnimation(.easeInOut(duration: 0.18)) { assistantOpen = false }
     }
 
-    private func askAssistant(_ request: AssistantRequest) async throws -> String {
-        guard let textAssistant else {
-            throw TextAssistantError.invalidRequest(
-                "O assistente local não foi conectado a esta janela."
-            )
-        }
-
+    /// Só a resolução do contexto: a máquina de estado é da conversa.
+    private func mailContext() async throws -> AssistantMailContext {
         let ids = store.conversation(of: messageID)?.messageIDs ?? [messageID]
         for id in ids { await store.loadBodyIfNeeded(id) }
 
@@ -285,11 +299,7 @@ public struct MessageWindow: View {
                 "O email selecionado não está mais disponível."
             )
         }
-        return try await AssistantBridge.answer(
-            request,
-            mailContext: mailContext,
-            using: textAssistant
-        )
+        return mailContext
     }
 }
 

@@ -4,6 +4,29 @@ import UNICore
 import UNIDesign
 @testable import UNIShell
 
+/// Conversa de ensaio: motor com as duas rotas separadas, sem rede e sem
+/// FoundationModels. É por ela que o popover passa desde a Task 9.
+@MainActor
+private func rehearsalConversation(
+    subject: String = "Ensaio",
+    sender: String? = nil,
+    phase: ReaderIntelligencePopover.Phase = .ready,
+    answer: @escaping (AssistantRequest) async throws -> String = { _ in "" },
+    draftReply: @escaping (AssistantRequest) async throws -> String = { _ in "" }
+) -> AssistantConversation {
+    AssistantConversation(
+        scope: .email,
+        context: .init(subject: subject, sender: sender),
+        destination: .unconfigured,
+        engine: AssistantEngine(
+            supportsDraftReply: true,
+            answer: answer,
+            draftReply: draftReply
+        ),
+        debugState: ReaderIntelligencePopover.debugState(for: phase)
+    )
+}
+
 @Suite("Assistente integrado ao leitor")
 @MainActor
 struct InboxAssistantIntegrationTests {
@@ -146,17 +169,21 @@ struct InboxAssistantIntegrationTests {
     func readerReplyUsesComposerGenerator() async {
         var generatedReplies = 0
         var analyticalQuestions = 0
-        let popover = ReaderIntelligencePopover(
-            context: .init(subject: "Website Revamp & SEO", sender: "Max"),
-            isAvailable: true,
-            onAsk: { _ in
+        let conversation = rehearsalConversation(
+            subject: "Website Revamp & SEO",
+            sender: "Max",
+            answer: { _ in
                 analyticalQuestions += 1
                 return "Análise"
             },
-            onGenerateReply: {
+            draftReply: { _ in
                 generatedReplies += 1
                 return "Hi Max, thank you for the details."
-            },
+            }
+        )
+        let popover = ReaderIntelligencePopover(
+            conversation: conversation,
+            isAvailable: true,
             onUseReply: { _ in },
             onClose: {}
         )
@@ -221,12 +248,13 @@ struct InboxAssistantIntegrationTests {
         ] {
             let bitmap = try #require(Render.snapshot(
                 ReaderIntelligencePopover(
-                    context: .init(subject: "Re: planejamento do lançamento", sender: "Fernanda Lima"),
+                    conversation: rehearsalConversation(
+                        subject: "Re: planejamento do lançamento",
+                        sender: "Fernanda Lima",
+                        phase: .preview(.keyPoints, answer)
+                    ),
                     isAvailable: true,
-                    initialPhase: .preview(.keyPoints, answer),
                     panelSize: .constant(size),
-                    onAsk: { _ in "Resposta de ensaio" },
-                    onGenerateReply: { "Resposta para revisão" },
                     onUseReply: { _ in },
                     onClose: {}
                 ),
@@ -280,14 +308,15 @@ struct InboxAssistantIntegrationTests {
     func readerPanelExpandControlIsClickable() {
         var size = ReaderIntelligencePopover.defaultSize
         let popover = ReaderIntelligencePopover(
-            context: .init(subject: "Quota Increase", sender: "Amazon Web Services"),
+            conversation: rehearsalConversation(
+                subject: "Quota Increase",
+                sender: "Amazon Web Services"
+            ),
             isAvailable: true,
             panelSize: Binding(
                 get: { size },
                 set: { size = $0 }
             ),
-            onAsk: { _ in "" },
-            onGenerateReply: { "" },
             onUseReply: { _ in },
             onClose: {}
         )
@@ -318,12 +347,13 @@ struct InboxAssistantIntegrationTests {
         Risco: sem a aprovação, o ambiente pode atingir o teto atual durante a migração.
         """
         let popover = ReaderIntelligencePopover(
-            context: .init(subject: "Quota Increase", sender: "Amazon Web Services"),
+            conversation: rehearsalConversation(
+                subject: "Quota Increase",
+                sender: "Amazon Web Services",
+                phase: .preview(.keyPoints, text)
+            ),
             isAvailable: true,
-            initialPhase: .preview(.keyPoints, text),
             panelSize: .constant(ReaderIntelligencePopover.defaultSize),
-            onAsk: { _ in "" },
-            onGenerateReply: { "" },
             onUseReply: { _ in },
             onClose: {}
         )
@@ -342,11 +372,12 @@ struct InboxAssistantIntegrationTests {
 
         func preview(_ text: String, name: String) throws -> NSBitmapImageRep {
             let popover = ReaderIntelligencePopover(
-                context: .init(subject: "Migração do workspace", sender: "Paulo Silva"),
+                conversation: rehearsalConversation(
+                    subject: "Migração do workspace",
+                    sender: "Paulo Silva",
+                    phase: .preview(.summary, text)
+                ),
                 isAvailable: true,
-                initialPhase: .preview(.summary, text),
-                onAsk: { _ in "" },
-                onGenerateReply: { "" },
                 onUseReply: { _ in },
                 onClose: {}
             )
@@ -401,7 +432,9 @@ struct InboxAssistantIntegrationTests {
                 store: store,
                 attachmentSaver: nil,
                 intelligence: generator,
-                onAskAssistant: { _, _ in "Análise" }
+                makeAssistantConversation: { _ in
+                    rehearsalConversation(answer: { _ in "Análise" }, draftReply: { _ in await generatedReplies.generate() })
+                }
             ),
             size: size,
             theme: .tinta
@@ -411,7 +444,9 @@ struct InboxAssistantIntegrationTests {
                 store: store,
                 debugEmailAssistantOpen: true,
                 intelligence: generator,
-                onAskAssistant: { _, _ in "Análise" }
+                makeAssistantConversation: { _ in
+                    rehearsalConversation(answer: { _ in "Análise" }, draftReply: { _ in await generatedReplies.generate() })
+                }
             ),
             named: "reader-intelligence-layering",
             size: size,
@@ -438,7 +473,9 @@ struct InboxAssistantIntegrationTests {
                 store: store,
                 debugEmailAssistantOpen: true,
                 intelligence: generator,
-                onAskAssistant: { _, _ in "Análise" }
+                makeAssistantConversation: { _ in
+                    rehearsalConversation(answer: { _ in "Análise" }, draftReply: { _ in await generatedReplies.generate() })
+                }
             ),
             size: size,
             aY: 288,
@@ -476,13 +513,18 @@ struct InboxAssistantIntegrationTests {
         let generator: ComposerIntelligenceGenerator = { _ in "ok" }
 
         let closed = try #require(Render.bitmap(
-            ReaderPane(store: store, intelligence: generator, onAskAssistant: { _, _ in "ok" }),
+            ReaderPane(
+                store: store,
+                intelligence: generator,
+                makeAssistantConversation: { _ in rehearsalConversation() }
+            ),
             size: size, theme: .tinta
         ))
         let open = try #require(Render.bitmap(
             ReaderPane(
                 store: store, debugEmailAssistantOpen: true,
-                intelligence: generator, onAskAssistant: { _, _ in "ok" }
+                intelligence: generator,
+                makeAssistantConversation: { _ in rehearsalConversation() }
             ),
             size: size, theme: .tinta
         ))
@@ -505,7 +547,10 @@ struct InboxAssistantIntegrationTests {
         CliqueDeEnsaio.em(
             ReaderPane(
                 store: store, debugEmailAssistantOpen: true,
-                intelligence: clickGenerator, onAskAssistant: { _, _ in "ok" }
+                intelligence: clickGenerator,
+                makeAssistantConversation: { _ in
+                    rehearsalConversation(draftReply: { _ in await generatedReplies.generate() })
+                }
             ),
             size: size,
             aY: 288,
@@ -552,13 +597,18 @@ struct InboxAssistantIntegrationTests {
         let generator: ComposerIntelligenceGenerator = { _ in "ok" }
 
         let closed = try #require(Render.bitmap(
-            ReaderPane(store: store, intelligence: generator, onAskAssistant: { _, _ in "ok" }),
+            ReaderPane(
+                store: store,
+                intelligence: generator,
+                makeAssistantConversation: { _ in rehearsalConversation() }
+            ),
             size: size, theme: .tinta
         ))
         let open = try #require(Render.bitmap(
             ReaderPane(
                 store: store, debugEmailAssistantOpen: true,
-                intelligence: generator, onAskAssistant: { _, _ in "ok" }
+                intelligence: generator,
+                makeAssistantConversation: { _ in rehearsalConversation() }
             ),
             size: size, theme: .tinta
         ))
@@ -671,7 +721,9 @@ struct InboxAssistantIntegrationTests {
             conversation: [.init(speaker: .user, text: "O que importa?")]
         )
 
-        _ = try await screen.askAssistant(request, scope: .workspace)
+        let workspaceConversation = screen.makeConversation(for: .workspace)
+        workspaceConversation.ask(request.question)
+        await workspaceConversation.waitForIdle()
         guard case let .workspace(workspace) = try #require(await assistant.lastContext()) else {
             Issue.record("O botão global não entregou contexto do ambiente")
             return
@@ -681,7 +733,9 @@ struct InboxAssistantIntegrationTests {
         #expect(workspace.accounts.count == store.accounts.count)
 
         let selectedID = try #require(store.selectedMessageID)
-        _ = try await screen.askAssistant(request, scope: .email(selectedID))
+        let emailConversation = screen.makeConversation(for: .email(selectedID))
+        emailConversation.ask(request.question)
+        await emailConversation.waitForIdle()
         let emailContext = try #require(await assistant.lastContext())
         switch emailContext {
         case .email, .conversation:
@@ -735,7 +789,9 @@ struct InboxAssistantIntegrationTests {
             conversation: []
         )
 
-        _ = try await screen.askAssistant(request, scope: .email("m1"))
+        let conversation = screen.makeConversation(for: .email("m1"))
+        conversation.ask(request.question)
+        await conversation.waitForIdle()
 
         #expect(store.messages.first?.body.isEmpty == true)
         guard case let .email(context) = try #require(await assistant.lastContext()) else {

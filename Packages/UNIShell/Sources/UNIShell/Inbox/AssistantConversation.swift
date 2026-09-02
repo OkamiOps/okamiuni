@@ -69,6 +69,17 @@ public struct AssistantEngine {
     }
 }
 
+public extension AssistantEngine {
+    /// Motor de uma superfície sem assistente conectado: previews, harness e
+    /// o app antes de escolher um provedor. Falha dizendo o que fazer, em vez
+    /// de deixar botão aceso e mudo.
+    static let unavailable = AssistantEngine(supportsDraftReply: false) { _ in
+        throw TextAssistantError.invalidRequest(
+            "O assistente local não foi conectado a esta janela."
+        )
+    }
+}
+
 /// Estado construível para previews e renderização fora da tela.
 public struct AssistantPanelDebugState: Sendable, Hashable {
     public var messages: [AssistantMessage]

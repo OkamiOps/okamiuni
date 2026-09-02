@@ -6,7 +6,7 @@ import UNISync
 
 /// Espião do contrato puro. Guarda o que foi pedido e devolve o que o
 /// teste mandar, sem tocar em FoundationModels nem em rede.
-final class SpyTextAssistant: TextAssisting, @unchecked Sendable {
+private final class SpyTextAssistant: TextAssisting, @unchecked Sendable {
     struct TransformCall: Equatable {
         let text: String
         let action: WritingAction
@@ -98,7 +98,7 @@ struct AssistantConversationTests {
     }
 
     @Test("o histórico enviado ao motor tem 16 turnos com 20 acumulados")
-    func historyIsCappedAtSixteen() async {
+    func historyIsCappedAtSixteen() async throws {
         let spy = SpyTextAssistant()
         let conversation = conversation(spy)
         for index in 1...10 {
@@ -109,7 +109,7 @@ struct AssistantConversationTests {
 
         conversation.ask("pergunta 11")
         await conversation.waitForIdle()
-        let sent = try! #require(spy.answers.last)
+        let sent = try #require(spy.answers.last)
         // Prender o teto ao literal: sem isto a comparação abaixo seria uma
         // tautologia e mudar a constante não quebraria teste nenhum.
         #expect(AssistantConversation.maximumHistoryTurns == 16)
@@ -163,6 +163,28 @@ struct AssistantConversationTests {
         #expect(conversation.messages.last?.kind == .draft)
     }
 
+    @Test("cancelamento depois do portão não publica falha")
+    func cancellationAfterGateIsNotAFailure() async {
+        let spy = SpyTextAssistant()
+        let started = AsyncGate()
+        // O motor lança `CancellationError` depois de o portão abrir: é o
+        // que acontece quando a superfície fecha no meio do pedido.
+        spy.beforeAnswer = { await started.openAndWaitForever() }
+        spy.answerResult = .failure(CancellationError())
+        let conversation = conversation(spy)
+        conversation.ask("O que é urgente?")
+        await started.waitUntilOpen()
+
+        conversation.cancel()
+        await conversation.waitForIdle()
+        // `cancel()` solta a referência ao `Task`, então `waitForIdle`
+        // volta na hora: os passos deixam o motor chegar ao `throw`.
+        for _ in 0..<20 { await Task.yield() }
+        #expect(conversation.failure == nil)
+        #expect(!conversation.isLoading)
+        #expect(conversation.messages.count == 1)
+    }
+
     @Test("limpar apaga transcript, rascunho, erro e briefing")
     func clearResetsEverything() async {
         let spy = SpyTextAssistant()
@@ -181,15 +203,19 @@ struct AssistantConversationTests {
 }
 
 /// Portão determinístico: nada de `Task.sleep` para sincronizar teste.
-actor AsyncGate {
+private actor AsyncGate {
     private var isOpen = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
+    /// Abre e fica pendurado **até ser cancelado**. Uma continuação que
+    /// nunca resume vaza e o runtime imprime `CONTINUATION MISUSE`; um sono
+    /// longo cancelável para no `cancel()` da conversa, que é o que o teste
+    /// quer medir.
     func openAndWaitForever() async {
         isOpen = true
         for waiter in waiters { waiter.resume() }
         waiters.removeAll()
-        await withCheckedContinuation { (_: CheckedContinuation<Void, Never>) in }
+        try? await Task.sleep(for: .seconds(3_600))
     }
 
     func waitUntilOpen() async {

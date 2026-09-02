@@ -7,9 +7,6 @@ import UNICore
 /// sugestão e o CTA em cápsula. A IA não dispara sozinha.
 struct DashboardScreen: View {
 
-    static let briefingQuestion =
-        "Quais são minhas prioridades agora considerando e-mails e agenda? Entregue só o que precisa de mim hoje, em poucas linhas."
-
     static let visibleMail = 3
     static let visibleMeetings = 3
 
@@ -19,28 +16,26 @@ struct DashboardScreen: View {
     let store: MailStore
     let now: Int
     let today: Date
+    /// A única máquina de estado do assistente nesta tela. O dashboard não
+    /// guarda transcript, `loading` nem mensagem de erro próprios.
+    let conversation: AssistantConversation
     let onOpenMessage: (Message) -> Void
     let onOpenEvent: (AgendaItem) -> Void
     let onShowMail: () -> Void
     let onShowCalendar: () -> Void
-    let onAsk: (AssistantRequest, InboxAssistantScope) async throws -> String
+    let onOpenSettings: () -> Void
 
-    @Binding var transcript: [AssistantMessage]
-    @Binding var draft: String
     @Binding var selectedMailID: String?
     @Binding var readingMailID: String?
     let onPresented: (String) -> Void
 
     @State private var selectedEventID: String?
-    @State private var loading = false
-    @State private var errorMessage: String?
 
     init(
         store: MailStore,
         now: Int,
         today: Date,
-        transcript: Binding<[AssistantMessage]> = .constant([]),
-        draft: Binding<String> = .constant(""),
+        conversation: AssistantConversation,
         selectedMailID: Binding<String?> = .constant(nil),
         readingMailID: Binding<String?> = .constant(nil),
         onPresented: @escaping (String) -> Void = { _ in },
@@ -48,13 +43,12 @@ struct DashboardScreen: View {
         onOpenEvent: @escaping (AgendaItem) -> Void = { _ in },
         onShowMail: @escaping () -> Void = {},
         onShowCalendar: @escaping () -> Void = {},
-        onAsk: @escaping (AssistantRequest, InboxAssistantScope) async throws -> String = { _, _ in "" }
+        onOpenSettings: @escaping () -> Void = {}
     ) {
         self.store = store
         self.now = now
         self.today = today
-        self._transcript = transcript
-        self._draft = draft
+        self.conversation = conversation
         self._selectedMailID = selectedMailID
         self._readingMailID = readingMailID
         self.onPresented = onPresented
@@ -62,7 +56,7 @@ struct DashboardScreen: View {
         self.onOpenEvent = onOpenEvent
         self.onShowMail = onShowMail
         self.onShowCalendar = onShowCalendar
-        self.onAsk = onAsk
+        self.onOpenSettings = onOpenSettings
     }
 
     var body: some View {
@@ -95,7 +89,7 @@ struct DashboardScreen: View {
                     onDraft: { message in
                         readingMailID = nil
                         selectedMailID = message.id
-                        Task { await runDraft(for: message) }
+                        conversation.draftReply()
                     },
                     onPresented: onPresented
                 )
@@ -339,17 +333,13 @@ struct DashboardScreen: View {
                     }
                     Spacer(minLength: 0)
                     draftButton(focus)
-                    if !transcript.isEmpty {
-                        Button("Limpar") {
-                            transcript = []
-                            errorMessage = nil
-                            draft = ""
-                        }
+                    if conversation.hasConversation {
+                        Button("Limpar") { conversation.clear() }
                         .buttonStyle(.plain)
                         .font(theme.sans.font(size: 12, weight: .medium))
                         .foregroundStyle(theme.ink3.color)
                         .focusRing(cornerRadius: theme.radiusSmall)
-                        .disabled(loading)
+                        .disabled(conversation.isLoading)
                     }
                 }
 
@@ -379,18 +369,20 @@ struct DashboardScreen: View {
                     )
                 }
 
-                if transcript.isEmpty {
-                    suggestion(focus)
-                } else {
+                if conversation.hasConversation {
                     transcriptList
+                } else {
+                    suggestion(focus)
                 }
 
-                if let errorMessage {
-                    Text(errorMessage)
-                        .font(theme.sans.font(size: 13))
-                        .foregroundStyle(theme.ink.color)
+                if let failure = conversation.failure {
+                    AssistantFailureBand(
+                        failure: failure,
+                        onRetry: conversation.retry,
+                        onOpenSettings: onOpenSettings
+                    )
                 }
-                if loading {
+                if conversation.isLoading {
                     HStack(spacing: 8) {
                         ProgressView()
                             .controlSize(.small)
@@ -402,7 +394,11 @@ struct DashboardScreen: View {
                 }
 
                 Spacer(minLength: 0)
+                briefingBand
                 composer
+                Text(conversation.destination.label)
+                    .font(theme.sans.font(size: 11))
+                    .foregroundStyle(theme.ink3.color)
             }
         }
         .accessibilityElement(children: .contain)
@@ -430,16 +426,22 @@ struct DashboardScreen: View {
     private var transcriptList: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                ForEach(transcript) { message in
+                ForEach(conversation.messages) { message in
                     VStack(alignment: .leading, spacing: 4) {
                         Text(message.speaker == .user ? "Você" : "Assistente")
                             .font(theme.sans.font(size: 11, weight: .medium))
                             .foregroundStyle(theme.ink4.color)
-                        Text(message.text)
-                            .font(theme.sans.font(size: 13.5))
-                            .foregroundStyle(theme.ink.color)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
+                        // Rascunho é prosa de email: asterisco ali é
+                        // literal, e por isso não passa pelo Markdown.
+                        if message.speaker == .user || message.kind == .draft {
+                            Text(message.text)
+                                .font(theme.sans.font(size: 13.5))
+                                .foregroundStyle(theme.ink.color)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                        } else {
+                            AssistantMarkdown(text: message.text)
+                        }
                     }
                 }
             }
@@ -448,10 +450,18 @@ struct DashboardScreen: View {
     }
 
     private func draftButton(_ focus: DashboardFocus) -> some View {
-        Button {
-            Task { await runSuggestion(focus) }
+        // Rascunho precisa de um email em foco **e** de um motor que saiba
+        // redigir. Sem os dois o mesmo botão pede o briefing do dia, em vez
+        // de ficar aceso e mudo.
+        let canDraft = conversation.canDraftReply && mailInFocus(focus) != nil
+        return Button {
+            if canDraft {
+                conversation.draftReply()
+            } else {
+                conversation.briefing()
+            }
         } label: {
-            Text("Gerar rascunho")
+            Text(canDraft ? "Gerar rascunho" : "Gerar briefing")
                 .font(theme.sans.font(size: 11.5, weight: .semibold))
                 .foregroundStyle(theme.onAccent.color)
                 .padding(.horizontal, 10)
@@ -460,9 +470,28 @@ struct DashboardScreen: View {
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: 14, tint: \.onAccent)
-        .disabled(loading)
-        .help(focus.mail.isEmpty ? "Pede um recorte do dia" : "Pede um rascunho do email em foco")
-        .accessibilityLabel("Gerar rascunho")
+        .disabled(conversation.isLoading)
+        .help(canDraft
+            ? "Pede um rascunho do email em foco"
+            : "Pede um briefing do dia")
+        .accessibilityLabel(canDraft ? "Gerar rascunho" : "Gerar briefing")
+    }
+
+    /// O briefing do dia mora fora do transcript: superfície plana e
+    /// hairline, sem cartão flutuante.
+    @ViewBuilder
+    private var briefingBand: some View {
+        if let text = conversation.briefingText {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("BRIEFING")
+                    .capsLabel(size: 8.5)
+                AssistantMarkdown(text: text)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(theme.surface2.color)
+            .hairline(theme.line2, edges: [.top, .bottom])
+        }
     }
 
     private func contextChip(_ mail: Message) -> some View {
@@ -499,13 +528,14 @@ struct DashboardScreen: View {
     }
 
     private var composer: some View {
-        HStack(alignment: .bottom, spacing: 8) {
+        @Bindable var conversation = conversation
+        return HStack(alignment: .bottom, spacing: 8) {
             DashboardAskField(
-                text: $draft,
+                text: $conversation.draft,
                 placeholder: "Pergunte algo sobre seus emails…",
                 textColor: theme.ink.nsColor,
                 placeholderColor: theme.ink4.nsColor,
-                onSubmit: { Task { await run(draft) } },
+                onSubmit: { conversation.submit() },
                 onEscape: {
                     if readingMailID != nil {
                         readingMailID = nil
@@ -517,18 +547,18 @@ struct DashboardScreen: View {
             .accessibilityLabel("Pergunta para o assistente")
 
             Button {
-                Task { await run(draft) }
+                conversation.submit()
             } label: {
                 Image(systemName: "arrow.up")
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(canSend ? theme.onEnter.color : theme.ink4.color)
+                    .foregroundStyle(conversation.canSend ? theme.onEnter.color : theme.ink4.color)
                     .frame(width: 28, height: 28)
-                    .background(canSend ? theme.enter.color : theme.surface3.color)
+                    .background(conversation.canSend ? theme.enter.color : theme.surface3.color)
                     .clipShape(Circle())
             }
             .buttonStyle(.plain)
             .focusRing(cornerRadius: 14, tint: \.onEnter)
-            .disabled(!canSend || loading)
+            .disabled(!conversation.canSend)
             .help("Enter envia. Shift+Enter quebra a linha.")
             .accessibilityLabel("Enviar pergunta")
         }
@@ -692,25 +722,6 @@ struct DashboardScreen: View {
         return "Quando chegar algo que peça você, a sugestão aparece aqui."
     }
 
-    private var askScope: InboxAssistantScope {
-        if let id = selectedMailID ?? readingMailID { return .email(id) }
-        return .workspace
-    }
-
-    private func askScopeTitle(_ focus: DashboardFocus) -> String {
-        if let message = selectedMail(focus) { return message.subject }
-        if let item = selectedMeeting(focus) { return item.title }
-        return "Caixa e agenda de hoje"
-    }
-
-    private func askScopeDetail(_ focus: DashboardFocus) -> String {
-        if let message = selectedMail(focus) { return message.from.display }
-        if let item = selectedMeeting(focus) {
-            return "\(DashboardFocus.meetingDayName(offset: item.dayOffset, anchor: today)) · \(item.rangeLabel)"
-        }
-        return focus.nextUpLabel
-    }
-
     private func selectedMail(_ focus: DashboardFocus) -> Message? {
         guard let id = selectedMailID else { return nil }
         return store.message(id) ?? focus.mail.first { $0.id == id }?.message
@@ -721,60 +732,9 @@ struct DashboardScreen: View {
         return focus.meetings.first { $0.id == id }
     }
 
-    private var canSend: Bool {
-        !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private func runSuggestion(_ focus: DashboardFocus) async {
-        if let mail = selectedMail(focus) ?? focus.mail.first?.message {
-            await runDraft(for: mail)
-            return
-        }
-        await run(Self.briefingQuestion)
-    }
-
-    private func runDraft(for mail: Message) async {
-        selectedMailID = mail.id
-        await store.loadBodyIfNeeded(mail.id)
-        let followUp = transcript.contains(where: { $0.speaker == .assistant })
-        let question = followUp
-            ? "Continue a partir do que já combinamos. Revise ou complete o rascunho de resposta para este email, só o corpo, no idioma da mensagem."
-            : "Com o email em contexto, escreva um rascunho de resposta pronto para eu revisar. Só o corpo, no idioma da mensagem, curto e direto."
-        await run(question)
-    }
-
-    private func run(_ raw: String) async {
-        let question = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !question.isEmpty, !loading else { return }
-        draft = ""
-        transcript.append(.init(speaker: .user, text: question))
-        loading = true
-        errorMessage = nil
-        defer { loading = false }
-        if case .email(let id) = askScope {
-            await store.loadBodyIfNeeded(id)
-        }
-        do {
-            let focus = store.dashboardFocus(nowMinute: now)
-            let history = Array(transcript.suffix(16))
-            let request = AssistantRequest(
-                context: AssistantContext(subject: askScopeTitle(focus), sender: askScopeDetail(focus)),
-                question: question,
-                conversation: history
-            )
-            let answer = try await onAsk(request, askScope)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !answer.isEmpty else {
-                errorMessage = "Não foi possível formar uma resposta."
-                return
-            }
-            transcript.append(.init(speaker: .assistant, text: answer))
-        } catch is CancellationError {
-            return
-        } catch {
-            let description = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
-            errorMessage = description.isEmpty ? "Não foi possível responder agora." : description
-        }
+    /// O email que o rascunho usaria: o selecionado, ou o topo do recorte.
+    private func mailInFocus(_ focus: DashboardFocus) -> Message? {
+        selectedMail(focus) ?? focus.mail.first?.message
     }
 
     private func honestPlace(_ item: AgendaItem) -> String? {
