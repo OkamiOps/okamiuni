@@ -96,6 +96,12 @@ public struct InboxScreen: View {
     /// Nulo nas previews e no harness: aí não há diretor, e a barra mostra o
     /// estado vazio com o recarregar desligado.
     let accountsModel: AccountsModel?
+    /// A fila de análise automática. A barra fina do chrome lê `isProcessing`
+    /// dela — sem isto a fila trabalhava em silêncio.
+    let analysisQueue: AnalysisQueueStateModel?
+    /// A análise do acervo, que sabe onde está e quanto falta. É o único
+    /// trabalho desta tela com fração de verdade.
+    let backlogAnalysis: BacklogAnalysisController?
 
     public init(
         store: MailStore,
@@ -106,7 +112,9 @@ public struct InboxScreen: View {
         textAssistant: (any TextAssisting)? = nil,
         assistantSettings: AssistantSettingsStore? = nil,
         onMessagePresented: @escaping (String) -> Void = { _ in },
-        accountsModel: AccountsModel? = nil
+        accountsModel: AccountsModel? = nil,
+        analysisQueue: AnalysisQueueStateModel? = nil,
+        backlogAnalysis: BacklogAnalysisController? = nil
     ) {
         self.init(
             store: store,
@@ -118,6 +126,8 @@ public struct InboxScreen: View {
             assistantSettings: assistantSettings,
             onMessagePresented: onMessagePresented,
             accountsModel: accountsModel,
+            analysisQueue: analysisQueue,
+            backlogAnalysis: backlogAnalysis,
             debugAssistantOpen: false,
             debugReaderAssistantOpen: false
         )
@@ -135,6 +145,8 @@ public struct InboxScreen: View {
         assistantSettings: AssistantSettingsStore? = nil,
         onMessagePresented: @escaping (String) -> Void = { _ in },
         accountsModel: AccountsModel? = nil,
+        analysisQueue: AnalysisQueueStateModel? = nil,
+        backlogAnalysis: BacklogAnalysisController? = nil,
         debugAssistantOpen: Bool,
         debugAssistantScope: InboxAssistantScope = .workspace,
         debugReaderAssistantOpen: Bool = false
@@ -148,6 +160,8 @@ public struct InboxScreen: View {
         self.assistantSettings = assistantSettings
         self.onMessagePresented = onMessagePresented
         self.accountsModel = accountsModel
+        self.analysisQueue = analysisQueue
+        self.backlogAnalysis = backlogAnalysis
         self.composerIntelligence = textAssistant.map {
             AssistantBridge.composerGenerator(using: $0)
         }
@@ -191,6 +205,28 @@ public struct InboxScreen: View {
         )
     }
 
+    /// Tudo que segura o dono esperando, somado no tipo puro `ChromeWorkload`.
+    ///
+    /// A barra fina sob a busca é a única animação que ele já reconhece como
+    /// "está carregando", e antes disto ela só falava de sincronização — o
+    /// dashboard e o assistente trabalhavam sem dizer nada. Aqui só se
+    /// **recolhem** os sinais; a regra de como eles somam mora fora da `View`,
+    /// com teste (`ChromeWorkloadTests`).
+    var chromeWorkload: ChromeWorkload {
+        var jobs: [ChromeWork] = [.sync(MailboxChromeStatus.from(accountsModel?.statuses ?? []))]
+        for conversa in [dashboardConversation, assistantConversation].compactMap({ $0 }) {
+            if let kind = conversa.workKind {
+                jobs.append(.assistant(kind: kind, destination: conversa.destination))
+            }
+        }
+        if analysisQueue?.isProcessing == true { jobs.append(.analysisQueue) }
+        if let acervo = backlogAnalysis, acervo.isRunning {
+            jobs.append(.backlog(done: max(0, acervo.total - acervo.remaining), total: acervo.total))
+        }
+        if store.isLoadingAnyBody { jobs.append(.body) }
+        return ChromeWorkload.combining(jobs)
+    }
+
     public var body: some View {
         VStack(spacing: 0) {
             // Barra do topo (58px)
@@ -207,8 +243,9 @@ public struct InboxScreen: View {
                 onCompose: openNewMessage,
                 accountMonogram: accountMonogram,
                 onOpenAccounts: openAccounts,
-                syncStatus: MailboxChromeStatus.from(accountsModel?.statuses ?? []),
+                syncStatus: chromeWorkload.status,
                 syncCaption: MailboxChromeStatus.lastSyncedCaption(from: accountsModel?.statuses ?? []),
+                statusDetail: chromeWorkload.detail,
                 onReloadMailbox: accountsModel == nil ? nil : { [accountsModel] in
                     Task { await accountsModel?.syncNow() }
                 },

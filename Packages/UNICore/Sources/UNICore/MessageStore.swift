@@ -3690,6 +3690,16 @@ public final class MailStore {
     /// Em que pé está o corpo desta mensagem. `nil` é "nunca foi preciso".
     public func bodyLoad(for messageID: String) -> BodyLoad? { bodyLoads[messageID] }
 
+    /// Algum corpo está sendo buscado agora?
+    ///
+    /// É o que a barra fina do chrome pergunta para acender enquanto a prévia
+    /// do dashboard espera o texto do email chegar. Varre um dicionário que
+    /// tem, no pior caso, uma entrada por mensagem já aberta na sessão —
+    /// nada perto do custo de uma varredura da caixa.
+    public var isLoadingAnyBody: Bool {
+        bodyLoads.values.contains { $0 == .carregando }
+    }
+
     /// Busca o corpo desta mensagem, se ela não tiver um e ninguém já estiver
     /// buscando.
     ///

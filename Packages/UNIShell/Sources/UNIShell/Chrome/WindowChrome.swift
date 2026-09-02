@@ -147,6 +147,11 @@ public struct WindowChrome: View {
     let syncStatus: MailboxChromeStatus
     /// "há 4 min" — o instante da última sync, fora do enum de estado.
     let syncCaption: String?
+    /// O que está acontecendo **agora**, quando é mais do que sincronizar:
+    /// "Analisando 23 de 312", "Perguntando ao Codex · ChatGPT". Vem pronto
+    /// de `ChromeWorkload`, que soma os trabalhos fora da `View`; `nil` em
+    /// repouso, e aí vale a legenda de sempre.
+    let statusDetail: String?
     let onReloadMailbox: (() -> Void)?
     /// A caixa precisa saber se a busca está focada: o Esc cancela o campo
     /// mesmo quando o monitor da lista vê só o editor de campo do AppKit.
@@ -177,6 +182,7 @@ public struct WindowChrome: View {
         onOpenAccounts: @escaping () -> Void = {},
         syncStatus: MailboxChromeStatus = .empty,
         syncCaption: String? = nil,
+        statusDetail: String? = nil,
         onReloadMailbox: (() -> Void)? = nil,
         onSearchFocusChange: @escaping (Bool) -> Void = { _ in }
     ) {
@@ -191,6 +197,7 @@ public struct WindowChrome: View {
         self.onOpenAccounts = onOpenAccounts
         self.syncStatus = syncStatus
         self.syncCaption = syncCaption
+        self.statusDetail = statusDetail
         self.onReloadMailbox = onReloadMailbox
         self.onSearchFocusChange = onSearchFocusChange
     }
@@ -515,7 +522,17 @@ public struct WindowChrome: View {
         }
     }
 
+    /// A frase que a barra fina, o botão de recarregar e o VoiceOver dizem.
+    /// O trabalho em curso ganha da legenda: "Atualizada há 4 min" enquanto a
+    /// IA pensa é verdade sobre a caixa e mentira sobre a espera.
+    var statusPhrase: String {
+        if let statusDetail { return statusDetail }
+        if let syncCaption { return "Atualizada \(syncCaption)" }
+        return syncStatus.label
+    }
+
     private var reloadHelp: String {
+        if let statusDetail { return statusDetail }
         if let syncCaption {
             if onReloadMailbox != nil && syncStatus.canReload {
                 return "Atualizada \(syncCaption). Atualizar agora, sem esperar o ciclo automático"
@@ -558,7 +575,7 @@ public struct WindowChrome: View {
         .accessibilityLabel("Atualizar a caixa")
         .accessibilityHint(reloadHelp)
         .accessibilityIdentifier("mailbox-reload")
-        .accessibilityValue(syncCaption.map { "Atualizada \($0)" } ?? syncStatus.label)
+        .accessibilityValue(statusPhrase)
     }
 
     private var mailboxStatusBar: some View {
@@ -572,9 +589,9 @@ public struct WindowChrome: View {
         .frame(height: 2)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Estado da caixa")
-        .accessibilityValue(syncCaption.map { "Atualizada \($0)" } ?? syncStatus.label)
+        .accessibilityValue(statusPhrase)
         .accessibilityIdentifier("mailbox-sync-status")
-        .help(syncCaption.map { "Atualizada \($0)" } ?? syncStatus.label)
+        .help(statusPhrase)
         .onChange(of: syncStatus.isBusy) { _, busy in
             statusPulse = busy
         }

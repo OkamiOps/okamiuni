@@ -24,7 +24,20 @@ public actor MessageIntelligenceCoordinator {
     private var priorityMessageID: String?
     /// `actor` é reentrante durante a geração. Esta guarda preserva um único
     /// worker mesmo quando a observação do banco e a seleção acordam juntas.
-    private var isProcessing = false
+    private var isProcessing = false {
+        didSet {
+            guard isProcessing != oldValue else { return }
+            activityObserver?(isProcessing)
+        }
+    }
+    /// Quem quer saber que a fila está com uma mensagem na mão **agora**.
+    ///
+    /// A barra fina do chrome precisava disto e não havia sinal nenhum: a
+    /// fila trabalhava em silêncio e a tela ficava parada. É o sinal mais
+    /// barato que existe — o `Bool` que a guarda de reentrância já mantinha,
+    /// publicado quando ele muda — e de propósito não é um contador: contar o
+    /// que falta é uma consulta por volta, e a barra não vale isso.
+    private var activityObserver: (@Sendable (Bool) -> Void)?
 
     /// Três seguidas. Uma falha é ruído de rede; três é configuração errada,
     /// e insistir manda a caixa inteira para um endpoint que recusa.
@@ -83,6 +96,14 @@ public actor MessageIntelligenceCoordinator {
     public func stop() {
         observationTask?.cancel()
         observationTask = nil
+    }
+
+    /// Liga o sinal de "estou trabalhando". Chamado uma vez pela composição;
+    /// o estado atual sai junto, para quem chega no meio de uma rodada não
+    /// esperar a próxima virada para saber que ela está correndo.
+    public func observeActivity(_ observer: @escaping @Sendable (Bool) -> Void) {
+        activityObserver = observer
+        observer(isProcessing)
     }
 
     /// Coloca a mensagem aberta na frente do backlog sem cancelar a inferência

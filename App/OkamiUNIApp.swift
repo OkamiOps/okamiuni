@@ -161,7 +161,9 @@ struct OkamiUNIApp: App {
                     textAssistant: composition.textAssistant,
                     assistantSettings: composition.assistantSettings,
                     onMessagePresented: prioritizeMessageSummary,
-                    accountsModel: accountsModel
+                    accountsModel: accountsModel,
+                    analysisQueue: composition.analysisQueue,
+                    backlogAnalysis: composition.backlogAnalysis
                 )
             }
                 // Porta de depuração: `open -g --args --nova-mensagem` abre a

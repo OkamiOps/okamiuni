@@ -231,6 +231,22 @@ public final class AssistantConversation {
     }
 
     public var canRetry: Bool { lastAction != nil && !isLoading }
+
+    /// Que trabalho está no ar agora, para a barra fina do chrome poder
+    /// nomeá-lo ("Perguntando ao Codex · ChatGPT"). `nil` em repouso.
+    ///
+    /// A dependência que o SwiftUI observa é `isLoading` — `lastAction` é
+    /// `@ObservationIgnored` e é escrito **antes** dele —, então a barra
+    /// acende e apaga no mesmo quadro em que a conversa muda de estado.
+    public var workKind: AssistantWorkKind? {
+        guard isLoading else { return nil }
+        switch lastAction {
+        case .ask: return .question
+        case .draftReply: return .draft
+        case .briefing: return .briefing
+        case nil: return .question
+        }
+    }
     public var hasConversation: Bool { !messages.isEmpty }
 
     public func submit() {

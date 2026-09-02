@@ -86,6 +86,13 @@ public struct AnalysisQueueStateStore: Sendable {
 @Observable
 public final class AnalysisQueueStateModel {
     public private(set) var state: AnalysisQueueState = .running
+    /// A fila está com uma mensagem na mão agora.
+    ///
+    /// A pausa já vinha do banco; **trabalhar** não tinha sinal nenhum, e por
+    /// isso a barra do chrome ficava parada enquanto a análise automática
+    /// corria. O coordenador publica a virada; aqui ela só atravessa para a
+    /// `main`.
+    public private(set) var isProcessing = false
 
     private let database: SyncDatabase
     private let coordinator: MessageIntelligenceCoordinator
@@ -100,6 +107,14 @@ public final class AnalysisQueueStateModel {
     /// Idempotente, como a observação do coordenador.
     public func start() {
         guard observationTask == nil else { return }
+        let coordinator = self.coordinator
+        // `weak` na travessia, e não na assinatura do observador: o
+        // coordenador é um ator de vida longa e guardaria este modelo vivo
+        // para sempre.
+        let publish: @Sendable (Bool) -> Void = { [weak self] working in
+            Task { @MainActor in self?.isProcessing = working }
+        }
+        Task { await coordinator.observeActivity(publish) }
         let pool = database.pool
         observationTask = Task { [weak self] in
             do {
