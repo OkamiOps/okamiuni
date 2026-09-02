@@ -201,46 +201,110 @@ public enum MailAddress {
     /// O Foundation não traz isto pronto, e sem ele todo assunto acentuado
     /// aparece como uma linha de gibberish na lista — que é a primeira coisa
     /// que se vê ao conectar uma conta em português.
+    ///
+    /// **A leitura segue a gramática, não a busca de texto.** Procurar o `?=`
+    /// de fechamento a partir do `=?` de abertura parece bastar até a carga Q
+    /// começar com `=` — o caso de qualquer acento nosso, porque `ç` é `=C3=A7`.
+    /// Aí o primeiro `?=` encontrado é o `?` que fecha o token de codificação
+    /// somado ao `=` que abre o primeiro octeto, e o assunto sai picado ao meio
+    /// (`configura=?UTF-8?Q?=C3=A7…` virava `configura UTF-8?QC3=A7…`). Por isso
+    /// aqui se avança pelos DOIS `?` que separam charset e codificação antes de
+    /// procurar o terminador: a carga tem `=` à vontade, mas nenhum `?`.
     static func decodeRFC2047(_ text: String) -> String {
         guard text.contains("=?") else { return text }
         var resultado = ""
         var resto = Substring(text)
-        while let inicio = resto.range(of: "=?"), let fim = resto.range(of: "?=", range: inicio.upperBound..<resto.endIndex) {
-            resultado += resto[resto.startIndex..<inicio.lowerBound]
-            let miolo = resto[inicio.upperBound..<fim.lowerBound]
-            let campos = miolo.split(separator: "?", maxSplits: 2, omittingEmptySubsequences: false)
-            if campos.count == 3 {
-                let charset = String(campos[0]).uppercased()
-                let codificacao = String(campos[1]).uppercased()
-                let carga = String(campos[2])
-                let encoding: String.Encoding = charset.hasPrefix("ISO-8859") ? .isoLatin1 : .utf8
-                if codificacao == "B", let dados = Data(base64Encoded: carga),
-                   let texto = String(data: dados, encoding: encoding) {
-                    resultado += texto
-                } else if codificacao == "Q" {
-                    resultado += decodeQuotedPrintable(carga, encoding: encoding)
-                } else {
-                    resultado += miolo
-                }
-            } else {
-                resultado += miolo
+        var anteriorFoiCodificada = false
+        while let inicio = resto.range(of: "=?") {
+            let literal = resto[resto.startIndex..<inicio.lowerBound]
+            guard let palavra = lerPalavraCodificada(resto[inicio.lowerBound...]),
+                  let encoding = encodingDeCharset(palavra.charset),
+                  let texto = decodificarCarga(palavra, encoding: encoding) else {
+                // Não é uma palavra codificada que saibamos ler (charset
+                // desconhecido, `?=` que nunca vem, codificação estranha): o
+                // `=?` é texto comum e o resto da linha segue intacto.
+                resultado += resto[resto.startIndex..<inicio.upperBound]
+                resto = resto[inicio.upperBound...]
+                anteriorFoiCodificada = false
+                continue
             }
-            resto = resto[fim.upperBound...]
+            // O espaço que separa duas palavras codificadas não é conteúdo — é
+            // só a dobra permitida pela RFC — e por isso desaparece.
+            let colar = anteriorFoiCodificada && !literal.isEmpty && literal.allSatisfy(\.isWhitespace)
+            if !colar { resultado += literal }
+            resultado += texto
+            resto = resto[palavra.fim...]
+            anteriorFoiCodificada = true
         }
         resultado += resto
         return resultado
     }
 
-    /// A variante "Q" do RFC 2047 — a de cabeçalho, onde `_` vale espaço.
-    ///
-    /// **A implementação mora em `MimeBody`**, com a do corpo (RFC 2045). Elas
-    /// eram duas cópias da mesma regra, separadas por dois interruptores (`_`
-    /// como espaço; a quebra suave `=\n`, que só existe no corpo), e a segunda
-    /// cópia — esta — nasceu antes de haver um decodificador de corpo. Agora há:
-    /// uma função, dois chamadores, e nenhuma chance de a correção de um escape
-    /// mal-formado ser aplicada num lugar só.
-    private static func decodeQuotedPrintable(_ text: String, encoding: String.Encoding) -> String {
-        let dados = MimeBody.quotedPrintable(text, sublinhadoEhEspaco: true)
-        return String(data: dados, encoding: encoding) ?? text
+    /// Uma `=?charset?codificação?carga?=` já separada em seus quatro campos.
+    private struct PalavraCodificada {
+        let charset: String
+        let codificacao: String
+        let carga: String
+        /// Índice logo depois do `?=` de fechamento.
+        let fim: String.Index
+    }
+
+    /// Lê a palavra codificada que começa em `trecho` (que abre com `=?`).
+    private static func lerPalavraCodificada(_ trecho: Substring) -> PalavraCodificada? {
+        let apos = trecho.index(trecho.startIndex, offsetBy: 2)
+        guard let fimCharset = trecho[apos...].firstIndex(of: "?") else { return nil }
+        let aposCharset = trecho.index(after: fimCharset)
+        guard let fimCodificacao = trecho[aposCharset...].firstIndex(of: "?") else { return nil }
+        let inicioCarga = trecho.index(after: fimCodificacao)
+        // A carga não contém `?`: o próximo é o do terminador, e o caractere
+        // seguinte tem de ser o `=`.
+        guard let fimCarga = trecho[inicioCarga...].firstIndex(of: "?") else { return nil }
+        let igual = trecho.index(after: fimCarga)
+        guard igual < trecho.endIndex, trecho[igual] == "=" else { return nil }
+
+        let charset = trecho[apos..<fimCharset]
+        let codificacao = trecho[aposCharset..<fimCodificacao]
+        let carga = trecho[inicioCarga..<fimCarga]
+        guard !charset.isEmpty, codificacao.count == 1 else { return nil }
+        // Palavra codificada não tem espaço em lugar nenhum; se tem, é texto
+        // comum que por acaso parece uma.
+        guard !charset.contains(where: \.isWhitespace), !carga.contains(where: \.isWhitespace)
+        else { return nil }
+        return PalavraCodificada(
+            charset: String(charset),
+            codificacao: String(codificacao).uppercased(),
+            carga: String(carga),
+            fim: trecho.index(after: igual)
+        )
+    }
+
+    /// `nil` para charset que não sabemos ler — melhor devolver o cabeçalho
+    /// original do que inventar octetos e mostrar lixo na lista.
+    private static func encodingDeCharset(_ charset: String) -> String.Encoding? {
+        let nome = charset.uppercased()
+        switch nome {
+        case "UTF-8", "UTF8", "US-ASCII", "ASCII", "ANSI_X3.4-1968": return .utf8
+        case "WINDOWS-1252", "CP1252": return .windowsCP1252
+        default: return nome.hasPrefix("ISO-8859") ? .isoLatin1 : nil
+        }
+    }
+
+    /// A variante "Q" daqui é a de cabeçalho, onde `_` vale espaço; a
+    /// implementação mora em `MimeBody`, junto com a do corpo (RFC 2045), para
+    /// que a correção de um escape mal-formado valha nos dois lugares.
+    private static func decodificarCarga(
+        _ palavra: PalavraCodificada, encoding: String.Encoding
+    ) -> String? {
+        switch palavra.codificacao {
+        case "B":
+            guard let dados = Data(base64Encoded: palavra.carga, options: [.ignoreUnknownCharacters])
+            else { return nil }
+            return String(data: dados, encoding: encoding)
+        case "Q":
+            let dados = MimeBody.quotedPrintable(palavra.carga, sublinhadoEhEspaco: true)
+            return String(data: dados, encoding: encoding)
+        default:
+            return nil
+        }
     }
 }
