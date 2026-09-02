@@ -5,7 +5,7 @@ import UNICore
 
 @Suite("Assistente OpenAI-compatible")
 struct OpenAICompatibleTextAssistantTests {
-    private let conversation = OnDeviceAssistantConversation(
+    private let conversation = AssistantConversationSnapshot(
         mailContext: .email(.init(
             subject: "Planejamento",
             sender: "Marina <marina@example.com>",

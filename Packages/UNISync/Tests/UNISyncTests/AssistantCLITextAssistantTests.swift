@@ -5,7 +5,7 @@ import UNICore
 
 @Suite("Transporte seguro pelos CLIs de IA")
 struct AssistantCLITextAssistantTests {
-    private let conversation = OnDeviceAssistantConversation(
+    private let conversation = AssistantConversationSnapshot(
         mailContext: .email(.init(
             subject: "Planejamento",
             sender: "Marina <marina@example.com>",

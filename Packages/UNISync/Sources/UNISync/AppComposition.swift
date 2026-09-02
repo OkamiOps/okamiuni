@@ -105,7 +105,7 @@ public struct AppComposition: Sendable {
     /// É um roteador estável: cada pedido lê as preferências atuais e usa o
     /// modelo local ou o endpoint OpenAI-compatible escolhido. Existe também
     /// no fallback de fixtures: não depende de banco nem rede.
-    public let textAssistant: any OnDeviceTextAssisting
+    public let textAssistant: any TextAssisting
     /// Preferências não secretas da IA. Elas ficam fora do banco de e-mail
     /// para uma troca de provedor não depender do estado de uma conta.
     public let assistantSettings: AssistantSettingsStore
@@ -150,7 +150,7 @@ public struct AppComposition: Sendable {
         let assistantCredentials = KeychainAssistantCredentialStore()
         let liteLLMOAuth = LiteLLMOAuthCoordinator()
         let assistantProviderOAuth = AssistantProviderOAuthCoordinator()
-        let textAssistant: any OnDeviceTextAssisting = AssistantRouter(
+        let textAssistant: any TextAssisting = AssistantRouter(
             settingsStore: assistantSettings,
             credentialStore: assistantCredentials,
             oauthTokenProvider: liteLLMOAuth,

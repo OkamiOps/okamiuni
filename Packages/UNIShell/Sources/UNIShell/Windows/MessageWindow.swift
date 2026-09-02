@@ -15,7 +15,7 @@ public struct MessageWindow: View {
 
     let store: MailStore
     let messageID: String
-    let textAssistant: (any OnDeviceTextAssisting)?
+    let textAssistant: (any TextAssisting)?
     let assistantSettings: AssistantSettingsStore?
     let intelligencePresentation: IntelligencePresentation
     let onMessagePresented: (String) -> Void
@@ -24,7 +24,7 @@ public struct MessageWindow: View {
     public init(
         store: MailStore,
         messageID: String,
-        textAssistant: (any OnDeviceTextAssisting)? = nil,
+        textAssistant: (any TextAssisting)? = nil,
         assistantSettings: AssistantSettingsStore? = nil,
         intelligencePresentation: IntelligencePresentation = .available,
         onMessagePresented: @escaping (String) -> Void = { _ in }
@@ -265,7 +265,7 @@ public struct MessageWindow: View {
 
     private func askAssistant(_ request: LocalAssistantRequest) async throws -> String {
         guard let textAssistant else {
-            throw OnDeviceTextAssistantError.invalidRequest(
+            throw TextAssistantError.invalidRequest(
                 "O assistente local não foi conectado a esta janela."
             )
         }
@@ -274,7 +274,7 @@ public struct MessageWindow: View {
         for id in ids { await store.loadBodyIfNeeded(id) }
 
         guard let mailContext = store.assistantMailContext(for: messageID) else {
-            throw OnDeviceTextAssistantError.invalidRequest(
+            throw TextAssistantError.invalidRequest(
                 "O email selecionado não está mais disponível."
             )
         }

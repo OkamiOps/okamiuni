@@ -5,11 +5,11 @@ import UNICore
 /// Foundation Models continua fora daqui; o app injeta a implementação.
 public enum OnDeviceAssistantBridge {
     public static func composerGenerator(
-        using assistant: any OnDeviceTextAssisting
+        using assistant: any TextAssisting
     ) -> ComposerIntelligenceGenerator {
         { request in
             let context = request.sourceContext
-                ?? request.sourceMessage.map(OnDeviceAssistantMailContext.init(message:))
+                ?? request.sourceMessage.map(AssistantMailContext.init(message:))
             return try await assistant.transform(
                 request.source,
                 using: writingAction(for: request),
@@ -20,8 +20,8 @@ public enum OnDeviceAssistantBridge {
 
     static func answer(
         _ request: LocalAssistantRequest,
-        mailContext: OnDeviceAssistantMailContext,
-        using assistant: any OnDeviceTextAssisting
+        mailContext: AssistantMailContext,
+        using assistant: any TextAssisting
     ) async throws -> String {
         var history = request.conversation
         // O painel inclui a pergunta atual antes de chamar a closure. Ela já
@@ -34,20 +34,20 @@ public enum OnDeviceAssistantBridge {
         }
 
         let turns = history.map { message in
-            OnDeviceAssistantTurn(
+            AssistantTurn(
                 role: message.speaker == .user ? .user : .assistant,
                 text: message.text
             )
         }
         return try await assistant.answer(
             question: request.question,
-            in: OnDeviceAssistantConversation(mailContext: mailContext, turns: turns)
+            in: AssistantConversationSnapshot(mailContext: mailContext, turns: turns)
         )
     }
 
     private static func writingAction(
         for request: ComposerIntelligenceRequest
-    ) -> OnDeviceWritingAction {
+    ) -> WritingAction {
         switch request.action {
         case .summarize: .summarize
         case .clarify: .rewriteForClarity

@@ -1,10 +1,10 @@
 import Foundation
 
-/// Um e-mail que pode servir como contexto factual para o assistente local.
+/// Um e-mail que pode servir como contexto factual para o assistente.
 ///
 /// O conteúdo é sempre tratado como dado: ele pode conter texto arbitrário e
 /// não deve alterar a política do assistente.
-public struct OnDeviceAssistantEmailContext: Sendable, Hashable {
+public struct AssistantEmailContext: Sendable, Hashable {
     public let subject: String
     public let sender: String
     public let recipients: [String]
@@ -34,7 +34,7 @@ public struct OnDeviceAssistantEmailContext: Sendable, Hashable {
 
 /// Uma contagem de caixa que dá ao assistente a visão do ambiente inteiro sem
 /// obrigá-lo a deduzir totais a partir do recorte de e-mails detalhados.
-public struct OnDeviceAssistantMailboxContext: Sendable, Hashable {
+public struct AssistantMailboxContext: Sendable, Hashable {
     public let name: String
     public let totalCount: Int
     public let unreadCount: Int
@@ -47,7 +47,7 @@ public struct OnDeviceAssistantMailboxContext: Sendable, Hashable {
 }
 
 /// Um compromisso disponível no ambiente local do app.
-public struct OnDeviceAssistantAgendaContext: Sendable, Hashable {
+public struct AssistantAgendaContext: Sendable, Hashable {
     public let title: String
     public let date: Date
     public let startMinute: Int
@@ -74,7 +74,7 @@ public struct OnDeviceAssistantAgendaContext: Sendable, Hashable {
 
 /// Cabeçalho e prévia de um e-mail dentro do retrato global. O corpo integral
 /// permanece reservado ao botão contextual do leitor.
-public struct OnDeviceAssistantWorkspaceEmailContext: Sendable, Hashable {
+public struct AssistantWorkspaceEmailContext: Sendable, Hashable {
     public let id: String
     public let account: String
     public let mailbox: String
@@ -111,7 +111,7 @@ public struct OnDeviceAssistantWorkspaceEmailContext: Sendable, Hashable {
     }
 }
 
-public struct OnDeviceAssistantPendingContext: Sendable, Hashable {
+public struct AssistantPendingContext: Sendable, Hashable {
     public let text: String
     public let account: String
 
@@ -124,7 +124,7 @@ public struct OnDeviceAssistantPendingContext: Sendable, Hashable {
 /// Retrato local do OkamiUNI usado pelo botão global: todas as caixas
 /// carregadas, os e-mails disponíveis e a agenda, sem depender da mensagem
 /// que por acaso esteja aberta no leitor.
-public struct OnDeviceAssistantWorkspaceContext: Sendable, Hashable {
+public struct AssistantWorkspaceContext: Sendable, Hashable {
     /// Quantos e-mails prioritários recebem cabeçalho e prévia no prompt.
     /// Totais e contagens continuam cobrindo o ambiente inteiro.
     public static let detailedEmailLimit = 24
@@ -132,19 +132,19 @@ public struct OnDeviceAssistantWorkspaceContext: Sendable, Hashable {
     public let accounts: [String]
     public let emailCount: Int
     public let unreadCount: Int
-    public let mailboxes: [OnDeviceAssistantMailboxContext]
-    public let emails: [OnDeviceAssistantWorkspaceEmailContext]
-    public let agenda: [OnDeviceAssistantAgendaContext]
-    public let pendingItems: [OnDeviceAssistantPendingContext]
+    public let mailboxes: [AssistantMailboxContext]
+    public let emails: [AssistantWorkspaceEmailContext]
+    public let agenda: [AssistantAgendaContext]
+    public let pendingItems: [AssistantPendingContext]
 
     public init(
         accounts: [String],
         emailCount: Int,
         unreadCount: Int,
-        mailboxes: [OnDeviceAssistantMailboxContext],
-        emails: [OnDeviceAssistantWorkspaceEmailContext],
-        agenda: [OnDeviceAssistantAgendaContext],
-        pendingItems: [OnDeviceAssistantPendingContext] = []
+        mailboxes: [AssistantMailboxContext],
+        emails: [AssistantWorkspaceEmailContext],
+        agenda: [AssistantAgendaContext],
+        pendingItems: [AssistantPendingContext] = []
     ) {
         self.accounts = accounts
         self.emailCount = emailCount
@@ -160,42 +160,42 @@ public struct OnDeviceAssistantWorkspaceContext: Sendable, Hashable {
 ///
 /// Um `.email` representa a leitura atual. Um `.conversation` preserva a
 /// ordem dos e-mails de uma conversa, do mais antigo para o mais recente.
-public enum OnDeviceAssistantMailContext: Sendable, Hashable {
-    case email(OnDeviceAssistantEmailContext)
-    case conversation([OnDeviceAssistantEmailContext])
+public enum AssistantMailContext: Sendable, Hashable {
+    case email(AssistantEmailContext)
+    case conversation([AssistantEmailContext])
     /// O nome histórico do tipo é mantido para não quebrar os consumidores de
     /// escrita, mas perguntas globais podem receber o ambiente local completo.
-    case workspace(OnDeviceAssistantWorkspaceContext)
+    case workspace(AssistantWorkspaceContext)
 }
 
 /// A origem de cada turno da conversa com o assistente.
-public enum OnDeviceAssistantTurnRole: String, Sendable, Hashable {
+public enum AssistantTurnRole: String, Sendable, Hashable {
     case user
     case assistant
 }
 
-/// Um turno anterior da conversa com o assistente local.
+/// Um turno anterior da conversa com o assistente.
 ///
 /// O histórico é somente contexto de linguagem; não é uma fonte factual mais
 /// confiável do que os e-mails originais.
-public struct OnDeviceAssistantTurn: Sendable, Hashable {
-    public let role: OnDeviceAssistantTurnRole
+public struct AssistantTurn: Sendable, Hashable {
+    public let role: AssistantTurnRole
     public let text: String
 
-    public init(role: OnDeviceAssistantTurnRole, text: String) {
+    public init(role: AssistantTurnRole, text: String) {
         self.role = role
         self.text = text
     }
 }
 
-/// O contexto completo de uma pergunta ao assistente local.
-public struct OnDeviceAssistantConversation: Sendable, Hashable {
-    public let mailContext: OnDeviceAssistantMailContext
-    public let turns: [OnDeviceAssistantTurn]
+/// O contexto completo de uma pergunta ao assistente.
+public struct AssistantConversationSnapshot: Sendable, Hashable {
+    public let mailContext: AssistantMailContext
+    public let turns: [AssistantTurn]
 
     public init(
-        mailContext: OnDeviceAssistantMailContext,
-        turns: [OnDeviceAssistantTurn] = []
+        mailContext: AssistantMailContext,
+        turns: [AssistantTurn] = []
     ) {
         self.mailContext = mailContext
         self.turns = turns
@@ -203,7 +203,7 @@ public struct OnDeviceAssistantConversation: Sendable, Hashable {
 }
 
 /// Transformações de escrita disponíveis sem expor detalhes do modelo à UI.
-public enum OnDeviceWritingAction: Sendable, Hashable {
+public enum WritingAction: Sendable, Hashable {
     case summarize
     case rewriteForClarity
     case shorten
@@ -217,7 +217,7 @@ public enum OnDeviceWritingAction: Sendable, Hashable {
 }
 
 /// Falhas que a interface pode apresentar sem importar FoundationModels.
-public enum OnDeviceTextAssistantError: Error, Sendable, Equatable, LocalizedError {
+public enum TextAssistantError: Error, Sendable, Equatable, LocalizedError {
     case unavailable(OnDeviceMessageAnalysisAvailability)
     case invalidRequest(String)
     case emptyResponse
@@ -226,17 +226,17 @@ public enum OnDeviceTextAssistantError: Error, Sendable, Equatable, LocalizedErr
     public var errorDescription: String? {
         switch self {
         case .unavailable(.available):
-            return "O assistente local não está disponível neste momento."
+            return "O assistente não está disponível neste momento."
         case .unavailable(.deviceNotEligible):
-            return "Este dispositivo não é elegível para o assistente local."
+            return "Este dispositivo não é elegível para a Apple Intelligence."
         case .unavailable(.appleIntelligenceNotEnabled):
             return "A Apple Intelligence está desativada neste dispositivo."
         case .unavailable(.modelNotReady):
-            return "O modelo local ainda não está pronto."
+            return "O modelo da Apple Intelligence ainda não está pronto."
         case let .invalidRequest(message):
             return message
         case .emptyResponse:
-            return "O assistente local devolveu uma resposta vazia."
+            return "O assistente devolveu uma resposta vazia."
         case let .generationFailed(message):
             return message
         }
@@ -247,26 +247,26 @@ public enum OnDeviceTextAssistantError: Error, Sendable, Equatable, LocalizedErr
 ///
 /// Implementações vivem fora de UNICore para que este pacote permaneça puro,
 /// usando somente Foundation e Observation.
-public protocol OnDeviceTextAssisting: Sendable {
+public protocol TextAssisting: Sendable {
     var modelVersion: String { get }
 
     func availability() async -> OnDeviceMessageAnalysisAvailability
     func answer(
         question: String,
-        in conversation: OnDeviceAssistantConversation
+        in conversation: AssistantConversationSnapshot
     ) async throws -> String
     func transform(
         _ text: String,
-        using action: OnDeviceWritingAction,
-        context: OnDeviceAssistantMailContext?
+        using action: WritingAction,
+        context: AssistantMailContext?
     ) async throws -> String
 }
 
-public extension OnDeviceTextAssisting {
+public extension TextAssisting {
     /// Conveniência para as transformações que não precisam ler o e-mail.
     func transform(
         _ text: String,
-        using action: OnDeviceWritingAction
+        using action: WritingAction
     ) async throws -> String {
         try await transform(text, using: action, context: nil)
     }

@@ -26,7 +26,7 @@ public enum AssistantProviderOAuthTextAssistantError: Error, Sendable, Equatable
     }
 }
 
-public struct AssistantProviderOAuthTextAssistant: OnDeviceTextAssisting, Sendable {
+public struct AssistantProviderOAuthTextAssistant: TextAssisting, Sendable {
     public let modelVersion: String
     private let configuration: AssistantProviderOAuthConfiguration
     private let accessToken: String
@@ -58,7 +58,7 @@ public struct AssistantProviderOAuthTextAssistant: OnDeviceTextAssisting, Sendab
 
     public func availability() async -> OnDeviceMessageAnalysisAvailability { .available }
 
-    public func answer(question: String, in conversation: OnDeviceAssistantConversation) async throws -> String {
+    public func answer(question: String, in conversation: AssistantConversationSnapshot) async throws -> String {
         let question = try FoundationModelsTextAssistantValidation.question(question)
         return try FoundationModelsTextAssistantValidation.response(try await complete(
             instructions: FoundationModelsTextAssistantPrompt.answerInstructions(additionalInstructions: additionalInstructions),
@@ -70,7 +70,7 @@ public struct AssistantProviderOAuthTextAssistant: OnDeviceTextAssisting, Sendab
         ))
     }
 
-    public func transform(_ text: String, using action: OnDeviceWritingAction, context: OnDeviceAssistantMailContext?) async throws -> String {
+    public func transform(_ text: String, using action: WritingAction, context: AssistantMailContext?) async throws -> String {
         let text = try FoundationModelsTextAssistantValidation.transformText(text, action: action, context: context)
         return try FoundationModelsTextAssistantValidation.response(try await complete(
             instructions: FoundationModelsTextAssistantPrompt.transformInstructions(additionalInstructions: additionalInstructions),
@@ -98,7 +98,7 @@ public struct AssistantProviderOAuthTextAssistant: OnDeviceTextAssisting, Sendab
             guard (200..<300).contains(response.statusCode) else { throw error(for: response.statusCode) }
             guard let decoded = try? JSONDecoder().decode(ResponsesResponse.self, from: data), let text = decoded.text else { throw AssistantProviderOAuthTextAssistantError.invalidResponse }
             return text
-        } catch let error as OnDeviceTextAssistantError {
+        } catch let error as TextAssistantError {
             throw error
         } catch let error as AssistantProviderOAuthTextAssistantError {
             throw error

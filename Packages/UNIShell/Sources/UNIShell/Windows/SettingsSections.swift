@@ -21,7 +21,7 @@ struct GeneralSettingsView: View {
 
     let settingsStore: AssistantSettingsStore?
     let credentialStore: (any AssistantCredentialStore)?
-    let textAssistant: (any OnDeviceTextAssisting)?
+    let textAssistant: (any TextAssisting)?
     let themes: ThemeStore?
     let swipes: SwipeSettingsStore?
     let moveDestinations: [SwipeMoveDestination]
@@ -62,7 +62,7 @@ struct GeneralSettingsView: View {
         scope: GeneralSettingsScope = .general,
         settingsStore: AssistantSettingsStore?,
         credentialStore: (any AssistantCredentialStore)?,
-        textAssistant: (any OnDeviceTextAssisting)?,
+        textAssistant: (any TextAssisting)?,
         liteLLMOAuthAuthorizer: (any LiteLLMOAuthAuthorizing)? = nil,
         providerOAuthAuthorizer: (any AssistantProviderOAuthAuthorizing)? = nil,
         themes: ThemeStore?,
@@ -1098,7 +1098,7 @@ struct GeneralSettingsView: View {
         clearFeedback()
         Task {
             do {
-                let emptyWorkspace = OnDeviceAssistantWorkspaceContext(
+                let emptyWorkspace = AssistantWorkspaceContext(
                     accounts: [], emailCount: 0, unreadCount: 0,
                     mailboxes: [], emails: [], agenda: []
                 )

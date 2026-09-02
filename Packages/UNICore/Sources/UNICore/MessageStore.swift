@@ -1766,12 +1766,12 @@ public final class MailStore {
     /// nunca a linha da lista. A lista não guarda HTML de propósito — gravar
     /// o payload ali invalidava o cache de Tudo. Quem pergunta à IA e usa
     /// `messages.first` manda só o snippet, e o modelo acha o email incompleto.
-    public func assistantMailContext(for messageID: String) -> OnDeviceAssistantMailContext? {
+    public func assistantMailContext(for messageID: String) -> AssistantMailContext? {
         guard let message = message(messageID) else { return nil }
         if let conversation = conversation(of: messageID), conversation.count > 1 {
-            return OnDeviceAssistantMailContext(conversation: conversation)
+            return AssistantMailContext(conversation: conversation)
         }
-        return OnDeviceAssistantMailContext(message: message)
+        return AssistantMailContext(message: message)
     }
 
     private func buildConversation(containing messageID: String) -> Conversation? {

@@ -172,7 +172,7 @@ struct AssistantRouterTests {
         )
     }
 
-    private var conversation: OnDeviceAssistantConversation {
+    private var conversation: AssistantConversationSnapshot {
         .init(mailContext: .email(.init(
             subject: "Planejamento",
             sender: "Marina <marina@example.com>",

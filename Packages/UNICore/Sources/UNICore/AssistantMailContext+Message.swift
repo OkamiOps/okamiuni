@@ -1,6 +1,6 @@
 import Foundation
 
-public extension OnDeviceAssistantEmailContext {
+public extension AssistantEmailContext {
     /// Traduz o modelo de e-mail do app para a fronteira factual do assistente.
     init(message: Message) {
         let paragraphs = message.body
@@ -18,14 +18,14 @@ public extension OnDeviceAssistantEmailContext {
     }
 }
 
-public extension OnDeviceAssistantMailContext {
+public extension AssistantMailContext {
     init(message: Message) {
-        self = .email(OnDeviceAssistantEmailContext(message: message))
+        self = .email(AssistantEmailContext(message: message))
     }
 
     /// `Conversation.messages` já vem da mais antiga para a mais nova.
     init(conversation: Conversation) {
-        self = .conversation(conversation.messages.map(OnDeviceAssistantEmailContext.init(message:)))
+        self = .conversation(conversation.messages.map(AssistantEmailContext.init(message:)))
     }
 
     /// Constrói o retrato do botão global. A seleção atual fica deliberadamente
@@ -39,7 +39,7 @@ public extension OnDeviceAssistantMailContext {
                 return lhs.receivedAt > rhs.receivedAt
             }
             .map { message in
-                OnDeviceAssistantWorkspaceEmailContext(
+                AssistantWorkspaceEmailContext(
                     id: message.id,
                     account: store.account(message.accountID)?.address ?? message.accountID,
                     mailbox: message.bucket.label,
@@ -54,7 +54,7 @@ public extension OnDeviceAssistantMailContext {
         }
         let mailboxes = TriageBucket.allCases.map { bucket in
             let messages = store.messages.filter { store.includes($0, in: bucket) }
-            return OnDeviceAssistantMailboxContext(
+            return AssistantMailboxContext(
                 name: bucket.label,
                 totalCount: messages.count,
                 unreadCount: messages.filter { !$0.isRead }.count
@@ -68,7 +68,7 @@ public extension OnDeviceAssistantMailContext {
             }
             .map { item in
                 let place = item.detail?.place.trimmingCharacters(in: .whitespacesAndNewlines)
-                return OnDeviceAssistantAgendaContext(
+                return AssistantAgendaContext(
                     title: item.title,
                     date: store.agendaDate(for: item),
                     startMinute: item.startMinute,
@@ -81,13 +81,13 @@ public extension OnDeviceAssistantMailContext {
             "\(account.displayName) · \(account.address) · \(account.host)"
         }
         let pendingItems = store.pendingItems.map { item in
-            OnDeviceAssistantPendingContext(
+            AssistantPendingContext(
                 text: item.text,
                 account: store.account(item.accountID)?.address ?? item.accountID
             )
         }
 
-        self = .workspace(OnDeviceAssistantWorkspaceContext(
+        self = .workspace(AssistantWorkspaceContext(
             accounts: accounts,
             emailCount: store.messages.count,
             unreadCount: store.messages.filter { !$0.isRead }.count,

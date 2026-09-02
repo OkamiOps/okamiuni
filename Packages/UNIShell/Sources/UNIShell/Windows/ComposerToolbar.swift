@@ -36,7 +36,7 @@ struct ComposerToolbar: View {
     /// por que não pode agir.
     let intelligence: ComposerIntelligenceGenerator?
     let intelligenceSourceMessage: Message?
-    let intelligenceSourceContext: OnDeviceAssistantMailContext?
+    let intelligenceSourceContext: AssistantMailContext?
     let intelligenceContext: ComposerIntelligenceContext?
     let applyIntelligence: (ComposerIntelligenceProposal) -> ComposerIntelligenceApplyResult
 
@@ -60,7 +60,7 @@ struct ComposerToolbar: View {
         moreOpen: Bool = false,
         intelligence: ComposerIntelligenceGenerator? = nil,
         intelligenceSourceMessage: Message? = nil,
-        intelligenceSourceContext: OnDeviceAssistantMailContext? = nil,
+        intelligenceSourceContext: AssistantMailContext? = nil,
         intelligenceContext: ComposerIntelligenceContext? = nil,
         applyIntelligence: @escaping (ComposerIntelligenceProposal) -> ComposerIntelligenceApplyResult = { _ in .sourceChanged },
         perform: @escaping (ComposerCommand) -> Void

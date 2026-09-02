@@ -286,12 +286,12 @@ public struct ComposerWindow: View {
     /// O modelo recebe o fio inteiro quando ele existe. A mensagem atual
     /// continua sendo a âncora visual, mas uma resposta útil precisa enxergar
     /// perguntas, decisões e compromissos que vieram antes dela.
-    private var intelligenceSourceContext: OnDeviceAssistantMailContext? {
+    private var intelligenceSourceContext: AssistantMailContext? {
         guard let repliedMessage else { return nil }
         if let conversation = store.conversation(of: repliedMessage.id) {
-            return OnDeviceAssistantMailContext(conversation: conversation)
+            return AssistantMailContext(conversation: conversation)
         }
-        return OnDeviceAssistantMailContext(message: repliedMessage)
+        return AssistantMailContext(message: repliedMessage)
     }
 
     /// A mensagem a que esta janela **responde** — não a que ela encaminha.

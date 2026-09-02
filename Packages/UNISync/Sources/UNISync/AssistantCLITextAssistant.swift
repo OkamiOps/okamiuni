@@ -442,7 +442,7 @@ public struct AssistantCLICommand: Sendable, Hashable {
 /// de prompt dos outros transportes. Não tenta login nem sabe onde cada CLI
 /// guarda sua sessão; falhas de sessão permanecem um erro acionável do processo
 /// filho, sem importar/copiar credenciais para o OkamiUNI.
-public struct AssistantCLITextAssistant: OnDeviceTextAssisting, Sendable {
+public struct AssistantCLITextAssistant: TextAssisting, Sendable {
     public let modelVersion: String
 
     private let command: AssistantCLICommand
@@ -467,7 +467,7 @@ public struct AssistantCLITextAssistant: OnDeviceTextAssisting, Sendable {
 
     public func answer(
         question: String,
-        in conversation: OnDeviceAssistantConversation
+        in conversation: AssistantConversationSnapshot
     ) async throws -> String {
         let question = try FoundationModelsTextAssistantValidation.question(question)
         return try await complete(
@@ -484,8 +484,8 @@ public struct AssistantCLITextAssistant: OnDeviceTextAssisting, Sendable {
 
     public func transform(
         _ text: String,
-        using action: OnDeviceWritingAction,
-        context: OnDeviceAssistantMailContext?
+        using action: WritingAction,
+        context: AssistantMailContext?
     ) async throws -> String {
         let text = try FoundationModelsTextAssistantValidation.transformText(
             text,

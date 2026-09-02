@@ -76,7 +76,7 @@ public struct AccountsWindow: View {
     private let model: AccountsModel
     private let assistantSettings: AssistantSettingsStore?
     private let assistantCredentials: (any AssistantCredentialStore)?
-    private let textAssistant: (any OnDeviceTextAssisting)?
+    private let textAssistant: (any TextAssisting)?
     private let liteLLMOAuthAuthorizer: (any LiteLLMOAuthAuthorizing)?
     private let providerOAuthAuthorizer: (any AssistantProviderOAuthAuthorizing)?
     private let emailRules: EmailRuleStore?
@@ -98,7 +98,7 @@ public struct AccountsWindow: View {
         initialSection: SettingsSection = .accounts,
         assistantSettings: AssistantSettingsStore? = nil,
         assistantCredentials: (any AssistantCredentialStore)? = nil,
-        textAssistant: (any OnDeviceTextAssisting)? = nil,
+        textAssistant: (any TextAssisting)? = nil,
         liteLLMOAuthAuthorizer: (any LiteLLMOAuthAuthorizing)? = nil,
         providerOAuthAuthorizer: (any AssistantProviderOAuthAuthorizing)? = nil,
         emailRules: EmailRuleStore? = nil,

@@ -124,7 +124,7 @@ struct BodyOnDemandTests {
         }
         #expect(context.html == html)
         #expect(context.body.contains("Hi Marcos"))
-        #expect(OnDeviceAssistantEmailContext(message: store.messages.first!).html == nil)
+        #expect(AssistantEmailContext(message: store.messages.first!).html == nil)
     }
 
     @Test("Mensagem que já tem corpo e já foi decodificada não gasta viagem nenhuma")

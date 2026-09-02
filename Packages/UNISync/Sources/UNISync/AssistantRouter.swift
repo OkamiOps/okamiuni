@@ -17,7 +17,7 @@ public protocol OpenAICompatibleOAuthTokenProviding: Sendable {
 /// mudança afeta a próxima chamada, sem desmontar telas ou cancelar uma
 /// resposta que já estava em voo.
 @available(macOS 26.0, *)
-public actor AssistantRouter: OnDeviceTextAssisting {
+public actor AssistantRouter: TextAssisting {
     public static let currentModelVersion = "assistant-router/v3"
     public nonisolated let modelVersion = AssistantRouter.currentModelVersion
 
@@ -106,7 +106,7 @@ public actor AssistantRouter: OnDeviceTextAssisting {
 
     public func answer(
         question: String,
-        in conversation: OnDeviceAssistantConversation
+        in conversation: AssistantConversationSnapshot
     ) async throws -> String {
         let settings = settingsStore.snapshot()
         switch settings.provider {
@@ -134,8 +134,8 @@ public actor AssistantRouter: OnDeviceTextAssisting {
 
     public func transform(
         _ text: String,
-        using action: OnDeviceWritingAction,
-        context: OnDeviceAssistantMailContext?
+        using action: WritingAction,
+        context: AssistantMailContext?
     ) async throws -> String {
         let settings = settingsStore.snapshot()
         switch settings.provider {
@@ -224,7 +224,7 @@ public actor AssistantRouter: OnDeviceTextAssisting {
     private func providerOAuthAssistant(
         settings: AssistantSettings,
         promptKind: AssistantPromptKind
-    ) async throws -> any OnDeviceTextAssisting {
+    ) async throws -> any TextAssisting {
         let configuration = try settings.providerOAuth.validated()
         guard let providerOAuthTokenProvider else {
             throw AssistantProviderOAuthError.missingSession

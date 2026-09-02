@@ -76,7 +76,7 @@ public struct InboxScreen: View {
     let intelligencePresentation: IntelligencePresentation
     /// Serviço local injetado pelo app. `nil` mantém previews e harnesses
     /// determinísticos, com a superfície ainda renderizável.
-    let textAssistant: (any OnDeviceTextAssisting)?
+    let textAssistant: (any TextAssisting)?
     /// A mesma preferência que o roteador consulta no momento da pergunta.
     /// Ela existe aqui só para rotular honestamente a superfície interativa.
     let assistantSettings: AssistantSettingsStore?
@@ -91,7 +91,7 @@ public struct InboxScreen: View {
         store: MailStore,
         clock: AgendaClock = .fixed(Fixtures.nowMinute),
         intelligencePresentation: IntelligencePresentation = .available,
-        textAssistant: (any OnDeviceTextAssisting)? = nil,
+        textAssistant: (any TextAssisting)? = nil,
         assistantSettings: AssistantSettingsStore? = nil,
         onMessagePresented: @escaping (String) -> Void = { _ in },
         accountsModel: AccountsModel? = nil
@@ -115,7 +115,7 @@ public struct InboxScreen: View {
         store: MailStore,
         clock: AgendaClock = .fixed(Fixtures.nowMinute),
         intelligencePresentation: IntelligencePresentation = .available,
-        textAssistant: (any OnDeviceTextAssisting)? = nil,
+        textAssistant: (any TextAssisting)? = nil,
         assistantSettings: AssistantSettingsStore? = nil,
         onMessagePresented: @escaping (String) -> Void = { _ in },
         accountsModel: AccountsModel? = nil,
@@ -696,22 +696,22 @@ public struct InboxScreen: View {
         scope: InboxAssistantScope
     ) async throws -> String {
         guard let textAssistant else {
-            throw OnDeviceTextAssistantError.invalidRequest(
+            throw TextAssistantError.invalidRequest(
                 "O assistente local não foi conectado a esta janela."
             )
         }
-        let mailContext: OnDeviceAssistantMailContext
+        let mailContext: AssistantMailContext
         switch scope {
         case .workspace:
             // O snapshot é global e leve: cabeçalhos/prévias, contagens e
             // agenda. Corpos integrais continuam no botão do próprio e-mail.
-            mailContext = OnDeviceAssistantMailContext(workspace: store)
+            mailContext = AssistantMailContext(workspace: store)
         case let .email(messageID):
             let ids = store.conversation(of: messageID)?.messageIDs ?? [messageID]
             for id in ids { await store.loadBodyIfNeeded(id) }
 
             guard let loaded = store.assistantMailContext(for: messageID) else {
-                throw OnDeviceTextAssistantError.invalidRequest(
+                throw TextAssistantError.invalidRequest(
                     "O email selecionado não está mais disponível."
                 )
             }

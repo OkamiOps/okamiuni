@@ -3,11 +3,11 @@ import Testing
 @testable import UNICore
 
 @Suite("Contexto factual do assistente")
-struct OnDeviceAssistantMailContextTests {
+struct AssistantMailContextTests {
     @Test("Mensagem preserva remetente, destinatários e corpo")
     func messageContext() throws {
         let message = Fixtures.messages[0]
-        let context = OnDeviceAssistantEmailContext(message: message)
+        let context = AssistantEmailContext(message: message)
 
         #expect(context.sender == message.from.display)
         #expect(context.subject == message.subject)
@@ -19,7 +19,7 @@ struct OnDeviceAssistantMailContextTests {
         let original = Fixtures.messages[0]
         let html = "<p>Hi Marcos,</p><ol><li>What is IGEL OS?</li></ol>"
         let message = original.withBody(["Hi Marcos, I'm reaching out."], html: html, calendarICS: nil)
-        let context = OnDeviceAssistantEmailContext(message: message)
+        let context = AssistantEmailContext(message: message)
 
         #expect(context.body == "Hi Marcos, I'm reaching out.")
         #expect(context.html == html)
@@ -29,7 +29,7 @@ struct OnDeviceAssistantMailContextTests {
     func snippetFallback() throws {
         let original = Fixtures.messages[0]
         let message = original.withBody([], html: nil, calendarICS: nil)
-        let context = OnDeviceAssistantEmailContext(message: message)
+        let context = AssistantEmailContext(message: message)
 
         #expect(context.body == message.snippet)
     }
@@ -40,7 +40,7 @@ struct OnDeviceAssistantMailContextTests {
         let newer = Fixtures.messages[0]
         let conversation = try #require(Conversation(key: "thread", messages: [older, newer]))
 
-        guard case let .conversation(messages) = OnDeviceAssistantMailContext(conversation: conversation) else {
+        guard case let .conversation(messages) = AssistantMailContext(conversation: conversation) else {
             Issue.record("Esperava contexto de conversa")
             return
         }
@@ -58,7 +58,7 @@ struct OnDeviceAssistantMailContextTests {
         store.select(account: try #require(store.accounts.first?.id))
         store.select(bucket: .trash)
 
-        guard case let .workspace(workspace) = OnDeviceAssistantMailContext(workspace: store) else {
+        guard case let .workspace(workspace) = AssistantMailContext(workspace: store) else {
             Issue.record("Esperava contexto do ambiente")
             return
         }

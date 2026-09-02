@@ -41,7 +41,7 @@ public enum OpenAICompatibleTextAssistantError: Error, Sendable, Equatable, Loca
 /// Adaptador para LiteLLM e qualquer endpoint que implemente
 /// `POST /v1/chat/completions`. Ele não descobre modelos nem faz sondagens de
 /// rede: cada ação de assistente resulta em uma única chamada explícita.
-public struct OpenAICompatibleTextAssistant: OnDeviceTextAssisting, Sendable {
+public struct OpenAICompatibleTextAssistant: TextAssisting, Sendable {
     public let modelVersion: String
 
     private let configuration: OpenAICompatibleAssistantConfiguration
@@ -101,7 +101,7 @@ public struct OpenAICompatibleTextAssistant: OnDeviceTextAssisting, Sendable {
 
     public func answer(
         question: String,
-        in conversation: OnDeviceAssistantConversation
+        in conversation: AssistantConversationSnapshot
     ) async throws -> String {
         let question = try FoundationModelsTextAssistantValidation.question(question)
         let response = try await complete(
@@ -119,8 +119,8 @@ public struct OpenAICompatibleTextAssistant: OnDeviceTextAssisting, Sendable {
 
     public func transform(
         _ text: String,
-        using action: OnDeviceWritingAction,
-        context: OnDeviceAssistantMailContext?
+        using action: WritingAction,
+        context: AssistantMailContext?
     ) async throws -> String {
         let text = try FoundationModelsTextAssistantValidation.transformText(
             text,
@@ -173,7 +173,7 @@ public struct OpenAICompatibleTextAssistant: OnDeviceTextAssisting, Sendable {
                 throw OpenAICompatibleTextAssistantError.invalidResponse
             }
             return content
-        } catch let error as OnDeviceTextAssistantError {
+        } catch let error as TextAssistantError {
             throw error
         } catch let error as OpenAICompatibleTextAssistantError {
             throw error

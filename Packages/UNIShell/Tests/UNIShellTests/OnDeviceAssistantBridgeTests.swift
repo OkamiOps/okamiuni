@@ -10,11 +10,11 @@ struct OnDeviceAssistantBridgeTests {
         let spy = AssistantSpy()
         let generator = OnDeviceAssistantBridge.composerGenerator(using: spy)
         let message = Fixtures.messages[0]
-        let conversationContext = OnDeviceAssistantMailContext.conversation([
-            OnDeviceAssistantEmailContext(
+        let conversationContext = AssistantMailContext.conversation([
+            AssistantEmailContext(
                 subject: "Pergunta original", sender: "Cliente", body: "Pode enviar até sexta?"
             ),
-            OnDeviceAssistantEmailContext(message: message),
+            AssistantEmailContext(message: message),
         ])
 
         _ = try await generator(.init(
@@ -46,7 +46,7 @@ struct OnDeviceAssistantBridgeTests {
 
         _ = try await OnDeviceAssistantBridge.answer(
             request,
-            mailContext: .email(OnDeviceAssistantEmailContext(message: Fixtures.messages[0])),
+            mailContext: .email(AssistantEmailContext(message: Fixtures.messages[0])),
             using: spy
         )
 
@@ -58,7 +58,7 @@ struct OnDeviceAssistantBridgeTests {
     @Test("Contexto global atravessa a ponte sem virar email selecionado")
     func workspaceContextIsPreserved() async throws {
         let spy = AssistantSpy()
-        let workspace = OnDeviceAssistantWorkspaceContext(
+        let workspace = AssistantWorkspaceContext(
             accounts: ["Marcos · eu@example.com · example"],
             emailCount: 8,
             unreadCount: 3,
@@ -86,15 +86,15 @@ struct OnDeviceAssistantBridgeTests {
     }
 }
 
-private actor AssistantSpy: OnDeviceTextAssisting {
+private actor AssistantSpy: TextAssisting {
     struct TransformCall: Sendable {
         let text: String
-        let action: OnDeviceWritingAction
-        let context: OnDeviceAssistantMailContext?
+        let action: WritingAction
+        let context: AssistantMailContext?
     }
     struct AnswerCall: Sendable {
         let question: String
-        let conversation: OnDeviceAssistantConversation
+        let conversation: AssistantConversationSnapshot
     }
 
     nonisolated let modelVersion = "spy"
@@ -105,7 +105,7 @@ private actor AssistantSpy: OnDeviceTextAssisting {
 
     func answer(
         question: String,
-        in conversation: OnDeviceAssistantConversation
+        in conversation: AssistantConversationSnapshot
     ) async throws -> String {
         lastAnswer = .init(question: question, conversation: conversation)
         return "Resposta"
@@ -113,8 +113,8 @@ private actor AssistantSpy: OnDeviceTextAssisting {
 
     func transform(
         _ text: String,
-        using action: OnDeviceWritingAction,
-        context: OnDeviceAssistantMailContext?
+        using action: WritingAction,
+        context: AssistantMailContext?
     ) async throws -> String {
         lastTransform = .init(text: text, action: action, context: context)
         return "Texto"

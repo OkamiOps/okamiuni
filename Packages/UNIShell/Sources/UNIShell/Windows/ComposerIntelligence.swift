@@ -66,7 +66,7 @@ public struct ComposerIntelligenceRequest: Equatable, Sendable {
     /// Contexto completo da conversa, quando a superfície dona do composer
     /// consegue fornecê-lo. `sourceMessage` continua existindo para preservar
     /// a origem visual e como fallback de integrações mais simples.
-    public let sourceContext: OnDeviceAssistantMailContext?
+    public let sourceContext: AssistantMailContext?
 
     public init(
         action: ComposerIntelligenceAction,
@@ -74,7 +74,7 @@ public struct ComposerIntelligenceRequest: Equatable, Sendable {
         source: String,
         instruction: String? = nil,
         sourceMessage: Message? = nil,
-        sourceContext: OnDeviceAssistantMailContext? = nil
+        sourceContext: AssistantMailContext? = nil
     ) {
         self.action = action
         self.target = target

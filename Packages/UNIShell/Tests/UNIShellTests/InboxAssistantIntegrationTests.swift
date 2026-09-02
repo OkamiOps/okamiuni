@@ -775,37 +775,37 @@ private struct MarkerMailSource: MailSource {
     func folders() async throws -> [MailFolder] { folders }
 }
 
-private struct IntegrationAssistant: OnDeviceTextAssisting {
+private struct IntegrationAssistant: TextAssisting {
     let modelVersion = "integration"
     func availability() async -> OnDeviceMessageAnalysisAvailability { .available }
     func answer(
         question: String,
-        in conversation: OnDeviceAssistantConversation
+        in conversation: AssistantConversationSnapshot
     ) async throws -> String { "Resposta local" }
     func transform(
         _ text: String,
-        using action: OnDeviceWritingAction,
-        context: OnDeviceAssistantMailContext?
+        using action: WritingAction,
+        context: AssistantMailContext?
     ) async throws -> String { "Texto local" }
 }
 
-private actor RecordingIntegrationAssistant: OnDeviceTextAssisting {
+private actor RecordingIntegrationAssistant: TextAssisting {
     nonisolated let modelVersion = "recording-integration"
-    private var contexts: [OnDeviceAssistantMailContext] = []
+    private var contexts: [AssistantMailContext] = []
 
     func availability() async -> OnDeviceMessageAnalysisAvailability { .available }
     func answer(
         question: String,
-        in conversation: OnDeviceAssistantConversation
+        in conversation: AssistantConversationSnapshot
     ) async throws -> String {
         contexts.append(conversation.mailContext)
         return "Resposta local"
     }
     func transform(
         _ text: String,
-        using action: OnDeviceWritingAction,
-        context: OnDeviceAssistantMailContext?
+        using action: WritingAction,
+        context: AssistantMailContext?
     ) async throws -> String { "Texto local" }
 
-    func lastContext() -> OnDeviceAssistantMailContext? { contexts.last }
+    func lastContext() -> AssistantMailContext? { contexts.last }
 }

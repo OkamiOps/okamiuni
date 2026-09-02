@@ -821,7 +821,7 @@ public struct ReaderPane: View {
             panelSize: $emailAssistantPanelSize,
             onAsk: { request in
                 guard let onAskAssistant else {
-                    throw OnDeviceTextAssistantError.invalidRequest(
+                    throw TextAssistantError.invalidRequest(
                         "O assistente local não foi conectado a esta janela."
                     )
                 }
@@ -869,7 +869,7 @@ public struct ReaderPane: View {
 
     private func generateReply(for messageID: String) async throws -> String {
         guard let intelligence else {
-            throw OnDeviceTextAssistantError.invalidRequest(
+            throw TextAssistantError.invalidRequest(
                 "A inteligência de escrita não foi conectada a esta janela."
             )
         }
@@ -879,7 +879,7 @@ public struct ReaderPane: View {
         guard let message = store.message(messageID),
               let context = store.assistantMailContext(for: messageID)
         else {
-            throw OnDeviceTextAssistantError.invalidRequest(
+            throw TextAssistantError.invalidRequest(
                 "O email selecionado não está mais disponível."
             )
         }

@@ -4,7 +4,7 @@ import UNICore
 
 /// Adaptador local de Foundation Models para perguntas contextuais e escrita.
 @available(macOS 26.0, *)
-public struct FoundationModelsTextAssistant: OnDeviceTextAssisting {
+public struct FoundationModelsTextAssistant: TextAssisting {
     /// Versão da política de prompts deste adaptador, e não da versão interna
     /// do modelo do sistema.
     public static let currentModelVersion = "foundation-models/text-assistant-v4"
@@ -35,7 +35,7 @@ public struct FoundationModelsTextAssistant: OnDeviceTextAssisting {
 
     public func answer(
         question: String,
-        in conversation: OnDeviceAssistantConversation
+        in conversation: AssistantConversationSnapshot
     ) async throws -> String {
         let question = try FoundationModelsTextAssistantValidation.question(question)
         try await requireAvailability()
@@ -56,19 +56,19 @@ public struct FoundationModelsTextAssistant: OnDeviceTextAssisting {
                 )
             ).content
             return try FoundationModelsTextAssistantValidation.response(response)
-        } catch let error as OnDeviceTextAssistantError {
+        } catch let error as TextAssistantError {
             throw error
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            throw OnDeviceTextAssistantError.generationFailed(error.localizedDescription)
+            throw TextAssistantError.generationFailed(error.localizedDescription)
         }
     }
 
     public func transform(
         _ text: String,
-        using action: OnDeviceWritingAction,
-        context: OnDeviceAssistantMailContext?
+        using action: WritingAction,
+        context: AssistantMailContext?
     ) async throws -> String {
         let text = try FoundationModelsTextAssistantValidation.transformText(
             text,
@@ -92,19 +92,19 @@ public struct FoundationModelsTextAssistant: OnDeviceTextAssisting {
                 budget: .onDevice
             )).content
             return try FoundationModelsTextAssistantValidation.response(response)
-        } catch let error as OnDeviceTextAssistantError {
+        } catch let error as TextAssistantError {
             throw error
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            throw OnDeviceTextAssistantError.generationFailed(error.localizedDescription)
+            throw TextAssistantError.generationFailed(error.localizedDescription)
         }
     }
 
     private func requireAvailability() async throws {
         let currentAvailability = await availability()
         guard currentAvailability == .available else {
-            throw OnDeviceTextAssistantError.unavailable(currentAvailability)
+            throw TextAssistantError.unavailable(currentAvailability)
         }
     }
 }
@@ -117,18 +117,18 @@ enum FoundationModelsTextAssistantValidation {
 
     static func transformText(
         _ value: String,
-        action: OnDeviceWritingAction,
-        context: OnDeviceAssistantMailContext?
+        action: WritingAction,
+        context: AssistantMailContext?
     ) throws -> String {
         switch action {
         case .draftReply:
             guard let context else {
-                throw OnDeviceTextAssistantError.invalidRequest(
+                throw TextAssistantError.invalidRequest(
                     "Criar uma resposta requer contexto de e-mail."
                 )
             }
             if case .workspace = context {
-                throw OnDeviceTextAssistantError.invalidRequest(
+                throw TextAssistantError.invalidRequest(
                     "Criar uma resposta requer contexto de e-mail."
                 )
             }
@@ -147,7 +147,7 @@ enum FoundationModelsTextAssistantValidation {
     static func response(_ value: String) throws -> String {
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else {
-            throw OnDeviceTextAssistantError.emptyResponse
+            throw TextAssistantError.emptyResponse
         }
         return normalized
     }
@@ -155,7 +155,7 @@ enum FoundationModelsTextAssistantValidation {
     private static func required(_ value: String, field: String) throws -> String {
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else {
-            throw OnDeviceTextAssistantError.invalidRequest(field)
+            throw TextAssistantError.invalidRequest(field)
         }
         return normalized
     }
@@ -173,7 +173,7 @@ enum FoundationModelsTextAssistantPrompt {
     static let maximumHistoryTurnCharacters = 1_200
     static let maximumWorkspaceAccounts = 32
     static let maximumWorkspaceMailboxes = 64
-    static let maximumWorkspaceEmails = OnDeviceAssistantWorkspaceContext.detailedEmailLimit
+    static let maximumWorkspaceEmails = AssistantWorkspaceContext.detailedEmailLimit
     static let maximumWorkspaceSnippetCharacters = 600
     static let maximumWorkspaceAgendaItems = 32
     static let maximumWorkspacePendingItems = 20
@@ -276,7 +276,7 @@ enum FoundationModelsTextAssistantPrompt {
 
     static func answer(
         question: String,
-        conversation: OnDeviceAssistantConversation,
+        conversation: AssistantConversationSnapshot,
         budget: Budget = .onDevice
     ) -> String {
         """
@@ -307,8 +307,8 @@ enum FoundationModelsTextAssistantPrompt {
 
     static func transform(
         text: String,
-        action: OnDeviceWritingAction,
-        context: OnDeviceAssistantMailContext?,
+        action: WritingAction,
+        context: AssistantMailContext?,
         budget: Budget = .onDevice
     ) -> String {
         let contextBlock: String
@@ -355,7 +355,7 @@ enum FoundationModelsTextAssistantPrompt {
         """
     }
 
-    static func actionDescription(_ action: OnDeviceWritingAction) -> String {
+    static func actionDescription(_ action: WritingAction) -> String {
         switch action {
         case .summarize:
             return "Produza um TL;DR útil de 1 ou 2 frases. Comece pelo conteúdo e pelo resultado mais importante; cite ação, impacto ou prazo somente quando existirem no texto. Não entregue apenas metadados (assunto, remetente, data, hora ou o simples fato de o e-mail ter sido recebido)."
@@ -392,7 +392,7 @@ enum FoundationModelsTextAssistantPrompt {
     }
 
     private static func mailContext(
-        _ context: OnDeviceAssistantMailContext,
+        _ context: AssistantMailContext,
         budget: Budget
     ) -> String {
         switch context {
@@ -426,7 +426,7 @@ enum FoundationModelsTextAssistantPrompt {
         return fromHTML.count > plain.count ? fromHTML : plain
     }
 
-    private static func render(_ workspace: OnDeviceAssistantWorkspaceContext) -> String {
+    private static func render(_ workspace: AssistantWorkspaceContext) -> String {
         let detailedAccounts = workspace.accounts.prefix(maximumWorkspaceAccounts)
         var accountLines = detailedAccounts.map {
             "- \(escapedData(bounded($0, maximumCharacters: maximumWorkspaceNameCharacters)))"
@@ -506,7 +506,7 @@ enum FoundationModelsTextAssistantPrompt {
     }
 
     private static func renderWorkspaceEmail(
-        _ email: OnDeviceAssistantWorkspaceEmailContext,
+        _ email: AssistantWorkspaceEmailContext,
         index: Int
     ) -> String {
         let recipients = renderRecipients(email.recipients)
@@ -528,7 +528,7 @@ enum FoundationModelsTextAssistantPrompt {
         """
     }
 
-    private static func render(_ item: OnDeviceAssistantAgendaContext, index: Int) -> String {
+    private static func render(_ item: AssistantAgendaContext, index: Int) -> String {
         let place = item.place.map {
             escapedData(bounded($0, maximumCharacters: maximumWorkspaceNameCharacters))
         } ?? "não informado"
@@ -544,7 +544,7 @@ enum FoundationModelsTextAssistantPrompt {
     }
 
     private static func render(
-        _ email: OnDeviceAssistantEmailContext,
+        _ email: AssistantEmailContext,
         index: Int,
         budget: Budget
     ) -> String {
@@ -579,7 +579,7 @@ enum FoundationModelsTextAssistantPrompt {
     }
 
     private static func history(
-        _ turns: [OnDeviceAssistantTurn],
+        _ turns: [AssistantTurn],
         budget: Budget
     ) -> String {
         let omitted = max(0, turns.count - budget.maximumHistoryTurns)
