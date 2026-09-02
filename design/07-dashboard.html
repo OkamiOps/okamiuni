@@ -1,75 +1,39 @@
 <!doctype html>
 <!--
-  07 Dashboard — mockup de referência (o design é a especificação)
-  Estados: cheio · vazio · briefing · transcript (botões acima da janela)
-  Temas conferidos: okami (padrão), tinta, noite, neon, grafite, linho — os 26 do protótipo estão no <style>.
+  07 Dashboard A — lista com PRÉVIA AO LADO (o design é a especificação)
+  Estados: cheio · vazio · rascunho · assistente · agenda-vazia
+  Decisões: clicar SELECIONA (Enter/duplo clique abre) · rascunho nasce colado no
+  email dentro da prévia · coluna direita encolhe quando o dia está livre.
 
   ┌─ TABELA DE MEDIDAS (copiar para o SwiftUI) ─────────────────────────────────────────────┐
-  │ Janela                    1440 × 916 · raio 12 · sombra var(--shadow)                    │
-  │ Chrome (WindowChrome)     64 alto · gap 12 · pad 0 12 · surface2 · hairline line        │
-  │   linha dos 22pt          semáforo 3 × 12ø gap 8 (termina ~x70) · recolhe 24×24         │
-  │                           (glifo sidebar.left 14, ink2) · lobo 22×22 (uni-mark-*)       │
-  │   busca (elástica)        cluster máx 720 = campo + 8 + recarregar 38                   │
-  │                           campo 40 alto · pad 0 16 · surface · borda 1 accent           │
-  │                           raio r3 se r3 ≤ 4, senão 20 (chromePillRadius)                │
-  │                           lente 10ø ink4 · placeholder 12.5 · ⌘K mono 10 ink4           │
-  │                           barrinha de sync 2 alto accent-soft, 4 abaixo do campo        │
-  │   recarregar / tema       38×38 · surface · borda btn-line · raio r2 · glifo 14 ink2    │
-  │   abas                    trilho surface3 pad 3 gap 2 · aba 34 alto pad 0 13 · 13px     │
-  │                           ativa: ink + sublinhado 2 accent (temas r3 ≤ 4) ou pílula     │
-  │                           surface + sombra 0 1 2 8% (temas redondos) · inativa ink3     │
-  │   recolhe da agenda       24×24 glifo sidebar.right 14 ink2 (linha média)               │
-  │   avatar                  38ø · surface3 · iniciais 10.5/650 ink                        │
-  │ Conteúdo                  fundo paper · padding externo 22                              │
-  │ Cabeçalho                 data capsLabel (mono 9.5 · --caps · ink4)                     │
-  │                           saudação serif 28 / 600 / ink · margem 4 acima                │
-  │                           "Gerar briefing" ChromeButton 28 alto · pad 0 14 · 12.5/550   │
-  │                           rótulo provedor 11 ink3, 5 abaixo do botão                    │
-  │                           margem inferior do cabeçalho 16                               │
-  │ Faixa de briefing         fundo surface2 · hairlines line2 (0.5) acima/abaixo           │
-  │                           pad 12 16 · texto serif 15 / lh 1.55 · margem inferior 16     │
-  │                           "Gerar de novo" 26 alto pad 0 12 · ✕ 24×24                    │
-  │ Colunas                   principal flex · pad-right 18 │ hairline 1 line │ direita 300 │
-  │ PRIORIDADES               rótulo capsLabel + contagem · pad-bottom 7 · a lista corta    │
-  │                           SEMPRE em fronteira de linha (briefing mostra 5, transcript   │
-  │                           4; a folga vai para antes do assistente, que fica no rodapé)  │
-  │ Linha de prioridade       pad 10 16 11 · hairline line2 (0.5) embaixo                   │
-  │                           barra de tinta: inset 3 na esquerda, cor da conta a 45%       │
-  │                           remetente sans 13 / 650 · hora mono 11 ink4                   │
-  │                           assunto serif --subj-size / --subj-weight · margem 3 acima    │
-  │                           chip 8 acima do fim · não lida fundo surface2                 │
-  │   ações no hover          3 botões 24 alto · pad 0 10 · 11.5/550 · btn/btn-line         │
-  │ Rodapé "+ N na Caixa →"   12.5 / 550 accent-ink · pad 8 16 · logo após a última linha   │
-  │ Assistente (rodapé)       transcript máx 300 (≈40% da coluna) · borda line · raio r3    │
-  │                             pergunta accent-soft raio r2 pad 7 11 · 13 sans             │
-  │                             resposta surface3 raio r2 pad 10 12 · serif 14 lh 1.55      │
-  │                             "Limpar" mono 9.5 caps ink3                                 │
-  │                           cápsula 38 alto · btn + btn-line · raio r3 · pad esq 14       │
-  │                           botão ↑ 28×28 raio r2 accent/on-accent                        │
-  │                           rótulo provedor 11 ink3 · 6 abaixo                            │
-  │ Coluna direita            300 larg · fundo surface · hairline 1 line à esquerda         │
-  │   cabeçalho da agenda     pad 12 16 11 · título serif 15/600 · hairline line2 embaixo   │
-  │   trilha                  pad 12 14 · escala 0.78 px/min · 09:00–18:00 (altura 430)     │
-  │   bloco de evento         esquerda 32 · borda-esq 2 cor da conta · fundo cor a 14%      │
-  │                           raio 0 r2 r2 0 · título 11.5/650 · faixa mono 9 (some < 42)   │
-  │   AGORA                   linha 1.5 na cor --live + rótulo mono 8.5                     │
-  │   PENDÊNCIAS              capsLabel · pad 13 16 15 · hairline line2 acima               │
-  │                           item: ponto 5ø da conta · texto 11.5 ink2 · origem 10.5 ink3  │
-  │ Chips de motivo           mono 9 · caps 0.06em · raio 4 · pad 2 6 1.5 · borda 0.5       │
-  │   needsReply/deadline     --warn  (mistura de âmbar com o ink do tema)                  │
-  │   lead                    accent-ink sobre accent-soft, borda accent-line               │
-  │   flagged                 accent-ink, borda accent-line, fundo transparente             │
-  │   unread/today            ink3 sobre surface3, borda line                               │
-  │ Cores derivadas (sem hardcode por tema — o ink do tema corrige a luminosidade):         │
-  │   --warn      color-mix(in oklab, oklch(0.66 0.14 65)  70%, var(--ink) 30%)            │
-  │   --live      color-mix(in oklab, oklch(0.62 0.20 25)  75%, var(--ink) 25%)            │
-  │   --acc-zoho    mix(oklch(0.64 0.13 255) 70%, ink 30%)  · azul                          │
-  │   --acc-gmail   mix(oklch(0.64 0.15 350) 70%, ink 30%)  · vermelho/rosa                 │
-  │   --acc-host    mix(oklch(0.64 0.13 155) 70%, ink 30%)  · verde                         │
-  │   --acc-icloud  mix(oklch(0.66 0.11 200) 70%, ink 30%)  · ciano                         │
-  │ Raios: só --r2 e --r3 (+4 fixo nos chips, como o TintChip da Caixa). Nenhuma sombra     │
-  │ flutuante dentro da janela; só --btn-shadow nos controles e a sombra externa da janela. │
-  └─────────────────────────────────────────────────────────────────────────────────────────┘
+  │ Janela                    1440 × 916 · raio 12 · chrome 64 (inalterado, WindowChrome)    │
+  │ Conteúdo                  fundo paper · padding externo 22                               │
+  │ Cabeçalho                 data capsLabel (mono 9.5 --caps ink4) · saudação serif 28/600  │
+  │                           provedor 11 ink3 à direita · margem inferior 12                │
+  │ HOJE (substitui briefing) faixa surface2 · hairlines line2 0.5 acima/abaixo             │
+  │                           pad 9 14 · gap 18 · margem inferior 14 · rótulo caps "Hoje"    │
+  │                           item: ponto 5ø (warn|accent|ink4) + texto 12.5/550 ink2       │
+  │                           hover: texto accent-ink (item é clicável: seleciona a msg)     │
+  │                           excedente: "12 fora da lista · newsletters e avisos" ink3      │
+  │ Colunas                   lista flex ─ hairline 1 line ─ prévia 380 ─ hairline ─ rail 300│
+  │ Linha de prioridade       pad 10 16 11 · hairline line2 embaixo · sem botões no hover    │
+  │                           (ações moram na prévia) · barra de tinta inset 3 esq 45%      │
+  │                           selecionada: fundo surface2 + barra de tinta 100% + › ink4    │
+  │                           clique = seleciona · Enter ou 2× clique = abre na Caixa        │
+  │ Prévia (380)              pad-left 16 · topo: caps "Prévia · conta" + hint "enter abre"  │
+  │                           remetente 13/650 + hora mono 11 ink4 · assunto serif 18/500    │
+  │                           trecho serif 13.5 lh 1.6 ink2 (máx ~8 linhas)                  │
+  │                           ações: Responder(accent, on-accent) Arquivar Depois Agendar    │
+  │                           28 alto · pad 0 12 · 12/550 · gap 6 · margem 14 acima          │
+  │ Rascunho (colado)         bloco na prévia, logo sob as ações · surface2 · borda-esq 2    │
+  │                           accent · raio 0 r2 r2 0 · pad 10 12 · caps "Rascunho · Grok"   │
+  │                           texto serif 13.5 lh 1.6 · Usar(accent) Editar Descartar 26 alto│
+  │ Assistente (rodapé lista) transcript máx 280 · cápsula 38 · ↑ 28×28 accent · prov 11     │
+  │ Rail direita              300 · agenda track 0.78px/min 09–18 + PENDÊNCIAS (igual atual) │
+  │ Rail dia-livre            encolhe para 168 · "Dia livre" serif 15 + texto 12 ink3        │
+  │                           lista+prévia ganham a largura (prévia vai a 440)               │
+  │ Raios só r2/r3 (+4 chips) · nenhuma sombra flutuante · chips de motivo iguais à Caixa    │
+  └──────────────────────────────────────────────────────────────────────────────────────────┘
 -->
 <html lang="pt-BR">
 <head>
@@ -404,55 +368,47 @@
   .dark .ico-sun { display: none; }
   .avatar { width: 38px; height: 38px; flex: none; border-radius: 50%; background: var(--surface3); color: var(--ink); font-size: 10.5px; font-weight: 650; display: flex; align-items: center; justify-content: center; }
 
-  /* Conteúdo */
-  .content { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--paper); padding: 22px; }
 
+  /* ============ Conteúdo — composição A: lista + prévia ao lado ============ */
+  .content { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--paper); padding: 22px; }
   .caps { font-family: var(--mono); font-size: 9.5px; letter-spacing: var(--caps); text-transform: uppercase; color: var(--ink4); }
 
-  .head { flex: none; display: flex; align-items: flex-start; margin-bottom: 16px; }
+  .head { flex: none; display: flex; align-items: flex-start; margin-bottom: 12px; }
   .head .greet { font-family: var(--serif); font-size: 28px; font-weight: 600; letter-spacing: -0.01em; color: var(--ink); margin-top: 4px; }
-  .head .right { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
-  .chrome-btn { height: 28px; padding: 0 14px; border-radius: var(--r2); border: 0.5px solid var(--btn-line); background: var(--btn); box-shadow: var(--btn-shadow); color: var(--ink); font-size: 12.5px; font-weight: 550; display: inline-flex; align-items: center; gap: 7px; cursor: default; }
-  .chrome-btn:hover { border-color: var(--accent); color: var(--accent-ink); }
+  .head .right { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 5px; padding-top: 4px; }
   .provider { font-size: 11px; color: var(--ink3); }
 
-  /* Faixa de briefing */
-  .briefing { display: none; flex: none; align-items: flex-start; gap: 14px; margin: 0 0 16px; padding: 12px 16px; background: var(--surface2); border-top: 0.5px solid var(--line2); border-bottom: 0.5px solid var(--line2); }
-  [data-state="briefing"] .briefing { display: flex; }
-  .briefing .text { flex: 1; min-width: 0; font-family: var(--serif); font-size: 15px; line-height: 1.55; color: var(--ink); text-wrap: pretty; }
-  .briefing .text strong { font-weight: 600; }
-  .briefing .acts { flex: none; display: flex; align-items: center; gap: 6px; padding-top: 1px; }
-  .mini-btn { height: 26px; padding: 0 12px; border-radius: var(--r2); border: 0.5px solid var(--btn-line); background: var(--btn); box-shadow: var(--btn-shadow); color: var(--ink2); font-size: 11.5px; font-weight: 550; display: inline-flex; align-items: center; cursor: default; }
-  .mini-btn:hover { border-color: var(--accent); color: var(--accent-ink); }
-  .x-btn { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border-radius: var(--r2); color: var(--ink3); font-size: 13px; cursor: default; }
-  .x-btn:hover { background: var(--surface3); color: var(--ink); }
+  /* HOJE — substitui o briefing em prosa: linhas curtas, cada uma clicável */
+  .digest { flex: none; display: flex; align-items: center; gap: 18px; margin: 0 0 14px; padding: 9px 14px; background: var(--surface2); border-top: 0.5px solid var(--line2); border-bottom: 0.5px solid var(--line2); }
+  .digest .caps { flex: none; }
+  .dg { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 550; color: var(--ink2); cursor: default; white-space: nowrap; }
+  .dg i { width: 5px; height: 5px; border-radius: 50%; flex: none; background: var(--dot, var(--ink4)); }
+  .dg:hover { color: var(--accent-ink); }
+  .dg.rest { color: var(--ink3); font-weight: 450; margin-left: auto; }
+  .dg-empty { display: none; font-size: 12.5px; color: var(--ink2); }
+  [data-state="vazio"] .dg-full { display: none; }
+  [data-state="vazio"] .dg.rest { display: none; }
+  [data-state="vazio"] .dg-empty { display: inline-flex; }
 
-  /* Colunas */
   .cols { flex: 1; min-height: 0; display: flex; }
-  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; padding-right: 18px; }
+  .listcol { flex: 1; min-width: 0; display: flex; flex-direction: column; padding-right: 16px; }
 
-  /* Prioridades — a lista mede o que mostra; a folga vai para o .flexpad antes
-     do assistente. Nos estados briefing/transcript a lista "rola": some linhas
-     inteiras do fim (corte na hairline da última linha visível, nunca no meio). */
-  .prio-label { flex: none; padding-bottom: 7px; display: flex; align-items: baseline; }
+  .prio-label { flex: none; padding-bottom: 7px; }
   .prio-list { flex: none; border-top: 0.5px solid var(--line2); }
   .flexpad { flex: 1; min-height: 0; }
-  [data-state="briefing"] .prio-list .prow:nth-of-type(n+6),
-  [data-state="transcript"] .prio-list .prow:nth-of-type(n+5) { display: none; }
+  [data-state="assistente"] .prio-list .prow:nth-of-type(n+6) { display: none; }
   .prow { position: relative; padding: 10px 16px 11px; border-bottom: 0.5px solid var(--line2); cursor: default;
           --rowbg: var(--paper); background: var(--rowbg);
           box-shadow: inset 3px 0 0 color-mix(in oklab, var(--tint) 45%, transparent); }
   .prow.unread { --rowbg: var(--surface2); }
+  .prow:hover { --rowbg: var(--surface2); }
+  .prow.sel { --rowbg: var(--surface2); box-shadow: inset 3px 0 0 var(--tint); }
+  .prow.sel::after { content: '›'; position: absolute; right: 12px; top: 50%; transform: translateY(-52%); font-size: 15px; color: var(--ink4); }
   .prow .l1 { display: flex; align-items: baseline; gap: 8px; }
   .prow .from { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 650; letter-spacing: -0.005em; color: var(--ink); }
   .prow .time { font-family: var(--mono); font-size: 11px; color: var(--ink4); flex: none; }
   .prow .subj { margin-top: 3px; font-family: var(--serif); font-size: var(--subj-size); font-weight: var(--subj-weight); line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
   .prow .chips { margin-top: 8px; display: flex; gap: 5px; align-items: center; }
-  .prow .acts { position: absolute; top: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 6px; padding: 0 14px 0 34px; opacity: 0; pointer-events: none;
-                background: linear-gradient(90deg, transparent, var(--rowbg) 28px); }
-  .prow:hover .acts { opacity: 1; pointer-events: auto; }
-  .row-btn { height: 24px; padding: 0 10px; border-radius: var(--r2); border: 0.5px solid var(--btn-line); background: var(--btn); box-shadow: var(--btn-shadow); color: var(--ink2); font-size: 11.5px; font-weight: 550; display: inline-flex; align-items: center; cursor: default; }
-  .row-btn:hover { border-color: var(--accent); color: var(--accent-ink); }
   .prio-foot { flex: none; padding: 8px 16px; font-size: 12.5px; font-weight: 550; color: var(--accent-ink); cursor: default; }
   .prio-empty { display: none; flex: none; border-top: 0.5px solid var(--line2); padding: 26px 16px; }
   .prio-empty .t { font-family: var(--serif); font-size: 15px; color: var(--ink); }
@@ -463,7 +419,6 @@
   [data-state="vazio"] .n-full { display: none; }
   [data-state="vazio"] .n-empty { display: inline; }
 
-  /* Chips (TintChip) */
   .chip { font-family: var(--mono); font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 6px 1.5px; border-radius: 4px; flex: none; border: 0.5px solid transparent; }
   .chip[data-reason="needsReply"], .chip[data-reason="deadline"] {
     color: var(--warn); background: color-mix(in oklab, var(--warn) 14%, transparent); border-color: color-mix(in oklab, var(--warn) 32%, transparent); }
@@ -471,13 +426,12 @@
   .chip[data-reason="flagged"] { color: var(--accent-ink); background: transparent; border-color: var(--accent-line); }
   .chip[data-reason="unread"], .chip[data-reason="today"] { color: var(--ink3); background: var(--surface3); border-color: var(--line); }
 
-  /* Assistente */
+  /* Assistente no rodapé da lista */
   .assist { flex: none; padding-top: 12px; }
-  .transcript { display: none; margin-bottom: 10px; max-height: 300px; overflow-y: auto; border: 0.5px solid var(--line); border-radius: var(--r3); background: var(--surface); padding: 12px 14px; }
-  [data-state="transcript"] .transcript { display: block; }
+  .transcript { display: none; margin-bottom: 10px; max-height: 280px; overflow-y: auto; border: 0.5px solid var(--line); border-radius: var(--r3); background: var(--surface); padding: 12px 14px; }
+  [data-state="assistente"] .transcript { display: block; }
   .transcript .bar { display: flex; align-items: center; margin-bottom: 10px; }
   .transcript .clear { margin-left: auto; font-family: var(--mono); font-size: 9.5px; letter-spacing: var(--caps); text-transform: uppercase; color: var(--ink3); cursor: default; }
-  .transcript .clear:hover { color: var(--accent-ink); }
   .turn-q { margin-left: auto; max-width: 72%; width: fit-content; padding: 7px 11px; border-radius: var(--r2); background: var(--accent-soft); border: 0.5px solid var(--accent-line); color: var(--ink); font-size: 13px; line-height: 1.45; }
   .turn-a { margin-top: 10px; max-width: 88%; padding: 10px 12px; border-radius: var(--r2); background: var(--surface3); color: var(--ink); font-family: var(--serif); font-size: 14px; line-height: 1.55; }
   .turn-a p { margin: 0 0 6px; } .turn-a p:last-child { margin-bottom: 0; }
@@ -488,8 +442,47 @@
   .ask .send { width: 28px; height: 28px; flex: none; border-radius: var(--r2); background: var(--accent); color: var(--on-accent); font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; cursor: default; }
   .assist .provider { margin-top: 6px; }
 
-  /* Coluna direita */
-  .rail { width: 300px; flex: none; border-left: 1px solid var(--line); background: var(--surface); display: flex; flex-direction: column; min-height: 0; }
+  /* Prévia 380 — a linha selecionada mostra ações e prévia aqui */
+  .preview { width: 380px; flex: none; border-left: 1px solid var(--line); padding-left: 16px; display: flex; flex-direction: column; min-height: 0; }
+  [data-state="agenda-vazia"] .preview { width: 440px; }
+  .pv-top { flex: none; display: flex; align-items: baseline; padding-bottom: 7px; }
+  .pv-top .hint { margin-left: auto; font-family: var(--mono); font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink4); }
+  .pv-body { flex: none; border-top: 0.5px solid var(--line2); padding-top: 12px; }
+  .pv-from { display: flex; align-items: baseline; gap: 8px; }
+  .pv-from .n { flex: 1; font-size: 13px; font-weight: 650; color: var(--ink); }
+  .pv-from .t { font-family: var(--mono); font-size: 11px; color: var(--ink4); }
+  .pv-subj { margin-top: 6px; font-family: var(--serif); font-size: 18px; font-weight: 500; line-height: 1.3; color: var(--ink); }
+  .pv-meta { margin-top: 6px; display: flex; gap: 5px; align-items: center; }
+  .pv-x { margin-top: 12px; font-family: var(--serif); font-size: 13.5px; line-height: 1.6; color: var(--ink2); }
+  .pv-acts { margin-top: 14px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .act { height: 28px; padding: 0 12px; border-radius: var(--r2); border: 0.5px solid var(--btn-line); background: var(--btn); box-shadow: var(--btn-shadow); color: var(--ink2); font-size: 12px; font-weight: 550; display: inline-flex; align-items: center; cursor: default; }
+  .act:hover { border-color: var(--accent); color: var(--accent-ink); }
+  .act.primary { background: var(--accent); border-color: transparent; color: var(--on-accent); }
+  .pv-ctx { margin-top: 18px; border-top: 0.5px solid var(--line2); padding-top: 12px; }
+  .pv-ctx .caps { display: block; margin-bottom: 8px; }
+  .cx { display: flex; align-items: baseline; gap: 8px; padding: 3px 0; }
+  .cx i { width: 5px; height: 5px; border-radius: 50%; flex: none; transform: translateY(-1px); }
+  .cx span { font-size: 11.5px; line-height: 1.45; color: var(--ink2); }
+  [data-state="rascunho"] .pv-ctx { display: none; }
+  .pv-empty { display: none; padding: 26px 0; }
+  .pv-empty .t { font-family: var(--serif); font-size: 15px; color: var(--ink); }
+  .pv-empty .d { margin-top: 5px; font-size: 12px; line-height: 1.5; color: var(--ink3); }
+  [data-state="vazio"] .pv-body { display: none; }
+  [data-state="vazio"] .pv-top .hint, [data-state="vazio"] .pv-top .caps { visibility: hidden; }
+  [data-state="vazio"] .pv-empty { display: block; border-top: 0.5px solid var(--line2); }
+
+  /* Rascunho — nasce colado no email, dentro da prévia */
+  .draft { display: none; margin-top: 14px; background: var(--surface2); border-left: 2px solid var(--accent); border-radius: 0 var(--r2) var(--r2) 0; padding: 10px 12px 12px; }
+  [data-state="rascunho"] .draft { display: block; }
+  [data-state="rascunho"] .pv-x { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .draft .bar { display: flex; align-items: center; margin-bottom: 8px; }
+  .draft .bar .caps { color: var(--accent-ink); }
+  .draft .tx { font-family: var(--serif); font-size: 13.5px; line-height: 1.6; color: var(--ink); }
+  .draft .acts { margin-top: 11px; display: flex; gap: 6px; }
+  .draft .act { height: 26px; font-size: 11.5px; }
+
+  /* Rail direita 300 — encolhe quando o dia está livre */
+  .rail { width: 300px; flex: none; border-left: 1px solid var(--line); background: var(--surface); display: flex; flex-direction: column; min-height: 0; margin-left: 16px; }
   .rail-head { flex: none; padding: 12px 16px 11px; border-bottom: 0.5px solid var(--line2); }
   .rail-head .t { font-family: var(--serif); font-size: 15px; font-weight: 600; color: var(--ink); }
   .rail-head .next { margin-top: 3px; display: flex; align-items: center; gap: 6px; }
@@ -508,12 +501,6 @@
   .ev.tight { padding: 0 8px; }
   .ev .t { font-size: 11.5px; font-weight: 650; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .ev .r { margin-top: 2px; font-family: var(--mono); font-size: 9px; opacity: 0.7; }
-  .rail-empty { display: none; padding: 26px 16px; }
-  .rail-empty .t { font-family: var(--serif); font-size: 15px; color: var(--ink); }
-  .rail-empty .d { margin-top: 5px; font-size: 12px; line-height: 1.5; color: var(--ink3); }
-  [data-state="vazio"] .rail-scroll, [data-state="vazio"] .rail-head .next { display: none; }
-  [data-state="vazio"] .rail-empty { display: block; flex: 1; min-height: 0; }
-
   .pend { flex: none; padding: 13px 16px 15px; border-top: 0.5px solid var(--line2); }
   .pend .caps { margin-bottom: 9px; display: block; }
   .pend-item { display: flex; align-items: baseline; gap: 8px; padding: 4px 0; }
@@ -521,9 +508,12 @@
   .pend-item .tx { flex: 1; min-width: 0; }
   .pend-item .tx .a { font-size: 11.5px; line-height: 1.45; color: var(--ink2); }
   .pend-item .tx .b { font-size: 10.5px; color: var(--ink3); margin-top: 1px; }
-  .pend-none { display: none; font-size: 12px; color: var(--ink3); padding: 2px 0 4px; }
-  [data-state="vazio"] .pend-item { display: none; }
-  [data-state="vazio"] .pend-none { display: block; }
+  .rail-free { display: none; padding: 22px 16px; }
+  .rail-free .t { font-family: var(--serif); font-size: 15px; color: var(--ink); }
+  .rail-free .d { margin-top: 5px; font-size: 12px; line-height: 1.5; color: var(--ink3); }
+  [data-state="agenda-vazia"] .rail { width: 168px; }
+  [data-state="agenda-vazia"] .rail-head, [data-state="agenda-vazia"] .rail-scroll, [data-state="agenda-vazia"] .pend { display: none; }
+  [data-state="agenda-vazia"] .rail-free { display: block; }
 </style>
 </head>
 <body>
@@ -543,12 +533,13 @@
       <span class="pick-label">Estado</span>
       <button class="pick on" data-pick-state="cheio">cheio</button>
       <button class="pick" data-pick-state="vazio">vazio</button>
-      <button class="pick" data-pick-state="briefing">com briefing</button>
-      <button class="pick" data-pick-state="transcript">com transcript</button>
+      <button class="pick" data-pick-state="rascunho">com rascunho</button>
+      <button class="pick" data-pick-state="assistente">com assistente</button>
+      <button class="pick" data-pick-state="agenda-vazia">agenda vazia</button>
     </div>
   </div>
 
-  <div class="win" id="win" data-state="cheio" data-screen-label="07 Dashboard · cheio">
+  <div class="win" id="win" data-state="cheio" data-screen-label="07 Dashboard A · cheio">
 
     <!-- Chrome macOS 64px (WindowChrome.swift: sidebarToggle → lobo → busca elástica → abas → agendaToggle → tema → conta) -->
     <div class="chrome">
@@ -589,90 +580,76 @@
 
     <div class="content">
 
-      <!-- Cabeçalho -->
       <div class="head">
         <div>
           <div class="caps">Terça · 1 de setembro</div>
           <div class="greet">Boa tarde, Marcos</div>
         </div>
         <div class="right">
-          <div class="chrome-btn">Gerar briefing</div>
           <div class="provider">Grok · xAI</div>
         </div>
       </div>
 
-      <!-- Faixa de briefing (só no estado com briefing) -->
-      <div class="briefing">
-        <div class="text">Dois emails pedem decisão hoje: <strong>Marina Duarte</strong> quer fechar o contrato na quinta (09:42) e o formulário do site trouxe um <strong>lead de consultoria para 40 pessoas</strong>. Sua tarde tem Revisão do contrato às 14:00 e um bloco de foco na proposta TransRota às 16:30. A NF de agosto vence 05/09 — pode esperar até amanhã.</div>
-        <div class="acts">
-          <div class="mini-btn">Gerar de novo</div>
-          <div class="x-btn">✕</div>
-        </div>
+      <!-- HOJE — no lugar do briefing em prosa: linhas ligadas a mensagens reais -->
+      <div class="digest">
+        <span class="caps">Hoje</span>
+        <span class="dg dg-full" style="--dot: var(--warn)"><i></i>3 pedem resposta</span>
+        <span class="dg dg-full" style="--dot: var(--warn)"><i></i>Prazo: NF de agosto vence 05/09</span>
+        <span class="dg dg-full" style="--dot: var(--accent)"><i></i>1 lead novo — consultoria p/ 40 pessoas</span>
+        <span class="dg dg-empty"><i style="background: var(--ink4)"></i>Nada precisa de você — 9 mensagens triadas para a Caixa.</span>
+        <span class="dg rest">12 fora da lista · newsletters e avisos</span>
       </div>
 
       <div class="cols">
 
-        <!-- Coluna principal -->
-        <div class="main">
+        <!-- Lista -->
+        <div class="listcol">
           <div class="prio-label">
-            <span class="caps">Prioridades · <span class="n-full">7</span><span class="n-empty">0</span></span>
+            <span class="caps">Prioridades · <span class="n-full">6</span><span class="n-empty">0</span></span>
           </div>
 
           <div class="prio-list">
-            <div class="prow unread" style="--tint: var(--acc-zoho)">
+            <div class="prow sel unread" style="--tint: var(--acc-zoho)">
               <div class="l1"><span class="from">Marina Duarte</span><span class="time">09:42</span></div>
               <div class="subj">Revisão do contrato — podemos fechar quinta?</div>
               <div class="chips"><span class="chip" data-reason="needsReply">Precisa resposta</span></div>
-              <div class="acts"><span class="row-btn">Responder</span><span class="row-btn">Arquivar</span><span class="row-btn">Depois</span></div>
             </div>
             <div class="prow unread" style="--tint: var(--acc-zoho)">
               <div class="l1"><span class="from">Equipe Produto</span><span class="time">08:40</span></div>
               <div class="subj">Notas do standup + bloqueio no deploy</div>
-              <div class="chips"><span class="chip" data-reason="unread">Não lido</span></div>
-              <div class="acts"><span class="row-btn">Responder</span><span class="row-btn">Arquivar</span><span class="row-btn">Depois</span></div>
+              <div class="chips"><span class="chip" data-reason="needsReply">Precisa resposta</span></div>
             </div>
             <div class="prow unread" style="--tint: var(--acc-host)">
               <div class="l1"><span class="from">Formulário do site</span><span class="time">ontem 18:10</span></div>
               <div class="subj">Novo lead: consultoria para 40 pessoas</div>
               <div class="chips"><span class="chip" data-reason="lead">Lead</span></div>
-              <div class="acts"><span class="row-btn">Responder</span><span class="row-btn">Arquivar</span><span class="row-btn">Depois</span></div>
             </div>
             <div class="prow" style="--tint: var(--acc-gmail)">
               <div class="l1"><span class="from">Contabilidade</span><span class="time">ontem 17:03</span></div>
               <div class="subj">NF de agosto vence 05/09</div>
-              <div class="chips"><span class="chip" data-reason="deadline">Prazo</span></div>
-              <div class="acts"><span class="row-btn">Responder</span><span class="row-btn">Arquivar</span><span class="row-btn">Depois</span></div>
+              <div class="chips"><span class="chip" data-reason="deadline">Prazo 05/09</span></div>
             </div>
             <div class="prow" style="--tint: var(--acc-host)">
               <div class="l1"><span class="from">Diego Almeida</span><span class="time">ontem 15:47</span></div>
               <div class="subj">Proposta TransRota — feedback da diretoria</div>
               <div class="chips"><span class="chip" data-reason="flagged">Sinalizado</span></div>
-              <div class="acts"><span class="row-btn">Responder</span><span class="row-btn">Arquivar</span><span class="row-btn">Depois</span></div>
             </div>
             <div class="prow" style="--tint: var(--acc-icloud)">
               <div class="l1"><span class="from">Camila Ferreira</span><span class="time">07:12</span></div>
               <div class="subj">Convite: revisão de metas do trimestre</div>
-              <div class="chips"><span class="chip" data-reason="today">Hoje</span></div>
-              <div class="acts"><span class="row-btn">Responder</span><span class="row-btn">Arquivar</span><span class="row-btn">Depois</span></div>
-            </div>
-            <div class="prow unread" style="--tint: var(--acc-gmail)">
-              <div class="l1"><span class="from">Pedro Sales</span><span class="time">06:58</span></div>
-              <div class="subj">Re: cronograma da migração de DNS</div>
-              <div class="chips"><span class="chip" data-reason="unread">Não lido</span></div>
-              <div class="acts"><span class="row-btn">Responder</span><span class="row-btn">Arquivar</span><span class="row-btn">Depois</span></div>
+              <div class="chips"><span class="chip" data-reason="needsReply">Precisa resposta</span></div>
             </div>
 
-            <div class="prio-foot">+ 4 na Caixa →</div>
+            <div class="prio-foot">+ 13 na Caixa →</div>
           </div>
 
           <div class="prio-empty">
             <div class="t">Nada pedindo uma decisão.</div>
-            <div class="d">Quando um email precisar de resposta, tiver prazo ou trouxer um lead, ele aparece aqui.</div>
+            <div class="d">Quando um email precisar de resposta, tiver prazo ou trouxer um lead, ele aparece aqui. Newsletters e avisos ficam na Caixa.</div>
           </div>
 
           <div class="flexpad"></div>
 
-          <!-- Assistente -->
           <div class="assist">
             <div class="transcript">
               <div class="bar"><span class="caps">Assistente</span><span class="clear">Limpar</span></div>
@@ -694,7 +671,46 @@
           </div>
         </div>
 
-        <!-- Coluna direita 300px -->
+        <!-- Prévia da linha selecionada -->
+        <div class="preview">
+          <div class="pv-top">
+            <span class="caps">Prévia · zoho</span>
+            <span class="hint">enter ou 2× clique abre</span>
+          </div>
+          <div class="pv-body">
+            <div class="pv-from"><span class="n">Marina Duarte</span><span class="t">hoje 09:42</span></div>
+            <div class="pv-subj">Revisão do contrato — podemos fechar quinta?</div>
+            <div class="pv-meta"><span class="chip" data-reason="needsReply">Precisa resposta</span><span class="chip" data-reason="today">Hoje</span></div>
+            <div class="pv-x">Oi Marcos, revisei as cláusulas 4 e 7 com o jurídico e estamos de acordo. A única pendência é o escopo de suporte — se você topar SLA de 4 horas úteis, consigo a assinatura na sexta de manhã, antes da minha viagem. Fechamos na call de quinta às 15h?</div>
+            <div class="pv-acts">
+              <span class="act primary">Gerar resposta</span>
+              <span class="act">Responder</span>
+              <span class="act">Arquivar</span>
+              <span class="act">Depois</span>
+            </div>
+            <div class="pv-ctx">
+              <span class="caps">Contexto</span>
+              <div class="cx"><i style="background: var(--acc-zoho)"></i><span>1:1 com Marina hoje às 11:00 · agenda</span></div>
+              <div class="cx"><i style="background: var(--acc-zoho)"></i><span>Pendência: confirmar call de quinta 15h</span></div>
+              <div class="cx"><i style="background: var(--acc-zoho)"></i><span>Última conversa: proposta enviada 22/08</span></div>
+            </div>
+            <div class="draft">
+              <div class="bar"><span class="caps">Rascunho · Grok</span></div>
+              <div class="tx">Oi Marina, fechado — SLA de 4 horas úteis funciona para nós. Confirmo a call de quinta às 15h e levo a redação final do SLA. Estando tudo certo, assinamos na sexta de manhã, antes da sua viagem.<br/><br/>Abraço, Marcos</div>
+              <div class="acts">
+                <span class="act primary">Usar</span>
+                <span class="act">Editar</span>
+                <span class="act">Descartar</span>
+              </div>
+            </div>
+          </div>
+          <div class="pv-empty">
+            <div class="t">Nada selecionado.</div>
+            <div class="d">Clique em uma prioridade para ver a prévia e as ações aqui.</div>
+          </div>
+        </div>
+
+        <!-- Rail direita -->
         <div class="rail">
           <div class="rail-head">
             <div class="t">Agenda de hoje</div>
@@ -702,7 +718,6 @@
           </div>
 
           <div class="rail-scroll">
-            <!-- escala 0.78 px/min · 09:00 = 0 · agora = 12:20 -->
             <div class="track">
               <div class="hr-line" style="top:0"><b>09:00</b><s></s></div>
               <div class="hr-line" style="top:46.8px"><b>10:00</b><s></s></div>
@@ -727,17 +742,16 @@
             </div>
           </div>
 
-          <div class="rail-empty">
-            <div class="t">Dia livre</div>
-            <div class="d">Nenhum compromisso na agenda de hoje.</div>
-          </div>
-
           <div class="pend">
             <span class="caps">Pendências</span>
             <div class="pend-item" style="--tint: var(--acc-zoho)"><i></i><div class="tx"><div class="a">Confirmar call de contrato com Marina — quinta 15h</div><div class="b">Marina Duarte · zoho</div></div></div>
             <div class="pend-item" style="--tint: var(--acc-host)"><i></i><div class="tx"><div class="a">Renovar domínio meusite.com antes de 06/09</div><div class="b">Hostinger · hostinger</div></div></div>
             <div class="pend-item" style="--tint: var(--acc-host)"><i></i><div class="tx"><div class="a">Responder proposta TransRota</div><div class="b">Diego Almeida · hostinger</div></div></div>
-            <div class="pend-none">Nada pendente.</div>
+          </div>
+
+          <div class="rail-free">
+            <div class="t">Dia livre</div>
+            <div class="d">Sem compromissos e sem pendências. A lista ganha a largura.</div>
           </div>
         </div>
 
@@ -745,7 +759,7 @@
     </div>
   </div>
 
-  <div class="screen-caption" id="caption">07 Dashboard · cheio</div>
+  <div class="screen-caption" id="caption">07 Dashboard A · cheio</div>
 </div>
 
 <script>
@@ -753,15 +767,12 @@
   const win = document.getElementById('win');
   const caption = document.getElementById('caption');
 
-  // Igual ao DARK_THEMES do protótipo: decide lobo claro/escuro e lua/sol.
   const DARK_THEMES = ['noite', 'grafite', 'okami', 'vapor', 'neon', 'sinal', 'blackbox', 'comando', 'override', 'brutalnoite', 'contraste', 'magenta', 'neural', 'corsa'];
 
   function syncThemeDerived(t) {
     const dark = DARK_THEMES.indexOf(t) >= 0;
     stage.classList.toggle('dark', dark);
     stage.classList.toggle('light', !dark);
-    // Abas: sublinhado accent nos temas vivos (r3 ≤ 4), pílula surface nos redondos —
-    // o mesmo corte de WindowChrome.tabCornerRadius/chromePillRadius.
     const r3 = parseFloat(getComputedStyle(stage).getPropertyValue('--r3')) || 10;
     stage.classList.toggle('sharp', r3 <= 4);
     stage.classList.toggle('round', r3 > 4);
@@ -777,19 +788,17 @@
   document.querySelectorAll('[data-pick-state]').forEach(b => b.addEventListener('click', () => {
     const s = b.dataset.pickState;
     win.setAttribute('data-state', s);
-    const label = { cheio: 'cheio', vazio: 'vazio', briefing: 'com briefing gerado', transcript: 'com transcript aberto' }[s];
-    win.setAttribute('data-screen-label', '07 Dashboard · ' + label);
-    caption.textContent = '07 Dashboard · ' + label;
+    const label = { cheio: 'cheio', vazio: 'vazio', rascunho: 'com rascunho colado no email', assistente: 'com resposta do assistente', 'agenda-vazia': 'dia livre — rail encolhida' }[s];
+    win.setAttribute('data-screen-label', '07 Dashboard A · ' + label);
+    caption.textContent = '07 Dashboard A · ' + label;
     document.querySelectorAll('[data-pick-state]').forEach(x => x.classList.toggle('on', x === b));
   }));
 
-  // ?theme=tinta&state=briefing — atalho para conferência/captura
   const qs = new URLSearchParams(location.search);
   const qTheme = qs.get('theme'), qState = qs.get('state');
   if (qTheme) { const b = document.querySelector('[data-pick-theme="' + qTheme + '"]'); if (b) b.click(); else { stage.setAttribute('data-theme', qTheme); syncThemeDerived(qTheme); } }
   if (qState) { const b = document.querySelector('[data-pick-state="' + qState + '"]'); if (b) b.click(); }
   syncThemeDerived(stage.getAttribute('data-theme'));
-
 </script>
 </body>
 </html>
