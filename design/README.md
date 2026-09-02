@@ -11,6 +11,7 @@ Baixado em 2026-08-26.
 |---|---|
 | `design/tokens.json` | Fonte canônica estruturada dos valores de cor e tokens do tema (26 temas + fallback `base`) |
 | `OkamiUNI - Mail + Agenda.dc.html` | Referência visual do protótipo; fornece nomes, notas, estados e proporções para conferência |
+| `07-dashboard.html` | A tela 07, desenhada depois do protótipo original; autocontida, com os mesmos tokens e uma tabela de medidas no topo do arquivo |
 | `assets/uni-lockup-light.png` | Lockup da marca (tema claro) |
 
 Assets ainda não baixados do projeto: `uni-lockup-dark.png`, `uni-mark-light.png`, `uni-mark-dark.png`.
@@ -23,6 +24,7 @@ Assets ainda não baixados do projeto: `uni-lockup-dark.png`, `uni-mark-light.pn
 4. **04 Detalhe do compromisso** — 560px, com campo de encaminhar
 5. **05 Email em janela** — 800×600
 6. **06 Nova mensagem** — 820×620
+7. **07 Dashboard** — a tela do dia, em `design/07-dashboard.html` (arquivo próprio, não está no `.dc.html`): 1440×916, chrome de 64px com as abas Dashboard/Caixa/Agenda, prioridades em coluna única, trilha de agenda de 300px, pendências e o campo do assistente no rodapé. Quatro estados (cheio, vazio, com briefing, com transcript) e seletor de tema embutidos para conferência.
 
 Janela principal: **1440×916**, chrome de macOS (semáforo), barra de 58px.
 

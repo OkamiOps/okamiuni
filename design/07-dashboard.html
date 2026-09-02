@@ -1,0 +1,795 @@
+<!doctype html>
+<!--
+  07 Dashboard — mockup de referência (o design é a especificação)
+  Estados: cheio · vazio · briefing · transcript (botões acima da janela)
+  Temas conferidos: okami (padrão), tinta, noite, neon, grafite, linho — os 26 do protótipo estão no <style>.
+
+  ┌─ TABELA DE MEDIDAS (copiar para o SwiftUI) ─────────────────────────────────────────────┐
+  │ Janela                    1440 × 916 · raio 12 · sombra var(--shadow)                    │
+  │ Chrome (WindowChrome)     64 alto · gap 12 · pad 0 12 · surface2 · hairline line        │
+  │   linha dos 22pt          semáforo 3 × 12ø gap 8 (termina ~x70) · recolhe 24×24         │
+  │                           (glifo sidebar.left 14, ink2) · lobo 22×22 (uni-mark-*)       │
+  │   busca (elástica)        cluster máx 720 = campo + 8 + recarregar 38                   │
+  │                           campo 40 alto · pad 0 16 · surface · borda 1 accent           │
+  │                           raio r3 se r3 ≤ 4, senão 20 (chromePillRadius)                │
+  │                           lente 10ø ink4 · placeholder 12.5 · ⌘K mono 10 ink4           │
+  │                           barrinha de sync 2 alto accent-soft, 4 abaixo do campo        │
+  │   recarregar / tema       38×38 · surface · borda btn-line · raio r2 · glifo 14 ink2    │
+  │   abas                    trilho surface3 pad 3 gap 2 · aba 34 alto pad 0 13 · 13px     │
+  │                           ativa: ink + sublinhado 2 accent (temas r3 ≤ 4) ou pílula     │
+  │                           surface + sombra 0 1 2 8% (temas redondos) · inativa ink3     │
+  │   recolhe da agenda       24×24 glifo sidebar.right 14 ink2 (linha média)               │
+  │   avatar                  38ø · surface3 · iniciais 10.5/650 ink                        │
+  │ Conteúdo                  fundo paper · padding externo 22                              │
+  │ Cabeçalho                 data capsLabel (mono 9.5 · --caps · ink4)                     │
+  │                           saudação serif 28 / 600 / ink · margem 4 acima                │
+  │                           "Gerar briefing" ChromeButton 28 alto · pad 0 14 · 12.5/550   │
+  │                           rótulo provedor 11 ink3, 5 abaixo do botão                    │
+  │                           margem inferior do cabeçalho 16                               │
+  │ Faixa de briefing         fundo surface2 · hairlines line2 (0.5) acima/abaixo           │
+  │                           pad 12 16 · texto serif 15 / lh 1.55 · margem inferior 16     │
+  │                           "Gerar de novo" 26 alto pad 0 12 · ✕ 24×24                    │
+  │ Colunas                   principal flex · pad-right 18 │ hairline 1 line │ direita 300 │
+  │ PRIORIDADES               rótulo capsLabel + contagem · pad-bottom 7 · a lista corta    │
+  │                           SEMPRE em fronteira de linha (briefing mostra 5, transcript   │
+  │                           4; a folga vai para antes do assistente, que fica no rodapé)  │
+  │ Linha de prioridade       pad 10 16 11 · hairline line2 (0.5) embaixo                   │
+  │                           barra de tinta: inset 3 na esquerda, cor da conta a 45%       │
+  │                           remetente sans 13 / 650 · hora mono 11 ink4                   │
+  │                           assunto serif --subj-size / --subj-weight · margem 3 acima    │
+  │                           chip 8 acima do fim · não lida fundo surface2                 │
+  │   ações no hover          3 botões 24 alto · pad 0 10 · 11.5/550 · btn/btn-line         │
+  │ Rodapé "+ N na Caixa →"   12.5 / 550 accent-ink · pad 8 16 · logo após a última linha   │
+  │ Assistente (rodapé)       transcript máx 300 (≈40% da coluna) · borda line · raio r3    │
+  │                             pergunta accent-soft raio r2 pad 7 11 · 13 sans             │
+  │                             resposta surface3 raio r2 pad 10 12 · serif 14 lh 1.55      │
+  │                             "Limpar" mono 9.5 caps ink3                                 │
+  │                           cápsula 38 alto · btn + btn-line · raio r3 · pad esq 14       │
+  │                           botão ↑ 28×28 raio r2 accent/on-accent                        │
+  │                           rótulo provedor 11 ink3 · 6 abaixo                            │
+  │ Coluna direita            300 larg · fundo surface · hairline 1 line à esquerda         │
+  │   cabeçalho da agenda     pad 12 16 11 · título serif 15/600 · hairline line2 embaixo   │
+  │   trilha                  pad 12 14 · escala 0.78 px/min · 09:00–18:00 (altura 430)     │
+  │   bloco de evento         esquerda 32 · borda-esq 2 cor da conta · fundo cor a 14%      │
+  │                           raio 0 r2 r2 0 · título 11.5/650 · faixa mono 9 (some < 42)   │
+  │   AGORA                   linha 1.5 na cor --live + rótulo mono 8.5                     │
+  │   PENDÊNCIAS              capsLabel · pad 13 16 15 · hairline line2 acima               │
+  │                           item: ponto 5ø da conta · texto 11.5 ink2 · origem 10.5 ink3  │
+  │ Chips de motivo           mono 9 · caps 0.06em · raio 4 · pad 2 6 1.5 · borda 0.5       │
+  │   needsReply/deadline     --warn  (mistura de âmbar com o ink do tema)                  │
+  │   lead                    accent-ink sobre accent-soft, borda accent-line               │
+  │   flagged                 accent-ink, borda accent-line, fundo transparente             │
+  │   unread/today            ink3 sobre surface3, borda line                               │
+  │ Cores derivadas (sem hardcode por tema — o ink do tema corrige a luminosidade):         │
+  │   --warn      color-mix(in oklab, oklch(0.66 0.14 65)  70%, var(--ink) 30%)            │
+  │   --live      color-mix(in oklab, oklch(0.62 0.20 25)  75%, var(--ink) 25%)            │
+  │   --acc-zoho    mix(oklch(0.64 0.13 255) 70%, ink 30%)  · azul                          │
+  │   --acc-gmail   mix(oklch(0.64 0.15 350) 70%, ink 30%)  · vermelho/rosa                 │
+  │   --acc-host    mix(oklch(0.64 0.13 155) 70%, ink 30%)  · verde                         │
+  │   --acc-icloud  mix(oklch(0.66 0.11 200) 70%, ink 30%)  · ciano                         │
+  │ Raios: só --r2 e --r3 (+4 fixo nos chips, como o TintChip da Caixa). Nenhuma sombra     │
+  │ flutuante dentro da janela; só --btn-shadow nos controles e a sombra externa da janela. │
+  └─────────────────────────────────────────────────────────────────────────────────────────┘
+-->
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>07 Dashboard — OkamiUNI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600&family=Inter+Tight:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  body { margin: 0; background: #0d0d12; -webkit-font-smoothing: antialiased; }
+
+  /* ============ TOKENS — copiados do protótipo (design/OkamiUNI - Mail + Agenda.dc.html) ============ */
+  [data-theme] {
+    --serif: 'Newsreader', Georgia, serif;
+    --sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', Helvetica, sans-serif;
+    --mono: 'IBM Plex Mono', monospace;
+    --r2: 8px; --r3: 10px; --caps: 0.12em; --on-accent: #FFFFFF;
+    --rowpad: 11px 16px 12px; --subj-weight: 400; --subj-size: 14.5px; --body-font: var(--serif);
+  }
+  [data-theme="tinta"] {
+    --paper: #F4F2EE; --surface: #FDFCFA; --surface2: #F1EFEA; --surface3: #E9E6E0;
+    --ink: #1D1D1B; --ink2: #4E4D48; --ink3: #85837C; --ink4: #A8A69E;
+    --line: #E0DDD5; --line2: #EBE8E2;
+    --accent: #2F4B7C; --accent-ink: #253C64; --accent-soft: #E9EDF4; --accent-line: #CFD8E5;
+    --btn: #FFFFFF; --btn-line: #DAD6CE; --btn-shadow: 0 1px 1.5px rgba(35,32,26,0.09);
+    --shadow: 0 30px 80px rgba(40,38,32,0.24), 0 0 0 0.5px rgba(40,38,32,0.18);
+  }
+  [data-theme="linho"] {
+    --paper: #F6F3EA; --surface: #FEFCF6; --surface2: #F2EEE2; --surface3: #EAE5D6;
+    --ink: #22231C; --ink2: #52544A; --ink3: #7B7D6F; --ink4: #9C9D8F;
+    --line: #E1DDCC; --line2: #EDE9DC;
+    --accent: #4C6B45; --accent-ink: #3B5636; --accent-soft: #E9EFE5; --accent-line: #D2DECD;
+    --btn: #FFFEF9; --btn-line: #DBD6C4; --btn-shadow: 0 1px 1.5px rgba(45,45,30,0.09);
+    --shadow: 0 30px 80px rgba(60,58,38,0.24), 0 0 0 0.5px rgba(60,58,38,0.18);
+  }
+  [data-theme="barro"] {
+    --paper: #FBF8F2; --surface: #FFFDF9; --surface2: #F4EFE5; --surface3: #EFE8DA;
+    --ink: #241F18; --ink2: #564F44; --ink3: #8C8477; --ink4: #ADA496;
+    --line: #E4DCCC; --line2: #EFE9DD;
+    --accent: #A0512C; --accent-ink: #7E3E20; --accent-soft: #F5EAE1; --accent-line: #E6D3C3;
+    --btn: #FFFEFA; --btn-line: #E0D8C8; --btn-shadow: 0 1px 1.5px rgba(60,45,30,0.09);
+    --shadow: 0 30px 80px rgba(60,45,30,0.26), 0 0 0 0.5px rgba(60,45,30,0.18);
+  }
+  [data-theme="noite"] {
+    --on-accent: #1B1710;
+    --paper: #191714; --surface: #211E19; --surface2: #18150F; --surface3: #292419;
+    --ink: #F1EBDE; --ink2: #C2BAA9; --ink3: #8D8577; --ink4: #6C655A;
+    --line: #322C23; --line2: #2A251E;
+    --accent: #C9964B; --accent-ink: #DEAF66; --accent-soft: #2A2318; --accent-line: #443722;
+    --btn: #2B2620; --btn-line: #3B342A; --btn-shadow: 0 1px 1.5px rgba(0,0,0,0.4);
+    --shadow: 0 30px 80px rgba(0,0,0,0.55), 0 0 0 0.5px rgba(255,240,220,0.1);
+  }
+  [data-theme="grafite"] {
+    --on-accent: #0F1215;
+    --paper: #141618; --surface: #1B1E21; --surface2: #121417; --surface3: #23272B;
+    --ink: #E7EAEC; --ink2: #AEB4B9; --ink3: #7E858B; --ink4: #61686E;
+    --line: #282D31; --line2: #22262A;
+    --accent: #6E9CC4; --accent-ink: #8CB4D8; --accent-soft: #1B242C; --accent-line: #2B3A46;
+    --btn: #24282C; --btn-line: #333A40; --btn-shadow: 0 1px 1.5px rgba(0,0,0,0.4);
+    --shadow: 0 30px 80px rgba(0,0,0,0.55), 0 0 0 0.5px rgba(220,235,245,0.1);
+  }
+  [data-theme="okami"] {
+    --serif: 'Space Grotesk', sans-serif;
+    --sans: 'Space Grotesk', sans-serif;
+    --mono: 'JetBrains Mono', monospace;
+    --r2: 2px; --r3: 2px; --caps: 0.18em; --on-accent: #060609;
+    --paper: #060609; --surface: #0B0B12; --surface2: #08080E; --surface3: #1A1A26;
+    --ink: #F4F4F8; --ink2: #B9BAC8; --ink3: #7B7C90; --ink4: #55566A;
+    --line: #1E1E2B; --line2: #16161F;
+    --accent: oklch(72% 0.19 45); --accent-ink: oklch(82% 0.15 45); --accent-soft: #1A1209; --accent-line: #4A2C16;
+    --btn: #14141E; --btn-line: #2A2A38; --btn-shadow: inset 0 1px 0 rgba(244,244,248,0.04);
+    --shadow: 0 30px 90px rgba(0,0,0,0.8), 0 0 0 0.5px rgba(244,244,248,0.14);
+  }
+  [data-theme="brutal"] {
+    --serif: 'Space Grotesk', sans-serif; --sans: 'Space Grotesk', sans-serif; --mono: 'JetBrains Mono', monospace;
+    --r2: 0px; --r3: 0px; --caps: 0.16em; --on-accent: #FFFFFF; --rowpad: 9px 14px 10px; --subj-weight: 600; --subj-size: 13.5px;
+    --paper: #E8E8E4; --surface: #FFFFFF; --surface2: #F1F1EC; --surface3: #E2E2DB;
+    --ink: #0A0A0A; --ink2: #2E2E2E; --ink3: #6A6A6A; --ink4: #9A9A9A;
+    --line: #0A0A0A; --line2: #D6D6CE;
+    --accent: #1B1B1B; --accent-ink: #000000; --accent-soft: #EDEDE6; --accent-line: #0A0A0A;
+    --btn: #FFFFFF; --btn-line: #0A0A0A; --btn-shadow: 2px 2px 0 #0A0A0A;
+    --shadow: 8px 8px 0 rgba(10,10,10,0.9), 0 0 0 1px #0A0A0A;
+  }
+  [data-theme="vapor"] {
+    --serif: 'Newsreader', Georgia, serif; --sans: 'Space Grotesk', sans-serif; --mono: 'JetBrains Mono', monospace;
+    --r2: 12px; --r3: 18px; --caps: 0.14em; --on-accent: #16121F; --rowpad: 14px 18px 15px; --subj-weight: 500; --subj-size: 15px;
+    --paper: #16121F; --surface: #1E1830; --surface2: #191327; --surface3: #2A2142;
+    --ink: #F2ECFF; --ink2: #C3B8DE; --ink3: #8E82AC; --ink4: #6B6088;
+    --line: #322852; --line2: #271F3E;
+    --accent: #A78BFA; --accent-ink: #C4B0FF; --accent-soft: #241C3B; --accent-line: #3B2F63;
+    --btn: #241C3B; --btn-line: #372B57; --btn-shadow: 0 1px 0 rgba(255,255,255,0.05);
+    --shadow: 0 40px 90px rgba(8,5,18,0.7), 0 0 0 0.5px rgba(200,180,255,0.14);
+  }
+  [data-theme="papel"] {
+    --serif: 'Newsreader', Georgia, serif; --sans: 'Newsreader', Georgia, serif; --mono: 'IBM Plex Mono', monospace;
+    --r2: 3px; --r3: 4px; --caps: 0.16em; --on-accent: #FFFDF7; --rowpad: 15px 18px 16px; --subj-weight: 500; --subj-size: 16px;
+    --paper: #F2EDE1; --surface: #FBF7EC; --surface2: #F4EFE1; --surface3: #EBE4D2;
+    --ink: #1F1B14; --ink2: #4A4437; --ink3: #7E7663; --ink4: #A79E88;
+    --line: #DDD4BE; --line2: #E9E2D0;
+    --accent: #6B3F2A; --accent-ink: #53301F; --accent-soft: #EFE6D6; --accent-line: #D8C9AF;
+    --btn: #FFFCF3; --btn-line: #D9D0B9; --btn-shadow: 0 1px 1px rgba(60,50,30,0.07);
+    --shadow: 0 30px 70px rgba(70,60,35,0.24), 0 0 0 0.5px rgba(70,60,35,0.18);
+  }
+  [data-theme="neon"] {
+    --serif: 'Space Grotesk', sans-serif; --sans: 'Space Grotesk', sans-serif; --mono: 'JetBrains Mono', monospace;
+    --r2: 2px; --r3: 3px; --caps: 0.2em; --on-accent: #05070A; --rowpad: 10px 14px 11px; --subj-weight: 600; --subj-size: 13.5px;
+    --paper: #05070A; --surface: #0A0E14; --surface2: #070A0F; --surface3: #141B24;
+    --ink: #E8FBFF; --ink2: #9FB6C4; --ink3: #6C8291; --ink4: #4C5F6C;
+    --line: #17222C; --line2: #101822;
+    --accent: #35E0D4; --accent-ink: #6BF0E6; --accent-soft: #08211F; --accent-line: #1D4B48;
+    --btn: #10171F; --btn-line: #1E2A35; --btn-shadow: inset 0 1px 0 rgba(120,240,230,0.06);
+    --shadow: 0 40px 100px rgba(0,0,0,0.85), 0 0 0 0.5px rgba(53,224,212,0.22);
+  }
+  [data-theme="clinico"] {
+    --serif: 'Space Grotesk', sans-serif; --sans: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; --mono: 'IBM Plex Mono', monospace;
+    --r2: 5px; --r3: 6px; --caps: 0.1em; --on-accent: #FFFFFF; --rowpad: 8px 14px 9px; --subj-weight: 500; --subj-size: 13px;
+    --paper: #EEF1F4; --surface: #FFFFFF; --surface2: #F6F8FA; --surface3: #EAEEF2;
+    --ink: #101418; --ink2: #3D464F; --ink3: #737D87; --ink4: #A0A9B2;
+    --line: #DDE3E9; --line2: #EBEFF3;
+    --accent: #0B5FCC; --accent-ink: #094CA4; --accent-soft: #E8F0FC; --accent-line: #C8DCF6;
+    --btn: #FFFFFF; --btn-line: #D5DCE4; --btn-shadow: 0 1px 1px rgba(16,20,24,0.05);
+    --shadow: 0 24px 60px rgba(16,24,40,0.18), 0 0 0 0.5px rgba(16,24,40,0.12);
+  }
+  [data-theme="nexus"] {
+    --serif: 'Space Grotesk', sans-serif; --sans: 'Space Grotesk', sans-serif; --mono: 'JetBrains Mono', monospace;
+    --r2: 4px; --r3: 6px; --caps: 0.14em; --on-accent: #FFFFFF; --rowpad: 9px 15px 10px; --subj-weight: 500; --subj-size: 13.5px;
+    --paper: #EBEEF3; --surface: #FCFDFE; --surface2: #F2F5F9; --surface3: #E6EBF2;
+    --ink: #0D1522; --ink2: #37455C; --ink3: #6C7B92; --ink4: #97A3B5;
+    --line: #D8DFE9; --line2: #E8EDF3;
+    --accent: #1F51FF; --accent-ink: #1740CC; --accent-soft: #E8EDFF; --accent-line: #C6D2FF;
+    --btn: #FFFFFF; --btn-line: #D3DBE7; --btn-shadow: 0 1px 1px rgba(13,21,34,0.05);
+    --shadow: 0 26px 64px rgba(13,21,34,0.2), 0 0 0 0.5px rgba(13,21,34,0.12);
+  }
+  [data-theme="sinal"] {
+    --serif: 'Space Grotesk', sans-serif; --sans: 'Space Grotesk', sans-serif; --mono: 'JetBrains Mono', monospace;
+    --r2: 4px; --r3: 6px; --caps: 0.16em; --on-accent: #061018; --rowpad: 10px 15px 11px; --subj-weight: 500; --subj-size: 13.5px;
+    --paper: #060F18; --surface: #0B1723; --surface2: #081220; --surface3: #142434;
+    --ink: #E6F2FF; --ink2: #A6BDD4; --ink3: #72899F; --ink4: #52667A;
+    --line: #1B2E42; --line2: #132234;
+    --accent: #7CE38B; --accent-ink: #9CEFA8; --accent-soft: #0D2119; --accent-line: #1F4433;
+    --btn: #11202F; --btn-line: #1F3346; --btn-shadow: inset 0 1px 0 rgba(200,240,255,0.05);
+    --shadow: 0 40px 96px rgba(0,0,0,0.7), 0 0 0 0.5px rgba(124,227,139,0.18);
+  }
+  [data-theme="aura"] {
+    --serif: 'Newsreader', Georgia, serif; --sans: 'Space Grotesk', sans-serif; --mono: 'JetBrains Mono', monospace;
+    --r2: 12px; --r3: 18px; --caps: 0.14em; --on-accent: #FFFFFF; --rowpad: 13px 18px 14px; --subj-weight: 500; --subj-size: 15px;
+    --paper: #F1EDFA; --surface: #FDFBFF; --surface2: #F5F1FC; --surface3: #EBE4F8;
+    --ink: #1B1430; --ink2: #453963; --ink3: #7A6D9B; --ink4: #A79BC2;
+    --line: #E1D8F2; --line2: #EDE7F8;
+    --accent: #7C3AED; --accent-ink: #6425D0; --accent-soft: #F0E9FE; --accent-line: #DBCBFB;
+    --btn: #FFFFFF; --btn-line: #E0D6F1; --btn-shadow: 0 1px 2px rgba(40,20,80,0.06);
+    --shadow: 0 30px 70px rgba(45,25,90,0.2), 0 0 0 0.5px rgba(45,25,90,0.12);
+  }
+  [data-theme="whitex"] {
+    --serif: 'Space Grotesk', sans-serif; --sans: 'Space Grotesk', sans-serif; --mono: 'JetBrains Mono', monospace;
+    --r2: 2px; --r3: 3px; --caps: 0.2em; --on-accent: #FFFFFF; --rowpad: 11px 16px 12px; --subj-weight: 500; --subj-size: 14px;
+    --paper: #F5F5F5; --surface: #FFFFFF; --surface2: #FAFAFA; --surface3: #F0F0F0;
+    --ink: #111111; --ink2: #3A3A3A; --ink3: #757575; --ink4: #A5A5A5;
+    --line: #E4E4E4; --line2: #EEEEEE;
+    --accent: #111111; --accent-ink: #000000; --accent-soft: #F2F2F2; --accent-line: #DCDCDC;
+    --btn: #FFFFFF; --btn-line: #DEDEDE; --btn-shadow: 0 1px 1px rgba(0,0,0,0.04);
+    --shadow: 0 24px 60px rgba(0,0,0,0.16), 0 0 0 0.5px rgba(0,0,0,0.1);
+  }
+  [data-theme="blackbox"] {
+    --serif: 'Space Grotesk', sans-serif; --sans: 'Space Grotesk', sans-serif; --mono: 'JetBrains Mono', monospace;
+    --r2: 2px; --r3: 3px; --caps: 0.2em; --on-accent: #000000; --rowpad: 11px 16px 12px; --subj-weight: 500; --subj-size: 14px;
+    --paper: #000000; --surface: #0B0B0B; --surface2: #060606; --surface3: #171717;
+    --ink: #F5F5F5; --ink2: #B4B4B4; --ink3: #7C7C7C; --ink4: #575757;
+    --line: #1E1E1E; --line2: #141414;
+    --accent: #F5F5F5; --accent-ink: #FFFFFF; --accent-soft: #171717; --accent-line: #2C2C2C;
+    --btn: #131313; --btn-line: #262626; --btn-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+    --shadow: 0 40px 100px rgba(0,0,0,0.9), 0 0 0 0.5px rgba(255,255,255,0.12);
+  }
+  [data-theme="magenta"] {
+    --serif: 'Inter', sans-serif; --sans: 'Inter', sans-serif; --mono: 'JetBrains Mono', monospace;
+    --r2: 8px; --r3: 16px; --caps: 0.12em; --on-accent: #12001A; --rowpad: 11px 16px 12px; --subj-weight: 500; --subj-size: 14px;
+    --paper: #000000; --surface: #0E0E10; --surface2: #18181B; --surface3: #221E24;
+    --ink: #FFFFFF; --ink2: #A1A1AA; --ink3: #7E7E86; --ink4: #58585F;
+    --line: #27272A; --line2: #1C1C1F;
+    --accent: #D946EF; --accent-ink: #E879F9; --accent-soft: #1D0722; --accent-line: #451447;
+    --btn: #18181B; --btn-line: #2C2C30; --btn-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+    --shadow: 0 40px 100px rgba(0,0,0,0.9), 0 0 0 0.5px rgba(217,70,239,0.24);
+  }
+  [data-theme="neural"] {
+    --serif: 'Inter', sans-serif; --sans: 'Inter', sans-serif; --mono: 'JetBrains Mono', monospace;
+    --r2: 8px; --r3: 16px; --caps: 0.12em; --on-accent: #0D0318; --rowpad: 12px 17px 13px; --subj-weight: 500; --subj-size: 14px;
+    --paper: #030303; --surface: #101013; --surface2: #18181B; --surface3: #221F28;
+    --ink: #FFFFFF; --ink2: #A1A1AA; --ink3: #7E7E86; --ink4: #58585F;
+    --line: #27272A; --line2: #1C1C1F;
+    --accent: #A855F7; --accent-ink: #C084FC; --accent-soft: #170A2A; --accent-line: #3A2159;
+    --btn: #18181B; --btn-line: #2C2C30; --btn-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+    --shadow: 0 40px 100px rgba(0,0,0,0.88), 0 0 0 0.5px rgba(168,85,247,0.22);
+  }
+  [data-theme="corsa"] {
+    --serif: 'Inter', sans-serif; --sans: 'Inter', sans-serif; --mono: 'JetBrains Mono', monospace;
+    --r2: 0px; --r3: 0px; --caps: 0.14em; --on-accent: #FFFFFF; --rowpad: 11px 16px 12px; --subj-weight: 500; --subj-size: 14px;
+    --paper: #181818; --surface: #202020; --surface2: #181818; --surface3: #303030;
+    --ink: #FFFFFF; --ink2: #969696; --ink3: #8F8F8F; --ink4: #666666;
+    --line: #303030; --line2: #262626;
+    --accent: #DA291C; --accent-ink: #F26056; --accent-soft: #240A08; --accent-line: #5A1611;
+    --btn: #303030; --btn-line: #3D3D3D; --btn-shadow: none;
+    --shadow: 0 36px 90px rgba(0,0,0,0.72), 0 0 0 1px #303030;
+  }
+  [data-theme="corsaluz"] {
+    --serif: 'Inter', sans-serif; --sans: 'Inter', sans-serif; --mono: 'JetBrains Mono', monospace;
+    --r2: 0px; --r3: 0px; --caps: 0.14em; --on-accent: #FFFFFF; --rowpad: 11px 16px 12px; --subj-weight: 500; --subj-size: 14px;
+    --paper: #EBEBEB; --surface: #FFFFFF; --surface2: #F7F7F7; --surface3: #EBEBEB;
+    --ink: #181818; --ink2: #4A4A4A; --ink3: #6E6E6E; --ink4: #909090;
+    --line: #D2D2D2; --line2: #EBEBEB;
+    --accent: #DA291C; --accent-ink: #B01E0A; --accent-soft: #FBEDEC; --accent-line: #E8C4C0;
+    --btn: #FFFFFF; --btn-line: #D2D2D2; --btn-shadow: none;
+    --shadow: 0 28px 70px rgba(24,24,24,0.2), 0 0 0 1px #D2D2D2;
+  }
+  [data-theme="brutalnoite"] {
+    --serif: 'Space Grotesk', sans-serif; --sans: 'Space Grotesk', sans-serif; --mono: 'JetBrains Mono', monospace;
+    --r2: 0px; --r3: 0px; --caps: 0.18em; --on-accent: #0C0C0C; --rowpad: 9px 14px 10px; --subj-weight: 650; --subj-size: 13.5px;
+    --paper: #121212; --surface: #1A1A1A; --surface2: #141414; --surface3: #242424;
+    --ink: #F2F2F0; --ink2: #BDBDB8; --ink3: #8A8A85; --ink4: #656560;
+    --line: #F2F2F0; --line2: #2E2E2C;
+    --accent: #E8E6E1; --accent-ink: #FFFFFF; --accent-soft: #242422; --accent-line: #F2F2F0;
+    --btn: #1A1A1A; --btn-line: #F2F2F0; --btn-shadow: 2px 2px 0 #F2F2F0;
+    --shadow: 8px 8px 0 #F2F2F0, 0 0 0 1px #F2F2F0;
+  }
+  [data-theme="contraste"] {
+    --serif: 'Space Grotesk', sans-serif; --sans: 'Space Grotesk', sans-serif; --mono: 'JetBrains Mono', monospace;
+    --r2: 0px; --r3: 0px; --caps: 0.22em; --on-accent: #000000; --rowpad: 10px 14px 11px; --subj-weight: 700; --subj-size: 14px;
+    --paper: #000000; --surface: #000000; --surface2: #000000; --surface3: #141414;
+    --ink: #FFFFFF; --ink2: #FFFFFF; --ink3: #D8D8D8; --ink4: #ADADAD;
+    --line: #FFFFFF; --line2: #FFFFFF;
+    --accent: #FFE800; --accent-ink: #FFE800; --accent-soft: #1A1A00; --accent-line: #FFE800;
+    --btn: #000000; --btn-line: #FFFFFF; --btn-shadow: 3px 3px 0 #FFE800;
+    --shadow: 10px 10px 0 #FFE800, 0 0 0 2px #FFFFFF;
+  }
+  [data-theme="reboot"] {
+    --serif: 'Inter', sans-serif; --sans: 'Inter', sans-serif; --mono: 'JetBrains Mono', monospace;
+    --r2: 8px; --r3: 8px; --caps: 0.08em; --on-accent: #2A1000; --rowpad: 12px 16px 12px; --subj-weight: 500; --subj-size: 14px;
+    --paper: #F3F4F6; --surface: #FFFFFF; --surface2: #F9FAFB; --surface3: #F3F4F6;
+    --ink: #111827; --ink2: #4B5563; --ink3: #6B7280; --ink4: #9CA3AF;
+    --line: #E5E7EB; --line2: #F0F1F3;
+    --accent: #F97316; --accent-ink: #C2570B; --accent-soft: #FFF3EA; --accent-line: #FBD5B5;
+    --btn: #FFFFFF; --btn-line: #E5E7EB; --btn-shadow: 0 1px 2px rgba(17,24,39,0.05);
+    --shadow: 0 24px 60px rgba(17,24,39,0.18), 0 0 0 0.5px rgba(17,24,39,0.1);
+  }
+  [data-theme="comando"] {
+    --serif: 'Inter Tight', sans-serif; --sans: 'Inter', sans-serif; --mono: 'JetBrains Mono', monospace;
+    --r2: 8px; --r3: 8px; --caps: 0.1em; --on-accent: #120602; --rowpad: 12px 16px 12px; --subj-weight: 500; --subj-size: 14px;
+    --paper: #050505; --surface: #0C0C0D; --surface2: #080808; --surface3: #18181B;
+    --ink: #FFFFFF; --ink2: #A1A1AA; --ink3: #7E7E86; --ink4: #5C5C63;
+    --line: #27272A; --line2: #1A1A1D;
+    --accent: #D2582F; --accent-ink: #E8825C; --accent-soft: #1A0D08; --accent-line: #382014;
+    --btn: #141416; --btn-line: #2C2C30; --btn-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+    --shadow: 0 40px 100px rgba(0,0,0,0.85), 0 0 0 0.5px rgba(210,88,47,0.14);
+  }
+  [data-theme="override"] {
+    --serif: 'Inter', sans-serif; --sans: 'Inter', sans-serif; --mono: 'JetBrains Mono', monospace;
+    --r2: 2px; --r3: 2px; --caps: 0.1em; --on-accent: #FFFFFF; --rowpad: 10px 15px 11px; --subj-weight: 500; --subj-size: 13.5px;
+    --paper: #000000; --surface: #0D0D0F; --surface2: #18181B; --surface3: #1F1F23;
+    --ink: #FFFFFF; --ink2: #A1A1AA; --ink3: #7C7C85; --ink4: #57575E;
+    --line: #27272A; --line2: #1C1C1F;
+    --accent: #FF0B0B; --accent-ink: #FF4242; --accent-soft: #1E0708; --accent-line: #451113;
+    --btn: #18181B; --btn-line: #2C2C30; --btn-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+    --shadow: 0 40px 100px rgba(0,0,0,0.9), 0 0 0 0.5px rgba(255,11,11,0.22);
+  }
+  [data-theme="ambar"] {
+    --serif: 'Newsreader', Georgia, serif; --sans: 'Space Grotesk', sans-serif; --mono: 'IBM Plex Mono', monospace;
+    --r2: 7px; --r3: 9px; --caps: 0.13em; --on-accent: #241203; --rowpad: 12px 16px 13px; --subj-weight: 500; --subj-size: 15px;
+    --paper: #FBF1E4; --surface: #FFFAF2; --surface2: #F8EEDF; --surface3: #F1E2CD;
+    --ink: #23180C; --ink2: #574531; --ink3: #8B7658; --ink4: #B3A183;
+    --line: #E6D6BC; --line2: #F0E4D0;
+    --accent: #D97706; --accent-ink: #A85A04; --accent-soft: #FCEDD8; --accent-line: #EDD3AC;
+    --btn: #FFFCF6; --btn-line: #E4D5BB; --btn-shadow: 0 1px 1px rgba(80,55,20,0.07);
+    --shadow: 0 28px 66px rgba(80,55,20,0.22), 0 0 0 0.5px rgba(80,55,20,0.14);
+  }
+
+  /* ============ Cores derivadas do tema (nada hardcoded por tema) ============
+     Misturar com o --ink corrige a luminosidade sozinho: em tema claro o ink é
+     escuro (a cor desce), em tema escuro o ink é claro (a cor sobe). */
+  [data-theme] {
+    --warn:       color-mix(in oklab, oklch(0.66 0.14 65) 70%, var(--ink) 30%);
+    --live:       color-mix(in oklab, oklch(0.62 0.20 25) 82%, var(--ink) 18%);
+    --acc-zoho:   color-mix(in oklab, oklch(0.64 0.13 255) 70%, var(--ink) 30%);
+    --acc-gmail:  color-mix(in oklab, oklch(0.64 0.15 350) 70%, var(--ink) 30%);
+    --acc-host:   color-mix(in oklab, oklch(0.64 0.13 155) 70%, var(--ink) 30%);
+    --acc-icloud: color-mix(in oklab, oklch(0.66 0.11 200) 70%, var(--ink) 30%);
+  }
+
+  ::-webkit-scrollbar { width: 9px; height: 9px; }
+  ::-webkit-scrollbar-thumb { background: rgba(140,132,119,0.4); border-radius: 5px; border: 2px solid transparent; background-clip: content-box; }
+
+  /* ============ Estrutura da página do mockup ============ */
+  .stage { min-height: 100vh; background: var(--paper); padding: 26px 0 48px; font-family: var(--sans); color: var(--ink); }
+  .pickers { width: 1440px; margin: 0 auto 18px; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .pick-group { display: flex; align-items: center; gap: 5px; }
+  .pick-label { font-family: var(--mono); font-size: 9.5px; letter-spacing: var(--caps); text-transform: uppercase; color: var(--ink4); margin-right: 3px; }
+  .pick { height: 24px; padding: 0 11px; border-radius: var(--r2); border: 0.5px solid var(--btn-line); background: var(--btn); box-shadow: var(--btn-shadow); color: var(--ink2); font-family: var(--mono); font-size: 10px; letter-spacing: 0.05em; cursor: default; }
+  .pick.on { border-color: var(--accent); color: var(--accent-ink); background: var(--accent-soft); }
+  .screen-caption { width: 1440px; margin: 14px auto 0; font-family: var(--mono); font-size: 9.5px; letter-spacing: var(--caps); text-transform: uppercase; color: var(--ink4); }
+
+  /* ============ Janela ============ */
+  .win { position: relative; width: 1440px; height: 916px; margin: 0 auto; border-radius: 12px; overflow: hidden; box-shadow: var(--shadow); display: flex; flex-direction: column; background: var(--surface); color: var(--ink); font-family: var(--sans); }
+
+  /* Chrome 64px — espelha Packages/UNIShell/Sources/UNIShell/Chrome/WindowChrome.swift */
+  /* raio-cápsula do chrome: r3 quando o tema é vivo (r3 ≤ 4), senão 20 (chromePillRadius) */
+  [data-theme] { --pill: clamp(var(--r3), (var(--r3) - 4.1px) * 100, 20px);
+                 --pillc: clamp(calc(var(--r3) + 3px), (var(--r3) - 4.1px) * 100, 20px); }
+  .chrome { height: 64px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 12px; background: var(--surface2); border-bottom: 0.5px solid var(--line); }
+  /* semáforo + recolhe + lobo ficam na linha nativa dos 22pt, não na linha média de 32 */
+  .tl-cluster { align-self: flex-start; height: 44px; display: flex; align-items: center; gap: 12px; }
+  .traffic { display: flex; gap: 8px; align-items: center; width: 58px; }
+  .traffic i { width: 12px; height: 12px; border-radius: 50%; display: block; }
+  .pane-btn { width: 24px; height: 24px; flex: none; display: flex; align-items: center; justify-content: center; color: var(--ink2); border-radius: var(--r2); cursor: default; }
+  .pane-btn:hover { background: var(--line2); color: var(--ink); }
+  .wolf { width: 22px; height: 22px; display: block; flex: none; }
+  .search-wrap { flex: 1; min-width: 0; display: flex; justify-content: center; }
+  .search-cluster { display: flex; align-items: center; gap: 8px; width: 100%; max-width: 720px; }
+  .search-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .search { height: 40px; box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 0 16px; background: var(--surface); border: 1px solid var(--accent); border-radius: var(--pill); }
+  .search .lens { width: 10px; height: 10px; border: 1.5px solid var(--ink4); border-radius: 50%; flex: none; box-sizing: border-box; }
+  .search .ph { flex: 1; font-size: 12.5px; color: var(--ink4); white-space: nowrap; overflow: hidden; }
+  .search .kbd { font-family: var(--mono); font-size: 10px; color: var(--ink4); }
+  .syncbar { height: 2px; border-radius: 1px; background: var(--accent-soft); }
+  .sq-btn { width: 38px; height: 38px; flex: none; box-sizing: border-box; display: flex; align-items: center; justify-content: center; color: var(--ink2); background: var(--surface); border: 0.5px solid var(--btn-line); border-radius: var(--r2); box-shadow: var(--btn-shadow); cursor: default; }
+  .sq-btn:hover { border-color: var(--accent); color: var(--ink); }
+  .tabs { display: flex; gap: 2px; padding: 3px; flex: none; background: var(--surface3); border-radius: var(--pillc); }
+  .tab { position: relative; height: 34px; padding: 0 13px; display: flex; align-items: center; font-size: 13px; font-weight: 500; color: var(--ink3); border-radius: var(--r3); cursor: default; }
+  .tab.on { color: var(--ink); }
+  .sharp .tab.on { font-weight: 600; }
+  .sharp .tab.on::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--accent); }
+  .round .tab.on { background: var(--surface); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+  .light .ico-moon { display: none; }
+  .dark .ico-sun { display: none; }
+  .avatar { width: 38px; height: 38px; flex: none; border-radius: 50%; background: var(--surface3); color: var(--ink); font-size: 10.5px; font-weight: 650; display: flex; align-items: center; justify-content: center; }
+
+  /* Conteúdo */
+  .content { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--paper); padding: 22px; }
+
+  .caps { font-family: var(--mono); font-size: 9.5px; letter-spacing: var(--caps); text-transform: uppercase; color: var(--ink4); }
+
+  .head { flex: none; display: flex; align-items: flex-start; margin-bottom: 16px; }
+  .head .greet { font-family: var(--serif); font-size: 28px; font-weight: 600; letter-spacing: -0.01em; color: var(--ink); margin-top: 4px; }
+  .head .right { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
+  .chrome-btn { height: 28px; padding: 0 14px; border-radius: var(--r2); border: 0.5px solid var(--btn-line); background: var(--btn); box-shadow: var(--btn-shadow); color: var(--ink); font-size: 12.5px; font-weight: 550; display: inline-flex; align-items: center; gap: 7px; cursor: default; }
+  .chrome-btn:hover { border-color: var(--accent); color: var(--accent-ink); }
+  .provider { font-size: 11px; color: var(--ink3); }
+
+  /* Faixa de briefing */
+  .briefing { display: none; flex: none; align-items: flex-start; gap: 14px; margin: 0 0 16px; padding: 12px 16px; background: var(--surface2); border-top: 0.5px solid var(--line2); border-bottom: 0.5px solid var(--line2); }
+  [data-state="briefing"] .briefing { display: flex; }
+  .briefing .text { flex: 1; min-width: 0; font-family: var(--serif); font-size: 15px; line-height: 1.55; color: var(--ink); text-wrap: pretty; }
+  .briefing .text strong { font-weight: 600; }
+  .briefing .acts { flex: none; display: flex; align-items: center; gap: 6px; padding-top: 1px; }
+  .mini-btn { height: 26px; padding: 0 12px; border-radius: var(--r2); border: 0.5px solid var(--btn-line); background: var(--btn); box-shadow: var(--btn-shadow); color: var(--ink2); font-size: 11.5px; font-weight: 550; display: inline-flex; align-items: center; cursor: default; }
+  .mini-btn:hover { border-color: var(--accent); color: var(--accent-ink); }
+  .x-btn { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border-radius: var(--r2); color: var(--ink3); font-size: 13px; cursor: default; }
+  .x-btn:hover { background: var(--surface3); color: var(--ink); }
+
+  /* Colunas */
+  .cols { flex: 1; min-height: 0; display: flex; }
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; padding-right: 18px; }
+
+  /* Prioridades — a lista mede o que mostra; a folga vai para o .flexpad antes
+     do assistente. Nos estados briefing/transcript a lista "rola": some linhas
+     inteiras do fim (corte na hairline da última linha visível, nunca no meio). */
+  .prio-label { flex: none; padding-bottom: 7px; display: flex; align-items: baseline; }
+  .prio-list { flex: none; border-top: 0.5px solid var(--line2); }
+  .flexpad { flex: 1; min-height: 0; }
+  [data-state="briefing"] .prio-list .prow:nth-of-type(n+6),
+  [data-state="transcript"] .prio-list .prow:nth-of-type(n+5) { display: none; }
+  .prow { position: relative; padding: 10px 16px 11px; border-bottom: 0.5px solid var(--line2); cursor: default;
+          --rowbg: var(--paper); background: var(--rowbg);
+          box-shadow: inset 3px 0 0 color-mix(in oklab, var(--tint) 45%, transparent); }
+  .prow.unread { --rowbg: var(--surface2); }
+  .prow .l1 { display: flex; align-items: baseline; gap: 8px; }
+  .prow .from { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 650; letter-spacing: -0.005em; color: var(--ink); }
+  .prow .time { font-family: var(--mono); font-size: 11px; color: var(--ink4); flex: none; }
+  .prow .subj { margin-top: 3px; font-family: var(--serif); font-size: var(--subj-size); font-weight: var(--subj-weight); line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+  .prow .chips { margin-top: 8px; display: flex; gap: 5px; align-items: center; }
+  .prow .acts { position: absolute; top: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: 6px; padding: 0 14px 0 34px; opacity: 0; pointer-events: none;
+                background: linear-gradient(90deg, transparent, var(--rowbg) 28px); }
+  .prow:hover .acts { opacity: 1; pointer-events: auto; }
+  .row-btn { height: 24px; padding: 0 10px; border-radius: var(--r2); border: 0.5px solid var(--btn-line); background: var(--btn); box-shadow: var(--btn-shadow); color: var(--ink2); font-size: 11.5px; font-weight: 550; display: inline-flex; align-items: center; cursor: default; }
+  .row-btn:hover { border-color: var(--accent); color: var(--accent-ink); }
+  .prio-foot { flex: none; padding: 8px 16px; font-size: 12.5px; font-weight: 550; color: var(--accent-ink); cursor: default; }
+  .prio-empty { display: none; flex: none; border-top: 0.5px solid var(--line2); padding: 26px 16px; }
+  .prio-empty .t { font-family: var(--serif); font-size: 15px; color: var(--ink); }
+  .prio-empty .d { margin-top: 5px; font-size: 12px; line-height: 1.5; color: var(--ink3); max-width: 46ch; }
+  [data-state="vazio"] .prio-list { display: none; }
+  [data-state="vazio"] .prio-empty { display: block; }
+  .n-full { display: inline; } .n-empty { display: none; }
+  [data-state="vazio"] .n-full { display: none; }
+  [data-state="vazio"] .n-empty { display: inline; }
+
+  /* Chips (TintChip) */
+  .chip { font-family: var(--mono); font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 6px 1.5px; border-radius: 4px; flex: none; border: 0.5px solid transparent; }
+  .chip[data-reason="needsReply"], .chip[data-reason="deadline"] {
+    color: var(--warn); background: color-mix(in oklab, var(--warn) 14%, transparent); border-color: color-mix(in oklab, var(--warn) 32%, transparent); }
+  .chip[data-reason="lead"] { color: var(--accent-ink); background: var(--accent-soft); border-color: var(--accent-line); }
+  .chip[data-reason="flagged"] { color: var(--accent-ink); background: transparent; border-color: var(--accent-line); }
+  .chip[data-reason="unread"], .chip[data-reason="today"] { color: var(--ink3); background: var(--surface3); border-color: var(--line); }
+
+  /* Assistente */
+  .assist { flex: none; padding-top: 12px; }
+  .transcript { display: none; margin-bottom: 10px; max-height: 300px; overflow-y: auto; border: 0.5px solid var(--line); border-radius: var(--r3); background: var(--surface); padding: 12px 14px; }
+  [data-state="transcript"] .transcript { display: block; }
+  .transcript .bar { display: flex; align-items: center; margin-bottom: 10px; }
+  .transcript .clear { margin-left: auto; font-family: var(--mono); font-size: 9.5px; letter-spacing: var(--caps); text-transform: uppercase; color: var(--ink3); cursor: default; }
+  .transcript .clear:hover { color: var(--accent-ink); }
+  .turn-q { margin-left: auto; max-width: 72%; width: fit-content; padding: 7px 11px; border-radius: var(--r2); background: var(--accent-soft); border: 0.5px solid var(--accent-line); color: var(--ink); font-size: 13px; line-height: 1.45; }
+  .turn-a { margin-top: 10px; max-width: 88%; padding: 10px 12px; border-radius: var(--r2); background: var(--surface3); color: var(--ink); font-family: var(--serif); font-size: 14px; line-height: 1.55; }
+  .turn-a p { margin: 0 0 6px; } .turn-a p:last-child { margin-bottom: 0; }
+  .turn-a ul { margin: 6px 0 0; padding-left: 18px; }
+  .turn-a li { margin: 3px 0; }
+  .ask { display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 5px 0 14px; border-radius: var(--r3); border: 0.5px solid var(--btn-line); background: var(--btn); box-shadow: var(--btn-shadow); }
+  .ask .ph { flex: 1; font-size: 13px; color: var(--ink4); }
+  .ask .send { width: 28px; height: 28px; flex: none; border-radius: var(--r2); background: var(--accent); color: var(--on-accent); font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: center; cursor: default; }
+  .assist .provider { margin-top: 6px; }
+
+  /* Coluna direita */
+  .rail { width: 300px; flex: none; border-left: 1px solid var(--line); background: var(--surface); display: flex; flex-direction: column; min-height: 0; }
+  .rail-head { flex: none; padding: 12px 16px 11px; border-bottom: 0.5px solid var(--line2); }
+  .rail-head .t { font-family: var(--serif); font-size: 15px; font-weight: 600; color: var(--ink); }
+  .rail-head .next { margin-top: 3px; display: flex; align-items: center; gap: 6px; }
+  .rail-head .next i { width: 5px; height: 5px; border-radius: 50%; background: var(--live); flex: none; }
+  .rail-head .next span { font-family: var(--mono); font-size: 10px; color: var(--ink2); }
+  .rail-scroll { flex: 1; overflow: hidden; min-height: 0; padding: 12px 14px 8px; }
+  .track { position: relative; height: 430px; }
+  .hr-line { position: absolute; left: 0; right: 0; display: flex; align-items: center; gap: 6px; }
+  .hr-line b { font-family: var(--mono); font-size: 9px; font-weight: 400; color: var(--ink4); width: 26px; flex: none; }
+  .hr-line s { flex: 1; height: 0; border-top: 0.5px solid var(--line2); text-decoration: none; }
+  .now { position: absolute; left: 26px; right: 0; height: 0; border-top: 1.5px solid var(--live); }
+  .now-tag { position: absolute; left: 0; transform: translateY(-55%); font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.08em; color: var(--live); background: var(--surface); padding-right: 2px; }
+  .ev { position: absolute; left: 32px; right: 2px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; overflow: hidden;
+       border-radius: 0 var(--r2) var(--r2) 0; border-left: 2px solid var(--tint); color: var(--tint);
+       background: color-mix(in oklab, var(--tint) 14%, transparent); padding: 5px 8px; }
+  .ev.tight { padding: 0 8px; }
+  .ev .t { font-size: 11.5px; font-weight: 650; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ev .r { margin-top: 2px; font-family: var(--mono); font-size: 9px; opacity: 0.7; }
+  .rail-empty { display: none; padding: 26px 16px; }
+  .rail-empty .t { font-family: var(--serif); font-size: 15px; color: var(--ink); }
+  .rail-empty .d { margin-top: 5px; font-size: 12px; line-height: 1.5; color: var(--ink3); }
+  [data-state="vazio"] .rail-scroll, [data-state="vazio"] .rail-head .next { display: none; }
+  [data-state="vazio"] .rail-empty { display: block; flex: 1; min-height: 0; }
+
+  .pend { flex: none; padding: 13px 16px 15px; border-top: 0.5px solid var(--line2); }
+  .pend .caps { margin-bottom: 9px; display: block; }
+  .pend-item { display: flex; align-items: baseline; gap: 8px; padding: 4px 0; }
+  .pend-item i { width: 5px; height: 5px; border-radius: 50%; flex: none; transform: translateY(-2px); background: var(--tint); }
+  .pend-item .tx { flex: 1; min-width: 0; }
+  .pend-item .tx .a { font-size: 11.5px; line-height: 1.45; color: var(--ink2); }
+  .pend-item .tx .b { font-size: 10.5px; color: var(--ink3); margin-top: 1px; }
+  .pend-none { display: none; font-size: 12px; color: var(--ink3); padding: 2px 0 4px; }
+  [data-state="vazio"] .pend-item { display: none; }
+  [data-state="vazio"] .pend-none { display: block; }
+</style>
+</head>
+<body>
+<div class="stage" id="stage" data-theme="okami">
+
+  <div class="pickers">
+    <div class="pick-group" id="themePick">
+      <span class="pick-label">Tema</span>
+      <button class="pick on" data-pick-theme="okami">okami</button>
+      <button class="pick" data-pick-theme="tinta">tinta</button>
+      <button class="pick" data-pick-theme="noite">noite</button>
+      <button class="pick" data-pick-theme="neon">neon</button>
+      <button class="pick" data-pick-theme="grafite">grafite</button>
+      <button class="pick" data-pick-theme="linho">linho</button>
+    </div>
+    <div class="pick-group" id="statePick">
+      <span class="pick-label">Estado</span>
+      <button class="pick on" data-pick-state="cheio">cheio</button>
+      <button class="pick" data-pick-state="vazio">vazio</button>
+      <button class="pick" data-pick-state="briefing">com briefing</button>
+      <button class="pick" data-pick-state="transcript">com transcript</button>
+    </div>
+  </div>
+
+  <div class="win" id="win" data-state="cheio" data-screen-label="07 Dashboard · cheio">
+
+    <!-- Chrome macOS 64px (WindowChrome.swift: sidebarToggle → lobo → busca elástica → abas → agendaToggle → tema → conta) -->
+    <div class="chrome">
+      <div class="tl-cluster">
+        <div class="traffic"><i style="background:#EC6A5E"></i><i style="background:#E0B341"></i><i style="background:#5EBB52"></i></div>
+        <div class="pane-btn" title="Mostrar ou esconder a barra lateral">
+          <svg width="16" height="14" viewBox="0 0 16 14" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="0.7" y="0.7" width="14.6" height="12.6" rx="3"/><line x1="5.7" y1="0.7" x2="5.7" y2="13.3"/></svg>
+        </div>
+        <img class="wolf" id="wolfImg" src="assets/uni-mark-dark.png" alt="OkamiUNI" />
+      </div>
+
+      <div class="search-wrap">
+        <div class="search-cluster">
+          <div class="search-col">
+            <div class="search"><span class="lens"></span><span class="ph">Buscar nas 3 caixas…</span><span class="kbd">⌘K</span></div>
+            <div class="syncbar"></div>
+          </div>
+          <div class="sq-btn" title="Atualizar a caixa">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"/><polyline points="18.4 2.6 17.8 6.5 13.9 5.9"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <div class="tab on">Dashboard</div>
+        <div class="tab">Caixa</div>
+        <div class="tab">Agenda</div>
+      </div>
+      <div class="pane-btn" title="Mostrar ou esconder a trilha da agenda">
+        <svg width="16" height="14" viewBox="0 0 16 14" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="0.7" y="0.7" width="14.6" height="12.6" rx="3"/><line x1="10.3" y1="0.7" x2="10.3" y2="13.3"/></svg>
+      </div>
+      <div class="sq-btn" title="Escolher tema">
+        <svg class="ico-moon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M20.4 14.2A8.5 8.5 0 0 1 9.8 3.6 8.5 8.5 0 1 0 20.4 14.2z"/><path d="M18.2 4l.55 1.55L20.3 6.1l-1.55.55L18.2 8.2l-.55-1.55L16.1 6.1l1.55-.55z"/></svg>
+        <svg class="ico-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><line x1="12" y1="2.4" x2="12" y2="4.6"/><line x1="12" y1="19.4" x2="12" y2="21.6"/><line x1="2.4" y1="12" x2="4.6" y2="12"/><line x1="19.4" y1="12" x2="21.6" y2="12"/><line x1="5.2" y1="5.2" x2="6.8" y2="6.8"/><line x1="17.2" y1="17.2" x2="18.8" y2="18.8"/><line x1="5.2" y1="18.8" x2="6.8" y2="17.2"/><line x1="17.2" y1="6.8" x2="18.8" y2="5.2"/></svg>
+      </div>
+      <div class="avatar">MA</div>
+    </div>
+
+    <div class="content">
+
+      <!-- Cabeçalho -->
+      <div class="head">
+        <div>
+          <div class="caps">Terça · 1 de setembro</div>
+          <div class="greet">Boa tarde, Marcos</div>
+        </div>
+        <div class="right">
+          <div class="chrome-btn">Gerar briefing</div>
+          <div class="provider">Grok · xAI</div>
+        </div>
+      </div>
+
+      <!-- Faixa de briefing (só no estado com briefing) -->
+      <div class="briefing">
+        <div class="text">Dois emails pedem decisão hoje: <strong>Marina Duarte</strong> quer fechar o contrato na quinta (09:42) e o formulário do site trouxe um <strong>lead de consultoria para 40 pessoas</strong>. Sua tarde tem Revisão do contrato às 14:00 e um bloco de foco na proposta TransRota às 16:30. A NF de agosto vence 05/09 — pode esperar até amanhã.</div>
+        <div class="acts">
+          <div class="mini-btn">Gerar de novo</div>
+          <div class="x-btn">✕</div>
+        </div>
+      </div>
+
+      <div class="cols">
+
+        <!-- Coluna principal -->
+        <div class="main">
+          <div class="prio-label">
+            <span class="caps">Prioridades · <span class="n-full">7</span><span class="n-empty">0</span></span>
+          </div>
+
+          <div class="prio-list">
+            <div class="prow unread" style="--tint: var(--acc-zoho)">
+              <div class="l1"><span class="from">Marina Duarte</span><span class="time">09:42</span></div>
+              <div class="subj">Revisão do contrato — podemos fechar quinta?</div>
+              <div class="chips"><span class="chip" data-reason="needsReply">Precisa resposta</span></div>
+              <div class="acts"><span class="row-btn">Responder</span><span class="row-btn">Arquivar</span><span class="row-btn">Depois</span></div>
+            </div>
+            <div class="prow unread" style="--tint: var(--acc-zoho)">
+              <div class="l1"><span class="from">Equipe Produto</span><span class="time">08:40</span></div>
+              <div class="subj">Notas do standup + bloqueio no deploy</div>
+              <div class="chips"><span class="chip" data-reason="unread">Não lido</span></div>
+              <div class="acts"><span class="row-btn">Responder</span><span class="row-btn">Arquivar</span><span class="row-btn">Depois</span></div>
+            </div>
+            <div class="prow unread" style="--tint: var(--acc-host)">
+              <div class="l1"><span class="from">Formulário do site</span><span class="time">ontem 18:10</span></div>
+              <div class="subj">Novo lead: consultoria para 40 pessoas</div>
+              <div class="chips"><span class="chip" data-reason="lead">Lead</span></div>
+              <div class="acts"><span class="row-btn">Responder</span><span class="row-btn">Arquivar</span><span class="row-btn">Depois</span></div>
+            </div>
+            <div class="prow" style="--tint: var(--acc-gmail)">
+              <div class="l1"><span class="from">Contabilidade</span><span class="time">ontem 17:03</span></div>
+              <div class="subj">NF de agosto vence 05/09</div>
+              <div class="chips"><span class="chip" data-reason="deadline">Prazo</span></div>
+              <div class="acts"><span class="row-btn">Responder</span><span class="row-btn">Arquivar</span><span class="row-btn">Depois</span></div>
+            </div>
+            <div class="prow" style="--tint: var(--acc-host)">
+              <div class="l1"><span class="from">Diego Almeida</span><span class="time">ontem 15:47</span></div>
+              <div class="subj">Proposta TransRota — feedback da diretoria</div>
+              <div class="chips"><span class="chip" data-reason="flagged">Sinalizado</span></div>
+              <div class="acts"><span class="row-btn">Responder</span><span class="row-btn">Arquivar</span><span class="row-btn">Depois</span></div>
+            </div>
+            <div class="prow" style="--tint: var(--acc-icloud)">
+              <div class="l1"><span class="from">Camila Ferreira</span><span class="time">07:12</span></div>
+              <div class="subj">Convite: revisão de metas do trimestre</div>
+              <div class="chips"><span class="chip" data-reason="today">Hoje</span></div>
+              <div class="acts"><span class="row-btn">Responder</span><span class="row-btn">Arquivar</span><span class="row-btn">Depois</span></div>
+            </div>
+            <div class="prow unread" style="--tint: var(--acc-gmail)">
+              <div class="l1"><span class="from">Pedro Sales</span><span class="time">06:58</span></div>
+              <div class="subj">Re: cronograma da migração de DNS</div>
+              <div class="chips"><span class="chip" data-reason="unread">Não lido</span></div>
+              <div class="acts"><span class="row-btn">Responder</span><span class="row-btn">Arquivar</span><span class="row-btn">Depois</span></div>
+            </div>
+
+            <div class="prio-foot">+ 4 na Caixa →</div>
+          </div>
+
+          <div class="prio-empty">
+            <div class="t">Nada pedindo uma decisão.</div>
+            <div class="d">Quando um email precisar de resposta, tiver prazo ou trouxer um lead, ele aparece aqui.</div>
+          </div>
+
+          <div class="flexpad"></div>
+
+          <!-- Assistente -->
+          <div class="assist">
+            <div class="transcript">
+              <div class="bar"><span class="caps">Assistente</span><span class="clear">Limpar</span></div>
+              <div class="turn-q">O que a Marina precisa de mim para fechar o contrato?</div>
+              <div class="turn-a">
+                <p>Marina revisou as cláusulas 4 e 7 com o jurídico; a única pendência é o escopo de suporte. Para fechar na quinta:</p>
+                <ul>
+                  <li>Confirmar a call de quinta às 15h</li>
+                  <li>Levar a redação do SLA — resposta em até 4h úteis</li>
+                  <li>Assinatura na sexta pela manhã, antes da viagem dela</li>
+                </ul>
+              </div>
+            </div>
+            <div class="ask">
+              <span class="ph">Pergunte sobre seus emails…</span>
+              <span class="send">↑</span>
+            </div>
+            <div class="provider">Grok · xAI</div>
+          </div>
+        </div>
+
+        <!-- Coluna direita 300px -->
+        <div class="rail">
+          <div class="rail-head">
+            <div class="t">Agenda de hoje</div>
+            <div class="next"><i></i><span>em 10 min: Almoço — bloqueado</span></div>
+          </div>
+
+          <div class="rail-scroll">
+            <!-- escala 0.78 px/min · 09:00 = 0 · agora = 12:20 -->
+            <div class="track">
+              <div class="hr-line" style="top:0"><b>09:00</b><s></s></div>
+              <div class="hr-line" style="top:46.8px"><b>10:00</b><s></s></div>
+              <div class="hr-line" style="top:93.6px"><b>11:00</b><s></s></div>
+              <div class="hr-line" style="top:140.4px"><b>12:00</b><s></s></div>
+              <div class="hr-line" style="top:187.2px"><b>13:00</b><s></s></div>
+              <div class="hr-line" style="top:234px"><b>14:00</b><s></s></div>
+              <div class="hr-line" style="top:280.8px"><b>15:00</b><s></s></div>
+              <div class="hr-line" style="top:327.6px"><b>16:00</b><s></s></div>
+              <div class="hr-line" style="top:374.4px"><b>17:00</b><s></s></div>
+              <div class="hr-line" style="top:421.2px"><b>18:00</b><s></s></div>
+
+              <div class="ev tight" style="--tint: var(--acc-zoho); top:23.4px; height:20.4px;"><div class="t">Standup produto · 09:30</div></div>
+              <div class="ev tight" style="--tint: var(--acc-zoho); top:93.6px; height:32.1px;"><div class="t">1:1 Marina Duarte · 11:00</div></div>
+
+              <div class="now" style="top:156px"></div>
+              <div class="now-tag" style="top:156px">AGORA</div>
+
+              <div class="ev" style="--tint: var(--acc-icloud); top:163.8px; height:43.8px;"><div class="t">Almoço — bloqueado</div><div class="r">12:30–13:30</div></div>
+              <div class="ev" style="--tint: var(--acc-zoho); top:234px; height:43.8px;"><div class="t">Revisão do contrato</div><div class="r">14:00–15:00</div></div>
+              <div class="ev" style="--tint: var(--acc-host); top:351px; height:67.2px;"><div class="t">Foco: proposta TransRota</div><div class="r">16:30–18:00</div></div>
+            </div>
+          </div>
+
+          <div class="rail-empty">
+            <div class="t">Dia livre</div>
+            <div class="d">Nenhum compromisso na agenda de hoje.</div>
+          </div>
+
+          <div class="pend">
+            <span class="caps">Pendências</span>
+            <div class="pend-item" style="--tint: var(--acc-zoho)"><i></i><div class="tx"><div class="a">Confirmar call de contrato com Marina — quinta 15h</div><div class="b">Marina Duarte · zoho</div></div></div>
+            <div class="pend-item" style="--tint: var(--acc-host)"><i></i><div class="tx"><div class="a">Renovar domínio meusite.com antes de 06/09</div><div class="b">Hostinger · hostinger</div></div></div>
+            <div class="pend-item" style="--tint: var(--acc-host)"><i></i><div class="tx"><div class="a">Responder proposta TransRota</div><div class="b">Diego Almeida · hostinger</div></div></div>
+            <div class="pend-none">Nada pendente.</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div class="screen-caption" id="caption">07 Dashboard · cheio</div>
+</div>
+
+<script>
+  const stage = document.getElementById('stage');
+  const win = document.getElementById('win');
+  const caption = document.getElementById('caption');
+
+  // Igual ao DARK_THEMES do protótipo: decide lobo claro/escuro e lua/sol.
+  const DARK_THEMES = ['noite', 'grafite', 'okami', 'vapor', 'neon', 'sinal', 'blackbox', 'comando', 'override', 'brutalnoite', 'contraste', 'magenta', 'neural', 'corsa'];
+
+  function syncThemeDerived(t) {
+    const dark = DARK_THEMES.indexOf(t) >= 0;
+    stage.classList.toggle('dark', dark);
+    stage.classList.toggle('light', !dark);
+    // Abas: sublinhado accent nos temas vivos (r3 ≤ 4), pílula surface nos redondos —
+    // o mesmo corte de WindowChrome.tabCornerRadius/chromePillRadius.
+    const r3 = parseFloat(getComputedStyle(stage).getPropertyValue('--r3')) || 10;
+    stage.classList.toggle('sharp', r3 <= 4);
+    stage.classList.toggle('round', r3 > 4);
+    document.getElementById('wolfImg').src = 'assets/uni-mark-' + (dark ? 'dark' : 'light') + '.png';
+  }
+
+  document.querySelectorAll('[data-pick-theme]').forEach(b => b.addEventListener('click', () => {
+    stage.setAttribute('data-theme', b.dataset.pickTheme);
+    syncThemeDerived(b.dataset.pickTheme);
+    document.querySelectorAll('[data-pick-theme]').forEach(x => x.classList.toggle('on', x === b));
+  }));
+
+  document.querySelectorAll('[data-pick-state]').forEach(b => b.addEventListener('click', () => {
+    const s = b.dataset.pickState;
+    win.setAttribute('data-state', s);
+    const label = { cheio: 'cheio', vazio: 'vazio', briefing: 'com briefing gerado', transcript: 'com transcript aberto' }[s];
+    win.setAttribute('data-screen-label', '07 Dashboard · ' + label);
+    caption.textContent = '07 Dashboard · ' + label;
+    document.querySelectorAll('[data-pick-state]').forEach(x => x.classList.toggle('on', x === b));
+  }));
+
+  // ?theme=tinta&state=briefing — atalho para conferência/captura
+  const qs = new URLSearchParams(location.search);
+  const qTheme = qs.get('theme'), qState = qs.get('state');
+  if (qTheme) { const b = document.querySelector('[data-pick-theme="' + qTheme + '"]'); if (b) b.click(); else { stage.setAttribute('data-theme', qTheme); syncThemeDerived(qTheme); } }
+  if (qState) { const b = document.querySelector('[data-pick-state="' + qState + '"]'); if (b) b.click(); }
+  syncThemeDerived(stage.getAttribute('data-theme'));
+
+</script>
+</body>
+</html>
