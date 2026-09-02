@@ -240,6 +240,122 @@ public enum MailAddress {
         return resultado
     }
 
+    /// O cabeçalho como ele deve **aparecer**, consertado na leitura.
+    ///
+    /// ## Por que existe
+    ///
+    /// O decodificador foi corrigido em `2fa68d3`, mas o assunto do dono
+    /// continua quebrado na tela porque o texto foi **gravado** pelo
+    /// decodificador velho, e o app mostra o que está gravado. Migrar dado ou
+    /// ressincronizar a caixa por causa de um assunto é caro e arriscado;
+    /// consertar no caminho da leitura não é nem uma coisa nem outra, e some
+    /// sozinho à medida que as linhas velhas forem substituídas.
+    ///
+    /// ## O que ele conserta, e por que é seguro
+    ///
+    /// Duas formas, as duas **fechadas**:
+    ///
+    /// 1. O texto ainda tem uma palavra codificada inteira (`=?…?=`) — porque
+    ///    veio de um caminho que não decodificava, ou porque foi gravado cru.
+    ///    Aí é só `decodeRFC2047`, que é a mesma leitura de sempre e devolve o
+    ///    original intacto quando não entende o que vê.
+    /// 2. O texto tem a **cicatriz** do decodificador velho. Ela é
+    ///    determinística: o bug só disparava quando a carga começava com `=`
+    ///    (todo acento nosso: `ç` é `=C3=A7`), e nesse caso ele comia
+    ///    exatamente três coisas — o `=?` de abertura, o `?` que separava a
+    ///    codificação da carga, e o `=` do primeiro octeto — deixando o `?=`
+    ///    de fechamento para trás. Remontar é repor esses três caracteres.
+    ///
+    /// A remontagem só acontece quando **tudo** bate: um charset que sabemos
+    /// ler, uma codificação de uma letra, uma carga sem espaço e sem `?`, um
+    /// `?=` fechando, e uma decodificação que dá certo. Qualquer coisa fora
+    /// disso devolve o texto exatamente como estava — nunca se inventa texto.
+    /// Um assunto comum ("Preço: R$ 1.200 (?) — confirmar") não tem nada disso
+    /// e passa intocado, e a função é idempotente: o consertado não tem mais
+    /// cicatriz para consertar.
+    public static func repairedHeader(_ text: String) -> String {
+        if text.contains("=?") {
+            let lido = decodeRFC2047(text)
+            if lido != text { return lido }
+        }
+        return remontandoCicatriz(text)
+    }
+
+    /// A cicatriz: `<literal><charset>?<codificação><carga sem o primeiro
+    /// `=`>?=`. Procura da direita para a esquerda, a partir do `?=` final.
+    private static func remontandoCicatriz(_ text: String) -> String {
+        // Sem o fechamento que o decodificador velho deixou para trás, não há
+        // cicatriz nenhuma.
+        guard let fecha = text.range(of: "?=", options: .backwards),
+              fecha.upperBound == text.endIndex
+        else { return text }
+        let miolo = text[text.startIndex..<fecha.lowerBound]
+        // O `?` que separava charset e codificação. A carga não tem `?`, então
+        // o último `?` do miolo é ele.
+        guard let separador = miolo.lastIndex(of: "?") else { return text }
+        let aposSeparador = miolo.index(after: separador)
+        guard aposSeparador < miolo.endIndex else { return text }
+        let codificacao = miolo[aposSeparador]
+        guard codificacao == "Q" || codificacao == "B" else { return text }
+
+        let carga = miolo[miolo.index(after: aposSeparador)...]
+        guard !carga.isEmpty, !carga.contains("?"), !carga.contains(where: \.isWhitespace)
+        else { return text }
+
+        // O charset é o que vem colado antes do `?`. Ele não tem delimitador
+        // à esquerda — o `=?` que o marcava foi justamente o que o bug comeu —
+        // e por isso não se varre "até um caractere que charset não pode ter":
+        // isso engoliria a palavra anterior ("configuraUTF-8"). Procura-se o
+        // **sufixo mais longo que é um charset que sabemos ler**, do maior
+        // para o menor; nome que não conhecemos não é remontado.
+        let cabeca = miolo[miolo.startIndex..<separador]
+        let maiorCharset = 24
+        var achado: (inicio: String.Index, encoding: String.Encoding)?
+        var tamanho = min(maiorCharset, cabeca.count)
+        while tamanho > 0, achado == nil {
+            let inicio = cabeca.index(cabeca.endIndex, offsetBy: -tamanho)
+            let candidato = cabeca[inicio...]
+            if !candidato.contains(where: \.isWhitespace),
+               let encoding = encodingDeCharset(String(candidato)) {
+                achado = (inicio, encoding)
+            }
+            tamanho -= 1
+        }
+        guard let (inicioCharset, encoding) = achado else { return text }
+        let charset = String(miolo[inicioCharset..<separador])
+
+        // O `=` que o bug comeu volta na frente da carga.
+        let palavra = PalavraCodificada(
+            charset: charset,
+            codificacao: String(codificacao),
+            carga: "=" + carga,
+            fim: text.endIndex
+        )
+        guard let lido = decodificarCarga(palavra, encoding: encoding), !lido.isEmpty
+        else { return text }
+
+        var literal = String(miolo[miolo.startIndex..<inicioCharset])
+        // A palavra partida ao meio pela dobra do cabeçalho.
+        //
+        // O assunto do dono chega como `…configura` + a palavra codificada
+        // `ção`, separadas pelo espaço que a dobra do RFC 5322 deixa ao ser
+        // desfeita. Colado, "configura ção" continua sendo um assunto
+        // quebrado na tela. Quando o literal termina em letra seguida de UM
+        // espaço e o texto lido começa em letra **minúscula**, isso é uma
+        // palavra partida, não duas palavras — e as duas metades se juntam.
+        //
+        // A regra vale **só aqui**, no caminho do texto já corrompido: um
+        // cabeçalho novo, lido pela gramática, nunca passa por ela. E ela é
+        // estreita de propósito: "Notícia: " + "Época" começa em maiúscula e
+        // mantém o espaço.
+        if literal.count >= 2, literal.hasSuffix(" "),
+           literal.dropLast().last?.isLetter == true,
+           lido.first?.isLowercase == true {
+            literal.removeLast()
+        }
+        return literal + lido
+    }
+
     /// Uma `=?charset?codificação?carga?=` já separada em seus quatro campos.
     private struct PalavraCodificada {
         let charset: String

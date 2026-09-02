@@ -340,7 +340,10 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
             id: id, accountID: accountID,
             from: Contact(name: fromName, address: fromAddress),
             receivedAt: receivedAt,
-            subject: subject, snippet: snippet, body: body,
+            // Consertado na leitura: linhas gravadas antes de `2fa68d3` têm o
+            // assunto quebrado no banco, e a tela mostra o que está gravado.
+            // Ver `MailAddress.repairedHeader`.
+            subject: MailAddress.repairedHeader(subject), snippet: snippet, body: body,
             tags: Self.decodeTags(tagsJSON), bucket: TriageBucket(rawValue: bucket) ?? .archived,
             isRead: isRead, summary: summary, detectedEvent: Self.decodeDetectedEvent(detectedEventJSON),
             category: category.flatMap(MailCategory.init(rawValue:)),
