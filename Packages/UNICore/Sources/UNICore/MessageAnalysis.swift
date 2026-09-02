@@ -19,13 +19,22 @@ public struct MessageAnalysisInput: Sendable, Hashable {
     /// mostrada. `nil` quando não há registro — aí só resta `receivedAt`.
     public let firstSeenAt: Date?
 
+    /// O id da mensagem no banco, quando a entrada veio da fila.
+    ///
+    /// Existe por causa de uma decisão só: o consentimento para analisar o
+    /// acervo já guardado é **por mensagem**, e um roteador que precisa
+    /// perguntar "esta aqui foi aprovada?" não tem como fazê-lo sem saber
+    /// qual é ela. `nil` em toda chamada que não nasceu da fila.
+    public let messageID: String?
+
     public init(
         subject: String,
         sender: String,
         receivedAt: Date,
         body: String,
         timeZone: TimeZone,
-        firstSeenAt: Date? = nil
+        firstSeenAt: Date? = nil,
+        messageID: String? = nil
     ) {
         self.subject = subject
         self.sender = sender
@@ -33,6 +42,7 @@ public struct MessageAnalysisInput: Sendable, Hashable {
         self.body = body
         self.timeZone = timeZone
         self.firstSeenAt = firstSeenAt
+        self.messageID = messageID
     }
 
     /// O instante que o app pode defender como "quando isto chegou aqui".

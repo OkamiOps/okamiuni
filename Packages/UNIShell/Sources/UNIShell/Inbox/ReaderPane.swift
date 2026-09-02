@@ -1235,6 +1235,21 @@ public struct ReaderPane: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)
 
+            // A triagem entra **depois** do resumo, no mesmo versalete da
+            // legenda: ela qualifica o que o resumo já disse, e pô-la antes
+            // faria a pessoa ler o rótulo antes do conteúdo.
+            let chips = Self.triageChips(for: message.triage)
+            if !chips.isEmpty {
+                HStack(spacing: 10) {
+                    ForEach(chips, id: \.self) { chip in
+                        Text(chip).capsLabel()
+                    }
+                    Spacer(minLength: 0)
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(chips.joined(separator: ". "))
+            }
+
             if let event, Self.convite(de: message) == nil {
                 // Com `text/calendar` o cartão do convite já diz o compromisso.
                 // "Compromisso detectado" em cima dele era a mesma reunião
@@ -1318,6 +1333,46 @@ public struct ReaderPane: View {
     nonisolated static let mostrarResumo = "Mostrar resumo"
     /// O TL;DR nasce recolhido: uma linha, e quem quiser o texto expande.
     nonisolated static let resumoComecaAberto = false
+
+    /// O que a faixa escreve depois do resumo: "Precisa resposta" e
+    /// "Prazo: qui 15h", nesta ordem, quando existirem.
+    ///
+    /// Só estes dois. Intenção e urgência são o que **ordena** o dashboard,
+    /// não o que a pessoa precisa ler ao abrir a mensagem — escrever "Lead ·
+    /// urgência alta" no cartão seria mostrar o mecanismo do ranking em vez
+    /// de um fato sobre o email.
+    ///
+    /// `nonisolated static` para o teste ler a cópia sem montar a janela.
+    nonisolated static func triageChips(
+        for triage: MessageTriage?,
+        timeZone: TimeZone = .current
+    ) -> [String] {
+        guard let triage else { return [] }
+        var chips: [String] = []
+        if triage.needsReply { chips.append("Precisa resposta") }
+        if let deadline = triage.deadline {
+            chips.append("Prazo: \(deadlineLabel(deadline.date, timeZone: timeZone))")
+        }
+        return chips
+    }
+
+    /// "qui 15h" — dia curto e hora, no fuso de quem lê. O minuto só aparece
+    /// quando existe: "qui 15h00" seria ruído em nove de cada dez prazos.
+    nonisolated static func deadlineLabel(_ date: Date, timeZone: TimeZone) -> String {
+        var calendario = Calendar(identifier: .gregorian)
+        calendario.timeZone = timeZone
+        let partes = calendario.dateComponents([.hour, .minute], from: date)
+        let hora = partes.hour ?? 0
+        let minuto = partes.minute ?? 0
+        let formatador = DateFormatter()
+        formatador.locale = Locale(identifier: "pt_BR")
+        formatador.timeZone = timeZone
+        formatador.setLocalizedDateFormatFromTemplate("EEE")
+        let dia = formatador.string(from: date)
+            .replacingOccurrences(of: ".", with: "")
+            .lowercased()
+        return minuto == 0 ? "\(dia) \(hora)h" : "\(dia) \(hora)h\(String(format: "%02d", minuto))"
+    }
 
     /// Aberto enquanto não respondeu; recolhido depois de Aceitar/Talvez/
     /// Recusar, para o email caber na tela. Cancelado fica aberto.

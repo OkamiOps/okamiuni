@@ -8,15 +8,21 @@ public struct RoutedMessageAnalyzer: MessageAnalyzing {
     private let settingsStore: AssistantSettingsStore
     private let onDevice: any MessageAnalyzing
     private let configured: any MessageAnalyzing
+    /// "Esta mensagem do acervo foi aprovada?" — o consentimento por mensagem
+    /// que o dono deu em Ajustes, lido do banco. Fechada, e não um `Store`
+    /// inteiro, para o roteador continuar sem saber o que é SQLite.
+    private let backlogConsent: @Sendable (String) -> Bool
 
     public init(
         settingsStore: AssistantSettingsStore,
         onDevice: any MessageAnalyzing,
-        configured: any MessageAnalyzing
+        configured: any MessageAnalyzing,
+        backlogConsent: @escaping @Sendable (String) -> Bool = { _ in false }
     ) {
         self.settingsStore = settingsStore
         self.onDevice = onDevice
         self.configured = configured
+        self.backlogConsent = backlogConsent
     }
 
     /// **A versão do motor local, sempre.** É ela que decide o que ainda
@@ -56,9 +62,7 @@ public struct RoutedMessageAnalyzer: MessageAnalyzing {
     /// recusando não é motivo para parar as mensagens novas.
     public func routesActiveEngine(for input: MessageAnalysisInput) -> Bool {
         guard routesRemote else { return true }
-        return settingsStore.snapshot().automaticAnalysisCoversMessage(
-            receivedAt: input.arrivedLocallyAt
-        )
+        return routesConfigured(for: input)
     }
 
     public func analyze(_ input: MessageAnalysisInput) async throws -> MessageAnalysisResult {
@@ -71,11 +75,20 @@ public struct RoutedMessageAnalyzer: MessageAnalyzing {
     /// A escolha é **por mensagem**, não por configuração: só o que chegou
     /// depois do clique no opt-in sai deste Mac.
     func engine(for input: MessageAnalysisInput) -> any MessageAnalyzing {
-        settingsStore.snapshot().automaticAnalysisCoversMessage(
-            receivedAt: input.arrivedLocallyAt
-        )
-            ? configured
-            : onDevice
+        routesConfigured(for: input) ? configured : onDevice
+    }
+
+    /// Duas portas para a rota remota, e só duas: o carimbo do opt-in, que
+    /// cobre o que chegou depois do clique, e o consentimento por mensagem do
+    /// acervo, que o dono deu vendo a contagem e o destino. Nenhuma delas é
+    /// implícita.
+    private func routesConfigured(for input: MessageAnalysisInput) -> Bool {
+        let settings = settingsStore.snapshot()
+        if settings.automaticAnalysisCoversMessage(receivedAt: input.arrivedLocallyAt) {
+            return true
+        }
+        guard routesRemote, let messageID = input.messageID else { return false }
+        return backlogConsent(messageID)
     }
 
     private var routesRemote: Bool {

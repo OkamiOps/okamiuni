@@ -261,7 +261,8 @@ public actor MessageIntelligenceCoordinator {
             receivedAt: work.receivedAt,
             body: work.plainBody,
             timeZone: timeZone,
-            firstSeenAt: work.firstSeenAt
+            firstSeenAt: work.firstSeenAt,
+            messageID: work.messageID
         )
     }
 

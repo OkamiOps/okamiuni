@@ -79,6 +79,9 @@ public struct AccountsWindow: View {
     private let textAssistant: (any TextAssisting)?
     private let liteLLMOAuthAuthorizer: (any LiteLLMOAuthAuthorizing)?
     private let providerOAuthAuthorizer: (any AssistantProviderOAuthAuthorizing)?
+    /// A ação de analisar o acervo já guardado, oferecida no cartão do
+    /// provedor. `nil` quando não há banco.
+    private let backlogAnalysis: BacklogAnalysisController?
     private let emailRules: EmailRuleStore?
     private let themes: ThemeStore?
     private let swipes: SwipeSettingsStore?
@@ -101,6 +104,7 @@ public struct AccountsWindow: View {
         textAssistant: (any TextAssisting)? = nil,
         liteLLMOAuthAuthorizer: (any LiteLLMOAuthAuthorizing)? = nil,
         providerOAuthAuthorizer: (any AssistantProviderOAuthAuthorizing)? = nil,
+        backlogAnalysis: BacklogAnalysisController? = nil,
         emailRules: EmailRuleStore? = nil,
         themes: ThemeStore? = nil,
         swipes: SwipeSettingsStore? = nil,
@@ -113,6 +117,7 @@ public struct AccountsWindow: View {
         self.textAssistant = textAssistant
         self.liteLLMOAuthAuthorizer = liteLLMOAuthAuthorizer
         self.providerOAuthAuthorizer = providerOAuthAuthorizer
+        self.backlogAnalysis = backlogAnalysis
         self.emailRules = emailRules
         self.themes = themes
         self.swipes = swipes
@@ -272,6 +277,7 @@ public struct AccountsWindow: View {
                     textAssistant: textAssistant,
                     liteLLMOAuthAuthorizer: liteLLMOAuthAuthorizer,
                     providerOAuthAuthorizer: providerOAuthAuthorizer,
+                    backlogAnalysis: backlogAnalysis,
                     themes: themes,
                     swipes: swipes,
                     moveDestinations: swipeMoveDestinations
@@ -289,6 +295,7 @@ public struct AccountsWindow: View {
                     textAssistant: textAssistant,
                     liteLLMOAuthAuthorizer: liteLLMOAuthAuthorizer,
                     providerOAuthAuthorizer: providerOAuthAuthorizer,
+                    backlogAnalysis: backlogAnalysis,
                     themes: themes,
                     swipes: swipes,
                     moveDestinations: swipeMoveDestinations
@@ -306,6 +313,7 @@ public struct AccountsWindow: View {
                     textAssistant: textAssistant,
                     liteLLMOAuthAuthorizer: liteLLMOAuthAuthorizer,
                     providerOAuthAuthorizer: providerOAuthAuthorizer,
+                    backlogAnalysis: backlogAnalysis,
                     themes: themes,
                     swipes: swipes,
                     moveDestinations: swipeMoveDestinations

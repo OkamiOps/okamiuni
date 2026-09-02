@@ -103,6 +103,9 @@ public struct AppComposition: Sendable {
     public let analysisQueue: AnalysisQueueStateModel?
     /// O estado que a lateral explica já na primeira janela, sem importar
     /// FoundationModels no shell.
+    /// A ação explícita de analisar o que já estava na caixa. `nil` sem banco
+    /// — sem acervo guardado não há o que oferecer.
+    public let backlogAnalysis: BacklogAnalysisController?
     public let intelligenceAvailability: AppleIntelligenceAvailability
     /// Perguntas e transformações de texto usando o mesmo modelo local.
     /// É um roteador estável: cada pedido lê as preferências atuais e usa o
@@ -177,13 +180,18 @@ public struct AppComposition: Sendable {
         )
         // A análise automática é a única coisa que roda sem a pessoa pedir. Ela
         // só sai deste Mac com opt-in explícito — ver `AutomaticAnalysisRoute`.
+        // O consentimento do acervo é lido do banco a cada mensagem, e o
+        // banco só existe depois desta linha — daí a caixa, preenchida logo
+        // abaixo. Sem banco ela responde "não", que é o lado seguro.
+        let backlogCoverage = BacklogConsentBox()
         let analyzer = RoutedMessageAnalyzer(
             settingsStore: assistantSettings,
             onDevice: foundationModelsAnalyzer,
             configured: TextAssistantMessageAnalyzer(
                 assistant: router,
                 availability: { await router.assistantAvailability() }
-            )
+            ),
+            backlogConsent: { [backlogCoverage] id in backlogCoverage.covers(id) }
         )
         let intelligenceAvailability = FoundationModelsMessageAnalyzer.systemAvailability
         let banco: SyncDatabase
@@ -202,7 +210,7 @@ public struct AppComposition: Sendable {
                 attachmentPort: nil,
                 contactPort: nil, agendaPort: nil, calendarSync: EventKitCalendarAdapter(), trustPort: nil,
                 outbox: nil, outboxSignal: nil, sync: nil, network: nil,
-                intelligence: nil, analysisQueue: nil,
+                intelligence: nil, analysisQueue: nil, backlogAnalysis: nil,
                 intelligenceAvailability: intelligenceAvailability,
                 textAssistant: textAssistant,
                 assistantSettings: assistantSettings,
@@ -334,6 +342,13 @@ public struct AppComposition: Sendable {
             database: banco, coordinator: intelligence
         )
         analysisQueue.start()
+        let backlogService = BacklogAnalysisService(
+            database: banco, settingsStore: assistantSettings
+        )
+        backlogCoverage.attach(backlogService)
+        let backlogAnalysis = BacklogAnalysisController(
+            service: backlogService, coordinator: intelligence
+        )
 
         // Tem conta? Então o banco é a fonte. Não tem? Fixtures — e é isso que
         // mantém os ensaios e as capturas do Marco 1 idênticos.
@@ -377,6 +392,7 @@ public struct AppComposition: Sendable {
             network: rede,
             intelligence: intelligence,
             analysisQueue: analysisQueue,
+            backlogAnalysis: backlogAnalysis,
             intelligenceAvailability: intelligenceAvailability,
             textAssistant: textAssistant,
             assistantSettings: assistantSettings,

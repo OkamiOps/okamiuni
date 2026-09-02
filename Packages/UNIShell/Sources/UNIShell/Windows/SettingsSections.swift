@@ -32,6 +32,9 @@ struct GeneralSettingsView: View {
     /// Login da assinatura pelo runtime oficial do provedor. Este fluxo não
     /// depende de LiteLLM, chave de API ou de um CLI separado instalado.
     let providerOAuthAuthorizer: (any AssistantProviderOAuthAuthorizing)?
+    /// A ação de analisar o acervo já guardado. Opcional porque sem banco não
+    /// há acervo — e nesse caso o cartão simplesmente não a oferece.
+    let backlogAnalysis: BacklogAnalysisController?
     let scope: GeneralSettingsScope
 
     @State private var draft = AssistantSettings.default
@@ -65,6 +68,7 @@ struct GeneralSettingsView: View {
         textAssistant: (any TextAssisting)?,
         liteLLMOAuthAuthorizer: (any LiteLLMOAuthAuthorizing)? = nil,
         providerOAuthAuthorizer: (any AssistantProviderOAuthAuthorizing)? = nil,
+        backlogAnalysis: BacklogAnalysisController? = nil,
         themes: ThemeStore?,
         swipes: SwipeSettingsStore?,
         moveDestinations: [SwipeMoveDestination] = []
@@ -75,6 +79,7 @@ struct GeneralSettingsView: View {
         self.textAssistant = textAssistant
         self.liteLLMOAuthAuthorizer = liteLLMOAuthAuthorizer
         self.providerOAuthAuthorizer = providerOAuthAuthorizer
+        self.backlogAnalysis = backlogAnalysis
         self.themes = themes
         self.swipes = swipes
         self.moveDestinations = moveDestinations
@@ -351,6 +356,56 @@ struct GeneralSettingsView: View {
                 title: Self.automaticAnalysisNoticeTitle(for: draft),
                 text: Self.automaticAnalysisWarning(for: draft)
             )
+            backlogAnalysisControls
+        }
+    }
+
+    /// O acervo. A regra do opt-in é "só mensagens novas", e ela fica de pé —
+    /// mas ela deixa o dashboard vazio no dia em que a pessoa liga o
+    /// interruptor, porque nada do que ela já tem foi triado. Este botão é a
+    /// única saída honesta: uma ação que ela inicia, com o número exato e o
+    /// destino na frente antes de qualquer byte sair.
+    @ViewBuilder
+    private var backlogAnalysisControls: some View {
+        if let backlogAnalysis, draft.automaticAnalysis == .configuredProvider {
+            if backlogAnalysis.isRunning {
+                SettingsLabeledRow(label: "Acervo") {
+                    HStack(spacing: 9) {
+                        ProgressView().controlSize(.small)
+                        Text(backlogAnalysis.progressText)
+                            .font(theme.sans.font(size: 12))
+                            .foregroundStyle(theme.ink2.color)
+                        Button("Parar") { backlogAnalysis.stop() }
+                            .settingsQuietButton()
+                        Spacer(minLength: 0)
+                    }
+                }
+            } else if backlogAnalysis.availableCount > 0 {
+                SettingsLabeledRow(label: "Acervo") {
+                    HStack(spacing: 9) {
+                        Button(BacklogAnalysisPlan.actionTitle) {
+                            backlogAnalysis.requestConfirmation()
+                        }
+                        .settingsQuietButton()
+                        Spacer(minLength: 0)
+                    }
+                }
+                .confirmationDialog(
+                    BacklogAnalysisPlan.actionTitle,
+                    isPresented: Binding(
+                        get: { backlogAnalysis.pendingPlan != nil },
+                        set: { if !$0 { backlogAnalysis.cancel() } }
+                    ),
+                    titleVisibility: .visible
+                ) {
+                    Button(BacklogAnalysisPlan.confirmTitle) { backlogAnalysis.confirm() }
+                    Button(BacklogAnalysisPlan.cancelTitle, role: .cancel) {
+                        backlogAnalysis.cancel()
+                    }
+                } message: {
+                    Text(backlogAnalysis.pendingPlan?.confirmationText ?? "")
+                }
+            }
         }
     }
 

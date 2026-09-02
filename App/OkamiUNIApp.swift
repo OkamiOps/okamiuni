@@ -323,6 +323,7 @@ struct OkamiUNIApp: App {
                         textAssistant: composition.textAssistant,
                         liteLLMOAuthAuthorizer: composition.liteLLMOAuth,
                         providerOAuthAuthorizer: composition.assistantProviderOAuth,
+                        backlogAnalysis: composition.backlogAnalysis,
                         emailRules: emailRules,
                         themes: themes,
                         swipes: swipes,
