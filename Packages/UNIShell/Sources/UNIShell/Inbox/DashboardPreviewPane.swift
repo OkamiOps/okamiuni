@@ -185,18 +185,20 @@ struct DashboardPreviewPane: View {
     @ViewBuilder
     private func excerptBlock(_ corpo: DashboardPreviewBody.State) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            if corpo.isEmpty {
+            // **Começa pelo que importa.** Quando a análise já resumiu esta
+            // mensagem, o resumo abre a prévia, separado do corpo por uma
+            // hairline e pela cor do acento. É a resposta direta a "não quero
+            // ler". Sem análise, não há bloco nenhum — nunca um cartão vazio.
+            if let resumo = corpo.resumo {
+                resumoBlock(resumo)
+            }
+            if corpo.corpo.isEmpty {
                 Text(corpo.isWaiting ? "Carregando o email…" : "Sem texto.")
                     .font(theme.sans.font(size: DashboardMetrics.previewExcerptSize))
                     .foregroundStyle(theme.ink3.color)
             } else {
                 ScrollView {
-                    Text(corpo.text)
-                        .font(theme.serif.font(size: DashboardMetrics.previewExcerptSize))
-                        .foregroundStyle(theme.ink2.color)
-                        .lineSpacing(DashboardMetrics.previewExcerptSize * 0.6)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
+                    CorpoLegivelView(corpo: corpo.corpo)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .scrollBounceBehavior(.basedOnSize)
@@ -226,6 +228,32 @@ struct DashboardPreviewPane: View {
             alignment: .top
         )
         .padding(.top, DashboardMetrics.previewExcerptTopSpacing)
+    }
+
+    /// O resumo da análise, no topo e em duas linhas no máximo.
+    ///
+    /// Deliberadamente **não** é o cartão do leitor (`ReaderPane.summaryCard`):
+    /// aquele tem legenda de procedência, cartão de compromisso e RSVP, e nada
+    /// disso cabe em 380pt. Aqui é a frase, marcada pelo acento à esquerda para
+    /// não se confundir com o corpo.
+    private func resumoBlock(_ resumo: String) -> some View {
+        Text(resumo)
+            .font(theme.sans.font(size: DashboardMetrics.previewExcerptSize, weight: .medium))
+            .foregroundStyle(theme.ink.color)
+            .lineSpacing(DashboardMetrics.previewExcerptSize * 0.35)
+            .fixedSize(horizontal: false, vertical: true)
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 10)
+            .padding(.vertical, 2)
+            .overlay(alignment: .leading) {
+                Rectangle()
+                    .fill(theme.accent.color)
+                    .frame(width: DashboardMetrics.draftBarWidth)
+                    .accessibilityHidden(true)
+            }
+            .padding(.bottom, DashboardMetrics.previewExcerptTopSpacing)
+            .accessibilityLabel("Resumo. \(resumo)")
     }
 
     private func retryBody() async {
