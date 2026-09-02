@@ -860,36 +860,40 @@ struct SettingsSectionsTests {
 
 @MainActor
 private final class SettingsOAuthAuthorizer: LiteLLMOAuthAuthorizing {
-    private(set) var status: LiteLLMOAuthStatus
+    nonisolated let sessionState = LiteLLMOAuthSessionState()
+
+    var status: LiteLLMOAuthStatus { sessionState.status }
 
     init(status: LiteLLMOAuthStatus) {
-        self.status = status
+        sessionState.apply(status)
     }
 
     func refreshStatus(endpoint: URL, credentialID: String) async {}
 
     func start(endpoint: URL, credentialID: String) async throws {
-        status = .signedIn
+        sessionState.apply(.signedIn)
     }
 
     func signOut(endpoint: URL, credentialID: String) async {
-        status = .signedOut
+        sessionState.apply(.signedOut)
     }
 }
 
 @MainActor
 private final class SettingsProviderOAuthAuthorizer: AssistantProviderOAuthAuthorizing {
-    private(set) var status: AssistantProviderOAuthStatus
+    nonisolated let sessionState = AssistantProviderOAuthSessionState()
     private let models: [AssistantProviderModel]
     private(set) var modelRequestCount = 0
     private(set) var requestedKinds: [AssistantProviderOAuthKind] = []
+
+    var status: AssistantProviderOAuthStatus { sessionState.status }
 
     init(
         status: AssistantProviderOAuthStatus,
         models: [AssistantProviderModel] = []
     ) {
-        self.status = status
         self.models = models
+        sessionState.apply(status)
     }
 
     func refreshStatus(configuration: AssistantProviderOAuthConfiguration) async {}
@@ -904,11 +908,11 @@ private final class SettingsProviderOAuthAuthorizer: AssistantProviderOAuthAutho
         return models
     }
 
-    func cancelAuthorization() {
-        status = .signedOut
+    func cancelAuthorization() async {
+        sessionState.apply(.signedOut)
     }
 
     func signOut(configuration: AssistantProviderOAuthConfiguration) async {
-        status = .signedOut
+        sessionState.apply(.signedOut)
     }
 }

@@ -40,7 +40,7 @@ struct LiteLLMOAuthTests {
 
         try await coordinator.start(endpoint: endpoint, credentialID: "proxy-a")
 
-        #expect(coordinator.status == .signedIn)
+        #expect(coordinator.sessionState.status == .signedIn)
         #expect(await coordinator.hasAccessToken(for: "proxy-a", endpoint: endpoint))
         #expect(try await coordinator.accessToken(for: "proxy-a", endpoint: endpoint) == "access-value")
         #expect(try store.session(for: "proxy-a")?.refreshToken == "refresh-value")

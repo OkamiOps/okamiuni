@@ -78,8 +78,8 @@ struct GeneralSettingsView: View {
         self.themes = themes
         self.swipes = swipes
         self.moveDestinations = moveDestinations
-        _liteLLMOAuthStatus = State(initialValue: liteLLMOAuthAuthorizer?.status ?? .idle)
-        _providerOAuthStatus = State(initialValue: providerOAuthAuthorizer?.status ?? .idle)
+        _liteLLMOAuthStatus = State(initialValue: liteLLMOAuthAuthorizer?.sessionState.status ?? .idle)
+        _providerOAuthStatus = State(initialValue: providerOAuthAuthorizer?.sessionState.status ?? .idle)
         // A varredura só consulta uma allowlist pequena de caminhos. Fazê-la
         // já na construção evita o flash enganoso de "CLI não encontrado"
         // enquanto a tarefa assíncrona confirma a sessão.
@@ -948,8 +948,8 @@ struct GeneralSettingsView: View {
 
     private func updateProvider(_ provider: AssistantProvider) {
         guard provider != draft.provider else { return }
-        if draft.provider == .providerOAuth, provider != .providerOAuth {
-            providerOAuthAuthorizer?.cancelAuthorization()
+        let deixaOAuthDireto = draft.provider == .providerOAuth && provider != .providerOAuth
+        if deixaOAuthDireto {
             providerOAuthMonitor?.cancel()
             providerOAuthMonitor = nil
             clearProviderOAuthModels()
@@ -958,6 +958,9 @@ struct GeneralSettingsView: View {
         credential = ""
         clearFeedback()
         Task {
+            // Cancelar é conversa com o ator: acontece antes de perguntar o
+            // estado de novo, para a resposta não descrever o login anterior.
+            if deixaOAuthDireto { await providerOAuthAuthorizer?.cancelAuthorization() }
             await refreshCredentialPresence()
             refreshLiteLLMOAuthStatus()
             await refreshProviderOAuthStatus()
@@ -966,7 +969,6 @@ struct GeneralSettingsView: View {
 
     private func updateProviderOAuthKind(_ kind: AssistantProviderOAuthKind) {
         guard kind != draft.providerOAuth.kind else { return }
-        providerOAuthAuthorizer?.cancelAuthorization()
         providerOAuthMonitor?.cancel()
         providerOAuthMonitor = nil
         clearProviderOAuthModels()
@@ -975,7 +977,10 @@ struct GeneralSettingsView: View {
         draft.providerOAuth = .init(kind: kind)
         providerOAuthStatus = .checking
         clearFeedback()
-        Task { await refreshProviderOAuthStatus() }
+        Task {
+            await providerOAuthAuthorizer?.cancelAuthorization()
+            await refreshProviderOAuthStatus()
+        }
     }
 
     private func updateRemoteAuthenticationMode(_ mode: OpenAICompatibleAuthenticationMode) {
@@ -1388,7 +1393,7 @@ struct GeneralSettingsView: View {
         }
         Task {
             await authorizer.refreshStatus(endpoint: endpoint, credentialID: credentialID)
-            liteLLMOAuthStatus = authorizer.status
+            liteLLMOAuthStatus = authorizer.sessionState.status
         }
     }
 
@@ -1420,11 +1425,11 @@ struct GeneralSettingsView: View {
         Task {
             do {
                 try await authorizer.start(endpoint: endpoint, credentialID: credentialID)
-                liteLLMOAuthStatus = authorizer.status
+                liteLLMOAuthStatus = authorizer.sessionState.status
                 feedback = "Sessão OAuth do LiteLLM conectada."
                 feedbackIsError = false
             } catch {
-                liteLLMOAuthStatus = authorizer.status
+                liteLLMOAuthStatus = authorizer.sessionState.status
                 feedback = error.localizedDescription
                 feedbackIsError = true
             }
@@ -1439,11 +1444,11 @@ struct GeneralSettingsView: View {
         liteLLMOAuthStatus = .checking
         Task {
             await authorizer.signOut(endpoint: endpoint, credentialID: credentialID)
-            liteLLMOAuthStatus = authorizer.status
-            if case .signedOut = authorizer.status {
+            liteLLMOAuthStatus = authorizer.sessionState.status
+            if case .signedOut = authorizer.sessionState.status {
                 feedback = "Sessão LiteLLM desconectada neste Mac."
                 feedbackIsError = false
-            } else if case let .failed(message) = authorizer.status {
+            } else if case let .failed(message) = authorizer.sessionState.status {
                 feedback = message
                 feedbackIsError = true
             }
@@ -1504,11 +1509,11 @@ struct GeneralSettingsView: View {
 
         providerOAuthMonitor?.cancel()
         providerOAuthMonitor = nil
-        if case .awaitingDeviceCode = authorizer.status {
+        if case .awaitingDeviceCode = authorizer.sessionState.status {
             // Reabrir Configurações durante o device flow deve manter o código
             // visível. Consultar o Keychain aqui ainda não encontraria uma
             // sessão concluída e faria a tela piscar como desconectada.
-            providerOAuthStatus = authorizer.status
+            providerOAuthStatus = authorizer.sessionState.status
             monitorProviderOAuth(authorizer)
             return
         }
@@ -1523,8 +1528,8 @@ struct GeneralSettingsView: View {
               draft.providerOAuth.kind == configuration.kind,
               draft.providerOAuth.credentialID == configuration.credentialID
         else { return }
-        providerOAuthStatus = authorizer.status
-        if case .signedIn = authorizer.status {
+        providerOAuthStatus = authorizer.sessionState.status
+        if case .signedIn = authorizer.sessionState.status {
             await loadProviderOAuthModels()
         } else {
             clearProviderOAuthModels(keepingSavedSelection: true)
@@ -1549,19 +1554,19 @@ struct GeneralSettingsView: View {
         Task {
             do {
                 try await authorizer.start(configuration: configuration)
-                providerOAuthStatus = authorizer.status
-                if case let .awaitingDeviceCode(presentation) = authorizer.status {
+                providerOAuthStatus = authorizer.sessionState.status
+                if case let .awaitingDeviceCode(presentation) = authorizer.sessionState.status {
                     openProviderOAuthPage(presentation.verificationURL)
                     feedback = "Confirme o código no navegador. Esta janela atualiza quando o provedor concluir o login."
                     feedbackIsError = false
                     monitorProviderOAuth(authorizer)
-                } else if case .signedIn = authorizer.status {
+                } else if case .signedIn = authorizer.sessionState.status {
                     refreshProviderOAuthModels()
                     feedback = "Sessão OAuth conectada. Escolha um modelo carregado e salve a configuração."
                     feedbackIsError = false
                 }
             } catch {
-                providerOAuthStatus = authorizer.status
+                providerOAuthStatus = authorizer.sessionState.status
                 feedback = error.localizedDescription
                 feedbackIsError = true
             }
@@ -1574,8 +1579,8 @@ struct GeneralSettingsView: View {
         providerOAuthMonitor?.cancel()
         providerOAuthMonitor = Task { @MainActor in
             while !Task.isCancelled {
-                providerOAuthStatus = authorizer.status
-                switch authorizer.status {
+                providerOAuthStatus = authorizer.sessionState.status
+                switch authorizer.sessionState.status {
                 case .checking, .awaitingDeviceCode:
                     try? await Task.sleep(for: .milliseconds(600))
                 case .signedIn:
@@ -1647,7 +1652,7 @@ struct GeneralSettingsView: View {
             // O catálogo pode descobrir que a sessão expirou depois do selo
             // inicial. Reaplique o estado do coordenador para nunca manter um
             // “Autenticado” verde ao lado de um erro de autenticação.
-            providerOAuthStatus = authorizer.status
+            providerOAuthStatus = authorizer.sessionState.status
             providerOAuthModelsError = error.localizedDescription
         }
     }
@@ -1664,10 +1669,12 @@ struct GeneralSettingsView: View {
     }
 
     private func cancelProviderOAuth() {
-        providerOAuthAuthorizer?.cancelAuthorization()
         providerOAuthMonitor?.cancel()
         providerOAuthMonitor = nil
-        providerOAuthStatus = providerOAuthAuthorizer?.status ?? .signedOut
+        Task {
+            await providerOAuthAuthorizer?.cancelAuthorization()
+            providerOAuthStatus = providerOAuthAuthorizer?.sessionState.status ?? .signedOut
+        }
         feedback = "Login cancelado. Nenhuma sessão foi salva."
         feedbackIsError = false
     }
@@ -1680,8 +1687,8 @@ struct GeneralSettingsView: View {
         providerOAuthStatus = .checking
         Task {
             await authorizer.signOut(configuration: configuration)
-            providerOAuthStatus = authorizer.status
-            switch authorizer.status {
+            providerOAuthStatus = authorizer.sessionState.status
+            switch authorizer.sessionState.status {
             case .signedOut:
                 clearProviderOAuthModels()
                 feedback = "Sessão OAuth removida deste Mac."

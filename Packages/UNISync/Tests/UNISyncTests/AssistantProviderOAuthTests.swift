@@ -66,19 +66,61 @@ struct AssistantProviderOAuthTests {
         )
 
         try await coordinator.start(configuration: configuration)
-        let presentation = try #require(coordinator.status.deviceAuthorization)
+        let presentation = try #require(coordinator.sessionState.status.deviceAuthorization)
         #expect(presentation.kind == .codex)
         #expect(presentation.verificationURL.absoluteString == "https://auth.openai.com/device")
         #expect(presentation.userCode == "OKAMI-4242")
         #expect(presentation.expiresAt == .distantFuture)
         #expect(try store.session(for: configuration.credentialID) == nil)
         await coordinator.refreshStatus(configuration: configuration)
-        #expect(coordinator.status == .awaitingDeviceCode(presentation))
+        #expect(coordinator.sessionState.status == .awaitingDeviceCode(presentation))
 
         await runtime.completeLogin()
-        for _ in 0..<20 where coordinator.status != .signedIn { await Task.yield() }
-        #expect(coordinator.status == .signedIn)
+        for _ in 0..<200 where coordinator.sessionState.status != .signedIn { await Task.yield() }
+        #expect(coordinator.sessionState.status == .signedIn)
         #expect(try await coordinator.availableModels(configuration: configuration).map(\.id) == ["gpt-da-conta", "gpt-raciocinio"])
+    }
+
+    @Test("o token é lido fora do ator principal, e o estado chega à interface")
+    func tokenReadHappensOffMainActor() async throws {
+        let state = AssistantProviderOAuthSessionState()
+        // O cofre de ensaio: o Keychain deste Mac pode ter uma sessão real, e
+        // o teste fala sobre isolamento de ator, não sobre o que está guardado.
+        let coordinator = AssistantProviderOAuthCoordinator(
+            sessionState: state,
+            sessions: InMemoryAssistantProviderOAuthSessionStore()
+        )
+        let configuration = AssistantProviderOAuthConfiguration(kind: .xAI, model: "grok-4.6")
+
+        // Sem sessão guardada, a consulta é barata e não toca em rede nem na
+        // thread de interface. Se o coordenador voltar a ser @MainActor, esta
+        // chamada precisa de `await MainActor.run` e o teste não compila.
+        let present = await coordinator.hasAccessToken(for: configuration)
+        #expect(!present)
+
+        await coordinator.refreshStatus(configuration: configuration)
+        let status = await MainActor.run { state.status }
+        #expect(status != .idle)
+    }
+
+    @Test("o cofre é consultado fora da thread de interface, mesmo com a chamada partindo dela")
+    @MainActor
+    func credentialLookupNeverRunsOnTheMainThread() async throws {
+        let sessions = ThreadRecordingSessionStore()
+        let coordinator = AssistantProviderOAuthCoordinator(
+            sessionState: AssistantProviderOAuthSessionState(),
+            sessions: sessions
+        )
+        let configuration = AssistantProviderOAuthConfiguration(kind: .xAI, model: "grok-4.6")
+
+        _ = await coordinator.hasAccessToken(for: configuration)
+        _ = try await coordinator.accessToken(for: configuration)
+
+        // A chamada nasceu no ator principal; a leitura do cofre — o trabalho
+        // que pode bloquear — aconteceu no executor do ator, nunca na thread
+        // que desenha a interface.
+        #expect(sessions.lookups() == 2)
+        #expect(sessions.mainThreadLookups() == 0)
     }
 
     @Test("account/read reconhece somente uma sessão ChatGPT estruturada")
@@ -102,12 +144,12 @@ struct AssistantProviderOAuthTests {
         let configuration = AssistantProviderOAuthConfiguration(kind: .codex)
 
         await coordinator.refreshStatus(configuration: configuration)
-        #expect(coordinator.status == .signedIn)
+        #expect(coordinator.sessionState.status == .signedIn)
         await #expect(throws: CodexDeviceLoginRuntimeError.notAuthenticated) {
             _ = try await coordinator.availableModels(configuration: configuration)
         }
 
-        #expect(coordinator.status == .signedOut)
+        #expect(coordinator.sessionState.status == .signedOut)
         #expect(await runtime.signedInCheckCount() == 1)
     }
 
@@ -121,7 +163,7 @@ struct AssistantProviderOAuthTests {
         let models = try await coordinator.availableModels(configuration: .init(kind: .codex))
 
         #expect(models == expected)
-        #expect(coordinator.status == .signedIn)
+        #expect(coordinator.sessionState.status == .signedIn)
         #expect(await runtime.signedInCheckCount() == 0)
     }
 
@@ -687,4 +729,30 @@ private actor CatalogCodexRuntimeStub: CodexDeviceLoginRuntime {
     func signOut() async throws {}
 
     func signedInCheckCount() -> Int { signedInChecks }
+}
+
+/// Registra em que thread o cofre foi consultado: é a prova de que ler ou
+/// renovar token não passa mais pela thread de interface.
+private final class ThreadRecordingSessionStore:
+    AssistantProviderOAuthSessionStoring, @unchecked Sendable {
+
+    private let lock = NSLock()
+    private var consultas = 0
+    private var consultasNaThreadPrincipal = 0
+
+    func store(_ session: AssistantProviderOAuthSession, for credentialID: String) throws {}
+
+    func session(for credentialID: String) throws -> AssistantProviderOAuthSession? {
+        let naPrincipal = Thread.isMainThread
+        lock.withLock {
+            consultas += 1
+            if naPrincipal { consultasNaThreadPrincipal += 1 }
+        }
+        return nil
+    }
+
+    func removeSession(for credentialID: String) throws {}
+
+    func lookups() -> Int { lock.withLock { consultas } }
+    func mainThreadLookups() -> Int { lock.withLock { consultasNaThreadPrincipal } }
 }

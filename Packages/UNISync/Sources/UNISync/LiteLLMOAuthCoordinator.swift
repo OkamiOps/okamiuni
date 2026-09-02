@@ -11,22 +11,31 @@ public enum LiteLLMOAuthStatus: Sendable, Hashable {
 
 /// Contrato consumido pela tela de configurações. A tela recebe estado e
 /// ações, nunca access/refresh token.
-@MainActor
 public protocol LiteLLMOAuthAuthorizing: AnyObject, Sendable {
-    var status: LiteLLMOAuthStatus { get }
+    nonisolated var sessionState: LiteLLMOAuthSessionState { get }
     func refreshStatus(endpoint: URL, credentialID: String) async
     func start(endpoint: URL, credentialID: String) async throws
     func signOut(endpoint: URL, credentialID: String) async
 }
 
-/// Coordena consentimento, renovação single-flight e revogação. É MainActor
-/// para que as transições lidas pela UI sejam determinísticas; todas as
-/// esperas de rede e navegador são assíncronas.
+/// O que Ajustes desenha. Só status — nunca token, nunca endpoint com
+/// credencial. O ator publica; a tela observa.
 @MainActor
-public final class LiteLLMOAuthCoordinator:
+@Observable
+public final class LiteLLMOAuthSessionState {
+    public private(set) var status: LiteLLMOAuthStatus = .idle
+    public nonisolated init() {}
+    public func apply(_ status: LiteLLMOAuthStatus) { self.status = status }
+}
+
+/// Coordena consentimento, renovação single-flight e revogação. É um ator:
+/// ler ou renovar token acontece no executor dele, nunca na thread que
+/// desenha a interface. A apresentação do navegador — o único ponto que
+/// precisa da tela — salta para o ator principal onde ela acontece.
+public actor LiteLLMOAuthCoordinator:
     LiteLLMOAuthAuthorizing, OpenAICompatibleOAuthTokenProviding {
 
-    public private(set) var status: LiteLLMOAuthStatus = .idle
+    public nonisolated let sessionState: LiteLLMOAuthSessionState
 
     private let client: LiteLLMOAuthClient
     private let sessions: any LiteLLMOAuthSessionStoring
@@ -35,11 +44,13 @@ public final class LiteLLMOAuthCoordinator:
     private var refreshTasks: [String: Task<LiteLLMOAuthSession, any Error>] = [:]
 
     public init(
+        sessionState: LiteLLMOAuthSessionState = .init(),
         client: LiteLLMOAuthClient = LiteLLMOAuthClient(),
         sessions: any LiteLLMOAuthSessionStoring = KeychainLiteLLMOAuthSessionStore(),
         browserSessions: any LiteLLMOAuthBrowserSessionMaking = SystemLiteLLMOAuthBrowserSessionFactory(),
         now: @Sendable @escaping () -> Date = Date.init
     ) {
+        self.sessionState = sessionState
         self.client = client
         self.sessions = sessions
         self.browserSessions = browserSessions
@@ -47,19 +58,31 @@ public final class LiteLLMOAuthCoordinator:
     }
 
     public func refreshStatus(endpoint: URL, credentialID: String) async {
-        status = .checking
+        await publish(.checking)
         do {
             let session = try sessions.session(for: credentialID)
-            status = session.map { LiteLLMOAuthClient.session($0, belongsTo: endpoint) } == true
+            await publish(session.map { LiteLLMOAuthClient.session($0, belongsTo: endpoint) } == true
                 ? .signedIn
-                : .signedOut
+                : .signedOut)
         } catch {
-            status = .failed(error.localizedDescription)
+            await publish(.failed(error.localizedDescription))
         }
     }
 
+    /// Publica o estado na tela. Só status atravessa esta fronteira.
+    private func publish(_ status: LiteLLMOAuthStatus) async {
+        await MainActor.run { self.sessionState.apply(status) }
+    }
+
+    /// A variante do caminho do pedido: entrega a transição à interface sem
+    /// suspender quem está esperando pelo token.
+    private func publishWithoutWaiting(_ status: LiteLLMOAuthStatus) {
+        let state = sessionState
+        Task { @MainActor in state.apply(status) }
+    }
+
     public func start(endpoint: URL, credentialID: String) async throws {
-        status = .authorizing
+        await publish(.authorizing)
         do {
             let credentialID = try AssistantCredentialValidation.credentialID(credentialID)
             let oldSession = try sessions.session(for: credentialID)
@@ -91,28 +114,28 @@ public final class LiteLLMOAuthCoordinator:
             // Primeiro persiste o novo par. Só depois revoga a sessão antiga:
             // falha de rede na limpeza não pode jogar fora um login concluído.
             try sessions.store(newSession, for: credentialID)
-            status = .signedIn
+            await publish(.signedIn)
             if let oldSession, oldSession.refreshToken != newSession.refreshToken {
                 try? await client.revoke(oldSession)
             }
         } catch {
-            status = .failed(error.localizedDescription)
+            await publish(.failed(error.localizedDescription))
             throw error
         }
     }
 
     public func signOut(endpoint: URL, credentialID: String) async {
-        status = .checking
+        await publish(.checking)
         do {
             guard let session = try sessions.session(for: credentialID) else {
-                status = .signedOut
+                await publish(.signedOut)
                 return
             }
             guard LiteLLMOAuthClient.session(session, belongsTo: session.issuer) else {
                 // Registro adulterado ou legado sem vínculo interno coerente:
                 // não envia o refresh token a lugar nenhum.
                 try sessions.removeSession(for: credentialID)
-                status = .signedOut
+                await publish(.signedOut)
                 return
             }
             // Mesmo que a pessoa tenha acabado de editar o endpoint, revoga a
@@ -120,12 +143,12 @@ public final class LiteLLMOAuthCoordinator:
             // deixaria um refresh token ativo e sem caminho para revogação.
             try await client.revoke(session)
             try sessions.removeSession(for: credentialID)
-            status = .signedOut
+            await publish(.signedOut)
         } catch {
             // Mantém o refresh token para que a pessoa possa tentar revogar de
             // novo; limpar localmente agora deixaria uma autorização viva e
             // sem controle no proxy.
-            status = .failed(error.localizedDescription)
+            await publish(.failed(error.localizedDescription))
         }
     }
 
@@ -155,10 +178,12 @@ public final class LiteLLMOAuthCoordinator:
             // A troca é atômica no Keychain. O refresh token anterior é de uso
             // único e deixa de ser válido assim que o servidor responde.
             try sessions.store(renewed, for: credentialID)
-            status = .signedIn
+            // O caminho do pedido não espera pela interface: o token volta
+            // agora e a tela recebe a transição quando o ator principal puder.
+            publishWithoutWaiting(.signedIn)
             return renewed.accessToken
         } catch {
-            status = .failed(error.localizedDescription)
+            publishWithoutWaiting(.failed(error.localizedDescription))
             throw error
         }
     }
