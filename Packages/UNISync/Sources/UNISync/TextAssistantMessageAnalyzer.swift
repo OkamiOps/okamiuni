@@ -7,7 +7,7 @@ import UNICore
 /// analisado e quando o texto de fato marca dia e hora — o modelo não pode
 /// transformar a data de recebimento em compromisso inventado.
 public struct TextAssistantMessageAnalyzer: MessageAnalyzing {
-    public static let currentModelVersion = "text-assistant/message-analysis-v1"
+    public static let currentModelVersion = "text-assistant/message-analysis-v2-triage"
     /// O prefixo que marca uma versão deste analisador — ou seja, um resumo
     /// que saiu deste Mac. É por ele que a legenda do TL;DR decide, para uma
     /// versão nova não fazer os resumos antigos mentirem sobre a origem.
@@ -91,7 +91,8 @@ public struct TextAssistantMessageAnalyzer: MessageAnalyzing {
             summary: summary,
             detectedEvent: output.detectedEvent.flatMap { $0.validated(against: input) },
             modelVersion: modelVersion,
-            category: MailCategory(validatedModelValue: output.category)
+            category: MailCategory(validatedModelValue: output.category),
+            triage: output.triage?.value?.validated(against: input)
         )
     }
 
@@ -103,7 +104,12 @@ public struct TextAssistantMessageAnalyzer: MessageAnalyzing {
         {"summary": String,
          "category": "primary"|"transactions"|"updates"|"promotions"|"social"|null,
          "detectedEvent": {"title": String, "evidence": String,
-                           "dayOffset": Int, "startMinute": Int, "endMinute": Int} | null}
+                           "dayOffset": Int, "startMinute": Int, "endMinute": Int} | null,
+         "triage": {"needsReply": Bool,
+                    "intent": "lead"|"request"|"informational"|"newsletter"|"transactional"|"scheduling",
+                    "urgency": "high"|"normal"|"low",
+                    "deadline": {"evidence": String, "dayOffset": Int,
+                                 "minuteOfDay": Int} | null} | null}
         `summary` tem 1 ou 2 frases em português do Brasil e começa pelo
         conteúdo, não por metadados. `category` é a intenção do e-mail:
         primary para conversa humana, trabalho ou cliente; transactions para
@@ -115,6 +121,17 @@ public struct TextAssistantMessageAnalyzer: MessageAnalyzing {
         `dayOffset` é relativo à data de recebimento no fuso
         \(input.timeZone.identifier); `startMinute` e `endMinute` são
         minutos desde a meia-noite.
+        `triage` diz por que a mensagem importa: `needsReply` é true quando
+        alguém espera uma resposta sua; `intent` é lead para interesse
+        comercial, request para pedido de trabalho ou informação,
+        informational para aviso que não pede nada, newsletter para conteúdo
+        periódico, transactional para recibo, fatura ou confirmação
+        automática, scheduling para marcar ou remarcar horário; `urgency` é
+        high só quando o próprio texto trata a coisa como urgente.
+        `deadline` é o prazo que o texto afirma, e obedece à mesma regra do
+        compromisso: `evidence` precisa ser um trecho **literal**, copiado
+        caractere a caractere; `dayOffset` e `minuteOfDay` são relativos à
+        data de recebimento, como acima. Se não houver, use null.
         """
     }
 
@@ -175,8 +192,74 @@ public struct TextAssistantMessageAnalyzer: MessageAnalyzing {
             }
         }
 
+        /// A triagem chega **tolerante**: campo desconhecido, enum inválido
+        /// ou objeto malformado devolvem `nil` aqui, e não uma exceção. O
+        /// resumo é o que o cartão do leitor precisa, e derrubar a análise
+        /// inteira porque o modelo escreveu "urgentíssimo" em `intent`
+        /// custaria o TL;DR de uma mensagem que estava perfeitamente resumida.
+        /// A decodificação continua estrita — nada é adivinhado, só descartado.
+        struct Triage: Decodable {
+            struct Deadline: Decodable {
+                let evidence: String
+                let dayOffset: Int
+                let minuteOfDay: Int
+
+                /// O prazo em data local, contado a partir do recebimento —
+                /// o mesmo cálculo do compromisso, pelo mesmo motivo: o
+                /// modelo não sabe que dia é hoje, e o app sabe.
+                func date(for input: MessageAnalysisInput) -> DetectedDeadline? {
+                    guard (0...366).contains(dayOffset),
+                          (0..<1_440).contains(minuteOfDay)
+                    else { return nil }
+                    var calendar = Calendar(identifier: .gregorian)
+                    calendar.timeZone = input.timeZone
+                    let dia = calendar.startOfDay(for: input.receivedAt)
+                    guard let base = calendar.date(byAdding: .day, value: dayOffset, to: dia),
+                          let instante = calendar.date(
+                              bySettingHour: minuteOfDay / 60,
+                              minute: minuteOfDay % 60,
+                              second: 0,
+                              of: base
+                          )
+                    else { return nil }
+                    return DetectedDeadline(date: instante, evidence: evidence)
+                }
+            }
+
+            let needsReply: Bool
+            let intent: String
+            let urgency: String
+            let deadline: Deadline?
+
+            func validated(against input: MessageAnalysisInput) -> MessageTriage? {
+                guard let intent = MessageTriage.Intent(rawValue: intent),
+                      let urgency = MessageTriage.Urgency(rawValue: urgency)
+                else { return nil }
+                return MessageTriage(
+                    needsReply: needsReply,
+                    intent: intent,
+                    urgency: urgency,
+                    deadline: deadline.flatMap { $0.date(for: input) }
+                ).validated(against: input)
+            }
+        }
+
         let summary: String
         let category: String?
         let detectedEvent: Event?
+        let triage: TolerantTriage?
+    }
+
+    /// O invólucro que transforma "triagem malformada" em `nil` em vez de
+    /// erro. `Decodable` sintetizado não tem como dizer isto: um campo
+    /// opcional inválido é erro de decodificação, e o contrato do §3.3 pede
+    /// que só a triagem caia.
+    struct TolerantTriage: Decodable {
+        let value: Output.Triage?
+
+        init(from decoder: any Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            value = try? container.decode(Output.Triage.self)
+        }
     }
 }

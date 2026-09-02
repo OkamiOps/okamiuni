@@ -37,7 +37,7 @@ struct FoundationModelsMessageAnalyzerTests {
 
     @Test("A política de TL;DR tem versão própria para reprocessar resultados antigos")
     func tldrPolicyHasItsOwnVersion() {
-        #expect(FoundationModelsMessageAnalyzer.currentModelVersion.hasSuffix("v6-category"))
+        #expect(FoundationModelsMessageAnalyzer.currentModelVersion.hasSuffix("v7-triage"))
     }
 
     @Test("O prompt entrega o corpo inteiro sem teto arbitrário de caracteres")

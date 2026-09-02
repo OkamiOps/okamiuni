@@ -7,12 +7,12 @@ import UNICore
 public struct FoundationModelsMessageAnalyzer: MessageAnalyzing {
     /// Versão do esquema e das instruções deste adaptador — não uma alegação
     /// sobre a versão interna do modelo que o sistema mantém.
-    public static let currentModelVersion = "foundation-models/message-analysis-v6-category"
+    public static let currentModelVersion = "foundation-models/message-analysis-v7-triage"
 
     /// Reserva explícita para a saída estruturada. O restante da janela real
     /// fica disponível ao e-mail; não existe mais um teto paralelo em
     /// caracteres inventado pelo app.
-    static let maximumResponseTokens = 384
+    static let maximumResponseTokens = 512
 
     public let modelVersion: String
 
@@ -137,7 +137,16 @@ public struct FoundationModelsMessageAnalyzer: MessageAnalyzing {
             eventHour: generated.eventHour,
             eventMinute: generated.eventMinute,
             eventDurationMinutes: generated.eventDurationMinutes,
-            category: generated.category
+            category: generated.category,
+            needsReply: generated.needsReply,
+            intent: generated.intent,
+            urgency: generated.urgency,
+            deadlineEvidence: generated.deadlineEvidence,
+            deadlineYear: generated.deadlineYear,
+            deadlineMonth: generated.deadlineMonth,
+            deadlineDay: generated.deadlineDay,
+            deadlineHour: generated.deadlineHour,
+            deadlineMinute: generated.deadlineMinute
         )
     }
 
@@ -157,6 +166,19 @@ struct MessageAnalysisGeneratedOutput: Sendable, Equatable {
     /// String opcional para manter os testes de parsing independentes do
     /// formato gerado; a saída real recebe o campo obrigatório do schema.
     let category: String?
+    /// Os campos da triagem. Opcionais aqui pela mesma razão de `category`:
+    /// os testes de parsing anteriores à triagem continuam montando a saída
+    /// sem eles, e uma resposta em que o modelo não escreveu intenção válida
+    /// simplesmente não produz triagem.
+    let needsReply: Bool?
+    let intent: String?
+    let urgency: String?
+    let deadlineEvidence: String?
+    let deadlineYear: Int?
+    let deadlineMonth: Int?
+    let deadlineDay: Int?
+    let deadlineHour: Int?
+    let deadlineMinute: Int?
 
     init(
         summary: String,
@@ -168,7 +190,16 @@ struct MessageAnalysisGeneratedOutput: Sendable, Equatable {
         eventHour: Int,
         eventMinute: Int,
         eventDurationMinutes: Int,
-        category: String? = nil
+        category: String? = nil,
+        needsReply: Bool? = nil,
+        intent: String? = nil,
+        urgency: String? = nil,
+        deadlineEvidence: String? = nil,
+        deadlineYear: Int? = nil,
+        deadlineMonth: Int? = nil,
+        deadlineDay: Int? = nil,
+        deadlineHour: Int? = nil,
+        deadlineMinute: Int? = nil
     ) {
         self.summary = summary
         self.hasEvent = hasEvent
@@ -180,6 +211,51 @@ struct MessageAnalysisGeneratedOutput: Sendable, Equatable {
         self.eventMinute = eventMinute
         self.eventDurationMinutes = eventDurationMinutes
         self.category = category
+        self.needsReply = needsReply
+        self.intent = intent
+        self.urgency = urgency
+        self.deadlineEvidence = deadlineEvidence
+        self.deadlineYear = deadlineYear
+        self.deadlineMonth = deadlineMonth
+        self.deadlineDay = deadlineDay
+        self.deadlineHour = deadlineHour
+        self.deadlineMinute = deadlineMinute
+    }
+
+    /// A triagem que esta saída sustenta. `nil` quando o modelo não escreveu
+    /// intenção ou urgência do conjunto fechado — inventar um padrão aqui
+    /// seria pôr no dashboard um juízo que nenhum motor fez.
+    func triage(in timeZone: TimeZone) -> MessageTriage? {
+        guard let needsReply,
+              let intent = intent.flatMap(MessageTriage.Intent.init(rawValue:)),
+              let urgency = urgency.flatMap(MessageTriage.Urgency.init(rawValue:))
+        else { return nil }
+        return MessageTriage(
+            needsReply: needsReply, intent: intent, urgency: urgency,
+            deadline: deadline(in: timeZone)
+        )
+    }
+
+    /// O prazo em data local. A validação **literal** não é feita aqui: ela é
+    /// a mesma dos dois motores e mora em `MessageTriage.validated(against:)`,
+    /// que roda logo depois, com o texto analisado na mão.
+    private func deadline(in timeZone: TimeZone) -> DetectedDeadline? {
+        guard let evidence = deadlineEvidence?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !evidence.isEmpty,
+            let year = deadlineYear, year >= 1,
+            let month = deadlineMonth, (1...12).contains(month),
+            let day = deadlineDay, (1...31).contains(day)
+        else { return nil }
+        let hour = deadlineHour ?? 0
+        let minute = deadlineMinute ?? 0
+        guard (0...23).contains(hour), (0...59).contains(minute) else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        guard let date = calendar.date(from: DateComponents(
+            calendar: calendar, timeZone: timeZone,
+            year: year, month: month, day: day, hour: hour, minute: minute
+        )) else { return nil }
+        return DetectedDeadline(date: date, evidence: evidence)
     }
 
     func analysis(
@@ -201,7 +277,8 @@ struct MessageAnalysisGeneratedOutput: Sendable, Equatable {
             summary: summary,
             detectedEvent: event,
             modelVersion: modelVersion,
-            category: category
+            category: category,
+            triage: triage(in: input.timeZone)?.validated(against: input)
         )
     }
 
@@ -382,6 +459,33 @@ struct FoundationModelsMessageAnalysisOutput {
 
     @Guide(description: "Duração explicitamente informada, em minutos. Use 0 se não for informada ou se hasEvent for false.")
     var eventDurationMinutes: Int
+
+    @Guide(description: "true quando alguém espera uma resposta sua nesta mensagem.")
+    var needsReply: Bool
+
+    @Guide(description: "Por que a mensagem existe. Use exatamente uma string: lead para interesse comercial; request para pedido de trabalho ou informação; informational para aviso que não pede nada; newsletter para conteúdo periódico; transactional para recibo, fatura ou confirmação automática; scheduling para marcar ou remarcar horário.")
+    var intent: String
+
+    @Guide(description: "Urgência. Use exatamente uma string: high somente quando o próprio texto trata a coisa como urgente; normal no caso comum; low para o que pode esperar.")
+    var urgency: String
+
+    @Guide(description: "Trecho literal, copiado caractere a caractere, que afirma o prazo. Use string vazia quando o texto não afirma prazo nenhum.")
+    var deadlineEvidence: String
+
+    @Guide(description: "Ano local do prazo. Use 0 quando não houver prazo.")
+    var deadlineYear: Int
+
+    @Guide(description: "Mês local do prazo, de 1 a 12. Use 0 quando não houver prazo.")
+    var deadlineMonth: Int
+
+    @Guide(description: "Dia local do prazo, de 1 a 31. Use 0 quando não houver prazo.")
+    var deadlineDay: Int
+
+    @Guide(description: "Hora local do prazo, de 0 a 23. Use 0 quando não houver prazo ou hora.")
+    var deadlineHour: Int
+
+    @Guide(description: "Minuto local do prazo, de 0 a 59. Use 0 quando não houver prazo ou minuto.")
+    var deadlineMinute: Int
 }
 
 enum MessageAnalysisPrompt {

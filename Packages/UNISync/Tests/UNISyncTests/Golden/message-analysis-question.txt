@@ -1,0 +1,34 @@
+Analise o e-mail em <untrusted-app-context> e devolva SOMENTE um
+objeto JSON, sem texto antes ou depois, sem bloco de código, com
+exatamente estas chaves:
+{"summary": String,
+ "category": "primary"|"transactions"|"updates"|"promotions"|"social"|null,
+ "detectedEvent": {"title": String, "evidence": String,
+                   "dayOffset": Int, "startMinute": Int, "endMinute": Int} | null,
+ "triage": {"needsReply": Bool,
+            "intent": "lead"|"request"|"informational"|"newsletter"|"transactional"|"scheduling",
+            "urgency": "high"|"normal"|"low",
+            "deadline": {"evidence": String, "dayOffset": Int,
+                         "minuteOfDay": Int} | null} | null}
+`summary` tem 1 ou 2 frases em português do Brasil e começa pelo
+conteúdo, não por metadados. `category` é a intenção do e-mail:
+primary para conversa humana, trabalho ou cliente; transactions para
+pedido, fatura, pagamento ou recibo; updates para notificações ou
+status; promotions para newsletter, oferta ou marketing; social para
+rede ou comunidade. `detectedEvent` só existe quando o texto marca data
+e hora explícitas; `evidence` precisa ser um trecho **literal**,
+copiado caractere a caractere do corpo. Se não houver, use null.
+`dayOffset` é relativo à data de recebimento no fuso
+America/Sao_Paulo; `startMinute` e `endMinute` são
+minutos desde a meia-noite.
+`triage` diz por que a mensagem importa: `needsReply` é true quando
+alguém espera uma resposta sua; `intent` é lead para interesse
+comercial, request para pedido de trabalho ou informação,
+informational para aviso que não pede nada, newsletter para conteúdo
+periódico, transactional para recibo, fatura ou confirmação
+automática, scheduling para marcar ou remarcar horário; `urgency` é
+high só quando o próprio texto trata a coisa como urgente.
+`deadline` é o prazo que o texto afirma, e obedece à mesma regra do
+compromisso: `evidence` precisa ser um trecho **literal**, copiado
+caractere a caractere; `dayOffset` e `minuteOfDay` são relativos à
+data de recebimento, como acima. Se não houver, use null.

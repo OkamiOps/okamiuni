@@ -182,7 +182,8 @@ public actor MessageIntelligenceCoordinator {
                     modelVersion: result.modelVersion,
                     summary: result.summary,
                     detectedEventJSON: MessageRecord.encodeDetectedEvent(result.detectedEvent),
-                    category: result.category
+                    category: result.category,
+                    triage: result.triage
                 )
                 if saved { completed += 1 }
                 consecutivePolicyFailures = 0

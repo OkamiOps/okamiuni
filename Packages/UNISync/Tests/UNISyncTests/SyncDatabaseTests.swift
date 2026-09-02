@@ -47,7 +47,7 @@ struct SyncDatabaseTests {
             #expect(tabelas.contains(esperada), "faltou a tabela \(esperada)")
         }
         let versoes = try db.pool.read { try SyncDatabase.migrator.appliedIdentifiers($0) }
-        #expect(versoes == ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15", "v16"])
+        #expect(versoes == ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15", "v16", "v17"])
         let colunas = try db.pool.read { conexao in
             Set(try conexao.columns(in: "message").map(\.name))
         }
@@ -59,7 +59,7 @@ struct SyncDatabaseTests {
         let db = try banco()
         try SyncDatabase.migrator.migrate(db.pool)
         let versoes = try db.pool.read { try SyncDatabase.migrator.appliedIdentifiers($0) }
-        #expect(versoes == ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15", "v16"])
+        #expect(versoes == ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15", "v16", "v17"])
     }
 
     @Test("Um banco já em v10 recebe a fila de inteligência na v11")
@@ -91,7 +91,12 @@ struct SyncDatabaseTests {
         let colunas = try pool.read { conexao in
             Set(try conexao.columns(in: "message_intelligence").map(\.name))
         }
-        #expect(colunas == Set(["messageID", "contentHash", "state", "modelVersion", "lastError", "updatedAt"]))
+        // A v17 acrescenta a triagem à mesma tabela: o JSON e as duas
+        // projeções que ordenam sem abrir o JSON de cada linha.
+        #expect(colunas == Set([
+            "messageID", "contentHash", "state", "modelVersion", "lastError", "updatedAt",
+            "triage", "triage_needs_reply", "triage_deadline_at",
+        ]))
     }
 
     @Test("A conta vai e volta inteira — inclusive o endpoint e o estado")
