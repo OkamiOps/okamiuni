@@ -104,6 +104,10 @@ public struct AssistantFailure: Sendable, Hashable {
                 message: error.errorDescription ?? Self.fallbackMessage,
                 recovery: .retry
             )
+        case is CancellationError:
+            // Quem cancelou foi a pessoa. Não há o que recuperar, e um botão
+            // aqui só faria parecer que algo deu errado.
+            self.init(message: "Pedido cancelado.", recovery: nil)
         default:
             let described = (error as? any LocalizedError)?.errorDescription?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -171,7 +175,7 @@ struct AssistantFailureBand: View {
                 .help("Abre Configurações para escolher ou corrigir o provedor")
             case let .reconnect(kind):
                 ChromeButton(
-                    "Reconectar \(kind == .codex ? "ChatGPT" : "xAI")",
+                    Self.reconnectTitle(kind),
                     appearance: .outlined,
                     size: 11.5, height: 27, horizontalPadding: 10,
                     action: onOpenSettings
@@ -191,5 +195,14 @@ struct AssistantFailureBand: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("assistant-failure-band")
+    }
+
+    /// Exaustivo de propósito: um provedor novo tem de quebrar a compilação
+    /// aqui, e não sair rotulado com o nome do outro.
+    static func reconnectTitle(_ kind: AssistantProviderOAuthKind) -> String {
+        switch kind {
+        case .codex: "Reconectar ChatGPT"
+        case .xAI: "Reconectar xAI"
+        }
     }
 }

@@ -64,6 +64,132 @@ struct AssistantFailureTests {
         #expect(failure.recovery == .openSettings)
     }
 
+    // MARK: - Uma linha por caso de cada enum de adaptador
+
+    @Test("todo caso de TextAssistantError tem recuperação e frase própria",
+          arguments: [
+              (TextAssistantError.unavailable(.available), AssistantFailure.Recovery.openSettings),
+              (.unavailable(.deviceNotEligible), .openSettings),
+              (.unavailable(.appleIntelligenceNotEnabled), .openSettings),
+              (.unavailable(.modelNotReady), .openSettings),
+              (.invalidRequest("A pergunta está vazia."), .openSettings),
+              (.emptyResponse, .retry),
+              (.generationFailed("O modelo desistiu no meio."), .retry),
+          ])
+    func textAssistantErrorTable(
+        error: TextAssistantError, expected: AssistantFailure.Recovery
+    ) {
+        let failure = AssistantFailure(error)
+        #expect(failure.recovery == expected)
+        #expect(!failure.message.isEmpty)
+        #expect(failure.message == error.errorDescription)
+    }
+
+    @Test("todo caso de OpenAICompatibleTextAssistantError tem recuperação e frase própria",
+          arguments: [
+              (OpenAICompatibleTextAssistantError.missingAPIKey, AssistantFailure.Recovery.openSettings),
+              (.missingOAuthAuthorization, .openSettings),
+              (.oauthProviderUnavailable, .openSettings),
+              (.authenticationFailed, .openSettings),
+              (.rateLimited, .retry),
+              (.timedOut, .retry),
+              (.connectionFailed, .retry),
+              (.server(statusCode: 500), .retry),
+              (.invalidResponse, .retry),
+          ])
+    func openAICompatibleErrorTable(
+        error: OpenAICompatibleTextAssistantError, expected: AssistantFailure.Recovery
+    ) {
+        let failure = AssistantFailure(error)
+        #expect(failure.recovery == expected)
+        #expect(!failure.message.isEmpty)
+        #expect(failure.message == error.errorDescription)
+    }
+
+    /// A mesma linha vale duas vezes: sem provedor informado, o 401 não pode
+    /// mandar reconectar uma conta que talvez nem seja a configurada.
+    @Test("todo caso de AssistantProviderOAuthTextAssistantError responde igual com e sem provedor",
+          arguments: [
+              (AssistantProviderOAuthTextAssistantError.missingAuthorization,
+               AssistantFailure.Recovery?.none, AssistantFailure.Recovery.reconnect(.codex)),
+              (.authenticationFailed, nil, .reconnect(.codex)),
+              (.subscriptionNotEligible, nil, .reconnect(.codex)),
+              (.managedByCodexRuntime, nil, .reconnect(.codex)),
+              (.rateLimited, .retry, .retry),
+              (.timedOut, .retry, .retry),
+              (.connectionFailed, .retry, .retry),
+              (.redirectRefused, .retry, .retry),
+              (.upgradeRequired, .retry, .retry),
+              (.server(statusCode: 503), .retry, .retry),
+              (.invalidResponse, .retry, .retry),
+          ])
+    func providerOAuthTextAssistantErrorTable(
+        error: AssistantProviderOAuthTextAssistantError,
+        semProvedor: AssistantFailure.Recovery?,
+        comProvedor: AssistantFailure.Recovery
+    ) {
+        let anonima = AssistantFailure(error)
+        #expect(anonima.recovery == semProvedor)
+        #expect(anonima.message == error.errorDescription)
+        #expect(!anonima.message.isEmpty)
+        #expect(AssistantFailure(error, provider: .codex).recovery == comProvedor)
+    }
+
+    @Test("todo caso de AssistantProviderOAuthError responde igual com e sem provedor",
+          arguments: [
+              (AssistantProviderOAuthError.missingSession,
+               AssistantFailure.Recovery?.none, AssistantFailure.Recovery.reconnect(.xAI)),
+              (.sessionProviderMismatch, nil, .reconnect(.xAI)),
+              (.authorizationDenied, nil, .reconnect(.xAI)),
+              (.authorizationExpired, nil, .reconnect(.xAI)),
+              (.invalidTokenResponse, nil, .reconnect(.xAI)),
+              (.invalidDiscovery, .retry, .retry),
+              (.redirectRefused, .retry, .retry),
+              (.deviceAuthorizationUnavailable, .retry, .retry),
+              (.invalidDeviceAuthorization, .retry, .retry),
+              (.rateLimited, .retry, .retry),
+              (.timedOut, .retry, .retry),
+              (.server(statusCode: 502), .retry, .retry),
+          ])
+    func providerOAuthErrorTable(
+        error: AssistantProviderOAuthError,
+        semProvedor: AssistantFailure.Recovery?,
+        comProvedor: AssistantFailure.Recovery
+    ) {
+        let anonima = AssistantFailure(error)
+        #expect(anonima.recovery == semProvedor)
+        #expect(anonima.message == error.errorDescription)
+        #expect(!anonima.message.isEmpty)
+        #expect(AssistantFailure(error, provider: .xAI).recovery == comProvedor)
+    }
+
+    @Test("todo caso de AssistantCLITextAssistantError tem recuperação e frase própria",
+          arguments: [
+              (AssistantCLITextAssistantError.executableNotFound(.codex),
+               AssistantFailure.Recovery.openSettings),
+              (.executableNotFound(.claude), .openSettings),
+              (.executableNotAllowed, .openSettings),
+              (.processFailed, .openSettings),
+              (.timedOut, .retry),
+              (.outputTooLarge, .retry),
+              (.invalidResponse, .retry),
+          ])
+    func cliErrorTable(
+        error: AssistantCLITextAssistantError, expected: AssistantFailure.Recovery
+    ) {
+        let failure = AssistantFailure(error)
+        #expect(failure.recovery == expected)
+        #expect(!failure.message.isEmpty)
+        #expect(failure.message == error.errorDescription)
+    }
+
+    @Test("cancelamento é da pessoa: frase própria e nenhum botão")
+    func cancellationHasNoRecovery() {
+        let failure = AssistantFailure(CancellationError())
+        #expect(failure.message == "Pedido cancelado.")
+        #expect(failure.recovery == nil)
+    }
+
     @Test("erro sem descrição aproveitável não vira frase vazia")
     func unknownErrorHasCopy() {
         struct Silencioso: Error {}
@@ -90,6 +216,12 @@ struct AssistantFailureBandTests {
             size: CGSize(width: 360, height: 120), theme: .tinta
         ))
         return try #require(image.representation(using: .png, properties: [:]))
+    }
+
+    @Test("cada provedor tem o seu próprio rótulo de reconexão")
+    func reconnectTitlePerKind() {
+        #expect(AssistantFailureBand.reconnectTitle(.codex) == "Reconectar ChatGPT")
+        #expect(AssistantFailureBand.reconnectTitle(.xAI) == "Reconectar xAI")
     }
 
     @Test("cada recuperação desenha uma faixa diferente, e nenhuma quebra")
