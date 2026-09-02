@@ -48,10 +48,44 @@ struct ReaderAssistantButton: View {
     }
 }
 
+/// Onde o leitor está desenhado — e o que muda por causa disso.
+///
+/// O leitor nasceu para a Caixa, e por isso lia a mensagem da **seleção** do
+/// store e nunca precisava avisar ninguém quando arquivar tirava a conversa da
+/// lista: quem sobrevive à ação é a lista, que fica logo ao lado. A folha do
+/// dashboard tem as duas necessidades invertidas — mostra uma mensagem que não
+/// é a seleção da Caixa, e precisa fechar quando essa mensagem sai das
+/// prioridades. As duas diferenças cabem em dois campos; uma segunda cópia do
+/// leitor não caberia em manutenção nenhuma.
+struct ReaderPresentation {
+    /// A mensagem a mostrar, quando não é a seleção da Caixa.
+    var messageID: String?
+    /// A mensagem aberta saiu da lista (arquivada, apagada, movida). A Caixa
+    /// não faz nada; a folha se fecha.
+    var onMessageLeft: (() -> Void)?
+
+    /// O painel de sempre, dentro da Caixa.
+    ///
+    /// Calculado, e não `static let`: o tipo guarda um fechamento e não é
+    /// `Sendable`, e um global armazenado de tipo não-`Sendable` é erro sob
+    /// concorrência estrita.
+    static var pane: ReaderPresentation { ReaderPresentation() }
+
+    /// A folha do dashboard: mensagem própria, e fechamento ao sair da lista.
+    static func sheet(
+        messageID: String,
+        onMessageLeft: @escaping () -> Void
+    ) -> ReaderPresentation {
+        ReaderPresentation(messageID: messageID, onMessageLeft: onMessageLeft)
+    }
+}
+
 public struct ReaderPane: View {
     @Environment(\.theme) private var theme
     @Environment(\.displayScale) private var displayScale
     let store: MailStore
+    /// Painel da Caixa ou folha do dashboard — ver `ReaderPresentation`.
+    let presentation: ReaderPresentation
     /// Abre a janela 03 (Composer) com esta mensagem citada.
     ///
     /// **Um gatilho só, desde a M3-12: o "⤢" da faixa de resposta rápida.** Ele
@@ -166,6 +200,7 @@ public struct ReaderPane: View {
             store: store,
             debugEmailAssistantOpen: false,
             debugResumoAberto: false,
+            presentation: .pane,
             onCompose: onCompose,
             attachmentSaver: attachmentSaver,
             intelligence: intelligence,
@@ -182,6 +217,7 @@ public struct ReaderPane: View {
         store: MailStore,
         debugEmailAssistantOpen: Bool,
         debugResumoAberto: Bool = false,
+        presentation: ReaderPresentation = .pane,
         onCompose: @escaping (ComposerRoute) -> Void = { _ in },
         attachmentSaver: (any AttachmentSaving)? = nil,
         intelligence: ComposerIntelligenceGenerator? = nil,
@@ -193,6 +229,7 @@ public struct ReaderPane: View {
         onEmailAssistantOpenChange: @escaping (Bool) -> Void = { _ in }
     ) {
         self.store = store
+        self.presentation = presentation
         self.onCompose = onCompose
         self.attachmentSaver = attachmentSaver
         self.intelligence = intelligence
@@ -209,9 +246,25 @@ public struct ReaderPane: View {
         // conversa precisa existir já na primeira pintura.
         _readerConversation = State(
             initialValue: debugEmailAssistantOpen
-                ? store.selectedMessageID.flatMap { makeAssistantConversation?($0) }
+                ? (presentation.messageID ?? store.selectedMessageID)
+                    .flatMap { makeAssistantConversation?($0) }
                 : nil
         )
+    }
+
+    /// A mensagem que o leitor mostra: a da folha, quando há folha; a seleção
+    /// da Caixa no resto do tempo.
+    private var mensagemVisivel: Message? {
+        if let id = presentation.messageID { return store.message(id) }
+        return store.selectedMessage
+    }
+
+    /// Arquivar, apagar ou mover tira a mensagem da lista de onde ela veio.
+    /// Na Caixa não há o que fazer — a lista ao lado sobrevive e mostra o
+    /// retorno com "Desfazer". Na folha do dashboard, a mensagem que a folha
+    /// existia para mostrar deixou de estar lá: ela se fecha.
+    private func mensagemSaiuDaLista() {
+        presentation.onMessageLeft?()
     }
 
     public var body: some View {
@@ -223,7 +276,7 @@ public struct ReaderPane: View {
         let showReader = readerReadyRecorte == recorte
             || (!readerDidAppear && readerReadyRecorte == nil)
         Group {
-            if showReader, let message = store.selectedMessage {
+            if showReader, let message = mensagemVisivel {
                 content(message)
             } else {
                 empty
@@ -752,10 +805,12 @@ public struct ReaderPane: View {
                         showsLabel: false
                     ) {
                         _ = receipts.delete(message, on: store)
+                        mensagemSaiuDaLista()
                     }
                 } else {
                     bucketSegment(buckets, current: message.bucket) { bucket in
                         store.move(message, to: bucket)
+                        mensagemSaiuDaLista()
                     }
 
                     triageAction(
@@ -766,6 +821,7 @@ public struct ReaderPane: View {
                         showsLabel: false
                     ) {
                         _ = receipts.delete(message, on: store)
+                        mensagemSaiuDaLista()
                     }
 
                     moveFolderButton(for: message)
@@ -883,7 +939,7 @@ public struct ReaderPane: View {
     private func setEmailAssistantOpen(_ open: Bool, for messageID: String? = nil) {
         if open {
             if readerConversation == nil,
-               let id = messageID ?? store.selectedMessageID {
+               let id = messageID ?? presentation.messageID ?? store.selectedMessageID {
                 readerConversation = makeAssistantConversation?(id)
             }
         } else {
@@ -1067,6 +1123,7 @@ public struct ReaderPane: View {
     }
 
     private func runFolderCommand(_ command: ContextCommand) {
+        defer { mensagemSaiuDaLista() }
         if receipts.intercept(command, on: store, stamp: ActionReceipts.stamp) { return }
         StoreCommand.run(command, on: store)
     }

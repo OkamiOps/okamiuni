@@ -559,7 +559,14 @@ public struct InboxScreen: View {
             // As ações rápidas e o menu da linha caem na **mesma** fila da
             // Caixa: `ActionReceipts` primeiro (é ele quem dá o "Desfazer"),
             // e o resto pelo runner de sempre.
-            onCommand: runDashboardCommand
+            onCommand: runDashboardCommand,
+            // A folha de leitura do dashboard é o `ReaderPane`: as mesmas
+            // dependências que a Caixa lhe entrega, e não uma segunda montagem.
+            onCompose: { openWindow(id: UNIWindow.composer, value: $0.value) },
+            intelligence: composerIntelligence,
+            intelligencePresentation: intelligencePresentation,
+            analysisDestination: analysisDestination,
+            makeAssistantConversation: readerConversationFactory
         )
         .task {
             if dashboardConversation == nil { dashboardConversation = conversation }

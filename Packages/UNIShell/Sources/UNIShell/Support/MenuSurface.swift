@@ -90,10 +90,14 @@ extension View {
 private struct MenuPanelChrome: ViewModifier {
     @Environment(\.theme) private var theme
     @Environment(\.displayScale) private var displayScale
+    /// A folga do painel. A folha de leitura do dashboard pede zero: quem ela
+    /// embrulha é o leitor inteiro, que já tem os recuos dele, e um anel de
+    /// `surface` em volta só afastaria os cantos quadrados do miolo da curva.
+    let padding: CGFloat
 
     func body(content: Content) -> some View {
         content
-            .padding(MenuSurface.panelPadding)
+            .padding(padding)
             .background(theme.surface.color)
             .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
             .overlay {
@@ -108,5 +112,7 @@ private struct MenuPanelChrome: ViewModifier {
 }
 
 extension View {
-    func menuPanelChrome() -> some View { modifier(MenuPanelChrome()) }
+    func menuPanelChrome(padding: CGFloat = MenuSurface.panelPadding) -> some View {
+        modifier(MenuPanelChrome(padding: padding))
+    }
 }

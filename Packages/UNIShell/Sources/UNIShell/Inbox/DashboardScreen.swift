@@ -1,6 +1,7 @@
 import SwiftUI
 import UNIDesign
 import UNICore
+import UNISync
 
 /// O "Briefing do dia" do mockup `design/07-dashboard.html`.
 ///
@@ -47,6 +48,17 @@ struct DashboardScreen: View {
     /// um botão sem teste é um botão que se diz mudo sem ninguém desmentir.
     let debugHoveredMailID: String?
 
+    // As dependências que a folha de leitura repassa ao `ReaderPane`. Elas
+    // atravessam o dashboard sem que ele as use: quem monta o leitor da Caixa
+    // é o `InboxScreen`, e a folha tem de receber exatamente as mesmas — outro
+    // conjunto faria o TL;DR mentir sobre o destino, ou a resposta rápida
+    // perder o motor.
+    let onCompose: (ComposerRoute) -> Void
+    let intelligence: ComposerIntelligenceGenerator?
+    let intelligencePresentation: IntelligencePresentation
+    let analysisDestination: @Sendable (String?) -> AssistantDestination
+    let makeAssistantConversation: ((String) -> AssistantConversation)?
+
     @State private var hoveredMailID: String?
     /// A altura do que está dentro do transcript, para o painel abraçar o
     /// conteúdo até o teto de 300 — ver `transcript`.
@@ -66,6 +78,11 @@ struct DashboardScreen: View {
         onShowCalendar: @escaping () -> Void = {},
         onOpenSettings: @escaping () -> Void = {},
         onCommand: @escaping (ContextCommand) -> Void = { _ in },
+        onCompose: @escaping (ComposerRoute) -> Void = { _ in },
+        intelligence: ComposerIntelligenceGenerator? = nil,
+        intelligencePresentation: IntelligencePresentation = .onThisMac,
+        analysisDestination: @escaping @Sendable (String?) -> AssistantDestination = { _ in .onThisMac },
+        makeAssistantConversation: ((String) -> AssistantConversation)? = nil,
         debugHoveredMailID: String? = nil
     ) {
         self.store = store
@@ -81,6 +98,11 @@ struct DashboardScreen: View {
         self.onShowCalendar = onShowCalendar
         self.onOpenSettings = onOpenSettings
         self.onCommand = onCommand
+        self.onCompose = onCompose
+        self.intelligence = intelligence
+        self.intelligencePresentation = intelligencePresentation
+        self.analysisDestination = analysisDestination
+        self.makeAssistantConversation = makeAssistantConversation
         self.debugHoveredMailID = debugHoveredMailID
     }
 
@@ -116,7 +138,12 @@ struct DashboardScreen: View {
                         selectedMailID = message.id
                         conversation.draftReply()
                     },
-                    onPresented: onPresented
+                    onPresented: onPresented,
+                    onCompose: onCompose,
+                    intelligence: intelligence,
+                    intelligencePresentation: intelligencePresentation,
+                    analysisDestination: analysisDestination,
+                    makeAssistantConversation: makeAssistantConversation
                 )
             }
         }
