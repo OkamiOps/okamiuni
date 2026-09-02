@@ -112,6 +112,35 @@ struct AssistantSettingsTests {
         #expect(migrated.additionalInstructions == "Seja objetivo.")
     }
 
+    @Test("a v5 preenche a rota da análise sem mudar o provedor")
+    func migratesToSchemaFive() throws {
+        let legacy = """
+        {"schemaVersion":4,"provider":"cli","openAICompatible":{"endpoint":"","model":"",
+         "credentialID":"openai-compatible-default","authenticationMode":"apiKey"},
+         "providerOAuth":{"kind":"codex","model":"","credentialID":"provider-oauth-codex"},
+         "cli":{"kind":"openCode"},"behavior":{"tone":"natural","detail":"adaptive",
+         "language":"portugueseBrazil","format":"adaptive","suggestNextSteps":true,
+         "questionsInstructions":"","writingInstructions":""},"additionalInstructions":""}
+        """
+        let decoded = try JSONDecoder().decode(AssistantSettings.self, from: Data(legacy.utf8))
+        let migrated = try decoded.migrated()
+        #expect(migrated.schemaVersion == 5)
+        #expect(AssistantSettings.currentSchemaVersion == 5)
+        #expect(migrated.provider == .cli)
+        #expect(migrated.automaticAnalysis == .onDeviceOnly)
+    }
+
+    @Test("a rota da análise sobrevive a uma ida e volta pelo JSON")
+    func automaticAnalysisRoundTrips() throws {
+        var settings = AssistantSettings.default
+        settings.automaticAnalysis = .configuredProvider
+        let decoded = try JSONDecoder().decode(
+            AssistantSettings.self, from: try JSONEncoder().encode(settings)
+        )
+        #expect(decoded.automaticAnalysis == .configuredProvider)
+        #expect(AssistantSettings.default.automaticAnalysis == .onDeviceOnly)
+    }
+
     @Test("persiste preferências humanas e separa instruções de análise e escrita")
     func behaviorPreferencesArePurposeAware() throws {
         let settings = AssistantSettings(

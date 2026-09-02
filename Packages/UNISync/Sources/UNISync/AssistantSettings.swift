@@ -426,10 +426,22 @@ public struct AssistantBehaviorPreferences: Codable, Sendable, Hashable {
     }
 }
 
+/// Para onde vai a análise que roda **sem** a pessoa pedir.
+///
+/// Separada do provedor interativo de propósito: escolher Grok para
+/// responder perguntas não pode significar mandar cada mensagem recebida
+/// para a xAI em segundo plano.
+public enum AutomaticAnalysisRoute: String, Codable, Sendable, Hashable, CaseIterable, Identifiable {
+    case onDeviceOnly
+    case configuredProvider
+
+    public var id: String { rawValue }
+}
+
 /// Preferências persistidas da IA. É um único documento Codable para que uma
 /// troca de provedor, endpoint e instruções seja atômica para quem o lê.
 public struct AssistantSettings: Codable, Sendable, Hashable {
-    public static let currentSchemaVersion = 4
+    public static let currentSchemaVersion = 5
     public static let maximumAdditionalInstructionsCharacters = 6_000
     public static let maximumPurposeInstructionsCharacters = 3_000
 
@@ -440,6 +452,8 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
     public var cli: AssistantCLIConfiguration
     public var behavior: AssistantBehaviorPreferences
     public var additionalInstructions: String
+    /// A rota da análise automática. Nunca herda o provedor interativo.
+    public var automaticAnalysis: AutomaticAnalysisRoute
 
     public init(
         schemaVersion: Int = Self.currentSchemaVersion,
@@ -448,7 +462,8 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
         providerOAuth: AssistantProviderOAuthConfiguration = .init(),
         cli: AssistantCLIConfiguration = .init(),
         behavior: AssistantBehaviorPreferences = .default,
-        additionalInstructions: String = ""
+        additionalInstructions: String = "",
+        automaticAnalysis: AutomaticAnalysisRoute = .onDeviceOnly
     ) {
         self.schemaVersion = schemaVersion
         self.provider = provider
@@ -457,6 +472,7 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
         self.cli = cli
         self.behavior = behavior
         self.additionalInstructions = additionalInstructions
+        self.automaticAnalysis = automaticAnalysis
     }
 
     public static let `default` = AssistantSettings()
@@ -510,6 +526,7 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
         case cli
         case behavior
         case additionalInstructions
+        case automaticAnalysis
     }
 
     /// `cli` e `authenticationMode` foram acrescentados depois do primeiro
@@ -534,6 +551,11 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
             forKey: .behavior
         ) ?? .default
         additionalInstructions = try values.decodeIfPresent(String.self, forKey: .additionalInstructions) ?? ""
+        // Documento v4 não conhecia a rota. `onDeviceOnly` é o único padrão que
+        // não muda o comportamento de quem já tinha o app instalado.
+        automaticAnalysis = try values.decodeIfPresent(
+            AutomaticAnalysisRoute.self, forKey: .automaticAnalysis
+        ) ?? .onDeviceOnly
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -545,5 +567,6 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
         try values.encode(cli, forKey: .cli)
         try values.encode(behavior, forKey: .behavior)
         try values.encode(additionalInstructions, forKey: .additionalInstructions)
+        try values.encode(automaticAnalysis, forKey: .automaticAnalysis)
     }
 }

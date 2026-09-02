@@ -629,6 +629,19 @@ public struct SyncDatabase: Sendable {
         migrator.registerMigration("v14") { db in
             try db.execute(sql: "ALTER TABLE account ADD COLUMN aliasesJSON TEXT")
         }
+        // A v15: o estado da fila de análise automática. Tabela própria, e não
+        // `sync_state`, porque `sync_state.accountID` tem REFERENCES account(id)
+        // e a fila é global — a mesma lição de `created_agenda_item` na v5.
+        migrator.registerMigration("v15") { db in
+            try db.execute(sql: """
+                CREATE TABLE analysis_queue_state (
+                  id TEXT PRIMARY KEY NOT NULL,
+                  isPaused INTEGER NOT NULL DEFAULT 0,
+                  reason TEXT,
+                  pausedAt DOUBLE
+                )
+                """)
+        }
         return migrator
     }
 }

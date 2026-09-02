@@ -47,7 +47,7 @@ struct SyncDatabaseTests {
             #expect(tabelas.contains(esperada), "faltou a tabela \(esperada)")
         }
         let versoes = try db.pool.read { try SyncDatabase.migrator.appliedIdentifiers($0) }
-        #expect(versoes == ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13", "v14"])
+        #expect(versoes == ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15"])
         let colunas = try db.pool.read { conexao in
             Set(try conexao.columns(in: "message").map(\.name))
         }
@@ -59,7 +59,7 @@ struct SyncDatabaseTests {
         let db = try banco()
         try SyncDatabase.migrator.migrate(db.pool)
         let versoes = try db.pool.read { try SyncDatabase.migrator.appliedIdentifiers($0) }
-        #expect(versoes == ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13", "v14"])
+        #expect(versoes == ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15"])
     }
 
     @Test("Um banco já em v10 recebe a fila de inteligência na v11")
