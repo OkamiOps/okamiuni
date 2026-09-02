@@ -41,7 +41,19 @@ struct DashboardPreviewPane: View {
     /// "Editar" — o mesmo rascunho, na janela 03.
     let onEditDraft: (Message, String) -> Void
 
-    private var message: Message? { item?.message }
+    /// A mensagem **hidratada**, e não a do item da lista.
+    ///
+    /// `DashboardFocus` guarda cada linha por
+    /// `Message.withoutHeavyPayload()` — sem corpo, sem HTML, sem anexo —,
+    /// porque a lista não precisa de nada disso e copiar tudo a cada clique
+    /// era o tranco. A prévia precisa: lida pelo item, ela mostrava para
+    /// sempre o `snippet` de uma linha, que é a queixa "cadê o conteúdo?".
+    /// `store.message(_:)` devolve a mesma mensagem com o corpo do
+    /// `bodyStore` — inclusive o que a busca sob demanda acabou de trazer.
+    private var message: Message? {
+        guard let item else { return nil }
+        return store.message(item.id) ?? item.message
+    }
 
     /// O turno `.draft` mais recente. É ele que nasce **dentro** da prévia,
     /// colado no email — nunca um bloco de texto solto no meio da tela.
@@ -53,19 +65,22 @@ struct DashboardPreviewPane: View {
         VStack(alignment: .leading, spacing: 0) {
             header
             if let item, let message {
-                ScrollView {
-                    body(for: item, message: message)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .scrollBounceBehavior(.basedOnSize)
+                body(for: item, message: message)
             } else {
                 empty
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
         }
         .padding(.leading, DashboardMetrics.previewLeadingPadding)
         .frame(maxHeight: .infinity, alignment: .top)
         .hairline(theme.line, edges: .leading)
+        // O corpo do email chega por demanda, pela mesma porta do leitor. A
+        // espera aparece na barra fina do chrome (ver `ChromeWorkload`), e
+        // não numa segunda animação aqui.
+        .task(id: message?.id) {
+            guard let message, DashboardPreviewBody.needsBody(message) else { return }
+            await store.loadBodyIfNeeded(message.id)
+        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Prévia da mensagem selecionada")
     }
@@ -96,8 +111,20 @@ struct DashboardPreviewPane: View {
         return "Prévia · \(host)"
     }
 
+    /// `.pv-body` — o cabeçalho do email fixo, o **corpo** ocupando o que
+    /// sobra da coluna, e as ações com o Contexto (ou o rascunho) embaixo.
+    ///
+    /// **Divergência deliberada do mockup**, registrada em
+    /// `barra-report.md`: ali o trecho é um `-webkit-line-clamp` de oito
+    /// linhas, porque o mockup tem um lorem que sempre as preenche. Na caixa
+    /// de verdade o email tem cinco linhas ou duzentas, e o clamp devolvia uma
+    /// frase com 400pt de vazio embaixo. O corpo agora é a peça elástica da
+    /// coluna e rola por dentro quando é longo.
     private func body(for item: DashboardFocus.MailItem, message: Message) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let corpo = DashboardPreviewBody.state(
+            for: message, load: store.bodyLoad(for: message.id)
+        )
+        return VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(message.listHeadline)
                     .font(
@@ -132,29 +159,78 @@ struct DashboardPreviewPane: View {
             }
             .padding(.top, DashboardMetrics.previewChipsTopSpacing)
 
-            Text(excerpt(message))
-                .font(theme.serif.font(size: DashboardMetrics.previewExcerptSize))
-                .foregroundStyle(theme.ink2.color)
-                .lineSpacing(DashboardMetrics.previewExcerptSize * 0.6)
-                .lineLimit(
-                    draftText == nil
-                        ? DashboardMetrics.previewExcerptLines
-                        : DashboardMetrics.previewExcerptLinesWithDraft
-                )
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, DashboardMetrics.previewExcerptTopSpacing)
-                .textSelection(.enabled)
+            excerptBlock(corpo)
 
             actions(message)
 
             if let text = draftText {
-                draftBlock(text, message: message)
+                ScrollView {
+                    draftBlock(text, message: message)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .scrollBounceBehavior(.basedOnSize)
             } else {
                 contextBlock(message)
             }
         }
+        .frame(maxHeight: .infinity, alignment: .top)
         .padding(.top, DashboardMetrics.previewBodyTopPadding)
         .hairline(theme.line2, edges: .top)
+    }
+
+    /// `.pv-x` — o corpo do email. Elástico: come a altura que sobra da
+    /// coluna e rola por dentro. Com o rascunho colado embaixo ele encolhe
+    /// para o teto compacto, que é o que o mockup fazia com o clamp de três
+    /// linhas — o rascunho é o que a pessoa pediu, e ganha o espaço.
+    @ViewBuilder
+    private func excerptBlock(_ corpo: DashboardPreviewBody.State) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if corpo.isEmpty {
+                Text(corpo.isWaiting ? "Carregando o email…" : "Sem texto.")
+                    .font(theme.sans.font(size: DashboardMetrics.previewExcerptSize))
+                    .foregroundStyle(theme.ink3.color)
+            } else {
+                ScrollView {
+                    Text(corpo.text)
+                        .font(theme.serif.font(size: DashboardMetrics.previewExcerptSize))
+                        .foregroundStyle(theme.ink2.color)
+                        .lineSpacing(DashboardMetrics.previewExcerptSize * 0.6)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+            }
+            if let causa = corpo.failure {
+                Button("Tentar de novo") { Task { await retryBody() } }
+                    .buttonStyle(.plain)
+                    .capsLabel(size: DashboardMetrics.capsSize)
+                    .foregroundStyle(theme.accentInk.color)
+                    .focusRing(cornerRadius: theme.radiusSmall)
+                    .padding(.top, 6)
+                    .help(causa)
+                    .accessibilityHint(causa)
+            }
+        }
+        // O corpo é a peça elástica da coluna: ele fica com toda a altura que
+        // sobra depois do cabeçalho do email, das ações e do Contexto, e rola
+        // por dentro quando o texto é maior do que isso.
+        //
+        // **Sem medir o conteúdo.** A tentação era abraçar o texto curto com a
+        // altura medida, como o transcript do dashboard faz. Aqui isso trava:
+        // a medida realimenta o próprio teto da `ScrollView`, o quadro nunca
+        // para de mudar, e o harness — que fotografa até a tela estabilizar —
+        // gira para sempre. Um teto elástico é determinístico.
+        .frame(
+            maxHeight: draftText == nil ? .infinity : DashboardMetrics.previewBodyCompactHeight,
+            alignment: .top
+        )
+        .padding(.top, DashboardMetrics.previewExcerptTopSpacing)
+    }
+
+    private func retryBody() async {
+        guard let message else { return }
+        await store.retryBody(message.id)
     }
 
     /// `.pv-acts` — "Gerar resposta" é o **primário**; Responder, Arquivar e
@@ -334,17 +410,6 @@ struct DashboardPreviewPane: View {
             formatter.dateFormat = "dd/MM/yy"
         }
         return formatter.string(from: message.receivedAt)
-    }
-
-    /// `.pv-x` — o trecho do corpo. O corpo em texto quando ele já está
-    /// hidratado, o `snippet` quando não: a prévia não dispara busca de corpo
-    /// nenhuma, porque ela muda a cada seta na lista.
-    private func excerpt(_ message: Message) -> String {
-        let corpo = message.body
-            .joined(separator: "\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if !corpo.isEmpty { return corpo }
-        return message.snippet
     }
 
     private func accountTint(_ accountID: String) -> TokenColor {

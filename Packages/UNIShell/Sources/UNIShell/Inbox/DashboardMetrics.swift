@@ -70,9 +70,20 @@ enum DashboardMetrics {
     static let previewExcerptSize: CGFloat = 13.5
     static let previewExcerptTopSpacing: CGFloat = 12
     /// `-webkit-line-clamp` do trecho: oito linhas normalmente, três quando o
-    /// rascunho está colado embaixo.
+    /// rascunho está colado embaixo. **Não são mais um corte**: viraram a
+    /// medida das duas alturas abaixo, porque o mockup tem um lorem que
+    /// sempre preenche as oito linhas e a caixa de verdade tem email de cinco
+    /// linhas e email de duzentas. Cortar em oito devolvia uma frase com 400pt
+    /// de vazio embaixo — a queixa do dono.
     static let previewExcerptLines = 8
     static let previewExcerptLinesWithDraft = 3
+    /// A altura de uma linha do trecho, no `line-height: 1.6` do mockup.
+    static let previewExcerptLineHeight = previewExcerptSize * 1.6
+    /// O teto do corpo quando o rascunho está colado embaixo: as três linhas
+    /// do `-webkit-line-clamp: 3`. O rascunho é o que a pessoa pediu, e ganha
+    /// o resto da coluna.
+    static let previewBodyCompactHeight =
+        previewExcerptLineHeight * CGFloat(previewExcerptLinesWithDraft)
     /// `.pv-acts { margin-top: 14px; gap: 6px }` e `.act { height: 28px;
     /// padding: 0 12px; font-size: 12px }`.
     static let previewActionsTopSpacing: CGFloat = 14
@@ -244,6 +255,27 @@ enum DashboardMetrics {
         let teto = hasTranscript ? 5 : DashboardFocus.mailLimit
         return min(total, teto)
     }
+
+    /// Onde o campo do assistente fica quando a lista é curta.
+    ///
+    /// **Divergência deliberada do mockup**, registrada em `barra-report.md`.
+    /// O `.flexpad` do mockup manda a folga toda para o meio, e o campo cola
+    /// no rodapé: com sete linhas isso é o desenho aprovado. Com três, numa
+    /// janela de 916, a régua não previu o caso — a coluna fica oca, com o
+    /// campo lá embaixo e um buraco no meio. Abaixo do corte, a folga vai
+    /// para **baixo** do campo e ele sobe para logo depois da lista.
+    ///
+    /// O transcript aberto não conta como lista curta: ele já é a peça que
+    /// preenche a coluna, e mover o campo com ele na tela faria o rodapé
+    /// pular a cada resposta.
+    static func assistantHugsList(rowCount: Int, hasTranscript: Bool) -> Bool {
+        !hasTranscript && rowCount < assistantHugRowCount
+    }
+
+    /// A lista cheia do mockup são sete linhas (`DashboardFocus.mailLimit`).
+    /// Qualquer coisa abaixo disso não preenche a coluna, e é aí que o
+    /// `.flexpad` deixa de ser folga e vira buraco.
+    static let assistantHugRowCount = DashboardFocus.mailLimit
 
     /// Quantas pendências a coluna mostra. O mockup desenha três, e três é o
     /// que cabe sem a seção comer a trilha. O resto vira "+ N" — meia

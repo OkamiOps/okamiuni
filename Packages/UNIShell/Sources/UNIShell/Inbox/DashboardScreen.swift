@@ -241,7 +241,16 @@ struct DashboardScreen: View {
     // MARK: - Coluna principal
 
     private func mainColumn(_ focus: DashboardFocus) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
+        // Com a lista curta a folga muda de lado — ver
+        // `DashboardMetrics.assistantHugsList`, e a divergência registrada
+        // lá.
+        let cola = DashboardMetrics.assistantHugsList(
+            rowCount: DashboardMetrics.visibleRowCount(
+                total: focus.mail.count, hasTranscript: !transcriptTurns.isEmpty
+            ),
+            hasTranscript: !transcriptTurns.isEmpty
+        )
+        return VStack(alignment: .leading, spacing: 0) {
             Text("Prioridades · \(focus.mail.count)")
                 .capsLabel(size: DashboardMetrics.capsSize)
                 .padding(.bottom, DashboardMetrics.sectionLabelBottomPadding)
@@ -253,8 +262,9 @@ struct DashboardScreen: View {
             // `.flexpad` do mockup: a folga sobra **aqui**, entre a lista e o
             // assistente, e é por isso que o campo fica colado no rodapé sem
             // a lista esticar linha nenhuma.
-            Spacer(minLength: 0)
+            if !cola { Spacer(minLength: 0) }
             assistant
+            if cola { Spacer(minLength: 0) }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Prioridades")
