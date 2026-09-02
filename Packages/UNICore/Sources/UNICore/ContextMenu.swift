@@ -122,6 +122,14 @@ public enum ContextCommand: Sendable, Hashable {
     /// Área de transferência. O texto já vem pronto — quem executa não formata
     /// nada, e por isso o teste consegue afirmar o conteúdo copiado.
     case copy(String)
+    /// **Pede** para abrir um link do corpo do email. Não abre: quem executa
+    /// mostra a confirmação com o destino por extenso, e só o botão de lá abre.
+    ///
+    /// É um comando próprio, e não um `openURL` escondido no fechamento do
+    /// item, justamente para que o teste possa afirmar que o menu *pede* em vez
+    /// de *abrir* — e para que `MenuCommandRunner` não tenha como abrir sozinho:
+    /// ver o caso `.abrirLink` de lá, que não faz nada por decisão.
+    case abrirLink(url: URL)
     /// Tira o calendário da lista visível (e da trilha recolhida). Continua
     /// no EventKit: o que some é só a linha no OkamiUNI.
     case concealCalendar(id: String)
@@ -237,6 +245,17 @@ public enum ContextMenuEntry: Sendable, Hashable {
     case item(ContextMenuItem)
     case submenu(title: String, items: [ContextMenuItem])
     case separator
+    /// Uma linha que **diz**, e não faz: sem clique, sem realce, sem atalho.
+    ///
+    /// Nasceu para o menu do link (`LinkDoCorpo.menu`), onde o anfitrião de
+    /// destino precisa aparecer **dentro do menu**. Um balão de ajuda não
+    /// serviria: ele só existe se a pessoa parar o ponteiro em cima, e a
+    /// defesa contra link disfarçado não pode depender disso.
+    ///
+    /// Não é um item desabilitado com outro nome — item apagado é uma ação que
+    /// falhou, e o painel o desenha em `ink4` com o balão do porquê. Legenda é
+    /// texto de cabeçalho, e é assim que `ContextMenuPanel` a pinta.
+    case legenda(String)
 
     public var isSeparator: Bool {
         if case .separator = self { return true }
@@ -249,6 +268,7 @@ public enum ContextMenuEntry: Sendable, Hashable {
         switch self {
         case .item(let item): item.title
         case .submenu(let title, _): title
+        case .legenda(let texto): texto
         case .separator: nil
         }
     }

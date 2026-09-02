@@ -180,7 +180,9 @@ public enum MenuKeyNavigation {
         switch entry {
         case .item(let item): item.isEnabled
         case .submenu(_, let children): !children.isEmpty
-        case .separator: false
+        // Legenda é texto de cabeçalho: as setas passam por cima dela como
+        // passam por cima de um traço.
+        case .separator, .legenda: false
         }
     }
 
