@@ -65,6 +65,19 @@ struct SettingsSectionsTests {
         // Desligado de fábrica, mesmo com provedor remoto escolhido.
         #expect(remoto.automaticAnalysis == .onDeviceOnly)
         #expect(AssistantDestination(settings: AssistantSettings.default).isLocal)
+
+        // E o aviso não afirma no presente o que ainda não é verdade: com o
+        // opt-in desligado nenhuma mensagem sai daqui sozinha.
+        #expect(
+            GeneralSettingsView.automaticAnalysisNoticeTitle(for: remoto)
+                == "Se você ligar, cada mensagem recebida sai deste Mac"
+        )
+        var ligado = remoto
+        ligado.automaticAnalysis = .configuredProvider
+        #expect(
+            GeneralSettingsView.automaticAnalysisNoticeTitle(for: ligado)
+                == "Cada mensagem recebida sai deste Mac"
+        )
     }
 
     @Test("Geral apresenta o ambiente atual sem iniciar o login de IA")

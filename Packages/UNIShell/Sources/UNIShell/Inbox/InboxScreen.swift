@@ -701,15 +701,23 @@ public struct InboxScreen: View {
         return { messageID in makeConversation(for: .email(messageID)) }
     }
 
-    private var assistantDestination: AssistantDestination {
-        assistantSettings.map { AssistantDestination(settings: $0.snapshot()) } ?? .unconfigured
+    /// Uma closure, e não um valor: a conversa do dashboard vive em `@State`
+    /// pela sessão inteira e Ajustes é outra janela. Congelar o destino aqui
+    /// era o que fazia o rodapé dizer "neste Mac" com o Grok escolhido.
+    private var assistantDestination: @Sendable () -> AssistantDestination {
+        let settings = assistantSettings
+        return { settings.map { AssistantDestination(settings: $0.snapshot()) } ?? .unconfigured }
     }
 
     /// Só é conhecido quando o provedor é uma assinatura: sem ele um 401 do
-    /// Grok viraria "tentar de novo" em vez de "reconectar".
-    private var assistantProvider: AssistantProviderOAuthKind? {
-        guard let settings = assistantSettings?.snapshot() else { return nil }
-        return settings.provider == .providerOAuth ? settings.providerOAuth.kind : nil
+    /// Grok viraria "tentar de novo" em vez de "reconectar". Lido na hora,
+    /// pelo mesmo motivo do destino.
+    private var assistantProvider: @Sendable () -> AssistantProviderOAuthKind? {
+        let store = assistantSettings
+        return {
+            guard let settings = store?.snapshot() else { return nil }
+            return settings.provider == .providerOAuth ? settings.providerOAuth.kind : nil
+        }
     }
 
     func makeConversation(for scope: InboxAssistantScope) -> AssistantConversation {

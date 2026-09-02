@@ -348,7 +348,7 @@ struct GeneralSettingsView: View {
             }
             SettingsNotice(
                 symbol: "network",
-                title: "Cada mensagem recebida sai deste Mac",
+                title: Self.automaticAnalysisNoticeTitle(for: draft),
                 text: Self.automaticAnalysisWarning(for: draft)
             )
         }
@@ -357,6 +357,16 @@ struct GeneralSettingsView: View {
     /// `static` e visível ao pacote para o teste ler a cópia sem montar a view.
     static func automaticAnalysisToggleLabel(for settings: AssistantSettings) -> String {
         "Analisar mensagens novas automaticamente com \(AssistantDestination(settings: settings).label)"
+    }
+
+    /// O aviso aparece sempre que existe destino remoto — inclusive com o
+    /// opt-in desligado, quando nada sai daqui. Afirmar no presente o que só
+    /// vale ligado transformava o texto em susto falso; o título passa a
+    /// dizer se é fato ou condição.
+    static func automaticAnalysisNoticeTitle(for settings: AssistantSettings) -> String {
+        settings.automaticAnalysis == .configuredProvider
+            ? "Cada mensagem recebida sai deste Mac"
+            : "Se você ligar, cada mensagem recebida sai deste Mac"
     }
 
     static func automaticAnalysisWarning(for settings: AssistantSettings) -> String {

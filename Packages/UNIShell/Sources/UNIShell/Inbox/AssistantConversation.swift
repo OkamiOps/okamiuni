@@ -149,12 +149,22 @@ public final class AssistantConversation {
 
     public let scope: AssistantScope
     public let context: AssistantContext
-    public let destination: AssistantDestination
 
+    /// **Lido na hora de desenhar, nunca congelado na construção.**
+    ///
+    /// Ajustes é outra janela, e o dashboard guarda esta conversa em `@State`
+    /// pela sessão inteira. Com um valor fixo aqui, trocar de provedor deixava
+    /// o rodapé e o "Lendo o contexto neste Mac…" prometendo local enquanto o
+    /// pedido saía para a xAI — o defeito da spec §1.2, de volta pelo cache.
+    public var destination: AssistantDestination { destinationProvider() }
+
+    /// Pelo mesmo motivo: o botão de erro precisa nomear a assinatura de
+    /// **agora**, não a que estava escolhida quando a tela abriu.
+    private var provider: AssistantProviderOAuthKind? { providerProvider() }
+
+    private let destinationProvider: @Sendable () -> AssistantDestination
+    private let providerProvider: @Sendable () -> AssistantProviderOAuthKind?
     private let engine: AssistantEngine
-    /// Só é conhecido quando o provedor configurado é uma assinatura. Sem
-    /// ele um 401 do Grok viraria "tentar de novo" em vez de reconectar.
-    private let provider: AssistantProviderOAuthKind?
     @ObservationIgnored private var currentTask: Task<Void, Never>?
     @ObservationIgnored private var lastAction: Action?
 
@@ -164,7 +174,9 @@ public final class AssistantConversation {
         case briefing
     }
 
-    public init(
+    /// A conveniência para quem tem um destino fixo de verdade: previews,
+    /// harnesses e o popover do leitor, que nasce e morre num clique.
+    public convenience init(
         scope: AssistantScope,
         context: AssistantContext,
         destination: AssistantDestination,
@@ -172,11 +184,29 @@ public final class AssistantConversation {
         provider: AssistantProviderOAuthKind? = nil,
         debugState: AssistantPanelDebugState = .empty
     ) {
+        self.init(
+            scope: scope,
+            context: context,
+            destination: { destination },
+            engine: engine,
+            provider: { provider },
+            debugState: debugState
+        )
+    }
+
+    public init(
+        scope: AssistantScope,
+        context: AssistantContext,
+        destination: @escaping @Sendable () -> AssistantDestination,
+        engine: AssistantEngine,
+        provider: @escaping @Sendable () -> AssistantProviderOAuthKind? = { nil },
+        debugState: AssistantPanelDebugState = .empty
+    ) {
         self.scope = scope
         self.context = context
-        self.destination = destination
+        self.destinationProvider = destination
         self.engine = engine
-        self.provider = provider
+        self.providerProvider = provider
         self.messages = debugState.messages
         self.draft = debugState.draft
         self.isLoading = debugState.isLoading

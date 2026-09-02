@@ -1099,7 +1099,7 @@ public struct ReaderPane: View {
                 miolo
             }
             .buttonStyle(.plain)
-            .help("Mostra o resumo gerado neste Mac")
+            .help(Self.summaryHelp(for: analysisDestination(message.summaryModelVersion)))
             .accessibilityElement(children: .combine)
             .accessibilityLabel("TL;DR. \(summary)")
             .accessibilityAddTraits(.isButton)
@@ -1133,6 +1133,15 @@ public struct ReaderPane: View {
     /// nomeia o destino que de fato leu a mensagem.
     static func summaryCaption(for destination: AssistantDestination) -> String {
         destination.isLocal ? "TL;DR · neste Mac" : "TL;DR · \(destination.label)"
+    }
+
+    /// A mesma condição da legenda. A dica do cartão recolhido afirmava
+    /// "neste Mac" sem olhar para o destino, vinte linhas acima da função que
+    /// olha — e era ela que a pessoa lia ao passar o mouse.
+    static func summaryHelp(for destination: AssistantDestination) -> String {
+        destination.isLocal
+            ? "Mostra o resumo gerado neste Mac"
+            : "Mostra o resumo gerado por \(destination.label)"
     }
 
     private func resumoEstaAberto(_ message: Message) -> Bool {

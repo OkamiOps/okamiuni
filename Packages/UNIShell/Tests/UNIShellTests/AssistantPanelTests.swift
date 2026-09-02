@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import Testing
 import UNIDesign
@@ -299,6 +300,36 @@ struct AssistantPanelTests {
         #expect(AssistantScope.workspace.loadingLabel(for: local) == "Lendo o contexto neste Mac…")
     }
 
+    /// O dashboard guarda a conversa em `@State` pela sessão inteira e Ajustes
+    /// é outra janela: um destino congelado na construção fazia o rodapé e a
+    /// espera prometerem "neste Mac" com o pedido saindo para a xAI.
+    @Test("trocar de provedor muda o que a conversa imprime, sem refazer a view")
+    func destinationIsReadAtRenderTime() {
+        let escolha = Escolha()
+        let conversation = AssistantConversation(
+            scope: .workspace,
+            context: AssistantContext(subject: "Ambiente"),
+            destination: { escolha.destino },
+            engine: .unavailable,
+            provider: { escolha.provedor }
+        )
+
+        #expect(conversation.destination.isLocal)
+        #expect(
+            AssistantScope.workspace.loadingLabel(for: conversation.destination)
+                == "Lendo o contexto neste Mac…"
+        )
+
+        // A mesma instância de conversa, sem reconstrução nenhuma.
+        escolha.trocarParaXAI()
+        #expect(!conversation.destination.isLocal)
+        #expect(conversation.destination.label == "Grok · xAI")
+        #expect(
+            AssistantScope.workspace.loadingLabel(for: conversation.destination)
+                == "Falando com Grok · xAI…"
+        )
+    }
+
     @Test("um turno de rascunho não passa pelo renderizador de Markdown")
     func draftTurnRendersLiterally() throws {
         let draft = AssistantPanelDebugState(messages: [
@@ -335,5 +366,29 @@ private enum AssistantTestError: LocalizedError {
 
     var errorDescription: String? {
         "A Apple Intelligence ainda está sendo preparada."
+    }
+}
+
+/// O provedor escolhido em Ajustes, do ponto de vista de outra janela.
+private final class Escolha: @unchecked Sendable {
+    private let lock = NSLock()
+    private var settings = AssistantSettings.default
+
+    var destino: AssistantDestination {
+        lock.withLock { AssistantDestination(settings: settings) }
+    }
+
+    var provedor: AssistantProviderOAuthKind? {
+        lock.withLock {
+            settings.provider == .providerOAuth ? settings.providerOAuth.kind : nil
+        }
+    }
+
+    func trocarParaXAI() {
+        lock.withLock {
+            settings.provider = .providerOAuth
+            settings.providerOAuth.kind = .xAI
+            settings.providerOAuth.model = "grok-4"
+        }
     }
 }
