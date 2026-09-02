@@ -23,9 +23,9 @@ struct DashboardScreen: View {
     let onOpenEvent: (AgendaItem) -> Void
     let onShowMail: () -> Void
     let onShowCalendar: () -> Void
-    let onAsk: (LocalAssistantRequest, InboxAssistantScope) async throws -> String
+    let onAsk: (AssistantRequest, InboxAssistantScope) async throws -> String
 
-    @Binding var transcript: [LocalAssistantMessage]
+    @Binding var transcript: [AssistantMessage]
     @Binding var draft: String
     @Binding var selectedMailID: String?
     @Binding var readingMailID: String?
@@ -39,7 +39,7 @@ struct DashboardScreen: View {
         store: MailStore,
         now: Int,
         today: Date,
-        transcript: Binding<[LocalAssistantMessage]> = .constant([]),
+        transcript: Binding<[AssistantMessage]> = .constant([]),
         draft: Binding<String> = .constant(""),
         selectedMailID: Binding<String?> = .constant(nil),
         readingMailID: Binding<String?> = .constant(nil),
@@ -48,7 +48,7 @@ struct DashboardScreen: View {
         onOpenEvent: @escaping (AgendaItem) -> Void = { _ in },
         onShowMail: @escaping () -> Void = {},
         onShowCalendar: @escaping () -> Void = {},
-        onAsk: @escaping (LocalAssistantRequest, InboxAssistantScope) async throws -> String = { _, _ in "" }
+        onAsk: @escaping (AssistantRequest, InboxAssistantScope) async throws -> String = { _, _ in "" }
     ) {
         self.store = store
         self.now = now
@@ -757,8 +757,8 @@ struct DashboardScreen: View {
         do {
             let focus = store.dashboardFocus(nowMinute: now)
             let history = Array(transcript.suffix(16))
-            let request = LocalAssistantRequest(
-                context: LocalAssistantContext(subject: askScopeTitle(focus), sender: askScopeDetail(focus)),
+            let request = AssistantRequest(
+                context: AssistantContext(subject: askScopeTitle(focus), sender: askScopeDetail(focus)),
                 question: question,
                 conversation: history
             )

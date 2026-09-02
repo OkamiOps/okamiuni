@@ -7,8 +7,8 @@ import UNICore
 struct FoundationModelsMessageAnalyzerTests {
     private let timeZone = TimeZone(identifier: "America/Sao_Paulo")!
 
-    private var input: OnDeviceMessageAnalysisInput {
-        OnDeviceMessageAnalysisInput(
+    private var input: MessageAnalysisInput {
+        MessageAnalysisInput(
             subject: "Planejamento",
             sender: "Marina <marina@example.com>",
             receivedAt: Date(timeIntervalSince1970: 1_788_000_000),
@@ -43,7 +43,7 @@ struct FoundationModelsMessageAnalyzerTests {
     @Test("O prompt entrega o corpo inteiro sem teto arbitrário de caracteres")
     func promptPreservesTheEntireBody() {
         let body = "COMEÇO-" + String(repeating: "x", count: 20_000) + "-MEIO-IMPORTANTE-FIM"
-        let longInput = OnDeviceMessageAnalysisInput(
+        let longInput = MessageAnalysisInput(
             subject: input.subject,
             sender: input.sender,
             receivedAt: input.receivedAt,
@@ -60,7 +60,7 @@ struct FoundationModelsMessageAnalyzerTests {
     @Test("O fallback usa somente o orçamento medido do contexto")
     func contextFallbackUsesMeasuredBudget() async {
         let body = "0123456789"
-        let longInput = OnDeviceMessageAnalysisInput(
+        let longInput = MessageAnalysisInput(
             subject: input.subject,
             sender: input.sender,
             receivedAt: input.receivedAt,
@@ -92,7 +92,7 @@ struct FoundationModelsMessageAnalyzerTests {
             eventDurationMinutes: 0
         )
 
-        #expect(throws: OnDeviceMessageAnalysisError.invalidResponse(
+        #expect(throws: MessageAnalysisError.invalidResponse(
             "O TL;DR descreve apenas metadados da mensagem."
         )) {
             try output.analysis(for: input, modelVersion: "test-v2")
@@ -101,7 +101,7 @@ struct FoundationModelsMessageAnalyzerTests {
 
     @Test("TL;DR preserva conteúdo, impacto e ação sem repetir cabeçalho")
     func usefulTLDRIsAccepted() throws {
-        let newsletter = OnDeviceMessageAnalysisInput(
+        let newsletter = MessageAnalysisInput(
             subject: "A compact magnetic COB penlight for everyday carry",
             sender: "KickstarNow <team@kickstarnow.com>",
             receivedAt: input.receivedAt,
@@ -160,7 +160,7 @@ struct FoundationModelsMessageAnalyzerTests {
 
     @Test("Uma manchete curta não substitui o TL;DR de um corpo substancial")
     func shortHeadlineIsRejectedForSubstantialBody() {
-        let welcome = OnDeviceMessageAnalysisInput(
+        let welcome = MessageAnalysisInput(
             subject: "Welcome to Convex!",
             sender: "Convex <support@notifications.convex.dev>",
             receivedAt: input.receivedAt,
@@ -187,7 +187,7 @@ struct FoundationModelsMessageAnalyzerTests {
             eventDurationMinutes: 0
         )
 
-        #expect(throws: OnDeviceMessageAnalysisError.invalidResponse(
+        #expect(throws: MessageAnalysisError.invalidResponse(
             "O TL;DR ficou curto demais para o conteúdo disponível."
         )) {
             try output.analysis(for: welcome, modelVersion: "test-v3")
@@ -254,7 +254,7 @@ struct FoundationModelsMessageAnalyzerTests {
 
     @Test("Data de recebimento não vira compromisso sem evidência no email")
     func receiptCannotBorrowReceivedAt() throws {
-        let receipt = OnDeviceMessageAnalysisInput(
+        let receipt = MessageAnalysisInput(
             subject: "Recibo da compra",
             sender: "Loja <vendas@example.com>",
             receivedAt: input.receivedAt,
@@ -309,7 +309,7 @@ struct FoundationModelsMessageAnalyzerTests {
             eventDurationMinutes: 30
         )
 
-        #expect(throws: OnDeviceMessageAnalysisError.invalidResponse("Data de compromisso inválida.")) {
+        #expect(throws: MessageAnalysisError.invalidResponse("Data de compromisso inválida.")) {
             try output.analysis(
                 for: input,
                 modelVersion: "test-v1"
@@ -328,11 +328,11 @@ struct FoundationModelsMessageAnalyzerTests {
         let analyzer = FoundationModelsMessageAnalyzer()
         let currentAvailability = await analyzer.availability()
         guard currentAvailability == .available else {
-            throw OnDeviceMessageAnalysisError.unavailable(currentAvailability)
+            throw MessageAnalysisError.unavailable(currentAvailability)
         }
 
         let result = try await analyzer.analyze(
-            OnDeviceMessageAnalysisInput(
+            MessageAnalysisInput(
                 subject: "Recibo da compra",
                 sender: "Loja Exemplo <vendas@example.com>",
                 receivedAt: Date(timeIntervalSince1970: 1_788_000_000),
@@ -357,11 +357,11 @@ struct FoundationModelsMessageAnalyzerTests {
         let analyzer = FoundationModelsMessageAnalyzer()
         let currentAvailability = await analyzer.availability()
         guard currentAvailability == .available else {
-            throw OnDeviceMessageAnalysisError.unavailable(currentAvailability)
+            throw MessageAnalysisError.unavailable(currentAvailability)
         }
 
         let result = try await analyzer.analyze(
-            OnDeviceMessageAnalysisInput(
+            MessageAnalysisInput(
                 subject: "A compact magnetic COB penlight for everyday carry",
                 sender: "KickstarNow <team@kickstarnow.com>",
                 receivedAt: input.receivedAt,
@@ -402,11 +402,11 @@ struct FoundationModelsMessageAnalyzerTests {
         let analyzer = FoundationModelsMessageAnalyzer()
         let currentAvailability = await analyzer.availability()
         guard currentAvailability == .available else {
-            throw OnDeviceMessageAnalysisError.unavailable(currentAvailability)
+            throw MessageAnalysisError.unavailable(currentAvailability)
         }
 
         let result = try await analyzer.analyze(
-            OnDeviceMessageAnalysisInput(
+            MessageAnalysisInput(
                 subject: "Volte hoje com 30% OFF e frete grátis",
                 sender: "Insider <contato@email.insiderstore.com.br>",
                 receivedAt: Date(timeIntervalSince1970: 1_788_166_994),
@@ -441,11 +441,11 @@ struct FoundationModelsMessageAnalyzerTests {
         let analyzer = FoundationModelsMessageAnalyzer()
         let currentAvailability = await analyzer.availability()
         guard currentAvailability == .available else {
-            throw OnDeviceMessageAnalysisError.unavailable(currentAvailability)
+            throw MessageAnalysisError.unavailable(currentAvailability)
         }
 
         let result = try await analyzer.analyze(
-            OnDeviceMessageAnalysisInput(
+            MessageAnalysisInput(
                 subject: "Welcome to Convex!",
                 sender: "Convex <support@notifications.convex.dev>",
                 receivedAt: Date(timeIntervalSince1970: 1_788_167_365),
@@ -488,7 +488,7 @@ struct FoundationModelsMessageAnalyzerTests {
         let analyzer = FoundationModelsMessageAnalyzer()
         let currentAvailability = await analyzer.availability()
         guard currentAvailability == .available else {
-            throw OnDeviceMessageAnalysisError.unavailable(currentAvailability)
+            throw MessageAnalysisError.unavailable(currentAvailability)
         }
 
         let body = """
@@ -500,7 +500,7 @@ struct FoundationModelsMessageAnalyzerTests {
             count: 700
         )
         let result = try await analyzer.analyze(
-            OnDeviceMessageAnalysisInput(
+            MessageAnalysisInput(
                 subject: "Account setup requires one action",
                 sender: "Support <support@example.com>",
                 receivedAt: input.receivedAt,
@@ -525,11 +525,11 @@ struct FoundationModelsMessageAnalyzerTests {
         let analyzer = FoundationModelsMessageAnalyzer()
         let currentAvailability = await analyzer.availability()
         guard currentAvailability == .available else {
-            throw OnDeviceMessageAnalysisError.unavailable(currentAvailability)
+            throw MessageAnalysisError.unavailable(currentAvailability)
         }
 
         let result = try await analyzer.analyze(
-            OnDeviceMessageAnalysisInput(
+            MessageAnalysisInput(
                 subject: "Reunião do projeto",
                 sender: "Marina <marina@example.com>",
                 receivedAt: input.receivedAt,

@@ -4,11 +4,11 @@ import UNICore
 @testable import UNIShell
 
 @Suite("Ponte do assistente local")
-struct OnDeviceAssistantBridgeTests {
+struct AssistantBridgeTests {
     @Test("Composer traduz cada intenção e preserva contexto")
     func composerMapping() async throws {
         let spy = AssistantSpy()
-        let generator = OnDeviceAssistantBridge.composerGenerator(using: spy)
+        let generator = AssistantBridge.composerGenerator(using: spy)
         let message = Fixtures.messages[0]
         let conversationContext = AssistantMailContext.conversation([
             AssistantEmailContext(
@@ -34,7 +34,7 @@ struct OnDeviceAssistantBridgeTests {
     @Test("Pergunta atual não é duplicada no histórico")
     func currentQuestionIsNotDuplicated() async throws {
         let spy = AssistantSpy()
-        let request = LocalAssistantRequest(
+        let request = AssistantRequest(
             context: .init(subject: "Assunto"),
             question: "Qual é o prazo?",
             conversation: [
@@ -44,7 +44,7 @@ struct OnDeviceAssistantBridgeTests {
             ]
         )
 
-        _ = try await OnDeviceAssistantBridge.answer(
+        _ = try await AssistantBridge.answer(
             request,
             mailContext: .email(AssistantEmailContext(message: Fixtures.messages[0])),
             using: spy
@@ -69,13 +69,13 @@ struct OnDeviceAssistantBridgeTests {
                 startMinute: 600, endMinute: 660, account: "eu@example.com"
             )]
         )
-        let request = LocalAssistantRequest(
+        let request = AssistantRequest(
             context: .init(subject: "Todo o OkamiUNI"),
             question: "Como está meu dia?",
             conversation: []
         )
 
-        _ = try await OnDeviceAssistantBridge.answer(
+        _ = try await AssistantBridge.answer(
             request,
             mailContext: .workspace(workspace),
             using: spy
@@ -101,7 +101,7 @@ private actor AssistantSpy: TextAssisting {
     private(set) var lastTransform: TransformCall?
     private(set) var lastAnswer: AnswerCall?
 
-    func availability() async -> OnDeviceMessageAnalysisAvailability { .available }
+    func availability() async -> AppleIntelligenceAvailability { .available }
 
     func answer(
         question: String,

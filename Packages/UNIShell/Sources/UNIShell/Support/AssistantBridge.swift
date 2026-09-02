@@ -3,7 +3,7 @@ import UNICore
 
 /// Liga as intenções das superfícies do shell ao contrato local do UNICore.
 /// Foundation Models continua fora daqui; o app injeta a implementação.
-public enum OnDeviceAssistantBridge {
+public enum AssistantBridge {
     public static func composerGenerator(
         using assistant: any TextAssisting
     ) -> ComposerIntelligenceGenerator {
@@ -19,7 +19,7 @@ public enum OnDeviceAssistantBridge {
     }
 
     static func answer(
-        _ request: LocalAssistantRequest,
+        _ request: AssistantRequest,
         mailContext: AssistantMailContext,
         using assistant: any TextAssisting
     ) async throws -> String {

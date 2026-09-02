@@ -56,13 +56,13 @@ public struct AssistantProviderOAuthTextAssistant: TextAssisting, Sendable {
         modelVersion = "provider-oauth/xai/\(self.configuration.model)"
     }
 
-    public func availability() async -> OnDeviceMessageAnalysisAvailability { .available }
+    public func availability() async -> AppleIntelligenceAvailability { .available }
 
     public func answer(question: String, in conversation: AssistantConversationSnapshot) async throws -> String {
         let question = try FoundationModelsTextAssistantValidation.question(question)
         return try FoundationModelsTextAssistantValidation.response(try await complete(
-            instructions: FoundationModelsTextAssistantPrompt.answerInstructions(additionalInstructions: additionalInstructions),
-            input: FoundationModelsTextAssistantPrompt.answer(
+            instructions: AssistantPrompt.answerInstructions(additionalInstructions: additionalInstructions),
+            input: AssistantPrompt.answer(
                 question: question,
                 conversation: conversation,
                 budget: .configured
@@ -73,8 +73,8 @@ public struct AssistantProviderOAuthTextAssistant: TextAssisting, Sendable {
     public func transform(_ text: String, using action: WritingAction, context: AssistantMailContext?) async throws -> String {
         let text = try FoundationModelsTextAssistantValidation.transformText(text, action: action, context: context)
         return try FoundationModelsTextAssistantValidation.response(try await complete(
-            instructions: FoundationModelsTextAssistantPrompt.transformInstructions(additionalInstructions: additionalInstructions),
-            input: FoundationModelsTextAssistantPrompt.transform(
+            instructions: AssistantPrompt.transformInstructions(additionalInstructions: additionalInstructions),
+            input: AssistantPrompt.transform(
                 text: text,
                 action: action,
                 context: context,

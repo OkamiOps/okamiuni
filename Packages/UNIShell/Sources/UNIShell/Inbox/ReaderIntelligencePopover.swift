@@ -72,7 +72,7 @@ struct ReaderIntelligencePopover: View {
             }
         }
 
-        var suggestion: LocalAssistantSuggestion {
+        var suggestion: AssistantSuggestion {
             .init(id: rawValue, title: title, question: question)
         }
     }
@@ -89,22 +89,22 @@ struct ReaderIntelligencePopover: View {
     @Environment(\.theme) private var theme
     @Environment(\.displayScale) private var displayScale
 
-    let context: LocalAssistantContext
+    let context: AssistantContext
     let isAvailable: Bool
     let onUseReply: (String) -> Void
     let onClose: () -> Void
 
     @Binding private var panelSize: CGSize
-    @State private var conversation: LocalAssistantConversation
+    @State private var conversation: AssistantConversation
     @State private var task: Task<Void, Never>?
     @State private var resizeOrigin: CGSize?
 
     init(
-        context: LocalAssistantContext,
+        context: AssistantContext,
         isAvailable: Bool,
         initialPhase: Phase = .ready,
         panelSize: Binding<CGSize> = .constant(Self.defaultSize),
-        onAsk: @escaping (LocalAssistantRequest) async throws -> String,
+        onAsk: @escaping (AssistantRequest) async throws -> String,
         onGenerateReply: @escaping () async throws -> String,
         onUseReply: @escaping (String) -> Void,
         onClose: @escaping () -> Void
@@ -115,7 +115,7 @@ struct ReaderIntelligencePopover: View {
         self.onClose = onClose
         _panelSize = panelSize
         _conversation = State(
-            initialValue: LocalAssistantConversation(
+            initialValue: AssistantConversation(
                 context: context,
                 debugState: Self.debugState(for: initialPhase)
             ) { request in
@@ -300,7 +300,7 @@ struct ReaderIntelligencePopover: View {
     }
 
     @ViewBuilder
-    private func messageBubble(_ message: LocalAssistantMessage) -> some View {
+    private func messageBubble(_ message: AssistantMessage) -> some View {
         if message.speaker == .user {
             HStack {
                 Spacer(minLength: 72)
@@ -610,7 +610,7 @@ struct ReaderIntelligencePopover: View {
         }
     }
 
-    private func shouldOfferReplyUse(for message: LocalAssistantMessage) -> Bool {
+    private func shouldOfferReplyUse(for message: AssistantMessage) -> Bool {
         guard isReplyConversation, message.speaker == .assistant else { return false }
         return conversation.messages.last(where: { $0.speaker == .assistant })?.id == message.id
     }
@@ -621,12 +621,12 @@ struct ReaderIntelligencePopover: View {
         }
     }
 
-    static func debugState(for phase: Phase) -> LocalAssistantPanelDebugState {
+    static func debugState(for phase: Phase) -> AssistantPanelDebugState {
         switch phase {
         case .ready:
             return .empty
         case .loading(let action):
-            return LocalAssistantPanelDebugState(
+            return AssistantPanelDebugState(
                 messages: action.question.isEmpty
                     ? []
                     : [.init(speaker: .user, text: action.question)],
@@ -634,14 +634,14 @@ struct ReaderIntelligencePopover: View {
                 lastQuestion: action.question.isEmpty ? nil : action.question
             )
         case .preview(let action, let text):
-            var messages: [LocalAssistantMessage] = []
+            var messages: [AssistantMessage] = []
             if !action.question.isEmpty {
                 messages.append(.init(speaker: .user, text: action.question))
             }
             messages.append(.init(speaker: .assistant, text: text))
-            return LocalAssistantPanelDebugState(messages: messages)
+            return AssistantPanelDebugState(messages: messages)
         case .failure(let message):
-            return LocalAssistantPanelDebugState(errorMessage: message)
+            return AssistantPanelDebugState(errorMessage: message)
         }
     }
 

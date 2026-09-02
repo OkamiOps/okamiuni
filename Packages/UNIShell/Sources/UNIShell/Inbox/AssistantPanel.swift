@@ -8,7 +8,7 @@ import UNIDesign
 /// É deliberadamente pequeno: o shell apresenta o contexto para a pessoa e o
 /// compositor decide qual conteúdo pode enviar ao motor. Não há referência a
 /// Foundation Models aqui.
-public struct LocalAssistantContext: Sendable, Hashable {
+public struct AssistantContext: Sendable, Hashable {
     public let subject: String
     public let sender: String?
     public let conversationLabel: String?
@@ -31,7 +31,7 @@ public struct LocalAssistantContext: Sendable, Hashable {
     }
 }
 
-public struct LocalAssistantSuggestion: Identifiable, Sendable, Hashable {
+public struct AssistantSuggestion: Identifiable, Sendable, Hashable {
     public let id: String
     public let title: String
     public let question: String
@@ -42,7 +42,7 @@ public struct LocalAssistantSuggestion: Identifiable, Sendable, Hashable {
         self.question = question
     }
 
-    public static let emailDefaults: [LocalAssistantSuggestion] = [
+    public static let emailDefaults: [AssistantSuggestion] = [
         .init(title: "Resumo", question: "Faça um resumo útil desta conversa, destacando o que importa."),
         .init(title: "Pontos-chave", question: "Liste os pontos-chave desta conversa."),
         .init(title: "Insights", question: "Analise esta conversa e identifique insights, riscos e pontos em aberto."),
@@ -50,7 +50,7 @@ public struct LocalAssistantSuggestion: Identifiable, Sendable, Hashable {
         .init(title: "Gerar resposta", question: "Prepare uma resposta completa, natural e pronta para revisão desta conversa."),
     ]
 
-    public static let workspaceDefaults: [LocalAssistantSuggestion] = [
+    public static let workspaceDefaults: [AssistantSuggestion] = [
         .init(title: "Resumo geral", question: "Resuma meu ambiente: caixas, e-mails, agenda e pendências."),
         .init(title: "Prioridades", question: "Quais são minhas prioridades agora considerando e-mails e agenda?"),
         .init(title: "Não lidos", question: "Organize os e-mails não lidos mais importantes e diga por onde começar."),
@@ -61,7 +61,7 @@ public struct LocalAssistantSuggestion: Identifiable, Sendable, Hashable {
 
 /// Define se o painel fala da mensagem aberta ou do ambiente inteiro. A
 /// separação é visível e também decide o catálogo de ações rápidas.
-public enum LocalAssistantMode: Sendable, Hashable {
+public enum AssistantScope: Sendable, Hashable {
     case email
     case workspace
 
@@ -114,25 +114,25 @@ public enum LocalAssistantMode: Sendable, Hashable {
         }
     }
 
-    var suggestions: [LocalAssistantSuggestion] {
+    var suggestions: [AssistantSuggestion] {
         switch self {
-        case .email: LocalAssistantSuggestion.emailDefaults
-        case .workspace: LocalAssistantSuggestion.workspaceDefaults
+        case .email: AssistantSuggestion.emailDefaults
+        case .workspace: AssistantSuggestion.workspaceDefaults
         }
     }
 }
 
-public enum LocalAssistantSpeaker: String, Sendable, Hashable {
+public enum AssistantSpeaker: String, Sendable, Hashable {
     case user
     case assistant
 }
 
-public struct LocalAssistantMessage: Identifiable, Sendable, Hashable {
+public struct AssistantMessage: Identifiable, Sendable, Hashable {
     public let id: UUID
-    public let speaker: LocalAssistantSpeaker
+    public let speaker: AssistantSpeaker
     public let text: String
 
-    public init(id: UUID = UUID(), speaker: LocalAssistantSpeaker, text: String) {
+    public init(id: UUID = UUID(), speaker: AssistantSpeaker, text: String) {
         self.id = id
         self.speaker = speaker
         self.text = text
@@ -140,12 +140,12 @@ public struct LocalAssistantMessage: Identifiable, Sendable, Hashable {
 }
 
 /// A entrada entregue ao motor por uma fiação externa ao shell.
-public struct LocalAssistantRequest: Sendable, Hashable {
-    public let context: LocalAssistantContext
+public struct AssistantRequest: Sendable, Hashable {
+    public let context: AssistantContext
     public let question: String
-    public let conversation: [LocalAssistantMessage]
+    public let conversation: [AssistantMessage]
 
-    public init(context: LocalAssistantContext, question: String, conversation: [LocalAssistantMessage]) {
+    public init(context: AssistantContext, question: String, conversation: [AssistantMessage]) {
         self.context = context
         self.question = question
         self.conversation = conversation
@@ -154,15 +154,15 @@ public struct LocalAssistantRequest: Sendable, Hashable {
 
 /// Estado construível para previews e renderização fora da tela. Ele elimina a
 /// necessidade de disparar uma pergunta de verdade só para conferir a UI.
-public struct LocalAssistantPanelDebugState: Sendable, Hashable {
-    public var messages: [LocalAssistantMessage]
+public struct AssistantPanelDebugState: Sendable, Hashable {
+    public var messages: [AssistantMessage]
     public var draft: String
     public var isLoading: Bool
     public var errorMessage: String?
     public var lastQuestion: String?
 
     public init(
-        messages: [LocalAssistantMessage] = [],
+        messages: [AssistantMessage] = [],
         draft: String = "",
         isLoading: Bool = false,
         errorMessage: String? = nil,
@@ -175,7 +175,7 @@ public struct LocalAssistantPanelDebugState: Sendable, Hashable {
         self.lastQuestion = lastQuestion
     }
 
-    public static let empty = LocalAssistantPanelDebugState()
+    public static let empty = AssistantPanelDebugState()
 }
 
 /// Estado observável da conversa. Mantê-lo no shell torna a transição
@@ -183,20 +183,20 @@ public struct LocalAssistantPanelDebugState: Sendable, Hashable {
 /// motor concreto.
 @MainActor
 @Observable
-public final class LocalAssistantConversation {
-    public private(set) var messages: [LocalAssistantMessage]
+public final class AssistantConversation {
+    public private(set) var messages: [AssistantMessage]
     public var draft: String
     public private(set) var isLoading: Bool
     public private(set) var errorMessage: String?
 
-    private let context: LocalAssistantContext
-    private let onAsk: (LocalAssistantRequest) async throws -> String
+    private let context: AssistantContext
+    private let onAsk: (AssistantRequest) async throws -> String
     private var lastQuestion: String?
 
     public init(
-        context: LocalAssistantContext,
-        debugState: LocalAssistantPanelDebugState = .empty,
-        onAsk: @escaping (LocalAssistantRequest) async throws -> String
+        context: AssistantContext,
+        debugState: AssistantPanelDebugState = .empty,
+        onAsk: @escaping (AssistantRequest) async throws -> String
     ) {
         self.context = context
         self.messages = debugState.messages
@@ -219,7 +219,7 @@ public final class LocalAssistantConversation {
 
     /// Uma ação rápida é realmente de um toque: entra no mesmo fluxo de
     /// pergunta, carregamento, resposta e retry do campo livre.
-    public func run(_ suggestion: LocalAssistantSuggestion) async {
+    public func run(_ suggestion: AssistantSuggestion) async {
         guard !isLoading else { return }
         draft = suggestion.question
         await submit()
@@ -258,7 +258,7 @@ public final class LocalAssistantConversation {
                 .init(context: context, question: question, conversation: messages)
             ).trimmingCharacters(in: .whitespacesAndNewlines)
             guard !response.isEmpty else {
-                errorMessage = LocalAssistantCopy.emptyResponse
+                errorMessage = AssistantCopy.emptyResponse
                 return
             }
             messages.append(.init(speaker: .assistant, text: response))
@@ -270,7 +270,7 @@ public final class LocalAssistantConversation {
             // (Apple Intelligence desligada, modelo ainda preparando). Quando o
             // motor explica o motivo, a pessoa precisa vê-lo; a frase genérica
             // só cobre erros sem descrição aproveitável.
-            errorMessage = description.isEmpty ? LocalAssistantCopy.requestFailed : description
+            errorMessage = description.isEmpty ? AssistantCopy.requestFailed : description
         }
     }
 }
@@ -280,16 +280,16 @@ public final class LocalAssistantConversation {
 /// A resposta é uma closure assíncrona injetada pelo app. Por isso esta peça
 /// pode ser renderizada e testada sem acesso ao Foundation Models, sem rede e
 /// sem saber como o conteúdo da mensagem foi obtido.
-public struct LocalAssistantPanel: View {
+public struct AssistantPanel: View {
     public static let defaultWidth: CGFloat = 360
 
     @Environment(\.theme) private var theme
     @Environment(\.displayScale) private var displayScale
-    @State private var conversation: LocalAssistantConversation
+    @State private var conversation: AssistantConversation
 
-    private let mode: LocalAssistantMode
-    private let context: LocalAssistantContext
-    private let suggestions: [LocalAssistantSuggestion]
+    private let mode: AssistantScope
+    private let context: AssistantContext
+    private let suggestions: [AssistantSuggestion]
     /// A rota vem da configuração que o app vai usar para esta pergunta. Não
     /// descreve o resumo automático, que é um recurso local separado.
     private let providerLabel: String
@@ -297,13 +297,13 @@ public struct LocalAssistantPanel: View {
     private let width: CGFloat
 
     public init(
-        mode: LocalAssistantMode = .email,
-        context: LocalAssistantContext,
-        suggestions: [LocalAssistantSuggestion]? = nil,
+        mode: AssistantScope = .email,
+        context: AssistantContext,
+        suggestions: [AssistantSuggestion]? = nil,
         providerLabel: String = "Provedor configurado",
-        width: CGFloat = LocalAssistantPanel.defaultWidth,
-        debugState: LocalAssistantPanelDebugState = .empty,
-        onAsk: @escaping (LocalAssistantRequest) async throws -> String,
+        width: CGFloat = AssistantPanel.defaultWidth,
+        debugState: AssistantPanelDebugState = .empty,
+        onAsk: @escaping (AssistantRequest) async throws -> String,
         onClose: @escaping () -> Void
     ) {
         self.mode = mode
@@ -313,7 +313,7 @@ public struct LocalAssistantPanel: View {
         self.width = width
         self.onClose = onClose
         _conversation = State(
-            initialValue: LocalAssistantConversation(
+            initialValue: AssistantConversation(
                 context: context,
                 debugState: debugState,
                 onAsk: onAsk
@@ -471,7 +471,7 @@ public struct LocalAssistantPanel: View {
         }
     }
 
-    private func suggestionButton(_ suggestion: LocalAssistantSuggestion) -> some View {
+    private func suggestionButton(_ suggestion: AssistantSuggestion) -> some View {
         Button { Task { await conversation.run(suggestion) } } label: {
             HStack(spacing: 10) {
                 Text(suggestion.title)
@@ -498,7 +498,7 @@ public struct LocalAssistantPanel: View {
         .help("Usar a pergunta: \(suggestion.question)")
     }
 
-    private func messageBubble(_ message: LocalAssistantMessage) -> some View {
+    private func messageBubble(_ message: AssistantMessage) -> some View {
         HStack {
             if message.speaker == .user { Spacer(minLength: 36) }
             VStack(alignment: .leading, spacing: 4) {
@@ -631,7 +631,7 @@ public struct LocalAssistantPanel: View {
     }
 }
 
-private enum LocalAssistantCopy {
+private enum AssistantCopy {
     static let requestFailed = "Não foi possível responder agora."
     static let emptyResponse = "Não foi possível formar uma resposta."
 }

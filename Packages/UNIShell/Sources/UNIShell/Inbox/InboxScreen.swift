@@ -10,7 +10,7 @@ enum InboxAssistantScope: Sendable, Hashable {
     case workspace
     case email(String)
 
-    var mode: LocalAssistantMode {
+    var mode: AssistantScope {
         switch self {
         case .workspace: .workspace
         case .email: .email
@@ -57,7 +57,7 @@ public struct InboxScreen: View {
     @State private var readerAssistantOpen = false
     /// A conversa do Dashboard vive aqui: a aba some do árvore ao ir para
     /// Caixa ou Agenda, e o `@State` dela ia embora com ela.
-    @State private var dashboardTranscript: [LocalAssistantMessage] = []
+    @State private var dashboardTranscript: [AssistantMessage] = []
     @State private var dashboardDraft = ""
     @State private var dashboardSelectedMailID: String?
     @State private var dashboardReadingID: String?
@@ -131,7 +131,7 @@ public struct InboxScreen: View {
         self.onMessagePresented = onMessagePresented
         self.accountsModel = accountsModel
         self.composerIntelligence = textAssistant.map {
-            OnDeviceAssistantBridge.composerGenerator(using: $0)
+            AssistantBridge.composerGenerator(using: $0)
         }
         self.debugReaderAssistantOpen = debugReaderAssistantOpen
         _assistantOpen = State(initialValue: debugAssistantOpen)
@@ -628,26 +628,26 @@ public struct InboxScreen: View {
 
     // MARK: - Assistente local
 
-    private func assistantContext(for scope: InboxAssistantScope) -> LocalAssistantContext {
+    private func assistantContext(for scope: InboxAssistantScope) -> AssistantContext {
         switch scope {
         case .workspace:
             let accountCount = store.accounts.count
             let emailCount = store.messages.count
             let agendaCount = store.agenda.count
-            return LocalAssistantContext(
+            return AssistantContext(
                 subject: "Todo o OkamiUNI",
                 sender: "\(accountCount) \(accountCount == 1 ? "conta" : "contas") · \(emailCount) \(emailCount == 1 ? "email" : "emails")",
                 conversationLabel: "\(agendaCount) \(agendaCount == 1 ? "compromisso" : "compromissos")"
             )
         case let .email(messageID):
             guard let message = store.messages.first(where: { $0.id == messageID }) else {
-                return LocalAssistantContext(
+                return AssistantContext(
                     subject: "Email indisponível",
                     sender: "A mensagem saiu da caixa"
                 )
             }
             let count = store.conversation(of: messageID)?.count ?? 1
-            return LocalAssistantContext(
+            return AssistantContext(
                 subject: message.subject,
                 sender: message.from.display,
                 conversationLabel: count > 1 ? "\(count) mensagens" : nil
@@ -657,7 +657,7 @@ public struct InboxScreen: View {
 
     private var assistantPanel: some View {
         let scope = assistantScope
-        return LocalAssistantPanel(
+        return AssistantPanel(
             mode: scope.mode,
             context: assistantContext(for: scope),
             providerLabel: assistantProviderLabel,
@@ -692,7 +692,7 @@ public struct InboxScreen: View {
     }
 
     func askAssistant(
-        _ request: LocalAssistantRequest,
+        _ request: AssistantRequest,
         scope: InboxAssistantScope
     ) async throws -> String {
         guard let textAssistant else {
@@ -717,7 +717,7 @@ public struct InboxScreen: View {
             }
             mailContext = loaded
         }
-        return try await OnDeviceAssistantBridge.answer(
+        return try await AssistantBridge.answer(
             request,
             mailContext: mailContext,
             using: textAssistant

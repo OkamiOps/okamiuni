@@ -665,7 +665,7 @@ struct InboxAssistantIntegrationTests {
         await store.load()
         let assistant = RecordingIntegrationAssistant()
         let screen = InboxScreen(store: store, textAssistant: assistant)
-        let request = LocalAssistantRequest(
+        let request = AssistantRequest(
             context: .init(subject: "Ensaio"),
             question: "O que importa?",
             conversation: [.init(speaker: .user, text: "O que importa?")]
@@ -729,7 +729,7 @@ struct InboxAssistantIntegrationTests {
         store.select(message: "m1")
         let assistant = RecordingIntegrationAssistant()
         let screen = InboxScreen(store: store, textAssistant: assistant)
-        let request = LocalAssistantRequest(
+        let request = AssistantRequest(
             context: .init(subject: "Paid Consultation"),
             question: "Traduz e me resume",
             conversation: []
@@ -777,7 +777,7 @@ private struct MarkerMailSource: MailSource {
 
 private struct IntegrationAssistant: TextAssisting {
     let modelVersion = "integration"
-    func availability() async -> OnDeviceMessageAnalysisAvailability { .available }
+    func availability() async -> AppleIntelligenceAvailability { .available }
     func answer(
         question: String,
         in conversation: AssistantConversationSnapshot
@@ -793,7 +793,7 @@ private actor RecordingIntegrationAssistant: TextAssisting {
     nonisolated let modelVersion = "recording-integration"
     private var contexts: [AssistantMailContext] = []
 
-    func availability() async -> OnDeviceMessageAnalysisAvailability { .available }
+    func availability() async -> AppleIntelligenceAvailability { .available }
     func answer(
         question: String,
         in conversation: AssistantConversationSnapshot

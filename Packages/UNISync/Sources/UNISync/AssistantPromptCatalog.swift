@@ -35,11 +35,11 @@ public enum AssistantPromptCatalog {
     ) -> String {
         switch kind {
         case .questions:
-            FoundationModelsTextAssistantPrompt.answerInstructions(
+            AssistantPrompt.answerInstructions(
                 additionalInstructions: additionalInstructions
             )
         case .writing:
-            FoundationModelsTextAssistantPrompt.transformInstructions(
+            AssistantPrompt.transformInstructions(
                 additionalInstructions: additionalInstructions
             )
         }

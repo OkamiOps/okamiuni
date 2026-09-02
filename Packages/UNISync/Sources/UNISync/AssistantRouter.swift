@@ -55,7 +55,7 @@ public actor AssistantRouter: TextAssisting {
         self.cliRequestTimeout = min(max(cliRequestTimeout, 5), 120)
     }
 
-    public func availability() async -> OnDeviceMessageAnalysisAvailability {
+    public func availability() async -> AppleIntelligenceAvailability {
         let settings = settingsStore.snapshot()
         switch settings.provider {
         case .foundationModels:

@@ -338,7 +338,7 @@ struct AssistantProviderOAuthTests {
         #expect(input.contains("IGEL OS"))
         #expect(input.contains("Stratodesk"))
         #expect(input.contains("product portfolio"))
-        #expect(!input.contains(FoundationModelsTextAssistantPrompt.omittedMiddleMarker))
+        #expect(!input.contains(AssistantPrompt.omittedMiddleMarker))
     }
 
     @Test("xAI interrompe redirects antes de reutilizar o bearer")

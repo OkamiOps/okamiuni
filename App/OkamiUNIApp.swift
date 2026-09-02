@@ -52,7 +52,7 @@ struct OkamiUNIApp: App {
     @State private var accountsRehearsalModel = AccountsRehearsal.makeModel()
 
     private var composerIntelligence: ComposerIntelligenceGenerator {
-        OnDeviceAssistantBridge.composerGenerator(using: composition.textAssistant)
+        AssistantBridge.composerGenerator(using: composition.textAssistant)
     }
 
     init() {
@@ -325,7 +325,7 @@ struct OkamiUNIApp: App {
     }
 }
 
-private extension OnDeviceMessageAnalysisAvailability {
+private extension AppleIntelligenceAvailability {
     var presentation: IntelligencePresentation {
         switch self {
         case .available:

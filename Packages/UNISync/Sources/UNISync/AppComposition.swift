@@ -100,7 +100,7 @@ public struct AppComposition: Sendable {
     public let intelligence: MessageIntelligenceCoordinator?
     /// O estado que a lateral explica já na primeira janela, sem importar
     /// FoundationModels no shell.
-    public let intelligenceAvailability: OnDeviceMessageAnalysisAvailability
+    public let intelligenceAvailability: AppleIntelligenceAvailability
     /// Perguntas e transformações de texto usando o mesmo modelo local.
     /// É um roteador estável: cada pedido lê as preferências atuais e usa o
     /// modelo local ou o endpoint OpenAI-compatible escolhido. Existe também

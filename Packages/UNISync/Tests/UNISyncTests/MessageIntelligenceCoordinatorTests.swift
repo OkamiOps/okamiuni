@@ -73,7 +73,7 @@ struct MessageIntelligenceCoordinatorTests {
             duration: 45 * 60
         )
         let analyzer = AnalysisSpy(
-            result: OnDeviceMessageAnalysisResult(
+            result: MessageAnalysisResult(
                 summary: "Marina confirmou a revisão.",
                 detectedEvent: event,
                 modelVersion: "double-v1",
@@ -108,7 +108,7 @@ struct MessageIntelligenceCoordinatorTests {
         let database = try database()
         let analyzer = AnalysisSpy(
             availability: .appleIntelligenceNotEnabled,
-            result: OnDeviceMessageAnalysisResult(
+            result: MessageAnalysisResult(
                 summary: "não deve rodar", detectedEvent: nil, modelVersion: "double-v1"
             )
         )
@@ -142,7 +142,7 @@ struct MessageIntelligenceCoordinatorTests {
 
         let analyzer = AnalysisSpy(
             modelVersion: "double-v2-tldr",
-            result: OnDeviceMessageAnalysisResult(
+            result: MessageAnalysisResult(
                 summary: "Marina propõe revisar o assunto amanhã às 15h.",
                 detectedEvent: nil,
                 modelVersion: "double-v2-tldr"
@@ -194,54 +194,54 @@ struct MessageIntelligenceCoordinatorTests {
     }
 }
 
-private actor AnalysisSpy: OnDeviceMessageAnalyzing {
+private actor AnalysisSpy: MessageAnalyzing {
     nonisolated let modelVersion: String
-    private let currentAvailability: OnDeviceMessageAnalysisAvailability
-    private let result: OnDeviceMessageAnalysisResult
-    private var inputs: [OnDeviceMessageAnalysisInput] = []
+    private let currentAvailability: AppleIntelligenceAvailability
+    private let result: MessageAnalysisResult
+    private var inputs: [MessageAnalysisInput] = []
 
     init(
         modelVersion: String = "double-v1",
-        availability: OnDeviceMessageAnalysisAvailability = .available,
-        result: OnDeviceMessageAnalysisResult
+        availability: AppleIntelligenceAvailability = .available,
+        result: MessageAnalysisResult
     ) {
         self.modelVersion = modelVersion
         self.currentAvailability = availability
         self.result = result
     }
 
-    func availability() async -> OnDeviceMessageAnalysisAvailability {
+    func availability() async -> AppleIntelligenceAvailability {
         currentAvailability
     }
 
     func analyze(
-        _ input: OnDeviceMessageAnalysisInput
-    ) async throws -> OnDeviceMessageAnalysisResult {
+        _ input: MessageAnalysisInput
+    ) async throws -> MessageAnalysisResult {
         inputs.append(input)
         return result
     }
 
     func callCount() -> Int { inputs.count }
-    func lastInput() -> OnDeviceMessageAnalysisInput? { inputs.last }
+    func lastInput() -> MessageAnalysisInput? { inputs.last }
 }
 
-private actor OrderedBlockingAnalysisSpy: OnDeviceMessageAnalyzing {
+private actor OrderedBlockingAnalysisSpy: MessageAnalyzing {
     nonisolated let modelVersion = "ordered-v1"
-    private var inputs: [OnDeviceMessageAnalysisInput] = []
+    private var inputs: [MessageAnalysisInput] = []
     private var firstCallContinuation: CheckedContinuation<Void, Never>?
 
-    func availability() async -> OnDeviceMessageAnalysisAvailability { .available }
+    func availability() async -> AppleIntelligenceAvailability { .available }
 
     func analyze(
-        _ input: OnDeviceMessageAnalysisInput
-    ) async throws -> OnDeviceMessageAnalysisResult {
+        _ input: MessageAnalysisInput
+    ) async throws -> MessageAnalysisResult {
         inputs.append(input)
         if inputs.count == 1 {
             await withCheckedContinuation { continuation in
                 firstCallContinuation = continuation
             }
         }
-        return OnDeviceMessageAnalysisResult(
+        return MessageAnalysisResult(
             summary: "TL;DR de \(input.subject).",
             detectedEvent: nil,
             modelVersion: modelVersion

@@ -4,7 +4,7 @@ import UNICore
 
 /// Adaptador da API Foundation Models para a porta pura de UNICore.
 @available(macOS 26.0, *)
-public struct FoundationModelsMessageAnalyzer: OnDeviceMessageAnalyzing {
+public struct FoundationModelsMessageAnalyzer: MessageAnalyzing {
     /// Versão do esquema e das instruções deste adaptador — não uma alegação
     /// sobre a versão interna do modelo que o sistema mantém.
     public static let currentModelVersion = "foundation-models/message-analysis-v6-category"
@@ -23,7 +23,7 @@ public struct FoundationModelsMessageAnalyzer: OnDeviceMessageAnalyzing {
     /// O retrato síncrono que a composição usa antes de desenhar a primeira
     /// janela. `availability()` lê a mesma fonte em cada lote, então o motor
     /// ainda reage a uma mudança posterior sem duplicar esta tradução.
-    public static var systemAvailability: OnDeviceMessageAnalysisAvailability {
+    public static var systemAvailability: AppleIntelligenceAvailability {
         switch SystemLanguageModel.default.availability {
         case .available:
             return .available
@@ -38,14 +38,14 @@ public struct FoundationModelsMessageAnalyzer: OnDeviceMessageAnalyzing {
         }
     }
 
-    public func availability() async -> OnDeviceMessageAnalysisAvailability {
+    public func availability() async -> AppleIntelligenceAvailability {
         Self.systemAvailability
     }
 
-    public func analyze(_ input: OnDeviceMessageAnalysisInput) async throws -> OnDeviceMessageAnalysisResult {
+    public func analyze(_ input: MessageAnalysisInput) async throws -> MessageAnalysisResult {
         let currentAvailability = await availability()
         guard currentAvailability == .available else {
-            throw OnDeviceMessageAnalysisError.unavailable(currentAvailability)
+            throw MessageAnalysisError.unavailable(currentAvailability)
         }
 
         let model = SystemLanguageModel.default
@@ -53,7 +53,7 @@ public struct FoundationModelsMessageAnalyzer: OnDeviceMessageAnalyzing {
 
         do {
             return try await analyze(input, prompt: fullPrompt, model: model)
-        } catch let error as OnDeviceMessageAnalysisError {
+        } catch let error as MessageAnalysisError {
             throw error
         } catch is CancellationError {
             throw CancellationError()
@@ -66,28 +66,28 @@ public struct FoundationModelsMessageAnalyzer: OnDeviceMessageAnalyzing {
                   ),
                   fittedPrompt != fullPrompt
             else {
-                throw OnDeviceMessageAnalysisError.generationFailed(error.localizedDescription)
+                throw MessageAnalysisError.generationFailed(error.localizedDescription)
             }
 
             do {
                 return try await analyze(input, prompt: fittedPrompt, model: model)
-            } catch let error as OnDeviceMessageAnalysisError {
+            } catch let error as MessageAnalysisError {
                 throw error
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                throw OnDeviceMessageAnalysisError.generationFailed(error.localizedDescription)
+                throw MessageAnalysisError.generationFailed(error.localizedDescription)
             }
         } catch {
-            throw OnDeviceMessageAnalysisError.generationFailed(error.localizedDescription)
+            throw MessageAnalysisError.generationFailed(error.localizedDescription)
         }
     }
 
     private func analyze(
-        _ input: OnDeviceMessageAnalysisInput,
+        _ input: MessageAnalysisInput,
         prompt: String,
         model: SystemLanguageModel
-    ) async throws -> OnDeviceMessageAnalysisResult {
+    ) async throws -> MessageAnalysisResult {
         let options = GenerationOptions(maximumResponseTokens: Self.maximumResponseTokens)
         let session = LanguageModelSession(
             model: model,
@@ -104,7 +104,7 @@ public struct FoundationModelsMessageAnalyzer: OnDeviceMessageAnalyzing {
                 for: input,
                 modelVersion: modelVersion
             )
-        } catch OnDeviceMessageAnalysisError.invalidResponse {
+        } catch MessageAnalysisError.invalidResponse {
             // Uma segunda tentativa usa o mesmo conteúdo integral (ou o mesmo
             // trecho que coube na janela real) e uma sessão limpa, sem alterar
             // a instrução curta escolhida pela pessoa.
@@ -183,9 +183,9 @@ struct MessageAnalysisGeneratedOutput: Sendable, Equatable {
     }
 
     func analysis(
-        for input: OnDeviceMessageAnalysisInput,
+        for input: MessageAnalysisInput,
         modelVersion: String
-    ) throws -> OnDeviceMessageAnalysisResult {
+    ) throws -> MessageAnalysisResult {
         let summary = try MessageSummaryQuality.validated(self.summary, for: input)
 
         let event: DetectedEvent?
@@ -197,7 +197,7 @@ struct MessageAnalysisGeneratedOutput: Sendable, Equatable {
 
         let category = MailCategory(validatedModelValue: category)
 
-        return OnDeviceMessageAnalysisResult(
+        return MessageAnalysisResult(
             summary: summary,
             detectedEvent: event,
             modelVersion: modelVersion,
@@ -210,18 +210,18 @@ struct MessageAnalysisGeneratedOutput: Sendable, Equatable {
 
         let label = eventTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !label.isEmpty else {
-            throw OnDeviceMessageAnalysisError.invalidResponse("Compromisso sem título.")
+            throw MessageAnalysisError.invalidResponse("Compromisso sem título.")
         }
         guard eventYear >= 1, (1...12).contains(eventMonth), (1...31).contains(eventDay),
               (0...23).contains(eventHour), (0...59).contains(eventMinute),
               eventDurationMinutes >= 0
         else {
-            throw OnDeviceMessageAnalysisError.invalidResponse("Data, hora ou duração inválida.")
+            throw MessageAnalysisError.invalidResponse("Data, hora ou duração inválida.")
         }
 
         let durationSeconds = eventDurationMinutes.multipliedReportingOverflow(by: 60)
         guard !durationSeconds.overflow else {
-            throw OnDeviceMessageAnalysisError.invalidResponse("Duração inválida.")
+            throw MessageAnalysisError.invalidResponse("Duração inválida.")
         }
 
         var calendar = Calendar(identifier: .gregorian)
@@ -236,7 +236,7 @@ struct MessageAnalysisGeneratedOutput: Sendable, Equatable {
             minute: eventMinute
         )
         guard let start = calendar.date(from: components) else {
-            throw OnDeviceMessageAnalysisError.invalidResponse("Data de compromisso inválida.")
+            throw MessageAnalysisError.invalidResponse("Data de compromisso inválida.")
         }
 
         let normalized = calendar.dateComponents(
@@ -246,7 +246,7 @@ struct MessageAnalysisGeneratedOutput: Sendable, Equatable {
               normalized.day == eventDay, normalized.hour == eventHour,
               normalized.minute == eventMinute
         else {
-            throw OnDeviceMessageAnalysisError.invalidResponse("Data de compromisso inválida.")
+            throw MessageAnalysisError.invalidResponse("Data de compromisso inválida.")
         }
 
         return DetectedEvent(
@@ -274,16 +274,16 @@ enum MessageSummaryQuality {
 
     static func validated(
         _ rawSummary: String,
-        for input: OnDeviceMessageAnalysisInput
+        for input: MessageAnalysisInput
     ) throws -> String {
         let summary = rawSummary
             .split(whereSeparator: { $0.isWhitespace })
             .joined(separator: " ")
         guard !summary.isEmpty else {
-            throw OnDeviceMessageAnalysisError.invalidResponse("Resumo vazio.")
+            throw MessageAnalysisError.invalidResponse("Resumo vazio.")
         }
         guard summary.count <= maximumCharacters else {
-            throw OnDeviceMessageAnalysisError.invalidResponse("O TL;DR ficou longo demais.")
+            throw MessageAnalysisError.invalidResponse("O TL;DR ficou longo demais.")
         }
 
         // Um corpo com conteúdo suficiente não pode virar só uma saudação ou
@@ -298,7 +298,7 @@ enum MessageSummaryQuality {
         guard bodyLength < substantialBodyCharacters
                 || summary.count >= minimumSummaryCharactersForSubstantialBody
         else {
-            throw OnDeviceMessageAnalysisError.invalidResponse(
+            throw MessageAnalysisError.invalidResponse(
                 "O TL;DR ficou curto demais para o conteúdo disponível."
             )
         }
@@ -307,14 +307,14 @@ enum MessageSummaryQuality {
         guard !receiptMetadataPatterns.contains(where: {
             normalizedSummary.range(of: $0, options: .regularExpression) != nil
         }) else {
-            throw OnDeviceMessageAnalysisError.invalidResponse(
+            throw MessageAnalysisError.invalidResponse(
                 "O TL;DR descreve apenas metadados da mensagem."
             )
         }
 
         let normalizedSubject = normalized(input.subject)
         guard normalizedSubject.isEmpty || normalizedSummary != normalizedSubject else {
-            throw OnDeviceMessageAnalysisError.invalidResponse(
+            throw MessageAnalysisError.invalidResponse(
                 "O TL;DR apenas repetiu o assunto."
             )
         }
@@ -355,7 +355,7 @@ enum MessageAnalysisEventEvidence {
 
     static func supports(
         _ output: MessageAnalysisGeneratedOutput,
-        input: OnDeviceMessageAnalysisInput
+        input: MessageAnalysisInput
     ) -> Bool {
         let source = input.subject + "\n" + input.body
         guard datePatterns.contains(where: { contains($0, in: source) }) else { return false }
@@ -458,11 +458,11 @@ enum MessageAnalysisPrompt {
 
     static let repairInstructions = instructions
 
-    static func make(for input: OnDeviceMessageAnalysisInput) -> String {
+    static func make(for input: MessageAnalysisInput) -> String {
         make(for: input, body: input.body)
     }
 
-    static func make(for input: OnDeviceMessageAnalysisInput, body: String) -> String {
+    static func make(for input: MessageAnalysisInput, body: String) -> String {
         """
         subject: \(input.subject)
         sender: \(input.sender)
@@ -480,7 +480,7 @@ enum MessageAnalysisPrompt {
     /// público, ou se a medição falhar, não inventamos um novo teto.
     @available(macOS 26.0, *)
     static func makeFittingContext(
-        for input: OnDeviceMessageAnalysisInput,
+        for input: MessageAnalysisInput,
         model: SystemLanguageModel,
         maximumResponseTokens: Int
     ) async -> String? {
@@ -515,7 +515,7 @@ enum MessageAnalysisPrompt {
     /// conversão chars→tokens nem número mágico: quem decide é o contador
     /// fornecido pelo modelo.
     static func largestBodyPrefix(
-        for input: OnDeviceMessageAnalysisInput,
+        for input: MessageAnalysisInput,
         maximumPromptTokens: Int,
         tokenCount: (String) async throws -> Int
     ) async rethrows -> String {

@@ -97,7 +97,7 @@ public struct OpenAICompatibleTextAssistant: TextAssisting, Sendable {
         modelVersion = "openai-compatible/\(self.configuration.model)"
     }
 
-    public func availability() async -> OnDeviceMessageAnalysisAvailability { .available }
+    public func availability() async -> AppleIntelligenceAvailability { .available }
 
     public func answer(
         question: String,
@@ -105,10 +105,10 @@ public struct OpenAICompatibleTextAssistant: TextAssisting, Sendable {
     ) async throws -> String {
         let question = try FoundationModelsTextAssistantValidation.question(question)
         let response = try await complete(
-            systemInstructions: FoundationModelsTextAssistantPrompt.answerInstructions(
+            systemInstructions: AssistantPrompt.answerInstructions(
                 additionalInstructions: additionalInstructions
             ),
-            prompt: FoundationModelsTextAssistantPrompt.answer(
+            prompt: AssistantPrompt.answer(
                 question: question,
                 conversation: conversation,
                 budget: .configured
@@ -128,10 +128,10 @@ public struct OpenAICompatibleTextAssistant: TextAssisting, Sendable {
             context: context
         )
         let response = try await complete(
-            systemInstructions: FoundationModelsTextAssistantPrompt.transformInstructions(
+            systemInstructions: AssistantPrompt.transformInstructions(
                 additionalInstructions: additionalInstructions
             ),
-            prompt: FoundationModelsTextAssistantPrompt.transform(
+            prompt: AssistantPrompt.transform(
                 text: text,
                 action: action,
                 context: context,

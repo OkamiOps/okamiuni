@@ -25,11 +25,11 @@ public struct FoundationModelsTextAssistant: TextAssisting {
 
     /// Usa a mesma tradução de disponibilidade já usada pela análise local de
     /// mensagens. Assim ambos os recursos reagem ao mesmo estado do sistema.
-    public static var systemAvailability: OnDeviceMessageAnalysisAvailability {
+    public static var systemAvailability: AppleIntelligenceAvailability {
         FoundationModelsMessageAnalyzer.systemAvailability
     }
 
-    public func availability() async -> OnDeviceMessageAnalysisAvailability {
+    public func availability() async -> AppleIntelligenceAvailability {
         Self.systemAvailability
     }
 
@@ -42,14 +42,14 @@ public struct FoundationModelsTextAssistant: TextAssisting {
 
         let session = LanguageModelSession(
             model: .default,
-            instructions: FoundationModelsTextAssistantPrompt.answerInstructions(
+            instructions: AssistantPrompt.answerInstructions(
                 additionalInstructions: additionalInstructions
             )
         )
 
         do {
             let response = try await session.respond(
-                to: FoundationModelsTextAssistantPrompt.answer(
+                to: AssistantPrompt.answer(
                     question: question,
                     conversation: conversation,
                     budget: .onDevice
@@ -79,13 +79,13 @@ public struct FoundationModelsTextAssistant: TextAssisting {
 
         let session = LanguageModelSession(
             model: .default,
-            instructions: FoundationModelsTextAssistantPrompt.transformInstructions(
+            instructions: AssistantPrompt.transformInstructions(
                 additionalInstructions: additionalInstructions
             )
         )
 
         do {
-            let response = try await session.respond(to: FoundationModelsTextAssistantPrompt.transform(
+            let response = try await session.respond(to: AssistantPrompt.transform(
                 text: text,
                 action: action,
                 context: context,
@@ -162,7 +162,7 @@ enum FoundationModelsTextAssistantValidation {
 }
 
 /// Construção de prompt separada da geração para testes determinísticos.
-enum FoundationModelsTextAssistantPrompt {
+enum AssistantPrompt {
     static let maximumQuestionCharacters = 2_000
     static let maximumTextCharacters = 8_000
     static let maximumEmails = 8
@@ -195,9 +195,9 @@ enum FoundationModelsTextAssistantPrompt {
         var maximumHistoryTurns: Int
 
         static let onDevice = Budget(
-            maximumBodyCharacters: FoundationModelsTextAssistantPrompt.maximumTextCharacters,
-            maximumEmails: FoundationModelsTextAssistantPrompt.maximumEmails,
-            maximumHistoryTurns: FoundationModelsTextAssistantPrompt.maximumHistoryTurns
+            maximumBodyCharacters: AssistantPrompt.maximumTextCharacters,
+            maximumEmails: AssistantPrompt.maximumEmails,
+            maximumHistoryTurns: AssistantPrompt.maximumHistoryTurns
         )
 
         static let configured = Budget(

@@ -12,7 +12,7 @@ import os
 public actor MessageIntelligenceCoordinator {
     private let database: SyncDatabase
     private let store: MessageIntelligenceStore
-    private let analyzer: any OnDeviceMessageAnalyzing
+    private let analyzer: any MessageAnalyzing
     private let timeZone: @Sendable () -> TimeZone
     private var observationTask: Task<Void, Never>?
     /// A mensagem que a pessoa está lendo fura a fila histórica. Guardamos
@@ -30,7 +30,7 @@ public actor MessageIntelligenceCoordinator {
 
     public init(
         database: SyncDatabase,
-        analyzer: any OnDeviceMessageAnalyzing,
+        analyzer: any MessageAnalyzing,
         timeZone: @Sendable @escaping () -> TimeZone = { .current }
     ) {
         self.database = database
@@ -121,7 +121,7 @@ public actor MessageIntelligenceCoordinator {
                     ? work.fromAddress
                     : "\(work.fromName) <\(work.fromAddress)>"
                 let result = try await analyzer.analyze(
-                    OnDeviceMessageAnalysisInput(
+                    MessageAnalysisInput(
                         subject: work.subject,
                         sender: sender,
                         receivedAt: work.receivedAt,
@@ -139,7 +139,7 @@ public actor MessageIntelligenceCoordinator {
                 if saved { completed += 1 }
             } catch is CancellationError {
                 break
-            } catch OnDeviceMessageAnalysisError.unavailable {
+            } catch MessageAnalysisError.unavailable {
                 // O estado `processing` é retomável na próxima abertura ou
                 // mudança do banco. Marcar como falha tornaria uma condição
                 // global temporária permanente para esta mensagem.

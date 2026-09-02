@@ -68,7 +68,7 @@ public struct ReaderPane: View {
     /// não uma configuração global.
     let intelligencePresentation: IntelligencePresentation
     let onOpenAssistant: () -> Void
-    let onAskAssistant: ((String, LocalAssistantRequest) async throws -> String)?
+    let onAskAssistant: ((String, AssistantRequest) async throws -> String)?
     /// A mensagem visível deve saltar a fila de resumos históricos. O app
     /// injeta a coordenação real; previews e testes podem deixar a porta vazia.
     let onMessagePresented: (String) -> Void
@@ -143,7 +143,7 @@ public struct ReaderPane: View {
         intelligence: ComposerIntelligenceGenerator? = nil,
         intelligencePresentation: IntelligencePresentation = .available,
         onOpenAssistant: @escaping () -> Void = {},
-        onAskAssistant: ((String, LocalAssistantRequest) async throws -> String)? = nil,
+        onAskAssistant: ((String, AssistantRequest) async throws -> String)? = nil,
         onMessagePresented: @escaping (String) -> Void = { _ in },
         onEmailAssistantOpenChange: @escaping (Bool) -> Void = { _ in }
     ) {
@@ -171,7 +171,7 @@ public struct ReaderPane: View {
         intelligence: ComposerIntelligenceGenerator? = nil,
         intelligencePresentation: IntelligencePresentation = .available,
         onOpenAssistant: @escaping () -> Void = {},
-        onAskAssistant: ((String, LocalAssistantRequest) async throws -> String)? = nil,
+        onAskAssistant: ((String, AssistantRequest) async throws -> String)? = nil,
         onMessagePresented: @escaping (String) -> Void = { _ in },
         onEmailAssistantOpenChange: @escaping (Bool) -> Void = { _ in }
     ) {
@@ -833,9 +833,9 @@ public struct ReaderPane: View {
         )
     }
 
-    private func assistantContext(_ message: Message) -> LocalAssistantContext {
+    private func assistantContext(_ message: Message) -> AssistantContext {
         let count = store.conversation(of: message.id)?.count ?? 1
-        return LocalAssistantContext(
+        return AssistantContext(
             subject: message.subject,
             sender: message.from.display,
             conversationLabel: count > 1 ? "\(count) mensagens" : nil

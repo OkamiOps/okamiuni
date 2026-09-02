@@ -70,7 +70,7 @@ public struct MessageWindow: View {
             }
 
             if assistantOpen, let message {
-                LocalAssistantPanel(
+                AssistantPanel(
                     context: localContext(for: message),
                     providerLabel: assistantProviderLabel,
                     onAsk: askAssistant,
@@ -250,9 +250,9 @@ public struct MessageWindow: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func localContext(for message: Message) -> LocalAssistantContext {
+    private func localContext(for message: Message) -> AssistantContext {
         let count = store.conversation(of: message.id)?.count ?? 1
-        return LocalAssistantContext(
+        return AssistantContext(
             subject: message.subject,
             sender: message.from.display,
             conversationLabel: count > 1 ? "\(count) mensagens" : nil
@@ -263,7 +263,7 @@ public struct MessageWindow: View {
         withAnimation(.easeInOut(duration: 0.18)) { assistantOpen = false }
     }
 
-    private func askAssistant(_ request: LocalAssistantRequest) async throws -> String {
+    private func askAssistant(_ request: AssistantRequest) async throws -> String {
         guard let textAssistant else {
             throw TextAssistantError.invalidRequest(
                 "O assistente local não foi conectado a esta janela."
@@ -278,7 +278,7 @@ public struct MessageWindow: View {
                 "O email selecionado não está mais disponível."
             )
         }
-        return try await OnDeviceAssistantBridge.answer(
+        return try await AssistantBridge.answer(
             request,
             mailContext: mailContext,
             using: textAssistant

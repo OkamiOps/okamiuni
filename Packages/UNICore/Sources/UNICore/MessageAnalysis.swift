@@ -5,7 +5,7 @@ import Foundation
 /// O fuso é parte da entrada porque expressões como "amanhã às 15h" só têm
 /// significado quando são interpretadas contra a data de recebimento no fuso
 /// da pessoa, e não contra o relógio de quem estiver rodando o processo.
-public struct OnDeviceMessageAnalysisInput: Sendable, Hashable {
+public struct MessageAnalysisInput: Sendable, Hashable {
     public let subject: String
     public let sender: String
     public let receivedAt: Date
@@ -32,7 +32,7 @@ public struct OnDeviceMessageAnalysisInput: Sendable, Hashable {
 /// `modelVersion` identifica a política e o esquema que produziram o dado.
 /// A API do sistema não expõe a versão interna do modelo Apple; por isso o
 /// adaptador versiona a sua própria fronteira de saída sem inventar esse dado.
-public struct OnDeviceMessageAnalysisResult: Sendable, Hashable {
+public struct MessageAnalysisResult: Sendable, Hashable {
     public let summary: String
     public let detectedEvent: DetectedEvent?
     /// Categoria fechada devolvida pelo modelo; `nil` quando a resposta veio
@@ -54,7 +54,7 @@ public struct OnDeviceMessageAnalysisResult: Sendable, Hashable {
 }
 
 /// Os motivos que a interface pode explicar sem importar FoundationModels.
-public enum OnDeviceMessageAnalysisAvailability: Sendable, Hashable {
+public enum AppleIntelligenceAvailability: Sendable, Hashable {
     case available
     case deviceNotEligible
     case appleIntelligenceNotEnabled
@@ -66,8 +66,8 @@ public enum OnDeviceMessageAnalysisAvailability: Sendable, Hashable {
 }
 
 /// Falhas da fronteira de análise, separadas do estado de disponibilidade.
-public enum OnDeviceMessageAnalysisError: Error, Sendable, Equatable, LocalizedError {
-    case unavailable(OnDeviceMessageAnalysisAvailability)
+public enum MessageAnalysisError: Error, Sendable, Equatable, LocalizedError {
+    case unavailable(AppleIntelligenceAvailability)
     case invalidResponse(String)
     case generationFailed(String)
 
@@ -93,9 +93,9 @@ public enum OnDeviceMessageAnalysisError: Error, Sendable, Equatable, LocalizedE
 ///
 /// Implementações ficam fora de UNICore para que este pacote continue usando
 /// apenas Foundation e Observation.
-public protocol OnDeviceMessageAnalyzing: Sendable {
+public protocol MessageAnalyzing: Sendable {
     var modelVersion: String { get }
 
-    func availability() async -> OnDeviceMessageAnalysisAvailability
-    func analyze(_ input: OnDeviceMessageAnalysisInput) async throws -> OnDeviceMessageAnalysisResult
+    func availability() async -> AppleIntelligenceAvailability
+    func analyze(_ input: MessageAnalysisInput) async throws -> MessageAnalysisResult
 }

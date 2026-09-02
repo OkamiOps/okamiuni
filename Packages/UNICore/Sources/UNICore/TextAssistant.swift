@@ -218,7 +218,7 @@ public enum WritingAction: Sendable, Hashable {
 
 /// Falhas que a interface pode apresentar sem importar FoundationModels.
 public enum TextAssistantError: Error, Sendable, Equatable, LocalizedError {
-    case unavailable(OnDeviceMessageAnalysisAvailability)
+    case unavailable(AppleIntelligenceAvailability)
     case invalidRequest(String)
     case emptyResponse
     case generationFailed(String)
@@ -250,7 +250,7 @@ public enum TextAssistantError: Error, Sendable, Equatable, LocalizedError {
 public protocol TextAssisting: Sendable {
     var modelVersion: String { get }
 
-    func availability() async -> OnDeviceMessageAnalysisAvailability
+    func availability() async -> AppleIntelligenceAvailability
     func answer(
         question: String,
         in conversation: AssistantConversationSnapshot

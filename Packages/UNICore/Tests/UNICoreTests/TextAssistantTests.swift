@@ -68,7 +68,7 @@ struct TextAssistantTests {
 private struct TextAssistantDouble: TextAssisting {
     let modelVersion = "double-v1"
 
-    func availability() async -> OnDeviceMessageAnalysisAvailability { .available }
+    func availability() async -> AppleIntelligenceAvailability { .available }
 
     func answer(
         question: String,

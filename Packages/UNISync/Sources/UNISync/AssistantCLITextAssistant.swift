@@ -463,7 +463,7 @@ public struct AssistantCLITextAssistant: TextAssisting, Sendable {
         modelVersion = "cli/\(command.kind.rawValue)"
     }
 
-    public func availability() async -> OnDeviceMessageAnalysisAvailability { .available }
+    public func availability() async -> AppleIntelligenceAvailability { .available }
 
     public func answer(
         question: String,
@@ -471,10 +471,10 @@ public struct AssistantCLITextAssistant: TextAssisting, Sendable {
     ) async throws -> String {
         let question = try FoundationModelsTextAssistantValidation.question(question)
         return try await complete(
-            systemInstructions: FoundationModelsTextAssistantPrompt.answerInstructions(
+            systemInstructions: AssistantPrompt.answerInstructions(
                 additionalInstructions: additionalInstructions
             ),
-            prompt: FoundationModelsTextAssistantPrompt.answer(
+            prompt: AssistantPrompt.answer(
                 question: question,
                 conversation: conversation,
                 budget: .configured
@@ -493,10 +493,10 @@ public struct AssistantCLITextAssistant: TextAssisting, Sendable {
             context: context
         )
         return try await complete(
-            systemInstructions: FoundationModelsTextAssistantPrompt.transformInstructions(
+            systemInstructions: AssistantPrompt.transformInstructions(
                 additionalInstructions: additionalInstructions
             ),
-            prompt: FoundationModelsTextAssistantPrompt.transform(
+            prompt: AssistantPrompt.transform(
                 text: text,
                 action: action,
                 context: context,

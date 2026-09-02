@@ -3,13 +3,13 @@ import Testing
 @testable import UNICore
 
 @Suite("Contrato da análise no dispositivo")
-struct OnDeviceMessageAnalysisTests {
+struct MessageAnalysisTests {
     private let receivedAt = Date(timeIntervalSince1970: 1_788_000_000)
     private let timeZone = TimeZone(identifier: "America/Sao_Paulo")!
 
     @Test("A entrada preserva as âncoras factuais da mensagem")
     func inputPreservesMessageAnchors() {
-        let input = OnDeviceMessageAnalysisInput(
+        let input = MessageAnalysisInput(
             subject: "Reunião de produto",
             sender: "Marina <marina@example.com>",
             receivedAt: receivedAt,
@@ -31,7 +31,7 @@ struct OnDeviceMessageAnalysisTests {
             start: receivedAt,
             duration: 30 * 60
         )
-        let result = OnDeviceMessageAnalysisResult(
+        let result = MessageAnalysisResult(
             summary: "Marina propõe uma reunião de produto.",
             detectedEvent: event,
             modelVersion: "foundation-models/message-analysis-v1",
@@ -47,7 +47,7 @@ struct OnDeviceMessageAnalysisTests {
     @Test("A porta pode ser consultada e executada de forma assíncrona")
     func asynchronousPort() async throws {
         let analyzer = AnalysisDouble()
-        let input = OnDeviceMessageAnalysisInput(
+        let input = MessageAnalysisInput(
             subject: "Recibo",
             sender: "Loja <vendas@example.com>",
             receivedAt: receivedAt,
@@ -64,20 +64,20 @@ struct OnDeviceMessageAnalysisTests {
 
     @Test("Os estados indisponíveis são explícitos")
     func availabilityStatesAreNotCollapsed() {
-        #expect(OnDeviceMessageAnalysisAvailability.available.isAvailable)
-        #expect(!OnDeviceMessageAnalysisAvailability.deviceNotEligible.isAvailable)
-        #expect(!OnDeviceMessageAnalysisAvailability.appleIntelligenceNotEnabled.isAvailable)
-        #expect(!OnDeviceMessageAnalysisAvailability.modelNotReady.isAvailable)
+        #expect(AppleIntelligenceAvailability.available.isAvailable)
+        #expect(!AppleIntelligenceAvailability.deviceNotEligible.isAvailable)
+        #expect(!AppleIntelligenceAvailability.appleIntelligenceNotEnabled.isAvailable)
+        #expect(!AppleIntelligenceAvailability.modelNotReady.isAvailable)
     }
 }
 
-private struct AnalysisDouble: OnDeviceMessageAnalyzing {
+private struct AnalysisDouble: MessageAnalyzing {
     let modelVersion = "double-v1"
 
-    func availability() async -> OnDeviceMessageAnalysisAvailability { .available }
+    func availability() async -> AppleIntelligenceAvailability { .available }
 
-    func analyze(_ input: OnDeviceMessageAnalysisInput) async throws -> OnDeviceMessageAnalysisResult {
-        OnDeviceMessageAnalysisResult(
+    func analyze(_ input: MessageAnalysisInput) async throws -> MessageAnalysisResult {
+        MessageAnalysisResult(
             summary: input.body,
             detectedEvent: nil,
             modelVersion: modelVersion
