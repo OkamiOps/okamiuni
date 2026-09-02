@@ -160,8 +160,25 @@ struct CorpoLegivelTests {
         // caracteres de URL.
         #expect(primeiro?.trechos.count == 2)
         #expect(primeiro?.trechos.first?.texto == "Send your first email ")
-        #expect(primeiro?.trechos.last?.texto == "resend.com")
+        // Os três links são do mesmo domínio e vão para lugares diferentes: o
+        // rótulo ganha o primeiro trecho do caminho, senão sairiam três
+        // "resend.com" idênticos — foi o que a primeira renderização mostrou.
+        #expect(primeiro?.trechos.last?.texto == "resend.com/onboarding")
         #expect(primeiro?.trechos.last?.destino?.absoluteString == "https://resend.com/onboarding")
+        let rotulos = listas.first?.itens.compactMap { $0.trechos.last?.texto }
+        #expect(rotulos == ["resend.com/onboarding", "resend.com/domains", "resend.com/docs"])
+    }
+
+    @Test("um link sozinho continua sendo só o domínio")
+    func linkSozinhoNaoGanhaCaminho() {
+        let corpo = CorpoLegivel.deTextoSimples(
+            "Veja em https://resend.com/onboarding e me diga."
+        )
+        guard case let .paragrafo(paragrafo) = corpo.blocos.first else {
+            Issue.record("era para ser um parágrafo")
+            return
+        }
+        #expect(paragrafo.trechos[1].texto == "resend.com")
     }
 
     @Test("URL crua no meio da frase vira link com o domínio por rótulo")

@@ -226,14 +226,14 @@ public struct CorpoLegivel: Equatable, Sendable {
 
         var eventos = corpo.map(evento(deLinha:))
         eventos += dobras.map { Evento.dobra($0.genero, $0.texto) }
-        return CorpoLegivel(blocos: monta(eventos))
+        return CorpoLegivel(blocos: desambigua(monta(eventos)))
     }
 
     // MARK: HTML
 
     public static func deHTML(_ html: String) -> CorpoLegivel {
         let eventos = aplicaCortes(LeitorDeHTML.eventos(de: html))
-        return CorpoLegivel(blocos: monta(eventos))
+        return CorpoLegivel(blocos: desambigua(monta(eventos)))
     }
 }
 
@@ -499,6 +499,80 @@ extension CorpoLegivel {
     static func rotulo(de url: URL) -> String {
         guard let host = url.host, !host.isEmpty else { return url.absoluteString }
         return host.lowercased().hasPrefix("www.") ? String(host.dropFirst(4)) : host
+    }
+
+    /// Três links "resend.com" seguidos, cada um para um lugar diferente.
+    ///
+    /// Foi o que a primeira renderização da newsletter mostrou, e é um defeito
+    /// de leitura, não de estilo: rótulos idênticos para destinos diferentes
+    /// obrigam a passar o mouse em cada um para saber qual é qual — que é
+    /// exatamente o trabalho que esta peça existe para poupar.
+    ///
+    /// Quando o mesmo domínio aparece com destinos diferentes **no mesmo
+    /// corpo**, o primeiro trecho do caminho entra no rótulo. Um link sozinho
+    /// continua sendo só o domínio: acrescentar caminho onde não há confusão é
+    /// alongar sem informar.
+    static func desambigua(_ blocos: [BlocoDeCorpo]) -> [BlocoDeCorpo] {
+        var porHost: [String: Set<String>] = [:]
+        percorre(blocos) { trecho in
+            guard let destino = trecho.destino, trecho.texto == rotulo(de: destino) else { return }
+            porHost[rotulo(de: destino), default: []].insert(destino.absoluteString)
+        }
+        let ambiguos = Set(porHost.filter { $0.value.count > 1 }.keys)
+        guard !ambiguos.isEmpty else { return blocos }
+
+        return mapeia(blocos) { trecho in
+            guard let destino = trecho.destino,
+                  trecho.texto == rotulo(de: destino),
+                  ambiguos.contains(trecho.texto),
+                  let primeiro = destino.pathComponents.first(where: { $0 != "/" && !$0.isEmpty })
+            else { return trecho }
+            let curto = primeiro.count > 24 ? String(primeiro.prefix(24)) + "…" : primeiro
+            return Trecho(
+                id: trecho.id, texto: "\(trecho.texto)/\(curto)", destino: destino,
+                forte: trecho.forte, italico: trecho.italico
+            )
+        }
+    }
+
+    private static func percorre(_ blocos: [BlocoDeCorpo], _ visita: (Trecho) -> Void) {
+        for bloco in blocos {
+            switch bloco {
+            case let .paragrafo(p): p.trechos.forEach(visita)
+            case let .lista(l): l.itens.forEach { $0.trechos.forEach(visita) }
+            case let .campos(c): c.pares.forEach { $0.valor.forEach(visita) }
+            case .dobra: break
+            }
+        }
+    }
+
+    private static func mapeia(
+        _ blocos: [BlocoDeCorpo], _ troca: (Trecho) -> Trecho
+    ) -> [BlocoDeCorpo] {
+        blocos.map { bloco in
+            switch bloco {
+            case let .paragrafo(p):
+                .paragrafo(Paragrafo(id: p.id, trechos: p.trechos.map(troca), nivel: p.nivel))
+            case let .lista(l):
+                .lista(
+                    Lista(
+                        id: l.id, ordenada: l.ordenada,
+                        itens: l.itens.map {
+                            ItemDeLista(id: $0.id, marcador: $0.marcador, trechos: $0.trechos.map(troca))
+                        }
+                    )
+                )
+            case let .campos(c):
+                .campos(
+                    Campos(
+                        id: c.id,
+                        pares: c.pares.map { Campo(id: $0.id, chave: $0.chave, valor: $0.valor.map(troca)) }
+                    )
+                )
+            case .dobra:
+                bloco
+            }
+        }
     }
 }
 
