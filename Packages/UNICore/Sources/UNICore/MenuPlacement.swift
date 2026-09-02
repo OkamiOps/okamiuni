@@ -182,7 +182,7 @@ public enum MenuKeyNavigation {
         case .submenu(_, let children): !children.isEmpty
         // Legenda é texto de cabeçalho: as setas passam por cima dela como
         // passam por cima de um traço.
-        case .separator, .legenda: false
+        case .separator, .legenda, .aviso: false
         }
     }
 

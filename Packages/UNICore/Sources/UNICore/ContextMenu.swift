@@ -256,6 +256,11 @@ public enum ContextMenuEntry: Sendable, Hashable {
     /// falhou, e o painel o desenha em `ink4` com o balão do porquê. Legenda é
     /// texto de cabeçalho, e é assim que `ContextMenuPanel` a pinta.
     case legenda(String)
+    /// A legenda que **avisa** — domínio disfarçado, no menu do link. Caso
+    /// próprio, e não uma legenda com texto assustador, porque a diferença é de
+    /// desenho: o painel a pinta na tinta de alerta do tema. Uma linha de aviso
+    /// com a cor de uma legenda comum é a mesma coisa que não avisar.
+    case aviso(String)
 
     public var isSeparator: Bool {
         if case .separator = self { return true }
@@ -268,7 +273,7 @@ public enum ContextMenuEntry: Sendable, Hashable {
         switch self {
         case .item(let item): item.title
         case .submenu(let title, _): title
-        case .legenda(let texto): texto
+        case .legenda(let texto), .aviso(let texto): texto
         case .separator: nil
         }
     }

@@ -163,6 +163,22 @@ struct LinkDoCorpoTests {
             == [.abrirLink(url: b), .copy(b.absoluteString)])
     }
 
+    /// Duas linhas com o mesmo rótulo é um menu em que se clica na sorte — e
+    /// era o que saía com `https://resend.com/docs` ao lado de
+    /// `mailto:zeno@resend.com`.
+    @Test("links do mesmo anfitrião não viram duas linhas iguais")
+    func menuDesempata() throws {
+        let site = try #require(URL(string: "https://resend.com/docs"))
+        let correio = try #require(URL(string: "mailto:zeno@resend.com"))
+        let outraPagina = try #require(URL(string: "https://resend.com/onboarding"))
+        let titulos = LinkDoCorpo.menu(
+            links: [site, correio, outraPagina], textoDoBloco: ""
+        ).titles
+        #expect(Set(titulos).count == titulos.count, "nenhum rótulo se repete: \(titulos)")
+        #expect(titulos.contains("mailto:zeno@resend.com"))
+        #expect(titulos.contains("https://resend.com/docs"))
+    }
+
     @Test("link repetido não repete linha")
     func menuSemRepeticao() throws {
         let url = try #require(URL(string: "https://resend.com/docs"))
@@ -193,6 +209,26 @@ struct LinkDoCorpoTests {
         let entradas = LinkDoCorpo.menu(links: [url], textoDoBloco: "")
         #expect(entradas.first?.isSeparator == false)
         #expect(entradas.last?.isSeparator == false)
+    }
+
+    // MARK: - A partir do que está desenhado
+
+    @Test("os trechos de uma linha viram o menu daquela linha")
+    func menuDeTrechos() throws {
+        let url = try #require(URL(string: "https://resend.com/onboarding"))
+        let trechos = [
+            Trecho(id: 0, texto: "1. Envie o primeiro email "),
+            Trecho(id: 1, texto: "resend.com", destino: url),
+        ]
+        let entradas = LinkDoCorpo.menu(trechos: trechos)
+        #expect(entradas.titles.first == "Vai para resend.com")
+        #expect(entradas.commands.contains(.abrirLink(url: url)))
+        #expect(entradas.commands.contains(.copy("1. Envie o primeiro email resend.com")))
+    }
+
+    @Test("linha sem link não abre menu nenhum")
+    func trechosSemLink() {
+        #expect(LinkDoCorpo.menu(trechos: [Trecho(texto: "Só prosa.")]).isEmpty)
     }
 
     // MARK: - A legenda não é item

@@ -324,18 +324,12 @@ public enum LinkDoCorpo {
             entradas.append(.legenda(
                 "Vai para " + anfitriaoCurto(anfitriao, limite: limiteDoAnfitriaoNoMenu)
             ))
-            if let aviso = destino.aviso { entradas.append(.legenda(aviso)) }
+            if let aviso = destino.aviso { entradas.append(.aviso(aviso)) }
             entradas.append(contentsOf: acoes(url).map(ContextMenuEntry.item))
         } else {
             entradas.append(.legenda("\(abriveis.count) links neste trecho"))
-            for url in abriveis {
-                let destino = destino(de: url)
-                let titulo = destino.map { $0.anfitriao.isEmpty ? $0.porExtenso : $0.anfitriao }
-                    ?? url.absoluteString
-                entradas.append(.submenu(
-                    title: anfitriaoCurto(titulo, limite: limiteDoAnfitriaoNoMenu),
-                    items: acoes(url)
-                ))
+            for (url, titulo) in rotulos(de: abriveis) {
+                entradas.append(.submenu(title: titulo, items: acoes(url)))
             }
         }
 
@@ -345,6 +339,55 @@ public enum LinkDoCorpo {
             entradas.append(.item(ContextMenuItem("Copiar o texto do trecho", .copy(texto))))
         }
         return entradas.tidied
+    }
+
+    /// O mesmo menu, a partir dos trechos de uma linha do corpo — que é como o
+    /// desenho fala.
+    ///
+    /// Mora aqui, e não na `View`, pela regra de sempre: decisão de conteúdo de
+    /// menu é dado, e dado tem teste sem janela.
+    public static func menu(trechos: [Trecho]) -> [ContextMenuEntry] {
+        menu(
+            links: trechos.compactMap(\.destino),
+            textoDoBloco: trechos.map(\.texto).joined()
+        )
+    }
+
+    /// O rótulo de cada link quando há mais de um.
+    ///
+    /// O anfitrião sozinho seria o rótulo ideal — é o que importa —, mas dois
+    /// links do mesmo trecho podem ter o **mesmo** anfitrião:
+    /// `https://resend.com/docs` e `mailto:zeno@resend.com` sairiam como duas
+    /// linhas idênticas, e um menu com duas linhas iguais é um menu em que se
+    /// clica na sorte. Medido na captura de três links desta tarefa.
+    ///
+    /// Então: anfitrião quando ele **identifica**; endereço por extenso quando
+    /// ele não identifica, ou quando o esquema não é de navegador — um `mailto:`
+    /// diz o endereço inteiro, que é o que a pessoa quer conferir.
+    private static func rotulos(de links: [URL]) -> [(URL, String)] {
+        let destinos = links.map { ($0, destino(de: $0)) }
+        var quantos: [String: Int] = [:]
+        for (_, destino) in destinos where destino != nil {
+            quantos[destino!.anfitriao, default: 0] += 1
+        }
+        return destinos.map { url, destino in
+            guard let destino else { return (url, url.absoluteString) }
+            let esquemaDeNavegador = url.scheme?.lowercased() == "http"
+                || url.scheme?.lowercased() == "https"
+            let identifica = esquemaDeNavegador
+                && !destino.anfitriao.isEmpty
+                && quantos[destino.anfitriao] == 1
+            return identifica
+                ? (url, anfitriaoCurto(destino.anfitriao, limite: limiteDoAnfitriaoNoMenu))
+                : (url, porExtensoCurto(destino.porExtenso, limite: limiteDoAnfitriaoNoMenu))
+        }
+    }
+
+    /// Endereço inteiro que não cabe perde a **cauda**, ao contrário do
+    /// anfitrião: aqui quem identifica está na frente.
+    static func porExtensoCurto(_ endereco: String, limite: Int) -> String {
+        guard endereco.count > limite, limite > 1 else { return endereco }
+        return String(endereco.prefix(limite - 1)) + "…"
     }
 
     private static func acoes(_ url: URL) -> [ContextMenuItem] {
