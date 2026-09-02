@@ -364,9 +364,11 @@ struct DashboardScreenTests {
     }
 
     /// O centro da fileira de ações da prévia e o centro horizontal de cada
-    /// botão nela, no recorte de 1200×820. Medidos no harness — ver
-    /// `DashboardMockupParityTests`.
-    private static let previewActionsY: CGFloat = 341
+    /// botão nela, no recorte de 1200×820. A fileira mora no **rodapé** da
+    /// coluna do meio — ancorada lá para não dançar conforme o corpo do email
+    /// cresce ou encolhe —, e por isso o Y é 784 e não a altura do texto.
+    /// Medidos no harness — ver `DashboardMockupParityTests`.
+    private static let previewActionsY: CGFloat = 784
     private static let draftActionX: CGFloat = 554
     private static let archiveActionX: CGFloat = 744
     private static let laterActionX: CGFloat = 820
