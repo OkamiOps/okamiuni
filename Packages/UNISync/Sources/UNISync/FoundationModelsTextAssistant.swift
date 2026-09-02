@@ -173,9 +173,7 @@ enum AssistantPrompt {
     static let maximumHistoryTurnCharacters = 1_200
     static let maximumWorkspaceAccounts = 32
     static let maximumWorkspaceMailboxes = 64
-    static let maximumWorkspaceEmails = AssistantWorkspaceContext.detailedEmailLimit
     static let maximumWorkspaceSnippetCharacters = 600
-    static let maximumWorkspaceAgendaItems = 32
     static let maximumWorkspacePendingItems = 20
     static let maximumWorkspaceNameCharacters = 240
     static let maximumWorkspacePendingCharacters = 600
@@ -189,23 +187,39 @@ enum AssistantPrompt {
 
     /// Orçamento do prompt. A Foundation Models local tem janela curta; Grok,
     /// LiteLLM e CLI aguentam o email completo — e é isso que a pessoa pediu.
+    /// Cada dimensão do prompt tem de estar aqui: um número cravado no corpo
+    /// de `render` é exatamente o defeito que o commit 0a6330a deixou passar.
     struct Budget: Sendable, Equatable {
         var maximumBodyCharacters: Int
+        var maximumTextCharacters: Int
         var maximumEmails: Int
         var maximumHistoryTurns: Int
+        var maximumWorkspaceEmails: Int
+        var maximumWorkspaceAgendaItems: Int
 
         static let onDevice = Budget(
             maximumBodyCharacters: AssistantPrompt.maximumTextCharacters,
+            maximumTextCharacters: AssistantPrompt.maximumTextCharacters,
             maximumEmails: AssistantPrompt.maximumEmails,
-            maximumHistoryTurns: AssistantPrompt.maximumHistoryTurns
+            maximumHistoryTurns: AssistantPrompt.maximumHistoryTurns,
+            maximumWorkspaceEmails: AssistantWorkspaceContext.detailedEmailLimit,
+            maximumWorkspaceAgendaItems: 32
         )
 
         static let configured = Budget(
             maximumBodyCharacters: configuredBodyCharacters,
+            maximumTextCharacters: configuredBodyCharacters,
             maximumEmails: configuredMaximumEmails,
-            maximumHistoryTurns: configuredMaximumHistoryTurns
+            maximumHistoryTurns: configuredMaximumHistoryTurns,
+            maximumWorkspaceEmails: 256,
+            maximumWorkspaceAgendaItems: 128
         )
     }
+
+    /// A instrução personalizada é a única parte do prompt escrita pela pessoa
+    /// no momento do pedido: 1,2 mil (o teto de um turno de histórico) cortava
+    /// instruções legítimas no meio.
+    static let maximumCustomInstructionCharacters = 6_000
 
     static let answerInstructions = """
     Você é um copiloto local de e-mail, analítico e prático. Atenda à intenção
@@ -349,7 +363,7 @@ enum AssistantPrompt {
         </writing-action>
 
         <untrusted-text>
-        \(bounded(text, maximumCharacters: maximumTextCharacters))
+        \(bounded(text, maximumCharacters: budget.maximumTextCharacters))
         </untrusted-text>
         \(contextBlock)
         """
@@ -372,7 +386,7 @@ enum AssistantPrompt {
         case .draftReply:
             return "Redija somente o corpo de uma resposta de e-mail, em primeira pessoa e do ponto de vista de quem responde. Use o fio inteiro e o texto atual, se existir, como orientação; seja específico ao pedido e responda cada ponto sustentado pelo contexto. Comece diretamente pela saudação, quando ela couber, ou pela primeira frase da resposta. Não inclua assunto, De, Para, Cc, Data, Corpo, resumo do e-mail, metadados, explicação do processo, Markdown, asteriscos, listas, tags ou blocos de código. Preserve caracteres literais, por exemplo use & em vez de &amp;. Se faltar uma informação indispensável para responder, faça no máximo uma pergunta clara dentro da própria resposta; não transforme lacunas em um questionário. Não invente decisões, disponibilidade, datas ou compromissos."
         case let .customInstruction(instruction):
-            return "Aplique esta instrução personalizada sem violar as regras acima:\n\(bounded(instruction, maximumCharacters: maximumHistoryTurnCharacters))"
+            return "Aplique esta instrução personalizada sem violar as regras acima:\n\(bounded(instruction, maximumCharacters: maximumCustomInstructionCharacters))"
         }
     }
 
@@ -408,7 +422,7 @@ enum AssistantPrompt {
                 render(email, index: omitted + offset + 1, budget: budget)
             }.joined(separator: "\n")
         case let .workspace(workspace):
-            return render(workspace)
+            return render(workspace, budget: budget)
         }
     }
 
@@ -426,7 +440,7 @@ enum AssistantPrompt {
         return fromHTML.count > plain.count ? fromHTML : plain
     }
 
-    private static func render(_ workspace: AssistantWorkspaceContext) -> String {
+    static func render(_ workspace: AssistantWorkspaceContext, budget: Budget) -> String {
         let detailedAccounts = workspace.accounts.prefix(maximumWorkspaceAccounts)
         var accountLines = detailedAccounts.map {
             "- \(escapedData(bounded($0, maximumCharacters: maximumWorkspaceNameCharacters)))"
@@ -448,7 +462,7 @@ enum AssistantPrompt {
         }
         let mailboxes = mailboxLines.isEmpty ? "- nenhuma caixa carregada" : mailboxLines.joined(separator: "\n")
 
-        let detailedEmails = workspace.emails.prefix(maximumWorkspaceEmails)
+        let detailedEmails = workspace.emails.prefix(budget.maximumWorkspaceEmails)
         let omittedEmails = max(0, workspace.emails.count - detailedEmails.count)
         let emails = detailedEmails.enumerated().map { offset, email in
             renderWorkspaceEmail(email, index: offset + 1)
@@ -457,7 +471,7 @@ enum AssistantPrompt {
             ? "[\(omittedEmails) e-mail(s) fora do recorte detalhado; os totais acima continuam globais.]"
             : ""
 
-        let agendaItems = workspace.agenda.prefix(maximumWorkspaceAgendaItems)
+        let agendaItems = workspace.agenda.prefix(budget.maximumWorkspaceAgendaItems)
         let omittedAgenda = max(0, workspace.agenda.count - agendaItems.count)
         let agenda = agendaItems.enumerated().map { offset, item in
             render(item, index: offset + 1)

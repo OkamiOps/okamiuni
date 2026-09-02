@@ -506,4 +506,64 @@ struct AssistantPromptTests {
         #expect(workspaceAnswer.localizedCaseInsensitiveContains("Revisão"))
         #expect(assistant.modelVersion == FoundationModelsTextAssistant.currentModelVersion)
     }
+
+    @Test("com a IA configurada, o texto de escrita não é elidido em 8 mil")
+    func configuredTransformKeepsLongText() {
+        let text = String(repeating: "a", count: 100_000)
+        let prompt = AssistantPrompt.transform(
+            text: text,
+            action: .rewriteForClarity,
+            context: nil,
+            budget: .configured
+        )
+        #expect(!prompt.contains(AssistantPrompt.omittedMiddleMarker))
+        #expect(prompt.contains(String(repeating: "a", count: 100_000)))
+
+        let local = AssistantPrompt.transform(
+            text: text,
+            action: .rewriteForClarity,
+            context: nil,
+            budget: .onDevice
+        )
+        #expect(local.contains(AssistantPrompt.omittedMiddleMarker))
+    }
+
+    @Test("o retrato do ambiente segue o orçamento: 100 emails cabem na IA configurada")
+    func workspaceRespectsBudget() {
+        let emails = (1...100).map { index in
+            AssistantWorkspaceEmailContext(
+                id: "m\(index)", account: "eu@example.com", mailbox: "Hoje",
+                isRead: false, isFlagged: false,
+                subject: "Assunto \(index)", sender: "a\(index)@example.com",
+                recipients: ["eu@example.com"],
+                sentAt: Date(timeIntervalSince1970: 1_788_000_000),
+                snippet: "prévia \(index)"
+            )
+        }
+        let workspace = AssistantWorkspaceContext(
+            accounts: ["eu@example.com"], emailCount: 100, unreadCount: 100,
+            mailboxes: [], emails: emails, agenda: []
+        )
+        let configured = AssistantPrompt.render(workspace, budget: .configured)
+        #expect(configured.contains("Assunto 100"))
+        #expect(!configured.contains("fora do recorte detalhado"))
+
+        let local = AssistantPrompt.render(workspace, budget: .onDevice)
+        #expect(local.contains("Assunto 24"))
+        #expect(!local.contains("Assunto 25"))
+        #expect(local.contains("[76 e-mail(s) fora do recorte detalhado"))
+    }
+
+    @Test("instrução personalizada cabe em 6 mil, não em 1,2 mil")
+    func customInstructionBudget() {
+        let instruction = String(repeating: "i", count: 5_000)
+        let prompt = AssistantPrompt.transform(
+            text: "texto",
+            action: .customInstruction(instruction),
+            context: nil,
+            budget: .configured
+        )
+        #expect(prompt.contains(instruction))
+        #expect(AssistantPrompt.maximumCustomInstructionCharacters == 6_000)
+    }
 }

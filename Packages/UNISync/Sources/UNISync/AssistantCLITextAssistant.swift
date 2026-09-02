@@ -454,12 +454,13 @@ public struct AssistantCLITextAssistant: TextAssisting, Sendable {
         command: AssistantCLICommand,
         executor: any AssistantCLIProcessExecuting = SystemAssistantCLIProcessExecutor(),
         additionalInstructions: String = "",
-        requestTimeout: TimeInterval = 60
+        requestTimeout: TimeInterval = 120
     ) {
         self.command = command
         self.executor = executor
         self.additionalInstructions = additionalInstructions
-        self.requestTimeout = min(max(requestTimeout, 5), 120)
+        // Faixa da spec 1.4: 30 s de piso, 300 s de teto.
+        self.requestTimeout = min(max(requestTimeout, 30), 300)
         modelVersion = "cli/\(command.kind.rawValue)"
     }
 

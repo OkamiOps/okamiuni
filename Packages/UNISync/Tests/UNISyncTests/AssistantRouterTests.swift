@@ -179,6 +179,22 @@ struct AssistantRouterTests {
             body: "A entrega é sexta-feira."
         )))
     }
+
+    @Test("o tempo padrão é 120 s e vale para pedido e para recurso")
+    @available(macOS 26.0, *)
+    func routerUsesGenerousTimeouts() throws {
+        let base = URLSession(configuration: {
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.timeoutIntervalForRequest = 7
+            configuration.timeoutIntervalForResource = 7
+            configuration.protocolClasses = [StubURLProtocol.self]
+            return configuration
+        }())
+        let timed = AssistantURLSessionFactory.timed(basedOn: base, timeout: 120)
+        #expect(timed.configuration.timeoutIntervalForRequest == 120)
+        #expect(timed.configuration.timeoutIntervalForResource == 120)
+        #expect(timed.configuration.protocolClasses?.contains { $0 == StubURLProtocol.self } == true)
+    }
 }
 
 private actor EndpointBoundOAuthProvider: OpenAICompatibleOAuthTokenProviding {

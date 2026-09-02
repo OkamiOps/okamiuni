@@ -35,24 +35,29 @@ public actor AssistantRouter: TextAssisting {
         settingsStore: AssistantSettingsStore,
         credentialStore: any AssistantCredentialStore,
         session: URLSession = .shared,
-        requestTimeout: TimeInterval = 30,
+        requestTimeout: TimeInterval = 120,
         oauthTokenProvider: (any OpenAICompatibleOAuthTokenProviding)? = nil,
         providerOAuthTokenProvider: (any AssistantProviderOAuthTokenProviding)? = nil,
         cliInstallationProvider: @escaping @Sendable () -> [AssistantCLIInstallation] = {
             AssistantCLIDiscovery().scan()
         },
         cliExecutor: any AssistantCLIProcessExecuting = SystemAssistantCLIProcessExecutor(),
-        cliRequestTimeout: TimeInterval = 60
+        cliRequestTimeout: TimeInterval = 120
     ) {
         self.settingsStore = settingsStore
         self.credentialStore = credentialStore
-        self.session = session
         self.requestTimeout = max(1, requestTimeout)
+        self.session = AssistantURLSessionFactory.timed(
+            basedOn: session,
+            timeout: max(self.requestTimeout, 120)
+        )
         self.oauthTokenProvider = oauthTokenProvider
         self.providerOAuthTokenProvider = providerOAuthTokenProvider
         self.cliInstallationProvider = cliInstallationProvider
         self.cliExecutor = cliExecutor
-        self.cliRequestTimeout = min(max(cliRequestTimeout, 5), 120)
+        // Faixa da spec 1.4: nunca menos de 30 s (um CLI frio demora a subir),
+        // nunca mais de 300 s (o botão precisa devolver a mão da pessoa).
+        self.cliRequestTimeout = min(max(cliRequestTimeout, 30), 300)
     }
 
     public func availability() async -> AppleIntelligenceAvailability {
