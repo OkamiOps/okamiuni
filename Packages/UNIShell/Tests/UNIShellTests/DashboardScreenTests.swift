@@ -557,6 +557,95 @@ struct DashboardMockupParityTests {
         .environment(ThemeStore())
     }
 
+    /// A trilha nunca entrega meio cartão às PENDÊNCIAS, em nenhum dos quatro
+    /// estados.
+    ///
+    /// A régua é a mesma dos testes de hairline: acha-se o fio `line2` que
+    /// abre a seção de PENDÊNCIAS e conferem-se as seis faixas logo acima
+    /// dele. Todo cartão da trilha carrega 10pt de folga embaixo — se a borda
+    /// partisse um, ali estaria a cor da conta em vez do fundo da coluna.
+    @Test("a coluna direita não corta cartão em nenhum dos quatro estados")
+    func railCutsOnCardBoundaryInEveryState() async throws {
+        let cheio = MailStore(source: InMemoryMailSource.fixtures)
+        await cheio.load()
+        let vazio = MailStore(
+            source: InMemoryMailSource(accounts: [], messages: [], agenda: [])
+        )
+        await vazio.load()
+
+        let estados: [(String, MailStore, AssistantConversation)] = [
+            ("cheio", cheio, conversa()),
+            ("vazio", vazio, conversa()),
+            ("briefing", cheio, conversa(briefing: "Dois emails pedem decisão hoje.")),
+            ("transcript", cheio, conversa(transcript: true)),
+        ]
+
+        let fundo = try #require(Theme.okami.surface.nsColor.usingColorSpace(.sRGB))
+        let fio = try #require(Theme.okami.line2.nsColor.usingColorSpace(.sRGB))
+
+        for (nome, store, conversation) in estados {
+            let rep = try #require(Render.bitmap(
+                DashboardScreen(
+                    store: store,
+                    now: Fixtures.nowMinute,
+                    today: Fixtures.today,
+                    conversation: conversation
+                )
+                .environment(ThemeStore()),
+                size: Self.size,
+                theme: .okami
+            ))
+
+            func combina(_ c: NSColor?, _ alvo: NSColor, _ folga: Double) -> Bool {
+                guard let c = c?.usingColorSpace(.sRGB) else { return false }
+                return abs(c.redComponent - alvo.redComponent) <= folga
+                    && abs(c.greenComponent - alvo.greenComponent) <= folga
+                    && abs(c.blueComponent - alvo.blueComponent) <= folga
+            }
+
+            // O fio que abre as PENDÊNCIAS: a faixa mais baixa que atravessa a
+            // coluna inteira em `line2`.
+            let colunas = 882..<1_170
+            var topoDasPendencias: Int?
+            for y in stride(from: Int(Self.size.height) - 30, to: 200, by: -1) {
+                let iguais = colunas.filter { combina(rep.colorAt(x: $0, y: y), fio, 0.01) }.count
+                if iguais > colunas.count - 10 {
+                    topoDasPendencias = y
+                    break
+                }
+            }
+            let topo = try #require(topoDasPendencias, "\(nome): não achei o fio das PENDÊNCIAS")
+
+            var sujas = 0
+            for y in (topo - 6)..<topo {
+                for x in colunas where !combina(rep.colorAt(x: x, y: y), fundo, 0.02) {
+                    sujas += 1
+                }
+            }
+            #expect(sujas == 0, "\(nome): a trilha entregou \(sujas) pixels de cartão ao fio")
+        }
+    }
+
+    private func conversa(
+        briefing: String? = nil, transcript: Bool = false
+    ) -> AssistantConversation {
+        AssistantConversation(
+            scope: .workspace,
+            context: .init(subject: "Caixa e agenda de hoje"),
+            destination: .unconfigured,
+            engine: .unavailable,
+            debugState: AssistantPanelDebugState(
+                messages: transcript
+                    ? [
+                        .init(speaker: .user, text: "Resuma o dia"),
+                        .init(speaker: .assistant, text: "Marina espera o SLA."),
+                    ]
+                    : [],
+                briefingText: briefing
+            )
+        )
+    }
+
     /// `.rail { width: 300px }` dentro de `.content { padding: 22px }`: numa
     /// janela de 1200, a coluna direita vai de 878 a 1177, e o que está de
     /// fora dela é `paper`.

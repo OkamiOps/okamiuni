@@ -111,6 +111,26 @@ public struct AgendaRail: View {
     /// `surface`. É token dos dois lados — nenhuma cor literal entra aqui.
     let background: KeyPath<Theme, TokenColor>
 
+    /// A trilha corta em **fronteira de cartão** quando a altura não dá para
+    /// tudo?
+    ///
+    /// Na Caixa, `false`: a trilha ocupa a janela inteira e a rolagem é a
+    /// resposta natural. No dashboard ela divide a coluna com as PENDÊNCIAS, e
+    /// a borda de baixo caía no meio de um cartão — "14:00 Revisão do
+    /// contrato" pela metade, com PENDÊNCIAS colada embaixo. Meio cartão lê
+    /// como tela quebrada, não como "tem mais aqui".
+    ///
+    /// Com `true` a região rolável mede `Self.clipHeight(...)`: a maior altura
+    /// que termina onde uma linha termina. O que sobra fica como folga acima
+    /// das PENDÊNCIAS, que continuam ancoradas no rodapé da coluna.
+    let clipsToRowBoundary: Bool
+
+    /// Altura de cada linha da trilha, medida no desenho. Só é preenchida com
+    /// `clipsToRowBoundary`.
+    @State private var rowHeights: [String: CGFloat] = [:]
+    /// A altura que a coluna ofereceu à região rolável.
+    @State private var availableTrackHeight: CGFloat = 0
+
     public init(
         store: MailStore,
         layout: Layout = Layout(),
@@ -119,6 +139,7 @@ public struct AgendaRail: View {
         width: CGFloat = PaneLayout.agendaWidth,
         showsPending: Bool = true,
         background: KeyPath<Theme, TokenColor> = \.surface2,
+        clipsToRowBoundary: Bool = false,
         onOpenEvent: @escaping (AgendaItem) -> Void = { _ in },
         onRevealMessage: @escaping (String) -> Void = { _ in }
     ) {
@@ -129,6 +150,7 @@ public struct AgendaRail: View {
         self.railWidth = width
         self.showsPending = showsPending
         self.background = background
+        self.clipsToRowBoundary = clipsToRowBoundary
         self.onOpenEvent = onOpenEvent
         self.onRevealMessage = onRevealMessage
     }
@@ -155,28 +177,7 @@ public struct AgendaRail: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    if todayItems.isEmpty {
-                        emptyDay
-                    } else {
-                        ForEach(Self.dayRows(items: todayItems, now: now)) { row in
-                            switch row {
-                            case .period(let name):
-                                periodLabel(name)
-                            case .now:
-                                nowRule
-                            case .item(let item):
-                                eventBlock(item)
-                                    .padding(.bottom, 10)
-                            }
-                        }
-                    }
-                }
-                .padding(.horizontal, 14)
-                .padding(.top, 12)
-                .padding(.bottom, 16)
-            }
+            track
             if showsPending, !store.visiblePendingItems.isEmpty {
                 pendingSection
             }
@@ -185,6 +186,143 @@ public struct AgendaRail: View {
         .background(theme[keyPath: background].color)
         .agendaUndoBand(store: store)
         .hairline(theme.line, edges: .leading)
+    }
+
+    /// `.rail-scroll` — a trilha, cortada em fronteira de linha quando quem
+    /// hospeda pediu (ver `clipsToRowBoundary`).
+    @ViewBuilder
+    private var track: some View {
+        if clipsToRowBoundary {
+            ZStack(alignment: .top) {
+                // Mede o que a coluna ofereceu **sem** depender do que a
+                // trilha decidir ocupar: pôr o `onGeometryChange` na própria
+                // `ScrollView` faria a altura medir a si mesma.
+                Color.clear
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.size.height
+                    } action: { height in
+                        availableTrackHeight = height
+                    }
+                trackScroll
+                    .frame(height: clippedTrackHeight)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        } else {
+            trackScroll
+        }
+    }
+
+    private var trackScroll: some View {
+        ScrollView {
+            trackRows
+                .padding(.horizontal, 14)
+                .padding(.top, Self.trackTopPadding)
+                .padding(.bottom, 16)
+        }
+    }
+
+    /// `VStack` com corte em fronteira, `LazyVStack` sem ele: a linha que a
+    /// preguiça não desenhou é a linha que não sabe dizer a própria altura, e
+    /// sem todas as alturas o corte volta a cair no meio de um cartão. A Caixa
+    /// continua preguiçosa, byte a byte como antes.
+    @ViewBuilder
+    private var trackRows: some View {
+        if clipsToRowBoundary {
+            VStack(alignment: .leading, spacing: 0) { trackContent }
+        } else {
+            LazyVStack(alignment: .leading, spacing: 0) { trackContent }
+        }
+    }
+
+    @ViewBuilder
+    private var trackContent: some View {
+        if todayItems.isEmpty {
+            emptyDay
+        } else {
+            ForEach(Self.dayRows(items: todayItems, now: now)) { row in
+                Group {
+                    switch row {
+                    case .period(let name):
+                        periodLabel(name)
+                    case .now:
+                        nowRule
+                    case .item(let item):
+                        eventBlock(item)
+                            .padding(.bottom, 10)
+                    }
+                }
+                .measuringRailRow(row.id, when: clipsToRowBoundary) { id, height in
+                    rowHeights[id] = height
+                }
+            }
+        }
+    }
+
+    /// A altura da região rolável: a maior que termina onde uma linha termina.
+    private var clippedTrackHeight: CGFloat {
+        let rows = Self.dayRows(items: todayItems, now: now).map { row in
+            ClipRow(height: rowHeights[row.id] ?? 0, isEvent: row.isEvent)
+        }
+        return Self.clipHeight(
+            rows: rows,
+            leading: Self.trackTopPadding,
+            available: availableTrackHeight
+        )
+    }
+
+    /// `padding(.top, 12)` do conteúdo da trilha. O corte tem de contá-lo:
+    /// ele vem antes da primeira linha.
+    nonisolated static let trackTopPadding: CGFloat = 12
+
+    /// Uma linha da trilha, para a conta do corte.
+    nonisolated struct ClipRow: Equatable, Sendable {
+        let height: CGFloat
+        /// Cartão de evento (`true`) ou rótulo de período / régua do "agora".
+        let isEvent: Bool
+
+        init(height: CGFloat, isEvent: Bool) {
+            self.height = height
+            self.isEvent = isEvent
+        }
+    }
+
+    /// A maior altura ≤ `available` que **termina onde uma linha termina**.
+    ///
+    /// Regras, nesta ordem:
+    ///
+    /// 1. o maior prefixo de linhas que cabe;
+    /// 2. se esse prefixo termina em rótulo de período ou na régua do "agora",
+    ///    os finais assim são descartados — um "TARDE" sem nada embaixo é uma
+    ///    promessa que a coluna não cumpre;
+    /// 3. se nem a primeira linha cabe (janela baixa demais para um cartão), a
+    ///    trilha fica com o que tem: não há altura sem corte, e sumir com a
+    ///    agenda inteira seria pior do que a borda.
+    ///
+    /// Alturas ainda não medidas valem 0 e não travam a conta: no primeiro
+    /// quadro a trilha ocupa tudo, e assenta no seguinte.
+    nonisolated static func clipHeight(
+        rows: [ClipRow], leading: CGFloat, available: CGFloat
+    ) -> CGFloat {
+        guard available > 0 else { return 0 }
+        let espaco = available - leading
+        guard espaco > 0 else { return available }
+
+        var cabem: [ClipRow] = []
+        var soma: CGFloat = 0
+        for row in rows {
+            guard soma + row.height <= espaco else { break }
+            soma += row.height
+            cabem.append(row)
+        }
+        // Tudo coube: a trilha fica com a coluna inteira, sem folga inventada.
+        if cabem.count == rows.count { return available }
+
+        while let ultima = cabem.last, !ultima.isEvent {
+            soma -= ultima.height
+            cabem.removeLast()
+        }
+        guard !cabem.isEmpty else { return available }
+        return leading + soma
     }
 
     private var header: some View {
@@ -514,5 +652,42 @@ enum RailRow: Equatable, Identifiable {
         case .item(let item): "item-\(item.id)"
         case .now: "now"
         }
+    }
+
+    /// Cartão de evento? Rótulo de período e régua do "agora" não são: uma
+    /// trilha que termina num deles anuncia o que não mostra.
+    var isEvent: Bool {
+        if case .item = self { return true }
+        return false
+    }
+}
+
+/// Mede a altura de uma linha da trilha, e só quando alguém pediu.
+///
+/// Sem o `when` a Caixa pagaria por uma medida que não usa — e, pior, os
+/// retratos dela passariam a depender de um segundo passe de layout.
+private struct RailRowMeasure: ViewModifier {
+    let id: String
+    let active: Bool
+    let report: (String, CGFloat) -> Void
+
+    func body(content: Content) -> some View {
+        if active {
+            content.onGeometryChange(for: CGFloat.self) { proxy in
+                proxy.size.height
+            } action: { height in
+                report(id, height)
+            }
+        } else {
+            content
+        }
+    }
+}
+
+extension View {
+    fileprivate func measuringRailRow(
+        _ id: String, when active: Bool, report: @escaping (String, CGFloat) -> Void
+    ) -> some View {
+        modifier(RailRowMeasure(id: id, active: active, report: report))
     }
 }

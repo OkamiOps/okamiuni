@@ -586,4 +586,83 @@ struct AgendaRailTests {
         ))
         #expect(rep.pixels(matching: Theme.tinta.surface, tolerance: 0.005) > 20_000)
     }
+
+    /// A conta do corte, sem pixel nenhum: a maior altura que termina onde
+    /// uma linha termina.
+    @Test("o corte da trilha cai sempre no fim de uma linha")
+    func clipHeightLandsOnRowBoundary() {
+        func linha(_ h: CGFloat, _ evento: Bool = true) -> AgendaRail.ClipRow {
+            AgendaRail.ClipRow(height: h, isEvent: evento)
+        }
+        let dia = [
+            linha(24, false),   // MANHÃ
+            linha(52),          // cartão
+            linha(52),          // cartão
+            linha(30, false),   // agora
+            linha(24, false),   // TARDE
+            linha(52),          // cartão
+        ]
+
+        // Tudo cabe: a trilha fica com a coluna inteira, sem folga inventada.
+        #expect(AgendaRail.clipHeight(rows: dia, leading: 12, available: 400) == 400)
+
+        // 12 + 24 + 52 + 52 = 140 cabe em 150; o resto não. O corte é 140,
+        // e não 150 — que cairia dentro da régua do "agora".
+        #expect(AgendaRail.clipHeight(rows: dia, leading: 12, available: 150) == 140)
+
+        // 12 + 24 + 52 + 52 + 30 + 24 = 194 cabe em 200, mas termina em
+        // "TARDE": os finais que não são cartão caem fora, e volta a 140.
+        #expect(AgendaRail.clipHeight(rows: dia, leading: 12, available: 200) == 140)
+
+        // Nem o primeiro cartão cabe: não existe altura sem corte, e sumir
+        // com a agenda seria pior do que a borda.
+        #expect(AgendaRail.clipHeight(rows: dia, leading: 12, available: 60) == 60)
+
+        // Sem medida ainda (primeiro quadro), a trilha ocupa tudo.
+        #expect(
+            AgendaRail.clipHeight(
+                rows: dia.map { AgendaRail.ClipRow(height: 0, isEvent: $0.isEvent) },
+                leading: 12, available: 400
+            ) == 400
+        )
+        #expect(AgendaRail.clipHeight(rows: [], leading: 12, available: 0) == 0)
+    }
+
+    /// E o mesmo no desenho: em nenhuma altura a última faixa pintada da
+    /// trilha é o meio de um cartão. A régua é a folga de 10pt que todo
+    /// cartão carrega embaixo — se a borda partisse um deles, os últimos
+    /// pixels da região seriam a cor da conta, não o fundo da coluna.
+    @Test("nenhuma altura de coluna corta um cartão pela metade")
+    @MainActor
+    func clippedRailNeverSlicesACard() async throws {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+
+        for altura in stride(from: 260.0, through: 620.0, by: 30.0) {
+            let rep = try #require(Render.bitmap(
+                AgendaRail(
+                    store: store, now: Fixtures.nowMinute, headerDate: Fixtures.today,
+                    width: 300, showsPending: false, background: \.surface,
+                    clipsToRowBoundary: true
+                ),
+                size: CGSize(width: 300, height: altura),
+                theme: .okami
+            ))
+            let fundo = try #require(Theme.okami.surface.nsColor.usingColorSpace(.sRGB))
+            // As seis últimas faixas da coluna, ignorando o fio da borda
+            // esquerda e os 14pt de recuo do conteúdo.
+            var sujas = 0
+            for y in (Int(altura) - 6)..<Int(altura) {
+                for x in 16..<296 {
+                    guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                    if abs(c.redComponent - fundo.redComponent) > 0.02
+                        || abs(c.greenComponent - fundo.greenComponent) > 0.02
+                        || abs(c.blueComponent - fundo.blueComponent) > 0.02 {
+                        sujas += 1
+                    }
+                }
+            }
+            #expect(sujas == 0, "a \(Int(altura)) a trilha cortou algo: \(sujas) pixels")
+        }
+    }
 }

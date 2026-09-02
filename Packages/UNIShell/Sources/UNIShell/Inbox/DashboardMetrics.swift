@@ -167,6 +167,18 @@ enum DashboardMetrics {
         return min(total, teto)
     }
 
+    /// Quantas pendências a coluna mostra. O mockup desenha três, e três é o
+    /// que cabe sem a seção comer a trilha. O resto vira "+ N" — meia
+    /// pendência não é pendência.
+    static let maximumPendingRows = 3
+
+    /// "+ 2 pendências" quando a lista não coube. `nil` quando coube.
+    static func omittedPendingLabel(total: Int) -> String? {
+        let resto = total - maximumPendingRows
+        guard resto > 0 else { return nil }
+        return resto == 1 ? "+ 1 pendência" : "+ \(resto) pendências"
+    }
+
     /// A leitura da linha em voz alta.
     static func rowAccessibilityLabel(
         sender: String, subject: String, reason: DashboardFocus.Reason

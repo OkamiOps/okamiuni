@@ -556,6 +556,9 @@ struct DashboardScreen: View {
                 width: DashboardMetrics.railWidth,
                 showsPending: false,
                 background: \.surface,
+                // A coluna divide a altura com as PENDÊNCIAS: sem isto a
+                // borda de baixo da trilha caía no meio de um cartão.
+                clipsToRowBoundary: true,
                 onOpenEvent: onOpenEvent,
                 onRevealMessage: { onCommand(.revealMessage(messageID: $0)) }
             )
@@ -578,8 +581,16 @@ struct DashboardScreen: View {
                     .foregroundStyle(theme.ink3.color)
                     .padding(.vertical, 2)
             } else {
-                ForEach(focus.pending) { item in
+                ForEach(focus.pending.prefix(DashboardMetrics.maximumPendingRows)) { item in
                     pendingRow(item)
+                }
+                if let resto = DashboardMetrics.omittedPendingLabel(
+                    total: focus.pending.count
+                ) {
+                    Text(resto)
+                        .font(theme.sans.font(size: DashboardMetrics.pendingOriginSize))
+                        .foregroundStyle(theme.ink3.color)
+                        .padding(.top, 4)
                 }
             }
         }
