@@ -204,6 +204,147 @@ struct AssistantRouterTests {
         #expect(try await cliTimeoutFromRouter(cliRequestTimeout: 500) == 300)
     }
 
+    @Test("cada CLI da allowlist chega ao executor com o argv dele")
+    @available(macOS 26.0, *)
+    func routesToEachCLIKind() async throws {
+        for kind in AssistantCLIKind.allCases {
+            let suite = "okamiuni.assistant-router-cli.\(UUID().uuidString)"
+            let defaults = try #require(UserDefaults(suiteName: suite))
+            defaults.removePersistentDomain(forName: suite)
+            defer { defaults.removePersistentDomain(forName: suite) }
+
+            let settingsStore = AssistantSettingsStore(defaults: defaults, key: "assistant")
+            try settingsStore.save(.init(provider: .cli, cli: .init(kind: kind)))
+            let executor = RecordingAssistantCLIExecutor(output: kind)
+            let router = AssistantRouter(
+                settingsStore: settingsStore,
+                credentialStore: InMemoryAssistantCredentialStore(),
+                cliInstallationProvider: {
+                    // A allowlist do comando exige que o nome do binário bata com
+                    // `AssistantCLIKind.executableNames`; um path qualquer (por
+                    // exemplo `/usr/bin/true` para todo mundo) cai em
+                    // `executableNotAllowed` antes de chegar ao executor.
+                    AssistantCLIKind.allCases.map {
+                        .init(kind: $0, executablePath: "/usr/local/bin/\($0.executableNames[0])")
+                    }
+                },
+                cliExecutor: executor
+            )
+            _ = try await router.answer(question: "Qual é a prioridade?", in: conversation)
+            let request = try #require(await executor.lastRequest)
+            #expect(request.executableURL.path == "/usr/local/bin/\(kind.executableNames[0])")
+            #expect(request.timeout == 120)
+            #expect(!request.arguments.isEmpty)
+        }
+    }
+
+    @Test("codex sem binário instalado devolve executableNotFound")
+    @available(macOS 26.0, *)
+    func codexSubscriptionWithoutBinary() async throws {
+        let suite = "okamiuni.assistant-router-codex.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let settingsStore = AssistantSettingsStore(defaults: defaults, key: "assistant")
+        try settingsStore.save(.init(
+            provider: .providerOAuth,
+            providerOAuth: .init(kind: .codex, model: "gpt-5-codex")
+        ))
+        let router = AssistantRouter(
+            settingsStore: settingsStore,
+            credentialStore: InMemoryAssistantCredentialStore(),
+            providerOAuthTokenProvider: AlwaysAuthorizedProviderOAuth(),
+            cliInstallationProvider: { [.init(kind: .codex, executablePath: nil)] }
+        )
+        await #expect(throws: AssistantCLITextAssistantError.executableNotFound(.codex)) {
+            _ = try await router.answer(question: "oi", in: conversation)
+        }
+    }
+
+    @Test("assinatura ausente para o Codex devolve missingSession")
+    @available(macOS 26.0, *)
+    func codexSubscriptionWithoutSession() async throws {
+        let suite = "okamiuni.assistant-router-codex-session.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let settingsStore = AssistantSettingsStore(defaults: defaults, key: "assistant")
+        try settingsStore.save(.init(
+            provider: .providerOAuth,
+            providerOAuth: .init(kind: .codex, model: "gpt-5-codex")
+        ))
+        let router = AssistantRouter(
+            settingsStore: settingsStore,
+            credentialStore: InMemoryAssistantCredentialStore(),
+            cliInstallationProvider: { [.init(kind: .codex, executablePath: "/usr/local/bin/codex")] }
+        )
+        await #expect(throws: AssistantProviderOAuthError.missingSession) {
+            _ = try await router.answer(question: "oi", in: conversation)
+        }
+    }
+
+    @Test("a descoberta em cache é varrida uma vez em dez perguntas")
+    @available(macOS 26.0, *)
+    func discoveryCacheIsUsedOncePerWindow() async throws {
+        let suite = "okamiuni.assistant-router-cache.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let settingsStore = AssistantSettingsStore(defaults: defaults, key: "assistant")
+        try settingsStore.save(.init(provider: .cli, cli: .init(kind: .codex)))
+        let scans = Counter()
+        let cache = CachedAssistantCLIDiscovery(
+            discovery: AssistantCLIDiscovery(
+                environment: ["PATH": "/usr/bin"],
+                homeDirectory: "/tmp/casa",
+                bundleResourceDirectory: nil,
+                isExecutable: { path in scans.bump(); return path.hasSuffix("/codex") }
+            ),
+            validity: 60,
+            now: { Date(timeIntervalSince1970: 0) }
+        )
+        let router = AssistantRouter(
+            settingsStore: settingsStore,
+            credentialStore: InMemoryAssistantCredentialStore(),
+            cliInstallationProvider: { cache.installations() },
+            cliExecutor: RecordingAssistantCLIExecutor(output: .codex)
+        )
+        for _ in 0..<10 { _ = try await router.answer(question: "oi", in: conversation) }
+        let afterTen = scans.value
+        for _ in 0..<10 { _ = try await router.answer(question: "oi", in: conversation) }
+        #expect(scans.value == afterTen)
+    }
+
+    @Test("xAI recebe o tempo generoso, não os 30 s antigos")
+    @available(macOS 26.0, *)
+    func providerOAuthUsesGenerousTimeout() async throws {
+        let suite = "okamiuni.assistant-router-xai.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let settingsStore = AssistantSettingsStore(defaults: defaults, key: "assistant")
+        try settingsStore.save(.init(
+            provider: .providerOAuth,
+            providerOAuth: .init(kind: .xAI, model: "grok-4.6")
+        ))
+        let session = StubURLProtocol.session(routes: [
+            "/v1/responses": [.json("{\"output_text\":\"pronto\"}")],
+        ])
+        let router = AssistantRouter(
+            settingsStore: settingsStore,
+            credentialStore: InMemoryAssistantCredentialStore(),
+            session: session,
+            providerOAuthTokenProvider: AlwaysAuthorizedProviderOAuth()
+        )
+        #expect(try await router.answer(question: "oi", in: conversation) == "pronto")
+        let request = try #require(StubURLProtocol.requests(for: session).last)
+        #expect(request.timeoutInterval >= 120)
+    }
+
     /// Roda uma pergunta pelo transporte de CLI e devolve o tempo que chegou
     /// ao processo — a única observação que atravessa roteador e adaptador.
     @available(macOS 26.0, *)

@@ -482,7 +482,7 @@ enum AssistantPrompt {
 
         let pendingItems = workspace.pendingItems.prefix(maximumWorkspacePendingItems)
         let omittedPending = max(0, workspace.pendingItems.count - pendingItems.count)
-        let pending = pendingItems.enumerated().map { offset, item in
+        let pending = pendingItems.enumerated().map { offset, item -> String in
             let text = escapedData(bounded(item.text, maximumCharacters: maximumWorkspacePendingCharacters))
             let account = escapedData(bounded(item.account, maximumCharacters: maximumWorkspaceNameCharacters))
             return "- [\(offset + 1)] \(text) · conta: \(account)"

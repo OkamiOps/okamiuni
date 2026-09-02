@@ -1,0 +1,55 @@
+<workspace-summary>
+scope: todas as caixas e toda a agenda carregadas no OkamiUNI
+emailCount: 2
+unreadCount: 1
+accounts:
+- Marcos · marcos@example.com · example.com
+mailboxes:
+- Hoje: 2 e-mail(s), 1 não lido(s)
+</workspace-summary>
+
+<workspace-emails priority-first="flagged-unread-recent">
+<email index="1">
+id: m1
+account: marcos@example.com
+mailbox: Hoje
+read: false
+flagged: true
+subject: Revisão do contrato
+sender: Marina &lt;marina@example.com&gt;
+recipients: marcos@example.com
+sentAt: 2026-08-29T10:40:00Z
+snippet:
+Consegue olhar hoje?
+</email>
+<email index="2">
+id: m2
+account: marcos@example.com
+mailbox: Hoje
+read: true
+flagged: false
+subject: Nota fiscal
+sender: Financeiro &lt;fin@example.com&gt;
+recipients: marcos@example.com
+sentAt: 2026-08-29T11:40:00Z
+snippet:
+Segue anexo.
+</email>
+
+</workspace-emails>
+
+<workspace-agenda chronological="true">
+<agenda-item index="1">
+title: Comitê
+date: 2026-08-29
+time: 09:30-10:30
+account: marcos@example.com
+place: Sala 2
+</agenda-item>
+
+</workspace-agenda>
+
+<workspace-pending-items>
+- [1] Confirmar sala · conta: marcos@example.com
+
+</workspace-pending-items>

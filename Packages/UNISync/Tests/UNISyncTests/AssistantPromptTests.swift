@@ -554,6 +554,63 @@ struct AssistantPromptTests {
         #expect(local.contains("[76 e-mail(s) fora do recorte detalhado"))
     }
 
+    @Test("o prompt de workspace é congelado: campo novo no contexto quebra o golden")
+    func workspacePromptGolden() throws {
+        let workspace = AssistantWorkspaceContext(
+            accounts: ["Marcos · marcos@example.com · example.com"],
+            emailCount: 2,
+            unreadCount: 1,
+            mailboxes: [.init(name: "Hoje", totalCount: 2, unreadCount: 1)],
+            emails: [
+                .init(
+                    id: "m1", account: "marcos@example.com", mailbox: "Hoje",
+                    isRead: false, isFlagged: true,
+                    subject: "Revisão do contrato", sender: "Marina <marina@example.com>",
+                    recipients: ["marcos@example.com"],
+                    sentAt: Date(timeIntervalSince1970: 1_788_000_000),
+                    snippet: "Consegue olhar hoje?"
+                ),
+                .init(
+                    id: "m2", account: "marcos@example.com", mailbox: "Hoje",
+                    isRead: true, isFlagged: false,
+                    subject: "Nota fiscal", sender: "Financeiro <fin@example.com>",
+                    recipients: ["marcos@example.com"],
+                    sentAt: Date(timeIntervalSince1970: 1_788_003_600),
+                    snippet: "Segue anexo."
+                ),
+            ],
+            agenda: [
+                .init(
+                    title: "Comitê", date: Date(timeIntervalSince1970: 1_788_000_000),
+                    startMinute: 570, endMinute: 630,
+                    account: "marcos@example.com", place: "Sala 2"
+                ),
+            ],
+            pendingItems: [.init(text: "Confirmar sala", account: "marcos@example.com")]
+        )
+        let rendered = AssistantPrompt.render(workspace, budget: .configured)
+        let url = try #require(Bundle.module.url(
+            forResource: "workspace-prompt", withExtension: "txt", subdirectory: "Golden"
+        ))
+        let golden = try String(contentsOf: url, encoding: .utf8)
+        if rendered != golden {
+            let renderedLines = rendered.components(separatedBy: "\n")
+            let goldenLines = golden.components(separatedBy: "\n")
+            let firstDifference = zip(renderedLines, goldenLines).enumerated()
+                .first { $0.element.0 != $0.element.1 }
+            if let firstDifference {
+                Issue.record("""
+                Primeira linha diferente (\(firstDifference.offset)):
+                rendered: \(firstDifference.element.0)
+                golden:   \(firstDifference.element.1)
+                """)
+            } else {
+                Issue.record("Tamanhos diferentes: rendered=\(renderedLines.count) golden=\(goldenLines.count) linhas")
+            }
+        }
+        #expect(rendered == golden)
+    }
+
     @Test("instrução personalizada cabe em 6 mil, não em 1,2 mil")
     func customInstructionBudget() {
         let instruction = String(repeating: "i", count: 5_000)

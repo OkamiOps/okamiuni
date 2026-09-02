@@ -42,7 +42,7 @@ let package = Package(
                 .product(name: "NIOPosix", package: "swift-nio"),
                 .product(name: "NIOEmbedded", package: "swift-nio"),
             ],
-            resources: [.copy("Fixtures")]
+            resources: [.copy("Fixtures"), .copy("Golden")]
         ),
     ]
 )
