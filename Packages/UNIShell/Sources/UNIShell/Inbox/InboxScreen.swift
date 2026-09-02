@@ -631,7 +631,7 @@ public struct InboxScreen: View {
         }
     }
 
-    // MARK: - Assistente local
+    // MARK: - Assistente
 
     private func assistantContext(for scope: InboxAssistantScope) -> AssistantContext {
         switch scope {

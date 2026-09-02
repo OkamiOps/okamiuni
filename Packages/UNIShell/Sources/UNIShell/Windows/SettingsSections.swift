@@ -280,7 +280,7 @@ struct GeneralSettingsView: View {
                 SettingsNotice(
                     symbol: "lock.shield",
                     title: "Processamento local",
-                    text: "Perguntas e escrita usam Foundation Models. A análise automática de mensagens também continua local."
+                    text: "Perguntas e escrita usam o Foundation Models deste Mac. A análise automática de mensagens segue a rota escolhida abaixo."
                 )
             case .openAICompatible:
                 remoteFields
@@ -329,12 +329,12 @@ struct GeneralSettingsView: View {
         SettingsNotice(
             symbol: draft.provider == .foundationModels ? "lock.shield" : "arrow.triangle.branch",
             title: "Perguntas e escrita: \(assistantRouteLabel)",
-            text: "Este é o destino usado quando você aciona Resumo, Pontos-chave, Insights ou Gerar resposta. “TL;DR · neste Mac” é outro recurso: ele continua local, mesmo quando você escolhe outro provedor."
+            text: "Este é o destino usado quando você aciona Resumo, Pontos-chave, Insights ou Gerar resposta."
         )
     }
 
     private var assistantRouteLabel: String {
-        draft.interactiveProviderLabel
+        AssistantDestination(settings: draft).label
     }
 
     @ViewBuilder
@@ -1720,26 +1720,6 @@ struct GeneralSettingsView: View {
     }
 
     private static let assistantSelectionWidth: CGFloat = 340
-}
-
-/// Rótulo de apresentação da rota interativa. O resumo automático usa outro
-/// pipeline e continua local; portanto ele não deve reutilizar esta descrição.
-extension AssistantSettings {
-    var interactiveProviderLabel: String {
-        switch provider {
-        case .foundationModels:
-            return "Apple Intelligence · neste Mac"
-        case .providerOAuth:
-            let provider = providerOAuth.kind == .codex ? "Codex · ChatGPT" : "Grok · xAI"
-            let model = providerOAuth.model.trimmingCharacters(in: .whitespacesAndNewlines)
-            return model.isEmpty ? "\(provider) · escolha um modelo" : "\(provider) · \(model)"
-        case .openAICompatible:
-            let model = openAICompatible.model.trimmingCharacters(in: .whitespacesAndNewlines)
-            return model.isEmpty ? "API / LiteLLM · informe o modelo" : "API / LiteLLM · \(model)"
-        case .cli:
-            return cli.kind.displayName
-        }
-    }
 }
 
 // MARK: - Gestos

@@ -262,6 +262,43 @@ struct AssistantPanelTests {
         #expect(bitmap.pixelsWide == Int(AssistantPanel.defaultWidth))
     }
 
+    @Test("com provedor remoto, nenhuma superfície promete processamento local")
+    func remoteDestinationNeverPromisesLocal() async throws {
+        let destination = AssistantDestination(
+            label: "Grok · xAI", detail: "Sai deste Mac para a xAI.", isLocal: false
+        )
+        let conversation = AssistantConversation(
+            scope: .workspace,
+            context: .init(subject: "Todo o OkamiUNI", sender: "2 contas"),
+            destination: destination,
+            engine: AssistantEngine(supportsDraftReply: false) { _ in "ok" }
+        )
+        let panel = AssistantPanel(conversation: conversation, onClose: {})
+        let image = try #require(Render.snapshot(
+            panel,
+            named: "assistant-panel-remote",
+            size: CGSize(width: 360, height: 640),
+            theme: .okami
+        ))
+        #expect(image.pixelsWide == 360)
+
+        // A cópia é lógica pura e mora fora da View: o rodapé é o `detail` do
+        // destino, e a espera é `AssistantScope.loadingLabel(for:)`. Nenhum
+        // dos dois é um texto fixo por escopo.
+        #expect(conversation.destination.detail == "Sai deste Mac para a xAI.")
+        #expect(!conversation.destination.detail.localizedCaseInsensitiveContains("neste Mac"))
+        #expect(!conversation.destination.detail.localizedCaseInsensitiveContains("local"))
+        #expect(AssistantScope.workspace.loadingLabel(for: destination) == "Falando com Grok · xAI…")
+        #expect(!AssistantScope.workspace.loadingLabel(for: destination).localizedCaseInsensitiveContains("local"))
+        #expect(AssistantScope.email.loadingLabel(for: destination) == "Falando com Grok · xAI…")
+
+        let local = AssistantDestination(
+            label: "Neste Mac", detail: "Nada sai deste Mac.", isLocal: true
+        )
+        #expect(local.detail == "Nada sai deste Mac.")
+        #expect(AssistantScope.workspace.loadingLabel(for: local) == "Lendo o contexto neste Mac…")
+    }
+
     @Test("um turno de rascunho não passa pelo renderizador de Markdown")
     func draftTurnRendersLiterally() throws {
         let draft = AssistantPanelDebugState(messages: [

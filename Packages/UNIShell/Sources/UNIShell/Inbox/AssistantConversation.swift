@@ -75,7 +75,7 @@ public extension AssistantEngine {
     /// de deixar botão aceso e mudo.
     static let unavailable = AssistantEngine(supportsDraftReply: false) { _ in
         throw TextAssistantError.invalidRequest(
-            "O assistente local não foi conectado a esta janela."
+            "O assistente não foi conectado a esta janela."
         )
     }
 }

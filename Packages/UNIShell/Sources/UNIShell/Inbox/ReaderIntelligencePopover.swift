@@ -156,7 +156,7 @@ struct ReaderIntelligencePopover: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text("Inteligência do email")
+                Text("Inteligência do email · \(conversation.destination.label)")
                     .font(theme.sans.font(size: 12, weight: .semibold))
                     .foregroundStyle(theme.ink.color)
                 Text(context.title)

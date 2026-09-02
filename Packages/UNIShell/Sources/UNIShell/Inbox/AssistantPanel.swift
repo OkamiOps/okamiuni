@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import SwiftUI
 import UNIDesign
+import UNISync
 
 /// O pedaço de uma mensagem que acompanha uma pergunta local.
 ///
@@ -127,6 +128,15 @@ public enum AssistantScope: Sendable, Hashable {
         case .email: AssistantSuggestion.emailDefaults
         case .workspace: AssistantSuggestion.workspaceDefaults
         }
+    }
+
+    /// A cópia que aparece enquanto a pergunta está a caminho. Depende do
+    /// destino, não do escopo: prometer "local" com um provedor remoto
+    /// selecionado foi o que motivou a spec 1.2.
+    func loadingLabel(for destination: AssistantDestination) -> String {
+        destination.isLocal
+            ? "Lendo o contexto neste Mac…"
+            : "Falando com \(destination.label)…"
     }
 }
 
@@ -394,7 +404,7 @@ public struct AssistantPanel: View {
             ProgressView()
                 .controlSize(.small)
                 .tint(theme.info.color)
-            Text("Lendo o contexto local…")
+            Text(mode.loadingLabel(for: conversation.destination))
                 .font(theme.sans.font(size: 11.5, weight: .medium))
                 .foregroundStyle(theme.ink3.color)
         }

@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import UNICore
 
-@Suite("Contrato da análise no dispositivo")
+@Suite("Contrato da análise de mensagens")
 struct MessageAnalysisTests {
     private let receivedAt = Date(timeIntervalSince1970: 1_788_000_000)
     private let timeZone = TimeZone(identifier: "America/Sao_Paulo")!

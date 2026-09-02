@@ -3,7 +3,7 @@ import Testing
 import UNICore
 @testable import UNIShell
 
-@Suite("Ponte do assistente local")
+@Suite("Ponte do assistente")
 struct AssistantBridgeTests {
     @Test("Composer traduz cada intenção e preserva contexto")
     func composerMapping() async throws {
