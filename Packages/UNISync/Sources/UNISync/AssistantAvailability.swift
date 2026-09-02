@@ -19,10 +19,7 @@ public enum AssistantAvailability: Sendable, Hashable {
         case let .ready(destination): destination
         case let .needsSetup(destination, _): destination
         case let .needsSignIn(destination, _): destination
-        case .appleIntelligence:
-            AssistantDestination(
-                label: "Neste Mac", detail: "Nada sai deste Mac.", isLocal: true
-            )
+        case .appleIntelligence: .onThisMac
         }
     }
 
@@ -60,6 +57,14 @@ public final class AssistantAvailabilityModel {
     public private(set) var availability: AssistantAvailability
 
     private let probe: @Sendable () async -> AssistantAvailability
+    /// Uma sonda por vez. Para o Codex, "sondar" é subir o `app-server`; dois
+    /// saves seguidos nas preferências subiriam dois processos ao mesmo tempo
+    /// para responder à mesma pergunta.
+    private var isProbing = false
+    /// Alguém pediu uma medida enquanto a anterior estava no ar. A resposta
+    /// que já vinha pode ser de antes da mudança, então há mais uma rodada —
+    /// nunca em paralelo, sempre em seguida.
+    private var wantsAnotherProbe = false
 
     public init(
         settingsStore: AssistantSettingsStore,
@@ -73,6 +78,15 @@ public final class AssistantAvailabilityModel {
     }
 
     public func refresh() async {
-        availability = await probe()
+        guard !isProbing else {
+            wantsAnotherProbe = true
+            return
+        }
+        isProbing = true
+        defer { isProbing = false }
+        repeat {
+            wantsAnotherProbe = false
+            availability = await probe()
+        } while wantsAnotherProbe
     }
 }

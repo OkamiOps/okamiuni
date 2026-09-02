@@ -143,8 +143,21 @@ public struct SidebarRail: View {
         .accessibilityLabel("Abrir contas e providers")
     }
 
+    /// Ver `IntelligenceFooter.compactAction`: a trilha não comporta um
+    /// "Abrir Ajustes" legível, então o acento da IA é que muda de destino
+    /// quando a pergunta ainda não pode ser feita.
+    private var assistantAction: () -> Void {
+        intelligencePresentation.isAvailable ? onOpenAssistant : onOpenSettings
+    }
+
+    private var assistantHelp: String {
+        intelligencePresentation.isAvailable
+            ? intelligencePresentation.actionHelp
+            : "\(intelligencePresentation.detail) Clique para abrir Ajustes."
+    }
+
     private var assistantButton: some View {
-        Button(action: onOpenAssistant) {
+        Button(action: assistantAction) {
             VStack(spacing: 4) {
                 Image(systemName: intelligencePresentation.symbol)
                     .font(.system(size: 22, weight: .medium))
@@ -172,11 +185,12 @@ public struct SidebarRail: View {
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall)
-        .disabled(!intelligencePresentation.isAvailable)
-        .help(intelligencePresentation.actionHelp)
-        .accessibilityLabel(intelligencePresentation.actionTitle)
+        .help(assistantHelp)
+        .accessibilityLabel(
+            intelligencePresentation.isAvailable ? intelligencePresentation.actionTitle : "Abrir Ajustes"
+        )
         .accessibilityValue(intelligencePresentation.isAvailable ? "Disponível" : "Indisponível")
-        .accessibilityHint(intelligencePresentation.actionHelp)
+        .accessibilityHint(assistantHelp)
     }
 
     private func bucketButton(_ bucket: TriageBucket) -> some View {

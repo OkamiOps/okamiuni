@@ -45,6 +45,17 @@ public final class AssistantProviderOAuthCoordinator: AssistantProviderOAuthAuth
     private let now: @Sendable () -> Date
     private var authorizationTask: Task<Void, Never>?
     private var refreshTasks: [String: Task<AssistantProviderOAuthSession, any Error>] = [:]
+    /// A última resposta do runtime do Codex e quando ela chegou.
+    ///
+    /// Perguntar "há sessão?" ao Codex é subir o `codex app-server --stdio` e
+    /// falar JSON-RPC com ele. A sonda de disponibilidade faz essa pergunta a
+    /// cada `save` das preferências; sem esta janela curta, mexer no modelo
+    /// três vezes seguidas subia três processos. Trinta segundos respondem à
+    /// rajada sem esconder um login: `start` e `signOut` limpam na hora, e
+    /// `refreshStatus` — o botão explícito de "verificar" — nunca lê daqui,
+    /// só escreve.
+    private var codexSession: (signedIn: Bool, measuredAt: Date)?
+    private static let codexSessionTTL: TimeInterval = 30
 
     public init(
         client: AssistantProviderOAuthClient = .init(),
@@ -72,7 +83,7 @@ public final class AssistantProviderOAuthCoordinator: AssistantProviderOAuthAuth
             let configuration = try configuration.validatedForAuthorization()
             switch configuration.kind {
             case .codex:
-                status = await codexRuntime.isSignedIn() ? .signedIn : .signedOut
+                status = await measuredCodexSignedIn() ? .signedIn : .signedOut
             case .xAI:
                 guard let session = try sessions.session(for: configuration.credentialID),
                       session.kind == .xAI,
@@ -92,6 +103,7 @@ public final class AssistantProviderOAuthCoordinator: AssistantProviderOAuthAuth
     public func start(configuration: AssistantProviderOAuthConfiguration) async throws {
         authorizationTask?.cancel()
         authorizationTask = nil
+        codexSession = nil
         // A nova tentativa só começa depois que o runtime confirmou o
         // fechamento do login anterior; disparar isto em uma Task criaria uma
         // corrida que poderia cancelar o código recém-gerado.
@@ -166,6 +178,7 @@ public final class AssistantProviderOAuthCoordinator: AssistantProviderOAuthAuth
 
     public func signOut(configuration: AssistantProviderOAuthConfiguration) async {
         cancelAuthorization()
+        codexSession = nil
         status = .checking
         do {
             let configuration = try configuration.validatedForAuthorization()
@@ -192,7 +205,7 @@ public final class AssistantProviderOAuthCoordinator: AssistantProviderOAuthAuth
         guard let configuration = try? configuration.validatedForAuthorization() else { return false }
         switch configuration.kind {
         case .codex:
-            return await codexRuntime.isSignedIn()
+            return await cachedCodexSignedIn()
         case .xAI:
             guard let session = try? sessions.session(for: configuration.credentialID),
                   session.kind == .xAI,
@@ -230,9 +243,25 @@ public final class AssistantProviderOAuthCoordinator: AssistantProviderOAuthAuth
         }
     }
 
+    /// A resposta fresca do runtime, guardada para a sonda barata.
+    private func measuredCodexSignedIn() async -> Bool {
+        let signedIn = await codexRuntime.isSignedIn()
+        codexSession = (signedIn, now())
+        return signedIn
+    }
+
+    /// A leitura da sonda: usa a janela curta quando ela ainda vale.
+    private func cachedCodexSignedIn() async -> Bool {
+        if let codexSession, now().timeIntervalSince(codexSession.measuredAt) < Self.codexSessionTTL {
+            return codexSession.signedIn
+        }
+        return await measuredCodexSignedIn()
+    }
+
     private func finishCodexAuthorization() async {
         authorizationTask = nil
-        if await codexRuntime.isSignedIn() {
+        codexSession = nil
+        if await measuredCodexSignedIn() {
             status = .signedIn
         } else {
             status = .failed(CodexDeviceLoginRuntimeError.notAuthenticated.localizedDescription)

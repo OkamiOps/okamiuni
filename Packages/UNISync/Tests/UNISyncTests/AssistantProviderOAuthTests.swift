@@ -537,6 +537,81 @@ private actor OAuthTokenProviderStub: AssistantProviderOAuthTokenProviding {
     }
 }
 
+/// A sonda de disponibilidade pergunta "há sessão?" a cada `save` das
+/// preferências. Para o Codex isso é subir o `codex app-server --stdio`; a
+/// janela curta é o que impede uma rajada de saves de virar uma rajada de
+/// processos — sem esconder um login que a pessoa acabou de fazer ou desfazer.
+@Suite("Janela curta da sessão Codex")
+@MainActor
+struct CodexSessionCacheTests {
+    private static let configuration = AssistantProviderOAuthConfiguration(kind: .codex)
+
+    @Test("a presença Codex é reaproveitada por 30 s e invalidada ao sair")
+    func codexPresenceIsCachedBriefly() async {
+        let runtime = CatalogCodexRuntimeStub(reportedSignedIn: true, models: [])
+        let relogio = RelogioDeEnsaio()
+        let coordinator = AssistantProviderOAuthCoordinator(
+            sessions: InMemoryAssistantProviderOAuthSessionStore(),
+            codexRuntime: runtime,
+            now: { relogio.agora }
+        )
+
+        #expect(await coordinator.hasAccessToken(for: Self.configuration))
+        #expect(await coordinator.hasAccessToken(for: Self.configuration))
+        #expect(await coordinator.hasAccessToken(for: Self.configuration))
+        #expect(await runtime.signedInCheckCount() == 1)
+
+        // Passada a janela, a resposta volta a ser medida.
+        relogio.avancar(31)
+        #expect(await coordinator.hasAccessToken(for: Self.configuration))
+        #expect(await runtime.signedInCheckCount() == 2)
+
+        // Sair invalida na hora: esperar 30 s para admitir que a pessoa saiu
+        // seria mentir por meio minuto.
+        await coordinator.signOut(configuration: Self.configuration)
+        #expect(await coordinator.hasAccessToken(for: Self.configuration))
+        #expect(await runtime.signedInCheckCount() == 3)
+    }
+
+    @Test("a presença xAI não é cacheada — ela já é barata e mora no Keychain")
+    func xAIPresenceIsNotCached() async throws {
+        let runtime = CatalogCodexRuntimeStub(reportedSignedIn: true, models: [])
+        let sessions = InMemoryAssistantProviderOAuthSessionStore()
+        let relogio = RelogioDeEnsaio()
+        let coordinator = AssistantProviderOAuthCoordinator(
+            sessions: sessions, codexRuntime: runtime, now: { relogio.agora }
+        )
+        let configuration = AssistantProviderOAuthConfiguration(kind: .xAI, model: "grok-4.6")
+        try sessions.store(
+            .init(
+                kind: .xAI, accessToken: "a", refreshToken: "r",
+                expiresAt: relogio.agora.addingTimeInterval(86_400),
+                tokenEndpoint: URL(string: "https://auth.x.ai/oauth2/token")!
+            ),
+            for: configuration.credentialID
+        )
+
+        #expect(await coordinator.hasAccessToken(for: configuration))
+        try sessions.removeSession(for: configuration.credentialID)
+        // Sem TTL nenhum: a próxima pergunta já vê o cofre vazio.
+        #expect(await coordinator.hasAccessToken(for: configuration) == false)
+        #expect(await runtime.signedInCheckCount() == 0)
+    }
+}
+
+/// Relógio de ensaio: o cache tem prazo, e prazo se testa andando com o tempo,
+/// não dormindo.
+private final class RelogioDeEnsaio: @unchecked Sendable {
+    private let lock = NSLock()
+    private var instante = Date(timeIntervalSince1970: 1_800_000_000)
+
+    var agora: Date { lock.withLock { instante } }
+
+    func avancar(_ segundos: TimeInterval) {
+        lock.withLock { instante = instante.addingTimeInterval(segundos) }
+    }
+}
+
 private actor CodexRuntimeStub: CodexDeviceLoginRuntime {
     private var signedIn = false
     private var completion: CheckedContinuation<Void, Error>?

@@ -18,10 +18,17 @@ public struct AssistantDestination: Sendable, Hashable {
         self.isLocal = isLocal
     }
 
+    /// O único destino local: o motor no próprio Mac. A frase que promete
+    /// privacidade mora num lugar só — repetida em quatro arquivos, ela
+    /// sobreviveria a uma correção feita em apenas três.
+    public static let onThisMac = AssistantDestination(
+        label: "Neste Mac", detail: "Nada sai deste Mac.", isLocal: true
+    )
+
     public init(settings: AssistantSettings) {
         switch settings.provider {
         case .foundationModels:
-            self.init(label: "Neste Mac", detail: "Nada sai deste Mac.", isLocal: true)
+            self = .onThisMac
         case .providerOAuth:
             switch settings.providerOAuth.kind {
             case .xAI:

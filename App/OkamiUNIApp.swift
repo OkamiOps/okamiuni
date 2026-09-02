@@ -130,17 +130,17 @@ struct OkamiUNIApp: App {
                     AccountsRehearsal.fromProcess, model: accountsRehearsalModel
                 )
         } else {
-            InboxScreen(
-                store: mailStore,
-                clock: agendaClock,
-                intelligencePresentation: IntelligencePresentation(
-                    composition.assistantAvailability.availability
-                ),
-                textAssistant: composition.textAssistant,
-                assistantSettings: composition.assistantSettings,
-                onMessagePresented: prioritizeMessageSummary,
-                accountsModel: accountsModel
-            )
+            LeituraDoAssistente(model: composition.assistantAvailability) { apresentacao in
+                InboxScreen(
+                    store: mailStore,
+                    clock: agendaClock,
+                    intelligencePresentation: apresentacao,
+                    textAssistant: composition.textAssistant,
+                    assistantSettings: composition.assistantSettings,
+                    onMessagePresented: prioritizeMessageSummary,
+                    accountsModel: accountsModel
+                )
+            }
                 // Porta de depuração: `open -g --args --nova-mensagem` abre a
                 // janela auxiliar pelo mesmo `openWindow` do menu, sem trazer o
                 // app à frente e sem sintetizar tecla nenhuma. Sem a bandeira,
@@ -165,10 +165,6 @@ struct OkamiUNIApp: App {
                 .rehearseTrafficLightsIfRequested(
                     TrafficLightRehearsal.fromProcess, store: mailStore
                 )
-                // A primeira medida honesta do assistente. Depois dela, quem
-                // recalcula é o `save` das preferências — a lateral não
-                // pergunta duas vezes a mesma coisa.
-                .task { await composition.assistantAvailability.refresh() }
         }
     }
 
@@ -257,16 +253,16 @@ struct OkamiUNIApp: App {
         .defaultSize(UNIWindow.Size.newMessage)
 
         WindowGroup(id: UNIWindow.message, for: String.self) { $messageID in
-            MessageWindow(
-                store: mailStore,
-                messageID: messageID ?? "",
-                textAssistant: composition.textAssistant,
-                assistantSettings: composition.assistantSettings,
-                intelligencePresentation: IntelligencePresentation(
-                    composition.assistantAvailability.availability
-                ),
-                onMessagePresented: prioritizeMessageSummary
-            )
+            LeituraDoAssistente(model: composition.assistantAvailability) { apresentacao in
+                MessageWindow(
+                    store: mailStore,
+                    messageID: messageID ?? "",
+                    textAssistant: composition.textAssistant,
+                    assistantSettings: composition.assistantSettings,
+                    intelligencePresentation: apresentacao,
+                    onMessagePresented: prioritizeMessageSummary
+                )
+            }
                 .themed(themes)
                 .barraColadaNoTopo()
                 .frame(minWidth: 520, minHeight: 380)
@@ -330,6 +326,27 @@ struct OkamiUNIApp: App {
     private func prioritizeMessageSummary(_ messageID: String) {
         guard let intelligence = composition.intelligence else { return }
         Task { await intelligence.prioritize(messageID: messageID) }
+    }
+}
+
+/// Lê a disponibilidade do assistente **dentro do corpo de uma `View`**.
+///
+/// Não é rodeio: o fecho de conteúdo de uma `WindowGroup` e a propriedade
+/// `cenaPrincipal` são avaliados fora de um corpo de `View`, e uma leitura
+/// feita ali não entra no rastreio do `@Observable` — a barra ficaria com a
+/// primeira medida para sempre. Dentro deste corpo, ler `model.availability`
+/// registra a dependência, e o `refresh()` seguinte redesenha quem consome.
+///
+/// O `.task` é o outro motivo de existir: cada superfície que lê a
+/// disponibilidade também paga a primeira medida, e o modelo coalesce as
+/// chamadas — abrir três janelas de mensagem não sobe três sondas.
+private struct LeituraDoAssistente<Content: View>: View {
+    let model: AssistantAvailabilityModel
+    @ViewBuilder let content: (IntelligencePresentation) -> Content
+
+    var body: some View {
+        content(IntelligencePresentation(model.availability))
+            .task { await model.refresh() }
     }
 }
 

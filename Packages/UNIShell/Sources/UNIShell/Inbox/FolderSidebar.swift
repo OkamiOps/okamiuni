@@ -24,8 +24,7 @@ public enum IntelligencePresentation: Sendable, Hashable {
             self = .needsSignIn(destination, provider: provider)
         case let .appleIntelligence(state):
             switch state {
-            case .available:
-                self = .available(.init(label: "Neste Mac", detail: "Nada sai deste Mac.", isLocal: true))
+            case .available: self = .available(.onThisMac)
             case .deviceNotEligible: self = .deviceNotEligible
             case .appleIntelligenceNotEnabled: self = .appleIntelligenceNotEnabled
             case .modelNotReady: self = .modelNotReady
@@ -35,9 +34,7 @@ public enum IntelligencePresentation: Sendable, Hashable {
 
     /// O destino de fábrica: o motor local. Serve de padrão às assinaturas e
     /// aos previews, que não podem inventar um destino remoto.
-    public static let onThisMac = IntelligencePresentation.available(
-        .init(label: "Neste Mac", detail: "Nada sai deste Mac.", isLocal: true)
-    )
+    public static let onThisMac = IntelligencePresentation.available(.onThisMac)
 
     /// O rótulo da ação fica estável; o estado explica se ela pode ser usada.
     /// Mudar o texto do botão conforme o motor oscila esconderia justamente a
@@ -184,8 +181,21 @@ struct IntelligenceFooter: View {
         .accessibilityHint(presentation.actionHelp)
     }
 
+    /// Na trilha não cabe um segundo botão. Então o próprio acento da IA vira
+    /// a saída: sem provedor pronto ele não fica mudo, leva a Configurações —
+    /// e `help` e acessibilidade dizem isso antes do clique.
+    private var compactAction: () -> Void {
+        presentation.isAvailable ? onOpenAssistant : onOpenSettings
+    }
+
+    private var compactHelp: String {
+        presentation.isAvailable
+            ? presentation.actionHelp
+            : "\(presentation.detail) Clique para abrir Ajustes."
+    }
+
     private var compactBody: some View {
-        Button(action: onOpenAssistant) {
+        Button(action: compactAction) {
             VStack(spacing: 4) {
                 Image(systemName: presentation.symbol)
                     .font(.system(size: 22, weight: .medium))
@@ -209,11 +219,10 @@ struct IntelligenceFooter: View {
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall)
-        .disabled(!presentation.isAvailable)
-        .help(presentation.actionHelp)
-        .accessibilityLabel(presentation.actionTitle)
+        .help(compactHelp)
+        .accessibilityLabel(presentation.isAvailable ? presentation.actionTitle : "Abrir Ajustes")
         .accessibilityValue(presentation.isAvailable ? "Disponível" : "Indisponível")
-        .accessibilityHint(presentation.actionHelp)
+        .accessibilityHint(compactHelp)
     }
 
     private var statusColor: TokenColor {
