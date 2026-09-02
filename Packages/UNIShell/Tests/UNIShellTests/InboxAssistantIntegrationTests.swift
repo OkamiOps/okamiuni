@@ -34,7 +34,7 @@ struct InboxAssistantIntegrationTests {
     func readerButtonIsAnAction() {
         var opens = 0
         CliqueDeEnsaio.em(
-            ReaderAssistantButton(presentation: .available) { opens += 1 },
+            ReaderAssistantButton(presentation: .onThisMac) { opens += 1 },
             size: CGSize(width: 60, height: 50),
             aY: 13,
             x: 14

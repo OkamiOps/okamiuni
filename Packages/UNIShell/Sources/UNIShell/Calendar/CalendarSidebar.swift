@@ -67,7 +67,8 @@ struct CalendarSidebar: View {
             VStack(spacing: 8) {
                 IntelligenceFooter(
                     presentation: intelligencePresentation,
-                    onOpenAssistant: onOpenAssistant
+                    onOpenAssistant: onOpenAssistant,
+                    onOpenSettings: { onOpenAccounts?() }
                 )
                 refreshButton
             }
@@ -109,6 +110,7 @@ struct CalendarSidebar: View {
             IntelligenceFooter(
                 presentation: intelligencePresentation,
                 onOpenAssistant: onOpenAssistant,
+                onOpenSettings: { onOpenAccounts?() },
                 compact: true
             )
             compactRefresh

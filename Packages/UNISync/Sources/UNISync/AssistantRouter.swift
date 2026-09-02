@@ -72,52 +72,82 @@ public actor AssistantRouter: TextAssisting {
         )
     }
 
-    public func availability() async -> AppleIntelligenceAvailability {
+    /// Para onde o conteúdo vai agora, sem perguntar nada a ninguém. É o que
+    /// a interface usa para não prometer processamento local com um provedor
+    /// remoto escolhido.
+    public nonisolated func destination() -> AssistantDestination {
+        AssistantDestination(settings: settingsStore.snapshot())
+    }
+
+    /// Barata de propósito: nenhuma chamada de rede, nenhuma leitura de
+    /// segredo, nenhuma renovação de token. É consultada a cada abertura de
+    /// tela e a cada `save` das preferências.
+    public func assistantAvailability() async -> AssistantAvailability {
         let settings = settingsStore.snapshot()
+        let destination = AssistantDestination(settings: settings)
         switch settings.provider {
         case .foundationModels:
-            return FoundationModelsTextAssistant.systemAvailability
+            let state = FoundationModelsTextAssistant.systemAvailability
+            return state == .available ? .ready(destination) : .appleIntelligence(state)
         case .openAICompatible:
             guard let configuration = try? settings.openAICompatible.validated(),
                   let endpoint = try? configuration.chatCompletionsURL()
             else {
-                return .modelNotReady
+                return .needsSetup(destination, reason: "Confira o endpoint e o modelo deste provedor.")
             }
             switch configuration.authenticationMode {
             case .none:
-                return .available
+                return .ready(destination)
             case .apiKey:
                 guard (try? credentialStore.credentialPresence(for: configuration.credentialID)) == .present else {
-                    return .modelNotReady
+                    return .needsSetup(destination, reason: "Adicione a chave de API deste provedor.")
                 }
-                return .available
+                return .ready(destination)
             case .litellmOAuthPKCE:
                 guard let oauthTokenProvider,
                       await oauthTokenProvider.hasAccessToken(
-                          for: configuration.credentialID,
-                          endpoint: endpoint
+                          for: configuration.credentialID, endpoint: endpoint
                       )
                 else {
-                    return .modelNotReady
+                    return .needsSignIn(destination, provider: nil)
                 }
-                return .available
+                return .ready(destination)
             }
         case .providerOAuth:
-            guard let configuration = try? settings.providerOAuth.validated(),
-                  let providerOAuthTokenProvider,
+            guard let configuration = try? settings.providerOAuth.validated() else {
+                return .needsSetup(destination, reason: "Escolha um modelo para esta assinatura.")
+            }
+            guard let providerOAuthTokenProvider,
                   await providerOAuthTokenProvider.hasAccessToken(for: configuration)
             else {
-                return .modelNotReady
+                return .needsSignIn(destination, provider: configuration.kind)
             }
-            return .available
+            if configuration.kind == .codex,
+               cliInstallationProvider().first(where: { $0.kind == .codex && $0.isDetected }) == nil {
+                return .needsSetup(destination, reason: "O runtime do Codex não foi encontrado neste Mac.")
+            }
+            return .ready(destination)
         case .cli:
             guard let installation = cliInstallationProvider().first(where: {
                 $0.kind == settings.cli.kind && $0.isDetected
             }), (try? AssistantCLICommand.make(kind: settings.cli.kind, installation: installation)) != nil
             else {
-                return .modelNotReady
+                return .needsSetup(
+                    destination,
+                    reason: "O \(settings.cli.kind.displayName) não foi encontrado neste Mac."
+                )
             }
-            return .available
+            return .ready(destination)
+        }
+    }
+
+    /// O requisito do protocolo continua existindo — é ele que a fila de
+    /// análise consulta. Agora é derivado, e não uma segunda regra.
+    public func availability() async -> AppleIntelligenceAvailability {
+        switch await assistantAvailability() {
+        case .ready: .available
+        case let .appleIntelligence(state): state
+        case .needsSetup, .needsSignIn: .modelNotReady
         }
     }
 

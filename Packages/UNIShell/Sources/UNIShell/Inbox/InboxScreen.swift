@@ -92,7 +92,7 @@ public struct InboxScreen: View {
     public init(
         store: MailStore,
         clock: AgendaClock = .fixed(Fixtures.nowMinute),
-        intelligencePresentation: IntelligencePresentation = .available,
+        intelligencePresentation: IntelligencePresentation = .onThisMac,
         textAssistant: (any TextAssisting)? = nil,
         assistantSettings: AssistantSettingsStore? = nil,
         onMessagePresented: @escaping (String) -> Void = { _ in },
@@ -116,7 +116,7 @@ public struct InboxScreen: View {
     init(
         store: MailStore,
         clock: AgendaClock = .fixed(Fixtures.nowMinute),
-        intelligencePresentation: IntelligencePresentation = .available,
+        intelligencePresentation: IntelligencePresentation = .onThisMac,
         textAssistant: (any TextAssisting)? = nil,
         assistantSettings: AssistantSettingsStore? = nil,
         onMessagePresented: @escaping (String) -> Void = { _ in },
@@ -356,6 +356,7 @@ public struct InboxScreen: View {
                         width: layout.sidebarWidth,
                         intelligencePresentation: intelligencePresentation,
                         onOpenAssistant: openWorkspaceAssistant,
+                        onOpenSettings: openAccounts,
                         onCompose: openNewMessage,
                         onOpenAccounts: openAccounts
                     )
@@ -366,6 +367,7 @@ public struct InboxScreen: View {
                         width: layout.sidebarWidth,
                         intelligencePresentation: intelligencePresentation,
                         onOpenAssistant: openWorkspaceAssistant,
+                        onOpenSettings: openAccounts,
                         onCompose: openNewMessage,
                         onOpenAccounts: openAccounts
                     )

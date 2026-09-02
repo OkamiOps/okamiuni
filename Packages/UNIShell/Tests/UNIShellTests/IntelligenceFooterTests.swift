@@ -3,6 +3,7 @@ import SwiftUI
 import Testing
 import UNICore
 import UNIDesign
+import UNISync
 @testable import UNIShell
 
 @Suite("Ação de perguntas na barra expandida")
@@ -17,16 +18,28 @@ struct IntelligenceFooterTests {
     func copyForEveryPresentation() {
         let expected: [(IntelligencePresentation, String, String, Bool)] = [
             (
-                .configuredAssistant,
-                "Assistente configurável disponível",
-                "Pergunte sobre suas caixas, emails e agenda. O processamento segue o provedor escolhido em Configurações.",
+                .onThisMac,
+                "Neste Mac",
+                "Pergunte sobre suas caixas, emails e agenda. Nada sai deste Mac.",
                 true
             ),
             (
-                .available,
-                "Inteligência local disponível",
-                "Pergunte sobre suas caixas, emails e agenda. Nada sai deste Mac.",
-                true
+                .needsSetup(
+                    .init(label: "API · sem endpoint", detail: "Informe o endpoint nos Ajustes.", isLocal: false),
+                    detail: "Adicione a chave de API deste provedor."
+                ),
+                "Configure a IA",
+                "Adicione a chave de API deste provedor.",
+                false
+            ),
+            (
+                .needsSignIn(
+                    .init(label: "Grok · xAI", detail: "Sai deste Mac para a xAI.", isLocal: false),
+                    provider: .xAI
+                ),
+                "Entre na assinatura",
+                "Entre na assinatura Grok · xAI para usar a IA.",
+                false
             ),
             (
                 .deviceNotEligible,
@@ -43,19 +56,14 @@ struct IntelligenceFooterTests {
             (
                 .modelNotReady,
                 "Modelo ainda não está pronto",
-                "A Apple Intelligence ainda está sendo preparada. Resumos e compromissos ficam disponíveis quando terminar.",
+                "A Apple Intelligence ainda está sendo preparada.",
                 false
             ),
         ]
 
-        #expect(IntelligencePresentation.allCases.count == expected.count)
         for (presentation, title, detail, isAvailable) in expected {
             #expect(presentation.title == title)
             #expect(presentation.detail == detail)
-            #expect(
-                presentation.symbol == (presentation == .configuredAssistant
-                    ? "sparkles" : "apple.intelligence")
-            )
             #expect(presentation.actionTitle == "Perguntar ao ambiente")
             #expect(presentation.isAvailable == isAvailable)
             #expect(!presentation.title.localizedCaseInsensitiveContains("classificação"))
@@ -63,10 +71,72 @@ struct IntelligenceFooterTests {
             #expect(!presentation.title.localizedCaseInsensitiveContains("busca semântica"))
             #expect(!presentation.detail.localizedCaseInsensitiveContains("busca semântica"))
         }
-        #expect(IntelligencePresentation.configuredAssistant.scopeLabel
-            == "Todo o OkamiUNI · provedor configurado")
-        #expect(IntelligencePresentation.available.scopeLabel
-            == "Todo o OkamiUNI · local")
+    }
+
+    /// A cópia da barra vem do destino: prometer "local" com um provedor
+    /// remoto escolhido era exatamente o defeito que esta apresentação fecha.
+    @Test("o destino manda na cópia, no glifo e no escopo")
+    func destinationDrivesCopy() {
+        let remote = IntelligencePresentation.available(
+            .init(label: "Grok · xAI", detail: "Sai deste Mac para a xAI.", isLocal: false)
+        )
+        #expect(remote.scopeLabel == "Todo o OkamiUNI · Grok · xAI")
+        #expect(remote.detail.contains("Sai deste Mac para a xAI."))
+        #expect(remote.symbol == "sparkles")
+
+        let local = IntelligencePresentation.available(
+            .init(label: "Neste Mac", detail: "Nada sai deste Mac.", isLocal: true)
+        )
+        #expect(local.symbol == "apple.intelligence")
+        #expect(local.detail.contains("Nada sai deste Mac."))
+        #expect(local.scopeLabel == "Todo o OkamiUNI · Neste Mac")
+
+        let missing = IntelligencePresentation.needsSetup(
+            .init(label: "API · sem endpoint", detail: "Informe o endpoint nos Ajustes.", isLocal: false),
+            detail: "Adicione a chave de API deste provedor."
+        )
+        #expect(!missing.isAvailable)
+        #expect(missing.detail == "Adicione a chave de API deste provedor.")
+        #expect(missing.symbol == "sparkles")
+        #expect(missing.actionHelp == "Adicione a chave de API deste provedor.")
+    }
+
+    /// A tradução vinda do UNISync é o único caminho entre o roteador e a
+    /// barra: sem ela a tela voltaria a ter uma segunda regra própria.
+    @Test("a apresentação nasce da disponibilidade medida pelo roteador")
+    func presentationComesFromAvailability() {
+        let destino = AssistantDestination(
+            label: "Grok · xAI", detail: "Sai deste Mac para a xAI.", isLocal: false
+        )
+        #expect(IntelligencePresentation(.ready(destino)) == .available(destino))
+        #expect(IntelligencePresentation(.needsSignIn(destino, provider: .xAI))
+            == .needsSignIn(destino, provider: .xAI))
+        #expect(IntelligencePresentation(.needsSetup(destino, reason: "Adicione a chave de API deste provedor."))
+            == .needsSetup(destino, detail: "Adicione a chave de API deste provedor."))
+        #expect(IntelligencePresentation(.appleIntelligence(.deviceNotEligible)) == .deviceNotEligible)
+        #expect(IntelligencePresentation(.appleIntelligence(.available)).isAvailable)
+    }
+
+    /// O botão desabilitado precisa de saída. "Abrir Ajustes" só aparece
+    /// quando a pergunta não pode ser feita — e leva a Configurações.
+    @Test("estado indisponível oferece Abrir Ajustes")
+    func unavailableOffersSettings() async {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        var settings = 0
+
+        CliqueDeEnsaio.em(
+            FolderSidebar(
+                store: store,
+                intelligencePresentation: .modelNotReady,
+                onOpenSettings: { settings += 1 }
+            ),
+            size: CGSize(width: FolderSidebar.expandedWidth, height: 620),
+            aY: 598,
+            x: 118
+        )
+
+        #expect(settings == 1)
     }
 
     @Test("o inicializador preserva o estado disponível até o compositor conectar o motor")
@@ -74,8 +144,8 @@ struct IntelligenceFooterTests {
         let store = MailStore(source: InMemoryMailSource.fixtures)
         await store.load()
 
-        #expect(FolderSidebar(store: store).intelligencePresentation.title
-            == IntelligencePresentation.available.title)
+        #expect(FolderSidebar(store: store).intelligencePresentation
+            == IntelligencePresentation.onThisMac)
     }
 
     /// O clique atravessa a `NSWindow` offscreen e chega à closure do dono da

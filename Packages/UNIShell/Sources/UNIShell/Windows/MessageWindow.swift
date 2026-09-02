@@ -29,7 +29,7 @@ public struct MessageWindow: View {
         messageID: String,
         textAssistant: (any TextAssisting)? = nil,
         assistantSettings: AssistantSettingsStore? = nil,
-        intelligencePresentation: IntelligencePresentation = .available,
+        intelligencePresentation: IntelligencePresentation = .onThisMac,
         onMessagePresented: @escaping (String) -> Void = { _ in }
     ) {
         self.store = store

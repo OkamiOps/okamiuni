@@ -17,6 +17,9 @@ public struct SidebarRail: View {
     /// janela pode recolher, mas a pergunta não pode desaparecer junto.
     let intelligencePresentation: IntelligencePresentation
     let onOpenAssistant: () -> Void
+    /// A mesma saída da barra larga: quando a IA não pode responder, a trilha
+    /// leva a pessoa a Configurações em vez de só apagar o botão.
+    let onOpenSettings: () -> Void
     let onCompose: (() -> Void)?
     let onOpenAccounts: (() -> Void)?
 
@@ -28,8 +31,9 @@ public struct SidebarRail: View {
     public init(
         store: MailStore,
         width: CGFloat = PaneLayout.railWidth,
-        intelligencePresentation: IntelligencePresentation = .available,
+        intelligencePresentation: IntelligencePresentation = .onThisMac,
         onOpenAssistant: @escaping () -> Void = {},
+        onOpenSettings: @escaping () -> Void = {},
         onCompose: (() -> Void)? = nil,
         onOpenAccounts: (() -> Void)? = nil
     ) {
@@ -37,6 +41,7 @@ public struct SidebarRail: View {
         self.railWidth = width
         self.intelligencePresentation = intelligencePresentation
         self.onOpenAssistant = onOpenAssistant
+        self.onOpenSettings = onOpenSettings
         self.onCompose = onCompose
         self.onOpenAccounts = onOpenAccounts
     }

@@ -122,6 +122,8 @@ public struct AppComposition: Sendable {
     /// OAuth Google da sessão, quando o client ID está no bundle. A fábrica
     /// de salas Meet pede o access token daqui — o mesmo consentimento da
     /// caixa, agora com o escopo de Space.
+    /// Recalculado a cada save das preferências; a interface só observa.
+    public let assistantAvailability: AssistantAvailabilityModel
     public let googleAuth: GoogleAuth?
     /// Falha de configuração que o app **mostra** em vez de esconder: banco
     /// que não abriu, client ID que falta. Nunca fatal.
@@ -150,11 +152,16 @@ public struct AppComposition: Sendable {
         let assistantCredentials = KeychainAssistantCredentialStore()
         let liteLLMOAuth = LiteLLMOAuthCoordinator()
         let assistantProviderOAuth = AssistantProviderOAuthCoordinator()
-        let textAssistant: any TextAssisting = AssistantRouter(
+        let router = AssistantRouter(
             settingsStore: assistantSettings,
             credentialStore: assistantCredentials,
             oauthTokenProvider: liteLLMOAuth,
             providerOAuthTokenProvider: assistantProviderOAuth
+        )
+        let textAssistant: any TextAssisting = router
+        let assistantAvailability = AssistantAvailabilityModel(
+            settingsStore: assistantSettings,
+            probe: { await router.assistantAvailability() }
         )
         let intelligenceAvailability = FoundationModelsMessageAnalyzer.systemAvailability
         let banco: SyncDatabase
@@ -179,6 +186,7 @@ public struct AppComposition: Sendable {
                 assistantCredentials: assistantCredentials,
                 liteLLMOAuth: liteLLMOAuth,
                 assistantProviderOAuth: assistantProviderOAuth,
+                assistantAvailability: assistantAvailability,
                 googleAuth: nil,
                 configError: falha
             )
@@ -339,6 +347,7 @@ public struct AppComposition: Sendable {
             assistantCredentials: assistantCredentials,
             liteLLMOAuth: liteLLMOAuth,
             assistantProviderOAuth: assistantProviderOAuth,
+            assistantAvailability: assistantAvailability,
             googleAuth: auth,
             configError: erro
         )

@@ -82,7 +82,7 @@ struct CalendarSidebarTests {
             CalendarSidebar(
                 store: store,
                 width: PaneLayout.expandedSidebarWidth,
-                intelligencePresentation: .available,
+                intelligencePresentation: .onThisMac,
                 onOpenAssistant: {},
                 onCreate: {}
             )
@@ -114,7 +114,7 @@ struct CalendarSidebarTests {
             CalendarSidebar(
                 store: store,
                 width: PaneLayout.railWidth,
-                intelligencePresentation: .available,
+                intelligencePresentation: .onThisMac,
                 onOpenAssistant: {},
                 onCreate: {}
             )

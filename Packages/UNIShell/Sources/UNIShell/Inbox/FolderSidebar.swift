@@ -1,61 +1,89 @@
 import SwiftUI
 import UNIDesign
 import UNICore
+import UNISync
 
-/// O que a lateral pode afirmar sobre a inteligência local neste momento.
-///
-/// O shell não pergunta ao Foundation Models nem persiste esta decisão: o
-/// compositor do app traduz o estado real do motor para esta apresentação.
-/// Assim, a barra não precisa conhecer a implementação para dizer a verdade
-/// sobre o que a pessoa pode usar.
-public enum IntelligencePresentation: CaseIterable, Sendable {
-    /// Porta do assistente roteável. Ela permanece acessível mesmo quando o
-    /// Foundation Models local não está pronto, porque o provedor escolhido
-    /// pode ser LiteLLM/OAuth ou um CLI autenticado por device flow.
-    case configuredAssistant
-    case available
+/// O que a lateral pode afirmar sobre o assistente neste momento.
+/// Deixou de ser `CaseIterable`: os casos carregam o destino, e é ele que
+/// impede a barra de prometer processamento local com Grok escolhido.
+public enum IntelligencePresentation: Sendable, Hashable {
+    case available(AssistantDestination)
+    case needsSetup(AssistantDestination, detail: String)
+    case needsSignIn(AssistantDestination, provider: AssistantProviderOAuthKind?)
     case deviceNotEligible
     case appleIntelligenceNotEnabled
     case modelNotReady
+
+    public init(_ availability: AssistantAvailability) {
+        switch availability {
+        case let .ready(destination):
+            self = .available(destination)
+        case let .needsSetup(destination, reason):
+            self = .needsSetup(destination, detail: reason)
+        case let .needsSignIn(destination, provider):
+            self = .needsSignIn(destination, provider: provider)
+        case let .appleIntelligence(state):
+            switch state {
+            case .available:
+                self = .available(.init(label: "Neste Mac", detail: "Nada sai deste Mac.", isLocal: true))
+            case .deviceNotEligible: self = .deviceNotEligible
+            case .appleIntelligenceNotEnabled: self = .appleIntelligenceNotEnabled
+            case .modelNotReady: self = .modelNotReady
+            }
+        }
+    }
+
+    /// O destino de fábrica: o motor local. Serve de padrão às assinaturas e
+    /// aos previews, que não podem inventar um destino remoto.
+    public static let onThisMac = IntelligencePresentation.available(
+        .init(label: "Neste Mac", detail: "Nada sai deste Mac.", isLocal: true)
+    )
 
     /// O rótulo da ação fica estável; o estado explica se ela pode ser usada.
     /// Mudar o texto do botão conforme o motor oscila esconderia justamente a
     /// porta que a pessoa procura para entender o que está acontecendo.
     public var actionTitle: String { "Perguntar ao ambiente" }
 
-    /// Se o motor está pronto para receber uma pergunta. O shell só desenha
-    /// esta decisão: quem a mede continua sendo o compositor do app.
     public var isAvailable: Bool {
-        self == .configuredAssistant || self == .available
+        if case .available = self { return true }
+        return false
+    }
+
+    public var destination: AssistantDestination? {
+        switch self {
+        case let .available(destination): destination
+        case let .needsSetup(destination, _): destination
+        case let .needsSignIn(destination, _): destination
+        default: nil
+        }
     }
 
     public var title: String {
         switch self {
-        case .configuredAssistant:
-            "Assistente configurável disponível"
-        case .available:
-            "Inteligência local disponível"
-        case .deviceNotEligible:
-            "Apple Intelligence indisponível"
-        case .appleIntelligenceNotEnabled:
-            "Ative a Apple Intelligence"
-        case .modelNotReady:
-            "Modelo ainda não está pronto"
+        case let .available(destination): destination.label
+        case .needsSetup: "Configure a IA"
+        case .needsSignIn: "Entre na assinatura"
+        case .deviceNotEligible: "Apple Intelligence indisponível"
+        case .appleIntelligenceNotEnabled: "Ative a Apple Intelligence"
+        case .modelNotReady: "Modelo ainda não está pronto"
         }
     }
 
-    var detail: String {
+    /// A frase que decide se o app pode prometer privacidade. Ela vem do
+    /// destino, nunca de um texto fixo.
+    public var detail: String {
         switch self {
-        case .configuredAssistant:
-            "Pergunte sobre suas caixas, emails e agenda. O processamento segue o provedor escolhido em Configurações."
-        case .available:
-            "Pergunte sobre suas caixas, emails e agenda. Nada sai deste Mac."
+        case let .available(destination):
+            "Pergunte sobre suas caixas, emails e agenda. \(destination.detail)"
+        case let .needsSetup(_, detail): detail
+        case let .needsSignIn(destination, _):
+            "Entre na assinatura \(destination.label) para usar a IA."
         case .deviceNotEligible:
             "Este Mac não é compatível com Apple Intelligence. Seus emails continuam locais."
         case .appleIntelligenceNotEnabled:
             "Ative-a nos Ajustes do Sistema para gerar resumos e identificar compromissos."
         case .modelNotReady:
-            "A Apple Intelligence ainda está sendo preparada. Resumos e compromissos ficam disponíveis quando terminar."
+            "A Apple Intelligence ainda está sendo preparada."
         }
     }
 
@@ -63,17 +91,15 @@ public enum IntelligencePresentation: CaseIterable, Sendable {
     /// da Apple depois que a pessoa escolheu Codex, Grok, LiteLLM ou um CLI
     /// fazia o provedor remoto parecer um modelo local.
     public var symbol: String {
-        self == .configuredAssistant ? "sparkles" : "apple.intelligence"
+        guard let destination else { return "apple.intelligence" }
+        return destination.isLocal ? "apple.intelligence" : "sparkles"
     }
-
-    public var usesConfiguredProvider: Bool { self == .configuredAssistant }
 
     /// Copy curta do rodapé. Não pode prometer processamento local quando a
     /// pessoa escolheu OAuth, LiteLLM ou um CLI.
     public var scopeLabel: String {
-        self == .configuredAssistant
-            ? "Todo o OkamiUNI · provedor configurado"
-            : "Todo o OkamiUNI · local"
+        guard let destination else { return "Todo o OkamiUNI" }
+        return "Todo o OkamiUNI · \(destination.label)"
     }
 
     public var actionHelp: String {
@@ -88,12 +114,29 @@ struct IntelligenceFooter: View {
     @Environment(\.displayScale) private var displayScale
     let presentation: IntelligencePresentation
     let onOpenAssistant: () -> Void
+    /// A saída para quem não pode perguntar ainda. Um botão desabilitado sem
+    /// caminho para consertar o estado é um beco: aqui ele vem acompanhado.
+    var onOpenSettings: () -> Void = {}
     /// A trilha de 72pt não cabe o cartão com duas linhas. Aí vira só o
     /// ícone e "IA", o mesmo desenho da `SidebarRail`.
     var compact: Bool = false
 
     var body: some View {
-        if compact { compactBody } else { expandedBody }
+        if compact {
+            compactBody
+        } else {
+            VStack(spacing: 6) {
+                expandedBody
+                if !presentation.isAvailable {
+                    ChromeButton(
+                        "Abrir Ajustes", appearance: .outlined,
+                        size: 11, height: 24, horizontalPadding: 9,
+                        action: onOpenSettings
+                    )
+                    .help(presentation.detail)
+                }
+            }
+        }
     }
 
     private var expandedBody: some View {
@@ -215,6 +258,8 @@ public struct FolderSidebar: View {
     /// apenas entrega uma intenção — não conhece Foundation Models nem o motor
     /// que vai responder.
     let onOpenAssistant: () -> Void
+    /// Abre Configurações quando o assistente ainda não pode responder.
+    let onOpenSettings: () -> Void
     let onCompose: (() -> Void)?
     let onOpenAccounts: (() -> Void)?
 
@@ -231,8 +276,9 @@ public struct FolderSidebar: View {
     public init(
         store: MailStore,
         width: CGFloat = PaneLayout.expandedSidebarWidth,
-        intelligencePresentation: IntelligencePresentation = .available,
+        intelligencePresentation: IntelligencePresentation = .onThisMac,
         onOpenAssistant: @escaping () -> Void = {},
+        onOpenSettings: @escaping () -> Void = {},
         onCompose: (() -> Void)? = nil,
         onOpenAccounts: (() -> Void)? = nil
     ) {
@@ -240,6 +286,7 @@ public struct FolderSidebar: View {
         self.width = width
         self.intelligencePresentation = intelligencePresentation
         self.onOpenAssistant = onOpenAssistant
+        self.onOpenSettings = onOpenSettings
         self.onCompose = onCompose
         self.onOpenAccounts = onOpenAccounts
     }
@@ -306,7 +353,8 @@ public struct FolderSidebar: View {
             VStack(spacing: 8) {
                 IntelligenceFooter(
                     presentation: intelligencePresentation,
-                    onOpenAssistant: onOpenAssistant
+                    onOpenAssistant: onOpenAssistant,
+                    onOpenSettings: onOpenSettings
                 )
                 if onOpenAccounts != nil {
                     accountsButton

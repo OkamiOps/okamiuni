@@ -35,7 +35,7 @@ struct NewAppointmentSheetTests {
             CalendarSidebar(
                 store: store,
                 width: PaneLayout.expandedSidebarWidth,
-                intelligencePresentation: .available,
+                intelligencePresentation: .onThisMac,
                 onOpenAssistant: {},
                 onCreate: { creates += 1 }
             ),

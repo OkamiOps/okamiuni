@@ -14,6 +14,7 @@ public final class AssistantSettingsStore: @unchecked Sendable {
     private let defaults: UserDefaults
     private let key: String
     private var cached: AssistantSettings
+    private var didChangeHandlers: [@Sendable (AssistantSettings) -> Void] = []
 
     public init(defaults: UserDefaults = .standard, key: String = AssistantSettingsStore.defaultKey) {
         self.defaults = defaults
@@ -43,10 +44,31 @@ public final class AssistantSettingsStore: @unchecked Sendable {
     public func save(_ settings: AssistantSettings) throws -> AssistantSettings {
         let normalized = try settings.migrated()
         lock.lock()
-        defer { lock.unlock() }
-        try Self.persist(normalized, defaults: defaults, key: key)
+        do {
+            try Self.persist(normalized, defaults: defaults, key: key)
+        } catch {
+            lock.unlock()
+            throw error
+        }
         cached = normalized
+        lock.unlock()
+        publishDidChange(normalized)
         return normalized
+    }
+
+    /// Quem observa é avisado **fora** do lock: um handler que voltasse a
+    /// chamar `snapshot()` travaria o cofre contra si mesmo.
+    public func addDidChangeHandler(_ handler: @escaping @Sendable (AssistantSettings) -> Void) {
+        lock.lock()
+        didChangeHandlers.append(handler)
+        lock.unlock()
+    }
+
+    private func publishDidChange(_ settings: AssistantSettings) {
+        lock.lock()
+        let handlers = didChangeHandlers
+        lock.unlock()
+        for handler in handlers { handler(settings) }
     }
 
     @discardableResult

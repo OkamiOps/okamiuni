@@ -133,7 +133,9 @@ struct OkamiUNIApp: App {
             InboxScreen(
                 store: mailStore,
                 clock: agendaClock,
-                intelligencePresentation: .configuredAssistant,
+                intelligencePresentation: IntelligencePresentation(
+                    composition.assistantAvailability.availability
+                ),
                 textAssistant: composition.textAssistant,
                 assistantSettings: composition.assistantSettings,
                 onMessagePresented: prioritizeMessageSummary,
@@ -163,6 +165,10 @@ struct OkamiUNIApp: App {
                 .rehearseTrafficLightsIfRequested(
                     TrafficLightRehearsal.fromProcess, store: mailStore
                 )
+                // A primeira medida honesta do assistente. Depois dela, quem
+                // recalcula é o `save` das preferências — a lateral não
+                // pergunta duas vezes a mesma coisa.
+                .task { await composition.assistantAvailability.refresh() }
         }
     }
 
@@ -256,7 +262,9 @@ struct OkamiUNIApp: App {
                 messageID: messageID ?? "",
                 textAssistant: composition.textAssistant,
                 assistantSettings: composition.assistantSettings,
-                intelligencePresentation: .configuredAssistant,
+                intelligencePresentation: IntelligencePresentation(
+                    composition.assistantAvailability.availability
+                ),
                 onMessagePresented: prioritizeMessageSummary
             )
                 .themed(themes)
@@ -322,21 +330,6 @@ struct OkamiUNIApp: App {
     private func prioritizeMessageSummary(_ messageID: String) {
         guard let intelligence = composition.intelligence else { return }
         Task { await intelligence.prioritize(messageID: messageID) }
-    }
-}
-
-private extension AppleIntelligenceAvailability {
-    var presentation: IntelligencePresentation {
-        switch self {
-        case .available:
-            .available
-        case .deviceNotEligible:
-            .deviceNotEligible
-        case .appleIntelligenceNotEnabled:
-            .appleIntelligenceNotEnabled
-        case .modelNotReady:
-            .modelNotReady
-        }
     }
 }
 

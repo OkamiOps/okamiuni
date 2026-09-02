@@ -149,7 +149,7 @@ public struct ReaderPane: View {
         onCompose: @escaping (ComposerRoute) -> Void = { _ in },
         attachmentSaver: (any AttachmentSaving)? = NativeAttachmentSaver(),
         intelligence: ComposerIntelligenceGenerator? = nil,
-        intelligencePresentation: IntelligencePresentation = .available,
+        intelligencePresentation: IntelligencePresentation = .onThisMac,
         onOpenAssistant: @escaping () -> Void = {},
         makeAssistantConversation: ((String) -> AssistantConversation)? = nil,
         onMessagePresented: @escaping (String) -> Void = { _ in },
@@ -177,7 +177,7 @@ public struct ReaderPane: View {
         onCompose: @escaping (ComposerRoute) -> Void = { _ in },
         attachmentSaver: (any AttachmentSaving)? = nil,
         intelligence: ComposerIntelligenceGenerator? = nil,
-        intelligencePresentation: IntelligencePresentation = .available,
+        intelligencePresentation: IntelligencePresentation = .onThisMac,
         onOpenAssistant: @escaping () -> Void = {},
         makeAssistantConversation: ((String) -> AssistantConversation)? = nil,
         onMessagePresented: @escaping (String) -> Void = { _ in },
@@ -1131,7 +1131,7 @@ public struct ReaderPane: View {
             HStack(spacing: 8) {
                 Text("TL;DR · neste Mac").capsLabel()
                 Spacer(minLength: 0)
-                if intelligencePresentation.usesConfiguredProvider,
+                if case let .available(destino) = intelligencePresentation, !destino.isLocal,
                    makeAssistantConversation != nil {
                     Button("Usar IA configurada") {
                         setEmailAssistantOpen(true, for: message.id)
