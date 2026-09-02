@@ -20,12 +20,98 @@ enum DashboardMetrics {
     static let outerPadding: CGFloat = 22
     /// `.rail { width: 300px }`.
     static let railWidth: CGFloat = 300
-    /// `.main { padding-right: 18px }`.
-    static let mainTrailingPadding: CGFloat = 18
-    /// `.head { margin-bottom: 16px }`.
-    static let headerBottomSpacing: CGFloat = 16
+    /// `[data-state="agenda-vazia"] .rail { width: 168px }` — no dia livre a
+    /// coluna encolhe e a largura vai para a lista e a prévia.
+    static let freeRailWidth: CGFloat = 168
+    /// `.preview { width: 380px }`.
+    static let previewWidth: CGFloat = 380
+    /// `[data-state="agenda-vazia"] .preview { width: 440px }`.
+    static let widePreviewWidth: CGFloat = 440
+    /// `.listcol { padding-right: 16px }`.
+    static let mainTrailingPadding: CGFloat = 16
+    /// `.preview { padding-left: 16px }` e `.rail { margin-left: 16px }`.
+    static let previewLeadingPadding: CGFloat = 16
+    static let railLeadingSpacing: CGFloat = 16
+    /// `.head { margin-bottom: 12px }`.
+    static let headerBottomSpacing: CGFloat = 12
     /// `.briefing { margin: 0 0 16px }`.
     static let briefingBottomSpacing: CGFloat = 16
+
+    // MARK: - Faixa HOJE
+
+    /// `.digest { padding: 9px 14px }`.
+    static let todayPadding = EdgeInsets(top: 9, leading: 14, bottom: 9, trailing: 14)
+    /// `.digest { gap: 18px }`.
+    static let todaySpacing: CGFloat = 18
+    /// `.digest { margin: 0 0 14px }`.
+    static let todayBottomSpacing: CGFloat = 14
+    /// `.dg { font-size: 12.5px; font-weight: 550; gap: 7px }` e o ponto de 5ø.
+    static let todayTextSize: CGFloat = 12.5
+    static let todayDotSide: CGFloat = 5
+    static let todayDotSpacing: CGFloat = 7
+
+    // MARK: - Prévia
+
+    /// `.pv-top { padding-bottom: 7px }` e a dica em mono 9.
+    static let previewTopBottomPadding: CGFloat = 7
+    static let previewHintSize: CGFloat = 9
+    /// `.pv-body { padding-top: 12px }`.
+    static let previewBodyTopPadding: CGFloat = 12
+    /// `.pv-from .n { font-size: 13px; font-weight: 650 }` / `.t { 11px mono }`.
+    static let previewSenderSize: CGFloat = 13
+    static let previewTimeSize: CGFloat = 11
+    /// `.pv-subj { margin-top: 6px; font-size: 18px; font-weight: 500 }`.
+    static let previewSubjectSize: CGFloat = 18
+    static let previewSubjectTopSpacing: CGFloat = 6
+    /// `.pv-meta { margin-top: 6px; gap: 5px }`.
+    static let previewChipsTopSpacing: CGFloat = 6
+    static let previewChipsSpacing: CGFloat = 5
+    /// `.pv-x { margin-top: 12px; font-size: 13.5px; line-height: 1.6 }`.
+    static let previewExcerptSize: CGFloat = 13.5
+    static let previewExcerptTopSpacing: CGFloat = 12
+    /// `-webkit-line-clamp` do trecho: oito linhas normalmente, três quando o
+    /// rascunho está colado embaixo.
+    static let previewExcerptLines = 8
+    static let previewExcerptLinesWithDraft = 3
+    /// `.pv-acts { margin-top: 14px; gap: 6px }` e `.act { height: 28px;
+    /// padding: 0 12px; font-size: 12px }`.
+    static let previewActionsTopSpacing: CGFloat = 14
+    static let previewActionSpacing: CGFloat = 6
+    static let previewActionHeight: CGFloat = 28
+    static let previewActionPadding: CGFloat = 12
+    static let previewActionSize: CGFloat = 12
+    /// `.pv-ctx { margin-top: 18px; padding-top: 12px }` e `.caps {
+    /// margin-bottom: 8px }`.
+    static let contextTopSpacing: CGFloat = 18
+    static let contextTopPadding: CGFloat = 12
+    static let contextLabelBottomSpacing: CGFloat = 8
+    /// `.cx { gap: 8px; padding: 3px 0 }`, ponto de 5ø, texto 11.5/1.45.
+    static let contextItemSpacing: CGFloat = 8
+    static let contextItemVerticalPadding: CGFloat = 3
+    static let contextDotSide: CGFloat = 5
+    static let contextTextSize: CGFloat = 11.5
+
+    // MARK: - Rascunho colado no email
+
+    /// `.draft { margin-top: 14px; border-left: 2px; padding: 10px 12px 12px }`.
+    static let draftTopSpacing: CGFloat = 14
+    static let draftBarWidth: CGFloat = 2
+    static let draftPadding = EdgeInsets(top: 10, leading: 12, bottom: 12, trailing: 12)
+    /// `.draft .bar { margin-bottom: 8px }` e `.tx { font-size: 13.5px }`.
+    static let draftLabelBottomSpacing: CGFloat = 8
+    static let draftTextSize: CGFloat = 13.5
+    /// `.draft .acts { margin-top: 11px; gap: 6px }` e `.act { height: 26px;
+    /// font-size: 11.5px }`.
+    static let draftActionsTopSpacing: CGFloat = 11
+    static let draftActionHeight: CGFloat = 26
+    static let draftActionSize: CGFloat = 11.5
+
+    // MARK: - Dia livre
+
+    /// `.rail-free { padding: 22px 16px }`, título serif 15, texto 12.
+    static let freeRailPadding = EdgeInsets(top: 22, leading: 16, bottom: 22, trailing: 16)
+    static let freeRailTitleSize: CGFloat = 15
+    static let freeRailTextSize: CGFloat = 12
 
     // MARK: - Cabeçalho
 
@@ -88,8 +174,8 @@ enum DashboardMetrics {
 
     /// `.assist { padding-top: 12px }`.
     static let assistantTopPadding: CGFloat = 12
-    /// `.transcript { max-height: 300px }` — ≈40% da coluna, como manda a §2.2.
-    static let transcriptMaxHeight: CGFloat = 300
+    /// `.transcript { max-height: 280px }`.
+    static let transcriptMaxHeight: CGFloat = 280
     /// `.transcript { padding: 12px 14px; margin-bottom: 10px }`.
     static let transcriptPadding = EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14)
     static let transcriptBottomSpacing: CGFloat = 10
@@ -148,22 +234,14 @@ enum DashboardMetrics {
     /// Quantas linhas de prioridade cabem, dado o que mais está na coluna.
     ///
     /// O mockup não mede nada: ele **corta em linha inteira**
-    /// (`[data-state="briefing"] .prow:nth-of-type(n+6) { display: none }` e
-    /// `n+5` no transcript). Sete sem nada por cima, cinco com a faixa de
-    /// briefing, quatro com o transcript aberto — a folga que sobra vai para o
-    /// `.flexpad`, e o assistente continua colado no rodapé. Cortar por altura
-    /// medida daria meia linha, que é justamente o que esta regra impede.
-    static func visibleRowCount(
-        total: Int, hasBriefing: Bool, hasTranscript: Bool
-    ) -> Int {
-        let teto: Int
-        if hasTranscript {
-            teto = 4
-        } else if hasBriefing {
-            teto = 5
-        } else {
-            teto = DashboardFocus.mailLimit
-        }
+    /// (`[data-state="assistente"] .prow:nth-of-type(n+6) { display: none }`).
+    /// Sete sem nada por cima, cinco com o transcript aberto — a folga que
+    /// sobra vai para o `.flexpad`, e o assistente continua colado no rodapé.
+    /// Cortar por altura medida daria meia linha, que é justamente o que esta
+    /// regra impede. A faixa HOJE não tira linha nenhuma: ela é uma tarja de
+    /// 12,5, não um parágrafo.
+    static func visibleRowCount(total: Int, hasTranscript: Bool) -> Int {
+        let teto = hasTranscript ? 5 : DashboardFocus.mailLimit
         return min(total, teto)
     }
 
@@ -212,18 +290,45 @@ enum DashboardMetrics {
     }
 }
 
-/// A decisão do CTA do cabeçalho, isolada da `View` pelo mesmo motivo que
-/// `DashboardMetrics`: é regra, não desenho.
-enum DashboardCTA {
+/// As duas larguras que mudam com o estado da coluna direita — regra, não
+/// desenho, e por isso fora da `View`.
+enum DashboardLayout {
 
-    /// Rascunho **só** com email selecionado: é o mesmo predicado com que o
-    /// motor resolve o contexto, e desalinhá-los deixava o botão aceso
-    /// prometendo o que ia falhar.
-    static func draftsReply(canDraftReply: Bool, hasSelectedMail: Bool) -> Bool {
-        canDraftReply && hasSelectedMail
+    /// O dia livre do mockup: nada na agenda de hoje **e** nada pendente.
+    /// Só compromisso não basta — a coluna ainda teria as PENDÊNCIAS dentro.
+    static func isFreeDay(_ focus: DashboardFocus) -> Bool {
+        focus.meetings.isEmpty && focus.pending.isEmpty
     }
 
-    static func title(draftsReply: Bool) -> String {
-        draftsReply ? "Gerar rascunho" : "Gerar briefing"
+    /// `.preview { width: 380px }` e `[data-state="agenda-vazia"] .preview
+    /// { width: 440px }`.
+    static func previewWidth(freeDay: Bool) -> CGFloat {
+        freeDay ? DashboardMetrics.widePreviewWidth : DashboardMetrics.previewWidth
+    }
+
+    /// `.rail { width: 300px }` e `[data-state="agenda-vazia"] .rail
+    /// { width: 168px }`.
+    static func railWidth(freeDay: Bool) -> CGFloat {
+        freeDay ? DashboardMetrics.freeRailWidth : DashboardMetrics.railWidth
+    }
+}
+
+/// O que a tecla sem modificador faz no dashboard.
+///
+/// Pura e fora da `View` pelo motivo de sempre — e também porque a metade que
+/// **não** dá para provar sem app é o monitor local (`BareKeyMonitor`): num
+/// processo de teste, pôr um evento na fila do `NSApp` termina o laço de
+/// drenagem da `main` e o processo sai no meio do caso, como o cabeçalho do
+/// `CliqueDeEnsaio` registra. A decisão, que é o que muda quando alguém mexe
+/// aqui, se prova sem sintetizar tecla nenhuma.
+enum DashboardKeys {
+
+    /// Qual mensagem o ⏎ abre. `nil` quando ele não tem o que fazer — e aí a
+    /// tecla segue o caminho dela em vez de ser engolida.
+    static func opens(
+        key: BareKey, selectedID: String?, readingID: String?, exists: Bool
+    ) -> String? {
+        guard key == .enter, readingID == nil, exists, let selectedID else { return nil }
+        return selectedID
     }
 }
