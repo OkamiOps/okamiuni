@@ -71,6 +71,32 @@ struct DashboardScreenTests {
         )
     }
 
+    /// A conversa do dashboard como o `InboxScreen` a monta: o escopo é
+    /// resolvido na hora, a partir do email **selecionado**.
+    private func dashboardConversation(
+        _ spy: DashboardSpyAssistant,
+        store: MailStore,
+        selected: Message?
+    ) -> AssistantConversation {
+        AssistantConversation(
+            scope: .email,
+            context: .init(subject: "Caixa e agenda de hoje"),
+            destination: .init(label: "Neste Mac", detail: "Nada sai deste Mac.", isLocal: true),
+            engine: AssistantBridge.engine(
+                using: spy,
+                supportsDraftReply: true,
+                mailContext: {
+                    guard let selected else { return AssistantMailContext(workspace: store) }
+                    return AssistantMailContext(message: selected)
+                }
+            )
+        )
+    }
+
+    /// O centro da cápsula do CTA no recorte de 1200×820.
+    private static let ctaPoint = (x: CGFloat(1_110), y: CGFloat(112))
+    private static let dashboardSize = CGSize(width: 1_200, height: 820)
+
     @Test("o recorte das fixtures cabe na tela sem disparar a IA")
     func rendersFocusFromFixtures() async throws {
         let store = MailStore(source: InMemoryMailSource.fixtures)
@@ -115,7 +141,13 @@ struct DashboardScreenTests {
 
     @Test("a pergunta do briefing é a fixa da conversa, não uma cópia do dashboard")
     func briefingQuestionBelongsToTheConversation() {
-        #expect(AssistantConversation.briefingQuestion.contains("briefing do meu dia"))
+        #expect(
+            AssistantConversation.briefingQuestion == """
+                Faça um briefing do meu dia em até 120 palavras: o que exige \
+                resposta hoje, os compromissos de hoje em ordem, e o que pode \
+                esperar. Cite remetentes e horários.
+                """
+        )
     }
 
     @Test("clicar o email abre a leitura por cima, sem trocar de aba")
@@ -156,13 +188,39 @@ struct DashboardScreenTests {
         #expect(conversation.messages.last?.kind == .draft)
     }
 
-    @Test("o botão do dashboard leva ao rascunho, não à pergunta analítica")
+    @Test("com email selecionado o CTA rascunha, não pergunta")
     func draftButtonClickReachesDraftReply() async throws {
         let store = MailStore(source: InMemoryMailSource.fixtures)
         await store.load()
         let spy = DashboardSpyAssistant()
         let mail = try #require(store.dashboardFocus(nowMinute: Fixtures.nowMinute).mail.first)
-        let conversation = spiedConversation(spy, mail: mail.message)
+        let conversation = dashboardConversation(spy, store: store, selected: mail.message)
+
+        CliqueDeEnsaio.em(
+            DashboardScreen(
+                store: store,
+                now: Fixtures.nowMinute,
+                today: Fixtures.today,
+                conversation: conversation,
+                selectedMailID: .constant(mail.id)
+            )
+            .environment(ThemeStore()),
+            size: Self.dashboardSize,
+            aY: Self.ctaPoint.y,
+            x: Self.ctaPoint.x
+        )
+        await conversation.waitForIdle()
+
+        #expect(spy.transforms.map(\.action) == [.draftReply])
+        #expect(spy.answers.isEmpty)
+    }
+
+    @Test("sem email selecionado o CTA pede briefing, e nunca rascunho")
+    func ctaWithoutSelectionAsksForBriefing() async throws {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        let spy = DashboardSpyAssistant()
+        let conversation = dashboardConversation(spy, store: store, selected: nil)
 
         CliqueDeEnsaio.em(
             DashboardScreen(
@@ -172,14 +230,67 @@ struct DashboardScreenTests {
                 conversation: conversation
             )
             .environment(ThemeStore()),
-            size: CGSize(width: 1_200, height: 820),
-            aY: 112,
-            x: 1_110
+            size: Self.dashboardSize,
+            aY: Self.ctaPoint.y,
+            x: Self.ctaPoint.x
         )
         await conversation.waitForIdle()
 
-        #expect(spy.transforms.map(\.action) == [.draftReply])
-        #expect(spy.answers.isEmpty)
+        // Briefing sai por `answer`, com a pergunta fixa da §2.5, e o
+        // contexto é o ambiente — não um email que ninguém escolheu.
+        #expect(spy.transforms.isEmpty)
+        #expect(spy.answers.count == 1)
+        #expect(conversation.briefingText == "resposta")
+        #expect(conversation.messages.isEmpty)
+        #expect(conversation.failure == nil)
+        if case .workspace = try #require(spy.answers.first?.mailContext) {} else {
+            Issue.record("O briefing pediu contexto de email sem email selecionado")
+        }
+    }
+
+    @Test("o rótulo do CTA segue a seleção, e não o topo da lista")
+    func ctaLabelFollowsSelection() {
+        #expect(DashboardScreen.ctaDraftsReply(canDraftReply: true, hasSelectedMail: true))
+        #expect(!DashboardScreen.ctaDraftsReply(canDraftReply: true, hasSelectedMail: false))
+        #expect(!DashboardScreen.ctaDraftsReply(canDraftReply: false, hasSelectedMail: true))
+        #expect(DashboardScreen.ctaTitle(draftsReply: true) == "Gerar rascunho")
+        #expect(DashboardScreen.ctaTitle(draftsReply: false) == "Gerar briefing")
+    }
+
+    @Test("rascunho no transcript sai literal, sem Markdown")
+    func draftTurnIsNotRenderedAsMarkdown() async throws {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        let text = "Oi Marina,\n\n**Fechado** para terça.\n\n- item um\n- item dois"
+
+        func bitmap(kind: AssistantTurnKind) throws -> NSBitmapImageRep {
+            let conversation = AssistantConversation(
+                scope: .email,
+                context: .init(subject: "Revisão"),
+                destination: .unconfigured,
+                engine: .unavailable,
+                debugState: AssistantPanelDebugState(
+                    messages: [.init(speaker: .assistant, text: text, kind: kind)]
+                )
+            )
+            return try #require(Render.bitmap(
+                DashboardScreen(
+                    store: store,
+                    now: Fixtures.nowMinute,
+                    today: Fixtures.today,
+                    conversation: conversation
+                )
+                .environment(ThemeStore()),
+                size: Self.dashboardSize,
+                theme: .okami
+            ))
+        }
+
+        // O mesmo texto como `.message` passa pelo Markdown: os asteriscos
+        // somem e a lista ganha marcador. Como `.draft` fica literal.
+        #expect(
+            try bitmap(kind: .draft).pixelsDiffering(from: try bitmap(kind: .message)) > 200
+        )
     }
 
     @Test("o dashboard não tem mais máquina de estado própria")

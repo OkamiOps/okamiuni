@@ -115,6 +115,9 @@ public struct ReaderPane: View {
     /// nele e não o desenha: apagar daqui tira a mensagem do leitor, e uma
     /// faixa presa a ele iria embora junto com o que precisava desfazer. Quem
     /// sobrevive à ação é a lista — ver `ActionReceipts`.
+    /// A faixa de erro do popover precisa poder abrir Configurações — é a
+    /// mesma porta do menu do app.
+    @Environment(\.openWindow) private var openWindow
     @Environment(ActionReceipts.self) private var sharedReceipts: ActionReceipts?
 
     /// O objeto próprio de quando ninguém proveu um — o harness de renderização,
@@ -832,6 +835,7 @@ public struct ReaderPane: View {
                     && makeAssistantConversation != nil,
                 panelSize: $emailAssistantPanelSize,
                 onUseReply: { useGeneratedReply($0, for: message) },
+                onOpenSettings: { openWindow(id: UNIWindow.accounts) },
                 onClose: { setEmailAssistantOpen(false) }
             )
         }

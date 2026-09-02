@@ -92,9 +92,9 @@ public struct MessageWindow: View {
                 }
             }
 
-            if assistantOpen, let message {
+            if assistantOpen, let message, let conversation {
                 AssistantPanel(
-                    conversation: conversation ?? makeAssistantConversation(for: message),
+                    conversation: conversation,
                     // A janela já sabe abrir cena: é a mesma porta do menu.
                     onOpenSettings: { openWindow(id: UNIWindow.accounts) },
                     onClose: closeAssistant

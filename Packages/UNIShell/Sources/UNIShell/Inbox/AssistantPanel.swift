@@ -32,14 +32,29 @@ public struct AssistantContext: Sendable, Hashable {
 }
 
 public struct AssistantSuggestion: Identifiable, Sendable, Hashable {
+    /// Qual das duas rotas do motor a sugestão usa. Sem isto, "Gerar
+    /// resposta" saía por `answer()` — o prompt que pede Markdown — e o
+    /// rascunho voltava com asteriscos.
+    public enum Kind: Sendable, Hashable {
+        case question
+        case draftReply
+    }
+
     public let id: String
     public let title: String
     public let question: String
+    public let kind: Kind
 
-    public init(id: String? = nil, title: String? = nil, question: String) {
+    public init(
+        id: String? = nil,
+        title: String? = nil,
+        question: String,
+        kind: Kind = .question
+    ) {
         self.id = id ?? question
         self.title = title ?? question
         self.question = question
+        self.kind = kind
     }
 
     public static let emailDefaults: [AssistantSuggestion] = [
@@ -47,7 +62,7 @@ public struct AssistantSuggestion: Identifiable, Sendable, Hashable {
         .init(title: "Pontos-chave", question: "Liste os pontos-chave desta conversa."),
         .init(title: "Insights", question: "Analise esta conversa e identifique insights, riscos e pontos em aberto."),
         .init(title: "Pendências", question: "Liste pendências, responsáveis e prazos desta conversa."),
-        .init(title: "Gerar resposta", question: "Prepare uma resposta completa, natural e pronta para revisão desta conversa."),
+        .init(id: "draft-reply", title: "Gerar resposta", question: "", kind: .draftReply),
     ]
 
     public static let workspaceDefaults: [AssistantSuggestion] = [
@@ -127,7 +142,8 @@ public struct AssistantPanel: View {
     @Environment(\.displayScale) private var displayScale
 
     private let conversation: AssistantConversation
-    private let suggestions: [AssistantSuggestion]
+    /// Visível para o teste: é a lista depois do filtro de rota.
+    let visibleSuggestions: [AssistantSuggestion]
     private let onClose: () -> Void
     private let onOpenSettings: () -> Void
     private let width: CGFloat
@@ -140,7 +156,10 @@ public struct AssistantPanel: View {
         onClose: @escaping () -> Void
     ) {
         self.conversation = conversation
-        self.suggestions = suggestions ?? conversation.scope.suggestions
+        // Sugestão de rascunho num motor que não redige seria botão mudo.
+        self.visibleSuggestions = (suggestions ?? conversation.scope.suggestions).filter {
+            $0.kind == .question || conversation.canDraftReply
+        }
         self.width = width
         self.onOpenSettings = onOpenSettings
         self.onClose = onClose
@@ -286,7 +305,7 @@ public struct AssistantPanel: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             VStack(spacing: 6) {
-                ForEach(suggestions) { suggestion in
+                ForEach(visibleSuggestions) { suggestion in
                     suggestionButton(suggestion)
                 }
             }

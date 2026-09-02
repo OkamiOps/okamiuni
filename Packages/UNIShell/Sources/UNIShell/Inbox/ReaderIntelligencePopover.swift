@@ -65,9 +65,7 @@ struct ReaderIntelligencePopover: View {
                 "Analise esta conversa e destaque insights, riscos e pontos em aberto."
             case .pending:
                 "Liste pendências, responsáveis e prazos confirmados nesta conversa, um item por linha."
-            case .reply:
-                "Prepare uma resposta completa, natural e pronta para revisão desta conversa."
-            case .custom:
+            case .reply, .custom:
                 ""
             }
         }
@@ -94,6 +92,7 @@ struct ReaderIntelligencePopover: View {
     let conversation: AssistantConversation
     let isAvailable: Bool
     let onUseReply: (String) -> Void
+    let onOpenSettings: () -> Void
     let onClose: () -> Void
 
     @Binding private var panelSize: CGSize
@@ -104,11 +103,13 @@ struct ReaderIntelligencePopover: View {
         isAvailable: Bool,
         panelSize: Binding<CGSize> = .constant(Self.defaultSize),
         onUseReply: @escaping (String) -> Void,
+        onOpenSettings: @escaping () -> Void = {},
         onClose: @escaping () -> Void
     ) {
         self.conversation = conversation
         self.isAvailable = isAvailable
         self.onUseReply = onUseReply
+        self.onOpenSettings = onOpenSettings
         self.onClose = onClose
         _panelSize = panelSize
     }
@@ -206,7 +207,13 @@ struct ReaderIntelligencePopover: View {
                     }
 
                     if let failure = conversation.failure {
-                        errorBand(failure.message)
+                        // A mesma faixa das outras superfícies: sem ela a
+                        // recuperação (Ajustes/Reconectar) sumia da tela.
+                        AssistantFailureBand(
+                            failure: failure,
+                            onRetry: conversation.retry,
+                            onOpenSettings: onOpenSettings
+                        )
                     }
 
                     if conversation.isLoading {
@@ -377,39 +384,6 @@ struct ReaderIntelligencePopover: View {
         .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("O assistente está respondendo")
-    }
-
-    private func errorBand(_ error: String) -> some View {
-        HStack(alignment: .top, spacing: 9) {
-            Image(systemName: "exclamationmark.triangle")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(theme.danger.color)
-                .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: 7) {
-                Text(error)
-                    .font(theme.sans.font(size: 11.5, weight: .medium))
-                    .foregroundStyle(theme.ink2.color)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                if conversation.canRetry {
-                    Button("Tentar de novo") {
-                        conversation.retry()
-                    }
-                    .buttonStyle(.plain)
-                    .font(theme.sans.font(size: 10.5, weight: .semibold))
-                    .foregroundStyle(theme.info.color)
-                    .focusRing(cornerRadius: theme.radiusSmall)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10)
-        .background(theme.surface2.color, in: RoundedRectangle(cornerRadius: theme.radiusSmall))
-        .overlay {
-            RoundedRectangle(cornerRadius: theme.radiusSmall)
-                .strokeBorder(theme.line2.color, lineWidth: Hairline.thickness(displayScale))
-        }
     }
 
     private var composer: some View {
@@ -598,8 +572,9 @@ struct ReaderIntelligencePopover: View {
     }
 
     private func run(_ action: Action) {
-        // "Gerar resposta" não passa por aqui: rascunho tem rota própria.
-        guard canInteract, action != .reply, !action.question.isEmpty else { return }
+        // "Gerar resposta" não passa por aqui: rascunho tem rota própria, e
+        // a pergunta desta ação é vazia de propósito.
+        guard canInteract, !action.question.isEmpty else { return }
         conversation.run(action.suggestion)
     }
 

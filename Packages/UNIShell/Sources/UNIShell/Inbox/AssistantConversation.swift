@@ -204,8 +204,13 @@ public final class AssistantConversation {
         ask(question)
     }
 
+    /// Uma sugestão sabe por qual rota sai. Toda "gerar resposta" da
+    /// interface termina em `draftReply()`, nunca em `ask()`.
     public func run(_ suggestion: AssistantSuggestion) {
-        ask(suggestion.question)
+        switch suggestion.kind {
+        case .question: ask(suggestion.question)
+        case .draftReply: draftReply()
+        }
     }
 
     public func ask(_ question: String) {

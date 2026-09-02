@@ -450,10 +450,13 @@ struct DashboardScreen: View {
     }
 
     private func draftButton(_ focus: DashboardFocus) -> some View {
-        // Rascunho precisa de um email em foco **e** de um motor que saiba
-        // redigir. Sem os dois o mesmo botão pede o briefing do dia, em vez
-        // de ficar aceso e mudo.
-        let canDraft = conversation.canDraftReply && mailInFocus(focus) != nil
+        // O mesmo predicado que o motor usa para resolver o contexto: ele
+        // só resolve email quando há um **selecionado**. Com o topo da lista
+        // aqui, o botão diria "Gerar rascunho" e o motor recusaria.
+        let canDraft = Self.ctaDraftsReply(
+            canDraftReply: conversation.canDraftReply,
+            hasSelectedMail: selectedMail(focus) != nil
+        )
         return Button {
             if canDraft {
                 conversation.draftReply()
@@ -461,7 +464,7 @@ struct DashboardScreen: View {
                 conversation.briefing()
             }
         } label: {
-            Text(canDraft ? "Gerar rascunho" : "Gerar briefing")
+            Text(Self.ctaTitle(draftsReply: canDraft))
                 .font(theme.sans.font(size: 11.5, weight: .semibold))
                 .foregroundStyle(theme.onAccent.color)
                 .padding(.horizontal, 10)
@@ -474,7 +477,18 @@ struct DashboardScreen: View {
         .help(canDraft
             ? "Pede um rascunho do email em foco"
             : "Pede um briefing do dia")
-        .accessibilityLabel(canDraft ? "Gerar rascunho" : "Gerar briefing")
+        .accessibilityLabel(Self.ctaTitle(draftsReply: canDraft))
+    }
+
+    /// A decisão do CTA, isolada para o teste. Rascunho **só** com email
+    /// selecionado: é o mesmo predicado com que o motor resolve o contexto,
+    /// e desalinhá-los deixava o botão aceso prometendo o que ia falhar.
+    static func ctaDraftsReply(canDraftReply: Bool, hasSelectedMail: Bool) -> Bool {
+        canDraftReply && hasSelectedMail
+    }
+
+    static func ctaTitle(draftsReply: Bool) -> String {
+        draftsReply ? "Gerar rascunho" : "Gerar briefing"
     }
 
     /// O briefing do dia mora fora do transcript: superfície plana e
@@ -730,11 +744,6 @@ struct DashboardScreen: View {
     private func selectedMeeting(_ focus: DashboardFocus) -> AgendaItem? {
         guard let id = selectedEventID else { return nil }
         return focus.meetings.first { $0.id == id }
-    }
-
-    /// O email que o rascunho usaria: o selecionado, ou o topo do recorte.
-    private func mailInFocus(_ focus: DashboardFocus) -> Message? {
-        selectedMail(focus) ?? focus.mail.first?.message
     }
 
     private func honestPlace(_ item: AgendaItem) -> String? {

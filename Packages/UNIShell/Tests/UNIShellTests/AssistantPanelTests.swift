@@ -18,12 +18,17 @@ struct AssistantPanelTests {
     @MainActor
     private final class Recorder {
         var requests: [AssistantRequest] = []
+        /// As duas rotas são contadas separadamente: é o que prova que
+        /// "Gerar resposta" nunca cai no `answer`.
+        var drafts: [AssistantRequest] = []
         var reply: (Int) throws -> String = { _ in "Resposta pronta" }
+        var draft: () throws -> String = { "Oi Fernanda,\n\nFechado." }
     }
 
     private func makeConversation(
         scope: AssistantScope = .email,
         recorder: Recorder,
+        supportsDraftReply: Bool = false,
         debugState: AssistantPanelDebugState = .empty
     ) -> AssistantConversation {
         AssistantConversation(
@@ -32,10 +37,17 @@ struct AssistantPanelTests {
             destination: AssistantDestination(
                 label: "Neste Mac", detail: "Nada sai deste Mac.", isLocal: true
             ),
-            engine: AssistantEngine(supportsDraftReply: false) { request in
-                recorder.requests.append(request)
-                return try recorder.reply(recorder.requests.count)
-            },
+            engine: AssistantEngine(
+                supportsDraftReply: supportsDraftReply,
+                answer: { request in
+                    recorder.requests.append(request)
+                    return try recorder.reply(recorder.requests.count)
+                },
+                draftReply: { request in
+                    recorder.drafts.append(request)
+                    return try recorder.draft()
+                }
+            ),
             debugState: debugState
         )
     }
@@ -58,14 +70,15 @@ struct AssistantPanelTests {
         #expect(conversation.draft.isEmpty)
     }
 
-    @Test("clicar em Gerar resposta atravessa o botão e chega ao motor")
+    @Test("clicar em Gerar resposta chega ao rascunho, nunca ao answer")
     func generateReplyButtonRunsOffscreen() async throws {
         let action = try #require(
             AssistantSuggestion.emailDefaults.first { $0.title == "Gerar resposta" }
         )
+        #expect(action.kind == .draftReply)
         let recorder = Recorder()
-        recorder.reply = { _ in "Resposta completa pronta para revisão" }
-        let conversation = makeConversation(recorder: recorder)
+        recorder.draft = { "Resposta completa pronta para revisão" }
+        let conversation = makeConversation(recorder: recorder, supportsDraftReply: true)
 
         CliqueDeEnsaio.em(
             AssistantPanel(
@@ -80,7 +93,28 @@ struct AssistantPanelTests {
         await Task.yield()
         await conversation.waitForIdle()
 
-        #expect(recorder.requests.first?.question == action.question)
+        // Só as duas contagens: fechar a janela do ensaio cancela o pedido
+        // em voo, então o turno pode não chegar a ser publicado. Que o
+        // rascunho vira turno `.draft` é o que `AssistantConversationTests`
+        // prova.
+        #expect(recorder.drafts.count == 1)
+        #expect(recorder.requests.isEmpty)
+    }
+
+    @Test("sem motor de rascunho a sugestão de resposta não aparece")
+    func draftSuggestionIsHiddenWithoutDraftEngine() {
+        let recorder = Recorder()
+        let panel = AssistantPanel(
+            conversation: makeConversation(recorder: recorder),
+            onClose: {}
+        )
+        #expect(!panel.visibleSuggestions.contains { $0.kind == .draftReply })
+
+        let withDraft = AssistantPanel(
+            conversation: makeConversation(recorder: recorder, supportsDraftReply: true),
+            onClose: {}
+        )
+        #expect(withDraft.visibleSuggestions.contains { $0.kind == .draftReply })
     }
 
     @Test("assistente global oferece ações de caixas e agenda")
