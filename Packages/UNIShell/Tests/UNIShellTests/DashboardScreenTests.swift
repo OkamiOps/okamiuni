@@ -709,9 +709,11 @@ struct DashboardScreenTests {
             #expect(!source.contains(proibido), "\(proibido) continua em DashboardScreen.swift")
         }
         // Os `Spacer(minLength: 0)` que enchiam os cartões sumiram. Sobram
-        // **dois**: o `.flexpad` do mockup (a folga entre a lista e o
-        // assistente colado no rodapé) e o da coluna de dia livre.
-        #expect(source.components(separatedBy: "Spacer(minLength: 0)").count - 1 == 2)
+        // **três**, e todos carregam decisão de layout: o par que decide se a
+        // folga fica antes ou depois do assistente — com poucas prioridades o
+        // campo cola na lista, com muitas ele desce para o rodapé, que é o
+        // vazio de 400pt que o dono reclamou — e o da coluna de dia livre.
+        #expect(source.components(separatedBy: "Spacer(minLength: 0)").count - 1 == 3)
     }
 
     static func dashboardSource() throws -> String {
