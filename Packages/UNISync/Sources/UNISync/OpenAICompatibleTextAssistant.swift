@@ -55,7 +55,7 @@ public struct OpenAICompatibleTextAssistant: TextAssisting, Sendable {
         apiKey: String,
         additionalInstructions: String = "",
         session: URLSession = .shared,
-        requestTimeout: TimeInterval = 30
+        requestTimeout: TimeInterval = 120
     ) throws {
         try self.init(
             configuration: configuration,
@@ -74,7 +74,7 @@ public struct OpenAICompatibleTextAssistant: TextAssisting, Sendable {
         authorizationToken: String? = nil,
         additionalInstructions: String = "",
         session: URLSession = .shared,
-        requestTimeout: TimeInterval = 30
+        requestTimeout: TimeInterval = 120
     ) throws {
         self.configuration = try configuration.validated()
         switch self.configuration.authenticationMode {

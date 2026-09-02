@@ -81,6 +81,10 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         var query: String
         var authorization: String?
         var headers: [String: String]
+        /// O tempo que o adaptador gravou na requisição. É por aqui que um
+        /// teste afirma qual `requestTimeout` o roteador entregou ao
+        /// adaptador — sem isso, um padrão de 30 s volta sem ninguém ver.
+        var timeoutInterval: TimeInterval = 60
     }
 
     /// Uma `URLSession` isolada, com o roteiro já instalado na criação: cada
@@ -173,7 +177,8 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
                 path: caminho, body: corpo,
                 query: request.url?.query ?? "",
                 authorization: request.value(forHTTPHeaderField: "Authorization"),
-                headers: request.allHTTPHeaderFields ?? [:]
+                headers: request.allHTTPHeaderFields ?? [:],
+                timeoutInterval: request.timeoutInterval
             ))
         }
         let resposta: Reply?

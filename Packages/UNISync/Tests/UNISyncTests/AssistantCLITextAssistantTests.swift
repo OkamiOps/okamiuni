@@ -96,6 +96,38 @@ struct AssistantCLITextAssistantTests {
         }
     }
 
+    @Test("O adaptador do CLI aceita de 30 a 300 s")
+    func clampsRequestTimeoutToSpecRange() async throws {
+        #expect(try await cliTimeout(requestTimeout: nil) == 120)
+        #expect(try await cliTimeout(requestTimeout: 10) == 30)
+        #expect(try await cliTimeout(requestTimeout: 500) == 300)
+    }
+
+    private func cliTimeout(requestTimeout: TimeInterval?) async throws -> TimeInterval {
+        let executor = RecordingCLIExecutor(result: .init(
+            exitStatus: 0,
+            standardOutput: Data("""
+            {"type":"item.completed","item":{"type":"agent_message","text":"Pronto."}}
+            """.utf8)
+        ))
+        let command = try AssistantCLICommand.make(
+            kind: .codex,
+            installation: .init(kind: .codex, executablePath: "/opt/homebrew/bin/codex")
+        )
+        let assistant: AssistantCLITextAssistant
+        if let requestTimeout {
+            assistant = AssistantCLITextAssistant(
+                command: command,
+                executor: executor,
+                requestTimeout: requestTimeout
+            )
+        } else {
+            assistant = AssistantCLITextAssistant(command: command, executor: executor)
+        }
+        _ = try await assistant.answer(question: "Quando é a entrega?", in: conversation)
+        return try #require(await executor.firstRequest()).timeout
+    }
+
     @Test("Router escolhe CLI detectado sem tocar no cofre de credenciais")
     @available(macOS 26.0, *)
     func routerUsesCLITransport() async throws {

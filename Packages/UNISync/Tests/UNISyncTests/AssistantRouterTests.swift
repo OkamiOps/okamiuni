@@ -160,6 +160,87 @@ struct AssistantRouterTests {
         #expect(requests.allSatisfy { $0.body.contains("Não abrevie nomes") })
     }
 
+    @Test("por padrão o roteador entrega 120 s de pedido e de recurso ao adaptador HTTP")
+    @available(macOS 26.0, *)
+    func routerDefaultsGiveHTTPAdapterGenerousTimeouts() async throws {
+        let suite = "okamiuni.assistant-router-timeout.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let settingsStore = AssistantSettingsStore(defaults: defaults, key: "assistant")
+        try settingsStore.save(remoteSettings(model: "model", instructions: ""))
+        let credentials = InMemoryAssistantCredentialStore()
+        try credentials.storeAPIKey("test-key", for: "primary")
+        let session = StubURLProtocol.session(routes: [
+            "/v1/chat/completions": [
+                .json("{\"choices\":[{\"message\":{\"content\":\"pronto\"}}]}"),
+            ],
+        ])
+        let router = AssistantRouter(
+            settingsStore: settingsStore,
+            credentialStore: credentials,
+            session: session
+        )
+
+        _ = try await router.answer(question: "Qual é a prioridade?", in: conversation)
+
+        // O que o adaptador gravou na requisição prova o padrão do `init`.
+        let request = try #require(StubURLProtocol.requests(for: session).first)
+        #expect(request.timeoutInterval == 120)
+        // O que ficou na sessão prova que a fábrica foi aplicada: a sessão de
+        // origem trazia os 7 s do stub e o tempo de recurso não aparece na
+        // requisição.
+        let timeouts = await router.httpTimeouts()
+        #expect(timeouts.request == 120)
+        #expect(timeouts.resource == 120)
+    }
+
+    @Test("o tempo do CLI vale 120 s por padrão, com piso de 30 e teto de 300")
+    @available(macOS 26.0, *)
+    func routerCLITimeoutDefaultAndRange() async throws {
+        #expect(try await cliTimeoutFromRouter(cliRequestTimeout: nil) == 120)
+        #expect(try await cliTimeoutFromRouter(cliRequestTimeout: 10) == 30)
+        #expect(try await cliTimeoutFromRouter(cliRequestTimeout: 500) == 300)
+    }
+
+    /// Roda uma pergunta pelo transporte de CLI e devolve o tempo que chegou
+    /// ao processo — a única observação que atravessa roteador e adaptador.
+    @available(macOS 26.0, *)
+    private func cliTimeoutFromRouter(cliRequestTimeout: TimeInterval?) async throws -> TimeInterval {
+        let suite = "okamiuni.assistant-router-cli-timeout.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        defer { defaults.removePersistentDomain(forName: suite) }
+
+        let settingsStore = AssistantSettingsStore(defaults: defaults, key: "assistant")
+        try settingsStore.save(.init(provider: .cli, cli: .init(kind: .claude)))
+        let executor = TimeoutRecordingCLIExecutor()
+        let installations: @Sendable () -> [AssistantCLIInstallation] = {
+            [.init(kind: .claude, executablePath: "/usr/local/bin/claude")]
+        }
+        let router: AssistantRouter
+        if let cliRequestTimeout {
+            router = AssistantRouter(
+                settingsStore: settingsStore,
+                credentialStore: InMemoryAssistantCredentialStore(),
+                cliInstallationProvider: installations,
+                cliExecutor: executor,
+                cliRequestTimeout: cliRequestTimeout
+            )
+        } else {
+            router = AssistantRouter(
+                settingsStore: settingsStore,
+                credentialStore: InMemoryAssistantCredentialStore(),
+                cliInstallationProvider: installations,
+                cliExecutor: executor
+            )
+        }
+
+        _ = try await router.answer(question: "Qual é o status?", in: conversation)
+        return try #require(await executor.firstTimeout())
+    }
+
     private func remoteSettings(model: String, instructions: String) -> AssistantSettings {
         AssistantSettings(
             provider: .openAICompatible,
@@ -216,4 +297,21 @@ private actor EndpointBoundOAuthProvider: OpenAICompatibleOAuthTokenProviding {
     }
 
     func requests() -> [Request] { captured }
+}
+
+/// Guarda só o tempo que o roteador entregou ao processo do CLI.
+private actor TimeoutRecordingCLIExecutor: AssistantCLIProcessExecuting {
+    private var timeouts: [TimeInterval] = []
+
+    func execute(_ request: AssistantCLIProcessRequest) async throws -> AssistantCLIProcessResult {
+        timeouts.append(request.timeout)
+        return .init(
+            exitStatus: 0,
+            standardOutput: Data("""
+            {"type":"result","is_error":false,"result":"Resposta via sessão Claude."}
+            """.utf8)
+        )
+    }
+
+    func firstTimeout() -> TimeInterval? { timeouts.first }
 }

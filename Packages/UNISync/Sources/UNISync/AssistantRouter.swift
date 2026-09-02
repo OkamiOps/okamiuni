@@ -60,6 +60,18 @@ public actor AssistantRouter: TextAssisting {
         self.cliRequestTimeout = min(max(cliRequestTimeout, 30), 300)
     }
 
+    /// Os dois tempos realmente gravados na sessão HTTP deste roteador.
+    /// Interno de propósito: o `URLRequest` sozinho não mostra o tempo de
+    /// **recurso**, que é justamente o que matava o Grok em prompt longo, e
+    /// sem isto nenhum teste consegue provar que a fábrica de sessão foi
+    /// aplicada.
+    func httpTimeouts() -> (request: TimeInterval, resource: TimeInterval) {
+        (
+            session.configuration.timeoutIntervalForRequest,
+            session.configuration.timeoutIntervalForResource
+        )
+    }
+
     public func availability() async -> AppleIntelligenceAvailability {
         let settings = settingsStore.snapshot()
         switch settings.provider {
