@@ -108,8 +108,14 @@ public struct AssistantPanelDebugState: Sendable, Hashable {
 public extension AssistantDestination {
     /// Enquanto nenhum provedor foi escolhido não há rota que descrever, e
     /// prometer "local" seria mentira. O rodapé manda a pessoa aos Ajustes.
+    ///
+    /// O rótulo dizia "Provedor configurado" — exatamente o contrário do que
+    /// este valor significa, e era o que o dashboard escrevia debaixo do campo
+    /// numa instalação sem provedor nenhum. A rota em si sempre esteve certa
+    /// (`InboxScreen.assistantDestination` deriva de `AssistantSettings` e só
+    /// cai aqui na ausência dela); o defeito era só a frase.
     static let unconfigured = AssistantDestination(
-        label: "Provedor configurado",
+        label: "Sem provedor",
         detail: "Escolha o provedor nos Ajustes.",
         isLocal: false
     )

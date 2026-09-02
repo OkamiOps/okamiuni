@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import UNICore
+import UNISync
 @testable import UNIShell
 
 /// As medidas do mockup `design/07-dashboard.html`, com o número dos dois
@@ -113,5 +114,23 @@ struct DashboardMetricsTests {
             )
             #expect(text == "Marina Duarte, \(reason.label), Revisão do contrato")
         }
+    }
+
+    /// O rótulo do destino que o dashboard escreve debaixo do campo. Sem
+    /// provedor ele diz que **não há** provedor; com um, o nome da rota.
+    @Test("o destino sem provedor não se anuncia como configurado")
+    @MainActor
+    func unconfiguredDestinationSaysSo() {
+        #expect(AssistantDestination.unconfigured.label == "Sem provedor")
+        #expect(AssistantDestination.unconfigured.detail == "Escolha o provedor nos Ajustes.")
+        #expect(!AssistantDestination.unconfigured.isLocal)
+        // Com provedor de verdade, o rótulo é o da rota — o caminho que
+        // `InboxScreen.assistantDestination` usa quando há Ajustes.
+        let grok = AssistantDestination(
+            label: "Codex · ChatGPT",
+            detail: "Sai deste Mac pelo Codex instalado.",
+            isLocal: false
+        )
+        #expect(grok.label == "Codex · ChatGPT")
     }
 }
