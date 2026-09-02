@@ -18,15 +18,37 @@ struct DashboardMetricsTests {
         #expect(DashboardMetrics.outerPadding == 22)
         // `.rail { width: 300px }`
         #expect(DashboardMetrics.railWidth == 300)
-        // `.main { padding-right: 18px }`
-        #expect(DashboardMetrics.mainTrailingPadding == 18)
-        // `.head { margin-bottom: 16px }` e `.briefing { margin: 0 0 16px }`
-        #expect(DashboardMetrics.headerBottomSpacing == 16)
-        #expect(DashboardMetrics.briefingBottomSpacing == 16)
-        // `.transcript { max-height: 300px }`
-        #expect(DashboardMetrics.transcriptMaxHeight == 300)
-        // `.chrome-btn { height: 28px; padding: 0 14px }`
-        #expect(DashboardMetrics.headerButtonHeight == 28)
+        // `.listcol { padding-right: 16px }`, `.preview { padding-left: 16px }`
+        // e `.rail { margin-left: 16px }`
+        #expect(DashboardMetrics.mainTrailingPadding == 16)
+        #expect(DashboardMetrics.previewLeadingPadding == 16)
+        #expect(DashboardMetrics.railLeadingSpacing == 16)
+        // `.preview { width: 380px }` e `[data-state="agenda-vazia"] { 440 }`
+        #expect(DashboardMetrics.previewWidth == 380)
+        #expect(DashboardMetrics.widePreviewWidth == 440)
+        // `[data-state="agenda-vazia"] .rail { width: 168px }`
+        #expect(DashboardMetrics.freeRailWidth == 168)
+        // `.head { margin-bottom: 12px }` e `.digest { margin: 0 0 14px }`
+        #expect(DashboardMetrics.headerBottomSpacing == 12)
+        #expect(DashboardMetrics.todayBottomSpacing == 14)
+        // `.digest { padding: 9px 14px; gap: 18px }` e o ponto de 5ø
+        #expect(DashboardMetrics.todayPadding.top == 9)
+        #expect(DashboardMetrics.todayPadding.leading == 14)
+        #expect(DashboardMetrics.todaySpacing == 18)
+        #expect(DashboardMetrics.todayTextSize == 12.5)
+        #expect(DashboardMetrics.todayDotSide == 5)
+        // `.pv-subj { font-size: 18px }`, `.pv-x { 13.5 }`, `.act { 28 alto }`
+        #expect(DashboardMetrics.previewSubjectSize == 18)
+        #expect(DashboardMetrics.previewExcerptSize == 13.5)
+        #expect(DashboardMetrics.previewActionHeight == 28)
+        #expect(DashboardMetrics.previewActionPadding == 12)
+        // `.draft { border-left: 2px; padding: 10px 12px 12px }`, act 26 alto
+        #expect(DashboardMetrics.draftBarWidth == 2)
+        #expect(DashboardMetrics.draftPadding.top == 10)
+        #expect(DashboardMetrics.draftPadding.bottom == 12)
+        #expect(DashboardMetrics.draftActionHeight == 26)
+        // `.transcript { max-height: 280px }`
+        #expect(DashboardMetrics.transcriptMaxHeight == 280)
         // `.ask { height: 38px }` e `.ask .send { 28×28 }`
         #expect(DashboardMetrics.askHeight == 38)
         #expect(DashboardMetrics.sendButtonSide == 28)
@@ -38,8 +60,6 @@ struct DashboardMetricsTests {
         #expect(DashboardMetrics.accountBarWidth == 3)
         // `.prio-label { padding-bottom: 7px }`
         #expect(DashboardMetrics.sectionLabelBottomPadding == 7)
-        // `.row-btn { height: 24px; padding: 0 10px }`
-        #expect(DashboardMetrics.rowActionHeight == 24)
     }
 
     @Test("o rodapé só existe quando sobrou mensagem na Caixa")
@@ -70,17 +90,14 @@ struct DashboardMetricsTests {
         #expect(DashboardMetrics.chipRole(for: .today) == .quiet)
     }
 
-    /// `[data-state="briefing"] .prow:nth-of-type(n+6)` e `n+5` no transcript.
+    /// `[data-state="assistente"] .prow:nth-of-type(n+6) { display: none }`.
     @Test("a lista corta em linha inteira, nunca no meio de uma")
     func visibleRowCount() {
-        #expect(DashboardMetrics.visibleRowCount(total: 7, hasBriefing: false, hasTranscript: false) == 7)
-        #expect(DashboardMetrics.visibleRowCount(total: 7, hasBriefing: true, hasTranscript: false) == 5)
-        #expect(DashboardMetrics.visibleRowCount(total: 7, hasBriefing: false, hasTranscript: true) == 4)
-        // Transcript manda mesmo com briefing: é ele que come a coluna.
-        #expect(DashboardMetrics.visibleRowCount(total: 7, hasBriefing: true, hasTranscript: true) == 4)
+        #expect(DashboardMetrics.visibleRowCount(total: 7, hasTranscript: false) == 7)
+        #expect(DashboardMetrics.visibleRowCount(total: 7, hasTranscript: true) == 5)
         // Nunca inventa linha que não existe.
-        #expect(DashboardMetrics.visibleRowCount(total: 2, hasBriefing: false, hasTranscript: false) == 2)
-        #expect(DashboardMetrics.visibleRowCount(total: 0, hasBriefing: true, hasTranscript: true) == 0)
+        #expect(DashboardMetrics.visibleRowCount(total: 2, hasTranscript: false) == 2)
+        #expect(DashboardMetrics.visibleRowCount(total: 0, hasTranscript: true) == 0)
     }
 
     @Test("a data do cabeçalho é a do mockup, em pt-BR")
@@ -93,15 +110,6 @@ struct DashboardMetricsTests {
         calendario.locale = Locale(identifier: "pt_BR")
         let data = calendario.date(from: componentes)!
         #expect(DashboardMetrics.headerDateLabel(data) == "terça · 1 de setembro")
-    }
-
-    @Test("o rótulo do CTA segue a seleção, e não o topo da lista")
-    func ctaLabel() {
-        #expect(DashboardCTA.draftsReply(canDraftReply: true, hasSelectedMail: true))
-        #expect(!DashboardCTA.draftsReply(canDraftReply: true, hasSelectedMail: false))
-        #expect(!DashboardCTA.draftsReply(canDraftReply: false, hasSelectedMail: true))
-        #expect(DashboardCTA.title(draftsReply: true) == "Gerar rascunho")
-        #expect(DashboardCTA.title(draftsReply: false) == "Gerar briefing")
     }
 
     /// A leitura da linha em voz alta: remetente, razão, assunto. Existe fora

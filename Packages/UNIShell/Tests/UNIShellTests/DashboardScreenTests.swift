@@ -49,6 +49,16 @@ private final class CommandSpy {
     var commands: [ContextCommand] = []
 }
 
+/// A seleção e a leitura do dashboard, num lugar que um `Binding` alcança.
+///
+/// `Binding(get:set:)` guarda closures não isoladas, então a caixa não pode
+/// ser `@MainActor`. Ela só é lida e escrita na `main` — o `CliqueDeEnsaio`
+/// roda tudo lá — e por isso o `@unchecked` é honesto aqui.
+private final class CaixaDeSelecao: @unchecked Sendable {
+    var selecionado: String?
+    var lendo: String?
+}
+
 @Suite("Dashboard")
 @MainActor
 struct DashboardScreenTests {
@@ -102,12 +112,6 @@ struct DashboardScreenTests {
         )
     }
 
-    /// O centro do botão "Gerar briefing" no recorte de 1200×820.
-    ///
-    /// O mockup o encosta no topo da coluna direita do cabeçalho
-    /// (`.head { align-items: flex-start }`), a 22 do topo e 22 da direita,
-    /// com 28 de altura — o centro fica em y = 22 + 14.
-    private static let ctaPoint = (x: CGFloat(1_117), y: CGFloat(36))
     private static let dashboardSize = CGSize(width: 1_200, height: 820)
 
     /// Uma conversa com briefing pronto, sem motor: a faixa do §2.2 aparece
@@ -145,30 +149,60 @@ struct DashboardScreenTests {
         )
     }
 
-    /// Os quatro estados do mockup (`cheio`, `vazio`, `com briefing`, `com
-    /// transcript`). Os PNGs saem com `UNI_RENDER_DIR` para a conferência
-    /// humana ao lado do mockup.
-    @Test("os quatro estados do mockup desenham no claro e no escuro")
-    func rendersTheFourStatesInBothThemes() async throws {
+    /// Uma conversa que já devolveu um rascunho, sem motor. É o estado
+    /// `rascunho` do mockup: o turno `.draft` nasce dentro da prévia.
+    private func draftedConversation() -> AssistantConversation {
+        AssistantConversation(
+            scope: .email,
+            context: .init(subject: "Revisão do contrato"),
+            destination: .unconfigured,
+            engine: .unavailable,
+            debugState: AssistantPanelDebugState(messages: [
+                .init(
+                    speaker: .assistant,
+                    text: """
+                        Oi Marina, fechado — SLA de 4 horas úteis funciona para \
+                        nós. Confirmo a call de quinta às 15h e levo a redação \
+                        final do SLA.
+
+                        Abraço, Marcos
+                        """,
+                    kind: .draft
+                ),
+            ])
+        )
+    }
+
+    /// Um store sem compromisso e sem pendência: o `agenda-vazia` do mockup.
+    private func lojaDeDiaLivre() async -> MailStore {
+        let store = MailStore(source: InMemoryMailSource(
+            accounts: Fixtures.accounts,
+            messages: Fixtures.messages,
+            agenda: []
+        ))
+        await store.load()
+        return store
+    }
+
+    /// Os cinco estados do mockup (`cheio`, `vazio`, `rascunho`,
+    /// `assistente`, `agenda-vazia`). Os PNGs saem com `UNI_RENDER_DIR` para
+    /// a conferência humana ao lado do mockup.
+    @Test("os cinco estados do mockup desenham no claro e no escuro")
+    func rendersTheFiveStatesInBothThemes() async throws {
         let cheio = MailStore(source: InMemoryMailSource.fixtures)
         await cheio.load()
         let vazio = MailStore(
             source: InMemoryMailSource(accounts: [], messages: [], agenda: [])
         )
         await vazio.load()
+        let diaLivre = await lojaDeDiaLivre()
 
         let estados: [(String, MailStore, AssistantConversation)] = [
             ("cheio", cheio, inertConversation()),
             ("vazio", vazio, inertConversation(scope: .workspace)),
-            ("briefing", cheio, briefedConversation(
-                """
-                Dois emails pedem decisão hoje: Marina Duarte quer fechar o \
-                contrato na quinta (09:42) e o formulário do site trouxe um lead \
-                de consultoria para 40 pessoas. Sua tarde tem Revisão do contrato \
-                às 14:00. A NF de agosto vence 05/09 — pode esperar até amanhã.
-                """
-            )),
-            ("transcript", cheio, transcriptConversation()),
+            ("rascunho", cheio, draftedConversation()),
+            ("assistente", cheio, transcriptConversation()),
+            ("agenda-vazia", diaLivre, inertConversation()),
         ]
 
         // `okami` e `tinta` são o que a §2.6 exige; `noite` e `linho` entram
@@ -227,7 +261,6 @@ struct DashboardScreenTests {
                     tint: Theme.tinta.accent.color,
                     isUnread: true,
                     isSelected: false,
-                    showsActions: false,
                     today: Fixtures.today
                 )
                 .frame(width: 500),
@@ -292,14 +325,15 @@ struct DashboardScreenTests {
         #expect(try bitmap(onze).pixelsDiffering(from: try bitmap(sete)) > 100)
     }
 
-    /// As ações rápidas da §2.4 saem pela **mesma** porta da Caixa: um
+    /// As ações da prévia saem pela **mesma** porta da Caixa: um
     /// `ContextCommand`, que quem hospeda entrega à fila transacional com
-    /// desfazer. O clique é sintético de verdade, como o do CTA.
-    @Test("Arquivar manda .archived e Depois manda .later")
-    func rowActionsRouteThroughContextCommand() async throws {
-        // A linha do topo, no recorte de 1200×820: o cabeçalho ocupa 22 + a
-        // caps + a saudação + 16, o rótulo PRIORIDADES mais 7, e a primeira
-        // linha começa logo abaixo da hairline de topo da lista.
+    /// desfazer. O clique é sintético de verdade.
+    ///
+    /// Elas moram na prévia, e não mais no hover da linha: a queixa era que
+    /// "não tem quase nada" na tela e que clicar abria modal. Agora clicar
+    /// seleciona, e as quatro ações do email ficam à vista na coluna do meio.
+    @Test("Arquivar manda .archived e Depois manda .later, da prévia")
+    func previewActionsRouteThroughContextCommand() async throws {
         let store = MailStore(source: InMemoryMailSource.fixtures)
         await store.load()
         let alvoID = try #require(
@@ -314,12 +348,12 @@ struct DashboardScreenTests {
                     now: Fixtures.nowMinute,
                     today: Fixtures.today,
                     conversation: inertConversation(),
-                    onCommand: { espiao.commands.append($0) },
-                    debugHoveredMailID: alvoID
+                    selectedMailID: .constant(alvoID),
+                    onCommand: { espiao.commands.append($0) }
                 )
                 .environment(ThemeStore()),
                 size: Self.dashboardSize,
-                aY: Self.firstRowActionY,
+                aY: Self.previewActionsY,
                 x: x
             )
             return espiao.commands
@@ -329,12 +363,238 @@ struct DashboardScreenTests {
         #expect(clicou(Self.laterActionX) == [.move(messageID: alvoID, to: .later)])
     }
 
-    /// O centro vertical da primeira linha de prioridade e o centro
-    /// horizontal dos botões "Arquivar" e "Depois" nela, no recorte de
-    /// 1200×820. Medidos no harness — ver `DashboardMockupParityTests`.
-    private static let firstRowActionY: CGFloat = 153
-    private static let archiveActionX: CGFloat = 746
-    private static let laterActionX: CGFloat = 816
+    /// O centro da fileira de ações da prévia e o centro horizontal de cada
+    /// botão nela, no recorte de 1200×820. Medidos no harness — ver
+    /// `DashboardMockupParityTests`.
+    private static let previewActionsY: CGFloat = 341
+    private static let draftActionX: CGFloat = 554
+    private static let archiveActionX: CGFloat = 744
+    private static let laterActionX: CGFloat = 820
+    private func tela(_ store: MailStore, caixa: CaixaDeSelecao) -> some View {
+        DashboardScreen(
+            store: store,
+            now: Fixtures.nowMinute,
+            today: Fixtures.today,
+            conversation: inertConversation(),
+            selectedMailID: Binding(
+                get: { caixa.selecionado }, set: { caixa.selecionado = $0 }
+            ),
+            readingMailID: Binding(get: { caixa.lendo }, set: { caixa.lendo = $0 })
+        )
+        .environment(ThemeStore())
+    }
+
+    /// O centro vertical da segunda linha de prioridade, para o clique que
+    /// seleciona.
+    private static let secondRowY: CGFloat = 269
+    private static let rowX: CGFloat = 200
+
+    /// **A queixa mais dura do dono**: "ao clicar ele já abre o modal de uma
+    /// vez". Agora não abre. Um clique seleciona, e a folha do leitor
+    /// continua fechada.
+    @Test("um clique seleciona a linha e não abre a folha")
+    func clickSelectsWithoutOpening() async throws {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        let focus = store.dashboardFocus(nowMinute: Fixtures.nowMinute)
+        let segundo = try #require(focus.mail.dropFirst().first).id
+
+        let caixa = CaixaDeSelecao()
+        CliqueDeEnsaio.em(
+            tela(store, caixa: caixa),
+            size: Self.dashboardSize,
+            aY: Self.secondRowY,
+            x: Self.rowX
+        )
+
+        #expect(caixa.selecionado == segundo, "o clique não selecionou a segunda linha")
+        #expect(caixa.lendo == nil, "o clique abriu a folha do leitor")
+    }
+
+    /// Abrir de verdade é duplo clique — e ⏎, que se prova em
+    /// `DashboardKeys`.
+    @Test("o duplo clique abre a folha do leitor")
+    func doubleClickOpensTheSheet() async throws {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        let focus = store.dashboardFocus(nowMinute: Fixtures.nowMinute)
+        let segundo = try #require(focus.mail.dropFirst().first).id
+
+        let caixa = CaixaDeSelecao()
+        CliqueDeEnsaio.em(
+            tela(store, caixa: caixa),
+            size: Self.dashboardSize,
+            aY: Self.secondRowY,
+            x: Self.rowX,
+            cliques: 2
+        )
+
+        #expect(caixa.selecionado == segundo)
+        #expect(caixa.lendo == segundo, "o duplo clique não abriu a folha")
+    }
+
+    /// A outra metade de "abrir": o ⏎.
+    ///
+    /// A decisão mora em `DashboardKeys`, fora da `View`. A entrega da tecla
+    /// é do `BareKeyMonitor`, e sintetizar tecla num processo de teste
+    /// derruba o laço da `main` — a nota está no cabeçalho do
+    /// `CliqueDeEnsaio`.
+    @Test("⏎ abre o selecionado, e só ele")
+    func enterOpensTheSelection() {
+        #expect(
+            DashboardKeys.opens(
+                key: .enter, selectedID: "m1", readingID: nil, exists: true
+            ) == "m1"
+        )
+        // Sem seleção não há o que abrir.
+        #expect(
+            DashboardKeys.opens(
+                key: .enter, selectedID: nil, readingID: nil, exists: false
+            ) == nil
+        )
+        // A folha já aberta fica com o ⏎ (é o Enter de dentro do leitor).
+        #expect(
+            DashboardKeys.opens(
+                key: .enter, selectedID: "m1", readingID: "m1", exists: true
+            ) == nil
+        )
+        // Nenhuma outra tecla abre nada.
+        for key in [BareKey.delete, .up, .down, .escape] {
+            #expect(
+                DashboardKeys.opens(
+                    key: key, selectedID: "m1", readingID: nil, exists: true
+                ) == nil
+            )
+        }
+    }
+
+    /// "Gerar resposta" é o botão primário da prévia, e ele chega em
+    /// `draftReply()` — nunca em `answer`. O rascunho aparece **dentro** da
+    /// prévia, colado no email, e não como bloco solto no meio da tela.
+    @Test("\"Gerar resposta\" da prévia chega em draftReply e desenha na prévia")
+    func previewDraftButtonReachesDraftReply() async throws {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        let spy = DashboardSpyAssistant()
+        let mail = try #require(store.dashboardFocus(nowMinute: Fixtures.nowMinute).mail.first)
+        let conversation = dashboardConversation(spy, store: store, selected: mail.message)
+
+        CliqueDeEnsaio.em(
+            DashboardScreen(
+                store: store,
+                now: Fixtures.nowMinute,
+                today: Fixtures.today,
+                conversation: conversation,
+                selectedMailID: .constant(mail.id)
+            )
+            .environment(ThemeStore()),
+            size: Self.dashboardSize,
+            aY: Self.previewActionsY,
+            x: Self.draftActionX
+        )
+        await conversation.waitForIdle()
+
+        #expect(spy.transforms.map(\.action) == [.draftReply])
+        #expect(spy.answers.isEmpty, "o botão da prévia passou por answer()")
+        #expect(conversation.messages.last?.kind == .draft)
+
+        // E o rascunho sai **na prévia**: as colunas da coluna do meio mudam,
+        // as da lista não. A lista é 22..466 no recorte de 1200.
+        func recorte(_ conversa: AssistantConversation) throws -> NSBitmapImageRep {
+            try #require(Render.bitmap(
+                DashboardScreen(
+                    store: store,
+                    now: Fixtures.nowMinute,
+                    today: Fixtures.today,
+                    conversation: conversa,
+                    selectedMailID: .constant(mail.id)
+                )
+                .environment(ThemeStore()),
+                size: Self.dashboardSize,
+                theme: .okami
+            ))
+        }
+        let semRascunho = try recorte(inertConversation())
+        let comRascunho = try recorte(draftedConversation())
+        #expect(
+            comRascunho.pixelsDiffering(from: semRascunho, inColumns: 498..<862) > 500,
+            "o rascunho não apareceu dentro da prévia"
+        )
+        #expect(
+            comRascunho.pixelsDiffering(from: semRascunho, inColumns: 22..<466) == 0,
+            "o rascunho vazou para a coluna da lista"
+        )
+    }
+
+    /// A faixa HOJE conta o que a triagem achou, e o excedente diz o que ela
+    /// descartou. Os dois números são diferentes de propósito.
+    @Test("a faixa HOJE conta certo e escreve o excedente")
+    func todayBandCountsWhatTheTriageFound() async throws {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        let focus = store.dashboardFocus(nowMinute: Fixtures.nowMinute)
+
+        let linhas = DashboardToday.lines(focus, now: Fixtures.today)
+        let respostas = focus.mail.filter { $0.reason == .needsReply }.count
+        #expect(respostas == 2)
+        #expect(linhas.first?.text == "2 pedem resposta")
+        #expect(linhas.first?.tone == .warning)
+        #expect(linhas.first?.messageID != nil, "a linha da faixa não aponta para mensagem")
+        #expect(linhas.contains { $0.text.hasPrefix("Prazo: ") })
+        #expect(linhas.contains { $0.text.hasPrefix("1 lead novo — ") })
+        #expect(linhas.allSatisfy { $0.messageID != nil })
+
+        #expect(focus.discardedMailCount == 2)
+        #expect(
+            DashboardToday.restLabel(focus.discardedMailCount)
+                == "2 fora da lista · newsletters e avisos"
+        )
+        #expect(DashboardToday.restLabel(0) == nil)
+
+        // Caixa vazia: uma linha só, sem ponteiro para lugar nenhum.
+        let vazio = DashboardFocus(
+            mail: [], meetings: [], pending: [],
+            omittedMailCount: 0, omittedMeetingCount: 0, nextUpLabel: "",
+            discardedMailCount: 9
+        )
+        let semNada = DashboardToday.lines(vazio, now: Fixtures.today)
+        #expect(semNada.count == 1)
+        #expect(semNada[0].text == "Nada precisa de você — 9 mensagens triadas para a Caixa.")
+        #expect(semNada[0].messageID == nil)
+    }
+
+    /// O bloco Contexto mostra o que o app **já sabe** — e some quando não
+    /// sabe nada, em vez de desenhar um rótulo sobre o vazio.
+    @Test("o Contexto sai do compromisso, da pendência e da conversa anterior")
+    func previewContextComesFromWhatTheAppKnows() async throws {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        let marina = try #require(
+            store.messages.first { $0.from.name.contains("Marina") }
+        )
+        let linhas = DashboardPreviewContext.lines(
+            for: marina,
+            agenda: store.visibleAgenda,
+            pending: store.pendingItems,
+            messages: store.messages
+        )
+        #expect(linhas.contains { $0.text.contains("1:1 Marina Duarte") })
+        #expect(linhas.contains { $0.text.hasPrefix("Pendência: ") })
+
+        // Ninguém conhecido: nada é inventado.
+        let estranho = Message(
+            id: "zz", accountID: Fixtures.accounts[0].id,
+            from: Contact(name: "Xyzzy Qwerty", address: "zz@exemplo.com"),
+            receivedAt: Fixtures.today, subject: "Oi", snippet: "oi", body: ["oi"],
+            tags: [], bucket: .today, isRead: false, summary: nil, detectedEvent: nil
+        )
+        #expect(
+            DashboardPreviewContext.lines(
+                for: estranho, agenda: store.visibleAgenda,
+                pending: store.pendingItems, messages: store.messages
+            ).isEmpty
+        )
+    }
 
     @Test("a pergunta do briefing é a fixa da conversa, não uma cópia do dashboard")
     func briefingQuestionBelongsToTheConversation() {
@@ -383,77 +643,6 @@ struct DashboardScreenTests {
         #expect(spy.transforms.map(\.action) == [.draftReply])
         #expect(spy.answers.isEmpty)
         #expect(conversation.messages.last?.kind == .draft)
-    }
-
-    @Test("com email selecionado o CTA rascunha, não pergunta")
-    func draftButtonClickReachesDraftReply() async throws {
-        let store = MailStore(source: InMemoryMailSource.fixtures)
-        await store.load()
-        let spy = DashboardSpyAssistant()
-        let mail = try #require(store.dashboardFocus(nowMinute: Fixtures.nowMinute).mail.first)
-        let conversation = dashboardConversation(spy, store: store, selected: mail.message)
-
-        CliqueDeEnsaio.em(
-            DashboardScreen(
-                store: store,
-                now: Fixtures.nowMinute,
-                today: Fixtures.today,
-                conversation: conversation,
-                selectedMailID: .constant(mail.id)
-            )
-            .environment(ThemeStore()),
-            size: Self.dashboardSize,
-            aY: Self.ctaPoint.y,
-            x: Self.ctaPoint.x
-        )
-        await conversation.waitForIdle()
-
-        #expect(spy.transforms.map(\.action) == [.draftReply])
-        #expect(spy.answers.isEmpty)
-    }
-
-    @Test("sem email selecionado o CTA pede briefing, e nunca rascunho")
-    func ctaWithoutSelectionAsksForBriefing() async throws {
-        let store = MailStore(source: InMemoryMailSource.fixtures)
-        await store.load()
-        let spy = DashboardSpyAssistant()
-        let conversation = dashboardConversation(spy, store: store, selected: nil)
-
-        CliqueDeEnsaio.em(
-            DashboardScreen(
-                store: store,
-                now: Fixtures.nowMinute,
-                today: Fixtures.today,
-                conversation: conversation
-            )
-            .environment(ThemeStore()),
-            size: Self.dashboardSize,
-            aY: Self.ctaPoint.y,
-            x: Self.ctaPoint.x
-        )
-        await conversation.waitForIdle()
-
-        // Briefing sai por `answer`, com a pergunta fixa da §2.5, e o
-        // contexto é o ambiente — não um email que ninguém escolheu.
-        #expect(spy.transforms.isEmpty)
-        #expect(spy.answers.count == 1)
-        #expect(conversation.briefingText == "resposta")
-        #expect(conversation.messages.isEmpty)
-        #expect(conversation.failure == nil)
-        if case .workspace = try #require(spy.answers.first?.mailContext) {} else {
-            Issue.record("O briefing pediu contexto de email sem email selecionado")
-        }
-    }
-
-    @Test("o rótulo do CTA segue a seleção, e não o topo da lista")
-    func ctaLabelFollowsSelection() {
-        // A regra mora em `DashboardCTA`, fora da `View`. Ver
-        // `DashboardMetricsTests` para o caso nonisolated.
-        #expect(DashboardCTA.draftsReply(canDraftReply: true, hasSelectedMail: true))
-        #expect(!DashboardCTA.draftsReply(canDraftReply: true, hasSelectedMail: false))
-        #expect(!DashboardCTA.draftsReply(canDraftReply: false, hasSelectedMail: true))
-        #expect(DashboardCTA.title(draftsReply: true) == "Gerar rascunho")
-        #expect(DashboardCTA.title(draftsReply: false) == "Gerar briefing")
     }
 
     @Test("rascunho no transcript sai literal, sem Markdown")
@@ -513,13 +702,16 @@ struct DashboardScreenTests {
             "Color.black.opacity", "cornerRadius: 20", "cornerRadius: 14",
             "theme.info.color.opacity",
             "Ver todas", "👋",
+            // O botão que gerava briefing sob demanda. A faixa HOJE o
+            // substituiu, e ela já está lá quando a tela abre.
+            "Gerar briefing", "ctaButton",
         ] {
             #expect(!source.contains(proibido), "\(proibido) continua em DashboardScreen.swift")
         }
-        // Os `Spacer(minLength: 0)` que enchiam os cartões sumiram. Sobra
-        // **um**, e ele é o `.flexpad` do mockup: a folga entre a lista de
-        // prioridades e o assistente colado no rodapé.
-        #expect(source.components(separatedBy: "Spacer(minLength: 0)").count - 1 == 1)
+        // Os `Spacer(minLength: 0)` que enchiam os cartões sumiram. Sobram
+        // **dois**: o `.flexpad` do mockup (a folga entre a lista e o
+        // assistente colado no rodapé) e o da coluna de dia livre.
+        #expect(source.components(separatedBy: "Spacer(minLength: 0)").count - 1 == 2)
     }
 
     static func dashboardSource() throws -> String {
@@ -557,27 +749,25 @@ struct DashboardMockupParityTests {
         .environment(ThemeStore())
     }
 
-    /// A trilha nunca entrega meio cartão às PENDÊNCIAS, em nenhum dos quatro
-    /// estados.
+    /// A trilha nunca entrega meio cartão às PENDÊNCIAS, em nenhum estado que
+    /// tenha trilha.
     ///
     /// A régua é a mesma dos testes de hairline: acha-se o fio `line2` que
     /// abre a seção de PENDÊNCIAS e conferem-se as seis faixas logo acima
     /// dele. Todo cartão da trilha carrega 10pt de folga embaixo — se a borda
     /// partisse um, ali estaria a cor da conta em vez do fundo da coluna.
-    @Test("a coluna direita não corta cartão em nenhum dos quatro estados")
+    @Test("a coluna direita não corta cartão em nenhum estado com trilha")
     func railCutsOnCardBoundaryInEveryState() async throws {
         let cheio = MailStore(source: InMemoryMailSource.fixtures)
         await cheio.load()
-        let vazio = MailStore(
-            source: InMemoryMailSource(accounts: [], messages: [], agenda: [])
-        )
-        await vazio.load()
 
+        // O estado `vazio` e o `agenda-vazia` ficam de fora **porque não têm
+        // trilha**: sem compromisso e sem pendência a coluna encolhe para 168
+        // e vira o recado "Dia livre". Isso tem caso próprio abaixo.
         let estados: [(String, MailStore, AssistantConversation)] = [
             ("cheio", cheio, conversa()),
-            ("vazio", vazio, conversa()),
-            ("briefing", cheio, conversa(briefing: "Dois emails pedem decisão hoje.")),
-            ("transcript", cheio, conversa(transcript: true)),
+            ("rascunho", cheio, conversa(draft: true)),
+            ("assistente", cheio, conversa(transcript: true)),
         ]
 
         let fundo = try #require(Theme.okami.surface.nsColor.usingColorSpace(.sRGB))
@@ -627,22 +817,26 @@ struct DashboardMockupParityTests {
     }
 
     private func conversa(
-        briefing: String? = nil, transcript: Bool = false
+        transcript: Bool = false, draft: Bool = false
     ) -> AssistantConversation {
-        AssistantConversation(
+        var turnos: [AssistantMessage] = []
+        if transcript {
+            turnos = [
+                .init(speaker: .user, text: "Resuma o dia"),
+                .init(speaker: .assistant, text: "Marina espera o SLA."),
+            ]
+        }
+        if draft {
+            turnos = [
+                .init(speaker: .assistant, text: "Oi Marina, fechado.", kind: .draft),
+            ]
+        }
+        return AssistantConversation(
             scope: .workspace,
             context: .init(subject: "Caixa e agenda de hoje"),
             destination: .unconfigured,
             engine: .unavailable,
-            debugState: AssistantPanelDebugState(
-                messages: transcript
-                    ? [
-                        .init(speaker: .user, text: "Resuma o dia"),
-                        .init(speaker: .assistant, text: "Marina espera o SLA."),
-                    ]
-                    : [],
-                briefingText: briefing
-            )
+            debugState: AssistantPanelDebugState(messages: turnos)
         )
     }
 
@@ -729,6 +923,6 @@ struct DashboardMockupParityTests {
                 rows: 740..<Int(Self.size.height)
             ) == 0
         )
-        #expect(DashboardMetrics.transcriptMaxHeight == 300)
+        #expect(DashboardMetrics.transcriptMaxHeight == 280)
     }
 }

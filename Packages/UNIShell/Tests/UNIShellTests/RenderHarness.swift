@@ -163,7 +163,9 @@ enum Render {
 @MainActor
 enum CliqueDeEnsaio {
 
-    static func em<V: View>(_ view: V, size: CGSize, aY y: CGFloat, x: CGFloat = 60) {
+    static func em<V: View>(
+        _ view: V, size: CGSize, aY y: CGFloat, x: CGFloat = 60, cliques: Int = 1
+    ) {
         let raiz = view
             .theme(.tinta)
             .environment(\.locale, Locale(identifier: "pt_BR"))
@@ -195,7 +197,12 @@ enum CliqueDeEnsaio {
         assenta()
         content.layoutSubtreeIfNeeded()
 
-        clique(at: NSPoint(x: x, y: size.height - y), in: window)
+        // Um duplo clique real é **dois** pares pressão/soltura no mesmo
+        // ponto, com `clickCount` 1 e depois 2 — é o segundo par que o
+        // `TapGesture(count: 2)` reconhece.
+        for numero in 1...max(1, cliques) {
+            clique(at: NSPoint(x: x, y: size.height - y), in: window, contagem: numero)
+        }
 
         assenta()
         content.layoutSubtreeIfNeeded()
@@ -212,13 +219,13 @@ enum CliqueDeEnsaio {
     /// saída foi rastreada até `exit` dentro de
     /// `swift_task_asyncMainDrainQueue`). Um `Button` do SwiftUI não usa laço de
     /// rastreio, então o par direto basta.
-    private static func clique(at ponto: NSPoint, in window: NSWindow) {
+    private static func clique(at ponto: NSPoint, in window: NSWindow, contagem: Int = 1) {
         for (tipo, pressao) in [(NSEvent.EventType.leftMouseDown, Float(1)), (.leftMouseUp, 0)] {
             guard let evento = NSEvent.mouseEvent(
                 with: tipo, location: ponto, modifierFlags: [],
                 timestamp: ProcessInfo.processInfo.systemUptime,
                 windowNumber: window.windowNumber, context: nil,
-                eventNumber: 70_001, clickCount: 1, pressure: pressao
+                eventNumber: 70_001, clickCount: contagem, pressure: pressao
             ) else { return }
             window.sendEvent(evento)
         }
