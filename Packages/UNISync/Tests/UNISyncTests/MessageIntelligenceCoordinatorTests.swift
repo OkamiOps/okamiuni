@@ -162,6 +162,81 @@ struct MessageIntelligenceCoordinatorTests {
         #expect(saved.summary == "Marina propõe revisar o assunto amanhã às 15h.")
     }
 
+    @Test("três falhas de autenticação seguidas pausam a fila; nada cai para o Mac")
+    func threeAuthFailuresPauseTheQueue() async throws {
+        let database = try database()
+        for index in 2...5 {
+            try insertMessage(
+                id: "m\(index)", subject: "Assunto \(index)",
+                receivedAt: Date(timeIntervalSince1970: 1_788_000_000 + Double(index)),
+                database: database
+            )
+        }
+        let analyzer = FailingAnalyzer(error: OpenAICompatibleTextAssistantError.authenticationFailed)
+        let coordinator = MessageIntelligenceCoordinator(
+            database: database, analyzer: analyzer, timeZone: { self.timeZone }
+        )
+        _ = await coordinator.processPending()
+
+        #expect(analyzer.calls == MessageIntelligenceCoordinator.failuresBeforePause)
+        #expect(await coordinator.queueState() == .paused(
+            reason: OpenAICompatibleTextAssistantError.authenticationFailed.errorDescription!
+        ))
+
+        // A pausa sobrevive a uma nova instância: ela está no banco.
+        let reopened = MessageIntelligenceCoordinator(
+            database: database, analyzer: analyzer, timeZone: { self.timeZone }
+        )
+        #expect(await reopened.processPending() == 0)
+        #expect(analyzer.calls == MessageIntelligenceCoordinator.failuresBeforePause)
+
+        await reopened.resumeAfterPause()
+        #expect(analyzer.calls > MessageIntelligenceCoordinator.failuresBeforePause)
+    }
+
+    @Test("duas falhas de ambiente ainda não pausam nada")
+    func twoFailuresDoNotPause() async throws {
+        let database = try database()
+        let analyzer = FailingAnalyzer(
+            error: OpenAICompatibleTextAssistantError.authenticationFailed,
+            failuresBeforeSuccess: MessageIntelligenceCoordinator.failuresBeforePause - 1
+        )
+        let coordinator = MessageIntelligenceCoordinator(
+            database: database, analyzer: analyzer, timeZone: { self.timeZone }
+        )
+        #expect(await coordinator.processPending() == 1)
+        #expect(await coordinator.queueState() == .running)
+    }
+
+    @Test("JSON inválido é falha da mensagem, não do ambiente: a fila continua")
+    func invalidResponseDoesNotPause() async throws {
+        let database = try database()
+        for index in 2...5 {
+            try insertMessage(
+                id: "m\(index)", subject: "Assunto \(index)",
+                receivedAt: Date(timeIntervalSince1970: 1_788_000_000 + Double(index)),
+                database: database
+            )
+        }
+        let analyzer = FailingAnalyzer(
+            error: MessageAnalysisError.invalidResponse("O JSON não bate com o contrato pedido.")
+        )
+        let coordinator = MessageIntelligenceCoordinator(
+            database: database, analyzer: analyzer, timeZone: { self.timeZone }
+        )
+        _ = await coordinator.processPending()
+
+        #expect(await coordinator.queueState() == .running)
+        // Cada mensagem foi marcada como falha, uma vez, e a fila esvaziou.
+        #expect(analyzer.calls == 5)
+        let failed = try await database.pool.read { db in
+            try MessageIntelligenceRecord
+                .filter(Column("state") == MessageIntelligenceState.failed.rawValue)
+                .fetchCount(db)
+        }
+        #expect(failed == 5)
+    }
+
     @Test("a mensagem selecionada é a próxima depois da geração já iniciada")
     func selectedMessageJumpsTheBacklog() async throws {
         let database = try database()
@@ -258,4 +333,33 @@ private actor OrderedBlockingAnalysisSpy: MessageAnalyzing {
     }
 
     func subjects() -> [String] { inputs.map(\.subject) }
+}
+
+final class FailingAnalyzer: MessageAnalyzing, @unchecked Sendable {
+    let modelVersion = "failing/v1"
+    private let lock = NSLock()
+    private var count = 0
+    private let error: any Error
+    /// Quantas chamadas falham antes de a primeira dar certo. `nil` = todas.
+    private let failuresBeforeSuccess: Int?
+    var calls: Int { lock.withLock { count } }
+
+    init(error: any Error, failuresBeforeSuccess: Int? = nil) {
+        self.error = error
+        self.failuresBeforeSuccess = failuresBeforeSuccess
+    }
+
+    func availability() async -> AppleIntelligenceAvailability { .available }
+
+    func analyze(_ input: MessageAnalysisInput) async throws -> MessageAnalysisResult {
+        let current = lock.withLock { count += 1; return count }
+        if let failuresBeforeSuccess, current > failuresBeforeSuccess {
+            return .init(
+                summary: "Marina confirmou a revisão do orçamento desta semana.",
+                detectedEvent: nil,
+                modelVersion: modelVersion
+            )
+        }
+        throw error
+    }
 }

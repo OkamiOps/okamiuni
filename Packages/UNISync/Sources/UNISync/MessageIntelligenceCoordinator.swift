@@ -13,7 +13,10 @@ public actor MessageIntelligenceCoordinator {
     private let database: SyncDatabase
     private let store: MessageIntelligenceStore
     private let analyzer: any MessageAnalyzing
+    private let queueStateStore: AnalysisQueueStateStore
     private let timeZone: @Sendable () -> TimeZone
+    /// Falhas de ambiente seguidas. Zera em qualquer sucesso.
+    private var consecutivePolicyFailures = 0
     private var observationTask: Task<Void, Never>?
     /// A mensagem que a pessoa está lendo fura a fila histórica. Guardamos
     /// somente a seleção mais recente: clicar rapidamente em cinco mensagens
@@ -22,6 +25,10 @@ public actor MessageIntelligenceCoordinator {
     /// `actor` é reentrante durante a geração. Esta guarda preserva um único
     /// worker mesmo quando a observação do banco e a seleção acordam juntas.
     private var isProcessing = false
+
+    /// Três seguidas. Uma falha é ruído de rede; três é configuração errada,
+    /// e insistir manda a caixa inteira para um endpoint que recusa.
+    public static let failuresBeforePause = 3
 
     private static let log = Logger(
         subsystem: "com.okamiops.okamiuni",
@@ -35,6 +42,7 @@ public actor MessageIntelligenceCoordinator {
     ) {
         self.database = database
         self.store = MessageIntelligenceStore(database: database)
+        self.queueStateStore = AnalysisQueueStateStore(database: database)
         self.analyzer = analyzer
         self.timeZone = timeZone
     }
@@ -87,6 +95,9 @@ public actor MessageIntelligenceCoordinator {
     @discardableResult
     public func processPending(limit: Int = 20) async -> Int {
         guard limit > 0, !isProcessing else { return 0 }
+        // Fila pausada não anda sozinha, e não cai para o motor local: só o
+        // "Tentar de novo" da lateral a destrava.
+        guard case .running = queueState() else { return 0 }
         isProcessing = true
         defer { isProcessing = false }
         guard await analyzer.availability() == .available else { return 0 }
@@ -137,6 +148,7 @@ public actor MessageIntelligenceCoordinator {
                     category: result.category
                 )
                 if saved { completed += 1 }
+                consecutivePolicyFailures = 0
             } catch is CancellationError {
                 break
             } catch MessageAnalysisError.unavailable {
@@ -145,6 +157,20 @@ public actor MessageIntelligenceCoordinator {
                 // global temporária permanente para esta mensagem.
                 break
             } catch {
+                if Self.isEnvironmentFailure(error) {
+                    consecutivePolicyFailures += 1
+                    // O estado `processing` desta mensagem é retomável; ela não
+                    // é marcada como falha porque o defeito não é dela.
+                    if consecutivePolicyFailures >= Self.failuresBeforePause {
+                        let reason = (error as? any LocalizedError)?.errorDescription
+                            ?? error.localizedDescription
+                        try? queueStateStore.pause(reason: reason, at: Date())
+                        Self.log.error("Fila de análise pausada: \(reason, privacy: .public)")
+                        break
+                    }
+                    continue
+                }
+                consecutivePolicyFailures = 0
                 do {
                     _ = try store.markFailed(
                         work,
@@ -157,5 +183,56 @@ public actor MessageIntelligenceCoordinator {
             }
         }
         return completed
+    }
+
+    /// O que a lateral mostra. `try?` porque um banco que não responde não
+    /// pode transformar a barra numa tela de erro: a fila segue como corrente.
+    public func queueState() -> AnalysisQueueState {
+        (try? queueStateStore.state()) ?? .running
+    }
+
+    /// "Tentar de novo" da barra lateral. Zera o contador e destrava a fila.
+    public func resumeAfterPause() async {
+        try? queueStateStore.resume()
+        consecutivePolicyFailures = 0
+        _ = await processPending()
+    }
+
+    /// Auth e rede são condições **do ambiente**, não da mensagem: marcar a
+    /// mensagem como falha tornaria permanente uma chave que ainda vai ser
+    /// corrigida em Ajustes.
+    static func isEnvironmentFailure(_ error: any Error) -> Bool {
+        switch error {
+        case let error as OpenAICompatibleTextAssistantError:
+            switch error {
+            case .missingAPIKey, .missingOAuthAuthorization, .oauthProviderUnavailable,
+                 .authenticationFailed, .rateLimited, .timedOut, .connectionFailed, .server:
+                return true
+            case .invalidResponse:
+                return false
+            }
+        case let error as AssistantProviderOAuthTextAssistantError:
+            switch error {
+            case .missingAuthorization, .authenticationFailed, .subscriptionNotEligible,
+                 .rateLimited, .timedOut, .connectionFailed, .redirectRefused,
+                 .upgradeRequired, .server, .managedByCodexRuntime:
+                return true
+            case .invalidResponse:
+                return false
+            }
+        case let error as AssistantCLITextAssistantError:
+            switch error {
+            case .executableNotFound, .executableNotAllowed, .processFailed, .timedOut:
+                return true
+            case .outputTooLarge, .invalidResponse:
+                return false
+            }
+        case is AssistantProviderOAuthError:
+            return true
+        case let error as URLError:
+            return error.code != .cancelled
+        default:
+            return false
+        }
     }
 }
