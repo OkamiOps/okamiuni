@@ -87,10 +87,12 @@ public final class AssistantSettingsStore: @unchecked Sendable {
             // que outra versão do app ainda sabe interpretar.
             return .init(settings: .default, needsMigration: false)
         }
-        return .init(
-            settings: migrated,
-            needsMigration: decoded.schemaVersion != migrated.schemaVersion
-        )
+        // Comparar o documento inteiro, e não só a versão do esquema: o
+        // carimbo do opt-in nasce dentro de `migrated()` e precisa ser gravado
+        // na mesma abertura. Sem isto ele seria recalculado a cada lançamento
+        // e as mensagens chegadas entre dois deles ficariam de fora da rota
+        // que a pessoa ligou.
+        return .init(settings: migrated, needsMigration: decoded != migrated)
     }
 
     private static func persist(

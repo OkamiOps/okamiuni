@@ -320,7 +320,8 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
     /// única faria a abertura pagar por texto que ninguém vai ler.
     public func message(
         body: [String], bodyHTML: String? = nil, calendarICS: String? = nil,
-        attachments: [MailAttachment] = []
+        attachments: [MailAttachment] = [],
+        summaryModelVersion: String? = nil
     ) -> Message {
         Message(
             id: id, accountID: accountID,
@@ -330,6 +331,7 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
             tags: Self.decodeTags(tagsJSON), bucket: TriageBucket(rawValue: bucket) ?? .archived,
             isRead: isRead, summary: summary, detectedEvent: Self.decodeDetectedEvent(detectedEventJSON),
             category: category.flatMap(MailCategory.init(rawValue:)),
+            summaryModelVersion: summaryModelVersion,
             dayOffset: dayOffset, replyHints: Self.decodeStrings(replyHintsJSON),
             to: Self.decode(toJSON), cc: Self.decode(ccJSON),
             isFlagged: isFlagged,

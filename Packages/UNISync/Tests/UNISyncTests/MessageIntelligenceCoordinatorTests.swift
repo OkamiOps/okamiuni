@@ -237,6 +237,95 @@ struct MessageIntelligenceCoordinatorTests {
         #expect(failed == 5)
     }
 
+    /// O defeito que este teste fecha: ligar o opt-in trocava a `modelVersion`
+    /// do roteador, `MessageIntelligenceStore` via a caixa inteira como
+    /// obsoleta e devolvia **todas** as mensagens à fila — assunto e corpo de
+    /// cada uma sairiam deste Mac, contra a cópia "mensagens novas".
+    @Test("ligar o opt-in não devolve a caixa guardada à fila: só a mensagem nova sai daqui")
+    func optInDoesNotRequeueTheStoredMailbox() async throws {
+        let database = try database()
+        let clique = Date(timeIntervalSince1970: 1_788_000_100)
+        for index in 2...5 {
+            try insertMessage(
+                id: "m\(index)", subject: "Antiga \(index)",
+                receivedAt: clique.addingTimeInterval(-Double(index)),
+                database: database
+            )
+        }
+
+        let suite = "okamiuni.opt-in.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let settings = AssistantSettingsStore(defaults: defaults, key: "assistant")
+        let remoto = AssistantSettings(
+            provider: .openAICompatible,
+            openAICompatible: .init(
+                endpoint: "https://api.example.com/v1", model: "m",
+                credentialID: "primary", authenticationMode: .apiKey
+            )
+        )
+        try settings.save(remoto)
+
+        let onDevice = SpyMessageAnalyzer(modelVersion: "on-device")
+        let configured = SpyMessageAnalyzer(modelVersion: "remoto")
+        let coordinator = MessageIntelligenceCoordinator(
+            database: database,
+            analyzer: RoutedMessageAnalyzer(
+                settingsStore: settings, onDevice: onDevice, configured: configured
+            ),
+            timeZone: { self.timeZone }
+        )
+
+        // Antes do opt-in: as cinco guardadas são resumidas aqui.
+        #expect(await coordinator.processPending() == 5)
+        #expect(onDevice.calls == 5)
+        #expect(configured.calls == 0)
+        let antesDoOptIn = try await DatabaseMailSource(database: database).messages()
+            .reduce(into: [String: String?]()) { $0[$1.id] = $1.summary }
+
+        // O clique.
+        var comOptIn = remoto
+        comOptIn.automaticAnalysis = .configuredProvider
+        try settings.save(comOptIn.migrated(now: clique))
+        #expect(settings.snapshot().automaticAnalysisSince == clique)
+
+        // Nada aconteceu com o que já estava guardado.
+        #expect(await coordinator.processPending() == 0)
+        #expect(configured.calls == 0)
+        #expect(onDevice.calls == 5)
+
+        // Uma mensagem nova chega, e só ela sai deste Mac.
+        try insertMessage(
+            id: "m-nova", subject: "Nova",
+            receivedAt: clique.addingTimeInterval(10),
+            database: database
+        )
+        #expect(await coordinator.processPending() == 1)
+        #expect(configured.subjects == ["Nova"])
+        #expect(onDevice.calls == 5)
+
+        // E o histórico continua com o resumo local, byte a byte.
+        let depois = try await DatabaseMailSource(database: database).messages()
+        for mensagem in depois where mensagem.id != "m-nova" {
+            #expect(mensagem.summary == antesDoOptIn[mensagem.id])
+            #expect(mensagem.summary?.contains("on-device") == true)
+        }
+        let nova = try #require(depois.first { $0.id == "m-nova" })
+        #expect(nova.summary?.contains("remoto") == true)
+
+        // A proveniência de cada resumo chega à tela: é dela que a legenda do
+        // TL;DR sai, e não da rota que estiver ligada na hora de olhar.
+        #expect(nova.summaryModelVersion == "remoto")
+        for mensagem in depois where mensagem.id != "m-nova" {
+            #expect(mensagem.summaryModelVersion == "on-device")
+        }
+
+        // Nem a mensagem nova volta para a fila por causa da versão dela.
+        #expect(await coordinator.processPending() == 0)
+        #expect(configured.calls == 1)
+        #expect(onDevice.calls == 5)
+    }
+
     @Test("a mensagem selecionada é a próxima depois da geração já iniciada")
     func selectedMessageJumpsTheBacklog() async throws {
         let database = try database()

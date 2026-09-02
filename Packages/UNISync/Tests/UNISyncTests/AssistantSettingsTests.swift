@@ -130,6 +130,65 @@ struct AssistantSettingsTests {
         #expect(migrated.automaticAnalysis == .onDeviceOnly)
     }
 
+    /// A cópia promete "mensagens novas". O carimbo é o que a torna verdade,
+    /// e ele nasce no mesmo save que liga a rota.
+    @Test("o carimbo do opt-in nasce ao ligar e some ao desligar")
+    func optInStampFollowsTheRoute() throws {
+        let clique = Date(timeIntervalSince1970: 1_788_000_100)
+        var settings = AssistantSettings.default
+        settings.provider = .openAICompatible
+        settings.openAICompatible = .init(
+            endpoint: "https://api.example.com/v1", model: "m",
+            credentialID: "primary", authenticationMode: .apiKey
+        )
+        #expect(settings.automaticAnalysisSince == nil)
+
+        settings.automaticAnalysis = .configuredProvider
+        let ligado = try settings.migrated(now: clique)
+        #expect(ligado.automaticAnalysisSince == clique)
+        #expect(ligado.automaticAnalysisCoversMessage(receivedAt: clique))
+        #expect(!ligado.automaticAnalysisCoversMessage(
+            receivedAt: clique.addingTimeInterval(-1)
+        ))
+
+        // Um save posterior não move o carimbo para a frente.
+        let resalvo = try ligado.migrated(now: clique.addingTimeInterval(5_000))
+        #expect(resalvo.automaticAnalysisSince == clique)
+
+        // Desligar o apaga; religar vale do novo instante, nunca do antigo.
+        var desligado = resalvo
+        desligado.automaticAnalysis = .onDeviceOnly
+        let limpo = try desligado.migrated(now: clique.addingTimeInterval(6_000))
+        #expect(limpo.automaticAnalysisSince == nil)
+        #expect(!limpo.automaticAnalysisCoversMessage(receivedAt: .distantFuture))
+
+        var religado = limpo
+        religado.automaticAnalysis = .configuredProvider
+        let novo = try religado.migrated(now: clique.addingTimeInterval(9_000))
+        #expect(novo.automaticAnalysisSince == clique.addingTimeInterval(9_000))
+    }
+
+    /// O carimbo tem de ser **gravado** na abertura que o cria. Recalculá-lo a
+    /// cada lançamento deixaria de fora tudo que chegou entre dois deles.
+    @Test("o carimbo criado na abertura é persistido, e não recalculado")
+    func optInStampIsPersistedOnLoad() throws {
+        let suite = "okamiuni.opt-in-stamp.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+
+        // Um documento v5 do binário anterior: rota ligada, sem carimbo.
+        var semCarimbo = AssistantSettings.default
+        semCarimbo.provider = .cli
+        semCarimbo.automaticAnalysis = .configuredProvider
+        defaults.set(try JSONEncoder().encode(semCarimbo), forKey: "assistant")
+
+        let primeiro = AssistantSettingsStore(defaults: defaults, key: "assistant")
+        let carimbo = try #require(primeiro.snapshot().automaticAnalysisSince)
+
+        let segundo = AssistantSettingsStore(defaults: defaults, key: "assistant")
+        #expect(segundo.snapshot().automaticAnalysisSince == carimbo)
+    }
+
     @Test("a rota da análise sobrevive a uma ida e volta pelo JSON")
     func automaticAnalysisRoundTrips() throws {
         var settings = AssistantSettings.default

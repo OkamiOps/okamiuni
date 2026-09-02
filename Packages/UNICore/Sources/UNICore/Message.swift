@@ -165,8 +165,15 @@ public struct Message: Sendable, Hashable, Identifiable {
     /// é de outra tarefa.
     public let isFlagged: Bool
 
-    /// Resumo gerado no dispositivo. `nil` enquanto não houver.
+    /// Resumo gerado pela fila de análise. `nil` enquanto não houver.
     public let summary: String?
+    /// A versão do motor que **de fato** produziu este resumo.
+    ///
+    /// É a única fonte honesta para a legenda do TL;DR: derivar a legenda da
+    /// rota atual faria um resumo antigo, feito neste Mac, aparecer sob o nome
+    /// do provedor que a pessoa ligou depois. `nil` quando não há resumo ou
+    /// quando ele veio de fixtures.
+    public let summaryModelVersion: String?
     public let detectedEvent: DetectedEvent?
 
     /// A intenção primária detectada para a mensagem. `nil` enquanto a saída
@@ -252,6 +259,7 @@ public struct Message: Sendable, Hashable, Identifiable {
         tags: [Tag], bucket: TriageBucket, isRead: Bool,
         summary: String?, detectedEvent: DetectedEvent?,
         category: MailCategory? = nil,
+        summaryModelVersion: String? = nil,
         dayOffset: Int = 0, replyHints: [String] = [],
         to: [Contact] = [], cc: [Contact] = [], isFlagged: Bool = false,
         serverID: String? = nil, uidValidity: Int64? = nil,
@@ -287,6 +295,7 @@ public struct Message: Sendable, Hashable, Identifiable {
         self.summary = summary
         self.detectedEvent = detectedEvent
         self.category = category
+        self.summaryModelVersion = summaryModelVersion
     }
 }
 

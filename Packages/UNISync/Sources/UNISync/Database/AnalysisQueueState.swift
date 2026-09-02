@@ -29,6 +29,17 @@ struct AnalysisQueueStateRecord: Codable, FetchableRecord, PersistableRecord, Se
     var isPaused: Bool
     var reason: String?
     var pausedAt: Date?
+
+    /// A coluna é `DOUBLE`. Sem esta estratégia o GRDB gravaria a data como
+    /// texto ISO nela, e o SQLite a leria de volta como `2026.0` — o mesmo
+    /// contrato de `MessageIntelligenceRecord`.
+    static func databaseDateEncodingStrategy(for column: String) -> DatabaseDateEncodingStrategy {
+        .timeIntervalSince1970
+    }
+
+    static func databaseDateDecodingStrategy(for column: String) -> DatabaseDateDecodingStrategy {
+        .timeIntervalSince1970
+    }
 }
 
 public struct AnalysisQueueStateStore: Sendable {

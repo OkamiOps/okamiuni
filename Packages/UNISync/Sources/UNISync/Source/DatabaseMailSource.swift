@@ -189,9 +189,19 @@ public struct DatabaseMailSource: MailSource, Sendable {
         let registros = try MessageRecord
             .order(Column("receivedAt").desc)
             .fetchAll(db)
+        // A proveniência do resumo, numa consulta só: é o que a legenda do
+        // TL;DR usa para não dizer "neste Mac" sobre um resumo que saiu daqui,
+        // nem o contrário. Linhas pequenas, uma por mensagem já analisada.
+        let versaoDoResumo = try Dictionary(
+            MessageIntelligenceRecord.fetchAll(db).map { ($0.messageID, $0.modelVersion) },
+            uniquingKeysWith: { primeiro, _ in primeiro }
+        )
         guard includingBodies else {
             return registros.map {
-                $0.message(body: [], bodyHTML: nil, calendarICS: nil, attachments: [])
+                $0.message(
+                    body: [], bodyHTML: nil, calendarICS: nil, attachments: [],
+                    summaryModelVersion: versaoDoResumo[$0.id] ?? nil
+                )
             }
         }
         // Os corpos numa consulta só: um `fetchOne` por mensagem seria uma
@@ -215,7 +225,8 @@ public struct DatabaseMailSource: MailSource, Sendable {
                 // com `nil` aqui — e é assim que o leitor sabe que ainda há o
                 // que buscar. Trocar por `""` a daria por decodificada.
                 bodyHTML: corpo?.html, calendarICS: corpo?.calendarICS,
-                attachments: (anexosPorMensagem[registro.id] ?? []).map(\.attachment)
+                attachments: (anexosPorMensagem[registro.id] ?? []).map(\.attachment),
+                summaryModelVersion: versaoDoResumo[registro.id] ?? nil
             )
         }
     }

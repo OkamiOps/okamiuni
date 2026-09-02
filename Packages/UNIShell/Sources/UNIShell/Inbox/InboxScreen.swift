@@ -79,9 +79,11 @@ public struct InboxScreen: View {
     /// A fila de análise automática parada. `nil` enquanto ela corre — e é o
     /// padrão de previews e harnesses, que não têm coordenador.
     let analysisPause: AnalysisPauseState?
-    /// Para onde vai a análise automática hoje. É o que a legenda do TL;DR
-    /// mostra: dizer "neste Mac" com o opt-in remoto ligado seria mentira.
-    let analysisDestination: AssistantDestination
+    /// De onde o resumo de uma mensagem veio, pela versão do motor gravada
+    /// com ele. É o que a legenda do TL;DR mostra: dizer "neste Mac" sobre um
+    /// resumo que saiu daqui seria mentira, e nomear o provedor em cima de um
+    /// resumo que ficou no histórico local seria a mentira oposta.
+    let analysisDestination: @Sendable (String?) -> AssistantDestination
     /// Serviço local injetado pelo app. `nil` mantém previews e harnesses
     /// determinísticos, com a superfície ainda renderizável.
     let textAssistant: (any TextAssisting)?
@@ -100,7 +102,7 @@ public struct InboxScreen: View {
         clock: AgendaClock = .fixed(Fixtures.nowMinute),
         intelligencePresentation: IntelligencePresentation = .onThisMac,
         analysisPause: AnalysisPauseState? = nil,
-        analysisDestination: AssistantDestination = .onThisMac,
+        analysisDestination: @escaping @Sendable (String?) -> AssistantDestination = { _ in .onThisMac },
         textAssistant: (any TextAssisting)? = nil,
         assistantSettings: AssistantSettingsStore? = nil,
         onMessagePresented: @escaping (String) -> Void = { _ in },
@@ -128,7 +130,7 @@ public struct InboxScreen: View {
         clock: AgendaClock = .fixed(Fixtures.nowMinute),
         intelligencePresentation: IntelligencePresentation = .onThisMac,
         analysisPause: AnalysisPauseState? = nil,
-        analysisDestination: AssistantDestination = .onThisMac,
+        analysisDestination: @escaping @Sendable (String?) -> AssistantDestination = { _ in .onThisMac },
         textAssistant: (any TextAssisting)? = nil,
         assistantSettings: AssistantSettingsStore? = nil,
         onMessagePresented: @escaping (String) -> Void = { _ in },

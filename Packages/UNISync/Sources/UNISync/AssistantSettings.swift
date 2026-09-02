@@ -454,6 +454,12 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
     public var additionalInstructions: String
     /// A rota da análise automática. Nunca herda o provedor interativo.
     public var automaticAnalysis: AutomaticAnalysisRoute
+    /// O instante em que a pessoa ligou o opt-in.
+    ///
+    /// O consentimento é sobre "mensagens novas", e é este carimbo que o
+    /// torna verdade: sem ele, ligar o toggle mandaria a caixa inteira já
+    /// guardada para o provedor. `nil` sempre que a rota é `onDeviceOnly`.
+    public var automaticAnalysisSince: Date?
 
     public init(
         schemaVersion: Int = Self.currentSchemaVersion,
@@ -463,7 +469,8 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
         cli: AssistantCLIConfiguration = .init(),
         behavior: AssistantBehaviorPreferences = .default,
         additionalInstructions: String = "",
-        automaticAnalysis: AutomaticAnalysisRoute = .onDeviceOnly
+        automaticAnalysis: AutomaticAnalysisRoute = .onDeviceOnly,
+        automaticAnalysisSince: Date? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.provider = provider
@@ -473,6 +480,7 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
         self.behavior = behavior
         self.additionalInstructions = additionalInstructions
         self.automaticAnalysis = automaticAnalysis
+        self.automaticAnalysisSince = automaticAnalysisSince
     }
 
     public static let `default` = AssistantSettings()
@@ -480,7 +488,7 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
     /// Migra versões que este binário conhece e valida o resultado antes de ele
     /// entrar no cache do app. Por enquanto v0 representa o arquivo sem versão
     /// explícita da primeira prévia desta infraestrutura.
-    public func migrated() throws -> AssistantSettings {
+    public func migrated(now: Date = Date()) throws -> AssistantSettings {
         guard schemaVersion <= Self.currentSchemaVersion else {
             throw AssistantSettingsError.unsupportedSchemaVersion(schemaVersion)
         }
@@ -498,6 +506,15 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
         }
         if migrated.provider == .providerOAuth {
             migrated.providerOAuth = try providerOAuth.validated()
+        }
+        // O carimbo do opt-in nasce aqui, no mesmo save que liga a rota, e
+        // morre quando ela é desligada: religar depois vale a partir do novo
+        // instante, nunca do antigo.
+        switch migrated.automaticAnalysis {
+        case .onDeviceOnly:
+            migrated.automaticAnalysisSince = nil
+        case .configuredProvider:
+            migrated.automaticAnalysisSince = automaticAnalysisSince ?? now
         }
         return migrated
     }
@@ -527,6 +544,7 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
         case behavior
         case additionalInstructions
         case automaticAnalysis
+        case automaticAnalysisSince
     }
 
     /// `cli` e `authenticationMode` foram acrescentados depois do primeiro
@@ -556,6 +574,13 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
         automaticAnalysis = try values.decodeIfPresent(
             AutomaticAnalysisRoute.self, forKey: .automaticAnalysis
         ) ?? .onDeviceOnly
+        // Decodificação tolerante: o esquema continua sendo o v5. Um documento
+        // v5 do binário anterior não tinha o carimbo, e `migrated()` o preenche
+        // com o instante da carga — conservador, porque o histórico já guardado
+        // fica de fora da rota remota.
+        automaticAnalysisSince = try values.decodeIfPresent(
+            Date.self, forKey: .automaticAnalysisSince
+        )
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -568,16 +593,34 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
         try values.encode(behavior, forKey: .behavior)
         try values.encode(additionalInstructions, forKey: .additionalInstructions)
         try values.encode(automaticAnalysis, forKey: .automaticAnalysis)
+        try values.encodeIfPresent(automaticAnalysisSince, forKey: .automaticAnalysisSince)
     }
 }
 
 public extension AssistantSettings {
     /// Para onde a análise **automática** vai hoje. Não é o mesmo que o
     /// destino interativo: a legenda do TL;DR precisa desta, e só desta.
-    var automaticAnalysisDestination: AssistantDestination {
-        switch automaticAnalysis {
-        case .onDeviceOnly: return .onThisMac
-        case .configuredProvider: return AssistantDestination(settings: self)
-        }
+    /// De onde **este** resumo veio, pela versão do motor que o gravou.
+    ///
+    /// A rota atual não serve para isto: depois do opt-in o histórico continua
+    /// tendo sido resumido aqui, e nomear o provedor em cima dele seria a mesma
+    /// mentira de antes, só que ao contrário. A proveniência é um fato gravado
+    /// com o resumo — `Message.summaryModelVersion` —, não uma preferência.
+    func automaticAnalysisDestination(forSummaryModelVersion version: String?) -> AssistantDestination {
+        version == TextAssistantMessageAnalyzer.currentModelVersion
+            ? AssistantDestination(settings: self)
+            : .onThisMac
+    }
+
+    /// Esta mensagem entra no consentimento que a pessoa deu?
+    ///
+    /// "Mensagens novas" é o que a cópia promete, e é literalmente isto: só o
+    /// que chegou **depois** do clique. Sem carimbo, ninguém sai daqui.
+    public func automaticAnalysisCoversMessage(receivedAt: Date) -> Bool {
+        guard automaticAnalysis == .configuredProvider,
+              provider != .foundationModels,
+              let since = automaticAnalysisSince
+        else { return false }
+        return receivedAt >= since
     }
 }

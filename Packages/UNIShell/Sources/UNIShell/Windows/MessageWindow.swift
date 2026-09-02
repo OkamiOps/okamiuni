@@ -18,8 +18,8 @@ public struct MessageWindow: View {
     let textAssistant: (any TextAssisting)?
     let assistantSettings: AssistantSettingsStore?
     let intelligencePresentation: IntelligencePresentation
-    /// Para onde vai a análise automática — a legenda do TL;DR sai daqui.
-    let analysisDestination: AssistantDestination
+    /// De onde o resumo desta mensagem veio — a legenda do TL;DR sai daqui.
+    let analysisDestination: @Sendable (String?) -> AssistantDestination
     let onMessagePresented: (String) -> Void
     @State private var assistantOpen = false
     /// A conversa desta janela. Nasce ao abrir o painel e é cancelada ao
@@ -32,7 +32,7 @@ public struct MessageWindow: View {
         textAssistant: (any TextAssisting)? = nil,
         assistantSettings: AssistantSettingsStore? = nil,
         intelligencePresentation: IntelligencePresentation = .onThisMac,
-        analysisDestination: AssistantDestination = .onThisMac,
+        analysisDestination: @escaping @Sendable (String?) -> AssistantDestination = { _ in .onThisMac },
         onMessagePresented: @escaping (String) -> Void = { _ in }
     ) {
         self.store = store
@@ -193,7 +193,7 @@ public struct MessageWindow: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 if let summary = message.summary {
-                    summaryCard(summary)
+                    summaryCard(summary, modelVersion: message.summaryModelVersion)
                         .padding(.bottom, 22)
                 }
                 VStack(alignment: .leading, spacing: 16) {
@@ -216,9 +216,9 @@ public struct MessageWindow: View {
         .frame(maxHeight: .infinity)
     }
 
-    private func summaryCard(_ summary: String) -> some View {
+    private func summaryCard(_ summary: String, modelVersion: String?) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(ReaderPane.summaryCaption(for: analysisDestination)).capsLabel(size: 9.5)
+            Text(ReaderPane.summaryCaption(for: analysisDestination(modelVersion))).capsLabel(size: 9.5)
             Text(summary)
                 .font(theme.serif.font(size: 15))
                 .lineSpacing(0.55 * 15)   // line-height: 1.55

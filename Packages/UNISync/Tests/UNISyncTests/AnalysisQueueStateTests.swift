@@ -23,6 +23,24 @@ struct AnalysisQueueStateTests {
         #expect(try store.state() == .running)
     }
 
+    @Test("a data da pausa vai e volta como número na coluna DOUBLE")
+    func pausedAtRoundTrips() throws {
+        let database = try SyncDatabase.temporary()
+        let store = AnalysisQueueStateStore(database: database)
+        let momento = Date(timeIntervalSince1970: 1_788_000_123)
+        try store.pause(reason: "A chave de API foi recusada.", at: momento)
+
+        let bruto = try database.pool.read { db in
+            try Double.fetchOne(db, sql: "SELECT pausedAt FROM analysis_queue_state")
+        }
+        #expect(bruto == momento.timeIntervalSince1970)
+
+        let record = try #require(try database.pool.read { db in
+            try AnalysisQueueStateRecord.fetchOne(db, key: AnalysisQueueStateRecord.singletonID)
+        })
+        #expect(record.pausedAt == momento)
+    }
+
     @Test("a linha é única: pausar duas vezes não cria uma segunda")
     func singleRow() throws {
         let database = try SyncDatabase.temporary()

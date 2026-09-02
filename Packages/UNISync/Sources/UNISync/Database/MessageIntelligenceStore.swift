@@ -51,9 +51,13 @@ public struct MessageIntelligenceStore: Sendable {
     /// entra uma vez de novo, inclusive se a tentativa anterior falhou. Um
     /// `processing` é retomável: após um crash, o único runner serial o assume
     /// de novo na próxima abertura em vez de deixá-lo preso para sempre.
+    /// `acceptedModelVersions` vazio significa "só `modelVersion` serve" — o
+    /// comportamento de sempre. Um roteador que grava resultados sob mais de
+    /// uma versão legítima passa as duas, e nenhuma delas volta para a fila.
     public func pendingWork(
         limit: Int = 20,
         modelVersion: String? = nil,
+        acceptedModelVersions: Set<String> = [],
         priorityMessageID: String? = nil
     ) throws -> [MessageIntelligenceWork] {
         guard limit > 0 else { return [] }
@@ -84,7 +88,11 @@ public struct MessageIntelligenceStore: Sendable {
                 arguments: [priorityMessageID]
             )
             return rows.compactMap {
-                Self.workIfPending($0, modelVersion: modelVersion)
+                Self.workIfPending(
+                    $0,
+                    modelVersion: modelVersion,
+                    acceptedModelVersions: acceptedModelVersions
+                )
             }.prefix(limit).map { $0 }
         }
     }
@@ -96,13 +104,15 @@ public struct MessageIntelligenceStore: Sendable {
     public func markProcessing(
         _ work: MessageIntelligenceWork,
         modelVersion: String,
+        acceptedModelVersions: Set<String> = [],
         at: Date = Date()
     ) throws -> Bool {
         try database.pool.write { db in
             guard try Self.currentContentMatches(work, in: db) else { return false }
 
             let existing = try MessageIntelligenceRecord.fetchOne(db, key: work.messageID)
-            let modelChanged = existing?.modelVersion != modelVersion
+            let modelChanged = !Self.accepted(modelVersion, acceptedModelVersions)
+                .contains(existing?.modelVersion ?? "")
             if let existing,
                existing.contentHash == work.contentHash,
                existing.state != MessageIntelligenceState.pending.rawValue,
@@ -206,7 +216,8 @@ public struct MessageIntelligenceStore: Sendable {
 
     private static func workIfPending(
         _ row: Row,
-        modelVersion: String?
+        modelVersion: String?,
+        acceptedModelVersions: Set<String>
     ) -> MessageIntelligenceWork? {
         let plainBody: String = row["plain"]
         guard hasUsableBody(plainBody) else { return nil }
@@ -214,7 +225,9 @@ public struct MessageIntelligenceStore: Sendable {
         let storedHash: String? = row["contentHash"]
         let storedModelVersion: String? = row["modelVersion"]
         let state = (row["state"] as String?).flatMap(MessageIntelligenceState.init(rawValue:))
-        let modelChanged = modelVersion.map { $0 != storedModelVersion } ?? false
+        let modelChanged = modelVersion.map {
+            !Self.accepted($0, acceptedModelVersions).contains(storedModelVersion ?? "")
+        } ?? false
         guard storedHash == nil || storedHash != contentHash || state == .pending
             || state == .processing || modelChanged
         else { return nil }
@@ -224,6 +237,15 @@ public struct MessageIntelligenceStore: Sendable {
             subject: row["subject"], receivedAt: Date(timeIntervalSince1970: row["receivedAt"]),
             plainBody: plainBody, contentHash: contentHash
         )
+    }
+
+    /// O conjunto vazio é o caso comum, e nele a única versão aceita é a que
+    /// o motor está usando agora.
+    private static func accepted(
+        _ modelVersion: String,
+        _ acceptedModelVersions: Set<String>
+    ) -> Set<String> {
+        acceptedModelVersions.isEmpty ? [modelVersion] : acceptedModelVersions
     }
 
     private static func hasUsableBody(_ plainBody: String) -> Bool {

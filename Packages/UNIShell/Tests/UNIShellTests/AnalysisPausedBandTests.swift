@@ -58,18 +58,41 @@ struct AnalysisPausedBandTests {
         #expect(ReaderPane.summaryCaption(for: grok) == "TL;DR · Grok · xAI")
     }
 
-    @Test("o destino da análise vem da rota, não do provedor interativo")
-    func destinationComesFromTheRoute() {
+    /// A legenda segue a **proveniência gravada**, não a rota atual: depois do
+    /// opt-in o histórico continua tendo sido resumido neste Mac, e nomear o
+    /// provedor em cima dele seria a mentira oposta à que a Task 13 fechou.
+    @Test("a legenda segue o motor que gravou o resumo, não a rota de agora")
+    func destinationComesFromTheStoredModelVersion() {
         var settings = AssistantSettings(
             provider: .providerOAuth,
             providerOAuth: .init(kind: .xAI, model: "grok-4", credentialID: "c")
         )
-        #expect(settings.automaticAnalysisDestination.isLocal)
-        #expect(ReaderPane.summaryCaption(for: settings.automaticAnalysisDestination)
-            == "TL;DR · neste Mac")
-
         settings.automaticAnalysis = .configuredProvider
-        #expect(!settings.automaticAnalysisDestination.isLocal)
-        #expect(settings.automaticAnalysisDestination.label == "Grok · xAI")
+        settings.automaticAnalysisSince = Date(timeIntervalSince1970: 0)
+
+        // Resumo do histórico, gravado pelo motor local.
+        let local = settings.automaticAnalysisDestination(
+            forSummaryModelVersion: FoundationModelsMessageAnalyzer.currentModelVersion
+        )
+        #expect(local.isLocal)
+        #expect(ReaderPane.summaryCaption(for: local) == "TL;DR · neste Mac")
+
+        // Resumo gravado pelo provedor configurado.
+        let remoto = settings.automaticAnalysisDestination(
+            forSummaryModelVersion: TextAssistantMessageAnalyzer.currentModelVersion
+        )
+        #expect(!remoto.isLocal)
+        #expect(ReaderPane.summaryCaption(for: remoto) == "TL;DR · Grok · xAI")
+
+        // Sem resumo, ou vindo de fixtures: nada de nomear provedor nenhum.
+        #expect(settings.automaticAnalysisDestination(forSummaryModelVersion: nil).isLocal)
+
+        // E com o opt-in desligado, um resumo remoto antigo continua sendo
+        // apresentado como remoto — a proveniência é um fato, não uma rota.
+        var desligado = settings
+        desligado.automaticAnalysis = .onDeviceOnly
+        #expect(!desligado.automaticAnalysisDestination(
+            forSummaryModelVersion: TextAssistantMessageAnalyzer.currentModelVersion
+        ).isLocal)
     }
 }

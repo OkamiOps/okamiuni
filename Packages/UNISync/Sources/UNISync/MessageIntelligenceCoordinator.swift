@@ -111,6 +111,7 @@ public actor MessageIntelligenceCoordinator {
                 guard let next = try store.pendingWork(
                     limit: 1,
                     modelVersion: analyzer.modelVersion,
+                    acceptedModelVersions: analyzer.acceptedModelVersions,
                     priorityMessageID: priorityMessageID
                 ).first else { break }
                 work = next
@@ -122,7 +123,8 @@ public actor MessageIntelligenceCoordinator {
             do {
                 guard try store.markProcessing(
                     work,
-                    modelVersion: analyzer.modelVersion
+                    modelVersion: analyzer.modelVersion,
+                    acceptedModelVersions: analyzer.acceptedModelVersions
                 ) else { continue }
                 if priorityMessageID == work.messageID {
                     priorityMessageID = nil

@@ -124,10 +124,14 @@ struct OkamiUNIApp: App {
         }
     }
 
-    /// Para onde a análise automática vai agora. É lida a cada pintura porque
-    /// `LeituraDoAssistente` repinta a cada save das preferências.
-    private var destinoDaAnalise: AssistantDestination {
-        composition.assistantSettings.snapshot().automaticAnalysisDestination
+    /// De onde o resumo de uma mensagem veio, pela versão do motor gravada
+    /// com ele. O snapshot é lido na hora da legenda porque o rótulo do
+    /// provedor pode mudar; a proveniência, não.
+    private var destinoDaAnalise: @Sendable (String?) -> AssistantDestination {
+        let settings = composition.assistantSettings
+        return { versao in
+            settings.snapshot().automaticAnalysisDestination(forSummaryModelVersion: versao)
+        }
     }
 
     /// O conteúdo da cena principal.

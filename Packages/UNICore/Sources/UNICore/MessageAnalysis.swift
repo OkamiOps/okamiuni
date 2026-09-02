@@ -94,8 +94,24 @@ public enum MessageAnalysisError: Error, Sendable, Equatable, LocalizedError {
 /// Implementações ficam fora de UNICore para que este pacote continue usando
 /// apenas Foundation e Observation.
 public protocol MessageAnalyzing: Sendable {
+    /// A versão que a fila usa para decidir o que ainda precisa de trabalho e
+    /// que é gravada quando uma mensagem é assumida.
     var modelVersion: String { get }
+
+    /// As versões já gravadas que **não** exigem reprocessamento.
+    ///
+    /// Existe porque um motor pode produzir resultados sob mais de uma versão
+    /// legítima — um roteador que manda o histórico ao motor local e as
+    /// mensagens novas ao provedor configurado grava duas. Sem isto, cada
+    /// resultado gravado sob a "outra" versão pareceria obsoleto e a caixa
+    /// inteira voltaria para a fila.
+    var acceptedModelVersions: Set<String> { get }
 
     func availability() async -> AppleIntelligenceAvailability
     func analyze(_ input: MessageAnalysisInput) async throws -> MessageAnalysisResult
+}
+
+public extension MessageAnalyzing {
+    /// Um motor só: a única versão aceita é a dele.
+    var acceptedModelVersions: Set<String> { [modelVersion] }
 }
