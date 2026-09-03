@@ -321,6 +321,27 @@ public protocol TextAssisting: Sendable {
         using action: WritingAction,
         context: AssistantMailContext?
     ) async throws -> String
+    /// A mesma pergunta, com as propostas de ação da §4 quando houver ação a
+    /// propor.
+    ///
+    /// Está aqui, e não só no `AssistantRouter`, porque a superfície que
+    /// pergunta segura `any TextAssisting` — e sem este requisito a gaveta
+    /// teria de conhecer o roteador concreto de UNISync para pedir propostas.
+    /// O padrão abaixo é o honesto para quem não sabe propor: a resposta em
+    /// texto, sem cartão nenhum.
+    func answerWithProposals(
+        question: String,
+        in conversation: AssistantConversationSnapshot
+    ) async throws -> AssistantAnswer
+}
+
+public extension TextAssisting {
+    func answerWithProposals(
+        question: String,
+        in conversation: AssistantConversationSnapshot
+    ) async throws -> AssistantAnswer {
+        AssistantAnswer(text: try await answer(question: question, in: conversation))
+    }
 }
 
 public extension TextAssisting {
