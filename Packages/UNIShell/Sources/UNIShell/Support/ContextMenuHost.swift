@@ -145,6 +145,12 @@ enum StoreCommand {
             store.markAllRead(in: bucket, accountID: accountID)
             return true
 
+        // "Arquivar e aprender" do dashboard, e o desfazer dele: o mesmo
+        // comando com o sinal trocado, pelo mesmo caminho.
+        case .learnSender(let address, let neverPriority):
+            store.learnSender(address: address, neverPriority: neverPriority)
+            return true
+
         default:
             return false
         }
@@ -221,7 +227,7 @@ struct MenuCommandRunner {
              // do recibo de uma ação de conversa e chegam aqui pelo "Desfazer"
              // da faixa, que é o mesmo caminho de todos os outros.
              .restoreConversation, .restoreDeletedConversation,
-             .restoreFolderPlacements:
+             .restoreFolderPlacements, .learnSender:
             StoreCommand.run(command, on: store)
 
         case .composeFrom(let accountID):
