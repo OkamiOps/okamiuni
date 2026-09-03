@@ -122,7 +122,7 @@ Cliente de email é o app que mais horas passa aberto — e o que menos respeito
 | Área | O que tem |
 |---|---|
 | 🗓️ **Plano de hoje** | Agenda, prazos e o que você prometeu num eixo só, em duas trilhas (agenda / você), 138 pt por hora com o dia inteiro em rolagem horizontal aberta no agora. A IA propõe os blocos — responder as prontas, a proposta que vence — e "Aceitar o plano" reserva tudo de uma vez, desfazível |
-| 🧱 **Esperando você** | Azulejos, não linhas: avatar na cor da conta, o número grande (dias esperando · prazo hoje · lead novo), uma linha do que é, um verbo. A etiqueta é determinística antes do modelo:  nunca é lead, remetente de máquina nunca "espera", pedido é "esperando" |
+| 🧱 **Esperando você** | Azulejos, não linhas: avatar na cor da conta, o número grande (dias esperando · prazo hoje · lead novo), uma linha do que é, um verbo. A etiqueta é determinística antes do modelo: `Re:` nunca é lead, remetente de máquina nunca "espera", pedido é "esperando" |
 | ✍️ **Resposta pronta** | Para quem espera você, o rascunho nasce antes de você abrir — pela rota configurada, olhando a agenda quando o email pede horário. "Enviar a pronta" abre o texto inteiro antes de sair; a IA nunca envia |
 | 🤝 **Compromissos** | "Você deve": promessas com vencimento, "Reservar" na próxima folga, "Já fiz". "Devem a você" (lido dos enviados) fica para a 0.6 |
 | 💸 **Dinheiro e prazos** | Os prazos que a análise já dá, com o valor quando o email o traz |
