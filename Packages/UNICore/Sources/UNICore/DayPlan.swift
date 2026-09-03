@@ -292,6 +292,12 @@ public struct DayPlan: Sendable, Hashable {
         if focus.discardedMailCount > 0 {
             contagem[.newsletters, default: 0] += focus.discardedMailCount
         }
+        // E os disparos que nem couberam nas sete linhas. Sem isto o filtro
+        // escreveria "Disparos 6" numa caixa com treze, e religá-lo mostraria
+        // sete linhas que o número não tinha prometido.
+        if focus.discardedBroadcastCount > 0 {
+            contagem[.broadcasts, default: 0] += focus.discardedBroadcastCount
+        }
 
         let contas = filter.accounts
         func passa(_ linha: Row) -> Bool {

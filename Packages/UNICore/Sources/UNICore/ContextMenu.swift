@@ -135,6 +135,32 @@ public enum ContextCommand: Sendable, Hashable {
     case concealCalendar(id: String)
     /// Devolve o calendário à lista, na seção de origem.
     case revealCalendar(id: String)
+    /// "Nunca é prioridade, deste remetente" — a regra que a pessoa ensinou
+    /// ao arquivar e aprender no dashboard.
+    ///
+    /// **O desfazer é o próprio comando com `neverPriority: false`.** Por
+    /// isso os dois lados cabem num caso só: uma regra de remetente não tem
+    /// estado anterior para um recibo carregar (ela existe ou não existe), e
+    /// um segundo caso `forgetSender` seria a mesma decisão escrita duas
+    /// vezes, com dois caminhos para divergir.
+    case learnSender(address: String, neverPriority: Bool)
+}
+
+public extension ContextCommand {
+    /// O caminho de volta, quando ele é **o próprio comando**.
+    ///
+    /// Só `learnSender` tem um: as outras ações desfazem por recibo
+    /// (`restoreConversation`, `restoreDeleted`, `restoreFolderPlacements`),
+    /// que carrega o estado anterior de cada mensagem — e um estado anterior
+    /// não cabe no comando que o mudou.
+    var undo: ContextCommand? {
+        switch self {
+        case let .learnSender(address, neverPriority):
+            .learnSender(address: address, neverPriority: !neverPriority)
+        default:
+            nil
+        }
+    }
 }
 
 // MARK: - Atalho

@@ -41,3 +41,18 @@ public struct SenderRule: Sendable, Hashable, Codable {
         silencedAddresses(rules).contains(normalize(address))
     }
 }
+
+/// Onde a regra do remetente passa a noite.
+///
+/// Espelha `SenderTrusting` de propósito — é a mesma forma de decisão ("sobre
+/// este endereço, sempre") e por isso a mesma forma de porta: síncrona, por
+/// endereço exato, sem dono. Quem implementa contra o SQLite mora em
+/// `UNISync`; um `MailStore` sem porta simplesmente não aprende nada, que é o
+/// comportamento honesto de um app sem disco.
+public protocol SenderRuling: Sendable {
+    /// Grava a regra. `neverPriority: false` é o desfazer: a regra sai.
+    func learnSender(_ address: String, neverPriority: Bool, at date: Date) throws
+
+    /// Todas as regras guardadas, já normalizadas.
+    func senderRules() throws -> [SenderRule]
+}

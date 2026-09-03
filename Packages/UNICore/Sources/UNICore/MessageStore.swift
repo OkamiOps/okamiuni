@@ -528,6 +528,17 @@ public final class MailStore {
     /// o comportamento da M3-8, intacto. Ver `SenderTrusting`.
     private let trustPort: (any SenderTrusting)?
 
+    /// Onde "nunca é prioridade" passa a noite. `nil` nas fixtures e em todo
+    /// teste que não passa uma — e nesse caso o app não aprende nada, que é o
+    /// pior caso honesto: sem disco não há onde guardar uma regra.
+    private let senderRulePort: (any SenderRuling)?
+
+    /// As regras lidas na montagem. O `DayPlan` as recebe inteiras (ele
+    /// escreve o porquê da remoção com elas), e por isso são uma lista, e não
+    /// um `Set` de endereços: um conjunto responderia "está calado" e nada
+    /// mais, e o rodapé "Tirei da lista" precisa do resto.
+    public private(set) var senderRules: [SenderRule] = []
+
     /// A lista lida do disco, em memória, para a pergunta "este remetente é
     /// confiável?" não custar uma consulta a cada desenho do leitor. Ela muda
     /// só por ação de quem está aqui, e essas ações a atualizam na hora.
@@ -580,6 +591,7 @@ public final class MailStore {
         agendaPort: (any AgendaPersisting)? = nil,
         calendarSync: (any CalendarSyncing)? = nil,
         trustPort: (any SenderTrusting)? = nil,
+        senderRulePort: (any SenderRuling)? = nil,
         agendaReferenceDay: @escaping @Sendable () -> Date = { Fixtures.today },
         calendarDefaults: UserDefaults? = nil
     ) {
@@ -595,6 +607,7 @@ public final class MailStore {
         self.agendaPort = agendaPort
         self.calendarSync = calendarSync
         self.trustPort = trustPort
+        self.senderRulePort = senderRulePort
         self.agendaReferenceDay = agendaReferenceDay
         self.calendarDefaults = calendarDefaults
         if let stored = calendarDefaults?.stringArray(forKey: Self.hiddenCalendarsKey) {
@@ -614,6 +627,12 @@ public final class MailStore {
         // lista chegar — e piscar depois.
         if let trustPort {
             trustedSenderAddresses = (try? trustPort.trustedSenders()) ?? []
+        }
+        // Pela mesma razão da confiança: o dashboard monta o plano do dia no
+        // primeiro quadro, e ler as regras depois faria a lista mostrar as
+        // linhas que a pessoa já tinha calado — e tirá-las na frente dela.
+        if let senderRulePort {
+            senderRules = (try? senderRulePort.senderRules()) ?? []
         }
         if let inviteRSVPPort {
             do {
@@ -673,6 +692,31 @@ public final class MailStore {
         trustedSenderAddresses.remove(normalizado)
         do {
             try trustPort.revokeSenderTrust(normalizado)
+        } catch {
+            report(error)
+        }
+    }
+
+    // MARK: - O remetente que a pessoa calou
+
+    /// Alguma regra diz que este remetente nunca é prioridade?
+    public func silencesSender(_ address: String) -> Bool {
+        SenderRule.silences(senderRules, address: address)
+    }
+
+    /// "Arquivar e aprender": a regra por endereço exato, gravada e valendo no
+    /// mesmo quadro. `neverPriority: false` é o desfazer — a mesma função, a
+    /// mesma porta, e por isso nenhuma chance de o caminho de volta divergir
+    /// do de ida.
+    public func learnSender(address: String, neverPriority: Bool, at date: Date = Date()) {
+        guard let senderRulePort else { return }
+        let normalizado = SenderRule.normalize(address)
+        guard !normalizado.isEmpty else { return }
+        do {
+            try senderRulePort.learnSender(
+                normalizado, neverPriority: neverPriority, at: date
+            )
+            senderRules = try senderRulePort.senderRules()
         } catch {
             report(error)
         }

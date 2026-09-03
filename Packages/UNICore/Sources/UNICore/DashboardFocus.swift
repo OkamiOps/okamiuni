@@ -84,6 +84,20 @@ public struct DashboardFocus: Sendable, Hashable {
     /// da faixa HOJE). Sem os dois, a faixa diria que a caixa tem só o que
     /// está na lista.
     public let discardedMailCount: Int
+    /// Quantos **disparos** o recorte varreu e não mostrou.
+    ///
+    /// É o número que faz o filtro do 08 escrever "Disparos 13" em vez de
+    /// "Disparos 2": as linhas de disparo que sobreviveram são poucas por
+    /// construção (o teto é sete linhas no total), e sem esta contagem o
+    /// número ao lado do botão diria quanto **coube**, não quanto **existe** —
+    /// e religar o filtro sabendo quantos são é justamente o ponto dele.
+    ///
+    /// Não é um pedaço de `discardedMailCount`: aquele conta o que a triagem
+    /// jogou fora por não pedir a pessoa (newsletter, recibo), este conta o
+    /// que o **cabeçalho** denunciou como envio em massa. Uma mensagem pode
+    /// ser as duas coisas, e por isso os dois números não se somam sem
+    /// pensar — `DayPlan` os manda para categorias diferentes.
+    public let discardedBroadcastCount: Int
     public let omittedMeetingCount: Int
     public let nextUpLabel: String
 
@@ -94,8 +108,10 @@ public struct DashboardFocus: Sendable, Hashable {
         omittedMailCount: Int,
         omittedMeetingCount: Int,
         nextUpLabel: String,
-        discardedMailCount: Int = 0
+        discardedMailCount: Int = 0,
+        discardedBroadcastCount: Int = 0
     ) {
+        self.discardedBroadcastCount = discardedBroadcastCount
         self.mail = mail
         self.meetings = meetings
         self.pending = pending
@@ -131,6 +147,10 @@ public struct DashboardFocus: Sendable, Hashable {
         fallback.reserveCapacity(mailLimit)
         var scanned = 0
         var descartadas = 0
+        // Os ids varridos que o cabeçalho denuncia como disparo. Conjunto, e
+        // não contador, porque o que interessa no fim é quantos **não**
+        // apareceram — e isso só se sabe depois de a lista estar pronta.
+        var disparos: Set<String> = []
         for message in scopedMessages {
             switch message.bucket {
             case .junk, .trash, .drafts, .sent:
@@ -139,6 +159,7 @@ public struct DashboardFocus: Sendable, Hashable {
                 break
             }
             scanned += 1
+            if message.effectiveBulkMarks.isBulk { disparos.insert(message.id) }
             if isAnswered(message, by: respondidas) {
                 // Não conta como descartada por ruído: ela **foi** trabalho, e
                 // o trabalho está feito. Somá-la ao "N fora da lista ·
@@ -187,7 +208,8 @@ public struct DashboardFocus: Sendable, Hashable {
             omittedMailCount: max(0, ranked.count - mailLimit),
             omittedMeetingCount: max(0, upcoming.count - meetingLimit),
             nextUpLabel: AgendaSummary.nextUpLabel(for: scopedAgenda.filter { $0.dayOffset == 0 }, now: nowMinute),
-            discardedMailCount: descartadas
+            discardedMailCount: descartadas,
+            discardedBroadcastCount: disparos.subtracting(mail.map(\.id)).count
         )
     }
 
