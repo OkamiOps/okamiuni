@@ -1,8 +1,13 @@
 import Foundation
 
 /// A linha do tempo do "Plano de hoje" (`design/11-painel-do-dia.dc.html`):
-/// duas trilhas — o que já está marcado e o que a IA propõe — no mesmo eixo de
-/// 09 h às 19 h.
+/// duas trilhas — o que já está marcado e o que a IA propõe — no mesmo eixo.
+///
+/// **O eixo é o dia que a pessoa tem, não o expediente que o mockup desenhou.**
+/// Um eixo fixo de 09 h às 19 h escondia a reunião da 01 h e o voo das 23h30, e
+/// às 21h40 não tinha sequer onde pôr o marcador do agora — a tela dizia que o
+/// dia já tinha acabado. A janela sai de `janela(blocos:nowMinute:)`, é pura, e
+/// **sempre** contém o agora.
 ///
 /// **Pura.** Entra a agenda, o bloco de resposta do `DayPlan`, as promessas que
 /// vencem hoje e os prazos do dia; sai a lista de blocos com posição. Nenhuma
@@ -14,9 +19,18 @@ import Foundation
 /// sempre.
 public enum PlanoDoDia {
 
-    /// A janela do eixo: 09 h às 19 h, como as horas escritas no mockup.
-    public static let inicio = 540
-    public static let fim = 1_140
+    /// O mínimo que o eixo mostra mesmo num dia vazio: das 08 h às 20 h. É o
+    /// piso da janela, nunca o teto — o que existe fora disso a alarga.
+    public static let inicioPadrao = 480
+    public static let fimPadrao = 1_200
+
+    /// A folga que o eixo dá antes do primeiro e depois do último bloco, para
+    /// nenhum deles nascer colado na borda.
+    public static let margem = 30
+
+    /// Até quando uma promessa sem hora pode ser encaixada: o fim do
+    /// expediente, que é o mesmo limite que o `FreeSlots` já respeita.
+    public static let limiteDaPromessa = FreeSlots.workday.upperBound
 
     /// O bloco que uma promessa ganha. Quarenta e cinco minutos é o que o
     /// mockup escreve ("Proposta Marina · 45m"), e é uma promessa por bloco:
@@ -94,11 +108,83 @@ public enum PlanoDoDia {
         }
     }
 
-    /// Onde o minuto cai no eixo, de 0 a 1. Fora da janela, gruda na borda —
-    /// um bloco das 8 h não é desenhado à esquerda do eixo.
-    public static func fracao(_ minute: Int) -> Double {
-        let bruta = Double(minute - inicio) / Double(fim - inicio)
-        return min(max(bruta, 0), 1)
+    /// A janela do eixo: de onde a onde o dia é desenhado.
+    ///
+    /// **Pura, e sempre contém o agora.** Início e fim são arredondados à hora
+    /// para as legendas caírem em horas cheias, e ficam dentro do dia (0 a
+    /// 1440) porque não existe eixo antes da meia-noite.
+    public struct Janela: Sendable, Hashable {
+        public let inicio: Int
+        public let fim: Int
+
+        public init(inicio: Int, fim: Int) {
+            self.inicio = min(max(inicio, 0), 1_440)
+            // Uma janela de largura zero dividiria por zero na fração.
+            self.fim = min(max(fim, self.inicio + 60), 1_440)
+        }
+
+        /// Onde o minuto cai no eixo, de 0 a 1. Fora da janela, gruda na borda.
+        public func fracao(_ minute: Int) -> Double {
+            let bruta = Double(minute - inicio) / Double(fim - inicio)
+            return min(max(bruta, 0), 1)
+        }
+
+        /// As horas que o eixo escreve. O passo dobra enquanto as legendas não
+        /// couberem: um dia inteiro com vinte e quatro "00 01 02…" seria uma
+        /// régua ilegível, e o eixo existe para ser lido.
+        public var horas: [Int] {
+            var passo = 60
+            while (fim - inicio) / passo > Self.legendasNoEixo { passo *= 2 }
+            let primeira = ((inicio + passo - 1) / passo) * passo
+            return Array(stride(from: primeira, through: fim, by: passo))
+        }
+
+        /// Quantas legendas cabem no eixo sem se tocarem, na largura que o
+        /// painel dá à linha do tempo.
+        static let legendasNoEixo = 14
+    }
+
+    /// A janela deste dia: o expediente padrão alargado pelo que existe fora
+    /// dele, e pelo agora.
+    ///
+    /// - início: o menor entre 08 h e o primeiro bloco menos meia hora;
+    /// - fim: o maior entre 20 h, o último bloco mais meia hora, e o agora mais
+    ///   uma hora — é esta última parcela que garante que o marcador do agora
+    ///   nunca fica encostado na borda direita às 21h40.
+    public static func janela(blocos: [Bloco], nowMinute: Int) -> Janela {
+        let primeiro = blocos.map(\.startMinute).min()
+        let ultimo = blocos.map { $0.startMinute + $0.minutes }.max()
+
+        var inicio = min(inicioPadrao, (primeiro ?? inicioPadrao) - margem)
+        var fim = max(fimPadrao, (ultimo ?? fimPadrao) + margem, nowMinute + 60)
+
+        // Arredonda para fora: a legenda é de hora cheia dos dois lados.
+        inicio = Int(floor(Double(inicio) / 60)) * 60
+        fim = Int(ceil(Double(fim) / 60)) * 60
+
+        // E o agora entra sempre — um dia que começa às 08 h não pode esconder
+        // um marcador das 03 h.
+        inicio = min(inicio, (nowMinute / 60) * 60)
+        return Janela(inicio: inicio, fim: fim)
+    }
+
+    /// Empurra para a direita o bloco que a largura mínima faria cair em cima
+    /// do anterior.
+    ///
+    /// Existe porque a colisão não é de horário: dois blocos de vinte minutos
+    /// separados por vinte minutos **não** se sobrepõem no relógio, mas num
+    /// eixo de um dia inteiro cada um ocupa a largura mínima que a palavra
+    /// exige, e aí sim um cobre o outro. A regra é a mesma da agenda: o segundo
+    /// começa onde o primeiro acaba. Entra em ordem de `x`.
+    public static func semColisao(_ blocos: [(x: Double, largura: Double)]) -> [Double] {
+        var saida: [Double] = []
+        var cursor = -Double.greatestFiniteMagnitude
+        for bloco in blocos {
+            let x = max(bloco.x, cursor)
+            saida.append(x)
+            cursor = x + bloco.largura
+        }
+        return saida
     }
 
     /// Os blocos das duas trilhas, na ordem do relógio.
@@ -143,7 +229,7 @@ public enum PlanoDoDia {
         }
 
         for promessa in promessas {
-            let limite = promessa.dueMinute ?? fim
+            let limite = promessa.dueMinute ?? limiteDaPromessa
             guard let folga = FreeSlots.next(
                 days: 1, minMinutes: minutosDaPromessa, agenda: ocupado,
                 now: now, nowMinute: nowMinute, calendar: calendar
