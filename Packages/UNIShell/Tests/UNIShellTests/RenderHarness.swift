@@ -492,6 +492,28 @@ extension NSBitmapImageRep {
         return count
     }
 
+    /// O mesmo, numa faixa de linhas. Serve para perguntar de uma barra que
+    /// tem de estar **no pé**: contar a cor na imagem inteira não distingue
+    /// "a barra está no rodapé" de "a barra foi empurrada para o meio".
+    func pixels(
+        matching token: TokenColor, tolerance: Double = 0.02, y faixa: Range<Int>
+    ) -> Int {
+        guard let wanted = token.nsColor.usingColorSpace(.sRGB) else { return 0 }
+        var count = 0
+        for y in faixa where y >= 0 && y < pixelsHigh {
+            for x in 0..<pixelsWide {
+                guard let c = colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                guard c.alphaComponent > 0.9 else { continue }
+                if abs(c.redComponent - wanted.redComponent) < tolerance,
+                   abs(c.greenComponent - wanted.greenComponent) < tolerance,
+                   abs(c.blueComponent - wanted.blueComponent) < tolerance {
+                    count += 1
+                }
+            }
+        }
+        return count
+    }
+
     /// Quantos pixels diferem entre dois desenhos do mesmo tamanho.
     func pixelsDiffering(from other: NSBitmapImageRep) -> Int {
         pixelsDiffering(from: other, inColumns: 0..<pixelsWide)

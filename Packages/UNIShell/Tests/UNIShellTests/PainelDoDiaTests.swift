@@ -38,6 +38,166 @@ struct PainelDoDiaTests {
         .environment(ActionReceipts())
     }
 
+    /// A tela da captura dele: 21h40, seis azulejos, zero prontas.
+    private func telaDaNoite(
+        _ store: MailStore,
+        presentation: IntelligencePresentation = .onThisMac,
+        optIn: Bool = false
+    ) -> some View {
+        PainelDoDia(
+            store: store,
+            now: DiaDoDono.noiteMinuto,
+            today: DiaDoDono.noite,
+            drafts: [:],
+            conversation: inertConversation(),
+            intelligencePresentation: presentation,
+            automaticAnalysisOn: optIn
+        )
+        .environment(ThemeStore())
+        .environment(ActionReceipts())
+    }
+
+    private func modeloDaNoite(
+        _ store: MailStore,
+        motivo: PainelDoDiaModelo.MotivoSemProntas = .aindaNaoEscreveu
+    ) -> PainelDoDiaModelo {
+        let plan = DashboardPlanInput.plan(
+            store: store, drafts: [:], filter: .standard,
+            today: DiaDoDono.noite, nowMinute: DiaDoDono.noiteMinuto
+        )
+        return PainelDoDiaModelo(
+            plan: plan, drafts: [:], pending: store.pendingItems,
+            agenda: store.agenda, messages: store.messages,
+            today: DiaDoDono.noite, nowMinute: DiaDoDono.noiteMinuto,
+            myAddresses: Set(store.accounts.map(\.address)),
+            motivoSemProntas: motivo
+        )
+    }
+
+    // MARK: - Os defeitos da captura
+
+    /// Defeito 1: a grade cresce, nada rola, e a barra de estado some.
+    @Test("com doze azulejos a barra de estado continua colada no pé")
+    func theStatusBarSurvivesALongDay() async throws {
+        let store = await DiaDoDono.lojaDaNoite()
+        // Doze azulejos entre as duas colunas: o recorte da Caixa entrega sete
+        // pessoas esperando, e as promessas do dono põem o resto.
+        let cheia = await DiaDoDono.lojaDaNoite(
+            mensagens: DiaDoDono.seisAzulejos + (1...6).map { DiaDoDono.extra($0) },
+            pendentes: (1...6).map { DiaDoDono.promessaExtra($0) }
+        )
+        let modelo = modeloDaNoite(cheia)
+        #expect(
+            modelo.espera.count + modelo.promessas.count >= 12,
+            "a fixture não encheu as colunas"
+        )
+
+        let rep = try #require(
+            Render.bitmap(telaDaNoite(cheia), size: Self.size, theme: .okami)
+        )
+        // A barra é `surface2` no rodapé de 44 pt. Se ela tivesse sido empurrada
+        // para fora, a faixa de baixo seria `paper` ou azulejo.
+        let rodape = rep.pixels(
+            matching: Theme.okami.surface2, tolerance: 0.02, y: 812..<851
+        )
+        #expect(rodape > 20_000, "a barra de estado saiu da janela")
+        // E a tela curta continua com a mesma barra: rolar não a inventou.
+        let curta = try #require(
+            Render.bitmap(telaDaNoite(store), size: Self.size, theme: .okami)
+        )
+        #expect(curta.pixels(matching: Theme.okami.surface2, tolerance: 0.02,
+                             y: 812..<851) > 20_000)
+    }
+
+    /// Defeito 3: o dia ia das 9 às 19, e eram 21h40.
+    @Test("a janela do eixo cobre da 01 h às 23h30, e o agora cai dentro")
+    func theAxisCoversHisWholeNight() async throws {
+        let modelo = modeloDaNoite(await DiaDoDono.lojaDaNoite())
+        #expect(modelo.janela.inicio == 0)
+        #expect(modelo.janela.fim == 1_440)
+        let agora = modelo.janela.fracao(DiaDoDono.noiteMinuto)
+        #expect(agora > 0.85 && agora < 1, "o marcador do agora saiu do eixo")
+        // Os três compromissos do dia estão na trilha da agenda, cada um no
+        // seu lugar — inclusive o das 01 h, que o eixo antigo grudava na borda.
+        let daAgenda = modelo.blocos.filter { $0.trilha == .agenda }
+        #expect(daAgenda.map(\.startMinute).sorted() == [60, 570, 1_410])
+    }
+
+    /// Defeito 6: tudo era "LEAD NOVO", e a newsletter era "ESPERANDO".
+    @Test("as etiquetas da captura: só a Maria é lead novo")
+    func onlyOneOfThemIsActuallyALead() async throws {
+        let modelo = modeloDaNoite(await DiaDoDono.lojaDaNoite())
+        let porID = Dictionary(uniqueKeysWithValues: modelo.espera.map { ($0.id, $0) })
+
+        #expect(porID["maria"]?.palavra == "lead novo")
+        // O "Re:" da Cats9th, o pedido do Jayden e o formulário do próprio
+        // dono não são lead nenhum.
+        #expect(porID["cats9th"]?.palavra == "esperando")
+        // O Jayden tem prazo hoje: é a etiqueta que vence todas, e ela é a
+        // única que acaba.
+        #expect(porID["jayden"]?.palavra == "prazo hoje")
+        #expect(porID["formulario"]?.palavra == "esperando")
+        // Máquina não vira azulejo.
+        #expect(porID["resend"] == nil)
+        #expect(porID["carol"] == nil)
+        #expect(porID["abacus"] == nil)
+        #expect(modelo.espera.count == 6, "a captura tinha seis azulejos")
+    }
+
+    /// Defeito 7: "parece que a IA não tá fazendo porra nenhuma".
+    @Test("com zero prontas o cabeçalho diz o motivo, e não só que não há")
+    func theHeaderSaysWhyThereAreNoDrafts() async throws {
+        let store = await DiaDoDono.lojaDaNoite()
+
+        // Rota remota configurada, opt-in desligado: é o portão que barra.
+        let barrado = modeloDaNoite(store, motivo: .precisaDoOptIn(destino: "Codex"))
+        #expect(barrado.legendaDaEspera.contains("análise automática"))
+        #expect(barrado.legendaDaEspera.contains("Codex"))
+        #expect(barrado.legendaDaEspera.contains("Ativar"))
+
+        // Motor fora do ar: outra frase, outra porta.
+        let fora = modeloDaNoite(store, motivo: .motorIndisponivel(destino: "Codex"))
+        #expect(fora.legendaDaEspera == "Codex indisponível · Entrar")
+
+        // E nunca a frase muda de "nenhuma resposta pronta" e ponto.
+        for modelo in [barrado, fora, modeloDaNoite(store)] {
+            #expect(modelo.legendaDaEspera != "nenhuma resposta pronta")
+            #expect(modelo.motivoSemProntas != nil)
+        }
+
+        // As promessas vazias dizem o que ainda não é lido, em vez de "0".
+        #expect(modeloDaNoite(store).legendaDosCompromissos
+            == "lido dos seus enviados · na próxima versão")
+    }
+
+    /// Defeito 7, a outra metade: "Nenhum prazo no radar" só é verdade quando
+    /// o `MessageTriage.deadline` do foco de fato foi lido.
+    @Test("os prazos do radar saem do MessageTriage.deadline das mensagens")
+    func theDeadlineRadarActuallyReadsTheTriage() async throws {
+        let modelo = modeloDaNoite(await DiaDoDono.lojaDaNoite())
+        // O Jayden tem prazo hoje, a Abacus tem prazo sábado: os dois estão lá.
+        #expect(modelo.dinheiro.contains { $0.id == "jayden" })
+        #expect(modelo.dinheiro.contains { $0.id == "abacus" })
+        #expect(modelo.dinheiro.contains { $0.valor == "6.000 créditos" })
+        // E o bloco de prazo do dia entra na linha do tempo.
+        #expect(modelo.blocos.contains { $0.tipo == .prazo })
+
+        // Numa caixa sem nenhum prazo, aí sim o radar fica vazio — e é a
+        // ausência de `deadline` que o esvazia, não uma leitura que não houve.
+        let semPrazo = await DiaDoDono.lojaDaNoite(mensagens: [DiaDoDono.jack])
+        #expect(modeloDaNoite(semPrazo).dinheiro.isEmpty)
+    }
+
+    @Test("o painel da noite dele desenha em okami")
+    func hisNightRendersInOkami() async throws {
+        let store = await DiaDoDono.lojaDaNoite()
+        let rep = try #require(Render.snapshot(
+            telaDaNoite(store), named: "fix", size: Self.size, theme: .okami
+        ))
+        #expect(rep.pixelsWide == 1_440)
+        #expect(rep.pixelsHigh == 852)
+    }
+
     @Test("o painel desenha em okami")
     func rendersInOkami() async throws {
         let store = await DiaDoDono.loja()

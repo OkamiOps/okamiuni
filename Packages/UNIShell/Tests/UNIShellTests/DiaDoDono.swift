@@ -175,6 +175,124 @@ enum DiaDoDono {
 
     static var seteEmails: [Message] { [jack, jayden, cats9th, abacus, maria, carol, resend] }
 
+    // MARK: - A noite do dono: a captura que abriu esta onda
+
+    /// 3 de setembro de 2026, **21h40** — a hora da captura dele.
+    static let noite: Date = {
+        var partes = DateComponents()
+        partes.year = 2026; partes.month = 9; partes.day = 3
+        partes.hour = 21; partes.minute = 40
+        return Calendar.current.date(from: partes)!
+    }()
+    static let noiteMinuto = 1_300
+
+    /// O formulário de teste do site: o remetente é ele mesmo. Ninguém é lead
+    /// de si próprio, e a captura tinha isto etiquetado "LEAD NOVO".
+    static var formulario: Message {
+        email(
+            id: "formulario", conta: "okamiops",
+            de: Contact(name: "Marcos Santos", address: "marcos@okamiops.com"),
+            recebido: data(diasAtras: 0, hora: 15, minuto: 20),
+            assunto: "Novo contato pelo site — teste",
+            trecho: "Testando o formulário de contato do site.",
+            corpo: ["Testando o formulário de contato do site."],
+            lido: false,
+            resumo: "Teste do formulário de contato do próprio site.",
+            triagem: MessageTriage(needsReply: true, intent: .lead, urgency: .high)
+        )
+    }
+
+    /// A frase longa que a captura mostrava cortada em "Okami Tally está fora
+    /// dos top 200…".
+    static var tally: Message {
+        email(
+            id: "tally", conta: "okamiops",
+            de: Contact(name: "Bruno Aoki", address: "bruno@parceiro.example"),
+            recebido: data(diasAtras: 4, hora: 11, minuto: 30),
+            assunto: "Okami Tally sumiu da busca",
+            trecho: "Okami Tally está fora dos top 200 resultados para a "
+                + "palavra que ele mesmo carrega no nome.",
+            corpo: [
+                "Okami Tally está fora dos top 200 resultados para a palavra "
+                    + "que ele mesmo carrega no nome. Dá para olhar esta semana?",
+            ],
+            lido: false,
+            resumo: "Okami Tally está fora dos top 200 resultados para a "
+                + "palavra que ele mesmo carrega no nome.",
+            triagem: MessageTriage(needsReply: true, intent: .request, urgency: .normal)
+        )
+    }
+
+    /// Os seis azulejos da captura: quatro pedidos, um lead de verdade e o
+    /// formulário do próprio dono. As máquinas (Abacus, Carol, Resend) entram
+    /// para o excedente contar certo.
+    static var seisAzulejos: [Message] {
+        [jack, jayden, cats9th, maria, formulario, tally, abacus, carol, resend]
+    }
+
+    /// A agenda que o eixo de 09–19 escondia: uma reunião à 01 h e um voo às
+    /// 23h30, com o dia normal no meio.
+    static var agendaDaNoite: [AgendaItem] {
+        [
+            AgendaItem(
+                id: "madrugada", title: "Call com Tóquio",
+                startMinute: 60, endMinute: 120, accountID: "gmail"
+            ),
+            AgendaItem(
+                id: "manha", title: "Aitherion Labs · Estratégia Econômica",
+                startMinute: 570, endMinute: 600, accountID: "gmail"
+            ),
+            AgendaItem(
+                id: "voo", title: "Voo GRU · Lisboa",
+                startMinute: 1_410, endMinute: 1_440, accountID: "vantion"
+            ),
+        ]
+    }
+
+    /// Mais uma promessa sua, para encher a coluna "Você deve".
+    static func promessaExtra(_ n: Int) -> PendingItem {
+        PendingItem(
+            id: "extra-p\(n)",
+            text: "Prometido número \(n) — mando até o fim da semana",
+            accountID: "vantion",
+            dueDate: Calendar.current.date(byAdding: .day, value: n, to: noite)
+        )
+    }
+
+    /// Mais um pedido de gente, para encher a coluna até ela passar do pé.
+    static func extra(_ n: Int) -> Message {
+        email(
+            id: "extra\(n)", conta: "vantion",
+            de: Contact(name: "Pessoa \(n)", address: "pessoa\(n)@exemplo.com.br"),
+            recebido: data(diasAtras: 3, hora: 9, minuto: n),
+            assunto: "Assunto número \(n) que ocupa uma linha inteira da coluna",
+            trecho: "Uma pergunta curta que ainda assim ocupa duas linhas "
+                + "inteiras do azulejo, como as da captura.",
+            corpo: ["Uma pergunta curta."],
+            lido: false,
+            triagem: MessageTriage(needsReply: true, intent: .request, urgency: .normal)
+        )
+    }
+
+    /// A caixa da captura: seis azulejos, o dia inteiro na agenda, 21h40 no
+    /// relógio e **nenhuma** resposta pronta.
+    static func lojaDaNoite(
+        mensagens: [Message]? = nil, pendentes: [PendingItem] = []
+    ) async -> MailStore {
+        let quando = noite
+        let store = MailStore(
+            source: InMemoryMailSource(
+                accounts: contas,
+                messages: mensagens ?? seisAzulejos,
+                agenda: agendaDaNoite,
+                pendingItems: pendentes
+            ),
+            agendaReferenceDay: { quando }
+        )
+        await store.load()
+        return store
+    }
+
     /// A mesma caixa com o dobro de gente esperando — é o que faz a lista
     /// passar do pé da coluna e obriga a rolagem a existir.
     static var caixaLonga: [Message] {
