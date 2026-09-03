@@ -567,13 +567,27 @@ public actor AccountDirector {
             queueErrors[accountID] = nil
             await refresh()
             return religada
-        } catch let erro as SyncError {
+        } catch {
             // O rascunho nunca sobrevive à falha: é credencial de verdade, e
-            // credencial órfã no chaveiro é vazamento.
+            // credencial órfã no chaveiro é vazamento — um refresh token sem
+            // dono, que nenhuma tela lista e ninguém consegue revogar.
+            //
+            // **Pega tudo, e não só `SyncError`** — mesmo hoje, quando todo
+            // caminho entre guardar o rascunho e trocá-lo pelo definitivo já
+            // traduz o que lança (`GmailClient.get` embrulha até erro de
+            // decodificação). Filtrar por tipo aqui faria a limpeza da
+            // credencial depender dessa disciplina continuar valendo em cada
+            // callee, para sempre; e a falha silenciosa dessa aposta é um
+            // refresh token órfão no chaveiro, que nenhuma tela lista e
+            // ninguém revoga. Não há teste para este `catch` porque não há
+            // como alcançá-lo por aqui — ele é o que impede o próximo caminho
+            // de virar vazamento, não o conserto de um vazamento de hoje.
+            // O que muda com o tipo é só a faixa da janela, que continua
+            // falando a língua de `SyncError`.
             try? secrets.remove(for: rascunho)
-            errors[accountID] = erro
+            if let erro = error as? SyncError { errors[accountID] = erro }
             await refresh()
-            throw erro
+            throw error
         }
     }
 
