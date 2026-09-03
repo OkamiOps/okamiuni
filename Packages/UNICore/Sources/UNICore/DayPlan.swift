@@ -371,6 +371,22 @@ public struct DayPlan: Sendable, Hashable {
                 section: nil, category: .broadcasts, removalReason: motivo
             )
         }
+        // Máquina não espera resposta. O prazo que o texto afirma sobrevive —
+        // uma data continua sendo uma data —, mas nada que venha de uma caixa
+        // que avisa que não lê resposta entra em "Esperando você" ou em
+        // "Lead". Foi o "You have opened a new Support case" da AWS chegando
+        // ao topo do painel como se fosse gente esperando.
+        if isAutomated(message) {
+            if triage?.deadline != nil {
+                return Classification(
+                    section: .due, category: .deadlines, removalReason: nil
+                )
+            }
+            return Classification(
+                section: nil, category: .newsletters,
+                removalReason: automatedRemovalReason
+            )
+        }
         if triage?.intent == .lead {
             return Classification(section: .lead, category: .leads, removalReason: nil)
         }
@@ -390,6 +406,41 @@ public struct DayPlan: Sendable, Hashable {
         // Sem triagem e sem sinal: a linha ficou no recorte por estrela ou por
         // ser de hoje. Ela é "gente" — e continua na lista, com `keep`.
         return Classification(section: .waitingOnYou, category: .people, removalReason: nil)
+    }
+
+    // MARK: - Triagem: o que é máquina
+
+    /// O porquê que o rodapé escreve para quem saiu por ser máquina.
+    public static let automatedRemovalReason = "remetente automático"
+
+    /// As caixas que **avisam** que não leem resposta — no endereço ou no
+    /// corpo. "Esperando você" é uma lista de gente esperando; um robô no topo
+    /// dela é a tela mentindo sobre quem está do outro lado.
+    private static let automatedMarks = [
+        "no-reply", "noreply", "do-not-reply", "donotreply",
+        "notifications@", "notification@", "mailer-daemon",
+    ]
+    private static let automatedPhrases = [
+        "cannot accept incoming e-mail", "cannot accept incoming email",
+        "não responda", "nao responda",
+    ]
+
+    /// Esta mensagem veio de uma caixa que não lê resposta.
+    public static func isAutomated(_ message: Message) -> Bool {
+        let endereço = message.from.address.lowercased()
+        if automatedMarks.contains(where: { endereço.contains($0) }) { return true }
+        let texto = ([message.snippet] + message.body).joined(separator: "\n").lowercased()
+        return automatedPhrases.contains { texto.contains($0) }
+    }
+
+    /// A intenção pede **gente**: alguém pediu, marcou ou chegou como lead.
+    /// É a condição do primeiro azulejo do painel — o que ganha o botão
+    /// primário.
+    public static func pedeGente(_ triage: MessageTriage?) -> Bool {
+        switch triage?.intent {
+        case .request, .scheduling, .lead: true
+        default: false
+        }
     }
 
     // MARK: - O herói

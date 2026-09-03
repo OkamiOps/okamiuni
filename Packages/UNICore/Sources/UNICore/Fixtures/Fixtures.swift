@@ -535,10 +535,15 @@ public struct PendingItem: Sendable, Hashable, Identifiable {
     public let id: String
     public let text: String
     public let accountID: String
+    /// Quando a promessa vence, se o email disse quando. `nil` é o que ainda
+    /// não se sabe — e aí o azulejo não escreve prazo nenhum em vez de
+    /// inventar um.
+    public let dueDate: Date?
 
-    public init(id: String, text: String, accountID: String) {
+    public init(id: String, text: String, accountID: String, dueDate: Date? = nil) {
         self.id = id
         self.text = text
         self.accountID = accountID
+        self.dueDate = dueDate
     }
 }

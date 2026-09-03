@@ -310,6 +310,23 @@ public final class MailStore {
     public private(set) var agenda: [AgendaItem] = []
     public private(set) var pendingItems: [PendingItem] = []
 
+    /// "Já fiz": a promessa sai da lista e volta na mão de quem desfizer.
+    ///
+    /// **Só nesta sessão.** A promessa nasce da leitura dos emails, e enquanto
+    /// não houver coluna para "resolvida" ela reaparece na próxima carga —
+    /// dívida escrita aqui em vez de escondida numa gravação que não existe.
+    @discardableResult
+    public func dismissPendingItem(_ id: String) -> PendingItem? {
+        guard let índice = pendingItems.firstIndex(where: { $0.id == id }) else { return nil }
+        return pendingItems.remove(at: índice)
+    }
+
+    /// O desfazer do "Já fiz" — devolve a promessa ao lugar dela.
+    public func restorePendingItem(_ item: PendingItem) {
+        guard !pendingItems.contains(where: { $0.id == item.id }) else { return }
+        pendingItems.append(item)
+    }
+
     /// A coalescência da agenda é cara se repetida a cada quadro. A caixa é
     /// uma classe para o Observation não enxergar as escritas do cache.
     private let agendaProjection = AgendaProjectionCache()
