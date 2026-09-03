@@ -63,6 +63,12 @@ public struct InboxScreen: View {
     @State private var dashboardConversation: AssistantConversation?
     @State private var dashboardSelectedMailID: String?
     @State private var dashboardReadingID: String?
+    /// O filtro do dashboard 08 vive aqui para sobreviver à troca de aba —
+    /// "persistir na sessão" é literalmente isto.
+    @State private var dashboardFilter = DayPlan.Filter.standard
+    /// A primeira metade de "Arquivar e aprender", esperando a segunda para
+    /// selar o recibo conjunto — ver `runDashboardCommand`.
+    @State private var dashboardArchiveLearnPair: DashboardArchivePair?
     let store: MailStore
 
     /// De onde vem o "agora" da trilha e das três visões da agenda.
@@ -102,6 +108,9 @@ public struct InboxScreen: View {
     /// A análise do acervo, que sabe onde está e quanto falta. É o único
     /// trabalho desta tela com fração de verdade.
     let backlogAnalysis: BacklogAnalysisController?
+    /// Os rascunhos antecipados que a fila de UNISync escreve. `nil` nas
+    /// previews e no harness — o dashboard então não promete resposta.
+    let readyDrafts: ReadyDraftsModel?
 
     public init(
         store: MailStore,
@@ -114,7 +123,8 @@ public struct InboxScreen: View {
         onMessagePresented: @escaping (String) -> Void = { _ in },
         accountsModel: AccountsModel? = nil,
         analysisQueue: AnalysisQueueStateModel? = nil,
-        backlogAnalysis: BacklogAnalysisController? = nil
+        backlogAnalysis: BacklogAnalysisController? = nil,
+        readyDrafts: ReadyDraftsModel? = nil
     ) {
         self.init(
             store: store,
@@ -128,6 +138,7 @@ public struct InboxScreen: View {
             accountsModel: accountsModel,
             analysisQueue: analysisQueue,
             backlogAnalysis: backlogAnalysis,
+            readyDrafts: readyDrafts,
             debugAssistantOpen: false,
             debugReaderAssistantOpen: false
         )
@@ -147,6 +158,7 @@ public struct InboxScreen: View {
         accountsModel: AccountsModel? = nil,
         analysisQueue: AnalysisQueueStateModel? = nil,
         backlogAnalysis: BacklogAnalysisController? = nil,
+        readyDrafts: ReadyDraftsModel? = nil,
         debugAssistantOpen: Bool,
         debugAssistantScope: InboxAssistantScope = .workspace,
         debugReaderAssistantOpen: Bool = false
@@ -162,6 +174,7 @@ public struct InboxScreen: View {
         self.accountsModel = accountsModel
         self.analysisQueue = analysisQueue
         self.backlogAnalysis = backlogAnalysis
+        self.readyDrafts = readyDrafts
         self.composerIntelligence = textAssistant.map {
             AssistantBridge.composerGenerator(using: $0)
         }
@@ -584,19 +597,25 @@ public struct InboxScreen: View {
             store: store,
             now: now,
             today: agendaAnchor,
+            drafts: readyDrafts?.drafts ?? [:],
             conversation: conversation,
+            // "Atualizando…" enquanto a barra fina do chrome trabalha — a
+            // mesma soma, só lida (`ChromeWorkload` não é tocado aqui).
+            isWorking: chromeWorkload.isBusy,
+            filter: $dashboardFilter,
             selectedMailID: $dashboardSelectedMailID,
             readingMailID: $dashboardReadingID,
             onPresented: onMessagePresented,
             onOpenMessage: { reveal($0.id) },
             onOpenEvent: openEventWindow,
-            onShowMail: { workspace = .mail },
-            onShowCalendar: { workspace = .calendar },
-            onOpenSettings: openAccounts,
             // As ações rápidas e o menu da linha caem na **mesma** fila da
             // Caixa: `ActionReceipts` primeiro (é ele quem dá o "Desfazer"),
             // e o resto pelo runner de sempre.
             onCommand: runDashboardCommand,
+            onDiscardDraft: { readyDrafts?.discardReadyDraft(messageID: $0) },
+            // O botão "Perguntar · ⌘J" abre o painel do assistente que já
+            // existe; a gaveta 09 é da tarefa seguinte.
+            onAskAssistant: openWorkspaceAssistant,
             // A folha de leitura do dashboard é o `ReaderPane`: as mesmas
             // dependências que a Caixa lhe entrega, e não uma segunda montagem.
             onCompose: { openWindow(id: UNIWindow.composer, value: $0.value) },
@@ -619,6 +638,34 @@ public struct InboxScreen: View {
     /// execução para "Arquivar" faria a Caixa e o dashboard divergirem no
     /// primeiro conserto.
     private func runDashboardCommand(_ command: ContextCommand) {
+        // "Arquivar e aprender" chega como **dois** comandos na mesma leva —
+        // `.move(.archived)` e `.learnSender` — e o recibo dos dois é um só:
+        // o estado é fotografado antes de arquivar, e quando o `learnSender`
+        // do mesmo remetente chega logo atrás, o Desfazer vira o comando
+        // conjunto (`restoreArchivedAndForgetSender`). Qualquer outro comando
+        // no meio desfaz o pareamento.
+        if case let .move(messageID, .archived) = command,
+           let mensagem = store.message(messageID) {
+            dashboardArchiveLearnPair = DashboardArchivePair(
+                message: mensagem, states: store.states(of: [messageID])
+            )
+        } else if case let .learnSender(address, true) = command,
+                  let par = dashboardArchiveLearnPair,
+                  par.message.from.address == address {
+            dashboardArchiveLearnPair = nil
+            StoreCommand.run(command, on: store)
+            receipts.current = SwipeReceipt(
+                messageID: par.message.id,
+                note: "Arquivada e aprendida — \(par.message.from.display) · "
+                    + ActionReceipts.stamp,
+                undo: .restoreArchivedAndForgetSender(
+                    states: par.states, address: address
+                )
+            )
+            return
+        } else {
+            dashboardArchiveLearnPair = nil
+        }
         MenuCommandRunner(
             store: store,
             openWindow: openWindow,
@@ -881,3 +928,11 @@ public struct InboxScreen: View {
         .frame(width: 1440, height: 916)
 }
 #endif
+
+/// O par de "Arquivar e aprender" em trânsito: a mensagem e o estado
+/// fotografado **antes** de arquivar — sem a foto, o Desfazer conjunto não
+/// teria para onde voltar.
+struct DashboardArchivePair {
+    let message: Message
+    let states: [MessageState]
+}
