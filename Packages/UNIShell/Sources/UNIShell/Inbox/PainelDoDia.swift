@@ -492,7 +492,7 @@ struct PainelDoDia: View {
                         // em toda superfície que sai deste Mac.
                         titulo: isWorking
                             ? "Gerando…"
-                            : "Gerar as prontas · \(Self.nomeDoMotor(conversation.destination.label))",
+                            : "Gerar · \(Self.nomeDoMotor(conversation.destination.label))",
                         acao: { onGerarProntas(modelo.espera.map(\.id)) }
                     )
                     : nil
