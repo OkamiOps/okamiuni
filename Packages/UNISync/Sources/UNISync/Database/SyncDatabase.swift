@@ -718,6 +718,45 @@ public struct SyncDatabase: Sendable {
                 sql: "ALTER TABLE message ADD COLUMN bulkMarks INTEGER NOT NULL DEFAULT 0"
             )
         }
+        // A v20: a resposta que já nasce escrita, e a regra do remetente.
+        //
+        // `ready_draft` guarda **um** rascunho por mensagem, e as duas colunas
+        // que decidem se ele ainda vale: `content_hash` (a versão da mensagem
+        // que o modelo leu) e `model_version` (quem a leu). Sem as duas, um
+        // corpo baixado depois ou um motor novo deixariam a tela oferecendo,
+        // como pronta, uma resposta escrita para outro texto.
+        //
+        // `discarded_hash` é o "Descartar" da pessoa, e é por isso que a linha
+        // **fica** depois de descartada: apagá-la faria a fila reescrever o
+        // mesmo rascunho na volta seguinte da observação, que é o único jeito
+        // de um botão de descartar não descartar nada. Ele guarda o hash, e
+        // não um booleano, porque a recusa foi sobre aquela versão da
+        // mensagem: quando o texto muda, a pergunta é outra.
+        //
+        // `sender_rule` é irmã de `trusted_sender` da v6 — endereço exato,
+        // sem dono, sem chave estrangeira para `account`: "esta lista nunca é
+        // prioridade" é uma decisão sobre quem escreve, e vale em qualquer
+        // caixa. Sair de uma conta não a desfaz.
+        migrator.registerMigration("v20") { db in
+            try db.execute(sql: """
+                CREATE TABLE ready_draft (
+                  message_id TEXT PRIMARY KEY NOT NULL REFERENCES message(id) ON DELETE CASCADE,
+                  text TEXT NOT NULL,
+                  content_hash TEXT NOT NULL,
+                  model_version TEXT NOT NULL,
+                  used_agenda INTEGER NOT NULL DEFAULT 0,
+                  created_at DOUBLE NOT NULL,
+                  discarded_hash TEXT
+                )
+                """)
+            try db.execute(sql: """
+                CREATE TABLE sender_rule (
+                  address TEXT PRIMARY KEY NOT NULL,
+                  never_priority INTEGER NOT NULL DEFAULT 1,
+                  created_at DOUBLE NOT NULL
+                )
+                """)
+        }
         return migrator
     }
 }
