@@ -570,7 +570,7 @@ public struct DayPlan: Sendable, Hashable {
     /// Os nomes em pt-BR, sem depender do `Locale` da máquina: a tela é em
     /// português mesmo num Mac em alemão, e foi assim que a agenda já escreveu
     /// "Donnerstag" numa tela em português.
-    static func weekdayName(_ weekday: Int) -> String {
+    public static func weekdayName(_ weekday: Int) -> String {
         switch weekday {
         case 1: "domingo"
         case 2: "segunda"

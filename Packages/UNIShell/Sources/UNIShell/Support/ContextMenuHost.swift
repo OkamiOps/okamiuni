@@ -151,6 +151,13 @@ enum StoreCommand {
             store.learnSender(address: address, neverPriority: neverPriority)
             return true
 
+        // O Desfazer conjunto de "Arquivar e aprender": estado de volta e
+        // regra revogada, na mesma leva em que nasceram.
+        case .restoreArchivedAndForgetSender(let states, let address):
+            store.restore(states)
+            store.learnSender(address: address, neverPriority: false)
+            return true
+
         default:
             return false
         }
@@ -227,7 +234,8 @@ struct MenuCommandRunner {
              // do recibo de uma ação de conversa e chegam aqui pelo "Desfazer"
              // da faixa, que é o mesmo caminho de todos os outros.
              .restoreConversation, .restoreDeletedConversation,
-             .restoreFolderPlacements, .learnSender:
+             .restoreFolderPlacements, .learnSender,
+             .restoreArchivedAndForgetSender:
             StoreCommand.run(command, on: store)
 
         case .composeFrom(let accountID):

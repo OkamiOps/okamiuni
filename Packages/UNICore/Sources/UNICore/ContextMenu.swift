@@ -144,6 +144,16 @@ public enum ContextCommand: Sendable, Hashable {
     /// um segundo caso `forgetSender` seria a mesma decisão escrita duas
     /// vezes, com dois caminhos para divergir.
     case learnSender(address: String, neverPriority: Bool)
+    /// O "Desfazer" **conjunto** de "Arquivar e aprender" do dashboard: a
+    /// mensagem volta ao estado fotografado antes de arquivar **e** a regra
+    /// recém-aprendida é revogada, num comando só.
+    ///
+    /// Nenhum menu produz este comando — ele nasce dentro do recibo da leva
+    /// (`ActionReceipts`) e chega pelo "Desfazer" da faixa, como os outros
+    /// `restore*`. Existir como caso único é o que torna a leva desfazível
+    /// junto: dois comandos de volta seriam dois recibos, e a pessoa
+    /// desarquivaria o email sem recuperar o remetente que acabou de calar.
+    case restoreArchivedAndForgetSender(states: [MessageState], address: String)
 }
 
 public extension ContextCommand {
