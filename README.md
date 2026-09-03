@@ -7,10 +7,10 @@
 ![Swift 6.3](https://img.shields.io/badge/Swift-6.3-F05138?logo=swift&logoColor=white)
 ![macOS 26](https://img.shields.io/badge/macOS-26-000000?logo=apple&logoColor=white)
 ![SwiftUI](https://img.shields.io/badge/SwiftUI-nativo-0071e3)
-![Testes](https://img.shields.io/badge/testes-2589-2ea44f)
+![Testes](https://img.shields.io/badge/testes-2807-2ea44f)
 ![Mutações](https://img.shields.io/badge/provas%20por%20mutação-190%2B-blueviolet)
 ![Temas](https://img.shields.io/badge/temas-26-8a2be2)
-![Release](https://img.shields.io/badge/release-0.3.0-success)
+![Release](https://img.shields.io/badge/release-0.5.3-success)
 
 <img src="docs/capturas/janela-principal.png" width="860" alt="A janela principal do OkamiUNI no tema Okami: abas Dashboard, Caixa e Agenda, lista de mensagens, leitor e trilha do dia." />
 
@@ -19,7 +19,7 @@
 ## TL;DR
 
 - 📬 **Um app só** para email e agenda — Dashboard, Caixa e Agenda no mesmo chrome. A trilha do dia mora ao lado do leitor, e selecionar uma caixa filtra **as duas**.
-- 🎯 **Dashboard do dia**: tríptico — prioridades à esquerda, prévia fixa no meio, agenda à direita. Clicar seleciona e a prévia enche; "Gerar resposta" é o botão primário da linha. Sem disparar IA sozinho.
+- 🎯 **O painel do dia não é uma caixa de email**: o plano de hoje numa linha do tempo (agenda + prazos + o que você prometeu, com blocos que a IA propõe e você aceita de uma vez), quem espera você em azulejos com a resposta já escrita, o que vence com valor, e o filtro por negócio. A leitura fica na Caixa.
 - 🧠 **Corpo legível, não parede de texto**: histórico citado, assinatura e rodapé de newsletter colapsam atrás de uma dobra; lista vira lista, bloco `Chave: valor` vira lista alinhada, URL crua vira link curto. O resumo abre a prévia, e o que o email **pede** — resposta, prazo — vira selo no topo.
 - 🔗 **Link não abre sozinho**: clique pergunta antes, mostrando o endereço completo com o **host real destacado dentro dele** — `https://banco.com@malicioso.example` diz que o site é `malicioso.example`. IDN volta para ASCII, para o alfabeto não trocar de nome no meio do caminho.
 - 🔄 **As contas se mantêm sozinhas**: IMAP IDLE, Gmail incremental por histórico, e a rede que volta acorda tudo. Ação feita offline chega ao servidor quando a conexão volta — com fila transacional, retry e "tentar de novo" explicado.
@@ -94,7 +94,7 @@ Cliente de email é o app que mais horas passa aberto — e o que menos respeito
 
 | Área | O que tem |
 |---|---|
-| 🏠 **Dashboard** | Terceira aba do chrome: saudação, prioridades ranqueadas sem varrer a caixa inteira, eventos de hoje e assistente com memória na sessão. Redesenhado em 0.3.0 — ver abaixo |
+| 🏠 **Dashboard** | Terceira aba do chrome. Redesenhado três vezes até virar o painel do dia (0.5) — ver abaixo |
 | 🪪 **Remetentes** | Configurações → Remetentes. O Gmail traz “Enviar como” no sync; o composer escolhe o From. Alias precisa existir no Workspace para o Gmail não reescrever |
 | ✨ **Análise local** | Foundation Models recebe assunto e corpo, com saída tipada, e produz resumo mais compromisso detectado sem tirar o email do Mac; corpo longo é cortado por busca binária no maior prefixo que cabe no orçamento de tokens do próprio modelo, sem número mágico de caracteres. A análise automática continua no Mac por padrão; usar o provedor configurado nela é opt-in explícito, com a consequência escrita no toggle |
 | 💾 **Pipeline durável** | SQLite guarda hash do conteúdo, estado e resultado; observação reativa acorda uma fila serial, que se recupera de interrupções e só reprocessa quando a mensagem muda |
@@ -116,6 +116,20 @@ Cliente de email é o app que mais horas passa aberto — e o que menos respeito
 | 🤖 **Rota de IA honesta** | Timeout de 120 s (a rota do Grok falhava por tempo com 30 s). Toda cópia "tudo local / neste Mac" que não checava o provedor saiu. Análise automática por mensagem com provedor remoto é **opt-in explícito**, carimbado no tempo — o portão usa `min(receivedAt, firstSeenAt)`, porque `receivedAt` vem do cabeçalho `Date:` do remetente e é dado de terceiro |
 | 📚 **Analisar o acervo** | Uma ação explícita analisa as mensagens já recebidas, com diálogo dizendo a **contagem exata** e o destino. O consentimento é por mensagem, vale para UMA análise e é carimbado com a versão do modelo |
 | 📮 **Assunto sem mojibake** | A decodificação RFC 2047 procurava o terminador `?=` cedo demais: um payload Q-encoded começando em `=` — todo acento em português — casava com o `?` do token e o `=` do primeiro octeto. `=?UTF-8?Q?=C3=A7=C3=A3o?=` virava `UTF-8?QC3=A7=C3=A3o?=` |
+
+### 0.4 → 0.5 — o painel do dia, e a IA que faz
+
+| Área | O que tem |
+|---|---|
+| 🗓️ **Plano de hoje** | Agenda, prazos e o que você prometeu num eixo só, em duas trilhas (agenda / você), 138 pt por hora com o dia inteiro em rolagem horizontal aberta no agora. A IA propõe os blocos — responder as prontas, a proposta que vence — e "Aceitar o plano" reserva tudo de uma vez, desfazível |
+| 🧱 **Esperando você** | Azulejos, não linhas: avatar na cor da conta, o número grande (dias esperando · prazo hoje · lead novo), uma linha do que é, um verbo. A etiqueta é determinística antes do modelo:  nunca é lead, remetente de máquina nunca "espera", pedido é "esperando" |
+| ✍️ **Resposta pronta** | Para quem espera você, o rascunho nasce antes de você abrir — pela rota configurada, olhando a agenda quando o email pede horário. "Enviar a pronta" abre o texto inteiro antes de sair; a IA nunca envia |
+| 🤝 **Compromissos** | "Você deve": promessas com vencimento, "Reservar" na próxima folga, "Já fiz". "Devem a você" (lido dos enviados) fica para a 0.6 |
+| 💸 **Dinheiro e prazos** | Os prazos que a análise já dá, com o valor quando o email o traz |
+| 🏢 **Negócios como filtro** | Vantion · OkamiOps · Pessoal no cabeçalho, com semáforo por conta; clique filtra o painel |
+| 💬 **Assistente em gaveta** | ⌘J abre por cima da borda direita, sem empurrar nada; sabe o contexto; **age** — toda resposta que implica ação vem com um cartão e um botão de confirmar, numa leva desfazível. Destacável em janela |
+| 🔓 **Consentimento** | Ruling 0.5.3: conectar um provedor remoto de propósito é o consentimento. A análise e as prontas seguem o provedor por padrão; o interruptor serve para restringir a este Mac |
+| 📶 **Barra de estado** | O progresso do dia (N de M) e o que está em jogo. Nada nela executa |
 
 <div align="center">
 <table>
@@ -164,7 +178,7 @@ O projeto Xcode é gerado por [`project.yml`](project.yml) (XcodeGen) com `SWIFT
 
 ## Como este projeto se testa
 
-**Swift Testing** (nunca XCTest), 2589 testes em quatro pacotes — e uma regra que virou cultura: **teste que passa com o código quebrado é defeito**. Todo teste novo nasce provado vermelho com o defeito reintroduzido; mais de 190 mutações registradas mataram, entre outras, um quoted-printable que comia a última letra de cada linha, uma fila que engolia a terceira ação de um ciclo ler→não ler→ler, e um "esvaziar a lixeira" que só funcionava uma vez na vida da conta.
+**Swift Testing** (nunca XCTest), 2807 testes em quatro pacotes — e uma regra que virou cultura: **teste que passa com o código quebrado é defeito**. Todo teste novo nasce provado vermelho com o defeito reintroduzido; mais de 190 mutações registradas mataram, entre outras, um quoted-printable que comia a última letra de cada linha, uma fila que engolia a terceira ação de um ciclo ler→não ler→ler, e um "esvaziar a lixeira" que só funcionava uma vez na vida da conta.
 
 Seis instrumentos fazem o app testemunhar contra si mesmo, sem tocar no mouse de ninguém:
 
@@ -194,6 +208,9 @@ O registro das decisões — por que o Button do macOS dispara no mouse-up depoi
 - [x] **Marco 5 — Inteligência no dispositivo**: Foundation Models local, pipeline durável, resumo/compromisso persistidos, perguntas contextuais e inteligência de escrita plenamente integrada ao composer
 - [x] **0.2.0 — Dashboard e remetentes**: aba de prioridades, aliases de envio do Gmail/Workspace, Spam na triagem, busca Tudo, leitor HTML com paleta do tema e RSVP nos botões do convite Google
 - [x] **0.3.0 — Dashboard legível e IA com destino**: tríptico com prévia fixa, corpo que colapsa citação e rodapé, confirmação antes de abrir link, barra de trabalho unificada, triagem por IA, análise automática opt-in e análise do acervo sob consentimento
+- [x] **0.4.0 — A IA trabalhando**: respostas prontas antes de abrir, uma proposta por linha, agente com ações (§4), gaveta do assistente (⌘J) e janela
+- [x] **0.5 — O painel do dia**: plano de hoje em linha do tempo, azulejos, negócios como filtro, dinheiro e prazos, barra de estado; consentimento pelo provedor conectado
+- [ ] **0.6** — "Devem a você" e cobrança lidos dos enviados; valores extraídos; a receber de verdade
 
 Dívidas deliberadas, registradas onde doem: recorrência de evento, configuração CalDAV direta dentro do app (contas CalDAV já configuradas no macOS funcionam via EventKit), árvore de pastas indentada (o delimitador ainda não sobe pelo fio), encaminhar convite com o `.ics` junto.
 
