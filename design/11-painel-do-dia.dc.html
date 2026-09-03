@@ -20,15 +20,17 @@
     .btn.sm { height: 26px; padding: 0 10px; font-size: 12px; }
     .kbd { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: #55566A; }
     /* Plano do dia: a linha do tempo horizontal */
-    .tl { position: relative; height: 74px; }
-    .tl .axis { position: absolute; left: 0; right: 0; top: 46px; height: 0.5px; background: #1E1E2B; }
-    .tl .h { position: absolute; top: 54px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #55566A; transform: translateX(-50%); }
+    .tl { position: relative; height: 118px; }
+    .tl .axis { position: absolute; left: 0; right: 0; top: 90px; height: 0.5px; background: #1E1E2B; }
+    .tl .lane { position: absolute; left: -18px; font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.14em; text-transform: uppercase; color: #55566A; transform: rotate(-90deg) translateX(-100%); transform-origin: left top; white-space: nowrap; }
+    .tl .h { position: absolute; top: 98px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #55566A; transform: translateX(-50%); }
     .tl .blk { position: absolute; top: 12px; height: 28px; border-radius: 2px; background: #14141E; border: 0.5px solid #2A2A38; padding: 0 9px; display: flex; align-items: center; gap: 6px; font-family: 'Space Grotesk', sans-serif; font-size: 11.5px; font-weight: 600; color: #F4F4F8; white-space: nowrap; overflow: hidden; }
     .tl .blk em { font-style: normal; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: #55566A; }
     .tl .blk.ai { background: #1A1209; border: 0.5px dashed #4A2C16; color: #F7B98A; }
     .tl .blk.ai em { color: #F7B98A; opacity: 0.7; }
     .tl .blk.due { background: transparent; border-color: rgba(226,179,107,0.4); color: #E2B36B; }
-    .tl .now { position: absolute; top: 4px; bottom: 12px; width: 1.5px; background: #F0A060; }
+    .tl .now { position: absolute; top: 4px; bottom: 24px; width: 1.5px; background: #F0A060; }
+    .tl .blk.t2 { top: 50px; }
     .tl .now i { position: absolute; top: -4px; left: -3px; width: 7px; height: 7px; border-radius: 50%; background: #F0A060; }
     /* Painéis */
     .pane { display: flex; flex-direction: column; min-width: 0; }
@@ -67,79 +69,140 @@
   <div style="display: flex; align-items: baseline; gap: 16px;">
     <div style="font-size: 18px; font-weight: 600; letter-spacing: -0.01em;">Boa tarde, Marcos</div>
     <div class="caps">Quinta · 3 de setembro</div>
-    <div style="margin-left: auto; font-size: 11.5px; color: #55566A;">Lido das 3 contas · atualizado agora · Codex · ChatGPT</div>
+    <div style="margin-left: 22px; display: inline-flex; border: 0.5px solid #2A2A38; border-radius: 2px; overflow: hidden;">
+      <span style="height: 28px; padding: 0 12px; display: inline-flex; align-items: center; font-size: 12px; font-weight: 600; color: #F4F4F8; background: #14141E; border-right: 0.5px solid #2A2A38;">Tudo</span>
+      <span style="height: 28px; padding: 0 12px; display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 550; color: #B9BAC8; border-right: 0.5px solid #2A2A38;"><i style="width: 7px; height: 7px; border-radius: 50%; background: #E2B36B;"></i>Vantion <span class="m" style="font-size: 10px; color: #55566A;">3</span></span>
+      <span style="height: 28px; padding: 0 12px; display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 550; color: #B9BAC8; border-right: 0.5px solid #2A2A38;"><i style="width: 7px; height: 7px; border-radius: 50%; background: #E2B36B;"></i>OkamiOps <span class="m" style="font-size: 10px; color: #55566A;">1</span></span>
+      <span style="height: 28px; padding: 0 12px; display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 550; color: #B9BAC8;"><i style="width: 7px; height: 7px; border-radius: 50%; background: #6CC894;"></i>Pessoal <span class="m" style="font-size: 10px; color: #55566A;">2</span></span>
+    </div>
+    <div style="margin-left: auto; font-size: 11.5px; color: #55566A;">Codex · ChatGPT</div>
+    <span class="btn g" style="height: 28px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#F0A060" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.4A8 8 0 1 1 21 12z"/></svg>Perguntar<span class="kbd">⌘J</span></span>
   </div>
 
   <!-- PLANO DE HOJE: o objeto principal. Agenda + o que você deve, num eixo só -->
   <div style="margin-top: 16px; padding: 14px 18px 8px; background: #0B0B12; border: 0.5px solid #1E1E2B; border-radius: 2px;">
     <div style="display: flex; align-items: center; gap: 12px;">
       <span style="font-size: 14px; font-weight: 600;">Plano de hoje</span>
-      <span style="font-size: 12px; color: #7B7C90;">montado com a agenda, os prazos e o que você prometeu · <b style="color: #F7B98A; font-weight: 600;">2 blocos propostos</b></span>
+      <span style="font-size: 12px; color: #7B7C90;">agenda + prazos + o que você prometeu · <b style="color: #F7B98A; font-weight: 600;">2 blocos propostos</b></span>
       <span style="margin-left: auto; display: flex; gap: 6px;"><span class="btn p sm">Aceitar o plano</span><span class="btn g sm">Ajustar</span></span>
     </div>
-    <div class="tl" style="margin-top: 6px;">
+    <div class="tl" style="margin-top: 6px; margin-left: 30px;">
       <div class="axis"></div>
+      <span class="caps" style="position: absolute; left: -30px; top: 19px; font-size: 9px; color: #7B7C90;">agenda</span>
+      <span class="caps" style="position: absolute; left: -30px; top: 57px; font-size: 9px; color: #F7B98A;">você</span>
       <span class="h" style="left: 0%;">09</span><span class="h" style="left: 10%;">10</span><span class="h" style="left: 20%;">11</span><span class="h" style="left: 30%;">12</span><span class="h" style="left: 40%;">13</span><span class="h" style="left: 50%;">14</span><span class="h" style="left: 60%;">15</span><span class="h" style="left: 70%;">16</span><span class="h" style="left: 80%;">17</span><span class="h" style="left: 90%;">18</span><span class="h" style="left: 100%;">19</span>
       <div class="blk" style="left: 5%; width: 5%;">Odette</div>
       <div class="now" style="left: 10.5%;"><i></i></div>
       <div class="blk" style="left: 26.5%; width: 10%;">Aitherion <em>1 h</em></div>
-      <div class="blk ai" style="left: 40%; width: 6%;">Responder 3 <em>20m</em></div>
-      <div class="blk ai" style="left: 60%; width: 8%;">Proposta Marina <em>45m</em></div>
-      <div class="blk due" style="left: 88%; width: 7%;">Prazo Jayden</div>
+      <div class="blk ai t2" style="left: 40%; width: 7%;">Responder 3 <em>20m</em></div>
+      <div class="blk ai t2" style="left: 60%; width: 9%;">Proposta Marina <em>45m</em></div>
+      <div class="blk due t2" style="left: 88%; width: 8%;">Prazo Jayden</div>
+      <div class="blk due t2" style="left: 12.5%; width: 9%;">Cobrar Marina</div>
     </div>
   </div>
 
-  <!-- Quatro painéis. Nenhum deles é uma lista de emails. -->
-  <div style="flex: 1; min-height: 0; display: grid; grid-template-columns: 1.05fr 1fr 1fr 0.95fr; gap: 26px; margin-top: 18px;">
+  <!-- Três instrumentos. Números grandes, poucas palavras, nada de lista. -->
+  <div style="flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr 0.95fr; gap: 32px; margin-top: 22px; align-content: start;">
 
-    <!-- 1 · Esperando você -->
+    <style>
+      .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+      .tile { background: #0B0B12; border-radius: 2px; padding: 13px 15px 13px; display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+      .tile .top { display: flex; align-items: center; gap: 9px; }
+      .tile .av { width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 600; color: #060609; background: var(--tint); flex: none; }
+      .tile .nm { font-family: 'Space Grotesk', sans-serif; font-size: 13px; font-weight: 600; color: #F4F4F8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+      .tile .ac { margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; color: #55566A; flex: none; }
+      .tile .big { display: flex; align-items: baseline; gap: 8px; }
+      .tile .big b { font-family: 'JetBrains Mono', monospace; font-size: 26px; font-weight: 600; line-height: 1; color: #F4F4F8; }
+      .tile .big b.late { color: #E2B36B; }
+      .tile .big b small { font-size: 12px; color: #7B7C90; font-weight: 500; margin-left: 1px; }
+      .tile .big span { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: #7B7C90; }
+      .tile .what { font-family: 'Space Grotesk', sans-serif; font-size: 12.5px; line-height: 1.4; color: #B9BAC8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .tile .go { margin-top: 2px; }
+    </style>
+
+    <!-- 1 · Esperando você: pessoas como azulejos. Avatar, número, uma palavra, um verbo. -->
     <div class="pane">
-      <div class="hd"><span class="t">Esperando você</span><span class="n">3</span><span class="why">respostas prontas para as 3</span></div>
-      <div class="it" style="--tint: #6CC894;"><div class="dot"></div><div><div class="a">Jack Whitmore<em>OkamiOps · 7 dias</em></div><div class="b">"Is the tally page supposed to need a login?" <i>· sim ou não</i></div><div class="c"><span class="btn p sm">Enviar a pronta</span><span class="btn g sm">Ver</span></div></div></div>
-      <div class="it" style="--tint: #F0A060;"><div class="dot"></div><div><div class="a">Jayden Sutherland<em>Gmail · 2 dias</em></div><div class="b">Consultoria USD 250/h — quer sua disponibilidade. <span class="late">prazo hoje 18h</span></div><div class="c"><span class="btn p sm">Enviar a pronta</span><span class="btn g sm">Ver</span></div></div></div>
-      <div class="it" style="--tint: #6FA8DC;"><div class="dot"></div><div><div class="a">Maria Exemplo<em>Vantion · lead · ontem</em></div><div class="b">Orçamento de identidade visual, pelo site.</div><div class="c"><span class="btn p sm">Enviar a pronta</span><span class="btn g sm">Ver</span></div></div></div>
-      <div style="flex: 1;"></div>
-      <div style="padding-top: 10px;"><span class="btn g">Enviar as 3 <span class="kbd">revisando uma a uma</span></span></div>
+      <div class="hd"><span class="t">Esperando você</span><span class="n">3</span><span class="why">3 respostas prontas</span></div>
+      <div class="tiles">
+        <div class="tile" style="--tint: #6CC894;">
+          <div class="top"><span class="av">JW</span><span class="nm">Jack Whitmore</span></div>
+          <div class="big"><b class="late">7<small>d</small></b><span>esperando</span></div>
+          <div class="what">Tally exige login? — sim ou não</div>
+          <div class="go"><span class="btn p sm">Enviar a pronta</span></div>
+        </div>
+        <div class="tile" style="--tint: #F0A060;">
+          <div class="top"><span class="av">JS</span><span class="nm">Jayden Sutherland</span></div>
+          <div class="big"><b class="late">18<small>h</small></b><span>prazo hoje</span></div>
+          <div class="what">Quer sua disponibilidade</div>
+          <div class="go"><span class="btn g sm">Enviar a pronta</span></div>
+        </div>
+        <div class="tile" style="--tint: #6FA8DC;">
+          <div class="top"><span class="av">ME</span><span class="nm">Maria Exemplo</span></div>
+          <div class="big"><b>1<small>d</small></b><span>lead novo</span></div>
+          <div class="what">Orçamento de identidade visual</div>
+          <div class="go"><span class="btn g sm">Enviar a pronta</span></div>
+        </div>
+        <div class="tile" style="background: transparent; border: 0.5px dashed #1E1E2B; align-items: center; justify-content: center; color: #55566A; font-size: 12px;">65 disparos e 220 newsletters ficaram de fora</div>
+      </div>
     </div>
 
-    <!-- 2 · Você espera (o que a Caixa nunca mostra) -->
+    <!-- 2 · Compromissos: os mesmos azulejos; o número é o atraso -->
     <div class="pane">
-      <div class="hd"><span class="t">Você espera</span><span class="n">2</span><span class="why">lido dos seus enviados</span></div>
-      <div class="it" style="--tint: #6FA8DC;"><div class="dot"></div><div><div class="a">Marina Duarte<em>Vantion · 2 dias</em></div><div class="b">Você mandou a revisão do contrato terça. <i>Sem resposta.</i></div><div class="c"><span class="btn g sm">Cobrar com gentileza</span><span class="btn g sm">Esperar mais</span></div></div></div>
-      <div class="it" style="--tint: #F0A060;"><div class="dot"></div><div><div class="a">Suporte Hostinger<em>pessoal · 4 dias</em></div><div class="b">Ticket do domínio aberto sexta. <i>Sem resposta.</i></div><div class="c"><span class="btn g sm">Cobrar</span></div></div></div>
-      <div style="flex: 1;"></div>
-      <div style="font-size: 11.5px; line-height: 1.5; color: #55566A;">Aparece aqui quem você escreveu e não respondeu em 48 h. Você ajusta o prazo por pessoa.</div>
+      <div class="hd"><span class="t">Compromissos</span><span class="n">4</span><span class="why">2 cobranças · 2 promessas</span></div>
+      <div class="caps" style="margin-top: 12px;">Devem a você</div>
+      <div class="tiles" style="margin-top: 8px;">
+        <div class="tile" style="--tint: #6FA8DC;">
+          <div class="top"><span class="av">MD</span><span class="nm">Marina Duarte</span></div>
+          <div class="big"><b class="late">2<small>d</small></b><span>calada</span></div>
+          <div class="what">Revisão do contrato, terça</div>
+          <div class="go"><span class="btn g sm">Cobrar</span></div>
+        </div>
+        <div class="tile" style="--tint: #F0A060;">
+          <div class="top"><span class="av">HO</span><span class="nm">Suporte Hostinger</span></div>
+          <div class="big"><b class="late">4<small>d</small></b><span>calado</span></div>
+          <div class="what">Ticket do domínio, sexta</div>
+          <div class="go"><span class="btn g sm">Cobrar</span></div>
+        </div>
+      </div>
+      <div class="caps" style="margin-top: 16px;">Você deve</div>
+      <div class="tiles" style="margin-top: 8px;">
+        <div class="tile" style="--tint: #6FA8DC;">
+          <div class="top"><span class="av">MD</span><span class="nm">Proposta para a Marina</span></div>
+          <div class="big"><b class="late">hoje</b><span>vence</span></div>
+          <div class="what">"Mando até quinta" — não saiu</div>
+          <div class="go"><span class="btn p sm">Reservar 15h</span></div>
+        </div>
+        <div class="tile" style="--tint: #6CC894;">
+          <div class="top"><span class="av">JW</span><span class="nm">Liberar o Tally público</span></div>
+          <div class="big"><b>sex</b><span>vence</span></div>
+          <div class="what">Vira promessa ao enviar a pronta</div>
+          <div class="go"><span class="btn g sm">Reservar</span></div>
+        </div>
+      </div>
     </div>
 
-    <!-- 3 · Você prometeu -->
+    <!-- 3 · Dinheiro e prazos: a coluna inteira -->
     <div class="pane">
-      <div class="hd"><span class="t">Você prometeu</span><span class="n">2</span><span class="why">lido dos seus enviados</span></div>
-      <div class="it" style="--tint: #6FA8DC;"><div class="dot"></div><div><div class="a">Proposta para a Marina<em>Vantion</em></div><div class="b">"Mando até quinta." <span class="late">É hoje, e não saiu.</span></div><div class="c"><span class="btn p sm">Reservar 15h · 45 min</span><span class="btn g sm">Já fiz</span></div></div></div>
-      <div class="it" style="--tint: #6CC894;"><div class="dot"></div><div><div class="a">Liberar o Tally público<em>OkamiOps</em></div><div class="b">Vai na resposta pronta ao Jack: "até sexta". <i>Vira promessa quando você enviar.</i></div><div class="c"><span class="btn g sm">Reservar sexta</span></div></div></div>
-      <div style="flex: 1;"></div>
-      <div style="font-size: 11.5px; line-height: 1.5; color: #55566A;">A IA lê as datas que você mesmo escreveu. Nada entra aqui sem você ter dito.</div>
-    </div>
-
-    <!-- 4 · Por negócio + Dinheiro e prazos -->
-    <div class="pane">
-      <div class="hd"><span class="t">Por negócio</span><span class="why">clique filtra tudo</span></div>
-      <div class="biz" style="--tint: #6FA8DC;"><div class="n"><i></i>Vantion<em>2 contas</em></div><div class="s"><b>1 lead novo</b> · Marina sem resposta há 2 dias · proposta vence hoje</div></div>
-      <div class="biz" style="--tint: #6CC894;"><div class="n"><i></i>OkamiOps<em></em></div><div class="s">Jack espera <b>7 dias</b> · <span class="ok">fila zerada além dele</span></div></div>
-      <div class="biz" style="--tint: #F0A060;"><div class="n"><i></i>Pessoal<em>gmail</em></div><div class="s">Jayden · créditos sábado · <b>65 disparos</b> ignorados</div></div>
-
-      <div class="hd" style="margin-top: 18px;"><span class="t">Dinheiro e prazos</span><span class="why">7 dias</span></div>
-      <div class="money">
-        <div><span>Prazo do Jayden</span><span class="src">gmail</span></div><div class="w soon">hoje 18h</div><div class="v">USD 250/h</div>
-        <div><span>NF de agosto</span><span class="src">vantion</span></div><div class="w soon">05/09</div><div class="v">R$ 4.200</div>
-        <div><span>Créditos Abacus</span><span class="src">gmail</span></div><div class="w">sáb</div><div class="v">6.000</div>
-        <div><span>Domínio meusite.com</span><span class="src">hostinger</span></div><div class="w">12 dias</div><div class="v">R$ 89</div>
+      <div class="hd"><span class="t">Dinheiro e prazos</span><span class="n">4</span><span class="why">próximos 7 dias</span></div>
+      <div style="display: flex; flex-direction: column; gap: 0;">
+        <div style="display: grid; grid-template-columns: 1fr auto; column-gap: 12px; align-items: center; padding: 13px 0 14px; border-bottom: 0.5px solid #16161F;"><div><div style="font-size: 13.5px; font-weight: 600;">NF de agosto</div><div class="caps" style="margin-top: 4px; color: #E2B36B;">vence 05/09 · vantion</div></div><div class="m" style="font-size: 20px; font-weight: 600; text-align: right; color: #E2B36B;">R$ 4.200</div></div>
+        <div style="display: grid; grid-template-columns: 1fr auto; column-gap: 12px; align-items: center; padding: 13px 0 14px; border-bottom: 0.5px solid #16161F;"><div><div style="font-size: 13.5px; font-weight: 600;">Consultoria Jayden</div><div class="caps" style="margin-top: 4px; color: #E2B36B;">responder hoje · gmail</div></div><div class="m" style="font-size: 20px; font-weight: 600; text-align: right; color: #E2B36B;">USD 250<span style="font-size: 11px; color: #7B7C90;">/h</span></div></div>
+        <div style="display: grid; grid-template-columns: 1fr auto; column-gap: 12px; align-items: center; padding: 13px 0 14px; border-bottom: 0.5px solid #16161F;"><div><div style="font-size: 13.5px; font-weight: 600;">Créditos Abacus</div><div class="caps" style="margin-top: 4px;">expiram sáb · gmail</div></div><div class="m" style="font-size: 20px; font-weight: 600; text-align: right;">6.000</div></div>
+        <div style="display: grid; grid-template-columns: 1fr auto; column-gap: 12px; align-items: center; padding: 13px 0 14px; border-bottom: 0.5px solid #16161F;"><div><div style="font-size: 13.5px; font-weight: 600;">Domínio meusite.com</div><div class="caps" style="margin-top: 4px;">renova em 12 dias · hostinger</div></div><div class="m" style="font-size: 20px; font-weight: 600; text-align: right;">R$ 89</div></div>
       </div>
     </div>
   </div>
 
-  <div style="position: absolute; right: 24px; bottom: 16px; display: flex; align-items: center; gap: 9px; height: 36px; padding: 0 14px 0 12px; border-radius: 18px; background: #14141E; border: 0.5px solid #2A2A38; box-shadow: 0 10px 30px rgba(0,0,0,0.55);">
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#F0A060" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.4A8 8 0 1 1 21 12z"/></svg>
-    <span style="font-size: 12.5px; font-weight: 600;">Perguntar</span><span class="kbd">⌘J</span>
+  <!-- A barra inferior: uma só, de ponta a ponta, ancorada. Lotes à esquerda, a semana à direita. -->
+  <div style="display: flex; align-items: center; gap: 8px; height: 44px; margin: 0 -28px -20px; padding: 0 28px; border-top: 0.5px solid #1E1E2B; background: #08080E;">
+    <span class="btn g sm">Enviar as 3 prontas <span class="kbd">uma a uma</span></span>
+    <span class="btn g sm">Cobrar os 2</span>
+    <span style="flex: 1;"></span>
+    <span class="caps">esta semana</span>
+    <span style="font-size: 12.5px; color: #B9BAC8; margin-left: 6px;">a receber <b class="m" style="color: #6CC894; font-weight: 600;">R$ 4.200</b></span>
+    <span style="font-size: 12.5px; color: #B9BAC8; margin-left: 12px;">a pagar <b class="m" style="color: #F4F4F8; font-weight: 600;">R$ 89</b></span>
+    <span style="width: 0.5px; height: 18px; background: #2A2A38; margin: 0 12px;"></span>
+    <span style="font-size: 11.5px; color: #55566A;">atualizado agora</span>
   </div>
 </div>
 </x-dc>
