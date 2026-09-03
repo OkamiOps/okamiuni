@@ -28,64 +28,88 @@ struct PlanoDoDiaTests {
         ]
     }
 
-    @Test("a posição é a fração da janela, e fora dela gruda na borda")
-    func positionIsTheAxisFraction() {
-        let janela = PlanoDoDia.Janela(inicio: 540, fim: 1_140)
-        #expect(janela.fracao(540) == 0)
-        #expect(janela.fracao(1_140) == 1)
-        #expect(janela.fracao(840) == 0.5)
-        #expect(janela.fracao(60) == 0)
-        #expect(janela.fracao(1_400) == 1)
+    /// O defeito que o dono descreveu: "nem dá pra saber que porra que tá
+    /// agendado e ao invés de colocar scroll tu me deixou as coisas encolhidas
+    /// e amassadas". A densidade não negocia com a largura da tela.
+    @Test("a densidade é fixa: 138 pt por hora, e o eixo é o dia inteiro")
+    func theAxisHasAFixedDensity() {
+        #expect(PlanoDoDia.pontosPorHora == 138)
+        #expect(PlanoDoDia.x(0) == 0)
+        #expect(PlanoDoDia.x(60) == 138)
+        #expect(PlanoDoDia.x(1_410) == 3_243)          // 23h30
+        #expect(PlanoDoDia.larguraDoEixo == 3_312)     // 24 h × 138
+        // E o eixo escreve as vinte e cinco horas cheias, sem rarear: numa
+        // densidade destas nenhuma legenda encosta na outra.
+        #expect(PlanoDoDia.horasDoEixo.count == 25)
+        #expect(PlanoDoDia.horasDoEixo.first == 0)
+        #expect(PlanoDoDia.horasDoEixo.last == 1_440)
     }
 
-    /// O defeito 3 da captura do dono: o dia ia das 9 às 19, e eram 21h40.
-    @Test("o dia dele cabe inteiro no eixo, e o agora das 21h40 também")
-    func theWindowHoldsHisWholeDay() {
-        let blocos = [
-            bloco(id: "madrugada", inicio: 60, minutos: 60),      // 01:00
-            bloco(id: "manha", inicio: 570, minutos: 30),          // 09:30
-            bloco(id: "voo", inicio: 1_410, minutos: 30),          // 23:30
+    /// O outro defeito da captura: blocos virados em chips "01:00" "09:30".
+    @Test("o bloco nunca encolhe abaixo do que o título pede")
+    func aBlockIsNeverNarrowerThanItsTitle() {
+        // Meia hora vale 69 pt; um título medido em 120 pt manda no tamanho.
+        let postos = PlanoDoDia.postos([
+            (id: "odette", startMinute: 570, minutes: 30, tituloEmPontos: 120),
+            (id: "aitherion", startMinute: 1_410, minutes: 60, tituloEmPontos: 40),
+        ])
+        let odette = postos.first { $0.id == "odette" }
+        #expect(odette?.largura == 120 + PlanoDoDia.respiroDoBloco)
+        #expect(odette?.x == PlanoDoDia.x(570))
+        // E o bloco largo o bastante para o título fica com a largura da hora:
+        // uma hora é uma hora, e não o tamanho da palavra.
+        #expect(postos.first { $0.id == "aitherion" }?.largura == 138)
+    }
+
+    /// Antes o segundo bloco era empurrado para a direita — e aí o eixo mentia
+    /// sobre a hora dele.
+    @Test("dois blocos que se sobrepõem descem de sub-linha, e não de horário")
+    func overlapDropsToASubLine() {
+        let postos = PlanoDoDia.postos([
+            (id: "a", startMinute: 780, minutes: 20, tituloEmPontos: 200),
+            (id: "b", startMinute: 800, minutes: 45, tituloEmPontos: 100),
+            (id: "c", startMinute: 1_200, minutes: 30, tituloEmPontos: 40),
+        ])
+        let porID = Dictionary(uniqueKeysWithValues: postos.map { ($0.id, $0) })
+        #expect(porID["a"]?.subLinha == 0)
+        #expect(porID["b"]?.subLinha == 1)
+        // O que desceu continua exatamente no minuto em que começa.
+        #expect(porID["b"]?.x == PlanoDoDia.x(800))
+        // E quem não colide com ninguém volta para a sub-linha de cima.
+        #expect(porID["c"]?.subLinha == 0)
+    }
+
+    /// O 01:00 duplicado da captura: duas contas espelhando o mesmo calendário.
+    @Test("a mesma reunião vinda de duas contas vira um bloco só")
+    func theSameMeetingFromTwoAccountsIsOneBlock() {
+        let espelhada = [
+            AgendaItem(
+                id: "gmail-luna", title: "Luna · Dev time weekly",
+                startMinute: 60, endMinute: 120, accountID: "gmail",
+                calendarUID: "luna-weekly"
+            ),
+            AgendaItem(
+                id: "vantion-luna", title: "Luna · Dev time weekly",
+                startMinute: 60, endMinute: 120, accountID: "vantion",
+                calendarUID: "luna-weekly"
+            ),
         ]
-        let janela = PlanoDoDia.janela(blocos: blocos, nowMinute: 1_300) // 21h40
-        #expect(janela.inicio == 0)
-        #expect(janela.fim == 1_440)
-        // O marcador do agora cai **dentro** do eixo, e não colado na borda.
-        let agora = janela.fracao(1_300)
-        #expect(agora > 0.85 && agora < 1)
-        // E os três blocos são distinguíveis, cada um na sua fração.
-        #expect(janela.fracao(60) < janela.fracao(570))
-        #expect(janela.fracao(570) < janela.fracao(1_410))
-    }
-
-    @Test("o dia comum continua sendo o expediente com folga")
-    func anOrdinaryDayKeepsTheOfficeHours() {
-        let janela = PlanoDoDia.janela(
-            blocos: [bloco(id: "reuniao", inicio: 600, minutos: 60)], nowMinute: 600
+        let blocos = PlanoDoDia.make(
+            agenda: espelhada, replyBlock: nil, replyTitle: "",
+            promessas: [], prazos: [], now: Self.agora, nowMinute: agoraMinuto
         )
-        #expect(janela.inicio == PlanoDoDia.inicioPadrao)
-        #expect(janela.fim == PlanoDoDia.fimPadrao)
-        // Doze horas: uma legenda por hora ainda cabe.
-        #expect(janela.horas.count <= PlanoDoDia.Janela.legendasNoEixo)
-    }
-
-    @Test("o eixo de um dia inteiro rareia as legendas em vez de amontoá-las")
-    func aFullDayThinsTheHourLabels() {
-        let janela = PlanoDoDia.Janela(inicio: 0, fim: 1_440)
-        #expect(janela.horas.count <= PlanoDoDia.Janela.legendasNoEixo)
-        #expect(janela.horas.first == 0)
-        #expect(janela.horas.last == 1_440)
-    }
-
-    /// O defeito 4: "Responder" e "Proposta" um em cima do outro às 13 h.
-    @Test("dois blocos que a largura mínima faria colidir são separados")
-    func minimumWidthNeverStacksTwoBlocks() {
-        // 13:00 com 20 min e 13:20 com 45 min, num eixo de um dia inteiro: no
-        // relógio não se cruzam, na tela cada um ocupa a largura da palavra.
-        let xs = PlanoDoDia.semColisao([(x: 100, largura: 64), (x: 118, largura: 64)])
-        #expect(xs == [100, 164])
-        // E quem já estava separado não é empurrado.
-        #expect(PlanoDoDia.semColisao([(x: 0, largura: 44), (x: 200, largura: 44)])
-            == [0, 200])
+        #expect(blocos.filter { $0.startMinute == 60 }.count == 1)
+        // E sem UID nenhum, o título+horário ainda casa as duas cópias.
+        let semUID = espelhada.map {
+            AgendaItem(
+                id: $0.id, title: $0.title, startMinute: $0.startMinute,
+                endMinute: $0.endMinute, accountID: $0.accountID
+            )
+        }
+        #expect(PlanoDoDia.make(
+            agenda: semUID, replyBlock: nil, replyTitle: "",
+            promessas: [], prazos: [], now: Self.agora, nowMinute: agoraMinuto
+        ).count == 1)
     }
 
     @Test("o FreeSlots devolve folgas distintas para duas propostas seguidas")
@@ -109,13 +133,6 @@ struct PlanoDoDiaTests {
         #expect(
             propostos[1].startMinute
                 >= propostos[0].startMinute + propostos[0].minutes
-        )
-    }
-
-    private func bloco(id: String, inicio: Int, minutos: Int) -> PlanoDoDia.Bloco {
-        PlanoDoDia.Bloco(
-            id: id, trilha: .agenda, tipo: .compromisso, title: id,
-            duration: "", startMinute: inicio, minutes: minutos
         )
     }
 

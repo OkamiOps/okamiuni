@@ -109,18 +109,20 @@ struct PainelDoDiaTests {
                              y: 812..<851) > 20_000)
     }
 
-    /// Defeito 3: o dia ia das 9 às 19, e eram 21h40.
-    @Test("a janela do eixo cobre da 01 h às 23h30, e o agora cai dentro")
+    /// Defeito 3: o dia ia das 9 às 19, e eram 21h40 — e o conserto de então,
+    /// uma janela que se alargava, virou o defeito seguinte: tudo encolhido.
+    @Test("o eixo cobre da 01 h às 23h30 na densidade fixa, sem espremer nada")
     func theAxisCoversHisWholeNight() async throws {
         let modelo = modeloDaNoite(await DiaDoDono.lojaDaNoite())
-        #expect(modelo.janela.inicio == 0)
-        #expect(modelo.janela.fim == 1_440)
-        let agora = modelo.janela.fracao(DiaDoDono.noiteMinuto)
-        #expect(agora > 0.85 && agora < 1, "o marcador do agora saiu do eixo")
         // Os três compromissos do dia estão na trilha da agenda, cada um no
         // seu lugar — inclusive o das 01 h, que o eixo antigo grudava na borda.
         let daAgenda = modelo.blocos.filter { $0.trilha == .agenda }
         #expect(daAgenda.map(\.startMinute).sorted() == [60, 570, 1_410])
+        // E cada um cai numa posição própria do eixo de 3312 pt: a madrugada a
+        // 138 pt da meia-noite, o voo a 3243, o agora das 21h40 no meio.
+        #expect(PlanoDoDia.x(60) == 138)
+        #expect(PlanoDoDia.x(1_410) == 3_243)
+        #expect(PlanoDoDia.x(DiaDoDono.noiteMinuto) < PlanoDoDia.larguraDoEixo)
     }
 
     /// Defeito 6: tudo era "LEAD NOVO", e a newsletter era "ESPERANDO".
@@ -186,6 +188,30 @@ struct PainelDoDiaTests {
         // ausência de `deadline` que o esvazia, não uma leitura que não houve.
         let semPrazo = await DiaDoDono.lojaDaNoite(mensagens: [DiaDoDono.jack])
         #expect(modeloDaNoite(semPrazo).dinheiro.isEmpty)
+    }
+
+    /// A noite dele com nomes de verdade nos blocos: o teste que se olha para
+    /// responder "dá para saber o que está agendado sem clicar?".
+    @Test("o plano da noite desenha os nomes, e não chips de hora")
+    func hisPlanShowsNames() async throws {
+        let store = await DiaDoDono.lojaDaNoite(agenda: [
+            AgendaItem(
+                id: "luna", title: "Luna · Dev time weekly",
+                startMinute: 60, endMinute: 120, accountID: "gmail"
+            ),
+            AgendaItem(
+                id: "odette", title: "Termin de Odette",
+                startMinute: 570, endMinute: 600, accountID: "gmail"
+            ),
+            AgendaItem(
+                id: "aitherion", title: "Aitherion Labs · Estratégia Econômica",
+                startMinute: 1_410, endMinute: 1_440, accountID: "vantion"
+            ),
+        ])
+        let rep = try #require(Render.snapshot(
+            telaDaNoite(store), named: "plano", size: Self.size, theme: .okami
+        ))
+        #expect(rep.pixelsWide == 1_440)
     }
 
     @Test("o painel da noite dele desenha em okami")

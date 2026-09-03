@@ -378,7 +378,6 @@ struct PainelDoDia: View {
             }
             PainelLinhaDoTempo(
                 blocos: modelo.blocos,
-                janela: modelo.janela,
                 nowMinute: now,
                 onTapProposto: { _ in ajustando = true }
             )

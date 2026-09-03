@@ -277,14 +277,15 @@ enum DiaDoDono {
     /// A caixa da captura: seis azulejos, o dia inteiro na agenda, 21h40 no
     /// relógio e **nenhuma** resposta pronta.
     static func lojaDaNoite(
-        mensagens: [Message]? = nil, pendentes: [PendingItem] = []
+        mensagens: [Message]? = nil, pendentes: [PendingItem] = [],
+        agenda: [AgendaItem]? = nil
     ) async -> MailStore {
         let quando = noite
         let store = MailStore(
             source: InMemoryMailSource(
                 accounts: contas,
                 messages: mensagens ?? seisAzulejos,
-                agenda: agendaDaNoite,
+                agenda: agenda ?? agendaDaNoite,
                 pendingItems: pendentes
             ),
             agendaReferenceDay: { quando }

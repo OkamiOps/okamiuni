@@ -92,8 +92,6 @@ struct PainelDoDiaModelo {
     let legendaDaEspera: String
     /// O motivo de não haver prontas — `nil` quando há.
     let motivoSemProntas: MotivoSemProntas?
-    /// A janela do eixo deste dia.
-    let janela: PlanoDoDia.Janela
     let legendaDosCompromissos: String
     let foraDaLista: String
     let progresso: Double
@@ -319,9 +317,6 @@ struct PainelDoDiaModelo {
         )
         blocos = linhaDoTempo
         propostos = linhaDoTempo.filter { $0.tipo == .proposto }
-        // O eixo é o dia que ele tem: a reunião da 01 h e o voo das 23h30
-        // entram, e às 21h40 o marcador do agora ainda cai dentro da janela.
-        janela = PlanoDoDia.janela(blocos: linhaDoTempo, nowMinute: nowMinute)
 
         // Agora sim: cada promessa herda o horário que a linha do tempo lhe
         // deu, e "Reservar 13:00" nunca aparece duas vezes.

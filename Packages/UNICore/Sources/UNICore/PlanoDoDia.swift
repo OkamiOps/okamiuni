@@ -3,11 +3,12 @@ import Foundation
 /// A linha do tempo do "Plano de hoje" (`design/11-painel-do-dia.dc.html`):
 /// duas trilhas — o que já está marcado e o que a IA propõe — no mesmo eixo.
 ///
-/// **O eixo é o dia que a pessoa tem, não o expediente que o mockup desenhou.**
-/// Um eixo fixo de 09 h às 19 h escondia a reunião da 01 h e o voo das 23h30, e
-/// às 21h40 não tinha sequer onde pôr o marcador do agora — a tela dizia que o
-/// dia já tinha acabado. A janela sai de `janela(blocos:nowMinute:)`, é pura, e
-/// **sempre** contém o agora.
+/// **A densidade é fixa: 138 pt por hora, sempre.** A janela que se estreitava
+/// para caber na largura da tela foi o defeito que o dono descreveu — "nem dá
+/// pra saber que porra que tá agendado": o dia inteiro espremido em 1380 pt dá
+/// 57 pt por hora, e nesse tamanho todo bloco vira um chip de "01:00" sem
+/// título. Agora o eixo tem o tamanho do dia (24 h × 138 = 3312 pt) e quem se
+/// move é a rolagem, não o desenho.
 ///
 /// **Pura.** Entra a agenda, o bloco de resposta do `DayPlan`, as promessas que
 /// vencem hoje e os prazos do dia; sai a lista de blocos com posição. Nenhuma
@@ -19,14 +20,31 @@ import Foundation
 /// sempre.
 public enum PlanoDoDia {
 
-    /// O mínimo que o eixo mostra mesmo num dia vazio: das 08 h às 20 h. É o
-    /// piso da janela, nunca o teto — o que existe fora disso a alarga.
-    public static let inicioPadrao = 480
-    public static let fimPadrao = 1_200
+    /// Quantos pontos vale uma hora do eixo. É a medida do mockup aprovado:
+    /// uma janela de dez horas ocupando a largura inteira do painel dá 138 pt
+    /// por hora, e é essa densidade que faz um bloco de meia hora ter 69 pt —
+    /// espaço para "Odette" em vez de para "09:30".
+    public static let pontosPorHora: Double = 138
 
-    /// A folga que o eixo dá antes do primeiro e depois do último bloco, para
-    /// nenhum deles nascer colado na borda.
-    public static let margem = 30
+    /// O eixo cobre o dia inteiro: 00 h às 24 h. Nada de janela que encolhe.
+    public static let minutosDoDia = 1_440
+
+    /// A largura total do eixo, em pontos. É o conteúdo da rolagem.
+    public static var larguraDoEixo: Double {
+        Double(minutosDoDia) / 60 * pontosPorHora
+    }
+
+    /// A folga interna do bloco — 9 pt de cada lado do texto. Entra na largura
+    /// mínima porque um bloco do tamanho exato da palavra a encosta na borda.
+    public static let respiroDoBloco: Double = 18
+
+    /// Quanto a trilha cresce quando um bloco precisa descer de sub-linha.
+    public static let alturaDaSubLinha: Double = 30
+
+    /// Onde o minuto cai no eixo, em pontos a partir da meia-noite.
+    public static func x(_ minute: Int) -> Double {
+        Double(minute) / 60 * pontosPorHora
+    }
 
     /// Até quando uma promessa sem hora pode ser encaixada: o fim do
     /// expediente, que é o mesmo limite que o `FreeSlots` já respeita.
@@ -108,81 +126,59 @@ public enum PlanoDoDia {
         }
     }
 
-    /// A janela do eixo: de onde a onde o dia é desenhado.
-    ///
-    /// **Pura, e sempre contém o agora.** Início e fim são arredondados à hora
-    /// para as legendas caírem em horas cheias, e ficam dentro do dia (0 a
-    /// 1440) porque não existe eixo antes da meia-noite.
-    public struct Janela: Sendable, Hashable {
-        public let inicio: Int
-        public let fim: Int
-
-        public init(inicio: Int, fim: Int) {
-            self.inicio = min(max(inicio, 0), 1_440)
-            // Uma janela de largura zero dividiria por zero na fração.
-            self.fim = min(max(fim, self.inicio + 60), 1_440)
-        }
-
-        /// Onde o minuto cai no eixo, de 0 a 1. Fora da janela, gruda na borda.
-        public func fracao(_ minute: Int) -> Double {
-            let bruta = Double(minute - inicio) / Double(fim - inicio)
-            return min(max(bruta, 0), 1)
-        }
-
-        /// As horas que o eixo escreve. O passo dobra enquanto as legendas não
-        /// couberem: um dia inteiro com vinte e quatro "00 01 02…" seria uma
-        /// régua ilegível, e o eixo existe para ser lido.
-        public var horas: [Int] {
-            var passo = 60
-            while (fim - inicio) / passo > Self.legendasNoEixo { passo *= 2 }
-            let primeira = ((inicio + passo - 1) / passo) * passo
-            return Array(stride(from: primeira, through: fim, by: passo))
-        }
-
-        /// Quantas legendas cabem no eixo sem se tocarem, na largura que o
-        /// painel dá à linha do tempo.
-        static let legendasNoEixo = 14
+    /// As horas que o eixo escreve: todas, das 00 às 24. Numa densidade de
+    /// 138 pt por hora nenhuma legenda encosta na outra, então não há o que
+    /// rarear — rarear era consequência da janela que espremia.
+    public static var horasDoEixo: [Int] {
+        Array(stride(from: 0, through: minutosDoDia, by: 60))
     }
 
-    /// A janela deste dia: o expediente padrão alargado pelo que existe fora
-    /// dele, e pelo agora.
-    ///
-    /// - início: o menor entre 08 h e o primeiro bloco menos meia hora;
-    /// - fim: o maior entre 20 h, o último bloco mais meia hora, e o agora mais
-    ///   uma hora — é esta última parcela que garante que o marcador do agora
-    ///   nunca fica encostado na borda direita às 21h40.
-    public static func janela(blocos: [Bloco], nowMinute: Int) -> Janela {
-        let primeiro = blocos.map(\.startMinute).min()
-        let ultimo = blocos.map { $0.startMinute + $0.minutes }.max()
+    /// Onde um bloco cai depois de resolvida a sobreposição: a posição no eixo,
+    /// a largura que ele exige, e em que sub-linha da trilha ele ficou.
+    public struct Posto: Sendable, Hashable, Identifiable {
+        public let id: String
+        public let x: Double
+        public let largura: Double
+        /// 0 é a sub-linha de cima. Cada sub-linha a mais faz a trilha crescer
+        /// `alturaDaSubLinha`.
+        public let subLinha: Int
 
-        var inicio = min(inicioPadrao, (primeiro ?? inicioPadrao) - margem)
-        var fim = max(fimPadrao, (ultimo ?? fimPadrao) + margem, nowMinute + 60)
-
-        // Arredonda para fora: a legenda é de hora cheia dos dois lados.
-        inicio = Int(floor(Double(inicio) / 60)) * 60
-        fim = Int(ceil(Double(fim) / 60)) * 60
-
-        // E o agora entra sempre — um dia que começa às 08 h não pode esconder
-        // um marcador das 03 h.
-        inicio = min(inicio, (nowMinute / 60) * 60)
-        return Janela(inicio: inicio, fim: fim)
+        public init(id: String, x: Double, largura: Double, subLinha: Int) {
+            self.id = id
+            self.x = x
+            self.largura = largura
+            self.subLinha = subLinha
+        }
     }
 
-    /// Empurra para a direita o bloco que a largura mínima faria cair em cima
-    /// do anterior.
+    /// A posição de cada bloco de **uma** trilha, sem nunca encolher nem
+    /// abreviar.
     ///
-    /// Existe porque a colisão não é de horário: dois blocos de vinte minutos
-    /// separados por vinte minutos **não** se sobrepõem no relógio, mas num
-    /// eixo de um dia inteiro cada um ocupa a largura mínima que a palavra
-    /// exige, e aí sim um cobre o outro. A regra é a mesma da agenda: o segundo
-    /// começa onde o primeiro acaba. Entra em ordem de `x`.
-    public static func semColisao(_ blocos: [(x: Double, largura: Double)]) -> [Double] {
-        var saida: [Double] = []
-        var cursor = -Double.greatestFiniteMagnitude
-        for bloco in blocos {
-            let x = max(bloco.x, cursor)
-            saida.append(x)
-            cursor = x + bloco.largura
+    /// A largura é o maior entre a duração (`minutes` na densidade fixa) e o que
+    /// o título pede — é isto que cria a sobreposição, porque dois blocos de
+    /// vinte minutos separados por vinte minutos não se cruzam no relógio mas
+    /// cruzam na palavra. Antes o segundo era **empurrado para a direita**, e
+    /// aí o eixo mentia sobre a hora dele; agora ele **desce de sub-linha** e
+    /// continua exatamente no minuto em que começa.
+    ///
+    /// `tituloEmPontos` é a largura medida do texto do bloco — quem sabe medir
+    /// tipo é a `View`, e ela entra por aqui em vez de a regra descer para lá.
+    public static func postos(
+        _ entradas: [(id: String, startMinute: Int, minutes: Int, tituloEmPontos: Double)]
+    ) -> [Posto] {
+        var fimDaSubLinha: [Double] = []
+        var saida: [Posto] = []
+        for entrada in entradas.sorted(by: { $0.startMinute < $1.startMinute }) {
+            let x = x(entrada.startMinute)
+            let largura = max(
+                Double(entrada.minutes) / 60 * pontosPorHora,
+                entrada.tituloEmPontos + respiroDoBloco
+            )
+            var linha = 0
+            while linha < fimDaSubLinha.count, x < fimDaSubLinha[linha] { linha += 1 }
+            if linha == fimDaSubLinha.count { fimDaSubLinha.append(0) }
+            fimDaSubLinha[linha] = x + largura
+            saida.append(Posto(id: entrada.id, x: x, largura: largura, subLinha: linha))
         }
         return saida
     }
@@ -205,7 +201,16 @@ public enum PlanoDoDia {
     ) -> [Bloco] {
         var blocos: [Bloco] = []
         // Ocupado: o que já está marcado mais o que este plano já propôs.
-        var ocupado = agenda.filter { $0.dayOffset == 0 && !$0.isCancelled }
+        //
+        // **Coalescido, como a grade da Agenda já fazia.** A mesma reunião
+        // chega por duas contas que espelham o mesmo calendário, e por três
+        // origens (EventKit, convite por email, "Colocar na agenda"); sem esta
+        // linha ela virava dois blocos idênticos à 01 h na tela do dono. O
+        // conserto é aqui, na fonte: um `Set` na `View` esconderia a cópia da
+        // linha do tempo e a deixaria contando duas vezes em todo o resto.
+        var ocupado = InviteAgenda.coalesce(
+            agenda.filter { $0.dayOffset == 0 && !$0.isCancelled }
+        )
 
         for item in ocupado.sorted(by: { $0.startMinute < $1.startMinute }) {
             blocos.append(Bloco(
