@@ -14,10 +14,7 @@ struct DashboardFocusTests {
             nowMinute: Fixtures.nowMinute
         )
         #expect(snap.mail.map(\.id) == ["m6", "m1", "m4", "m2", "m3"])
-        // `m6` é lead **e** prazo, e a etiqueta passou a dizer o mais
-        // específico dos dois: uma data manda mais do que uma categoria. Ver
-        // `DashboardFocus.strongestReason`.
-        #expect(snap.mail.map(\.reason) == [.deadline, .needsReply, .needsReply, .deadline, .unread])
+        #expect(snap.mail.map(\.reason) == [.lead, .needsReply, .needsReply, .deadline, .unread])
         #expect(snap.mail.contains { $0.id == "m5" } == false)
         #expect(snap.mail.contains { $0.id == "m7" } == false)
         #expect(snap.meetings.map(\.id) == ["e3", "e4", "e5"])

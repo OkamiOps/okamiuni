@@ -95,6 +95,8 @@ public struct AccountsWindow: View {
     @State private var selectedAccountID: String?
     @State private var addingAccount = false
     @State private var removendo: String?
+    /// A conta cujo formulário de reconexão IMAP está aberto. `nil` fechado.
+    @State private var reconectandoImap: AccountStatus?
 
     public init(
         model: AccountsModel,
@@ -159,6 +161,9 @@ public struct AccountsWindow: View {
             Button("Cancelar", role: .cancel) { removendo = nil }
         } message: {
             Text("As mensagens já baixadas e a senha guardada no Keychain serão apagadas. A conta no servidor não é tocada.")
+        }
+        .sheet(item: $reconectandoImap) { status in
+            ReconnectImapForm(model: model, status: status) { reconectandoImap = nil }
         }
     }
 
@@ -535,24 +540,6 @@ public struct AccountsWindow: View {
                     accountState(status)
                     informationCard(status)
 
-                    HStack(spacing: 10) {
-                        ForEach(AccountsCopy.actions(for: status).filter { $0 != .remove }) { action in
-                            Button(action.label) { execute(action, on: status.accountID) }
-                                .buttonStyle(.plain)
-                                .font(theme.sans.font(size: 12, weight: .semibold))
-                                .foregroundStyle(theme.accent.color)
-                                .padding(.horizontal, 13)
-                                .frame(height: 30)
-                                .background(theme.surface2.color, in: RoundedRectangle(cornerRadius: 8))
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .strokeBorder(theme.line2.color, lineWidth: Hairline.thickness(displayScale))
-                                }
-                                .help(action.help)
-                        }
-                        Spacer(minLength: 0)
-                    }
-
                     Rectangle()
                         .fill(theme.line.color)
                         .frame(height: Hairline.thickness(displayScale))
@@ -607,13 +594,59 @@ public struct AccountsWindow: View {
                     .font(theme.sans.font(size: 11.5))
                     .foregroundStyle(AccountsCopy.isFailing(status) ? theme.danger.color : theme.ink3.color)
                     .fixedSize(horizontal: false, vertical: true)
+                if let nota = AccountsCopy.reconnectBlockedNote(for: status) {
+                    // O botão que não pode funcionar não aparece — mas a razão
+                    // de ele não aparecer, sim. Sem esta frase, a faixa que o
+                    // dono viu oferecia "Ver o roteiro" e "Remover conta…" e
+                    // deixava a pessoa concluir que a saída era apagar tudo.
+                    Text(nota)
+                        .font(theme.sans.font(size: 11.5))
+                        .foregroundStyle(theme.ink3.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 if let progress = status.progress, progress.total > 0 {
                     ProgressView(value: progress.fraction)
                         .tint(theme.accent.color)
                         .frame(maxWidth: 300)
                 }
+                if AccountsCopy.isFailing(status) { bandActions(status) }
             }
         }
+    }
+
+    /// As ações da faixa, com a primeira em destaque.
+    ///
+    /// A hierarquia é o conserto: a faixa antiga desenhava as ações de conserto
+    /// numa fileira apagada lá embaixo e o "Remover conta…" em vermelho no pé,
+    /// e o vermelho era a única coisa que se via. Aqui a ação que resolve é a
+    /// que tem peso, e a destrutiva continua existindo — no pé, onde já mora.
+    private func bandActions(_ status: AccountStatus) -> some View {
+        let acoes = AccountsCopy.actions(for: status).filter { $0 != .remove }
+        return HStack(spacing: 8) {
+            ForEach(Array(acoes.enumerated()), id: \.element) { indice, acao in
+                Button(acao.label) { execute(acao, on: status) }
+                    .buttonStyle(.plain)
+                    .font(theme.sans.font(size: 12, weight: .semibold))
+                    .foregroundStyle(indice == 0 ? theme.onAccent.color : theme.accent.color)
+                    .padding(.horizontal, 13)
+                    .frame(height: 28)
+                    .background(
+                        indice == 0 ? theme.accent.color : theme.surface2.color,
+                        in: RoundedRectangle(cornerRadius: 8)
+                    )
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .strokeBorder(
+                                indice == 0 ? theme.accent.color : theme.line2.color,
+                                lineWidth: Hairline.thickness(displayScale)
+                            )
+                    }
+                    .help(acao.help)
+                    .focusRing(cornerRadius: 8)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 4)
     }
 
     private func informationCard(_ status: AccountStatus) -> some View {
@@ -667,13 +700,23 @@ public struct AccountsWindow: View {
         return theme.success.color
     }
 
-    private func execute(_ action: AccountRowAction, on accountID: String) {
+    /// **Reconectar não é recarregar.** Era: `.reconnect` caía no mesmo
+    /// `loadInitial` do "Tentar de novo", que baixa mensagens com a credencial
+    /// que já foi recusada e volta com o mesmo erro. Agora ele refaz a
+    /// autorização da conta que existe — OAuth no Google, formulário de senha
+    /// no IMAP —, preservando id, banco, fila e preferências.
+    private func execute(_ action: AccountRowAction, on status: AccountStatus) {
         switch action {
-        case .reconnect: Task { await model.loadInitial(accountID) }
-        case .retry: Task { await model.loadInitial(accountID) }
-        case .retryQueue: Task { await model.retryQueue(accountID) }
+        case .reconnect:
+            switch AccountsCopy.reconnectRoute(for: status) {
+            case .google: Task { await model.reconnectGoogle(status.accountID) }
+            case .imapForm: reconectandoImap = status
+            case nil: break
+            }
+        case .retry: Task { await model.loadInitial(status.accountID) }
+        case .retryQueue: Task { await model.retryQueue(status.accountID) }
         case .openRoteiro: AccountsDocs.open(AccountsDocs.oauthGoogle)
-        case .remove: removendo = accountID
+        case .remove: removendo = status.accountID
         }
     }
 }

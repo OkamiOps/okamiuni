@@ -304,10 +304,33 @@ enum DashboardMetrics {
     }
 
     /// A leitura da linha em voz alta.
+    ///
+    /// A conta entra logo depois do remetente porque é lá que ela responde à
+    /// pergunta que a pessoa faz primeiro — "isto chegou em qual caixa?". Vazia
+    /// some inteira, com a vírgula: uma leitura que diz "Jack, , Precisa
+    /// resposta" é pior do que uma que não diz a conta.
     static func rowAccessibilityLabel(
-        sender: String, subject: String, reason: DashboardFocus.Reason
+        sender: String, subject: String, reason: DashboardFocus.Reason,
+        account: String = ""
     ) -> String {
-        "\(sender), \(reason.label), \(subject)"
+        let partes = [sender, account, reason.label, subject].filter { !$0.isEmpty }
+        return partes.joined(separator: ", ")
+    }
+
+    /// A marca da conta que o selo da linha escreve, em versalete.
+    ///
+    /// A marca do host quando ela existe; o domínio do endereço quando não —
+    /// o que não vale é a linha ficar muda, que é a queixa ("eu não sei qual a
+    /// caixa"). Nunca o endereço inteiro: a linha já tem remetente, assunto e
+    /// hora, e `marcos@okamiops.com` empurraria os três.
+    static let accountMarkLimit = 10
+
+    static func accountMark(host: String, address: String) -> String {
+        let marca = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        let bruta = marca.isEmpty
+            ? String(address.split(separator: "@").last?.split(separator: ".").first ?? "")
+            : marca
+        return String(bruta.prefix(accountMarkLimit)).uppercased()
     }
 
     // MARK: - Chips de motivo
@@ -331,7 +354,10 @@ enum DashboardMetrics {
         case .needsReply, .deadline: .warning
         case .lead: .lead
         case .flagged: .flagged
-        case .unread, .today: .quiet
+        // Disparo é discreto de propósito: ele está na coluna para ser
+        // reconhecido e ignorado, não para chamar. Pintá-lo de `warning`
+        // devolveria o defeito de sete linhas gritando o mesmo.
+        case .broadcast, .unread, .today: .quiet
         }
     }
 }

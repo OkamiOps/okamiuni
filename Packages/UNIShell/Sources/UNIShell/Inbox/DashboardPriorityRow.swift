@@ -18,6 +18,12 @@ struct DashboardPriorityRow: View {
 
     let item: DashboardFocus.MailItem
     let tint: Color
+    /// A marca da conta, em versalete — "OKAMIOPS", "VANTION", "GMAIL".
+    ///
+    /// A barra de tinta sozinha não bastava: cor é uma coisa que a pessoa
+    /// precisa ter decorado, e a queixa do dono foi literal ("eu não sei qual
+    /// a caixa"). Vazia some, e a linha volta a ser a de antes.
+    let accountMark: String
     let isUnread: Bool
     let isSelected: Bool
     let today: Date
@@ -31,6 +37,7 @@ struct DashboardPriorityRow: View {
     init(
         item: DashboardFocus.MailItem,
         tint: Color,
+        accountMark: String = "",
         isUnread: Bool,
         isSelected: Bool,
         today: Date,
@@ -39,6 +46,7 @@ struct DashboardPriorityRow: View {
     ) {
         self.item = item
         self.tint = tint
+        self.accountMark = accountMark
         self.isUnread = isUnread
         self.isSelected = isSelected
         self.today = today
@@ -68,7 +76,8 @@ struct DashboardPriorityRow: View {
         .simultaneousGesture(TapGesture(count: 2).onEnded { onOpen() })
         .accessibilityLabel(
             DashboardMetrics.rowAccessibilityLabel(
-                sender: message.listHeadline, subject: message.subject, reason: item.reason
+                sender: message.listHeadline, subject: message.subject,
+                reason: item.reason, account: accountMark
             )
         )
         .accessibilityAddTraits(isSelected ? .isSelected : [])
@@ -82,6 +91,13 @@ struct DashboardPriorityRow: View {
                     .foregroundStyle(theme.ink.color)
                     .lineLimit(1)
                 Spacer(minLength: 8)
+                // A conta ao lado da hora, e não colada no remetente: ali ela
+                // divide a calha com o carimbo — que é a informação de mesma
+                // natureza, "onde e quando isto caiu" — em vez de empurrar o
+                // nome de quem escreveu, que é o que a linha existe para dizer.
+                if !accountMark.isEmpty {
+                    TintChip(label: accountMark, tint: tint, emphasized: isSelected)
+                }
                 timeStamp
                     .font(theme.mono.font(size: DashboardMetrics.timeSize))
                     .foregroundStyle(theme.ink4.color)

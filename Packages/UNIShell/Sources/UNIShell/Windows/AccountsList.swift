@@ -125,11 +125,65 @@ public enum AccountsCopy {
     /// A ação que o erro pede. Duas ações diferentes porque são dois problemas
     /// diferentes: mandar reconectar quem só perdeu o wi-fi é fazer a pessoa
     /// refazer o consentimento à toa.
+    ///
+    /// Quem responde "esta falha se resolve reconectando?" é o próprio
+    /// `SyncError` (`pedeReconexao`), e não um `switch` escrito aqui: uma
+    /// segunda leitura na camada de janela divergiria da primeira no primeiro
+    /// caso novo, e a divergência apareceria como um botão que não funciona.
     public static func action(for erro: SyncError) -> String {
+        if erro.pedeReconexao { return "Reconectar" }
         switch erro {
-        case .autenticacao, .autorizacaoRevogada: "Reconectar"
-        case .semClientID: "Ver o roteiro"
-        default: "Tentar de novo"
+        case .semClientID: return "Ver o roteiro"
+        default: return "Tentar de novo"
+        }
+    }
+
+    /// Por onde a reconexão desta conta passa.
+    ///
+    /// `nil` quando a causa não se resolve reconectando — e é aí que
+    /// `reconnectBlockedNote` tem o que dizer.
+    public enum ReconnectRoute: Hashable, Sendable {
+        /// O consentimento do Google, no navegador.
+        case google
+        /// O formulário de senha, já preenchido com endereço e servidor.
+        case imapForm
+    }
+
+    public static func reconnectRoute(for s: AccountStatus) -> ReconnectRoute? {
+        guard let erro = cause(of: s), erro.pedeReconexao else { return nil }
+        return s.provider == .gmail ? .google : .imapForm
+    }
+
+    /// A ação **primária** da faixa de atenção: a primeira que a causa pede.
+    ///
+    /// Existe como valor porque "qual botão é o primário" é regra de produto e
+    /// a faixa a desenha em destaque — e porque a resposta interessa ao teste
+    /// sem renderizar janela nenhuma.
+    public static func primary(for s: AccountStatus) -> AccountRowAction? {
+        guard isFailing(s) else { return nil }
+        return actions(for: s).first { $0 != .remove }
+    }
+
+    /// Por que esta conta **não** oferece Reconectar. `nil` quando ela oferece,
+    /// ou quando não há nada de errado com ela.
+    ///
+    /// A faixa que o dono viu não tinha botão de reconectar e também não dizia
+    /// por quê — e sem a frase, a ausência do botão parece esquecimento do app
+    /// em vez do que é: falta uma credencial **do aplicativo**, e nenhum
+    /// consentimento de usuário a produz.
+    public static func reconnectBlockedNote(for s: AccountStatus) -> String? {
+        guard let erro = cause(of: s), !erro.pedeReconexao else { return nil }
+        switch erro {
+        case .semClientID:
+            return """
+                Isto não se resolve reconectando: o que falta é o OAuth Client ID \
+                do aplicativo, não a sua autorização.
+                """
+        default:
+            // Rede, TLS e quota passam sozinhas. Dizer "não dá para reconectar"
+            // aqui assustaria à toa: a saída é "Tentar de novo", que já está na
+            // faixa ao lado.
+            return nil
         }
     }
 
@@ -172,7 +226,7 @@ public enum AccountsCopy {
         var acoes: [AccountRowAction] = []
         if let erro = cause(of: s) {
             switch erro {
-            case .autenticacao, .autorizacaoRevogada:
+            case _ where erro.pedeReconexao:
                 acoes.append(.reconnect(erro))
             case .semClientID:
                 // Não é reconectar: não há credencial revogada para refazer,
@@ -196,13 +250,14 @@ public enum AccountsCopy {
     /// O balão da ação — por que ela é *esta* e não a outra. A regra do marco
     /// anterior vale igual aqui: controle que existe explica o que faz.
     public static func actionHelp(for erro: SyncError) -> String {
+        if erro.pedeReconexao {
+            return "Refazer a autorização desta conta, sem apagar as mensagens nem a fila"
+        }
         switch erro {
-        case .autenticacao, .autorizacaoRevogada:
-            "Refazer a autorização desta conta"
         case .semClientID:
-            "Abrir docs/oauth-google.md, que diz o que falta"
+            return "Abrir docs/oauth-google.md, que diz o que falta"
         default:
-            "Repetir a última operação desta conta"
+            return "Repetir a última operação desta conta"
         }
     }
 

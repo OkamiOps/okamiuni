@@ -244,7 +244,8 @@ public actor AccountDirector {
                 isSyncing: cycling.contains(linha.conta.id),
                 remoteInboxCount: remoteInboxCounts[linha.conta.id],
                 sendAliases: linha.conta.sendAliases,
-                provider: linha.conta.provider
+                provider: linha.conta.provider,
+                imap: linha.conta.imap
             )
         }
     }

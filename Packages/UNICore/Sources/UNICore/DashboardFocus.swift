@@ -399,17 +399,23 @@ public struct DashboardFocus: Sendable, Hashable {
     /// a etiqueta diz **por quê**. Uma mensagem pode ser as três coisas ao
     /// mesmo tempo, e a linha só tem espaço para uma palavra.
     ///
-    /// A ordem é da mais específica para a mais genérica — prazo, lead,
+    /// A ordem é da mais específica para a mais genérica — lead, prazo,
     /// resposta —, e não a da soma. "Precisa resposta" é verdade sobre quase
     /// tudo que chega e por isso informa pouco; "Prazo" traz uma data e "Lead"
     /// traz dinheiro, e são elas que dizem o que fazer primeiro. Foi
     /// justamente a etiqueta genérica repetida sete vezes que fez a coluna do
     /// dono custar atenção sem devolver nada.
+    ///
+    /// Lead vem antes de prazo porque é o mais raro dos três e o que muda de
+    /// natureza: um prazo é uma data dentro de um trabalho que já existe, e um
+    /// lead é trabalho que ainda não existe. A faixa HOJE conta leads por esta
+    /// etiqueta (`DashboardToday`), e rebaixá-la faria a faixa parar de contar
+    /// um lead com data marcada — que é o mais valioso dos dois.
     private static func strongestReason(
         deadline: Bool, lead: Bool, needsReply: Bool
     ) -> Reason? {
-        if deadline { return .deadline }
         if lead { return .lead }
+        if deadline { return .deadline }
         if needsReply { return .needsReply }
         return nil
     }

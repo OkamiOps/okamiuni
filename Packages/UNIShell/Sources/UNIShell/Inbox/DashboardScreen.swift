@@ -300,6 +300,7 @@ struct DashboardScreen: View {
         return DashboardPriorityRow(
             item: item,
             tint: accountTint(message.accountID).color,
+            accountMark: accountMark(message.accountID),
             isUnread: !message.isRead,
             isSelected: selectedID == message.id,
             today: today,
@@ -677,6 +678,13 @@ struct DashboardScreen: View {
         if let hit = focus.mail.first(where: { $0.id == id }) { return hit }
         guard let message = store.message(id) else { return focus.mail.first }
         return DashboardFocus.MailItem(message: message, reason: .today)
+    }
+
+    /// A marca da conta que a linha de prioridade escreve. A regra é de
+    /// `DashboardMetrics`; aqui só se busca a conta.
+    private func accountMark(_ accountID: String) -> String {
+        guard let account = store.account(accountID) else { return "" }
+        return DashboardMetrics.accountMark(host: account.host, address: account.address)
     }
 
     private func accountTint(_ accountID: String) -> TokenColor {

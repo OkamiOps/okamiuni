@@ -56,6 +56,14 @@ public struct AccountStatus: Sendable, Hashable, Identifiable {
     /// Aliases de envio desta conta. Vazio é "só o endereço principal".
     public let sendAliases: [SendAlias]
     public let provider: Account.Provider
+    /// O servidor IMAP desta conta, quando ela é IMAP. `nil` no Gmail por
+    /// OAuth e em qualquer conta que não fale IMAP.
+    ///
+    /// Existe para o formulário de reconexão nascer **preenchido**: pedir a
+    /// quem já tem a conta que redigite host, porta e forma de TLS para trocar
+    /// uma senha é o mesmo que mandá-la adicionar a conta de novo, que é a
+    /// queixa que o Reconectar existe para não repetir.
+    public let imap: ImapEndpoint?
 
     public init(
         accountID: String, address: String, hostMark: String,
@@ -68,8 +76,10 @@ public struct AccountStatus: Sendable, Hashable, Identifiable {
         isSyncing: Bool = false,
         remoteInboxCount: Int? = nil,
         sendAliases: [SendAlias] = [],
-        provider: Account.Provider = .imap
+        provider: Account.Provider = .imap,
+        imap: ImapEndpoint? = nil
     ) {
+        self.imap = imap
         let resolvedSignature = emailSignature ?? EmailSignature(legacyText: signature)
         self.pendingOperations = pendingOperations
         self.queueError = queueError
