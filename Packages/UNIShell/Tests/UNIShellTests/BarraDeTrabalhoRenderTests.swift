@@ -105,9 +105,12 @@ struct BarraDeTrabalhoRenderTests {
         let store = await loja(3, corpoLongo: true)
         let carga = ChromeWorkload.combining([.sync(.ready)])
         #expect(!carga.isBusy)
+        // O sucessor de `assistantHugsList`: o campo do assistente saiu do
+        // dashboard no 08 (o botão "Perguntar · ⌘J" o substitui), então o que
+        // resta afirmar é que a carga quieta escreve o relógio, não "Atualizando…".
         #expect(
-            DashboardMetrics.assistantHugsList(rowCount: 3, hasTranscript: false),
-            "com três linhas o campo tem de subir"
+            DashboardMetrics.updateLabel(nowMinute: Fixtures.nowMinute, isBusy: carga.isBusy)
+                .hasPrefix("Atualizado agora")
         )
         _ = try #require(Render.snapshot(
             tela(store: store, conversation: conversation(), workload: carga),
@@ -118,7 +121,6 @@ struct BarraDeTrabalhoRenderTests {
     @Test("muitos itens: a lista enche a coluna e o campo volta para o rodapé")
     func manyRowsKeepTheMockupFlexpad() async throws {
         let store = await loja(7, corpoLongo: true)
-        #expect(!DashboardMetrics.assistantHugsList(rowCount: 7, hasTranscript: false))
         _ = try #require(Render.snapshot(
             tela(store: store, conversation: conversation(), workload: .combining([.sync(.ready)])),
             named: "muitos", size: Self.size, theme: .okami

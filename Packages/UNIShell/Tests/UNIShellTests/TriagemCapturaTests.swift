@@ -81,13 +81,21 @@ struct TriagemCapturaTests {
                 Text("PRIORIDADES · \(focus.mail.count)").capsLabel()
                     .padding(.bottom, 8)
                 ForEach(focus.mail) { item in
-                    DashboardPriorityRow(
-                        item: item,
+                    DashboardRow(
+                        row: DayPlan.Row(
+                            id: item.id, item: item,
+                            why: item.reason.label,
+                            proposal: .keep(messageID: item.id, why: item.reason.label)
+                        ),
                         tint: Self.tint(item.message.accountID, dark: theme.isDark),
                         accountMark: Self.marca(item.message.accountID),
-                        isUnread: !item.message.isRead,
+                        usedAgenda: false,
                         isSelected: item.id == focus.mail.first?.id,
-                        today: TriagemCapturaTests.agora
+                        isConfirmingSend: false,
+                        today: TriagemCapturaTests.agora,
+                        onSelect: {}, onOpen: {},
+                        onPrimary: {}, onSecondary: {},
+                        onConfirmSend: {}, onCancelSend: {}
                     )
                 }
                 Spacer(minLength: 0)

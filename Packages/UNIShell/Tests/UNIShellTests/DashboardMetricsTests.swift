@@ -4,141 +4,225 @@ import UNICore
 import UNISync
 @testable import UNIShell
 
-/// As medidas do mockup `design/07-dashboard.html`, com o número dos dois
-/// lados — o princípio 1 do README. Esta suíte é **nonisolated** de
-/// propósito: se um dia alguém mover estas contas para dentro de uma `View`
-/// (que é `@MainActor` implícito), o caso quebra na hora, e é essa a lição
-/// registrada em `docs/decisoes-de-engenharia.md`.
-@Suite("Dashboard · medidas do mockup")
+/// As decisões puras do dashboard 08 — rótulos, relógio, fatiamento da
+/// proposta e a coluna do dia. As **medidas** contra o HTML do mockup moram
+/// em `Dashboard08ParityTests`; aqui é o que não é número de CSS.
+///
+/// Suíte **nonisolated** de propósito: se um dia alguém mover estas contas
+/// para dentro de uma `View` (que é `@MainActor` implícito), o caso quebra na
+/// hora — a lição registrada em `docs/decisoes-de-engenharia.md`.
+@Suite("Dashboard 08 · decisões puras")
 struct DashboardMetricsTests {
 
-    @Test("os números do mockup estão escritos uma vez só")
-    func mockupNumbers() {
-        // `.content { padding: 22px }`
-        #expect(DashboardMetrics.outerPadding == 22)
-        // `.rail { width: 300px }`
-        #expect(DashboardMetrics.railWidth == 300)
-        // `.listcol { padding-right: 16px }`, `.preview { padding-left: 16px }`
-        // e `.rail { margin-left: 16px }`
-        #expect(DashboardMetrics.mainTrailingPadding == 16)
-        #expect(DashboardMetrics.previewLeadingPadding == 16)
-        #expect(DashboardMetrics.railLeadingSpacing == 16)
-        // `.preview { width: 380px }` e `[data-state="agenda-vazia"] { 440 }`
-        #expect(DashboardMetrics.previewWidth == 380)
-        #expect(DashboardMetrics.widePreviewWidth == 440)
-        // `[data-state="agenda-vazia"] .rail { width: 168px }`
-        #expect(DashboardMetrics.freeRailWidth == 168)
-        // `.head { margin-bottom: 12px }` e `.digest { margin: 0 0 14px }`
-        #expect(DashboardMetrics.headerBottomSpacing == 12)
-        #expect(DashboardMetrics.todayBottomSpacing == 14)
-        // `.digest { padding: 9px 14px; gap: 18px }` e o ponto de 5ø
-        #expect(DashboardMetrics.todayPadding.top == 9)
-        #expect(DashboardMetrics.todayPadding.leading == 14)
-        #expect(DashboardMetrics.todaySpacing == 18)
-        #expect(DashboardMetrics.todayTextSize == 12.5)
-        #expect(DashboardMetrics.todayDotSide == 5)
-        // `.pv-subj { font-size: 18px }`, `.pv-x { 13.5 }`, `.act { 28 alto }`
-        #expect(DashboardMetrics.previewSubjectSize == 18)
-        #expect(DashboardMetrics.previewExcerptSize == 13.5)
-        #expect(DashboardMetrics.previewActionHeight == 28)
-        #expect(DashboardMetrics.previewActionPadding == 12)
-        // `.draft { border-left: 2px; padding: 10px 12px 12px }`, act 26 alto
-        #expect(DashboardMetrics.draftBarWidth == 2)
-        #expect(DashboardMetrics.draftPadding.top == 10)
-        #expect(DashboardMetrics.draftPadding.bottom == 12)
-        #expect(DashboardMetrics.draftActionHeight == 26)
-        // `.transcript { max-height: 280px }`
-        #expect(DashboardMetrics.transcriptMaxHeight == 280)
-        // `.ask { height: 38px }` e `.ask .send { 28×28 }`
-        #expect(DashboardMetrics.askHeight == 38)
-        #expect(DashboardMetrics.sendButtonSide == 28)
-        // `.prow { padding: 10px 16px 11px }` e `inset 3px` da barra da conta
-        #expect(DashboardMetrics.rowPadding.top == 10)
-        #expect(DashboardMetrics.rowPadding.leading == 16)
-        #expect(DashboardMetrics.rowPadding.bottom == 11)
-        #expect(DashboardMetrics.rowPadding.trailing == 16)
-        #expect(DashboardMetrics.accountBarWidth == 3)
-        // `.prio-label { padding-bottom: 7px }`
-        #expect(DashboardMetrics.sectionLabelBottomPadding == 7)
-    }
+    // MARK: - O relógio da tela
 
-    @Test("o rodapé só existe quando sobrou mensagem na Caixa")
-    func footerLabel() {
-        #expect(DashboardMetrics.omittedFooterLabel(4) == "+ 4 na Caixa →")
-        #expect(DashboardMetrics.omittedFooterLabel(1) == "+ 1 na Caixa →")
-        #expect(DashboardMetrics.omittedFooterLabel(0) == nil)
-        #expect(DashboardMetrics.omittedFooterLabel(-3) == nil)
-    }
-
-    /// As seis razões, seis rótulos — e **quatro** aparências de chip, como o
-    /// mockup escreve em `.chip[data-reason=…]`. O defeito que isto fecha é o
-    /// `rankPill`, que colapsava as seis em "Alta"/"Média".
-    @Test("cada razão tem rótulo próprio e a aparência do mockup")
-    func reasonChips() {
-        let reasons: [DashboardFocus.Reason] = [
-            .needsReply, .lead, .deadline, .flagged, .unread, .today,
-        ]
-        let labels = reasons.map(\.label)
-        #expect(Set(labels).count == 6)
-        #expect(labels == ["Precisa resposta", "Lead", "Prazo", "Sinalizado", "Não lido", "Hoje"])
-
-        #expect(DashboardMetrics.chipRole(for: .needsReply) == .warning)
-        #expect(DashboardMetrics.chipRole(for: .deadline) == .warning)
-        #expect(DashboardMetrics.chipRole(for: .lead) == .lead)
-        #expect(DashboardMetrics.chipRole(for: .flagged) == .flagged)
-        #expect(DashboardMetrics.chipRole(for: .unread) == .quiet)
-        #expect(DashboardMetrics.chipRole(for: .today) == .quiet)
-    }
-
-    /// `[data-state="assistente"] .prow:nth-of-type(n+6) { display: none }`.
-    @Test("a lista corta em linha inteira, nunca no meio de uma")
-    func visibleRowCount() {
-        #expect(DashboardMetrics.visibleRowCount(total: 7, hasTranscript: false) == 7)
-        #expect(DashboardMetrics.visibleRowCount(total: 7, hasTranscript: true) == 5)
-        // Nunca inventa linha que não existe.
-        #expect(DashboardMetrics.visibleRowCount(total: 2, hasTranscript: false) == 2)
-        #expect(DashboardMetrics.visibleRowCount(total: 0, hasTranscript: true) == 0)
-    }
-
-    @Test("a data do cabeçalho é a do mockup, em pt-BR")
-    func headerDate() {
-        var componentes = DateComponents()
-        componentes.year = 2026
-        componentes.month = 9
-        componentes.day = 1
-        var calendario = Calendar(identifier: .gregorian)
-        calendario.locale = Locale(identifier: "pt_BR")
-        let data = calendario.date(from: componentes)!
-        #expect(DashboardMetrics.headerDateLabel(data) == "terça · 1 de setembro")
-    }
-
-    /// A leitura da linha em voz alta: remetente, razão, assunto. Existe fora
-    /// da `View` para o teste chegar nela sem renderizar.
-    @Test("a linha se anuncia com a razão de verdade")
-    func rowAccessibilityText() {
-        for reason in [DashboardFocus.Reason.needsReply, .lead, .deadline, .flagged, .unread, .today] {
-            let text = DashboardMetrics.rowAccessibilityLabel(
-                sender: "Marina Duarte", subject: "Revisão do contrato", reason: reason
-            )
-            #expect(text == "Marina Duarte, \(reason.label), Revisão do contrato")
-        }
-    }
-
-    /// O rótulo do destino que o dashboard escreve debaixo do campo. Sem
-    /// provedor ele diz que **não há** provedor; com um, o nome da rota.
-    @Test("o destino sem provedor não se anuncia como configurado")
-    @MainActor
-    func unconfiguredDestinationSaysSo() {
-        #expect(AssistantDestination.unconfigured.label == "Sem provedor")
-        #expect(AssistantDestination.unconfigured.detail == "Escolha o provedor nos Ajustes.")
-        #expect(!AssistantDestination.unconfigured.isLocal)
-        // Com provedor de verdade, o rótulo é o da rota — o caminho que
-        // `InboxScreen.assistantDestination` usa quando há Ajustes.
-        let grok = AssistantDestination(
-            label: "Codex · ChatGPT",
-            detail: "Sai deste Mac pelo Codex instalado.",
-            isLocal: false
+    @Test("o rótulo diz quando é a próxima atualização, no ciclo de 5 min")
+    func updateLabelFollowsTheClock() {
+        #expect(
+            DashboardMetrics.updateLabel(nowMinute: 601, isBusy: false)
+                == "Atualizado agora · próximo em 4 min"
         )
-        #expect(grok.label == "Codex · ChatGPT")
+        #expect(
+            DashboardMetrics.updateLabel(nowMinute: 604, isBusy: false)
+                == "Atualizado agora · próximo em 1 min"
+        )
+        #expect(
+            DashboardMetrics.updateLabel(nowMinute: 600, isBusy: false)
+                == "Atualizado agora · próximo em 5 min"
+        )
+    }
+
+    @Test("com a barra fina trabalhando, o rótulo vira Atualizando…")
+    func updateLabelWhileBusy() {
+        #expect(DashboardMetrics.updateLabel(nowMinute: 601, isBusy: true) == "Atualizando…")
+    }
+
+    // MARK: - Rótulos
+
+    @Test("o botão do herói promete o envio só com rascunho pronto")
+    func heroButtonLabel() {
+        #expect(DashboardMetrics.heroButtonLabel(hasReadyDraft: true) == "Enviar a resposta")
+        #expect(DashboardMetrics.heroButtonLabel(hasReadyDraft: false) == "Ver")
+    }
+
+    @Test("a confirmação de uma linha nomeia o destinatário")
+    func sendConfirmation() {
+        #expect(
+            DashboardMetrics.sendConfirmationLabel(address: "jack@whitmore.dev")
+                == "Enviar para jack@whitmore.dev?"
+        )
+    }
+
+    @Test("\"Sexta 9h\" sai da data proposta pelo plano")
+    func laterActionLabel() {
+        // 2026-09-04 é uma sexta.
+        var partes = DateComponents()
+        partes.year = 2026; partes.month = 9; partes.day = 4; partes.hour = 9
+        let sexta = Calendar.current.date(from: partes)!
+        #expect(DashboardMetrics.laterActionLabel(until: sexta) == "Sexta 9h")
+    }
+
+    @Test("o rodapé nomeia quem saiu, com o porquê na primeira e o resto somado")
+    func removedFooter() {
+        let frase = DashboardMetrics.removedFooterLabel(
+            [
+                (name: "Carol da Zoho", why: "campanha, não lead"),
+                (name: "Resend", why: "disparo"),
+            ],
+            extraCount: 11
+        )
+        #expect(
+            frase == "Tirei da lista hoje: Carol da Zoho (campanha, não lead), "
+                + "Resend e mais 11 disparos."
+        )
+        // Nada removido e nada de fora: rodapé nenhum.
+        #expect(DashboardMetrics.removedFooterLabel([], extraCount: 0) == nil)
+        // Um disparo só concorda em número.
+        #expect(
+            DashboardMetrics.removedFooterLabel([(name: "Resend", why: "")], extraCount: 1)
+                == "Tirei da lista hoje: Resend e mais 1 disparo."
+        )
+    }
+
+    @Test("o título do bloco junta os nomes com \"e\" no fim")
+    func replyBlockTitle() {
+        #expect(
+            DashboardMetrics.replyBlockTitle(names: ["Jack", "Jayden", "Maria"])
+                == "Responder Jack, Jayden e Maria"
+        )
+        #expect(DashboardMetrics.replyBlockTitle(names: ["Jack"]) == "Responder Jack")
+        #expect(DashboardMetrics.replyBlockTitle(names: []) == "Responder emails")
+    }
+
+    @Test("o subtítulo do bloco escreve a contagem por extenso")
+    func replyBlockSub() {
+        #expect(
+            DashboardMetrics.replyBlockSub(count: 3, minutes: 20)
+                == "20 min · as três já prontas"
+        )
+        #expect(
+            DashboardMetrics.replyBlockSub(count: 1, minutes: 20)
+                == "20 min · a resposta já pronta"
+        )
+    }
+
+    @Test("\"Ler o email inteiro\" conta as linhas de verdade, sem as vazias")
+    func bodyLineCount() {
+        #expect(DashboardMetrics.bodyLineCount("a\nb\n\nc") == 3)
+        #expect(DashboardMetrics.readWholeLabel(lineCount: 4) == "Ler o email inteiro · 4 linhas")
+        #expect(DashboardMetrics.readWholeLabel(lineCount: 1) == "Ler o email inteiro · 1 linha")
+    }
+
+    // MARK: - A frase da proposta, fatiada
+
+    @Test("\"Resposta pronta.\" sai em negrito e a prévia corrida")
+    func proposalSegmentsForDraft() {
+        let segments = DashboardMetrics.proposalSegments(
+            text: "Resposta pronta. “Sim, libero até sexta.”",
+            isReadyDraft: true
+        )
+        #expect(segments == [
+            .strong("Resposta pronta."),
+            .plain("“Sim, libero até sexta.”"),
+        ])
+    }
+
+    @Test("a pergunta final da sugestão sai em itálico")
+    func proposalSegmentsForSuggestion() {
+        let segments = DashboardMetrics.proposalSegments(
+            text: "Pede para atualizar seu perfil. Sem prazo. Deixar para sexta de manhã?",
+            isReadyDraft: false
+        )
+        #expect(segments == [
+            .plain("Pede para atualizar seu perfil. Sem prazo."),
+            .note("Deixar para sexta de manhã?"),
+        ])
+    }
+
+    @Test("o rascunho que olhou a agenda ganha a nota em itálico")
+    func proposalSegmentsWithAgenda() {
+        let segments = DashboardMetrics.proposalSegments(
+            text: "Resposta pronta. “Terça ou quinta.”",
+            isReadyDraft: true, usedAgenda: true
+        )
+        #expect(segments.last == .note("Olhei sua agenda antes de propor."))
+    }
+
+    @Test("texto que é só a pergunta vira uma nota inteira")
+    func proposalSegmentsAllQuestion() {
+        let segments = DashboardMetrics.proposalSegments(
+            text: "Arquivar e não trazer mais?", isReadyDraft: false
+        )
+        #expect(segments == [.note("Arquivar e não trazer mais?")])
+    }
+
+    // MARK: - A coluna do dia
+
+    private func agendaItem(
+        id: String, title: String, start: Int, end: Int, day: Int = 0,
+        cancelled: Bool = false
+    ) -> AgendaItem {
+        AgendaItem(
+            id: id, title: title, startMinute: start, endMinute: end,
+            accountID: "gmail", dayOffset: day, isCancelled: cancelled
+        )
+    }
+
+    @Test("a coluna do dia intercala eventos, Agora, bloco e prazos pela hora")
+    func dayEntriesFollowTheClock() {
+        let entries = DashboardDay.entries(
+            agenda: [
+                agendaItem(id: "odette", title: "Termin de Odette", start: 570, end: 600),
+                agendaItem(id: "aitherion", title: "Aitherion", start: 699, end: 759),
+                agendaItem(id: "amanha", title: "De amanhã", start: 500, end: 560, day: 1),
+                agendaItem(
+                    id: "cancelado", title: "Cancelado", start: 620, end: 650, cancelled: true
+                ),
+            ],
+            deadlines: [
+                .init(
+                    messageID: "jayden", senderName: "Jayden",
+                    minuteToday: 1_080, dayLabel: nil, sub: "confirmar até hoje às 18h"
+                ),
+                .init(
+                    messageID: "abacus", senderName: "Abacus AI",
+                    minuteToday: nil, dayLabel: "Sáb", sub: "6.000 créditos expiram sábado"
+                ),
+            ],
+            plan: DayPlan.ReplyBlock(
+                day: 0, startMinute: 780, minutes: 20,
+                messageIDs: ["jack", "jayden", "maria"]
+            ),
+            planNames: ["Jack", "Jayden", "Maria"],
+            nowMinute: 600
+        )
+        #expect(entries == [
+            .event(id: "odette", hour: "09:30", title: "Termin de Odette", sub: "30min · gmail"),
+            .now,
+            .event(id: "aitherion", hour: "11:39", title: "Aitherion", sub: "1h · gmail"),
+            .plan(
+                hour: "13:00",
+                title: "Responder Jack, Jayden e Maria",
+                sub: "20 min · as três já prontas"
+            ),
+            .deadline(
+                id: "jayden", hour: "18:00", title: "Prazo de Jayden",
+                sub: "confirmar até hoje às 18h"
+            ),
+            .deadline(
+                id: "abacus", hour: "Sáb", title: "Prazo de Abacus AI",
+                sub: "6.000 créditos expiram sábado"
+            ),
+        ])
+    }
+
+    @Test("o primeiro nome sai do contato, e do endereço quando não há nome")
+    func firstName() {
+        #expect(DashboardDay.firstName(
+            of: Contact(name: "Jack Whitmore", address: "jack@whitmore.dev")
+        ) == "Jack")
+        #expect(DashboardDay.firstName(
+            of: Contact(name: "", address: "maria@exemplo.com")
+        ) == "maria")
     }
 }

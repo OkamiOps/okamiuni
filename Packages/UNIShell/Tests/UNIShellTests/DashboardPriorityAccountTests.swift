@@ -43,9 +43,8 @@ struct DashboardPriorityAccountTests {
         #expect(DashboardMetrics.accountMark(host: "umhostbemcompridomesmo", address: "").count <= 10)
     }
 
-    @Test("o chip do disparo é discreto, e o da resposta não")
-    func disparoEDiscreto() {
-        #expect(DashboardMetrics.chipRole(for: .broadcast) == .quiet)
-        #expect(DashboardMetrics.chipRole(for: .needsReply) == .warning)
-    }
+    // O caso "o chip do disparo é discreto" morreu com o chip: o 08 tira todo
+    // chip de motivo da linha ("sem chips de motivo", tabela de medidas). O
+    // sucessor é `Dashboard08ParityTests` — a linha nova é ponto + texto, e a
+    // fonte de `DashboardRow` não conhece `ChipRole`.
 }

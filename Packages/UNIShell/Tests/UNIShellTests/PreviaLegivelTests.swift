@@ -186,21 +186,16 @@ struct PreviaAcoesTests {
 
     private func painel(_ store: MailStore, _ message: Message) -> some View {
         let item = DashboardFocus.MailItem(message: message, reason: .needsReply)
-        return DashboardPreviewPane(
+        return DashboardPreviewColumn(
             store: store,
             item: item,
-            focus: DashboardFocus(
-                mail: [item], meetings: [], pending: [],
-                omittedMailCount: 0, omittedMeetingCount: 0, nextUpLabel: ""
-            ),
             today: Fixtures.today,
             conversation: AssistantConversation(
                 scope: .email,
                 context: .init(subject: "Prévia"),
                 destination: .unconfigured,
                 engine: AssistantEngine(supportsDraftReply: false) { _ in "" }
-            ),
-            onOpen: {}, onCommand: { _ in }, onUseDraft: { _, _ in }, onEditDraft: { _, _ in }
+            )
         )
         .environment(ThemeStore())
     }
@@ -225,8 +220,11 @@ struct PreviaAcoesTests {
             Render.bitmap(painel(lojaLonga, longa), size: Self.coluna, theme: tema)
         )
         let altura = Int(Self.coluna.height)
+        // As últimas 29 linhas são o rodapé fixo (o pad de 14 + as ações);
+        // logo acima delas mora o último pixel da área que rola, que muda com
+        // o corpo — medido: com 30 a régua pegava a última linha do texto.
         #expect(
-            a.pixelsDiffering(from: b, inColumns: 0..<a.pixelsWide, rows: (altura - 44)..<altura)
+            a.pixelsDiffering(from: b, inColumns: 0..<a.pixelsWide, rows: (altura - 29)..<altura)
                 == 0,
             "o corpo longo mudou os pixels da fileira de ações — está passando por baixo dela"
         )
@@ -251,21 +249,16 @@ enum PainelDeEnsaio {
 
     static func painel(_ store: MailStore, _ message: Message) -> some View {
         let item = DashboardFocus.MailItem(message: message, reason: .needsReply)
-        return DashboardPreviewPane(
+        return DashboardPreviewColumn(
             store: store,
             item: item,
-            focus: DashboardFocus(
-                mail: [item], meetings: [], pending: [],
-                omittedMailCount: 0, omittedMeetingCount: 0, nextUpLabel: ""
-            ),
             today: Fixtures.today,
             conversation: AssistantConversation(
                 scope: .email,
                 context: .init(subject: "Prévia"),
                 destination: .unconfigured,
                 engine: AssistantEngine(supportsDraftReply: false) { _ in "" }
-            ),
-            onOpen: {}, onCommand: { _ in }, onUseDraft: { _, _ in }, onEditDraft: { _, _ in }
+            )
         )
         .environment(ThemeStore())
     }

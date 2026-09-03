@@ -1,932 +1,742 @@
 import AppKit
 import Foundation
+import os
 import SwiftUI
 import Testing
 import UNICore
 import UNIDesign
 @testable import UNIShell
 
-/// Espião próprio desta suíte. O de `AssistantConversationTests` é privado
-/// daquele arquivo — duas suítes não partilham espião por acidente.
-private final class DashboardSpyAssistant: TextAssisting, @unchecked Sendable {
-    struct TransformCall: Equatable {
-        let text: String
-        let action: WritingAction
+/// A porta de envio espiã: guarda o que saiu pela fila, sem rede nenhuma.
+/// É ela que prova o ruling de 2026-09-03 — o que **não** pode ter saído, e o
+/// que saiu com `In-Reply-To` quando a pessoa clicou.
+private final class SendPortSpy: MailSendPort, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _sent: [OutgoingMessage] = []
+    var sent: [OutgoingMessage] {
+        lock.lock(); defer { lock.unlock() }
+        return _sent
     }
 
-    let modelVersion = "spy/dashboard"
-    var answerResult: Result<String, any Error> = .success("resposta")
-    var transformResult: Result<String, any Error> = .success("Oi Marina,\n\nFechado.")
-    private(set) var answers: [AssistantConversationSnapshot] = []
-    private(set) var transforms: [TransformCall] = []
+    func send(_ message: OutgoingMessage) throws {
+        lock.lock(); defer { lock.unlock() }
+        _sent.append(message)
+    }
+}
+
+/// O espião do assistente: qualquer chamada aqui é a IA sendo consultada — e
+/// o Enviar do dashboard **nunca** pode chegar nele.
+private final class DashboardSpyAssistant: TextAssisting, Sendable {
+    let modelVersion = "spy/dashboard-08"
+    private let contadores = OSAllocatedUnfairLock(initialState: (answers: 0, transforms: 0))
+    var answers: Int { contadores.withLock { $0.answers } }
+    var transforms: Int { contadores.withLock { $0.transforms } }
 
     func availability() async -> AppleIntelligenceAvailability { .available }
 
     func answer(
-        question: String,
-        in conversation: AssistantConversationSnapshot
+        question: String, in conversation: AssistantConversationSnapshot
     ) async throws -> String {
-        answers.append(conversation)
-        return try answerResult.get()
+        contadores.withLock { $0.answers += 1 }
+        return "resposta"
     }
 
     func transform(
-        _ text: String,
-        using action: WritingAction,
-        context: AssistantMailContext?
+        _ text: String, using action: WritingAction, context: AssistantMailContext?
     ) async throws -> String {
-        transforms.append(.init(text: text, action: action))
-        return try transformResult.get()
+        contadores.withLock { $0.transforms += 1 }
+        return "rascunho"
     }
 }
 
-/// O espião das ações rápidas: guarda o `ContextCommand` que a linha emite,
-/// sem executar nada no store. É a mesma porta que a Caixa usa — o que este
-/// caso prova é que o dashboard emite o comando certo, não que o store o
-/// aplica (isso já tem teste em `UNICore`).
+/// Espião das ações rápidas: o `ContextCommand` que a linha emite, sem
+/// executar nada.
 @MainActor
 private final class CommandSpy {
     var commands: [ContextCommand] = []
 }
 
-/// A seleção e a leitura do dashboard, num lugar que um `Binding` alcança.
-///
-/// `Binding(get:set:)` guarda closures não isoladas, então a caixa não pode
-/// ser `@MainActor`. Ela só é lida e escrita na `main` — o `CliqueDeEnsaio`
-/// roda tudo lá — e por isso o `@unchecked` é honesto aqui.
+/// Caixa de seleção alcançável por `Binding` — ver a nota na versão antiga
+/// desta suíte: o `CliqueDeEnsaio` roda tudo na main, e o `@unchecked` é
+/// honesto por isso.
 private final class CaixaDeSelecao: @unchecked Sendable {
     var selecionado: String?
     var lendo: String?
+    var descartados: [String] = []
+    var perguntou = false
 }
 
-@Suite("Dashboard")
+// MARK: - A fixture: a caixa do dono em 3 de setembro de 2026
+
+/// Os sete emails que motivaram o redesenho, como o `DayPlanTests` de UNICore
+/// os escreve — aqui montados num `MailStore` de verdade, com as três contas
+/// e a agenda do dia.
+@MainActor
+enum DiaDoDono {
+
+    /// Quinta, 3 de setembro de 2026, 10:00.
+    static let agora: Date = {
+        var partes = DateComponents()
+        partes.year = 2026; partes.month = 9; partes.day = 3; partes.hour = 10
+        return Calendar.current.date(from: partes)!
+    }()
+    static let agoraMinuto = 600
+
+    static let contas = [
+        Account(
+            id: "vantion", address: "contato@vantion.com.br", displayName: "Vantion",
+            provider: .imap, host: "vantion", tintLightHex: "#3D6FA5", tintDarkHex: "#6FA8DC"
+        ),
+        Account(
+            id: "okamiops", address: "marcos@okamiops.com", displayName: "Okamiops",
+            provider: .imap, host: "okamiops", tintLightHex: "#2F8659", tintDarkHex: "#6CC894"
+        ),
+        Account(
+            id: "gmail", address: "msant262@gmail.com", displayName: "Gmail",
+            provider: .gmail, host: "gmail", tintLightHex: "#B26A2B", tintDarkHex: "#F0A060"
+        ),
+    ]
+
+    private static func data(diasAtras: Int, hora: Int = 14, minuto: Int = 12) -> Date {
+        let calendario = Calendar.current
+        let dia = calendario.date(byAdding: .day, value: -diasAtras, to: agora)!
+        return calendario.date(bySettingHour: hora, minute: minuto, second: 0, of: dia)!
+    }
+
+    private static func hoje(hora: Int, minuto: Int = 0) -> Date {
+        Calendar.current.date(bySettingHour: hora, minute: minuto, second: 0, of: agora)!
+    }
+
+    private static func email(
+        id: String, conta: String, de: Contact, recebido: Date,
+        assunto: String, trecho: String, corpo: [String],
+        lido: Bool = true, resumo: String? = nil,
+        triagem: MessageTriage? = nil, marcas: BulkMailMarks = []
+    ) -> Message {
+        Message(
+            id: id, accountID: conta, from: de, receivedAt: recebido,
+            subject: assunto, snippet: trecho, body: corpo,
+            tags: [], bucket: .today, isRead: lido,
+            summary: resumo, detectedEvent: nil,
+            // O Message-ID do cabeçalho: é dele que o In-Reply-To da resposta
+            // nasce (M3-9) — sem ele a resposta abriria conversa nova.
+            triage: triagem, rfcMessageID: "<\(id)@exemplo>", bulkMarks: marcas
+        )
+    }
+
+    static var jack: Message {
+        email(
+            id: "jack", conta: "okamiops",
+            de: Contact(name: "Jack Whitmore", address: "jack@whitmore.dev"),
+            recebido: data(diasAtras: 7),
+            assunto: "Okami Tally doesn't show up for \"tally\"",
+            trecho: "I can't find Okami Tally when I search for \"tally\". "
+                + "Does the page require a login?",
+            corpo: [
+                "Hi Marcos,",
+                "I can't find Okami Tally when I search for \"tally\". "
+                    + "Does the page require a login?",
+                "Thanks, Jack",
+            ],
+            resumo: "Não encontra o Okami Tally e pergunta se a página exige login.",
+            triagem: MessageTriage(needsReply: true, intent: .request, urgency: .normal)
+        )
+    }
+
+    static var jayden: Message {
+        email(
+            id: "jayden", conta: "gmail",
+            de: Contact(name: "Jayden Sutherland", address: "jayden@consult.example"),
+            recebido: data(diasAtras: 2),
+            assunto: "Paid Consultation Opportunity: Endpoint Operating Systems",
+            trecho: "Please share two windows that work for you this week.",
+            corpo: ["Please share two windows that work for you this week."],
+            resumo: "Pede dois horários seus para uma consultoria paga.",
+            triagem: MessageTriage(
+                needsReply: true, intent: .scheduling, urgency: .high,
+                deadline: DetectedDeadline(
+                    date: hoje(hora: 18), evidence: "confirmar até hoje às 18h"
+                )
+            )
+        )
+    }
+
+    static var cats9th: Message {
+        email(
+            id: "cats9th", conta: "gmail",
+            de: Contact(name: "Cats9th", address: "editor@cats9th.example"),
+            recebido: data(diasAtras: 5),
+            assunto: "Re: Check out your chapter page and personal bio",
+            trecho: "Atualize seu perfil quando puder.",
+            corpo: ["Atualize seu perfil quando puder."],
+            resumo: "Pede para atualizar seu perfil no site deles.",
+            triagem: MessageTriage(needsReply: true, intent: .request, urgency: .low)
+        )
+    }
+
+    static var abacus: Message {
+        email(
+            id: "abacus", conta: "gmail",
+            de: Contact(name: "Abacus AI", address: "no-reply@abacus.ai"),
+            recebido: hoje(hora: 9, minuto: 54),
+            assunto: "Erinnerung: Ihre 6,000 Bonus-Credits laufen in wenigen Tagen ab",
+            trecho: "Ihre Bonus-Credits laufen ab.",
+            corpo: ["Ihre Bonus-Credits laufen ab."],
+            lido: false,
+            triagem: MessageTriage(
+                needsReply: true, intent: .transactional, urgency: .normal,
+                deadline: DetectedDeadline(
+                    date: data(diasAtras: -2, hora: 23, minuto: 59),
+                    evidence: "6.000 créditos expiram sábado"
+                )
+            ),
+            marcas: [.listUnsubscribe]
+        )
+    }
+
+    static var maria: Message {
+        email(
+            id: "maria", conta: "vantion",
+            de: Contact(name: "Maria Exemplo", address: "maria@exemplo.com.br"),
+            recebido: data(diasAtras: 1, hora: 16, minuto: 3),
+            assunto: "Orçamento de identidade visual",
+            trecho: "Gostaria de um orçamento de identidade visual.",
+            corpo: ["Gostaria de um orçamento de identidade visual."],
+            lido: false,
+            resumo: "Pediu orçamento de identidade visual pelo formulário do site.",
+            triagem: MessageTriage(needsReply: true, intent: .lead, urgency: .high)
+        )
+    }
+
+    static var carol: Message {
+        email(
+            id: "carol", conta: "gmail",
+            de: Contact(name: "Carol da Zoho", address: "carol@campanhas.zoho.example"),
+            recebido: data(diasAtras: 1, hora: 11),
+            assunto: "Zoho One: 30% off para novas equipes",
+            trecho: "Aproveite a promoção.", corpo: ["Aproveite a promoção."],
+            lido: false,
+            triagem: MessageTriage(needsReply: true, intent: .lead, urgency: .normal),
+            marcas: [.listUnsubscribe]
+        )
+    }
+
+    static var resend: Message {
+        email(
+            id: "resend", conta: "gmail",
+            de: Contact(name: "Resend", address: "no-reply@resend.example"),
+            recebido: data(diasAtras: 3, hora: 8),
+            assunto: "Welcome to Resend",
+            trecho: "Obrigado por criar sua conta.", corpo: ["Obrigado por criar sua conta."],
+            lido: false,
+            triagem: MessageTriage(needsReply: true, intent: .newsletter, urgency: .low),
+            marcas: [.listUnsubscribe]
+        )
+    }
+
+    static var seteEmails: [Message] { [jack, jayden, cats9th, abacus, maria, carol, resend] }
+
+    static var agenda: [AgendaItem] {
+        [
+            AgendaItem(
+                id: "odette", title: "Termin de Odette",
+                startMinute: 570, endMinute: 600, accountID: "gmail"
+            ),
+            AgendaItem(
+                id: "aitherion", title: "Aitherion Labs · Estratégia Econômica",
+                startMinute: 600, endMinute: 720, accountID: "gmail"
+            ),
+            AgendaItem(
+                id: "almoco", title: "Almoço",
+                startMinute: 720, endMinute: 780, accountID: "gmail"
+            ),
+        ]
+    }
+
+    static func draft(_ message: Message, _ texto: String) -> ReadyDraft {
+        ReadyDraft(
+            messageID: message.id, text: texto,
+            contentHash: ReadyDraft.contentHash(for: message),
+            modelVersion: "foundation-1",
+            usedAgenda: message.triage?.intent == .scheduling
+        )
+    }
+
+    static var rascunhos: [String: ReadyDraft] {
+        [
+            "jack": draft(
+                jack,
+                "Oi Jack,\n\nSim — hoje a página exige login, por isso a busca não acha. "
+                    + "Libero a pública até sexta.\n\nAbraço,\nMarcos"
+            ),
+            "jayden": draft(
+                jayden,
+                "Oi Jayden,\n\nTerça 9/9 ou quinta 11/9, das 15h às 17h.\n\nAbraço,\nMarcos"
+            ),
+            "maria": draft(
+                maria,
+                "Oi Maria,\n\nObrigado pelo contato — posso te ligar amanhã às 10h?"
+                    + "\n\nAbraço,\nMarcos"
+            ),
+        ]
+    }
+
+    static func loja(
+        mensagens: [Message]? = nil,
+        agenda agendaDoDia: [AgendaItem]? = nil,
+        sendPort: MailSendPort? = nil
+    ) async -> MailStore {
+        let hoje = agora
+        let store = MailStore(
+            source: InMemoryMailSource(
+                accounts: contas,
+                messages: mensagens ?? seteEmails,
+                agenda: agendaDoDia ?? agenda
+            ),
+            sendPort: sendPort,
+            agendaReferenceDay: { hoje }
+        )
+        await store.load()
+        return store
+    }
+}
+
+// MARK: - A suíte
+
+@Suite("Dashboard 08")
 @MainActor
 struct DashboardScreenTests {
 
-    /// Conversa que não fala com ninguém: as capturas do recorte não podem
-    /// depender de provedor, e o dashboard não dispara nada sozinho.
-    private func inertConversation(scope: AssistantScope = .email) -> AssistantConversation {
+    /// 1440 × 852 — o conteúdo sob o chrome de 64, como a tabela de medidas.
+    private static let size = CGSize(width: 1_440, height: 852)
+
+    private func inertConversation() -> AssistantConversation {
         AssistantConversation(
-            scope: scope,
+            scope: .email,
             context: .init(subject: "Caixa e agenda de hoje"),
-            destination: .unconfigured,
+            destination: .init(label: "Codex · ChatGPT", detail: "", isLocal: false),
             engine: AssistantEngine(supportsDraftReply: false) { _ in "" }
         )
     }
 
-    private func spiedConversation(
-        _ spy: DashboardSpyAssistant,
-        mail: Message
-    ) -> AssistantConversation {
-        AssistantConversation(
-            scope: .email,
-            context: .init(subject: mail.subject, sender: mail.from.display),
-            destination: .init(label: "Neste Mac", detail: "Nada sai deste Mac.", isLocal: true),
-            engine: AssistantBridge.engine(
-                using: spy,
-                supportsDraftReply: true,
-                mailContext: { AssistantMailContext(message: mail) }
-            )
-        )
-    }
-
-    /// A conversa do dashboard como o `InboxScreen` a monta: o escopo é
-    /// resolvido na hora, a partir do email **selecionado**.
-    private func dashboardConversation(
-        _ spy: DashboardSpyAssistant,
-        store: MailStore,
-        selected: Message?
-    ) -> AssistantConversation {
-        AssistantConversation(
-            scope: .email,
-            context: .init(subject: "Caixa e agenda de hoje"),
-            destination: .init(label: "Neste Mac", detail: "Nada sai deste Mac.", isLocal: true),
-            engine: AssistantBridge.engine(
-                using: spy,
-                supportsDraftReply: true,
-                mailContext: {
-                    guard let selected else { return AssistantMailContext(workspace: store) }
-                    return AssistantMailContext(message: selected)
-                }
-            )
-        )
-    }
-
-    private static let dashboardSize = CGSize(width: 1_200, height: 820)
-
-    /// Uma conversa com briefing pronto, sem motor: a faixa do §2.2 aparece
-    /// sem ninguém falar com provedor nenhum.
-    private func briefedConversation(_ text: String) -> AssistantConversation {
-        AssistantConversation(
-            scope: .workspace,
-            context: .init(subject: "Caixa e agenda de hoje"),
-            destination: .unconfigured,
-            engine: .unavailable,
-            debugState: AssistantPanelDebugState(briefingText: text)
-        )
-    }
-
-    /// Uma conversa com transcript pronto, também sem motor.
-    private func transcriptConversation() -> AssistantConversation {
-        AssistantConversation(
-            scope: .workspace,
-            context: .init(subject: "Caixa e agenda de hoje"),
-            destination: .unconfigured,
-            engine: .unavailable,
-            debugState: AssistantPanelDebugState(messages: [
-                .init(speaker: .user, text: "O que a Marina precisa de mim para fechar o contrato?"),
-                .init(
-                    speaker: .assistant,
-                    text: """
-                        Marina revisou as cláusulas 4 e 7 com o jurídico; a única \
-                        pendência é o escopo de suporte.
-
-                        - Confirmar a call de quinta às 15h
-                        - Levar a redação do SLA
-                        """
-                ),
-            ])
-        )
-    }
-
-    /// Uma conversa que já devolveu um rascunho, sem motor. É o estado
-    /// `rascunho` do mockup: o turno `.draft` nasce dentro da prévia.
-    private func draftedConversation() -> AssistantConversation {
-        AssistantConversation(
-            scope: .email,
-            context: .init(subject: "Revisão do contrato"),
-            destination: .unconfigured,
-            engine: .unavailable,
-            debugState: AssistantPanelDebugState(messages: [
-                .init(
-                    speaker: .assistant,
-                    text: """
-                        Oi Marina, fechado — SLA de 4 horas úteis funciona para \
-                        nós. Confirmo a call de quinta às 15h e levo a redação \
-                        final do SLA.
-
-                        Abraço, Marcos
-                        """,
-                    kind: .draft
-                ),
-            ])
-        )
-    }
-
-    /// Um store sem compromisso e sem pendência: o `agenda-vazia` do mockup.
-    private func lojaDeDiaLivre() async -> MailStore {
-        let store = MailStore(source: InMemoryMailSource(
-            accounts: Fixtures.accounts,
-            messages: Fixtures.messages,
-            agenda: []
-        ))
-        await store.load()
-        return store
-    }
-
-    /// Os cinco estados do mockup (`cheio`, `vazio`, `rascunho`,
-    /// `assistente`, `agenda-vazia`). Os PNGs saem com `UNI_RENDER_DIR` para
-    /// a conferência humana ao lado do mockup.
-    @Test("os cinco estados do mockup desenham no claro e no escuro")
-    func rendersTheFiveStatesInBothThemes() async throws {
-        let cheio = MailStore(source: InMemoryMailSource.fixtures)
-        await cheio.load()
-        let vazio = MailStore(
-            source: InMemoryMailSource(accounts: [], messages: [], agenda: [])
-        )
-        await vazio.load()
-        let diaLivre = await lojaDeDiaLivre()
-
-        let estados: [(String, MailStore, AssistantConversation)] = [
-            ("cheio", cheio, inertConversation()),
-            ("vazio", vazio, inertConversation(scope: .workspace)),
-            ("rascunho", cheio, draftedConversation()),
-            ("assistente", cheio, transcriptConversation()),
-            ("agenda-vazia", diaLivre, inertConversation()),
-        ]
-
-        // `okami` e `tinta` são o que a §2.6 exige; `noite` e `linho` entram
-        // porque um escuro só e um claro só já esconderam defeito de degrau
-        // de superfície neste app.
-        for theme in [Theme.okami, Theme.tinta, Theme.noite, Theme.linho] {
-            for (nome, store, conversation) in estados {
-                let image = try #require(Render.snapshot(
-                    DashboardScreen(
-                        store: store,
-                        now: Fixtures.nowMinute,
-                        today: Fixtures.today,
-                        conversation: conversation
-                    )
-                    .environment(ThemeStore()),
-                    named: "\(theme.id)-\(nome)",
-                    size: Self.dashboardSize,
-                    theme: theme
-                ), "\(theme.id)/\(nome) não desenhou")
-                #expect(image.pixelsWide == 1_200)
-                #expect(image.pixelsHigh == 820)
-                // O fundo é `paper`, e não um cartão flutuante sobre ele.
-                #expect(
-                    image.pixels(matching: theme.paper, tolerance: 0.01) > 20_000,
-                    "\(theme.id)/\(nome) perdeu o fundo da tela"
-                )
-            }
-        }
-    }
-
-    /// A linha escreve o motivo **de verdade** — as seis razões, não o
-    /// "Alta/Média" que o `rankPill` colapsava.
-    @Test("cada linha de prioridade escreve a razão da fixture")
-    func priorityRowShowsTheRealReason() async throws {
-        let store = MailStore(source: InMemoryMailSource.fixtures)
-        await store.load()
-        let focus = store.dashboardFocus(nowMinute: Fixtures.nowMinute)
-
-        #expect(focus.mail.map(\.reason) == [.lead, .needsReply, .needsReply, .deadline, .unread])
-        let primeiro = try #require(focus.mail.first)
-        #expect(primeiro.reason.label == "Lead")
-        #expect(
-            DashboardMetrics.rowAccessibilityLabel(
-                sender: primeiro.message.listHeadline,
-                subject: primeiro.message.subject,
-                reason: primeiro.reason
-            ).contains("Lead")
-        )
-
-        // E o desenho muda com a razão: dois recortes iguais em tudo menos no
-        // motivo da primeira linha não podem sair com o mesmo pixel.
-        func bitmap(_ reason: DashboardFocus.Reason) throws -> NSBitmapImageRep {
-            try #require(Render.bitmap(
-                DashboardPriorityRow(
-                    item: .init(message: primeiro.message, reason: reason),
-                    tint: Theme.tinta.accent.color,
-                    isUnread: true,
-                    isSelected: false,
-                    today: Fixtures.today
-                )
-                .frame(width: 500),
-                size: CGSize(width: 500, height: 90),
-                theme: .tinta
-            ))
-        }
-        #expect(try bitmap(.lead).pixelsDiffering(from: try bitmap(.deadline)) > 100)
-        #expect(try bitmap(.unread).pixelsDiffering(from: try bitmap(.today)) > 20)
-    }
-
-    /// "+ N na Caixa →" aponta para o que ficou fora do teto de sete. Com
-    /// zero de fora, o rodapé some — um ponteiro para lugar nenhum é pior do
-    /// que nenhum ponteiro.
-    @Test("o rodapé aparece com 4 de fora e some com 0")
-    func omittedFooterFollowsTheCount() async throws {
-        func store(_ count: Int) async -> MailStore {
-            let mensagens = (1...count).map { i in
-                Message(
-                    id: "m\(i)",
-                    accountID: Fixtures.accounts[0].id,
-                    from: Contact(name: "Quem \(i)", address: "quem\(i)@exemplo.com"),
-                    receivedAt: Fixtures.today.addingTimeInterval(TimeInterval(-i * 60)),
-                    subject: "Assunto \(i)",
-                    snippet: "trecho \(i)",
-                    body: [],
-                    tags: [UNICore.Tag(name: "Precisa resposta")],
-                    bucket: .today,
-                    isRead: false,
-                    summary: nil,
-                    detectedEvent: nil
-                )
-            }
-            let s = MailStore(source: InMemoryMailSource(
-                accounts: Fixtures.accounts, messages: mensagens, agenda: []
-            ))
-            await s.load()
-            return s
-        }
-
-        let onze = await store(11)
-        let sete = await store(7)
-        #expect(onze.dashboardFocus(nowMinute: Fixtures.nowMinute).omittedMailCount == 4)
-        #expect(sete.dashboardFocus(nowMinute: Fixtures.nowMinute).omittedMailCount == 0)
-        #expect(DashboardMetrics.omittedFooterLabel(4) == "+ 4 na Caixa →")
-        #expect(DashboardMetrics.omittedFooterLabel(0) == nil)
-
-        func bitmap(_ s: MailStore) throws -> NSBitmapImageRep {
-            try #require(Render.bitmap(
-                DashboardScreen(
-                    store: s,
-                    now: Fixtures.nowMinute,
-                    today: Fixtures.today,
-                    conversation: inertConversation(scope: .workspace)
-                )
-                .environment(ThemeStore()),
-                size: Self.dashboardSize,
-                theme: .tinta
-            ))
-        }
-        // As sete linhas de cima são idênticas; o que difere é o rodapé.
-        #expect(try bitmap(onze).pixelsDiffering(from: try bitmap(sete)) > 100)
-    }
-
-    /// As ações da prévia saem pela **mesma** porta da Caixa: um
-    /// `ContextCommand`, que quem hospeda entrega à fila transacional com
-    /// desfazer. O clique é sintético de verdade.
-    ///
-    /// Elas moram na prévia, e não mais no hover da linha: a queixa era que
-    /// "não tem quase nada" na tela e que clicar abria modal. Agora clicar
-    /// seleciona, e as quatro ações do email ficam à vista na coluna do meio.
-    @Test("Arquivar manda .archived e Depois manda .later, da prévia")
-    func previewActionsRouteThroughContextCommand() async throws {
-        let store = MailStore(source: InMemoryMailSource.fixtures)
-        await store.load()
-        let alvoID = try #require(
-            store.dashboardFocus(nowMinute: Fixtures.nowMinute).mail.first
-        ).id
-
-        func clicou(_ x: CGFloat) -> [ContextCommand] {
-            let espiao = CommandSpy()
-            CliqueDeEnsaio.em(
-                DashboardScreen(
-                    store: store,
-                    now: Fixtures.nowMinute,
-                    today: Fixtures.today,
-                    conversation: inertConversation(),
-                    selectedMailID: .constant(alvoID),
-                    onCommand: { espiao.commands.append($0) }
-                )
-                .environment(ThemeStore()),
-                size: Self.dashboardSize,
-                aY: Self.previewActionsY,
-                x: x
-            )
-            return espiao.commands
-        }
-
-        #expect(clicou(Self.archiveActionX) == [.move(messageID: alvoID, to: .archived)])
-        #expect(clicou(Self.laterActionX) == [.move(messageID: alvoID, to: .later)])
-    }
-
-    /// O centro da fileira de ações da prévia e o centro horizontal de cada
-    /// botão nela, no recorte de 1200×820. A fileira mora no **rodapé** da
-    /// coluna do meio — ancorada lá para não dançar conforme o corpo do email
-    /// cresce ou encolhe —, e por isso o Y é 784 e não a altura do texto.
-    /// Medidos no harness — ver `DashboardMockupParityTests`.
-    private static let previewActionsY: CGFloat = 784
-    private static let draftActionX: CGFloat = 554
-    private static let archiveActionX: CGFloat = 744
-    private static let laterActionX: CGFloat = 820
-    private func tela(_ store: MailStore, caixa: CaixaDeSelecao) -> some View {
-        DashboardScreen(
+    private func tela(
+        _ store: MailStore,
+        drafts: [String: ReadyDraft] = DiaDoDono.rascunhos,
+        conversation: AssistantConversation? = nil,
+        filter: DayPlan.Filter = .standard,
+        selected: String? = nil,
+        caixa: CaixaDeSelecao? = nil,
+        commandSpy: CommandSpy? = nil,
+        confirming: String? = nil
+    ) -> some View {
+        let caixa = caixa ?? CaixaDeSelecao()
+        if let selected { caixa.selecionado = selected }
+        return DashboardScreen(
             store: store,
-            now: Fixtures.nowMinute,
-            today: Fixtures.today,
-            conversation: inertConversation(),
+            now: DiaDoDono.agoraMinuto,
+            today: DiaDoDono.agora,
+            drafts: drafts,
+            conversation: conversation ?? inertConversation(),
+            filter: .constant(filter),
             selectedMailID: Binding(
                 get: { caixa.selecionado }, set: { caixa.selecionado = $0 }
             ),
-            readingMailID: Binding(get: { caixa.lendo }, set: { caixa.lendo = $0 })
+            readingMailID: Binding(get: { caixa.lendo }, set: { caixa.lendo = $0 }),
+            onCommand: { commandSpy?.commands.append($0) },
+            onDiscardDraft: { caixa.descartados.append($0) },
+            onAskAssistant: { caixa.perguntou = true },
+            debugConfirmingSendID: confirming
         )
         .environment(ThemeStore())
     }
 
-    /// O centro vertical da segunda linha de prioridade, para o clique que
-    /// seleciona.
-    private static let secondRowY: CGFloat = 269
-    private static let rowX: CGFloat = 200
+    // MARK: - Render: os estados do mockup, em okami e tinta
 
-    /// **A queixa mais dura do dono**: "ao clicar ele já abre o modal de uma
-    /// vez". Agora não abre. Um clique seleciona, e a folha do leitor
-    /// continua fechada.
-    @Test("um clique seleciona a linha e não abre a folha")
-    func clickSelectsWithoutOpening() async throws {
-        let store = MailStore(source: InMemoryMailSource.fixtures)
-        await store.load()
-        let focus = store.dashboardFocus(nowMinute: Fixtures.nowMinute)
-        let segundo = try #require(focus.mail.dropFirst().first).id
-
-        let caixa = CaixaDeSelecao()
-        CliqueDeEnsaio.em(
-            tela(store, caixa: caixa),
-            size: Self.dashboardSize,
-            aY: Self.secondRowY,
-            x: Self.rowX
+    @Test("os seis estados do 08 desenham em okami e em tinta")
+    func rendersTheStatesInBothThemes() async throws {
+        let cheia = await DiaDoDono.loja()
+        let semHeroi = await DiaDoDono.loja(
+            mensagens: [DiaDoDono.carol, DiaDoDono.resend]
         )
+        let diaLivre = await DiaDoDono.loja(agenda: [])
 
-        #expect(caixa.selecionado == segundo, "o clique não selecionou a segunda linha")
-        #expect(caixa.lendo == nil, "o clique abriu a folha do leitor")
-    }
-
-    /// Abrir de verdade é duplo clique — e ⏎, que se prova em
-    /// `DashboardKeys`.
-    @Test("o duplo clique abre a folha do leitor")
-    func doubleClickOpensTheSheet() async throws {
-        let store = MailStore(source: InMemoryMailSource.fixtures)
-        await store.load()
-        let focus = store.dashboardFocus(nowMinute: Fixtures.nowMinute)
-        let segundo = try #require(focus.mail.dropFirst().first).id
-
-        let caixa = CaixaDeSelecao()
-        CliqueDeEnsaio.em(
-            tela(store, caixa: caixa),
-            size: Self.dashboardSize,
-            aY: Self.secondRowY,
-            x: Self.rowX,
-            cliques: 2
-        )
-
-        #expect(caixa.selecionado == segundo)
-        #expect(caixa.lendo == segundo, "o duplo clique não abriu a folha")
-    }
-
-    /// A outra metade de "abrir": o ⏎.
-    ///
-    /// A decisão mora em `DashboardKeys`, fora da `View`. A entrega da tecla
-    /// é do `BareKeyMonitor`, e sintetizar tecla num processo de teste
-    /// derruba o laço da `main` — a nota está no cabeçalho do
-    /// `CliqueDeEnsaio`.
-    @Test("⏎ abre o selecionado, e só ele")
-    func enterOpensTheSelection() {
-        #expect(
-            DashboardKeys.opens(
-                key: .enter, selectedID: "m1", readingID: nil, exists: true
-            ) == "m1"
-        )
-        // Sem seleção não há o que abrir.
-        #expect(
-            DashboardKeys.opens(
-                key: .enter, selectedID: nil, readingID: nil, exists: false
-            ) == nil
-        )
-        // A folha já aberta fica com o ⏎ (é o Enter de dentro do leitor).
-        #expect(
-            DashboardKeys.opens(
-                key: .enter, selectedID: "m1", readingID: "m1", exists: true
-            ) == nil
-        )
-        // Nenhuma outra tecla abre nada.
-        for key in [BareKey.delete, .up, .down, .escape] {
-            #expect(
-                DashboardKeys.opens(
-                    key: key, selectedID: "m1", readingID: nil, exists: true
-                ) == nil
-            )
-        }
-    }
-
-    /// "Gerar resposta" é o botão primário da prévia, e ele chega em
-    /// `draftReply()` — nunca em `answer`. O rascunho aparece **dentro** da
-    /// prévia, colado no email, e não como bloco solto no meio da tela.
-    @Test("\"Gerar resposta\" da prévia chega em draftReply e desenha na prévia")
-    func previewDraftButtonReachesDraftReply() async throws {
-        let store = MailStore(source: InMemoryMailSource.fixtures)
-        await store.load()
-        let spy = DashboardSpyAssistant()
-        let mail = try #require(store.dashboardFocus(nowMinute: Fixtures.nowMinute).mail.first)
-        let conversation = dashboardConversation(spy, store: store, selected: mail.message)
-
-        CliqueDeEnsaio.em(
-            DashboardScreen(
-                store: store,
-                now: Fixtures.nowMinute,
-                today: Fixtures.today,
-                conversation: conversation,
-                selectedMailID: .constant(mail.id)
-            )
-            .environment(ThemeStore()),
-            size: Self.dashboardSize,
-            aY: Self.previewActionsY,
-            x: Self.draftActionX
-        )
-        await conversation.waitForIdle()
-
-        #expect(spy.transforms.map(\.action) == [.draftReply])
-        #expect(spy.answers.isEmpty, "o botão da prévia passou por answer()")
-        #expect(conversation.messages.last?.kind == .draft)
-
-        // E o rascunho sai **na prévia**: as colunas da coluna do meio mudam,
-        // as da lista não. A lista é 22..466 no recorte de 1200.
-        func recorte(_ conversa: AssistantConversation) throws -> NSBitmapImageRep {
-            try #require(Render.bitmap(
-                DashboardScreen(
-                    store: store,
-                    now: Fixtures.nowMinute,
-                    today: Fixtures.today,
-                    conversation: conversa,
-                    selectedMailID: .constant(mail.id)
-                )
-                .environment(ThemeStore()),
-                size: Self.dashboardSize,
-                theme: .okami
-            ))
-        }
-        let semRascunho = try recorte(inertConversation())
-        let comRascunho = try recorte(draftedConversation())
-        #expect(
-            comRascunho.pixelsDiffering(from: semRascunho, inColumns: 498..<862) > 500,
-            "o rascunho não apareceu dentro da prévia"
-        )
-        #expect(
-            comRascunho.pixelsDiffering(from: semRascunho, inColumns: 22..<466) == 0,
-            "o rascunho vazou para a coluna da lista"
-        )
-    }
-
-    /// A faixa HOJE conta o que a triagem achou, e o excedente diz o que ela
-    /// descartou. Os dois números são diferentes de propósito.
-    @Test("a faixa HOJE conta certo e escreve o excedente")
-    func todayBandCountsWhatTheTriageFound() async throws {
-        let store = MailStore(source: InMemoryMailSource.fixtures)
-        await store.load()
-        let focus = store.dashboardFocus(nowMinute: Fixtures.nowMinute)
-
-        let linhas = DashboardToday.lines(focus, now: Fixtures.today)
-        let respostas = focus.mail.filter { $0.reason == .needsReply }.count
-        #expect(respostas == 2)
-        #expect(linhas.first?.text == "2 pedem resposta")
-        #expect(linhas.first?.tone == .warning)
-        #expect(linhas.first?.messageID != nil, "a linha da faixa não aponta para mensagem")
-        #expect(linhas.contains { $0.text.hasPrefix("Prazo: ") })
-        #expect(linhas.contains { $0.text.hasPrefix("1 lead novo — ") })
-        #expect(linhas.allSatisfy { $0.messageID != nil })
-
-        #expect(focus.discardedMailCount == 2)
-        #expect(
-            DashboardToday.restLabel(focus.discardedMailCount)
-                == "2 fora da lista · newsletters e avisos"
-        )
-        #expect(DashboardToday.restLabel(0) == nil)
-
-        // Caixa vazia: uma linha só, sem ponteiro para lugar nenhum.
-        let vazio = DashboardFocus(
-            mail: [], meetings: [], pending: [],
-            omittedMailCount: 0, omittedMeetingCount: 0, nextUpLabel: "",
-            discardedMailCount: 9
-        )
-        let semNada = DashboardToday.lines(vazio, now: Fixtures.today)
-        #expect(semNada.count == 1)
-        #expect(semNada[0].text == "Nada precisa de você — 9 mensagens triadas para a Caixa.")
-        #expect(semNada[0].messageID == nil)
-    }
-
-    /// O bloco Contexto mostra o que o app **já sabe** — e some quando não
-    /// sabe nada, em vez de desenhar um rótulo sobre o vazio.
-    @Test("o Contexto sai do compromisso, da pendência e da conversa anterior")
-    func previewContextComesFromWhatTheAppKnows() async throws {
-        let store = MailStore(source: InMemoryMailSource.fixtures)
-        await store.load()
-        let marina = try #require(
-            store.messages.first { $0.from.name.contains("Marina") }
-        )
-        let linhas = DashboardPreviewContext.lines(
-            for: marina,
-            agenda: store.visibleAgenda,
-            pending: store.pendingItems,
-            messages: store.messages
-        )
-        #expect(linhas.contains { $0.text.contains("1:1 Marina Duarte") })
-        #expect(linhas.contains { $0.text.hasPrefix("Pendência: ") })
-
-        // Ninguém conhecido: nada é inventado.
-        let estranho = Message(
-            id: "zz", accountID: Fixtures.accounts[0].id,
-            from: Contact(name: "Xyzzy Qwerty", address: "zz@exemplo.com"),
-            receivedAt: Fixtures.today, subject: "Oi", snippet: "oi", body: ["oi"],
-            tags: [], bucket: .today, isRead: false, summary: nil, detectedEvent: nil
-        )
-        #expect(
-            DashboardPreviewContext.lines(
-                for: estranho, agenda: store.visibleAgenda,
-                pending: store.pendingItems, messages: store.messages
-            ).isEmpty
-        )
-    }
-
-    @Test("a pergunta do briefing é a fixa da conversa, não uma cópia do dashboard")
-    func briefingQuestionBelongsToTheConversation() {
-        #expect(
-            AssistantConversation.briefingQuestion == """
-                Faça um briefing do meu dia em até 120 palavras: o que exige \
-                resposta hoje, os compromissos de hoje em ordem, e o que pode \
-                esperar. Cite remetentes e horários.
-                """
-        )
-    }
-
-    @Test("clicar o email abre a leitura por cima, sem trocar de aba")
-    func rendersMailSheetOverDashboard() async throws {
-        let store = MailStore(source: InMemoryMailSource.fixtures)
-        await store.load()
-        let id = try #require(store.messages.first?.id)
-        let reading = Binding<String?>.constant(id)
-        let image = try #require(Render.snapshot(
-            DashboardScreen(
-                store: store,
-                now: Fixtures.nowMinute,
-                today: Fixtures.today,
-                conversation: inertConversation(),
-                readingMailID: reading
-            )
-            .environment(ThemeStore()),
-            named: "dashboard-leitura",
-            size: CGSize(width: 1_200, height: 820),
-            theme: .okami
-        ))
-        #expect(image.pixelsWide == 1_200)
-        #expect(image.pixelsHigh == 820)
-    }
-
-    @Test("\"Gerar rascunho\" chama draftReply(), não ask()")
-    func draftButtonUsesDraftReply() async throws {
-        let store = MailStore(source: InMemoryMailSource.fixtures)
-        await store.load()
-        let spy = DashboardSpyAssistant()
-        let mail = try #require(store.dashboardFocus(nowMinute: Fixtures.nowMinute).mail.first)
-        let conversation = spiedConversation(spy, mail: mail.message)
-        conversation.draftReply()
-        await conversation.waitForIdle()
-
-        #expect(spy.transforms.map(\.action) == [.draftReply])
-        #expect(spy.answers.isEmpty)
-        #expect(conversation.messages.last?.kind == .draft)
-    }
-
-    @Test("rascunho no transcript sai literal, sem Markdown")
-    func draftTurnIsNotRenderedAsMarkdown() async throws {
-        let store = MailStore(source: InMemoryMailSource.fixtures)
-        await store.load()
-        let text = "Oi Marina,\n\n**Fechado** para terça.\n\n- item um\n- item dois"
-
-        func bitmap(kind: AssistantTurnKind) throws -> NSBitmapImageRep {
-            let conversation = AssistantConversation(
-                scope: .email,
-                context: .init(subject: "Revisão"),
-                destination: .unconfigured,
-                engine: .unavailable,
-                debugState: AssistantPanelDebugState(
-                    messages: [.init(speaker: .assistant, text: text, kind: kind)]
-                )
-            )
-            return try #require(Render.bitmap(
-                DashboardScreen(
-                    store: store,
-                    now: Fixtures.nowMinute,
-                    today: Fixtures.today,
-                    conversation: conversation
-                )
-                .environment(ThemeStore()),
-                size: Self.dashboardSize,
-                theme: .okami
-            ))
-        }
-
-        // O mesmo texto como `.message` passa pelo Markdown: os asteriscos
-        // somem e a lista ganha marcador. Como `.draft` fica literal.
-        #expect(
-            try bitmap(kind: .draft).pixelsDiffering(from: try bitmap(kind: .message)) > 200
-        )
-    }
-
-    @Test("o dashboard não tem mais máquina de estado própria")
-    func dashboardHasNoOwnStateMachine() throws {
-        let source = try Self.dashboardSource()
-        #expect(!source.contains("private func run("))
-        #expect(!source.contains("private func runDraft("))
-        #expect(!source.contains("private func runSuggestion("))
-        #expect(!source.contains("@State private var loading"))
-        #expect(!source.contains("@State private var errorMessage"))
-    }
-
-    /// O que a §2.2 manda **remover**. Um caso de fonte porque é isso que a
-    /// lista pede: nenhum destes deixa rastro em pixel que dê para afirmar
-    /// sozinho, e o que não se afirma volta na próxima edição.
-    @Test("o cartão flutuante, os tiles e as cores literais sumiram")
-    func removedDecorations() throws {
-        let source = try Self.dashboardSource()
-        for proibido in [
-            "metricTile", "betaBadge", "private var robot", "func board<",
-            "Color.black.opacity", "cornerRadius: 20", "cornerRadius: 14",
-            "theme.info.color.opacity",
-            "Ver todas", "👋",
-            // O botão que gerava briefing sob demanda. A faixa HOJE o
-            // substituiu, e ela já está lá quando a tela abre.
-            "Gerar briefing", "ctaButton",
-        ] {
-            #expect(!source.contains(proibido), "\(proibido) continua em DashboardScreen.swift")
-        }
-        // Os `Spacer(minLength: 0)` que enchiam os cartões sumiram. Sobram
-        // **três**, e todos carregam decisão de layout: o par que decide se a
-        // folga fica antes ou depois do assistente — com poucas prioridades o
-        // campo cola na lista, com muitas ele desce para o rodapé, que é o
-        // vazio de 400pt que o dono reclamou — e o da coluna de dia livre.
-        #expect(source.components(separatedBy: "Spacer(minLength: 0)").count - 1 == 3)
-    }
-
-    static func dashboardSource() throws -> String {
-        try String(
-            contentsOf: URL(fileURLWithPath: #filePath)
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .deletingLastPathComponent()
-                .appendingPathComponent("Sources/UNIShell/Inbox/DashboardScreen.swift"),
-            encoding: .utf8
-        )
-    }
-}
-
-/// A régua do mockup, no molde dos testes de hairline: os números que
-/// `design/07-dashboard.html` fixa, medidos no desenho de verdade.
-@Suite("Dashboard · paridade com o mockup")
-@MainActor
-struct DashboardMockupParityTests {
-
-    private static let size = CGSize(width: 1_200, height: 820)
-
-    private func screen(_ store: MailStore) -> some View {
-        DashboardScreen(
-            store: store,
-            now: Fixtures.nowMinute,
-            today: Fixtures.today,
-            conversation: AssistantConversation(
-                scope: .workspace,
-                context: .init(subject: "Caixa e agenda de hoje"),
-                destination: .unconfigured,
-                engine: .unavailable
-            )
-        )
-        .environment(ThemeStore())
-    }
-
-    /// A trilha nunca entrega meio cartão às PENDÊNCIAS, em nenhum estado que
-    /// tenha trilha.
-    ///
-    /// A régua é a mesma dos testes de hairline: acha-se o fio `line2` que
-    /// abre a seção de PENDÊNCIAS e conferem-se as seis faixas logo acima
-    /// dele. Todo cartão da trilha carrega 10pt de folga embaixo — se a borda
-    /// partisse um, ali estaria a cor da conta em vez do fundo da coluna.
-    @Test("a coluna direita não corta cartão em nenhum estado com trilha")
-    func railCutsOnCardBoundaryInEveryState() async throws {
-        let cheio = MailStore(source: InMemoryMailSource.fixtures)
-        await cheio.load()
-
-        // O estado `vazio` e o `agenda-vazia` ficam de fora **porque não têm
-        // trilha**: sem compromisso e sem pendência a coluna encolhe para 168
-        // e vira o recado "Dia livre". Isso tem caso próprio abaixo.
-        let estados: [(String, MailStore, AssistantConversation)] = [
-            ("cheio", cheio, conversa()),
-            ("rascunho", cheio, conversa(draft: true)),
-            ("assistente", cheio, conversa(transcript: true)),
+        let estados: [(String, MailStore, [String: ReadyDraft], DayPlan.Filter, String?)] = [
+            ("com-heroi", cheia, DiaDoDono.rascunhos, .standard, nil),
+            ("sem-heroi", semHeroi, [:], .standard, nil),
+            ("rascunho-selecionado", cheia, DiaDoDono.rascunhos, .standard, "jack"),
+            ("sem-rascunho", cheia, [:], .standard, "cats9th"),
+            ("sem-gente", cheia, DiaDoDono.rascunhos,
+             DayPlan.Filter(on: [.deadlines, .leads], accounts: []), nil),
+            ("dia-livre", diaLivre, DiaDoDono.rascunhos, .standard, nil),
         ]
 
-        let fundo = try #require(Theme.okami.surface.nsColor.usingColorSpace(.sRGB))
-        let fio = try #require(Theme.okami.line2.nsColor.usingColorSpace(.sRGB))
-
-        for (nome, store, conversation) in estados {
-            let rep = try #require(Render.bitmap(
-                DashboardScreen(
-                    store: store,
-                    now: Fixtures.nowMinute,
-                    today: Fixtures.today,
-                    conversation: conversation
+        for theme in [Theme.okami, Theme.tinta] {
+            for (nome, store, drafts, filtro, selecionado) in estados {
+                let rep = try #require(Render.snapshot(
+                    tela(store, drafts: drafts, filter: filtro, selected: selecionado),
+                    named: "tela08-\(nome)-\(theme.id)",
+                    size: Self.size,
+                    theme: theme
+                ), "\(theme.id)/\(nome) não desenhou")
+                #expect(rep.pixelsWide == 1_440)
+                #expect(rep.pixelsHigh == 852)
+                #expect(
+                    rep.pixels(matching: theme.paper, tolerance: 0.01) > 100_000,
+                    "\(theme.id)/\(nome) perdeu o fundo paper"
                 )
-                .environment(ThemeStore()),
-                size: Self.size,
-                theme: .okami
-            ))
-
-            func combina(_ c: NSColor?, _ alvo: NSColor, _ folga: Double) -> Bool {
-                guard let c = c?.usingColorSpace(.sRGB) else { return false }
-                return abs(c.redComponent - alvo.redComponent) <= folga
-                    && abs(c.greenComponent - alvo.greenComponent) <= folga
-                    && abs(c.blueComponent - alvo.blueComponent) <= folga
+                // A régua da tela inteira: com herói, exatamente **uma** caixa
+                // de cor (accentSoft); sem herói, nenhuma.
+                let caixaDeCor = rep.pixels(matching: theme.accentSoft, tolerance: 0.015)
+                if nome == "sem-heroi" || nome == "sem-gente" {
+                    // Desligar "Gente" tira a linha do herói do plano — e sem
+                    // herói o bloco não aparece, sem placeholder.
+                    #expect(caixaDeCor < 500, "\(theme.id)/\(nome) desenhou herói sem herói")
+                } else {
+                    #expect(caixaDeCor > 20_000, "\(theme.id)/\(nome) perdeu a caixa do herói")
+                }
             }
+        }
+    }
 
-            // O fio que abre as PENDÊNCIAS: a faixa mais baixa que atravessa a
-            // coluna inteira em `line2`.
-            let colunas = 882..<1_170
-            var topoDasPendencias: Int?
-            for y in stride(from: Int(Self.size.height) - 30, to: 200, by: -1) {
-                let iguais = colunas.filter { combina(rep.colorAt(x: $0, y: y), fio, 0.01) }.count
-                if iguais > colunas.count - 10 {
-                    topoDasPendencias = y
+    @Test("com e sem rascunho, a prévia muda — e a lista não")
+    func draftCardLivesInThePreview() async throws {
+        let store = await DiaDoDono.loja()
+        func recorte(_ drafts: [String: ReadyDraft]) throws -> NSBitmapImageRep {
+            try #require(Render.bitmap(
+                tela(store, drafts: drafts, selected: "jack"),
+                size: Self.size, theme: .okami
+            ))
+        }
+        let com = try recorte(DiaDoDono.rascunhos)
+        let sem = try recorte([:])
+        // A prévia mora entre as hairlines (~700..1090): o cartão aparece lá.
+        #expect(
+            com.pixelsDiffering(from: sem, inColumns: 710..<1_080, rows: 300..<700) > 500,
+            "o cartão do rascunho não apareceu na prévia"
+        )
+    }
+
+    // MARK: - Cliques
+
+    /// Onde está o centro de um aglomerado de pixels desta cor, dentro do
+    /// recorte dado. É a régua que dispensa coordenadas chutadas: mede no
+    /// desenho e clica no que mediu.
+    private func centro(
+        de token: TokenColor, em rep: NSBitmapImageRep,
+        x: Range<Int>, y: Range<Int>, tolerance: Double = 0.06
+    ) -> CGPoint? {
+        guard let alvo = token.nsColor.usingColorSpace(.sRGB) else { return nil }
+        var somaX = 0, somaY = 0, n = 0
+        for py in y where py < rep.pixelsHigh {
+            for px in x where px < rep.pixelsWide {
+                guard let c = rep.colorAt(x: px, y: py)?.usingColorSpace(.sRGB) else { continue }
+                if abs(c.redComponent - alvo.redComponent) < tolerance,
+                   abs(c.greenComponent - alvo.greenComponent) < tolerance,
+                   abs(c.blueComponent - alvo.blueComponent) < tolerance {
+                    somaX += px; somaY += py; n += 1
+                }
+            }
+        }
+        guard n > 8 else { return nil }
+        return CGPoint(x: Double(somaX) / Double(n), y: Double(somaY) / Double(n))
+    }
+
+    /// As faixas verticais onde as ações em accent aparecem na lista — uma
+    /// por linha com ação, de cima para baixo.
+    private func faixasDeAcao(
+        em rep: NSBitmapImageRep, cor: TokenColor, x: Range<Int>,
+        aPartirDe y0: Int, ate y1: Int = .max
+    ) -> [ClosedRange<Int>] {
+        guard let alvo = cor.nsColor.usingColorSpace(.sRGB) else { return [] }
+        func temCor(_ py: Int) -> Bool {
+            for px in x {
+                guard let c = rep.colorAt(x: px, y: py)?.usingColorSpace(.sRGB) else { continue }
+                if abs(c.redComponent - alvo.redComponent) < 0.06,
+                   abs(c.greenComponent - alvo.greenComponent) < 0.06,
+                   abs(c.blueComponent - alvo.blueComponent) < 0.06 { return true }
+            }
+            return false
+        }
+        var faixas: [ClosedRange<Int>] = []
+        var inicio: Int?
+        for py in y0..<min(y1, rep.pixelsHigh) {
+            if temCor(py) {
+                if inicio == nil { inicio = py }
+            } else if let i = inicio {
+                if py - i > 3 { faixas.append(i...(py - 1)) }
+                inicio = nil
+            }
+        }
+        return faixas
+    }
+
+    /// O y logo abaixo do herói (o fim da mancha `accentSoft`).
+    private func fimDoHeroi(_ rep: NSBitmapImageRep, theme: Theme) -> Int {
+        var fim = 0
+        for py in 0..<300 {
+            for px in 100..<1_300 {
+                if let c = rep.colorAt(x: px, y: py)?.usingColorSpace(.sRGB),
+                   let alvo = theme.accentSoft.nsColor.usingColorSpace(.sRGB),
+                   abs(c.redComponent - alvo.redComponent) < 0.015,
+                   abs(c.greenComponent - alvo.greenComponent) < 0.015,
+                   abs(c.blueComponent - alvo.blueComponent) < 0.015 {
+                    fim = py
                     break
                 }
             }
-            let topo = try #require(topoDasPendencias, "\(nome): não achei o fio das PENDÊNCIAS")
-
-            var sujas = 0
-            for y in (topo - 6)..<topo {
-                for x in colunas where !combina(rep.colorAt(x: x, y: y), fundo, 0.02) {
-                    sujas += 1
-                }
-            }
-            #expect(sujas == 0, "\(nome): a trilha entregou \(sujas) pixels de cartão ao fio")
         }
+        return fim
     }
 
-    private func conversa(
-        transcript: Bool = false, draft: Bool = false
-    ) -> AssistantConversation {
-        var turnos: [AssistantMessage] = []
-        if transcript {
-            turnos = [
-                .init(speaker: .user, text: "Resuma o dia"),
-                .init(speaker: .assistant, text: "Marina espera o SLA."),
-            ]
-        }
-        if draft {
-            turnos = [
-                .init(speaker: .assistant, text: "Oi Marina, fechado.", kind: .draft),
-            ]
-        }
-        return AssistantConversation(
-            scope: .workspace,
-            context: .init(subject: "Caixa e agenda de hoje"),
-            destination: .unconfigured,
-            engine: .unavailable,
-            debugState: AssistantPanelDebugState(messages: turnos)
+    /// **O ruling**: Enviar na linha NÃO envia. Um clique no Enviar da
+    /// primeira linha não põe nada na porta de envio — ele só arma a
+    /// confirmação (e seleciona a linha).
+    @Test("Enviar na linha não envia sem a confirmação")
+    func rowSendDoesNotSendWithoutConfirmation() async throws {
+        let porta = SendPortSpy()
+        let store = await DiaDoDono.loja(sendPort: porta)
+        let caixa = CaixaDeSelecao()
+
+        // Mede no desenho onde o Enviar da linha do Jack está.
+        let rep = try #require(Render.bitmap(
+            tela(store, caixa: caixa), size: Self.size, theme: .tinta
+        ))
+        let base = fimDoHeroi(rep, theme: .tinta) + 80
+        let faixas = faixasDeAcao(em: rep, cor: Theme.tinta.accent, x: 300..<700, aPartirDe: base)
+        let primeira = try #require(faixas.first, "não achei as ações da primeira linha")
+        let alvo = try #require(centro(
+            de: Theme.tinta.accent, em: rep,
+            x: 300..<700, y: primeira.lowerBound..<(primeira.upperBound + 1)
+        ))
+
+        CliqueDeEnsaio.em(
+            tela(store, caixa: caixa),
+            size: Self.size, aY: alvo.y, x: alvo.x
         )
+        #expect(porta.sent.isEmpty, "o Enviar da linha enviou sem confirmação")
+        #expect(caixa.selecionado == "jayden", "o Enviar da linha não selecionou a linha")
     }
 
-    /// `.rail { width: 300px }` dentro de `.content { padding: 22px }`: numa
-    /// janela de 1200, a coluna direita vai de 878 a 1177, e o que está de
-    /// fora dela é `paper`.
-    ///
-    /// Medido em `okami` de propósito: no `tinta` deste app `paper` e
-    /// `surface` são os dois branco puro (`Themes+Generated.swift`), e uma
-    /// régua que não distingue as duas não mede nada.
-    @Test("a coluna direita mede 300 e encosta no recuo de 22")
-    func railIsThreeHundredWide() async throws {
-        let store = MailStore(source: InMemoryMailSource.fixtures)
-        await store.load()
-        let rep = try #require(Render.bitmap(screen(store), size: Self.size, theme: .okami))
-
-        let inicio = Int(Self.size.width - DashboardMetrics.outerPadding - DashboardMetrics.railWidth)
-        let fim = Int(Self.size.width - DashboardMetrics.outerPadding) - 1
-        #expect(inicio == 878)
-        #expect(fim == 1_177)
-
-        func cor(_ x: Int) throws -> NSColor {
-            try #require(rep.colorAt(x: x, y: 320)?.usingColorSpace(.sRGB))
-        }
-        func é(_ x: Int, _ token: TokenColor) throws -> Bool {
-            let a = try cor(x)
-            let b = try #require(token.nsColor.usingColorSpace(.sRGB))
-            return abs(a.redComponent - b.redComponent) < 0.005
-                && abs(a.greenComponent - b.greenComponent) < 0.005
-                && abs(a.blueComponent - b.blueComponent) < 0.005
-        }
-        // A folga de 18 antes da coluna, e o recuo de 22 depois dela: `paper`
-        // dos dois lados. Dentro, `surface`.
-        #expect(try é(inicio - 4, Theme.okami.paper), "a folga de 18 antes da coluna sumiu")
-        #expect(try é(inicio + 2, Theme.okami.surface), "a coluna direita não começa em 878")
-        #expect(try é(fim - 2, Theme.okami.surface), "a coluna direita não termina em 1177")
-        #expect(try é(fim + 4, Theme.okami.paper), "o recuo de 22 da direita sumiu")
-    }
-
-    /// `.transcript { max-height: 300px; overflow-y: auto }`: um transcript
-    /// longo **não** pode empurrar a cápsula do campo. A régua é a própria
-    /// propriedade que importa — dois recortes, um com duas linhas de
-    /// resposta e outro com sessenta parágrafos, têm o mesmo rodapé pixel a
-    /// pixel — e ela não depende de nenhum token ser distinguível no tema.
-    @Test("o transcript para nos 300 e o campo continua no rodapé")
-    func transcriptStopsAtThreeHundred() async throws {
-        let store = MailStore(source: InMemoryMailSource.fixtures)
-        await store.load()
-
-        func recorte(_ resposta: String) throws -> NSBitmapImageRep {
-            let conversation = AssistantConversation(
-                scope: .workspace,
-                context: .init(subject: "Caixa e agenda de hoje"),
-                destination: .unconfigured,
-                engine: .unavailable,
-                debugState: AssistantPanelDebugState(messages: [
-                    .init(speaker: .user, text: "Resuma o dia"),
-                    .init(speaker: .assistant, text: resposta),
-                ])
+    /// A outra metade do ruling: com a confirmação armada, o Enviar **dela**
+    /// envia pela fila de saída normal — com `In-Reply-To` — e consome o
+    /// rascunho. A IA não é chamada.
+    @Test("o Enviar da confirmação envia pela porta, com In-Reply-To")
+    func confirmationSendGoesThroughThePort() async throws {
+        let porta = SendPortSpy()
+        let espiao = DashboardSpyAssistant()
+        let store = await DiaDoDono.loja(sendPort: porta)
+        let caixa = CaixaDeSelecao()
+        let conversa = AssistantConversation(
+            scope: .email,
+            context: .init(subject: "Caixa"),
+            destination: .init(label: "Neste Mac", detail: "", isLocal: true),
+            engine: AssistantBridge.engine(
+                using: espiao, supportsDraftReply: true,
+                mailContext: { AssistantMailContext(message: DiaDoDono.jayden) }
             )
-            return try #require(Render.bitmap(
-                DashboardScreen(
-                    store: store,
-                    now: Fixtures.nowMinute,
-                    today: Fixtures.today,
-                    conversation: conversation
-                )
-                .environment(ThemeStore()),
-                size: Self.size,
-                theme: .okami
-            ))
-        }
+        )
 
-        let curto = try recorte("Duas linhas bastam.")
-        let longo = try recorte(
-            (1...60).map { "Parágrafo \($0) do transcript." }.joined(separator: "\n\n")
+        // A tela nasce com a confirmação armada (porta do harness) e o clique
+        // cai no Enviar **da confirmação**.
+        let armada = tela(
+            store, conversation: conversa, selected: "jayden",
+            caixa: caixa, confirming: "jayden"
         )
-        // O rodapé da coluna — cápsula do campo e rótulo do destino — é o
-        // mesmo nos dois: 60 parágrafos rolam por dentro do painel.
-        #expect(
-            curto.pixelsDiffering(
-                from: longo,
-                inColumns: 0..<Int(Self.size.width),
-                rows: 740..<Int(Self.size.height)
-            ) == 0
+        let rep = try #require(Render.bitmap(armada, size: Self.size, theme: .tinta))
+        let base = fimDoHeroi(rep, theme: .tinta) + 80
+        let faixas = faixasDeAcao(em: rep, cor: Theme.tinta.accent, x: 300..<700, aPartirDe: base)
+        let primeira = try #require(faixas.first)
+        let alvo = try #require(centro(
+            de: Theme.tinta.accent, em: rep,
+            x: 300..<700, y: primeira.lowerBound..<(primeira.upperBound + 1)
+        ))
+
+        CliqueDeEnsaio.em(armada, size: Self.size, aY: alvo.y, x: alvo.x)
+
+        #expect(porta.sent.count == 1, "o Enviar da confirmação não enviou")
+        let saiu = try #require(porta.sent.first)
+        #expect(saiu.to.map(\.address) == ["jayden@consult.example"])
+        #expect(saiu.inReplyTo != nil, "a resposta saiu sem In-Reply-To")
+        #expect(saiu.plainText.contains("Terça 9/9"))
+        #expect(caixa.descartados == ["jayden"], "o rascunho enviado não foi consumido")
+        #expect(espiao.answers == 0 && espiao.transforms == 0, "o Enviar falou com a IA")
+    }
+
+    /// **Na prévia o Enviar envia direto** — o rascunho inteiro está na tela.
+    @Test("o Enviar da prévia envia direto pela porta e nunca chama a IA")
+    func previewSendGoesStraightThroughThePort() async throws {
+        let porta = SendPortSpy()
+        let espiao = DashboardSpyAssistant()
+        let store = await DiaDoDono.loja(sendPort: porta)
+        let caixa = CaixaDeSelecao()
+        let conversa = AssistantConversation(
+            scope: .email,
+            context: .init(subject: "Caixa"),
+            destination: .init(label: "Neste Mac", detail: "", isLocal: true),
+            engine: AssistantBridge.engine(
+                using: espiao, supportsDraftReply: true,
+                mailContext: { AssistantMailContext(message: DiaDoDono.jack) }
+            )
         )
-        #expect(DashboardMetrics.transcriptMaxHeight == 280)
+
+        let armada = tela(store, conversation: conversa, selected: "jack", caixa: caixa)
+        let rep = try #require(Render.bitmap(armada, size: Self.size, theme: .tinta))
+        // O único bloco sólido de accent na prévia é o botão Enviar do cartão.
+        let alvo = try #require(centro(
+            de: Theme.tinta.accent, em: rep, x: 720..<1_080, y: 200..<852
+        ), "não achei o Enviar do cartão do rascunho")
+
+        CliqueDeEnsaio.em(armada, size: Self.size, aY: alvo.y, x: alvo.x)
+
+        #expect(porta.sent.count == 1, "o Enviar da prévia não enviou")
+        #expect(porta.sent.first?.to.map(\.address) == ["jack@whitmore.dev"])
+        #expect(caixa.descartados == ["jack"])
+        #expect(espiao.answers == 0 && espiao.transforms == 0, "o Enviar da prévia chamou a IA")
+    }
+
+    /// "Arquivar e aprender" emite **os dois** comandos na mesma leva.
+    @Test("Arquivar e aprender emite .move e .learnSender juntos")
+    func archiveAndLearnEmitsBothCommands() async throws {
+        let store = await DiaDoDono.loja()
+        let espiao = CommandSpy()
+        let caixa = CaixaDeSelecao()
+
+        let armada = tela(store, caixa: caixa, commandSpy: espiao)
+        let rep = try #require(Render.bitmap(armada, size: Self.size, theme: .tinta))
+        let base = fimDoHeroi(rep, theme: .tinta) + 80
+        let faixas = faixasDeAcao(em: rep, cor: Theme.tinta.accent, x: 300..<700, aPartirDe: base)
+        // Jack, Jayden, Cats9th ("Sexta 9h"), Abacus ("Arquivar e aprender").
+        #expect(faixas.count >= 4, "a lista não desenhou as quatro linhas com ação")
+        let abacus = try #require(faixas.dropFirst(3).first)
+        let alvo = try #require(centro(
+            de: Theme.tinta.accent, em: rep,
+            x: 300..<700, y: abacus.lowerBound..<(abacus.upperBound + 1)
+        ))
+
+        CliqueDeEnsaio.em(armada, size: Self.size, aY: alvo.y, x: alvo.x)
+
+        #expect(espiao.commands == [
+            .move(messageID: "abacus", to: .archived),
+            .learnSender(address: "no-reply@abacus.ai", neverPriority: true),
+        ], "a leva não saiu inteira: \(espiao.commands)")
+    }
+
+    /// "Reservar" cria o compromisso pelo caminho de agenda existente.
+    @Test("Reservar cria o evento do bloco sugerido")
+    func reserveCreatesTheAgendaItem() async throws {
+        let store = await DiaDoDono.loja()
+        #expect(store.agenda.count == 3)
+
+        let armada = tela(store)
+        let rep = try #require(Render.bitmap(armada, size: Self.size, theme: .tinta))
+        // O "Reservar" é o aglomerado de accent mais baixo da coluna do dia
+        // (abaixo do "Agora"; os prazos escrevem a hora em warn, não accent).
+        let faixas = faixasDeAcao(
+            em: rep, cor: Theme.tinta.accent, x: 1_140..<1_408,
+            aPartirDe: fimDoHeroi(rep, theme: .tinta) + 40, ate: 760
+        )
+        let ultima = try #require(faixas.last, "não achei o Reservar na coluna do dia")
+        let alvo = try #require(centro(
+            de: Theme.tinta.accent, em: rep,
+            x: 1_140..<1_408, y: ultima.lowerBound..<(ultima.upperBound + 1)
+        ))
+
+        CliqueDeEnsaio.em(armada, size: Self.size, aY: alvo.y, x: alvo.x)
+
+        #expect(store.agenda.count == 4, "o Reservar não criou o compromisso")
+        let novo = try #require(
+            store.agenda.first { $0.title.hasPrefix("Responder") }
+        )
+        #expect(novo.startMinute == 780, "o bloco não caiu na folga das 13h")
+        #expect(novo.durationMinutes == DayPlan.replyBlockMinutes)
+    }
+
+    /// O botão "Perguntar · ⌘J" abre o painel do assistente que já existe.
+    @Test("o botão Perguntar abre o painel do assistente")
+    func askButtonOpensTheAssistant() async throws {
+        let store = await DiaDoDono.loja()
+        let caixa = CaixaDeSelecao()
+
+        CliqueDeEnsaio.em(
+            tela(store, caixa: caixa),
+            size: Self.size,
+            aY: Self.size.height - DashboardMetrics.askButtonBottom
+                - DashboardMetrics.askButtonHeight / 2,
+            x: Self.size.width - DashboardMetrics.askButtonTrailing - 60
+        )
+        #expect(caixa.perguntou, "o botão Perguntar não abriu o painel")
+    }
+
+    /// **A queixa mais dura do dono**: clicar não abre. Um clique seleciona;
+    /// abrir é 2× clique (e ⏎, provado em `DashboardKeys`).
+    @Test("um clique seleciona a linha e não abre a folha")
+    func clickSelectsWithoutOpening() async throws {
+        let store = await DiaDoDono.loja()
+        let caixa = CaixaDeSelecao()
+
+        let rep = try #require(Render.bitmap(
+            tela(store, caixa: caixa), size: Self.size, theme: .tinta
+        ))
+        let base = fimDoHeroi(rep, theme: .tinta) + 80
+        let faixas = faixasDeAcao(em: rep, cor: Theme.tinta.accent, x: 300..<700, aPartirDe: base)
+        let segunda = try #require(faixas.dropFirst().first)
+        let y = CGFloat(segunda.lowerBound)
+
+        CliqueDeEnsaio.em(tela(store, caixa: caixa), size: Self.size, aY: y, x: 150)
+        #expect(caixa.selecionado == "cats9th", "o clique não selecionou a segunda linha")
+        #expect(caixa.lendo == nil, "o clique abriu a folha do leitor")
+
+        let caixa2 = CaixaDeSelecao()
+        CliqueDeEnsaio.em(
+            tela(store, caixa: caixa2), size: Self.size, aY: y, x: 150, cliques: 2
+        )
+        #expect(caixa2.lendo == "cats9th", "o duplo clique não abriu a folha")
+    }
+
+    /// ⏎ abre o selecionado, e só ele — a decisão pura, sem sintetizar tecla.
+    @Test("⏎ abre o selecionado, e só ele")
+    func enterOpensTheSelection() {
+        #expect(DashboardKeys.opens(
+            key: .enter, selectedID: "m1", readingID: nil, exists: true
+        ) == "m1")
+        #expect(DashboardKeys.opens(
+            key: .enter, selectedID: nil, readingID: nil, exists: false
+        ) == nil)
+        #expect(DashboardKeys.opens(
+            key: .enter, selectedID: "m1", readingID: "m1", exists: true
+        ) == nil)
+        for key in [BareKey.delete, .up, .down, .escape] {
+            #expect(DashboardKeys.opens(
+                key: key, selectedID: "m1", readingID: nil, exists: true
+            ) == nil)
+        }
+    }
+
+    /// O que o 08 mandou **remover** — caso de fonte, porque nenhum destes
+    /// deixa rastro de pixel afirmável sozinho.
+    @Test("o campo de pergunta, os chips e a barra lateral sumiram da fonte")
+    func removedDecorations() throws {
+        let raiz = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/UNIShell/Inbox")
+        let arquivos = ["DashboardScreen.swift", "DashboardRow.swift",
+                        "DashboardPreviewColumn.swift", "DashboardDayColumn.swift"]
+        for nome in arquivos {
+            let fonte = try String(
+                contentsOf: raiz.appendingPathComponent(nome), encoding: .utf8
+            )
+            for proibido in [
+                // O campo do rodapé saiu; o botão Perguntar o substitui.
+                "DashboardAskField", "Pergunte sobre seus emails",
+                // Chips e barra lateral da linha morreram com o 07.
+                "TintChip", "chipRole", "accountBarWidth",
+                // Só o herói tem cor; nenhum radiusLarge nesta tela.
+                "radiusLarge",
+            ] {
+                #expect(!fonte.contains(proibido), "\(proibido) continua em \(nome)")
+            }
+        }
     }
 }
