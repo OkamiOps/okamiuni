@@ -96,6 +96,47 @@ public final class AccountsModel {
         }
     }
 
+    /// Reautentica a conta Google que já existe. `false` quando não deu, e
+    /// `lastError` diz por quê — inclusive o endereço diferente, que é recusa e
+    /// não troca silenciosa de identidade.
+    ///
+    /// Deu certo: o sync e a fila **religam sozinhos**. A pessoa reconectou
+    /// para o app voltar a funcionar, e pedir depois um segundo clique em
+    /// "sincronizar agora" e um terceiro em "tentar de novo" na fila é fazê-la
+    /// consertar à mão o que a reconexão já resolveu.
+    @discardableResult
+    public func reconnectGoogle(_ accountID: String) async -> Bool {
+        await roda { _ = try await self.director.reconnectGoogle(accountID: accountID) }
+        return await religaSePassou(accountID)
+    }
+
+    /// A mesma coisa pela rota IMAP: o formulário devolve endereço, senha e
+    /// servidor, e o endereço é conferido contra o da conta.
+    @discardableResult
+    public func reconnectImap(
+        accountID: String, address: String, password: String, endpoint: ImapEndpoint
+    ) async -> Bool {
+        await roda {
+            _ = try await self.director.reconnectImap(
+                accountID: accountID, address: address, password: password, endpoint: endpoint
+            )
+        }
+        return await religaSePassou(accountID)
+    }
+
+    /// Religa o que a credencial quebrada tinha parado.
+    ///
+    /// Fora do `roda`: não é ação de formulário e não tem erro próprio a
+    /// mostrar. E são **duas** coisas, porque são dois mecanismos: acordar o
+    /// ciclo não destrava fila nenhuma (a trava mora no executor), e destravar
+    /// a fila não baixa mensagem nenhuma.
+    private func religaSePassou(_ accountID: String) async -> Bool {
+        guard lastError == nil else { return false }
+        await sync?.coordinator(for: accountID)?.wake()
+        await retryQueue(accountID)
+        return true
+    }
+
     public func remove(_ accountID: String) async {
         await roda { try await self.director.remove(accountID: accountID) }
     }

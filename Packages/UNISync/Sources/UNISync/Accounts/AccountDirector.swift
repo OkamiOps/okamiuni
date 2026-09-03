@@ -505,6 +505,157 @@ public actor AccountDirector {
         return indice
     }
 
+    // MARK: Reconectar
+
+    /// Reautentica a conta Google **que já existe**, no lugar.
+    ///
+    /// Preserva id, banco, fila de saída e preferências — porque não mexe em
+    /// nenhum deles: o que troca é o token no Keychain, e mais nada. Era a
+    /// saída que faltava, e a sua falta era grave: a única ação que a faixa de
+    /// atenção oferecia era "Remover conta…", que apagava 1.446 mensagens
+    /// locais e uma fila de saída com item pendente para resolver uma
+    /// credencial vencida.
+    ///
+    /// ## Por que o consentimento vai para um rascunho
+    ///
+    /// `GoogleAuth.connect` **guarda o token** no fim do fluxo, e o endereço só
+    /// pode ser conferido depois — com um token na mão é que se pergunta ao
+    /// Gmail de quem ele é. Conectar direto no id da conta gravaria por cima
+    /// antes da conferência: quem entrasse com a conta errada acabaria com a
+    /// credencial de uma pessoa pendurada na caixa de outra, e o token bom da
+    /// conta original já teria sido substituído. O rascunho desfaz isso: o
+    /// consentimento vai para um id descartável, a conferência acontece com ele,
+    /// e só uma reconexão **confirmada** escreve no id de verdade.
+    ///
+    /// Nada é apagado antes de a substituta existir. Toda falha — consentimento
+    /// negado, rede caída, endereço diferente — sai daqui com o token velho
+    /// intacto no lugar dele.
+    @discardableResult
+    public func reconnectGoogle(accountID: String) async throws -> Account {
+        let conta = try await contaExistente(accountID)
+        guard let auth else {
+            // Sem Client ID não há o que reconectar: falta configurar o
+            // **aplicativo**, e a janela mostra o roteiro em vez de um botão
+            // que abriria um consentimento sem identidade.
+            errors[accountID] = .semClientID
+            await refresh()
+            throw SyncError.semClientID
+        }
+
+        let rascunho = "reconectar:\(UUID().uuidString)"
+        do {
+            _ = try await auth.connect(accountID: rascunho, loginHint: conta.address)
+            let cliente = GmailClient(
+                session: session,
+                accessToken: { try await auth.accessToken(for: rascunho) },
+                baseURL: gmailBaseURL
+            )
+            let perfil = try await cliente.profile()
+            try confereEndereco(esperado: conta.address, recebido: perfil.emailAddress)
+
+            // A troca: o segredo do rascunho passa a ser o segredo da conta.
+            // Só aqui, e só depois da conferência.
+            guard let novo = try secrets.secret(for: rascunho) else {
+                throw SyncError.autenticacao
+            }
+            try secrets.store(novo, for: accountID)
+            try? secrets.remove(for: rascunho)
+
+            let religada = try await religa(conta)
+            errors[accountID] = nil
+            queueErrors[accountID] = nil
+            await refresh()
+            return religada
+        } catch let erro as SyncError {
+            // O rascunho nunca sobrevive à falha: é credencial de verdade, e
+            // credencial órfã no chaveiro é vazamento.
+            try? secrets.remove(for: rascunho)
+            errors[accountID] = erro
+            await refresh()
+            throw erro
+        }
+    }
+
+    /// Reautentica a conta IMAP que já existe: testa a senha nova e grava por
+    /// cima. O endereço vem do formulário porque ele é editável na tela — e é
+    /// justamente por isso que ele é conferido.
+    ///
+    /// O teste vem **antes** da gravação, como em `addImapAccount`: uma senha
+    /// que não serve não pode substituir uma que servia.
+    @discardableResult
+    public func reconnectImap(
+        accountID: String, address: String, password: String, endpoint: ImapEndpoint
+    ) async throws -> Account {
+        let conta = try await contaExistente(accountID)
+        do {
+            try confereEndereco(esperado: conta.address, recebido: address)
+            try await testImap(address: address, password: password, endpoint: endpoint)
+            try secrets.store(.password(password), for: accountID)
+            let religada = try await religa(conta, endpoint: endpoint)
+            errors[accountID] = nil
+            queueErrors[accountID] = nil
+            await refresh()
+            return religada
+        } catch let erro as SyncError {
+            errors[accountID] = erro
+            await refresh()
+            throw erro
+        }
+    }
+
+    /// A conta do banco, ou o erro que diz que ela não está lá.
+    ///
+    /// Reconectar age sobre o que existe: uma conta que sumiu do banco não pode
+    /// ser "reconectada" para dentro dele — isso seria adicionar, com outro
+    /// nome.
+    private func contaExistente(_ accountID: String) async throws -> Account {
+        guard let conta = try await database.pool.read({ db in
+            try AccountRecord.fetchOne(db, key: accountID)?.account
+        }) else {
+            throw SyncError.banco("A conta não está mais na lista.")
+        }
+        return conta
+    }
+
+    /// Reconectar não pode trocar de identidade em silêncio.
+    ///
+    /// Comparação sem caixa e sem espaço em volta: `Marcos@OkamiOps.com` e
+    /// `marcos@okamiops.com` são a mesma caixa, e recusá-las como diferentes
+    /// travaria quem só digitou com maiúscula.
+    private func confereEndereco(esperado: String, recebido: String) throws {
+        let a = esperado.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let b = recebido.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard a != b else { return }
+        throw SyncError.contaDiferente(esperado: esperado, recebido: recebido)
+    }
+
+    /// A conta volta a ser uma conta viva: estado `.ativa` e mais nada tocado.
+    ///
+    /// **Não** é `grava(id:…)`: aquela é a porta de quem está adicionando, e
+    /// atualiza nome e marca do host a partir de um formulário. Aqui não houve
+    /// formulário nenhum de identidade — só uma credencial nova —, e o que a
+    /// conta é continua sendo o que ela era. O carimbo de sync, a cor, a
+    /// assinatura e as mensagens seguem intocados, que é o ponto inteiro
+    /// desta operação.
+    ///
+    /// `.ativa`, e não `.carregando`: reconectar não pediu para baixar noventa
+    /// dias de novo. O ciclo incremental acorda sozinho e traz o que faltou.
+    private func religa(_ conta: Account, endpoint: ImapEndpoint? = nil) async throws -> Account {
+        let religada = Account(
+            id: conta.id, address: conta.address, displayName: conta.displayName,
+            provider: conta.provider, host: conta.host,
+            tintLightHex: conta.tintLightHex, tintDarkHex: conta.tintDarkHex,
+            signature: conta.signature,
+            imap: endpoint ?? conta.imap,
+            state: .ativa, lastSyncedAt: conta.lastSyncedAt
+        )
+        try await database.pool.write { db in
+            guard let existente = try AccountRecord.fetchOne(db, key: religada.id) else { return }
+            try AccountRecord(religada, createdAt: existente.createdAt).update(db)
+        }
+        return religada
+    }
+
     // MARK: Remover
 
     /// Apaga a conta: banco **e** Keychain, e revoga no Google quando for o caso.

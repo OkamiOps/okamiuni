@@ -25,6 +25,19 @@ public final class InMemorySecretStore: SecretStore, @unchecked Sendable {
         return storage[accountID]
     }
 
+    /// As contas que têm segredo guardado agora.
+    ///
+    /// Existe para uma afirmação que nenhum outro acessor permite: reconectar
+    /// uma conta Google guarda o token novo num rascunho antes de conferir o
+    /// endereço, e o rascunho **não pode ficar para trás** no chaveiro quando a
+    /// conferência recusa. Sem isto, um vazamento de credencial passaria
+    /// despercebido por qualquer teste.
+    public var storedAccountIDs: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage.keys.sorted()
+    }
+
     public func remove(for accountID: String) throws {
         lock.lock()
         defer { lock.unlock() }

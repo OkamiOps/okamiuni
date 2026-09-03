@@ -961,8 +961,11 @@ public struct InitialLoader: Sendable {
     /// uma caixa vazia por causa de um item.
     static func derrubaACarga(_ erro: SyncError) -> Bool {
         switch erro {
+        // `.contaDiferente` não sai de carga nenhuma — ela nasce na reconexão —,
+        // e se saísse derrubaria: continuar baixando com a credencial de outra
+        // pessoa é a única coisa pior do que parar.
         case .autenticacao, .autorizacaoRevogada, .semClientID, .quota,
-             .rede, .tls, .keychain, .banco:
+             .rede, .tls, .keychain, .banco, .contaDiferente:
             true
         case .resposta:
             false

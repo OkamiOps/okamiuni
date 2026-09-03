@@ -67,6 +67,15 @@ public enum SyncError: Error, Sendable, Hashable, Codable, LocalizedError {
     /// aquele é para respostas de servidor que não fazem sentido, e isto
     /// aqui nunca viu rede nenhuma.
     case banco(String)
+    /// A reautorização voltou com **outra conta**.
+    ///
+    /// Caso próprio, e não `.autenticacao`, porque não há nada de errado com a
+    /// credencial: ela é boa, é de outra pessoa. Reconectar existe para
+    /// devolver a credencial da conta que já está aqui, e trocar a identidade
+    /// dela em silêncio faria a caixa da pessoa passar a mostrar as mensagens
+    /// de outra — com o banco, a fila de saída e as preferências da primeira
+    /// pendurados na segunda.
+    case contaDiferente(esperado: String, recebido: String)
 
     /// A frase que o usuário lê. Uma por caso, nenhuma genérica: "erro de
     /// rede" e "senha recusada" pedem ações diferentes, e uma frase só para as
@@ -104,6 +113,32 @@ public enum SyncError: Error, Sendable, Hashable, Codable, LocalizedError {
             "Resposta inesperada do servidor: \(detalhe)."
         case .banco(let detalhe):
             "Não foi possível abrir o banco local: \(detalhe)."
+        case .contaDiferente(let esperado, let recebido):
+            """
+            Você entrou como \(recebido), e esta conta é \(esperado). \
+            Reconectar refaz a autorização desta conta — para conectar \(recebido), \
+            adicione uma conta nova.
+            """
+        }
+    }
+
+    /// Esta falha se resolve **refazendo a autorização desta conta**?
+    ///
+    /// A distinção que este predicado guarda é a que separa uma faixa de
+    /// atenção útil de uma inútil: credencial recusada ou revogada é problema
+    /// da **sessão**, e reconectar a resolve; falta de Client ID é problema do
+    /// **aplicativo**, e um botão "Reconectar" ali abriria um consentimento sem
+    /// nada com que se identificar — foi exatamente a tela que o dono viu, e
+    /// nela a saída é o roteiro, não o botão. Rede, TLS e quota passam sozinhas
+    /// e pedem "Tentar de novo".
+    ///
+    /// Aqui, e não dentro de `AccountsCopy`, porque quem sabe o que cada caso
+    /// significa é quem os define: uma segunda leitura na camada de janela
+    /// divergiria desta no primeiro caso novo.
+    public var pedeReconexao: Bool {
+        switch self {
+        case .autenticacao, .autorizacaoRevogada: true
+        default: false
         }
     }
 

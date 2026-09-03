@@ -689,8 +689,11 @@ public actor OutboxExecutor {
             // quando o `ImapSession` estiver livre — está registrado no
             // relatório. Até lá, o lado seguro é o que não repete em silêncio.
             codigo == 0 || ((400..<500).contains(codigo) && codigo != 408 && codigo != 429)
+        // `.contaDiferente` nunca chega aqui — ela nasce na reconexão, não numa
+        // operação de saída —, e se chegasse seria permanente pela mesma razão
+        // que as outras: repetir não muda de quem é a credencial.
         case .tls, .autenticacao, .autorizacaoRevogada, .keychain,
-             .semClientID, .resposta, .banco, .recusado:
+             .semClientID, .resposta, .banco, .recusado, .contaDiferente:
             true
         }
     }
