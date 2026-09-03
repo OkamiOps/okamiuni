@@ -297,8 +297,11 @@ struct DashboardScreen: View {
     private func listColumn(_ plan: DayPlan) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             filterRow(plan)
+            // A lista rola **dentro** da coluna, e o rodapé é o chão dela.
+            // Sem o `maxHeight`, a rolagem tomava a altura do conteúdo e a
+            // última linha morria na aresta, colada em "Tirei da lista".
             sections(plan)
-            Spacer(minLength: 0)
+                .frame(maxHeight: .infinity)
             removedFooter(plan)
         }
     }
@@ -401,8 +404,13 @@ struct DashboardScreen: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .topLeading)
+            // O mesmo respiro do corpo do email: a última linha nunca morre
+            // colada na aresta do recorte.
+            .padding(.bottom, DashboardMetrics.previewBodyFade)
         }
         .scrollIndicators(.never)
+        .scrollBounceBehavior(.basedOnSize)
+        .avisaQueRola("A lista continua abaixo. Role para ver o resto.")
     }
 
     /// CapsLabel `ink2` + contagem mono — pad 26 0 6 (primeira: 18).

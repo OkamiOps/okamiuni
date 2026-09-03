@@ -236,6 +236,24 @@ enum DiaDoDono {
 
     static var seteEmails: [Message] { [jack, jayden, cats9th, abacus, maria, carol, resend] }
 
+    /// A mesma caixa com o dobro de gente esperando — é o que faz a lista
+    /// passar do pé da coluna e obriga a rolagem a existir.
+    static var caixaLonga: [Message] {
+        var todas = seteEmails
+        for n in 1...6 {
+            todas.append(email(
+                id: "extra\(n)", conta: "vantion",
+                de: Contact(name: "Pessoa \(n)", address: "pessoa\(n)@exemplo.com.br"),
+                recebido: data(diasAtras: 3, hora: 9, minuto: n),
+                assunto: "Assunto número \(n) que ocupa uma linha inteira da coluna da lista",
+                trecho: "Uma pergunta curta.", corpo: ["Uma pergunta curta."],
+                lido: false,
+                triagem: MessageTriage(needsReply: true, intent: .request, urgency: .normal)
+            ))
+        }
+        return todas
+    }
+
     static var agenda: [AgendaItem] {
         [
             AgendaItem(

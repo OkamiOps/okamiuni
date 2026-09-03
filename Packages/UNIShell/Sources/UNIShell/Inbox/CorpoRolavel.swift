@@ -37,8 +37,6 @@ struct CorpoRolavel: View {
     let corpo: CorpoLegivel
     var tamanho: CGFloat = DashboardMetrics.previewExcerptSize
 
-    @State private var maisAbaixo = false
-
     var body: some View {
         ScrollView {
             CorpoLegivelView(corpo: corpo, tamanho: tamanho)
@@ -50,16 +48,39 @@ struct CorpoRolavel: View {
                 .padding(.bottom, DashboardMetrics.previewBodyFade)
         }
         .scrollBounceBehavior(.basedOnSize)
-        .onScrollGeometryChange(for: Bool.self) { geometria in
-            RolagemDoCorpo.temMaisAbaixo(
-                conteudo: geometria.contentSize.height,
-                visivel: geometria.containerSize.height,
-                deslocamento: geometria.contentOffset.y
-            )
-        } action: { _, novo in
-            maisAbaixo = novo
-        }
-        .overlay(alignment: .bottom) { rodape }
+        .avisaQueRola("O email continua abaixo. Role para ver o resto.")
+    }
+}
+
+/// O véu e o aviso de `CorpoRolavel`, aplicáveis a **qualquer** `ScrollView`.
+///
+/// Nasceu no corpo do email e mudou de casa quando a lista de prioridades do
+/// dashboard repetiu o mesmo defeito: a linha da Maria sumia na aresta dura do
+/// recorte, com o rodapé "Tirei da lista" logo abaixo. Uma rolagem que não se
+/// anuncia tem exatamente a aparência de "acabou", e quem lê decide achando
+/// que leu tudo.
+///
+/// A decisão de "tem mais abaixo?" continua sendo `RolagemDoCorpo`, em
+/// UNICore: aqui não mora regra nenhuma.
+struct AvisoDeRolagem: ViewModifier {
+
+    @Environment(\.theme) private var theme
+
+    let rotulo: String
+    @State private var maisAbaixo = false
+
+    func body(content: Content) -> some View {
+        content
+            .onScrollGeometryChange(for: Bool.self) { geometria in
+                RolagemDoCorpo.temMaisAbaixo(
+                    conteudo: geometria.contentSize.height,
+                    visivel: geometria.containerSize.height,
+                    deslocamento: geometria.contentOffset.y
+                )
+            } action: { _, novo in
+                maisAbaixo = novo
+            }
+            .overlay(alignment: .bottom) { rodape }
     }
 
     @ViewBuilder
@@ -93,7 +114,14 @@ struct CorpoRolavel: View {
             }
             .allowsHitTesting(false)
             .accessibilityElement()
-            .accessibilityLabel("O email continua abaixo. Role para ver o resto.")
+            .accessibilityLabel(rotulo)
         }
+    }
+}
+
+extension View {
+    /// Põe o véu e a pílula "MAIS ABAIXO" nesta rolagem.
+    func avisaQueRola(_ rotulo: String) -> some View {
+        modifier(AvisoDeRolagem(rotulo: rotulo))
     }
 }

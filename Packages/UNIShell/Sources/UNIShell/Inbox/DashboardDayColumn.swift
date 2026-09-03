@@ -220,6 +220,11 @@ struct DashboardDayColumn: View {
             }
         }
         .padding(.top, DashboardMetrics.previewFooterTopPadding)
+        // A reserva do botão "Perguntar · ⌘J": ele flutua no canto e não
+        // empurra nada, então quem se afasta é esta coluna. Sem isto, o
+        // rodapé fica debaixo do botão — o defeito que o render da Tarefa 3
+        // mostrou.
+        .padding(.bottom, DashboardMetrics.askButtonReserve)
         .frame(maxWidth: .infinity, alignment: .leading)
         .hairline(theme.line2, edges: .top)
         .accessibilityElement(children: .contain)

@@ -189,6 +189,19 @@ enum DashboardMetrics {
     static let askIconSize: CGFloat = 15
     static let askLabelSize: CGFloat = 12.5
     static let askShortcutSize: CGFloat = 10
+    /// A faixa que a coluna do dia **reserva** para o botão flutuante.
+    ///
+    /// O botão é `overlay(alignment: .bottomTrailing)` da tela inteira: ele
+    /// não empurra nada, e por isso a coluna do dia precisa se afastar dele
+    /// por conta própria. Sem esta reserva, "O que você prometeu" — o rodapé
+    /// da coluna — ficava debaixo do botão, que é a única coisa nesta tela
+    /// que se sobrepõe a conteúdo.
+    ///
+    /// A conta é a distância do botão até a aresta (`bottom` + altura), mais
+    /// um respiro do tamanho do `gap` do próprio botão, menos o que o
+    /// preenchimento da tela já afasta.
+    static let askButtonReserve: CGFloat =
+        askButtonBottom + askButtonHeight + askButtonGap - contentPadding.bottom
     /// `box-shadow: 0 10px 30px rgba(0,0,0,.55)` — a única sombra da tela.
     static let askShadowRadius: CGFloat = 15
     static let askShadowY: CGFloat = 10
