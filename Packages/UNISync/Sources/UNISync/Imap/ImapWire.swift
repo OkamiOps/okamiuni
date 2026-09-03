@@ -118,7 +118,14 @@ public enum ImapWire {
     /// mensagem; a conta de 90 dias tem milhares.
     public static func uidFetchEnvelopes(tag: String, uids: [Int64]) -> String {
         let conjunto = uids.map(String.init).joined(separator: ",")
-        return "\(tag) UID FETCH \(conjunto) (UID FLAGS INTERNALDATE ENVELOPE)"
+        // Os cabeçalhos de lista viajam junto do envelope: pedi-los depois
+        // seria uma ida e volta por mensagem numa caixa de milhares, e não
+        // pedi-los deixaria a barreira de disparo em massa cega no IMAP.
+        // `BODY.PEEK`, e não `BODY`: ler cabeçalho não é a pessoa ter lido nada.
+        return """
+            \(tag) UID FETCH \(conjunto) \
+            (UID FLAGS INTERNALDATE ENVELOPE BODY.PEEK[HEADER.FIELDS (\(camposDeLista))])
+            """
     }
 
     /// Os dois cabeçalhos que dizem **como ler** o corpo.
@@ -127,6 +134,17 @@ public enum ImapWire {
     /// exato que foi pedido — o adaptador procura por esta mesma chave, e as
     /// duas pontas não podem divergir por uma vírgula.
     static let camposDeConteudo = "CONTENT-TYPE CONTENT-TRANSFER-ENCODING"
+
+    /// Os cabeçalhos que denunciam disparo em massa, no formato que o `FETCH`
+    /// pede: nomes em maiúsculas, separados por espaço.
+    ///
+    /// Derivado de `BulkMailMarks.headerNames`, e não escrito à mão: o rótulo
+    /// da resposta é o texto **exato** do pedido, e o adaptador procura por ele
+    /// — as duas pontas divergirem por uma palavra devolveria nulo para sempre,
+    /// calado, e a barreira de disparo ficaria sem dado nenhum no IMAP.
+    static let camposDeLista = BulkMailMarks.headerNames
+        .map { $0.uppercased() }
+        .joined(separator: " ")
 
     /// O corpo em texto de uma mensagem, **com os cabeçalhos que o decifram**.
     ///
@@ -411,6 +429,14 @@ public enum ImapWire {
         /// outra grafia, ou um `FETCH` que não os pediu, caem no farejamento do
         /// `MimeBody`.
         public let contentHeader: String?
+        /// O bloco cru dos cabeçalhos de lista (`List-Unsubscribe` e
+        /// companhia), quando o `FETCH` os pediu. Campo próprio pela mesma
+        /// razão que `contentHeader` é: ele viaja em literal, e misturá-lo com
+        /// o corpo faria cabeçalho ser gravado como parágrafo.
+        ///
+        /// Nulo é caso normal: uma mensagem de gente não tem nenhum deles, e o
+        /// servidor devolve o literal vazio.
+        public let listHeader: String?
         /// O `Message-ID` que vem **dentro do `ENVELOPE`** — o décimo campo
         /// dele, e de graça no mesmo `FETCH` que já buscamos.
         ///
@@ -429,8 +455,10 @@ public enum ImapWire {
             messageIDHeader: String? = nil,
             contentHeader: String? = nil,
             envelopeMessageID: String? = nil,
-            envelopeInReplyTo: String? = nil
+            envelopeInReplyTo: String? = nil,
+            listHeader: String? = nil
         ) {
+            self.listHeader = listHeader
             self.envelopeMessageID = envelopeMessageID
             self.envelopeInReplyTo = envelopeInReplyTo
             self.contentHeader = contentHeader
@@ -555,7 +583,18 @@ public enum ImapWire {
                 // `ThreadKey.bare`. Vazio vira nulo, porque um servidor que
                 // manda `""` no lugar de `NIL` não está dizendo outra coisa.
                 messageID: bareOrNil(linha.envelopeMessageID),
-                inReplyTo: bareOrNil(linha.envelopeInReplyTo)
+                inReplyTo: bareOrNil(linha.envelopeInReplyTo),
+                // O bloco cru dos cabeçalhos de lista, lido com a dobra de
+                // linha desfeita. Ausente é ausência: uma mensagem de gente
+                // não tem nenhum deles, e o remetente ainda é lido.
+                bulkMarks: BulkMailMarks.detect(
+                    rawHeaderBlock: linha.listHeader ?? "",
+                    // O endereço **pelado**: o `From` do `ENVELOPE` vem com
+                    // nome e sinais de menor e maior, e uma leitura crua deles
+                    // faria `"Upwork" <do-not-reply@upwork.com>` deixar de
+                    // parecer o que é.
+                    from: MailAddress.parse(linha.from ?? "")?.address ?? ""
+                )
             )
         }
     }
@@ -656,11 +695,17 @@ public struct ImapEnvelope: Sendable, Hashable {
     /// `ThreadKeyResolver`.
     public let inReplyTo: String?
 
+    /// O que os cabeçalhos de lista desta mensagem denunciam. Vazio é o caso
+    /// de toda mensagem de gente. Ver `BulkMailMarks`.
+    public let bulkMarks: BulkMailMarks
+
     public init(
         uid: Int64, from: Contact, to: [Contact], cc: [Contact],
         subject: String, date: Date, isRead: Bool, isFlagged: Bool,
-        messageID: String? = nil, inReplyTo: String? = nil
+        messageID: String? = nil, inReplyTo: String? = nil,
+        bulkMarks: BulkMailMarks = []
     ) {
+        self.bulkMarks = bulkMarks
         self.messageID = messageID
         self.inReplyTo = inReplyTo
         self.uid = uid

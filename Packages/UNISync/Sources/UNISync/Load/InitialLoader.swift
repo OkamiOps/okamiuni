@@ -420,7 +420,8 @@ public struct InitialLoader: Sendable {
                 // Gmail: a linha existiria e nenhuma mensagem se diria dela.
                 folderIDs: GmailFolders.membership(
                     labelIDs: mensagem.labelIDs, accountID: account.id
-                )
+                ),
+                bulkMarks: mensagem.bulkMarks
             )
             // `save` é upsert: id determinístico + upsert = recarga
             // idempotente, que é o que faz "parar no meio" ser seguro.
@@ -872,7 +873,8 @@ public struct InitialLoader: Sendable {
                     serverID: String(envelope.uid), uidValidity: uidValidity,
                     rfcMessageID: envelope.messageID,
                     references: [envelope.inReplyTo].compactMap { $0 },
-                    threadKey: chave
+                    threadKey: chave,
+                    bulkMarks: envelope.bulkMarks
                 )
                 try MessageRecord(nossa, folderID: folderID).savePreservingIntelligenceProjection(db)
                 if corpos[envelope.uid] != nil {

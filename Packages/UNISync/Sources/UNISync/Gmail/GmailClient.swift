@@ -1,4 +1,5 @@
 import Foundation
+import UNICore
 
 /// A Gmail API, tipada, sobre `URLSession`. Sem SDK.
 ///
@@ -138,7 +139,13 @@ public struct GmailClient: Sendable {
     public func message(id: String, format: GmailFormat) async throws -> GmailMessage {
         var itens = [URLQueryItem(name: "format", value: format.rawValue)]
         if format == .metadata {
-            for nome in ["From", "To", "Cc", "Subject", "Date"] {
+            // Os cabeçalhos de lista entram na **mesma** ida e volta: pedi-los
+            // depois seria uma chamada por mensagem, e não pedi-los deixaria a
+            // barreira de disparo em massa sem dado nenhum no ciclo incremental
+            // — que é por onde quase toda mensagem nova entra. A lista de nomes
+            // é a de `BulkMailMarks`, e não uma cópia: duas listas divergiriam
+            // na primeira adição, e a divergência seria silenciosa.
+            for nome in ["From", "To", "Cc", "Subject", "Date"] + BulkMailMarks.headerNames {
                 itens.append(URLQueryItem(name: "metadataHeaders", value: nome))
             }
         }

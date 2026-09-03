@@ -24,6 +24,14 @@ public struct DashboardFocus: Sendable, Hashable {
         case lead
         case deadline
         case flagged
+        /// Disparo em massa que ainda assim apareceu — porque a pessoa o
+        /// sinalizou, ou porque a coluna estava vazia sem ele.
+        ///
+        /// Caso próprio, e não `.unread`, porque é a resposta à queixa: sete
+        /// linhas com a mesma etiqueta não dizem nada, e a diferença que mais
+        /// importa em dois segundos é entre gente falando comigo e máquina
+        /// falando com uma lista. "Não lido" não conta essa diferença.
+        case broadcast
         case unread
         case today
 
@@ -33,6 +41,7 @@ public struct DashboardFocus: Sendable, Hashable {
             case .lead: "Lead"
             case .deadline: "Prazo"
             case .flagged: "Sinalizado"
+            case .broadcast: "Disparo"
             case .unread: "Não lido"
             case .today: "Hoje"
             }
@@ -42,7 +51,7 @@ public struct DashboardFocus: Sendable, Hashable {
         public var isUrgent: Bool {
             switch self {
             case .needsReply, .lead, .deadline: true
-            case .flagged, .unread, .today: false
+            case .flagged, .broadcast, .unread, .today: false
             }
         }
 
@@ -114,6 +123,8 @@ public struct DashboardFocus: Sendable, Hashable {
         let scopedAgenda = accountID.map { id in agenda.filter { $0.accountID == id } } ?? agenda
         let scopedPending = accountID.map { id in pending.filter { $0.accountID == id } } ?? pending
 
+        let respondidas = answeredKeys(in: scopedMessages)
+
         var ranked: [Ranked] = []
         var fallback: [Ranked] = []
         ranked.reserveCapacity(mailLimit)
@@ -128,6 +139,12 @@ public struct DashboardFocus: Sendable, Hashable {
                 break
             }
             scanned += 1
+            if isAnswered(message, by: respondidas) {
+                // Não conta como descartada por ruído: ela **foi** trabalho, e
+                // o trabalho está feito. Somá-la ao "N fora da lista ·
+                // newsletters e avisos" diria que ela era ruído.
+                continue
+            }
             if let hit = rank(message, now: now) {
                 ranked.append(hit)
             } else {
@@ -225,6 +242,48 @@ public struct DashboardFocus: Sendable, Hashable {
         let score: Int
     }
 
+    // MARK: - O que já foi respondido
+
+    /// A conversa e a mensagem que uma resposta **nossa** já resolveu.
+    ///
+    /// Duas chaves porque as duas fontes existem: o app grava `threadKey` no
+    /// que sincroniza, e grava `References` no que ele mesmo manda. Uma conta
+    /// que veio de fixture não tem nenhuma das duas, e aí nada é resolvido —
+    /// que é o comportamento honesto: sem prova de resposta, a mensagem
+    /// continua pedindo a pessoa.
+    private struct Answered {
+        /// `conversationKey` → o instante da resposta mais recente nela.
+        var threads: [String: Date] = [:]
+        /// Os `Message-ID` que alguma resposta nossa citou.
+        var messageIDs: Set<String> = []
+    }
+
+    private static func answeredKeys(in messages: [Message]) -> Answered {
+        var answered = Answered()
+        for message in messages where message.bucket == .sent {
+            let chave = message.conversationKey
+            if let anterior = answered.threads[chave] {
+                answered.threads[chave] = max(anterior, message.receivedAt)
+            } else {
+                answered.threads[chave] = message.receivedAt
+            }
+            answered.messageIDs.formUnion(message.references)
+        }
+        return answered
+    }
+
+    /// Já respondida: a resposta cita esta mensagem, ou saiu **depois** dela na
+    /// mesma conversa.
+    ///
+    /// O "depois" não é detalhe: uma conversa antiga que já teve resposta e
+    /// recebeu uma pergunta nova hoje continua sendo trabalho por fazer, e
+    /// tratá-la como resolvida esconderia justamente o que chegou agora.
+    private static func isAnswered(_ message: Message, by answered: Answered) -> Bool {
+        if let id = message.rfcMessageID, answered.messageIDs.contains(id) { return true }
+        guard let quando = answered.threads[message.conversationKey] else { return false }
+        return quando >= message.receivedAt
+    }
+
     /// `nil` é "isto não pede a pessoa agora". Promoções e redes só passam
     /// se já tiverem sido sinalizadas ou marcadas como resposta — o filtro
     /// não esconde um follow-up que a pessoa mesma marcou.
@@ -246,8 +305,17 @@ public struct DashboardFocus: Sendable, Hashable {
         // "Newsletter Ltda." sumir do dashboard apesar de a triagem dizer que
         // é um lead. Estrela, leitura e caixa continuam sendo estado da
         // mensagem, não juízo do modelo, e valem para as duas fontes.
-        let sinais = message.triage.map { triageSignals($0, now: now) }
-            ?? tagSignals(message)
+        // A barreira determinística, **depois** do modelo: o que o cabeçalho
+        // afirma não é palpite, e o modelo não pode desfazê-lo. Um disparo em
+        // massa não pede resposta — e, por isso, também não ocupa nenhuma das
+        // faixas fortes (resposta, lead, prazo). Ver `BulkMailMarks`.
+        let marcas = message.effectiveBulkMarks
+        let triagem = message.triage?.barred(byBulk: marcas)
+        var sinais = triagem.map { triageSignals($0, now: now) } ?? tagSignals(message)
+        if marcas.isBulk {
+            sinais.score = 0
+            sinais.reason = nil
+        }
 
         // Ruído de fundo é o que ninguém marcou: a newsletter e o recibo
         // saem, mas a estrela da pessoa e um "precisa resposta" os trazem de
@@ -259,11 +327,17 @@ public struct DashboardFocus: Sendable, Hashable {
         var score = sinais.score
         var reason: Reason? = sinais.reason
         if message.isFlagged {
-            score += 50
+            score += Weight.flagged
             reason = reason ?? .flagged
         }
+        // A etiqueta de disparo vem **antes** de "não lido" e "hoje": entre
+        // dizer que a linha ainda não foi aberta e dizer que ela é uma máquina
+        // falando com uma lista, a segunda é a que decide o que fazer com ela.
+        if marcas.isBulk {
+            reason = reason ?? .broadcast
+        }
         if !message.isRead {
-            score += 30
+            score += Weight.unread
             reason = reason ?? .unread
         }
 
@@ -273,9 +347,11 @@ public struct DashboardFocus: Sendable, Hashable {
         case .later, .all:
             score += 10
         case .archived:
-            // Arquivo só entra com ação (resposta, lead, prazo, estrela).
-            // Não lido sozinho é ruído de recibo.
-            if reason == nil || reason == .unread { return nil }
+            // Arquivo só entra com **ação**: resposta, lead, prazo ou a estrela
+            // que a pessoa mesma pôs. Não lido sozinho é ruído de recibo — e
+            // disparo em massa arquivado é ruído duas vezes.
+            let temAcao = (reason?.isUrgent ?? false) || reason == .flagged
+            if !temAcao { return nil }
         case .junk, .trash, .drafts, .sent:
             return nil
         }
@@ -307,19 +383,58 @@ public struct DashboardFocus: Sendable, Hashable {
             score: 0, reason: nil, needsReply: needsReply,
             isBackgroundNoise: isPromoOrSocial(message)
         )
-        if needsReply {
-            signals.score += 100
-            signals.reason = .needsReply
-        }
-        if hasTag(message, "Lead") {
-            signals.score += 80
-            signals.reason = signals.reason ?? .lead
-        }
-        if hasTag(message, "Prazo") {
-            signals.score += 70
-            signals.reason = signals.reason ?? .deadline
-        }
+        if needsReply { signals.score += Weight.needsReply }
+        if hasTag(message, "Lead") { signals.score += Weight.lead }
+        if hasTag(message, "Prazo") { signals.score += Weight.deadlineNear }
+        signals.reason = strongestReason(
+            deadline: hasTag(message, "Prazo"), lead: hasTag(message, "Lead"),
+            needsReply: needsReply
+        )
         return signals
+    }
+
+    /// Qual dos três sinais fortes vira **etiqueta**.
+    ///
+    /// Separado da soma de propósito: a soma decide a **posição** na coluna, e
+    /// a etiqueta diz **por quê**. Uma mensagem pode ser as três coisas ao
+    /// mesmo tempo, e a linha só tem espaço para uma palavra.
+    ///
+    /// A ordem é da mais específica para a mais genérica — prazo, lead,
+    /// resposta —, e não a da soma. "Precisa resposta" é verdade sobre quase
+    /// tudo que chega e por isso informa pouco; "Prazo" traz uma data e "Lead"
+    /// traz dinheiro, e são elas que dizem o que fazer primeiro. Foi
+    /// justamente a etiqueta genérica repetida sete vezes que fez a coluna do
+    /// dono custar atenção sem devolver nada.
+    private static func strongestReason(
+        deadline: Bool, lead: Bool, needsReply: Bool
+    ) -> Reason? {
+        if deadline { return .deadline }
+        if lead { return .lead }
+        if needsReply { return .needsReply }
+        return nil
+    }
+
+    /// A escala, num lugar só.
+    ///
+    /// **Duas ordens de grandeza, de propósito.** Os três sinais fortes valem
+    /// centenas; estrela, leitura, caixa e urgência valem dezenas. Isso é o que
+    /// dá à coluna um topo óbvio em vez de sete linhas empatadas: nenhuma soma
+    /// de sinais fracos alcança um sinal forte, então uma mensagem que pede
+    /// resposta nunca fica atrás de uma que só chegou hoje e não foi aberta.
+    ///
+    /// Foi exatamente esse alcance que faltava: com resposta valendo 100 e os
+    /// modificadores valendo 50 + 30 + 20, qualquer disparo sinalizado e não
+    /// lido **empatava** com um cliente esperando — e o desempate caía na data,
+    /// que é o mesmo que não ter prioridade nenhuma.
+    private enum Weight {
+        static let needsReply = 1_000
+        static let lead = 800
+        static let deadlineNear = 700
+        static let deadlineSoon = 500
+        static let deadlineFar = 300
+        static let flagged = 50
+        static let unread = 30
+        static let highUrgency = 20
     }
 
     /// A mesma escala, agora com o que a análise afirmou. O prazo pesa pela
@@ -330,33 +445,32 @@ public struct DashboardFocus: Sendable, Hashable {
             score: 0, reason: nil, needsReply: triage.needsReply,
             isBackgroundNoise: triage.intent.isBackgroundNoise
         )
-        if triage.needsReply {
-            signals.score += 100
-            signals.reason = .needsReply
-        }
-        if triage.intent == .lead {
-            signals.score += 80
-            signals.reason = signals.reason ?? .lead
-        }
+        if triage.needsReply { signals.score += Weight.needsReply }
+        if triage.intent == .lead { signals.score += Weight.lead }
         if let deadline = triage.deadline {
             signals.score += deadlineWeight(deadline.date, now: now)
-            signals.reason = signals.reason ?? .deadline
         }
+        signals.reason = strongestReason(
+            deadline: triage.deadline != nil,
+            lead: triage.intent == .lead,
+            needsReply: triage.needsReply
+        )
         // Urgência é peso, não motivo: ela desempata duas mensagens do mesmo
         // tipo sem inventar um sétimo caso de `Reason` para a tela escrever.
         if triage.urgency == .high {
-            signals.score += 20
+            signals.score += Weight.highUrgency
         }
         return signals
     }
 
-    /// 70 até 24 h, 50 até 72 h, 30 depois. Um prazo já vencido conta como o
-    /// mais próximo possível — ele é o que mais pede a pessoa agora.
+    /// 700 até 24 h, 500 até 72 h, 300 depois — a faixa forte, como resposta e
+    /// lead. Um prazo já vencido conta como o mais próximo possível: ele é o
+    /// que mais pede a pessoa agora.
     static func deadlineWeight(_ deadline: Date, now: Date) -> Int {
         let horas = deadline.timeIntervalSince(now) / 3_600
-        if horas <= 24 { return 70 }
-        if horas <= 72 { return 50 }
-        return 30
+        if horas <= 24 { return Weight.deadlineNear }
+        if horas <= 72 { return Weight.deadlineSoon }
+        return Weight.deadlineFar
     }
 
     private static func todayFallback(_ message: Message) -> Ranked? {

@@ -286,7 +286,12 @@ final class FakeImapServer: @unchecked Sendable {
                    escrita(FakeImapServer.chaveDeBandeiras) {
                     return FakeImapServer.chaveDeBandeiras
                 }
-                if verbo == "UID FETCH", maiusculo.contains("BODY.PEEK"),
+                // `BODY.PEEK[TEXT]`, e não "contém BODY.PEEK": o `FETCH` de
+                // **envelope** passou a pedir os cabeçalhos de lista na mesma
+                // linha (ver `ImapWire.camposDeLista`), e um casamento largo o
+                // mandaria para a resposta de corpo — a carga inteira vindo
+                // como um corpo só, sem erro nenhum na tela.
+                if verbo == "UID FETCH", maiusculo.contains("BODY.PEEK[TEXT]"),
                    escrita(FakeImapServer.chaveDeCorpo) {
                     return FakeImapServer.chaveDeCorpo
                 }

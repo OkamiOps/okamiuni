@@ -261,6 +261,16 @@ public struct Message: Sendable, Hashable, Identifiable {
     /// das duas faria a outra pasta abrir sem ela.
     public let folderIDs: [String]
 
+    /// O que os cabeçalhos desta mensagem denunciam sobre ela ser disparo em
+    /// massa. Vazio é o caso comum — e é também o caso das linhas gravadas
+    /// antes da v19 e das fixtures, que nunca tiveram cabeçalho nenhum.
+    ///
+    /// Guardado, e não recalculado: os cabeçalhos que respondem a pergunta não
+    /// sobrevivem à gravação (o app guarda corpo e envelope, não a fonte), e
+    /// perguntar de novo ao servidor a cada abertura do dashboard seria uma ida
+    /// à rede por linha. Ver `BulkMailMarks`.
+    public let bulkMarks: BulkMailMarks
+
     public init(
         id: String, accountID: String, from: Contact, receivedAt: Date,
         subject: String, snippet: String, body: [String],
@@ -275,8 +285,10 @@ public struct Message: Sendable, Hashable, Identifiable {
         bodyHTML: String? = nil, calendarICS: String? = nil,
         rfcMessageID: String? = nil, references: [String] = [],
         threadKey: String? = nil, folderIDs: [String] = [],
-        attachments: [MailAttachment] = []
+        attachments: [MailAttachment] = [],
+        bulkMarks: BulkMailMarks = []
     ) {
+        self.bulkMarks = bulkMarks
         self.folderIDs = folderIDs
         self.rfcMessageID = rfcMessageID
         self.references = references
@@ -450,8 +462,22 @@ extension Message {
             // — a mensagem sumiria da pasta aberta no instante em que alguém a
             // marcasse como lida.
             folderIDs: folderIDs ?? self.folderIDs,
-            attachments: attachments ?? self.attachments
+            attachments: attachments ?? self.attachments,
+            // Pela mesma razão dos três da conversa: o que o cabeçalho afirmou
+            // não muda porque alguém marcou a mensagem como lida.
+            bulkMarks: bulkMarks
         )
+    }
+
+    /// As marcas de disparo que **valem para esta mensagem agora**: as
+    /// guardadas, mais o que o próprio remetente denuncia.
+    ///
+    /// A união, e não só a coluna, porque a coluna nasceu na v19: a caixa que o
+    /// dono já tem baixada tem milhares de linhas sem cabeçalho guardado, e o
+    /// `no-reply@` delas continua sendo legível no endereço — que é o dado que
+    /// nunca deixou de estar ali.
+    public var effectiveBulkMarks: BulkMailMarks {
+        bulkMarks.union(BulkMailMarks.detect(headers: [:], from: from.address))
     }
 
     /// Só para testes e previews.

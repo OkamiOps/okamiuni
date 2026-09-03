@@ -178,7 +178,7 @@ struct ImapFetchTests {
     func lote() {
         #expect(ImapWire.fetchBatchSize == 200)
         #expect(ImapWire.uidFetchEnvelopes(tag: "A005", uids: [1, 2, 3])
-            == "A005 UID FETCH 1,2,3 (UID FLAGS INTERNALDATE ENVELOPE)")
+            == "A005 UID FETCH 1,2,3 (UID FLAGS INTERNALDATE ENVELOPE BODY.PEEK[HEADER.FIELDS (\(ImapWire.camposDeLista))])")
     }
 
     @Test("UIDVALIDITY trocada é detectada; primeira vez não é troca")

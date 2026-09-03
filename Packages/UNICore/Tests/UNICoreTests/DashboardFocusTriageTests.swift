@@ -35,7 +35,9 @@ struct DashboardFocusTriageTests {
             agenda: [], pending: [], nowMinute: 720, now: agora
         )
         #expect(snap.mail.map(\.id) == ["triada", "etiquetada", "rebaixada"])
-        #expect(snap.mail.first?.reason == .needsReply)
+        // A soma põe "triada" em primeiro (resposta **e** lead); a etiqueta diz
+        // o mais específico dos dois, que é "Lead" — ver `strongestReason`.
+        #expect(snap.mail.first?.reason == .lead)
     }
 
     @Test("newsletter sem sinalização some; sinalizada entra")

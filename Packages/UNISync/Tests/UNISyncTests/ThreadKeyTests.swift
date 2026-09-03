@@ -449,7 +449,7 @@ struct ImapEnvelopeThreadTests {
     func comandoIntacto() {
         #expect(
             ImapWire.uidFetchEnvelopes(tag: "A0001", uids: [1, 2])
-                == "A0001 UID FETCH 1,2 (UID FLAGS INTERNALDATE ENVELOPE)"
+                == "A0001 UID FETCH 1,2 (UID FLAGS INTERNALDATE ENVELOPE BODY.PEEK[HEADER.FIELDS (\(ImapWire.camposDeLista))])"
         )
     }
 }

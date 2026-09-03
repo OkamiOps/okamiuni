@@ -282,7 +282,10 @@ struct InitialLoaderImapTests {
         let (_, _, comandos) = try await carrega(db, script: roteiro())
 
         let primeiroEnvelope = try #require(comandos.firstIndex {
-            $0.hasPrefix("UID FETCH") && !$0.contains("BODY.PEEK")
+            // `BODY.PEEK[TEXT]` é o que marca o `FETCH` de corpo: o de
+            // envelope também pede cabeçalhos por `BODY.PEEK` desde a barreira
+            // de disparo em massa.
+            $0.hasPrefix("UID FETCH") && !$0.contains("BODY.PEEK[TEXT]")
         })
         let selectAnterior = try #require(comandos[..<primeiroEnvelope].lastIndex {
             $0.hasPrefix("SELECT ")
@@ -537,7 +540,7 @@ struct InitialLoaderImapTests {
         let db = try SyncDatabase.temporary()
         let (_, _, comandos) = try await carrega(db, script: script)
 
-        let pedidosDeCorpo = comandos.filter { $0.uppercased().contains("BODY.PEEK") }
+        let pedidosDeCorpo = comandos.filter { $0.uppercased().contains("BODY.PEEK[TEXT]") }
         #expect(
             pedidosDeCorpo.count == InitialLoader.fullBodyCount,
             "pediu \(pedidosDeCorpo.count) corpos de \(quantas) mensagens"

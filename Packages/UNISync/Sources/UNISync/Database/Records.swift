@@ -283,6 +283,16 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
     /// "não sai daqui" em vez de chutar `receivedAt`.
     public var firstSeenAt: Date?
 
+    /// O que os cabeçalhos desta mensagem denunciam sobre ela ser disparo em
+    /// massa — a coluna da v19, guardada como o inteiro de `BulkMailMarks`.
+    ///
+    /// Zero é "nenhuma marca", e é o que as linhas anteriores à v19 têm: elas
+    /// foram gravadas quando o app nem pedia estes cabeçalhos ao servidor.
+    /// Não é mentira nem defeito — a leitura junta o que o **remetente** ainda
+    /// denuncia (ver `Message.effectiveBulkMarks`), e o resto volta na próxima
+    /// sincronização da mensagem.
+    public var bulkMarks: Int
+
     /// Datas gravadas como epoch UTC (`Double`) — ver
     /// `AccountRecord.databaseDateEncodingStrategy`. `ORDER BY receivedAt
     /// DESC` (a lista "Tudo") depende de a coluna ser numérica de verdade.
@@ -325,6 +335,7 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
         folderMembershipJSON = message.folderIDs == [folderID]
             ? "[]"
             : Self.encodeStrings(message.folderIDs)
+        bulkMarks = message.bulkMarks.rawValue
     }
 
     /// O corpo vem de fora porque mora noutra tabela: a lista mostra centenas
@@ -358,7 +369,8 @@ public struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Sendab
             references: Self.decodeStrings(referencesJSON),
             threadKey: threadKey,
             folderIDs: Self.folderIDs(membership: folderMembershipJSON, folderID: folderID),
-            attachments: attachments
+            attachments: attachments,
+            bulkMarks: BulkMailMarks(rawValue: bulkMarks)
         )
     }
 

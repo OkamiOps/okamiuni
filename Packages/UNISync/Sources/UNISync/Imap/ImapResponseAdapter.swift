@@ -399,7 +399,10 @@ enum ImapResponseAdapter {
             // sem uma ida e volta a mais e sem mexer no comando que o servidor
             // falso do teste conhece.
             envelopeMessageID: campos.count > 9 ? analise.valor(de: campos[9]) : nil,
-            envelopeInReplyTo: campos.count > 8 ? analise.valor(de: campos[8]) : nil
+            envelopeInReplyTo: campos.count > 8 ? analise.valor(de: campos[8]) : nil,
+            listHeader: valorDepois(
+                de: "BODY[HEADER.FIELDS (\(ImapWire.camposDeLista))] ", em: analise
+            )
         )
     }
 

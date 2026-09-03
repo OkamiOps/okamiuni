@@ -289,7 +289,8 @@ public struct ImapIncrementalSync: Sendable {
                     serverID: String(envelope.uid), uidValidity: uidValidity,
                     rfcMessageID: envelope.messageID,
                     references: [envelope.inReplyTo].compactMap { $0 },
-                    threadKey: chave
+                    threadKey: chave,
+                    bulkMarks: envelope.bulkMarks
                 )
                 try MessageRecord(nossa, folderID: folderID).savePreservingIntelligenceProjection(db)
             }

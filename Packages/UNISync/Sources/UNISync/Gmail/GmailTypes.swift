@@ -127,12 +127,20 @@ public struct GmailMessage: Sendable, Hashable {
     /// Arquivos recebidos, com bytes só quando o Gmail os trouxe no payload.
     public let attachments: [Attachment]
 
+    /// O que os cabeçalhos de lista desta mensagem denunciam — `List-Unsubscribe`,
+    /// `List-Id`, `Precedence`, `Auto-Submitted`, `X-Auto-Response-Suppress` — e
+    /// o que o remetente denuncia sozinho. Vem de graça: a API já manda os
+    /// cabeçalhos nos dois formatos que o app pede. Ver `BulkMailMarks`.
+    public let bulkMarks: BulkMailMarks
+
     public init(
         id: String, threadID: String, labelIDs: [String], internalDate: Date,
         from: Contact, to: [Contact], cc: [Contact], subject: String,
         snippet: String, body: [String], html: String?, calendarICS: String?,
-        rfcMessageID: String?, references: [String], attachments: [Attachment] = []
+        rfcMessageID: String?, references: [String], attachments: [Attachment] = [],
+        bulkMarks: BulkMailMarks = []
     ) {
+        self.bulkMarks = bulkMarks
         self.id = id
         self.threadID = threadID
         self.labelIDs = labelIDs

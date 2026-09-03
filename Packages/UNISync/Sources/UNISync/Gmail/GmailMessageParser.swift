@@ -120,7 +120,17 @@ public enum GmailMessageParser {
             calendarICS: corpo.calendar,
             rfcMessageID: ThreadKey.ids(inHeader: cabecalho("Message-ID") ?? "").first,
             references: corrente.isEmpty ? respondendo : corrente,
-            attachments: attachments(in: payload)
+            attachments: attachments(in: payload),
+            // A barreira determinística começa aqui: o que o remetente assinou
+            // é lido na hora em que a mensagem chega, e não meses depois, com
+            // o cabeçalho já jogado fora. Ver `BulkMailMarks`.
+            bulkMarks: BulkMailMarks.detect(
+                headers: Dictionary(
+                    cabecalhos.map { ($0.name.lowercased(), $0.value) },
+                    uniquingKeysWith: { primeiro, _ in primeiro }
+                ),
+                from: MailAddress.parse(cabecalho("From") ?? "")?.address ?? ""
+            )
         )
     }
 

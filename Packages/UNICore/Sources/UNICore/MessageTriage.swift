@@ -83,6 +83,27 @@ public struct MessageTriage: Sendable, Hashable, Codable {
         return self
     }
 
+    /// A mesma triagem, sem o "precisa resposta" que o **cabeçalho** desmente.
+    ///
+    /// É a regra determinística da coluna de prioridades, e ela corre **depois**
+    /// do modelo, não antes: o modelo pode dizer o que quiser sobre o texto, mas
+    /// não tem permissão de sobrescrever o que o remetente assinou. Um
+    /// `List-Unsubscribe` é o remetente declarando que aquilo foi para uma
+    /// lista; um `no-reply@` é ele dizendo que não vai ler a resposta. Nenhum
+    /// texto vence isso — e foi por deixar o modelo vencer que o boas-vindas do
+    /// Resend, o marketing da Zoho e o disparo do Upwork chegaram ao topo da
+    /// coluna com a mesma etiqueta de um cliente esperando resposta.
+    ///
+    /// Nega **uma** afirmação e mais nada: intenção, urgência e prazo continuam
+    /// como vieram. A pergunta que o cabeçalho responde é "isto pede a pessoa?",
+    /// e não "sobre o que isto é".
+    public func barred(byBulk marks: BulkMailMarks) -> MessageTriage {
+        guard marks.isBulk, needsReply else { return self }
+        return MessageTriage(
+            needsReply: false, intent: intent, urgency: urgency, deadline: deadline
+        )
+    }
+
     // MARK: - Forma guardada
 
     /// O JSON da coluna `triage`. As duas rotas gravam o mesmo texto, e é ele

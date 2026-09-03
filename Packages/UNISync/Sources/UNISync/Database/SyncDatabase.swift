@@ -704,6 +704,20 @@ public struct SyncDatabase: Sendable {
                 ADD COLUMN modelVersion TEXT NOT NULL DEFAULT ''
                 """)
         }
+        // A v19: os cabeçalhos que denunciam disparo em massa passam a ser
+        // guardados.
+        //
+        // Sem esta coluna a barreira determinística não teria em que se apoiar
+        // depois da sincronização: `List-Unsubscribe` e companhia chegam com a
+        // mensagem e são jogados fora ao gravar, e o dashboard, meses depois,
+        // só teria o texto — que é exatamente o que o modelo já leu errado. O
+        // zero das linhas antigas é honesto: elas foram baixadas antes de o app
+        // pedir estes cabeçalhos, e voltam a valer quando forem ressincronizadas.
+        migrator.registerMigration("v19") { db in
+            try db.execute(
+                sql: "ALTER TABLE message ADD COLUMN bulkMarks INTEGER NOT NULL DEFAULT 0"
+            )
+        }
         return migrator
     }
 }
