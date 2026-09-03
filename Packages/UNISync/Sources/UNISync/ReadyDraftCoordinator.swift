@@ -46,6 +46,11 @@ public actor ReadyDraftCoordinator {
     /// Quantas folgas o prompt carrega, e por quantos dias ele olha. Catorze
     /// dias é o que a spec pede; três folgas é o que cabe numa frase que uma
     /// pessoa lê antes de clicar em "Enviar".
+    /// O tamanho da página da fila. Vinte é o lote padrão de uma rodada; a
+    /// página não fica menor do que ele para uma caixa comum resolver-se numa
+    /// consulta só.
+    static let pageSize = 20
+
     public static let agendaDays = 14
     public static let agendaMinimumMinutes = 60
     public static let agendaSlotLimit = 3
@@ -246,8 +251,35 @@ public actor ReadyDraftCoordinator {
     func pendingWork(limit: Int) throws -> [ReadyDraftWork] {
         guard limit > 0 else { return [] }
         let versao = assistant.modelVersion
-        return try database.pool.read { db in
-            let linhas = try Row.fetchAll(
+        let tamanhoDaPagina = max(limit, Self.pageSize)
+        var trabalho: [ReadyDraftWork] = []
+        var pulados = 0
+        while trabalho.count < limit {
+            let linhas = try pendingRows(limit: tamanhoDaPagina, offset: pulados)
+            guard !linhas.isEmpty else { break }
+            pulados += linhas.count
+            for linha in linhas {
+                guard let item = try Self.work(linha, modelVersion: versao) else { continue }
+                trabalho.append(item)
+                if trabalho.count >= limit { break }
+            }
+            if linhas.count < tamanhoDaPagina { break }
+        }
+        return trabalho
+    }
+
+    /// **Uma página** da fila. O `LIMIT` é a metade importante: quem pula
+    /// (disparo em massa, hash já escrito, descartado) só é conhecido depois
+    /// de ler o corpo, e sem página a observação — que acorda a cada mudança
+    /// de corpo, triagem ou rascunho — recarregava **todos** os corpos
+    /// `needsReply` do acervo para usar vinte.
+    ///
+    /// A margem para os pulados é a página seguinte, e não uma consulta
+    /// maior: uma caixa cuja frente é toda disparo não pode deixar a fila
+    /// morrer de fome.
+    nonisolated func pendingRows(limit: Int, offset: Int) throws -> [Row] {
+        try database.pool.read { db in
+            try Row.fetchAll(
                 db,
                 sql: """
                     SELECT m.*, b.paragraphs, b.plain, i.triage AS triage,
@@ -259,15 +291,10 @@ public actor ReadyDraftCoordinator {
                     LEFT JOIN ready_draft r ON r.message_id = m.id
                     WHERE i.triage_needs_reply = 1 AND b.plain != ''
                     ORDER BY m.receivedAt DESC, m.id ASC
-                    """
+                    LIMIT ? OFFSET ?
+                    """,
+                arguments: [limit, offset]
             )
-            var trabalho: [ReadyDraftWork] = []
-            for linha in linhas {
-                guard let item = try Self.work(linha, modelVersion: versao) else { continue }
-                trabalho.append(item)
-                if trabalho.count >= limit { break }
-            }
-            return trabalho
         }
     }
 

@@ -43,6 +43,64 @@ struct ReadyDraftCoordinatorTests {
         needsReply: true, intent: .request, urgency: .normal
     )
 
+    // MARK: - A fila não lê o acervo inteiro
+
+    /// **A consulta tem `LIMIT`.** Sem ele, cada tique da observação (que
+    /// acorda a cada mudança de corpo, triagem ou rascunho) trazia todos os
+    /// corpos `needsReply` do acervo para usar vinte (I3 da revisão final).
+    @Test("uma página da fila nunca traz mais linhas do que o pedido")
+    func onePageNeverReadsMoreThanAsked() async throws {
+        let banco = try SyncDatabase.temporary()
+        for n in 1...12 {
+            try Fixture.escreveMensagem(
+                in: banco.pool, id: "m\(n)",
+                recebidaEm: Self.agora.addingTimeInterval(TimeInterval(-n * 60))
+            )
+            try Fixture.escreveTriagem(in: banco.pool, id: "m\(n)", triage: pedeResposta)
+        }
+        let fila = coordinator(
+            database: banco, assistant: EspiaoDeRascunho(resposta: "x"),
+            settingsStore: try settings()
+        )
+        let pagina = try fila.pendingRows(limit: 4, offset: 0)
+        #expect(pagina.count == 4, "a página trouxe \(pagina.count) linhas para um limite de 4")
+    }
+
+    /// E o `LIMIT` **não** pode fazer a fila morrer de fome: as mais recentes
+    /// podem ser todas puláveis (disparo em massa), e o trabalho de verdade
+    /// estar logo atrás delas. A fila avança de página até encher o lote.
+    @Test("com as recentes todas puláveis, a fila ainda acha o trabalho atrás")
+    func pagingSurvivesASkippedFront() async throws {
+        let banco = try SyncDatabase.temporary()
+        // Mais disparos do que uma página inteira: a primeira volta da fila
+        // não pode achar nada e desistir.
+        for n in 1...(ReadyDraftCoordinator.pageSize + 5) {
+            try Fixture.escreveMensagem(
+                in: banco.pool, id: "disparo\(n)",
+                recebidaEm: Self.agora.addingTimeInterval(TimeInterval(-n * 60)),
+                marks: .listUnsubscribe
+            )
+            try Fixture.escreveTriagem(
+                in: banco.pool, id: "disparo\(n)", triage: pedeResposta
+            )
+        }
+        try Fixture.escreveMensagem(
+            in: banco.pool, id: "gente",
+            recebidaEm: Self.agora.addingTimeInterval(-3_600)
+        )
+        try Fixture.escreveTriagem(in: banco.pool, id: "gente", triage: pedeResposta)
+
+        let fila = coordinator(
+            database: banco, assistant: EspiaoDeRascunho(resposta: "Consigo terça."),
+            settingsStore: try settings()
+        )
+        let trabalho = try await fila.pendingWork(limit: 2)
+        #expect(
+            trabalho.map(\.message.id) == ["gente"],
+            "a fila parou na primeira página e não achou quem precisa de resposta"
+        )
+    }
+
     // MARK: - Quem entra na fila
 
     @Test("gera para quem precisa de resposta e não é disparo")
