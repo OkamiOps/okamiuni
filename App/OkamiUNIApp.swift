@@ -75,7 +75,7 @@ struct OkamiUNIApp: App {
         _meetingFactory = State(initialValue: MeetingRoomFactory(
             google: composicao.googleAuth, rooms: rooms
         ))
-        _mailStore = State(initialValue: MailStore(
+        let store = MailStore(
             source: composicao.source, commandPort: composicao.commandPort,
             bodyPort: composicao.bodyPort, attachmentPort: composicao.attachmentPort,
             sendPort: composicao.sendPort,
@@ -86,9 +86,30 @@ struct OkamiUNIApp: App {
             agendaPort: composicao.agendaPort,
             calendarSync: composicao.calendarSync,
             trustPort: composicao.trustPort,
+            // A porta da regra "nunca é prioridade" (Tarefa 2): é por ela que
+            // "Arquivar e aprender" persiste e que a regra sobrevive à
+            // reabertura.
+            senderRulePort: composicao.senderRulePort,
             agendaReferenceDay: { relogio.today },
             calendarDefaults: .standard
-        ))
+        )
+        _mailStore = State(initialValue: store)
+        // A ressalva 1 da Tarefa 2: a fila de rascunho antecipado só enxerga
+        // a agenda do banco. Com esta troca ela passa a olhar a agenda que o
+        // `MailStore` de fato mostra — EventKit incluído — antes de propor
+        // horário. A closure é chamada fora da main; o salto é síncrono e
+        // curto (uma leitura de array).
+        if let filaDeRascunho = composicao.readyDraftQueue {
+            let agendaDoStore: @Sendable () -> [AgendaItem] = {
+                if Thread.isMainThread {
+                    return MainActor.assumeIsolated { store.agenda }
+                }
+                return DispatchQueue.main.sync {
+                    MainActor.assumeIsolated { store.agenda }
+                }
+            }
+            Task { await filaDeRascunho.useAgenda(agendaDoStore) }
+        }
         if let diretor = composicao.director {
             // A fila junto: é por ela que o "Tentar de novo" de uma fila parada
             // chega ao executor daquela conta.
@@ -163,7 +184,8 @@ struct OkamiUNIApp: App {
                     onMessagePresented: prioritizeMessageSummary,
                     accountsModel: accountsModel,
                     analysisQueue: composition.analysisQueue,
-                    backlogAnalysis: composition.backlogAnalysis
+                    backlogAnalysis: composition.backlogAnalysis,
+                    readyDrafts: composition.readyDrafts
                 )
             }
                 // Porta de depuração: `open -g --args --nova-mensagem` abre a
