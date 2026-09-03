@@ -489,7 +489,11 @@ struct PainelDoDia: View {
                 // opt-in da fila de fundo.
                 botao: modelo.motivoSemProntas != nil && !modelo.espera.isEmpty
                     ? (
-                        titulo: isWorking ? "Gerando…" : "Gerar as prontas",
+                        // O botão diz para onde o conteúdo vai — a regra do app
+                        // em toda superfície que sai deste Mac.
+                        titulo: isWorking
+                            ? "Gerando…"
+                            : "Gerar as prontas · \(Self.nomeDoMotor(conversation.destination.label))",
                         acao: { onGerarProntas(modelo.espera.map(\.id)) }
                     )
                     : nil
