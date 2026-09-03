@@ -80,6 +80,16 @@ public struct AppComposition: Sendable {
     /// a confiança é sobre o remetente, não sobre a caixa — e a tabela da v6
     /// não tem chave estrangeira para `account` justamente por isso.
     public let trustPort: (any SenderTrusting)?
+    /// Onde a regra "este remetente nunca é prioridade" passa a noite. Vale
+    /// mesmo sem conta conectada, como a confiança e pelo mesmo motivo: a
+    /// regra é sobre quem escreve, não sobre a caixa.
+    public let senderRulePort: (any SenderRuling)?
+    /// A fila serial que escreve a resposta antes de a pessoa pedir. `nil` sem
+    /// banco — sem disco não há onde guardar rascunho.
+    public let readyDraftQueue: ReadyDraftCoordinator?
+    /// Os rascunhos prontos, observados do banco. É o que a tela consulta;
+    /// `nil` no fallback de fixtures, como a fila.
+    public let readyDrafts: ReadyDraftsModel?
     /// Quem leva a fila de saída ao servidor, uma conta por vez. Nulo pelo
     /// mesmo motivo do banco. Já vem **ligado**: a fila começa a andar ao
     /// abrir o app, que é o que faz uma ação feita offline chegar ao servidor
@@ -211,6 +221,7 @@ public struct AppComposition: Sendable {
                 inviteRSVPPort: nil, bodyPort: nil,
                 attachmentPort: nil,
                 contactPort: nil, agendaPort: nil, calendarSync: EventKitCalendarAdapter(), trustPort: nil,
+                senderRulePort: nil, readyDraftQueue: nil, readyDrafts: nil,
                 outbox: nil, outboxSignal: nil, sync: nil, network: nil,
                 intelligence: nil, analysisQueue: nil, backlogAnalysis: nil,
                 intelligenceAvailability: intelligenceAvailability,
@@ -352,6 +363,26 @@ public struct AppComposition: Sendable {
             service: backlogService, coordinator: intelligence
         )
 
+        // E a segunda fila: a que escreve a resposta antes de a pessoa pedir.
+        // Ela é irmã da de cima e roda pelo mesmo princípio — o banco é a
+        // fronteira, a observação acorda, o ator serializa. A agenda que ela
+        // enxerga aqui é só a que o app criou; quem tem o calendário do
+        // sistema é o `MailStore`, e é ele que chama `useAgenda` quando sobe.
+        let agendaGuardada = DatabaseAgendaStore(database: banco)
+        let rascunhos = ReadyDraftCoordinator(
+            database: banco,
+            assistant: router,
+            settingsStore: assistantSettings,
+            agenda: { [agendaGuardada] in
+                let hoje = Calendar.current.startOfDay(for: Date())
+                return ((try? agendaGuardada.savedAgendaItems()) ?? [])
+                    .map { $0.item(referenceDay: hoje) }
+            }
+        )
+        Task { await rascunhos.start() }
+        let rascunhosProntos = ReadyDraftsModel(database: banco)
+        rascunhosProntos.start()
+
         // Tem conta? Então o banco é a fonte. Não tem? Fixtures — e é isso que
         // mantém os ensaios e as capturas do Marco 1 idênticos.
         //
@@ -388,6 +419,9 @@ public struct AppComposition: Sendable {
                 secrets: cofre
             ),
             trustPort: DatabaseTrustedSenderStore(database: banco),
+            senderRulePort: DatabaseSenderRuleStore(database: banco),
+            readyDraftQueue: rascunhos,
+            readyDrafts: rascunhosProntos,
             outbox: fila,
             outboxSignal: sinal,
             sync: sincronizacao,
