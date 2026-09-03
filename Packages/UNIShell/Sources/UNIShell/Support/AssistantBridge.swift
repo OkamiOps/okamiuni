@@ -23,6 +23,17 @@ public enum AssistantBridge {
         mailContext: AssistantMailContext,
         using assistant: any TextAssisting
     ) async throws -> String {
+        try await assistant.answer(
+            question: request.question,
+            in: snapshot(request, mailContext: mailContext)
+        )
+    }
+
+    /// O histórico como o motor o recebe. Um lugar só: a rota com cartões e a
+    /// rota de prosa têm de ver a mesma conversa.
+    static func snapshot(
+        _ request: AssistantRequest, mailContext: AssistantMailContext
+    ) -> AssistantConversationSnapshot {
         var history = request.conversation
         // O painel inclui a pergunta atual antes de chamar a closure. Ela já
         // tem campo próprio no contrato do motor, portanto não vai duplicada.
@@ -39,9 +50,20 @@ public enum AssistantBridge {
                 text: message.text
             )
         }
-        return try await assistant.answer(
+        return AssistantConversationSnapshot(mailContext: mailContext, turns: turns)
+    }
+
+    /// A mesma pergunta pela rota que traz cartões. O histórico é montado
+    /// pela **mesma** função — duas montagens divergiriam no primeiro
+    /// conserto, e o que o modelo vê é justamente o que decide a proposta.
+    static func answerWithProposals(
+        _ request: AssistantRequest,
+        mailContext: AssistantMailContext,
+        using assistant: any TextAssisting
+    ) async throws -> AssistantAnswer {
+        try await assistant.answerWithProposals(
             question: request.question,
-            in: AssistantConversationSnapshot(mailContext: mailContext, turns: turns)
+            in: snapshot(request, mailContext: mailContext)
         )
     }
 
@@ -92,6 +114,13 @@ public extension AssistantBridge {
                     currentDraft(),
                     using: .draftReply,
                     context: context
+                )
+            },
+            answerWithProposals: { request in
+                try await AssistantBridge.answerWithProposals(
+                    request,
+                    mailContext: try await mailContext(),
+                    using: assistant
                 )
             }
         )

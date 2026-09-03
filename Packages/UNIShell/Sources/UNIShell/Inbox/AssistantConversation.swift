@@ -20,17 +20,28 @@ public struct AssistantMessage: Identifiable, Sendable, Hashable {
     public let speaker: AssistantSpeaker
     public let text: String
     public let kind: AssistantTurnKind
+    /// As propostas de ação que vieram **com** este turno (§4). Já passaram
+    /// pelo validador do roteador: o que ele descartou não chega aqui, e por
+    /// isso não vira cartão.
+    public let proposals: [AssistantProposal]
 
     public init(
         id: UUID = UUID(),
         speaker: AssistantSpeaker,
         text: String,
-        kind: AssistantTurnKind = .message
+        kind: AssistantTurnKind = .message,
+        proposals: [AssistantProposal] = []
     ) {
         self.id = id
         self.speaker = speaker
         self.text = text
         self.kind = kind
+        self.proposals = proposals
+    }
+
+    /// Os cartões deste turno, na ordem em que a resposta os propôs.
+    public var cards: [AssistantProposalCard] {
+        AssistantProposalCard.cards(for: proposals, turnID: id.uuidString)
     }
 }
 
@@ -55,17 +66,28 @@ public struct AssistantEngine {
     public let supportsDraftReply: Bool
     public let answer: (AssistantRequest) async throws -> String
     public let draftReply: (AssistantRequest) async throws -> String
+    /// A mesma pergunta, com as propostas de ação da §4.
+    ///
+    /// Rota separada, e não uma bandeira no `answer`: o painel antigo pede
+    /// prosa e a gaveta pede prosa **mais** estrutura, e o roteador tem
+    /// caminhos diferentes para as duas. O padrão embrulha o `answer` — quem
+    /// não sabe propor devolve a resposta sem cartão nenhum, em vez de
+    /// prometer um botão que não existe.
+    public let answerWithProposals: (AssistantRequest) async throws -> AssistantAnswer
 
     public init(
         supportsDraftReply: Bool,
         answer: @escaping (AssistantRequest) async throws -> String,
         draftReply: @escaping (AssistantRequest) async throws -> String = { _ in
             throw TextAssistantError.invalidRequest("Criar uma resposta requer contexto de e-mail.")
-        }
+        },
+        answerWithProposals: ((AssistantRequest) async throws -> AssistantAnswer)? = nil
     ) {
         self.supportsDraftReply = supportsDraftReply
         self.answer = answer
         self.draftReply = draftReply
+        self.answerWithProposals = answerWithProposals
+            ?? { AssistantAnswer(text: try await answer($0)) }
     }
 }
 
@@ -331,8 +353,17 @@ public final class AssistantConversation {
         )
         do {
             let text: String
+            var propostas: [AssistantProposal] = []
             switch action {
-            case .ask, .briefing:
+            case .ask:
+                // A gaveta e o painel dividem esta máquina, e o pedido é o
+                // mesmo: quem não sabe propor devolve `proposals` vazio pelo
+                // padrão do motor, e o painel antigo continua desenhando só
+                // a prosa.
+                let resposta = try await engine.answerWithProposals(request)
+                text = resposta.text
+                propostas = resposta.proposals
+            case .briefing:
                 text = try await engine.answer(request)
             case .draftReply:
                 text = try await engine.draftReply(request)
@@ -345,7 +376,9 @@ public final class AssistantConversation {
             }
             switch action {
             case .ask:
-                messages.append(.init(speaker: .assistant, text: trimmed))
+                messages.append(
+                    .init(speaker: .assistant, text: trimmed, proposals: propostas)
+                )
             case .draftReply:
                 messages.append(.init(speaker: .assistant, text: trimmed, kind: .draft))
             case .briefing:
