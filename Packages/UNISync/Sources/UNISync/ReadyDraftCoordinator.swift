@@ -221,6 +221,79 @@ public actor ReadyDraftCoordinator {
         return .finished(escritos)
     }
 
+    /// Os rascunhos que a **pessoa** pediu, agora, para estas mensagens.
+    ///
+    /// É a mesma geração da fila, com uma diferença que é a razão de existir: o
+    /// portão do opt-in não se aplica. Aquele portão pergunta "posso mandar
+    /// isto sem você ter pedido?"; aqui ela pediu, na tela, com o dedo dela, e
+    /// a rota é a que ela mesma configurou — é a mesma natureza do "Gerar
+    /// resposta" que o leitor já tem, e que nunca consultou o opt-in.
+    ///
+    /// O que continua valendo: disparo em massa não ganha rascunho, o hash
+    /// descartado continua descartado, e um motor indisponível não escreve
+    /// nada. Devolve quantos saíram.
+    @discardableResult
+    public func generateOnDemand(messageIDs: [String]) async -> Int {
+        let pedidos = Set(messageIDs)
+        guard !pedidos.isEmpty else { return 0 }
+        guard !isProcessing else { return 0 }
+        isProcessing = true
+        defer { isProcessing = false }
+
+        let trabalho: [ReadyDraftWork]
+        do {
+            trabalho = try pendingWork(limit: pedidos.count + Self.pageSize)
+                .filter { pedidos.contains($0.message.id) }
+        } catch {
+            Self.log.error("Não foi possível ler a fila de rascunhos: \(error)")
+            return 0
+        }
+        guard !trabalho.isEmpty else { return 0 }
+        guard await assistant.availability() == .available else { return 0 }
+
+        var escritos = 0
+        for item in trabalho {
+            if Task.isCancelled { break }
+            do {
+                escritos += try await escreve(item) ? 1 : 0
+            } catch is CancellationError {
+                break
+            } catch {
+                // Um pedido explícito não pausa a fila de fundo: a pessoa vê
+                // que nada apareceu e tenta de novo se quiser.
+                Self.log.error("O rascunho pedido não saiu: \(error)")
+            }
+        }
+        // Um pedido bem-sucedido é prova de que o ambiente voltou.
+        if escritos > 0 {
+            pausedReason = nil
+            consecutivePolicyFailures = 0
+        }
+        return escritos
+    }
+
+    /// Escreve **um** rascunho e o grava. Lança o que o motor lançar — quem
+    /// chama decide se aquilo pausa a fila.
+    private func escreve(_ item: ReadyDraftWork) async throws -> Bool {
+        let semente = item.usesAgenda ? agendaSeed() : ""
+        let texto = try await assistant.transform(
+            semente,
+            using: .draftReply,
+            context: AssistantMailContext(message: item.message)
+        )
+        let limpo = try FoundationModelsTextAssistantValidation.response(texto)
+        try store.save(
+            ReadyDraft(
+                messageID: item.message.id, text: limpo,
+                contentHash: item.contentHash,
+                modelVersion: assistant.modelVersion,
+                usedAgenda: item.usesAgenda
+            ),
+            at: now()
+        )
+        return true
+    }
+
     // MARK: - O portão do consentimento
 
     /// Esta mensagem pode ser escrita por **este** motor?

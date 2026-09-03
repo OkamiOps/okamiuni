@@ -108,6 +108,10 @@ public struct InboxScreen: View {
     /// Os rascunhos antecipados que a fila de UNISync escreve. `nil` nas
     /// previews e no harness — o dashboard então não promete resposta.
     let readyDrafts: ReadyDraftsModel?
+    /// A fila de rascunho antecipado. Serve a **uma** coisa aqui: o botão
+    /// "Gerar as prontas" do painel do dia, que é pedido explícito da pessoa e
+    /// por isso não passa pelo portão do opt-in da fila de fundo.
+    let readyDraftQueue: ReadyDraftCoordinator?
     /// A sessão do assistente: a gaveta (09), a janela destacada (10) e a
     /// conversa que as duas dividem.
     ///
@@ -130,6 +134,7 @@ public struct InboxScreen: View {
         analysisQueue: AnalysisQueueStateModel? = nil,
         backlogAnalysis: BacklogAnalysisController? = nil,
         readyDrafts: ReadyDraftsModel? = nil,
+        readyDraftQueue: ReadyDraftCoordinator? = nil,
         assistantSession: AssistantSession? = nil
     ) {
         self.init(
@@ -145,6 +150,7 @@ public struct InboxScreen: View {
             analysisQueue: analysisQueue,
             backlogAnalysis: backlogAnalysis,
             readyDrafts: readyDrafts,
+            readyDraftQueue: readyDraftQueue,
             assistantSession: assistantSession,
             debugAssistantOpen: false,
             debugReaderAssistantOpen: false
@@ -166,6 +172,7 @@ public struct InboxScreen: View {
         analysisQueue: AnalysisQueueStateModel? = nil,
         backlogAnalysis: BacklogAnalysisController? = nil,
         readyDrafts: ReadyDraftsModel? = nil,
+        readyDraftQueue: ReadyDraftCoordinator? = nil,
         assistantSession: AssistantSession? = nil,
         debugAssistantOpen: Bool,
         debugAssistantScope: InboxAssistantScope = .workspace,
@@ -184,6 +191,7 @@ public struct InboxScreen: View {
         self.analysisQueue = analysisQueue
         self.backlogAnalysis = backlogAnalysis
         self.readyDrafts = readyDrafts
+        self.readyDraftQueue = readyDraftQueue
         self.assistantSession = assistantSession ?? AssistantSession()
         self.composerIntelligence = textAssistant.map {
             AssistantBridge.composerGenerator(using: $0)
@@ -236,6 +244,9 @@ public struct InboxScreen: View {
     /// dashboard e o assistente trabalhavam sem dizer nada. Aqui só se
     /// **recolhem** os sinais; a regra de como eles somam mora fora da `View`,
     /// com teste (`ChromeWorkloadTests`).
+    /// "Gerar as prontas" em andamento.
+    @State private var gerandoProntas = false
+
     var chromeWorkload: ChromeWorkload {
         var jobs: [ChromeWork] = [.sync(MailboxChromeStatus.from(accountsModel?.statuses ?? []))]
         for conversa in [dashboardConversation, assistantConversation].compactMap({ $0 }) {
@@ -243,7 +254,9 @@ public struct InboxScreen: View {
                 jobs.append(.assistant(kind: kind, destination: conversa.destination))
             }
         }
-        if analysisQueue?.isProcessing == true { jobs.append(.analysisQueue) }
+        // O "Gerar as prontas" do painel também segura o dono esperando: sem
+        // isto o botão parecia não ter feito nada por dez segundos.
+        if analysisQueue?.isProcessing == true || gerandoProntas { jobs.append(.analysisQueue) }
         if let acervo = backlogAnalysis, acervo.isRunning {
             jobs.append(.backlog(done: max(0, acervo.total - acervo.remaining), total: acervo.total))
         }
@@ -668,10 +681,30 @@ public struct InboxScreen: View {
             intelligence: composerIntelligence,
             intelligencePresentation: intelligencePresentation,
             analysisDestination: analysisDestination,
-            makeAssistantConversation: readerConversationFactory
+            makeAssistantConversation: readerConversationFactory,
+            // O portão do opt-in é o mesmo que a fila de rascunho consulta:
+            // sem ele ligado, a rota remota não escreve nada sozinha, e o
+            // cabeçalho do painel precisa poder dizer isso.
+            automaticAnalysisOn:
+                assistantSettings?.snapshot().automaticAnalysis == .configuredProvider,
+            onGerarProntas: gerarAsProntas,
+            onOpenAISettings: openAccounts
         )
         .task {
             if dashboardConversation == nil { dashboardConversation = conversation }
+        }
+    }
+
+    /// "Gerar as prontas": a pessoa pedindo o que a fila de fundo não pôde
+    /// escrever, pela rota que ela mesma configurou. O progresso aparece na
+    /// barra fina do chrome, como o resto do trabalho do app.
+    private func gerarAsProntas(_ messageIDs: [String]) {
+        guard let fila = readyDraftQueue, !gerandoProntas, !messageIDs.isEmpty else { return }
+        gerandoProntas = true
+        Task {
+            await fila.generateOnDemand(messageIDs: messageIDs)
+            readyDrafts?.reload()
+            gerandoProntas = false
         }
     }
 

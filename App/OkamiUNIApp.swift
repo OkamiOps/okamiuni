@@ -190,6 +190,8 @@ struct OkamiUNIApp: App {
                     analysisQueue: composition.analysisQueue,
                     backlogAnalysis: composition.backlogAnalysis,
                     readyDrafts: composition.readyDrafts,
+                    // O "Gerar as prontas" do painel do dia fala com a fila.
+                    readyDraftQueue: composition.readyDraftQueue,
                     assistantSession: assistantSession
                 )
             }
