@@ -223,8 +223,8 @@ public enum AssistantActionsBlock {
     /// para o que se pede e o que se lê não divergirem.
     public static let instruction = """
         Se — e somente se — houver ação concreta a propor sobre as mensagens \
-        deste contexto, termine a resposta com um único bloco de código \
-        \(fence) contendo JSON no formato \
+        deste contexto, termine a resposta com um único bloco de código aberto \
+        por ```\(fence) e fechado por ```, contendo JSON no formato \
         {"proposals":[{"title":"...","rationale":"...","actions":[{"kind":"...", ...}]}]}. \
         Os únicos "kind" existentes são: archive, moveToLater, moveToToday, \
         markRead, flag, reply (com "draft"), addToAgenda, openMessage, \
@@ -233,6 +233,13 @@ public enum AssistantActionsBlock {
         exato do contexto. Não existe enviar, apagar nem responder convite. \
         Sem ação a propor, não escreva bloco nenhum.
         """
+
+    /// A resposta inteira, já separada. Açúcar sobre `parse`, para quem tem
+    /// um `AssistantAnswer` para devolver.
+    public static func answer(_ raw: String) -> AssistantAnswer {
+        let lido = parse(raw)
+        return AssistantAnswer(text: lido.text, proposals: lido.proposals)
+    }
 
     /// Separa a prosa das propostas. Nunca lança: a resposta em prosa é o
     /// resultado mínimo aceitável, e ela sempre existe.

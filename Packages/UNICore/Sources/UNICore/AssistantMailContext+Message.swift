@@ -13,7 +13,9 @@ public extension AssistantEmailContext {
             recipients: (message.to + message.cc).map(\.display),
             sentAt: message.receivedAt,
             body: paragraphs.isEmpty ? message.snippet : paragraphs.joined(separator: "\n\n"),
-            html: message.hasHTML ? message.bodyHTML : nil
+            html: message.hasHTML ? message.bodyHTML : nil,
+            messageID: message.id,
+            hasDetectedEvent: message.detectedEvent != nil
         )
     }
 }

@@ -65,6 +65,49 @@ public struct FoundationModelsTextAssistant: TextAssisting {
         }
     }
 
+    /// A pergunta, agora com propostas — a variante da §4.2.
+    ///
+    /// `@Generable` em vez do bloco de texto: o modelo local sabe devolver
+    /// estrutura, e pedir a ele um bloco de código dentro da prosa seria
+    /// inventar um formato frágil onde já existe um garantido.
+    ///
+    /// **Não valida ids aqui.** Quem sabe o que estava no contexto é o
+    /// roteador, e a conferência mora em um lugar só.
+    public func answerWithProposals(
+        question: String,
+        in conversation: AssistantConversationSnapshot
+    ) async throws -> AssistantAnswer {
+        let question = try FoundationModelsTextAssistantValidation.question(question)
+        try await requireAvailability()
+
+        let session = LanguageModelSession(
+            model: .default,
+            instructions: AssistantPrompt.answerInstructions(
+                additionalInstructions: additionalInstructions
+            )
+        )
+        do {
+            let response = try await session.respond(
+                to: AssistantPrompt.answer(
+                    question: AssistantPrompt.questionRequestingProposals(question),
+                    conversation: conversation,
+                    budget: .onDevice
+                ),
+                generating: FoundationModelsAssistantReply.self
+            ).content
+            return AssistantAnswer(
+                text: try FoundationModelsTextAssistantValidation.response(response.text),
+                proposals: response.reply.assistantProposals
+            )
+        } catch let error as TextAssistantError {
+            throw error
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw TextAssistantError.generationFailed(error.localizedDescription)
+        }
+    }
+
     public func transform(
         _ text: String,
         using action: WritingAction,
@@ -316,6 +359,20 @@ enum AssistantPrompt {
         <untrusted-assistant-history>
         \(history(conversation.turns, budget: budget))
         </untrusted-assistant-history>
+        """
+    }
+
+    /// A mesma pergunta, agora pedindo o bloco de ações no fim.
+    ///
+    /// Uma função, e não uma variante de `answer`, porque quem monta o prompt
+    /// remoto é cada adaptador: o roteador acrescenta a instrução **à
+    /// pergunta**, e ela atravessa os três caminhos (endpoint, assinatura,
+    /// CLI) sem cada um deles precisar aprender o que é uma proposta.
+    static func questionRequestingProposals(_ question: String) -> String {
+        """
+        \(question)
+
+        \(AssistantActionsBlock.instruction)
         """
     }
 
@@ -638,5 +695,93 @@ enum AssistantPrompt {
     private static func clock(_ minute: Int) -> String {
         let value = max(0, minute)
         return String(format: "%02d:%02d", value / 60, value % 60)
+    }
+}
+
+// MARK: - A forma que o modelo local devolve
+
+/// A resposta com propostas, como o Foundation Models a gera.
+///
+/// Espelha `AssistantReply` de UNICore sem ser ele: `@Generable` não aceita
+/// opcionais nem `enum` com valores associados, e por isso os campos que "não
+/// se aplicam" viajam como string vazia ou zero — a mesma convenção que
+/// `FoundationModelsMessageAnalysisOutput` já usa para o compromisso ausente.
+@available(macOS 26.0, *)
+@Generable(description: "Uma resposta em português do Brasil, com propostas de ação opcionais.")
+struct FoundationModelsAssistantReply {
+    @Guide(description: "A resposta em prosa, em português do Brasil. Nunca vazia.")
+    var text: String
+
+    @Guide(
+        description: "As ações propostas, agrupadas. Lista vazia quando não houver ação concreta a propor.",
+        .count(0...3)
+    )
+    var proposals: [FoundationModelsAssistantProposal]
+
+    /// A tradução para o contrato do app, com a mesma regra de descarte: uma
+    /// ação que não traduz derruba a proposta inteira.
+    var reply: AssistantReply {
+        AssistantReply(text: text, proposals: proposals.map(\.output))
+    }
+}
+
+@available(macOS 26.0, *)
+@Generable(description: "Um grupo de ações que um clique aplica de uma vez.")
+struct FoundationModelsAssistantProposal {
+    @Guide(description: "Título curto do cartão, como \"Arquivar 5 newsletters\".")
+    var title: String
+
+    @Guide(description: "Uma frase dizendo por que estas ações fazem sentido.")
+    var rationale: String
+
+    @Guide(description: "As ações deste cartão.", .count(1...5))
+    var actions: [FoundationModelsAssistantAction]
+
+    var output: AssistantProposalOutput {
+        AssistantProposalOutput(
+            title: title, rationale: rationale, actions: actions.map(\.output)
+        )
+    }
+}
+
+@available(macOS 26.0, *)
+@Generable(description: "Uma ação proposta sobre uma mensagem, um remetente ou a agenda.")
+struct FoundationModelsAssistantAction {
+    @Guide(description: "O tipo da ação. Use exatamente uma destas strings: archive, moveToLater, moveToToday, markRead, flag, reply, addToAgenda, openMessage, learnSender, reserveBlock. Não existe enviar, apagar nem responder convite.")
+    var kind: String
+
+    @Guide(description: "O id exato da mensagem, copiado do contexto. String vazia para learnSender e reserveBlock.")
+    var messageID: String
+
+    @Guide(description: "O texto da resposta, só para reply. String vazia nos outros casos.")
+    var draft: String
+
+    @Guide(description: "O endereço do remetente, só para learnSender. String vazia nos outros casos.")
+    var address: String
+
+    @Guide(description: "Dias a partir de hoje, só para reserveBlock. Use 0 nos outros casos.")
+    var day: Int
+
+    @Guide(description: "Minuto do dia em que o bloco começa, só para reserveBlock. Use 0 nos outros casos.")
+    var startMinute: Int
+
+    @Guide(description: "Duração do bloco em minutos, só para reserveBlock. Use 0 nos outros casos.")
+    var minutes: Int
+
+    @Guide(description: "Título do bloco na agenda, só para reserveBlock. String vazia nos outros casos.")
+    var title: String
+
+    /// String vazia vira `nil`: é a tradução da convenção do `@Generable` para
+    /// a forma que o parser remoto já produz, e é ela que faz um `reply` sem
+    /// rascunho ser descartado em vez de virar um composer em branco.
+    var output: AssistantActionOutput {
+        AssistantActionOutput(
+            kind: kind,
+            messageID: messageID.isEmpty ? nil : messageID,
+            draft: draft.isEmpty ? nil : draft,
+            address: address.isEmpty ? nil : address,
+            day: day, startMinute: startMinute, minutes: minutes,
+            title: title.isEmpty ? nil : title
+        )
     }
 }

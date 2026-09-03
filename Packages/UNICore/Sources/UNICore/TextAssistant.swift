@@ -5,6 +5,19 @@ import Foundation
 /// O conteúdo é sempre tratado como dado: ele pode conter texto arbitrário e
 /// não deve alterar a política do assistente.
 public struct AssistantEmailContext: Sendable, Hashable {
+    /// O id da mensagem no app, quando este contexto veio de uma.
+    ///
+    /// Existe por causa do validador da §4: uma proposta só pode citar
+    /// mensagem que estava **neste** contexto, e sem o id não há como afirmar
+    /// isso — o validador teria de recusar tudo ou confiar em tudo. `nil` para
+    /// um contexto montado à mão (teste, prévia), e nesse caso nenhuma ação
+    /// sobre mensagem sobrevive, que é o lado seguro.
+    public let messageID: String?
+    /// A mensagem já tem compromisso detectado e **persistido**.
+    ///
+    /// `addToAgenda` depende disto: pôr na agenda um compromisso que o modelo
+    /// inventou na hora do clique seria a IA decidindo data sozinha.
+    public let hasDetectedEvent: Bool
     public let subject: String
     public let sender: String
     public let recipients: [String]
@@ -21,8 +34,12 @@ public struct AssistantEmailContext: Sendable, Hashable {
         recipients: [String] = [],
         sentAt: Date? = nil,
         body: String,
-        html: String? = nil
+        html: String? = nil,
+        messageID: String? = nil,
+        hasDetectedEvent: Bool = false
     ) {
+        self.messageID = messageID
+        self.hasDetectedEvent = hasDetectedEvent
         self.subject = subject
         self.sender = sender
         self.recipients = recipients
@@ -153,6 +170,50 @@ public struct AssistantWorkspaceContext: Sendable, Hashable {
         self.emails = emails
         self.agenda = agenda
         self.pendingItems = pendingItems
+    }
+}
+
+public extension AssistantMailContext {
+    /// Os ids das mensagens **deste** contexto — o universo em que uma
+    /// proposta pode agir. Ver `AssistantProposalValidator`.
+    var messageIDs: Set<String> {
+        switch self {
+        case let .email(email):
+            Set([email.messageID].compactMap { $0 })
+        case let .conversation(emails):
+            Set(emails.compactMap(\.messageID))
+        case let .workspace(workspace):
+            Set(workspace.emails.map(\.id))
+        }
+    }
+
+    /// Quais deles já têm compromisso detectado e persistido.
+    ///
+    /// O retrato global fica de fora de propósito: ele carrega cabeçalho e
+    /// prévia, não o compromisso — e afirmar que existe um sem ter lido a
+    /// mensagem seria a mesma invenção que o validador existe para barrar.
+    var messageIDsWithEvent: Set<String> {
+        switch self {
+        case let .email(email):
+            Set(email.hasDetectedEvent ? [email.messageID].compactMap { $0 } : [])
+        case let .conversation(emails):
+            Set(emails.filter(\.hasDetectedEvent).compactMap(\.messageID))
+        case .workspace:
+            []
+        }
+    }
+}
+
+/// O que uma pergunta devolve quando o assistente pode propor ações.
+public struct AssistantAnswer: Sendable, Hashable {
+    /// A prosa, já sem o bloco de ações.
+    public let text: String
+    /// As propostas que sobreviveram ao parser **e** ao validador.
+    public let proposals: [AssistantProposal]
+
+    public init(text: String, proposals: [AssistantProposal] = []) {
+        self.text = text
+        self.proposals = proposals
     }
 }
 

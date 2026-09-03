@@ -179,6 +179,62 @@ public actor AssistantRouter: TextAssisting {
         }
     }
 
+    /// A mesma pergunta, com propostas de ação quando houver ação a propor.
+    ///
+    /// Duas rotas para a mesma coisa, e a diferença é só de forma: o
+    /// Foundation Models devolve estrutura por `@Generable`; endpoint,
+    /// assinatura e CLI devolvem texto, e a estrutura vem num bloco
+    /// ```` ```okami-actions ```` que o parser tira da resposta antes de ela
+    /// chegar à tela.
+    ///
+    /// **O validador roda aqui, nas duas.** A alternativa — deixá-lo para a
+    /// superfície — repetiria a conferência em cada tela, e bastaria uma
+    /// esquecer para uma proposta agir sobre uma mensagem que não estava no
+    /// contexto. Nada é executado nesta função: propostas são texto tipado até
+    /// alguém clicar.
+    public func answerWithProposals(
+        question: String,
+        in conversation: AssistantConversationSnapshot
+    ) async throws -> AssistantAnswer {
+        let settings = settingsStore.snapshot()
+        let bruta: AssistantAnswer
+        switch settings.provider {
+        case .foundationModels:
+            bruta = try await FoundationModelsTextAssistant(
+                additionalInstructions: settings.configuredInstructions(for: .questions)
+            ).answerWithProposals(question: question, in: conversation)
+        case .openAICompatible:
+            bruta = AssistantActionsBlock.answer(
+                try await remoteAssistant(settings: settings, promptKind: .questions).answer(
+                    question: AssistantPrompt.questionRequestingProposals(question),
+                    in: conversation
+                )
+            )
+        case .providerOAuth:
+            bruta = AssistantActionsBlock.answer(
+                try await providerOAuthAssistant(settings: settings, promptKind: .questions).answer(
+                    question: AssistantPrompt.questionRequestingProposals(question),
+                    in: conversation
+                )
+            )
+        case .cli:
+            bruta = AssistantActionsBlock.answer(
+                try await cliAssistant(settings: settings, promptKind: .questions).answer(
+                    question: AssistantPrompt.questionRequestingProposals(question),
+                    in: conversation
+                )
+            )
+        }
+        return AssistantAnswer(
+            text: bruta.text,
+            proposals: AssistantProposalValidator.validate(
+                bruta.proposals,
+                messageIDs: conversation.mailContext.messageIDs,
+                messageIDsWithEvent: conversation.mailContext.messageIDsWithEvent
+            )
+        )
+    }
+
     public func transform(
         _ text: String,
         using action: WritingAction,
