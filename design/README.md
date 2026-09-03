@@ -12,7 +12,8 @@ Baixado em 2026-08-26.
 | `design/tokens.json` | Fonte canônica estruturada dos valores de cor e tokens do tema (26 temas + fallback `base`) |
 | `OkamiUNI - Mail + Agenda.dc.html` | Referência visual do protótipo; fornece nomes, notas, estados e proporções para conferência |
 | `07-dashboard.html` | A tela 07 (tríptico), substituída pela 08; fica como registro |
-| `08-dashboard-ia.dc.html` | **A tela do dia vigente**, aprovada em 2026-09-03: herói "Comece por aqui", filtro em texto, linhas com a proposta da IA, prévia com o rascunho antes do email, dia com bloco sugerido, botão do chat. Tabela de medidas no topo |
+| `11-painel-do-dia.dc.html` | **O dashboard vigente** (aprovado 2026-09-03, tarde): não é uma caixa. Plano de hoje como linha do tempo com blocos propostos, Esperando você, Você espera (lido dos enviados), Você prometeu, Por negócio, Dinheiro e prazos |
+| `08-dashboard-ia.dc.html` | A tela do dia anterior (substituída pela 11), aprovada em 2026-09-03: herói "Comece por aqui", filtro em texto, linhas com a proposta da IA, prévia com o rascunho antes do email, dia com bloco sugerido, botão do chat. Tabela de medidas no topo |
 | `09-assistente-gaveta.dc.html` | O chat aberto em gaveta por cima da borda direita (⌘J) |
 | `10-assistente-janela.dc.html` | O chat destacado em janela própria |
 | `assets/uni-lockup-light.png` | Lockup da marca (tema claro) |

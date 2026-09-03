@@ -1,0 +1,147 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    body { margin: 0; background: #060609; -webkit-font-smoothing: antialiased; }
+    a { color: #F0A060; } a:hover { color: #F7B98A; }
+    .f { font-family: 'Space Grotesk', sans-serif; }
+    .m { font-family: 'JetBrains Mono', monospace; }
+    .caps { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.18em; text-transform: uppercase; color: #55566A; }
+    .btn { height: 30px; padding: 0 13px; display: inline-flex; align-items: center; gap: 7px; border-radius: 2px; font-family: 'Space Grotesk', sans-serif; font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+    .btn.p { background: #F0A060; color: #060609; }
+    .btn.g { color: #F4F4F8; background: #14141E; border: 0.5px solid #2A2A38; box-shadow: inset 0 1px 0 rgba(244,244,248,0.04); }
+    .btn.sm { height: 26px; padding: 0 10px; font-size: 12px; }
+    .kbd { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: #55566A; }
+    /* Plano do dia: a linha do tempo horizontal */
+    .tl { position: relative; height: 74px; }
+    .tl .axis { position: absolute; left: 0; right: 0; top: 46px; height: 0.5px; background: #1E1E2B; }
+    .tl .h { position: absolute; top: 54px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #55566A; transform: translateX(-50%); }
+    .tl .blk { position: absolute; top: 12px; height: 28px; border-radius: 2px; background: #14141E; border: 0.5px solid #2A2A38; padding: 0 9px; display: flex; align-items: center; gap: 6px; font-family: 'Space Grotesk', sans-serif; font-size: 11.5px; font-weight: 600; color: #F4F4F8; white-space: nowrap; overflow: hidden; }
+    .tl .blk em { font-style: normal; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; color: #55566A; }
+    .tl .blk.ai { background: #1A1209; border: 0.5px dashed #4A2C16; color: #F7B98A; }
+    .tl .blk.ai em { color: #F7B98A; opacity: 0.7; }
+    .tl .blk.due { background: transparent; border-color: rgba(226,179,107,0.4); color: #E2B36B; }
+    .tl .now { position: absolute; top: 4px; bottom: 12px; width: 1.5px; background: #F0A060; }
+    .tl .now i { position: absolute; top: -4px; left: -3px; width: 7px; height: 7px; border-radius: 50%; background: #F0A060; }
+    /* Painéis */
+    .pane { display: flex; flex-direction: column; min-width: 0; }
+    .pane .hd { display: flex; align-items: baseline; gap: 8px; padding-bottom: 10px; border-bottom: 0.5px solid #1E1E2B; }
+    .pane .hd .t { font-family: 'Space Grotesk', sans-serif; font-size: 14px; font-weight: 600; color: #F4F4F8; }
+    .pane .hd .n { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #55566A; }
+    .pane .hd .why { margin-left: auto; font-family: 'Space Grotesk', sans-serif; font-size: 11px; color: #55566A; white-space: nowrap; }
+    .it { display: grid; grid-template-columns: 10px 1fr; column-gap: 10px; padding: 11px 0 12px; border-bottom: 0.5px solid #16161F; }
+    .it .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--tint); margin-top: 5px; }
+    .it .a { display: flex; align-items: baseline; gap: 8px; font-family: 'Space Grotesk', sans-serif; font-size: 13px; font-weight: 600; color: #F4F4F8; }
+    .it .a em { font-style: normal; margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #55566A; white-space: nowrap; }
+    .it .b { margin-top: 3px; font-family: 'Space Grotesk', sans-serif; font-size: 12.5px; line-height: 1.45; color: #B9BAC8; }
+    .it .b i { color: #7B7C90; }
+    .it .c { margin-top: 8px; display: flex; gap: 6px; }
+    .it .b .late { color: #E2B36B; font-style: normal; font-weight: 600; }
+    /* Dinheiro e prazos: tabela mínima */
+    .money { display: grid; grid-template-columns: 1fr auto auto; column-gap: 14px; row-gap: 0; }
+    .money > div { padding: 8px 0; border-bottom: 0.5px solid #16161F; font-family: 'Space Grotesk', sans-serif; font-size: 12.5px; color: #F4F4F8; display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+    .money .w { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: #7B7C90; white-space: nowrap; }
+    .money .v { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: #F4F4F8; white-space: nowrap; justify-content: flex-end; }
+    .money .soon { color: #E2B36B; }
+    .money .src { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; color: #55566A; }
+    /* Por negócio */
+    .biz { display: flex; flex-direction: column; gap: 4px; padding: 10px 0 12px; border-bottom: 0.5px solid #16161F; }
+    .biz .n { display: flex; align-items: center; gap: 8px; font-family: 'Space Grotesk', sans-serif; font-size: 13px; font-weight: 600; color: #F4F4F8; }
+    .biz .n i { width: 8px; height: 8px; border-radius: 2px; background: var(--tint); }
+    .biz .n em { font-style: normal; margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.08em; color: #55566A; }
+    .biz .s { font-family: 'Space Grotesk', sans-serif; font-size: 12px; line-height: 1.5; color: #B9BAC8; }
+    .biz .s b { color: #F4F4F8; font-weight: 600; }
+    .biz .s .ok { color: #6CC894; }
+  </style>
+</helmet>
+<div class="f" style="position: relative; width: 1440px; height: 852px; box-sizing: border-box; background: #060609; padding: 22px 28px 20px; display: flex; flex-direction: column; color: #F4F4F8; overflow: hidden;">
+
+  <!-- Cabeçalho -->
+  <div style="display: flex; align-items: baseline; gap: 16px;">
+    <div style="font-size: 18px; font-weight: 600; letter-spacing: -0.01em;">Boa tarde, Marcos</div>
+    <div class="caps">Quinta · 3 de setembro</div>
+    <div style="margin-left: auto; font-size: 11.5px; color: #55566A;">Lido das 3 contas · atualizado agora · Codex · ChatGPT</div>
+  </div>
+
+  <!-- PLANO DE HOJE: o objeto principal. Agenda + o que você deve, num eixo só -->
+  <div style="margin-top: 16px; padding: 14px 18px 8px; background: #0B0B12; border: 0.5px solid #1E1E2B; border-radius: 2px;">
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <span style="font-size: 14px; font-weight: 600;">Plano de hoje</span>
+      <span style="font-size: 12px; color: #7B7C90;">montado com a agenda, os prazos e o que você prometeu · <b style="color: #F7B98A; font-weight: 600;">2 blocos propostos</b></span>
+      <span style="margin-left: auto; display: flex; gap: 6px;"><span class="btn p sm">Aceitar o plano</span><span class="btn g sm">Ajustar</span></span>
+    </div>
+    <div class="tl" style="margin-top: 6px;">
+      <div class="axis"></div>
+      <span class="h" style="left: 0%;">09</span><span class="h" style="left: 10%;">10</span><span class="h" style="left: 20%;">11</span><span class="h" style="left: 30%;">12</span><span class="h" style="left: 40%;">13</span><span class="h" style="left: 50%;">14</span><span class="h" style="left: 60%;">15</span><span class="h" style="left: 70%;">16</span><span class="h" style="left: 80%;">17</span><span class="h" style="left: 90%;">18</span><span class="h" style="left: 100%;">19</span>
+      <div class="blk" style="left: 5%; width: 5%;">Odette</div>
+      <div class="now" style="left: 10.5%;"><i></i></div>
+      <div class="blk" style="left: 26.5%; width: 10%;">Aitherion <em>1 h</em></div>
+      <div class="blk ai" style="left: 40%; width: 6%;">Responder 3 <em>20m</em></div>
+      <div class="blk ai" style="left: 60%; width: 8%;">Proposta Marina <em>45m</em></div>
+      <div class="blk due" style="left: 88%; width: 7%;">Prazo Jayden</div>
+    </div>
+  </div>
+
+  <!-- Quatro painéis. Nenhum deles é uma lista de emails. -->
+  <div style="flex: 1; min-height: 0; display: grid; grid-template-columns: 1.05fr 1fr 1fr 0.95fr; gap: 26px; margin-top: 18px;">
+
+    <!-- 1 · Esperando você -->
+    <div class="pane">
+      <div class="hd"><span class="t">Esperando você</span><span class="n">3</span><span class="why">respostas prontas para as 3</span></div>
+      <div class="it" style="--tint: #6CC894;"><div class="dot"></div><div><div class="a">Jack Whitmore<em>OkamiOps · 7 dias</em></div><div class="b">"Is the tally page supposed to need a login?" <i>· sim ou não</i></div><div class="c"><span class="btn p sm">Enviar a pronta</span><span class="btn g sm">Ver</span></div></div></div>
+      <div class="it" style="--tint: #F0A060;"><div class="dot"></div><div><div class="a">Jayden Sutherland<em>Gmail · 2 dias</em></div><div class="b">Consultoria USD 250/h — quer sua disponibilidade. <span class="late">prazo hoje 18h</span></div><div class="c"><span class="btn p sm">Enviar a pronta</span><span class="btn g sm">Ver</span></div></div></div>
+      <div class="it" style="--tint: #6FA8DC;"><div class="dot"></div><div><div class="a">Maria Exemplo<em>Vantion · lead · ontem</em></div><div class="b">Orçamento de identidade visual, pelo site.</div><div class="c"><span class="btn p sm">Enviar a pronta</span><span class="btn g sm">Ver</span></div></div></div>
+      <div style="flex: 1;"></div>
+      <div style="padding-top: 10px;"><span class="btn g">Enviar as 3 <span class="kbd">revisando uma a uma</span></span></div>
+    </div>
+
+    <!-- 2 · Você espera (o que a Caixa nunca mostra) -->
+    <div class="pane">
+      <div class="hd"><span class="t">Você espera</span><span class="n">2</span><span class="why">lido dos seus enviados</span></div>
+      <div class="it" style="--tint: #6FA8DC;"><div class="dot"></div><div><div class="a">Marina Duarte<em>Vantion · 2 dias</em></div><div class="b">Você mandou a revisão do contrato terça. <i>Sem resposta.</i></div><div class="c"><span class="btn g sm">Cobrar com gentileza</span><span class="btn g sm">Esperar mais</span></div></div></div>
+      <div class="it" style="--tint: #F0A060;"><div class="dot"></div><div><div class="a">Suporte Hostinger<em>pessoal · 4 dias</em></div><div class="b">Ticket do domínio aberto sexta. <i>Sem resposta.</i></div><div class="c"><span class="btn g sm">Cobrar</span></div></div></div>
+      <div style="flex: 1;"></div>
+      <div style="font-size: 11.5px; line-height: 1.5; color: #55566A;">Aparece aqui quem você escreveu e não respondeu em 48 h. Você ajusta o prazo por pessoa.</div>
+    </div>
+
+    <!-- 3 · Você prometeu -->
+    <div class="pane">
+      <div class="hd"><span class="t">Você prometeu</span><span class="n">2</span><span class="why">lido dos seus enviados</span></div>
+      <div class="it" style="--tint: #6FA8DC;"><div class="dot"></div><div><div class="a">Proposta para a Marina<em>Vantion</em></div><div class="b">"Mando até quinta." <span class="late">É hoje, e não saiu.</span></div><div class="c"><span class="btn p sm">Reservar 15h · 45 min</span><span class="btn g sm">Já fiz</span></div></div></div>
+      <div class="it" style="--tint: #6CC894;"><div class="dot"></div><div><div class="a">Liberar o Tally público<em>OkamiOps</em></div><div class="b">Vai na resposta pronta ao Jack: "até sexta". <i>Vira promessa quando você enviar.</i></div><div class="c"><span class="btn g sm">Reservar sexta</span></div></div></div>
+      <div style="flex: 1;"></div>
+      <div style="font-size: 11.5px; line-height: 1.5; color: #55566A;">A IA lê as datas que você mesmo escreveu. Nada entra aqui sem você ter dito.</div>
+    </div>
+
+    <!-- 4 · Por negócio + Dinheiro e prazos -->
+    <div class="pane">
+      <div class="hd"><span class="t">Por negócio</span><span class="why">clique filtra tudo</span></div>
+      <div class="biz" style="--tint: #6FA8DC;"><div class="n"><i></i>Vantion<em>2 contas</em></div><div class="s"><b>1 lead novo</b> · Marina sem resposta há 2 dias · proposta vence hoje</div></div>
+      <div class="biz" style="--tint: #6CC894;"><div class="n"><i></i>OkamiOps<em></em></div><div class="s">Jack espera <b>7 dias</b> · <span class="ok">fila zerada além dele</span></div></div>
+      <div class="biz" style="--tint: #F0A060;"><div class="n"><i></i>Pessoal<em>gmail</em></div><div class="s">Jayden · créditos sábado · <b>65 disparos</b> ignorados</div></div>
+
+      <div class="hd" style="margin-top: 18px;"><span class="t">Dinheiro e prazos</span><span class="why">7 dias</span></div>
+      <div class="money">
+        <div><span>Prazo do Jayden</span><span class="src">gmail</span></div><div class="w soon">hoje 18h</div><div class="v">USD 250/h</div>
+        <div><span>NF de agosto</span><span class="src">vantion</span></div><div class="w soon">05/09</div><div class="v">R$ 4.200</div>
+        <div><span>Créditos Abacus</span><span class="src">gmail</span></div><div class="w">sáb</div><div class="v">6.000</div>
+        <div><span>Domínio meusite.com</span><span class="src">hostinger</span></div><div class="w">12 dias</div><div class="v">R$ 89</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="position: absolute; right: 24px; bottom: 16px; display: flex; align-items: center; gap: 9px; height: 36px; padding: 0 14px 0 12px; border-radius: 18px; background: #14141E; border: 0.5px solid #2A2A38; box-shadow: 0 10px 30px rgba(0,0,0,0.55);">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#F0A060" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.4A8 8 0 1 1 21 12z"/></svg>
+    <span style="font-size: 12.5px; font-weight: 600;">Perguntar</span><span class="kbd">⌘J</span>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
