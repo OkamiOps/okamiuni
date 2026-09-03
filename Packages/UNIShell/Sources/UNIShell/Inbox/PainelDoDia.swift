@@ -43,6 +43,13 @@ struct PainelDoDia: View {
     let intelligencePresentation: IntelligencePresentation
     let analysisDestination: @Sendable (String?) -> AssistantDestination
     let makeAssistantConversation: ((String) -> AssistantConversation)?
+    /// A análise automática está ligada (o opt-in da rota remota).
+    let automaticAnalysisOn: Bool
+    /// "Gerar as prontas": a pessoa pedindo, explicitamente, o que a fila de
+    /// fundo não pôde escrever. Recebe os ids dos azulejos à vista.
+    let onGerarProntas: ([String]) -> Void
+    /// Leva a Ajustes → IA, para a frase "· Ativar" ter para onde ir.
+    let onOpenAISettings: () -> Void
 
     /// A mensagem cujo **cartão do rascunho** está aberto — o cartão é o de
     /// sempre (`DashboardPreviewColumn`), e é lá que o Enviar envia.
@@ -73,6 +80,9 @@ struct PainelDoDia: View {
         intelligencePresentation: IntelligencePresentation = .onThisMac,
         analysisDestination: @escaping @Sendable (String?) -> AssistantDestination = { _ in .onThisMac },
         makeAssistantConversation: ((String) -> AssistantConversation)? = nil,
+        automaticAnalysisOn: Bool = false,
+        onGerarProntas: @escaping ([String]) -> Void = { _ in },
+        onOpenAISettings: @escaping () -> Void = {},
         debugCartaoDoRascunho: String? = nil
     ) {
         self.store = store
@@ -95,6 +105,9 @@ struct PainelDoDia: View {
         self.intelligencePresentation = intelligencePresentation
         self.analysisDestination = analysisDestination
         self.makeAssistantConversation = makeAssistantConversation
+        self.automaticAnalysisOn = automaticAnalysisOn
+        self.onGerarProntas = onGerarProntas
+        self.onOpenAISettings = onOpenAISettings
         _cartaoDoRascunho = State(initialValue: debugCartaoDoRascunho)
     }
 
@@ -110,6 +123,35 @@ struct PainelDoDia: View {
         DashboardPlanInput.validatedDrafts(drafts) { store.message($0) }
     }
 
+    /// Por que a coluna "Esperando você" não tem nenhuma resposta pronta.
+    ///
+    /// A tela do dono tinha zero prontas, zero blocos e zero promessas, e o
+    /// cabeçalho dizia só "nenhuma resposta pronta" — que é a mesma frase para
+    /// "a fila ainda não chegou lá" e para "a fila está barrada e vai continuar
+    /// barrada". Duas coisas diferentes precisam de duas frases, e a que
+    /// explica precisa levar a algum lugar.
+    private var motivoSemProntas: PainelDoDiaModelo.MotivoSemProntas {
+        let destino = Self.nomeDoMotor(conversation.destination.label)
+        guard intelligencePresentation.isAvailable else {
+            return .motorIndisponivel(destino: destino)
+        }
+        // O portão é o do opt-in (`ReadyDraftCoordinator.routeIsAllowed`): a
+        // rota local sempre pode; a remota só com a análise automática ligada.
+        let local = intelligencePresentation.destination?.isLocal ?? false
+        if !local, !automaticAnalysisOn {
+            return .precisaDoOptIn(destino: destino)
+        }
+        return .aindaNaoEscreveu
+    }
+
+    /// "Codex · ChatGPT" → "Codex". O rótulo inteiro não cabe no meio de uma
+    /// frase, e o que a pessoa reconhece é a primeira palavra.
+    static func nomeDoMotor(_ label: String) -> String {
+        let curto = label.split(separator: "·").first
+            .map { $0.trimmingCharacters(in: .whitespaces) } ?? label
+        return curto.isEmpty ? label : curto
+    }
+
     var body: some View {
         let plan = plan
         let modelo = PainelDoDiaModelo(
@@ -119,19 +161,37 @@ struct PainelDoDia: View {
             agenda: store.agenda,
             messages: store.messages,
             today: today,
-            nowMinute: now
+            nowMinute: now,
+            myAddresses: Set(store.accounts.map(\.address)),
+            motivoSemProntas: motivoSemProntas
         )
         return VStack(alignment: .leading, spacing: 0) {
-            header(modelo)
-            planoDeHoje(modelo)
-                .padding(.top, 16)
-            painéis(modelo)
-                .padding(.top, 22)
-            Spacer(minLength: 12)
+            // O topo é fixo: o plano de hoje é a única coisa que a pessoa
+            // precisa ver sem rolar, e ele não pode ser empurrado para fora.
+            VStack(alignment: .leading, spacing: 0) {
+                header(modelo)
+                planoDeHoje(modelo)
+                    .padding(.top, 16)
+            }
+            .padding(.top, 22)
+            .padding(.horizontal, 28)
+
+            // Os três painéis rolam. Com seis azulejos a grade já passava do
+            // pé da janela, e o que saía por baixo era a barra de estado —
+            // então a tela não tinha nem rolagem nem barra.
+            ScrollView(.vertical) {
+                painéis(modelo)
+                    .padding(.top, 22)
+                    .padding(.bottom, 20)
+                    .padding(.horizontal, 28)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .scrollBounceBehavior(.basedOnSize)
+
+            // E a barra fica colada no pé, sempre: ela é estado do dia, e
+            // estado que some quando o dia enche não é estado nenhum.
             barraInferior(modelo)
         }
-        .padding(.top, 22)
-        .padding(.horizontal, 28)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(theme.paper.color)
         .bareKeyShortcuts { key in
@@ -204,7 +264,10 @@ struct PainelDoDia: View {
             ForEach(Array(store.accounts.enumerated()), id: \.element.id) { índice, account in
                 let estado = modelo.contas[account.id] ?? (total: 0, pedeVoce: false)
                 segmento(
-                    titulo: account.displayName,
+                    // `displayName` das contas de verdade nasce igual ao
+                    // endereço: `marcos@okamiops.com` não cabe num segmento de
+                    // 12pt, e o que identifica a conta é "Okamiops".
+                    titulo: account.shortName,
                     ativo: filter.accounts.contains(account.id),
                     tint: estado.pedeVoce ? theme.warning.color : theme.success.color,
                     contagem: estado.total,
@@ -303,16 +366,19 @@ struct PainelDoDia: View {
                     .font(theme.sans.font(size: 12))
                     .foregroundStyle(theme.ink3.color)
                 Spacer(minLength: 8)
-                PainelBotao(
-                    titulo: "Aceitar o plano", primario: true,
-                    acao: { aceitarOPlano(modelo) }
-                )
-                .disabled(modelo.propostos.isEmpty)
-                .opacity(modelo.propostos.isEmpty ? 0.5 : 1)
+                // Escondido, e não desabilitado: um botão cinza que não faz
+                // nada é a tela pedindo que você tente clicar para descobrir.
+                if !modelo.propostos.isEmpty {
+                    PainelBotao(
+                        titulo: "Aceitar o plano", primario: true,
+                        acao: { aceitarOPlano(modelo) }
+                    )
+                }
                 PainelBotao(titulo: "Ajustar", primario: false) { ajustando = true }
             }
             PainelLinhaDoTempo(
                 blocos: modelo.blocos,
+                janela: modelo.janela,
                 nowMinute: now,
                 onTapProposto: { _ in ajustando = true }
             )
@@ -366,8 +432,13 @@ struct PainelDoDia: View {
         .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
-    private func cabecalho(_ titulo: String, _ contagem: Int, _ legenda: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+    private func cabecalho(
+        _ titulo: String, _ contagem: Int, _ legenda: String,
+        alerta: Bool = false,
+        acaoDaLegenda: (() -> Void)? = nil,
+        botao: (titulo: String, acao: () -> Void)? = nil
+    ) -> some View {
+        HStack(alignment: .center, spacing: 8) {
             Text(titulo)
                 .font(theme.sans.font(size: 14, weight: .semibold))
                 .foregroundStyle(theme.ink.color)
@@ -375,10 +446,32 @@ struct PainelDoDia: View {
                 .font(theme.mono.font(size: 10))
                 .foregroundStyle(theme.ink4.color)
             Spacer(minLength: 8)
-            Text(legenda)
-                .font(theme.sans.font(size: 11))
-                .foregroundStyle(theme.ink4.color)
-                .lineLimit(1)
+            // A legenda que explica é clicável e vai para onde se resolve —
+            // uma explicação sem porta é uma desculpa.
+            Group {
+                if let acaoDaLegenda {
+                    Button(action: acaoDaLegenda) {
+                        Text(legenda)
+                            .font(theme.sans.font(size: 11))
+                            .foregroundStyle(theme.accentInk.color)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.trailing)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(legenda)
+                } else {
+                    Text(legenda)
+                        .font(theme.sans.font(size: 11))
+                        .foregroundStyle(alerta ? theme.warning.color : theme.ink4.color)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.trailing)
+                        .help(legenda)
+                }
+            }
+            if let botao {
+                PainelBotao(titulo: botao.titulo, primario: false, altura: 22, acao: botao.acao)
+            }
         }
         .padding(.bottom, 10)
         .hairline(theme.line, edges: .bottom)
@@ -386,7 +479,21 @@ struct PainelDoDia: View {
 
     private func esperandoVoce(_ modelo: PainelDoDiaModelo) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            cabecalho("Esperando você", modelo.espera.count, modelo.legendaDaEspera)
+            cabecalho(
+                "Esperando você", modelo.espera.count, modelo.legendaDaEspera,
+                // "Ativar" e "Entrar" levam a Ajustes → IA; "ainda não
+                // escreveu" não leva a lugar nenhum, o botão é que resolve.
+                acaoDaLegenda: precisaDeAjustes(modelo) ? onOpenAISettings : nil,
+                // O botão é ação **explícita** da pessoa — a mesma natureza do
+                // "Gerar resposta" do leitor —, e por isso não depende do
+                // opt-in da fila de fundo.
+                botao: modelo.motivoSemProntas != nil && !modelo.espera.isEmpty
+                    ? (
+                        titulo: isWorking ? "Gerando…" : "Gerar as prontas",
+                        acao: { onGerarProntas(modelo.espera.map(\.id)) }
+                    )
+                    : nil
+            )
             grade(modelo.espera.enumerated().map { índice, espera in
                 AnyView(PainelAzulejo(
                     iniciais: espera.iniciais,
@@ -414,6 +521,14 @@ struct PainelDoDia: View {
                     }
                 ))
             } + [AnyView(PainelAzulejoVazado(frase: modelo.foraDaLista))])
+        }
+    }
+
+    /// A legenda leva a Ajustes só quando o que falta é ajuste.
+    private func precisaDeAjustes(_ modelo: PainelDoDiaModelo) -> Bool {
+        switch modelo.motivoSemProntas {
+        case .precisaDoOptIn, .motorIndisponivel: true
+        case .aindaNaoEscreveu, nil: false
         }
     }
 
@@ -559,7 +674,6 @@ struct PainelDoDia: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(theme.surface2.color)
         .hairline(theme.line, edges: .top)
-        .padding(.horizontal, -28)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Progresso do dia")
     }

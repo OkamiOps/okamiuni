@@ -89,10 +89,16 @@ struct PainelAzulejo: View {
                     .capsLabel(size: 9.5)
                     .foregroundStyle(theme.ink3.color)
             }
+            // Duas linhas, e não uma: "Okami Tally está fora dos top 200…" é
+            // uma frase pela metade, e o azulejo existe justamente para dizer
+            // por que aquela pessoa está ali.
             Text(porque)
                 .font(theme.sans.font(size: 12.5))
                 .foregroundStyle(theme.ink2.color)
-                .lineLimit(1)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .help(porque)
             if acaoPrimaria != nil || acaoSecundaria != nil {
                 HStack(spacing: 6) {
                     if let acaoPrimaria {

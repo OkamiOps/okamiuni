@@ -2,7 +2,7 @@ import SwiftUI
 import UNICore
 import UNIDesign
 
-/// A linha do tempo horizontal do "Plano de hoje": 09 h às 19 h, 118 de
+/// A linha do tempo horizontal do "Plano de hoje": a janela do dia, 118 de
 /// altura, duas trilhas.
 ///
 /// Em cima o que **já está marcado** (`agenda`), embaixo o que a IA propõe e o
@@ -14,6 +14,9 @@ struct PainelLinhaDoTempo: View {
     @Environment(\.displayScale) private var displayScale
 
     let blocos: [PlanoDoDia.Bloco]
+    /// A janela do eixo — quem a calcula é o `PlanoDoDia`, e ela muda com o
+    /// dia: 00–24 num dia com voo às 23h30, 08–20 num dia comum.
+    let janela: PlanoDoDia.Janela
     let nowMinute: Int
     /// Clique num bloco proposto — "Ajustar" abre o seletor de hora.
     let onTapProposto: (PlanoDoDia.Bloco) -> Void
@@ -32,8 +35,8 @@ struct PainelLinhaDoTempo: View {
                         .frame(height: Hairline.thickness(displayScale))
                         .offset(y: 90)
                     horas(largura)
-                    ForEach(blocos) { bloco in
-                        desenha(bloco, largura: largura)
+                    ForEach(posicionados(largura), id: \.bloco.id) { posto in
+                        desenha(posto.bloco, x: posto.x, largura: posto.largura)
                     }
                     agora(largura)
                 }
@@ -62,37 +65,71 @@ struct PainelLinhaDoTempo: View {
     }
 
     private func horas(_ largura: CGFloat) -> some View {
-        ForEach(Array(stride(from: PlanoDoDia.inicio, through: PlanoDoDia.fim, by: 60)), id: \.self) { minuto in
+        ForEach(janela.horas, id: \.self) { minuto in
+            // 24 h é meia-noite do dia seguinte, e o eixo escreve "24" em vez
+            // de um segundo "00" que pareceria o começo.
             Text(String(format: "%02d", minuto / 60))
                 .font(theme.mono.font(size: 10))
                 .foregroundStyle(theme.ink4.color)
                 .fixedSize()
-                .offset(x: PlanoDoDia.fracao(minuto) * largura - 8, y: 98)
+                .offset(x: janela.fracao(minuto) * largura - 8, y: 98)
         }
     }
 
-    @ViewBuilder
-    private func desenha(_ bloco: PlanoDoDia.Bloco, largura: CGFloat) -> some View {
-        let x = PlanoDoDia.fracao(bloco.startMinute) * largura
-        let fim = PlanoDoDia.fracao(bloco.startMinute + bloco.minutes) * largura
-        // O mínimo é o que a palavra exige: um prazo que escreve "Prazo…" não
-        // diz de quem é.
-        let mínimo: CGFloat = switch bloco.tipo {
-        case .prazo: 96
-        case .proposto: 64
-        case .compromisso: 44
+    /// Onde cada bloco cai, já sem colisão dentro da sua trilha.
+    ///
+    /// A largura mínima é o que a palavra exige, e ela é o que cria a colisão:
+    /// dois blocos de vinte minutos separados por vinte minutos não se cruzam
+    /// no relógio, mas cruzam no eixo. Quem resolve é `PlanoDoDia.semColisao`,
+    /// trilha por trilha — a agenda não empurra a proposta, e vice-versa.
+    private func posicionados(
+        _ largura: CGFloat
+    ) -> [(bloco: PlanoDoDia.Bloco, x: CGFloat, largura: CGFloat)] {
+        var saida: [(bloco: PlanoDoDia.Bloco, x: CGFloat, largura: CGFloat)] = []
+        for trilha in [PlanoDoDia.Trilha.agenda, .voce] {
+            let daTrilha = blocos
+                .filter { $0.trilha == trilha }
+                .sorted { $0.startMinute < $1.startMinute }
+            let medidas = daTrilha.map { bloco -> (x: Double, largura: Double) in
+                let x = janela.fracao(bloco.startMinute) * largura
+                let fim = janela.fracao(bloco.startMinute + bloco.minutes) * largura
+                return (x: Double(x), largura: Double(max(fim - x, Self.larguraMinima)))
+            }
+            let xs = PlanoDoDia.semColisao(medidas)
+            for (índice, bloco) in daTrilha.enumerated() {
+                saida.append((bloco, CGFloat(xs[índice]), CGFloat(medidas[índice].largura)))
+            }
         }
-        let w = max(fim - x, mínimo)
+        return saida
+    }
+
+    /// O piso de largura de um bloco: 44 pt, o alvo de clique mínimo. Abaixo de
+    /// `larguraDoTitulo` o bloco escreve só a hora e o título inteiro vai para
+    /// o tooltip — "Te…" não diz nada a ninguém.
+    private static let larguraMinima: Double = 44
+    private static let larguraDoTitulo: Double = 90
+
+    @ViewBuilder
+    private func desenha(
+        _ bloco: PlanoDoDia.Bloco, x: CGFloat, largura w: CGFloat
+    ) -> some View {
         let y: CGFloat = bloco.trilha == .agenda ? 12 : 50
+        // Estreito demais para o título: a hora é o que ainda diz alguma
+        // coisa, e o título inteiro fica no tooltip.
+        let sóAHora = Double(w) < Self.larguraDoTitulo
 
         HStack(spacing: 6) {
-            Text(bloco.title)
-                .font(theme.sans.font(size: 11.5, weight: .semibold))
+            Text(sóAHora ? MinuteFormat.clock(bloco.startMinute) : bloco.title)
+                .font(
+                    sóAHora
+                        ? theme.mono.font(size: 10, weight: .medium)
+                        : theme.sans.font(size: 11.5, weight: .semibold)
+                )
                 .foregroundStyle(cor(bloco))
                 .lineLimit(1)
             // Bloco curto não tem largura para a duração: entre o título e o
             // "20m", quem fica é o título.
-            if !bloco.duration.isEmpty, bloco.minutes >= 30 {
+            if !sóAHora, !bloco.duration.isEmpty, bloco.minutes >= 30 {
                 Text(bloco.duration)
                     .font(theme.mono.font(size: 9.5))
                     .foregroundStyle(
@@ -101,7 +138,7 @@ struct PainelLinhaDoTempo: View {
                     .lineLimit(1)
             }
         }
-        .padding(.horizontal, 9)
+        .padding(.horizontal, sóAHora ? 5 : 9)
         .frame(width: w, height: alturaDoBloco, alignment: .leading)
         .background(fundo(bloco))
         .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
@@ -109,6 +146,7 @@ struct PainelLinhaDoTempo: View {
         .offset(x: x, y: y)
         .contentShape(Rectangle())
         .onTapGesture { if bloco.tipo == .proposto { onTapProposto(bloco) } }
+        .help(rotulo(bloco))
         .accessibilityLabel(rotulo(bloco))
     }
 
@@ -166,7 +204,7 @@ struct PainelLinhaDoTempo: View {
                 .frame(width: 7, height: 7)
                 .offset(y: -4)
         }
-        .offset(x: PlanoDoDia.fracao(nowMinute) * largura - 0.75, y: 4)
+        .offset(x: janela.fracao(nowMinute) * largura - 0.75, y: 4)
         .accessibilityLabel("Agora")
     }
 }

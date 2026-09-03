@@ -57,6 +57,31 @@ struct PainelDoDiaModelo {
         let quantia: DinheiroNoTexto.Valor?
     }
 
+    /// Por que não há nenhuma resposta pronta. `nil` quando há.
+    enum MotivoSemProntas: Equatable {
+        /// A rota remota está configurada, mas a análise automática está
+        /// desligada — o portão do opt-in barra a fila do rascunho antecipado.
+        case precisaDoOptIn(destino: String)
+        /// O motor não está disponível nesta máquina, ou pede entrar.
+        case motorIndisponivel(destino: String)
+        /// Nada barra: a fila simplesmente ainda não escreveu.
+        case aindaNaoEscreveu
+
+        /// A legenda do cabeçalho de "Esperando você".
+        var legenda: String {
+            switch self {
+            case let .precisaDoOptIn(destino):
+                "Respostas prontas precisam da análise automática pelo \(destino) · Ativar"
+            case let .motorIndisponivel(destino):
+                "\(destino) indisponível · Entrar"
+            // Sem "· Gerar as prontas": o botão está logo ao lado, e a
+            // legenda repetindo o rótulo dele lia como duas ações.
+            case .aindaNaoEscreveu:
+                "Nenhuma resposta pronta ainda"
+            }
+        }
+    }
+
     let espera: [Espera]
     let promessas: [Promessa]
     let dinheiro: [LinhaDeDinheiro]
@@ -65,6 +90,10 @@ struct PainelDoDiaModelo {
     let propostos: [PlanoDoDia.Bloco]
     let contas: [String: (total: Int, pedeVoce: Bool)]
     let legendaDaEspera: String
+    /// O motivo de não haver prontas — `nil` quando há.
+    let motivoSemProntas: MotivoSemProntas?
+    /// A janela do eixo deste dia.
+    let janela: PlanoDoDia.Janela
     let legendaDosCompromissos: String
     let foraDaLista: String
     let progresso: Double
@@ -92,6 +121,11 @@ struct PainelDoDiaModelo {
         messages: [Message],
         today: Date,
         nowMinute: Int,
+        /// Os endereços das contas do dono — ninguém é lead de si próprio.
+        myAddresses: Set<String> = [],
+        /// Por que não há prontas, quando não há. A tela sabe da rota; o
+        /// modelo só escolhe a frase.
+        motivoSemProntas: MotivoSemProntas = .aindaNaoEscreveu,
         calendar: Calendar = .current
     ) {
         let linhas = plan.sections
@@ -107,7 +141,14 @@ struct PainelDoDiaModelo {
             return a.item.message.receivedAt < b.item.message.receivedAt
         }
 
-        espera = ordenadas.map { row in
+        // As conversas em que eu já falei: um lead não é lead depois de eu ter
+        // respondido. Sai do que a Caixa já tem em memória — o `bucket` é o
+        // mesmo que a lista de enviados lê.
+        let enviadasPorMim = Set(
+            messages.filter { $0.bucket == .sent }.map(\.conversationKey)
+        )
+
+        espera = ordenadas.compactMap { row -> Espera? in
             let mensagem = row.item.message
             let nome = DashboardFocus.personName(
                 displayName: mensagem.from.name, address: mensagem.from.address
@@ -120,7 +161,22 @@ struct PainelDoDiaModelo {
                 to: calendar.startOfDay(for: today)
             ).day ?? 0)
             let prazoHoje = Self.venceHoje(row, today: today, calendar: calendar)
-            let ehLead = mensagem.triage?.intent == .lead
+            // A etiqueta é decidida em UNICore, e antes de qualquer palpite do
+            // modelo: "lead novo" exige as quatro condições, e máquina não vira
+            // azulejo nenhum.
+            let etiqueta = EtiquetaDoAzulejo.decidir(
+                message: mensagem,
+                marks: mensagem.effectiveBulkMarks,
+                triage: mensagem.triage,
+                hasSentInThread: enviadasPorMim.contains(mensagem.conversationKey),
+                myAddresses: myAddresses,
+                today: today,
+                calendar: calendar
+            )
+
+            // Máquina não espera você: sem etiqueta, o azulejo não existe e a
+            // mensagem cai no excedente do rodapé.
+            guard etiqueta != nil else { return nil }
 
             let numero: String
             let sufixo: String
@@ -135,7 +191,7 @@ struct PainelDoDiaModelo {
             } else {
                 numero = "\(dias)"
                 sufixo = "d"
-                palavra = ehLead ? "lead novo" : "esperando"
+                palavra = (etiqueta ?? .esperando).palavra
             }
 
             return Espera(
@@ -263,6 +319,9 @@ struct PainelDoDiaModelo {
         )
         blocos = linhaDoTempo
         propostos = linhaDoTempo.filter { $0.tipo == .proposto }
+        // O eixo é o dia que ele tem: a reunião da 01 h e o voo das 23h30
+        // entram, e às 21h40 o marcador do agora ainda cai dentro da janela.
+        janela = PlanoDoDia.janela(blocos: linhaDoTempo, nowMinute: nowMinute)
 
         // Agora sim: cada promessa herda o horário que a linha do tempo lhe
         // deu, e "Reservar 13:00" nunca aparece duas vezes.
@@ -309,12 +368,22 @@ struct PainelDoDiaModelo {
         }
         contas = porConta
 
+        // Zero prontas nunca é só "nenhuma resposta pronta": essa frase deixa a
+        // pessoa achando que a IA não está fazendo nada. O cabeçalho diz o
+        // motivo — o opt-in desligado, o motor fora do ar — e oferece a porta.
         let prontas = espera.filter(\.temRascunho).count
         legendaDaEspera = prontas == 0
-            ? "nenhuma resposta pronta"
+            ? motivoSemProntas.legenda
             : (prontas == 1 ? "1 resposta pronta" : "\(prontas) respostas prontas")
-        legendaDosCompromissos = promessas.count == 1
-            ? "1 promessa" : "\(promessas.count) promessas"
+        self.motivoSemProntas = prontas == 0 ? motivoSemProntas : nil
+        // "0 promessas" soa como "a IA olhou e não achou nada". Ela não olhou:
+        // ler o que EU prometi nos enviados é a próxima entrega, e o cabeçalho
+        // diz isso em vez de fingir um resultado.
+        legendaDosCompromissos = switch promessas.count {
+        case 0: "lido dos seus enviados · na próxima versão"
+        case 1: "1 promessa"
+        default: "\(promessas.count) promessas"
+        }
 
         let disparos = plan.counts[.broadcasts] ?? 0
         let newsletters = plan.counts[.newsletters] ?? 0
