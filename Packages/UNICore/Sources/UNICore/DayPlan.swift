@@ -32,8 +32,13 @@ public struct DayPlan: Sendable, Hashable {
     public enum Proposal: Sendable, Hashable {
         /// Rascunho pronto para **esta** versão da mensagem.
         case sendDraft(messageID: String, preview: String)
-        /// Sem prazo e sem rascunho: cabe no próximo dia útil de manhã.
-        case later(messageID: String, until: Date, why: String)
+        /// Sem prazo e sem rascunho: sai de hoje e vai para a caixa Depois.
+        ///
+        /// **Sem data.** O app não tem adiamento com volta — nada devolve a
+        /// mensagem para Hoje numa hora marcada —, e uma data aqui viraria
+        /// rótulo ("Sexta 9h") prometendo o que a tela não faz. Quando o
+        /// adiamento existir, ela volta com o comando que a carrega.
+        case later(messageID: String, why: String)
         /// Disparo de quem a pessoa nunca abriu.
         case archiveAndLearn(messageID: String, why: String)
         /// Nenhuma sugestão forte. A linha fica, sem botão primário.
@@ -41,7 +46,7 @@ public struct DayPlan: Sendable, Hashable {
 
         public var messageID: String {
             switch self {
-            case let .sendDraft(id, _), let .later(id, _, _),
+            case let .sendDraft(id, _), let .later(id, _),
                  let .archiveAndLearn(id, _), let .keep(id, _):
                 id
             }
@@ -51,7 +56,7 @@ public struct DayPlan: Sendable, Hashable {
         public var text: String {
             switch self {
             case let .sendDraft(_, preview): "Resposta pronta. \(preview)"
-            case let .later(_, _, why): why
+            case let .later(_, why): why
             case let .archiveAndLearn(_, why): why
             case let .keep(_, why): why
             }
@@ -211,8 +216,6 @@ public struct DayPlan: Sendable, Hashable {
     /// rascunhos — três respostas já escritas se enviam em vinte minutos, e um
     /// bloco de uma hora seria a agenda mentindo sobre o trabalho que resta.
     public static let replyBlockMinutes = 20
-    /// A manhã do "deixar para depois".
-    public static let morningMinute = 9 * 60
 
     // MARK: - A decisão
 
@@ -507,12 +510,10 @@ public struct DayPlan: Sendable, Hashable {
             )
         }
         if triage?.deadline == nil, triage?.needsReply == true {
-            let quando = nextBusinessMorning(after: now)
             return .later(
                 messageID: message.id,
-                until: quando.date,
                 why: "Sem prazo, e exige \(actionLabel(triage?.intent)). "
-                    + "Deixar para \(quando.name) de manhã?"
+                    + "Tirar de hoje e deixar para depois?"
             )
         }
         if marks.isBulk, neverOpened(message.from.address, in: peers) {
@@ -547,24 +548,6 @@ public struct DayPlan: Sendable, Hashable {
         let dele = peers.filter { SenderRule.normalize($0.message.from.address) == alvo }
         guard !dele.isEmpty else { return false }
         return dele.allSatisfy { !$0.message.isRead }
-    }
-
-    /// O próximo dia útil às 9h, e o nome dele. Sexta cai na segunda.
-    static func nextBusinessMorning(
-        after now: Date, calendar: Calendar = .current
-    ) -> (date: Date, name: String) {
-        var dia = now
-        for _ in 1...7 {
-            guard let proximo = calendar.date(byAdding: .day, value: 1, to: dia) else { break }
-            dia = proximo
-            let semana = calendar.component(.weekday, from: dia)
-            if semana == 1 || semana == 7 { continue }
-            let manha = calendar.date(
-                bySettingHour: morningMinute / 60, minute: 0, second: 0, of: dia
-            ) ?? dia
-            return (manha, weekdayName(semana))
-        }
-        return (now, weekdayName(calendar.component(.weekday, from: now)))
     }
 
     /// Os nomes em pt-BR, sem depender do `Locale` da máquina: a tela é em

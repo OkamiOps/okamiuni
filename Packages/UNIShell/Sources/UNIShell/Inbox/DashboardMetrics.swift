@@ -246,12 +246,12 @@ enum DashboardMetrics {
         "Enviar para \(address)?"
     }
 
-    /// "Sexta 9h" — a ação primária do `.later`, a partir da data proposta.
-    static func laterActionLabel(until: Date, calendar: Calendar = .current) -> String {
-        let dia = DayPlan.weekdayName(calendar.component(.weekday, from: until))
-        let hora = calendar.component(.hour, from: until)
-        return "\(dia.prefix(1).uppercased() + dia.dropFirst()) \(hora)h"
-    }
+    /// A ação primária do `.later`. **Neutra, e por decisão**: o clique move
+    /// para a caixa Depois e o app não tem adiamento com volta — nada devolve
+    /// a mensagem para Hoje numa hora marcada. "Sexta 9h" era a tela
+    /// prometendo o que ela não cumpre (I1 da revisão final). Quando o
+    /// adiamento existir, o rótulo volta a dizer a hora que o comando carrega.
+    static let laterActionLabel = "Depois"
 
     /// "Tirei da lista hoje: Carol da Zoho (campanha, não lead), Resend e
     /// mais 10 disparos." `nil` quando nada saiu — um rodapé sobre o vazio é

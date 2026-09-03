@@ -625,7 +625,7 @@ struct DashboardScreenTests {
         let rep = try #require(Render.bitmap(armada, size: Self.size, theme: .tinta))
         let base = fimDoHeroi(rep, theme: .tinta) + 80
         let faixas = faixasDeAcao(em: rep, cor: Theme.tinta.accent, x: 300..<700, aPartirDe: base)
-        // Jack, Jayden, Cats9th ("Sexta 9h"), Abacus ("Arquivar e aprender").
+        // Jack, Jayden, Cats9th ("Depois"), Abacus ("Arquivar e aprender").
         #expect(faixas.count >= 4, "a lista não desenhou as quatro linhas com ação")
         let abacus = try #require(faixas.dropFirst(3).first)
         let alvo = try #require(centro(

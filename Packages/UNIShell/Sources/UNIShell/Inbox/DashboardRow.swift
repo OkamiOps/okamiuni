@@ -28,7 +28,7 @@ struct DashboardRow: View {
     let today: Date
     let onSelect: () -> Void
     let onOpen: () -> Void
-    /// A ação primária da proposta (Enviar/Sexta 9h/Arquivar e aprender).
+    /// A ação primária da proposta (Enviar/Depois/Arquivar e aprender).
     let onPrimary: () -> Void
     /// A secundária (Editar/Agora/Manter).
     let onSecondary: () -> Void
@@ -219,10 +219,10 @@ struct DashboardRow: View {
                 actionButton("Enviar", tone: theme.accent.color, action: onPrimary)
                 actionButton("Editar", tone: theme.ink3.color, action: onSecondary)
             }
-        case let .later(_, until, _):
+        case .later:
             HStack(spacing: DashboardMetrics.proposalActionGap) {
                 actionButton(
-                    DashboardMetrics.laterActionLabel(until: until),
+                    DashboardMetrics.laterActionLabel,
                     tone: theme.accent.color, action: onPrimary
                 )
                 actionButton("Agora", tone: theme.ink3.color, action: onSecondary)

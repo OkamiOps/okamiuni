@@ -53,13 +53,16 @@ struct DashboardMetricsTests {
         )
     }
 
-    @Test("\"Sexta 9h\" sai da data proposta pelo plano")
+    /// **O rótulo não marca hora.** O clique move para a caixa Depois e nada
+    /// devolve a mensagem numa hora marcada; "Sexta 9h" era a tela prometendo
+    /// um adiamento que o app não tem (I1 da revisão final).
+    @Test("o rótulo do \"depois\" é neutro — ele não promete dia nem hora")
     func laterActionLabel() {
-        // 2026-09-04 é uma sexta.
-        var partes = DateComponents()
-        partes.year = 2026; partes.month = 9; partes.day = 4; partes.hour = 9
-        let sexta = Calendar.current.date(from: partes)!
-        #expect(DashboardMetrics.laterActionLabel(until: sexta) == "Sexta 9h")
+        let rotulo = DashboardMetrics.laterActionLabel
+        #expect(rotulo == "Depois")
+        for promessa in ["Sexta", "9h", "manhã", "segunda"] {
+            #expect(!rotulo.contains(promessa))
+        }
     }
 
     @Test("o rodapé nomeia quem saiu, com o porquê na primeira e o resto somado")
@@ -130,12 +133,12 @@ struct DashboardMetricsTests {
     @Test("a pergunta final da sugestão sai em itálico")
     func proposalSegmentsForSuggestion() {
         let segments = DashboardMetrics.proposalSegments(
-            text: "Pede para atualizar seu perfil. Sem prazo. Deixar para sexta de manhã?",
+            text: "Pede para atualizar seu perfil. Sem prazo. Tirar de hoje e deixar para depois?",
             isReadyDraft: false
         )
         #expect(segments == [
             .plain("Pede para atualizar seu perfil. Sem prazo."),
-            .note("Deixar para sexta de manhã?"),
+            .note("Tirar de hoje e deixar para depois?"),
         ])
     }
 

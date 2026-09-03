@@ -395,26 +395,22 @@ struct DayPlanTests {
         }
     }
 
-    @Test("Cats9th vira deixar para o próximo dia útil às 9h")
+    /// **A proposta não marca hora.** O app não tem adiamento com volta: nada
+    /// devolve uma mensagem para Hoje numa data marcada. Prometer "sexta de
+    /// manhã" numa tela que só move para a caixa Depois seria a IA prometendo
+    /// um comportamento que o app não tem (I1 da revisão final).
+    @Test("Cats9th vira deixar para depois, sem marcar hora nenhuma")
     func cats9thBecomesLater() {
-        guard case let .later(id, ate, porque) = row("cats9th", in: plano())?.proposal else {
+        guard case let .later(id, porque) = row("cats9th", in: plano())?.proposal else {
             Issue.record("Cats9th devia propor deixar para depois")
             return
         }
         #expect(id == "cats9th")
-        #expect(porque == "Sem prazo, e exige a sua atenção. Deixar para sexta de manhã?")
-        let partes = Calendar.current.dateComponents([.year, .month, .day, .hour], from: ate)
-        #expect(partes.day == 4)
-        #expect(partes.month == 9)
-        #expect(partes.hour == 9)
-    }
-
-    @Test("na sexta, o \"depois\" é a segunda — nunca o sábado")
-    func laterSkipsTheWeekend() {
-        let sexta = Calendar.current.date(byAdding: .day, value: 1, to: agora)!
-        let proximo = DayPlan.nextBusinessMorning(after: sexta)
-        #expect(proximo.name == "segunda")
-        #expect(Calendar.current.component(.day, from: proximo.date) == 7)
+        #expect(porque == "Sem prazo, e exige a sua atenção. Tirar de hoje e deixar para depois?")
+        for dia in ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"] {
+            #expect(!porque.contains(dia), "a frase promete \(dia), e nada volta nesse dia")
+        }
+        #expect(!porque.contains("manhã"), "a frase promete uma hora que o app não cumpre")
     }
 
     @Test("Abacus vira arquivar e aprender")
