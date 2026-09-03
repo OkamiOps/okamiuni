@@ -7,6 +7,33 @@ import UNICore
 /// porquê escrito.
 enum DashboardPlanInput {
 
+    /// O plano do dia, montado do jeito que a tela 08 o monta.
+    ///
+    /// Um lugar só: a gaveta precisa saber quem é o herói (o primeiro chip
+    /// diz o nome dele) e uma segunda montagem daria um herói diferente do
+    /// que a tela está mostrando.
+    @MainActor
+    static func plan(
+        store: MailStore, drafts: [String: ReadyDraft],
+        filter: DayPlan.Filter, today: Date, nowMinute: Int
+    ) -> DayPlan {
+        let selecionada = store.selectedAccountID
+        let disparos = store.messages.filter { message in
+            message.bucket == .today
+                && message.effectiveBulkMarks.isBulk
+                && (selecionada == nil || message.accountID == selecionada)
+        }
+        return DayPlan.make(
+            focus: planFocus(store.dashboardFocus(nowMinute: nowMinute), broadcasts: disparos),
+            drafts: validatedDrafts(drafts) { store.message($0) },
+            rules: store.senderRules,
+            agenda: store.agenda,
+            filter: filter,
+            now: today,
+            nowMinute: nowMinute
+        )
+    }
+
     /// Valida cada rascunho contra a mensagem **cheia** e devolve uma cópia
     /// cujo hash casa com o recorte sem corpo que o `DashboardFocus` carrega.
     ///

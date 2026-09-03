@@ -50,6 +50,10 @@ struct OkamiUNIApp: App {
     /// deixa o instrumento rodar antes da tarefa que registra a cena de
     /// verdade, e sai daqui quando ela chegar.
     @State private var accountsRehearsalModel = AccountsRehearsal.makeModel()
+    /// A sessão do assistente: a gaveta da janela principal e a janela
+    /// destacada dividem esta — é o que faz a conversa ser a mesma nas duas.
+    /// Mora no app porque uma cena não alcança o `@State` de outra.
+    @State private var assistantSession = AssistantSession()
 
     private var composerIntelligence: ComposerIntelligenceGenerator {
         AssistantBridge.composerGenerator(using: composition.textAssistant)
@@ -185,7 +189,8 @@ struct OkamiUNIApp: App {
                     accountsModel: accountsModel,
                     analysisQueue: composition.analysisQueue,
                     backlogAnalysis: composition.backlogAnalysis,
-                    readyDrafts: composition.readyDrafts
+                    readyDrafts: composition.readyDrafts,
+                    assistantSession: assistantSession
                 )
             }
                 // Porta de depuração: `open -g --args --nova-mensagem` abre a
@@ -247,7 +252,7 @@ struct OkamiUNIApp: App {
             // selecionada. Eles precisam estar **no menu principal**: é ele que
             // `NSApplication.sendEvent` consulta antes da janela, e ⌘E já é
             // "Use Selection for Find" lá. Ver `MessageCommands`.
-            MessageCommands(store: mailStore)
+            MessageCommands(store: mailStore, assistantSession: assistantSession)
             // "Configurações…" no lugar do item de Ajustes que o macOS
             // reserva — é a mesma janela do Marco 2, batizada com o nome que
             // o dono do projeto pediu, e o par do item de contexto que a
@@ -326,6 +331,19 @@ struct OkamiUNIApp: App {
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(UNIWindow.Size.event)
+
+        // 10 Assistente destacado. `Window`, e não `WindowGroup`: é **uma** por
+        // app, como as Configurações — duas janelas da mesma conversa seriam
+        // duas telas discordando sobre o que já foi executado. Ela entra no
+        // menu Janela por ser cena, e ⌘W a fecha sem apagar a conversa.
+        Window("Assistente", id: UNIWindow.assistant) {
+            AssistantWindow(session: assistantSession)
+                .themed(themes)
+                .barraColadaNoTopo()
+                .frame(minWidth: 380, minHeight: 320)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(UNIWindow.Size.assistant)
 
         // A janela de Configurações do Marco 2 — "Contas" até o primeiro
         // teste com contas reais. `Window`, e não `WindowGroup`: ela é uma

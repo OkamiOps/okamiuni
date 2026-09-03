@@ -123,22 +123,8 @@ struct DashboardScreen: View {
     /// `make`: o plano decide o destino de cada um (Vence, ou "Tirei da
     /// lista"), e sem vê-los chegar ele não teria o que decidir.
     private var plan: DayPlan {
-        let selecionada = store.selectedAccountID
-        let disparos = store.messages.filter { message in
-            message.bucket == .today
-                && message.effectiveBulkMarks.isBulk
-                && (selecionada == nil || message.accountID == selecionada)
-        }
-        return DayPlan.make(
-            focus: DashboardPlanInput.planFocus(
-                store.dashboardFocus(nowMinute: now), broadcasts: disparos
-            ),
-            drafts: validatedDrafts,
-            rules: store.senderRules,
-            agenda: store.agenda,
-            filter: filter,
-            now: today,
-            nowMinute: now
+        DashboardPlanInput.plan(
+            store: store, drafts: drafts, filter: filter, today: today, nowMinute: now
         )
     }
 

@@ -23,6 +23,9 @@ public enum UNIWindow {
     public static let event = "uni.event"
     /// A janela de Configurações. Sem valor: ela é uma só.
     public static let accounts = "uni.accounts"
+    /// 10 Assistente destacado — 460×620. Sem valor: é uma só por app, e a
+    /// conversa que ela mostra vem da `AssistantSession`, não da cena.
+    public static let assistant = "uni.assistant"
 
     /// Tamanhos do protótipo, na linha citada no brief.
     public enum Size {
@@ -40,6 +43,9 @@ public enum UNIWindow {
         /// colunas e 680 abre espaço para prompt, regras e assinaturas sem
         /// transformar a janela em uma folha apertada.
         public static let accounts = CGSize(width: 960, height: 680)
+
+        /// `design/10-assistente-janela.dc.html`: 460 × 620, literal.
+        public static let assistant = CGSize(width: 460, height: 620)
     }
 
     /// Marco 1 não tem rede. Enviar fecha a janela e registra no console —

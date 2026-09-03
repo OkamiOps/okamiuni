@@ -111,6 +111,14 @@ public struct InboxScreen: View {
     /// Os rascunhos antecipados que a fila de UNISync escreve. `nil` nas
     /// previews e no harness — o dashboard então não promete resposta.
     let readyDrafts: ReadyDraftsModel?
+    /// A sessão do assistente: a gaveta (09), a janela destacada (10) e a
+    /// conversa que as duas dividem.
+    ///
+    /// Vem de fora porque a janela destacada é **cena própria** e não está
+    /// dentro desta árvore: só uma dona acima das duas faz "a mesma conversa
+    /// nos dois lugares" ser verdade. O padrão é uma sessão local, para
+    /// previews e para o harness.
+    let assistantSession: AssistantSession
 
     public init(
         store: MailStore,
@@ -124,7 +132,8 @@ public struct InboxScreen: View {
         accountsModel: AccountsModel? = nil,
         analysisQueue: AnalysisQueueStateModel? = nil,
         backlogAnalysis: BacklogAnalysisController? = nil,
-        readyDrafts: ReadyDraftsModel? = nil
+        readyDrafts: ReadyDraftsModel? = nil,
+        assistantSession: AssistantSession? = nil
     ) {
         self.init(
             store: store,
@@ -139,6 +148,7 @@ public struct InboxScreen: View {
             analysisQueue: analysisQueue,
             backlogAnalysis: backlogAnalysis,
             readyDrafts: readyDrafts,
+            assistantSession: assistantSession,
             debugAssistantOpen: false,
             debugReaderAssistantOpen: false
         )
@@ -159,9 +169,11 @@ public struct InboxScreen: View {
         analysisQueue: AnalysisQueueStateModel? = nil,
         backlogAnalysis: BacklogAnalysisController? = nil,
         readyDrafts: ReadyDraftsModel? = nil,
+        assistantSession: AssistantSession? = nil,
         debugAssistantOpen: Bool,
         debugAssistantScope: InboxAssistantScope = .workspace,
-        debugReaderAssistantOpen: Bool = false
+        debugReaderAssistantOpen: Bool = false,
+        debugWorkspace: Workspace = .mail
     ) {
         self.store = store
         self.clock = clock
@@ -175,6 +187,7 @@ public struct InboxScreen: View {
         self.analysisQueue = analysisQueue
         self.backlogAnalysis = backlogAnalysis
         self.readyDrafts = readyDrafts
+        self.assistantSession = assistantSession ?? AssistantSession()
         self.composerIntelligence = textAssistant.map {
             AssistantBridge.composerGenerator(using: $0)
         }
@@ -182,6 +195,7 @@ public struct InboxScreen: View {
         _assistantOpen = State(initialValue: debugAssistantOpen)
         _assistantScope = State(initialValue: debugAssistantScope)
         _readerAssistantOpen = State(initialValue: debugReaderAssistantOpen)
+        _workspace = State(initialValue: debugWorkspace)
     }
 
     /// O **hoje** de tudo que esta tela desenha com data: o carimbo de cada
@@ -266,22 +280,44 @@ public struct InboxScreen: View {
             )
 
             ZStack(alignment: .trailing) {
+                // O fundo da tela mora **fora** do esmaecimento. Sem isto, os
+                // 45% deixam a própria janela translúcida e o que aparece
+                // atrás do dashboard é a mesa do macOS — o mockup esmaece o
+                // conteúdo sobre o `paper`, não sobre o vazio.
+                theme.paper.color
+
                 // Conteúdo principal
-                switch workspace {
-                case .dashboard:
-                    AgendaClockReader(clock) { now in
-                        dashboardContent(now: now)
+                Group {
+                    switch workspace {
+                    case .dashboard:
+                        AgendaClockReader(clock) { now in
+                            dashboardContent(now: now)
+                        }
+                    case .mail:
+                        // A lista depende do mesmo relógio vivo que o MailStore
+                        // recebe. O reader a redesenha a cada minuto; assim, a
+                        // chave temporal do store é relida ao cruzar a meia-noite
+                        // sem criar outro timer nem afetar os retratos `.fixed`.
+                        AgendaClockReader(clock) { _ in
+                            mailContent
+                        }
+                    case .calendar:
+                        calendarContent
                     }
-                case .mail:
-                    // A lista depende do mesmo relógio vivo que o MailStore
-                    // recebe. O reader a redesenha a cada minuto; assim, a
-                    // chave temporal do store é relida ao cruzar a meia-noite
-                    // sem criar outro timer nem afetar os retratos `.fixed`.
-                    AgendaClockReader(clock) { _ in
-                        mailContent
-                    }
-                case .calendar:
-                    calendarContent
+                }
+                // A gaveta é **overlay**: o que está atrás esmaece e fica
+                // exatamente onde estava. Empurrar a caixa para o lado faria
+                // a pessoa perder o parágrafo que estava lendo por ter feito
+                // uma pergunta.
+                .opacity(
+                    assistantSession.isDrawerOpen
+                        ? AssistantDrawerMetrics.backdropOpacity : 1
+                )
+
+                if assistantSession.isDrawerOpen {
+                    assistantDrawer
+                        .transition(.move(edge: .trailing))
+                        .zIndex(60)
                 }
 
                 if assistantOpen {
@@ -293,6 +329,17 @@ public struct InboxScreen: View {
             }
         }
         .environment(receipts)
+        // A janela destacada clica no **mesmo** executor da gaveta: ela não
+        // tem store nem fila, e um segundo caminho lá divergiria daqui.
+        .task {
+            assistantSession.install(runner: runProposalCard, reveal: { reveal($0) })
+        }
+        // O "Feito · Desfazer" do cartão vale enquanto o desfazer da barra
+        // existir. Quando o recibo sai, o cartão volta a ser cartão.
+        .onChange(of: receipts.current == nil) { _, semRecibo in
+            assistantSession.hasUndo = !semRecibo
+            if semRecibo { assistantSession.forgetDone() }
+        }
         .task { await subscribeToSource() }
         .task { await accountsModel?.start() }
         .onChange(of: query) { _, newQuery in
@@ -376,7 +423,7 @@ public struct InboxScreen: View {
         guard let step = EscapeCancel.next(
             searchFocused: focused,
             query: termo,
-            assistantOpen: assistantOpen,
+            assistantOpen: assistantOpen || assistantSession.isDrawerOpen,
             selecting: store.hasChecked,
             overlayOpen: dashboardReadingID != nil
         ) else { return false }
@@ -390,7 +437,9 @@ public struct InboxScreen: View {
             dashboardReadingID = nil
             return true
         case .assistant:
-            closeAssistant()
+            // A gaveta primeiro: quando as duas estão abertas, a de cima é a
+            // camada de agora.
+            if assistantSession.isDrawerOpen { closeDrawer() } else { closeAssistant() }
             return true
         case .selection:
             store.clearChecked()
@@ -613,9 +662,9 @@ public struct InboxScreen: View {
             // e o resto pelo runner de sempre.
             onCommand: runDashboardCommand,
             onDiscardDraft: { readyDrafts?.discardReadyDraft(messageID: $0) },
-            // O botão "Perguntar · ⌘J" abre o painel do assistente que já
-            // existe; a gaveta 09 é da tarefa seguinte.
-            onAskAssistant: openWorkspaceAssistant,
+            // O botão "Perguntar · ⌘J" abre a **gaveta** (09) — o painel
+            // antigo continua sendo o do leitor, ver o relatório da tarefa.
+            onAskAssistant: openDrawer,
             // A folha de leitura do dashboard é o `ReaderPane`: as mesmas
             // dependências que a Caixa lhe entrega, e não uma segunda montagem.
             onCompose: { openWindow(id: UNIWindow.composer, value: $0.value) },
@@ -917,6 +966,122 @@ public struct InboxScreen: View {
     private func closeAssistant() {
         assistantConversation?.cancel()
         withAnimation(Self.paneTransition) { assistantOpen = false }
+    }
+
+    // MARK: - A gaveta (09) e a janela (10)
+
+    /// A gaveta desenhada, com a conversa do dashboard — a **mesma** que a
+    /// janela destacada mostra.
+    private var assistantDrawer: some View {
+        // A sessão primeiro: ela é a dona, e é dela que a janela destacada
+        // lê. Só quando não há nenhuma é que a tela monta a sua.
+        let conversation = assistantSession.conversation
+            ?? dashboardConversation ?? makeDashboardConversation()
+        return AssistantDrawer(
+            conversation: conversation,
+            session: assistantSession,
+            context: drawerContext,
+            heroName: drawerHeroName,
+            onSwapContext: {
+                assistantSession.chosenContext = AssistantDrawerCopy.toggled(drawerContext)
+            },
+            onDetach: detachAssistant,
+            onClose: closeDrawer,
+            onRun: runProposalCard,
+            onReveal: { reveal($0) }
+        )
+        .task {
+            if dashboardConversation == nil { dashboardConversation = conversation }
+            assistantSession.adopt(conversation)
+        }
+    }
+
+    /// De que a gaveta está falando agora.
+    var drawerContext: AssistantDrawerContext {
+        // A seleção que conta é a **da aba que está aberta**: a do dashboard
+        // no dashboard, a da Caixa na Caixa. Somar as duas faria a gaveta
+        // dizer "o email selecionado" olhando um email que a pessoa não vê.
+        let selecionado = workspace == .dashboard
+            ? dashboardSelectedMailID
+            : store.selectedMessageID
+        return AssistantDrawerCopy.context(
+            chosen: assistantSession.chosenContext,
+            hasSelection: selecionado != nil
+        )
+    }
+
+    /// Quem é o herói do dia — o primeiro chip diz o nome dele.
+    private var drawerHeroName: String? {
+        let plano = DashboardPlanInput.plan(
+            store: store, drafts: readyDrafts?.drafts ?? [:],
+            filter: dashboardFilter, today: agendaAnchor,
+            nowMinute: dashboardNowMinute
+        )
+        guard let heroi = plano.hero,
+              let mensagem = store.message(heroi.messageID) else { return nil }
+        return mensagem.from.display
+    }
+
+    /// O minuto que a aba Dashboard está desenhando agora.
+    private var dashboardNowMinute: Int {
+        switch clock {
+        case let .fixed(minuto): minuto
+        case .live: AgendaClock.minutesSinceMidnight()
+        }
+    }
+
+    func openDrawer() {
+        guard !assistantSession.isDetached else {
+            openWindow(id: UNIWindow.assistant)
+            return
+        }
+        assistantSession.open()
+    }
+
+    func closeDrawer() { assistantSession.close() }
+
+    /// ⌘J. Com a janela destacada, ele traz a janela — abrir gaveta com a
+    /// conversa em outra tela seria a mesma conversa em dois lugares ao mesmo
+    /// tempo.
+    func toggleDrawer() {
+        if assistantSession.isDetached {
+            openWindow(id: UNIWindow.assistant)
+        } else if assistantSession.isDrawerOpen {
+            closeDrawer()
+        } else {
+            openDrawer()
+        }
+    }
+
+    private func detachAssistant() {
+        if dashboardConversation == nil { dashboardConversation = makeDashboardConversation() }
+        dashboardConversation.map(assistantSession.adopt)
+        assistantSession.detach()
+        openWindow(id: UNIWindow.assistant)
+    }
+
+    /// **O clique.** Nada aqui acontece sem ele: a leva do cartão sai pela
+    /// mesma porta do dashboard e da Caixa (`runDashboardCommand`), e as duas
+    /// escritas de agenda que não têm comando próprio vão direto ao store.
+    func runProposalCard(_ card: AssistantProposalCard) {
+        for efeito in card.effects {
+            switch efeito {
+            case let .command(comando):
+                runDashboardCommand(comando)
+            case let .addToAgenda(messageID):
+                guard let mensagem = store.message(messageID),
+                      let evento = mensagem.detectedEvent else { continue }
+                _ = store.addToAgenda(evento, from: mensagem)
+            case let .reserveBlock(day, start, minutes, title):
+                let conta = store.selectedAccountID ?? store.accounts.first?.id ?? ""
+                _ = store.addManualAgendaItem(
+                    title: title, startMinute: start, endMinute: start + minutes,
+                    dayOffset: day, accountID: conta, sendInvites: false
+                )
+            }
+        }
+        assistantSession.markDone(card.id)
+        assistantSession.hasUndo = receipts.current != nil
     }
 
 }

@@ -30,15 +30,49 @@ import UNICore
 /// escrito ao lado sem ser registrado como equivalente.
 public struct MessageCommands: Commands {
     let store: MailStore
+    /// A sessão do assistente — é dela que ⌘J depende. `nil` desliga o item
+    /// em vez de o deixar aceso e mudo.
+    let assistantSession: AssistantSession?
 
-    public init(store: MailStore) {
+    public init(store: MailStore, assistantSession: AssistantSession? = nil) {
         self.store = store
+        self.assistantSession = assistantSession
     }
 
     public var body: some Commands {
         CommandMenu("Mensagem") {
             MessageCommandItems(store: store)
+            if let assistantSession {
+                Divider()
+                AssistantCommandItem(session: assistantSession)
+            }
         }
+    }
+}
+
+/// ⌘J — abre e fecha a gaveta do assistente.
+///
+/// Mora **no menu principal** pelo mesmo motivo de ⌘E: é ele que
+/// `NSApplication.sendEvent` consulta antes da janela, e um `Button` escondido
+/// atrás de um campo de texto focado nunca chegaria a ver a tecla — a gaveta
+/// abre com o foco no campo dela, e é justamente aí que ⌘J tem de fechá-la.
+///
+/// A leitura do estado acontece **dentro da ação**: o corpo de um `View`
+/// hospedado em `Commands` é avaliado uma vez, no lançamento (ver a nota
+/// acima), e uma condição escrita aqui congelaria para sempre.
+private struct AssistantCommandItem: View {
+    @Environment(\.openWindow) private var openWindow
+    let session: AssistantSession
+
+    var body: some View {
+        Button("Assistente") {
+            if session.isDetached {
+                openWindow(id: UNIWindow.assistant)
+            } else {
+                session.toggle()
+            }
+        }
+        .keyboardShortcut("j", modifiers: .command)
     }
 }
 
