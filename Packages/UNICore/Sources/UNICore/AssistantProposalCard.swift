@@ -53,11 +53,17 @@ public struct AssistantProposalCard: Sendable, Hashable, Identifiable {
     /// A mensagem que o secundário abre — a primeira que a proposta cita.
     public let secondaryMessageID: String?
     public let effects: [Effect]
+    /// O modelo prometeu "Dá para desfazer" na frase dele. A promessa só
+    /// volta ao texto desenhado se a leva de fato desfizer — ver
+    /// `displayText`.
+    public let claimsUndo: Bool
 
     public init(
         id: String, text: String, rationale: String, verb: String,
-        secondary: String?, secondaryMessageID: String?, effects: [Effect]
+        secondary: String?, secondaryMessageID: String?, effects: [Effect],
+        claimsUndo: Bool = false
     ) {
+        self.claimsUndo = claimsUndo
         self.id = id
         self.text = text
         self.rationale = rationale
@@ -69,6 +75,62 @@ public struct AssistantProposalCard: Sendable, Hashable, Identifiable {
 }
 
 public extension AssistantProposalCard {
+
+    /// A promessa que o 09 escreve no cartão de arquivar. Ela é **do app**:
+    /// o modelo pode escrevê-la na frase dele, mas quem decide se ela é
+    /// verdade é a leva.
+    static let undoPromise = "Dá para desfazer."
+
+    /// **A leva deste cartão volta atrás?**
+    ///
+    /// Volta quando tudo o que ela muda é estado de mensagem (caixa, lido,
+    /// sinalizado) ou regra de remetente — o que `ContextCommand.restoreBatch`
+    /// sabe devolver. Não volta quando ela escreve na agenda: `addToAgenda` e
+    /// `reserveBlock` não são comandos, e um "Desfazer" que devolvesse os
+    /// emails e deixasse o compromisso de pé seria meio Desfazer.
+    ///
+    /// Abrir o composer ou revelar a linha não conta para nenhum dos dois
+    /// lados: não há o que desfazer numa janela que abriu.
+    var isUndoable: Bool {
+        var desfazivel = false
+        for efeito in effects {
+            switch efeito {
+            case .addToAgenda, .reserveBlock:
+                return false
+            case let .command(comando):
+                switch comando {
+                case .move, .setRead, .setFlagged, .placeMessage, .learnSender:
+                    desfazivel = true
+                case .reply, .replyAll, .forward, .revealMessage,
+                     .openMessageWindow, .copy, .abrirLink:
+                    continue
+                default:
+                    return false
+                }
+            }
+        }
+        return desfazivel
+    }
+
+    /// O texto que a gaveta desenha: a frase do modelo, com a promessa de
+    /// desfazer de volta **só** quando a leva de fato desfaz.
+    ///
+    /// A promessa sai da frase crua em `cards(for:turnID:)` justamente para
+    /// isto: o modelo escreveu "Dá para desfazer" sobre treze arquivamentos
+    /// que não produziam recibo nenhum, e a tela repetiu a promessa dele.
+    var displayText: String {
+        guard isUndoable, claimsUndo else { return text }
+        return text.isEmpty ? Self.undoPromise : "\(text) \(Self.undoPromise)"
+    }
+
+    /// A frase do modelo sem a promessa de desfazer, e se ela estava lá.
+    static func stripUndoPromise(_ title: String) -> (text: String, claimed: Bool) {
+        let limpo = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard limpo.hasSuffix(undoPromise) else { return (limpo, false) }
+        let sem = String(limpo.dropLast(undoPromise.count))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (sem, true)
+    }
 
     /// O verbo do botão primário, pela **primeira** ação da proposta.
     ///
@@ -144,14 +206,16 @@ public extension AssistantProposalCard {
             let secundario: String? = distintos.isEmpty
                 ? nil
                 : (distintos.count > 1 ? "Ver a lista" : "Ver")
+            let frase = stripUndoPromise(proposta.title)
             return AssistantProposalCard(
                 id: "\(turnID)#\(indice)",
-                text: proposta.title,
+                text: frase.text,
                 rationale: proposta.rationale,
                 verb: verb(for: primeira),
                 secondary: secundario,
                 secondaryMessageID: ids.first,
-                effects: proposta.actions.flatMap { effects(of: $0) }
+                effects: proposta.actions.flatMap { effects(of: $0) },
+                claimsUndo: frase.claimed
             )
         }
     }

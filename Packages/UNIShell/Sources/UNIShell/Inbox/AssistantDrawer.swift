@@ -406,7 +406,8 @@ struct AssistantTranscript: View {
                 ForEach(turno.cards) { cartao in
                     AssistantProposalCardView(
                         card: cartao,
-                        isDone: session.isDone(cartao.id) && session.hasUndo,
+                        isDone: session.isDone(cartao.id),
+                        hasUndo: session.hasUndo,
                         onRun: { onRun(cartao) },
                         onReveal: { cartao.secondaryMessageID.map(onReveal) }
                     )
@@ -436,9 +437,10 @@ struct AssistantTranscript: View {
 /// Um cartão de ação sob o turno. O botão primário aplica a leva inteira; o
 /// secundário só mostra.
 ///
-/// Depois do clique ele vira "Feito · Desfazer" — e volta a ser cartão quando
-/// o desfazer da barra deixa de existir, porque prometer um desfazer que
-/// sumiu é pior do que não prometer nenhum.
+/// Depois do clique ele vira "Feito", com "Desfazer" ao lado **enquanto o
+/// recibo da leva dele estiver de pé** — prometer um desfazer que sumiu, ou
+/// que desfaria outra coisa, é pior do que não prometer nenhum. O "Feito"
+/// fica: voltar a mostrar o botão convidaria a executar a leva duas vezes.
 struct AssistantProposalCardView: View {
 
     @Environment(\.theme) private var theme
@@ -446,12 +448,16 @@ struct AssistantProposalCardView: View {
 
     let card: AssistantProposalCard
     let isDone: Bool
+    /// O recibo **desta leva** ainda está de pé. Sem ele o cartão diz
+    /// "Feito" e nada mais: prometer "Desfazer" em cima do recibo de outra
+    /// coisa é o defeito C1.
+    let hasUndo: Bool
     let onRun: () -> Void
     let onReveal: () -> Void
 
     var body: some View {
         HStack(spacing: AssistantDrawerMetrics.cardGap) {
-            Text(card.text)
+            Text(card.displayText)
                 .font(theme.sans.font(size: AssistantDrawerMetrics.cardTextSize))
                 .foregroundStyle(theme.ink2.color)
                 .fixedSize(horizontal: false, vertical: true)
@@ -462,12 +468,14 @@ struct AssistantProposalCardView: View {
                         size: AssistantDrawerMetrics.cardActionSize, weight: .semibold
                     ))
                     .foregroundStyle(theme.ink3.color)
-                Text(AssistantDrawerCopy.undo)
-                    .font(theme.sans.font(
-                        size: AssistantDrawerMetrics.cardActionSize, weight: .semibold
-                    ))
-                    .foregroundStyle(theme.accentInk.color)
-                    .accessibilityLabel("Desfazer pela barra de retorno")
+                if hasUndo {
+                    Text(AssistantDrawerCopy.undo)
+                        .font(theme.sans.font(
+                            size: AssistantDrawerMetrics.cardActionSize, weight: .semibold
+                        ))
+                        .foregroundStyle(theme.accentInk.color)
+                        .accessibilityLabel("Desfazer pela barra de retorno")
+                }
             } else {
                 Button(action: onRun) {
                     Text(card.verb)

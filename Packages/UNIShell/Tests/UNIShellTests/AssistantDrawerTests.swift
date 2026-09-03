@@ -210,13 +210,38 @@ struct AssistantSessionTests {
         #expect(session.conversation === primeira)
     }
 
-    @Test("Feito · Desfazer só existe enquanto o desfazer existir")
-    func doneNeedsTheReceipt() {
+    /// "Desfazer" vale para **o recibo da leva do cartão**. Um recibo de
+    /// outra origem (a mensagem que a pessoa apagou antes) não o mantém de
+    /// pé, e o "Feito" fica de qualquer jeito: a leva foi executada.
+    @Test("Desfazer só existe enquanto o recibo da própria leva existir")
+    func doneNeedsItsOwnReceipt() {
         let session = AssistantSession()
-        session.markDone("t#0")
+        let daLeva = UUID()
+        session.markDone("t#0", undoing: daLeva)
         #expect(session.isDone("t#0"))
-        session.forgetDone()
-        #expect(!session.isDone("t#0"))
+        #expect(session.hasUndo)
+
+        session.receiptChanged(to: daLeva)
+        #expect(session.hasUndo, "o recibo da própria leva derrubou o Desfazer")
+
+        session.receiptChanged(to: UUID())
+        #expect(!session.hasUndo, "um recibo de outra origem virou o Desfazer do cartão")
+        #expect(session.isDone("t#0"), "o cartão executado voltou a ser botão")
+
+        session.receiptChanged(to: nil)
+        #expect(!session.hasUndo)
+    }
+
+    /// Uma leva sem volta (uma reserva de bloco) diz "Feito" e nada mais —
+    /// mesmo com um recibo de outra coisa de pé na barra.
+    @Test("leva sem volta não promete Desfazer")
+    func anUnundoableBatchNeverPromisesUndo() {
+        let session = AssistantSession()
+        session.markDone("t#0", undoing: nil)
+        #expect(session.isDone("t#0"))
+        #expect(!session.hasUndo)
+        session.receiptChanged(to: UUID())
+        #expect(!session.hasUndo, "o cartão herdou o Desfazer de outra ação")
     }
 
     /// Sem executor instalado, o cartão **não faz nada** — e não meio.

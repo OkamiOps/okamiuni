@@ -172,9 +172,8 @@ struct AssistantDrawerRenderTests {
         let depois = AssistantSession(debugOpen: true)
         let conversa = conversaComCartao()
         depois.adopt(conversa)
-        depois.hasUndo = true
         let cartao = try #require(conversa.messages.last?.cards.first)
-        depois.markDone(cartao.id)
+        depois.markDone(cartao.id, undoing: UUID())
         let repDepois = try #require(Render.snapshot(
             tela(store, session: depois),
             named: "gaveta-cartao-feito-\(theme.id)", size: Self.size, theme: theme
@@ -242,6 +241,69 @@ struct AssistantDrawerRenderTests {
         #expect(session.isDone(try #require(
             session.conversation?.messages.last?.cards.first?.id
         )))
+        // **O C1**: executar um cartão produz o recibo da leva, e o
+        // "Desfazer" que ele mostra é o dessa leva — não o que estava na
+        // barra por outro motivo.
+        #expect(session.hasUndo, "o cartão executou sem deixar Desfazer nenhum")
+        #expect(session.undoReceiptID != nil, "o Desfazer do cartão não aponta para recibo algum")
+    }
+
+    /// A leva inteira do cartão vira **um** recibo: os três arquivamentos
+    /// saem juntos e o Desfazer é um só.
+    @Test("a leva de três arquivamentos deixa um Desfazer só")
+    func aBatchOfThreeLeavesOneUndo() async throws {
+        let store = await DiaDoDono.loja()
+        let session = AssistantSession(debugOpen: true)
+        session.adopt(conversaComCartao([
+            .archive(messageID: "abacus"),
+            .archive(messageID: "carol"),
+            .archive(messageID: "resend"),
+        ]))
+
+        let theme = Theme.tinta
+        let rep = try #require(Render.bitmap(
+            tela(store, session: session), size: Self.size, theme: theme
+        ))
+        let alvo = try #require(
+            centro(rep, de: theme.accent, x: Self.drawerX..<1_440, y: 100..<600)
+        )
+        CliqueDeEnsaio.em(
+            tela(store, session: session), size: Self.size, aY: alvo.y, x: alvo.x
+        )
+
+        for id in ["abacus", "carol", "resend"] {
+            #expect(store.message(id)?.bucket == .archived, "\(id) não foi arquivada")
+        }
+        #expect(session.hasUndo, "a leva de três não deixou Desfazer")
+        #expect(store.message("jack")?.bucket == .today, "a leva mexeu em quem não estava nela")
+    }
+
+    /// Uma leva **sem volta** (a reserva de bloco) diz "Feito" e não promete
+    /// Desfazer nenhum.
+    @Test("o cartão que reserva bloco não promete Desfazer")
+    func aBlockReservationNeverPromisesUndo() async throws {
+        let store = await DiaDoDono.loja()
+        let session = AssistantSession(debugOpen: true)
+        let conversa = conversaComCartao([
+            .reserveBlock(day: 0, startMinute: 780, minutes: 20, title: "Responder"),
+        ])
+        session.adopt(conversa)
+
+        let theme = Theme.tinta
+        let rep = try #require(Render.bitmap(
+            tela(store, session: session), size: Self.size, theme: theme
+        ))
+        let alvo = try #require(
+            centro(rep, de: theme.accent, x: Self.drawerX..<1_440, y: 100..<600)
+        )
+        CliqueDeEnsaio.em(
+            tela(store, session: session), size: Self.size, aY: alvo.y, x: alvo.x
+        )
+
+        let cartao = try #require(conversa.messages.last?.cards.first)
+        #expect(session.isDone(cartao.id), "o cartão não executou")
+        #expect(!session.hasUndo, "o cartão prometeu um Desfazer que não existe")
+        #expect(!cartao.displayText.contains("desfazer"), "a frase prometeu desfazer")
     }
 
     /// **⏎ não executa nada.** Ele manda a pergunta, e só. A proposta que

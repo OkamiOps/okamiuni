@@ -472,12 +472,16 @@ struct DashboardScreen: View {
             // relatório da tarefa. O destino é a caixa Depois.
             onCommand(.move(messageID: row.id, to: .later))
         case .archiveAndLearn:
-            // As duas na mesma leva: arquivar **e** aprender a regra. O
-            // desfazer da regra é o próprio comando invertido.
-            onCommand(.move(messageID: row.id, to: .archived))
-            onCommand(.learnSender(
-                address: row.item.message.from.address, neverPriority: true
-            ))
+            // As duas numa leva só, e **como** leva: mandá-las como dois
+            // comandos soltos obrigava quem executa a reconhecer o par pelo
+            // remetente, que é frágil por grafia e por par remanescente (I2).
+            // Uma leva tem um Desfazer só, por construção.
+            onCommand(.batch([
+                .move(messageID: row.id, to: .archived),
+                .learnSender(
+                    address: row.item.message.from.address, neverPriority: true
+                ),
+            ]))
         case .keep:
             selectedMailID = row.id
         }

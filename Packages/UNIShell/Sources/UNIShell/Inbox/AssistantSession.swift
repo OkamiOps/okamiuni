@@ -106,11 +106,17 @@ public final class AssistantSession {
     public var chosenContext: AssistantDrawerContext?
     /// Os cartões já executados nesta sessão.
     public private(set) var doneCards: Set<String> = []
-    /// Existe "Desfazer" na barra de retorno agora? É o que mantém o
-    /// "Feito · Desfazer" do cartão de pé — prometer um desfazer que já sumiu
-    /// é pior do que não prometer nenhum. Quem sabe é a janela principal, que
-    /// desenha a barra; a janela destacada só lê.
-    public var hasUndo = false
+    /// O "Desfazer" **desta leva** ainda está de pé na barra?
+    ///
+    /// Não é "existe algum desfazer": o recibo que a barra mostra pode ser de
+    /// outra coisa que a pessoa fez antes (a mensagem que ela apagou um
+    /// minuto atrás), e prometer "Desfazer" em cima dele faria o cartão
+    /// desfazer o que não fez — o defeito C1. Quem sabe é a janela principal,
+    /// que desenha a barra; a janela destacada só lê.
+    public private(set) var hasUndo = false
+    /// O recibo que o "Desfazer" do cartão promete. `nil` quando a leva não
+    /// tinha volta (uma reserva de bloco, por exemplo).
+    public private(set) var undoReceiptID: UUID?
 
     /// Quem executa a leva de um cartão, e quem abre uma mensagem.
     ///
@@ -170,9 +176,23 @@ public final class AssistantSession {
     /// foi conversado.
     public func reattach() { isDetached = false }
 
-    public func markDone(_ cardID: String) { doneCards.insert(cardID) }
+    /// O cartão foi executado. `undoing` é o recibo da leva dele — `nil`
+    /// quando a leva não tem volta, e aí o cartão diz "Feito" e nada mais.
+    public func markDone(_ cardID: String, undoing receiptID: UUID? = nil) {
+        doneCards.insert(cardID)
+        undoReceiptID = receiptID
+        hasUndo = receiptID != nil
+    }
+
     public func isDone(_ cardID: String) -> Bool { doneCards.contains(cardID) }
-    /// O desfazer da barra sumiu: "Feito · Desfazer" deixa de fazer sentido e
-    /// o cartão volta a ser um cartão.
-    public func forgetDone() { doneCards.removeAll() }
+
+    /// O recibo da barra mudou. O "Desfazer" do cartão só continua de pé se o
+    /// recibo continuar sendo **o da leva dele**.
+    ///
+    /// O "Feito" fica: o cartão foi executado, e voltar a mostrar o botão
+    /// como se nada tivesse acontecido convidaria a executar a leva de novo.
+    public func receiptChanged(to receiptID: UUID?) {
+        hasUndo = undoReceiptID != nil && receiptID == undoReceiptID
+        if !hasUndo { undoReceiptID = nil }
+    }
 }

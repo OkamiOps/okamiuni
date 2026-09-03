@@ -612,8 +612,10 @@ struct DashboardScreenTests {
         #expect(espiao.answers == 0 && espiao.transforms == 0, "o Enviar da prévia chamou a IA")
     }
 
-    /// "Arquivar e aprender" emite **os dois** comandos na mesma leva.
-    @Test("Arquivar e aprender emite .move e .learnSender juntos")
+    /// "Arquivar e aprender" emite **uma leva** com os dois comandos — e não
+    /// dois comandos soltos que alguém lá na frente teria de reconhecer como
+    /// par pelo remetente (o pareamento frágil do I2).
+    @Test("Arquivar e aprender emite uma leva com .move e .learnSender")
     func archiveAndLearnEmitsBothCommands() async throws {
         let store = await DiaDoDono.loja()
         let espiao = CommandSpy()
@@ -634,9 +636,11 @@ struct DashboardScreenTests {
         CliqueDeEnsaio.em(armada, size: Self.size, aY: alvo.y, x: alvo.x)
 
         #expect(espiao.commands == [
-            .move(messageID: "abacus", to: .archived),
-            .learnSender(address: "no-reply@abacus.ai", neverPriority: true),
-        ], "a leva não saiu inteira: \(espiao.commands)")
+            .batch([
+                .move(messageID: "abacus", to: .archived),
+                .learnSender(address: "no-reply@abacus.ai", neverPriority: true),
+            ]),
+        ], "a leva não saiu inteira, ou não saiu como leva: \(espiao.commands)")
     }
 
     /// "Reservar" cria o compromisso pelo caminho de agenda existente.
@@ -767,7 +771,7 @@ struct DashboardScreenTests {
         #expect(store.silencesSender("no-reply@abacus.ai"))
 
         StoreCommand.run(
-            .restoreArchivedAndForgetSender(states: antes, address: "no-reply@abacus.ai"),
+            .restoreBatch(states: antes, forgottenSenders: ["no-reply@abacus.ai"]),
             on: store
         )
         #expect(store.message("abacus")?.bucket == .today, "a mensagem não voltou")

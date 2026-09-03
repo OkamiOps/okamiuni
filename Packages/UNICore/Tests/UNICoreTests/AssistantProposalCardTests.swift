@@ -220,3 +220,74 @@ struct AssistantProposalCardTests {
         )) })
     }
 }
+
+// MARK: - A promessa de desfazer
+
+/// "Dá para desfazer" é uma promessa do **app**, não do modelo: a frase só
+/// aparece quando a leva do cartão de fato volta atrás.
+@Suite("A promessa de desfazer do cartão")
+struct AssistantProposalCardUndoTests {
+
+    private func cartao(
+        _ title: String, _ actions: [AssistantAction]
+    ) -> AssistantProposalCard? {
+        AssistantProposalCard.cards(
+            for: [AssistantProposal(title: title, actions: actions, rationale: "porque sim")],
+            turnID: "t1"
+        ).first
+    }
+
+    @Test("uma leva de arquivamentos tem volta")
+    func archivingIsUndoable() throws {
+        let c = try #require(cartao("13 emails vão para Arquivado.", [
+            .archive(messageID: "m1"), .archive(messageID: "m2"),
+        ]))
+        #expect(c.isUndoable)
+    }
+
+    @Test("arquivar e aprender tem volta — as duas juntas")
+    func archiveAndLearnIsUndoable() throws {
+        let c = try #require(cartao("Arquivar e aprender", [
+            .archive(messageID: "m1"), .learnSender(address: "a@b.com"),
+        ]))
+        #expect(c.isUndoable)
+    }
+
+    @Test("reservar bloco e agendar não têm volta")
+    func agendaWritesAreNotUndoable() throws {
+        let bloco = try #require(cartao("Reservo 20 min. Dá para desfazer.", [
+            .reserveBlock(day: 0, startMinute: 780, minutes: 20, title: "Responder"),
+        ]))
+        #expect(!bloco.isUndoable)
+        let agenda = try #require(cartao("Coloco na agenda.", [.addToAgenda(messageID: "m1")]))
+        #expect(!agenda.isUndoable)
+    }
+
+    /// Abrir o composer não é mutação: um cartão que só abre janela não
+    /// promete desfazer nenhum, e também não é "sem volta" — não fez nada.
+    @Test("um cartão que só abre janela não promete desfazer")
+    func navigationAloneNeverPromisesUndo() throws {
+        let c = try #require(cartao("Respondo o Jack.", [.reply(messageID: "m1", draft: "Oi")]))
+        #expect(!c.isUndoable)
+    }
+
+    /// A frase do modelo é limpa e a do app é reposta: o texto do cartão
+    /// promete desfazer **só** quando a leva desfaz.
+    @Test("a promessa do modelo só sobrevive quando ela é verdade")
+    func theModelsPromiseOnlySurvivesWhenTrue() throws {
+        let arquiva = try #require(cartao(
+            "13 emails vão para Arquivado. Dá para desfazer.", [.archive(messageID: "m1")]
+        ))
+        #expect(arquiva.text == "13 emails vão para Arquivado.", "a promessa ficou no texto cru")
+        #expect(arquiva.displayText == "13 emails vão para Arquivado. Dá para desfazer.")
+
+        let reserva = try #require(cartao(
+            "Reservo 20 min às 13h. Dá para desfazer.",
+            [.reserveBlock(day: 0, startMinute: 780, minutes: 20, title: "Responder")]
+        ))
+        #expect(
+            reserva.displayText == "Reservo 20 min às 13h.",
+            "o cartão prometeu um desfazer que não existe"
+        )
+    }
+}

@@ -144,16 +144,30 @@ public enum ContextCommand: Sendable, Hashable {
     /// um segundo caso `forgetSender` seria a mesma decisão escrita duas
     /// vezes, com dois caminhos para divergir.
     case learnSender(address: String, neverPriority: Bool)
-    /// O "Desfazer" **conjunto** de "Arquivar e aprender" do dashboard: a
-    /// mensagem volta ao estado fotografado antes de arquivar **e** a regra
-    /// recém-aprendida é revogada, num comando só.
+    /// O "Desfazer" **conjunto** de uma leva: cada mensagem volta ao estado
+    /// fotografado antes da leva **e** cada regra aprendida nela é revogada,
+    /// num comando só.
+    ///
+    /// Nasceu para "Arquivar e aprender" (duas ações, um Desfazer) e vale
+    /// para a leva inteira de um cartão da gaveta pela mesma razão: executar
+    /// um cartão é **uma** coisa que a pessoa mandou fazer, e um Desfazer que
+    /// devolvesse um dos treze arquivamentos seria um botão que mente. Os
+    /// endereços entram normalizados (`SenderRule.normalize`) — o recibo
+    /// revoga a regra que foi de fato gravada, não a grafia que o modelo
+    /// escreveu.
     ///
     /// Nenhum menu produz este comando — ele nasce dentro do recibo da leva
-    /// (`ActionReceipts`) e chega pelo "Desfazer" da faixa, como os outros
-    /// `restore*`. Existir como caso único é o que torna a leva desfazível
-    /// junto: dois comandos de volta seriam dois recibos, e a pessoa
-    /// desarquivaria o email sem recuperar o remetente que acabou de calar.
-    case restoreArchivedAndForgetSender(states: [MessageState], address: String)
+    /// (`ActionReceipts.sealBatch`) e chega pelo "Desfazer" da faixa, como os
+    /// outros `restore*`.
+    case restoreBatch(states: [MessageState], forgottenSenders: [String])
+    /// **Uma leva**: os comandos que um clique só aplica, para quem executa
+    /// poder dar a eles um Desfazer só.
+    ///
+    /// Existe porque a leva é uma decisão de quem **propõe** ("arquivar e
+    /// aprender" é uma coisa, não duas), e mandá-la comando a comando pela
+    /// porta de ações obrigava quem executa a adivinhar o pareamento por
+    /// remetente — que era exatamente o defeito frágil do I2.
+    case batch([ContextCommand])
 }
 
 public extension ContextCommand {

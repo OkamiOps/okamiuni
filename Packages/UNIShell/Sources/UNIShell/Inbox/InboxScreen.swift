@@ -66,9 +66,6 @@ public struct InboxScreen: View {
     /// O filtro do dashboard 08 vive aqui para sobreviver à troca de aba —
     /// "persistir na sessão" é literalmente isto.
     @State private var dashboardFilter = DayPlan.Filter.standard
-    /// A primeira metade de "Arquivar e aprender", esperando a segunda para
-    /// selar o recibo conjunto — ver `runDashboardCommand`.
-    @State private var dashboardArchiveLearnPair: DashboardArchivePair?
     let store: MailStore
 
     /// De onde vem o "agora" da trilha e das três visões da agenda.
@@ -334,11 +331,11 @@ public struct InboxScreen: View {
         .task {
             assistantSession.install(runner: runProposalCard, reveal: { reveal($0) })
         }
-        // O "Feito · Desfazer" do cartão vale enquanto o desfazer da barra
-        // existir. Quando o recibo sai, o cartão volta a ser cartão.
-        .onChange(of: receipts.current == nil) { _, semRecibo in
-            assistantSession.hasUndo = !semRecibo
-            if semRecibo { assistantSession.forgetDone() }
+        // O "Desfazer" do cartão vale enquanto **o recibo da leva dele**
+        // estiver de pé. Um recibo de outra origem não serve, e por isso a
+        // comparação é por id e não por "existe algum".
+        .onChange(of: receipts.current?.id) { _, id in
+            assistantSession.receiptChanged(to: id)
         }
         .task { await subscribeToSource() }
         .task { await accountsModel?.start() }
@@ -687,34 +684,33 @@ public struct InboxScreen: View {
     /// execução para "Arquivar" faria a Caixa e o dashboard divergirem no
     /// primeiro conserto.
     private func runDashboardCommand(_ command: ContextCommand) {
-        // "Arquivar e aprender" chega como **dois** comandos na mesma leva —
-        // `.move(.archived)` e `.learnSender` — e o recibo dos dois é um só:
-        // o estado é fotografado antes de arquivar, e quando o `learnSender`
-        // do mesmo remetente chega logo atrás, o Desfazer vira o comando
-        // conjunto (`restoreArchivedAndForgetSender`). Qualquer outro comando
-        // no meio desfaz o pareamento.
-        if case let .move(messageID, .archived) = command,
-           let mensagem = store.message(messageID) {
-            dashboardArchiveLearnPair = DashboardArchivePair(
-                message: mensagem, states: store.states(of: [messageID])
-            )
-        } else if case let .learnSender(address, true) = command,
-                  let par = dashboardArchiveLearnPair,
-                  par.message.from.address == address {
-            dashboardArchiveLearnPair = nil
-            StoreCommand.run(command, on: store)
-            receipts.current = SwipeReceipt(
-                messageID: par.message.id,
-                note: "Arquivada e aprendida — \(par.message.from.display) · "
-                    + ActionReceipts.stamp,
-                undo: .restoreArchivedAndForgetSender(
-                    states: par.states, address: address
-                )
+        // "Arquivar e aprender" chega como **uma leva** (`.batch`), e não
+        // como dois comandos soltos que alguém aqui teria de reconhecer como
+        // par: o pareamento por remetente era frágil por grafia e por par
+        // remanescente (I2). A leva abre o recibo composto, executa comando a
+        // comando pelo caminho de sempre, e sela um Desfazer só.
+        if case let .batch(comandos) = command {
+            receipts.beginBatch()
+            for comando in comandos { runSingleDashboardCommand(comando) }
+            receipts.sealBatch(
+                note: batchNote(for: comandos), stamp: ActionReceipts.stamp
             )
             return
-        } else {
-            dashboardArchiveLearnPair = nil
         }
+        runSingleDashboardCommand(command)
+    }
+
+    /// A frase do recibo de uma leva conhecida. `nil` deixa `ActionReceipts`
+    /// escrever a genérica ("Feito — 3 emails · 14:32").
+    private func batchNote(for comandos: [ContextCommand]) -> String? {
+        guard comandos.count == 2,
+              case let .move(messageID, .archived) = comandos[0],
+              case .learnSender(_, true) = comandos[1],
+              let mensagem = store.message(messageID) else { return nil }
+        return "Arquivada e aprendida — \(mensagem.from.display) · " + ActionReceipts.stamp
+    }
+
+    private func runSingleDashboardCommand(_ command: ContextCommand) {
         MenuCommandRunner(
             store: store,
             openWindow: openWindow,
@@ -1064,6 +1060,11 @@ public struct InboxScreen: View {
     /// mesma porta do dashboard e da Caixa (`runDashboardCommand`), e as duas
     /// escritas de agenda que não têm comando próprio vão direto ao store.
     func runProposalCard(_ card: AssistantProposalCard) {
+        // **A leva é uma coisa só.** Um recibo por comando faria "Desfazer"
+        // devolver o décimo terceiro arquivamento e deixar os outros doze
+        // arquivados; nenhum recibo faria o cartão herdar o Desfazer da ação
+        // anterior de outra pessoa. Ver `ActionReceipts.beginBatch`.
+        receipts.beginBatch()
         for efeito in card.effects {
             switch efeito {
             case let .command(comando):
@@ -1080,8 +1081,12 @@ public struct InboxScreen: View {
                 )
             }
         }
-        assistantSession.markDone(card.id)
-        assistantSession.hasUndo = receipts.current != nil
+        let recibo = receipts.sealBatch(
+            undoable: card.isUndoable, stamp: ActionReceipts.stamp
+        )
+        // O "Desfazer" do cartão aponta para **este** recibo, por id: um
+        // recibo de outra origem na barra não pode se passar por ele.
+        assistantSession.markDone(card.id, undoing: recibo?.id)
     }
 
 }
@@ -1093,11 +1098,3 @@ public struct InboxScreen: View {
         .frame(width: 1440, height: 916)
 }
 #endif
-
-/// O par de "Arquivar e aprender" em trânsito: a mensagem e o estado
-/// fotografado **antes** de arquivar — sem a foto, o Desfazer conjunto não
-/// teria para onde voltar.
-struct DashboardArchivePair {
-    let message: Message
-    let states: [MessageState]
-}

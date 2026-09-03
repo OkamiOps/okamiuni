@@ -151,12 +151,24 @@ enum StoreCommand {
             store.learnSender(address: address, neverPriority: neverPriority)
             return true
 
-        // O Desfazer conjunto de "Arquivar e aprender": estado de volta e
-        // regra revogada, na mesma leva em que nasceram.
-        case .restoreArchivedAndForgetSender(let states, let address):
+        // O Desfazer conjunto de uma leva: estado de volta e regras
+        // revogadas, na mesma leva em que nasceram.
+        case .restoreBatch(let states, let senders):
             store.restore(states)
-            store.learnSender(address: address, neverPriority: false)
+            for address in senders {
+                store.learnSender(address: address, neverPriority: false)
+            }
             return true
+
+        // A leva executada aqui embaixo: só os comandos que este `switch`
+        // conhece. Quem tem janela para abrir passa por `MenuCommandRunner`,
+        // que sabe abrir a leva inteira.
+        case .batch(let comandos):
+            var feito = false
+            for comando in comandos {
+                if run(comando, on: store) { feito = true }
+            }
+            return feito
 
         default:
             return false
@@ -235,8 +247,14 @@ struct MenuCommandRunner {
              // da faixa, que é o mesmo caminho de todos os outros.
              .restoreConversation, .restoreDeletedConversation,
              .restoreFolderPlacements, .learnSender,
-             .restoreArchivedAndForgetSender:
+             .restoreBatch:
             StoreCommand.run(command, on: store)
+
+        // A leva passa comando a comando pelo **mesmo** runner: um deles pode
+        // ser um `.reply`, que abre janela, e um segundo caminho de execução
+        // aqui faria a leva divergir do clique avulso no primeiro conserto.
+        case .batch(let comandos):
+            for comando in comandos { run(comando) }
 
         case .composeFrom(let accountID):
             // A cena 06 já carrega o id da conta como valor — é o mesmo
