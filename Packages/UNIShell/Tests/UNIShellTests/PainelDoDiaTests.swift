@@ -172,6 +172,23 @@ struct PainelDoDiaTests {
             == "lido dos seus enviados · na próxima versão")
     }
 
+    /// Ruling 2026-09-03: com um provedor remoto conectado, a rota já é a dele.
+    /// A legenda que pedia "· Ativar" era burocracia em cima de um "sim" já
+    /// dado, e some.
+    @Test("com a rota no provedor o painel não pede para ativar nada")
+    func noActivationLegendWhenTheRouteIsTheProvider() async throws {
+        let store = await DiaDoDono.lojaDaNoite()
+        let motivo = PainelDoDia.motivoSemProntas(
+            destino: "Codex",
+            motorDisponivel: true,
+            rotaLocal: false,
+            automaticAnalysisOn: true
+        )
+        let legenda = modeloDaNoite(store, motivo: motivo).legendaDaEspera
+        #expect(!legenda.contains("Ativar"))
+        #expect(!legenda.contains("análise automática"))
+    }
+
     /// Defeito 7, a outra metade: "Nenhum prazo no radar" só é verdade quando
     /// o `MessageTriage.deadline` do foco de fato foi lido.
     @Test("os prazos do radar saem do MessageTriage.deadline das mensagens")

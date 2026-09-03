@@ -131,14 +131,27 @@ struct PainelDoDia: View {
     /// barrada". Duas coisas diferentes precisam de duas frases, e a que
     /// explica precisa levar a algum lugar.
     private var motivoSemProntas: PainelDoDiaModelo.MotivoSemProntas {
-        let destino = Self.nomeDoMotor(conversation.destination.label)
-        guard intelligencePresentation.isAvailable else {
-            return .motorIndisponivel(destino: destino)
-        }
-        // O portão é o do opt-in (`ReadyDraftCoordinator.routeIsAllowed`): a
-        // rota local sempre pode; a remota só com a análise automática ligada.
-        let local = intelligencePresentation.destination?.isLocal ?? false
-        if !local, !automaticAnalysisOn {
+        Self.motivoSemProntas(
+            destino: Self.nomeDoMotor(conversation.destination.label),
+            motorDisponivel: intelligencePresentation.isAvailable,
+            rotaLocal: intelligencePresentation.destination?.isLocal ?? false,
+            automaticAnalysisOn: automaticAnalysisOn
+        )
+    }
+
+    /// `static` e visível ao pacote para o teste ler a decisão sem montar a
+    /// view. O portão é o do opt-in (`ReadyDraftCoordinator.routeIsAllowed`):
+    /// a rota local sempre pode; a remota só com a análise automática ligada —
+    /// que, desde o ruling de 2026-09-03, já vem ligada com um provedor
+    /// remoto configurado, e por isso "· Ativar" some da tela dele.
+    static func motivoSemProntas(
+        destino: String,
+        motorDisponivel: Bool,
+        rotaLocal: Bool,
+        automaticAnalysisOn: Bool
+    ) -> PainelDoDiaModelo.MotivoSemProntas {
+        guard motorDisponivel else { return .motorIndisponivel(destino: destino) }
+        if !rotaLocal, !automaticAnalysisOn {
             return .precisaDoOptIn(destino: destino)
         }
         return .aindaNaoEscreveu

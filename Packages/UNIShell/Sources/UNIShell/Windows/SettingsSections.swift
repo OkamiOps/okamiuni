@@ -342,7 +342,12 @@ struct GeneralSettingsView: View {
             SettingsLabeledRow(label: "Análise automática") {
                 Toggle(isOn: Binding(
                     get: { draft.automaticAnalysis == .configuredProvider },
-                    set: { draft.automaticAnalysis = $0 ? .configuredProvider : .onDeviceOnly }
+                    set: {
+                        draft.automaticAnalysis = $0 ? .configuredProvider : .onDeviceOnly
+                        // A escolha à mão é definitiva: a partir daqui nenhum
+                        // padrão derivado do provedor sobrescreve a rota.
+                        draft.automaticAnalysisTouchedByUser = true
+                    }
                 )) {
                     Text(Self.automaticAnalysisToggleLabel(for: draft))
                         .font(theme.sans.font(size: 12))

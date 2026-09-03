@@ -127,7 +127,56 @@ struct AssistantSettingsTests {
         #expect(migrated.schemaVersion == 5)
         #expect(AssistantSettings.currentSchemaVersion == 5)
         #expect(migrated.provider == .cli)
-        #expect(migrated.automaticAnalysis == .onDeviceOnly)
+        // Ruling 2026-09-03: um CLI configurado de propósito já é o
+        // consentimento, e o documento antigo nunca teve o interruptor tocado.
+        #expect(migrated.automaticAnalysis == .configuredProvider)
+    }
+
+    /// O padrão da rota segue o provedor ativo. É a regra inteira do ruling em
+    /// duas linhas: remoto liga, Foundation Models não.
+    @Test("o padrão da rota é o provedor quando ele é remoto, e só o Mac quando é local")
+    func defaultRouteFollowsTheProvider() {
+        #expect(AssistantSettings(provider: .cli).automaticAnalysis == .configuredProvider)
+        #expect(AssistantSettings(provider: .providerOAuth).automaticAnalysis == .configuredProvider)
+        #expect(
+            AssistantSettings(provider: .openAICompatible).automaticAnalysis == .configuredProvider
+        )
+        #expect(AssistantSettings(provider: .foundationModels).automaticAnalysis == .onDeviceOnly)
+    }
+
+    /// A migração de quem já está instalado: liga a rota uma vez, com uma
+    /// janela curta em vez de `nil`, que mandaria a caixa inteira de uma vez.
+    @Test("a migração liga a rota de quem nunca tocou no interruptor, com sete dias")
+    func migrationTurnsTheRouteOnForUntouchedSettings() throws {
+        let agora = Date(timeIntervalSince1970: 1_756_800_000)
+        var instalado = AssistantSettings.default
+        instalado.provider = .cli
+        instalado.automaticAnalysis = .onDeviceOnly
+
+        let migrado = try instalado.migrated(now: agora)
+        #expect(migrado.automaticAnalysis == .configuredProvider)
+        #expect(
+            migrado.automaticAnalysisSince
+                == agora - AssistantSettings.migrationRetroactiveWindow
+        )
+        #expect(migrado.automaticAnalysisCoversMessage(receivedAt: agora))
+        // O acervo antigo continua de fora: ele tem porta própria.
+        #expect(!migrado.automaticAnalysisCoversMessage(
+            receivedAt: agora.addingTimeInterval(-8 * 24 * 60 * 60)
+        ))
+    }
+
+    @Test("quem desligou o interruptor à mão não é migrado")
+    func migrationRespectsAManualChoice() throws {
+        var escolhido = AssistantSettings.default
+        escolhido.provider = .cli
+        escolhido.automaticAnalysis = .onDeviceOnly
+        escolhido.automaticAnalysisTouchedByUser = true
+
+        let migrado = try escolhido.migrated(now: Date())
+        #expect(migrado.automaticAnalysis == .onDeviceOnly)
+        #expect(migrado.automaticAnalysisSince == nil)
+        #expect(!migrado.automaticAnalysisCoversMessage(receivedAt: .distantFuture))
     }
 
     /// A cópia promete "mensagens novas". O carimbo é o que a torna verdade,
@@ -158,6 +207,8 @@ struct AssistantSettingsTests {
         // Desligar o apaga; religar vale do novo instante, nunca do antigo.
         var desligado = resalvo
         desligado.automaticAnalysis = .onDeviceOnly
+        // Ligar e desligar é o interruptor, e o interruptor marca a escolha.
+        desligado.automaticAnalysisTouchedByUser = true
         let limpo = try desligado.migrated(now: clique.addingTimeInterval(6_000))
         #expect(limpo.automaticAnalysisSince == nil)
         #expect(!limpo.automaticAnalysisCoversMessage(receivedAt: .distantFuture))

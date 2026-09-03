@@ -19,7 +19,11 @@ struct RoutedMessageAnalyzerTests {
             automaticAnalysis: route,
             automaticAnalysisSince: route == .configuredProvider
                 ? Date(timeIntervalSince1970: 0)
-                : nil
+                : nil,
+            // Desde o ruling de 2026-09-03 o padrão de um provedor remoto é
+            // ele mesmo; restringir a este Mac é escolha à mão, e é isto que
+            // a marca diz — sem ela a migração religaria a rota.
+            automaticAnalysisTouchedByUser: route == .onDeviceOnly
         ))
         return store
     }
@@ -33,8 +37,8 @@ struct RoutedMessageAnalyzerTests {
         )
     }
 
-    @Test("o padrão é a rota do dispositivo, mesmo com provedor remoto escolhido")
-    func defaultsToOnDevice() async throws {
+    @Test("com a rota restrita a este Mac, nada vai para o provedor remoto")
+    func onDeviceRouteKeepsEverythingHere() async throws {
         #expect(AssistantSettings.default.automaticAnalysis == .onDeviceOnly)
         let onDevice = SpyMessageAnalyzer(modelVersion: "on-device")
         let configured = SpyMessageAnalyzer(modelVersion: "remoto")

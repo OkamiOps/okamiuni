@@ -230,6 +230,14 @@ janela de mensagem o usam. Turnos `kind: .draft` não passam por ele.
 - Ajustes: toggle "Analisar mensagens novas automaticamente com {label}" dentro do
   cartão do provedor, com a frase "Cada mensagem recebida sai deste Mac para {host}." Só
   aparece para provedores remotos.
+- **Ruling 2026-09-03**: provedor remoto configurado de propósito é o consentimento; o
+  padrão segue o provedor (`AutomaticAnalysisRoute.default(for:)` — `configuredProvider`
+  para remoto/CLI, `onDeviceOnly` para Foundation Models) e o interruptor serve para
+  restringir a este Mac. `automaticAnalysisTouchedByUser` guarda a escolha manual: quem
+  nunca mexeu é migrado uma vez na carga, com `automaticAnalysisSince` em hoje − 7 dias
+  (o acervo inteiro continua sendo trabalho de "Analisar o acervo", que pede
+  confirmação); quem mexeu não é migrado. O portão
+  `automaticAnalysisCoversMessage` não muda.
 
 ### 1.9 Testes do sub-projeto 1
 

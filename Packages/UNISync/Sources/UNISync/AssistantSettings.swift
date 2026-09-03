@@ -436,6 +436,17 @@ public enum AutomaticAnalysisRoute: String, Codable, Sendable, Hashable, CaseIte
     case configuredProvider
 
     public var id: String { rawValue }
+
+    /// O padrão segue o provedor ativo.
+    ///
+    /// Ruling 2026-09-03: conectar um provedor remoto de propósito **é** o
+    /// consentimento. Pedir de novo, num interruptor separado, é burocracia —
+    /// e deixava a tela dizendo "precisa da análise automática · Ativar" para
+    /// quem já tinha ligado o Codex. O interruptor continua existindo, agora
+    /// para restringir a este Mac.
+    public static func `default`(for provider: AssistantProvider) -> AutomaticAnalysisRoute {
+        provider == .foundationModels ? .onDeviceOnly : .configuredProvider
+    }
 }
 
 /// Preferências persistidas da IA. É um único documento Codable para que uma
@@ -460,6 +471,19 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
     /// torna verdade: sem ele, ligar o toggle mandaria a caixa inteira já
     /// guardada para o provedor. `nil` sempre que a rota é `onDeviceOnly`.
     public var automaticAnalysisSince: Date?
+    /// A pessoa já mexeu no interruptor da análise automática?
+    ///
+    /// Enquanto for `false`, a rota é derivada do provedor ativo; quem
+    /// escolheu à mão nunca é sobrescrito por um padrão novo.
+    public var automaticAnalysisTouchedByUser: Bool
+
+    /// Quanto do acervo a migração aceita como "novo".
+    ///
+    /// Ligar a rota com `since` em `nil` mandaria a caixa inteira já guardada
+    /// ao provedor de uma vez. O acervo tem porta própria — "Analisar o
+    /// acervo", com contagem e confirmação —, e esta janela curta só evita que
+    /// o dashboard nasça vazio no dia da atualização.
+    public static let migrationRetroactiveWindow: TimeInterval = 7 * 24 * 60 * 60
 
     public init(
         schemaVersion: Int = Self.currentSchemaVersion,
@@ -469,8 +493,9 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
         cli: AssistantCLIConfiguration = .init(),
         behavior: AssistantBehaviorPreferences = .default,
         additionalInstructions: String = "",
-        automaticAnalysis: AutomaticAnalysisRoute = .onDeviceOnly,
-        automaticAnalysisSince: Date? = nil
+        automaticAnalysis: AutomaticAnalysisRoute? = nil,
+        automaticAnalysisSince: Date? = nil,
+        automaticAnalysisTouchedByUser: Bool = false
     ) {
         self.schemaVersion = schemaVersion
         self.provider = provider
@@ -479,8 +504,9 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
         self.cli = cli
         self.behavior = behavior
         self.additionalInstructions = additionalInstructions
-        self.automaticAnalysis = automaticAnalysis
+        self.automaticAnalysis = automaticAnalysis ?? .default(for: provider)
         self.automaticAnalysisSince = automaticAnalysisSince
+        self.automaticAnalysisTouchedByUser = automaticAnalysisTouchedByUser
     }
 
     public static let `default` = AssistantSettings()
@@ -507,6 +533,18 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
         if migrated.provider == .providerOAuth {
             migrated.providerOAuth = try providerOAuth.validated()
         }
+        // Ruling 2026-09-03: quem nunca mexeu no interruptor segue o padrão do
+        // provedor. É isto que migra quem já tinha o Codex conectado e ainda
+        // via "Ativar" na tela — e quem escolheu à mão fica exatamente onde
+        // escolheu ficar.
+        if !migrated.automaticAnalysisTouchedByUser {
+            let padrao = AutomaticAnalysisRoute.default(for: migrated.provider)
+            if padrao == .configuredProvider, migrated.automaticAnalysis == .onDeviceOnly {
+                migrated.automaticAnalysisSince = now - Self.migrationRetroactiveWindow
+            }
+            migrated.automaticAnalysis = padrao
+        }
+
         // O carimbo do opt-in nasce aqui, no mesmo save que liga a rota, e
         // morre quando ela é desligada: religar depois vale a partir do novo
         // instante, nunca do antigo.
@@ -514,7 +552,9 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
         case .onDeviceOnly:
             migrated.automaticAnalysisSince = nil
         case .configuredProvider:
-            migrated.automaticAnalysisSince = automaticAnalysisSince ?? now
+            // `migrated`, e não `self`: a janela retroativa da migração acima
+            // é um carimbo já escrito, e relê-lo do original o apagaria.
+            migrated.automaticAnalysisSince = migrated.automaticAnalysisSince ?? now
         }
         return migrated
     }
@@ -545,6 +585,7 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
         case additionalInstructions
         case automaticAnalysis
         case automaticAnalysisSince
+        case automaticAnalysisTouchedByUser
     }
 
     /// `cli` e `authenticationMode` foram acrescentados depois do primeiro
@@ -569,11 +610,16 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
             forKey: .behavior
         ) ?? .default
         additionalInstructions = try values.decodeIfPresent(String.self, forKey: .additionalInstructions) ?? ""
-        // Documento v4 não conhecia a rota. `onDeviceOnly` é o único padrão que
-        // não muda o comportamento de quem já tinha o app instalado.
+        // Documento sem a rota gravada nasce no padrão do provedor; a decisão
+        // de quem já mexeu no interruptor vem do campo ao lado.
         automaticAnalysis = try values.decodeIfPresent(
             AutomaticAnalysisRoute.self, forKey: .automaticAnalysis
-        ) ?? .onDeviceOnly
+        ) ?? .default(for: provider)
+        // Documento anterior a esta versão não registrava o toque. `false` é o
+        // que faz a migração da rota valer uma vez para quem nunca escolheu.
+        automaticAnalysisTouchedByUser = try values.decodeIfPresent(
+            Bool.self, forKey: .automaticAnalysisTouchedByUser
+        ) ?? false
         // Decodificação tolerante: o esquema continua sendo o v5. Um documento
         // v5 do binário anterior não tinha o carimbo, e `migrated()` o preenche
         // com o instante da carga — conservador, porque o histórico já guardado
@@ -594,6 +640,7 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
         try values.encode(additionalInstructions, forKey: .additionalInstructions)
         try values.encode(automaticAnalysis, forKey: .automaticAnalysis)
         try values.encodeIfPresent(automaticAnalysisSince, forKey: .automaticAnalysisSince)
+        try values.encode(automaticAnalysisTouchedByUser, forKey: .automaticAnalysisTouchedByUser)
     }
 }
 

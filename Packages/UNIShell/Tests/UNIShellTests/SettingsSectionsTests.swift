@@ -21,6 +21,16 @@ struct SettingsSectionsTests {
     private let compactRenderSize = CGSize(width: 960, height: 680)
     private let createdAt = Date(timeIntervalSince1970: 1_800_000_000)
 
+    /// O carimbo do opt-in é escrito pelo `save` com o instante da gravação, e
+    /// desde o ruling de 2026-09-03 todo provedor remoto já nasce com a rota
+    /// ligada. Comparar a configuração pedida com a guardada continua sendo o
+    /// ponto destes testes; o relógio, não.
+    private static func semCarimbo(_ settings: AssistantSettings) -> AssistantSettings {
+        var value = settings
+        value.automaticAnalysisSince = nil
+        return value
+    }
+
     @Test("o rótulo da rota interativa mostra o modelo escolhido, exceto no Foundation Models")
     func assistantRouteLabelCarregaModelo() {
         var remoto = AssistantSettings.default
@@ -273,7 +283,7 @@ struct SettingsSectionsTests {
 
         #expect(image.pixelsWide == Int(renderSize.width))
         #expect(image.pixelsHigh == Int(renderSize.height))
-        #expect(settings.snapshot() == configuration)
+        #expect(Self.semCarimbo(settings.snapshot()) == Self.semCarimbo(configuration))
         #expect(try credentials.apiKey(for: "settings-ui-key") == "chave-somente-em-memoria")
         // O aviso do provedor remoto é uma superfície accentSoft visível; a
         // asserção impede que Geral caia no estado vazio/default sem conteúdo.
@@ -318,7 +328,7 @@ struct SettingsSectionsTests {
             theme: .tinta
         ))
 
-        #expect(settings.snapshot() == configuration)
+        #expect(Self.semCarimbo(settings.snapshot()) == Self.semCarimbo(configuration))
         #expect(image.pixelsWide == Int(renderSize.width))
         #expect(
             image.pixels(matching: Theme.tinta.accentSoft) > 500,
@@ -356,7 +366,7 @@ struct SettingsSectionsTests {
             theme: .tinta
         ))
 
-        #expect(settings.snapshot() == configuration)
+        #expect(Self.semCarimbo(settings.snapshot()) == Self.semCarimbo(configuration))
         #expect(image.pixelsWide == Int(renderSize.width))
         #expect(
             image.pixels(matching: Theme.tinta.accentSoft) > 500,
@@ -399,7 +409,7 @@ struct SettingsSectionsTests {
             theme: .tinta
         ))
 
-        #expect(settings.snapshot() == configuration)
+        #expect(Self.semCarimbo(settings.snapshot()) == Self.semCarimbo(configuration))
         #expect(authorizer.status == .signedIn)
         #expect(image.pixelsWide == Int(renderSize.width))
         #expect(image.pixels(matching: Theme.tinta.accentSoft) > 500)
@@ -453,7 +463,7 @@ struct SettingsSectionsTests {
         // O retrato não dispara botões nem abre URL: verifica somente o estado
         // seguro entregue pelo serviço, como aconteceria antes da pessoa clicar
         // em "Abrir página".
-        #expect(settings.snapshot() == configuration)
+        #expect(Self.semCarimbo(settings.snapshot()) == Self.semCarimbo(configuration))
         #expect(authorizer.status == .awaitingDeviceCode(authorization))
         #expect(image.pixelsWide == Int(renderSize.width))
         #expect(

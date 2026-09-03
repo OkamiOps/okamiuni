@@ -299,7 +299,10 @@ struct ReadyDraftCoordinatorTests {
         let motor = EspiaoDeRascunho(resposta: "Não pode sair daqui.")
 
         var configuracao = remoto
+        // Desligar é escolha à mão desde o ruling de 2026-09-03; sem a marca,
+        // a migração religaria a rota, que é justamente o ponto dela.
         configuracao.automaticAnalysis = .onDeviceOnly
+        configuracao.automaticAnalysisTouchedByUser = true
         let fila = coordinator(
             database: banco, assistant: motor, settingsStore: try settings(configuracao)
         )
@@ -311,6 +314,25 @@ struct ReadyDraftCoordinatorTests {
         _ = await fila.processPending()
         _ = await fila.processPending()
         #expect(await fila.queueState() == .running)
+    }
+
+    /// Ruling 2026-09-03: quem já tinha o provedor conectado e nunca mexeu no
+    /// interruptor é migrado na carga — e o portão do rascunho passa a valer
+    /// sem ela clicar em nada.
+    @Test("depois da migração o portão do rascunho já libera a rota do provedor")
+    func migratedRouteAllowsReadyDrafts() async throws {
+        let banco = try SyncDatabase.temporary()
+        try Fixture.escreveMensagem(in: banco.pool, id: "m1", recebidaEm: Date())
+        try Fixture.escreveTriagem(in: banco.pool, id: "m1", triage: pedeResposta)
+
+        var instalado = remoto
+        instalado.automaticAnalysis = .onDeviceOnly
+        let loja = try settings(instalado)
+        #expect(loja.snapshot().automaticAnalysis == .configuredProvider)
+
+        let motor = EspiaoDeRascunho(resposta: "Resposta remota.")
+        let fila = coordinator(database: banco, assistant: motor, settingsStore: loja)
+        #expect(await fila.processPending() == 1)
     }
 
     @Test("provedor remoto com opt-in: a mensagem anterior ao carimbo fica")
