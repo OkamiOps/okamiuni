@@ -1,0 +1,95 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    body { margin: 0; background: #060609; -webkit-font-smoothing: antialiased; }
+    a { color: #F0A060; } a:hover { color: #F7B98A; }
+    .caps { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.18em; text-transform: uppercase; color: #55566A; }
+    .f { font-family: 'Space Grotesk', sans-serif; }
+    .m { font-family: 'JetBrains Mono', monospace; }
+    .ghost { color: #2A2A38; }
+    .ghost .s { color: #1E1E2B; }
+    .q { margin-left: auto; max-width: 78%; padding: 9px 13px; border-radius: 2px; background: #1A1209; border: 0.5px solid #4A2C16; font-size: 13.5px; line-height: 1.5; color: #F4F4F8; }
+    .a { max-width: 92%; font-size: 13.5px; line-height: 1.6; color: #F4F4F8; }
+    .a p { margin: 0 0 8px; } .a p:last-child { margin: 0; }
+    .a .act { margin-top: 10px; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 2px; background: #0B0B12; border: 0.5px solid #1E1E2B; }
+    .a .act .t { flex: 1; font-size: 12.5px; color: #B9BAC8; }
+    .a .act .t b { color: #F4F4F8; font-weight: 500; }
+    .a .act .go { height: 26px; padding: 0 12px; display: inline-flex; align-items: center; border-radius: 2px; background: #F0A060; color: #060609; font-size: 12px; font-weight: 600; }
+    .a .act .no { font-size: 12px; font-weight: 600; color: #55566A; }
+    .chip { display: inline-flex; align-items: center; height: 26px; padding: 0 11px; border-radius: 13px; border: 0.5px solid #2A2A38; background: #0B0B12; font-size: 12px; color: #B9BAC8; white-space: nowrap; }
+  </style>
+</helmet>
+<div class="f" style="position: relative; width: 1440px; height: 852px; box-sizing: border-box; background: #060609; padding: 28px 32px 24px; color: #F4F4F8; overflow: hidden;">
+
+  <!-- O dashboard atrás, esmaecido só o suficiente -->
+  <div style="opacity: 0.45;">
+    <div style="display: flex; align-items: baseline; gap: 18px;"><div style="font-size: 22px; font-weight: 600;">Bom dia, Marcos</div><div class="caps">Quinta · 3 de setembro</div></div>
+    <div style="margin-top: 22px; padding: 22px 26px; background: #1A1209; border-radius: 2px;"><div class="caps" style="color: #F7B98A;">Comece por aqui</div><div style="margin-top: 8px; font-size: 20px; font-weight: 500;">Jack espera há 7 dias, e é sim ou não. A resposta já está escrita.</div></div>
+    <div style="margin-top: 22px; padding-bottom: 10px; border-bottom: 0.5px solid #1E1E2B; font-size: 13px; color: #55566A;">Gente 3 · Prazos 1 · Leads 1 · Disparos 13 · Newsletters 233</div>
+    <div style="margin-top: 18px;" class="caps">Esperando você · 3</div>
+    <div style="margin-top: 10px; padding: 14px 0; border-bottom: 0.5px solid #16161F;"><div style="font-size: 13px; font-weight: 600;">Jack Whitmore</div><div style="margin-top: 3px; font-size: 15px;">Okami Tally doesn't show up for "tally"</div></div>
+    <div style="padding: 14px 0; border-bottom: 0.5px solid #16161F;"><div style="font-size: 13px; font-weight: 600;">Jayden Sutherland</div><div style="margin-top: 3px; font-size: 15px;">Paid Consultation Opportunity: Endpoint Operating Systems</div></div>
+    <div style="padding: 14px 0; border-bottom: 0.5px solid #16161F;"><div style="font-size: 13px; font-weight: 600;">Cats9th</div><div style="margin-top: 3px; font-size: 15px;">Re: Check out your chapter page and personal bio</div></div>
+    <div style="margin-top: 26px;" class="caps">Vence · 1</div>
+    <div style="margin-top: 10px; padding: 14px 0; border-bottom: 0.5px solid #16161F;"><div style="font-size: 13px; font-weight: 600;">Abacus AI</div><div style="margin-top: 3px; font-size: 15px;">Erinnerung: Ihre 6,000 Bonus-Credits laufen in wenigen Tagen ab</div></div>
+  </div>
+
+  <!-- A gaveta: por cima, borda direita, não empurra nada -->
+  <div style="position: absolute; top: 0; right: 0; bottom: 0; width: 440px; background: #0B0B12; border-left: 0.5px solid #2A2A38; box-shadow: -30px 0 80px rgba(0,0,0,0.6); display: flex; flex-direction: column;">
+    <div style="display: flex; align-items: center; gap: 12px; padding: 18px 20px 14px; border-bottom: 0.5px solid #1E1E2B;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#F0A060" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.4A8 8 0 1 1 21 12z"/></svg>
+      <div style="flex: 1;">
+        <div style="font-size: 13.5px; font-weight: 600;">Assistente</div>
+        <div class="caps" style="margin-top: 2px;">Codex · ChatGPT · sai deste Mac</div>
+      </div>
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#7B7C90" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5"/></svg>
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#7B7C90" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>
+    </div>
+
+    <div style="padding: 10px 20px; display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: #7B7C90; border-bottom: 0.5px solid #16161F;">
+      <span>Falando sobre</span><span style="color: #F4F4F8; font-weight: 600;">o seu dia</span><span class="caps" style="margin-left: auto;">trocar</span>
+    </div>
+
+    <div style="flex: 1; min-height: 0; padding: 18px 20px; display: flex; flex-direction: column; gap: 16px; overflow: hidden;">
+      <div class="q">o que o jayden quer exatamente?</div>
+      <div class="a"><p>Uma consulta paga de 60 minutos sobre sistemas de endpoint, USD 250/h, nas próximas duas semanas. Ele pediu resposta "as soon as practical" — está esperando há 2 dias.</p>
+        <div class="act"><span class="t"><b>Resposta pronta</b> propondo terça 9/9 ou quinta 11/9, 15h–17h.</span><span class="go">Enviar</span><span class="no">Ver</span></div>
+      </div>
+
+      <div class="q">arquiva tudo que é disparo hoje</div>
+      <div class="a"><p>São 13: Welcome to Resend, Upwork, Zoho, Abacus e mais 9. Nenhum pede resposta.</p>
+        <div class="act"><span class="t"><b>13 emails</b> vão para Arquivado. Dá para desfazer.</span><span class="go">Arquivar</span><span class="no">Ver a lista</span></div>
+      </div>
+
+      <div class="q">o que eu prometi essa semana e não fiz?</div>
+      <div class="a"><p>Procurei nos seus enviados dos últimos 7 dias. Uma coisa em aberto:</p>
+        <p>Você disse à <b>Marina</b> na terça que mandaria a proposta "até quinta". É hoje, e não saiu nada.</p>
+        <div class="act"><span class="t">Reservar 45 min às 16h para a proposta?</span><span class="go">Reservar</span><span class="no">Já fiz</span></div>
+      </div>
+    </div>
+
+    <div style="padding: 12px 20px 0; display: flex; gap: 6px; flex-wrap: wrap;">
+      <span class="chip">Responde o Jack por mim</span><span class="chip">O que vence amanhã?</span><span class="chip">Resume o dia em 3 linhas</span>
+    </div>
+
+    <div style="padding: 12px 20px 18px;">
+      <div style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 6px 0 14px; border-radius: 2px; border: 0.5px solid #2A2A38; background: #14141E;">
+        <span style="flex: 1; font-size: 13.5px; color: #55566A;">Pergunte, ou mande fazer…</span>
+        <span class="m" style="font-size: 10px; color: #55566A;">⏎</span>
+        <span style="width: 28px; height: 28px; border-radius: 2px; background: #F0A060; display: inline-flex; align-items: center; justify-content: center;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#060609" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg></span>
+      </div>
+      <div style="margin-top: 8px; font-size: 11px; color: #55566A;">Nada é executado sem o seu clique. Esc fecha · ⌘J abre.</div>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

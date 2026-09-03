@@ -1,0 +1,48 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    body { margin: 0; background: #060609; -webkit-font-smoothing: antialiased; }
+    a { color: #F0A060; } a:hover { color: #F7B98A; }
+    .caps { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.18em; text-transform: uppercase; color: #55566A; }
+    .f { font-family: 'Space Grotesk', sans-serif; }
+    .q { margin-left: auto; max-width: 78%; padding: 9px 13px; border-radius: 2px; background: #1A1209; border: 0.5px solid #4A2C16; font-size: 13.5px; line-height: 1.5; color: #F4F4F8; }
+    .a { max-width: 92%; font-size: 13.5px; line-height: 1.6; color: #F4F4F8; }
+    .a .act { margin-top: 10px; display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 2px; background: #0B0B12; border: 0.5px solid #1E1E2B; }
+    .a .act .t { flex: 1; font-size: 12.5px; color: #B9BAC8; }
+    .a .act .go { height: 26px; padding: 0 12px; display: inline-flex; align-items: center; border-radius: 2px; background: #F0A060; color: #060609; font-size: 12px; font-weight: 600; }
+  </style>
+</helmet>
+<div class="f" style="width: 460px; height: 620px; box-sizing: border-box; background: #0B0B12; border-radius: 12px; border: 0.5px solid #2A2A38; box-shadow: 0 30px 90px rgba(0,0,0,0.8); display: flex; flex-direction: column; color: #F4F4F8; overflow: hidden;">
+  <div style="display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 14px; border-bottom: 0.5px solid #1E1E2B;">
+    <span style="width: 12px; height: 12px; border-radius: 50%; background: #FF5F57;"></span><span style="width: 12px; height: 12px; border-radius: 50%; background: #FEBC2E;"></span><span style="width: 12px; height: 12px; border-radius: 50%; background: #28C840;"></span>
+    <span style="margin-left: 10px; font-size: 13px; font-weight: 600;">Assistente</span>
+    <span class="caps" style="margin-left: 8px;">Codex · ChatGPT</span>
+    <span class="caps" style="margin-left: auto; color: #7B7C90;">sempre visível</span>
+  </div>
+  <div style="flex: 1; padding: 18px; display: flex; flex-direction: column; gap: 16px;">
+    <div class="q">resume o dia em 3 linhas</div>
+    <div class="a">
+      <p style="margin: 0 0 6px;">1. <b>Jack, Jayden e Maria</b> esperam resposta — as três já estão escritas, 20 min às 13h.</p>
+      <p style="margin: 0 0 6px;">2. <b>Aitherion</b> às 11:39, 1 h. Depois, tarde livre.</p>
+      <p style="margin: 0;">3. Você prometeu a proposta à <b>Marina</b> até hoje. Ainda não saiu.</p>
+      <div class="act"><span class="t">Reservar 13h para as respostas e 16h para a proposta?</span><span class="go">Reservar os dois</span></div>
+    </div>
+  </div>
+  <div style="padding: 12px 18px 16px;">
+    <div style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 6px 0 14px; border-radius: 2px; border: 0.5px solid #2A2A38; background: #14141E;">
+      <span style="flex: 1; font-size: 13.5px; color: #55566A;">Pergunte, ou mande fazer…</span>
+      <span style="width: 28px; height: 28px; border-radius: 2px; background: #F0A060; display: inline-flex; align-items: center; justify-content: center;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#060609" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5"/><path d="M5 12l7-7 7 7"/></svg></span>
+    </div>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

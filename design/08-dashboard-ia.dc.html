@@ -1,0 +1,274 @@
+<!doctype html>
+<!--
+  08 Dashboard com a IA trabalhando — aprovado pelo dono em 2026-09-03 (o design é a especificação)
+  Substitui a composição da 07 (tríptico). Estados: Main (esta) · 09 gaveta do assistente · 10 janela destacada.
+
+  ┌─ TABELA DE MEDIDAS (copiar para o SwiftUI) ──────────────────────────────────────────────────┐
+  │ Conteúdo               1440 × 852 sob o chrome de 64 · fundo paper · padding 28 32 24         │
+  │ Cabeçalho              uma linha: saudação 22/600 ls -0.01 · data capsLabel · à direita:      │
+  │                        "Atualizado agora · próximo em N min" e provedor, 11.5 ink4, gap 18    │
+  │ HERÓI "Comece por aqui" margem-topo 22 · pad 22 26 · fundo accentSoft · raio r2 · gap 28      │
+  │                        capsLabel accentInk · frase 20/500 lh 1.35 · botão primário 34 alto    │
+  │                        pad 0 18 · "Ver antes" 12.5/600 ink3. ÚNICA caixa de cor da tela.      │
+  │ Colunas                lista flex (pad-right 32) │ hairline │ prévia 360 (pad-left 32)       │
+  │                        │ hairline (margem-esq 32) │ dia 248 (pad-left 32) · colunas começam  │
+  │                        22 abaixo do herói                                                    │
+  │ Filtro                 linha de texto 13, gap 22, pad 22 0 10, hairline line embaixo         │
+  │                        ativo: ink + sublinhado 1.5 accent · inativo ink4 · contagem mono 10.5│
+  │                        contas à direita: ponto 7ø na tinta + nome 11.5 ink3, gap 14          │
+  │ Seção                  capsLabel ink2 + contagem mono 10 ink4 · pad 26 0 6 (primeira: 18)    │
+  │ Linha                  grid 18 + 1fr, gap-col 12 · pad 14 0 15 · hairline line2 embaixo      │
+  │                        ponto da conta 8ø na tinta, margem-topo 6 · SEM barra lateral         │
+  │                        l1: remetente 13/600 · conta mono 10 caps 0.08 ink4 · hora mono 11    │
+  │                        assunto 15/500 lh 1.35 ink, uma linha · SEM chip de motivo            │
+  │                        proposta: margem-topo 8 · "↳" mono accent (ink4 quando não é rascunho)│
+  │                        texto 13 lh 1.45 ink2 · negrito 500 ink · itálico ink3                │
+  │                        ações à direita, texto 12.5/600: primária accent · secundária ink3    │
+  │                        selecionada: fundo surface2 sangrando 22 para cada lado (margin -22)  │
+  │ Rodapé da lista        "Tirei da lista hoje: …" 12.5 lh 1.5 ink4 · "Conferir" accentInk 600  │
+  │ Prévia                 remetente 13/600 · conta mono 10 · hora mono 11 · assunto 17/500      │
+  │                        CARTÃO DO RASCUNHO margem-topo 22 · pad 16 18 · surface · borda line  │
+  │                        caps "Resposta pronta" accentInk + "sai pela <conta>" · corpo 14      │
+  │                        lh 1.65 · Enviar primário 30 alto · Editar ink2 · Descartar ink4      │
+  │                        "O que ele escreveu" caps + resumo 13.5 lh 1.6 ink2 + "Ler o email    │
+  │                        inteiro · N linhas" 12.5/600 ink3 · rodapé: ações em texto ink3       │
+  │ Dia (248)              "Seu dia" 13/600 + "em 1h39 · próximo" caps à direita · lista 14 abaixo│
+  │                        evento: grid 44 + 1fr gap 12 · pad 10 0 · hairline line2 · hora mono  │
+  │                        11.5/500 ink3 · título 13/500 · sub 11.5 ink4 · prazo: hora em warn   │
+  │                        BLOCO SUGERIDO: fundo surface · margem 6 -12 · pad 12 · borda         │
+  │                        tracejada accentLine · hora accentInk · Reservar accent/Outro ink4    │
+  │                        "Agora": caps accent + hairline accent 50%, pad 8 0                    │
+  │ Botão do chat          position absolute right 24 bottom 20 · 36 alto · pad 0 14 0 12 · raio│
+  │                        18 · btn/btnLine · sombra 0 10 30 rgba(0,0,0,.55) · ícone 15 accent   │
+  │                        "Perguntar" 12.5/600 + "⌘J" mono 10 ink4                              │
+  │ Gaveta (09)            440 largura · por cima, borda direita · surface · borda-esq btnLine   │
+  │                        sombra -30 0 80 rgba(0,0,0,.6) · fundo atrás a 45% · Esc fecha        │
+  │ Janela (10)            460 × 620 · raio 12 · cena própria, sobrevive à troca de aba          │
+  │ Raios só r2 · nenhuma outra sombra · sem chips de motivo · sem barra lateral nas linhas      │
+  └───────────────────────────────────────────────────────────────────────────────────────────────┘
+-->
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    body { margin: 0; background: #060609; -webkit-font-smoothing: antialiased; }
+    a { color: #F0A060; } a:hover { color: #F7B98A; }
+    .caps { font-family: 'JetBrains Mono', monospace; font-size: 9.5px; letter-spacing: 0.18em; text-transform: uppercase; color: #55566A; }
+    .f { font-family: 'Space Grotesk', sans-serif; }
+    .m { font-family: 'JetBrains Mono', monospace; }
+    /* Filtro: texto, não pílulas */
+    .flt { display: flex; align-items: baseline; gap: 22px; font-family: 'Space Grotesk', sans-serif; font-size: 13px; }
+    .flt span { color: #55566A; padding-bottom: 6px; }
+    .flt span b { font-weight: 500; color: #55566A; }
+    .flt span.on { color: #F4F4F8; border-bottom: 1.5px solid #F0A060; }
+    .flt span.on b { color: #F7B98A; }
+    .flt em { font-style: normal; font-family: 'JetBrains Mono', monospace; font-size: 10.5px; margin-left: 6px; }
+    /* Linha: sem caixa, sem selo. Ponto da conta, três linhas de texto, ação inline */
+    .row { padding: 14px 0 15px; border-bottom: 0.5px solid #16161F; display: grid; grid-template-columns: 18px 1fr; column-gap: 12px; }
+    .row.sel { background: linear-gradient(90deg, #08080E 0%, #08080E 100%); margin: 0 -22px; padding-left: 22px; padding-right: 22px; }
+    .row .dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; background: var(--tint); }
+    .row .l1 { display: flex; align-items: baseline; gap: 10px; }
+    .row .from { font-family: 'Space Grotesk', sans-serif; font-size: 13px; font-weight: 600; color: #F4F4F8; }
+    .row .acct { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: #55566A; }
+    .row .time { margin-left: auto; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #55566A; }
+    .row .subj { margin-top: 3px; font-family: 'Space Grotesk', sans-serif; font-size: 15px; font-weight: 500; line-height: 1.35; color: #F4F4F8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .row .ai { margin-top: 8px; display: flex; align-items: baseline; gap: 10px; font-family: 'Space Grotesk', sans-serif; font-size: 13px; line-height: 1.45; color: #B9BAC8; }
+    .row .ai .arrow { flex: none; color: #F0A060; font-family: 'JetBrains Mono', monospace; }
+    .row .ai .txt { flex: 1; min-width: 0; }
+    .row .ai .txt b { font-weight: 500; color: #F4F4F8; }
+    .row .ai .txt i { font-style: italic; color: #7B7C90; }
+    .row .ai .acts { flex: none; display: flex; gap: 14px; font-size: 12.5px; font-weight: 600; }
+    .row .ai .acts .p { color: #F0A060; }
+    .row .ai .acts .s { color: #7B7C90; }
+    .sec { display: flex; align-items: baseline; gap: 10px; padding: 26px 0 6px; }
+    .sec:first-child { padding-top: 0; }
+    .sec .n { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #55566A; }
+    .btn { height: 30px; padding: 0 14px; display: inline-flex; align-items: center; border-radius: 2px; font-family: 'Space Grotesk', sans-serif; font-size: 12.5px; font-weight: 600; }
+    .btn.p { background: #F0A060; color: #060609; }
+    .btn.g { color: #B9BAC8; border: 0.5px solid #2A2A38; }
+    /* Dia: sem caixas — hora em mono, título, hairline */
+    .ev { display: grid; grid-template-columns: 44px 1fr; column-gap: 12px; padding: 10px 0; border-bottom: 0.5px solid #16161F; }
+    .ev .h { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; font-weight: 500; color: #7B7C90; padding-top: 1px; }
+    .ev .n { font-family: 'Space Grotesk', sans-serif; font-size: 13px; font-weight: 500; color: #F4F4F8; line-height: 1.35; }
+    .ev .s { margin-top: 2px; font-family: 'Space Grotesk', sans-serif; font-size: 11.5px; color: #55566A; }
+    .ev.due .h { color: #E2B36B; }
+    .ev.plan { background: #0B0B12; margin: 6px -12px; padding: 12px 12px; border: 0.5px dashed #4A2C16; border-radius: 2px; }
+    .ev.plan .h { color: #F7B98A; }
+  </style>
+</helmet>
+
+<div class="f" style="position: relative; width: 1440px; height: 852px; box-sizing: border-box; background: #060609; padding: 28px 32px 24px; display: flex; flex-direction: column; color: #F4F4F8;">
+
+  <!-- Cabeçalho: uma linha, quieto -->
+  <div style="display: flex; align-items: baseline; gap: 18px;">
+    <div style="font-size: 22px; font-weight: 600; letter-spacing: -0.01em;">Bom dia, Marcos</div>
+    <div class="caps">Quinta · 3 de setembro</div>
+    <div style="margin-left: auto; display: flex; align-items: center; gap: 18px; font-size: 11.5px; color: #55566A;">
+      <span>Atualizado agora · próximo em 4 min</span>
+      <span>Codex · ChatGPT</span>
+    </div>
+  </div>
+
+  <!-- Herói: a única caixa de cor da tela -->
+  <div style="margin-top: 22px; padding: 22px 26px; background: #1A1209; border-radius: 2px; display: flex; align-items: center; gap: 28px;">
+    <div style="flex: 1; min-width: 0;">
+      <div class="caps" style="color: #F7B98A;">Comece por aqui</div>
+      <div style="margin-top: 8px; font-size: 20px; font-weight: 500; line-height: 1.35; letter-spacing: -0.005em;">Jack espera há 7 dias, e é sim ou não. A resposta já está escrita.</div>
+    </div>
+    <span class="btn p" style="flex: none; height: 34px; padding: 0 18px;">Enviar a resposta</span>
+    <span style="flex: none; font-size: 12.5px; font-weight: 600; color: #7B7C90;">Ver antes</span>
+  </div>
+
+  <div style="flex: 1; min-height: 0; display: flex; margin-top: 8px;">
+
+    <!-- Lista -->
+    <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; padding-right: 32px; overflow: hidden;">
+
+      <div style="display: flex; align-items: baseline; padding: 22px 0 10px; border-bottom: 0.5px solid #1E1E2B;">
+        <div class="flt">
+          <span class="on">Gente<em><b>3</b></em></span>
+          <span class="on">Prazos<em><b>1</b></em></span>
+          <span class="on">Leads<em><b>1</b></em></span>
+          <span>Disparos<em><b>13</b></em></span>
+          <span>Newsletters<em><b>233</b></em></span>
+        </div>
+        <div style="margin-left: auto; display: flex; gap: 14px; font-size: 11.5px; color: #7B7C90;">
+          <span><span style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #6FA8DC; margin-right: 6px; vertical-align: 0;"></span>Vantion</span>
+          <span><span style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #6CC894; margin-right: 6px;"></span>Okamiops</span>
+          <span><span style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #F0A060; margin-right: 6px;"></span>Gmail</span>
+        </div>
+      </div>
+
+      <div class="sec" style="padding-top: 18px;"><span class="caps" style="color: #B9BAC8;">Esperando você</span><span class="n">3</span></div>
+
+      <div class="row sel" style="--tint: #6CC894;">
+        <div class="dot"></div>
+        <div>
+          <div class="l1"><span class="from">Jack Whitmore</span><span class="acct">Okamiops</span><span class="time">27 ago</span></div>
+          <div class="subj">Okami Tally doesn't show up for "tally"</div>
+          <div class="ai"><span class="arrow">↳</span><span class="txt"><b>Resposta pronta.</b> "Sim, o Tally exige login hoje — libero a página pública até sexta e te aviso."</span><span class="acts"><span class="p">Enviar</span><span class="s">Editar</span></span></div>
+        </div>
+      </div>
+
+      <div class="row" style="--tint: #F0A060;">
+        <div class="dot"></div>
+        <div>
+          <div class="l1"><span class="from">Jayden Sutherland</span><span class="acct">Gmail</span><span class="time">1 set</span></div>
+          <div class="subj">Paid Consultation Opportunity: Endpoint Operating Systems</div>
+          <div class="ai"><span class="arrow">↳</span><span class="txt"><b>Resposta pronta.</b> "Terça 9/9 ou quinta 11/9, 15h–17h." <i>Olhei sua agenda: os dois estão livres.</i></span><span class="acts"><span class="p">Enviar</span><span class="s">Editar</span></span></div>
+        </div>
+      </div>
+
+      <div class="row" style="--tint: #F0A060;">
+        <div class="dot"></div>
+        <div>
+          <div class="l1"><span class="from">Cats9th</span><span class="acct">Gmail</span><span class="time">29 ago</span></div>
+          <div class="subj">Re: Check out your chapter page and personal bio</div>
+          <div class="ai"><span class="arrow" style="color: #55566A;">↳</span><span class="txt">Pede para atualizar seu perfil no site deles. Sem prazo. <i>Deixar para sexta de manhã?</i></span><span class="acts"><span class="p">Sexta 9h</span><span class="s">Agora</span></span></div>
+        </div>
+      </div>
+
+      <div class="sec"><span class="caps" style="color: #B9BAC8;">Vence</span><span class="n">1</span></div>
+
+      <div class="row" style="--tint: #F0A060;">
+        <div class="dot"></div>
+        <div>
+          <div class="l1"><span class="from">Abacus AI</span><span class="acct">Gmail</span><span class="time">10:54</span></div>
+          <div class="subj">Erinnerung: Ihre 6,000 Bonus-Credits laufen in wenigen Tagen ab</div>
+          <div class="ai"><span class="arrow" style="color: #55566A;">↳</span><span class="txt">6.000 créditos expiram sábado. <i>Você nunca abriu um email deles — arquivar e não trazer mais?</i></span><span class="acts"><span class="p">Arquivar e aprender</span><span class="s">Manter</span></span></div>
+        </div>
+      </div>
+
+      <div class="sec"><span class="caps" style="color: #B9BAC8;">Lead</span><span class="n">1</span></div>
+
+      <div class="row" style="--tint: #6FA8DC;">
+        <div class="dot"></div>
+        <div>
+          <div class="l1"><span class="from">Maria Exemplo</span><span class="acct">Vantion · formulário do site</span><span class="time">ontem</span></div>
+          <div class="subj">Orçamento de identidade visual</div>
+          <div class="ai"><span class="arrow">↳</span><span class="txt"><b>Resposta pronta.</b> "Obrigado pelo contato, Maria — posso te ligar amanhã às 10h para entender o projeto?"</span><span class="acts"><span class="p">Enviar</span><span class="s">Editar</span></span></div>
+        </div>
+      </div>
+
+      <div style="flex: 1;"></div>
+
+      <div style="padding-top: 14px; font-size: 12.5px; line-height: 1.5; color: #55566A;">
+        Tirei da lista hoje: Carol da Zoho <span style="color: #7B7C90;">(campanha, não lead)</span>, Welcome to Resend, Upwork e mais 10 disparos. <span style="color: #F7B98A; font-weight: 600;">Conferir</span>
+      </div>
+    </div>
+
+    <div style="width: 0.5px; background: #1E1E2B; margin-top: 22px;"></div>
+
+    <!-- Prévia -->
+    <div style="width: 360px; flex: none; display: flex; flex-direction: column; padding-left: 32px; padding-top: 22px;">
+      <div style="display: flex; align-items: baseline; gap: 10px;">
+        <span style="font-size: 13px; font-weight: 600;">Jack Whitmore</span>
+        <span class="m" style="font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: #55566A;">Okamiops</span>
+        <span class="m" style="margin-left: auto; font-size: 11px; color: #55566A;">27/08 14:12</span>
+      </div>
+      <div style="margin-top: 6px; font-size: 17px; font-weight: 500; line-height: 1.3;">Okami Tally doesn't show up for "tally"</div>
+
+      <div style="margin-top: 22px; padding: 16px 18px; background: #0B0B12; border: 0.5px solid #1E1E2B; border-radius: 2px;">
+        <div style="display: flex; align-items: baseline;">
+          <span class="caps" style="color: #F7B98A;">Resposta pronta</span>
+          <span class="caps" style="margin-left: auto;">sai pela Okamiops</span>
+        </div>
+        <div style="margin-top: 12px; font-size: 14px; line-height: 1.65; color: #F4F4F8;">Oi Jack,<br><br>Sim — hoje a página do Tally exige login, por isso a busca não acha. Vou liberar a versão pública até sexta e te aviso quando estiver no ar.<br><br>Abraço,<br>Marcos</div>
+        <div style="margin-top: 16px; display: flex; align-items: center; gap: 18px;">
+          <span class="btn p">Enviar</span>
+          <span style="font-size: 12.5px; font-weight: 600; color: #B9BAC8;">Editar</span>
+          <span style="font-size: 12.5px; font-weight: 600; color: #55566A;">Descartar</span>
+        </div>
+      </div>
+
+      <div style="margin-top: 22px;">
+        <div class="caps">O que ele escreveu</div>
+        <div style="margin-top: 8px; font-size: 13.5px; line-height: 1.6; color: #B9BAC8;">Não encontra o Okami Tally buscando "tally" e pergunta se a página exige login.</div>
+        <div style="margin-top: 10px; font-size: 12.5px; font-weight: 600; color: #7B7C90;">Ler o email inteiro · 4 linhas</div>
+      </div>
+
+      <div style="flex: 1;"></div>
+      <div style="display: flex; gap: 18px; font-size: 12.5px; font-weight: 600; color: #7B7C90; padding-top: 14px; border-top: 0.5px solid #16161F;">
+        <span>Responder eu mesmo</span><span>Arquivar</span><span>Depois</span>
+      </div>
+    </div>
+
+    <div style="width: 0.5px; background: #1E1E2B; margin-top: 22px; margin-left: 32px;"></div>
+
+    <!-- Dia -->
+    <div style="width: 248px; flex: none; display: flex; flex-direction: column; padding-left: 32px; padding-top: 22px;">
+      <div style="display: flex; align-items: baseline;"><span style="font-size: 13px; font-weight: 600;">Seu dia</span><span class="caps" style="margin-left: auto;">em 1h39 · Aitherion</span></div>
+
+      <div style="margin-top: 14px;">
+        <div class="ev"><span class="h">09:30</span><div><div class="n">Termin de Odette</div><div class="s">30 min · gmail</div></div></div>
+        <div style="display: flex; align-items: center; gap: 8px; padding: 8px 0;"><span class="caps" style="color: #F0A060;">Agora</span><span style="flex: 1; height: 0.5px; background: #F0A060; opacity: 0.5;"></span></div>
+        <div class="ev"><span class="h">11:39</span><div><div class="n">Aitherion Labs · Estratégia Econômica</div><div class="s">1 h · Google Meet</div></div></div>
+        <div class="ev plan"><span class="h">13:00</span><div><div class="n">Responder Jack, Jayden e Maria</div><div class="s">20 min · as três já prontas</div><div style="margin-top: 8px; display: flex; gap: 14px; font-size: 12px; font-weight: 600;"><span style="color: #F0A060;">Reservar</span><span style="color: #55566A;">Outro horário</span></div></div></div>
+        <div class="ev due"><span class="h">18:00</span><div><div class="n">Prazo do Jayden</div><div class="s">resolvido se enviar às 13h</div></div></div>
+        <div class="ev due"><span class="h">Sáb</span><div><div class="n">Créditos da Abacus expiram</div><div class="s">some se arquivar</div></div></div>
+        <div class="ev"><span class="h">23:30</span><div><div class="n">Luna · Dev time weekly</div><div class="s">1 h · Google Meet</div></div></div>
+      </div>
+
+      <div style="flex: 1;"></div>
+      <div style="padding-top: 14px; border-top: 0.5px solid #16161F;">
+        <div class="caps">O que você prometeu</div>
+        <div style="margin-top: 6px; font-size: 12.5px; color: #55566A;">Nada em aberto.</div>
+      </div>
+    </div>
+  </div>
+  <!-- Botão do chat: fixo no canto, fora da área útil -->
+  <div style="position: absolute; right: 24px; bottom: 20px; display: flex; align-items: center; gap: 9px; height: 36px; padding: 0 14px 0 12px; border-radius: 18px; background: #14141E; border: 0.5px solid #2A2A38; box-shadow: 0 10px 30px rgba(0,0,0,0.55), inset 0 1px 0 rgba(244,244,248,0.04);">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#F0A060" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.4A8 8 0 1 1 21 12z"/></svg>
+    <span style="font-size: 12.5px; font-weight: 600; color: #F4F4F8;">Perguntar</span>
+    <span class="m" style="font-size: 10px; color: #55566A;">⌘J</span>
+  </div>
+</div>
+</x-dc>
+</body>
+</html>
