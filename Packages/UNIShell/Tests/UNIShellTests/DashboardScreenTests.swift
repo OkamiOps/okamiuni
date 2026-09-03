@@ -712,6 +712,50 @@ struct DashboardScreenTests {
         }
     }
 
+    /// Uma porta de regra em memória, para o desfazer conjunto ter onde
+    /// gravar e revogar.
+    private final class RegrasEmMemoria: SenderRuling, @unchecked Sendable {
+        private var regras: [String: SenderRule] = [:]
+        func learnSender(_ address: String, neverPriority: Bool, at date: Date) throws {
+            if neverPriority {
+                regras[address] = SenderRule(address: address, createdAt: date)
+            } else {
+                regras[address] = nil
+            }
+        }
+        func senderRules() throws -> [SenderRule] { Array(regras.values) }
+    }
+
+    /// A leva "Arquivar e aprender" desfaz **junto**: um comando devolve a
+    /// mensagem ao estado fotografado e revoga a regra — dois recibos seriam
+    /// a pessoa desarquivando sem recuperar o remetente que calou.
+    @Test("o desfazer conjunto devolve a mensagem e revoga a regra")
+    func jointUndoRestoresBoth() async throws {
+        let store = MailStore(
+            source: InMemoryMailSource(
+                accounts: DiaDoDono.contas,
+                messages: [DiaDoDono.abacus], agenda: []
+            ),
+            senderRulePort: RegrasEmMemoria()
+        )
+        await store.load()
+
+        let antes = store.states(of: ["abacus"])
+        StoreCommand.run(.move(messageID: "abacus", to: .archived), on: store)
+        StoreCommand.run(
+            .learnSender(address: "no-reply@abacus.ai", neverPriority: true), on: store
+        )
+        #expect(store.message("abacus")?.bucket == .archived)
+        #expect(store.silencesSender("no-reply@abacus.ai"))
+
+        StoreCommand.run(
+            .restoreArchivedAndForgetSender(states: antes, address: "no-reply@abacus.ai"),
+            on: store
+        )
+        #expect(store.message("abacus")?.bucket == .today, "a mensagem não voltou")
+        #expect(!store.silencesSender("no-reply@abacus.ai"), "a regra sobreviveu ao desfazer")
+    }
+
     /// O que o 08 mandou **remover** — caso de fonte, porque nenhum destes
     /// deixa rastro de pixel afirmável sozinho.
     @Test("o campo de pergunta, os chips e a barra lateral sumiram da fonte")
