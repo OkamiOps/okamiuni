@@ -347,18 +347,19 @@ struct AssistantDrawerRenderTests {
         #expect(store.message("abacus")?.bucket == .today, "⏎ mexeu na caixa")
     }
 
-    /// O botão do canto do dashboard abre a **gaveta** — não o painel antigo.
-    @Test("o botão Perguntar do canto abre a gaveta")
-    func theCornerButtonOpensTheDrawer() async throws {
+    /// O botão "Perguntar · ⌘J" do painel abre a **gaveta** — não o painel
+    /// antigo. Ele mudou de lugar no 11: saiu do canto flutuante e foi para o
+    /// fim da linha do cabeçalho, à direita do provedor.
+    @Test("o botão Perguntar do cabeçalho abre a gaveta")
+    func theHeaderButtonOpensTheDrawer() async throws {
         let store = await DiaDoDono.loja()
         let session = AssistantSession()
-        // O canto inferior direito, onde o botão flutua (medidas do 08).
-        let x = Self.size.width - DashboardMetrics.askButtonTrailing - 60
-        let y = Self.size.height - DashboardMetrics.askButtonBottom
-            - DashboardMetrics.askButtonHeight / 2
+        // Fim da linha do cabeçalho do painel, logo abaixo do chrome.
+        let x = Self.size.width - 94
+        let y: CGFloat = 100
 
         CliqueDeEnsaio.em(tela(store, session: session), size: Self.size, aY: y, x: x)
-        #expect(session.isDrawerOpen, "o botão do canto não abriu a gaveta")
+        #expect(session.isDrawerOpen, "o botão do cabeçalho não abriu a gaveta")
     }
 
     /// ↗ destaca: abre a cena e **fecha a gaveta**. A mesma conversa em duas

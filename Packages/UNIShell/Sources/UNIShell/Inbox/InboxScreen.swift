@@ -639,7 +639,7 @@ public struct InboxScreen: View {
         // A conversa é criada uma vez e guardada; construí-la no corpo faria
         // uma máquina de estado nova a cada repintura.
         let conversation = dashboardConversation ?? makeDashboardConversation()
-        return DashboardScreen(
+        return PainelDoDia(
             store: store,
             now: now,
             today: agendaAnchor,

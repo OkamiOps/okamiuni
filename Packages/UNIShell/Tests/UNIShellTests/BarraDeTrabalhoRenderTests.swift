@@ -90,7 +90,7 @@ struct BarraDeTrabalhoRenderTests {
                 statusDetail: workload.detail,
                 onReloadMailbox: {}
             )
-            DashboardScreen(
+            PainelDoDia(
                 store: store,
                 now: Fixtures.nowMinute,
                 today: Fixtures.today,
