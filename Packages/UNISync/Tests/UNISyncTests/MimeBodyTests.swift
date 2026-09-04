@@ -148,6 +148,37 @@ struct MimeBodyTests {
         ])
     }
 
+    @Test("HTML quoted-printable sem cabeçalho da parte ainda é decodificado")
+    func htmlQuotedPrintableSemCabecalhoDaParte() {
+        // O SendGrid/OpenAI observado em produção declarou o multipart no
+        // cabeçalho externo, mas deixou a parte HTML sem o seu próprio
+        // Content-Transfer-Encoding. O corpo continuou trazendo QP: `=20`,
+        // `=3D` e quebras suaves. Sanitizar antes de desfazer isso transforma
+        // atributos em `width=\"3D&amp;quot;100%...\"` e espreme a mensagem.
+        let raw = """
+            --openai
+            Content-Type: text/html; charset=utf-8
+
+            <html><body><table width=3D"100%"><tr><td>=20</td></tr></table>=
+            <p>Enter this temporary verification code to continue:</p>
+            <p>478457</p></body></html>
+            --openai--
+            """
+
+        let decoded = MimeBody.decode(
+            raw: raw,
+            contentType: "multipart/alternative; boundary=openai",
+            contentTransferEncoding: "7bit"
+        )
+        let html = try! #require(decoded.html)
+
+        #expect(html.contains("Enter this temporary verification code"))
+        #expect(html.contains("width=\"100%\""))
+        #expect(!html.contains("=20"))
+        #expect(!html.contains("=3D"))
+        #expect(!html.contains("3D&amp;quot"))
+    }
+
     /// **Prova por mutação do decodificador.** Um `text(raw:…)` que devolvesse
     /// a fonte crua — que é literalmente o que o app fazia antes desta tarefa —
     /// passa por qualquer afirmação sobre "o corpo não está vazio". O que o

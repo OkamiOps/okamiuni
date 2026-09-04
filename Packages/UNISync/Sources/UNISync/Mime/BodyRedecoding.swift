@@ -53,8 +53,19 @@ public enum BodyRedecoding {
             guard let fim = lote.last?.rowid else { break }
             ultimoRowID = fim
 
+            // Sanitizar antes de desfazer QP perde informação: atributos já
+            // foram reinterpretados e não podem ser reconstruídos daqui. O
+            // cache é descartável; sem a linha, o leitor rebusca o corpo
+            // original do servidor e o grava novamente pelo caminho corrigido.
+            let invalidos = lote.compactMap { registro -> Int64? in
+                guard let rowid = registro.rowid, let html = registro.html,
+                      MimeBody.htmlSanitizadoTemQPQuebrado(html) else { return nil }
+                return rowid
+            }
+            let conjuntoInvalido = Set(invalidos)
             let consertos: [Conserto] = lote.compactMap { registro in
                 guard let rowid = registro.rowid else { return nil }
+                guard !conjuntoInvalido.contains(rowid) else { return nil }
                 let velhos = registro.body
                 guard let novos = MimeBody.redecodedBody(velhos) else { return nil }
                 return Conserto(
@@ -64,16 +75,19 @@ public enum BodyRedecoding {
                 )
             }
 
-            if !consertos.isEmpty {
+            if !invalidos.isEmpty || !consertos.isEmpty {
                 try await database.pool.write { db in
+                    for rowid in invalidos {
+                        try db.execute(sql: "DELETE FROM message_body WHERE rowid = ?", arguments: [rowid])
+                    }
                     for conserto in consertos { try aplica(conserto, em: db) }
                 }
-                reescritos += consertos.count
+                reescritos += invalidos.count + consertos.count
             }
         }
 
         if reescritos > 0 {
-            log.info("Corpos re-decodificados na abertura: \(reescritos, privacy: .public).")
+            log.info("Corpos re-decodificados ou invalidados na abertura: \(reescritos, privacy: .public).")
         }
         return reescritos
     }

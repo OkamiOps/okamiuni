@@ -305,7 +305,22 @@ public enum MimeBody {
             } else {
                 return []
             }
-            let dados = decodificaTransporte(corpo, codificacao: codificacao)
+            // Alguns geradores (o SendGrid/OpenAI observado no IMAP em
+            // 2026-09-04) deixam a parte `text/*` sem o seu próprio
+            // Content-Transfer-Encoding, embora a carga continue sendo
+            // quoted-printable. O cabeçalho 7bit do multipart externo não
+            // descreve a folha. Sanitizar esse HTML ainda cru transforma
+            // `width=3D"100%"` em um atributo quebrado e faz a mensagem virar
+            // uma coluna estreita. A mesma sondagem conservadora da porta sem
+            // cabeçalho resolve a folha antes de qualquer parser de HTML.
+            let declarada = codificacao.trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            let efetiva = mime.hasPrefix("text/")
+                && ["", "7bit", "8bit", "binary"].contains(declarada)
+                && pareceQuotedPrintable(normaliza(corpo))
+                ? "quoted-printable"
+                : codificacao
+            let dados = decodificaTransporte(corpo, codificacao: efetiva)
             return [Folha(
                 mime: mime, dados: dados, charset: charset(de: tipo), contentID: contentID,
                 tipoCru: tipo

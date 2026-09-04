@@ -73,6 +73,63 @@ struct BodyRedecodingHTMLTests {
         #expect(conserto.paragraphs == ["Recibo da sua assinatura anual."])
     }
 
+    @Test("Cache sanitizado antes de desfazer QP é invalidado para rebusca")
+    func invalidaCacheHTMLIrreversivel() async throws {
+        let db = try SyncDatabase.temporary()
+        try await db.pool.write { conexao in
+            try AccountRecord(
+                Account(
+                    id: "conta-a", address: "eu@x.com", displayName: "Eu",
+                    provider: .imap, host: "x",
+                    tintLightHex: "#3F6AA1", tintDarkHex: "#8CBAF7"
+                ),
+                createdAt: Date(timeIntervalSince1970: 1)
+            ).insert(conexao)
+            try FolderRecord(
+                id: "conta-a/INBOX", accountID: "conta-a",
+                serverName: "INBOX", role: .inbox, displayName: "Caixa"
+            ).insert(conexao)
+            let mensagem = Message(
+                id: "m-html", accountID: "conta-a",
+                from: Contact(name: "ChatGPT", address: "noreply@openai.com"),
+                receivedAt: Date(timeIntervalSince1970: 100),
+                subject: "Your temporary ChatGPT login code", snippet: "Enter this code",
+                body: ["Enter this temporary verification code: 478457"],
+                tags: [], bucket: .today, isRead: false,
+                summary: nil, detectedEvent: nil
+            )
+            try MessageRecord(mensagem, folderID: "conta-a/INBOX").insert(conexao)
+            var registro = MessageBodyRecord(
+                messageID: "m-html",
+                paragraphs: ["Enter this temporary verification code: 478457"]
+            )
+            try registro.insert(conexao)
+            try conexao.execute(
+                sql: "UPDATE message_body SET html = ? WHERE messageID = 'm-html'",
+                arguments: ["""
+                    <html><body><table width="3D&quot;100%&quot;">
+                    <tr><td>=20</td></tr><tr><td>=20</td></tr>
+                    </table></body></html>
+                    """]
+            )
+        }
+
+        #expect(try await BodyRedecoding.run(db) == 1)
+        let corpo = try await db.pool.read { conexao in
+            try MessageBodyRecord
+                .filter(Column("messageID") == "m-html")
+                .fetchOne(conexao)
+        }
+        #expect(corpo == nil)
+        // O envelope não é cache e permanece; sem a linha de corpo, o leitor
+        // sabe que precisa buscar a mensagem novamente no servidor.
+        let mensagemExiste = try await db.pool.read { conexao in
+            try MessageRecord.fetchOne(conexao, key: "m-html") != nil
+        }
+        #expect(mensagemExiste)
+        #expect(try await BodyRedecoding.run(db) == 0)
+    }
+
     @Test("A varredura da abertura grava as duas metades e converge")
     func varreduraGrava() async throws {
         let db = try SyncDatabase.temporary()

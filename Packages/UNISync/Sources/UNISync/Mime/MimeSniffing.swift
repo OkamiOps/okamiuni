@@ -242,6 +242,22 @@ extension MimeBody {
         return false
     }
 
+    /// Um HTML que já passou pelo sanitizador **antes** de o transporte QP ser
+    /// desfeito. Nesse ponto não há reparo fiel: o parser já reinterpretou
+    /// `style=3D"..."` como um atributo diferente e escapou as aspas para
+    /// `style="3D&amp;quot;..."`. A resposta segura é descartar só esse cache e
+    /// rebuscar a fonte no servidor com o decodificador corrigido.
+    ///
+    /// As duas evidências evitam tomar como corrupção um email legítimo que
+    /// fala de `=20`: várias marcas QP **e** a cicatriz estrutural deixada num
+    /// atributo HTML.
+    static func htmlSanitizadoTemQPQuebrado(_ html: String) -> Bool {
+        guard pareceQuotedPrintable(normalizaParaFarejar(html)) else { return false }
+        return html.range(of: "\"3D&quot;", options: .caseInsensitive) != nil
+            || html.range(of: "\"3D&amp;quot;", options: .caseInsensitive) != nil
+            || html.range(of: "=3D", options: .caseInsensitive) != nil
+    }
+
     /// Um bloco inteiro de base64 e nada mais.
     ///
     /// As três exigências juntas são o que torna isto seguro: o alfabeto tem de
