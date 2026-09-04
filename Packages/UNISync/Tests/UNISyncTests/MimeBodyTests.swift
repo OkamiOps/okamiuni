@@ -179,6 +179,37 @@ struct MimeBodyTests {
         #expect(!html.contains("3D&amp;quot"))
     }
 
+    @Test("Cicatriz QP restante é desfeita mesmo com encoding não padrão")
+    func htmlQuotedPrintableComEncodingNaoPadrao() {
+        let raw = """
+            --openai
+            Content-Type: text/plain; charset=windows-1252
+            Content-Transfer-Encoding: x-quoted-printable
+
+            =20
+            Enter this temporary verification code: 478457
+            =20
+            --openai
+            Content-Type: text/html; charset=windows-1252
+            Content-Transfer-Encoding: x-quoted-printable
+
+            <html><body><table width=3D"100%"><tr><td>=20</td></tr></table>
+            <p>Enter this temporary verification code: 478457</p></body></html>
+            --openai--
+            """
+
+        let decoded = MimeBody.decode(
+            raw: raw, contentType: "multipart/alternative; boundary=openai"
+        )
+        let html = try! #require(decoded.html)
+
+        #expect(!decoded.text.contains("=20"))
+        #expect(decoded.text.contains("Enter this temporary verification code: 478457"))
+        #expect(html.contains("width=\"100%\""))
+        #expect(!html.contains("=20"))
+        #expect(!html.contains("3D&amp;quot"))
+    }
+
     /// **Prova por mutação do decodificador.** Um `text(raw:…)` que devolvesse
     /// a fonte crua — que é literalmente o que o app fazia antes desta tarefa —
     /// passa por qualquer afirmação sobre "o corpo não está vazio". O que o

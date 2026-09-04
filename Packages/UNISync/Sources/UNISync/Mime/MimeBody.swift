@@ -184,7 +184,26 @@ public enum MimeBody {
         /// quebras de linha desta parte são do autor ou do transporte.
         let tipoCru: String
 
-        var texto: String { MimeBody.string(de: dados, charset: charset) }
+        var texto: String {
+            let declarado = MimeBody.string(de: dados, charset: charset)
+            // A declaração de transporte não é sempre confiável. O caso real
+            // do SendGrid/OpenAI chegou ao IMAP com HTML ainda marcado por
+            // `=20`, `=3D` e quebras suaves mesmo depois da etapa indicada pelo
+            // cabeçalho. Esta é a última fronteira antes de texto e HTML se
+            // separarem: se a carga continua tendo a assinatura conservadora
+            // de QP, desfaz uma camada restante aqui.
+            //
+            // Limitado às duas partes de leitura. Um `text/calendar` pode
+            // legitimamente mencionar sequências parecidas dentro de uma
+            // descrição e tem seu próprio contrato.
+            guard mime == "text/plain" || mime == "text/html",
+                  MimeBody.pareceQuotedPrintable(MimeBody.normaliza(declarado))
+            else { return declarado }
+            return MimeBody.string(
+                de: MimeBody.quotedPrintable(declarado, sublinhadoEhEspaco: false),
+                charset: charset
+            )
+        }
     }
 
     /// A escolha, dada a árvore: `text/plain` primeiro; `text/html` virado
