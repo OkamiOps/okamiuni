@@ -17,23 +17,23 @@ public enum OpenAICompatibleTextAssistantError: Error, Sendable, Equatable, Loca
     public var errorDescription: String? {
         switch self {
         case .missingAPIKey:
-            "Adicione uma chave de API para o provedor de IA selecionado."
+            L10n.tr("Adicione uma chave de API para o provedor de IA selecionado.")
         case .missingOAuthAuthorization:
-            "Conecte o LiteLLM por OAuth antes de usar este provedor."
+            L10n.tr("Conecte o LiteLLM por OAuth antes de usar este provedor.")
         case .oauthProviderUnavailable:
-            "Este build ainda não tem o conector OAuth do LiteLLM configurado."
+            L10n.tr("Este build ainda não tem o conector OAuth do LiteLLM configurado.")
         case .authenticationFailed:
-            "O provedor de IA recusou a credencial. Confira a chave ou reconecte o OAuth e tente de novo."
+            L10n.tr("O provedor de IA recusou a credencial. Confira a chave ou reconecte o OAuth e tente de novo.")
         case .rateLimited:
-            "O provedor de IA pediu para desacelerar. Tente de novo em instantes."
+            L10n.tr("O provedor de IA pediu para desacelerar. Tente de novo em instantes.")
         case .timedOut:
-            "O provedor de IA demorou demais para responder. Tente de novo."
+            L10n.tr("O provedor de IA demorou demais para responder. Tente de novo.")
         case .connectionFailed:
-            "Não foi possível falar com o provedor de IA. Verifique a conexão e o endpoint."
+            L10n.tr("Não foi possível falar com o provedor de IA. Verifique a conexão e o endpoint.")
         case let .server(statusCode):
-            "O provedor de IA respondeu com erro \(statusCode)."
+            L10n.tr("O provedor de IA respondeu com erro \(statusCode).")
         case .invalidResponse:
-            "O provedor de IA devolveu uma resposta que o OkamiUNI não consegue usar."
+            L10n.tr("O provedor de IA devolveu uma resposta que o OkamiUNI não consegue usar.")
         }
     }
 }

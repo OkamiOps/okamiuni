@@ -110,15 +110,15 @@ public enum MessageAnalysisError: Error, Sendable, Equatable, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .unavailable(.available):
-            return "A análise no dispositivo não está disponível neste momento."
+            return L10n.tr("A análise no dispositivo não está disponível neste momento.")
         case .unavailable(.deviceNotEligible):
-            return "Este dispositivo não é elegível para a análise no dispositivo."
+            return L10n.tr("Este dispositivo não é elegível para a análise no dispositivo.")
         case .unavailable(.appleIntelligenceNotEnabled):
-            return "A Apple Intelligence está desativada neste dispositivo."
+            return L10n.tr("A Apple Intelligence está desativada neste dispositivo.")
         case .unavailable(.modelNotReady):
-            return "O modelo no dispositivo ainda não está pronto."
+            return L10n.tr("O modelo no dispositivo ainda não está pronto.")
         case .invalidResponse:
-            return "O modelo devolveu uma análise inválida."
+            return L10n.tr("O modelo devolveu uma análise inválida.")
         case let .generationFailed(message):
             return message
         }

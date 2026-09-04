@@ -1,16 +1,17 @@
 import AppKit
 import SwiftUI
+import UNICore
 import UNIDesign
 
 /// A pergunta ao sair do compositor com alterações que ainda não foram
 /// gravadas. Mesmo idioma da janela de compromisso: cartão nosso, não o
 /// diálogo do sistema — aquele não segue o tema.
 enum ComposerLeaveConfirm: Equatable {
-    static let title = "Salvar no rascunho?"
-    static let message = "Há alterações que ainda não foram salvas."
-    static let saveTitle = "Salvar"
-    static let discardTitle = "Não salvar"
-    static let cancelTitle = "Cancelar"
+    static var title: String { L10n.tr("Salvar no rascunho?") }
+    static var message: String { L10n.tr("Há alterações que ainda não foram salvas.") }
+    static var saveTitle: String { L10n.tr("Salvar") }
+    static var discardTitle: String { L10n.tr("Não salvar") }
+    static var cancelTitle: String { L10n.tr("Cancelar") }
 
     /// Só pergunta quando há o que perder. Rascunho já gravado e mensagem
     /// vazia saem direto.

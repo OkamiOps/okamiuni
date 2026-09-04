@@ -392,17 +392,17 @@ public enum ContextMenus {
     ) -> [ContextMenuEntry] {
         if message.bucket == .drafts {
             return [
-                .item(ContextMenuItem("Editar rascunho", .reply(messageID: message.id), shortcut: .reply)),
+                .item(ContextMenuItem(L10n.tr("Editar rascunho"), .reply(messageID: message.id), shortcut: .reply)),
                 .separator,
                 .item(deleteItem(message)),
             ].tidied
         }
         var entries: [ContextMenuEntry] = [
-            .item(ContextMenuItem("Abrir em janela", .openMessageWindow(messageID: message.id))),
-            .item(ContextMenuItem("Responder", .reply(messageID: message.id), shortcut: .reply)),
+            .item(ContextMenuItem(L10n.tr("Abrir em janela"), .openMessageWindow(messageID: message.id))),
+            .item(ContextMenuItem(L10n.tr("Responder"), .reply(messageID: message.id), shortcut: .reply)),
             .item(replyAllItem(message, accountAddress: accountAddress)),
             .item(ContextMenuItem(
-                "Encaminhar", .forward(messageID: message.id), shortcut: .forward
+                L10n.tr("Encaminhar"), .forward(messageID: message.id), shortcut: .forward
             )),
             .separator,
             .item(archiveItem(message)),
@@ -448,16 +448,16 @@ public enum ContextMenus {
         currentBucket: TriageBucket? = nil
     ) -> [ContextMenuEntry] {
         var entries: [ContextMenuEntry] = [
-            .item(ContextMenuItem("Copiar texto da mensagem", .copy(bodyText(message)))),
+            .item(ContextMenuItem(L10n.tr("Copiar texto da mensagem"), .copy(bodyText(message)))),
         ]
         entries.append(contentsOf: copyEntries(message))
         entries.append(.separator)
         entries.append(
-            .item(ContextMenuItem("Responder", .reply(messageID: message.id), shortcut: .reply))
+            .item(ContextMenuItem(L10n.tr("Responder"), .reply(messageID: message.id), shortcut: .reply))
         )
         entries.append(.item(replyAllItem(message, accountAddress: accountAddress)))
         entries.append(.item(ContextMenuItem(
-            "Encaminhar", .forward(messageID: message.id), shortcut: .forward
+            L10n.tr("Encaminhar"), .forward(messageID: message.id), shortcut: .forward
         )))
         entries.append(.item(archiveItem(message)))
         entries.append(.item(deleteItem(message)))
@@ -491,16 +491,18 @@ public enum ContextMenus {
         var entries: [ContextMenuEntry] = []
         if unread > 0 {
             entries.append(.item(ContextMenuItem(
-                "Marcar tudo como lido",
+                L10n.tr("Marcar tudo como lido"),
                 .markAllRead(bucket: bucket, accountID: accountID)
             )))
         }
         if bucket == .trash, trash > 0 {
             entries.append(.separator)
             entries.append(.item(ContextMenuItem(
-                "Esvaziar lixeira",
+                L10n.tr("Esvaziar lixeira"),
                 .emptyTrash(accountID: accountID),
-                help: "Apagar de vez \(trash) \(trash == 1 ? "mensagem" : "mensagens") — sem desfazer"
+                help: trash == 1
+                    ? L10n.tr("Apagar de vez \(trash) mensagem — sem desfazer")
+                    : L10n.tr("Apagar de vez \(trash) mensagens — sem desfazer")
             )))
         }
         return entries.tidied
@@ -526,24 +528,24 @@ public enum ContextMenus {
             // conta; o que faltava era um caminho até ela que não passasse por
             // abrir a janela e trocar a linha "De" à mão.
             .item(ContextMenuItem(
-                "Nova mensagem desta conta",
+                L10n.tr("Nova mensagem desta conta"),
                 .composeFrom(accountID: account.id),
-                help: "Escrever de \(account.address)"
+                help: L10n.tr("Escrever de \(account.address)")
             )),
             .separator,
             .item(isFiltered
-                ? ContextMenuItem("Limpar filtro", .clearAccountFilter)
-                : ContextMenuItem("Filtrar só esta conta", .filterAccount(accountID: account.id)))
+                ? ContextMenuItem(L10n.tr("Limpar filtro"), .clearAccountFilter)
+                : ContextMenuItem(L10n.tr("Filtrar só esta conta"), .filterAccount(accountID: account.id)))
         ]
         entries.append(.separator)
         if unread > 0 {
             entries.append(.item(ContextMenuItem(
-                "Marcar tudo como lido",
+                L10n.tr("Marcar tudo como lido"),
                 .markAllRead(bucket: .all, accountID: account.id)
             )))
         }
         entries.append(.submenu(
-            title: "Cor da caixa",
+            title: L10n.tr("Cor da caixa"),
             items: AccountTint.catalogue.map { color in
                 ContextMenuItem(
                     color.name,
@@ -558,11 +560,11 @@ public enum ContextMenus {
         // A linha da conta é onde se descobre que uma conta parou: é ela que
         // mostra o estado. O caminho até "o que fazer com isso" sai daqui.
         entries.append(.item(ContextMenuItem(
-            "Configurações…",
+            L10n.tr("Configurações…"),
             .openAccounts,
-            help: "Adicionar, testar ou remover contas"
+            help: L10n.tr("Adicionar, testar ou remover contas")
         )))
-        entries.append(.item(ContextMenuItem("Copiar endereço", .copy(account.address))))
+        entries.append(.item(ContextMenuItem(L10n.tr("Copiar endereço"), .copy(account.address))))
         return entries.tidied
     }
 
@@ -576,14 +578,14 @@ public enum ContextMenus {
     ) -> [ContextMenuEntry] {
         let item = isConcealed
             ? ContextMenuItem(
-                "Mostrar na lista",
+                L10n.tr("Mostrar na lista"),
                 .revealCalendar(id: calendar.id),
-                help: "Devolve \(calendar.title) à lista de \(calendar.source)"
+                help: L10n.tr("Devolve \(calendar.title) à lista de \(calendar.source)")
             )
             : ContextMenuItem(
-                "Ocultar calendário",
+                L10n.tr("Ocultar calendário"),
                 .concealCalendar(id: calendar.id),
-                help: "Tira \(calendar.title) da lista e da trilha recolhida. Os compromissos deixam de aparecer na grade."
+                help: L10n.tr("Tira \(calendar.title) da lista e da trilha recolhida. Os compromissos deixam de aparecer na grade.")
             )
         return [ContextMenuEntry.item(item)].tidied
     }
@@ -609,24 +611,24 @@ public enum ContextMenus {
         originMessageID: String?
     ) -> [ContextMenuEntry] {
         var entries: [ContextMenuEntry] = [
-            .item(ContextMenuItem("Abrir detalhe", .openEvent(itemID: item.id))),
+            .item(ContextMenuItem(L10n.tr("Abrir detalhe"), .openEvent(itemID: item.id))),
             .separator,
         ]
         if let link = detail.meetingLink {
-            entries.append(.item(ContextMenuItem("Copiar link da reunião", .copy(link))))
+            entries.append(.item(ContextMenuItem(L10n.tr("Copiar link da reunião"), .copy(link))))
         }
         entries.append(.item(ContextMenuItem(
-            "Copiar convite",
+            L10n.tr("Copiar convite"),
             .copy(inviteText(item, detail: detail, date: date))
         )))
         entries.append(.item(ContextMenuItem(
-            "Copiar resumo",
+            L10n.tr("Copiar resumo"),
             .copy(summaryText(item, date: date))
         )))
         entries.append(.separator)
         if let originMessageID {
             entries.append(.item(ContextMenuItem(
-                "Ir para o email de origem",
+                L10n.tr("Ir para o email de origem"),
                 .revealMessage(messageID: originMessageID)
             )))
         }
@@ -655,13 +657,15 @@ public enum ContextMenus {
     static func replyAllItem(_ message: Message, accountAddress: String) -> ContextMenuItem {
         let extras = ComposerSeed.replyAllExtras(message, accountAddress: accountAddress)
         return ContextMenuItem(
-            "Responder a todos",
+            L10n.tr("Responder a todos"),
             .replyAll(messageID: message.id),
             shortcut: .replyAll,
             isEnabled: extras > 0,
             help: extras > 0
-                ? "Responder ao remetente e a mais \(extras) \(extras == 1 ? "pessoa" : "pessoas")"
-                : "Esta mensagem não tem mais ninguém além do remetente"
+                ? (extras == 1
+                    ? L10n.tr("Responder ao remetente e a mais \(extras) pessoa")
+                    : L10n.tr("Responder ao remetente e a mais \(extras) pessoas"))
+                : L10n.tr("Esta mensagem não tem mais ninguém além do remetente")
         )
     }
 
@@ -682,14 +686,14 @@ public enum ContextMenus {
     public static func deleteItem(_ message: Message) -> ContextMenuItem {
         message.bucket == .trash
             ? ContextMenuItem(
-                "Apagar definitivamente", .deleteForever(messageID: message.id),
+                L10n.tr("Apagar definitivamente"), .deleteForever(messageID: message.id),
                 shortcut: .delete,
-                help: "Tirar esta mensagem da Lixeira de vez"
+                help: L10n.tr("Tirar esta mensagem da Lixeira de vez")
             )
             : ContextMenuItem(
-                "Apagar", .move(messageID: message.id, to: .trash),
+                L10n.tr("Apagar"), .move(messageID: message.id, to: .trash),
                 shortcut: .delete,
-                help: "Mover esta mensagem para a Lixeira"
+                help: L10n.tr("Mover esta mensagem para a Lixeira")
             )
     }
 
@@ -698,11 +702,11 @@ public enum ContextMenus {
     static func flagToggle(_ message: Message) -> ContextMenuItem {
         message.isFlagged
             ? ContextMenuItem(
-                "Tirar a sinalização", .setFlagged(messageID: message.id, isFlagged: false),
+                L10n.tr("Tirar a sinalização"), .setFlagged(messageID: message.id, isFlagged: false),
                 shortcut: .flag
             )
             : ContextMenuItem(
-                "Sinalizar", .setFlagged(messageID: message.id, isFlagged: true),
+                L10n.tr("Sinalizar"), .setFlagged(messageID: message.id, isFlagged: true),
                 shortcut: .flag
             )
     }
@@ -710,11 +714,11 @@ public enum ContextMenus {
     static func readToggle(_ message: Message) -> ContextMenuItem {
         message.isRead
             ? ContextMenuItem(
-                "Marcar como não lida", .setRead(messageID: message.id, isRead: false),
+                L10n.tr("Marcar como não lida"), .setRead(messageID: message.id, isRead: false),
                 shortcut: .readToggle
             )
             : ContextMenuItem(
-                "Marcar como lida", .setRead(messageID: message.id, isRead: true),
+                L10n.tr("Marcar como lida"), .setRead(messageID: message.id, isRead: true),
                 shortcut: .readToggle
             )
     }
@@ -733,11 +737,11 @@ public enum ContextMenus {
     static func archiveItem(_ message: Message) -> ContextMenuItem {
         let already = message.bucket == .archived
         return ContextMenuItem(
-            "Arquivar",
+            L10n.tr("Arquivar"),
             .move(messageID: message.id, to: .archived),
             shortcut: .archive,
             isEnabled: !already,
-            help: already ? "Esta mensagem já está em Arquivado" : "Arquivar esta mensagem"
+            help: already ? L10n.tr("Esta mensagem já está em Arquivado") : L10n.tr("Arquivar esta mensagem")
         )
     }
 
@@ -762,7 +766,7 @@ public enum ContextMenus {
             .filter { $0 != .all && $0 != .trash && $0 != message.bucket }
         guard !targets.isEmpty else { return nil }
         return .submenu(
-            title: "Mover para",
+            title: L10n.tr("Mover para"),
             items: targets.map {
                 // Só "Depois" tem atalho, e ele é de verdade: `MessageShortcuts`
                 // o escuta. Escrever um equivalente ao lado de cada caixa seria
@@ -794,7 +798,7 @@ public enum ContextMenus {
             }
             guard !targets.isEmpty else { return [] }
             return [.submenu(
-                title: "Mover para pasta",
+                title: L10n.tr("Mover para pasta"),
                 items: targets.map {
                     ContextMenuItem(
                         $0.displayName,
@@ -817,7 +821,7 @@ public enum ContextMenus {
                 let moveTargets = userLabels.filter { $0.id != source.id }
                 if !moveTargets.isEmpty {
                     entries.append(.submenu(
-                        title: "Mover para marcador",
+                        title: L10n.tr("Mover para marcador"),
                         items: moveTargets.map {
                             ContextMenuItem(
                                 $0.displayName,
@@ -831,7 +835,7 @@ public enum ContextMenus {
             let labelTargets = userLabels.filter { !message.folderIDs.contains($0.id) }
             if !labelTargets.isEmpty {
                 entries.append(.submenu(
-                    title: "Aplicar marcador",
+                    title: L10n.tr("Aplicar marcador"),
                     items: labelTargets.map {
                         ContextMenuItem(
                             $0.displayName,
@@ -877,11 +881,11 @@ public enum ContextMenus {
         var entries: [ContextMenuEntry] = []
         if !message.from.address.isEmpty {
             entries.append(.item(ContextMenuItem(
-                "Copiar endereço do remetente", .copy(message.from.address)
+                L10n.tr("Copiar endereço do remetente"), .copy(message.from.address)
             )))
         }
         if !message.subject.isEmpty {
-            entries.append(.item(ContextMenuItem("Copiar assunto", .copy(message.subject))))
+            entries.append(.item(ContextMenuItem(L10n.tr("Copiar assunto"), .copy(message.subject))))
         }
         return entries
     }
@@ -914,7 +918,7 @@ public enum ContextMenus {
         let roster = detail.guests(me: "")
         if !roster.isEmpty {
             lines.append("")
-            lines.append("Participantes:")
+            lines.append(L10n.tr("Participantes:"))
             for person in roster {
                 lines.append("· \(person.name) <\(person.address)> — \(person.role)")
             }
@@ -929,15 +933,15 @@ public enum ContextMenus {
     static func removeFromAgendaItem(_ item: AgendaItem) -> ContextMenuItem {
         if item.id.hasPrefix("manual-") {
             return ContextMenuItem(
-                "Cancelar reunião",
+                L10n.tr("Cancelar reunião"),
                 .cancelMeeting(itemID: item.id),
-                help: "Cancelar, avisar os convidados e tirar da agenda"
+                help: L10n.tr("Cancelar, avisar os convidados e tirar da agenda")
             )
         }
         return ContextMenuItem(
-            "Remover do calendário",
+            L10n.tr("Remover do calendário"),
             .removeFromAgenda(itemID: item.id),
-            help: "Tirar este compromisso da agenda"
+            help: L10n.tr("Tirar este compromisso da agenda")
         )
     }
 

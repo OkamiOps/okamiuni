@@ -495,7 +495,7 @@ struct SwipeUndoBand: View {
             Spacer(minLength: 6)
 
             ChromeButton(
-                "Desfazer", appearance: .outlined,
+                L10n.tr("Desfazer"), appearance: .outlined,
                 size: 12, height: 26, horizontalPadding: 10,
                 action: onUndo
             )
@@ -505,7 +505,7 @@ struct SwipeUndoBand: View {
             // sai com 67pt de largura a 200, 240, 300 e 420 — e a lista mais
             // estreita que `PaneLayout` concede é 320. Guarda que não muda
             // medida nenhuma é decoração.
-            .help("Desfazer: \(receipt.note)")
+            .help(L10n.tr("Desfazer: \(receipt.note)"))
         }
         .padding(.leading, 12)
         .padding(.trailing, 8)

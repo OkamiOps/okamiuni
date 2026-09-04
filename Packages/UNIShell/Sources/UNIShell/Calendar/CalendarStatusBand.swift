@@ -8,14 +8,14 @@ enum CalendarStatusCopy {
     static func text(for state: CalendarAvailability) -> String? {
         switch state {
         case .available: nil
-        case .loading: "Atualizando a agenda conectada…"
-        case .authorizationRequired: "Permita o acesso aos Calendários para mostrar e criar compromissos reais."
+        case .loading: L10n.tr("Atualizando a agenda conectada…")
+        case .authorizationRequired: L10n.tr("Permita o acesso aos Calendários para mostrar e criar compromissos reais.")
         case .unavailable(let reason): reason
         }
     }
 
     static func action(for state: CalendarAvailability) -> String? {
-        if case .authorizationRequired = state { return "Permitir acesso" }
+        if case .authorizationRequired = state { return L10n.tr("Permitir acesso") }
         return nil
     }
 }

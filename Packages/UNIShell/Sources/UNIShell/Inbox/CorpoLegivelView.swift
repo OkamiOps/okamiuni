@@ -171,8 +171,8 @@ struct CorpoLegivelView: View {
             }
             .buttonStyle(.plain)
             .focusRing(cornerRadius: theme.radiusSmall)
-            .help(aberta ? "Oculta o \(dobra.genero.substantivoAcessivel)"
-                  : "Mostra o \(dobra.genero.substantivoAcessivel), com \(dobra.linhas) linhas")
+            .help(aberta ? L10n.tr("Oculta o \(dobra.genero.substantivoAcessivel)")
+                  : L10n.tr("Mostra o \(dobra.genero.substantivoAcessivel), com \(dobra.linhas) linhas"))
 
             if aberta {
                 Text(dobra.texto)
@@ -254,9 +254,9 @@ extension Dobra.Genero {
     /// O mesmo substantivo do rótulo, para o `help` e o VoiceOver.
     var substantivoAcessivel: String {
         switch self {
-        case .historico: "histórico da conversa"
-        case .assinatura: "bloco de assinatura"
-        case .rodape: "rodapé da newsletter"
+        case .historico: L10n.tr("histórico da conversa")
+        case .assinatura: L10n.tr("bloco de assinatura")
+        case .rodape: L10n.tr("rodapé da newsletter")
         }
     }
 }

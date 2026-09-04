@@ -37,13 +37,13 @@ public struct DashboardFocus: Sendable, Hashable {
 
         public var label: String {
             switch self {
-            case .needsReply: "Precisa resposta"
-            case .lead: "Lead"
-            case .deadline: "Prazo"
-            case .flagged: "Sinalizado"
-            case .broadcast: "Disparo"
-            case .unread: "Não lido"
-            case .today: "Hoje"
+            case .needsReply: L10n.tr("Precisa resposta")
+            case .lead: L10n.tr("Lead")
+            case .deadline: L10n.tr("Prazo")
+            case .flagged: L10n.tr("Sinalizado")
+            case .broadcast: L10n.tr("Disparo")
+            case .unread: L10n.tr("Não lido")
+            case .today: L10n.tr("Hoje")
             }
         }
 
@@ -55,7 +55,7 @@ public struct DashboardFocus: Sendable, Hashable {
             }
         }
 
-        public var rankLabel: String { isUrgent ? "Alta" : "Média" }
+        public var rankLabel: String { isUrgent ? L10n.tr("Alta") : L10n.tr("Média") }
     }
 
     public struct MailItem: Sendable, Hashable, Identifiable {
@@ -237,16 +237,16 @@ public struct DashboardFocus: Sendable, Hashable {
     public static func greeting(nowMinute: Int, name: String?) -> String {
         let hello: String
         switch nowMinute {
-        case ..<720: hello = "Bom dia"
-        case ..<1080: hello = "Boa tarde"
-        default: hello = "Boa noite"
+        case ..<720: hello = L10n.tr("Bom dia")
+        case ..<1080: hello = L10n.tr("Boa tarde")
+        default: hello = L10n.tr("Boa noite")
         }
         let first = name?
             .split(whereSeparator: \.isWhitespace)
             .first
             .map(String.init)
         if let first, !first.isEmpty, !first.contains("@") {
-            return "\(hello), \(first)"
+            return L10n.tr("\(hello), \(first)")
         }
         return hello
     }

@@ -360,12 +360,12 @@ public struct ComposerWindow: View {
     /// quem é a assinatura que o botão vai inserir, porque a partir daqui isso
     /// é um fato verificável e não uma promessa.
     private var signatureNote: String {
-        guard hasSignature else { return "esta conta não tem assinatura" }
+        guard hasSignature else { return L10n.tr("esta conta não tem assinatura") }
         let firstLine = signature.plainText
             .split(separator: "\n", maxSplits: 1)
             .first
-            .map(String.init) ?? "HTML configurado"
-        return "assinatura: \(firstLine)"
+            .map(String.init) ?? L10n.tr("HTML configurado")
+        return L10n.tr("assinatura: \(firstLine)")
     }
 
     /// Protótipo: não tem este botão — é a parte pedida pelo dono do projeto,
@@ -388,13 +388,13 @@ public struct ComposerWindow: View {
             toRow
             if ccOpen {
                 copyRow(
-                    label: "Cc", placeholder: "quem mais acompanha; ",
+                    label: "Cc", placeholder: L10n.tr("quem mais acompanha; "),
                     chips: $cc, slot: .cc, depth: Depth.cc
                 )
             }
             if bccOpen {
                 copyRow(
-                    label: "Cco", placeholder: "cópia oculta; ",
+                    label: L10n.tr("Cco"), placeholder: L10n.tr("cópia oculta; "),
                     chips: $bcc, slot: .bcc, depth: Depth.bcc
                 )
             }
@@ -491,7 +491,7 @@ public struct ComposerWindow: View {
         }
         if case .draft = mode {
             let assunto = subject.trimmingCharacters(in: .whitespacesAndNewlines)
-            return assunto.isEmpty ? "Rascunho" : assunto
+            return assunto.isEmpty ? L10n.tr("Rascunho") : assunto
         }
         return Self.windowTitle(replyingTo: repliedMessage)
     }
@@ -500,7 +500,7 @@ public struct ComposerWindow: View {
     /// "Nova mensagem" na 06 — e uma resposta a uma mensagem que já saiu da
     /// caixa (arquivada por outra janela, por exemplo) não pode virar "Re: ".
     nonisolated static func windowTitle(replyingTo message: Message?) -> String {
-        guard let message, !message.subject.isEmpty else { return "Nova mensagem" }
+        guard let message, !message.subject.isEmpty else { return L10n.tr("Nova mensagem") }
         return "Re: \(message.subject)"
     }
 
@@ -508,8 +508,8 @@ public struct ComposerWindow: View {
     /// Assunto escreve exatamente isto (`ComposerSeed.forward`), e os dois têm
     /// de concordar dentro da mesma janela.
     nonisolated static func windowTitle(forwarding message: Message?) -> String {
-        guard let message, !message.subject.isEmpty else { return "Nova mensagem" }
-        return "Enc: \(message.subject)"
+        guard let message, !message.subject.isEmpty else { return L10n.tr("Nova mensagem") }
+        return L10n.tr("Enc: \(message.subject)")
     }
 
     /// Preenche o rascunho na primeira vez. Não repete: reabrir a mesma janela
@@ -602,7 +602,7 @@ public struct ComposerWindow: View {
     /// Só na 06. Protótipo: `padding: 11px 18px; background: var(--surface2)`.
     private var fromRow: some View {
         HStack(spacing: 10) {
-            Text("De")
+            Text(L10n.tr("De"))
                 .capsLabel()
                 .frame(width: 52, alignment: .leading)
 
@@ -613,7 +613,7 @@ public struct ComposerWindow: View {
             // desenhava a moldura do macOS em cima dessa — o mesmo desencontro
             // dos menus de fonte e corpo.
             ComposerSelect(
-                title: "Conta que envia",
+                title: L10n.tr("Conta que envia"),
                 selected: fromPickerValue,
                 groups: fromPickerGroups,
                 pick: applyFromPicker,
@@ -678,8 +678,8 @@ public struct ComposerWindow: View {
     private var toRow: some View {
         HStack(alignment: .top, spacing: 10) {
             RecipientField(
-                label: "Para",
-                placeholder: isReply ? "nome ou email; " : "comece a digitar um nome; ",
+                label: L10n.tr("Para"),
+                placeholder: isReply ? L10n.tr("nome ou email; ") : L10n.tr("comece a digitar um nome; "),
                 inputMinWidth: isReply ? 140 : 160,
                 menuWidth: 340,
                 pool: store.contactPool,
@@ -689,7 +689,7 @@ public struct ComposerWindow: View {
 
             MiniToggle(label: "Cc", on: ccOpen) { ccOpen.toggle() }
                 .padding(.top, 1)
-            MiniToggle(label: "Cco", on: bccOpen) { bccOpen.toggle() }
+            MiniToggle(label: L10n.tr("Cco"), on: bccOpen) { bccOpen.toggle() }
                 .padding(.top, 1)
 
             // Protótipo: só a 03 mostra o chip da conta aqui — na 06 ele está
@@ -730,10 +730,10 @@ public struct ComposerWindow: View {
     /// Protótipo: `padding: 10px 18px`, com o assunto no serifado de 15pt.
     private var subjectRow: some View {
         HStack(spacing: 10) {
-            Text("Assunto")
+            Text(L10n.tr("Assunto"))
                 .capsLabel()
                 .frame(width: 52, alignment: .leading)
-            TextField(isReply ? "Assunto" : "Sobre o quê?", text: $subject)
+            TextField(isReply ? L10n.tr("Assunto") : L10n.tr("Sobre o quê?"), text: $subject)
                 .textFieldStyle(.plain)
                 .font(theme.serif.font(size: 15))
                 .foregroundStyle(theme.ink.color)
@@ -751,7 +751,7 @@ public struct ComposerWindow: View {
     private var replyBody: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                editor(minHeight: 200, placeholder: "Escreva a resposta… selecione o texto para formatar")
+                editor(minHeight: 200, placeholder: L10n.tr("Escreva a resposta… selecione o texto para formatar"))
 
                 signatureBlock
 
@@ -763,7 +763,7 @@ public struct ComposerWindow: View {
                     ) {
                         HStack(spacing: 7) {
                             Text("⋯").font(theme.mono.font(size: 10))
-                            Text(historyOpen ? "Ocultar histórico" : "Mostrar histórico (1 mensagem)")
+                            Text(historyOpen ? L10n.tr("Ocultar histórico") : L10n.tr("Mostrar histórico (1 mensagem)"))
                         }
                     }
 
@@ -783,7 +783,7 @@ public struct ComposerWindow: View {
     /// 06: o editor ocupa toda a altura livre.
     private var newBody: some View {
         VStack(alignment: .leading, spacing: 0) {
-            editor(minHeight: 0, placeholder: "Escreva a mensagem…")
+            editor(minHeight: 0, placeholder: L10n.tr("Escreva a mensagem…"))
                 .frame(maxHeight: .infinity)
             signatureBlock
         }
@@ -914,7 +914,7 @@ public struct ComposerWindow: View {
                 labelSize: nil, action: { send(archiving: false) }
             ) {
                 HStack(spacing: 8) {
-                    Text("Enviar")
+                    Text(L10n.tr("Enviar"))
                         .font(theme.sans.font(size: 13, weight: .semibold))
                     Text("⌘⏎")
                         .font(theme.mono.font(size: 10))
@@ -924,12 +924,12 @@ public struct ComposerWindow: View {
             .keyboardShortcut(.return, modifiers: .command)
 
             if isReply {
-                ChromeButton("Enviar e arquivar", appearance: .outlined, size: 13) {
+                ChromeButton(L10n.tr("Enviar e arquivar"), appearance: .outlined, size: 13) {
                     send(archiving: true)
                 }
             }
 
-            ChromeButton("Salvar rascunho", appearance: .outlined) { saveDraft() }
+            ChromeButton(L10n.tr("Salvar rascunho"), appearance: .outlined) { saveDraft() }
 
             // O carimbo de salvamento mora no rodapé nas **duas** janelas. Na
             // 03 ele ficava no fim da barra de formatação e a quebrava em duas
@@ -941,9 +941,9 @@ public struct ComposerWindow: View {
             Spacer(minLength: 8)
 
             if isReply {
-                ChromeButton("Voltar ao painel", appearance: .outlined) { requestLeave() }
+                ChromeButton(L10n.tr("Voltar ao painel"), appearance: .outlined) { requestLeave() }
             } else {
-                ChromeButton("Descartar", appearance: .outlined) { requestLeave() }
+                ChromeButton(L10n.tr("Descartar"), appearance: .outlined) { requestLeave() }
             }
         }
         .padding(.horizontal, 18)
@@ -966,7 +966,7 @@ public struct ComposerWindow: View {
 
     private func addAttachment() {
         guard let attachmentSelector else {
-            attachmentError = "Anexar indisponível nesta janela."
+            attachmentError = L10n.tr("Anexar indisponível nesta janela.")
             return
         }
         Task {
@@ -978,7 +978,7 @@ public struct ComposerWindow: View {
             } catch let error as AttachmentError {
                 attachmentError = error.localizedDescription
             } catch {
-                attachmentError = "Não foi possível ler o arquivo escolhido."
+                attachmentError = L10n.tr("Não foi possível ler o arquivo escolhido.")
             }
         }
     }
@@ -987,12 +987,12 @@ public struct ComposerWindow: View {
     /// age, ou diz por que não.
     private var signatureHelp: String {
         if !hasSignature {
-            return "Inserir assinatura — indisponível: a conta \(account?.host ?? "") não tem assinatura"
+            return L10n.tr("Inserir assinatura — indisponível: a conta \(account?.host ?? "") não tem assinatura")
         }
         if !canInsertSignature {
-            return "Inserir assinatura — a assinatura desta conta já está incluída"
+            return L10n.tr("Inserir assinatura — a assinatura desta conta já está incluída")
         }
-        return "Inserir a assinatura de \(account?.host ?? "") abaixo da mensagem"
+        return L10n.tr("Inserir a assinatura de \(account?.host ?? "") abaixo da mensagem")
     }
 
     @discardableResult
@@ -1244,7 +1244,7 @@ struct ComposerSignatureBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                Text("Assinatura incluída")
+                Text(L10n.tr("Assinatura incluída"))
                     .capsLabel(size: 9.5)
                 Spacer(minLength: 8)
                 Button(action: remove) {
@@ -1264,8 +1264,8 @@ struct ComposerSignatureBlock: View {
                 }
                 .buttonStyle(.plain)
                 .focusRing(cornerRadius: theme.radiusSmall)
-                .help("Remover assinatura desta mensagem")
-                .accessibilityLabel("Remover assinatura")
+                .help(L10n.tr("Remover assinatura desta mensagem"))
+                .accessibilityLabel(L10n.tr("Remover assinatura"))
             }
 
             if let previewDocument {
@@ -1276,7 +1276,7 @@ struct ComposerSignatureBlock: View {
                 .frame(height: previewHeight)
                 .frame(maxWidth: 720, alignment: .leading)
                 .clipped()
-                .accessibilityLabel("Prévia da assinatura")
+                .accessibilityLabel(L10n.tr("Prévia da assinatura"))
             } else {
                 Text(signature.plainText)
                     .font(theme.sans.font(size: 13))
@@ -1374,7 +1374,7 @@ private struct AttachButton: View {
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall)
         .onHover { hovering = $0 }
-        .help("Anexar arquivo")
+        .help(L10n.tr("Anexar arquivo"))
     }
 }
 

@@ -35,7 +35,7 @@ public enum EventPlace {
 
     /// O que a janela mostra quando não há local. É o mesmo texto do
     /// `EV_DEFAULT` do protótipo, e continua sendo uma frase só no app inteiro.
-    public static let semLocal = "Sem local definido"
+    public static var semLocal: String { L10n.tr("Sem local definido") }
 
     /// As frases que só existem no cartão de entrada da chamada, nunca num
     /// endereço. Curta de propósito, e cresce quando aparecer um caso real —

@@ -52,7 +52,7 @@ struct AliasSettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 7) {
-                    Text("CONTAS")
+                    Text(L10n.tr("CONTAS"))
                         .capsLabel(size: 8.5)
                     Text("\(model.statuses.count)")
                         .font(theme.mono.font(size: 9, weight: .semibold))
@@ -61,7 +61,7 @@ struct AliasSettingsView: View {
                         .padding(.vertical, 2)
                         .background(theme.accentSoft.color, in: Capsule())
                 }
-                Text("Os aliases do Gmail entram no sync. Aqui você escolhe o padrão.")
+                Text(L10n.tr("Os aliases do Gmail entram no sync. Aqui você escolhe o padrão."))
                     .font(theme.sans.font(size: 10))
                     .foregroundStyle(theme.ink3.color)
                     .fixedSize(horizontal: false, vertical: true)
@@ -123,7 +123,7 @@ struct AliasSettingsView: View {
                 if fetching && selected.sendAliases.isEmpty {
                     HStack(spacing: 8) {
                         ProgressView().controlSize(.small)
-                        Text("Buscando aliases no Gmail…")
+                        Text(L10n.tr("Buscando aliases no Gmail…"))
                             .font(theme.sans.font(size: 12.5))
                             .foregroundStyle(theme.ink3.color)
                     }
@@ -136,8 +136,8 @@ struct AliasSettingsView: View {
         } else {
             SettingsEmptyState(
                 symbol: "paperplane",
-                title: "Nenhuma conta disponível",
-                text: "Adicione uma conta antes de configurar remetentes."
+                title: L10n.tr("Nenhuma conta disponível"),
+                text: L10n.tr("Adicione uma conta antes de configurar remetentes.")
             )
         }
     }
@@ -146,7 +146,7 @@ struct AliasSettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("REMETENTES")
+                    Text(L10n.tr("REMETENTES"))
                         .capsLabel(size: 8.5)
                     Text(status.address)
                         .font(theme.sans.font(size: 16, weight: .semibold))
@@ -162,13 +162,13 @@ struct AliasSettingsView: View {
                     Button {
                         Task { await fetchGmail(status, silent: false) }
                     } label: {
-                        Text(fetching ? "Atualizando…" : "Atualizar")
+                        Text(fetching ? L10n.tr("Atualizando…") : L10n.tr("Atualizar"))
                     }
                     .settingsQuietButton()
                     .disabled(fetching || model.isBusy)
                 }
             }
-            TextField("Filtrar endereço…", text: $query)
+            TextField(L10n.tr("Filtrar endereço…"), text: $query)
                 .settingsTextField()
             if let feedback {
                 Text(feedback)
@@ -185,9 +185,9 @@ struct AliasSettingsView: View {
         let rows = visibleRows(status)
         return VStack(spacing: 0) {
             HStack {
-                Text("Endereço")
+                Text(L10n.tr("Endereço"))
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Text("Padrão")
+                Text(L10n.tr("Padrão"))
                     .frame(width: 72, alignment: .trailing)
             }
             .font(theme.sans.font(size: 10, weight: .medium))
@@ -204,7 +204,7 @@ struct AliasSettingsView: View {
                             .frame(height: Hairline.thickness(displayScale))
                     }
                     if rows.isEmpty {
-                        Text(query.isEmpty ? "Nenhum alias nesta conta." : "Nada com este filtro.")
+                        Text(query.isEmpty ? L10n.tr("Nenhum alias nesta conta.") : L10n.tr("Nada com este filtro."))
                             .font(theme.sans.font(size: 12.5))
                             .foregroundStyle(theme.ink3.color)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -244,8 +244,8 @@ struct AliasSettingsView: View {
             }
             .buttonStyle(.plain)
             .focusRing(cornerRadius: 8)
-            .help(row.isDefault ? "Remetente padrão" : "Usar como padrão")
-            .accessibilityLabel(row.isDefault ? "Padrão" : "Usar como padrão")
+            .help(row.isDefault ? L10n.tr("Remetente padrão") : L10n.tr("Usar como padrão"))
+            .accessibilityLabel(row.isDefault ? L10n.tr("Padrão") : L10n.tr("Usar como padrão"))
             .frame(width: 28)
             if !row.locked {
                 Button {
@@ -258,8 +258,8 @@ struct AliasSettingsView: View {
                 }
                 .buttonStyle(.plain)
                 .focusRing(cornerRadius: 6)
-                .help("Remover da lista")
-                .accessibilityLabel("Remover \(row.address)")
+                .help(L10n.tr("Remover da lista"))
+                .accessibilityLabel(L10n.tr("Remover \(row.address)"))
             } else {
                 Color.clear.frame(width: 22, height: 22)
             }
@@ -271,12 +271,12 @@ struct AliasSettingsView: View {
 
     private var addRow: some View {
         HStack(spacing: 8) {
-            TextField("Nome (opcional)", text: $draftName)
+            TextField(L10n.tr("Nome (opcional)"), text: $draftName)
                 .settingsTextField()
                 .frame(maxWidth: 160)
             TextField("alias@seudominio.com", text: $draftAddress)
                 .settingsTextField()
-            Button("Adicionar") { Task { await addAlias() } }
+            Button(L10n.tr("Adicionar")) { Task { await addAlias() } }
                 .settingsPrimaryButton()
                 .disabled(!canAdd || model.isBusy)
         }
@@ -293,7 +293,7 @@ struct AliasSettingsView: View {
         let termo = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         let principal = Row(
             address: status.address,
-            caption: "Conta principal",
+            caption: L10n.tr("Conta principal"),
             isDefault: !status.sendAliases.contains(where: \.isDefault),
             locked: true
         )
@@ -324,8 +324,8 @@ struct AliasSettingsView: View {
 
     private func aliasSummary(_ status: AccountStatus) -> String {
         let n = status.sendAliases.count
-        if n == 0 { return "Só o endereço principal" }
-        return n == 1 ? "1 alias" : "\(n) aliases"
+        if n == 0 { return L10n.tr("Só o endereço principal") }
+        return n == 1 ? L10n.tr("1 alias") : L10n.tr("\(n) aliases")
     }
 
     private func selectFirstIfNeeded() {
@@ -337,11 +337,11 @@ struct AliasSettingsView: View {
     private func addAlias() async {
         guard let selected, let address = SendAlias.parse(draftAddress) else { return }
         if address.lowercased() == selected.address.lowercased() {
-            report("Este já é o endereço da conta.", error: true)
+            report(L10n.tr("Este já é o endereço da conta."), error: true)
             return
         }
         if selected.sendAliases.contains(where: { $0.address.lowercased() == address.lowercased() }) {
-            report("Este alias já está na lista.", error: true)
+            report(L10n.tr("Este alias já está na lista."), error: true)
             return
         }
         var next = selected.sendAliases
@@ -351,18 +351,18 @@ struct AliasSettingsView: View {
             origin: .manual
         ))
         guard await model.updateSendAliases(accountID: selected.accountID, aliases: next) else {
-            report(model.lastError?.errorDescription ?? "Não foi possível gravar.", error: true)
+            report(model.lastError?.errorDescription ?? L10n.tr("Não foi possível gravar."), error: true)
             return
         }
         draftAddress = ""
         draftName = ""
-        report("Alias adicionado.", error: false)
+        report(L10n.tr("Alias adicionado."), error: false)
     }
 
     private func remove(_ address: String, on status: AccountStatus) async {
         let next = status.sendAliases.filter { $0.address.lowercased() != address.lowercased() }
         guard await model.updateSendAliases(accountID: status.accountID, aliases: next) else {
-            report(model.lastError?.errorDescription ?? "Não foi possível remover.", error: true)
+            report(model.lastError?.errorDescription ?? L10n.tr("Não foi possível remover."), error: true)
             return
         }
     }
@@ -372,7 +372,7 @@ struct AliasSettingsView: View {
             $0.withDefault($0.address.lowercased() == address?.lowercased())
         }
         guard await model.updateSendAliases(accountID: status.accountID, aliases: next) else {
-            report(model.lastError?.errorDescription ?? "Não foi possível gravar o padrão.", error: true)
+            report(model.lastError?.errorDescription ?? L10n.tr("Não foi possível gravar o padrão."), error: true)
             return
         }
     }
@@ -383,7 +383,7 @@ struct AliasSettingsView: View {
         let antes = status.sendAliases.count
         guard await model.refreshGmailSendAliases(accountID: status.accountID) else {
             if !silent {
-                report(model.lastError?.errorDescription ?? "Não foi possível ler os aliases do Gmail.", error: true)
+                report(model.lastError?.errorDescription ?? L10n.tr("Não foi possível ler os aliases do Gmail."), error: true)
             }
             return
         }
@@ -391,8 +391,8 @@ struct AliasSettingsView: View {
         if !silent || depois != antes {
             report(
                 depois == 0
-                    ? "O Gmail não devolveu aliases para esta conta."
-                    : (depois == 1 ? "1 alias do Gmail." : "\(depois) aliases do Gmail."),
+                    ? L10n.tr("O Gmail não devolveu aliases para esta conta.")
+                    : (depois == 1 ? L10n.tr("1 alias do Gmail.") : L10n.tr("\(depois) aliases do Gmail.")),
                 error: false
             )
         }

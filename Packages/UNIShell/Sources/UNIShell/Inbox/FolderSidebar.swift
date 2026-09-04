@@ -34,12 +34,12 @@ public enum IntelligencePresentation: Sendable, Hashable {
 
     /// O destino de fábrica: o motor local. Serve de padrão às assinaturas e
     /// aos previews, que não podem inventar um destino remoto.
-    public static let onThisMac = IntelligencePresentation.available(.onThisMac)
+    public static var onThisMac: IntelligencePresentation { .available(.onThisMac) }
 
     /// O rótulo da ação fica estável; o estado explica se ela pode ser usada.
     /// Mudar o texto do botão conforme o motor oscila esconderia justamente a
     /// porta que a pessoa procura para entender o que está acontecendo.
-    public var actionTitle: String { "Perguntar ao ambiente" }
+    public var actionTitle: String { L10n.tr("Perguntar ao ambiente") }
 
     public var isAvailable: Bool {
         if case .available = self { return true }
@@ -58,11 +58,11 @@ public enum IntelligencePresentation: Sendable, Hashable {
     public var title: String {
         switch self {
         case let .available(destination): destination.label
-        case .needsSetup: "Configure a IA"
-        case .needsSignIn: "Entre na assinatura"
-        case .deviceNotEligible: "Apple Intelligence indisponível"
-        case .appleIntelligenceNotEnabled: "Ative a Apple Intelligence"
-        case .modelNotReady: "Modelo ainda não está pronto"
+        case .needsSetup: L10n.tr("Configure a IA")
+        case .needsSignIn: L10n.tr("Entre na assinatura")
+        case .deviceNotEligible: L10n.tr("Apple Intelligence indisponível")
+        case .appleIntelligenceNotEnabled: L10n.tr("Ative a Apple Intelligence")
+        case .modelNotReady: L10n.tr("Modelo ainda não está pronto")
         }
     }
 
@@ -71,16 +71,16 @@ public enum IntelligencePresentation: Sendable, Hashable {
     public var detail: String {
         switch self {
         case let .available(destination):
-            "Pergunte sobre suas caixas, emails e agenda. \(destination.detail)"
+            L10n.tr("Pergunte sobre suas caixas, emails e agenda. \(destination.detail)")
         case let .needsSetup(_, detail): detail
         case let .needsSignIn(destination, _):
-            "Entre na assinatura \(destination.label) para usar a IA."
+            L10n.tr("Entre na assinatura \(destination.label) para usar a IA.")
         case .deviceNotEligible:
-            "Este Mac não é compatível com Apple Intelligence. Seus emails continuam locais."
+            L10n.tr("Este Mac não é compatível com Apple Intelligence. Seus emails continuam locais.")
         case .appleIntelligenceNotEnabled:
-            "Ative-a nos Ajustes do Sistema para gerar resumos e identificar compromissos."
+            L10n.tr("Ative-a nos Ajustes do Sistema para gerar resumos e identificar compromissos.")
         case .modelNotReady:
-            "A Apple Intelligence ainda está sendo preparada."
+            L10n.tr("A Apple Intelligence ainda está sendo preparada.")
         }
     }
 
@@ -95,13 +95,13 @@ public enum IntelligencePresentation: Sendable, Hashable {
     /// Copy curta do rodapé. Não pode prometer processamento local quando a
     /// pessoa escolheu OAuth, LiteLLM ou um CLI.
     public var scopeLabel: String {
-        guard let destination else { return "Todo o OkamiUNI" }
-        return "Todo o OkamiUNI · \(destination.label)"
+        guard let destination else { return L10n.tr("Todo o OkamiUNI") }
+        return L10n.tr("Todo o OkamiUNI · \(destination.label)")
     }
 
     public var actionHelp: String {
         isAvailable
-            ? "Abre o assistente global para suas caixas, emails e agenda."
+            ? L10n.tr("Abre o assistente global para suas caixas, emails e agenda.")
             : detail
     }
 }
@@ -126,7 +126,7 @@ struct IntelligenceFooter: View {
                 expandedBody
                 if !presentation.isAvailable {
                     ChromeButton(
-                        "Abrir Ajustes", appearance: .outlined,
+                        L10n.tr("Abrir Ajustes"), appearance: .outlined,
                         size: 11, height: 24, horizontalPadding: 9,
                         action: onOpenSettings
                     )
@@ -177,7 +177,7 @@ struct IntelligenceFooter: View {
         .disabled(!presentation.isAvailable)
         .help(presentation.actionHelp)
         .accessibilityLabel(presentation.actionTitle)
-        .accessibilityValue(presentation.isAvailable ? "Disponível" : "Indisponível")
+        .accessibilityValue(presentation.isAvailable ? L10n.tr("Disponível") : L10n.tr("Indisponível"))
         .accessibilityHint(presentation.actionHelp)
     }
 
@@ -191,7 +191,7 @@ struct IntelligenceFooter: View {
     private var compactHelp: String {
         presentation.isAvailable
             ? presentation.actionHelp
-            : "\(presentation.detail) Clique para abrir Ajustes."
+            : L10n.tr("\(presentation.detail) Clique para abrir Ajustes.")
     }
 
     private var compactBody: some View {
@@ -201,7 +201,7 @@ struct IntelligenceFooter: View {
                     .font(.system(size: 22, weight: .medium))
                     .symbolRenderingMode(.hierarchical)
                     .accessibilityHidden(true)
-                Text("IA")
+                Text(L10n.tr("IA"))
                     .font(theme.sans.font(size: 9, weight: .semibold))
                     .lineLimit(1)
             }
@@ -220,8 +220,8 @@ struct IntelligenceFooter: View {
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall)
         .help(compactHelp)
-        .accessibilityLabel(presentation.isAvailable ? presentation.actionTitle : "Abrir Ajustes")
-        .accessibilityValue(presentation.isAvailable ? "Disponível" : "Indisponível")
+        .accessibilityLabel(presentation.isAvailable ? presentation.actionTitle : L10n.tr("Abrir Ajustes"))
+        .accessibilityValue(presentation.isAvailable ? L10n.tr("Disponível") : L10n.tr("Indisponível"))
         .accessibilityHint(compactHelp)
     }
 
@@ -237,8 +237,8 @@ struct AnalysisPausedBand: View {
     @Environment(\.displayScale) private var displayScale
 
     /// A cópia é a promessa que fica na tela; trocá-la merece revisão.
-    static let title = "ANÁLISE PAUSADA"
-    static let retryTitle = "Tentar de novo"
+    static var title: String { L10n.tr("ANÁLISE PAUSADA") }
+    static var retryTitle: String { L10n.tr("Tentar de novo") }
 
     let reason: String
     let onRetry: () -> Void
@@ -262,7 +262,7 @@ struct AnalysisPausedBand: View {
         .hairline(theme.line, edges: .top)
         .accessibilityIdentifier("analysis-paused-band")
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Análise automática pausada. \(reason)")
+        .accessibilityLabel(L10n.tr("Análise automática pausada. \(reason)"))
     }
 }
 
@@ -354,7 +354,7 @@ public struct FolderSidebar: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     // Seção "Fluxo"
-                    sectionHeader("Fluxo", padding: EdgeInsets(top: 0, leading: 16, bottom: 7, trailing: 16))
+                    sectionHeader(L10n.tr("Fluxo"), padding: EdgeInsets(top: 0, leading: 16, bottom: 7, trailing: 16))
                     // Protótipo: a lista tem `padding: 0 8px; gap: 1px`, e cada
                     // linha tem os seus próprios `padding: 0 8px`. É essa soma
                     // que põe o rótulo da pasta na mesma coluna do "FLUXO", em
@@ -369,7 +369,7 @@ public struct FolderSidebar: View {
 
                     // Seção "Caixas"
                     if !store.accounts.isEmpty {
-                        sectionHeader("Caixas", padding: EdgeInsets(top: 22, leading: 16, bottom: 7, trailing: 16))
+                        sectionHeader(L10n.tr("Caixas"), padding: EdgeInsets(top: 22, leading: 16, bottom: 7, trailing: 16))
                         VStack(alignment: .leading, spacing: 2) {  // protótipo: gap: 2px
                             ForEach(store.accounts) { account in
                                 accountRow(account)
@@ -433,7 +433,7 @@ public struct FolderSidebar: View {
             HStack(spacing: 9) {
                 Image(systemName: "square.and.pencil")
                     .font(.system(size: 14, weight: .semibold))
-                Text("Escrever")
+                Text(L10n.tr("Escrever"))
                     .font(theme.sans.font(size: 13, weight: .semibold))
             }
             .foregroundStyle(theme.onAccent.color)
@@ -443,8 +443,8 @@ public struct FolderSidebar: View {
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall, tint: \.onAccent)
-        .help("Nova mensagem (⌘N)")
-        .accessibilityLabel("Escrever uma nova mensagem")
+        .help(L10n.tr("Nova mensagem (⌘N)"))
+        .accessibilityLabel(L10n.tr("Escrever uma nova mensagem"))
     }
 
     private var accountsButton: some View {
@@ -453,7 +453,7 @@ public struct FolderSidebar: View {
                 Image(systemName: "shippingbox")
                     .font(.system(size: 13, weight: .medium))
                     .frame(width: 20)
-                Text("Contas e providers")
+                Text(L10n.tr("Contas e providers"))
                     .font(theme.sans.font(size: 12.5, weight: .medium))
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
@@ -467,7 +467,7 @@ public struct FolderSidebar: View {
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall)
-        .help("Gerenciar contas, providers e sincronização")
+        .help(L10n.tr("Gerenciar contas, providers e sincronização"))
     }
 
     private func sectionHeader(_ title: String, padding: EdgeInsets) -> some View {
@@ -679,8 +679,8 @@ public struct FolderSidebar: View {
                         .onTapGesture { store.toggleFolders(of: account.id) }
                         .accessibilityLabel(
                             store.foldersExpanded(account.id)
-                                ? "Recolher as pastas de \(account.address)"
-                                : "Mostrar as pastas de \(account.address)"
+                                ? L10n.tr("Recolher as pastas de \(account.address)")
+                                : L10n.tr("Mostrar as pastas de \(account.address)")
                         )
                 }
 
@@ -704,8 +704,8 @@ public struct FolderSidebar: View {
                         .fill(account.state == .carregando ? theme.ink4.color : theme.accent.color)
                         .frame(width: 6, height: 6)
                         .help(account.state == .carregando
-                            ? "Carregando as mensagens desta conta…"
-                            : "Esta conta precisa ser reconectada. Abra Configurações…")
+                            ? L10n.tr("Carregando as mensagens desta conta…")
+                            : L10n.tr("Esta conta precisa ser reconectada. Abra Configurações…"))
                 }
 
                 // Sem isto a linha mede o conteúdo, e como cada endereço tem um

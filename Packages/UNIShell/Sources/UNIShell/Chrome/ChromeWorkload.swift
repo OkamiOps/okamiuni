@@ -68,26 +68,26 @@ public enum ChromeWork: Equatable, Sendable {
     var label: String {
         switch self {
         case .sync:
-            return "Sincronizando"
+            return L10n.tr("Sincronizando")
         case let .assistant(kind, destination):
             let verbo: String
             switch kind {
-            case .question: verbo = "Perguntando"
-            case .draft: verbo = "Escrevendo o rascunho"
-            case .briefing: verbo = "Preparando o briefing"
+            case .question: verbo = L10n.tr("Perguntando")
+            case .draft: verbo = L10n.tr("Escrevendo o rascunho")
+            case .briefing: verbo = L10n.tr("Preparando o briefing")
             }
-            if destination.isLocal { return "\(verbo) neste Mac" }
+            if destination.isLocal { return L10n.tr("\(verbo) neste Mac") }
             // "Perguntando ao Codex · ChatGPT" para a pergunta; os outros dois
             // pedem "com", que é o que se faz com uma ferramenta.
-            let ligacao = kind == .question ? "ao" : "com"
+            let ligacao = kind == .question ? L10n.tr("ao") : L10n.tr("com")
             return "\(verbo) \(ligacao) \(destination.label)"
         case .analysisQueue:
-            return "Analisando mensagens"
+            return L10n.tr("Analisando mensagens")
         case let .backlog(done, total):
-            guard total > 0 else { return "Analisando o acervo" }
-            return "Analisando \(done) de \(total)"
+            guard total > 0 else { return L10n.tr("Analisando o acervo") }
+            return L10n.tr("Analisando \(done) de \(total)")
         case .body:
-            return "Carregando o email"
+            return L10n.tr("Carregando o email")
         }
     }
 }

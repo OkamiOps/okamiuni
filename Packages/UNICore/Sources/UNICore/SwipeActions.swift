@@ -38,8 +38,8 @@ public enum SwipeSide: String, Sendable, Hashable, CaseIterable, Codable {
     /// "leading": ele pensa no gesto que faz.
     public var label: String {
         switch self {
-        case .leading: "Arrastando para a direita"
-        case .trailing: "Arrastando para a esquerda"
+        case .leading: L10n.tr("Arrastando para a direita")
+        case .trailing: L10n.tr("Arrastando para a esquerda")
         }
     }
 }
@@ -183,8 +183,8 @@ public struct SwipeMoveDestination: Sendable, Hashable, Codable, Identifiable {
         }
     }
 
-    public func receiptTitle() -> String { "Movida para \(displayName)" }
-    public func help() -> String { "Mover esta mensagem para \(displayName)" }
+    public func receiptTitle() -> String { L10n.tr("Movida para \(displayName)") }
+    public func help() -> String { L10n.tr("Mover esta mensagem para \(displayName)") }
 }
 
 /// As ações que uma linha pode oferecer sob o dedo.
@@ -231,13 +231,13 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
     /// A de leitura aparece pelos dois rótulos porque ela é uma só ação.
     public var settingsLabel: String {
         switch self {
-        case .archive: "Arquivar"
-        case .toggleRead: "Marcar como lida / não lida"
-        case .later: "Depois"
-        case .today: "Hoje"
-        case .trash: "Apagar"
-        case .toggleFlag: "Sinalizar / tirar a sinalização"
-        case .moveToDestination: "Mover para pasta ou marcador"
+        case .archive: L10n.tr("Arquivar")
+        case .toggleRead: L10n.tr("Marcar como lida / não lida")
+        case .later: L10n.tr("Depois")
+        case .today: L10n.tr("Hoje")
+        case .trash: L10n.tr("Apagar")
+        case .toggleFlag: L10n.tr("Sinalizar / tirar a sinalização")
+        case .moveToDestination: L10n.tr("Mover para pasta ou marcador")
         }
     }
 
@@ -249,13 +249,13 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
     /// botão oferece "Não lida".
     public func title(for message: Message) -> String {
         switch self {
-        case .archive: "Arquivar"
-        case .toggleRead: message.isRead ? "Não lida" : "Lida"
-        case .later: "Depois"
-        case .today: "Hoje"
-        case .trash: "Apagar"
-        case .toggleFlag: message.isFlagged ? "Tirar" : "Sinalizar"
-        case .moveToDestination: "Mover"
+        case .archive: L10n.tr("Arquivar")
+        case .toggleRead: message.isRead ? L10n.tr("Não lida") : L10n.tr("Lida")
+        case .later: L10n.tr("Depois")
+        case .today: L10n.tr("Hoje")
+        case .trash: L10n.tr("Apagar")
+        case .toggleFlag: message.isFlagged ? L10n.tr("Tirar") : L10n.tr("Sinalizar")
+        case .moveToDestination: L10n.tr("Mover")
         }
     }
 
@@ -343,13 +343,13 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
     /// **anterior** da mensagem.
     public func receiptTitle(for message: Message) -> String {
         switch self {
-        case .archive: "Arquivada"
-        case .toggleRead: message.isRead ? "Marcada como não lida" : "Marcada como lida"
-        case .later: "Adiada para depois"
-        case .today: "Trazida para hoje"
-        case .trash: "Movida para a Lixeira"
-        case .toggleFlag: message.isFlagged ? "Sinalização retirada" : "Sinalizada"
-        case .moveToDestination: "Movida"
+        case .archive: L10n.tr("Arquivada")
+        case .toggleRead: message.isRead ? L10n.tr("Marcada como não lida") : L10n.tr("Marcada como lida")
+        case .later: L10n.tr("Adiada para depois")
+        case .today: L10n.tr("Trazida para hoje")
+        case .trash: L10n.tr("Movida para a Lixeira")
+        case .toggleFlag: message.isFlagged ? L10n.tr("Sinalização retirada") : L10n.tr("Sinalizada")
+        case .moveToDestination: L10n.tr("Movida")
         }
     }
 
@@ -362,23 +362,23 @@ public enum SwipeAction: String, Sendable, Hashable, CaseIterable, Identifiable,
     public func help(for message: Message, destination: SwipeMoveDestination?) -> String {
         if self == .moveToDestination {
             if destination?.isNoOp(for: message) ?? true {
-                return "Escolha uma pasta ou marcador para este gesto"
+                return L10n.tr("Escolha uma pasta ou marcador para este gesto")
             }
-            return destination?.help() ?? "Escolha uma pasta ou marcador para este gesto"
+            return destination?.help() ?? L10n.tr("Escolha uma pasta ou marcador para este gesto")
         }
         if isNoOp(for: message, destination: destination), let target {
-            return "Esta mensagem já está em \(target.label)"
+            return L10n.tr("Esta mensagem já está em \(target.label)")
         }
         switch self {
-        case .archive: return "Arquivar esta mensagem"
-        case .toggleRead: return message.isRead ? "Marcar como não lida" : "Marcar como lida"
-        case .later: return "Mover para Depois"
-        case .today: return "Mover para Hoje"
-        case .trash: return "Mover esta mensagem para a Lixeira"
+        case .archive: return L10n.tr("Arquivar esta mensagem")
+        case .toggleRead: return message.isRead ? L10n.tr("Marcar como não lida") : L10n.tr("Marcar como lida")
+        case .later: return L10n.tr("Mover para Depois")
+        case .today: return L10n.tr("Mover para Hoje")
+        case .trash: return L10n.tr("Mover esta mensagem para a Lixeira")
         case .toggleFlag:
-            return message.isFlagged ? "Tirar a sinalização" : "Sinalizar esta mensagem"
+            return message.isFlagged ? L10n.tr("Tirar a sinalização") : L10n.tr("Sinalizar esta mensagem")
         case .moveToDestination:
-            return destination?.help() ?? "Escolha uma pasta ou marcador para este gesto"
+            return destination?.help() ?? L10n.tr("Escolha uma pasta ou marcador para este gesto")
         }
     }
 }
@@ -849,7 +849,7 @@ public struct SwipeReceipt: Sendable, Hashable, Identifiable {
         SwipeReceipt(
             id: id,
             messageID: message.id,
-            note: note("Apagada de vez", message: message, count: 1, stamp: stamp),
+            note: note(L10n.tr("Apagada de vez"), message: message, count: 1, stamp: stamp),
             undo: .restoreDeleted(messageID: message.id)
         )
     }
@@ -900,7 +900,7 @@ public struct SwipeReceipt: Sendable, Hashable, Identifiable {
             id: id,
             messageID: conversation.latest.id,
             note: note(
-                "Apagada de vez", message: conversation.latest,
+                L10n.tr("Apagada de vez"), message: conversation.latest,
                 count: conversation.count, stamp: stamp
             ),
             undo: .restoreDeletedConversation(messageIDs: conversation.messageIDs)
@@ -954,7 +954,7 @@ public struct SwipeReceipt: Sendable, Hashable, Identifiable {
         return SwipeReceipt(
             id: id,
             messageID: first.latest.id,
-            note: batchNote("Apagada de vez", conversations: conversations, stamp: stamp),
+            note: batchNote(L10n.tr("Apagada de vez"), conversations: conversations, stamp: stamp),
             undo: .restoreDeletedConversation(
                 messageIDs: conversations.flatMap(\.messageIDs)
             )
@@ -972,7 +972,7 @@ public struct SwipeReceipt: Sendable, Hashable, Identifiable {
             guard let first = conversations.first else { return "\(head) · \(stamp)" }
             return note(head, message: first.latest, count: first.count, stamp: stamp)
         }
-        return "\(head) — \(n) conversas · \(stamp)"
+        return L10n.tr("\(head) — \(n) conversas · \(stamp)")
     }
 
     /// "Arquivada — Marina Duarte · 3 mensagens · 14:32".
@@ -987,9 +987,9 @@ public struct SwipeReceipt: Sendable, Hashable, Identifiable {
         stamp: String
     ) -> String {
         let who = message.from.name.isEmpty ? message.from.address : message.from.name
-        let quantas = count > 1 ? "\(count) mensagens · " : ""
-        guard !who.isEmpty else { return "\(head) · \(quantas)\(stamp)" }
-        return "\(head) — \(who) · \(quantas)\(stamp)"
+        let quantas = count > 1 ? L10n.tr("\(count) mensagens · ") : ""
+        guard !who.isEmpty else { return L10n.tr("\(head) · \(quantas)\(stamp)") }
+        return L10n.tr("\(head) — \(who) · \(quantas)\(stamp)")
     }
 
     public static func note(

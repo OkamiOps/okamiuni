@@ -107,7 +107,7 @@ public extension AssistantBridge {
                 let context = try await mailContext()
                 if case .workspace = context {
                     throw TextAssistantError.invalidRequest(
-                        "Criar uma resposta requer contexto de e-mail."
+                        L10n.tr("Criar uma resposta requer contexto de e-mail.")
                     )
                 }
                 return try await assistant.transform(

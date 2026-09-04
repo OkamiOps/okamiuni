@@ -1,3 +1,4 @@
+import UNICore
 import SwiftUI
 import UNIDesign
 
@@ -24,7 +25,7 @@ public struct ThemePicker: View {
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall)
-        .accessibilityLabel("Escolher tema, atual \(theme.name)")
+        .accessibilityLabel(L10n.tr("Escolher tema, atual \(theme.name)"))
         .popover(isPresented: $open, arrowEdge: .bottom) {
             popoverBody
         }
@@ -32,7 +33,7 @@ public struct ThemePicker: View {
 
     private var popoverBody: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Temas · cor, tipo e densidade")
+            Text(L10n.tr("Temas · cor, tipo e densidade"))
                 .capsLabel()
                 .padding(.horizontal, 8)
                 .padding(.top, 4)
@@ -72,7 +73,7 @@ private struct ThemeRow: View {
                 Text(candidate.name)
                     .font(theme.sans.font(size: 12, weight: isCurrent ? .semibold : .regular))
                     .foregroundStyle(theme.ink.color)
-                Text(candidate.note)
+                Text(L10n.tr(LocalizedString(stringLiteral: candidate.note)))
                     .font(theme.mono.font(size: 9))
                     .foregroundStyle(theme.ink4.color)
             }

@@ -68,12 +68,12 @@ private struct CalendarAdapterError: LocalizedError {
     var errorDescription: String? {
         switch state {
         case .authorizationRequired:
-            "Permita o acesso aos Calendários para sincronizar a agenda."
+            L10n.tr("Permita o acesso aos Calendários para sincronizar a agenda.")
         case .unavailable(let message): message
         case .loading:
-            "A agenda ainda está sendo preparada. Tente novamente em instantes."
+            L10n.tr("A agenda ainda está sendo preparada. Tente novamente em instantes.")
         case .available:
-            "Não foi possível atualizar a agenda do sistema."
+            L10n.tr("Não foi possível atualizar a agenda do sistema.")
         }
     }
 }

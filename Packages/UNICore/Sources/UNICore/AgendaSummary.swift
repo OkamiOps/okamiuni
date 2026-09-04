@@ -16,17 +16,17 @@ public struct AgendaSummary {
         let vivos = items.filter { !$0.isCancelled }
         let running = vivos.first { now >= $0.startMinute && now < $0.endMinute }
         if let running = running {
-            return "agora: \(running.title) · termina \(fmt(running.endMinute))"
+            return L10n.tr("agora: \(running.title) · termina \(fmt(running.endMinute))")
         }
 
         let upcoming = vivos.first { $0.startMinute > now }
         if let upcoming = upcoming {
             let minLeft = upcoming.startMinute - now
             let duration = durationString(minLeft)
-            return "em \(duration): \(upcoming.title)"
+            return L10n.tr("em \(duration): \(upcoming.title)")
         }
 
-        return "nada mais hoje"
+        return L10n.tr("nada mais hoje")
     }
 
     /// Formata duração em minutos para string legível.
@@ -34,7 +34,7 @@ public struct AgendaSummary {
     /// >= 90 min: "NhMM" (ex: "2h30", "1h", "1h30")
     private static func durationString(_ minutes: Int) -> String {
         guard minutes >= 90 else {
-            return "\(minutes) min"
+            return L10n.tr("\(minutes) min")
         }
 
         let hours = minutes / 60

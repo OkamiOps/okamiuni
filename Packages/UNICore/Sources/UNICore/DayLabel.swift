@@ -32,9 +32,9 @@ public enum DayLabel {
     /// As três palavras, para quem chega pela data e não pelo offset — a
     /// linha da lista, que carimba por `MessageStamp`. Mesma palavra, uma
     /// definição só: duas cópias divergem no primeiro ajuste.
-    public static let today = "Hoje"
-    public static let yesterday = "Ontem"
-    public static let tomorrow = "Amanhã"
+    public static var today: String { L10n.tr("Hoje") }
+    public static var yesterday: String { L10n.tr("Ontem") }
+    public static var tomorrow: String { L10n.tr("Amanhã") }
 
     /// Se a coluna de horário da linha deve escrever a hora ou o dia.
     ///

@@ -43,11 +43,11 @@ public struct BulkMailMarks: OptionSet, Sendable, Hashable, Codable {
     /// marca, na ordem em que elas explicam melhor — não a soma, que viraria
     /// uma lista ilegível numa linha de 13pt.
     public var explanation: String? {
-        if contains(.noReplySender) { return "O remetente não lê respostas" }
-        if contains(.listUnsubscribe) || contains(.listID) { return "Enviado para uma lista" }
-        if contains(.autoResponseSuppress) { return "O remetente pede que não se responda" }
-        if contains(.autoSubmitted) { return "Gerado automaticamente" }
-        if contains(.precedence) { return "Marcado como envio em massa" }
+        if contains(.noReplySender) { return L10n.tr("O remetente não lê respostas") }
+        if contains(.listUnsubscribe) || contains(.listID) { return L10n.tr("Enviado para uma lista") }
+        if contains(.autoResponseSuppress) { return L10n.tr("O remetente pede que não se responda") }
+        if contains(.autoSubmitted) { return L10n.tr("Gerado automaticamente") }
+        if contains(.precedence) { return L10n.tr("Marcado como envio em massa") }
         return nil
     }
 

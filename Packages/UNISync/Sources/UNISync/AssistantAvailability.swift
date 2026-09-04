@@ -36,13 +36,13 @@ public enum AssistantAvailability: Sendable, Hashable {
         switch self {
         case .ready: nil
         case let .needsSetup(_, reason): reason
-        case let .needsSignIn(destination, _): "Entre na assinatura \(destination.label) para usar a IA."
+        case let .needsSignIn(destination, _): L10n.tr("Entre na assinatura \(destination.label) para usar a IA.")
         case let .appleIntelligence(state):
             switch state {
             case .available: nil
-            case .deviceNotEligible: "Este Mac não é compatível com a Apple Intelligence."
-            case .appleIntelligenceNotEnabled: "Ative a Apple Intelligence nos Ajustes do Sistema."
-            case .modelNotReady: "A Apple Intelligence ainda está sendo preparada."
+            case .deviceNotEligible: L10n.tr("Este Mac não é compatível com a Apple Intelligence.")
+            case .appleIntelligenceNotEnabled: L10n.tr("Ative a Apple Intelligence nos Ajustes do Sistema.")
+            case .modelNotReady: L10n.tr("A Apple Intelligence ainda está sendo preparada.")
             }
         }
     }

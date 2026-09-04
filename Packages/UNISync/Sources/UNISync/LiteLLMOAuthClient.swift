@@ -1,3 +1,4 @@
+import UNICore
 import Foundation
 
 public enum LiteLLMOAuthError: Error, Sendable, Equatable, LocalizedError {
@@ -22,39 +23,39 @@ public enum LiteLLMOAuthError: Error, Sendable, Equatable, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .invalidEndpoint:
-            "O endereço do LiteLLM é inválido."
+            L10n.tr("O endereço do LiteLLM é inválido.")
         case .insecureEndpoint:
-            "OAuth do LiteLLM exige HTTPS; HTTP é aceito somente em localhost."
+            L10n.tr("OAuth do LiteLLM exige HTTPS; HTTP é aceito somente em localhost.")
         case .discoveryUnavailable:
-            "Este LiteLLM não publicou o contrato de login OAuth para clientes nativos."
+            L10n.tr("Este LiteLLM não publicou o contrato de login OAuth para clientes nativos.")
         case .unsupportedContract:
-            "Este LiteLLM usa uma versão ou modalidade de OAuth que o OkamiUNI não suporta."
+            L10n.tr("Este LiteLLM usa uma versão ou modalidade de OAuth que o OkamiUNI não suporta.")
         case .issuerMismatch:
-            "O emissor OAuth não corresponde ao endereço do LiteLLM informado."
+            L10n.tr("O emissor OAuth não corresponde ao endereço do LiteLLM informado.")
         case .crossOriginEndpoint:
-            "O LiteLLM anunciou uma rota OAuth em outro domínio; o login foi interrompido."
+            L10n.tr("O LiteLLM anunciou uma rota OAuth em outro domínio; o login foi interrompido.")
         case .redirectRefused:
-            "Uma rota sensível do OAuth tentou redirecionar a requisição; o login foi interrompido."
+            L10n.tr("Uma rota sensível do OAuth tentou redirecionar a requisição; o login foi interrompido.")
         case .registrationFailed:
-            "O LiteLLM não registrou o OkamiUNI como cliente OAuth público."
+            L10n.tr("O LiteLLM não registrou o OkamiUNI como cliente OAuth público.")
         case let .authorizationDenied(detail):
-            detail?.isEmpty == false ? "O login foi recusado: \(detail!)." : "O login foi recusado."
+            detail?.isEmpty == false ? L10n.tr("O login foi recusado: \(detail!).") : L10n.tr("O login foi recusado.")
         case .stateMismatch:
-            "A resposta OAuth não pertence a este login. Tente novamente."
+            L10n.tr("A resposta OAuth não pertence a este login. Tente novamente.")
         case .missingAuthorizationCode:
-            "O LiteLLM voltou do navegador sem o código de autorização."
+            L10n.tr("O LiteLLM voltou do navegador sem o código de autorização.")
         case .invalidTokenResponse:
-            "O LiteLLM devolveu uma sessão OAuth incompleta ou inválida."
+            L10n.tr("O LiteLLM devolveu uma sessão OAuth incompleta ou inválida.")
         case .missingSession:
-            "Entre com OAuth no LiteLLM antes de usar este provedor."
+            L10n.tr("Entre com OAuth no LiteLLM antes de usar este provedor.")
         case .browserUnavailable:
-            "Não foi possível abrir o navegador do sistema para o login."
+            L10n.tr("Não foi possível abrir o navegador do sistema para o login.")
         case .callbackUnavailable:
-            "Não foi possível abrir o retorno local seguro do OAuth."
+            L10n.tr("Não foi possível abrir o retorno local seguro do OAuth.")
         case .timedOut:
-            "O login OAuth demorou demais. Tente novamente."
+            L10n.tr("O login OAuth demorou demais. Tente novamente.")
         case let .server(statusCode):
-            "O LiteLLM respondeu com erro \(statusCode) durante o login."
+            L10n.tr("O LiteLLM respondeu com erro \(statusCode) durante o login.")
         }
     }
 }

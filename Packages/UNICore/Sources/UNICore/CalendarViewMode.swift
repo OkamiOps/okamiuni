@@ -16,9 +16,9 @@ public enum CalendarViewMode: String, Sendable, Hashable, CaseIterable, Identifi
     /// Protótipo: `label: id === 'mês' ? 'Mês' : (id === 'dia' ? 'Dia' : 'Semana')`.
     public var label: String {
         switch self {
-        case .day: "Dia"
-        case .week: "Semana"
-        case .month: "Mês"
+        case .day: L10n.tr("Dia")
+        case .week: L10n.tr("Semana")
+        case .month: L10n.tr("Mês")
         }
     }
 }

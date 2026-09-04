@@ -82,8 +82,8 @@ public struct EventSections: Sendable, Hashable {
 
     public static func originHeader(_ thread: [EventThreadEntry]) -> String {
         guard let email = thread.first(where: { $0.kind == .email }), !email.when.isEmpty else {
-            return "O que gerou este compromisso"
+            return L10n.tr("O que gerou este compromisso")
         }
-        return "O que gerou · email de \(email.when)"
+        return L10n.tr("O que gerou · email de \(email.when)")
     }
 }

@@ -67,8 +67,8 @@ struct DashboardPreviewColumn: View {
     /// mentiria no bundle de teste (ver a nota em `Render.bitmap`).
     private static let horaCurta: DateFormatter = {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "pt_BR")
-        formatter.dateFormat = "dd/MM HH:mm"
+        formatter.locale = L10n.locale
+        formatter.setLocalizedDateFormatFromTemplate("ddMMHm")
         return formatter
     }()
 
@@ -105,11 +105,11 @@ struct DashboardPreviewColumn: View {
             await store.loadBodyIfNeeded(message.id)
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Prévia da mensagem selecionada")
+        .accessibilityLabel(L10n.tr("Prévia da mensagem selecionada"))
     }
 
     private var empty: some View {
-        Text("Nada selecionado.")
+        Text(L10n.tr("Nada selecionado."))
             .font(theme.sans.font(size: 12))
             .foregroundStyle(theme.ink4.color)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -179,11 +179,11 @@ struct DashboardPreviewColumn: View {
         let conta = store.account(message.accountID)
         return VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Resposta pronta")
+                Text(L10n.tr("Resposta pronta"))
                     .capsLabel(size: DashboardMetrics.capsSize)
                     .foregroundStyle(theme.accentInk.color)
                 Spacer(minLength: 8)
-                Text("sai pela \(conta?.displayName ?? "conta")")
+                Text(L10n.tr("sai pela \(conta?.displayName ?? L10n.tr("conta"))"))
                     .capsLabel(size: DashboardMetrics.capsSize)
             }
             Text(text)
@@ -198,7 +198,7 @@ struct DashboardPreviewColumn: View {
                 Button {
                     onSendDraft(message, text)
                 } label: {
-                    Text("Enviar")
+                    Text(L10n.tr("Enviar"))
                         .font(theme.sans.font(
                             size: DashboardMetrics.actionTextSize, weight: .semibold
                         ))
@@ -211,11 +211,11 @@ struct DashboardPreviewColumn: View {
                 }
                 .buttonStyle(.plain)
                 .focusRing(cornerRadius: theme.radiusSmall, tint: \.onAccent)
-                .accessibilityLabel("Enviar a resposta pronta")
-                textAction("Editar", tone: theme.ink2.color) {
+                .accessibilityLabel(L10n.tr("Enviar a resposta pronta"))
+                textAction(L10n.tr("Editar"), tone: theme.ink2.color) {
                     onEditDraft(message, text)
                 }
-                textAction("Descartar", tone: theme.ink4.color) {
+                textAction(L10n.tr("Descartar"), tone: theme.ink4.color) {
                     onDiscardDraft(message)
                 }
             }
@@ -230,7 +230,7 @@ struct DashboardPreviewColumn: View {
                 .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Resposta pronta")
+        .accessibilityLabel(L10n.tr("Resposta pronta"))
     }
 
     // MARK: - O que ele escreveu
@@ -239,7 +239,7 @@ struct DashboardPreviewColumn: View {
     /// o `CorpoLegivelView` de sempre.
     private func wrote(_ message: Message, state: DashboardPreviewBody.State) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("O que ele escreveu")
+            Text(L10n.tr("O que ele escreveu"))
                 .capsLabel(size: DashboardMetrics.capsSize)
             if let resumo = state.resumo {
                 Text(resumo)
@@ -272,7 +272,7 @@ struct DashboardPreviewColumn: View {
     private func noDraft(_ message: Message, state: DashboardPreviewBody.State) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
-                Text("O que ele escreveu")
+                Text(L10n.tr("O que ele escreveu"))
                     .capsLabel(size: DashboardMetrics.capsSize)
                 if let resumo = state.resumo {
                     Text(resumo)
@@ -291,7 +291,7 @@ struct DashboardPreviewColumn: View {
             Button {
                 conversation.draftReply()
             } label: {
-                Text(conversation.isLoading ? "Escrevendo…" : "Gerar resposta")
+                Text(conversation.isLoading ? L10n.tr("Escrevendo…") : L10n.tr("Gerar resposta"))
                     .font(theme.sans.font(
                         size: DashboardMetrics.actionTextSize, weight: .semibold
                     ))
@@ -306,7 +306,7 @@ struct DashboardPreviewColumn: View {
             .focusRing(cornerRadius: theme.radiusSmall, tint: \.onAccent)
             .disabled(conversation.isLoading)
             .padding(.top, DashboardMetrics.wroteTopSpacing)
-            .accessibilityLabel("Gerar resposta")
+            .accessibilityLabel(L10n.tr("Gerar resposta"))
         }
     }
 
@@ -316,13 +316,13 @@ struct DashboardPreviewColumn: View {
     /// Arquivar · Depois. Todas saem pela porta única (`ContextCommand`).
     private func footer(_ message: Message) -> some View {
         HStack(spacing: DashboardMetrics.previewFooterGap) {
-            textAction("Responder eu mesmo", tone: theme.ink3.color) {
+            textAction(L10n.tr("Responder eu mesmo"), tone: theme.ink3.color) {
                 onCommand(.reply(messageID: message.id))
             }
-            textAction("Arquivar", tone: theme.ink3.color) {
+            textAction(L10n.tr("Arquivar"), tone: theme.ink3.color) {
                 onCommand(.move(messageID: message.id, to: .archived))
             }
-            textAction("Depois", tone: theme.ink3.color) {
+            textAction(L10n.tr("Depois"), tone: theme.ink3.color) {
                 onCommand(.move(messageID: message.id, to: .later))
             }
         }

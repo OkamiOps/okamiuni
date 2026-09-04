@@ -40,7 +40,7 @@ public struct MessageCommands: Commands {
     }
 
     public var body: some Commands {
-        CommandMenu("Mensagem") {
+        CommandMenu(L10n.tr("Mensagem")) {
             MessageCommandItems(store: store)
             if let assistantSession {
                 Divider()
@@ -65,7 +65,7 @@ private struct AssistantCommandItem: View {
     let session: AssistantSession
 
     var body: some View {
-        Button("Assistente") {
+        Button(L10n.tr("Assistente")) {
             if session.isDetached {
                 openWindow(id: UNIWindow.assistant)
             } else {
@@ -107,8 +107,8 @@ private struct MessageCommandItems: View {
 
     var body: some View {
         Group {
-            item("Responder", .reply) { .reply(messageID: $0.id) }
-            item("Responder a todos", .replyAll) { message in
+            item(L10n.tr("Responder"), .reply) { .reply(messageID: $0.id) }
+            item(L10n.tr("Responder a todos"), .replyAll) { message in
                 // A mesma regra do menu de contexto, do mesmo lugar: sem mais
                 // ninguém além do remetente, responder a todos daria a janela
                 // do ⌘R com outro nome.
@@ -118,19 +118,19 @@ private struct MessageCommandItems: View {
                 }
                 return .replyAll(messageID: message.id)
             }
-            item("Encaminhar", .forward) { .forward(messageID: $0.id) }
+            item(L10n.tr("Encaminhar"), .forward) { .forward(messageID: $0.id) }
 
             Divider()
 
-            item("Arquivar", .archive) { .move(messageID: $0.id, to: .archived) }
-            item("Adiar para Depois", .later) { .move(messageID: $0.id, to: .later) }
+            item(L10n.tr("Arquivar"), .archive) { .move(messageID: $0.id, to: .archived) }
+            item(L10n.tr("Adiar para Depois"), .later) { .move(messageID: $0.id, to: .later) }
 
             Divider()
 
-            item("Marcar como lida / não lida", .readToggle) {
+            item(L10n.tr("Marcar como lida / não lida"), .readToggle) {
                 .setRead(messageID: $0.id, isRead: !$0.isRead)
             }
-            item("Sinalizar / tirar a sinalização", .flag) {
+            item(L10n.tr("Sinalizar / tirar a sinalização"), .flag) {
                 .setFlagged(messageID: $0.id, isFlagged: !$0.isFlagged)
             }
         }

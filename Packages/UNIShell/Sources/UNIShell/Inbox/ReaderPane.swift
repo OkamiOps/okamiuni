@@ -13,7 +13,7 @@ struct ReaderAssistantButton: View {
 
     private var help: String {
         presentation.isAvailable
-            ? "Abre resumo, pontos-chave, insights, pendências e geração de resposta para este email."
+            ? L10n.tr("Abre resumo, pontos-chave, insights, pendências e geração de resposta para este email.")
             : presentation.detail
     }
 
@@ -42,8 +42,8 @@ struct ReaderAssistantButton: View {
         .focusRing(cornerRadius: 14)
         .disabled(!presentation.isAvailable)
         .help(help)
-        .accessibilityLabel("Ações de inteligência deste email")
-        .accessibilityValue(presentation.isAvailable ? "Disponível" : "Indisponível")
+        .accessibilityLabel(L10n.tr("Ações de inteligência deste email"))
+        .accessibilityValue(presentation.isAvailable ? L10n.tr("Disponível") : L10n.tr("Indisponível"))
         .accessibilityHint(help)
     }
 }
@@ -460,7 +460,7 @@ public struct ReaderPane: View {
 
     private func save(_ attachment: MailAttachment, from message: Message) {
         guard let attachmentSaver else {
-            attachmentError = "Salvar anexo indisponível nesta janela."
+            attachmentError = L10n.tr("Salvar anexo indisponível nesta janela.")
             return
         }
         savingAttachmentID = attachment.id
@@ -473,7 +473,7 @@ public struct ReaderPane: View {
             } catch let error as AttachmentError {
                 attachmentError = error.localizedDescription
             } catch {
-                attachmentError = "Não foi possível baixar ou salvar o anexo."
+                attachmentError = L10n.tr("Não foi possível baixar ou salvar o anexo.")
             }
         }
     }
@@ -573,7 +573,7 @@ public struct ReaderPane: View {
                     .help(Self.expandirCabecalho)
                     .accessibilityLabel(Self.expandirCabecalho)
                     .accessibilityAddTraits(.isButton)
-                    .accessibilityValue("Recolhido")
+                    .accessibilityValue(L10n.tr("Recolhido"))
 
                     if !message.attachments.isEmpty {
                         attachmentChips(message)
@@ -698,8 +698,8 @@ public struct ReaderPane: View {
         return "\(quem) · \(oQue)"
     }
 
-    nonisolated static let expandirCabecalho = "Mostra o email do remetente e o assunto completo"
-    nonisolated static let recolherCabecalho = "Recolhe remetente e assunto"
+    nonisolated static var expandirCabecalho: String { L10n.tr("Mostra o email do remetente e o assunto completo") }
+    nonisolated static var recolherCabecalho: String { L10n.tr("Recolhe remetente e assunto") }
 
     /// "Para Ana, Bruno · Cc Carla"
     nonisolated static func destinatarios(_ message: Message) -> String? {
@@ -710,9 +710,9 @@ public struct ReaderPane: View {
         let cc = nomes(message.cc)
         switch (para.isEmpty, cc.isEmpty) {
         case (true, true): return nil
-        case (false, true): return "Para \(para)"
-        case (true, false): return "Cc \(cc)"
-        case (false, false): return "Para \(para) · Cc \(cc)"
+        case (false, true): return L10n.tr("Para \(para)")
+        case (true, false): return L10n.tr("Cc \(cc)")
+        case (false, false): return L10n.tr("Para \(para) · Cc \(cc)")
         }
     }
 
@@ -743,8 +743,8 @@ public struct ReaderPane: View {
                 .focusRing(cornerRadius: theme.radiusSmall)
                 .disabled(savingAttachmentID == attachment.id)
                 .help(savingAttachmentID == attachment.id
-                    ? "Baixando \(attachment.filename)…"
-                    : "Baixar \(attachment.filename) (\(attachment.mimeType), \(attachment.sizeLabel))")
+                    ? L10n.tr("Baixando \(attachment.filename)…")
+                    : L10n.tr("Baixar \(attachment.filename) (\(attachment.mimeType), \(attachment.sizeLabel))"))
             }
             if message.attachments.count > 2 {
                 Text("+\(message.attachments.count - 2)")
@@ -767,9 +767,9 @@ public struct ReaderPane: View {
         let accentColor = accountTint(message)
         let markers = Self.appliedMarkers(for: message, in: store.folders)
         let buckets: [(String, TriageBucket)] = [
-            ("Hoje", .today),
-            ("Depois", .later),
-            ("Arquivar", .archived),
+            (L10n.tr("Hoje"), .today),
+            (L10n.tr("Depois"), .later),
+            (L10n.tr("Arquivar"), .archived),
         ]
 
         return VStack(alignment: .leading, spacing: 8) {
@@ -780,7 +780,7 @@ public struct ReaderPane: View {
                         label: Self.markerChipLabel(marker.displayName),
                         tint: theme.ink3.color
                     )
-                    .help("Marcador aplicado: \(marker.displayName)")
+                    .help(L10n.tr("Marcador aplicado: \(marker.displayName)"))
                 }
                 if markers.count > 1 {
                     TintChip(label: "+\(markers.count - 1)", tint: theme.ink3.color)
@@ -792,9 +792,9 @@ public struct ReaderPane: View {
             HStack(spacing: 8) {
                 if message.bucket == .drafts {
                     triageAction(
-                        "Editar rascunho",
+                        L10n.tr("Editar rascunho"),
                         symbol: "square.and.pencil",
-                        help: "Continua o que já estava escrito",
+                        help: L10n.tr("Continua o que já estava escrito"),
                         tone: .primary
                     ) {
                         onCompose(ComposerRoute.editor(for: message))
@@ -802,9 +802,9 @@ public struct ReaderPane: View {
                     .keyboardShortcut("r", modifiers: .command)
 
                     triageAction(
-                        "Apagar",
+                        L10n.tr("Apagar"),
                         symbol: SwipeAction.trash.symbol(for: message),
-                        help: "Joga o rascunho fora",
+                        help: L10n.tr("Joga o rascunho fora"),
                         tone: .danger,
                         showsLabel: false
                     ) {
@@ -916,7 +916,7 @@ public struct ReaderPane: View {
         return AssistantContext(
             subject: message.subject,
             sender: message.from.display,
-            conversationLabel: count > 1 ? "\(count) mensagens" : nil
+            conversationLabel: count > 1 ? L10n.tr("\(count) mensagens") : nil
         )
     }
 
@@ -974,7 +974,7 @@ public struct ReaderPane: View {
     /// `nonisolated` e `static` pelo motivo de sempre: o que a pessoa lê é
     /// comportamento, e o teste o afirma sem montar janela.
     nonisolated static func apagarLabel(_ message: Message) -> String {
-        message.bucket == .trash ? "Apagar de vez" : "Apagar"
+        message.bucket == .trash ? L10n.tr("Apagar de vez") : L10n.tr("Apagar")
     }
 
     /// A ação continua reversível fora da Lixeira, mas não pode parecer igual a
@@ -1009,8 +1009,8 @@ public struct ReaderPane: View {
         return HStack(spacing: 4) {
             ReaderChromeIcon(
                 symbol: "arrowshape.turn.up.left.fill",
-                label: "Responder",
-                help: "Responder a este email"
+                label: L10n.tr("Responder"),
+                help: L10n.tr("Responder a este email")
             ) {
                 pedidoDeResposta += 1
             }
@@ -1018,10 +1018,10 @@ public struct ReaderPane: View {
 
             ReaderChromeIcon(
                 symbol: "arrowshape.turn.up.left.2.fill",
-                label: "Responder a todos",
+                label: L10n.tr("Responder a todos"),
                 help: podeTodos
-                    ? "Responder ao remetente e a todos que estavam na mensagem"
-                    : "Não há mais ninguém além do remetente para incluir",
+                    ? L10n.tr("Responder ao remetente e a todos que estavam na mensagem")
+                    : L10n.tr("Não há mais ninguém além do remetente para incluir"),
                 enabled: podeTodos
             ) {
                 onCompose(.replyAll(messageID: message.id))
@@ -1030,8 +1030,8 @@ public struct ReaderPane: View {
 
             ReaderChromeIcon(
                 symbol: "arrowshape.turn.up.right.fill",
-                label: "Encaminhar",
-                help: "Encaminhar este email"
+                label: L10n.tr("Encaminhar"),
+                help: L10n.tr("Encaminhar este email")
             ) {
                 onCompose(.forward(messageID: message.id))
             }
@@ -1112,8 +1112,8 @@ public struct ReaderPane: View {
                 .contentShape(RoundedRectangle(cornerRadius: 7))
         }
         .buttonStyle(.plain)
-        .help("Mover para pasta ou marcador")
-        .accessibilityLabel("Mover para pasta ou marcador")
+        .help(L10n.tr("Mover para pasta ou marcador"))
+        .accessibilityLabel(L10n.tr("Mover para pasta ou marcador"))
         .popover(isPresented: $folderPickerOpen, arrowEdge: .bottom) {
             MoveFolderPanel(
                 groups: MoveFolderPanel.groups(from: entries),
@@ -1193,7 +1193,7 @@ public struct ReaderPane: View {
     /// "neste Mac" só quando é verdade. Com o opt-in remoto ligado, a legenda
     /// nomeia o destino que de fato leu a mensagem.
     static func summaryCaption(for destination: AssistantDestination) -> String {
-        destination.isLocal ? "TL;DR · neste Mac" : "TL;DR · \(destination.label)"
+        destination.isLocal ? L10n.tr("TL;DR · neste Mac") : "TL;DR · \(destination.label)"
     }
 
     /// A mesma condição da legenda. A dica do cartão recolhido afirmava
@@ -1201,8 +1201,8 @@ public struct ReaderPane: View {
     /// olha — e era ela que a pessoa lia ao passar o mouse.
     static func summaryHelp(for destination: AssistantDestination) -> String {
         destination.isLocal
-            ? "Mostra o resumo gerado neste Mac"
-            : "Mostra o resumo gerado por \(destination.label)"
+            ? L10n.tr("Mostra o resumo gerado neste Mac")
+            : L10n.tr("Mostra o resumo gerado por \(destination.label)")
     }
 
     private func resumoEstaAberto(_ message: Message) -> Bool {
@@ -1219,19 +1219,19 @@ public struct ReaderPane: View {
                 Spacer(minLength: 0)
                 if case let .available(destino) = intelligencePresentation, !destino.isLocal,
                    makeAssistantConversation != nil {
-                    Button("Usar IA configurada") {
+                    Button(L10n.tr("Usar IA configurada")) {
                         setEmailAssistantOpen(true, for: message.id)
                         onOpenAssistant()
                     }
                     .buttonStyle(.plain)
                     .font(theme.sans.font(size: 10.5, weight: .semibold))
                     .foregroundStyle(theme.info.color)
-                    .help("Abre o painel para resumir com o provedor e o modelo escolhidos em Configurações.")
+                    .help(L10n.tr("Abre o painel para resumir com o provedor e o modelo escolhidos em Configurações."))
                 }
                 resumoChevron(aberto: true)
             }
             .contentShape(Rectangle())
-            .help("Recolhe o resumo para ler o email")
+            .help(L10n.tr("Recolhe o resumo para ler o email"))
             Text(summary)
                 .font(theme.serif.font(size: 15))
                 .lineSpacing(8.25)
@@ -1325,16 +1325,16 @@ public struct ReaderPane: View {
     /// "Convite de agenda", "Convite cancelado", e o rótulo de quem foi
     /// convidado. Estáticas pelo mesmo motivo de `carregandoCorpo`: o que a
     /// pessoa lê é comportamento.
-    nonisolated static let conviteTitulo = "Convite de agenda"
-    nonisolated static let conviteCancelado = "Convite cancelado"
-    nonisolated static let conviteCanceladoFora = "Este compromisso não está na sua agenda."
-    nonisolated static let conviteCanceladoNaAgenda = "Na agenda como cancelado."
-    nonisolated static let conviteNaAgenda = "Na agenda"
-    nonisolated static let removerDaAgenda = "Remover da agenda"
-    nonisolated static let recolherConvite = "Recolher"
-    nonisolated static let mostrarConvite = "Detalhes"
-    nonisolated static let recolherResumo = "Recolher resumo"
-    nonisolated static let mostrarResumo = "Mostrar resumo"
+    nonisolated static var conviteTitulo: String { L10n.tr("Convite de agenda") }
+    nonisolated static var conviteCancelado: String { L10n.tr("Convite cancelado") }
+    nonisolated static var conviteCanceladoFora: String { L10n.tr("Este compromisso não está na sua agenda.") }
+    nonisolated static var conviteCanceladoNaAgenda: String { L10n.tr("Na agenda como cancelado.") }
+    nonisolated static var conviteNaAgenda: String { L10n.tr("Na agenda") }
+    nonisolated static var removerDaAgenda: String { L10n.tr("Remover da agenda") }
+    nonisolated static var recolherConvite: String { L10n.tr("Recolher") }
+    nonisolated static var mostrarConvite: String { L10n.tr("Detalhes") }
+    nonisolated static var recolherResumo: String { L10n.tr("Recolher resumo") }
+    nonisolated static var mostrarResumo: String { L10n.tr("Mostrar resumo") }
     /// O TL;DR nasce recolhido: uma linha, e quem quiser o texto expande.
     nonisolated static let resumoComecaAberto = false
 
@@ -1353,9 +1353,9 @@ public struct ReaderPane: View {
     ) -> [String] {
         guard let triage else { return [] }
         var chips: [String] = []
-        if triage.needsReply { chips.append("Precisa resposta") }
+        if triage.needsReply { chips.append(L10n.tr("Precisa resposta")) }
         if let deadline = triage.deadline {
-            chips.append("Prazo: \(deadlineLabel(deadline.date, timeZone: timeZone))")
+            chips.append(L10n.tr("Prazo: \(deadlineLabel(deadline.date, timeZone: timeZone))"))
         }
         return chips
     }
@@ -1369,13 +1369,13 @@ public struct ReaderPane: View {
         let hora = partes.hour ?? 0
         let minuto = partes.minute ?? 0
         let formatador = DateFormatter()
-        formatador.locale = Locale(identifier: "pt_BR")
+        formatador.locale = L10n.locale
         formatador.timeZone = timeZone
         formatador.setLocalizedDateFormatFromTemplate("EEE")
         let dia = formatador.string(from: date)
             .replacingOccurrences(of: ".", with: "")
             .lowercased()
-        return minuto == 0 ? "\(dia) \(hora)h" : "\(dia) \(hora)h\(String(format: "%02d", minuto))"
+        return minuto == 0 ? L10n.tr("\(dia) \(hora)h") : L10n.tr("\(dia) \(hora)h\(String(format: "%02d", minuto))")
     }
 
     /// Aberto enquanto não respondeu; recolhido depois de Aceitar/Talvez/
@@ -1408,7 +1408,7 @@ public struct ReaderPane: View {
         guard !nomes.isEmpty else { return nil }
         if nomes.count <= limite { return nomes.joined(separator: ", ") }
         let visiveis = nomes.prefix(limite).joined(separator: ", ")
-        return "\(visiveis) e mais \(nomes.count - limite)"
+        return L10n.tr("\(visiveis) e mais \(nomes.count - limite)")
     }
 
     /// O cartão do convite, no idioma do cartão de resumo — mesma superfície,
@@ -1462,7 +1462,7 @@ public struct ReaderPane: View {
                 }
             }
 
-            Text(convite.summary.isEmpty ? "Compromisso" : convite.summary)
+            Text(convite.summary.isEmpty ? L10n.tr("Compromisso") : convite.summary)
                 .font(theme.serif.font(size: 15))
                 .lineSpacing(8.25)
                 .foregroundStyle(theme.ink.color)
@@ -1479,7 +1479,7 @@ public struct ReaderPane: View {
             }
 
             if convite.isCancelled {
-                linhaDoCartao("Este convite foi cancelado pelo organizador.")
+                linhaDoCartao(L10n.tr("Este convite foi cancelado pelo organizador."))
                 if store.cancelledAgendaItem(for: convite, from: message)?.isCancelled == true {
                     linhaDoCartao(Self.conviteCanceladoNaAgenda)
                 } else if store.cancelledAgendaItem(for: convite, from: message) == nil {
@@ -1500,7 +1500,7 @@ public struct ReaderPane: View {
     private func inviteCardRecolhido(
         _ convite: CalendarInvite, message: Message, selected: InviteRSVPResponse?
     ) -> some View {
-        let titulo = convite.summary.isEmpty ? "Compromisso" : convite.summary
+        let titulo = convite.summary.isEmpty ? L10n.tr("Compromisso") : convite.summary
         let naAgenda = store.agendaState(for: convite, from: message) != .ausente
         return HStack(spacing: 8) {
             if let selected {
@@ -1549,7 +1549,7 @@ public struct ReaderPane: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(aberto ? "Recolhe o convite para ler o email" : "Mostra os detalhes do convite")
+        .help(aberto ? L10n.tr("Recolhe o convite para ler o email") : L10n.tr("Mostra os detalhes do convite"))
         .accessibilityLabel(aberto ? Self.recolherConvite : Self.mostrarConvite)
     }
 
@@ -1585,7 +1585,7 @@ public struct ReaderPane: View {
         let respostas = selected?.otherResponses ?? Array(InviteRSVPResponse.allCases)
 
         return VStack(alignment: .leading, spacing: 7) {
-            Text(selected.map { "Resposta na fila: \($0.label)" } ?? "Responder ao convite")
+            Text(selected.map { L10n.tr("Resposta na fila: \($0.label)") } ?? L10n.tr("Responder ao convite"))
                 .font(theme.sans.font(size: 11.5, weight: .semibold))
                 .foregroundStyle(selected == nil ? theme.ink2.color : theme.accentInk.color)
 
@@ -1620,11 +1620,11 @@ public struct ReaderPane: View {
         let disabled = isSelected || unavailable != nil
         let help: String
         if isSelected {
-            help = "\(response.label) — esta resposta já está na fila de saída"
+            help = L10n.tr("\(response.label) — esta resposta já está na fila de saída")
         } else if let unavailable {
             help = unavailable.message
         } else {
-            help = "\(response.actionLabel) e enviar ao organizador pela fila de saída"
+            help = L10n.tr("\(response.actionLabel) e enviar ao organizador pela fila de saída")
         }
 
         let fill = rsvpFill(response)
@@ -1735,11 +1735,11 @@ public struct ReaderPane: View {
     /// tarefa veio consertar, só que adiado para o segundo clique.
     private func addToAgendaButton(_ event: DetectedEvent, for message: Message) -> some View {
         agendaButton(
-            label: isOnAgenda(message) ? "Na agenda" : "Colocar na agenda",
+            label: isOnAgenda(message) ? L10n.tr("Na agenda") : L10n.tr("Colocar na agenda"),
             apagado: isOnAgenda(message),
             help: isOnAgenda(message)
-                ? "Colocar na agenda — indisponível: este compromisso já está na agenda"
-                : "Cria o compromisso na agenda, a partir do que a mensagem detectou",
+                ? L10n.tr("Colocar na agenda — indisponível: este compromisso já está na agenda")
+                : L10n.tr("Cria o compromisso na agenda, a partir do que a mensagem detectou"),
             action: { addEvent(event, for: message) }
         )
     }
@@ -1772,7 +1772,7 @@ public struct ReaderPane: View {
         ) {
             removeCancelledInvite(convite, for: message)
         }
-        .help("Tira da agenda o compromisso que este cancelamento anuncia")
+        .help(L10n.tr("Tira da agenda o compromisso que este cancelamento anuncia"))
     }
 
     /// O que o botão do convite escreve em cada estado. `nonisolated` e
@@ -1780,17 +1780,17 @@ public struct ReaderPane: View {
     /// teste o afirma sem montar janela.
     nonisolated static func inviteButtonLabel(_ estado: InviteAgendaState) -> String {
         switch estado {
-        case .ausente: "Colocar na agenda"
-        case .naAgenda: "Na agenda"
-        case .desatualizado: "Atualizar na agenda"
+        case .ausente: L10n.tr("Colocar na agenda")
+        case .naAgenda: L10n.tr("Na agenda")
+        case .desatualizado: L10n.tr("Atualizar na agenda")
         }
     }
 
     nonisolated static func inviteButtonHelp(_ estado: InviteAgendaState) -> String {
         switch estado {
-        case .ausente: "Cria o compromisso na agenda, a partir deste convite"
-        case .naAgenda: "Colocar na agenda — indisponível: este convite já está na agenda"
-        case .desatualizado: "Atualiza o compromisso que já está na agenda com o que este convite mudou"
+        case .ausente: L10n.tr("Cria o compromisso na agenda, a partir deste convite")
+        case .naAgenda: L10n.tr("Colocar na agenda — indisponível: este convite já está na agenda")
+        case .desatualizado: L10n.tr("Atualiza o compromisso que já está na agenda com o que este convite mudou")
         }
     }
 
@@ -1838,12 +1838,12 @@ public struct ReaderPane: View {
                 .foregroundStyle(theme.ink2.color)
                 .lineLimit(1)
             ChromeButton(
-                "Desfazer", appearance: .outlined,
+                L10n.tr("Desfazer"), appearance: .outlined,
                 size: 11.5, height: 26, horizontalPadding: 10
             ) {
                 undoAddEvent(receipt)
             }
-            .help("Desfazer: \(receipt.note)")
+            .help(L10n.tr("Desfazer: \(receipt.note)"))
         }
     }
 
@@ -2001,8 +2001,8 @@ public struct ReaderPane: View {
     /// "Carregando corpo…", e a frase da mensagem sem texto. Estáticas e
     /// `nonisolated` para o teste as afirmar sem montar a janela: o que a
     /// pessoa lê é comportamento, não decoração.
-    nonisolated static let carregandoCorpo = "Carregando corpo…"
-    nonisolated static let semTexto = "Esta mensagem não tem texto."
+    nonisolated static var carregandoCorpo: String { L10n.tr("Carregando corpo…") }
+    nonisolated static var semTexto: String { L10n.tr("Esta mensagem não tem texto.") }
 
     private func bodyNote(_ texto: String) -> some View { ReaderNote(texto) }
 
@@ -2010,7 +2010,7 @@ public struct ReaderPane: View {
     /// tela vazia com mais palavras.
     private func bodyFailure(_ causa: String, message: Message) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Não foi possível baixar o corpo desta mensagem.")
+            Text(L10n.tr("Não foi possível baixar o corpo desta mensagem."))
                 .font(theme.sans.font(size: 12.5, weight: .semibold))
                 .foregroundStyle(theme.ink.color)
             Text(causa)
@@ -2018,12 +2018,12 @@ public struct ReaderPane: View {
                 .foregroundStyle(theme.ink3.color)
                 .fixedSize(horizontal: false, vertical: true)
             ChromeButton(
-                "Tentar de novo", appearance: .outlined,
+                L10n.tr("Tentar de novo"), appearance: .outlined,
                 size: 11.5, height: 26, horizontalPadding: 10
             ) {
                 Task { await store.retryBody(message.id) }
             }
-            .help("Busca o corpo desta mensagem no servidor outra vez")
+            .help(L10n.tr("Busca o corpo desta mensagem no servidor outra vez"))
         }
         .frame(maxWidth: Self.readingWidth, alignment: .leading)
         .padding(.horizontal, 28)
@@ -2036,7 +2036,7 @@ public struct ReaderPane: View {
                 .scaledToFit()
                 .frame(height: 104)
                 .opacity(0.85)
-            Text("Nada aqui. Bom sinal.")
+            Text(L10n.tr("Nada aqui. Bom sinal."))
                 .font(theme.serif.font(size: 16))
                 .italic()
                 .foregroundStyle(theme.ink4.color)
@@ -2051,7 +2051,7 @@ public struct ReaderPane: View {
         ink2: Color,
         ink: Color
     ) -> AttributedString {
-        var result = AttributedString("Compromisso detectado — ")
+        var result = AttributedString(L10n.tr("Compromisso detectado — "))
         result.foregroundColor = ink2
 
         var titlePart = AttributedString(label)

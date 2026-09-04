@@ -175,11 +175,14 @@ public enum DateLabels {
     /// "Terça, 25 de agosto" — o `dateLabel` que o protótipo passa para
     /// `openEvent`. Ele tem a lista `DOWLONG` escrita à mão ('Terça'), enquanto
     /// o `pt_BR` do sistema devolve "terça-feira": o sufixo cai aqui.
-    public static func eventDate(_ date: Date, locale: Locale = Locale(identifier: "pt_BR")) -> String {
+    public static func eventDate(_ date: Date, locale: Locale = L10n.locale) -> String {
         let formatter = DateFormatter()
         formatter.locale = locale
-        formatter.dateFormat = "EEEE, d 'de' MMMM"
-        let text = formatter.string(from: date).replacingOccurrences(of: "-feira", with: "")
-        return text.prefix(1).uppercased() + text.dropFirst()
+        formatter.setLocalizedDateFormatFromTemplate("EEEE d MMMM")
+        let text = formatter.string(from: date)
+        let withoutWeekdaySuffix = locale.language.languageCode?.identifier == "pt"
+            ? text.replacingOccurrences(of: "-feira", with: "")
+            : text
+        return withoutWeekdaySuffix.prefix(1).uppercased() + withoutWeekdaySuffix.dropFirst()
     }
 }

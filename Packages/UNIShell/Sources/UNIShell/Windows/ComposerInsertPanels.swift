@@ -68,9 +68,9 @@ struct ComposerLinkPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            field(title: "Endereço", text: $address, placeholder: "okamiuni.com.br")
+            field(title: L10n.tr("Endereço"), text: $address, placeholder: "okamiuni.com.br")
             if !hasSelection {
-                field(title: "Texto", text: $label, placeholder: "o que aparece no email")
+                field(title: L10n.tr("Texto"), text: $label, placeholder: L10n.tr("o que aparece no email"))
             }
 
             HStack(spacing: 7) {
@@ -80,7 +80,7 @@ struct ComposerLinkPanel: View {
                         labelSize: 11.5, labelWeight: .medium,
                         action: { apply(nil, "") }
                     ) {
-                        Text("Remover")
+                        Text(L10n.tr("Remover"))
                     }
                 }
                 Spacer(minLength: 0)
@@ -89,14 +89,14 @@ struct ComposerLinkPanel: View {
                     labelSize: 11.5, labelWeight: .medium,
                     action: cancel
                 ) {
-                    Text("Cancelar")
+                    Text(L10n.tr("Cancelar"))
                 }
                 ChromeButton(
                     appearance: .accent, height: 24, horizontalPadding: 10,
                     labelSize: 11.5, labelWeight: .medium,
                     action: { if let resolved { apply(resolved, resolvedLabel) } }
                 ) {
-                    Text("Aplicar")
+                    Text(L10n.tr("Aplicar"))
                 }
                 .disabled(resolved == nil)
                 .opacity(resolved == nil ? 0.5 : 1)
@@ -194,7 +194,7 @@ struct ComposerTablePanel: View {
     }
 
     private var caption: String {
-        guard let hovered else { return "TABELA" }
+        guard let hovered else { return L10n.tr("TABELA") }
         return "\(hovered.rows) × \(hovered.columns)"
     }
 
@@ -218,6 +218,6 @@ struct ComposerTablePanel: View {
             if inside { hovered = (row, column) } else if hovered?.rows == row,
                 hovered?.columns == column { hovered = debugHover }
         }
-        .help("Tabela de \(row) por \(column)")
+        .help(L10n.tr("Tabela de \(row) por \(column)"))
     }
 }

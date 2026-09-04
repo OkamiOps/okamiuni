@@ -106,7 +106,7 @@ public enum ContactDirectory {
 
     /// Protótipo: `label: q ? 'Contatos' : 'Mais usados'`.
     public static func menuLabel(query: String) -> String {
-        query.trimmingCharacters(in: .whitespaces).isEmpty ? "Mais usados" : "Contatos"
+        query.trimmingCharacters(in: .whitespaces).isEmpty ? L10n.tr("Mais usados") : L10n.tr("Contatos")
     }
 
     /// Dobra caixa **e** acento: "marina" acha "Marina", "márina" também, e
@@ -178,15 +178,17 @@ public enum DraftMeta {
     }
 
     /// Protótipo: `words ? words + (words === 1 ? ' palavra' : ' palavras') : 'rascunho vazio'`.
-    public static func countLabel(_ text: String) -> String {
+    public static func countLabel(_ text: String, language: AppLanguage? = nil) -> String {
         let words = wordCount(text)
-        guard words > 0 else { return "rascunho vazio" }
-        return "\(words) \(words == 1 ? "palavra" : "palavras")"
+        guard words > 0 else { return L10n.tr("rascunho vazio", language: language) }
+        return words == 1
+            ? L10n.tr("\(words) palavra", language: language)
+            : L10n.tr("\(words) palavras", language: language)
     }
 
     /// Protótipo: `saved ? 'rascunho salvo ' + saved : 'não salvo'`.
     public static func savedLabel(_ stamp: String?) -> String {
-        guard let stamp, !stamp.isEmpty else { return "não salvo" }
-        return "rascunho salvo \(stamp)"
+        guard let stamp, !stamp.isEmpty else { return L10n.tr("não salvo") }
+        return L10n.tr("rascunho salvo \(stamp)")
     }
 }

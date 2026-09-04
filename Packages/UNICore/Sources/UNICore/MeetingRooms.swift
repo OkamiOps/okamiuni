@@ -44,9 +44,9 @@ public enum MeetingService: String, CaseIterable, Identifiable, Codable, Sendabl
     public var extraFieldLabel: String {
         switch self {
         case .meet: ""
-        case .zoom: "Account ID"
-        case .teams: "Tenant ID"
-        case .zoho: "Refresh token"
+        case .zoom: L10n.tr("Account ID")
+        case .teams: L10n.tr("Tenant ID")
+        case .zoho: L10n.tr("Refresh token")
         }
     }
 

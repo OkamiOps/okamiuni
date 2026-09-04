@@ -1,3 +1,4 @@
+import UNICore
 import Foundation
 import Security
 
@@ -42,13 +43,13 @@ public enum AssistantCredentialStoreError: Error, Sendable, Equatable, Localized
     public var errorDescription: String? {
         switch self {
         case .invalidCredentialID:
-            "A referência da credencial de IA é inválida."
+            L10n.tr("A referência da credencial de IA é inválida.")
         case .invalidAPIKey:
-            "A chave de API da IA está vazia ou contém caracteres inválidos."
+            L10n.tr("A chave de API da IA está vazia ou contém caracteres inválidos.")
         case .unreadableKeychainValue:
-            "O Keychain devolveu uma chave de API de IA inválida."
+            L10n.tr("O Keychain devolveu uma chave de API de IA inválida.")
         case let .keychain(status):
-            "Não foi possível acessar a chave de API de IA no Keychain (código \(status))."
+            L10n.tr("Não foi possível acessar a chave de API de IA no Keychain (código \(status)).")
         }
     }
 }

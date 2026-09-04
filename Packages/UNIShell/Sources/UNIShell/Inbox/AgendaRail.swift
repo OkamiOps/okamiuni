@@ -327,7 +327,7 @@ public struct AgendaRail: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Agenda de hoje")
+            Text(L10n.tr("Agenda de hoje"))
                 .font(theme.serif.font(size: 16, weight: .semibold))
                 .foregroundStyle(theme.ink.color)
             Text(Self.headerDateString(headerDate))
@@ -345,7 +345,7 @@ public struct AgendaRail: View {
 
     private var nextUpLine: some View {
         let label = Self.nextUpLabel(for: todayItems, now: now)
-        let live = label.hasPrefix("agora:")
+        let live = label.hasPrefix(L10n.tr("agora:"))
         return HStack(alignment: .firstTextBaseline, spacing: 7) {
             Circle()
                 .fill(live ? liveColor() : theme.ink4.color)
@@ -361,10 +361,10 @@ public struct AgendaRail: View {
 
     private var emptyDay: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Dia livre")
+            Text(L10n.tr("Dia livre"))
                 .font(theme.serif.font(size: 15, weight: .semibold))
                 .foregroundStyle(theme.ink.color)
-            Text("Nenhum compromisso nesta caixa.")
+            Text(L10n.tr("Nenhum compromisso nesta caixa."))
                 .font(theme.sans.font(size: 12))
                 .foregroundStyle(theme.ink3.color)
         }
@@ -388,7 +388,7 @@ public struct AgendaRail: View {
             Rectangle()
                 .fill(liveColor().opacity(0.55))
                 .frame(height: 1)
-            Text("agora")
+            Text(L10n.tr("agora"))
                 .font(theme.mono.font(size: 8.5, weight: .medium))
                 .tracking(theme.capsTracking(at: 8.5))
                 .textCase(.uppercase)
@@ -399,7 +399,7 @@ public struct AgendaRail: View {
         }
         .padding(.vertical, 8)
         .padding(.bottom, 4)
-        .accessibilityLabel("Agora")
+        .accessibilityLabel(L10n.tr("Agora"))
     }
 
     private func liveColor() -> Color {
@@ -412,7 +412,7 @@ public struct AgendaRail: View {
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusLarge)
-        .help(item.isCancelled ? "Compromisso cancelado" : "Abre o compromisso")
+        .help(item.isCancelled ? L10n.tr("Compromisso cancelado") : L10n.tr("Abre o compromisso"))
         // O mesmo menu das três visões da agenda. A trilha mostra sempre
         // hoje, então o dia do compromisso é o do cabeçalho.
         .uniContextMenu(
@@ -447,7 +447,7 @@ public struct AgendaRail: View {
                         .font(theme.mono.font(size: 15, weight: .medium))
                         .foregroundStyle(cancelled ? theme.ink4.color : theme.ink.color)
                     if running {
-                        Text("Agora")
+                        Text(L10n.tr("Agora"))
                             .font(theme.mono.font(size: 8, weight: .medium))
                             .tracking(theme.capsTracking(at: 8))
                             .textCase(.uppercase)
@@ -457,7 +457,7 @@ public struct AgendaRail: View {
                             .background(liveColor().opacity(theme.isDark ? 0.2 : 0.1), in: Capsule())
                     }
                     Spacer(minLength: 4)
-                    Text(cancelled ? "Cancelado" : item.durationLabel)
+                    Text(cancelled ? L10n.tr("Cancelado") : item.durationLabel)
                         .font(theme.mono.font(size: 9, weight: .medium))
                         .tracking(theme.capsTracking(at: 9))
                         .textCase(.uppercase)
@@ -498,7 +498,7 @@ public struct AgendaRail: View {
     /// de horas acima.
     var pendingSection: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Vindo do email")
+            Text(L10n.tr("Vindo do email"))
                 .font(theme.mono.font(size: 9.5))
                 .tracking(theme.capsTracking(at: 9.5))
                 .textCase(.uppercase)
@@ -570,10 +570,10 @@ public struct AgendaRail: View {
 
     nonisolated static func periodName(for minute: Int) -> String {
         switch minute {
-        case ..<360: "Madrugada"
-        case ..<720: "Manhã"
-        case ..<1080: "Tarde"
-        default: "Noite"
+        case ..<360: L10n.tr("Madrugada")
+        case ..<720: L10n.tr("Manhã")
+        case ..<1080: L10n.tr("Tarde")
+        default: L10n.tr("Noite")
         }
     }
 
@@ -607,7 +607,7 @@ public struct AgendaRail: View {
         if host == "webex.com" || host.hasSuffix(".webex.com") { return "Webex" }
         if host == "whereby.com" || host.hasSuffix(".whereby.com") { return "Whereby" }
         if host == "meet.jit.si" || host.hasSuffix(".meet.jit.si") { return "Jitsi" }
-        return "Videoconferência"
+        return L10n.tr("Videoconferência")
     }
 
     /// O rótulo da calha das horas: "08:00", "09:00", …
@@ -620,8 +620,8 @@ public struct AgendaRail: View {
     /// Formata a data do cabeçalho: "Terça-feira, 25 de agosto"
     public nonisolated static func headerDateString(_ date: Date) -> String {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "pt_BR")
-        formatter.dateFormat = "EEEE, d 'de' MMMM"
+        formatter.locale = L10n.locale
+        formatter.setLocalizedDateFormatFromTemplate("EEEE d MMMM")
         let result = formatter.string(from: date)
         // Capitalizar a primeira letra do dia da semana
         return result.prefix(1).uppercased() + result.dropFirst()

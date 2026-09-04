@@ -9,8 +9,8 @@ public enum Workspace: String, CaseIterable, Sendable {
     public var label: String {
         switch self {
         case .dashboard: "Dashboard"
-        case .mail: "Caixa"
-        case .calendar: "Agenda"
+        case .mail: L10n.tr("Caixa")
+        case .calendar: L10n.tr("Agenda")
         }
     }
 
@@ -102,9 +102,9 @@ public struct WindowChrome: View {
     /// Como a quantidade é do usuário, o texto concorda com ela.
     public static func searchPlaceholder(_ accountCount: Int) -> String {
         switch accountCount {
-        case 0: "Buscar"
-        case 1: "Buscar na caixa…"
-        default: "Buscar nas \(accountCount) caixas…"
+        case 0: L10n.tr("Buscar")
+        case 1: L10n.tr("Buscar na caixa…")
+        default: L10n.tr("Buscar nas \(accountCount) caixas…")
         }
     }
 
@@ -114,11 +114,11 @@ public struct WindowChrome: View {
         !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    public static let searchEverywhereLabel = "Tudo"
+    public static var searchEverywhereLabel: String { L10n.tr("Tudo") }
     public static let searchEverywhereHelpOff =
-        "Busca nesta caixa. Clique para procurar em todas as pastas."
+        L10n.tr("Busca nesta caixa. Clique para procurar em todas as pastas.")
     public static let searchEverywhereHelpOn =
-        "Buscando em todas as pastas. Clique para voltar a esta caixa."
+        L10n.tr("Buscando em todas as pastas. Clique para voltar a esta caixa.")
 
     /// Identidade do campo para o Esc achar a busca no respondedor. O editor
     /// de campo do AppKit é um `NSTextView` filho; a marca fica neste id.
@@ -268,7 +268,7 @@ public struct WindowChrome: View {
             HStack(spacing: 6) {
                 Text("+")
                     .font(theme.sans.font(size: 14))
-                Text("Escrever")
+                Text(L10n.tr("Escrever"))
                     .font(theme.sans.font(size: 12.5, weight: .semibold))
             }
             .foregroundStyle(theme.onAccent.color)
@@ -280,8 +280,8 @@ public struct WindowChrome: View {
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall, tint: \.onAccent)
-        .accessibilityLabel("Escrever uma nova mensagem")
-        .help("Nova mensagem (⌘N)")
+        .accessibilityLabel(L10n.tr("Escrever uma nova mensagem"))
+        .help(L10n.tr("Nova mensagem (⌘N)"))
     }
 
     private var accountsButton: some View {
@@ -295,8 +295,8 @@ public struct WindowChrome: View {
         }
         .buttonStyle(.plain)
         .focusRing(in: Circle())
-        .help("Contas e providers")
-        .accessibilityLabel("Abrir contas e providers")
+        .help(L10n.tr("Contas e providers"))
+        .accessibilityLabel(L10n.tr("Abrir contas e providers"))
     }
 
     private var sidebarToggle: some View {
@@ -304,8 +304,8 @@ public struct WindowChrome: View {
             systemName: "sidebar.left",
             hovering: $sidebarHovering,
             action: onToggleSidebar,
-            accessibilityLabel: "Mostrar ou esconder a barra lateral",
-            help: "Mostrar ou esconder a barra lateral"
+            accessibilityLabel: L10n.tr("Mostrar ou esconder a barra lateral"),
+            help: L10n.tr("Mostrar ou esconder a barra lateral")
         )
         .chromeControlFrame(in: Self.barSpace)
         .padding(.top, Self.sidebarControlTopInset)
@@ -330,8 +330,8 @@ public struct WindowChrome: View {
             systemName: "sidebar.right",
             hovering: $agendaHovering,
             action: onToggleAgenda,
-            accessibilityLabel: "Mostrar ou esconder a trilha da agenda",
-            help: "Mostrar ou esconder a trilha da agenda"
+            accessibilityLabel: L10n.tr("Mostrar ou esconder a trilha da agenda"),
+            help: L10n.tr("Mostrar ou esconder a trilha da agenda")
         )
     }
 
@@ -415,7 +415,7 @@ public struct WindowChrome: View {
     /// ⌘ chega. `.hidden()` tira o botão do desenho sem o tirar da hierarquia —
     /// e como ele vem por `background`, não ocupa lugar no layout da barra.
     private var searchShortcut: some View {
-        Button("Buscar") { searchFocused = true }
+        Button(L10n.tr("Buscar")) { searchFocused = true }
             .keyboardShortcut("k", modifiers: .command)
             .hidden()
             .accessibilityHidden(true)
@@ -472,7 +472,7 @@ public struct WindowChrome: View {
         .contentShape(Rectangle())
         .help(on ? Self.searchEverywhereHelpOn : Self.searchEverywhereHelpOff)
         .accessibilityLabel(Self.searchEverywhereLabel)
-        .accessibilityValue(on ? "ligado" : "desligado")
+        .accessibilityValue(on ? L10n.tr("ligado") : L10n.tr("desligado"))
         .accessibilityAddTraits(on ? .isSelected : [])
         .accessibilityHint(Self.searchEverywhereHelpOff)
     }
@@ -527,7 +527,7 @@ public struct WindowChrome: View {
     /// IA pensa é verdade sobre a caixa e mentira sobre a espera.
     var statusPhrase: String {
         if let statusDetail { return statusDetail }
-        if let syncCaption { return "Atualizada \(syncCaption)" }
+        if let syncCaption { return L10n.tr("Atualizada \(syncCaption)") }
         return syncStatus.label
     }
 
@@ -535,12 +535,12 @@ public struct WindowChrome: View {
         if let statusDetail { return statusDetail }
         if let syncCaption {
             if onReloadMailbox != nil && syncStatus.canReload {
-                return "Atualizada \(syncCaption). Atualizar agora, sem esperar o ciclo automático"
+                return L10n.tr("Atualizada \(syncCaption). Atualizar agora, sem esperar o ciclo automático")
             }
-            return "Atualizada \(syncCaption)"
+            return L10n.tr("Atualizada \(syncCaption)")
         }
         if onReloadMailbox != nil && syncStatus.canReload {
-            return "Atualizar a caixa agora, sem esperar o ciclo automático"
+            return L10n.tr("Atualizar a caixa agora, sem esperar o ciclo automático")
         }
         return syncStatus.label
     }
@@ -572,7 +572,7 @@ public struct WindowChrome: View {
         .onHover { reloadHovering = $0 }
         .animation(.easeOut(duration: 0.12), value: reloadHovering)
         .help(reloadHelp)
-        .accessibilityLabel("Atualizar a caixa")
+        .accessibilityLabel(L10n.tr("Atualizar a caixa"))
         .accessibilityHint(reloadHelp)
         .accessibilityIdentifier("mailbox-reload")
         .accessibilityValue(statusPhrase)
@@ -607,7 +607,7 @@ public struct WindowChrome: View {
         }
         .frame(height: 2)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Estado da caixa")
+        .accessibilityLabel(L10n.tr("Estado da caixa"))
         .accessibilityValue(statusPhrase)
         .accessibilityIdentifier("mailbox-sync-status")
         .help(statusPhrase)

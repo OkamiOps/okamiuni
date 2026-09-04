@@ -14,7 +14,9 @@ public enum WeekAgenda {
     ///
     /// Indexado pelo `weekday` do `Calendar` (1 = domingo), não pela posição na
     /// coluna — por isso começa em "dom".
-    public static let weekdayLabels = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"]
+    public static var weekdayLabels: [String] {
+        ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"].map { L10n.tr(LocalizedString(stringLiteral: $0)) }
+    }
 
     /// Os deslocamentos em dias que formam a semana **de segunda a domingo** que
     /// contém `date`.
@@ -56,7 +58,7 @@ public enum WeekAgenda {
     /// O protótipo escreve a literal, porque só tem um mês para mostrar. Aqui
     /// sai da âncora: uma literal ficaria errada em qualquer outra semana.
     public static func monthTitle(
-        for date: Date, locale: Locale = Locale(identifier: "pt_BR")
+        for date: Date, locale: Locale = L10n.locale
     ) -> String {
         let formatter = DateFormatter()
         formatter.locale = locale

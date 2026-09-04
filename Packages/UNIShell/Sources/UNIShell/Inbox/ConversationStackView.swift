@@ -105,7 +105,7 @@ struct ConversationStackView<Corpo: View>: View {
     /// "3 mensagens nesta conversa". `nonisolated` e `static` porque o que a
     /// pessoa lê é comportamento — o teste a afirma sem montar leitor.
     nonisolated static func contagem(_ quantas: Int) -> String {
-        "\(quantas) mensagens nesta conversa"
+        L10n.tr("\(quantas) mensagens nesta conversa")
     }
 
     /// A linha clicável de uma mensagem da pilha. Clicar abre a recolhida e
@@ -131,7 +131,7 @@ struct ConversationStackView<Corpo: View>: View {
         }
         .buttonStyle(.plain)
         .focusRing(in: Rectangle())
-        .help(aberta ? "Recolher esta mensagem da conversa" : "Abrir esta mensagem da conversa")
+        .help(aberta ? L10n.tr("Recolher esta mensagem da conversa") : L10n.tr("Abrir esta mensagem da conversa"))
     }
 
     /// A linha de cabeçalho de uma mensagem da pilha. Recolhida, ela mostra a

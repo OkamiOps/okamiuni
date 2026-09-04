@@ -108,8 +108,8 @@ public struct PaneDivider: View {
         .overlay(highlight)
         .accessibilityElement()
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("Divisória de painel")
-        .accessibilityHint("Arraste para redimensionar. Duplo clique volta à largura padrão.")
+        .accessibilityLabel(L10n.tr("Divisória de painel"))
+        .accessibilityHint(L10n.tr("Arraste para redimensionar. Duplo clique volta à largura padrão."))
     }
 
     private var highlight: some View {

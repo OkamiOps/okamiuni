@@ -79,7 +79,7 @@ public struct AssistantEngine {
         supportsDraftReply: Bool,
         answer: @escaping (AssistantRequest) async throws -> String,
         draftReply: @escaping (AssistantRequest) async throws -> String = { _ in
-            throw TextAssistantError.invalidRequest("Criar uma resposta requer contexto de e-mail.")
+            throw TextAssistantError.invalidRequest(L10n.tr("Criar uma resposta requer contexto de e-mail."))
         },
         answerWithProposals: ((AssistantRequest) async throws -> AssistantAnswer)? = nil
     ) {
@@ -97,7 +97,7 @@ public extension AssistantEngine {
     /// de deixar botão aceso e mudo.
     static let unavailable = AssistantEngine(supportsDraftReply: false) { _ in
         throw TextAssistantError.invalidRequest(
-            "O assistente não foi conectado a esta janela."
+            L10n.tr("O assistente não foi conectado a esta janela.")
         )
     }
 }
@@ -137,8 +137,8 @@ public extension AssistantDestination {
     /// (`InboxScreen.assistantDestination` deriva de `AssistantSettings` e só
     /// cai aqui na ausência dela); o defeito era só a frase.
     static let unconfigured = AssistantDestination(
-        label: "Sem provedor",
-        detail: "Escolha o provedor nos Ajustes.",
+        label: L10n.tr("Sem provedor"),
+        detail: L10n.tr("Escolha o provedor nos Ajustes."),
         isLocal: false
     )
 }

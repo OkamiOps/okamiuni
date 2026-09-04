@@ -13,8 +13,8 @@ public enum AssistantDrawerContext: String, Sendable, Hashable, CaseIterable {
     /// O que a linha "Falando sobre" escreve — as palavras do 09.
     public var label: String {
         switch self {
-        case .day: "o seu dia"
-        case .selectedEmail: "o email selecionado"
+        case .day: L10n.tr("o seu dia")
+        case .selectedEmail: L10n.tr("o email selecionado")
         }
     }
 }
@@ -23,15 +23,15 @@ public enum AssistantDrawerContext: String, Sendable, Hashable, CaseIterable {
 /// `View`, onde não teriam teste.
 public enum AssistantDrawerCopy {
 
-    public static let title = "Assistente"
-    public static let placeholder = "Pergunte, ou mande fazer…"
-    public static let contextPrefix = "Falando sobre"
-    public static let swapLabel = "trocar"
+    public static var title: String { L10n.tr("Assistente") }
+    public static var placeholder: String { L10n.tr("Pergunte, ou mande fazer…") }
+    public static var contextPrefix: String { L10n.tr("Falando sobre") }
+    public static var swapLabel: String { L10n.tr("trocar") }
     /// A promessa do rodapé, e a regra inteira do recurso numa linha.
-    public static let footer = "Nada é executado sem o seu clique. Esc fecha · ⌘J abre."
+    public static var footer: String { L10n.tr("Nada é executado sem o seu clique. Esc fecha · ⌘J abre.") }
     /// O que o cartão vira depois de executado, enquanto o desfazer existir.
-    public static let done = "Feito"
-    public static let undo = "Desfazer"
+    public static var done: String { L10n.tr("Feito") }
+    public static var undo: String { L10n.tr("Desfazer") }
 
     /// Qual contexto vale.
     ///
@@ -63,9 +63,9 @@ public enum AssistantDrawerCopy {
     public static func chips(heroName: String?) -> [String] {
         let primeiro = heroName.flatMap(firstName(of:))
         return [
-            primeiro.map { "Responde o \($0) por mim" } ?? "Responde por mim o mais antigo",
-            "O que vence amanhã?",
-            "Resume o dia em 3 linhas",
+            primeiro.map { L10n.tr("Responde o \($0) por mim") } ?? L10n.tr("Responde por mim o mais antigo"),
+            L10n.tr("O que vence amanhã?"),
+            L10n.tr("Resume o dia em 3 linhas"),
         ]
     }
 

@@ -51,8 +51,8 @@ public enum InviteAgenda {
     /// do iCalendar tem `ROLE` e `PARTSTAT` que este parser não lê de
     /// propósito — inventar "confirmou" a partir de nada seria pior que dizer
     /// "convidado".
-    public static let papelConvidado = "convidado"
-    public static let papelOrganizador = "organizador"
+    public static var papelConvidado: String { L10n.tr("convidado") }
+    public static var papelOrganizador: String { L10n.tr("organizador") }
 
     /// Tudo o que a janela do compromisso mostra, tirado **do convite**.
     ///
@@ -88,10 +88,10 @@ public enum InviteAgenda {
             ),
             people: convidados,
             note: nota(accountHost: accountHost),
-            recurrence: "Evento único",
+            recurrence: L10n.tr("Evento único"),
             // Não criamos alerta nenhum, e dizer "Alerta 10 min antes" seria a
             // janela prometendo um aviso que não vai tocar.
-            notice: "Sem alerta",
+            notice: L10n.tr("Sem alerta"),
             agenda: [],
             thread: [
                 EventThreadEntry(when: when, who: pessoaNome(sender), what: subject, kind: .email)
@@ -104,8 +104,8 @@ public enum InviteAgenda {
     /// reunião pode chegar em duas caixas da pessoa, e saber por qual delas ela
     /// entrou é metade da resposta a "de onde veio isto".
     public static func nota(accountHost: String?) -> String {
-        guard let accountHost, !accountHost.isEmpty else { return "Do convite por email." }
-        return "Do convite por email · conta \(accountHost)"
+        guard let accountHost, !accountHost.isEmpty else { return L10n.tr("Do convite por email.") }
+        return L10n.tr("Do convite por email · conta \(accountHost)")
     }
 
     /// Compromisso detectado no texto do email, sem `text/calendar`. O
@@ -126,8 +126,8 @@ public enum InviteAgenda {
             ),
             people: [],
             note: nota(accountHost: accountHost),
-            recurrence: "Evento único",
-            notice: "Sem alerta",
+            recurrence: L10n.tr("Evento único"),
+            notice: L10n.tr("Sem alerta"),
             agenda: [],
             thread: [
                 EventThreadEntry(
@@ -150,7 +150,7 @@ public enum InviteAgenda {
         if let account {
             dono = EventPerson(
                 name: account.displayName, address: account.address,
-                role: "você", status: .yes
+                role: L10n.tr("você"), status: .yes
             )
         } else {
             dono = EventPerson(name: "", address: "", role: papelOrganizador, status: .pending)
@@ -161,8 +161,8 @@ public enum InviteAgenda {
             organizer: dono,
             people: [],
             note: nota(accountHost: account?.host),
-            recurrence: "Evento único",
-            notice: "Sem alerta",
+            recurrence: L10n.tr("Evento único"),
+            notice: L10n.tr("Sem alerta"),
             agenda: [],
             thread: []
         )

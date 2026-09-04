@@ -303,7 +303,7 @@ public struct WeekScreen: View {
             bottomTrailingRadius: theme.radiusSmall,
             topTrailingRadius: theme.radiusSmall
         ))
-        .help(item.isCancelled ? "Compromisso cancelado" : "Abre o compromisso")
+        .help(item.isCancelled ? L10n.tr("Compromisso cancelado") : L10n.tr("Abre o compromisso"))
         .uniContextMenu(
             AgendaContextMenu.entries(for: item, store: store, anchor: anchor),
             store: store,

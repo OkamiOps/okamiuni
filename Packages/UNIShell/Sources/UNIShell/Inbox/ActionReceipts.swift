@@ -102,8 +102,8 @@ public final class ActionReceipts {
     /// "Feito — 3 emails · 14:32". A contagem é de **ações**, que é o que a
     /// pessoa acabou de mandar fazer.
     public static func batchNote(count: Int, stamp: String) -> String {
-        let quantas = count == 1 ? "1 email" : "\(count) emails"
-        return "Feito — \(quantas) · \(stamp)"
+        let quantas = count == 1 ? L10n.tr("1 email") : L10n.tr("\(count) emails")
+        return L10n.tr("Feito — \(quantas) · \(stamp)")
     }
 
     /// Uma ação **dentro** de uma leva: fotografa, executa e guarda a volta.
@@ -160,10 +160,10 @@ public final class ActionReceipts {
         switch command {
         case .removeFromAgenda(let id):
             itemID = id
-            note = "Tirada da agenda"
+            note = L10n.tr("Tirada da agenda")
         case .cancelMeeting(let id):
             itemID = id
-            note = "Reunião cancelada"
+            note = L10n.tr("Reunião cancelada")
         default:
             return false
         }

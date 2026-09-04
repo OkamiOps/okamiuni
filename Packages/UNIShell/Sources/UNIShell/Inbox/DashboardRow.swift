@@ -160,12 +160,12 @@ struct DashboardRow: View {
             .lineLimit(1)
             .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: DashboardMetrics.proposalActionGap) {
-                actionButton("Enviar", tone: theme.accent.color, action: onConfirmSend)
-                actionButton("Cancelar", tone: theme.ink3.color, action: onCancelSend)
+                actionButton(L10n.tr("Enviar"), tone: theme.accent.color, action: onConfirmSend)
+                actionButton(L10n.tr("Cancelar"), tone: theme.ink3.color, action: onCancelSend)
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Confirmar envio")
+        .accessibilityLabel(L10n.tr("Confirmar envio"))
     }
 
     /// `↳` em accent quando é rascunho pronto; `ink4` quando é só sugestão.
@@ -216,8 +216,8 @@ struct DashboardRow: View {
         switch row.proposal {
         case .sendDraft:
             HStack(spacing: DashboardMetrics.proposalActionGap) {
-                actionButton("Enviar", tone: theme.accent.color, action: onPrimary)
-                actionButton("Editar", tone: theme.ink3.color, action: onSecondary)
+                actionButton(L10n.tr("Enviar"), tone: theme.accent.color, action: onPrimary)
+                actionButton(L10n.tr("Editar"), tone: theme.ink3.color, action: onSecondary)
             }
         case .later:
             HStack(spacing: DashboardMetrics.proposalActionGap) {
@@ -225,12 +225,12 @@ struct DashboardRow: View {
                     DashboardMetrics.laterActionLabel,
                     tone: theme.accent.color, action: onPrimary
                 )
-                actionButton("Agora", tone: theme.ink3.color, action: onSecondary)
+                actionButton(L10n.tr("Agora"), tone: theme.ink3.color, action: onSecondary)
             }
         case .archiveAndLearn:
             HStack(spacing: DashboardMetrics.proposalActionGap) {
-                actionButton("Arquivar e aprender", tone: theme.accent.color, action: onPrimary)
-                actionButton("Manter", tone: theme.ink3.color, action: onSecondary)
+                actionButton(L10n.tr("Arquivar e aprender"), tone: theme.accent.color, action: onPrimary)
+                actionButton(L10n.tr("Manter"), tone: theme.ink3.color, action: onSecondary)
             }
         case .keep:
             EmptyView()

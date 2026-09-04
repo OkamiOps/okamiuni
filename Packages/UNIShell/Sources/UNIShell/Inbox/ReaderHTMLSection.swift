@@ -55,7 +55,7 @@ struct ReaderHTMLSection: View {
     /// A frase da espera, no idioma do "Carregando corpo…" da M3-3 — mesma
     /// `ReaderNote`, mesma tipografia, momento diferente: lá o corpo está
     /// vindo do servidor, aqui ele já chegou e está sendo desenhado.
-    nonisolated static let carregando = "Carregando a mensagem…"
+    nonisolated static var carregando: String { L10n.tr("Carregando a mensagem…") }
 
     /// Quanto a espera dura, contada **do começo da carga**.
     ///
@@ -144,12 +144,12 @@ struct ReaderHTMLSection: View {
     /// nada deu errado. É uma linha dizendo o que faltou e um botão para quem
     /// quiser o resto — a mesma gramática do "Tentar de novo" do corpo que
     /// falhou.
-    nonisolated static let imagensBloqueadas = "Imagens remotas bloqueadas"
-    nonisolated static let carregar = "Carregar"
-    nonisolated static let imagensCarregadas = "Imagens carregadas · remetente confiável"
-    nonisolated static let rever = "Rever"
-    nonisolated static let comoEnviado = "Como enviado"
-    nonisolated static let comoOTema = "Como o tema"
+    nonisolated static var imagensBloqueadas: String { L10n.tr("Imagens remotas bloqueadas") }
+    nonisolated static var carregar: String { L10n.tr("Carregar") }
+    nonisolated static var imagensCarregadas: String { L10n.tr("Imagens carregadas · remetente confiável") }
+    nonisolated static var rever: String { L10n.tr("Rever") }
+    nonisolated static var comoEnviado: String { L10n.tr("Como enviado") }
+    nonisolated static var comoOTema: String { L10n.tr("Como o tema") }
 
     /// "Sempre carregar de noreply@calendly.com" — o endereço **inteiro**,
     /// escrito no botão.
@@ -165,7 +165,7 @@ struct ReaderHTMLSection: View {
     nonisolated static func sempreCarregar(de remetente: String) -> String? {
         let podado = remetente.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !podado.isEmpty else { return nil }
-        return "Sempre carregar de \(podado)"
+        return L10n.tr("Sempre carregar de \(podado)")
     }
 
     private var paletaToggle: some View {
@@ -183,8 +183,8 @@ struct ReaderHTMLSection: View {
             RoundedRectangle(cornerRadius: 7)
                 .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
         }
-        .help("Como enviado guarda as cores do remetente. Como o tema pinta com as cores do app.")
-        .accessibilityLabel("Cores da mensagem")
+        .help(L10n.tr("Como enviado guarda as cores do remetente. Como o tema pinta com as cores do app."))
+        .accessibilityLabel(L10n.tr("Cores da mensagem"))
         .accessibilityValue(paletaEfetiva == .papel ? Self.comoEnviado : Self.comoOTema)
     }
 
@@ -223,8 +223,8 @@ struct ReaderHTMLSection: View {
                 carregaRemotas = true
             }
             .help(
-                "Carrega as imagens que esta mensagem busca na internet. "
-                + "Vale só para ela — carregar avisa o remetente de que você a abriu."
+                L10n.tr("Carrega as imagens que esta mensagem busca na internet. ")
+                + L10n.tr("Vale só para ela — carregar avisa o remetente de que você a abriu.")
             )
             // A segunda ação, no mesmo idioma da primeira e ao lado dela: o
             // "uma vez" e o "sempre" são a mesma decisão em duas durações.
@@ -236,8 +236,8 @@ struct ReaderHTMLSection: View {
                     aoConfiar()
                 }
                 .help(
-                    "Passa a carregar as imagens deste endereço sozinho, em toda "
-                    + "mensagem dele. Vale só para este endereço, e pode ser desfeito."
+                    L10n.tr("Passa a carregar as imagens deste endereço sozinho, em toda ")
+                    + L10n.tr("mensagem dele. Vale só para este endereço, e pode ser desfeito.")
                 )
             }
             Spacer(minLength: 0)
@@ -263,8 +263,8 @@ struct ReaderHTMLSection: View {
                 aoRevogar()
             }
             .help(
-                "Deixa de confiar neste endereço: as imagens dele voltam a ser "
-                + "bloqueadas, aqui e nas próximas mensagens."
+                L10n.tr("Deixa de confiar neste endereço: as imagens dele voltam a ser ")
+                + L10n.tr("bloqueadas, aqui e nas próximas mensagens.")
             )
             Spacer(minLength: 0)
         }

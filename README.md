@@ -41,6 +41,16 @@ Tools/rodar.sh     # mata a instância antiga, regenera o projeto, compila e abr
 
 ---
 
+## Idiomas
+
+A interface oferece português (Brasil), inglês, alemão e francês. O português continua sendo o padrão até você escolher outro idioma. Em **Configurações → Geral → Idioma do aplicativo**, escolha um idioma ou **Usar idioma do sistema**. Feche e reabra o app para aplicar a escolha em todas as janelas. Se nenhum idioma do sistema for suportado, o app usa português.
+
+O idioma das respostas da IA é independente e fica em **Assistente**. Mensagens, nomes de pastas do provedor e outros conteúdos da conta permanecem no idioma original.
+
+As traduções ficam em `Packages/UNICore/Sources/UNICore/Resources/*/Localizable.strings`. Novos textos de interface usam `L10n.tr("Texto \(valor)")`; cada interpolação recebe um marcador `{0}`, `{1}` no catálogo. Identificadores persistidos, protocolos e prompts internos não devem ser traduzidos.
+
+Validação: `python3 Tools/audit_localizations.py` verifica cobertura das chamadas, paridade dos quatro catálogos e marcadores. `swift test --package-path Packages/UNICore --filter 'L10nTests|BundledTranslationTests'` verifica a busca real e a interpolação. O teste `LocalizationRenderTests` de UNIShell gera capturas fora da tela quando `UNI_RENDER_DIR` está definido.
+
 ## Por que existe
 
 Cliente de email é o app que mais horas passa aberto — e o que menos respeito costuma receber: web view, ações escondidas, agenda em outro app. O OkamiUNI nasce do desenho ([`design/`](design/), a fonte da verdade deste repositório) para o binário nativo, com uma regra que atravessa tudo: **controle que existe faz alguma coisa** — ou aparece desabilitado explicando por quê. Botão mudo é defeito, não estado.

@@ -134,7 +134,7 @@ struct AssistantDrawer: View {
         .background(GuardaEDevolveOFoco())
         .accessibilityIdentifier("assistant-drawer")
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Assistente")
+        .accessibilityLabel(L10n.tr("Assistente"))
         .task { fieldFocused = true }
     }
 
@@ -161,9 +161,9 @@ struct AssistantDrawer: View {
             }
             Spacer(minLength: 8)
             headerButton(
-                "arrow.up.forward.square", "Destacar em janela", action: onDetach
+                "arrow.up.forward.square", L10n.tr("Destacar em janela"), action: onDetach
             )
-            headerButton("xmark", "Fechar o assistente", action: onClose)
+            headerButton("xmark", L10n.tr("Fechar o assistente"), action: onClose)
         }
         .padding(AssistantDrawerMetrics.headerPadding)
         .hairline(theme.line, edges: .bottom)
@@ -209,12 +209,12 @@ struct AssistantDrawer: View {
             }
             .buttonStyle(.plain)
             .focusRing(cornerRadius: theme.radiusSmall)
-            .accessibilityLabel("Trocar o contexto da conversa")
+            .accessibilityLabel(L10n.tr("Trocar o contexto da conversa"))
         }
         .padding(AssistantDrawerMetrics.contextPadding)
         .hairline(theme.line2, edges: .bottom)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Falando sobre \(context.label)")
+        .accessibilityLabel(L10n.tr("Falando sobre \(context.label)"))
     }
 
     // MARK: Conversa
@@ -317,7 +317,7 @@ struct AssistantAskField: View {
                 .buttonStyle(.plain)
                 .focusRing(cornerRadius: theme.radiusSmall)
                 .disabled(!conversation.canSend)
-                .accessibilityLabel("Mandar a pergunta")
+                .accessibilityLabel(L10n.tr("Mandar a pergunta"))
             }
             .padding(.leading, AssistantDrawerMetrics.fieldLeadingPadding)
             .padding(.trailing, AssistantDrawerMetrics.fieldTrailingPadding)
@@ -394,7 +394,7 @@ struct AssistantTranscript: View {
                     alignment: .trailing
                 )
                 .frame(maxWidth: .infinity, alignment: .trailing)
-                .accessibilityLabel("Você: \(turno.text)")
+                .accessibilityLabel(L10n.tr("Você: \(turno.text)"))
         } else {
             VStack(alignment: .leading, spacing: AssistantDrawerMetrics.cardTopSpacing) {
                 Text(turno.text)
@@ -428,7 +428,7 @@ struct AssistantTranscript: View {
                 .font(theme.sans.font(size: AssistantDrawerMetrics.cardTextSize))
                 .foregroundStyle(theme.ink3.color)
         }
-        .accessibilityLabel("Respondendo à pergunta")
+        .accessibilityLabel(L10n.tr("Respondendo à pergunta"))
     }
 }
 
@@ -474,7 +474,7 @@ struct AssistantProposalCardView: View {
                             size: AssistantDrawerMetrics.cardActionSize, weight: .semibold
                         ))
                         .foregroundStyle(theme.accentInk.color)
-                        .accessibilityLabel("Desfazer pela barra de retorno")
+                        .accessibilityLabel(L10n.tr("Desfazer pela barra de retorno"))
                 }
             } else {
                 Button(action: onRun) {

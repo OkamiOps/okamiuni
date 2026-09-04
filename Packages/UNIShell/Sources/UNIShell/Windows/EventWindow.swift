@@ -35,24 +35,24 @@ enum EventConfirmKind: Equatable {
 
     var title: String {
         switch self {
-        case .cancelMeeting: "Cancelar esta reunião?"
-        case .removeFromCalendar: "Remover do calendário?"
+        case .cancelMeeting: L10n.tr("Cancelar esta reunião?")
+        case .removeFromCalendar: L10n.tr("Remover do calendário?")
         }
     }
 
     var message: String {
         switch self {
         case .cancelMeeting:
-            "Os convidados recebem o cancelamento e o compromisso sai da agenda."
+            L10n.tr("Os convidados recebem o cancelamento e o compromisso sai da agenda.")
         case .removeFromCalendar:
-            "O compromisso sai da agenda. Os convidados não recebem aviso."
+            L10n.tr("O compromisso sai da agenda. Os convidados não recebem aviso.")
         }
     }
 
     var actionTitle: String {
         switch self {
-        case .cancelMeeting: "Cancelar reunião"
-        case .removeFromCalendar: "Remover"
+        case .cancelMeeting: L10n.tr("Cancelar reunião")
+        case .removeFromCalendar: L10n.tr("Remover")
         }
     }
 }
@@ -76,7 +76,7 @@ private struct EventConfirmCard: View {
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
                 Spacer(minLength: 0)
-                ChromeButton("Voltar", appearance: .outlined, height: 30) {
+                ChromeButton(L10n.tr("Voltar"), appearance: .outlined, height: 30) {
                     onCancel()
                 }
                 ChromeButton(kind.actionTitle, appearance: .remove, height: 30) {
@@ -268,7 +268,7 @@ public struct EventWindow: View {
                 }
                 footer
             } else {
-                Text("Este compromisso não está mais na agenda.")
+                Text(L10n.tr("Este compromisso não está mais na agenda."))
                     .font(theme.serif.font(size: 16))
                     .italic()
                     .foregroundStyle(theme.ink4.color)
@@ -330,7 +330,7 @@ public struct EventWindow: View {
     private var header: some View {
         HStack(spacing: 10) {
             TintChip(label: account?.host ?? "", tint: tint, emphasized: true)
-            Text("Compromisso")
+            Text(L10n.tr("Compromisso"))
                 .capsLabel(size: 9.5)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -393,7 +393,7 @@ public struct EventWindow: View {
                 .frame(width: 3)
             VStack(alignment: .leading, spacing: 0) {
                 if item.isCancelled {
-                    Text("Cancelado")
+                    Text(L10n.tr("Cancelado"))
                         .font(theme.mono.font(size: 8.5, weight: .medium))
                         .tracking(theme.capsTracking(at: 8.5))
                         .textCase(.uppercase)
@@ -427,7 +427,7 @@ public struct EventWindow: View {
     private func linkCard(_ link: String) -> some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Link da reunião")
+                Text(L10n.tr("Link da reunião"))
                     .font(theme.mono.font(size: 8.5, weight: .medium))
                     .tracking(theme.capsTracking(at: 8.5))
                     .textCase(.uppercase)
@@ -454,7 +454,7 @@ public struct EventWindow: View {
                     }
                     .buttonStyle(.plain)
                     .focusRing(cornerRadius: theme.radiusSmall)
-                    .help("Abrir a reunião no navegador")
+                    .help(L10n.tr("Abrir a reunião no navegador"))
                 } else {
                     Text(link)
                         .font(theme.mono.font(size: 11.5))
@@ -464,7 +464,7 @@ public struct EventWindow: View {
                 }
             }
             ChromeButton(
-                copied ? "Link copiado ✓" : "Copiar link",
+                copied ? L10n.tr("Link copiado ✓") : L10n.tr("Copiar link"),
                 appearance: .outlined, size: 11.5, weight: .semibold,
                 height: 28, horizontalPadding: 12
             ) {
@@ -488,11 +488,11 @@ public struct EventWindow: View {
     /// Protótipo: `padding: 16px 20px 0`, três linhas com calha de 70pt.
     private var fields: some View {
         VStack(alignment: .leading, spacing: 10) {
-            field("Local", value: plain(detail.place))
-            field("Conta", value: plain("\(account?.host ?? "—") · \(detail.notice)"))
+            field(L10n.tr("Local"), value: plain(detail.place))
+            field(L10n.tr("Conta"), value: plain("\(account?.host ?? "—") · \(detail.notice)"))
             // Protótipo: o nome em `--ink` e o endereço em `--ink3`, na mesma
             // linha. Dois `Text` somados dariam depreciação no macOS 26.
-            field("Organiza", value: Self.organizerLine(
+            field(L10n.tr("Organiza"), value: Self.organizerLine(
                 name: detail.organizer.name,
                 address: detail.organizer.address,
                 ink: theme.ink.color,
@@ -545,11 +545,11 @@ public struct EventWindow: View {
     private var people: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionHeader(
-                title: "Participantes · \(detail.guestCount)",
+                title: L10n.tr("Participantes · \(detail.guestCount)"),
                 expanded: sections.participants,
                 help: sections.participants
-                    ? "Recolher a lista de participantes"
-                    : "Mostrar os \(detail.guestCount) participantes"
+                    ? L10n.tr("Recolher a lista de participantes")
+                    : L10n.tr("Mostrar os \(detail.guestCount) participantes")
             ) {
                 sections.toggleParticipants()
             }
@@ -607,7 +607,7 @@ public struct EventWindow: View {
 
     private var agenda: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SectionHeader(title: "Pauta")
+            SectionHeader(title: L10n.tr("Pauta"))
                 .padding(.bottom, 8)
 
             VStack(alignment: .leading, spacing: 6) {
@@ -640,7 +640,7 @@ public struct EventWindow: View {
     @ViewBuilder
     private func descricao(_ texto: String) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            SectionHeader(title: "Descrição")
+            SectionHeader(title: L10n.tr("Descrição"))
                 .padding(.bottom, 8)
             Text(texto)
                 .font(theme.sans.font(size: 13))
@@ -667,8 +667,8 @@ public struct EventWindow: View {
                 title: EventSections.originHeader(detail.thread),
                 expanded: sections.origin,
                 help: sections.origin
-                    ? "Recolher o histórico deste compromisso"
-                    : "Mostrar o email e a origem deste compromisso"
+                    ? L10n.tr("Recolher o histórico deste compromisso")
+                    : L10n.tr("Mostrar o email e a origem deste compromisso")
             ) {
                 sections.toggleOrigin()
             }
@@ -710,7 +710,7 @@ public struct EventWindow: View {
             }
             .buttonStyle(.plain)
             .focusRing(cornerRadius: theme.radiusSmall)
-            .help("Mostrar na janela principal o email que gerou este compromisso")
+            .help(L10n.tr("Mostrar na janela principal o email que gerou este compromisso"))
         } else {
             threadRowBody(entry)
         }
@@ -839,12 +839,12 @@ public struct EventWindow: View {
 
                 if originMessageID != nil {
                     ChromeButton(
-                        "Abrir no leitor", appearance: .outlined, size: 11.5,
+                        L10n.tr("Abrir no leitor"), appearance: .outlined, size: 11.5,
                         weight: .semibold, height: 26, horizontalPadding: 11
                     ) {
                         revealOriginMessage()
                     }
-                    .help("Abrir na janela principal o email que gerou este compromisso")
+                    .help(L10n.tr("Abrir na janela principal o email que gerou este compromisso"))
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -879,7 +879,7 @@ public struct EventWindow: View {
     /// Protótipo: `margin: 18px 20px 0; padding: 14px; border: 0.5px solid var(--accent)`.
     private var forwardPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Encaminhar convite")
+            Text(L10n.tr("Encaminhar convite"))
                 .font(theme.mono.font(size: 8.5, weight: .medium))
                 .tracking(theme.capsTracking(at: 8.5))
                 .textCase(.uppercase)
@@ -888,7 +888,7 @@ public struct EventWindow: View {
 
             RecipientField(
                 label: nil,
-                placeholder: "quem do time precisa entrar; ",
+                placeholder: L10n.tr("quem do time precisa entrar; "),
                 inputMinWidth: 150,
                 menuWidth: 320,
                 pool: store.contactPool,
@@ -901,7 +901,7 @@ public struct EventWindow: View {
             // — irmãos posteriores na pilha — pintam por cima das sugestões.
             .zIndex(50)
 
-            TextField("Recado opcional para quem vai receber…", text: $forwardNote)
+            TextField(L10n.tr("Recado opcional para quem vai receber…"), text: $forwardNote)
                 .textFieldStyle(.plain)
                 .font(theme.serif.font(size: 14))
                 .foregroundStyle(theme.ink.color)
@@ -909,7 +909,7 @@ public struct EventWindow: View {
 
             HStack(spacing: 8) {
                 ChromeButton(
-                    "Encaminhar",
+                    L10n.tr("Encaminhar"),
                     appearance: canForwardInvite ? .accent : .muted,
                     size: 12.5, weight: .semibold, height: 30
                 ) {
@@ -917,7 +917,7 @@ public struct EventWindow: View {
                 }
                 .disabled(!canForwardInvite)
                 .help(forwardHelp)
-                ChromeButton("Cancelar", appearance: .outlined, height: 30, horizontalPadding: 12) {
+                ChromeButton(L10n.tr("Cancelar"), appearance: .outlined, height: 30, horizontalPadding: 12) {
                     forwardOpen = false
                     forwardTo = []
                     forwardNote = ""
@@ -928,7 +928,7 @@ public struct EventWindow: View {
                 // (`ContextMenus.inviteText`): título, dia e horário, local,
                 // link e participantes. Dizer "pauta" numa mensagem que não a
                 // leva é a legenda mentindo sobre o botão.
-                Text("o convite vai com o link e os participantes")
+                Text(L10n.tr("o convite vai com o link e os participantes"))
                     .capsLabel()
                     .lineLimit(1)
             }
@@ -953,7 +953,7 @@ public struct EventWindow: View {
             Circle()
                 .fill(theme.accent.color)
                 .frame(width: 6, height: 6)
-            Text("Convite encaminhado para \(forwardTo.count) \(forwardTo.count == 1 ? "pessoa" : "pessoas")")
+            Text(L10n.tr("Convite encaminhado para \(forwardTo.count) \(forwardTo.count == 1 ? L10n.tr("pessoa") : L10n.tr("pessoas"))"))
                 .font(theme.sans.font(size: 12.5))
                 .foregroundStyle(theme.accentInk.color)
             Spacer(minLength: 0)
@@ -1005,42 +1005,42 @@ public struct EventWindow: View {
             // acima: um "link" que não se abre no navegador não acende botão.
             if let destino = MeetingLink.destino(detail.meetingLink) {
                 ChromeButton(
-                    "Entrar", appearance: .enter, size: 12.5, weight: .semibold,
+                    L10n.tr("Entrar"), appearance: .enter, size: 12.5, weight: .semibold,
                     height: 30, horizontalPadding: 16
                 ) {
                     abreLink(destino)
                 }
-                .help("Abrir a reunião no navegador")
+                .help(L10n.tr("Abrir a reunião no navegador"))
             }
             ChromeButton(
-                "Encaminhar",
+                L10n.tr("Encaminhar"),
                 appearance: forwardOpen ? .outlinedOn : .outlined,
                 height: 30
             ) {
                 forwardOpen.toggle()
                 if forwardOpen { forwardSent = false }
             }
-            .help("Encaminhar o convite para outras pessoas")
+            .help(L10n.tr("Encaminhar o convite para outras pessoas"))
 
             if canCancelMeeting {
                 ChromeButton(
-                    cancelling ? "Cancelando…" : "Cancelar",
+                    cancelling ? L10n.tr("Cancelando…") : L10n.tr("Cancelar"),
                     appearance: .remove,
                     height: 30
                 ) {
                     confirm = .cancelMeeting
                 }
                 .disabled(cancelling)
-                .help("Cancelar a reunião, avisar os convidados e tirar da agenda")
+                .help(L10n.tr("Cancelar a reunião, avisar os convidados e tirar da agenda"))
             } else if canRemoveFromCalendar {
                 ChromeButton(
-                    "Remover",
+                    L10n.tr("Remover"),
                     appearance: .remove,
                     height: 30
                 ) {
                     confirm = .removeFromCalendar
                 }
-                .help("Tirar este compromisso do calendário")
+                .help(L10n.tr("Tirar este compromisso do calendário"))
             }
 
             // "Email" leva ao mesmo lugar que "Ir para o email de origem" dos
@@ -1064,8 +1064,8 @@ public struct EventWindow: View {
                 .disabled(originMessageID == nil)
                 .help(
                     originMessageID == nil
-                        ? "O email que gerou este compromisso não está mais na caixa"
-                        : "Mostrar na janela principal o email que gerou este compromisso"
+                        ? L10n.tr("O email que gerou este compromisso não está mais na caixa")
+                        : L10n.tr("Mostrar na janela principal o email que gerou este compromisso")
                 )
             }
 
@@ -1081,8 +1081,8 @@ public struct EventWindow: View {
                 height: 30,
                 horizontalPadding: 9
             ) { dismiss() }
-            .help("Fechar esta janela")
-            .accessibilityLabel("Fechar")
+            .help(L10n.tr("Fechar esta janela"))
+            .accessibilityLabel(L10n.tr("Fechar"))
         }
         .padding(.horizontal, 18)
         .padding(.top, 12)
@@ -1114,16 +1114,16 @@ public struct EventWindow: View {
 
     nonisolated static func forwardHelp(recipients: Int, account: String?, canSend: Bool) -> String {
         guard let account else {
-            return "Encaminhar — indisponível: este compromisso não está ligado a nenhuma conta, "
-                + "e o convite sai por email de uma conta."
+            return L10n.tr("Encaminhar — indisponível: este compromisso não está ligado a nenhuma conta, ")
+                + L10n.tr("e o convite sai por email de uma conta.")
         }
         guard recipients > 0 else {
-            return "Encaminhar — indisponível: escolha quem vai receber o convite."
+            return L10n.tr("Encaminhar — indisponível: escolha quem vai receber o convite.")
         }
         guard canSend else {
-            return "Este marco não tem rede: o convite fica registrado no console."
+            return L10n.tr("Este marco não tem rede: o convite fica registrado no console.")
         }
-        return "Põe o convite na fila de saída da conta \(account)."
+        return L10n.tr("Põe o convite na fila de saída da conta \(account).")
     }
 
     private func forwardInvite() {
@@ -1187,7 +1187,7 @@ public struct EventWindow: View {
     /// encaminhar um email não podem chegar com dois prefixos diferentes na
     /// mesma caixa. Compromisso sem título não vira "Enc: " pendurado.
     nonisolated static func forwardSubject(_ title: String) -> String {
-        title.isEmpty ? "Enc: convite" : "Enc: \(title)"
+        title.isEmpty ? L10n.tr("Enc: convite") : L10n.tr("Enc: \(title)")
     }
 
     /// O recado opcional em cima, o convite embaixo, separados por uma linha em

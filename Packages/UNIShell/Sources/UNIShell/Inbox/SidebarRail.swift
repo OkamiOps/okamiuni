@@ -51,14 +51,14 @@ public struct SidebarRail: View {
     /// A Lixeira, que o protótipo não tinha, segue a regra: "lixo".
     public static func abbreviation(for bucket: TriageBucket) -> String {
         switch bucket {
-        case .today: "hoje"
-        case .later: "dep"
-        case .all: "tudo"
-        case .archived: "arq"
-        case .trash: "lixo"
+        case .today: L10n.tr("hoje")
+        case .later: L10n.tr("dep")
+        case .all: L10n.tr("tudo")
+        case .archived: L10n.tr("arq")
+        case .trash: L10n.tr("lixo")
         case .junk: "spam"
-        case .sent: "env"
-        case .drafts: "rasc"
+        case .sent: L10n.tr("env")
+        case .drafts: L10n.tr("rasc")
         }
     }
 
@@ -87,7 +87,7 @@ public struct SidebarRail: View {
                             .padding(.vertical, 8)
 
                         // Rótulo "caixas" com tracking fixo do protótipo, não do tema
-                        Text("caixas")
+                        Text(L10n.tr("caixas"))
                             .font(theme.mono.font(size: 7.5))
                             .tracking(0.08 * 7.5)  // Tracking em pontos: 0.08em × 7.5pt = 0.6pt
                             .textCase(.uppercase)
@@ -126,8 +126,8 @@ public struct SidebarRail: View {
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall, tint: \.onAccent)
-        .help("Nova mensagem (⌘N)")
-        .accessibilityLabel("Escrever uma nova mensagem")
+        .help(L10n.tr("Nova mensagem (⌘N)"))
+        .accessibilityLabel(L10n.tr("Escrever uma nova mensagem"))
     }
 
     private var accountsButton: some View {
@@ -139,8 +139,8 @@ public struct SidebarRail: View {
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall)
-        .help("Contas e providers")
-        .accessibilityLabel("Abrir contas e providers")
+        .help(L10n.tr("Contas e providers"))
+        .accessibilityLabel(L10n.tr("Abrir contas e providers"))
     }
 
     /// Ver `IntelligenceFooter.compactAction`: a trilha não comporta um
@@ -153,7 +153,7 @@ public struct SidebarRail: View {
     private var assistantHelp: String {
         intelligencePresentation.isAvailable
             ? intelligencePresentation.actionHelp
-            : "\(intelligencePresentation.detail) Clique para abrir Ajustes."
+            : L10n.tr("\(intelligencePresentation.detail) Clique para abrir Ajustes.")
     }
 
     private var assistantButton: some View {
@@ -167,7 +167,7 @@ public struct SidebarRail: View {
                 // cortada. A abreviação conserva o verbo e deixa o ícone ser a
                 // âncora visual, enquanto `help` e acessibilidade dizem a ação
                 // inteira.
-                Text("IA")
+                Text(L10n.tr("IA"))
                     .font(theme.sans.font(size: 9, weight: .semibold))
                     .lineLimit(1)
             }
@@ -187,9 +187,9 @@ public struct SidebarRail: View {
         .focusRing(cornerRadius: theme.radiusSmall)
         .help(assistantHelp)
         .accessibilityLabel(
-            intelligencePresentation.isAvailable ? intelligencePresentation.actionTitle : "Abrir Ajustes"
+            intelligencePresentation.isAvailable ? intelligencePresentation.actionTitle : L10n.tr("Abrir Ajustes")
         )
-        .accessibilityValue(intelligencePresentation.isAvailable ? "Disponível" : "Indisponível")
+        .accessibilityValue(intelligencePresentation.isAvailable ? L10n.tr("Disponível") : L10n.tr("Indisponível"))
         .accessibilityHint(assistantHelp)
     }
 

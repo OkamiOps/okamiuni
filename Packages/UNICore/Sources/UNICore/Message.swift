@@ -45,14 +45,14 @@ public enum TriageBucket: String, Sendable, CaseIterable {
 
     public var label: String {
         switch self {
-        case .today: "Hoje"
-        case .later: "Depois"
-        case .all: "Tudo"
-        case .archived: "Arquivado"
-        case .trash: "Lixeira"
-        case .junk: "Spam"
-        case .sent: "Enviadas"
-        case .drafts: "Rascunhos"
+        case .today: L10n.tr("Hoje")
+        case .later: L10n.tr("Depois")
+        case .all: L10n.tr("Tudo")
+        case .archived: L10n.tr("Arquivado")
+        case .trash: L10n.tr("Lixeira")
+        case .junk: L10n.tr("Spam")
+        case .sent: L10n.tr("Enviadas")
+        case .drafts: L10n.tr("Rascunhos")
         }
     }
 

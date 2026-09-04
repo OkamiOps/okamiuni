@@ -11,13 +11,15 @@ public struct ConnectedCalendar: Sendable, Hashable, Identifiable {
     public let allowsModifications: Bool
 
     /// Compromissos criados a partir de um email, sem calendário do sistema.
-    public static let email = ConnectedCalendar(
+    public static var email: ConnectedCalendar {
+        ConnectedCalendar(
         id: "okamiuni.email",
-        title: "Do email",
+        title: L10n.tr("Do email"),
         source: "OkamiUNI",
         colorHex: "#3E6FA8",
         allowsModifications: true
-    )
+        )
+    }
 
     /// Prefixo dos calendários virtuais de uma caixa IMAP (Zoho, Hostinger,
     /// Yahoo…): o EventKit não os vê, então a lateral da Agenda precisa de um

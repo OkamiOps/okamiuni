@@ -75,25 +75,25 @@ struct NewAppointmentSheet: View {
             header
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    labeled("Título") {
-                        TextField("O que acontece", text: $title)
+                    labeled(L10n.tr("Título")) {
+                        TextField(L10n.tr("O que acontece"), text: $title)
                             .textFieldStyle(.plain)
                             .font(theme.serif.font(size: 18, weight: .semibold))
                     }
 
-                    labeled("Dia") {
+                    labeled(L10n.tr("Dia")) {
                         AppointmentDatePicker(store: store, anchor: anchor, day: $day)
                             .padding(.vertical, 6)
                     }
 
                     HStack(alignment: .top, spacing: 12) {
-                        labeled("Início") {
-                            DatePicker("Início", selection: $startsAt, displayedComponents: .hourAndMinute)
+                        labeled(L10n.tr("Início")) {
+                            DatePicker(L10n.tr("Início"), selection: $startsAt, displayedComponents: .hourAndMinute)
                                 .datePickerStyle(.compact)
                                 .labelsHidden()
                         }
-                        labeled("Fim") {
-                            DatePicker("Fim", selection: $endsAt, displayedComponents: .hourAndMinute)
+                        labeled(L10n.tr("Fim")) {
+                            DatePicker(L10n.tr("Fim"), selection: $endsAt, displayedComponents: .hourAndMinute)
                                 .datePickerStyle(.compact)
                                 .labelsHidden()
                         }
@@ -101,8 +101,8 @@ struct NewAppointmentSheet: View {
 
                     recurrenceSection
 
-                    labeled("Conta") {
-                        Picker("Conta", selection: $accountID) {
+                    labeled(L10n.tr("Conta")) {
+                        Picker(L10n.tr("Conta"), selection: $accountID) {
                             ForEach(store.accounts) { account in
                                 Text(account.address).tag(account.id)
                             }
@@ -113,9 +113,9 @@ struct NewAppointmentSheet: View {
 
                     meetingSection
 
-                    labeled("Convidados") {
+                    labeled(L10n.tr("Convidados")) {
                         RecipientField(
-                            placeholder: "nome ou email, Enter para adicionar",
+                            placeholder: L10n.tr("nome ou email, Enter para adicionar"),
                             menuWidth: 460,
                             pool: store.contactPool,
                             chips: $guests,
@@ -126,13 +126,13 @@ struct NewAppointmentSheet: View {
                     }
                     .zIndex(40)
 
-                    labeled("Local (opcional)") {
-                        TextField("Sala, endereço ou online", text: $place)
+                    labeled(L10n.tr("Local (opcional)")) {
+                        TextField(L10n.tr("Sala, endereço ou online"), text: $place)
                             .textFieldStyle(.plain)
                     }
 
-                    labeled("Notas (opcional)") {
-                        TextField("Pauta, contexto…", text: $note, axis: .vertical)
+                    labeled(L10n.tr("Notas (opcional)")) {
+                        TextField(L10n.tr("Pauta, contexto…"), text: $note, axis: .vertical)
                             .textFieldStyle(.plain)
                             .lineLimit(2...4)
                     }
@@ -175,10 +175,10 @@ struct NewAppointmentSheet: View {
                 .frame(width: 34, height: 34)
                 .background(theme.accentSoft.color, in: RoundedRectangle(cornerRadius: 9))
             VStack(alignment: .leading, spacing: 3) {
-                Text("Novo compromisso")
+                Text(L10n.tr("Novo compromisso"))
                     .font(theme.sans.font(size: 16, weight: .semibold))
                     .foregroundStyle(theme.ink.color)
-                Text("Uma sala nova a cada reunião — o título e o horário vão com ela.")
+                Text(L10n.tr("Uma sala nova a cada reunião — o título e o horário vão com ela."))
                     .font(theme.sans.font(size: 11.5))
                     .foregroundStyle(theme.ink3.color)
             }
@@ -192,7 +192,7 @@ struct NewAppointmentSheet: View {
 
     private var recurrenceSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Repetir")
+            Text(L10n.tr("Repetir"))
                 .font(theme.sans.font(size: 11, weight: .medium))
                 .foregroundStyle(theme.ink3.color)
 
@@ -216,7 +216,7 @@ struct NewAppointmentSheet: View {
 
     private var intervalRow: some View {
         HStack(spacing: 8) {
-            Text("A cada")
+            Text(L10n.tr("A cada"))
                 .font(theme.sans.font(size: 12))
                 .foregroundStyle(theme.ink2.color)
             stepper(value: recurrence.interval, range: 1...30) { recurrence.interval = $0 }
@@ -229,10 +229,10 @@ struct NewAppointmentSheet: View {
 
     private var intervalUnit: String {
         switch recurrence.frequency {
-        case .daily: recurrence.interval == 1 ? "dia" : "dias"
-        case .weekly: recurrence.interval == 1 ? "semana" : "semanas"
-        case .monthly: recurrence.interval == 1 ? "mês" : "meses"
-        case .yearly: recurrence.interval == 1 ? "ano" : "anos"
+        case .daily: recurrence.interval == 1 ? L10n.tr("dia") : L10n.tr("dias")
+        case .weekly: recurrence.interval == 1 ? L10n.tr("semana") : L10n.tr("semanas")
+        case .monthly: recurrence.interval == 1 ? L10n.tr("mês") : L10n.tr("meses")
+        case .yearly: recurrence.interval == 1 ? L10n.tr("ano") : L10n.tr("anos")
         default: ""
         }
     }
@@ -260,13 +260,13 @@ struct NewAppointmentSheet: View {
 
     private var countRow: some View {
         HStack(spacing: 8) {
-            Text("Termina")
+            Text(L10n.tr("Termina"))
                 .font(theme.sans.font(size: 12))
                 .foregroundStyle(theme.ink2.color)
             Button {
                 recurrence.count = nil
             } label: {
-                Text("Nunca")
+                Text(L10n.tr("Nunca"))
                     .font(theme.sans.font(size: 11.5, weight: recurrence.count == nil ? .semibold : .medium))
                     .foregroundStyle(recurrence.count == nil ? theme.ink.color : theme.ink3.color)
                     .padding(.horizontal, 10)
@@ -277,7 +277,7 @@ struct NewAppointmentSheet: View {
             Button {
                 if recurrence.count == nil { recurrence.count = 10 }
             } label: {
-                Text("Após")
+                Text(L10n.tr("Após"))
                     .font(theme.sans.font(size: 11.5, weight: recurrence.count != nil ? .semibold : .medium))
                     .foregroundStyle(recurrence.count != nil ? theme.ink.color : theme.ink3.color)
                     .padding(.horizontal, 10)
@@ -287,7 +287,7 @@ struct NewAppointmentSheet: View {
             .buttonStyle(.plain)
             if let count = recurrence.count {
                 stepper(value: count, range: 1...365) { recurrence.count = $0 }
-                Text(count == 1 ? "vez" : "vezes")
+                Text(count == 1 ? L10n.tr("vez") : L10n.tr("vezes"))
                     .font(theme.sans.font(size: 12))
                     .foregroundStyle(theme.ink2.color)
             }
@@ -299,7 +299,7 @@ struct NewAppointmentSheet: View {
 
     private var meetingSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Reunião")
+            Text(L10n.tr("Reunião"))
                 .font(theme.sans.font(size: 11, weight: .medium))
                 .foregroundStyle(theme.ink3.color)
 
@@ -316,7 +316,7 @@ struct NewAppointmentSheet: View {
 
                     if needsMeetReconnect, let gmail = googleAccount {
                         ChromeButton(
-                            reconnecting ? "Abrindo o Google…" : "Reconectar o Google",
+                            reconnecting ? L10n.tr("Abrindo o Google…") : L10n.tr("Reconectar o Google"),
                             appearance: .outlined,
                             size: 11.5,
                             height: 28,
@@ -324,7 +324,7 @@ struct NewAppointmentSheet: View {
                             action: { reconnectGoogle(gmail) }
                         )
                         .disabled(reconnecting)
-                        .accessibilityLabel("Reconectar o Google para criar o Meet")
+                        .accessibilityLabel(L10n.tr("Reconectar o Google para criar o Meet"))
                     }
 
                     Button {
@@ -335,7 +335,7 @@ struct NewAppointmentSheet: View {
                             Image(systemName: useExistingLink ? "checkmark.square.fill" : "square")
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundStyle(useExistingLink ? theme.accent.color : theme.ink3.color)
-                            Text("Usar um link existente")
+                            Text(L10n.tr("Usar um link existente"))
                                 .font(theme.sans.font(size: 12))
                                 .foregroundStyle(theme.ink2.color)
                             Spacer(minLength: 0)
@@ -404,7 +404,7 @@ struct NewAppointmentSheet: View {
 
     private func serviceChip(_ candidate: MeetingService?) -> some View {
         let selected = service == candidate
-        let label = candidate?.shortLabel ?? "Sem"
+        let label = candidate?.shortLabel ?? L10n.tr("Sem")
         return Button {
             service = candidate
             errorMessage = nil
@@ -427,7 +427,7 @@ struct NewAppointmentSheet: View {
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(candidate?.label ?? "Sem reunião")
+        .accessibilityLabel(candidate?.label ?? L10n.tr("Sem reunião"))
         .accessibilityAddTraits(selected ? [.isSelected] : [])
     }
 
@@ -470,10 +470,10 @@ struct NewAppointmentSheet: View {
     private var footer: some View {
         HStack(spacing: 10) {
             Spacer(minLength: 0)
-            ChromeButton("Cancelar", appearance: .outlined, action: onClose)
+            ChromeButton(L10n.tr("Cancelar"), appearance: .outlined, action: onClose)
                 .keyboardShortcut(.cancelAction)
             ChromeButton(
-                creating ? "Criando…" : "Adicionar",
+                creating ? L10n.tr("Criando…") : L10n.tr("Adicionar"),
                 appearance: canCreate ? .accent : .muted,
                 action: create
             )
@@ -517,26 +517,26 @@ struct NewAppointmentSheet: View {
 
     private func meetingHint(for service: MeetingService) -> String {
         if meetingLinkIsInvalid {
-            return "Use um link que comece com http:// ou https://."
+            return L10n.tr("Use um link que comece com http:// ou https://.")
         }
         if useExistingLink {
-            return "O endereço colado entra neste compromisso só. Não vira sala permanente."
+            return L10n.tr("O endereço colado entra neste compromisso só. Não vira sala permanente.")
         }
         if service == .meet {
             if googleAccount == nil {
-                return "Conecte uma conta Google em Contas para criar o Meet automaticamente, ou cole um link existente."
+                return L10n.tr("Conecte uma conta Google em Contas para criar o Meet automaticamente, ou cole um link existente.")
             }
             if factory?.hasMeetAccess(accountID: googleAccount?.id ?? "") == false {
-                return "O Google precisa autorizar o Calendar nesta caixa (é assim que o Meet nasce no Gmail). Reconecte uma vez."
+                return L10n.tr("O Google precisa autorizar o Calendar nesta caixa (é assim que o Meet nasce no Gmail). Reconecte uma vez.")
             }
-            return "Uma sala nova de Google Meet será criada ao adicionar. Título e horário vão com ela."
+            return L10n.tr("Uma sala nova de Google Meet será criada ao adicionar. Título e horário vão com ela.")
         }
         if let account = store.account(accountID),
            let factory, factory.canMint(service, account: account, accounts: store.accounts)
         {
-            return "Uma sala nova de \(service.label) será criada ao adicionar. Título e horário vão com ela."
+            return L10n.tr("Uma sala nova de \(service.label) será criada ao adicionar. Título e horário vão com ela.")
         }
-        return "Conecte o \(service.label) em Ajustes → Agenda para criar a sala automaticamente, ou cole um link existente."
+        return L10n.tr("Conecte o \(service.label) em Ajustes → Agenda para criar a sala automaticamente, ou cole um link existente.")
     }
 
     private var needsMeetReconnect: Bool {
@@ -714,13 +714,13 @@ struct NewAppointmentSheet: View {
         recurrence.weekdays = days.sorted()
     }
 
-    private static let weekdayOrder: [(weekday: Int, label: String, accessibility: String, offset: Int)] = [
-        (2, "seg", "segunda", 0),
-        (3, "ter", "terça", 1),
-        (4, "qua", "quarta", 2),
-        (5, "qui", "quinta", 3),
-        (6, "sex", "sexta", 4),
-        (7, "sáb", "sábado", 5),
-        (1, "dom", "domingo", 6),
-    ]
+    private static var weekdayOrder: [(weekday: Int, label: String, accessibility: String, offset: Int)] { [
+        (2, L10n.tr("seg"), L10n.tr("segunda"), 0),
+        (3, L10n.tr("ter"), L10n.tr("terça"), 1),
+        (4, L10n.tr("qua"), L10n.tr("quarta"), 2),
+        (5, L10n.tr("qui"), L10n.tr("quinta"), 3),
+        (6, L10n.tr("sex"), L10n.tr("sexta"), 4),
+        (7, L10n.tr("sáb"), L10n.tr("sábado"), 5),
+        (1, L10n.tr("dom"), L10n.tr("domingo"), 6),
+    ] }
 }

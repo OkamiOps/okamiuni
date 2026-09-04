@@ -230,6 +230,7 @@ struct OkamiUNIApp: App {
                 .environment(meetingRooms)
                 .environment(meetingFactory)
                 .theme(themes.theme)
+                .environment(\.locale, L10n.locale)
                 .barraColadaNoTopo()
                 // 860 é o piso da faixa mais estreita da Task R: trilha de
                 // 62 + lista de 320 ainda deixam 478pt para o leitor.
@@ -338,7 +339,7 @@ struct OkamiUNIApp: App {
         // app, como as Configurações — duas janelas da mesma conversa seriam
         // duas telas discordando sobre o que já foi executado. Ela entra no
         // menu Janela por ser cena, e ⌘W a fecha sem apagar a conversa.
-        Window("Assistente", id: UNIWindow.assistant) {
+        Window(L10n.tr("Assistente"), id: UNIWindow.assistant) {
             AssistantWindow(session: assistantSession)
                 .themed(themes)
                 .barraColadaNoTopo()
@@ -356,7 +357,7 @@ struct OkamiUNIApp: App {
         // abri-la e a Task 17 a tomou emprestada da janela principal
         // enquanto ela não existia. A lista de contas é a primeira seção do
         // corpo — ver `AccountsWindow`.
-        Window("Configurações", id: UNIWindow.accounts) {
+        Window(L10n.tr("Configurações"), id: UNIWindow.accounts) {
             Group {
                 if let accountsModel {
                     AccountsWindow(
@@ -463,6 +464,7 @@ extension View {
     /// só o `.environment(...)` deixaria a janela no tema padrão.
     fileprivate func themed(_ themes: ThemeStore) -> some View {
         environment(themes).theme(themes.theme)
+                .environment(\.locale, L10n.locale)
     }
 }
 
@@ -472,7 +474,7 @@ private struct NewMessageCommand: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button("Nova mensagem") {
+        Button(L10n.tr("Nova mensagem")) {
             openWindow(id: UNIWindow.newMessage, value: "")
         }
         .keyboardShortcut("n", modifiers: .command)
@@ -492,7 +494,7 @@ private struct AccountsCommand: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        Button("Configurações…") { openWindow(id: UNIWindow.accounts) }
+        Button(L10n.tr("Configurações…")) { openWindow(id: UNIWindow.accounts) }
             .keyboardShortcut(",", modifiers: .command)
     }
 }
@@ -508,10 +510,10 @@ private struct ContasIndisponiveis: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            Text("Contas indisponíveis")
+            Text(L10n.tr("Contas indisponíveis"))
                 .font(theme.sans.font(size: 14, weight: .medium))
                 .foregroundStyle(theme.ink.color)
-            Text(erro?.mensagem ?? "O banco local não pôde ser aberto.")
+            Text(erro?.mensagem ?? L10n.tr("O banco local não pôde ser aberto."))
                 .font(theme.sans.font(size: 12))
                 .foregroundStyle(theme.ink3.color)
                 .multilineTextAlignment(.center)

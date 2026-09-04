@@ -85,7 +85,7 @@ enum DashboardDay {
                 entry: .deadline(
                     id: prazo.messageID,
                     hour: MinuteFormat.clock(minuto),
-                    title: "Prazo de \(prazo.senderName)",
+                    title: L10n.tr("Prazo de \(prazo.senderName)"),
                     sub: prazo.sub
                 )
             ))
@@ -103,7 +103,7 @@ enum DashboardDay {
             lista.append(.deadline(
                 id: prazo.messageID,
                 hour: prazo.dayLabel ?? "",
-                title: "Prazo de \(prazo.senderName)",
+                title: L10n.tr("Prazo de \(prazo.senderName)"),
                 sub: prazo.sub
             ))
         }

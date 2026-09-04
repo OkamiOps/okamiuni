@@ -146,12 +146,12 @@ struct QuickReplyBand: View {
     /// Controle mudo é defeito: ou ele age, ou diz por que não.
     private var signatureHelp: String {
         if !hasSignature {
-            return "Inserir assinatura — indisponível: a conta \(account?.host ?? "") não tem assinatura"
+            return L10n.tr("Inserir assinatura — indisponível: a conta \(account?.host ?? "") não tem assinatura")
         }
         if !canInsertSignature {
-            return "Inserir assinatura — a assinatura desta conta já foi incluída nesta resposta"
+            return L10n.tr("Inserir assinatura — a assinatura desta conta já foi incluída nesta resposta")
         }
-        return "Inserir a assinatura de \(account?.host ?? "") nesta resposta"
+        return L10n.tr("Inserir a assinatura de \(account?.host ?? "") nesta resposta")
     }
 
     private func insertSignature() {
@@ -301,11 +301,11 @@ struct QuickReplyBand: View {
             toRow
                 .zIndex(9)
             if ccOpen {
-                copyRow(label: "Cc", placeholder: "quem mais acompanha; ", chips: $cc)
+                copyRow(label: "Cc", placeholder: L10n.tr("quem mais acompanha; "), chips: $cc)
                     .zIndex(8)
             }
             if bccOpen {
-                copyRow(label: "Cco", placeholder: "cópia oculta; ", chips: $bcc)
+                copyRow(label: L10n.tr("Cco"), placeholder: L10n.tr("cópia oculta; "), chips: $bcc)
                     .zIndex(7)
             }
             toolbar
@@ -335,8 +335,8 @@ struct QuickReplyBand: View {
     /// border-bottom: 0.5px solid var(--line2)`.
     private var toRow: some View {
         BandRecipientRow(
-            label: "Para",
-            placeholder: "nome ou email; ",
+            label: L10n.tr("Para"),
+            placeholder: L10n.tr("nome ou email; "),
             chips: $to,
             pool: pool,
             seededQuery: seededQuery,
@@ -346,7 +346,7 @@ struct QuickReplyBand: View {
                 ccOpen.toggle()
                 if !ccOpen { cc = []; persist() }
             }
-            MiniToggleButton(label: "Cco", on: bccOpen) {
+            MiniToggleButton(label: L10n.tr("Cco"), on: bccOpen) {
                 bccOpen.toggle()
                 if !bccOpen { bcc = []; persist() }
             }
@@ -462,7 +462,7 @@ struct QuickReplyBand: View {
 
             if draft.characters.isEmpty {
                 // Protótipo, linha 1275.
-                Text("Escreva a resposta… selecione o texto para formatar · ⌘⏎ envia")
+                Text(L10n.tr("Escreva a resposta… selecione o texto para formatar · ⌘⏎ envia"))
                     .font(theme.serif.font(size: 15))
                     .foregroundStyle(theme.ink4.color)
                     .padding(14)
@@ -535,7 +535,7 @@ struct QuickReplyBand: View {
                 labelSize: nil, action: { send(archiving: false) }
             ) {
                 HStack(spacing: 8) {
-                    Text("Enviar")
+                    Text(L10n.tr("Enviar"))
                         .font(theme.sans.font(size: 12.5, weight: .semibold))
                     Text("⌘⏎")
                         .font(theme.mono.font(size: 9.5))
@@ -547,7 +547,7 @@ struct QuickReplyBand: View {
             .help(sendHelp)
 
             ChromeButton(
-                "Enviar e arquivar",
+                L10n.tr("Enviar e arquivar"),
                 appearance: canSend ? .outlined : .muted,
                 size: 12.5, height: 30, horizontalPadding: 14
             ) {
@@ -557,7 +557,7 @@ struct QuickReplyBand: View {
             .help(archiveHelp)
 
             ChromeButton(
-                "Salvar",
+                L10n.tr("Salvar"),
                 appearance: canSave ? .outlined : .muted,
                 size: 12.5, height: 30, horizontalPadding: 12
             ) {
@@ -616,7 +616,7 @@ struct QuickReplyBand: View {
                         .foregroundStyle(theme.ink2.color)
                         .lineLimit(1)
                     } else {
-                        Text("Responder a \(message.from.name.isEmpty ? message.from.address : message.from.name)…")
+                        Text(L10n.tr("Responder a \(message.from.name.isEmpty ? message.from.address : message.from.name)…"))
                             .font(theme.sans.font(size: 12.5))
                             .foregroundStyle(theme.ink3.color)
                             .lineLimit(1)
@@ -626,7 +626,7 @@ struct QuickReplyBand: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(sentAt == nil ? "Responder" : "Retomar")
+            .accessibilityLabel(sentAt == nil ? L10n.tr("Responder") : L10n.tr("Retomar"))
 
             promoteButton
         }
@@ -652,8 +652,8 @@ struct QuickReplyBand: View {
     /// nonisolated o chama — por isso este fica `nonisolated`.
     nonisolated static func sentNote(words: String, stamp: String, archived: Bool) -> String {
         let head = archived
-            ? "Pronta para envio, original arquivada"
-            : "Pronta para envio"
+            ? L10n.tr("Pronta para envio, original arquivada")
+            : L10n.tr("Pronta para envio")
         return "\(head) — \(words) · \(stamp) · sem rede neste marco"
     }
 
@@ -668,7 +668,7 @@ struct QuickReplyBand: View {
     }
 
     private var collapseButton: some View {
-        MiniGlyphButton(glyph: "▾", help: "Recolher a faixa de resposta") {
+        MiniGlyphButton(glyph: "▾", help: L10n.tr("Recolher a faixa de resposta")) {
             persist()
             open = false
         }
@@ -686,9 +686,9 @@ struct QuickReplyBand: View {
 
     private var sendHelp: String {
         if !hasBody && attachments.isEmpty {
-            return "Enviar — indisponível: escreva uma resposta ou anexe um arquivo."
+            return L10n.tr("Enviar — indisponível: escreva uma resposta ou anexe um arquivo.")
         }
-        if !hasRecipient { return "Enviar — indisponível: escolha pelo menos um destinatário." }
+        if !hasRecipient { return L10n.tr("Enviar — indisponível: escolha pelo menos um destinatário.") }
         // Sem porta de envio a frase continua sendo a do Marco 1, porque o
         // comportamento também é: o `help` não pode prometer rede onde ela não
         // existe, nem esconder que ela existe onde ela passou a existir.
@@ -696,44 +696,44 @@ struct QuickReplyBand: View {
             return "Marco 1 não tem rede. Carimba a resposta como pronta, guarda tudo "
                 + "e fecha a faixa na confirmação."
         }
-        return "Põe a resposta na fila de saída da conta \(account?.host ?? "") "
-            + "e recolhe a faixa."
+        return L10n.tr("Põe a resposta na fila de saída da conta \(account?.host ?? "") ")
+            + L10n.tr("e recolhe a faixa.")
     }
 
     private var archiveHelp: String {
         guard canSend else { return sendHelp }
         guard store.canSend else {
             return message.bucket == .archived
-                ? "A original já está arquivada; a resposta fica pronta para envio."
-                : "Arquiva a original de verdade e deixa a resposta pronta para envio."
+                ? L10n.tr("A original já está arquivada; a resposta fica pronta para envio.")
+                : L10n.tr("Arquiva a original de verdade e deixa a resposta pronta para envio.")
         }
         return message.bucket == .archived
-            ? "A original já está arquivada; a resposta vai para a fila de saída."
-            : "Arquiva a original e põe a resposta na fila de saída."
+            ? L10n.tr("A original já está arquivada; a resposta vai para a fila de saída.")
+            : L10n.tr("Arquiva a original e põe a resposta na fila de saída.")
     }
 
     private var canSave: Bool { QuickReply.canSave(currentDraft) }
 
     private var saveHelp: String {
         if let savedAt {
-            return "Rascunho já salvo às \(savedAt.formatted(date: .omitted, time: .shortened))."
+            return L10n.tr("Rascunho já salvo às \(savedAt.formatted(date: .omitted, time: .shortened)).")
         }
         guard hasBody || !attachments.isEmpty else {
-            return "Salvar — indisponível: não há nada escrito nem anexado."
+            return L10n.tr("Salvar — indisponível: não há nada escrito nem anexado.")
         }
-        return "Guarda o rascunho com carimbo e deixa a faixa aberta."
+        return L10n.tr("Guarda o rascunho com carimbo e deixa a faixa aberta.")
     }
 
     private var canAttach: Bool { attachmentSelector != nil }
 
     private var attachHelp: String {
         canAttach
-            ? "Anexar arquivo"
-            : "Anexar — indisponível nesta janela."
+            ? L10n.tr("Anexar arquivo")
+            : L10n.tr("Anexar — indisponível nesta janela.")
     }
 
     private var promoteHelp: String {
-        "Abrir em janela separada. O texto vai junto; a formatação ainda não — ver o relatório."
+        L10n.tr("Abrir em janela separada. O texto vai junto; a formatação ainda não — ver o relatório.")
     }
 
     // MARK: - Ações
@@ -854,7 +854,7 @@ struct QuickReplyBand: View {
 
     private func attach() {
         guard let attachmentSelector else {
-            attachmentError = "Anexar indisponível nesta janela."
+            attachmentError = L10n.tr("Anexar indisponível nesta janela.")
             return
         }
         Task {
@@ -867,7 +867,7 @@ struct QuickReplyBand: View {
             } catch let error as AttachmentError {
                 attachmentError = error.localizedDescription
             } catch {
-                attachmentError = "Não foi possível ler o arquivo escolhido."
+                attachmentError = L10n.tr("Não foi possível ler o arquivo escolhido.")
             }
         }
     }
@@ -996,7 +996,7 @@ private struct BandRecipientRow<Trailing: View>: View {
             }
             .buttonStyle(.plain)
             .focusRing(in: Circle())
-            .help("Tirar \(contact.display)")
+            .help(L10n.tr("Tirar \(contact.display)"))
         }
         .frame(height: 22)
         .padding(.leading, 9)
@@ -1166,7 +1166,7 @@ private struct MiniToggleButton: View {
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall)
-        .help(on ? "Fechar a linha \(label)" : "Abrir a linha \(label)")
+        .help(on ? L10n.tr("Fechar a linha \(label)") : L10n.tr("Abrir a linha \(label)"))
     }
 }
 
@@ -1242,7 +1242,7 @@ private struct BandAttachmentChip: View {
             }
             .buttonStyle(.plain)
             .focusRing(in: Rectangle())
-            .help("Tirar \(name)")
+            .help(L10n.tr("Tirar \(name)"))
         }
         .frame(height: 26)
         .padding(.leading, 10)
@@ -1269,7 +1269,7 @@ private struct SuggestedDraftPicker: View {
     var body: some View {
         Button { open.toggle() } label: {
             HStack(spacing: 8) {
-                Text("Rascunho sugerido")
+                Text(L10n.tr("Rascunho sugerido"))
                     .font(theme.sans.font(size: 12, weight: .medium))  // CSS 550
                 Text("▾")
                     .font(theme.sans.font(size: 8))
@@ -1293,7 +1293,7 @@ private struct SuggestedDraftPicker: View {
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall)
         .fixedSize()
-        .help("Preencher a resposta com um rascunho sugerido")
+        .help(L10n.tr("Preencher a resposta com um rascunho sugerido"))
         .popover(isPresented: $open, arrowEdge: .top) { panel }
     }
 

@@ -269,7 +269,7 @@ public struct DayScreen: View {
         // Protótipo: `opacity: 0.5` no que já acabou, e só quando o dia no ar é
         // hoje — num outro dia "já passou" não quer dizer nada.
         .opacity(showsNow && item.endMinute < now ? 0.5 : 1)
-        .help(item.isCancelled ? "Compromisso cancelado" : "Abre o compromisso")
+        .help(item.isCancelled ? L10n.tr("Compromisso cancelado") : L10n.tr("Abre o compromisso"))
         .uniContextMenu(
             AgendaContextMenu.entries(for: item, store: store, anchor: anchor),
             store: store,
@@ -328,7 +328,7 @@ public struct DayScreen: View {
     /// dia, e sete respostas lado a lado não caberiam em 250pt.
     private var freeTimeSidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(showsNow ? "Livre hoje" : "Livre neste dia")
+            Text(showsNow ? L10n.tr("Livre hoje") : L10n.tr("Livre neste dia"))
                 .capsLabel(size: 9.5)
                 .padding(.bottom, 10)
 
@@ -344,7 +344,7 @@ public struct DayScreen: View {
                 .padding(.vertical, 7)
                 .hairline(theme.line2, edges: .bottom)
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("Livre das \(gap.rangeLabel), \(gap.lengthLabel)")
+                .accessibilityLabel(L10n.tr("Livre das \(gap.rangeLabel), \(gap.lengthLabel)"))
             }
 
             Spacer(minLength: 0)

@@ -27,9 +27,9 @@ public enum EmailRuleAction: String, CaseIterable, Identifiable, Sendable, Hasha
     /// uma forma diferente.
     public var label: String {
         switch self {
-        case .markRead: "Marcar como lida"
-        case .archive: "Arquivar"
-        case .flag: "Sinalizar"
+        case .markRead: L10n.tr("Marcar como lida")
+        case .archive: L10n.tr("Arquivar")
+        case .flag: L10n.tr("Sinalizar")
         }
     }
 }

@@ -64,19 +64,19 @@ struct MoveFolderPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            TextField("Buscar pasta…", text: $query)
+            TextField(L10n.tr("Buscar pasta…"), text: $query)
                 .textFieldStyle(.plain)
                 .font(theme.sans.font(size: 12))
                 .padding(.horizontal, 8)
                 .frame(height: 26)
                 .background(theme.surface2.color)
                 .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-                .accessibilityLabel("Buscar pasta")
+                .accessibilityLabel(L10n.tr("Buscar pasta"))
 
             if filtered.isEmpty {
                 Text(groups.isEmpty
-                     ? "Sincronize a conta para ver pastas e marcadores."
-                     : "Nenhuma pasta com esse nome.")
+                     ? L10n.tr("Sincronize a conta para ver pastas e marcadores.")
+                     : L10n.tr("Nenhuma pasta com esse nome."))
                     .font(theme.sans.font(size: 12))
                     .foregroundStyle(theme.ink3.color)
                     .padding(.horizontal, 8)

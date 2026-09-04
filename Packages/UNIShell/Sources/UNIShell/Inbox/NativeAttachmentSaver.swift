@@ -11,7 +11,7 @@ public struct NativeAttachmentSaver: AttachmentSaving {
     public func save(_ attachment: FetchedAttachment) async throws {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = attachment.attachment.filename
-        panel.prompt = "Salvar"
+        panel.prompt = L10n.tr("Salvar")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         try attachment.data.write(to: url, options: .atomic)
     }

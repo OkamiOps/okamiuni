@@ -53,7 +53,7 @@ enum ComposerFormatting {
     static let familyGroups: [ComposerSelect.Group] = {
         var groups: [ComposerSelect.Group] = [
             ComposerSelect.Group(
-                title: "Do design",
+                title: L10n.tr("Do design"),
                 options: FontCatalog.design.map {
                     ComposerSelect.Option(value: $0.value, label: $0.label, previewFamily: $0.value)
                 }
@@ -64,7 +64,7 @@ enum ComposerFormatting {
         if !installedFamilies.isEmpty {
             groups.append(
                 ComposerSelect.Group(
-                    title: "Instaladas",
+                    title: L10n.tr("Instaladas"),
                     options: installedFamilies.map {
                         ComposerSelect.Option(
                             value: $0.value, label: $0.label, previewFamily: $0.value
@@ -86,15 +86,15 @@ enum ComposerFormatting {
         )
     ]
 
-    static let textColors: [(hex: String, name: String)] = [
-        ("#241F18", "Texto"), ("#B4562A", "Terracota"), ("#8E2020", "Vermelho"),
-        ("#2F4B7C", "Azul"), ("#4C6B45", "Verde"), ("#6C6D80", "Cinza"),
-    ]
+    static var textColors: [(hex: String, name: String)] { [
+        ("#241F18", L10n.tr("Texto")), ("#B4562A", L10n.tr("Terracota")), ("#8E2020", L10n.tr("Vermelho")),
+        ("#2F4B7C", L10n.tr("Azul")), ("#4C6B45", L10n.tr("Verde")), ("#6C6D80", L10n.tr("Cinza")),
+    ] }
 
-    static let highlights: [(hex: String, name: String)] = [
-        ("transparent", "Sem realce"), ("#FBEFA6", "Amarelo"), ("#CFEBD6", "Verde"),
-        ("#FBD9CF", "Coral"), ("#D6E3F7", "Azul"), ("#EBDDF7", "Lilás"),
-    ]
+    static var highlights: [(hex: String, name: String)] { [
+        ("transparent", L10n.tr("Sem realce")), ("#FBEFA6", L10n.tr("Amarelo")), ("#CFEBD6", L10n.tr("Verde")),
+        ("#FBD9CF", L10n.tr("Coral")), ("#D6E3F7", L10n.tr("Azul")), ("#EBDDF7", L10n.tr("Lilás")),
+    ] }
 
     /// A família escolhida é do protótipo e pode não estar instalada:
     /// `FontFamily` já cai no sistema sozinha nesse caso.
@@ -351,7 +351,7 @@ enum ComposerTableCommand {
     /// Recusa muda é tão defeito quanto botão mudo.
     static func title(_ reading: BodyReading) -> String {
         reading.inTable
-            ? "Inserir tabela — o cursor já está dentro de uma"
-            : "Inserir tabela"
+            ? L10n.tr("Inserir tabela — o cursor já está dentro de uma")
+            : L10n.tr("Inserir tabela")
     }
 }

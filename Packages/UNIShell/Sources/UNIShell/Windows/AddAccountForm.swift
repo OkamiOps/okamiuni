@@ -124,9 +124,9 @@ public struct AddAccountForm: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("ADICIONAR CONTA").capsLabel()
+            Text(L10n.tr("ADICIONAR CONTA")).capsLabel()
 
-            TextField("endereço@qualquerdominio.com", text: $address)
+            TextField(L10n.tr("endereço@qualquerdominio.com"), text: $address)
                 .textFieldStyle(.plain)
                 .font(theme.sans.font(size: 12.5))
                 .foregroundStyle(theme.ink.color)
@@ -137,15 +137,15 @@ public struct AddAccountForm: View {
 
             switch route {
             case .none:
-                Text("Digite o endereço da conta.")
+                Text(L10n.tr("Digite o endereço da conta."))
                     .font(theme.sans.font(size: 11.5))
                     .foregroundStyle(theme.ink4.color)
 
             case .google:
-                Text("Conta do Google: a autorização abre no navegador.")
+                Text(L10n.tr("Conta do Google: a autorização abre no navegador."))
                     .font(theme.sans.font(size: 11.5))
                     .foregroundStyle(theme.ink3.color)
-                Button("Autorizar no Google") {
+                Button(L10n.tr("Autorizar no Google")) {
                     Task { await model.addGoogle(address: address) }
                 }
                 .buttonStyle(.plain)
@@ -154,8 +154,8 @@ public struct AddAccountForm: View {
                 .disabled(model.isBusy)
                 // Desabilitado diz por quê — a regra do Marco 1, inteira.
                 .help(model.isBusy
-                    ? "Há outra ação em curso; ela termina em instantes."
-                    : "Abrir o consentimento do Google para \(address)")
+                    ? L10n.tr("Há outra ação em curso; ela termina em instantes.")
+                    : L10n.tr("Abrir o consentimento do Google para \(address)"))
                 .focusRing(cornerRadius: theme.radiusSmall)
 
                 // A saída sem console: o Gmail também fala IMAP com senha de
@@ -164,7 +164,7 @@ public struct AddAccountForm: View {
                 // myaccount.google.com/apppasswords, nenhum projeto no Google
                 // Cloud. O OAuth continua sendo o melhor sync (histórico
                 // incremental); a escolha é da pessoa, não nossa.
-                Button("Ou conectar por IMAP com senha de app") {
+                Button(L10n.tr("Ou conectar por IMAP com senha de app")) {
                     forceImapForGoogle()
                 }
                 .buttonStyle(.plain)
@@ -189,7 +189,7 @@ public struct AddAccountForm: View {
                         .foregroundStyle(theme.accent.color)
                         .fixedSize(horizontal: false, vertical: true)
                     if case .semClientID = erro {
-                        Button("Ver o roteiro") {
+                        Button(L10n.tr("Ver o roteiro")) {
                             AccountsDocs.open(AccountsDocs.oauthGoogle)
                         }
                         .buttonStyle(.plain)
@@ -197,13 +197,13 @@ public struct AddAccountForm: View {
                         .foregroundStyle(theme.accent.color)
                         .disabled(AccountsDocs.url(AccountsDocs.oauthGoogle) == nil)
                         .help(AccountsDocs.url(AccountsDocs.oauthGoogle) == nil
-                            ? "Este aplicativo não trouxe o roteiro; ele está em docs/oauth-google.md, no repositório."
-                            : "Abrir docs/oauth-google.md, que diz o que falta")
+                            ? L10n.tr("Este aplicativo não trouxe o roteiro; ele está em docs/oauth-google.md, no repositório.")
+                            : L10n.tr("Abrir docs/oauth-google.md, que diz o que falta"))
                         .focusRing(cornerRadius: theme.radiusSmall)
                     }
                 }
             } else if testado == true {
-                Text("Conexão testada com sucesso.")
+                Text(L10n.tr("Conexão testada com sucesso."))
                     .font(theme.sans.font(size: 11.5))
                     .foregroundStyle(theme.ink3.color)
             }
@@ -239,7 +239,7 @@ public struct AddAccountForm: View {
     /// divergiriam, e a nota apareceria onde não há perda ou — pior — faltaria
     /// onde há.
     private var notaDoEnderecoNumerico: some View {
-        Text("Endereço numérico: o certificado do servidor não é conferido pelo nome.")
+        Text(L10n.tr("Endereço numérico: o certificado do servidor não é conferido pelo nome."))
             .font(theme.sans.font(size: 11))
             .foregroundStyle(theme.ink3.color)
             .fixedSize(horizontal: false, vertical: true)
@@ -252,7 +252,7 @@ public struct AddAccountForm: View {
 
     @ViewBuilder
     private var imapFields: some View {
-        SecureField("senha de app", text: $password)
+        SecureField(L10n.tr("senha de app"), text: $password)
             .textFieldStyle(.plain)
             .font(theme.sans.font(size: 12.5))
             .foregroundStyle(theme.ink.color)
@@ -260,7 +260,7 @@ public struct AddAccountForm: View {
             .frame(height: 32)
             .background(theme.surface2.color, in: RoundedRectangle(cornerRadius: theme.radiusSmall))
 
-        Button("O que é uma senha de app?") {
+        Button(L10n.tr("O que é uma senha de app?")) {
             AccountsDocs.open(AccountsDocs.senhaDeApp)
         }
         .buttonStyle(.plain)
@@ -268,8 +268,8 @@ public struct AddAccountForm: View {
         .foregroundStyle(theme.ink4.color)
         .disabled(AccountsDocs.url(AccountsDocs.senhaDeApp) == nil)
         .help(AccountsDocs.url(AccountsDocs.senhaDeApp) == nil
-            ? "Este aplicativo não trouxe a explicação; ela está em docs/senha-de-app.md, no repositório."
-            : "Provedores com verificação em duas etapas recusam a senha da conta; a senha de app é a que o IMAP aceita.")
+            ? L10n.tr("Este aplicativo não trouxe a explicação; ela está em docs/senha-de-app.md, no repositório.")
+            : L10n.tr("Provedores com verificação em duas etapas recusam a senha da conta; a senha de app é a que o IMAP aceita."))
         .focusRing(cornerRadius: theme.radiusSmall)
 
         HStack(spacing: 8) {
@@ -290,7 +290,7 @@ public struct AddAccountForm: View {
             // O mesmo dropdown do design, e não um `Picker` do sistema — a
             // regra que `ComposerSelect` existe para cumprir.
             ComposerSelect(
-                title: "Forma de TLS",
+                title: L10n.tr("Forma de TLS"),
                 selected: security.rawValue,
                 width: 108,
                 groups: [.init(title: nil, options: [
@@ -305,7 +305,7 @@ public struct AddAccountForm: View {
         }
 
         HStack(spacing: 10) {
-            Button("Testar e adicionar") {
+            Button(L10n.tr("Testar e adicionar")) {
                 Task {
                     guard let endpoint else { return }
                     testado = await model.testImap(address: address, password: password, endpoint: endpoint)
@@ -330,10 +330,10 @@ public struct AddAccountForm: View {
     /// Por que o botão está apagado — uma frase por motivo, na ordem em que a
     /// pessoa esbarra neles.
     private var ajudaDoTestar: String {
-        if model.isBusy { return "Há outra ação em curso; ela termina em instantes." }
-        if password.isEmpty { return "Falta a senha de app desta conta." }
-        if endpoint == nil { return "Falta o servidor IMAP ou a porta." }
-        return "Conectar uma vez antes de gravar — nada é salvo se o teste falhar."
+        if model.isBusy { return L10n.tr("Há outra ação em curso; ela termina em instantes.") }
+        if password.isEmpty { return L10n.tr("Falta a senha de app desta conta.") }
+        if endpoint == nil { return L10n.tr("Falta o servidor IMAP ou a porta.") }
+        return L10n.tr("Conectar uma vez antes de gravar — nada é salvo se o teste falhar.")
     }
 
     private var endpoint: ImapEndpoint? {

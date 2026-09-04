@@ -89,15 +89,15 @@ public enum EmailSignatureError: Error, Sendable, Equatable, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .plainTextTooLarge: "O texto da assinatura é grande demais."
-        case .htmlTooLarge: "O HTML da assinatura é grande demais."
-        case .tooManyInlineResources: "A assinatura tem imagens demais."
-        case .inlineResourcesTooLarge: "As imagens da assinatura ocupam espaço demais."
-        case .duplicateContentID: "Cada imagem da assinatura precisa de um Content-ID único."
-        case .unsafeContentID: "O Content-ID da imagem não é seguro."
-        case .unsupportedImageType(let type): "O tipo de imagem \(type) não é aceito na assinatura."
-        case .emptyInlineResource: "A imagem da assinatura está vazia."
-        case .inlineResourceTooLarge: "A imagem da assinatura é grande demais."
+        case .plainTextTooLarge: L10n.tr("O texto da assinatura é grande demais.")
+        case .htmlTooLarge: L10n.tr("O HTML da assinatura é grande demais.")
+        case .tooManyInlineResources: L10n.tr("A assinatura tem imagens demais.")
+        case .inlineResourcesTooLarge: L10n.tr("As imagens da assinatura ocupam espaço demais.")
+        case .duplicateContentID: L10n.tr("Cada imagem da assinatura precisa de um Content-ID único.")
+        case .unsafeContentID: L10n.tr("O Content-ID da imagem não é seguro.")
+        case .unsupportedImageType(let type): L10n.tr("O tipo de imagem \(type) não é aceito na assinatura.")
+        case .emptyInlineResource: L10n.tr("A imagem da assinatura está vazia.")
+        case .inlineResourceTooLarge: L10n.tr("A imagem da assinatura é grande demais.")
         }
     }
 }

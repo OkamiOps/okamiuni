@@ -42,18 +42,18 @@ public enum AccountRowAction: Hashable, Sendable, Identifiable {
         // Sempre "Tentar de novo", qualquer que seja a causa: o que ela pede é
         // repetir a operação de saída, e não refazer credencial nenhuma —
         // mesmo quando quem a recusou foi uma autorização revogada.
-        case .retryQueue: "Tentar de novo"
+        case .retryQueue: L10n.tr("Tentar de novo")
         case .openRoteiro: AccountsCopy.action(for: .semClientID)
-        case .remove: "Remover"
+        case .remove: L10n.tr("Remover")
         }
     }
 
     public var help: String {
         switch self {
         case .reconnect(let erro), .retry(let erro): AccountsCopy.actionHelp(for: erro)
-        case .retryQueue: "Voltar a tentar as operações paradas na fila desta conta"
+        case .retryQueue: L10n.tr("Voltar a tentar as operações paradas na fila desta conta")
         case .openRoteiro: AccountsCopy.actionHelp(for: .semClientID)
-        case .remove: "Apagar esta conta, as mensagens baixadas dela e a senha guardada"
+        case .remove: L10n.tr("Apagar esta conta, as mensagens baixadas dela e a senha guardada")
         }
     }
 }
@@ -66,7 +66,7 @@ public enum AccountRowAction: Hashable, Sendable, Identifiable {
 public enum AccountsCopy {
     /// A linha de estado de uma conta.
     public static func status(_ s: AccountStatus, now: Date, calendar: Calendar) -> String {
-        let contagem = "\(numero(s.messageCount)) \(s.messageCount == 1 ? "mensagem" : "mensagens")"
+        let contagem = "\(numero(s.messageCount)) \(s.messageCount == 1 ? L10n.tr("mensagem") : L10n.tr("mensagens"))"
             + fila(s)
 
         if let erro = s.error {
@@ -76,19 +76,19 @@ public enum AccountsCopy {
         case .carregando:
             if let progresso = s.progress, progresso.total > 0 {
                 let porcento = Int((progresso.fraction * 100).rounded())
-                return "Carregando… \(porcento)% · \(contagem)"
+                return L10n.tr("Carregando… \(porcento)% · \(contagem)")
             }
             // Sem total conhecido não há porcentagem honesta. Uma barra que
             // finge 0% enquanto a página de ids ainda está sendo pedida é pior
             // do que dizer só "Carregando".
-            return "Carregando… · \(contagem)"
+            return L10n.tr("Carregando… · \(contagem)")
         case .erroDeAutenticacao:
             return "\(SyncError.autenticacao.mensagem) · \(contagem)"
         case .ativa:
             guard let quando = s.lastSyncedAt else {
-                return "Ainda não sincronizada · \(contagem)"
+                return L10n.tr("Ainda não sincronizada · \(contagem)")
             }
-            return "Sincronizada \(horario(quando, calendar: calendar)) · \(contagem)"
+            return L10n.tr("Sincronizada \(horario(quando, calendar: calendar)) · \(contagem)")
         }
     }
 
@@ -117,7 +117,7 @@ public enum AccountsCopy {
             texto += " · \(numero(s.pendingOperations)) aguardando"
         }
         if let parada = s.queueError {
-            texto += " · parada: \(parada.mensagem)"
+            texto += L10n.tr(" · parada: \(parada.mensagem)")
         }
         return texto
     }
@@ -131,10 +131,10 @@ public enum AccountsCopy {
     /// segunda leitura na camada de janela divergiria da primeira no primeiro
     /// caso novo, e a divergência apareceria como um botão que não funciona.
     public static func action(for erro: SyncError) -> String {
-        if erro.pedeReconexao { return "Reconectar" }
+        if erro.pedeReconexao { return L10n.tr("Reconectar") }
         switch erro {
-        case .semClientID: return "Ver o roteiro"
-        default: return "Tentar de novo"
+        case .semClientID: return L10n.tr("Ver o roteiro")
+        default: return L10n.tr("Tentar de novo")
         }
     }
 
@@ -251,13 +251,13 @@ public enum AccountsCopy {
     /// anterior vale igual aqui: controle que existe explica o que faz.
     public static func actionHelp(for erro: SyncError) -> String {
         if erro.pedeReconexao {
-            return "Refazer a autorização desta conta, sem apagar as mensagens nem a fila"
+            return L10n.tr("Refazer a autorização desta conta, sem apagar as mensagens nem a fila")
         }
         switch erro {
         case .semClientID:
-            return "Abrir docs/oauth-google.md, que diz o que falta"
+            return L10n.tr("Abrir docs/oauth-google.md, que diz o que falta")
         default:
-            return "Repetir a última operação desta conta"
+            return L10n.tr("Repetir a última operação desta conta")
         }
     }
 
@@ -265,13 +265,13 @@ public enum AccountsCopy {
     /// quem lê, e não do modelo — a mesma regra que mantém `dayOffset` inteiro.
     private static func horario(_ data: Date, calendar: Calendar) -> String {
         let partes = calendar.dateComponents([.hour, .minute], from: data)
-        return String(format: "às %02d:%02d", partes.hour ?? 0, partes.minute ?? 0)
+        return String(format: L10n.tr("às %02d:%02d"), partes.hour ?? 0, partes.minute ?? 0)
     }
 
     /// "1.284" — separador de milhar em pt-BR.
     private static func numero(_ valor: Int) -> String {
         let formatador = NumberFormatter()
-        formatador.locale = Locale(identifier: "pt_BR")
+        formatador.locale = L10n.locale
         formatador.numberStyle = .decimal
         return formatador.string(from: NSNumber(value: valor)) ?? "\(valor)"
     }
@@ -330,7 +330,7 @@ public struct AccountsList: View {
             if statuses.isEmpty {
                 // Zero contas é estado legítimo, e não vazio mudo: o app está
                 // nas fixtures, e a frase diz isso.
-                Text("Nenhuma conta conectada. O app está mostrando dados de exemplo.")
+                Text(L10n.tr("Nenhuma conta conectada. O app está mostrando dados de exemplo."))
                     .font(theme.sans.font(size: 12.5))
                     .foregroundStyle(theme.ink3.color)
                     .padding(.horizontal, 20)

@@ -37,6 +37,9 @@ struct GeneralSettingsView: View {
     let backlogAnalysis: BacklogAnalysisController?
     let scope: GeneralSettingsScope
 
+    @AppStorage(AppLanguage.defaultsKey) private var interfaceLanguage = AppLanguage.portugueseBrazil.rawValue
+    @State private var languageAtOpening = AppLanguage.selected.rawValue
+
     @State private var draft = AssistantSettings.default
     @State private var credential = ""
     @State private var credentialPresence: AssistantCredentialPresence = .absent
@@ -98,6 +101,7 @@ struct GeneralSettingsView: View {
                 case .general:
                     generalWelcome
                     appearanceCard
+                    languageCard
                 case .intelligence:
                     intelligenceWelcome
                     promptCard
@@ -123,15 +127,41 @@ struct GeneralSettingsView: View {
         }
     }
 
+    private var languageCard: some View {
+        SettingsCard(
+            title: L10n.tr("Idioma do aplicativo"),
+            subtitle: L10n.tr("Escolha o idioma da interface. O idioma das respostas da IA é configurado separadamente em Assistente.")
+        ) {
+            SettingsLabeledRow(label: L10n.tr("Idioma")) {
+                Picker(L10n.tr("Idioma do aplicativo"), selection: $interfaceLanguage) {
+                    ForEach(AppLanguage.allCases) { language in
+                        Text(language == .system ? L10n.tr("Usar idioma do sistema") : language.nativeName)
+                            .tag(language.rawValue)
+                    }
+                }
+                .labelsHidden()
+                .accessibilityLabel(L10n.tr("Idioma do aplicativo"))
+                .frame(maxWidth: 280, alignment: .leading)
+            }
+            if interfaceLanguage != languageAtOpening {
+                SettingsNotice(
+                    symbol: "arrow.clockwise",
+                    title: L10n.tr("Idioma salvo"),
+                    text: L10n.tr("Feche e abra o OkamiUNI para aplicar o idioma em todas as janelas.")
+                )
+            }
+        }
+    }
+
     private var appearanceCard: some View {
         SettingsCard(
-            eyebrow: "AMBIENTE",
-            title: "Deixe o OkamiUNI com a sua cara",
-            subtitle: "O tema muda cor, tipografia e contraste em todas as janelas."
+            eyebrow: L10n.tr("AMBIENTE"),
+            title: L10n.tr("Deixe o OkamiUNI com a sua cara"),
+            subtitle: L10n.tr("O tema muda cor, tipografia e contraste em todas as janelas.")
         ) {
             if let themes {
-                SettingsLabeledRow(label: "Tema ativo") {
-                    Picker("Tema", selection: Binding(
+                SettingsLabeledRow(label: L10n.tr("Tema ativo")) {
+                    Picker(L10n.tr("Tema"), selection: Binding(
                         get: { themes.theme.id },
                         set: { id in if let chosen = Theme.named(id) { themes.select(chosen) } }
                     )) {
@@ -140,11 +170,11 @@ struct GeneralSettingsView: View {
                         }
                     }
                     .labelsHidden()
-                    .accessibilityLabel("Tema ativo")
+                    .accessibilityLabel(L10n.tr("Tema ativo"))
                     .frame(maxWidth: 280)
                 }
-                SettingsLabeledRow(label: "Tamanho do texto") {
-                    Picker("Tamanho do texto", selection: Binding(
+                SettingsLabeledRow(label: L10n.tr("Tamanho do texto")) {
+                    Picker(L10n.tr("Tamanho do texto"), selection: Binding(
                         get: { themes.typographyPreset },
                         set: { themes.selectTypography($0) }
                     )) {
@@ -153,19 +183,19 @@ struct GeneralSettingsView: View {
                         }
                     }
                     .labelsHidden()
-                    .accessibilityLabel("Tamanho do texto")
+                    .accessibilityLabel(L10n.tr("Tamanho do texto"))
                     .frame(width: 220, alignment: .leading)
                 }
                 SettingsNotice(
                     symbol: theme.isDark ? "moon.stars" : "sun.max",
-                    title: "\(theme.name) está em uso",
-                    text: "\(theme.note) O tamanho do texto vale para todas as janelas e não altera o e-mail enviado."
+                    title: L10n.tr("\(theme.name) está em uso"),
+                    text: L10n.tr("\(L10n.tr(LocalizedString(stringLiteral: theme.note))) O tamanho do texto vale para todas as janelas e não altera o e-mail enviado.")
                 )
             } else {
                 SettingsNotice(
                     symbol: "paintpalette",
-                    title: "Temas indisponíveis nesta janela",
-                    text: "O seletor de aparência aparece quando o app fornece o armazenamento de temas."
+                    title: L10n.tr("Temas indisponíveis nesta janela"),
+                    text: L10n.tr("O seletor de aparência aparece quando o app fornece o armazenamento de temas.")
                 )
             }
         }
@@ -173,36 +203,36 @@ struct GeneralSettingsView: View {
 
     private func typographyLabel(_ preset: TypographyPreset) -> String {
         switch preset {
-        case .compact: "Menor"
-        case .standard: "Padrão"
-        case .enlarged: "Maior"
+        case .compact: L10n.tr("Menor")
+        case .standard: L10n.tr("Padrão")
+        case .enlarged: L10n.tr("Maior")
         }
     }
 
     private var generalWelcome: some View {
         SettingsIntro(
             symbol: "rectangle.3.group",
-            eyebrow: "CENTRAL DE CONTROLE",
-            title: "Ajustes que fazem o e-mail caber na sua rotina.",
-            text: "Use a barra lateral para cuidar das contas, definir como o assistente escreve e escolher o que acontece ao arrastar uma mensagem."
+            eyebrow: L10n.tr("CENTRAL DE CONTROLE"),
+            title: L10n.tr("Ajustes que fazem o e-mail caber na sua rotina."),
+            text: L10n.tr("Use a barra lateral para cuidar das contas, definir como o assistente escreve e escolher o que acontece ao arrastar uma mensagem.")
         )
     }
 
     private var intelligenceWelcome: some View {
         SettingsIntro(
             symbol: "sparkles",
-            eyebrow: "ASSISTENTE",
-            title: "A IA só entra quando você pede.",
-            text: "Conecte uma conta, escolha um modelo e defina o seu jeito de escrever. O conteúdo do e-mail não é enviado em segundo plano."
+            eyebrow: L10n.tr("ASSISTENTE"),
+            title: L10n.tr("A IA só entra quando você pede."),
+            text: L10n.tr("Conecte uma conta, escolha um modelo e defina o seu jeito de escrever. O conteúdo do e-mail não é enviado em segundo plano.")
         )
     }
 
     private var gesturesWelcome: some View {
         SettingsIntro(
             symbol: "hand.draw",
-            eyebrow: "CAIXA DE ENTRADA",
-            title: "Menos cliques para chegar a uma inbox limpa.",
-            text: "Defina até três ações por lado. A primeira é disparada no arraste longo; as demais continuam disponíveis ao abrir a mensagem."
+            eyebrow: L10n.tr("CAIXA DE ENTRADA"),
+            title: L10n.tr("Menos cliques para chegar a uma inbox limpa."),
+            text: L10n.tr("Defina até três ações por lado. A primeira é disparada no arraste longo; as demais continuam disponíveis ao abrir a mensagem.")
         )
     }
 
@@ -228,15 +258,15 @@ struct GeneralSettingsView: View {
                 if moveDestinations.isEmpty {
                     SettingsNotice(
                         symbol: "folder.badge.gearshape",
-                        title: "Pastas e marcadores aparecem depois da primeira sincronização",
-                        text: "O OkamiUNI só oferece destinos reais da conta. Assim “Mover para” nunca vira um gesto com nome bonito e sem lugar para onde levar a mensagem."
+                        title: L10n.tr("Pastas e marcadores aparecem depois da primeira sincronização"),
+                        text: L10n.tr("O OkamiUNI só oferece destinos reais da conta. Assim “Mover para” nunca vira um gesto com nome bonito e sem lugar para onde levar a mensagem.")
                     )
                 }
 
                 HStack(spacing: 9) {
-                    Button("Restaurar gestos padrão") { swipes.resetToDefault() }
+                    Button(L10n.tr("Restaurar gestos padrão")) { swipes.resetToDefault() }
                         .settingsQuietButton()
-                    Text("Você pode deixar um lado sem ações.")
+                    Text(L10n.tr("Você pode deixar um lado sem ações."))
                         .font(theme.sans.font(size: 10.5))
                         .foregroundStyle(theme.ink3.color)
                     Spacer(minLength: 0)
@@ -244,14 +274,14 @@ struct GeneralSettingsView: View {
             }
         } else {
             SettingsCard(
-                eyebrow: "GESTOS",
-                title: "Gestos indisponíveis nesta janela",
-                subtitle: "O armazenamento de preferências de arraste ainda não foi conectado."
+                eyebrow: L10n.tr("GESTOS"),
+                title: L10n.tr("Gestos indisponíveis nesta janela"),
+                subtitle: L10n.tr("O armazenamento de preferências de arraste ainda não foi conectado.")
             ) {
                 SettingsNotice(
                     symbol: "hand.draw",
-                    title: "Nenhuma escolha será perdida",
-                    text: "Quando o armazenamento estiver disponível, você poderá configurar cada lado e restaurar o padrão aqui."
+                    title: L10n.tr("Nenhuma escolha será perdida"),
+                    text: L10n.tr("Quando o armazenamento estiver disponível, você poderá configurar cada lado e restaurar o padrão aqui.")
                 )
             }
         }
@@ -259,22 +289,22 @@ struct GeneralSettingsView: View {
 
     private var assistantCard: some View {
         SettingsCard(
-            eyebrow: "CONEXÃO",
-            title: "Escolha de onde vem a resposta",
-            subtitle: "A escolha vale apenas quando você pede uma resposta, uma análise ou ajuda para escrever."
+            eyebrow: L10n.tr("CONEXÃO"),
+            title: L10n.tr("Escolha de onde vem a resposta"),
+            subtitle: L10n.tr("A escolha vale apenas quando você pede uma resposta, uma análise ou ajuda para escrever.")
         ) {
-            SettingsLabeledRow(label: "Provedor") {
+            SettingsLabeledRow(label: L10n.tr("Provedor")) {
                 Picker("", selection: Binding(
                     get: { draft.provider },
                     set: { updateProvider($0) }
                 )) {
-                    Text("Apple Intelligence · neste Mac").tag(AssistantProvider.foundationModels)
-                    Text("OAuth direto · Codex ou Grok").tag(AssistantProvider.providerOAuth)
-                    Text("API / LiteLLM · chave ou proxy").tag(AssistantProvider.openAICompatible)
-                    Text("CLI · sessão já instalada").tag(AssistantProvider.cli)
+                    Text(L10n.tr("Apple Intelligence · neste Mac")).tag(AssistantProvider.foundationModels)
+                    Text(L10n.tr("OAuth direto · Codex ou Grok")).tag(AssistantProvider.providerOAuth)
+                    Text(L10n.tr("API / LiteLLM · chave ou proxy")).tag(AssistantProvider.openAICompatible)
+                    Text(L10n.tr("CLI · sessão já instalada")).tag(AssistantProvider.cli)
                 }
                 .labelsHidden()
-                .accessibilityLabel("Provedor de IA")
+                .accessibilityLabel(L10n.tr("Provedor de IA"))
                 .frame(width: Self.assistantSelectionWidth, alignment: .leading)
             }
 
@@ -284,16 +314,16 @@ struct GeneralSettingsView: View {
             case .foundationModels:
                 SettingsNotice(
                     symbol: "lock.shield",
-                    title: "Processamento local",
-                    text: "Perguntas, escrita e a análise automática de mensagens usam o Foundation Models deste Mac."
+                    title: L10n.tr("Processamento local"),
+                    text: L10n.tr("Perguntas, escrita e a análise automática de mensagens usam o Foundation Models deste Mac.")
                 )
             case .openAICompatible:
                 remoteFields
                 remoteAuthenticationNotice
                 SettingsNotice(
                     symbol: "network",
-                    title: "Conteúdo pode sair deste Mac",
-                    text: "Ao usar a IA, assunto, corpo, histórico e contexto necessário são enviados ao endpoint configurado. O OkamiUNI não envia nada em segundo plano para este provedor."
+                    title: L10n.tr("Conteúdo pode sair deste Mac"),
+                    text: L10n.tr("Ao usar a IA, assunto, corpo, histórico e contexto necessário são enviados ao endpoint configurado. O OkamiUNI não envia nada em segundo plano para este provedor.")
                 )
             case .providerOAuth:
                 providerOAuthFields
@@ -314,7 +344,7 @@ struct GeneralSettingsView: View {
                 Button {
                     save()
                 } label: {
-                    if saving { ProgressView().controlSize(.small) } else { Text("Salvar IA") }
+                    if saving { ProgressView().controlSize(.small) } else { Text(L10n.tr("Salvar IA")) }
                 }
                 .settingsPrimaryButton()
                 .disabled(saving || testing || settingsStore == nil)
@@ -322,7 +352,7 @@ struct GeneralSettingsView: View {
                 Button {
                     testSavedConfiguration()
                 } label: {
-                    if testing { ProgressView().controlSize(.small) } else { Text("Testar configuração salva") }
+                    if testing { ProgressView().controlSize(.small) } else { Text(L10n.tr("Testar configuração salva")) }
                 }
                 .settingsQuietButton()
                 .disabled(saving || testing || textAssistant == nil)
@@ -339,7 +369,7 @@ struct GeneralSettingsView: View {
     private var automaticAnalysisControls: some View {
         let destination = AssistantDestination(settings: draft)
         if !destination.isLocal {
-            SettingsLabeledRow(label: "Análise automática") {
+            SettingsLabeledRow(label: L10n.tr("Análise automática")) {
                 Toggle(isOn: Binding(
                     get: { draft.automaticAnalysis == .configuredProvider },
                     set: {
@@ -391,19 +421,19 @@ struct GeneralSettingsView: View {
     ) -> some View {
         Group {
             if backlogAnalysis.isRunning {
-                SettingsLabeledRow(label: "Acervo") {
+                SettingsLabeledRow(label: L10n.tr("Acervo")) {
                     HStack(spacing: 9) {
                         ProgressView().controlSize(.small)
                         Text(backlogAnalysis.progressText)
                             .font(theme.sans.font(size: 12))
                             .foregroundStyle(theme.ink2.color)
-                        Button("Parar") { backlogAnalysis.stop() }
+                        Button(L10n.tr("Parar")) { backlogAnalysis.stop() }
                             .settingsQuietButton()
                         Spacer(minLength: 0)
                     }
                 }
             } else if backlogAnalysis.availableCount > 0 {
-                SettingsLabeledRow(label: "Acervo") {
+                SettingsLabeledRow(label: L10n.tr("Acervo")) {
                     HStack(spacing: 9) {
                         Button(BacklogAnalysisPlan.actionTitle) {
                             Task { await backlogAnalysis.requestConfirmation() }
@@ -442,7 +472,7 @@ struct GeneralSettingsView: View {
 
     /// `static` e visível ao pacote para o teste ler a cópia sem montar a view.
     static func automaticAnalysisToggleLabel(for settings: AssistantSettings) -> String {
-        "Analisar mensagens novas automaticamente com \(AssistantDestination(settings: settings).label)"
+        L10n.tr("Analisar mensagens novas automaticamente com \(AssistantDestination(settings: settings).label)")
     }
 
     /// O aviso aparece sempre que existe destino remoto — inclusive com o
@@ -493,22 +523,22 @@ struct GeneralSettingsView: View {
 
     static func automaticAnalysisNoticeTitle(for settings: AssistantSettings) -> String {
         settings.automaticAnalysis == .configuredProvider
-            ? "Cada mensagem recebida sai deste Mac"
-            : "Se você ligar, cada mensagem recebida sai deste Mac"
+            ? L10n.tr("Cada mensagem recebida sai deste Mac")
+            : L10n.tr("Se você ligar, cada mensagem recebida sai deste Mac")
     }
 
     static func automaticAnalysisWarning(for settings: AssistantSettings) -> String {
         let destination = AssistantDestination(settings: settings)
-        return "Com isto ligado, assunto e corpo de cada mensagem nova saem deste Mac para "
-            + "\(destination.label). \(destination.detail) Desligado, o resumo automático "
-            + "continua sendo feito pelo Foundation Models deste Mac."
+        return L10n.tr("Com isto ligado, assunto e corpo de cada mensagem nova saem deste Mac para ")
+            + L10n.tr("\(destination.label). \(destination.detail) Desligado, o resumo automático ")
+            + L10n.tr("continua sendo feito pelo Foundation Models deste Mac.")
     }
 
     private var assistantRoutingNotice: some View {
         SettingsNotice(
             symbol: draft.provider == .foundationModels ? "lock.shield" : "arrow.triangle.branch",
-            title: "Perguntas e escrita: \(assistantRouteLabel)",
-            text: "Este é o destino usado quando você aciona Resumo, Pontos-chave, Insights ou Gerar resposta."
+            title: L10n.tr("Perguntas e escrita: \(assistantRouteLabel)"),
+            text: L10n.tr("Este é o destino usado quando você aciona Resumo, Pontos-chave, Insights ou Gerar resposta.")
         )
     }
 
@@ -543,10 +573,10 @@ struct GeneralSettingsView: View {
     @ViewBuilder
     private var remoteFields: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("ATALHOS DE ENDPOINT")
+            Text(L10n.tr("ATALHOS DE ENDPOINT"))
                 .capsLabel()
             HStack(spacing: 7) {
-                endpointPreset("LiteLLM local", endpoint: "http://127.0.0.1:4000/v1")
+                endpointPreset(L10n.tr("LiteLLM local"), endpoint: "http://127.0.0.1:4000/v1")
             }
         }
 
@@ -557,25 +587,25 @@ struct GeneralSettingsView: View {
             ))
             .settingsTextField()
         }
-        SettingsLabeledRow(label: "Modelo") {
-            TextField("Nome do modelo ou alias configurado no proxy", text: Binding(
+        SettingsLabeledRow(label: L10n.tr("Modelo")) {
+            TextField(L10n.tr("Nome do modelo ou alias configurado no proxy"), text: Binding(
                 get: { draft.openAICompatible.model },
                 set: { draft.openAICompatible.model = $0; clearFeedback() }
             ))
             .settingsTextField()
         }
 
-        SettingsLabeledRow(label: "Autenticação") {
+        SettingsLabeledRow(label: L10n.tr("Autenticação")) {
             Picker("", selection: Binding(
                 get: { draft.openAICompatible.authenticationMode },
                 set: { updateRemoteAuthenticationMode($0) }
             )) {
-                Text("Sem autenticação").tag(OpenAICompatibleAuthenticationMode.none)
-                Text("Chave de API").tag(OpenAICompatibleAuthenticationMode.apiKey)
+                Text(L10n.tr("Sem autenticação")).tag(OpenAICompatibleAuthenticationMode.none)
+                Text(L10n.tr("Chave de API")).tag(OpenAICompatibleAuthenticationMode.apiKey)
                 Text("OAuth LiteLLM (PKCE)").tag(OpenAICompatibleAuthenticationMode.litellmOAuthPKCE)
             }
             .labelsHidden()
-            .accessibilityLabel("Método de autenticação")
+            .accessibilityLabel(L10n.tr("Método de autenticação"))
             .frame(width: 250)
         }
 
@@ -591,12 +621,12 @@ struct GeneralSettingsView: View {
 
     @ViewBuilder
     private var apiKeyField: some View {
-        SettingsLabeledRow(label: "Chave de API") {
+        SettingsLabeledRow(label: L10n.tr("Chave de API")) {
             VStack(alignment: .leading, spacing: 5) {
                 SecureField(
                     credentialPresence == .present
-                        ? "Chave salva · digite para substituir"
-                        : "Chave do provedor ou do proxy",
+                        ? L10n.tr("Chave salva · digite para substituir")
+                        : L10n.tr("Chave do provedor ou do proxy"),
                     text: $credential
                 )
                 .settingsTextField()
@@ -605,7 +635,7 @@ struct GeneralSettingsView: View {
                         .font(theme.sans.font(size: 10.5))
                         .foregroundStyle(theme.ink3.color)
                     if credentialPresence == .present {
-                        Button("Remover chave") { removeCredential() }
+                        Button(L10n.tr("Remover chave")) { removeCredential() }
                             .buttonStyle(.plain)
                             .font(theme.sans.font(size: 10.5, weight: .semibold))
                             .foregroundStyle(theme.danger.color)
@@ -621,27 +651,27 @@ struct GeneralSettingsView: View {
         case .none:
             SettingsNotice(
                 symbol: "checkmark.shield",
-                title: "Sem credencial neste endpoint",
-                text: "O OkamiUNI não envia o cabeçalho Authorization. Use apenas se o seu LiteLLM ou proxy aceita chamadas sem autenticação."
+                title: L10n.tr("Sem credencial neste endpoint"),
+                text: L10n.tr("O OkamiUNI não envia o cabeçalho Authorization. Use apenas se o seu LiteLLM ou proxy aceita chamadas sem autenticação.")
             )
         case .apiKey:
             SettingsNotice(
                 symbol: "key.horizontal",
-                title: "Chave usada somente neste modo",
-                text: "A chave fica no Keychain e é enviada só ao endpoint configurado. Uma assinatura de chat ou uma sessão de CLI não se transforma em API key."
+                title: L10n.tr("Chave usada somente neste modo"),
+                text: L10n.tr("A chave fica no Keychain e é enviada só ao endpoint configurado. Uma assinatura de chat ou uma sessão de CLI não se transforma em API key.")
             )
         case .litellmOAuthPKCE:
             SettingsNotice(
                 symbol: "person.badge.key",
-                title: "OAuth do seu proxy LiteLLM",
-                text: "O login abre o fluxo PKCE do LiteLLM. Device grant não faz parte deste fluxo; sessões de Codex, Claude Code e OpenCode ficam na opção CLI."
+                title: L10n.tr("OAuth do seu proxy LiteLLM"),
+                text: L10n.tr("O login abre o fluxo PKCE do LiteLLM. Device grant não faz parte deste fluxo; sessões de Codex, Claude Code e OpenCode ficam na opção CLI.")
             )
         }
     }
 
     @ViewBuilder
     private var liteLLMOAuthFields: some View {
-        SettingsLabeledRow(label: "Sessão LiteLLM") {
+        SettingsLabeledRow(label: L10n.tr("Sessão LiteLLM")) {
             VStack(alignment: .leading, spacing: 7) {
                 HStack(spacing: 8) {
                     Circle()
@@ -654,22 +684,22 @@ struct GeneralSettingsView: View {
                 if liteLLMOAuthAuthorizer != nil,
                    let endpoint = validRemoteEndpoint {
                     if isLiteLLMOAuthSignedIn {
-                        Button("Sair") { signOutLiteLLMOAuth() }
+                        Button(L10n.tr("Sair")) { signOutLiteLLMOAuth() }
                             .settingsQuietButton()
                     } else {
-                        Button("Entrar com OAuth (PKCE)") { startLiteLLMOAuth() }
+                        Button(L10n.tr("Entrar com OAuth (PKCE)")) { startLiteLLMOAuth() }
                             .settingsQuietButton()
                             .disabled(isLiteLLMOAuthBusy || settingsStore == nil)
                     }
-                    Text("A sessão é associada a \(endpoint.host ?? "este endpoint") e o app não lê nem exibe tokens.")
+                    Text(L10n.tr("A sessão é associada a \(endpoint.host ?? "este endpoint") e o app não lê nem exibe tokens."))
                         .font(theme.sans.font(size: 10.5))
                         .foregroundStyle(theme.ink3.color)
                 } else if liteLLMOAuthAuthorizer == nil {
-                    Text("O fluxo OAuth ainda não está disponível nesta composição. Configure o serviço LiteLLM no app para habilitar o login seguro.")
+                    Text(L10n.tr("O fluxo OAuth ainda não está disponível nesta composição. Configure o serviço LiteLLM no app para habilitar o login seguro."))
                         .font(theme.sans.font(size: 10.5))
                         .foregroundStyle(theme.ink3.color)
                 } else {
-                    Text("Informe um endpoint HTTPS válido para habilitar OAuth (PKCE).")
+                    Text(L10n.tr("Informe um endpoint HTTPS válido para habilitar OAuth (PKCE)."))
                         .font(theme.sans.font(size: 10.5))
                         .foregroundStyle(theme.ink3.color)
                 }
@@ -679,24 +709,24 @@ struct GeneralSettingsView: View {
 
     @ViewBuilder
     private var providerOAuthFields: some View {
-        SettingsLabeledRow(label: "Conta para IA") {
+        SettingsLabeledRow(label: L10n.tr("Conta para IA")) {
             Picker("", selection: Binding(
                 get: { draft.providerOAuth.kind },
                 set: { updateProviderOAuthKind($0) }
             )) {
-                Text("Codex · conta ChatGPT").tag(AssistantProviderOAuthKind.codex)
-                Text("Grok · conta xAI").tag(AssistantProviderOAuthKind.xAI)
+                Text(L10n.tr("Codex · conta ChatGPT")).tag(AssistantProviderOAuthKind.codex)
+                Text(L10n.tr("Grok · conta xAI")).tag(AssistantProviderOAuthKind.xAI)
             }
             .labelsHidden()
-            .accessibilityLabel("Conta para IA")
+            .accessibilityLabel(L10n.tr("Conta para IA"))
             .frame(width: Self.assistantSelectionWidth, alignment: .leading)
         }
 
-        SettingsLabeledRow(label: "Modelo da conta") {
+        SettingsLabeledRow(label: L10n.tr("Modelo da conta")) {
             providerOAuthModelSelector
         }
 
-        SettingsLabeledRow(label: "Conexão") {
+        SettingsLabeledRow(label: L10n.tr("Conexão")) {
             VStack(alignment: .leading, spacing: 9) {
                 HStack(spacing: 8) {
                     Circle()
@@ -714,21 +744,21 @@ struct GeneralSettingsView: View {
         case .codex:
             SettingsNotice(
                 symbol: "person.badge.key",
-                title: "Device Code oficial do Codex",
-                text: "Conecta sua assinatura ChatGPT por código de dispositivo dentro do OkamiUNI. A sessão fica no espaço privado do app e o catálogo vem do runtime oficial Codex disponível neste Mac, sem expor tokens. Isso não transforma a assinatura em créditos da API."
+                title: L10n.tr("Device Code oficial do Codex"),
+                text: L10n.tr("Conecta sua assinatura ChatGPT por código de dispositivo dentro do OkamiUNI. A sessão fica no espaço privado do app e o catálogo vem do runtime oficial Codex disponível neste Mac, sem expor tokens. Isso não transforma a assinatura em créditos da API.")
             )
         case .xAI:
             SettingsNotice(
                 symbol: "flask",
-                title: "OAuth Grok/xAI experimental",
-                text: "O fluxo usa a conta xAI diretamente, sem CLI. A elegibilidade depende do provedor e algumas assinaturas podem receber 403; nesse caso use a opção API com uma chave xAI."
+                title: L10n.tr("OAuth Grok/xAI experimental"),
+                text: L10n.tr("O fluxo usa a conta xAI diretamente, sem CLI. A elegibilidade depende do provedor e algumas assinaturas podem receber 403; nesse caso use a opção API com uma chave xAI.")
             )
         }
 
         SettingsNotice(
             symbol: "network",
-            title: "Conteúdo enviado somente ao provedor escolhido",
-            text: "Nas ações explícitas de IA, assunto, corpo e contexto necessário são enviados ao endpoint fixo do Codex ou da xAI. A sessão de um provedor nunca é reutilizada no outro nem enviada a uma URL configurável."
+            title: L10n.tr("Conteúdo enviado somente ao provedor escolhido"),
+            text: L10n.tr("Nas ações explícitas de IA, assunto, corpo e contexto necessário são enviados ao endpoint fixo do Codex ou da xAI. A sessão de um provedor nunca é reutilizada no outro nem enviada a uma URL configurável.")
         )
     }
 
@@ -738,13 +768,13 @@ struct GeneralSettingsView: View {
             HStack(spacing: 8) {
                 if providerOAuthModelsLoading, providerOAuthModels.isEmpty {
                     ProgressView().controlSize(.small)
-                    Text("Carregando modelos da conta…")
+                    Text(L10n.tr("Carregando modelos da conta…"))
                         .font(theme.sans.font(size: 11))
                         .foregroundStyle(theme.ink3.color)
                 } else if providerOAuthModelOptions.isEmpty {
                     Text(isProviderOAuthSignedIn
-                         ? "Nenhum modelo carregado"
-                         : "Conecte a conta para carregar os modelos")
+                         ? L10n.tr("Nenhum modelo carregado")
+                         : L10n.tr("Conecte a conta para carregar os modelos"))
                         .font(theme.sans.font(size: 11))
                         .foregroundStyle(theme.ink3.color)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -758,7 +788,7 @@ struct GeneralSettingsView: View {
                         }
                     }
                     .labelsHidden()
-                    .accessibilityLabel("Modelo da conta")
+                    .accessibilityLabel(L10n.tr("Modelo da conta"))
                     .frame(width: Self.assistantSelectionWidth - 34, alignment: .leading)
                 }
 
@@ -769,8 +799,8 @@ struct GeneralSettingsView: View {
                         Image(systemName: "arrow.clockwise")
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Atualizar modelos da conta")
-                    .help("Atualizar modelos da conta")
+                    .accessibilityLabel(L10n.tr("Atualizar modelos da conta"))
+                    .help(L10n.tr("Atualizar modelos da conta"))
                     .disabled(providerOAuthModelsLoading)
                 }
             }
@@ -782,7 +812,7 @@ struct GeneralSettingsView: View {
                     .foregroundStyle(theme.danger.color)
                     .fixedSize(horizontal: false, vertical: true)
             } else if !providerOAuthModels.isEmpty {
-                Text("Lista carregada da conta autenticada; o app não mantém um catálogo fixo.")
+                Text(L10n.tr("Lista carregada da conta autenticada; o app não mantém um catálogo fixo."))
                     .font(theme.sans.font(size: 9.8))
                     .foregroundStyle(theme.ink4.color)
             }
@@ -793,7 +823,7 @@ struct GeneralSettingsView: View {
     @ViewBuilder
     private var providerOAuthSessionActions: some View {
         if providerOAuthAuthorizer == nil {
-            Text("Este build não recebeu o serviço de OAuth direto.")
+            Text(L10n.tr("Este build não recebeu o serviço de OAuth direto."))
                 .font(theme.sans.font(size: 10.5))
                 .foregroundStyle(theme.ink3.color)
         } else {
@@ -807,7 +837,7 @@ struct GeneralSettingsView: View {
             case .checking:
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Verificando uma sessão segura neste Mac…")
+                    Text(L10n.tr("Verificando uma sessão segura neste Mac…"))
                         .font(theme.sans.font(size: 10.5))
                         .foregroundStyle(theme.ink3.color)
                 }
@@ -815,9 +845,9 @@ struct GeneralSettingsView: View {
                 providerOAuthDeviceCodeCard(presentation)
             case .signedIn:
                 HStack(spacing: 8) {
-                    Button("Desconectar neste Mac") { signOutProviderOAuth() }
+                    Button(L10n.tr("Desconectar neste Mac")) { signOutProviderOAuth() }
                         .settingsQuietButton()
-                    Text("Tokens não são exibidos nem copiados para a configuração.")
+                    Text(L10n.tr("Tokens não são exibidos nem copiados para a configuração."))
                         .font(theme.sans.font(size: 10.5))
                         .foregroundStyle(theme.ink3.color)
                 }
@@ -830,17 +860,17 @@ struct GeneralSettingsView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 11) {
             HStack(alignment: .firstTextBaseline) {
-                Text("CONTINUE NO NAVEGADOR")
+                Text(L10n.tr("CONTINUE NO NAVEGADOR"))
                     .capsLabel(size: 8.5)
                 Spacer(minLength: 0)
                 if presentation.expiresAt != .distantFuture {
-                    Text("expira às \(presentation.expiresAt.formatted(date: .omitted, time: .shortened))")
+                    Text(L10n.tr("expira às \(presentation.expiresAt.formatted(date: .omitted, time: .shortened))"))
                         .font(theme.mono.font(size: 9.5))
                         .foregroundStyle(theme.ink4.color)
                 }
             }
 
-            Text("Abra a página oficial do provedor e informe este código. Esta janela acompanha a confirmação automaticamente.")
+            Text(L10n.tr("Abra a página oficial do provedor e informe este código. Esta janela acompanha a confirmação automaticamente."))
                 .font(theme.sans.font(size: 10.5))
                 .foregroundStyle(theme.ink3.color)
                 .fixedSize(horizontal: false, vertical: true)
@@ -858,13 +888,13 @@ struct GeneralSettingsView: View {
                         RoundedRectangle(cornerRadius: 8)
                             .strokeBorder(theme.accentLine.color, lineWidth: Hairline.thickness(displayScale))
                     }
-                    .accessibilityLabel("Código de dispositivo \(presentation.userCode)")
+                    .accessibilityLabel(L10n.tr("Código de dispositivo \(presentation.userCode)"))
 
-                Button("Copiar") { copyProviderOAuthCode(presentation.userCode) }
+                Button(L10n.tr("Copiar")) { copyProviderOAuthCode(presentation.userCode) }
                     .settingsQuietButton()
-                Button("Abrir página") { openProviderOAuthPage(presentation.verificationURL) }
+                Button(L10n.tr("Abrir página")) { openProviderOAuthPage(presentation.verificationURL) }
                     .settingsPrimaryButton()
-                Button("Cancelar") { cancelProviderOAuth() }
+                Button(L10n.tr("Cancelar")) { cancelProviderOAuth() }
                     .settingsQuietButton()
             }
 
@@ -903,11 +933,11 @@ struct GeneralSettingsView: View {
                 }
             }
             .labelsHidden()
-            .accessibilityLabel("Assistente por CLI")
+            .accessibilityLabel(L10n.tr("Assistente por CLI"))
             .frame(width: 350)
         }
 
-        SettingsLabeledRow(label: "Estado") {
+        SettingsLabeledRow(label: L10n.tr("Estado")) {
             HStack(spacing: 8) {
                 Circle()
                     .fill(selectedCLIAuthenticationColor)
@@ -926,19 +956,19 @@ struct GeneralSettingsView: View {
 
     private var promptCard: some View {
         SettingsCard(
-            eyebrow: "SEU JEITO DE TRABALHAR",
-            title: "Como você quer que o assistente responda",
-            subtitle: "Defina o tom, o idioma e orientações diferentes para perguntas e para escrita."
+            eyebrow: L10n.tr("SEU JEITO DE TRABALHAR"),
+            title: L10n.tr("Como você quer que o assistente responda"),
+            subtitle: L10n.tr("Defina o tom, o idioma e orientações diferentes para perguntas e para escrita.")
         ) {
             VStack(alignment: .leading, spacing: 9) {
-                Text("PREFERÊNCIAS RÁPIDAS")
+                Text(L10n.tr("PREFERÊNCIAS RÁPIDAS"))
                     .capsLabel(size: 8.5)
                 LazyVGrid(
                     columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
                     spacing: 10
                 ) {
                     SettingsBehaviorMenu(
-                        title: "Tom",
+                        title: L10n.tr("Tom"),
                         selection: Binding(
                             get: { draft.behavior.tone },
                             set: { draft.behavior.tone = $0; clearFeedback() }
@@ -947,7 +977,7 @@ struct GeneralSettingsView: View {
                         label: \.label
                     )
                     SettingsBehaviorMenu(
-                        title: "Comprimento",
+                        title: L10n.tr("Comprimento"),
                         selection: Binding(
                             get: { draft.behavior.detail },
                             set: { draft.behavior.detail = $0; clearFeedback() }
@@ -956,7 +986,7 @@ struct GeneralSettingsView: View {
                         label: \.label
                     )
                     SettingsBehaviorMenu(
-                        title: "Idioma",
+                        title: L10n.tr("Idioma"),
                         selection: Binding(
                             get: { draft.behavior.language },
                             set: { draft.behavior.language = $0; clearFeedback() }
@@ -965,7 +995,7 @@ struct GeneralSettingsView: View {
                         label: \.label
                     )
                     SettingsBehaviorMenu(
-                        title: "Formato",
+                        title: L10n.tr("Formato"),
                         selection: Binding(
                             get: { draft.behavior.format },
                             set: { draft.behavior.format = $0; clearFeedback() }
@@ -975,7 +1005,7 @@ struct GeneralSettingsView: View {
                     )
                 }
 
-                Toggle("Sugerir próximos passos quando fizer sentido", isOn: Binding(
+                Toggle(L10n.tr("Sugerir próximos passos quando fizer sentido"), isOn: Binding(
                     get: { draft.behavior.suggestNextSteps },
                     set: { draft.behavior.suggestNextSteps = $0; clearFeedback() }
                 ))
@@ -987,14 +1017,14 @@ struct GeneralSettingsView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text("ORIENTAÇÕES PARA ESTA AJUDA")
+                    Text(L10n.tr("ORIENTAÇÕES PARA ESTA AJUDA"))
                         .capsLabel(size: 8.5)
                     Spacer(minLength: 0)
                     Text("\(purposeInstructions.wrappedValue.count) / \(AssistantSettings.maximumPurposeInstructionsCharacters)")
                         .font(theme.mono.font(size: 9.5))
                         .foregroundStyle(theme.ink4.color)
                 }
-                Picker("Finalidade", selection: $promptKind) {
+                Picker(L10n.tr("Finalidade"), selection: $promptKind) {
                     ForEach(AssistantPromptKind.allCases) { kind in
                         Text(kind.label).tag(kind)
                     }
@@ -1003,18 +1033,18 @@ struct GeneralSettingsView: View {
 
                 TextEditor(text: purposeInstructions)
                     .settingsTextEditor(minHeight: 96)
-                    .accessibilityLabel("Instruções para \(promptKind.label)")
+                    .accessibilityLabel(L10n.tr("Instruções para \(promptKind.label)"))
 
                 Text(promptKind == .questions
-                     ? "Ex.: destaque riscos, decisões e pendências antes de sugerir uma resposta."
-                     : "Ex.: preserve nomes próprios, não invente prazo e escreva como se a mensagem fosse sua.")
+                     ? L10n.tr("Ex.: destaque riscos, decisões e pendências antes de sugerir uma resposta.")
+                     : L10n.tr("Ex.: preserve nomes próprios, não invente prazo e escreva como se a mensagem fosse sua."))
                     .font(theme.sans.font(size: 10))
                     .foregroundStyle(theme.ink3.color)
             }
 
-            DisclosureGroup("Orientações para todas as respostas e prévia técnica") {
+            DisclosureGroup(L10n.tr("Orientações para todas as respostas e prévia técnica")) {
                 VStack(alignment: .leading, spacing: 9) {
-                    Text("Use apenas para uma regra que vale em qualquer ajuda, como uma especialidade ou uma preferência permanente.")
+                    Text(L10n.tr("Use apenas para uma regra que vale em qualquer ajuda, como uma especialidade ou uma preferência permanente."))
                         .font(theme.sans.font(size: 10.5))
                         .foregroundStyle(theme.ink3.color)
 
@@ -1029,14 +1059,14 @@ struct GeneralSettingsView: View {
                             .font(theme.mono.font(size: 9.5))
                             .foregroundStyle(theme.ink4.color)
                         Spacer()
-                        Button("Limpar instruções globais") {
+                        Button(L10n.tr("Limpar instruções globais")) {
                             draft.additionalInstructions = ""
                             clearFeedback()
                         }
                         .settingsQuietButton()
                     }
 
-                    Text("PRÉVIA TÉCNICA · \(promptKind.label.uppercased())")
+                    Text(L10n.tr("PRÉVIA TÉCNICA · \(promptKind.label.uppercased())"))
                         .capsLabel(size: 8.5)
 
                     ScrollView {
@@ -1056,7 +1086,7 @@ struct GeneralSettingsView: View {
                         RoundedRectangle(cornerRadius: 8)
                             .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
                     }
-                    Text("O contexto da mensagem, a ação e o histórico só são anexados no momento da chamada. As proteções do OkamiUNI permanecem fixas.")
+                    Text(L10n.tr("O contexto da mensagem, a ação e o histórico só são anexados no momento da chamada. As proteções do OkamiUNI permanecem fixas."))
                         .font(theme.sans.font(size: 10.5))
                         .foregroundStyle(theme.ink3.color)
                 }
@@ -1087,8 +1117,8 @@ struct GeneralSettingsView: View {
 
     private var cliCard: some View {
         SettingsCard(
-            title: "CLIs OAuth/device",
-            subtitle: "Detecção e estado de sessão sem importar tokens, sessões ou arquivos de credencial"
+            title: L10n.tr("CLIs OAuth/device"),
+            subtitle: L10n.tr("Detecção e estado de sessão sem importar tokens, sessões ou arquivos de credencial")
         ) {
             ForEach(cliInstallations) { installation in
                 HStack(spacing: 10) {
@@ -1099,7 +1129,7 @@ struct GeneralSettingsView: View {
                         Text(installation.kind.displayName)
                             .font(theme.sans.font(size: 12, weight: .semibold))
                             .foregroundStyle(theme.ink.color)
-                        Text(installation.executablePath ?? "Não encontrado pelo app")
+                        Text(installation.executablePath ?? L10n.tr("Não encontrado pelo app"))
                             .font(theme.mono.font(size: 9.5))
                             .foregroundStyle(theme.ink3.color)
                             .lineLimit(1)
@@ -1113,15 +1143,15 @@ struct GeneralSettingsView: View {
             }
             HStack {
                 Spacer(minLength: 0)
-                Button("Verificar novamente") {
+                Button(L10n.tr("Verificar novamente")) {
                     refreshCLIInstallations()
                 }
                 .settingsQuietButton()
             }
             SettingsNotice(
                 symbol: "checkmark.shield",
-                title: "Status seguro, sem importar a sessão",
-                text: "O OkamiUNI consulta apenas os comandos de status de Codex, Claude Code e OpenCode. Não abre login, não executa modelos, não lê arquivos de sessão nem mostra a saída do CLI. Se o sandbox impedir a consulta ou a resposta não for inequívoca, o estado permanece não confirmado."
+                title: L10n.tr("Status seguro, sem importar a sessão"),
+                text: L10n.tr("O OkamiUNI consulta apenas os comandos de status de Codex, Claude Code e OpenCode. Não abre login, não executa modelos, não lê arquivos de sessão nem mostra a saída do CLI. Se o sandbox impedir a consulta ou a resposta não for inequívoca, o estado permanece não confirmado.")
             )
         }
     }
@@ -1156,7 +1186,7 @@ struct GeneralSettingsView: View {
         }
 
         if invalidatedAPIKey {
-            feedback = "O endpoint mudou. Informe a chave correspondente ao novo servidor."
+            feedback = L10n.tr("O endpoint mudou. Informe a chave correspondente ao novo servidor.")
             feedbackIsError = false
         } else {
             clearFeedback()
@@ -1291,7 +1321,7 @@ struct GeneralSettingsView: View {
                 await refreshCredentialPresence()
                 refreshLiteLLMOAuthStatus()
                 await refreshProviderOAuthStatus()
-                feedback = "Configuração salva. A próxima ação de IA já usa este provedor."
+                feedback = L10n.tr("Configuração salva. A próxima ação de IA já usa este provedor.")
                 feedbackIsError = false
             } catch {
                 feedback = error.localizedDescription
@@ -1312,7 +1342,7 @@ struct GeneralSettingsView: View {
                 credential = ""
                 credentialPresence = .absent
                 checkingCredentialPresence = false
-                feedback = "Chave removida do Keychain."
+                feedback = L10n.tr("Chave removida do Keychain.")
                 feedbackIsError = false
             } catch {
                 feedback = error.localizedDescription
@@ -1335,7 +1365,7 @@ struct GeneralSettingsView: View {
                     question: "Responda somente com OK para confirmar que o assistente está disponível.",
                     in: .init(mailContext: .workspace(emptyWorkspace))
                 )
-                feedback = "Conexão confirmada."
+                feedback = L10n.tr("Conexão confirmada.")
                 feedbackIsError = false
             } catch {
                 feedback = error.localizedDescription
@@ -1351,8 +1381,8 @@ struct GeneralSettingsView: View {
     }
 
     private var credentialStatusLabel: String {
-        if checkingCredentialPresence { return "Verificando o Keychain…" }
-        return hasStoredCredential ? "Guardada no Keychain" : "Nenhuma chave guardada"
+        if checkingCredentialPresence { return L10n.tr("Verificando o Keychain…") }
+        return hasStoredCredential ? L10n.tr("Guardada no Keychain") : L10n.tr("Nenhuma chave guardada")
     }
 
     private func refreshCLIInstallations() {
@@ -1409,17 +1439,17 @@ struct GeneralSettingsView: View {
 
     private var selectedCLIAuthenticationLabel: String {
         if checkingCLIAuthentication, selectedCLIDetected {
-            return "DETECTADO · VERIFICANDO SESSÃO"
+            return L10n.tr("DETECTADO · VERIFICANDO SESSÃO")
         }
         switch selectedCLIAuthenticationState {
         case .authenticated:
-            return "DETECTADO · AUTENTICADO"
+            return L10n.tr("DETECTADO · AUTENTICADO")
         case .unauthenticated:
-            return "DETECTADO · NÃO AUTENTICADO"
+            return L10n.tr("DETECTADO · NÃO AUTENTICADO")
         case .unavailable:
-            return "CLI NÃO ENCONTRADO"
+            return L10n.tr("CLI NÃO ENCONTRADO")
         case .unknown:
-            return "DETECTADO · SESSÃO NÃO CONFIRMADA"
+            return L10n.tr("DETECTADO · SESSÃO NÃO CONFIRMADA")
         }
     }
 
@@ -1439,28 +1469,28 @@ struct GeneralSettingsView: View {
     }
 
     private var selectedCLIAuthenticationTitle: String {
-        if checkingCLIAuthentication, selectedCLIDetected { return "Verificando a sessão do CLI" }
+        if checkingCLIAuthentication, selectedCLIDetected { return L10n.tr("Verificando a sessão do CLI") }
         switch selectedCLIAuthenticationState {
-        case .authenticated: return "Sessão confirmada pelo CLI"
-        case .unauthenticated: return "O CLI não tem uma sessão ativa"
-        case .unavailable: return "Disponibilize o CLI e tente de novo"
-        case .unknown: return "A sessão não pôde ser confirmada"
+        case .authenticated: return L10n.tr("Sessão confirmada pelo CLI")
+        case .unauthenticated: return L10n.tr("O CLI não tem uma sessão ativa")
+        case .unavailable: return L10n.tr("Disponibilize o CLI e tente de novo")
+        case .unknown: return L10n.tr("A sessão não pôde ser confirmada")
         }
     }
 
     private var selectedCLIAuthenticationText: String {
         if checkingCLIAuthentication, selectedCLIDetected {
-            return "O OkamiUNI consulta apenas o comando de status de \(draft.cli.kind.displayName), sem tocar em tokens, arquivos de sessão ou modelos."
+            return L10n.tr("O OkamiUNI consulta apenas o comando de status de \(draft.cli.kind.displayName), sem tocar em tokens, arquivos de sessão ou modelos.")
         }
         switch selectedCLIAuthenticationState {
         case .authenticated:
-            return "O comando de status de \(draft.cli.kind.displayName) confirmou uma sessão. A credencial continua no próprio CLI; o OkamiUNI não a lê nem a copia."
+            return L10n.tr("O comando de status de \(draft.cli.kind.displayName) confirmou uma sessão. A credencial continua no próprio CLI; o OkamiUNI não a lê nem a copia.")
         case .unauthenticated:
-            return "Conclua OAuth ou device auth no próprio \(draft.cli.kind.displayName) e use “Verificar novamente”. Nenhum token precisa ser colado no OkamiUNI."
+            return L10n.tr("Conclua OAuth ou device auth no próprio \(draft.cli.kind.displayName) e use “Verificar novamente”. Nenhum token precisa ser colado no OkamiUNI.")
         case .unavailable:
-            return "Instale ou exponha \(draft.cli.kind.displayName) no PATH e depois use “Verificar novamente”."
+            return L10n.tr("Instale ou exponha \(draft.cli.kind.displayName) no PATH e depois use “Verificar novamente”.")
         case .unknown:
-            return "O executável foi encontrado, mas o status não trouxe evidência inequívoca. Isso também ocorre quando o sandbox bloqueia o acesso da ferramenta à própria sessão. Conclua OAuth/device no CLI e teste a configuração quando o estado mudar."
+            return L10n.tr("O executável foi encontrado, mas o status não trouxe evidência inequívoca. Isso também ocorre quando o sandbox bloqueia o acesso da ferramenta à própria sessão. Conclua OAuth/device no CLI e teste a configuração quando o estado mudar.")
         }
     }
 
@@ -1474,13 +1504,13 @@ struct GeneralSettingsView: View {
     private func cliAuthenticationLabel(for installation: AssistantCLIInstallation) -> String {
         let state = cliAuthenticationState(for: installation)
         if checkingCLIAuthentication, state != .unavailable {
-            return "DETECTADO · VERIFICANDO"
+            return L10n.tr("DETECTADO · VERIFICANDO")
         }
         switch state {
-        case .authenticated: return "DETECTADO · AUTENTICADO"
-        case .unauthenticated: return "DETECTADO · NÃO AUTENTICADO"
-        case .unavailable: return "AUSENTE"
-        case .unknown: return "DETECTADO · NÃO CONFIRMADO"
+        case .authenticated: return L10n.tr("DETECTADO · AUTENTICADO")
+        case .unauthenticated: return L10n.tr("DETECTADO · NÃO AUTENTICADO")
+        case .unavailable: return L10n.tr("AUSENTE")
+        case .unknown: return L10n.tr("DETECTADO · NÃO CONFIRMADO")
         }
     }
 
@@ -1556,21 +1586,21 @@ struct GeneralSettingsView: View {
 
     private var liteLLMOAuthStatusLabel: String {
         guard liteLLMOAuthAuthorizer != nil else {
-            return "INTEGRAÇÃO INDISPONÍVEL"
+            return L10n.tr("INTEGRAÇÃO INDISPONÍVEL")
         }
         switch liteLLMOAuthStatus {
         case .idle:
-            return "AGUARDANDO CONFIGURAÇÃO"
+            return L10n.tr("AGUARDANDO CONFIGURAÇÃO")
         case .checking:
-            return "VERIFICANDO SESSÃO"
+            return L10n.tr("VERIFICANDO SESSÃO")
         case .signedOut:
-            return "NÃO CONECTADO"
+            return L10n.tr("NÃO CONECTADO")
         case .authorizing:
-            return "ABRINDO LOGIN"
+            return L10n.tr("ABRINDO LOGIN")
         case .signedIn:
-            return "AUTENTICADO"
+            return L10n.tr("AUTENTICADO")
         case .failed:
-            return "ERRO DE AUTENTICAÇÃO"
+            return L10n.tr("ERRO DE AUTENTICAÇÃO")
         }
     }
 
@@ -1650,7 +1680,7 @@ struct GeneralSettingsView: View {
             do {
                 try await authorizer.start(endpoint: endpoint, credentialID: credentialID)
                 liteLLMOAuthStatus = authorizer.sessionState.status
-                feedback = "Sessão OAuth do LiteLLM conectada."
+                feedback = L10n.tr("Sessão OAuth do LiteLLM conectada.")
                 feedbackIsError = false
             } catch {
                 liteLLMOAuthStatus = authorizer.sessionState.status
@@ -1670,7 +1700,7 @@ struct GeneralSettingsView: View {
             await authorizer.signOut(endpoint: endpoint, credentialID: credentialID)
             liteLLMOAuthStatus = authorizer.sessionState.status
             if case .signedOut = authorizer.sessionState.status {
-                feedback = "Sessão LiteLLM desconectada neste Mac."
+                feedback = L10n.tr("Sessão LiteLLM desconectada neste Mac.")
                 feedbackIsError = false
             } else if case let .failed(message) = authorizer.sessionState.status {
                 feedback = message
@@ -1698,14 +1728,14 @@ struct GeneralSettingsView: View {
     }
 
     private var providerOAuthStatusLabel: String {
-        guard providerOAuthAuthorizer != nil else { return "INTEGRAÇÃO INDISPONÍVEL" }
+        guard providerOAuthAuthorizer != nil else { return L10n.tr("INTEGRAÇÃO INDISPONÍVEL") }
         switch providerOAuthStatus {
-        case .idle: return "AGUARDANDO CONFIGURAÇÃO"
-        case .checking: return "VERIFICANDO SESSÃO"
-        case .signedOut: return "NÃO CONECTADO"
-        case .awaitingDeviceCode: return "AGUARDANDO CONFIRMAÇÃO NO NAVEGADOR"
-        case .signedIn: return "AUTENTICADO"
-        case .failed: return "ERRO DE AUTENTICAÇÃO"
+        case .idle: return L10n.tr("AGUARDANDO CONFIGURAÇÃO")
+        case .checking: return L10n.tr("VERIFICANDO SESSÃO")
+        case .signedOut: return L10n.tr("NÃO CONECTADO")
+        case .awaitingDeviceCode: return L10n.tr("AGUARDANDO CONFIRMAÇÃO NO NAVEGADOR")
+        case .signedIn: return L10n.tr("AUTENTICADO")
+        case .failed: return L10n.tr("ERRO DE AUTENTICAÇÃO")
         }
     }
 
@@ -1721,8 +1751,8 @@ struct GeneralSettingsView: View {
 
     private var providerOAuthLoginButtonLabel: String {
         switch draft.providerOAuth.kind {
-        case .codex: "Entrar com Codex / ChatGPT"
-        case .xAI: "Entrar com Grok / xAI"
+        case .codex: L10n.tr("Entrar com Codex / ChatGPT")
+        case .xAI: L10n.tr("Entrar com Grok / xAI")
         }
     }
 
@@ -1781,12 +1811,12 @@ struct GeneralSettingsView: View {
                 providerOAuthStatus = authorizer.sessionState.status
                 if case let .awaitingDeviceCode(presentation) = authorizer.sessionState.status {
                     openProviderOAuthPage(presentation.verificationURL)
-                    feedback = "Confirme o código no navegador. Esta janela atualiza quando o provedor concluir o login."
+                    feedback = L10n.tr("Confirme o código no navegador. Esta janela atualiza quando o provedor concluir o login.")
                     feedbackIsError = false
                     monitorProviderOAuth(authorizer)
                 } else if case .signedIn = authorizer.sessionState.status {
                     refreshProviderOAuthModels()
-                    feedback = "Sessão OAuth conectada. Escolha um modelo carregado e salve a configuração."
+                    feedback = L10n.tr("Sessão OAuth conectada. Escolha um modelo carregado e salve a configuração.")
                     feedbackIsError = false
                 }
             } catch {
@@ -1809,7 +1839,7 @@ struct GeneralSettingsView: View {
                     try? await Task.sleep(for: .milliseconds(600))
                 case .signedIn:
                     refreshProviderOAuthModels()
-                    feedback = "Sessão OAuth conectada. Escolha um modelo carregado e salve a configuração."
+                    feedback = L10n.tr("Sessão OAuth conectada. Escolha um modelo carregado e salve a configuração.")
                     feedbackIsError = false
                     return
                 case let .failed(message):
@@ -1862,7 +1892,7 @@ struct GeneralSettingsView: View {
                 draft.providerOAuth.model = models[0].id
             } else if !models.contains(where: { $0.id == savedModel }) {
                 draft.providerOAuth.model = models[0].id
-                feedback = "O modelo salvo anteriormente não está disponível nesta conta. Selecionamos \(models[0].displayName)."
+                feedback = L10n.tr("O modelo salvo anteriormente não está disponível nesta conta. Selecionamos \(models[0].displayName).")
                 feedbackIsError = false
             }
             providerOAuthModelsError = nil
@@ -1899,7 +1929,7 @@ struct GeneralSettingsView: View {
             await providerOAuthAuthorizer?.cancelAuthorization()
             providerOAuthStatus = providerOAuthAuthorizer?.sessionState.status ?? .signedOut
         }
-        feedback = "Login cancelado. Nenhuma sessão foi salva."
+        feedback = L10n.tr("Login cancelado. Nenhuma sessão foi salva.")
         feedbackIsError = false
     }
 
@@ -1915,7 +1945,7 @@ struct GeneralSettingsView: View {
             switch authorizer.sessionState.status {
             case .signedOut:
                 clearProviderOAuthModels()
-                feedback = "Sessão OAuth removida deste Mac."
+                feedback = L10n.tr("Sessão OAuth removida deste Mac.")
                 feedbackIsError = false
             case let .failed(message):
                 feedback = message
@@ -1930,13 +1960,13 @@ struct GeneralSettingsView: View {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(code, forType: .string)
-        feedback = "Código copiado."
+        feedback = L10n.tr("Código copiado.")
         feedbackIsError = false
     }
 
     private func openProviderOAuthPage(_ url: URL) {
         guard url.scheme?.lowercased() == "https" else {
-            feedback = "O provedor devolveu uma página de login insegura."
+            feedback = L10n.tr("O provedor devolveu uma página de login insegura.")
             feedbackIsError = true
             return
         }
@@ -1961,14 +1991,14 @@ private struct SwipeRehearsalCard: View {
         VStack(alignment: .leading, spacing: 11) {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("ENSAIO AO VIVO")
+                    Text(L10n.tr("ENSAIO AO VIVO"))
                         .capsLabel(size: 8.5)
-                    Text("É assim que uma mensagem responde ao seu arraste")
+                    Text(L10n.tr("É assim que uma mensagem responde ao seu arraste"))
                         .font(theme.sans.font(size: 12, weight: .semibold))
                         .foregroundStyle(theme.ink.color)
                 }
                 Spacer(minLength: 0)
-                Text("A primeira ação dispara no gesto longo")
+                Text(L10n.tr("A primeira ação dispara no gesto longo"))
                     .font(theme.sans.font(size: 9.5))
                     .foregroundStyle(theme.ink3.color)
             }
@@ -1999,8 +2029,8 @@ private struct SwipeRehearsalCard: View {
             }
 
             HStack(spacing: 16) {
-                Label("→ para a direita", systemImage: "arrow.right")
-                Label("← para a esquerda", systemImage: "arrow.left")
+                Label(L10n.tr("→ para a direita"), systemImage: "arrow.right")
+                Label(L10n.tr("← para a esquerda"), systemImage: "arrow.left")
             }
             .font(theme.mono.font(size: 9.5))
             .foregroundStyle(theme.ink4.color)
@@ -2037,11 +2067,11 @@ private struct SwipeRehearsalCard: View {
                         .foregroundStyle(theme.accent.color)
                 }
             VStack(alignment: .leading, spacing: 2) {
-                Text("Agenda da próxima semana")
+                Text(L10n.tr("Agenda da próxima semana"))
                     .font(theme.sans.font(size: 11.5, weight: .semibold))
                     .foregroundStyle(theme.ink.color)
                     .lineLimit(1)
-                Text("Uma mensagem da sua caixa de entrada")
+                Text(L10n.tr("Uma mensagem da sua caixa de entrada"))
                     .font(theme.sans.font(size: 9.5))
                     .foregroundStyle(theme.ink3.color)
                     .lineLimit(1)
@@ -2068,7 +2098,7 @@ private struct SwipeActionStrip: View {
                     .foregroundStyle(theme.ink4.color)
                     .frame(width: itemWidth, height: 60)
                     .background(theme.surface3.color)
-                    .accessibilityLabel("Nenhuma ação configurada")
+                    .accessibilityLabel(L10n.tr("Nenhuma ação configurada"))
             } else {
                 ForEach(actions) { action in
                     VStack(spacing: 4) {
@@ -2161,10 +2191,10 @@ private struct SwipeSideSettingsCard: View {
                     .frame(width: 26, height: 26)
                     .background(theme.accentSoft.color, in: RoundedRectangle(cornerRadius: 7))
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(side == .leading ? "Para a direita" : "Para a esquerda")
+                    Text(side == .leading ? L10n.tr("Para a direita") : L10n.tr("Para a esquerda"))
                         .font(theme.sans.font(size: 12.5, weight: .semibold))
                         .foregroundStyle(theme.ink.color)
-                    Text("Selecione até \(SwipeConfiguration.maxPerSide) ações")
+                    Text(L10n.tr("Selecione até \(SwipeConfiguration.maxPerSide) ações"))
                         .font(theme.sans.font(size: 9.5))
                         .foregroundStyle(theme.ink3.color)
                 }
@@ -2174,20 +2204,20 @@ private struct SwipeSideSettingsCard: View {
                     .foregroundStyle(theme.ink4.color)
             }
 
-            Picker("Arraste longo", selection: primaryAction) {
+            Picker(L10n.tr("Arraste longo"), selection: primaryAction) {
                 ForEach(actionChoices) { action in
                     Text(action.settingsLabel).tag(action)
                 }
             }
             .font(theme.sans.font(size: 10.5))
             .disabled(actions.isEmpty)
-            .accessibilityHint("A primeira ação é disparada quando o arraste passa do limite")
+            .accessibilityHint(L10n.tr("A primeira ação é disparada quando o arraste passa do limite"))
 
             if !destinationAccounts.isEmpty {
                 VStack(alignment: .leading, spacing: 9) {
-                    Text("MOVER PARA")
+                    Text(L10n.tr("MOVER PARA"))
                         .capsLabel(size: 8.5)
-                    Text("Escolha um destino por conta. As ações acima continuam iguais em todas as caixas.")
+                    Text(L10n.tr("Escolha um destino por conta. As ações acima continuam iguais em todas as caixas."))
                         .font(theme.sans.font(size: 9.5))
                         .foregroundStyle(theme.ink3.color)
                         .fixedSize(horizontal: false, vertical: true)
@@ -2241,14 +2271,14 @@ private struct SwipeSideSettingsCard: View {
     }
 
     private func destinationPicker(for account: SwipeDestinationAccount) -> some View {
-        let pickerLabel = "Pasta ou marcador de \(account.label)"
+        let pickerLabel = L10n.tr("Pasta ou marcador de \(account.label)")
         return VStack(alignment: .leading, spacing: 5) {
             Text(account.label)
                 .font(theme.sans.font(size: 9.5, weight: .medium))
                 .foregroundStyle(theme.ink2.color)
                 .lineLimit(1)
             Picker(pickerLabel, selection: moveDestination(for: account.id)) {
-                Text("Não usar nesta conta").tag(nil as SwipeMoveDestination?)
+                Text(L10n.tr("Não usar nesta conta")).tag(nil as SwipeMoveDestination?)
                 ForEach(account.destinations) { destination in
                     Text(destination.displayName).tag(Optional(destination))
                 }
@@ -2274,7 +2304,7 @@ private struct SwipeSideSettingsCard: View {
                 if store.setMoveDestination(destination, on: side, for: accountID) {
                     moveDestinationError = nil
                 } else {
-                    moveDestinationError = "Este gesto já tem 3 ações. Remova uma para adicionar Mover."
+                    moveDestinationError = L10n.tr("Este gesto já tem 3 ações. Remova uma para adicionar Mover.")
                 }
             }
         )
@@ -2372,7 +2402,7 @@ struct SignatureSettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 7) {
-                    Text("ASSINATURAS")
+                    Text(L10n.tr("ASSINATURAS"))
                         .capsLabel(size: 8.5)
                     Text("\(model.statuses.count)")
                         .font(theme.mono.font(size: 9, weight: .semibold))
@@ -2381,7 +2411,7 @@ struct SignatureSettingsView: View {
                         .padding(.vertical, 2)
                         .background(theme.accentSoft.color, in: Capsule())
                 }
-                Text("Cada conta pode ter uma assinatura própria.")
+                Text(L10n.tr("Cada conta pode ter uma assinatura própria."))
                     .font(theme.sans.font(size: 10))
                     .foregroundStyle(theme.ink3.color)
                     .fixedSize(horizontal: false, vertical: true)
@@ -2440,7 +2470,7 @@ struct SignatureSettingsView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("ASSINATURA DA CONTA")
+                            Text(L10n.tr("ASSINATURA DA CONTA"))
                                 .capsLabel(size: 8.5)
                             HStack(alignment: .firstTextBaseline, spacing: 8) {
                                 Text(selected.address)
@@ -2455,7 +2485,7 @@ struct SignatureSettingsView: View {
                                         .background(theme.accentSoft.color, in: Capsule())
                                 }
                             }
-                            Text("Inserida no composer e nas respostas rápidas desta conta")
+                            Text(L10n.tr("Inserida no composer e nas respostas rápidas desta conta"))
                                 .font(theme.sans.font(size: 11.5))
                                 .foregroundStyle(theme.ink3.color)
                         }
@@ -2476,7 +2506,7 @@ struct SignatureSettingsView: View {
                             }
                         )
 
-                        Text("A assinatura é uma parte gerenciada do rascunho: entra uma vez por mensagem. O texto alternativo continua disponível para clientes sem HTML.")
+                        Text(L10n.tr("A assinatura é uma parte gerenciada do rascunho: entra uma vez por mensagem. O texto alternativo continua disponível para clientes sem HTML."))
                             .font(theme.sans.font(size: 10.5))
                             .foregroundStyle(theme.ink3.color)
                             .fixedSize(horizontal: false, vertical: true)
@@ -2499,10 +2529,10 @@ struct SignatureSettingsView: View {
                     .frame(height: Hairline.thickness(displayScale))
 
                 HStack(spacing: 9) {
-                    Button("Salvar assinatura") { saveSignature() }
+                    Button(L10n.tr("Salvar assinatura")) { saveSignature() }
                         .settingsPrimaryButton()
                         .disabled(!hasChanges || model.isBusy)
-                    Button("Limpar assinatura") { clearSignature() }
+                    Button(L10n.tr("Limpar assinatura")) { clearSignature() }
                         .settingsQuietButton()
                         .disabled(!hasContent)
                     Spacer(minLength: 0)
@@ -2517,8 +2547,8 @@ struct SignatureSettingsView: View {
         } else {
             SettingsEmptyState(
                 symbol: "signature",
-                title: "Nenhuma conta disponível",
-                text: "Adicione uma conta antes de criar uma assinatura de e-mail."
+                title: L10n.tr("Nenhuma conta disponível"),
+                text: L10n.tr("Adicione uma conta antes de criar uma assinatura de e-mail.")
             )
         }
     }
@@ -2590,11 +2620,11 @@ struct SignatureSettingsView: View {
                 htmlChanged = false
                 resourcesChanged = false
                 feedback = prepared.warnings.isEmpty
-                    ? "Assinatura salva e disponível no composer."
-                    : "Assinatura salva. \(prepared.warnings.joined(separator: " "))"
+                    ? L10n.tr("Assinatura salva e disponível no composer.")
+                    : L10n.tr("Assinatura salva. \(prepared.warnings.joined(separator: " "))")
                 feedbackIsError = false
             } else {
-                feedback = model.lastError?.mensagem ?? "Não foi possível salvar a assinatura."
+                feedback = model.lastError?.mensagem ?? L10n.tr("Não foi possível salvar a assinatura.")
                 feedbackIsError = true
             }
         }
@@ -2609,7 +2639,7 @@ struct SignatureSettingsView: View {
     private var metadataLabel: String {
         let count = String(visualText.characters).count
         let images = inlineResources.count
-        return images == 0 ? "\(count) caracteres" : "\(count) caracteres · \(images) imagem(ns)"
+        return images == 0 ? L10n.tr("\(count) caracteres") : L10n.tr("\(count) caracteres · \(images) imagem(ns)")
     }
 
     private func signatureForSaving() throws -> (signature: EmailSignature, warnings: [String]) {
@@ -2698,16 +2728,16 @@ struct SignatureSettingsView: View {
         visualChanged = true
         htmlChanged = true
         resourcesChanged = true
-        feedback = "Assinatura limpa. Salve para aplicar a remoção."
+        feedback = L10n.tr("Assinatura limpa. Salve para aplicar a remoção.")
         feedbackIsError = false
     }
 
     private func signatureSummary(_ signature: EmailSignature) -> String {
-        guard !signature.plainText.isEmpty || signature.html != nil else { return "Sem assinatura" }
+        guard !signature.plainText.isEmpty || signature.html != nil else { return L10n.tr("Sem assinatura") }
         if signature.html != nil, !signature.inlineResources.isEmpty {
-            return "HTML · \(signature.inlineResources.count) imagem(ns)"
+            return L10n.tr("HTML · \(signature.inlineResources.count) imagem(ns)")
         }
-        return signature.html != nil ? "Assinatura em HTML" : "Assinatura em texto"
+        return signature.html != nil ? L10n.tr("Assinatura em HTML") : L10n.tr("Assinatura em texto")
     }
 }
 
@@ -2718,7 +2748,7 @@ private enum RuleConditionKind: String, CaseIterable, Identifiable {
     case subject
 
     var id: String { rawValue }
-    var label: String { self == .sender ? "Remetente contém" : "Assunto contém" }
+    var label: String { self == .sender ? L10n.tr("Remetente contém") : L10n.tr("Assunto contém") }
 }
 
 private struct RuleDraft {
@@ -2822,8 +2852,8 @@ struct RulesSettingsView: View {
             } else {
                 SettingsEmptyState(
                     symbol: "arrow.triangle.branch",
-                    title: "Regras indisponíveis",
-                    text: "O armazenamento de regras não foi conectado a esta janela."
+                    title: L10n.tr("Regras indisponíveis"),
+                    text: L10n.tr("O armazenamento de regras não foi conectado a esta janela.")
                 )
             }
         }
@@ -2831,32 +2861,32 @@ struct RulesSettingsView: View {
         .background(theme.paper.color)
         .onAppear { selectFirstIfNeeded() }
         .confirmationDialog(
-            "Apagar esta regra?",
+            L10n.tr("Apagar esta regra?"),
             isPresented: Binding(
                 get: { deleteCandidate != nil },
                 set: { if !$0 { deleteCandidate = nil } }
             )
         ) {
-            Button("Apagar", role: .destructive) {
+            Button(L10n.tr("Apagar"), role: .destructive) {
                 if let id = deleteCandidate { store?.remove(id: id) }
                 deleteCandidate = nil
                 selectedID = nil
                 editingNewRule = false
                 selectFirstIfNeeded()
             }
-            Button("Cancelar", role: .cancel) { deleteCandidate = nil }
+            Button(L10n.tr("Cancelar"), role: .cancel) { deleteCandidate = nil }
         }
         .confirmationDialog(
-            "Ativar encaminhamento automático?",
+            L10n.tr("Ativar encaminhamento automático?"),
             isPresented: $forwardingConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Salvar e ativar encaminhamento") {
+            Button(L10n.tr("Salvar e ativar encaminhamento")) {
                 if let store { saveRule(in: store) }
             }
-            Button("Cancelar", role: .cancel) {}
+            Button(L10n.tr("Cancelar"), role: .cancel) {}
         } message: {
-            Text("Mensagens novas que corresponderem a esta regra serão encaminhadas para \(draft.forwardTo), pela conta escolhida, sem anexos, Cc ou Cco.")
+            Text(L10n.tr("Mensagens novas que corresponderem a esta regra serão encaminhadas para \(draft.forwardTo), pela conta escolhida, sem anexos, Cc ou Cco."))
         }
     }
 
@@ -2865,7 +2895,7 @@ struct RulesSettingsView: View {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 7) {
-                        Text("AUTOMAÇÕES")
+                        Text(L10n.tr("AUTOMAÇÕES"))
                             .capsLabel(size: 8.5)
                         Text("\(store.rules.count)")
                             .font(theme.mono.font(size: 9, weight: .semibold))
@@ -2874,7 +2904,7 @@ struct RulesSettingsView: View {
                             .padding(.vertical, 2)
                             .background(theme.accentSoft.color, in: Capsule())
                     }
-                    Text("Organize mensagens novas sem limpar a caixa na mão.")
+                    Text(L10n.tr("Organize mensagens novas sem limpar a caixa na mão."))
                         .font(theme.sans.font(size: 10))
                         .foregroundStyle(theme.ink3.color)
                         .fixedSize(horizontal: false, vertical: true)
@@ -2892,7 +2922,7 @@ struct RulesSettingsView: View {
                 .buttonStyle(.plain)
                 .background(theme.accentSoft.color, in: RoundedRectangle(cornerRadius: 7))
                 .focusRing(cornerRadius: 7)
-                .help("Criar regra")
+                .help(L10n.tr("Criar regra"))
             }
             .padding(.leading, 14)
             .padding(.trailing, 9)
@@ -2903,9 +2933,9 @@ struct RulesSettingsView: View {
                 VStack(spacing: 8) {
                     Image(systemName: "arrow.triangle.branch")
                         .font(.system(size: 24, weight: .light))
-                    Text("Nenhuma regra")
+                    Text(L10n.tr("Nenhuma regra"))
                         .font(theme.sans.font(size: 11.5, weight: .medium))
-                    Button("Criar a primeira") {
+                    Button(L10n.tr("Criar a primeira")) {
                         editingNewRule = true
                         draft = RuleDraft()
                     }
@@ -2974,25 +3004,25 @@ struct RulesSettingsView: View {
             ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
                         VStack(alignment: .leading, spacing: 4) {
-                        Text(editingNewRule ? "NOVA AUTOMAÇÃO" : "AUTOMAÇÃO")
+                        Text(editingNewRule ? L10n.tr("NOVA AUTOMAÇÃO") : L10n.tr("AUTOMAÇÃO"))
                             .capsLabel(size: 8.5)
-                        Text(editingNewRule ? "Nova regra" : "Editar regra")
+                        Text(editingNewRule ? L10n.tr("Nova regra") : L10n.tr("Editar regra"))
                             .font(theme.sans.font(size: 18, weight: .semibold))
                             .foregroundStyle(theme.ink.color)
-                        Text("Vale para mensagens novas depois que a regra é salva")
+                        Text(L10n.tr("Vale para mensagens novas depois que a regra é salva"))
                             .font(theme.sans.font(size: 11.5))
                             .foregroundStyle(theme.ink3.color)
                     }
 
-                    Toggle("Regra ativa", isOn: $draft.enabled)
+                    Toggle(L10n.tr("Regra ativa"), isOn: $draft.enabled)
                         .toggleStyle(.switch)
 
-                    SettingsLabeledRow(label: "Nome") {
-                        TextField("Ex.: Arquivar newsletters", text: $draft.name)
+                    SettingsLabeledRow(label: L10n.tr("Nome")) {
+                        TextField(L10n.tr("Ex.: Arquivar newsletters"), text: $draft.name)
                             .settingsTextField()
                     }
-                    SettingsLabeledRow(label: "Conta") {
-                        Picker("Conta da regra", selection: Binding(
+                    SettingsLabeledRow(label: L10n.tr("Conta")) {
+                        Picker(L10n.tr("Conta da regra"), selection: Binding(
                             get: { draft.scopeAccountID },
                             set: { accountID in
                                 draft.scopeAccountID = accountID
@@ -3001,16 +3031,16 @@ struct RulesSettingsView: View {
                                 }
                             }
                         )) {
-                            Text("Todas as contas").tag(nil as String?)
+                            Text(L10n.tr("Todas as contas")).tag(nil as String?)
                             ForEach(accounts) { account in
                                 Text(account.address).tag(Optional(account.accountID))
                             }
                         }
                         .labelsHidden()
-                        .accessibilityLabel("Conta à qual a regra se aplica")
+                        .accessibilityLabel(L10n.tr("Conta à qual a regra se aplica"))
                         .frame(maxWidth: 320, alignment: .leading)
                     }
-                    SettingsLabeledRow(label: "Quando") {
+                    SettingsLabeledRow(label: L10n.tr("Quando")) {
                         VStack(alignment: .leading, spacing: 7) {
                             Picker("", selection: $draft.conditionKind) {
                                 ForEach(RuleConditionKind.allCases) { kind in
@@ -3018,14 +3048,14 @@ struct RulesSettingsView: View {
                                 }
                             }
                             .labelsHidden()
-                            .accessibilityLabel("Condição da regra")
-                            TextField("Texto a procurar", text: $draft.conditionValue)
+                            .accessibilityLabel(L10n.tr("Condição da regra"))
+                            TextField(L10n.tr("Texto a procurar"), text: $draft.conditionValue)
                                 .settingsTextField()
                         }
                     }
 
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("AÇÕES NA CAIXA")
+                        Text(L10n.tr("AÇÕES NA CAIXA"))
                             .capsLabel()
                         ForEach(EmailRuleAction.allCases) { action in
                             Toggle(action.label, isOn: Binding(
@@ -3047,20 +3077,20 @@ struct RulesSettingsView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("ENTREGAS ADICIONAIS")
+                        Text(L10n.tr("ENTREGAS ADICIONAIS"))
                             .capsLabel()
 
-                        Toggle("Encaminhar uma cópia", isOn: $draft.forwards)
+                        Toggle(L10n.tr("Encaminhar uma cópia"), isOn: $draft.forwards)
                             .toggleStyle(.checkbox)
 
                         if draft.forwards {
-                            SettingsLabeledRow(label: "Endereço") {
+                            SettingsLabeledRow(label: L10n.tr("Endereço")) {
                                 VStack(alignment: .leading, spacing: 5) {
                                     TextField("nome@empresa.com", text: $draft.forwardTo)
                                         .textContentType(.emailAddress)
                                         .settingsTextField()
                                     if EmailRuleForwarding(address: draft.forwardTo) == nil {
-                                        Text("Informe um único endereço de e-mail válido.")
+                                        Text(L10n.tr("Informe um único endereço de e-mail válido."))
                                             .font(theme.sans.font(size: 10))
                                             .foregroundStyle(theme.danger.color)
                                     }
@@ -3068,7 +3098,7 @@ struct RulesSettingsView: View {
                             }
                         }
 
-                        Toggle("Mover para pasta ou marcador", isOn: Binding(
+                        Toggle(L10n.tr("Mover para pasta ou marcador"), isOn: Binding(
                             get: { draft.moves },
                             set: { enabled in
                                 draft.moves = enabled
@@ -3082,36 +3112,36 @@ struct RulesSettingsView: View {
                             .toggleStyle(.checkbox)
 
                         if draft.moves {
-                            Text("Mover substitui Arquivar nesta regra para não emitir duas mudanças de pasta.")
+                            Text(L10n.tr("Mover substitui Arquivar nesta regra para não emitir duas mudanças de pasta."))
                                 .font(theme.sans.font(size: 10))
                                 .foregroundStyle(theme.ink3.color)
-                            SettingsLabeledRow(label: "Destino") {
+                            SettingsLabeledRow(label: L10n.tr("Destino")) {
                                 if let scopeAccountID = draft.scopeAccountID {
                                     let destinations = moveDestinations.filter {
                                         $0.accountID == scopeAccountID
                                     }
                                     if destinations.isEmpty {
-                                        Text("Sincronize a conta para escolher uma pasta ou marcador real.")
+                                        Text(L10n.tr("Sincronize a conta para escolher uma pasta ou marcador real."))
                                             .font(theme.sans.font(size: 10.5))
                                             .foregroundStyle(theme.ink3.color)
                                     } else {
-                                        Picker("Pasta ou marcador", selection: Binding(
+                                        Picker(L10n.tr("Pasta ou marcador"), selection: Binding(
                                             get: { draft.moveDestination?.id },
                                             set: { id in
                                                 draft.moveDestination = destinations.first { $0.id == id }
                                             }
                                         )) {
-                                            Text("Escolha um destino").tag(nil as String?)
+                                            Text(L10n.tr("Escolha um destino")).tag(nil as String?)
                                             ForEach(destinations) { destination in
                                                 Text(destination.displayName).tag(Optional(destination.id))
                                             }
                                         }
                                         .labelsHidden()
-                                        .accessibilityLabel("Pasta ou marcador de destino")
+                                        .accessibilityLabel(L10n.tr("Pasta ou marcador de destino"))
                                         .frame(maxWidth: 320, alignment: .leading)
                                     }
                                 } else {
-                                    Text("Escolha uma conta antes de definir o destino.")
+                                    Text(L10n.tr("Escolha uma conta antes de definir o destino."))
                                         .font(theme.sans.font(size: 10.5))
                                         .foregroundStyle(theme.ink3.color)
                                 }
@@ -3122,15 +3152,15 @@ struct RulesSettingsView: View {
                     if draft.forwards || draft.moves {
                         SettingsNotice(
                             symbol: "lock.shield",
-                            title: "Privacidade e entrega automática",
-                            text: "Encaminhar usa a conta escolhida e envia uma cópia do conteúdo da mensagem para o endereço informado, sem anexos, Cc ou Cco. Mover usa somente a pasta ou o marcador real já sincronizado dessa conta."
+                            title: L10n.tr("Privacidade e entrega automática"),
+                            text: L10n.tr("Encaminhar usa a conta escolhida e envia uma cópia do conteúdo da mensagem para o endereço informado, sem anexos, Cc ou Cco. Mover usa somente a pasta ou o marcador real já sincronizado dessa conta.")
                         )
                     }
 
                     SettingsNotice(
                         symbol: "info.circle",
-                        title: "Execução idempotente",
-                        text: "A regra não reprocessa o histórico da caixa e cada mensagem nova é avaliada uma vez por sessão. As ações usam a mesma fila de saída dos botões da caixa."
+                        title: L10n.tr("Execução idempotente"),
+                        text: L10n.tr("A regra não reprocessa o histórico da caixa e cada mensagem nova é avaliada uma vez por sessão. As ações usam a mesma fila de saída dos botões da caixa.")
                     )
 
                     if let feedback {
@@ -3140,7 +3170,7 @@ struct RulesSettingsView: View {
                     }
 
                     HStack(spacing: 9) {
-                        Button("Salvar regra") {
+                        Button(L10n.tr("Salvar regra")) {
                             if draft.forwards {
                                 forwardingConfirmation = true
                             } else {
@@ -3151,7 +3181,7 @@ struct RulesSettingsView: View {
                         .disabled(!draft.isValid)
 
                         if !editingNewRule {
-                            Button("Apagar regra") { deleteCandidate = draft.id }
+                            Button(L10n.tr("Apagar regra")) { deleteCandidate = draft.id }
                                 .settingsDangerButton()
                         }
                         Spacer(minLength: 0)
@@ -3163,8 +3193,8 @@ struct RulesSettingsView: View {
         } else {
             SettingsEmptyState(
                 symbol: "arrow.triangle.branch",
-                title: "Selecione ou crie uma regra",
-                text: "Regras podem organizar mensagens novas, encaminhar uma cópia sem anexos e movê-las para uma pasta ou marcador da conta escolhida."
+                title: L10n.tr("Selecione ou crie uma regra"),
+                text: L10n.tr("Regras podem organizar mensagens novas, encaminhar uma cópia sem anexos e movê-las para uma pasta ou marcador da conta escolhida.")
             )
         }
     }
@@ -3181,23 +3211,23 @@ struct RulesSettingsView: View {
         store.upsert(draft.rule)
         selectedID = draft.id
         editingNewRule = false
-        feedback = "Regra salva."
+        feedback = L10n.tr("Regra salva.")
     }
 
     private func ruleSummary(_ rule: EmailRule) -> String {
         let condition: String
         switch rule.condition {
-        case .senderContains(let value): condition = "Remetente: \(value)"
-        case .subjectContains(let value): condition = "Assunto: \(value)"
+        case .senderContains(let value): condition = L10n.tr("Remetente: \(value)")
+        case .subjectContains(let value): condition = L10n.tr("Assunto: \(value)")
         }
         var details = [condition]
         if let accountID = rule.accountID {
             let account = accounts.first(where: { $0.accountID == accountID })
             details.append(account?.address ?? accountID)
         }
-        if rule.forwarding != nil { details.append("Encaminha") }
+        if rule.forwarding != nil { details.append(L10n.tr("Encaminha")) }
         if let destination = rule.moveDestination {
-            details.append("Move: \(destination.displayName)")
+            details.append(L10n.tr("Move: \(destination.displayName)"))
         }
         return details.joined(separator: " · ")
     }
@@ -3218,16 +3248,16 @@ struct AgendaSettingsView: View {
             VStack(alignment: .leading, spacing: 16) {
                 SettingsIntro(
                     symbol: "video.fill",
-                    eyebrow: "REUNIÕES",
-                    title: "Sala nova a cada compromisso",
-                    text: "Meet nasce do Google já conectado. Zoom, Teams e Zoho usam a API de cada um. Um link fixo vira reunião eterna, com o título errado — por isso o OkamiUNI cria a sala na hora de adicionar."
+                    eyebrow: L10n.tr("REUNIÕES"),
+                    title: L10n.tr("Sala nova a cada compromisso"),
+                    text: L10n.tr("Meet nasce do Google já conectado. Zoom, Teams e Zoho usam a API de cada um. Um link fixo vira reunião eterna, com o título errado — por isso o OkamiUNI cria a sala na hora de adicionar.")
                 )
 
                 if accounts.isEmpty {
                     SettingsEmptyState(
                         symbol: "at",
-                        title: "Nenhuma conta conectada",
-                        text: "Conecte uma caixa em Contas. O Meet usa o Google OAuth dessa caixa."
+                        title: L10n.tr("Nenhuma conta conectada"),
+                        text: L10n.tr("Conecte uma caixa em Contas. O Meet usa o Google OAuth dessa caixa.")
                     )
                     .frame(minHeight: 180)
                 } else if let rooms {
@@ -3237,8 +3267,8 @@ struct AgendaSettingsView: View {
                 } else {
                     SettingsNotice(
                         symbol: "exclamationmark.triangle",
-                        title: "Preferências indisponíveis",
-                        text: "Não foi possível abrir as preferências de reunião neste Mac."
+                        title: L10n.tr("Preferências indisponíveis"),
+                        text: L10n.tr("Não foi possível abrir as preferências de reunião neste Mac.")
                     )
                 }
 
@@ -3265,17 +3295,17 @@ struct AgendaSettingsView: View {
             eyebrow: account.hostMark.uppercased(),
             title: account.address,
             subtitle: isGmail
-                ? "Meet cria uma sala nova via Google. Reconecte a caixa se o Google pedir acesso ao Meet."
-                : "O serviço padrão desta caixa. Meet exige uma conta Google conectada."
+                ? L10n.tr("Meet cria uma sala nova via Google. Reconecte a caixa se o Google pedir acesso ao Meet.")
+                : L10n.tr("O serviço padrão desta caixa. Meet exige uma conta Google conectada.")
         ) {
-            SettingsLabeledRow(label: "Padrão") {
-                Picker("Serviço padrão", selection: Binding(
+            SettingsLabeledRow(label: L10n.tr("Padrão")) {
+                Picker(L10n.tr("Serviço padrão"), selection: Binding(
                     get: { profile.defaultService?.rawValue ?? "" },
                     set: { raw in
                         rooms.setDefault(MeetingService(rawValue: raw), for: account.accountID)
                     }
                 )) {
-                    Text("Nenhum").tag("")
+                    Text(L10n.tr("Nenhum")).tag("")
                     ForEach(MeetingService.allCases) { service in
                         Text(service.label).tag(service.rawValue)
                     }
@@ -3292,8 +3322,8 @@ struct AgendaSettingsView: View {
             eyebrow: service.shortLabel.uppercased(),
             title: service.label,
             subtitle: rooms.isConnected(service)
-                ? "Conectado. Cada compromisso ganha uma sala nova."
-                : "Credenciais da API — não é o link de uma reunião."
+                ? L10n.tr("Conectado. Cada compromisso ganha uma sala nova.")
+                : L10n.tr("Credenciais da API — não é o link de uma reunião.")
         ) {
             SettingsLabeledRow(label: "Client ID") {
                 TextField("Client ID", text: Binding(

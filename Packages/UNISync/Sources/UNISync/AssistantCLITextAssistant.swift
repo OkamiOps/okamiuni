@@ -104,11 +104,11 @@ public enum AssistantCLIProcessError: Error, Sendable, Equatable, LocalizedError
     public var errorDescription: String? {
         switch self {
         case .failedToStart:
-            "Não foi possível iniciar o CLI selecionado."
+            L10n.tr("Não foi possível iniciar o CLI selecionado.")
         case .timedOut:
-            "O CLI demorou demais para responder."
+            L10n.tr("O CLI demorou demais para responder.")
         case .outputTooLarge:
-            "O CLI devolveu dados demais para esta ação."
+            L10n.tr("O CLI devolveu dados demais para esta ação.")
         }
     }
 }
@@ -338,17 +338,17 @@ public enum AssistantCLITextAssistantError: Error, Sendable, Equatable, Localize
     public var errorDescription: String? {
         switch self {
         case let .executableNotFound(kind):
-            "\(kind.displayName) não foi encontrado. Instale-o ou escolha outro transporte."
+            L10n.tr("\(kind.displayName) não foi encontrado. Instale-o ou escolha outro transporte.")
         case .executableNotAllowed:
-            "O executável escolhido não pertence à allowlist do OkamiUNI."
+            L10n.tr("O executável escolhido não pertence à allowlist do OkamiUNI.")
         case .timedOut:
-            "O CLI de IA demorou demais para responder. Tente de novo."
+            L10n.tr("O CLI de IA demorou demais para responder. Tente de novo.")
         case .outputTooLarge:
-            "O CLI de IA devolveu dados demais para esta ação."
+            L10n.tr("O CLI de IA devolveu dados demais para esta ação.")
         case .processFailed:
-            "O CLI de IA encerrou com erro."
+            L10n.tr("O CLI de IA encerrou com erro.")
         case .invalidResponse:
-            "O CLI de IA devolveu uma resposta que o OkamiUNI não consegue usar."
+            L10n.tr("O CLI de IA devolveu uma resposta que o OkamiUNI não consegue usar.")
         }
     }
 }

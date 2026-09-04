@@ -1,4 +1,5 @@
 import Foundation
+import UNICore
 
 /// Para onde vai o conteúdo quando a pessoa aciona o assistente.
 ///
@@ -21,19 +22,19 @@ public struct AssistantDestination: Sendable, Hashable {
     /// O único destino local: o motor no próprio Mac. A frase que promete
     /// privacidade mora num lugar só — repetida em quatro arquivos, ela
     /// sobreviveria a uma correção feita em apenas três.
-    public static let onThisMac = AssistantDestination(
-        label: "Neste Mac", detail: "Nada sai deste Mac.", isLocal: true
-    )
+    public static var onThisMac: AssistantDestination { AssistantDestination(
+        label: L10n.tr("Neste Mac"), detail: L10n.tr("Nada sai deste Mac."), isLocal: true
+    ) }
 
     /// Um resumo que **saiu** deste Mac, mas cujo provedor não dá mais para
     /// determinar — a pessoa trocou de provedor depois de ele ser gravado.
     /// Neutro de propósito: a única coisa errada a fazer aqui seria prometer
     /// que o conteúdo ficou no Mac.
-    public static let configuredProviderUnknown = AssistantDestination(
-        label: "provedor configurado",
-        detail: "Este resumo saiu deste Mac para o provedor que estava configurado.",
+    public static var configuredProviderUnknown: AssistantDestination { AssistantDestination(
+        label: L10n.tr("provedor configurado"),
+        detail: L10n.tr("Este resumo saiu deste Mac para o provedor que estava configurado."),
         isLocal: false
-    )
+    ) }
 
     public init(settings: AssistantSettings) {
         switch settings.provider {
@@ -44,13 +45,13 @@ public struct AssistantDestination: Sendable, Hashable {
             case .xAI:
                 self.init(
                     label: "Grok · xAI",
-                    detail: "Sai deste Mac para a xAI.",
+                    detail: L10n.tr("Sai deste Mac para a xAI."),
                     isLocal: false
                 )
             case .codex:
                 self.init(
                     label: "Codex · ChatGPT",
-                    detail: "Sai deste Mac pelo Codex instalado.",
+                    detail: L10n.tr("Sai deste Mac pelo Codex instalado."),
                     isLocal: false
                 )
             }
@@ -60,21 +61,21 @@ public struct AssistantDestination: Sendable, Hashable {
                 : "API"
             guard let host = Self.host(of: settings.openAICompatible.endpoint) else {
                 self.init(
-                    label: "\(family) · sem endpoint",
-                    detail: "Informe o endpoint nos Ajustes.",
+                    label: L10n.tr("\(family) · sem endpoint"),
+                    detail: L10n.tr("Informe o endpoint nos Ajustes."),
                     isLocal: false
                 )
                 return
             }
             self.init(
                 label: "\(family) · \(host)",
-                detail: "Sai deste Mac para \(host).",
+                detail: L10n.tr("Sai deste Mac para \(host)."),
                 isLocal: false
             )
         case .cli:
             self.init(
                 label: "\(settings.cli.kind.displayName) · CLI",
-                detail: "Sai deste Mac pelo CLI instalado.",
+                detail: L10n.tr("Sai deste Mac pelo CLI instalado."),
                 isLocal: false
             )
         }

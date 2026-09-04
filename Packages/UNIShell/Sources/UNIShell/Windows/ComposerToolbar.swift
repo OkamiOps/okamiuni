@@ -173,8 +173,8 @@ struct ComposerToolbar: View {
         SoloToolButton(
             label: "⋯",
             title: moreOpen
-                ? "Fechar listas, alinhamento, link e tabela"
-                : "Listas, alinhamento, link, tabela",
+                ? L10n.tr("Fechar listas, alinhamento, link e tabela")
+                : L10n.tr("Listas, alinhamento, link, tabela"),
             on: moreOpen
         ) {
             moreOpen.toggle()
@@ -199,7 +199,7 @@ struct ComposerToolbar: View {
     private var fontGroup: some View {
         HStack(spacing: 0) {
             ComposerSelect(
-                title: "Fonte",
+                title: L10n.tr("Fonte"),
                 selected: reading.family,
                 width: 112,
                 groups: ComposerFormatting.familyGroups,
@@ -211,7 +211,7 @@ struct ComposerToolbar: View {
                 .frame(width: Hairline.thickness(displayScale))
 
             ComposerSelect(
-                title: "Tamanho",
+                title: L10n.tr("Tamanho"),
                 selected: reading.size.map { String(Int($0)) },
                 width: 54,
                 groups: ComposerFormatting.sizeGroups,
@@ -234,16 +234,16 @@ struct ComposerToolbar: View {
 
     private var marksGroup: some View {
         SegmentedRow {
-            SegmentButton(label: "B", title: "Negrito", on: reading.bold, weight: .bold) {
+            SegmentButton(label: "B", title: L10n.tr("Negrito"), on: reading.bold, weight: .bold) {
                 perform(.bold)
             }
-            SegmentButton(label: "I", title: "Itálico", on: reading.italic, italic: true) {
+            SegmentButton(label: "I", title: L10n.tr("Itálico"), on: reading.italic, italic: true) {
                 perform(.italic)
             }
-            SegmentButton(label: "U", title: "Sublinhado", on: reading.underline, underline: true) {
+            SegmentButton(label: "U", title: L10n.tr("Sublinhado"), on: reading.underline, underline: true) {
                 perform(.underline)
             }
-            SegmentButton(label: "S", title: "Riscado", on: reading.strike, strike: true) {
+            SegmentButton(label: "S", title: L10n.tr("Riscado"), on: reading.strike, strike: true) {
                 perform(.strike)
             }
         }
@@ -252,13 +252,13 @@ struct ComposerToolbar: View {
     private var colorGroup: some View {
         SegmentedRow {
             SegmentButton(
-                label: "A", title: "Cor da fonte", on: openPanel == .color,
+                label: "A", title: L10n.tr("Cor da fonte"), on: openPanel == .color,
                 bar: reading.colorHex.map { ComposerFormatting.color($0, theme: theme) } ?? theme.line.color
             ) {
                 openPanel = openPanel == .color ? nil : .color
             }
             SegmentButton(
-                label: "▨", title: "Realce", on: openPanel == .highlight,
+                label: "▨", title: L10n.tr("Realce"), on: openPanel == .highlight,
                 bar: reading.highlightHex.flatMap(ComposerFormatting.highlight) ?? theme.line.color
             ) {
                 openPanel = openPanel == .highlight ? nil : .highlight
@@ -269,7 +269,7 @@ struct ComposerToolbar: View {
                 swatches(
                     ComposerFormatting.textColors,
                     selected: reading.colorHex,
-                    freeTitle: "Outra cor…",
+                    freeTitle: L10n.tr("Outra cor…"),
                     pickFree: { perform(.color($0)) }
                 ) {
                     perform(.color($0))
@@ -283,7 +283,7 @@ struct ComposerToolbar: View {
                 swatches(
                     ComposerFormatting.highlights,
                     selected: reading.highlightHex,
-                    freeTitle: "Outro realce…",
+                    freeTitle: L10n.tr("Outro realce…"),
                     pickFree: { perform(.highlight($0)) }
                 ) {
                     perform(.highlight($0))
@@ -297,25 +297,25 @@ struct ComposerToolbar: View {
 
     private var listGroup: some View {
         SegmentedRow {
-            SegmentButton(label: "•—", title: "Lista com marcadores",
+            SegmentButton(label: "•—", title: L10n.tr("Lista com marcadores"),
                           on: reading.list == .bulleted) {
                 perform(.list(reading.list == .bulleted ? nil : .bulleted))
             }
-            SegmentButton(label: "1.", title: "Lista numerada",
+            SegmentButton(label: "1.", title: L10n.tr("Lista numerada"),
                           on: reading.list == .numbered) {
                 perform(.list(reading.list == .numbered ? nil : .numbered))
             }
             SegmentButton(
                 label: "⇤",
                 title: reading.indent > 0
-                    ? "Diminuir indentação"
-                    : "Diminuir indentação — o parágrafo já está na margem",
+                    ? L10n.tr("Diminuir indentação")
+                    : L10n.tr("Diminuir indentação — o parágrafo já está na margem"),
                 on: false,
                 enabled: reading.indent > 0
             ) {
                 perform(.indent(-1))
             }
-            SegmentButton(label: "⇥", title: "Aumentar indentação", on: false) {
+            SegmentButton(label: "⇥", title: L10n.tr("Aumentar indentação"), on: false) {
                 perform(.indent(1))
             }
         }
@@ -323,17 +323,17 @@ struct ComposerToolbar: View {
 
     private var alignGroup: some View {
         SegmentedRow {
-            SegmentButton(label: "⇐", title: "Alinhar à esquerda",
+            SegmentButton(label: "⇐", title: L10n.tr("Alinhar à esquerda"),
                           on: reading.alignment == .left) { perform(.align(.left)) }
-            SegmentButton(label: "⇔", title: "Centralizar",
+            SegmentButton(label: "⇔", title: L10n.tr("Centralizar"),
                           on: reading.alignment == .center) { perform(.align(.center)) }
-            SegmentButton(label: "⇒", title: "Alinhar à direita",
+            SegmentButton(label: "⇒", title: L10n.tr("Alinhar à direita"),
                           on: reading.alignment == .right) { perform(.align(.right)) }
             // Vivo desde a Task AF. O que faltava não era o botão: era o
             // editor. `AttributedString.TextAlignment`, que o `TextEditor`
             // usava, tem três casos; `NSParagraphStyle.alignment` tem
             // `.justified`. Ver `BodyAlignment`.
-            SegmentButton(label: "≡", title: "Justificar",
+            SegmentButton(label: "≡", title: L10n.tr("Justificar"),
                           on: reading.alignment == .justified) { perform(.align(.justified)) }
         }
     }
@@ -348,7 +348,7 @@ struct ComposerToolbar: View {
     private var linkButton: some View {
         SoloToolButton(
             label: "↗",
-            title: reading.hasLink ? "Editar ou remover o hyperlink" : "Inserir hyperlink",
+            title: reading.hasLink ? L10n.tr("Editar ou remover o hyperlink") : L10n.tr("Inserir hyperlink"),
             on: openPanel == .link
         ) {
             openPanel = openPanel == .link ? nil : .link
@@ -382,7 +382,7 @@ struct ComposerToolbar: View {
             // trecho e alinhamento, mas **não** desfaz lista nem recuo. A dica
             // diz o que o botão faz, não o que o protótipo prometeu.
             label: "⌫",
-            title: "Limpar a formatação da seleção",
+            title: L10n.tr("Limpar a formatação da seleção"),
             on: false
         ) {
             perform(.clearFormatting)
@@ -454,14 +454,14 @@ struct ComposerToolbar: View {
 
     private var intelligenceHelp: String {
         if intelligence == nil {
-            return "Inteligência de escrita — indisponível: nenhum motor foi conectado"
+            return L10n.tr("Inteligência de escrita — indisponível: nenhum motor foi conectado")
         }
         if intelligenceContext?.source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
            intelligenceSourceContext == nil,
            intelligenceSourceMessage == nil {
-            return "Inteligência de escrita — escreva ou selecione texto primeiro"
+            return L10n.tr("Inteligência de escrita — escreva ou selecione texto primeiro")
         }
-        return "Inteligência de escrita"
+        return L10n.tr("Inteligência de escrita")
     }
 
     private func generateIntelligence(
@@ -469,13 +469,13 @@ struct ComposerToolbar: View {
         _ instruction: String?
     ) {
         guard let intelligence, let context = intelligenceContext else {
-            intelligencePhase = .failure("A inteligência de escrita não está disponível nesta tela.")
+            intelligencePhase = .failure(L10n.tr("A inteligência de escrita não está disponível nesta tela."))
             return
         }
         let hasText = !context.source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         let hasMailContext = intelligenceSourceContext != nil || intelligenceSourceMessage != nil
         guard action == .createReply ? hasMailContext : hasText else {
-            intelligencePhase = .failure("Escreva ou selecione texto antes de gerar uma prévia.")
+            intelligencePhase = .failure(L10n.tr("Escreva ou selecione texto antes de gerar uma prévia."))
             return
         }
 

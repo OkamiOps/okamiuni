@@ -115,7 +115,7 @@ public struct MonthScreen: View {
             }
             .buttonStyle(.plain)
             .focusRing(cornerRadius: theme.radiusSmall)
-            .help("Abre este dia")
+            .help(L10n.tr("Abre este dia"))
             .accessibilityLabel(
                 MonthAgenda.longDayTitle(dayOffset: day.dayOffset, anchor: anchor)
             )

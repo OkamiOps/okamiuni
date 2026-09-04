@@ -83,7 +83,7 @@ struct DashboardMailSheet: View {
                 .ignoresSafeArea()
                 .contentShape(Rectangle())
                 .onTapGesture(perform: onClose)
-                .accessibilityLabel("Fechar email")
+                .accessibilityLabel(L10n.tr("Fechar email"))
 
             VStack(spacing: 0) {
                 sheetBar
@@ -100,7 +100,7 @@ struct DashboardMailSheet: View {
             .padding(28)
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(message.map { "Email: \($0.subject)" } ?? "Email")
+        .accessibilityLabel(message.map { L10n.tr("Email: \($0.subject)") } ?? L10n.tr("Email"))
     }
 
     /// O leitor da Caixa, apontado para a mensagem da folha e avisado de que,
@@ -129,19 +129,19 @@ struct DashboardMailSheet: View {
     private var sheetBar: some View {
         HStack(spacing: 10) {
             if let message {
-                Button("Abrir na Caixa") { onOpenInMailbox(message) }
+                Button(L10n.tr("Abrir na Caixa")) { onOpenInMailbox(message) }
                     .buttonStyle(.plain)
                     .font(theme.sans.font(size: 12.5, weight: .medium))
                     .foregroundStyle(theme.link.color)
                     .focusRing(cornerRadius: theme.radiusSmall)
-                    .help("Mostra este email na Caixa, com a lista ao lado")
+                    .help(L10n.tr("Mostra este email na Caixa, com a lista ao lado"))
             }
             Spacer(minLength: 8)
             if let message {
                 Button {
                     onDraft(message)
                 } label: {
-                    Text("Gerar rascunho")
+                    Text(L10n.tr("Gerar rascunho"))
                         .font(theme.sans.font(size: 12, weight: .semibold))
                         .foregroundStyle(theme.onAccent.color)
                         .padding(.horizontal, 12)
@@ -150,7 +150,7 @@ struct DashboardMailSheet: View {
                 }
                 .buttonStyle(.plain)
                 .focusRing(cornerRadius: 14, tint: \.onAccent)
-                .help("Pede um rascunho com o corpo deste email")
+                .help(L10n.tr("Pede um rascunho com o corpo deste email"))
             }
             Button(action: onClose) {
                 Image(systemName: "xmark")
@@ -161,8 +161,8 @@ struct DashboardMailSheet: View {
             }
             .buttonStyle(.plain)
             .focusRing(cornerRadius: 14)
-            .help("Fechar")
-            .accessibilityLabel("Fechar email")
+            .help(L10n.tr("Fechar"))
+            .accessibilityLabel(L10n.tr("Fechar email"))
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 10)

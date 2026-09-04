@@ -20,32 +20,32 @@ public struct AccountTint: Sendable, Hashable, Identifiable {
 
     /// Ordem do menu e do ciclo automático. Hues espaçadas de propósito: com
     /// muitas caixas, vizinhos no menu não podem parecer a mesma tinta.
-    public static let catalogue: [AccountTint] = [
-        AccountTint(name: "Azul", lightHex: "#3F6AA1", darkHex: "#8CBAF7"),
-        AccountTint(name: "Violeta", lightHex: "#725B9A", darkHex: "#C2A7F4"),
-        AccountTint(name: "Verde", lightHex: "#397852", darkHex: "#88D1A2"),
-        AccountTint(name: "Turquesa", lightHex: "#298084", darkHex: "#71D0D5"),
-        AccountTint(name: "Magenta", lightHex: "#A92769", darkHex: "#F18BBE"),
-        AccountTint(name: "Laranja", lightHex: "#A85424", darkHex: "#F3A46F"),
-        AccountTint(name: "Vermelho", lightHex: "#A23B43", darkHex: "#EF8C92"),
-        AccountTint(name: "Grafite", lightHex: "#59616C", darkHex: "#ABB4C0"),
-        AccountTint(name: "Marinho", lightHex: "#1B4F8A", darkHex: "#6A9BE0"),
-        AccountTint(name: "Índigo", lightHex: "#3B3F9C", darkHex: "#9A9EF0"),
-        AccountTint(name: "Lilás", lightHex: "#8A5AAA", darkHex: "#D0B0F0"),
-        AccountTint(name: "Rosa", lightHex: "#C05080", darkHex: "#F0A8C8"),
-        AccountTint(name: "Coral", lightHex: "#C45C48", darkHex: "#F0A090"),
-        AccountTint(name: "Âmbar", lightHex: "#9A7420", darkHex: "#E8C45C"),
-        AccountTint(name: "Lima", lightHex: "#6B8C28", darkHex: "#C4DC6C"),
-        AccountTint(name: "Esmeralda", lightHex: "#1E6B50", darkHex: "#5EC9A0"),
-        AccountTint(name: "Ciano", lightHex: "#0C7C94", darkHex: "#4EC8DC"),
-        AccountTint(name: "Petróleo", lightHex: "#1A5A6C", darkHex: "#5AADC0"),
-        AccountTint(name: "Ameixa", lightHex: "#6A3A68", darkHex: "#C888C4"),
-        AccountTint(name: "Terracota", lightHex: "#9A4A30", darkHex: "#E0906C"),
-        AccountTint(name: "Hortelã", lightHex: "#2A7A64", darkHex: "#7ED4B8"),
-        AccountTint(name: "Cobre", lightHex: "#8A4A24", darkHex: "#D4925C"),
-        AccountTint(name: "Oliva", lightHex: "#5A6B38", darkHex: "#B8C878"),
-        AccountTint(name: "Fúcsia", lightHex: "#B01878", darkHex: "#F068C0"),
-    ]
+    public static var catalogue: [AccountTint] { [
+        AccountTint(name: L10n.tr("Azul"), lightHex: "#3F6AA1", darkHex: "#8CBAF7"),
+        AccountTint(name: L10n.tr("Violeta"), lightHex: "#725B9A", darkHex: "#C2A7F4"),
+        AccountTint(name: L10n.tr("Verde"), lightHex: "#397852", darkHex: "#88D1A2"),
+        AccountTint(name: L10n.tr("Turquesa"), lightHex: "#298084", darkHex: "#71D0D5"),
+        AccountTint(name: L10n.tr("Magenta"), lightHex: "#A92769", darkHex: "#F18BBE"),
+        AccountTint(name: L10n.tr("Laranja"), lightHex: "#A85424", darkHex: "#F3A46F"),
+        AccountTint(name: L10n.tr("Vermelho"), lightHex: "#A23B43", darkHex: "#EF8C92"),
+        AccountTint(name: L10n.tr("Grafite"), lightHex: "#59616C", darkHex: "#ABB4C0"),
+        AccountTint(name: L10n.tr("Marinho"), lightHex: "#1B4F8A", darkHex: "#6A9BE0"),
+        AccountTint(name: L10n.tr("Índigo"), lightHex: "#3B3F9C", darkHex: "#9A9EF0"),
+        AccountTint(name: L10n.tr("Lilás"), lightHex: "#8A5AAA", darkHex: "#D0B0F0"),
+        AccountTint(name: L10n.tr("Rosa"), lightHex: "#C05080", darkHex: "#F0A8C8"),
+        AccountTint(name: L10n.tr("Coral"), lightHex: "#C45C48", darkHex: "#F0A090"),
+        AccountTint(name: L10n.tr("Âmbar"), lightHex: "#9A7420", darkHex: "#E8C45C"),
+        AccountTint(name: L10n.tr("Lima"), lightHex: "#6B8C28", darkHex: "#C4DC6C"),
+        AccountTint(name: L10n.tr("Esmeralda"), lightHex: "#1E6B50", darkHex: "#5EC9A0"),
+        AccountTint(name: L10n.tr("Ciano"), lightHex: "#0C7C94", darkHex: "#4EC8DC"),
+        AccountTint(name: L10n.tr("Petróleo"), lightHex: "#1A5A6C", darkHex: "#5AADC0"),
+        AccountTint(name: L10n.tr("Ameixa"), lightHex: "#6A3A68", darkHex: "#C888C4"),
+        AccountTint(name: L10n.tr("Terracota"), lightHex: "#9A4A30", darkHex: "#E0906C"),
+        AccountTint(name: L10n.tr("Hortelã"), lightHex: "#2A7A64", darkHex: "#7ED4B8"),
+        AccountTint(name: L10n.tr("Cobre"), lightHex: "#8A4A24", darkHex: "#D4925C"),
+        AccountTint(name: L10n.tr("Oliva"), lightHex: "#5A6B38", darkHex: "#B8C878"),
+        AccountTint(name: L10n.tr("Fúcsia"), lightHex: "#B01878", darkHex: "#F068C0"),
+    ] }
 
     public static var count: Int { catalogue.count }
 

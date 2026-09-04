@@ -47,7 +47,7 @@ struct PainelLinhaDoTempo: View {
         }
         .frame(height: desenho.altura)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Linha do tempo de hoje")
+        .accessibilityLabel(L10n.tr("Linha do tempo de hoje"))
     }
 
     // MARK: - As medidas do quadro
@@ -123,11 +123,11 @@ struct PainelLinhaDoTempo: View {
     /// quem é a linha, e uma legenda que sai da tela ao rolar não diz nada.
     private func rotulos(_ desenho: Desenho) -> some View {
         ZStack(alignment: .topLeading) {
-            Text("agenda")
+            Text(L10n.tr("agenda"))
                 .capsLabel(size: 9)
                 .foregroundStyle(theme.ink3.color)
                 .offset(y: desenho.topoDaAgenda + 8)
-            Text("você")
+            Text(L10n.tr("você"))
                 .capsLabel(size: 9)
                 .foregroundStyle(theme.accentInk.color)
                 .offset(y: desenho.topoDoVoce + 8)
@@ -334,8 +334,8 @@ struct PainelLinhaDoTempo: View {
         let hora = MinuteFormat.clock(bloco.startMinute)
         switch bloco.tipo {
         case .compromisso: return "\(hora), \(bloco.title)"
-        case .proposto: return "Proposto às \(hora), \(bloco.title)"
-        case .prazo: return "Prazo às \(hora), \(bloco.title)"
+        case .proposto: return L10n.tr("Proposto às \(hora), \(bloco.title)")
+        case .prazo: return L10n.tr("Prazo às \(hora), \(bloco.title)")
         }
     }
 
@@ -351,6 +351,6 @@ struct PainelLinhaDoTempo: View {
                 .offset(y: -4)
         }
         .offset(x: CGFloat(PlanoDoDia.x(nowMinute)) - 0.75, y: 4)
-        .accessibilityLabel("Agora")
+        .accessibilityLabel(L10n.tr("Agora"))
     }
 }

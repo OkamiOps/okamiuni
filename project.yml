@@ -1,6 +1,7 @@
 name: OkamiUNI
 options:
   bundleIdPrefix: com.okamiops
+  developmentLanguage: pt-BR
   deploymentTarget:
     macOS: "26.0"
   createIntermediateGroups: true

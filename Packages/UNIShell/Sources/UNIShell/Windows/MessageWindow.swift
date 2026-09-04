@@ -83,7 +83,7 @@ public struct MessageWindow: View {
     public var body: some View {
         ZStack(alignment: .trailing) {
             VStack(spacing: 0) {
-                WindowTitleBar(title: message?.subject ?? "Mensagem") {
+                WindowTitleBar(title: message?.subject ?? L10n.tr("Mensagem")) {
                     TintChip(label: account?.host ?? "", tint: tint, emphasized: true)
                 }
 
@@ -240,28 +240,28 @@ public struct MessageWindow: View {
     private func footer(_ message: Message) -> some View {
         HStack(spacing: 8) {
             ChromeButton(
-                "Responder aqui", appearance: .accent, size: 13, weight: .semibold,
+                L10n.tr("Responder aqui"), appearance: .accent, size: 13, weight: .semibold,
                 horizontalPadding: 16
             ) {
                 openWindow(id: UNIWindow.composer, value: message.id)
                 dismiss()
             }
-            ChromeButton("Perguntar", appearance: .outlined) {
+            ChromeButton(L10n.tr("Perguntar"), appearance: .outlined) {
                 conversation = makeAssistantConversation(for: message)
                 withAnimation(.easeInOut(duration: 0.18)) { assistantOpen = true }
             }
             .disabled(!intelligencePresentation.isAvailable)
             .help(
                 intelligencePresentation.isAvailable
-                    ? "Abre ações rápidas e perguntas sobre este email."
+                    ? L10n.tr("Abre ações rápidas e perguntas sobre este email.")
                     : intelligencePresentation.detail
             )
-            ChromeButton("Arquivar", appearance: .outlined) {
+            ChromeButton(L10n.tr("Arquivar"), appearance: .outlined) {
                 store.move(message, to: .archived)
                 dismiss()
             }
             Spacer(minLength: 8)
-            ChromeButton("Fechar janela", appearance: .outlined) { dismiss() }
+            ChromeButton(L10n.tr("Fechar janela"), appearance: .outlined) { dismiss() }
         }
         .padding(.horizontal, 20)
         .padding(.top, 12)
@@ -271,7 +271,7 @@ public struct MessageWindow: View {
     }
 
     private var missing: some View {
-        Text("Esta mensagem não está mais na caixa.")
+        Text(L10n.tr("Esta mensagem não está mais na caixa."))
             .font(theme.serif.font(size: 16))
             .italic()
             .foregroundStyle(theme.ink4.color)
@@ -283,7 +283,7 @@ public struct MessageWindow: View {
         return AssistantContext(
             subject: message.subject,
             sender: message.from.display,
-            conversationLabel: count > 1 ? "\(count) mensagens" : nil
+            conversationLabel: count > 1 ? L10n.tr("\(count) mensagens") : nil
         )
     }
 
@@ -300,7 +300,7 @@ public struct MessageWindow: View {
 
         guard let mailContext = store.assistantMailContext(for: messageID) else {
             throw TextAssistantError.invalidRequest(
-                "O email selecionado não está mais disponível."
+                L10n.tr("O email selecionado não está mais disponível.")
             )
         }
         return mailContext

@@ -1,3 +1,4 @@
+import UNICore
 import Foundation
 
 /// CLIs que podem representar uma sessão de IA já configurada pela pessoa.
@@ -27,7 +28,7 @@ public enum AssistantCLIKind: String, CaseIterable, Codable, Sendable, Identifia
         switch self {
         case .claude: "Claude Code · Claude.ai OAuth"
         case .codex: "Codex CLI · ChatGPT OAuth/device"
-        case .openCode: "OpenCode · OpenAI ou Grok OAuth/device"
+        case .openCode: L10n.tr("OpenCode · OpenAI ou Grok OAuth/device")
         }
     }
 

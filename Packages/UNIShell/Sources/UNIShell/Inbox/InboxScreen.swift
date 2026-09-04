@@ -740,7 +740,7 @@ public struct InboxScreen: View {
               case let .move(messageID, .archived) = comandos[0],
               case .learnSender(_, true) = comandos[1],
               let mensagem = store.message(messageID) else { return nil }
-        return "Arquivada e aprendida — \(mensagem.from.display) · " + ActionReceipts.stamp
+        return L10n.tr("Arquivada e aprendida — \(mensagem.from.display) · ") + ActionReceipts.stamp
     }
 
     private func runSingleDashboardCommand(_ command: ContextCommand) {
@@ -851,22 +851,22 @@ public struct InboxScreen: View {
             let emailCount = store.messages.count
             let agendaCount = store.agenda.count
             return AssistantContext(
-                subject: "Todo o OkamiUNI",
-                sender: "\(accountCount) \(accountCount == 1 ? "conta" : "contas") · \(emailCount) \(emailCount == 1 ? "email" : "emails")",
-                conversationLabel: "\(agendaCount) \(agendaCount == 1 ? "compromisso" : "compromissos")"
+                subject: L10n.tr("Todo o OkamiUNI"),
+                sender: "\(accountCount) \(accountCount == 1 ? L10n.tr("conta") : L10n.tr("contas")) · \(emailCount) \(emailCount == 1 ? L10n.tr("email") : L10n.tr("emails"))",
+                conversationLabel: "\(agendaCount) \(agendaCount == 1 ? L10n.tr("compromisso") : L10n.tr("compromissos"))"
             )
         case let .email(messageID):
             guard let message = store.messages.first(where: { $0.id == messageID }) else {
                 return AssistantContext(
-                    subject: "Email indisponível",
-                    sender: "A mensagem saiu da caixa"
+                    subject: L10n.tr("Email indisponível"),
+                    sender: L10n.tr("A mensagem saiu da caixa")
                 )
             }
             let count = store.conversation(of: messageID)?.count ?? 1
             return AssistantContext(
                 subject: message.subject,
                 sender: message.from.display,
-                conversationLabel: count > 1 ? "\(count) mensagens" : nil
+                conversationLabel: count > 1 ? L10n.tr("\(count) mensagens") : nil
             )
         }
     }
@@ -931,7 +931,7 @@ public struct InboxScreen: View {
     private func makeDashboardConversation() -> AssistantConversation {
         AssistantConversation(
             scope: .email,
-            context: AssistantContext(subject: "Caixa e agenda de hoje"),
+            context: AssistantContext(subject: L10n.tr("Caixa e agenda de hoje")),
             destination: assistantDestination,
             engine: makeEngine(
                 supportsDraftReply: textAssistant != nil,
@@ -970,7 +970,7 @@ public struct InboxScreen: View {
             for id in ids { await store.loadBodyIfNeeded(id) }
             guard let loaded = store.assistantMailContext(for: messageID) else {
                 throw TextAssistantError.invalidRequest(
-                    "O email selecionado não está mais disponível."
+                    L10n.tr("O email selecionado não está mais disponível.")
                 )
             }
             return loaded

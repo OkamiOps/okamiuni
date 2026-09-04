@@ -71,13 +71,13 @@ struct PainelDoDiaModelo {
         var legenda: String {
             switch self {
             case let .precisaDoOptIn(destino):
-                "Respostas prontas precisam da análise automática pelo \(destino) · Ativar"
+                L10n.tr("Respostas prontas precisam da análise automática pelo \(destino) · Ativar")
             case let .motorIndisponivel(destino):
-                "\(destino) indisponível · Entrar"
+                L10n.tr("\(destino) indisponível · Entrar")
             // Sem "· Gerar as prontas": o botão está logo ao lado, e a
             // legenda repetindo o rótulo dele lia como duas ações.
             case .aindaNaoEscreveu:
-                "Nenhuma resposta pronta ainda"
+                L10n.tr("Nenhuma resposta pronta ainda")
             }
         }
     }
@@ -101,12 +101,12 @@ struct PainelDoDiaModelo {
 
     var legendaDoPlano: String {
         let n = propostos.count
-        let blocos = n == 1 ? "1 bloco proposto" : "\(n) blocos propostos"
-        return "agenda + prazos + o que você prometeu · \(blocos)"
+        let blocos = n == 1 ? L10n.tr("1 bloco proposto") : L10n.tr("\(n) blocos propostos")
+        return L10n.tr("agenda + prazos + o que você prometeu · \(blocos)")
     }
 
     static func reciboDoPlano(_ count: Int) -> String {
-        count == 1 ? "1 bloco no seu dia" : "\(count) blocos no seu dia"
+        count == 1 ? L10n.tr("1 bloco no seu dia") : L10n.tr("\(count) blocos no seu dia")
     }
 
     // MARK: - A costura
@@ -185,7 +185,7 @@ struct PainelDoDiaModelo {
                 )
                 numero = "\(horas)"
                 sufixo = "h"
-                palavra = "prazo hoje"
+                palavra = L10n.tr("prazo hoje")
             } else {
                 numero = "\(dias)"
                 sufixo = "d"
@@ -222,10 +222,10 @@ struct PainelDoDiaModelo {
                 var alerta = false
                 if let vence = item.dueDate {
                     if calendar.isDate(vence, inSameDayAs: today) {
-                        quando = "hoje"
+                        quando = L10n.tr("hoje")
                         alerta = true
                     } else if vence < today {
-                        quando = "venceu"
+                        quando = L10n.tr("venceu")
                         alerta = true
                     } else {
                         let dias = calendar.dateComponents(
@@ -259,7 +259,7 @@ struct PainelDoDiaModelo {
                 [.hour], from: today, to: prazo.date
             ).hour ?? .max
             let quando = calendar.isDate(prazo.date, inSameDayAs: today)
-                ? "vence hoje · \(mensagem.accountID)"
+                ? L10n.tr("vence hoje · \(mensagem.accountID)")
                 : "\(Self.dataCurta(prazo.date)) · \(mensagem.accountID)"
             return LinhaDeDinheiro(
                 id: row.id,
@@ -288,7 +288,7 @@ struct PainelDoDiaModelo {
             // nada.
             return PlanoDoDia.Prazo(
                 id: linha.id,
-                title: "Prazo \(DashboardDay.firstName(of: mensagem.from))",
+                title: L10n.tr("Prazo \(DashboardDay.firstName(of: mensagem.from))"),
                 minute: (partes.hour ?? 0) * 60 + (partes.minute ?? 0)
             )
         }
@@ -342,7 +342,7 @@ struct PainelDoDiaModelo {
                 alerta: esboço.alerta,
                 porque: esboço.item.text,
                 folga: folga,
-                rotuloDaReserva: folga.map { "Reservar \(MinuteFormat.clock($0))" }
+                rotuloDaReserva: folga.map { L10n.tr("Reservar \(MinuteFormat.clock($0))") }
             )
         }
 
@@ -369,21 +369,21 @@ struct PainelDoDiaModelo {
         let prontas = espera.filter(\.temRascunho).count
         legendaDaEspera = prontas == 0
             ? motivoSemProntas.legenda
-            : (prontas == 1 ? "1 resposta pronta" : "\(prontas) respostas prontas")
+            : (prontas == 1 ? L10n.tr("1 resposta pronta") : L10n.tr("\(prontas) respostas prontas"))
         self.motivoSemProntas = prontas == 0 ? motivoSemProntas : nil
         // "0 promessas" soa como "a IA olhou e não achou nada". Ela não olhou:
         // ler o que EU prometi nos enviados é a próxima entrega, e o cabeçalho
         // diz isso em vez de fingir um resultado.
         legendaDosCompromissos = switch promessas.count {
-        case 0: "lido dos seus enviados · na próxima versão"
-        case 1: "1 promessa"
-        default: "\(promessas.count) promessas"
+        case 0: L10n.tr("lido dos seus enviados · na próxima versão")
+        case 1: L10n.tr("1 promessa")
+        default: L10n.tr("\(promessas.count) promessas")
         }
 
         let disparos = plan.counts[.broadcasts] ?? 0
         let newsletters = plan.counts[.newsletters] ?? 0
-        foraDaLista = "\(disparos) \(disparos == 1 ? "disparo" : "disparos") e "
-            + "\(newsletters) \(newsletters == 1 ? "newsletter ficou" : "newsletters ficaram") de fora"
+        foraDaLista = L10n.tr("\(disparos) \(disparos == 1 ? L10n.tr("disparo") : L10n.tr("disparos")) e ")
+            + L10n.tr("\(newsletters) \(newsletters == 1 ? L10n.tr("newsletter ficou") : L10n.tr("newsletters ficaram")) de fora")
 
         // A barra: o dia feito e o dia inteiro.
         let reuniõesDeHoje = agenda.filter { $0.dayOffset == 0 && !$0.isCancelled }
@@ -396,7 +396,7 @@ struct PainelDoDiaModelo {
         let total = feitos + espera.count + promessas.count
             + (reuniõesDeHoje.count - reuniõesPassadas)
         progresso = total > 0 ? min(1, Double(feitos) / Double(total)) : 0
-        progressoEscrito = "\(feitos) de \(total)"
+        progressoEscrito = L10n.tr("\(feitos) de \(total)")
         composicao = Self.composicao(
             respostas: espera.count, promessas: promessas.count,
             reuniões: reuniõesDeHoje.count
@@ -439,22 +439,22 @@ struct PainelDoDiaModelo {
     /// teste (ver a nota em `Render.bitmap`).
     static func dataCurta(_ date: Date) -> String {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "pt_BR")
-        formatter.dateFormat = "'vence' dd/MM"
-        return formatter.string(from: date)
+        formatter.locale = L10n.locale
+        formatter.setLocalizedDateFormatFromTemplate("ddMM")
+        return L10n.tr("vence \(formatter.string(from: date))")
     }
 
     /// "3 respostas · 2 promessas · 2 reuniões".
     static func composicao(respostas: Int, promessas: Int, reuniões: Int) -> String {
         var partes: [String] = []
         if respostas > 0 {
-            partes.append("\(respostas) \(respostas == 1 ? "resposta" : "respostas")")
+            partes.append("\(respostas) \(respostas == 1 ? L10n.tr("resposta") : L10n.tr("respostas"))")
         }
         if promessas > 0 {
-            partes.append("\(promessas) \(promessas == 1 ? "promessa" : "promessas")")
+            partes.append("\(promessas) \(promessas == 1 ? L10n.tr("promessa") : L10n.tr("promessas"))")
         }
         if reuniões > 0 {
-            partes.append("\(reuniões) \(reuniões == 1 ? "reunião" : "reuniões")")
+            partes.append("\(reuniões) \(reuniões == 1 ? L10n.tr("reunião") : L10n.tr("reuniões"))")
         }
         return partes.joined(separator: " · ")
     }
@@ -471,15 +471,15 @@ struct PainelDoDiaModelo {
             let total = mesmos.reduce(0) { $0 + $1.amount }
             guard total > 0 else { return nil }
             return moeda == "créditos"
-                ? "\(escrito(total)) créditos"
+                ? L10n.tr("\(escrito(total)) créditos")
                 : "\(moeda) \(escrito(total))"
         }
         var partes: [(rotulo: String, valor: String, aReceber: Bool)] = []
         if let receber = soma(linhas.filter(\.aReceber)) {
-            partes.append(("a receber", receber, true))
+            partes.append((L10n.tr("a receber"), receber, true))
         }
         if let pagar = soma(linhas.filter { !$0.aReceber }) {
-            partes.append(("a pagar", pagar, false))
+            partes.append((L10n.tr("a pagar"), pagar, false))
         }
         return partes
     }
@@ -487,7 +487,7 @@ struct PainelDoDiaModelo {
     /// 4200 → "4.200"; 250.5 → "250,50".
     private static func escrito(_ valor: Double) -> String {
         let formatter = NumberFormatter()
-        formatter.locale = Locale(identifier: "pt_BR")
+        formatter.locale = L10n.locale
         formatter.numberStyle = .decimal
         formatter.maximumFractionDigits = valor == valor.rounded() ? 0 : 2
         return formatter.string(from: NSNumber(value: valor)) ?? "\(Int(valor))"

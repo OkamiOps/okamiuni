@@ -20,14 +20,14 @@ public enum ComposerIntelligenceAction: String, CaseIterable, Sendable {
 
     var title: String {
         switch self {
-        case .summarize: "Resumir"
-        case .clarify: "Reescrever com clareza"
-        case .shorten: "Encurtar"
-        case .formal: "Mais formal"
-        case .cordial: "Mais cordial"
-        case .correctPortuguese: "Corrigir português"
-        case .createReply: "Gerar resposta"
-        case .custom: "Aplicar instrução"
+        case .summarize: L10n.tr("Resumir")
+        case .clarify: L10n.tr("Reescrever com clareza")
+        case .shorten: L10n.tr("Encurtar")
+        case .formal: L10n.tr("Mais formal")
+        case .cordial: L10n.tr("Mais cordial")
+        case .correctPortuguese: L10n.tr("Corrigir português")
+        case .createReply: L10n.tr("Gerar resposta")
+        case .custom: L10n.tr("Aplicar instrução")
         }
     }
 }
@@ -39,15 +39,15 @@ public enum ComposerIntelligenceTarget: String, Equatable, Sendable {
 
     var label: String {
         switch self {
-        case .selection: "seleção"
-        case .draft: "rascunho"
+        case .selection: L10n.tr("seleção")
+        case .draft: L10n.tr("rascunho")
         }
     }
 
     var replacementLabel: String {
         switch self {
-        case .selection: "Substituir seleção"
-        case .draft: "Substituir rascunho"
+        case .selection: L10n.tr("Substituir seleção")
+        case .draft: L10n.tr("Substituir rascunho")
         }
     }
 }
@@ -106,7 +106,7 @@ enum ComposerIntelligenceError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .emptyResult: "A inteligência não retornou texto para revisar."
+        case .emptyResult: L10n.tr("A inteligência não retornou texto para revisar.")
         }
     }
 }
@@ -144,9 +144,9 @@ enum ComposerIntelligenceApplyResult: Equatable {
         switch self {
         case .applied: ""
         case .sourceChanged:
-            "O texto de origem mudou; gere uma nova prévia antes de substituir."
+            L10n.tr("O texto de origem mudou; gere uma nova prévia antes de substituir.")
         case .emptyResult:
-            "A prévia está vazia e não foi aplicada."
+            L10n.tr("A prévia está vazia e não foi aplicada.")
         }
     }
 }
@@ -174,7 +174,7 @@ struct ComposerIntelligencePanel: View {
     let cancel: () -> Void
 
     private var targetLabel: String {
-        context?.target.label ?? "rascunho"
+        context?.target.label ?? L10n.tr("rascunho")
     }
 
     private var inputIsUsable: Bool {
@@ -183,9 +183,9 @@ struct ComposerIntelligencePanel: View {
     }
 
     private var unavailableReason: String? {
-        if !available { return "A inteligência de escrita ainda não foi conectada a esta tela." }
+        if !available { return L10n.tr("A inteligência de escrita ainda não foi conectada a esta tela.") }
         if !inputIsUsable, sourceMessage == nil {
-            return "Escreva ou selecione algum texto antes de usar a inteligência."
+            return L10n.tr("Escreva ou selecione algum texto antes de usar a inteligência.")
         }
         return nil
     }
@@ -199,10 +199,10 @@ struct ComposerIntelligencePanel: View {
                     .frame(width: 24, height: 24)
                     .background(theme.infoSoft.color, in: RoundedRectangle(cornerRadius: theme.radiusSmall))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Inteligência de escrita")
+                    Text(L10n.tr("Inteligência de escrita"))
                         .font(theme.sans.font(size: 12, weight: .semibold))
                         .foregroundStyle(theme.ink.color)
-                    Text("Vai atuar no \(targetLabel)")
+                    Text(L10n.tr("Vai atuar no \(targetLabel)"))
                         .font(theme.sans.font(size: 10.5))
                         .foregroundStyle(theme.ink4.color)
                 }
@@ -244,7 +244,7 @@ struct ComposerIntelligencePanel: View {
         }
         .shadow(color: .black.opacity(0.20), radius: 16, x: 0, y: 10)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Inteligência de escrita para \(targetLabel)")
+        .accessibilityLabel(L10n.tr("Inteligência de escrita para \(targetLabel)"))
     }
 
     private var actionGrid: some View {
@@ -269,18 +269,18 @@ struct ComposerIntelligencePanel: View {
             panelButton(ComposerIntelligenceAction.createReply.title, enabled: available) {
                 generate(.createReply, nil)
             }
-            .help("Cria uma prévia a partir da mensagem recebida, sem alterar o rascunho")
+            .help(L10n.tr("Cria uma prévia a partir da mensagem recebida, sem alterar o rascunho"))
         }
     }
 
     private var instructionRow: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Instrução livre")
+            Text(L10n.tr("Instrução livre"))
                 .font(theme.mono.font(size: 9.5))
                 .foregroundStyle(theme.ink4.color)
                 .textCase(.uppercase)
             HStack(spacing: 6) {
-                TextField("Ex.: deixe mais objetivo", text: $instruction)
+                TextField(L10n.tr("Ex.: deixe mais objetivo"), text: $instruction)
                     .textFieldStyle(.plain)
                     .font(theme.sans.font(size: 11.5))
                     .foregroundStyle(theme.ink.color)
@@ -293,7 +293,7 @@ struct ComposerIntelligencePanel: View {
                     }
 
                 panelButton(
-                    "Gerar",
+                    L10n.tr("Gerar"),
                     enabled: available && inputIsUsable && !instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ) {
                     generate(.custom, instruction)
@@ -310,7 +310,7 @@ struct ComposerIntelligencePanel: View {
                 .font(theme.sans.font(size: 11.5, weight: .medium))
                 .foregroundStyle(theme.ink2.color)
             Spacer(minLength: 0)
-            panelButton("Cancelar", enabled: true, action: cancel)
+            panelButton(L10n.tr("Cancelar"), enabled: true, action: cancel)
                 .frame(width: 68)
         }
         .padding(.vertical, 6)
@@ -318,7 +318,7 @@ struct ComposerIntelligencePanel: View {
 
     private func preview(_ proposal: ComposerIntelligenceProposal) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Prévia · \(proposal.request.action.title)")
+            Text(L10n.tr("Prévia · \(proposal.request.action.title)"))
                 .font(theme.mono.font(size: 9.5))
                 .foregroundStyle(theme.ink4.color)
                 .textCase(.uppercase)
@@ -346,7 +346,7 @@ struct ComposerIntelligencePanel: View {
                 panelButton(proposal.request.target.replacementLabel, enabled: true) {
                     apply(proposal)
                 }
-                panelButton("Cancelar", enabled: true, action: cancel)
+                panelButton(L10n.tr("Cancelar"), enabled: true, action: cancel)
                 Spacer(minLength: 0)
             }
         }

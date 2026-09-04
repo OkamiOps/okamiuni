@@ -76,9 +76,9 @@ public enum DayAgenda {
     /// erro de contagem em vez de dia livre.
     public static func blockCountLabel(_ count: Int) -> String {
         switch count {
-        case 0: "nenhum bloco"
-        case 1: "1 bloco"
-        default: "\(count) blocos"
+        case 0: L10n.tr("nenhum bloco")
+        case 1: L10n.tr("1 bloco")
+        default: L10n.tr("\(count) blocos")
         }
     }
 }

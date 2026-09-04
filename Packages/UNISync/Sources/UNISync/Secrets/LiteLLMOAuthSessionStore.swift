@@ -1,3 +1,4 @@
+import UNICore
 import Foundation
 import Security
 
@@ -67,9 +68,9 @@ public enum LiteLLMOAuthSessionStoreError: Error, Sendable, Equatable, Localized
     public var errorDescription: String? {
         switch self {
         case .unreadableKeychainValue:
-            "O Keychain devolveu uma sessão OAuth do LiteLLM inválida."
+            L10n.tr("O Keychain devolveu uma sessão OAuth do LiteLLM inválida.")
         case let .keychain(status):
-            "Não foi possível acessar a sessão OAuth do LiteLLM no Keychain (código \(status))."
+            L10n.tr("Não foi possível acessar a sessão OAuth do LiteLLM no Keychain (código \(status)).")
         }
     }
 }

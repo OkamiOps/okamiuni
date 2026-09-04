@@ -92,10 +92,10 @@ public enum LinkDoCorpo {
         /// enganam.
         public var aviso: String? {
             if usuarioEmbutido {
-                return "O que está antes do @ é usuário, não é o site."
+                return L10n.tr("O que está antes do @ é usuário, não é o site.")
             }
             if punycode {
-                return "Domínio IDN (punycode): letras de outro alfabeto podem imitar o nome."
+                return L10n.tr("Domínio IDN (punycode): letras de outro alfabeto podem imitar o nome.")
             }
             return nil
         }
@@ -285,9 +285,9 @@ public enum LinkDoCorpo {
     /// consertar.
     public static func rotuloDeAbertura(_ url: URL) -> String {
         switch url.scheme?.lowercased() {
-        case "mailto": "Escrever para este endereço…"
-        case "tel": "Ligar para este número…"
-        default: "Abrir no navegador…"
+        case "mailto": L10n.tr("Escrever para este endereço…")
+        case "tel": L10n.tr("Ligar para este número…")
+        default: L10n.tr("Abrir no navegador…")
         }
     }
 
@@ -322,7 +322,7 @@ public enum LinkDoCorpo {
                 ? destino.porExtenso
                 : destino.anfitriao
             entradas.append(.legenda(
-                "Vai para " + anfitriaoCurto(anfitriao, limite: limiteDoAnfitriaoNoMenu)
+                L10n.tr("Vai para \(anfitriaoCurto(anfitriao, limite: limiteDoAnfitriaoNoMenu))")
             ))
             if let aviso = destino.aviso { entradas.append(.aviso(aviso)) }
             entradas.append(contentsOf: acoes(url).map(ContextMenuEntry.item))
@@ -336,7 +336,7 @@ public enum LinkDoCorpo {
         let texto = textoDoBloco.trimmingCharacters(in: .whitespacesAndNewlines)
         if !texto.isEmpty {
             entradas.append(.separator)
-            entradas.append(.item(ContextMenuItem("Copiar o texto do trecho", .copy(texto))))
+            entradas.append(.item(ContextMenuItem(L10n.tr("Copiar o texto do trecho"), .copy(texto))))
         }
         return entradas.tidied
     }
@@ -393,7 +393,7 @@ public enum LinkDoCorpo {
     private static func acoes(_ url: URL) -> [ContextMenuItem] {
         [
             ContextMenuItem(rotuloDeAbertura(url), .abrirLink(url: url)),
-            ContextMenuItem("Copiar link", .copy(url.absoluteString)),
+            ContextMenuItem(L10n.tr("Copiar link"), .copy(url.absoluteString)),
         ]
     }
 }

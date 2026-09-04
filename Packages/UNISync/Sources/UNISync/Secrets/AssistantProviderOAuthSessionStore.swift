@@ -1,3 +1,4 @@
+import UNICore
 import Foundation
 import Security
 
@@ -49,9 +50,9 @@ public enum AssistantProviderOAuthSessionStoreError: Error, Sendable, Equatable,
     public var errorDescription: String? {
         switch self {
         case .unreadableKeychainValue:
-            "O Keychain devolveu uma sessão OAuth de provedor inválida."
+            L10n.tr("O Keychain devolveu uma sessão OAuth de provedor inválida.")
         case let .keychain(status):
-            "Não foi possível acessar a sessão OAuth do provedor no Keychain (código \(status))."
+            L10n.tr("Não foi possível acessar a sessão OAuth do provedor no Keychain (código \(status)).")
         }
     }
 }

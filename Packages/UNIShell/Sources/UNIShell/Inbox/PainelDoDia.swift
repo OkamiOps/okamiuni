@@ -233,7 +233,7 @@ struct PainelDoDia: View {
         }
         .agendaUndoBand(store: store)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Painel do dia")
+        .accessibilityLabel(L10n.tr("Painel do dia"))
     }
 
     // MARK: - Cabeçalho
@@ -271,7 +271,7 @@ struct PainelDoDia: View {
     private func filtroDeNegocios(_ modelo: PainelDoDiaModelo) -> some View {
         HStack(spacing: 0) {
             segmento(
-                titulo: "Tudo", ativo: filter.accounts.isEmpty,
+                titulo: L10n.tr("Tudo"), ativo: filter.accounts.isEmpty,
                 tint: nil, contagem: nil, ultimo: store.accounts.isEmpty
             ) { filter.accounts = [] }
             ForEach(Array(store.accounts.enumerated()), id: \.element.id) { índice, account in
@@ -300,7 +300,7 @@ struct PainelDoDia: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Filtro de negócios")
+        .accessibilityLabel(L10n.tr("Filtro de negócios"))
     }
 
     private func segmento(
@@ -344,7 +344,7 @@ struct PainelDoDia: View {
                 Image(systemName: "bubble.left")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(theme.accent.color)
-                Text("Perguntar")
+                Text(L10n.tr("Perguntar"))
                     .font(theme.sans.font(size: 12.5, weight: .semibold))
                     .foregroundStyle(theme.ink.color)
                 Text("⌘J")
@@ -364,7 +364,7 @@ struct PainelDoDia: View {
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall)
         .keyboardShortcut("j", modifiers: .command)
-        .accessibilityLabel("Perguntar ao assistente, comando J")
+        .accessibilityLabel(L10n.tr("Perguntar ao assistente, comando J"))
     }
 
     // MARK: - Plano de hoje
@@ -372,7 +372,7 @@ struct PainelDoDia: View {
     private func planoDeHoje(_ modelo: PainelDoDiaModelo) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center, spacing: 12) {
-                Text("Plano de hoje")
+                Text(L10n.tr("Plano de hoje"))
                     .font(theme.sans.font(size: 14, weight: .semibold))
                     .foregroundStyle(theme.ink.color)
                 Text(modelo.legendaDoPlano)
@@ -383,11 +383,11 @@ struct PainelDoDia: View {
                 // nada é a tela pedindo que você tente clicar para descobrir.
                 if !modelo.propostos.isEmpty {
                     PainelBotao(
-                        titulo: "Aceitar o plano", primario: true,
+                        titulo: L10n.tr("Aceitar o plano"), primario: true,
                         acao: { aceitarOPlano(modelo) }
                     )
                 }
-                PainelBotao(titulo: "Ajustar", primario: false) { ajustando = true }
+                PainelBotao(titulo: L10n.tr("Ajustar"), primario: false) { ajustando = true }
             }
             PainelLinhaDoTempo(
                 blocos: modelo.blocos,
@@ -406,7 +406,7 @@ struct PainelDoDia: View {
                 .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Plano de hoje")
+        .accessibilityLabel(L10n.tr("Plano de hoje"))
     }
 
     /// "Aceitar o plano": os blocos propostos viram compromissos numa leva
@@ -492,7 +492,7 @@ struct PainelDoDia: View {
     private func esperandoVoce(_ modelo: PainelDoDiaModelo) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             cabecalho(
-                "Esperando você", modelo.espera.count, modelo.legendaDaEspera,
+                L10n.tr("Esperando você"), modelo.espera.count, modelo.legendaDaEspera,
                 // "Ativar" e "Entrar" levam a Ajustes → IA; "ainda não
                 // escreveu" não leva a lugar nenhum, o botão é que resolve.
                 acaoDaLegenda: precisaDeAjustes(modelo) ? onOpenAISettings : nil,
@@ -504,8 +504,8 @@ struct PainelDoDia: View {
                         // O botão diz para onde o conteúdo vai — a regra do app
                         // em toda superfície que sai deste Mac.
                         titulo: isWorking
-                            ? "Gerando…"
-                            : "Gerar · \(Self.nomeDoMotor(conversation.destination.label))",
+                            ? L10n.tr("Gerando…")
+                            : L10n.tr("Gerar · \(Self.nomeDoMotor(conversation.destination.label))"),
                         acao: { onGerarProntas(modelo.espera.map(\.id)) }
                     )
                     : nil
@@ -520,7 +520,7 @@ struct PainelDoDia: View {
                     palavra: espera.palavra,
                     alerta: espera.alerta,
                     porque: espera.porque,
-                    acaoPrimaria: espera.temRascunho ? "Enviar a pronta" : "Ver",
+                    acaoPrimaria: espera.temRascunho ? L10n.tr("Enviar a pronta") : L10n.tr("Ver"),
                     destacada: índice == 0 && espera.pedeGente && espera.temRascunho,
                     onPrimary: {
                         selectedMailID = espera.id
@@ -550,15 +550,15 @@ struct PainelDoDia: View {
 
     private func compromissos(_ modelo: PainelDoDiaModelo) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            cabecalho("Compromissos", modelo.promessas.count, modelo.legendaDosCompromissos)
+            cabecalho(L10n.tr("Compromissos"), modelo.promessas.count, modelo.legendaDosCompromissos)
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text("Você deve").capsLabel(size: 9.5)
+                Text(L10n.tr("Você deve")).capsLabel(size: 9.5)
                 if let desfeita = promessaDesfeita {
                     Button {
                         store.restorePendingItem(desfeita)
                         promessaDesfeita = nil
                     } label: {
-                        Text("Desfazer")
+                        Text(L10n.tr("Desfazer"))
                             .font(theme.sans.font(size: 11, weight: .semibold))
                             .foregroundStyle(theme.accentInk.color)
                     }
@@ -572,12 +572,12 @@ struct PainelDoDia: View {
                     tint: accountTint(promessa.item.accountID).color,
                     nome: promessa.titulo,
                     numero: promessa.quando,
-                    palavra: "vence",
+                    palavra: L10n.tr("vence"),
                     alerta: promessa.alerta,
                     porque: promessa.porque,
                     acaoPrimaria: promessa.rotuloDaReserva,
                     destacada: promessa.alerta,
-                    acaoSecundaria: "Já fiz",
+                    acaoSecundaria: L10n.tr("Já fiz"),
                     onPrimary: { reservar(promessa) },
                     onSecondary: {
                         promessaDesfeita = store.dismissPendingItem(promessa.item.id)
@@ -585,8 +585,8 @@ struct PainelDoDia: View {
                 ))
             })
             .padding(.top, 8)
-            Text("Devem a você").capsLabel(size: 9.5).padding(.top, 16)
-            PainelAzulejoVazado(frase: "Lido dos seus enviados · na próxima versão")
+            Text(L10n.tr("Devem a você")).capsLabel(size: 9.5).padding(.top, 16)
+            PainelAzulejoVazado(frase: L10n.tr("Lido dos seus enviados · na próxima versão"))
                 .padding(.top, 8)
         }
     }
@@ -606,7 +606,7 @@ struct PainelDoDia: View {
 
     private func dinheiroEPrazos(_ modelo: PainelDoDiaModelo) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            cabecalho("Dinheiro e prazos", modelo.dinheiro.count, "próximos 7 dias")
+            cabecalho(L10n.tr("Dinheiro e prazos"), modelo.dinheiro.count, L10n.tr("próximos 7 dias"))
             ForEach(modelo.dinheiro) { linha in
                 HStack(alignment: .center, spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -638,7 +638,7 @@ struct PainelDoDia: View {
                 .onTapGesture { onCommand(.revealMessage(messageID: linha.id)) }
             }
             if modelo.dinheiro.isEmpty {
-                Text("Nenhum prazo no radar.")
+                Text(L10n.tr("Nenhum prazo no radar."))
                     .font(theme.sans.font(size: 12))
                     .foregroundStyle(theme.ink4.color)
                     .padding(.top, 13)
@@ -650,7 +650,7 @@ struct PainelDoDia: View {
 
     private func barraInferior(_ modelo: PainelDoDiaModelo) -> some View {
         HStack(spacing: 16) {
-            Text("Hoje").capsLabel(size: 9.5)
+            Text(L10n.tr("Hoje")).capsLabel(size: 9.5)
             ZStack(alignment: .leading) {
                 Capsule().fill(theme.line2.color).frame(width: 160, height: 3)
                 Capsule()
@@ -665,7 +665,7 @@ struct PainelDoDia: View {
                 .foregroundStyle(theme.ink3.color)
                 .lineLimit(1)
             Spacer(minLength: 12)
-            Text("em jogo").capsLabel(size: 9.5)
+            Text(L10n.tr("em jogo")).capsLabel(size: 9.5)
             if modelo.emJogo.isEmpty {
                 Text(DashboardMetrics.updateLabel(nowMinute: now, isBusy: isWorking))
                     .font(theme.sans.font(size: 11.5))
@@ -691,7 +691,7 @@ struct PainelDoDia: View {
         .background(theme.surface2.color)
         .hairline(theme.line, edges: .top)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Progresso do dia")
+        .accessibilityLabel(L10n.tr("Progresso do dia"))
     }
 
     // MARK: - Ações
@@ -711,7 +711,7 @@ struct PainelDoDia: View {
         ) else { return }
         receipts?.agenda = SwipeReceipt(
             messageID: item.id,
-            note: "Reservado — \(item.title)",
+            note: L10n.tr("Reservado — \(item.title)"),
             undo: .removeFromAgenda(itemID: item.id)
         )
     }
@@ -788,7 +788,7 @@ struct PainelDoDia: View {
                 )
                 HStack {
                     Spacer(minLength: 0)
-                    PainelBotao(titulo: "Fechar", primario: false) {
+                    PainelBotao(titulo: L10n.tr("Fechar"), primario: false) {
                         cartaoDoRascunho = nil
                     }
                 }

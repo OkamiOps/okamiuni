@@ -46,12 +46,12 @@ struct ReaderIntelligencePopover: View {
 
         var title: String {
             switch self {
-            case .summary: "Resumo"
-            case .keyPoints: "Pontos-chave"
+            case .summary: L10n.tr("Resumo")
+            case .keyPoints: L10n.tr("Pontos-chave")
             case .insights: "Insights"
-            case .pending: "Pendências"
-            case .reply: "Gerar resposta"
-            case .custom: "Pergunta livre"
+            case .pending: L10n.tr("Pendências")
+            case .reply: L10n.tr("Gerar resposta")
+            case .custom: L10n.tr("Pergunta livre")
             }
         }
 
@@ -156,7 +156,7 @@ struct ReaderIntelligencePopover: View {
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text("Inteligência do email · \(conversation.destination.label)")
+                Text(L10n.tr("Inteligência do email · \(conversation.destination.label)"))
                     .font(theme.sans.font(size: 12, weight: .semibold))
                     .foregroundStyle(theme.ink.color)
                 Text(context.title)
@@ -170,8 +170,8 @@ struct ReaderIntelligencePopover: View {
             if conversation.hasConversation {
                 iconButton(
                     "arrow.counterclockwise",
-                    help: "Limpar conversa",
-                    accessibilityLabel: "Limpar conversa",
+                    help: L10n.tr("Limpar conversa"),
+                    accessibilityLabel: L10n.tr("Limpar conversa"),
                     disabled: conversation.isLoading
                 ) {
                     conversation.clear()
@@ -180,16 +180,16 @@ struct ReaderIntelligencePopover: View {
 
             iconButton(
                 "arrow.up.left.and.arrow.down.right",
-                help: isExpanded ? "Voltar ao tamanho padrão" : "Expandir painel",
-                accessibilityLabel: isExpanded ? "Voltar ao tamanho padrão" : "Expandir painel"
+                help: isExpanded ? L10n.tr("Voltar ao tamanho padrão") : L10n.tr("Expandir painel"),
+                accessibilityLabel: isExpanded ? L10n.tr("Voltar ao tamanho padrão") : L10n.tr("Expandir painel")
             ) {
                 toggleExpanded()
             }
 
             iconButton(
                 "xmark",
-                help: "Fechar",
-                accessibilityLabel: "Fechar inteligência do email"
+                help: L10n.tr("Fechar"),
+                accessibilityLabel: L10n.tr("Fechar inteligência do email")
             ) {
                 onClose()
             }
@@ -240,10 +240,10 @@ struct ReaderIntelligencePopover: View {
     private var emptyConversation: some View {
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
-                Text("Pergunte e continue refinando")
+                Text(L10n.tr("Pergunte e continue refinando"))
                     .font(theme.serif.font(size: 15.5, weight: .medium))
                     .foregroundStyle(theme.ink.color)
-                Text("Peça resumo, lista, análise ou escreva sua própria instrução.")
+                Text(L10n.tr("Peça resumo, lista, análise ou escreva sua própria instrução."))
                     .font(theme.sans.font(size: 11.5))
                     .foregroundStyle(theme.ink3.color)
                     .fixedSize(horizontal: false, vertical: true)
@@ -253,7 +253,7 @@ struct ReaderIntelligencePopover: View {
             replyButton
 
             if !isAvailable {
-                Text("Conecte um provedor de IA nas Configurações para usar estas ações.")
+                Text(L10n.tr("Conecte um provedor de IA nas Configurações para usar estas ações."))
                     .font(theme.sans.font(size: 11))
                     .foregroundStyle(theme.danger.color)
                     .fixedSize(horizontal: false, vertical: true)
@@ -286,7 +286,7 @@ struct ReaderIntelligencePopover: View {
 
     private var transcript: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("CONVERSA")
+            Text(L10n.tr("CONVERSA"))
                 .font(theme.mono.font(size: 8.5, weight: .medium))
                 .tracking(theme.capsTracking(at: 8.5))
                 .foregroundStyle(theme.ink4.color)
@@ -303,7 +303,7 @@ struct ReaderIntelligencePopover: View {
             HStack {
                 Spacer(minLength: 72)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("VOCÊ")
+                    Text(L10n.tr("VOCÊ"))
                         .font(theme.mono.font(size: 8.5, weight: .medium))
                         .tracking(theme.capsTracking(at: 8.5))
                         .foregroundStyle(theme.info.color)
@@ -326,7 +326,7 @@ struct ReaderIntelligencePopover: View {
                 }
             }
             .accessibilityElement(children: .combine)
-            .accessibilityLabel("Você: \(message.text)")
+            .accessibilityLabel(L10n.tr("Você: \(message.text)"))
         } else {
             HStack(alignment: .top, spacing: 9) {
                 RoundedRectangle(cornerRadius: 1)
@@ -334,7 +334,7 @@ struct ReaderIntelligencePopover: View {
                     .frame(width: 2)
 
                 VStack(alignment: .leading, spacing: 7) {
-                    Text("ASSISTENTE")
+                    Text(L10n.tr("ASSISTENTE"))
                         .font(theme.mono.font(size: 8.5, weight: .medium))
                         .tracking(theme.capsTracking(at: 8.5))
                         .foregroundStyle(theme.ink4.color)
@@ -351,7 +351,7 @@ struct ReaderIntelligencePopover: View {
                     }
 
                     if shouldOfferReplyUse(for: message) {
-                        Button("Usar esta resposta no email") {
+                        Button(L10n.tr("Usar esta resposta no email")) {
                             onUseReply(message.text)
                             onClose()
                         }
@@ -368,7 +368,7 @@ struct ReaderIntelligencePopover: View {
                 .padding(.vertical, 2)
             }
             .accessibilityElement(children: .contain)
-            .accessibilityLabel("Assistente: \(message.text)")
+            .accessibilityLabel(L10n.tr("Assistente: \(message.text)"))
         }
     }
 
@@ -377,13 +377,13 @@ struct ReaderIntelligencePopover: View {
             ProgressView()
                 .controlSize(.small)
                 .tint(theme.info.color)
-            Text("Analisando a conversa…")
+            Text(L10n.tr("Analisando a conversa…"))
                 .font(theme.sans.font(size: 11.5, weight: .medium))
                 .foregroundStyle(theme.ink3.color)
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("O assistente está respondendo")
+        .accessibilityLabel(L10n.tr("O assistente está respondendo"))
     }
 
     private var composer: some View {
@@ -391,8 +391,8 @@ struct ReaderIntelligencePopover: View {
         return HStack(alignment: .bottom, spacing: 8) {
             TextField(
                 conversation.hasConversation
-                    ? "Continue a conversa ou peça outro formato…"
-                    : "Pergunte sobre este email…",
+                    ? L10n.tr("Continue a conversa ou peça outro formato…")
+                    : L10n.tr("Pergunte sobre este email…"),
                 text: $conversation.draft,
                 axis: .vertical
             )
@@ -410,14 +410,14 @@ struct ReaderIntelligencePopover: View {
             }
             .onSubmit { submit() }
             .disabled(!isAvailable || conversation.isLoading)
-            .accessibilityLabel("Pergunta ou instrução sobre este email")
+            .accessibilityLabel(L10n.tr("Pergunta ou instrução sobre este email"))
 
             Button(action: submit) {
                 HStack(spacing: 5) {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 10.5, weight: .bold))
                         .accessibilityHidden(true)
-                    Text("Enviar")
+                    Text(L10n.tr("Enviar"))
                         .font(theme.sans.font(size: 11, weight: .semibold))
                 }
                 .foregroundStyle(theme.onEnter.color)
@@ -429,8 +429,8 @@ struct ReaderIntelligencePopover: View {
             .buttonStyle(.plain)
             .focusRing(cornerRadius: theme.radiusSmall, tint: \.onEnter)
             .disabled(!canSend)
-            .help("Enviar pergunta")
-            .accessibilityLabel("Enviar pergunta")
+            .help(L10n.tr("Enviar pergunta"))
+            .accessibilityLabel(L10n.tr("Enviar pergunta"))
         }
         .padding(.leading, 14)
         .padding(.trailing, 28)
@@ -471,11 +471,11 @@ struct ReaderIntelligencePopover: View {
                 }
                 .onEnded { _ in resizeOrigin = nil }
         )
-        .help("Arraste para redimensionar. Duplo clique volta ao tamanho padrão.")
+        .help(L10n.tr("Arraste para redimensionar. Duplo clique volta ao tamanho padrão."))
         .accessibilityElement()
         .accessibilityAddTraits(.isButton)
-        .accessibilityLabel("Redimensionar painel de inteligência")
-        .accessibilityHint("Arraste o canto. Duplo clique volta ao tamanho padrão.")
+        .accessibilityLabel(L10n.tr("Redimensionar painel de inteligência"))
+        .accessibilityHint(L10n.tr("Arraste o canto. Duplo clique volta ao tamanho padrão."))
         .accessibilityAdjustableAction { direction in
             switch direction {
             case .increment:

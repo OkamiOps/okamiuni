@@ -115,12 +115,12 @@ public enum AttachmentError: Error, Sendable, Equatable, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .emptyFile: "O arquivo está vazio."
+        case .emptyFile: L10n.tr("O arquivo está vazio.")
         case .fileTooLarge(let limit):
-            "O anexo passa do limite de \(ByteCountFormatter.string(fromByteCount: Int64(limit), countStyle: .file))."
-        case .sizeMismatch: "O anexo baixado não tem o tamanho anunciado pela mensagem."
-        case .unavailable: "Este anexo não está mais disponível no servidor."
-        case .unsafeFilename: "O nome do arquivo não é seguro para salvar."
+            L10n.tr("O anexo passa do limite de \(ByteCountFormatter.string(fromByteCount: Int64(limit), countStyle: .file)).")
+        case .sizeMismatch: L10n.tr("O anexo baixado não tem o tamanho anunciado pela mensagem.")
+        case .unavailable: L10n.tr("Este anexo não está mais disponível no servidor.")
+        case .unsafeFilename: L10n.tr("O nome do arquivo não é seguro para salvar.")
         }
     }
 }

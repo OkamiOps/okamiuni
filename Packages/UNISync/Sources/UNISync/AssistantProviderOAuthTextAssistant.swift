@@ -11,17 +11,17 @@ public enum AssistantProviderOAuthTextAssistantError: Error, Sendable, Equatable
 
     public var errorDescription: String? {
         switch self {
-        case .missingAuthorization: "Conecte a assinatura OAuth deste provedor antes de usar a IA."
-        case .authenticationFailed: "O provedor recusou a sessão OAuth. Reconecte a assinatura e tente novamente."
-        case .subscriptionNotEligible: "Esta assinatura não está elegível para o acesso OAuth da xAI. Use uma chave de API ou outra conta."
-        case .rateLimited: "O provedor pediu para desacelerar. Tente novamente em instantes."
-        case .timedOut: "O provedor demorou demais para responder. Tente novamente."
-        case .connectionFailed: "Não foi possível falar com o provedor de IA. Verifique a conexão e tente novamente."
-        case .redirectRefused: "O provedor tentou redirecionar uma chamada autenticada; a requisição foi interrompida por segurança."
-        case .upgradeRequired: "O provedor exige uma atualização do protocolo/cliente. Atualize o OkamiUNI e tente novamente."
-        case let .server(statusCode): "O provedor de IA respondeu com erro \(statusCode)."
-        case .invalidResponse: "O provedor devolveu uma resposta que o OkamiUNI não consegue usar."
-        case .managedByCodexRuntime: "A sessão ChatGPT é atendida pelo runtime oficial do Codex neste Mac."
+        case .missingAuthorization: L10n.tr("Conecte a assinatura OAuth deste provedor antes de usar a IA.")
+        case .authenticationFailed: L10n.tr("O provedor recusou a sessão OAuth. Reconecte a assinatura e tente novamente.")
+        case .subscriptionNotEligible: L10n.tr("Esta assinatura não está elegível para o acesso OAuth da xAI. Use uma chave de API ou outra conta.")
+        case .rateLimited: L10n.tr("O provedor pediu para desacelerar. Tente novamente em instantes.")
+        case .timedOut: L10n.tr("O provedor demorou demais para responder. Tente novamente.")
+        case .connectionFailed: L10n.tr("Não foi possível falar com o provedor de IA. Verifique a conexão e tente novamente.")
+        case .redirectRefused: L10n.tr("O provedor tentou redirecionar uma chamada autenticada; a requisição foi interrompida por segurança.")
+        case .upgradeRequired: L10n.tr("O provedor exige uma atualização do protocolo/cliente. Atualize o OkamiUNI e tente novamente.")
+        case let .server(statusCode): L10n.tr("O provedor de IA respondeu com erro \(statusCode).")
+        case .invalidResponse: L10n.tr("O provedor devolveu uma resposta que o OkamiUNI não consegue usar.")
+        case .managedByCodexRuntime: L10n.tr("A sessão ChatGPT é atendida pelo runtime oficial do Codex neste Mac.")
         }
     }
 }

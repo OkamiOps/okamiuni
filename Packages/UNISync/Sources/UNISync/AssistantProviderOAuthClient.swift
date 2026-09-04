@@ -1,3 +1,4 @@
+import UNICore
 import Foundation
 
 /// Erros estáveis do OAuth. Nenhum caso incorpora tokens, device codes,
@@ -10,18 +11,18 @@ public enum AssistantProviderOAuthError: Error, Sendable, Equatable, LocalizedEr
 
     public var errorDescription: String? {
         switch self {
-        case .invalidDiscovery: "O provedor publicou uma rota OAuth inesperada; o login foi interrompido por segurança."
-        case .redirectRefused: "Uma rota OAuth tentou redirecionar a requisição; o login foi interrompido."
-        case .deviceAuthorizationUnavailable: "Não foi possível iniciar o login OAuth da assinatura. Tente novamente em instantes."
-        case .invalidDeviceAuthorization: "O provedor devolveu um código de login inválido. Tente novamente."
-        case .authorizationExpired: "O código de login expirou. Gere um novo código e tente novamente."
-        case .authorizationDenied: "O login OAuth foi recusado ou a assinatura não é elegível para este acesso."
-        case .invalidTokenResponse: "O provedor devolveu uma sessão OAuth incompleta. Tente entrar novamente."
-        case .missingSession: "Conecte a assinatura do provedor antes de usar esta IA."
-        case .sessionProviderMismatch: "A sessão OAuth guardada pertence a outro provedor e não será reutilizada."
-        case .rateLimited: "O provedor pediu para desacelerar. Tente entrar novamente em instantes."
-        case .timedOut: "O login OAuth demorou demais. Gere um novo código e tente novamente."
-        case let .server(statusCode): "O provedor respondeu com erro \(statusCode) durante o login OAuth."
+        case .invalidDiscovery: L10n.tr("O provedor publicou uma rota OAuth inesperada; o login foi interrompido por segurança.")
+        case .redirectRefused: L10n.tr("Uma rota OAuth tentou redirecionar a requisição; o login foi interrompido.")
+        case .deviceAuthorizationUnavailable: L10n.tr("Não foi possível iniciar o login OAuth da assinatura. Tente novamente em instantes.")
+        case .invalidDeviceAuthorization: L10n.tr("O provedor devolveu um código de login inválido. Tente novamente.")
+        case .authorizationExpired: L10n.tr("O código de login expirou. Gere um novo código e tente novamente.")
+        case .authorizationDenied: L10n.tr("O login OAuth foi recusado ou a assinatura não é elegível para este acesso.")
+        case .invalidTokenResponse: L10n.tr("O provedor devolveu uma sessão OAuth incompleta. Tente entrar novamente.")
+        case .missingSession: L10n.tr("Conecte a assinatura do provedor antes de usar esta IA.")
+        case .sessionProviderMismatch: L10n.tr("A sessão OAuth guardada pertence a outro provedor e não será reutilizada.")
+        case .rateLimited: L10n.tr("O provedor pediu para desacelerar. Tente entrar novamente em instantes.")
+        case .timedOut: L10n.tr("O login OAuth demorou demais. Gere um novo código e tente novamente.")
+        case let .server(statusCode): L10n.tr("O provedor respondeu com erro \(statusCode) durante o login OAuth.")
         }
     }
 }

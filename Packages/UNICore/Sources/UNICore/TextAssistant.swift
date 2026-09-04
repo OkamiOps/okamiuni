@@ -287,17 +287,17 @@ public enum TextAssistantError: Error, Sendable, Equatable, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .unavailable(.available):
-            return "O assistente não está disponível neste momento."
+            return L10n.tr("O assistente não está disponível neste momento.")
         case .unavailable(.deviceNotEligible):
-            return "Este dispositivo não é elegível para a Apple Intelligence."
+            return L10n.tr("Este dispositivo não é elegível para a Apple Intelligence.")
         case .unavailable(.appleIntelligenceNotEnabled):
-            return "A Apple Intelligence está desativada neste dispositivo."
+            return L10n.tr("A Apple Intelligence está desativada neste dispositivo.")
         case .unavailable(.modelNotReady):
-            return "O modelo da Apple Intelligence ainda não está pronto."
+            return L10n.tr("O modelo da Apple Intelligence ainda não está pronto.")
         case let .invalidRequest(message):
             return message
         case .emptyResponse:
-            return "O assistente devolveu uma resposta vazia."
+            return L10n.tr("O assistente devolveu uma resposta vazia.")
         case let .generationFailed(message):
             return message
         }

@@ -140,11 +140,11 @@ public struct AgendaAddReceipt: Sendable, Hashable, Identifiable {
     /// `stamp` entra pronto porque formatar hora aqui reintroduziria a
     /// conversão de fuso que este arquivo inteiro existe para evitar.
     public static func note(eventLabel: String, stamp: String) -> String {
-        "Na agenda — \(eventLabel) · \(stamp)"
+        L10n.tr("Na agenda — \(eventLabel) · \(stamp)")
     }
 
     /// O retorno de "Remover da agenda" no cartão de cancelamento.
     public static func removedNote(eventLabel: String, stamp: String) -> String {
-        "Tirada da agenda — \(eventLabel) · \(stamp)"
+        L10n.tr("Tirada da agenda — \(eventLabel) · \(stamp)")
     }
 }

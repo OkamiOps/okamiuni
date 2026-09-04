@@ -227,9 +227,9 @@ enum DashboardMetrics {
     /// "Atualizado agora · próximo em N min" — ou "Atualizando…" enquanto a
     /// barra fina do chrome trabalha.
     static func updateLabel(nowMinute: Int, isBusy: Bool) -> String {
-        if isBusy { return "Atualizando…" }
+        if isBusy { return L10n.tr("Atualizando…") }
         let resto = refreshCadenceMinutes - (nowMinute % refreshCadenceMinutes)
-        return "Atualizado agora · próximo em \(resto) min"
+        return L10n.tr("Atualizado agora · próximo em \(resto) min")
     }
 
     // MARK: - Rótulos
@@ -237,13 +237,13 @@ enum DashboardMetrics {
     /// O botão primário do herói: com rascunho pronto ele promete o envio;
     /// sem, só leva até a mensagem.
     static func heroButtonLabel(hasReadyDraft: Bool) -> String {
-        hasReadyDraft ? "Enviar a resposta" : "Ver"
+        hasReadyDraft ? L10n.tr("Enviar a resposta") : L10n.tr("Ver")
     }
 
     /// A confirmação de uma linha antes de enviar da lista: a pessoa não viu
     /// o rascunho inteiro ali, então o clique só arma a pergunta.
     static func sendConfirmationLabel(address: String) -> String {
-        "Enviar para \(address)?"
+        L10n.tr("Enviar para \(address)?")
     }
 
     /// A ação primária do `.later`. **Neutra, e por decisão**: o clique move
@@ -251,7 +251,7 @@ enum DashboardMetrics {
     /// a mensagem para Hoje numa hora marcada. "Sexta 9h" era a tela
     /// prometendo o que ela não cumpre (I1 da revisão final). Quando o
     /// adiamento existir, o rótulo volta a dizer a hora que o comando carrega.
-    static let laterActionLabel = "Depois"
+    static var laterActionLabel: String { L10n.tr("Depois") }
 
     /// "Tirei da lista hoje: Carol da Zoho (campanha, não lead), Resend e
     /// mais 10 disparos." `nil` quando nada saiu — um rodapé sobre o vazio é
@@ -274,36 +274,36 @@ enum DashboardMetrics {
             }
         }
         let resto = extraCount + max(0, removed.count - visiveis.count)
-        var frase = "Tirei da lista hoje: " + partes.joined(separator: ", ")
+        var frase = L10n.tr("Tirei da lista hoje: ") + partes.joined(separator: ", ")
         if partes.isEmpty {
-            frase = "Tirei da lista hoje: \(resto) \(resto == 1 ? "disparo" : "disparos")."
+            frase = L10n.tr("Tirei da lista hoje: \(resto) \(resto == 1 ? L10n.tr("disparo") : L10n.tr("disparos")).")
             return frase
         }
         if resto > 0 {
-            frase += " e mais \(resto) \(resto == 1 ? "disparo" : "disparos")"
+            frase += L10n.tr(" e mais \(resto) \(resto == 1 ? L10n.tr("disparo") : L10n.tr("disparos"))")
         }
         return frase + "."
     }
 
     /// "Responder Jack, Jayden e Maria" — o título do bloco sugerido.
     static func replyBlockTitle(names: [String]) -> String {
-        guard !names.isEmpty else { return "Responder emails" }
-        if names.count == 1 { return "Responder \(names[0])" }
+        guard !names.isEmpty else { return L10n.tr("Responder emails") }
+        if names.count == 1 { return L10n.tr("Responder \(names[0])") }
         let corpo = names.dropLast().joined(separator: ", ")
-        return "Responder \(corpo) e \(names.last ?? "")"
+        return L10n.tr("Responder \(corpo) e \(names.last ?? "")")
     }
 
     /// "20 min · as três já prontas" — o subtítulo do bloco sugerido.
     static func replyBlockSub(count: Int, minutes: Int) -> String {
         let prontas: String
         switch count {
-        case 1: prontas = "a resposta já pronta"
-        case 2: prontas = "as duas já prontas"
-        case 3: prontas = "as três já prontas"
-        case 4: prontas = "as quatro já prontas"
-        default: prontas = "as \(count) já prontas"
+        case 1: prontas = L10n.tr("a resposta já pronta")
+        case 2: prontas = L10n.tr("as duas já prontas")
+        case 3: prontas = L10n.tr("as três já prontas")
+        case 4: prontas = L10n.tr("as quatro já prontas")
+        default: prontas = L10n.tr("as \(count) já prontas")
         }
-        return "\(minutes) min · \(prontas)"
+        return L10n.tr("\(minutes) min · \(prontas)")
     }
 
     /// Quantas linhas o corpo inteiro tem — o "· N linhas" de "Ler o email
@@ -314,19 +314,17 @@ enum DashboardMetrics {
 
     /// "Ler o email inteiro · 4 linhas".
     static func readWholeLabel(lineCount: Int) -> String {
-        "Ler o email inteiro · \(lineCount) \(lineCount == 1 ? "linha" : "linhas")"
+        L10n.tr("Ler o email inteiro · \(lineCount) \(lineCount == 1 ? L10n.tr("linha") : L10n.tr("linhas"))")
     }
 
     /// A data do cabeçalho: "Quinta · 3 de setembro".
     ///
-    /// Locale fixo em pt-BR, como `AgendaRail.headerDateString`: o app é em
-    /// português, e ler `Locale.current` faria a mesma linha sair em inglês
-    /// no bundle de teste (ver a nota em `Render.bitmap`).
+    /// Usa o idioma selecionado e a ordem de data própria dele.
     static func headerDateLabel(_ date: Date) -> String {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "pt_BR")
-        formatter.dateFormat = "EEEE '·' d 'de' MMMM"
-        return formatter.string(from: date).replacingOccurrences(of: "-feira", with: "")
+        formatter.locale = L10n.locale
+        formatter.setLocalizedDateFormatFromTemplate("EEEE d MMMM")
+        return formatter.string(from: date)
     }
 
     /// A leitura da linha em voz alta — remetente, conta, motivo, assunto.
@@ -372,7 +370,7 @@ enum DashboardMetrics {
     ) -> [ProposalSegment] {
         var segments: [ProposalSegment] = []
         var resto = text
-        let prefixo = "Resposta pronta."
+        let prefixo = L10n.tr("Resposta pronta.")
         if isReadyDraft, resto.hasPrefix(prefixo) {
             segments.append(.strong(prefixo))
             resto = String(resto.dropFirst(prefixo.count)).trimmingCharacters(in: .whitespaces)
@@ -387,7 +385,7 @@ enum DashboardMetrics {
             segments.append(.plain(resto))
         }
         if isReadyDraft, usedAgenda {
-            segments.append(.note("Olhei sua agenda antes de propor."))
+            segments.append(.note(L10n.tr("Olhei sua agenda antes de propor.")))
         }
         return segments
     }

@@ -1,3 +1,4 @@
+import UNICore
 import Foundation
 
 /// Um item do catálogo publicado pelo provedor para a conta autenticada.
@@ -31,25 +32,25 @@ public enum AssistantProviderOAuthModelCatalogError:
     public var errorDescription: String? {
         switch self {
         case .missingAuthorization:
-            "Conecte a assinatura antes de carregar os modelos."
+            L10n.tr("Conecte a assinatura antes de carregar os modelos.")
         case .authenticationFailed:
-            "A sessão expirou. Entre novamente para atualizar os modelos."
+            L10n.tr("A sessão expirou. Entre novamente para atualizar os modelos.")
         case .subscriptionNotEligible:
-            "Esta assinatura não liberou um catálogo de modelos para este cliente."
+            L10n.tr("Esta assinatura não liberou um catálogo de modelos para este cliente.")
         case .upgradeRequired:
-            "A API xAI exige uma versão mais nova do OkamiUNI. Atualize o app e tente novamente."
+            L10n.tr("A API xAI exige uma versão mais nova do OkamiUNI. Atualize o app e tente novamente.")
         case .rateLimited:
-            "O provedor limitou a atualização. Tente novamente em instantes."
+            L10n.tr("O provedor limitou a atualização. Tente novamente em instantes.")
         case .redirectRefused:
-            "O catálogo tentou redirecionar a sessão para outro endereço e foi bloqueado."
+            L10n.tr("O catálogo tentou redirecionar a sessão para outro endereço e foi bloqueado.")
         case .invalidResponse:
-            "O provedor devolveu um catálogo de modelos inválido."
+            L10n.tr("O provedor devolveu um catálogo de modelos inválido.")
         case .emptyCatalog:
-            "A conta não devolveu nenhum modelo disponível."
+            L10n.tr("A conta não devolveu nenhum modelo disponível.")
         case .managedByCodexRuntime:
-            "Os modelos ChatGPT são carregados pelo runtime oficial do Codex."
+            L10n.tr("Os modelos ChatGPT são carregados pelo runtime oficial do Codex.")
         case let .server(statusCode):
-            "O catálogo de modelos respondeu com erro \(statusCode)."
+            L10n.tr("O catálogo de modelos respondeu com erro \(statusCode).")
         }
     }
 }

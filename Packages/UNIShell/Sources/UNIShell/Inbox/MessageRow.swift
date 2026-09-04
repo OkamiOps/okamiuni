@@ -148,8 +148,8 @@ public struct MessageRow: View {
                     )
                 }
                 .fixedSize()
-                .help("\(conversationCount) mensagens nesta conversa")
-                .accessibilityLabel("\(conversationCount) mensagens nesta conversa")
+                .help(L10n.tr("\(conversationCount) mensagens nesta conversa"))
+                .accessibilityLabel(L10n.tr("\(conversationCount) mensagens nesta conversa"))
         }
     }
 
@@ -169,8 +169,8 @@ public struct MessageRow: View {
             Image(systemName: "star.fill")
                 .font(.system(size: 9.5))
                 .foregroundStyle(theme.accent.color)
-                .help("Mensagem sinalizada")
-                .accessibilityLabel("Sinalizada")
+                .help(L10n.tr("Mensagem sinalizada"))
+                .accessibilityLabel(L10n.tr("Sinalizada"))
         }
     }
 
@@ -220,7 +220,7 @@ public struct MessageRow: View {
                     x: UnreadMetrics.dotCenterX - UnreadMetrics.dotDiameter / 2,
                     y: UnreadMetrics.dotCenterY - UnreadMetrics.dotDiameter / 2
                 )
-                .help("Mensagem não lida")
+                .help(L10n.tr("Mensagem não lida"))
         }
     }
 
@@ -278,8 +278,8 @@ public struct MessageRow: View {
         if let onToggleCheck {
             Button(action: onToggleCheck) { avatarFace }
                 .buttonStyle(.plain)
-                .help(isChecked ? "Desmarcar conversa" : "Marcar conversa")
-                .accessibilityLabel(isChecked ? "Desmarcar conversa" : "Marcar conversa")
+                .help(isChecked ? L10n.tr("Desmarcar conversa") : L10n.tr("Marcar conversa"))
+                .accessibilityLabel(isChecked ? L10n.tr("Desmarcar conversa") : L10n.tr("Marcar conversa"))
                 .accessibilityAddTraits(isChecked ? .isSelected : [])
         } else {
             avatarFace

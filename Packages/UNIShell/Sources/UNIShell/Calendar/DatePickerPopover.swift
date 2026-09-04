@@ -69,7 +69,7 @@ struct DatePickerPopover: View {
         // SwiftUI é metade do blur do CSS.
         .shadow(color: .black.opacity(0.28), radius: 20, x: 0, y: 18)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Escolher o dia")
+        .accessibilityLabel(L10n.tr("Escolher o dia"))
     }
 
     /// Protótipo: `margin-bottom: 9px`, o mês em serif 14 e o rótulo em mono 9.
@@ -79,7 +79,7 @@ struct DatePickerPopover: View {
                 .font(theme.serif.font(size: 14, weight: .semibold))
                 .foregroundStyle(theme.ink.color)
             Spacer(minLength: 0)
-            Text("escolher dia")
+            Text(L10n.tr("escolher dia"))
                 .capsLabel(size: 9)
         }
         .padding(.bottom, 9)

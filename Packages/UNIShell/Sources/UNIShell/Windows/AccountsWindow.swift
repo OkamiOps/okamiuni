@@ -17,14 +17,14 @@ public enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
 
     var label: String {
         switch self {
-        case .general: "Geral"
-        case .agenda: "Agenda"
-        case .accounts: "Contas"
-        case .intelligence: "Inteligência"
-        case .gestures: "Gestos"
-        case .signatures: "Assinaturas"
-        case .aliases: "Remetentes"
-        case .rules: "Regras"
+        case .general: L10n.tr("Geral")
+        case .agenda: L10n.tr("Agenda")
+        case .accounts: L10n.tr("Contas")
+        case .intelligence: L10n.tr("Inteligência")
+        case .gestures: L10n.tr("Gestos")
+        case .signatures: L10n.tr("Assinaturas")
+        case .aliases: L10n.tr("Remetentes")
+        case .rules: L10n.tr("Regras")
         }
     }
 
@@ -46,22 +46,22 @@ public enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
     /// percorrer sem recorrer a uma busca que esconderia opções importantes.
     var navigationGroup: String {
         switch self {
-        case .general, .agenda, .accounts: "ESTE MAC"
-        case .intelligence, .gestures: "COMO O OKAMIUNI TRABALHA"
-        case .signatures, .aliases, .rules: "SEU E-MAIL"
+        case .general, .agenda, .accounts: L10n.tr("ESTE MAC")
+        case .intelligence, .gestures: L10n.tr("COMO O OKAMIUNI TRABALHA")
+        case .signatures, .aliases, .rules: L10n.tr("SEU E-MAIL")
         }
     }
 
     var summary: String {
         switch self {
-        case .general: "Ambiente e preferências"
-        case .agenda: "Reuniões por conta"
-        case .accounts: "Caixas conectadas"
-        case .intelligence: "Assistente e instruções"
-        case .gestures: "Arrastar mensagens"
-        case .signatures: "Identidade por conta"
-        case .aliases: "Enviar por um alias"
-        case .rules: "Organização automática"
+        case .general: L10n.tr("Ambiente e preferências")
+        case .agenda: L10n.tr("Reuniões por conta")
+        case .accounts: L10n.tr("Caixas conectadas")
+        case .intelligence: L10n.tr("Assistente e instruções")
+        case .gestures: L10n.tr("Arrastar mensagens")
+        case .signatures: L10n.tr("Identidade por conta")
+        case .aliases: L10n.tr("Enviar por um alias")
+        case .rules: L10n.tr("Organização automática")
         }
     }
 }
@@ -131,7 +131,7 @@ public struct AccountsWindow: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            WindowTitleBar(title: "Configurações")
+            WindowTitleBar(title: L10n.tr("Configurações"))
             HStack(spacing: 0) {
                 settingsSidebar.frame(width: 218)
                 Rectangle()
@@ -151,16 +151,16 @@ public struct AccountsWindow: View {
             }
         }
         .confirmationDialog(
-            "Remover esta conta?",
+            L10n.tr("Remover esta conta?"),
             isPresented: Binding(get: { removendo != nil }, set: { if !$0 { removendo = nil } })
         ) {
-            Button("Remover", role: .destructive) {
+            Button(L10n.tr("Remover"), role: .destructive) {
                 if let id = removendo { Task { await model.remove(id) } }
                 removendo = nil
             }
-            Button("Cancelar", role: .cancel) { removendo = nil }
+            Button(L10n.tr("Cancelar"), role: .cancel) { removendo = nil }
         } message: {
-            Text("As mensagens já baixadas e a senha guardada no Keychain serão apagadas. A conta no servidor não é tocada.")
+            Text(L10n.tr("As mensagens já baixadas e a senha guardada no Keychain serão apagadas. A conta no servidor não é tocada."))
         }
         .sheet(item: $reconectandoImap) { status in
             ReconnectImapForm(model: model, status: status) { reconectandoImap = nil }
@@ -170,13 +170,13 @@ public struct AccountsWindow: View {
     private var settingsSidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 5) {
-                Text("CENTRAL DE CONTROLE")
+                Text(L10n.tr("CENTRAL DE CONTROLE"))
                     .capsLabel(size: 9.5)
-                Text("Seu e-mail,\ndo seu jeito.")
+                Text(L10n.tr("Seu e-mail,\ndo seu jeito."))
                     .font(theme.sans.font(size: 17, weight: .semibold))
                     .foregroundStyle(theme.ink.color)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("Escolha o que quer ajustar. As mudanças ficam neste Mac até você salvá-las.")
+                Text(L10n.tr("Escolha o que quer ajustar. As mudanças ficam neste Mac até você salvá-las."))
                     .font(theme.sans.font(size: 10.5))
                     .foregroundStyle(theme.ink3.color)
                     .fixedSize(horizontal: false, vertical: true)
@@ -187,7 +187,7 @@ public struct AccountsWindow: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 15) {
-                    ForEach(["ESTE MAC", "COMO O OKAMIUNI TRABALHA", "SEU E-MAIL"], id: \.self) { group in
+                    ForEach([L10n.tr("ESTE MAC"), L10n.tr("COMO O OKAMIUNI TRABALHA"), L10n.tr("SEU E-MAIL")], id: \.self) { group in
                         settingsNavigationGroup(group)
                     }
                 }
@@ -265,15 +265,15 @@ public struct AccountsWindow: View {
             }
         case .agenda:
             sectionPane(
-                title: "Agenda",
-                subtitle: "Uma sala nova a cada compromisso — Meet, Zoom, Teams ou Zoho"
+                title: L10n.tr("Agenda"),
+                subtitle: L10n.tr("Uma sala nova a cada compromisso — Meet, Zoom, Teams ou Zoho")
             ) {
                 AgendaSettingsView(rooms: meetingRooms, accounts: model.statuses)
             }
         case .general:
             sectionPane(
-                title: "Geral",
-                subtitle: "O espaço de trabalho deste Mac"
+                title: L10n.tr("Geral"),
+                subtitle: L10n.tr("O espaço de trabalho deste Mac")
             ) {
                 GeneralSettingsView(
                     scope: .general,
@@ -290,8 +290,8 @@ public struct AccountsWindow: View {
             }
         case .intelligence:
             sectionPane(
-                title: "Inteligência",
-                subtitle: "Conexão, modelo e modo de escrever"
+                title: L10n.tr("Inteligência"),
+                subtitle: L10n.tr("Conexão, modelo e modo de escrever")
             ) {
                 GeneralSettingsView(
                     scope: .intelligence,
@@ -308,8 +308,8 @@ public struct AccountsWindow: View {
             }
         case .gestures:
             sectionPane(
-                title: "Gestos",
-                subtitle: "Ações rápidas para manter a caixa de entrada limpa"
+                title: L10n.tr("Gestos"),
+                subtitle: L10n.tr("Ações rápidas para manter a caixa de entrada limpa")
             ) {
                 GeneralSettingsView(
                     scope: .gestures,
@@ -326,18 +326,18 @@ public struct AccountsWindow: View {
             }
         case .signatures:
             sectionPane(
-                title: "Assinaturas",
-                subtitle: "Assinaturas de e-mail por conta"
+                title: L10n.tr("Assinaturas"),
+                subtitle: L10n.tr("Assinaturas de e-mail por conta")
             ) { SignatureSettingsView(model: model) }
         case .aliases:
             sectionPane(
-                title: "Remetentes",
-                subtitle: "Aliases pelos quais cada conta pode enviar"
+                title: L10n.tr("Remetentes"),
+                subtitle: L10n.tr("Aliases pelos quais cada conta pode enviar")
             ) { AliasSettingsView(model: model) }
         case .rules:
             sectionPane(
-                title: "Regras",
-                subtitle: "Automatize a organização das mensagens recebidas"
+                title: L10n.tr("Regras"),
+                subtitle: L10n.tr("Automatize a organização das mensagens recebidas")
             ) {
                 RulesSettingsView(
                     store: emailRules,
@@ -405,7 +405,7 @@ public struct AccountsWindow: View {
         VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 7) {
-                    Text("CONTAS CONECTADAS")
+                    Text(L10n.tr("CONTAS CONECTADAS"))
                         .capsLabel(size: 8.5)
                     Text("\(model.statuses.count)")
                         .font(theme.mono.font(size: 9, weight: .semibold))
@@ -414,7 +414,7 @@ public struct AccountsWindow: View {
                         .padding(.vertical, 2)
                         .background(theme.accentSoft.color, in: Capsule())
                 }
-                Text("Escolha uma conta para ver o estado e as ações disponíveis.")
+                Text(L10n.tr("Escolha uma conta para ver o estado e as ações disponíveis."))
                     .font(theme.sans.font(size: 10))
                     .foregroundStyle(theme.ink3.color)
                     .fixedSize(horizontal: false, vertical: true)
@@ -439,11 +439,11 @@ public struct AccountsWindow: View {
                     addingAccount = true
                     selectedAccountID = nil
                 } label: {
-                    Label("Adicionar", systemImage: "plus")
+                    Label(L10n.tr("Adicionar"), systemImage: "plus")
                         .frame(maxWidth: .infinity, minHeight: 30)
                 }
                 .settingsSidebarAction(primary: true)
-                .help("Adicionar conta")
+                .help(L10n.tr("Adicionar conta"))
 
                 Button {
                     if let id = selectedAccountID { removendo = id }
@@ -452,7 +452,7 @@ public struct AccountsWindow: View {
                         .frame(width: 30, height: 30)
                 }
                 .disabled(selectedAccountID == nil || addingAccount)
-                .help("Remover a conta selecionada")
+                .help(L10n.tr("Remover a conta selecionada"))
                 .settingsSidebarAction(primary: false)
             }
             .padding(.horizontal, 10)
@@ -510,8 +510,8 @@ public struct AccountsWindow: View {
         if addingAccount || selectedStatus == nil {
             VStack(alignment: .leading, spacing: 0) {
                 detailHeader(
-                    title: "Adicionar conta",
-                    subtitle: "Google, Gmail por senha de app ou qualquer servidor IMAP"
+                    title: L10n.tr("Adicionar conta"),
+                    subtitle: L10n.tr("Google, Gmail por senha de app ou qualquer servidor IMAP")
                 )
                 Rectangle()
                     .fill(theme.line.color)
@@ -544,11 +544,11 @@ public struct AccountsWindow: View {
                         .fill(theme.line.color)
                         .frame(height: Hairline.thickness(displayScale))
 
-                    Button("Remover conta…") { removendo = status.accountID }
+                    Button(L10n.tr("Remover conta…")) { removendo = status.accountID }
                         .buttonStyle(.plain)
                         .font(theme.sans.font(size: 12, weight: .medium))
                         .foregroundStyle(theme.danger.color)
-                        .help("Apagar esta conta, as mensagens baixadas e a senha guardada")
+                        .help(L10n.tr("Apagar esta conta, as mensagens baixadas e a senha guardada"))
                 }
                 .padding(24)
             }
@@ -587,7 +587,7 @@ public struct AccountsWindow: View {
                 .frame(width: 10, height: 10)
                 .padding(.top, 3)
             VStack(alignment: .leading, spacing: 5) {
-                Text(AccountsCopy.isFailing(status) ? "A conta precisa de atenção" : "Conta conectada")
+                Text(AccountsCopy.isFailing(status) ? L10n.tr("A conta precisa de atenção") : L10n.tr("Conta conectada"))
                     .font(theme.sans.font(size: 13, weight: .semibold))
                     .foregroundStyle(theme.ink.color)
                 Text(AccountsCopy.status(status, now: Date(), calendar: .current))
@@ -651,17 +651,17 @@ public struct AccountsWindow: View {
 
     private func informationCard(_ status: AccountStatus) -> some View {
         VStack(spacing: 0) {
-            informationRow("Endereço", value: status.address)
+            informationRow(L10n.tr("Endereço"), value: status.address)
             cardDivider
-            informationRow("Servidor", value: status.hostMark)
+            informationRow(L10n.tr("Servidor"), value: status.hostMark)
             cardDivider
-            informationRow("Mensagens locais", value: "\(status.messageCount)")
+            informationRow(L10n.tr("Mensagens locais"), value: "\(status.messageCount)")
             cardDivider
             informationRow(
-                "Fila de saída",
+                L10n.tr("Fila de saída"),
                 value: status.pendingOperations == 0
-                    ? "Nenhuma operação pendente"
-                    : "\(status.pendingOperations) aguardando"
+                    ? L10n.tr("Nenhuma operação pendente")
+                    : L10n.tr("\(status.pendingOperations) aguardando")
             )
         }
         .background(theme.surface2.color, in: RoundedRectangle(cornerRadius: 11))

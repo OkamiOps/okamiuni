@@ -2,6 +2,11 @@
 
 Todas as versões seguem o [release no GitHub](https://github.com/OkamiOps/okamiuni/releases). Datas em 2026.
 
+## Não lançado
+- Interface em português, inglês, alemão e francês, com seleção persistida nas configurações e opção de seguir o sistema.
+- Datas e números acompanham o idioma da interface. As preferências de resposta da IA também oferecem francês.
+- Catálogos compartilhados com verificação de cobertura e interpolação; mensagens e valores internos permanecem preservados.
+
 ## 0.5.3 — 3 de setembro
 - Conectar um provedor remoto de propósito é o consentimento: análise automática e respostas prontas seguem o provedor por padrão; o interruptor em Ajustes → IA restringe a este Mac. Migração liga quem nunca tocou no interruptor, cobrindo os últimos 7 dias.
 

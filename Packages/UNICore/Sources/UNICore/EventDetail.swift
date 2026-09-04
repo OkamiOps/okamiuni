@@ -12,9 +12,9 @@ public struct EventPerson: Sendable, Hashable, Identifiable {
         /// Protótipo: `p.status === 'sim' ? 'confirmou' : (p.status === 'talvez' ? 'talvez' : 'aguardando')`.
         public var label: String {
             switch self {
-            case .yes: "confirmou"
-            case .maybe: "talvez"
-            case .pending: "aguardando"
+            case .yes: L10n.tr("confirmou")
+            case .maybe: L10n.tr("talvez")
+            case .pending: L10n.tr("aguardando")
             }
         }
     }

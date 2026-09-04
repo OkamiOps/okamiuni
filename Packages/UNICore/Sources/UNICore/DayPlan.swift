@@ -55,7 +55,7 @@ public struct DayPlan: Sendable, Hashable {
         /// A frase que a linha escreve depois do `↳`.
         public var text: String {
             switch self {
-            case let .sendDraft(_, preview): "Resposta pronta. \(preview)"
+            case let .sendDraft(_, preview): L10n.tr("Resposta pronta. \(preview)")
             case let .later(_, why): why
             case let .archiveAndLearn(_, why): why
             case let .keep(_, why): why
@@ -95,9 +95,9 @@ public struct DayPlan: Sendable, Hashable {
             /// O rótulo do 08: "Esperando você", "Vence", "Lead".
             public var label: String {
                 switch self {
-                case .waitingOnYou: "Esperando você"
-                case .due: "Vence"
-                case .lead: "Lead"
+                case .waitingOnYou: L10n.tr("Esperando você")
+                case .due: L10n.tr("Vence")
+                case .lead: L10n.tr("Lead")
                 }
             }
 
@@ -132,11 +132,11 @@ public struct DayPlan: Sendable, Hashable {
 
             public var label: String {
                 switch self {
-                case .people: "Gente"
-                case .deadlines: "Prazos"
-                case .leads: "Leads"
-                case .broadcasts: "Disparos"
-                case .newsletters: "Newsletters"
+                case .people: L10n.tr("Gente")
+                case .deadlines: L10n.tr("Prazos")
+                case .leads: L10n.tr("Leads")
+                case .broadcasts: L10n.tr("Disparos")
+                case .newsletters: L10n.tr("Newsletters")
                 }
             }
         }
@@ -366,7 +366,7 @@ public struct DayPlan: Sendable, Hashable {
             // "Campanha, não lead" é a discordância explícita: a análise disse
             // lead e o cabeçalho desmentiu. Vale a pena escrever assim porque é
             // a única removida sobre a qual a pessoa pode ter opinião.
-            let motivo = triage?.intent == .lead ? "campanha, não lead" : "disparo"
+            let motivo = triage?.intent == .lead ? L10n.tr("campanha, não lead") : L10n.tr("disparo")
             return Classification(
                 section: nil, category: .broadcasts, removalReason: motivo
             )
@@ -411,7 +411,7 @@ public struct DayPlan: Sendable, Hashable {
     // MARK: - Triagem: o que é máquina
 
     /// O porquê que o rodapé escreve para quem saiu por ser máquina.
-    public static let automatedRemovalReason = "remetente automático"
+    public static var automatedRemovalReason: String { L10n.tr("remetente automático") }
 
     /// As caixas que **avisam** que não leem resposta — no endereço ou no
     /// corpo. "Esperando você" é uma lista de gente esperando; um robô no topo
@@ -462,15 +462,15 @@ public struct DayPlan: Sendable, Hashable {
         guard comRascunho != nil else {
             return Hero(
                 messageID: mensagem.id,
-                sentence: "\(nome) \(espera).",
+                sentence: L10n.tr("\(nome) \(espera)."),
                 hasReadyDraft: false
             )
         }
         let rascunho = drafts[mensagem.id]
         let curto = (rascunho?.text.count ?? .max) <= shortDraftLimit
         let frase = curto
-            ? "\(nome) \(espera), e é sim ou não. A resposta já está escrita."
-            : "\(nome) \(espera). A resposta já está escrita."
+            ? L10n.tr("\(nome) \(espera), e é sim ou não. A resposta já está escrita.")
+            : L10n.tr("\(nome) \(espera). A resposta já está escrita.")
         return Hero(messageID: mensagem.id, sentence: frase, hasReadyDraft: true)
     }
 
@@ -489,9 +489,9 @@ public struct DayPlan: Sendable, Hashable {
             to: calendar.startOfDay(for: now)
         ).day ?? 0
         switch dias {
-        case ..<1: return "espera desde hoje"
-        case 1: return "espera há 1 dia"
-        default: return "espera há \(dias) dias"
+        case ..<1: return L10n.tr("espera desde hoje")
+        case 1: return L10n.tr("espera há 1 dia")
+        default: return L10n.tr("espera há \(dias) dias")
         }
     }
 
@@ -563,26 +563,25 @@ public struct DayPlan: Sendable, Hashable {
         if triage?.deadline == nil, triage?.needsReply == true {
             return .later(
                 messageID: message.id,
-                why: "Sem prazo, e exige \(actionLabel(triage?.intent)). "
-                    + "Tirar de hoje e deixar para depois?"
+                why: L10n.tr("Sem prazo, e exige \(actionLabel(triage?.intent)). Tirar de hoje e deixar para depois?")
             )
         }
         if marks.isBulk, neverOpened(message.from.address, in: peers) {
             return .archiveAndLearn(
                 messageID: message.id,
-                why: "Você nunca abriu um email deles — arquivar e não trazer mais?"
+                why: L10n.tr("Você nunca abriu um email deles — arquivar e não trazer mais?")
             )
         }
-        return .keep(messageID: message.id, why: "Sem sugestão forte — deixo como está.")
+        return .keep(messageID: message.id, why: L10n.tr("Sem sugestão forte — deixo como está."))
     }
 
     /// O que a linha exige de você, para caber em "Sem prazo, e exige …".
     private static func actionLabel(_ intent: MessageTriage.Intent?) -> String {
         switch intent {
-        case .scheduling: "olhar a agenda"
-        case .lead: "uma proposta"
-        case .request: "a sua atenção"
-        default: "uma resposta"
+        case .scheduling: L10n.tr("olhar a agenda")
+        case .lead: L10n.tr("uma proposta")
+        case .request: L10n.tr("a sua atenção")
+        default: L10n.tr("uma resposta")
         }
     }
 
@@ -606,13 +605,13 @@ public struct DayPlan: Sendable, Hashable {
     /// "Donnerstag" numa tela em português.
     public static func weekdayName(_ weekday: Int) -> String {
         switch weekday {
-        case 1: "domingo"
-        case 2: "segunda"
-        case 3: "terça"
-        case 4: "quarta"
-        case 5: "quinta"
-        case 6: "sexta"
-        default: "sábado"
+        case 1: L10n.tr("domingo")
+        case 2: L10n.tr("segunda")
+        case 3: L10n.tr("terça")
+        case 4: L10n.tr("quarta")
+        case 5: L10n.tr("quinta")
+        case 6: L10n.tr("sexta")
+        default: L10n.tr("sábado")
         }
     }
 

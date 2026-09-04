@@ -19,7 +19,9 @@ public enum MonthAgenda {
     ///
     /// Diferente de `WeekAgenda.weekdayLabels`, que é indexado pelo `weekday`
     /// do `Calendar` (1 = domingo): aqui o índice **é** a coluna.
-    public static let columnLabels = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"]
+    public static var columnLabels: [String] {
+        ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"].map { L10n.tr(LocalizedString(stringLiteral: $0)) }
+    }
 
     /// Quantas linhas a grade tem, sempre.
     ///
@@ -191,7 +193,7 @@ public enum MonthAgenda {
     /// `DOWLONG[st.dayD] + ', ' + day.n + ' de ' + monthName(...)`.
     public static func longDayTitle(
         dayOffset: Int, anchor: Date,
-        calendar: Calendar = .current, locale: Locale = Locale(identifier: "pt_BR")
+        calendar: Calendar = .current, locale: Locale = L10n.locale
     ) -> String {
         let date = self.date(dayOffset: dayOffset, anchor: anchor, calendar: calendar)
         return DateLabels.eventDate(date, locale: locale)
@@ -205,7 +207,7 @@ public enum MonthAgenda {
     /// ganhar um caractere que o desenho não tem.
     public static func shortDayLabel(
         dayOffset: Int, anchor: Date,
-        calendar: Calendar = .current, locale: Locale = Locale(identifier: "pt_BR")
+        calendar: Calendar = .current, locale: Locale = L10n.locale
     ) -> String {
         let date = self.date(dayOffset: dayOffset, anchor: anchor, calendar: calendar)
         let formatter = DateFormatter()

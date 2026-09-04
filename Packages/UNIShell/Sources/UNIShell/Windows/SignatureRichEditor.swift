@@ -18,9 +18,9 @@ enum SignatureEditorMode: String, CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .visual: "Visual"
+        case .visual: L10n.tr("Visual")
         case .html: "HTML"
-        case .preview: "Prévia"
+        case .preview: L10n.tr("Prévia")
         }
     }
 }
@@ -63,34 +63,34 @@ struct SignatureRichEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 12) {
-                Picker("Modo do editor", selection: $mode) {
+                Picker(L10n.tr("Modo do editor"), selection: $mode) {
                     ForEach(SignatureEditorMode.allCases) { mode in
                         Text(mode.label).tag(mode)
                     }
                 }
                 .pickerStyle(.segmented)
                 .frame(width: 248)
-                .accessibilityLabel("Modo do editor de assinatura")
+                .accessibilityLabel(L10n.tr("Modo do editor de assinatura"))
 
                 Spacer(minLength: 8)
 
                 Menu {
-                    Button("Arquivo HTML…") { chooseHTML() }
+                    Button(L10n.tr("Arquivo HTML…")) { chooseHTML() }
                 } label: {
-                    Label("Importar", systemImage: "arrow.down.doc")
+                    Label(L10n.tr("Importar"), systemImage: "arrow.down.doc")
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
-                .help("Importar um arquivo HTML para editar a assinatura")
+                .help(L10n.tr("Importar um arquivo HTML para editar a assinatura"))
 
                 Button {
                     chooseImage()
                 } label: {
-                    Label("Adicionar imagem", systemImage: "photo.badge.plus")
+                    Label(L10n.tr("Adicionar imagem"), systemImage: "photo.badge.plus")
                 }
                 .buttonStyle(SignatureQuietButtonStyle())
-                .help("Escolher uma imagem local para incorporar na assinatura")
-                .accessibilityHint("A imagem será enviada dentro do e-mail, sem URL remota")
+                .help(L10n.tr("Escolher uma imagem local para incorporar na assinatura"))
+                .accessibilityHint(L10n.tr("A imagem será enviada dentro do e-mail, sem URL remota"))
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
@@ -149,7 +149,7 @@ struct SignatureRichEditor: View {
                 HStack(spacing: 7) {
                     Image(systemName: "arrow.triangle.2.circlepath")
                         .font(.system(size: 10, weight: .semibold))
-                    Text("Esta assinatura veio de HTML. Ao editar aqui, o modo Visual passa a ser a fonte salva e pode simplificar tabelas e layout.")
+                    Text(L10n.tr("Esta assinatura veio de HTML. Ao editar aqui, o modo Visual passa a ser a fonte salva e pode simplificar tabelas e layout."))
                 }
                 .font(theme.sans.font(size: 10.5))
                 .foregroundStyle(theme.ink3.color)
@@ -170,7 +170,7 @@ struct SignatureRichEditor: View {
                 )
 
                 if visualText.characters.isEmpty {
-                    Text("Nome, cargo, telefone e links…")
+                    Text(L10n.tr("Nome, cargo, telefone e links…"))
                         .font(theme.sans.font(size: 13))
                         .foregroundStyle(theme.ink4.color)
                         .padding(.horizontal, 16)
@@ -183,7 +183,7 @@ struct SignatureRichEditor: View {
 
     private var htmlEditor: some View {
         VStack(alignment: .leading, spacing: 0) {
-            editorSectionLabel("CÓDIGO HTML")
+            editorSectionLabel(L10n.tr("CÓDIGO HTML"))
             TextEditor(text: Binding(
                 get: { html },
                 set: { value in
@@ -196,12 +196,12 @@ struct SignatureRichEditor: View {
             .scrollContentBackground(.hidden)
             .padding(12)
             .frame(height: 172)
-            .accessibilityLabel("Código HTML da assinatura")
+            .accessibilityLabel(L10n.tr("Código HTML da assinatura"))
 
             HStack(spacing: 7) {
                 Image(systemName: "lock.shield")
                     .font(.system(size: 10, weight: .semibold))
-                Text("Scripts e conteúdo perigoso são removidos. Imagens HTTPS podem continuar externas; use CID para levá-las dentro do e-mail.")
+                Text(L10n.tr("Scripts e conteúdo perigoso são removidos. Imagens HTTPS podem continuar externas; use CID para levá-las dentro do e-mail."))
             }
             .font(theme.sans.font(size: 10.5))
             .foregroundStyle(theme.ink3.color)
@@ -210,12 +210,12 @@ struct SignatureRichEditor: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(theme.surface2.color)
 
-            livePreview(label: "RESULTADO AO VIVO")
+            livePreview(label: L10n.tr("RESULTADO AO VIVO"))
         }
     }
 
     private var preview: some View {
-        livePreview(label: "PRÉVIA DA ASSINATURA")
+        livePreview(label: L10n.tr("PRÉVIA DA ASSINATURA"))
     }
 
     private func editorSectionLabel(_ title: String) -> some View {
@@ -235,16 +235,16 @@ struct SignatureRichEditor: View {
             if let document = previewDocument {
                 SignaturePreviewWebView(html: document)
                     .frame(maxWidth: .infinity, minHeight: 330, maxHeight: 520)
-                    .accessibilityLabel("Prévia segura da assinatura")
+                    .accessibilityLabel(L10n.tr("Prévia segura da assinatura"))
             } else {
                 VStack(spacing: 8) {
                     Image(systemName: "signature")
                         .font(.system(size: 22, weight: .light))
                         .foregroundStyle(theme.ink4.color)
-                    Text("Sua assinatura aparecerá aqui")
+                    Text(L10n.tr("Sua assinatura aparecerá aqui"))
                         .font(theme.sans.font(size: 12, weight: .medium))
                         .foregroundStyle(theme.ink2.color)
-                    Text("Cole o HTML acima ou escreva no modo Visual.")
+                    Text(L10n.tr("Cole o HTML acima ou escreva no modo Visual."))
                         .font(theme.sans.font(size: 10.5))
                         .foregroundStyle(theme.ink3.color)
                 }
@@ -254,7 +254,7 @@ struct SignatureRichEditor: View {
             HStack(spacing: 7) {
                 Image(systemName: "lock.shield")
                     .font(.system(size: 10, weight: .semibold))
-                Text("Scripts, navegação e recursos perigosos continuam bloqueados. Imagens HTTPS da assinatura podem ser exibidas como externas.")
+                Text(L10n.tr("Scripts, navegação e recursos perigosos continuam bloqueados. Imagens HTTPS da assinatura podem ser exibidas como externas."))
             }
             .font(theme.sans.font(size: 10.5))
             .foregroundStyle(theme.ink3.color)
@@ -278,16 +278,16 @@ struct SignatureRichEditor: View {
     private var imageShelf: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 7) {
-                Text("IMAGENS INCORPORADAS")
+                Text(L10n.tr("IMAGENS INCORPORADAS"))
                     .capsLabel()
                 Spacer(minLength: 0)
-                Text(resources.isEmpty ? "Nenhuma" : "\(resources.count)/\(EmailSignature.maximumInlineResourceCount)")
+                Text(resources.isEmpty ? L10n.tr("Nenhuma") : "\(resources.count)/\(EmailSignature.maximumInlineResourceCount)")
                     .font(theme.mono.font(size: 9.5))
                     .foregroundStyle(theme.ink4.color)
             }
 
             if resources.isEmpty {
-                Text("Adicione PNG, JPEG, GIF ou WebP. A imagem viaja dentro do e-mail, sem depender de hospedagem externa.")
+                Text(L10n.tr("Adicione PNG, JPEG, GIF ou WebP. A imagem viaja dentro do e-mail, sem depender de hospedagem externa."))
                     .font(theme.sans.font(size: 10.8))
                     .foregroundStyle(theme.ink3.color)
                     .fixedSize(horizontal: false, vertical: true)
@@ -336,14 +336,14 @@ struct SignatureRichEditor: View {
 
     private func chooseImage() {
         guard resources.count < EmailSignature.maximumInlineResourceCount else {
-            report("A assinatura pode conter no máximo \(EmailSignature.maximumInlineResourceCount) imagens.", true)
+            report(L10n.tr("A assinatura pode conter no máximo \(EmailSignature.maximumInlineResourceCount) imagens."), true)
             return
         }
 
         let panel = NSOpenPanel()
-        panel.title = "Escolher imagem da assinatura"
-        panel.message = "A imagem será incorporada no e-mail. PNG, JPEG, GIF ou WebP; até 2 MB por arquivo."
-        panel.prompt = "Adicionar imagem"
+        panel.title = L10n.tr("Escolher imagem da assinatura")
+        panel.message = L10n.tr("A imagem será incorporada no e-mail. PNG, JPEG, GIF ou WebP; até 2 MB por arquivo.")
+        panel.prompt = L10n.tr("Adicionar imagem")
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = false
@@ -358,9 +358,9 @@ struct SignatureRichEditor: View {
 
     private func chooseHTML() {
         let panel = NSOpenPanel()
-        panel.title = "Importar assinatura HTML"
-        panel.message = "O HTML será revisado antes de salvar. Scripts são removidos; imagens HTTPS podem permanecer externas."
-        panel.prompt = "Importar HTML"
+        panel.title = L10n.tr("Importar assinatura HTML")
+        panel.message = L10n.tr("O HTML será revisado antes de salvar. Scripts são removidos; imagens HTTPS podem permanecer externas.")
+        panel.prompt = L10n.tr("Importar HTML")
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
         panel.allowsMultipleSelection = false
@@ -381,16 +381,16 @@ struct SignatureRichEditor: View {
             // normalizado dentro de `EmailSignature`.
             let maximumImportByteCount = 8 * 1_024 * 1_024
             guard data.count <= maximumImportByteCount else {
-                report("O arquivo HTML passa do limite de 8 MB para importação.", true)
+                report(L10n.tr("O arquivo HTML passa do limite de 8 MB para importação."), true)
                 return
             }
             guard let source = String(data: data, encoding: .utf8) else {
-                report("O arquivo HTML precisa estar em UTF-8.", true)
+                report(L10n.tr("O arquivo HTML precisa estar em UTF-8."), true)
                 return
             }
             importHTML(source)
         } catch {
-            report("Não foi possível ler o arquivo HTML: \(error.localizedDescription)", true)
+            report(L10n.tr("Não foi possível ler o arquivo HTML: \(error.localizedDescription)"), true)
         }
     }
 
@@ -412,9 +412,9 @@ struct SignatureRichEditor: View {
             resourcesDidChange()
         }
 
-        var details = ["HTML importado e renderizado abaixo do código."]
+        var details = [L10n.tr("HTML importado e renderizado abaixo do código.")]
         if !result.externalImageURLs.isEmpty {
-            details.append("\(result.externalImageURLs.count) imagem(ns) HTTPS continuam externas.")
+            details.append(L10n.tr("\(result.externalImageURLs.count) imagem(ns) HTTPS continuam externas."))
         }
         details.append(contentsOf: result.warnings)
         report(details.joined(separator: " "), false)
@@ -422,7 +422,7 @@ struct SignatureRichEditor: View {
 
     private func addImage(at url: URL) {
         guard let mimeType = SignatureRichDocument.mimeType(for: url) else {
-            report("Escolha uma imagem PNG, JPEG, GIF ou WebP.", true)
+            report(L10n.tr("Escolha uma imagem PNG, JPEG, GIF ou WebP."), true)
             return
         }
 
@@ -434,7 +434,7 @@ struct SignatureRichEditor: View {
                 : html
             html = SignatureRichDocument.ensuringImages(base, resources: resources)
             resourcesDidChange()
-            report("Imagem incorporada. Ela não será carregada de um servidor externo.", false)
+            report(L10n.tr("Imagem incorporada. Ela não será carregada de um servidor externo."), false)
         } catch {
             report(error.localizedDescription, true)
         }
@@ -447,7 +447,7 @@ struct SignatureRichEditor: View {
             from: html
         )
         resourcesDidChange()
-        report("Imagem removida da assinatura.", false)
+        report(L10n.tr("Imagem removida da assinatura."), false)
     }
 }
 
@@ -490,7 +490,7 @@ private struct SignatureImageChip: View {
             .buttonStyle(.plain)
             .foregroundStyle(theme.ink3.color)
             .background(theme.surface.color, in: RoundedRectangle(cornerRadius: 5))
-            .accessibilityLabel("Remover imagem \(resource.mimeType)")
+            .accessibilityLabel(L10n.tr("Remover imagem \(resource.mimeType)"))
         }
         .padding(6)
         .background(theme.paper.color, in: RoundedRectangle(cornerRadius: 8))

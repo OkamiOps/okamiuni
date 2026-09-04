@@ -1,3 +1,4 @@
+import UNICore
 @preconcurrency import Foundation
 
 /// Identifica um login iniciado pelo app-server oficial. `loginID` é opaco e
@@ -27,19 +28,19 @@ public enum CodexDeviceLoginRuntimeError: Error, Sendable, Equatable, LocalizedE
     public var errorDescription: String? {
         switch self {
         case .codexUnavailable:
-            "O Codex não foi encontrado neste Mac. Instale ou atualize o Codex para entrar com ChatGPT."
+            L10n.tr("O Codex não foi encontrado neste Mac. Instale ou atualize o Codex para entrar com ChatGPT.")
         case .storageUnavailable:
-            "O OkamiUNI não conseguiu preparar o espaço privado do Codex neste Mac. Verifique o acesso ao armazenamento do app e tente novamente."
+            L10n.tr("O OkamiUNI não conseguiu preparar o espaço privado do Codex neste Mac. Verifique o acesso ao armazenamento do app e tente novamente.")
         case .protocolUnavailable:
-            "O runtime do Codex não respondeu ao login seguro. Atualize o Codex e tente novamente."
+            L10n.tr("O runtime do Codex não respondeu ao login seguro. Atualize o Codex e tente novamente.")
         case .invalidDeviceAuthorization:
-            "O Codex devolveu um código de dispositivo inválido. Gere um novo código."
+            L10n.tr("O Codex devolveu um código de dispositivo inválido. Gere um novo código.")
         case .loginFailed:
-            "O login com ChatGPT não foi concluído. Tente novamente pelo código de dispositivo."
+            L10n.tr("O login com ChatGPT não foi concluído. Tente novamente pelo código de dispositivo.")
         case .notAuthenticated:
-            "A sessão ChatGPT deste OkamiUNI não está disponível. Conecte novamente para carregar os modelos."
+            L10n.tr("A sessão ChatGPT deste OkamiUNI não está disponível. Conecte novamente para carregar os modelos.")
         case .invalidModelCatalog:
-            "O Codex devolveu um catálogo de modelos inválido."
+            L10n.tr("O Codex devolveu um catálogo de modelos inválido.")
         }
     }
 }

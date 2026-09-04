@@ -395,7 +395,7 @@ struct ComposerTextView: NSViewRepresentable {
             var index = 0
 
             let paste = NSMenuItem(
-                title: "Colar sem formatação",
+                title: L10n.tr("Colar sem formatação"),
                 action: #selector(pastePlainFromMenu(_:)),
                 keyEquivalent: "v"
             )
@@ -410,10 +410,10 @@ struct ComposerTextView: NSViewRepresentable {
             // recusa tem de se explicar.
             let reading = ComposerEditor.reading(of: parent.text, selection: parent.selection)
             let allowed = ComposerTableCommand.isEnabled(reading)
-            let table = NSMenuItem(title: "Inserir tabela", action: nil, keyEquivalent: "")
+            let table = NSMenuItem(title: L10n.tr("Inserir tabela"), action: nil, keyEquivalent: "")
             table.isEnabled = allowed
             table.toolTip = ComposerTableCommand.title(reading)
-            let sizes = NSMenu(title: "Inserir tabela")
+            let sizes = NSMenu(title: L10n.tr("Inserir tabela"))
             // `NSMenu` reabilita item por item sozinho quando o alvo responde
             // ao seletor; desligar o automatismo é o que faz `isEnabled` valer.
             sizes.autoenablesItems = false
@@ -435,7 +435,7 @@ struct ComposerTextView: NSViewRepresentable {
             menu.insertItem(table, at: index); index += 1
 
             let clear = NSMenuItem(
-                title: "Limpar formatação",
+                title: L10n.tr("Limpar formatação"),
                 action: #selector(clearFormattingFromMenu(_:)),
                 keyEquivalent: ""
             )

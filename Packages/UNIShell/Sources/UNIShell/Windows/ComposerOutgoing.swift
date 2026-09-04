@@ -338,8 +338,8 @@ enum ComposerOutgoing {
     static func citation(_ original: Message, dateLabel: String) -> String {
         let quem = original.from.display
         let cabeca = dateLabel.isEmpty
-            ? "\(quem) escreveu:"
-            : "Em \(dateLabel), \(quem) escreveu:"
+            ? L10n.tr("\(quem) escreveu:")
+            : L10n.tr("Em \(dateLabel), \(quem) escreveu:")
         let linhas: [String]
         if original.body.isEmpty {
             linhas = original.subject.isEmpty ? [] : ["> \(original.subject)"]

@@ -42,14 +42,14 @@ struct ReconnectImapForm: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("RECONECTAR CONTA").capsLabel()
-            Text("A conta, as mensagens já baixadas e a fila de saída continuam onde estão. O que muda é a senha guardada.")
+            Text(L10n.tr("RECONECTAR CONTA")).capsLabel()
+            Text(L10n.tr("A conta, as mensagens já baixadas e a fila de saída continuam onde estão. O que muda é a senha guardada."))
                 .font(theme.sans.font(size: 11.5))
                 .foregroundStyle(theme.ink3.color)
                 .fixedSize(horizontal: false, vertical: true)
 
-            campo(texto: $address, dica: "endereço@qualquerdominio.com")
-            SecureField("senha de app", text: $password)
+            campo(texto: $address, dica: L10n.tr("endereço@qualquerdominio.com"))
+            SecureField(L10n.tr("senha de app"), text: $password)
                 .textFieldStyle(.plain)
                 .font(theme.sans.font(size: 12.5))
                 .foregroundStyle(theme.ink.color)
@@ -67,7 +67,7 @@ struct ReconnectImapForm: View {
                     .padding(.horizontal, 8)
                     .background(theme.surface2.color, in: RoundedRectangle(cornerRadius: theme.radiusSmall))
                 ComposerSelect(
-                    title: "Forma de TLS",
+                    title: L10n.tr("Forma de TLS"),
                     selected: security.rawValue,
                     width: 108,
                     groups: [.init(title: nil, options: [
@@ -89,7 +89,7 @@ struct ReconnectImapForm: View {
             }
 
             HStack(spacing: 10) {
-                Button("Reconectar") {
+                Button(L10n.tr("Reconectar")) {
                     guard let endpoint else { return }
                     Task {
                         let passou = await model.reconnectImap(
@@ -109,7 +109,7 @@ struct ReconnectImapForm: View {
                 .help(ajuda)
                 .focusRing(cornerRadius: 8)
 
-                Button("Cancelar") { onClose() }
+                Button(L10n.tr("Cancelar")) { onClose() }
                     .buttonStyle(.plain)
                     .font(theme.sans.font(size: 12))
                     .foregroundStyle(theme.ink3.color)
@@ -137,10 +137,10 @@ struct ReconnectImapForm: View {
     /// Por que o botão está apagado — uma frase por motivo, como no formulário
     /// de adicionar. Controle que existe explica o que faz.
     private var ajuda: String {
-        if model.isBusy { return "Há outra ação em curso; ela termina em instantes." }
-        if password.isEmpty { return "Falta a senha de app desta conta." }
-        if endpoint == nil { return "Falta o servidor IMAP ou a porta." }
-        return "Autenticar de novo e gravar a senha por cima — nada é apagado se falhar."
+        if model.isBusy { return L10n.tr("Há outra ação em curso; ela termina em instantes.") }
+        if password.isEmpty { return L10n.tr("Falta a senha de app desta conta.") }
+        if endpoint == nil { return L10n.tr("Falta o servidor IMAP ou a porta.") }
+        return L10n.tr("Autenticar de novo e gravar a senha por cima — nada é apagado se falhar.")
     }
 
     private var endpoint: ImapEndpoint? {

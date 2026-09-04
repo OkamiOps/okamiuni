@@ -115,7 +115,7 @@ struct LinkConfirmCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Abrir link")
+            Text(L10n.tr("Abrir link"))
                 .capsLabel(size: 9.5)
                 .foregroundStyle(theme.ink4.color)
 
@@ -130,7 +130,7 @@ struct LinkConfirmCard: View {
 
             if let aviso = destino.aviso { avisoLinha(aviso) }
 
-            Text("Endereço completo")
+            Text(L10n.tr("Endereço completo"))
                 .capsLabel(size: 9)
                 .foregroundStyle(theme.ink4.color)
                 .padding(.top, 2)
@@ -152,7 +152,7 @@ struct LinkConfirmCard: View {
             // com outro nome — ninguém confirma o que não consegue ler.
             HStack(spacing: 8) {
                 ChromeButton(
-                    "Copiar link", appearance: .quiet, size: 11.5,
+                    L10n.tr("Copiar link"), appearance: .quiet, size: 11.5,
                     height: 30, horizontalPadding: 8
                 ) {
                     Clipboard.copy(destino.porExtenso)
@@ -161,7 +161,7 @@ struct LinkConfirmCard: View {
                 // Cancelar antes de abrir, e é ele o padrão: Esc fecha a
                 // pergunta sem sair do app.
                 ChromeButton(
-                    "Cancelar", appearance: .outlined, size: 12,
+                    L10n.tr("Cancelar"), appearance: .outlined, size: 12,
                     height: 30, horizontalPadding: 10
                 ) { onCancel() }
                 ChromeButton(
@@ -181,7 +181,7 @@ struct LinkConfirmCard: View {
         }
         .shadow(theme.shadow)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Abrir link em \(destino.anfitriao)")
+        .accessibilityLabel(L10n.tr("Abrir link em \(destino.anfitriao)"))
         .accessibilityHint(destino.porExtenso)
     }
 
@@ -263,9 +263,9 @@ extension LinkConfirmation {
     /// confirmação é pior do que rótulo curto.
     static func rotuloDoBotao(_ url: URL) -> String {
         switch url.scheme?.lowercased() {
-        case "mailto": "Escrever email"
-        case "tel": "Ligar"
-        default: "Abrir no navegador"
+        case "mailto": L10n.tr("Escrever email")
+        case "tel": L10n.tr("Ligar")
+        default: L10n.tr("Abrir no navegador")
         }
     }
 }

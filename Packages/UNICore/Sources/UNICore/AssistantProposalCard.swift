@@ -79,7 +79,17 @@ public extension AssistantProposalCard {
     /// A promessa que o 09 escreve no cartão de arquivar. Ela é **do app**:
     /// o modelo pode escrevê-la na frase dele, mas quem decide se ela é
     /// verdade é a leva.
-    static let undoPromise = "Dá para desfazer."
+    static var undoPromise: String { L10n.tr("Dá para desfazer.") }
+
+    /// Frases que modelos já emitiram. Isso é reconhecimento de entrada, não
+    /// texto de interface: trocar o idioma do app não pode fazer uma promessa
+    /// antiga deixar de ser removida da proposta.
+    private static let undoClaimPhrases = [
+        "Dá para desfazer.",
+        "You can undo this.",
+        "Du kannst das rückgängig machen.",
+        "Vous pouvez annuler cette action.",
+    ]
 
     /// **A leva deste cartão volta atrás?**
     ///
@@ -126,8 +136,10 @@ public extension AssistantProposalCard {
     /// A frase do modelo sem a promessa de desfazer, e se ela estava lá.
     static func stripUndoPromise(_ title: String) -> (text: String, claimed: Bool) {
         let limpo = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard limpo.hasSuffix(undoPromise) else { return (limpo, false) }
-        let sem = String(limpo.dropLast(undoPromise.count))
+        guard let promise = undoClaimPhrases.first(where: limpo.hasSuffix) else {
+            return (limpo, false)
+        }
+        let sem = String(limpo.dropLast(promise.count))
             .trimmingCharacters(in: .whitespacesAndNewlines)
         return (sem, true)
     }
@@ -148,16 +160,16 @@ public extension AssistantProposalCard {
     /// uma frase, não o rascunho. Divergência registrada no relatório.
     static func verb(for action: AssistantAction) -> String {
         switch action {
-        case .archive: "Arquivar"
-        case .moveToLater: "Depois"
-        case .moveToToday: "Trazer para hoje"
-        case .markRead: "Marcar como lida"
-        case .flag: "Sinalizar"
-        case .reply: "Responder"
-        case .addToAgenda: "Agendar"
-        case .openMessage: "Abrir"
-        case .learnSender: "Aprender"
-        case .reserveBlock: "Reservar"
+        case .archive: L10n.tr("Arquivar")
+        case .moveToLater: L10n.tr("Depois")
+        case .moveToToday: L10n.tr("Trazer para hoje")
+        case .markRead: L10n.tr("Marcar como lida")
+        case .flag: L10n.tr("Sinalizar")
+        case .reply: L10n.tr("Responder")
+        case .addToAgenda: L10n.tr("Agendar")
+        case .openMessage: L10n.tr("Abrir")
+        case .learnSender: L10n.tr("Aprender")
+        case .reserveBlock: L10n.tr("Reservar")
         }
     }
 
@@ -205,7 +217,7 @@ public extension AssistantProposalCard {
             let distintos = Set(ids)
             let secundario: String? = distintos.isEmpty
                 ? nil
-                : (distintos.count > 1 ? "Ver a lista" : "Ver")
+                : (distintos.count > 1 ? L10n.tr("Ver a lista") : L10n.tr("Ver"))
             let frase = stripUndoPromise(proposta.title)
             return AssistantProposalCard(
                 id: "\(turnID)#\(indice)",

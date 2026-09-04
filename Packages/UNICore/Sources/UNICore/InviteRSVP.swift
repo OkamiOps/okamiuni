@@ -17,9 +17,9 @@ public enum InviteRSVPResponse: String, Codable, Sendable, Hashable, CaseIterabl
 
     public var label: String {
         switch self {
-        case .accepted: "Aceito"
-        case .tentative: "Talvez"
-        case .declined: "Recusado"
+        case .accepted: L10n.tr("Aceito")
+        case .tentative: L10n.tr("Talvez")
+        case .declined: L10n.tr("Recusado")
         }
     }
 
@@ -27,9 +27,9 @@ public enum InviteRSVPResponse: String, Codable, Sendable, Hashable, CaseIterabl
     /// controle precisa dizer o que acontecerá ao clique ("Aceitar").
     public var actionLabel: String {
         switch self {
-        case .accepted: "Aceitar"
-        case .tentative: "Talvez"
-        case .declined: "Recusar"
+        case .accepted: L10n.tr("Aceitar")
+        case .tentative: L10n.tr("Talvez")
+        case .declined: L10n.tr("Recusar")
         }
     }
 
@@ -61,21 +61,21 @@ public enum InviteRSVPUnavailableReason: Sendable, Hashable {
     public var message: String {
         switch self {
         case .cancelled:
-            "Este convite foi cancelado."
+            L10n.tr("Este convite foi cancelado.")
         case .accountMissing:
-            "Não foi possível identificar a conta que recebeu o convite."
+            L10n.tr("Não foi possível identificar a conta que recebeu o convite.")
         case .organizerMissing:
-            "Este convite não informa o organizador para receber a resposta."
+            L10n.tr("Este convite não informa o organizador para receber a resposta.")
         case .attendeeMissing:
-            "Este convite não informa quem foi convidado."
+            L10n.tr("Este convite não informa quem foi convidado.")
         case .accountIsNotAttendee:
-            "A conta que recebeu esta mensagem não aparece entre os convidados."
+            L10n.tr("A conta que recebeu esta mensagem não aparece entre os convidados.")
         case .accountIsOrganizer:
-            "Você organizou este evento. Quem responde é quem foi convidado."
+            L10n.tr("Você organizou este evento. Quem responde é quem foi convidado.")
         case .eventIdentifierMissing:
-            "Este convite não informa o identificador do evento para responder com segurança."
+            L10n.tr("Este convite não informa o identificador do evento para responder com segurança.")
         case .sendQueueMissing:
-            "A fila de saída não está disponível para enviar esta resposta."
+            L10n.tr("A fila de saída não está disponível para enviar esta resposta.")
         }
     }
 }
@@ -169,8 +169,8 @@ public enum InviteRSVP {
             accountID: account.id,
             from: attendee,
             to: [OutgoingAddress(organizer)],
-            subject: "Resposta: \(title)",
-            plainText: "Resposta ao convite \"\(title)\": \(response.label).",
+            subject: L10n.tr("Resposta: \(title)"),
+            plainText: L10n.tr("Resposta ao convite \"\(title)\": \(response.label)."),
             calendarICS: calendarBody(
                 response: response, uid: uid, sequence: invite.sequence,
                 organizer: organizer.address, attendee: account.address, now: now

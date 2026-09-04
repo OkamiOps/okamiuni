@@ -1,3 +1,4 @@
+import UNICore
 import Foundation
 
 /// O motor que atende perguntas e transformações de texto no OkamiUNI.
@@ -39,19 +40,19 @@ public enum AssistantSettingsError: Error, Sendable, Equatable, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case let .unsupportedSchemaVersion(version):
-            "Esta configuração de IA foi criada por uma versão mais nova do OkamiUNI (schema \(version))."
+            L10n.tr("Esta configuração de IA foi criada por uma versão mais nova do OkamiUNI (schema \(version)).")
         case .invalidEndpoint:
-            "Informe um endpoint OpenAI-compatible válido."
+            L10n.tr("Informe um endpoint OpenAI-compatible válido.")
         case .endpointMustUseHTTPS:
-            "O endpoint de IA deve usar HTTPS; HTTP é aceito somente em localhost."
+            L10n.tr("O endpoint de IA deve usar HTTPS; HTTP é aceito somente em localhost.")
         case .endpointContainsCredentials:
-            "Não coloque usuário, senha ou chave na URL do endpoint."
+            L10n.tr("Não coloque usuário, senha ou chave na URL do endpoint.")
         case .missingModel:
-            "Informe o modelo que o endpoint deve usar."
+            L10n.tr("Informe o modelo que o endpoint deve usar.")
         case .missingCredentialID:
-            "A referência da credencial de IA está vazia."
+            L10n.tr("A referência da credencial de IA está vazia.")
         case .additionalInstructionsTooLong:
-            "As instruções adicionais do assistente são longas demais."
+            L10n.tr("As instruções adicionais do assistente são longas demais.")
         }
     }
 }
@@ -264,11 +265,11 @@ public enum AssistantTonePreference: String, Codable, Sendable, Hashable, CaseIt
 
     public var label: String {
         switch self {
-        case .natural: "Natural"
-        case .direct: "Direto"
-        case .warm: "Cordial"
-        case .formal: "Formal"
-        case .technical: "Técnico"
+        case .natural: L10n.tr("Natural")
+        case .direct: L10n.tr("Direto")
+        case .warm: L10n.tr("Cordial")
+        case .formal: L10n.tr("Formal")
+        case .technical: L10n.tr("Técnico")
         }
     }
 
@@ -293,10 +294,10 @@ public enum AssistantDetailPreference: String, Codable, Sendable, Hashable, Case
 
     public var label: String {
         switch self {
-        case .adaptive: "Adaptar ao pedido"
-        case .concise: "Curto"
-        case .balanced: "Equilibrado"
-        case .detailed: "Detalhado"
+        case .adaptive: L10n.tr("Adaptar ao pedido")
+        case .concise: L10n.tr("Curto")
+        case .balanced: L10n.tr("Equilibrado")
+        case .detailed: L10n.tr("Detalhado")
         }
     }
 
@@ -316,16 +317,18 @@ public enum AssistantLanguagePreference: String, Codable, Sendable, Hashable, Ca
     case english
     case spanish
     case german
+    case french
 
     public var id: String { rawValue }
 
     public var label: String {
         switch self {
-        case .followConversation: "Idioma da conversa"
+        case .followConversation: L10n.tr("Idioma da conversa")
         case .portugueseBrazil: "Português (Brasil)"
         case .english: "English"
         case .spanish: "Español"
         case .german: "Deutsch"
+        case .french: "Français"
         }
     }
 
@@ -336,6 +339,7 @@ public enum AssistantLanguagePreference: String, Codable, Sendable, Hashable, Ca
         case .english: "Respond in English."
         case .spanish: "Responde en español."
         case .german: "Antworte auf Deutsch."
+        case .french: "Réponds en français."
         }
     }
 }
@@ -350,10 +354,10 @@ public enum AssistantFormatPreference: String, Codable, Sendable, Hashable, Case
 
     public var label: String {
         switch self {
-        case .adaptive: "Automático"
-        case .paragraphs: "Parágrafos"
-        case .bullets: "Tópicos"
-        case .executive: "Resumo executivo"
+        case .adaptive: L10n.tr("Automático")
+        case .paragraphs: L10n.tr("Parágrafos")
+        case .bullets: L10n.tr("Tópicos")
+        case .executive: L10n.tr("Resumo executivo")
         }
     }
 

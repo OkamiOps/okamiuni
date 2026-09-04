@@ -113,7 +113,7 @@ public struct AssistantFailure: Sendable, Hashable {
         case is CancellationError:
             // Quem cancelou foi a pessoa. Não há o que recuperar, e um botão
             // aqui só faria parecer que algo deu errado.
-            self.init(message: "Pedido cancelado.", recovery: nil)
+            self.init(message: L10n.tr("Pedido cancelado."), recovery: nil)
         default:
             let described = (error as? any LocalizedError)?.errorDescription?
                 .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -150,7 +150,7 @@ public struct AssistantFailure: Sendable, Hashable {
             .isEmpty
     }
 
-    static let fallbackMessage = "Não foi possível responder agora."
+    static var fallbackMessage: String { L10n.tr("Não foi possível responder agora.") }
 }
 
 /// A faixa única de erro. Painel, dashboard e janela de mensagem mostram
@@ -178,18 +178,18 @@ struct AssistantFailureBand: View {
             switch failure.recovery {
             case .retry:
                 ChromeButton(
-                    "Tentar de novo", appearance: .outlined,
+                    L10n.tr("Tentar de novo"), appearance: .outlined,
                     size: 11.5, height: 27, horizontalPadding: 10,
                     action: onRetry
                 )
-                .help("Repete o último pedido ao assistente")
+                .help(L10n.tr("Repete o último pedido ao assistente"))
             case .openSettings:
                 ChromeButton(
-                    "Abrir Ajustes", appearance: .outlined,
+                    L10n.tr("Abrir Ajustes"), appearance: .outlined,
                     size: 11.5, height: 27, horizontalPadding: 10,
                     action: onOpenSettings
                 )
-                .help("Abre Configurações para escolher ou corrigir o provedor")
+                .help(L10n.tr("Abre Configurações para escolher ou corrigir o provedor"))
             case let .reconnect(kind):
                 ChromeButton(
                     Self.reconnectTitle(kind),
@@ -197,7 +197,7 @@ struct AssistantFailureBand: View {
                     size: 11.5, height: 27, horizontalPadding: 10,
                     action: onOpenSettings
                 )
-                .help("Abre Configurações para entrar de novo na assinatura")
+                .help(L10n.tr("Abre Configurações para entrar de novo na assinatura"))
             case nil:
                 EmptyView()
             }
@@ -218,8 +218,8 @@ struct AssistantFailureBand: View {
     /// aqui, e não sair rotulado com o nome do outro.
     static func reconnectTitle(_ kind: AssistantProviderOAuthKind) -> String {
         switch kind {
-        case .codex: "Reconectar ChatGPT"
-        case .xAI: "Reconectar xAI"
+        case .codex: L10n.tr("Reconectar ChatGPT")
+        case .xAI: L10n.tr("Reconectar xAI")
         }
     }
 }

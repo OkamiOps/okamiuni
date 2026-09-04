@@ -31,15 +31,15 @@ public enum MailboxChromeStatus: Equatable, Sendable {
     public var label: String {
         switch self {
         case .empty:
-            return "Nenhuma conta para sincronizar"
+            return L10n.tr("Nenhuma conta para sincronizar")
         case .loading(let fraction):
             if let fraction {
                 let porcento = Int((fraction * 100).rounded())
-                return "Carregando a caixa… \(porcento)%"
+                return L10n.tr("Carregando a caixa… \(porcento)%")
             }
-            return "Sincronizando a caixa…"
+            return L10n.tr("Sincronizando a caixa…")
         case .ready:
-            return "Caixa atualizada"
+            return L10n.tr("Caixa atualizada")
         case .failed(let mensagem):
             return mensagem
         }
@@ -84,25 +84,25 @@ public enum MailboxChromeStatus: Equatable, Sendable {
     /// Relógio relativo, em português curto.
     public static func relativeSync(_ date: Date, now: Date) -> String {
         let seconds = now.timeIntervalSince(date)
-        if seconds < 45 { return "agora" }
+        if seconds < 45 { return L10n.tr("agora") }
         if seconds < 3_600 {
             let minutos = max(1, Int((seconds / 60).rounded()))
-            return "há \(minutos) min"
+            return L10n.tr("há \(minutos) min")
         }
         let calendar = Calendar.current
         let hora: DateFormatter = {
             let f = DateFormatter()
-            f.locale = Locale(identifier: "pt_BR")
-            f.dateFormat = "HH:mm"
+            f.locale = L10n.locale
+            f.setLocalizedDateFormatFromTemplate("jm")
             return f
         }()
         if calendar.isDate(date, inSameDayAs: now) {
-            return "às \(hora.string(from: date))"
+            return L10n.tr("às \(hora.string(from: date))")
         }
         let dia = DateFormatter()
-        dia.locale = Locale(identifier: "pt_BR")
-        dia.dateFormat = "d/M"
-        return "em \(dia.string(from: date)) \(hora.string(from: date))"
+        dia.locale = L10n.locale
+        dia.setLocalizedDateFormatFromTemplate("dM")
+        return L10n.tr("em \(dia.string(from: date)) \(hora.string(from: date))")
     }
 }
 
@@ -130,7 +130,7 @@ public struct MailboxPortrait: Equatable, Sendable {
 
     public var countCaption: String {
         if let remoteCount {
-            return "\(remoteLabel) \(Self.numero(remoteCount)) · aqui \(Self.numero(localCount))"
+            return L10n.tr("\(remoteLabel) \(Self.numero(remoteCount)) · aqui \(Self.numero(localCount))")
         }
         return MessageList.messageCountLabel(localCount, hasMore: hasMore)
     }
@@ -139,7 +139,7 @@ public struct MailboxPortrait: Equatable, Sendable {
     public var gapCaption: String? {
         guard let remoteCount, remoteCount > localCount else { return nil }
         let falta = remoteCount - localCount
-        return falta == 1 ? "1 não está no app" : "\(Self.numero(falta)) não estão no app"
+        return falta == 1 ? L10n.tr("1 não está no app") : L10n.tr("\(Self.numero(falta)) não estão no app")
     }
 
     public func lastSyncedCaption(now: Date = Date()) -> String? {
@@ -155,7 +155,7 @@ public struct MailboxPortrait: Equatable, Sendable {
     ) -> MailboxPortrait {
         let google = account?.provider == .gmail
         return MailboxPortrait(
-            remoteLabel: google ? "Gmail Entrada" : "Entrada",
+            remoteLabel: google ? L10n.tr("Gmail Entrada") : L10n.tr("Entrada"),
             remoteCount: google ? status?.remoteInboxCount : nil,
             localCount: localCount,
             lastSyncedAt: status?.lastSyncedAt,
@@ -165,7 +165,7 @@ public struct MailboxPortrait: Equatable, Sendable {
 
     public static func numero(_ valor: Int) -> String {
         let formatador = NumberFormatter()
-        formatador.locale = Locale(identifier: "pt_BR")
+        formatador.locale = L10n.locale
         formatador.numberStyle = .decimal
         return formatador.string(from: NSNumber(value: valor)) ?? "\(valor)"
     }

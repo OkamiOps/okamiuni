@@ -53,7 +53,7 @@ struct AppointmentDatePicker: View {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 11, weight: .semibold))
             }
-            .accessibilityLabel("Mês anterior")
+            .accessibilityLabel(L10n.tr("Mês anterior"))
             CalendarButton(
                 appearance: .quiet, width: 28, height: 28, horizontalPadding: 0,
                 action: { stepMonth(1) }
@@ -61,7 +61,7 @@ struct AppointmentDatePicker: View {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 11, weight: .semibold))
             }
-            .accessibilityLabel("Próximo mês")
+            .accessibilityLabel(L10n.tr("Próximo mês"))
         }
     }
 

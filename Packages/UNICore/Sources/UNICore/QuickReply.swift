@@ -300,7 +300,7 @@ public enum QuickReply {
     /// Puro e fora de `View` para o teste conseguir chamá-lo.
     public static func suggestedDrafts(for message: Message) -> [SuggestedDraft] {
         let greeting = firstName(of: message.from)
-        let opening = greeting.isEmpty ? "Olá" : greeting
+        let opening = greeting.isEmpty ? L10n.tr("Olá") : greeting
 
         if !message.replyHints.isEmpty {
             return message.replyHints.map { hint in
@@ -312,29 +312,28 @@ public enum QuickReply {
         if let event = message.detectedEvent {
             drafts.append(
                 SuggestedDraft(
-                    label: "Confirmar",
-                    text: "\(opening), confirmado: \(event.label). Já está na minha agenda."
+                    label: L10n.tr("Confirmar"),
+                    text: L10n.tr("\(opening), confirmado: \(event.label). Já está na minha agenda.")
                 )
             )
             drafts.append(
                 SuggestedDraft(
-                    label: "Remarcar",
-                    text: "\(opening), esse horário não fecha aqui. "
-                        + "Consegue me mandar duas alternativas?"
+                    label: L10n.tr("Remarcar"),
+                    text: L10n.tr("\(opening), esse horário não fecha aqui. Consegue me mandar duas alternativas?")
                 )
             )
         } else {
             drafts.append(
                 SuggestedDraft(
-                    label: "Confirmar",
-                    text: "\(opening), confirmado. Pode seguir."
+                    label: L10n.tr("Confirmar"),
+                    text: L10n.tr("\(opening), confirmado. Pode seguir.")
                 )
             )
         }
         drafts.append(
             SuggestedDraft(
-                label: "Peço um prazo",
-                text: "\(opening), recebi. Vejo isso com calma e te respondo ainda hoje."
+                label: L10n.tr("Peço um prazo"),
+                text: L10n.tr("\(opening), recebi. Vejo isso com calma e te respondo ainda hoje.")
             )
         )
         return drafts

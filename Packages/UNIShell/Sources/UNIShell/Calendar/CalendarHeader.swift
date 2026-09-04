@@ -37,7 +37,9 @@ struct CalendarHeader: View {
             )
 
             viewTabs
+                .fixedSize(horizontal: true, vertical: false)
             dayNavigator
+                .fixedSize(horizontal: true, vertical: false)
 
             Text(meta)
                 .font(theme.mono.font(size: 10))
@@ -47,7 +49,10 @@ struct CalendarHeader: View {
 
             Spacer(minLength: 0)
 
-            accountLegend
+            ViewThatFits(in: .horizontal) {
+                accountLegend
+                Color.clear.frame(width: 0, height: 0)
+            }
         }
         .padding(.horizontal, 20)
         .frame(height: Self.height)
@@ -101,9 +106,9 @@ struct CalendarHeader: View {
                 WeekAgenda.items(on: selectedDayOffset, in: store.calendarAgenda).count
             )
         case .week:
-            "semana \(WeekAgenda.weekNumber(for: focusedDate))"
+            L10n.tr("semana \(WeekAgenda.weekNumber(for: focusedDate))")
         case .month:
-            "\(MonthAgenda.eventCount(from: store.calendarAgenda, anchor: anchor, focusOffset: selectedDayOffset)) compromissos"
+            L10n.tr("\(MonthAgenda.eventCount(from: store.calendarAgenda, anchor: anchor, focusOffset: selectedDayOffset)) compromissos")
         }
     }
 
@@ -209,8 +214,8 @@ struct CalendarHeader: View {
                     .opacity(0.7)
             }
         }
-        .help("Escolher o dia")
-        .accessibilityLabel("Escolher o dia")
+        .help(L10n.tr("Escolher o dia"))
+        .accessibilityLabel(L10n.tr("Escolher o dia"))
     }
 
     private var todayButton: some View {
@@ -220,27 +225,27 @@ struct CalendarHeader: View {
             horizontalPadding: 12,
             action: onGoToday
         ) {
-            Text("Hoje")
+            Text(L10n.tr("Hoje"))
                 .font(theme.sans.font(size: 12.5, weight: .semibold))
         }
         .disabled(selectedDayOffset == 0)
-        .help("Ir para hoje")
-        .accessibilityLabel("Ir para hoje")
+        .help(L10n.tr("Ir para hoje"))
+        .accessibilityLabel(L10n.tr("Ir para hoje"))
     }
 
     private var previousLabel: String {
         switch mode {
-        case .day: "Dia anterior"
-        case .week: "Semana anterior"
-        case .month: "Mês anterior"
+        case .day: L10n.tr("Dia anterior")
+        case .week: L10n.tr("Semana anterior")
+        case .month: L10n.tr("Mês anterior")
         }
     }
 
     private var nextLabel: String {
         switch mode {
-        case .day: "Próximo dia"
-        case .week: "Próxima semana"
-        case .month: "Próximo mês"
+        case .day: L10n.tr("Próximo dia")
+        case .week: L10n.tr("Próxima semana")
+        case .month: L10n.tr("Próximo mês")
         }
     }
 
@@ -267,7 +272,7 @@ struct CalendarHeader: View {
                 }
                 .fixedSize()
                 .accessibilityElement(children: .combine)
-                .accessibilityLabel("Cor da caixa \(account.host)")
+                .accessibilityLabel(L10n.tr("Cor da caixa \(account.host)"))
             }
         }
     }

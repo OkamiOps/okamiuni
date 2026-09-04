@@ -26,11 +26,11 @@ struct EmptyTrashConfirmation: ViewModifier {
     /// certeza?" sozinho não dá informação nenhuma a quem decide.
     static func title(_ count: Int) -> String {
         count == 1
-            ? "Esvaziar a Lixeira e apagar 1 mensagem de vez?"
-            : "Esvaziar a Lixeira e apagar \(count) mensagens de vez?"
+            ? L10n.tr("Esvaziar a Lixeira e apagar 1 mensagem de vez?")
+            : L10n.tr("Esvaziar a Lixeira e apagar \(count) mensagens de vez?")
     }
 
-    static let message = "Não dá para desfazer."
+    static var message: String { L10n.tr("Não dá para desfazer.") }
 
     func body(content: Content) -> some View {
         content.confirmationDialog(
@@ -38,10 +38,10 @@ struct EmptyTrashConfirmation: ViewModifier {
             isPresented: $isPresented,
             titleVisibility: .visible
         ) {
-            Button("Esvaziar lixeira", role: .destructive) {
+            Button(L10n.tr("Esvaziar lixeira"), role: .destructive) {
                 store.emptyTrash(accountID: store.selectedAccountID)
             }
-            Button("Cancelar", role: .cancel) {}
+            Button(L10n.tr("Cancelar"), role: .cancel) {}
         } message: {
             Text(Self.message)
         }

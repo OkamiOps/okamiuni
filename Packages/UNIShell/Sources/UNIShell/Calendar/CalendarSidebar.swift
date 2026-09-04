@@ -136,7 +136,7 @@ struct CalendarSidebar: View {
 
     private var groupedList: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Calendários")
+            Text(L10n.tr("Calendários"))
                 .capsLabel(size: 9.5)
                 .padding(EdgeInsets(top: 4, leading: 16, bottom: 7, trailing: 16))
 
@@ -206,9 +206,9 @@ struct CalendarSidebar: View {
             ContextMenus.calendarRow(calendar, isConcealed: false),
             store: store
         )
-        .help(on ? "Esconder \(label)" : "Mostrar \(label)")
+        .help(on ? L10n.tr("Esconder \(label)") : L10n.tr("Mostrar \(label)"))
         .accessibilityLabel(calendar.title)
-        .accessibilityValue(on ? "visível" : "escondido")
+        .accessibilityValue(on ? L10n.tr("visível") : L10n.tr("escondido"))
         .accessibilityAddTraits(on ? [.isSelected] : [])
     }
 
@@ -240,9 +240,9 @@ struct CalendarSidebar: View {
         }
         .buttonStyle(.plain)
         .onHover { chevronHovering = $0 ? source : nil }
-        .help(expanded ? "Recolher \(source)" : "Mostrar os calendários de \(source)")
+        .help(expanded ? L10n.tr("Recolher \(source)") : L10n.tr("Mostrar os calendários de \(source)"))
         .accessibilityLabel(source)
-        .accessibilityValue(expanded ? "aberto" : "recolhido")
+        .accessibilityValue(expanded ? L10n.tr("aberto") : L10n.tr("recolhido"))
         .accessibilityAddTraits(expanded ? [.isSelected] : [])
     }
 
@@ -288,11 +288,11 @@ struct CalendarSidebar: View {
         )
         .help(
             concealed
-                ? "Mostrar \(calendar.title) na lista"
-                : (on ? "Esconder \(calendar.title) na grade" : "Mostrar \(calendar.title) na grade")
+                ? L10n.tr("Mostrar \(calendar.title) na lista")
+                : (on ? L10n.tr("Esconder \(calendar.title) na grade") : L10n.tr("Mostrar \(calendar.title) na grade"))
         )
         .accessibilityLabel(calendar.title)
-        .accessibilityValue(concealed ? "oculto" : (on ? "visível" : "desligado"))
+        .accessibilityValue(concealed ? L10n.tr("oculto") : (on ? L10n.tr("visível") : L10n.tr("desligado")))
         .accessibilityAddTraits(on ? [.isSelected] : [])
     }
 
@@ -301,7 +301,7 @@ struct CalendarSidebar: View {
             HStack(spacing: 9) {
                 Image(systemName: "plus")
                     .font(.system(size: 14, weight: .semibold))
-                Text("Novo compromisso")
+                Text(L10n.tr("Novo compromisso"))
                     .font(theme.sans.font(size: 13, weight: .semibold))
             }
             .foregroundStyle(theme.onAccent.color)
@@ -311,8 +311,8 @@ struct CalendarSidebar: View {
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall, tint: \.onAccent)
-        .help("Novo compromisso")
-        .accessibilityLabel("Novo compromisso")
+        .help(L10n.tr("Novo compromisso"))
+        .accessibilityLabel(L10n.tr("Novo compromisso"))
     }
 
     private var compactCreate: some View {
@@ -326,8 +326,8 @@ struct CalendarSidebar: View {
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall, tint: \.onAccent)
-        .help("Novo compromisso")
-        .accessibilityLabel("Novo compromisso")
+        .help(L10n.tr("Novo compromisso"))
+        .accessibilityLabel(L10n.tr("Novo compromisso"))
     }
 
     private var compactRefresh: some View {
@@ -341,8 +341,8 @@ struct CalendarSidebar: View {
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall)
-        .help("Sincronizar os calendários do macOS e das caixas conectadas agora")
-        .accessibilityLabel("Atualizar agendas")
+        .help(L10n.tr("Sincronizar os calendários do macOS e das caixas conectadas agora"))
+        .accessibilityLabel(L10n.tr("Atualizar agendas"))
     }
 
     private var refreshButton: some View {
@@ -353,7 +353,7 @@ struct CalendarSidebar: View {
                 Image(systemName: "arrow.clockwise")
                     .font(.system(size: 13, weight: .medium))
                     .frame(width: 20)
-                Text("Atualizar agendas")
+                Text(L10n.tr("Atualizar agendas"))
                     .font(theme.sans.font(size: 12.5, weight: .medium))
                 Spacer(minLength: 0)
             }
@@ -364,20 +364,20 @@ struct CalendarSidebar: View {
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall)
-        .help("Sincronizar os calendários do macOS e das caixas conectadas agora")
-        .accessibilityLabel("Atualizar agendas")
+        .help(L10n.tr("Sincronizar os calendários do macOS e das caixas conectadas agora"))
+        .accessibilityLabel(L10n.tr("Atualizar agendas"))
     }
 
     private var emptyCopy: String {
         switch store.calendarAvailability {
         case .authorizationRequired:
-            "Permita o acesso aos Calendários para listar iCloud, Todoist e os outros."
+            L10n.tr("Permita o acesso aos Calendários para listar iCloud, Todoist e os outros.")
         case .unavailable(let reason):
             reason
         case .loading:
-            "Lendo os calendários deste Mac…"
+            L10n.tr("Lendo os calendários deste Mac…")
         default:
-            "Nenhum calendário encontrado neste Mac."
+            L10n.tr("Nenhum calendário encontrado neste Mac.")
         }
     }
 
@@ -441,7 +441,7 @@ struct CalendarMiniMonth: View {
             if !inMonth { monthFocusOffset = new }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Mini calendário")
+        .accessibilityLabel(L10n.tr("Mini calendário"))
     }
 
     private var header: some View {
@@ -458,8 +458,8 @@ struct CalendarMiniMonth: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Mês anterior")
-            .accessibilityLabel("Mês anterior")
+            .help(L10n.tr("Mês anterior"))
+            .accessibilityLabel(L10n.tr("Mês anterior"))
 
             Text(WeekAgenda.monthTitle(for: focusedDate))
                 .font(theme.serif.font(size: 13, weight: .semibold))
@@ -479,8 +479,8 @@ struct CalendarMiniMonth: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Próximo mês")
-            .accessibilityLabel("Próximo mês")
+            .help(L10n.tr("Próximo mês"))
+            .accessibilityLabel(L10n.tr("Próximo mês"))
         }
     }
 

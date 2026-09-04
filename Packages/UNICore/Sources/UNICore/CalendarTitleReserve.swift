@@ -36,7 +36,7 @@ public enum CalendarTitleReserve {
     public static func monthTitles(
         inYearOf date: Date,
         calendar: Calendar = .current,
-        locale: Locale = Locale(identifier: "pt_BR")
+        locale: Locale = L10n.locale
     ) -> [String] {
         months(inYearOf: date, calendar: calendar).map {
             WeekAgenda.monthTitle(for: $0, locale: locale)
@@ -50,15 +50,49 @@ public enum CalendarTitleReserve {
     public static func longDayTitlePieces(
         inYearOf date: Date,
         calendar: Calendar = .current,
-        locale: Locale = Locale(identifier: "pt_BR")
+        locale: Locale = L10n.locale
     ) -> (prefixes: [String], suffixes: [String]) {
-        let prefixes = weekdays(inYearOf: date, calendar: calendar).map {
-            DateLabels.eventDate($0, locale: locale).weekdayPrefix + ", " + worstDay.head
+        // Em inglês o mês vem antes do número ("Tuesday, August 30"). Nos
+        // demais idiomas suportados, o número vem antes do mês. A reserva
+        // continua com 7 + 12 medidas, mas corta a data no lado que mantém o
+        // nome do mês independente do dia da semana.
+        if locale.language.languageCode?.identifier == "en" {
+            let prefixes = weekdays(inYearOf: date, calendar: calendar).map {
+                let label = DateLabels.eventDate($0, locale: locale)
+                guard let comma = label.firstIndex(of: ",") else { return label + " " }
+                return String(label[...comma]) + " "
+            }
+            let suffixes = months(inYearOf: date, calendar: calendar).map { month in
+                let label = DateLabels.eventDate(month, locale: locale)
+                guard let comma = label.firstIndex(of: ",") else { return label }
+                let monthAndDay = label[label.index(after: comma)...].trimmingCharacters(in: .whitespaces)
+                return replacingFirstNumber(in: monthAndDay, with: "30")
+            }
+            return (prefixes, suffixes)
         }
-        let suffixes = months(inYearOf: date, calendar: calendar).map { mes in
-            worstDay.tail + " de " + DateLabels.eventDate(mes, locale: locale).monthSuffix
+
+        let prefixes = weekdays(inYearOf: date, calendar: calendar).map {
+            let label = DateLabels.eventDate($0, locale: locale)
+            guard let range = firstNumberRange(in: label) else { return label }
+            return String(label[..<range.lowerBound]) + worstDay.head
+        }
+        let suffixes = months(inYearOf: date, calendar: calendar).map { month in
+            let label = DateLabels.eventDate(month, locale: locale)
+            guard let range = firstNumberRange(in: label) else { return label }
+            return worstDay.tail + String(label[range.upperBound...])
         }
         return (prefixes, suffixes)
+    }
+
+    private static func firstNumberRange(in text: String) -> Range<String.Index>? {
+        guard let start = text.firstIndex(where: \.isNumber) else { return nil }
+        let end = text[start...].firstIndex(where: { !$0.isNumber }) ?? text.endIndex
+        return start..<end
+    }
+
+    private static func replacingFirstNumber(in text: String, with replacement: String) -> String {
+        guard let range = firstNumberRange(in: text) else { return text }
+        return String(text[..<range.lowerBound]) + replacement + String(text[range.upperBound...])
     }
 
     /// O botão que abre o seletor de data, no mesmo corte:
@@ -67,7 +101,7 @@ public enum CalendarTitleReserve {
     public static func shortDayLabelPieces(
         inYearOf date: Date,
         calendar: Calendar = .current,
-        locale: Locale = Locale(identifier: "pt_BR")
+        locale: Locale = L10n.locale
     ) -> (prefixes: [String], suffixes: [String]) {
         let prefixes = weekdays(inYearOf: date, calendar: calendar).map {
             MonthAgenda.shortDayLabel(dayOffset: 0, anchor: $0, calendar: calendar, locale: locale)
@@ -103,12 +137,6 @@ fileprivate extension String {
     /// "Terça" de "Terça, 25 de agosto" — o que vem antes da vírgula.
     var weekdayPrefix: String {
         String(prefix { $0 != "," })
-    }
-
-    /// "agosto" de "Terça, 25 de agosto" — o que vem depois do último " de ".
-    var monthSuffix: String {
-        guard let range = range(of: " de ", options: .backwards) else { return self }
-        return String(self[range.upperBound...])
     }
 
     /// "ago" de "ter, 25 ago" — o que vem depois do último espaço.

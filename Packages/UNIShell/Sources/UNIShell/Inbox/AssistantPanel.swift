@@ -1,3 +1,4 @@
+import UNICore
 import Foundation
 import Observation
 import SwiftUI
@@ -20,7 +21,7 @@ public struct AssistantContext: Sendable, Hashable {
         self.conversationLabel = conversationLabel
     }
 
-    var title: String { subject.isEmpty ? "Email aberto" : subject }
+    var title: String { subject.isEmpty ? L10n.tr("Email aberto") : subject }
 
     var detail: String {
         [sender, conversationLabel]
@@ -58,21 +59,21 @@ public struct AssistantSuggestion: Identifiable, Sendable, Hashable {
         self.kind = kind
     }
 
-    public static let emailDefaults: [AssistantSuggestion] = [
-        .init(title: "Resumo", question: "Faça um resumo útil desta conversa, destacando o que importa."),
-        .init(title: "Pontos-chave", question: "Liste os pontos-chave desta conversa."),
+    public static var emailDefaults: [AssistantSuggestion] { [
+        .init(title: L10n.tr("Resumo"), question: "Faça um resumo útil desta conversa, destacando o que importa."),
+        .init(title: L10n.tr("Pontos-chave"), question: "Liste os pontos-chave desta conversa."),
         .init(title: "Insights", question: "Analise esta conversa e identifique insights, riscos e pontos em aberto."),
-        .init(title: "Pendências", question: "Liste pendências, responsáveis e prazos desta conversa."),
-        .init(id: "draft-reply", title: "Gerar resposta", question: "", kind: .draftReply),
-    ]
+        .init(title: L10n.tr("Pendências"), question: "Liste pendências, responsáveis e prazos desta conversa."),
+        .init(id: "draft-reply", title: L10n.tr("Gerar resposta"), question: "", kind: .draftReply),
+    ] }
 
-    public static let workspaceDefaults: [AssistantSuggestion] = [
-        .init(title: "Resumo geral", question: "Resuma meu ambiente: caixas, e-mails, agenda e pendências."),
-        .init(title: "Prioridades", question: "Quais são minhas prioridades agora considerando e-mails e agenda?"),
-        .init(title: "Não lidos", question: "Organize os e-mails não lidos mais importantes e diga por onde começar."),
-        .init(title: "Agenda", question: "Resuma minha agenda e aponte conflitos, lacunas ou preparações necessárias."),
-        .init(title: "Riscos e pendências", question: "Cruze e-mails, agenda e pendências e identifique riscos ou itens esquecidos."),
-    ]
+    public static var workspaceDefaults: [AssistantSuggestion] { [
+        .init(title: L10n.tr("Resumo geral"), question: "Resuma meu ambiente: caixas, e-mails, agenda e pendências."),
+        .init(title: L10n.tr("Prioridades"), question: "Quais são minhas prioridades agora considerando e-mails e agenda?"),
+        .init(title: L10n.tr("Não lidos"), question: "Organize os e-mails não lidos mais importantes e diga por onde começar."),
+        .init(title: L10n.tr("Agenda"), question: "Resuma minha agenda e aponte conflitos, lacunas ou preparações necessárias."),
+        .init(title: L10n.tr("Riscos e pendências"), question: "Cruze e-mails, agenda e pendências e identifique riscos ou itens esquecidos."),
+    ] }
 }
 
 /// Define se o painel fala da mensagem aberta ou do ambiente inteiro. A
@@ -83,43 +84,43 @@ public enum AssistantScope: Sendable, Hashable {
 
     var title: String {
         switch self {
-        case .email: "Inteligência do email"
-        case .workspace: "Assistente do ambiente"
+        case .email: L10n.tr("Inteligência do email")
+        case .workspace: L10n.tr("Assistente do ambiente")
         }
     }
 
     var contextLabel: String {
         switch self {
-        case .email: "CONTEXTO DO EMAIL"
-        case .workspace: "AMBIENTE LOCAL"
+        case .email: L10n.tr("CONTEXTO DO EMAIL")
+        case .workspace: L10n.tr("AMBIENTE LOCAL")
         }
     }
 
     var emptyTitle: String {
         switch self {
-        case .email: "Ações rápidas"
-        case .workspace: "O que você quer organizar?"
+        case .email: L10n.tr("Ações rápidas")
+        case .workspace: L10n.tr("O que você quer organizar?")
         }
     }
 
     var emptyDetail: String {
         switch self {
-        case .email: "Escolha uma ação ou escreva uma pergunta sobre este email."
-        case .workspace: "Pergunte sobre suas caixas, emails, agenda e pendências."
+        case .email: L10n.tr("Escolha uma ação ou escreva uma pergunta sobre este email.")
+        case .workspace: L10n.tr("Pergunte sobre suas caixas, emails, agenda e pendências.")
         }
     }
 
     var placeholder: String {
         switch self {
-        case .email: "Pergunte sobre este email…"
-        case .workspace: "Pergunte sobre seu ambiente…"
+        case .email: L10n.tr("Pergunte sobre este email…")
+        case .workspace: L10n.tr("Pergunte sobre seu ambiente…")
         }
     }
 
     var accessibilitySubject: String {
         switch self {
-        case .email: "o email"
-        case .workspace: "o ambiente"
+        case .email: L10n.tr("o email")
+        case .workspace: L10n.tr("o ambiente")
         }
     }
 
@@ -135,8 +136,8 @@ public enum AssistantScope: Sendable, Hashable {
     /// selecionado foi o que motivou a spec 1.2.
     func loadingLabel(for destination: AssistantDestination) -> String {
         destination.isLocal
-            ? "Lendo o contexto neste Mac…"
-            : "Falando com \(destination.label)…"
+            ? L10n.tr("Lendo o contexto neste Mac…")
+            : L10n.tr("Falando com \(destination.label)…")
     }
 }
 
@@ -261,8 +262,8 @@ public struct AssistantPanel: View {
                     .buttonStyle(.plain)
                     .focusRing(cornerRadius: theme.radiusSmall)
                     .disabled(conversation.isLoading)
-                    .help("Limpar esta conversa")
-                    .accessibilityLabel("Limpar conversa")
+                    .help(L10n.tr("Limpar esta conversa"))
+                    .accessibilityLabel(L10n.tr("Limpar conversa"))
             }
 
             Button(action: onClose) {
@@ -275,8 +276,8 @@ public struct AssistantPanel: View {
             }
             .buttonStyle(.plain)
             .focusRing(cornerRadius: theme.radiusSmall)
-            .help("Fechar painel de perguntas")
-            .accessibilityLabel("Fechar perguntas sobre \(mode.accessibilitySubject)")
+            .help(L10n.tr("Fechar painel de perguntas"))
+            .accessibilityLabel(L10n.tr("Fechar perguntas sobre \(mode.accessibilitySubject)"))
         }
         .padding(16)
     }
@@ -324,7 +325,7 @@ public struct AssistantPanel: View {
 
     private var transcript: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("CONVERSA")
+            Text(L10n.tr("CONVERSA"))
                 .font(theme.mono.font(size: 9, weight: .medium))
                 .tracking(theme.capsTracking(at: 9))
                 .foregroundStyle(theme.ink4.color)
@@ -359,14 +360,14 @@ public struct AssistantPanel: View {
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall)
         .disabled(conversation.isLoading)
-        .help("Usar a pergunta: \(suggestion.question)")
+        .help(L10n.tr("Usar a pergunta: \(suggestion.question)"))
     }
 
     private func messageBubble(_ message: AssistantMessage) -> some View {
         HStack {
             if message.speaker == .user { Spacer(minLength: 36) }
             VStack(alignment: .leading, spacing: 4) {
-                Text(message.speaker == .user ? "VOCÊ" : "ASSISTENTE")
+                Text(message.speaker == .user ? L10n.tr("VOCÊ") : L10n.tr("ASSISTENTE"))
                     .font(theme.mono.font(size: 8.5, weight: .medium))
                     .tracking(theme.capsTracking(at: 8.5))
                     .foregroundStyle(message.speaker == .user ? theme.info.color : theme.ink4.color)
@@ -396,7 +397,7 @@ public struct AssistantPanel: View {
             if message.speaker == .assistant { Spacer(minLength: 36) }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(message.speaker == .user ? "Você" : "Assistente"): \(message.text)")
+        .accessibilityLabel("\(message.speaker == .user ? L10n.tr("Você") : L10n.tr("Assistente")): \(message.text)")
     }
 
     private var loadingBand: some View {
@@ -409,7 +410,7 @@ public struct AssistantPanel: View {
                 .foregroundStyle(theme.ink3.color)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Respondendo à pergunta")
+        .accessibilityLabel(L10n.tr("Respondendo à pergunta"))
     }
 
     /// A conversa é injetada, não é `@State`: a ligação do campo precisa
@@ -435,14 +436,14 @@ public struct AssistantPanel: View {
                             .strokeBorder(theme.btnLine.color, lineWidth: Hairline.thickness(displayScale))
                     }
                     .onSubmit { conversation.submit() }
-                    .accessibilityLabel("Pergunta sobre \(mode.accessibilitySubject)")
+                    .accessibilityLabel(L10n.tr("Pergunta sobre \(mode.accessibilitySubject)"))
 
                 Button(action: conversation.submit) {
                     HStack(spacing: 5) {
                         Image(systemName: "arrow.up")
                             .font(.system(size: 11, weight: .bold))
                             .accessibilityHidden(true)
-                        Text("Enviar")
+                        Text(L10n.tr("Enviar"))
                             .font(theme.sans.font(size: 11.5, weight: .semibold))
                     }
                     .foregroundStyle(theme.onEnter.color)
@@ -454,8 +455,8 @@ public struct AssistantPanel: View {
                 .buttonStyle(.plain)
                 .focusRing(cornerRadius: theme.radiusSmall, tint: \.onEnter)
                 .disabled(!conversation.canSend)
-                .help("Enviar pergunta")
-                .accessibilityLabel("Enviar pergunta")
+                .help(L10n.tr("Enviar pergunta"))
+                .accessibilityLabel(L10n.tr("Enviar pergunta"))
             }
 
             Text(conversation.destination.detail)

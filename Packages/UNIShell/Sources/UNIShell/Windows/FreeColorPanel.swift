@@ -144,6 +144,6 @@ struct FreeColorRow: View {
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall)
-        .help("Escolher qualquer cor no seletor do sistema")
+        .help(L10n.tr("Escolher qualquer cor no seletor do sistema"))
     }
 }

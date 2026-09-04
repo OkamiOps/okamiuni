@@ -16,12 +16,12 @@ public struct RecurrenceRule: Sendable, Hashable, Codable {
 
         public var shortLabel: String {
             switch self {
-            case .none: "Não"
-            case .daily: "Diário"
-            case .weekdays: "Úteis"
-            case .weekly: "Semanal"
-            case .monthly: "Mensal"
-            case .yearly: "Anual"
+            case .none: L10n.tr("Não")
+            case .daily: L10n.tr("Diário")
+            case .weekdays: L10n.tr("Úteis")
+            case .weekly: L10n.tr("Semanal")
+            case .monthly: L10n.tr("Mensal")
+            case .yearly: L10n.tr("Anual")
             }
         }
     }
@@ -53,12 +53,12 @@ public struct RecurrenceRule: Sendable, Hashable, Codable {
     public var repeats: Bool { frequency != .none }
 
     public var label: String {
-        guard frequency != .none else { return "Não se repete" }
+        guard frequency != .none else { return L10n.tr("Não se repete") }
         var parts: [String] = [frequencyLabel]
         if let count {
             parts.append(count == 1 ? "1 vez" : "\(count) vezes")
         } else if let untilDay {
-            parts.append("até \(untilDay.iso)")
+            parts.append(L10n.tr("até \(untilDay.iso)"))
         }
         return parts.joined(separator: " · ")
     }
@@ -66,29 +66,29 @@ public struct RecurrenceRule: Sendable, Hashable, Codable {
     private var frequencyLabel: String {
         switch frequency {
         case .none:
-            "Não se repete"
+            L10n.tr("Não se repete")
         case .daily:
-            interval == 1 ? "Todos os dias" : "A cada \(interval) dias"
+            interval == 1 ? L10n.tr("Todos os dias") : L10n.tr("A cada \(interval) dias")
         case .weekdays:
-            "Somente dias úteis"
+            L10n.tr("Somente dias úteis")
         case .weekly:
             weeklyLabel
         case .monthly:
-            interval == 1 ? "Todo mês" : "A cada \(interval) meses"
+            interval == 1 ? L10n.tr("Todo mês") : L10n.tr("A cada \(interval) meses")
         case .yearly:
-            interval == 1 ? "Todo ano" : "A cada \(interval) anos"
+            interval == 1 ? L10n.tr("Todo ano") : L10n.tr("A cada \(interval) anos")
         }
     }
 
     private var weeklyLabel: String {
         let days = weekdayNames
-        let prefix = interval == 1 ? "Toda semana" : "A cada \(interval) semanas"
+        let prefix = interval == 1 ? L10n.tr("Toda semana") : L10n.tr("A cada \(interval) semanas")
         guard !days.isEmpty else { return prefix }
         return "\(prefix), \(days.joined(separator: ", "))"
     }
 
     private var weekdayNames: [String] {
-        let names = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"]
+        let names = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"].map { L10n.tr(LocalizedString(stringLiteral: $0)) }
         return weekdays.compactMap { weekday in
             guard (1...7).contains(weekday) else { return nil }
             return names[weekday - 1]
@@ -251,9 +251,9 @@ public enum MeetingRoomError: Error, Sendable, Hashable, LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .notConnected(let service):
-            "Conecte o \(service.label) em Ajustes → Agenda, ou cole um link existente."
+            L10n.tr("Conecte o \(service.label) em Ajustes → Agenda, ou cole um link existente.")
         case .needsGoogle:
-            "O Google Meet precisa autorizar esta sessão. Use Reconectar o Google, ou cole um link existente."
+            L10n.tr("O Google Meet precisa autorizar esta sessão. Use Reconectar o Google, ou cole um link existente.")
         case .failed(let detalhe):
             detalhe
         }

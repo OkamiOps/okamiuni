@@ -48,7 +48,7 @@ struct CorpoRolavel: View {
                 .padding(.bottom, DashboardMetrics.previewBodyFade)
         }
         .scrollBounceBehavior(.basedOnSize)
-        .avisaQueRola("O email continua abaixo. Role para ver o resto.")
+        .avisaQueRola(L10n.tr("O email continua abaixo. Role para ver o resto."))
     }
 }
 
@@ -95,7 +95,7 @@ struct AvisoDeRolagem: ViewModifier {
                 HStack(spacing: 5) {
                     // Versalete à mão: `capsLabel` pinta `ink3` por dentro e
                     // não deixa a cor de fora entrar.
-                    Text("mais abaixo")
+                    Text(L10n.tr("mais abaixo"))
                         .font(theme.mono.font(size: DashboardMetrics.capsSize, weight: .semibold))
                         .tracking(theme.capsTracking(at: DashboardMetrics.capsSize))
                         .textCase(.uppercase)

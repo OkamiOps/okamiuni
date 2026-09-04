@@ -93,14 +93,14 @@ public actor AssistantRouter: TextAssisting {
             guard let configuration = try? settings.openAICompatible.validated(),
                   let endpoint = try? configuration.chatCompletionsURL()
             else {
-                return .needsSetup(destination, reason: "Confira o endpoint e o modelo deste provedor.")
+                return .needsSetup(destination, reason: L10n.tr("Confira o endpoint e o modelo deste provedor."))
             }
             switch configuration.authenticationMode {
             case .none:
                 return .ready(destination)
             case .apiKey:
                 guard (try? credentialStore.credentialPresence(for: configuration.credentialID)) == .present else {
-                    return .needsSetup(destination, reason: "Adicione a chave de API deste provedor.")
+                    return .needsSetup(destination, reason: L10n.tr("Adicione a chave de API deste provedor."))
                 }
                 return .ready(destination)
             case .litellmOAuthPKCE:
@@ -115,7 +115,7 @@ public actor AssistantRouter: TextAssisting {
             }
         case .providerOAuth:
             guard let configuration = try? settings.providerOAuth.validated() else {
-                return .needsSetup(destination, reason: "Escolha um modelo para esta assinatura.")
+                return .needsSetup(destination, reason: L10n.tr("Escolha um modelo para esta assinatura."))
             }
             guard let providerOAuthTokenProvider,
                   await providerOAuthTokenProvider.hasAccessToken(for: configuration)
@@ -124,7 +124,7 @@ public actor AssistantRouter: TextAssisting {
             }
             if configuration.kind == .codex,
                cliInstallationProvider().first(where: { $0.kind == .codex && $0.isDetected }) == nil {
-                return .needsSetup(destination, reason: "O runtime do Codex não foi encontrado neste Mac.")
+                return .needsSetup(destination, reason: L10n.tr("O runtime do Codex não foi encontrado neste Mac."))
             }
             return .ready(destination)
         case .cli:
@@ -134,7 +134,7 @@ public actor AssistantRouter: TextAssisting {
             else {
                 return .needsSetup(
                     destination,
-                    reason: "O \(settings.cli.kind.displayName) não foi encontrado neste Mac."
+                    reason: L10n.tr("O \(settings.cli.kind.displayName) não foi encontrado neste Mac.")
                 )
             }
             return .ready(destination)

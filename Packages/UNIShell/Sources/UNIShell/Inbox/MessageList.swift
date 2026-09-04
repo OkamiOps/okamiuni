@@ -40,12 +40,12 @@ enum InboxCategoryFilter: CaseIterable, Identifiable {
 
     var label: String {
         switch self {
-        case .all: "Todos"
-        case .primary: "Principal"
-        case .transactions: "Transações"
-        case .updates: "Atualizações"
-        case .promotions: "Promoções"
-        case .social: "Social"
+        case .all: L10n.tr("Todos")
+        case .primary: L10n.tr("Principal")
+        case .transactions: L10n.tr("Transações")
+        case .updates: L10n.tr("Atualizações")
+        case .promotions: L10n.tr("Promoções")
+        case .social: L10n.tr("Social")
         }
     }
 
@@ -223,14 +223,14 @@ public struct MessageList: View {
     }
 
     public static func messageCountLabel(_ count: Int, hasMore: Bool) -> String {
-        if hasMore { return "\(count)+ mensagens" }
-        return count == 1 ? "1 mensagem" : "\(count) mensagens"
+        if hasMore { return L10n.tr("\(count)+ mensagens") }
+        return count == 1 ? L10n.tr("1 mensagem") : L10n.tr("\(count) mensagens")
     }
 
     /// O que o cabeçalho escreve quando há lote: a contagem das marcadas,
     /// não a da caixa. Feminino porque é conversa.
     public static func selectedCountLabel(_ count: Int) -> String {
-        count == 1 ? "1 selecionada" : "\(count) selecionadas"
+        count == 1 ? L10n.tr("1 selecionada") : L10n.tr("\(count) selecionadas")
     }
 
     /// Há lote nesta caixa. Vale em Hoje, Depois, Arquivado, Lixeira,
@@ -333,8 +333,8 @@ public struct MessageList: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .help("Limpar seleção")
-                    .accessibilityLabel("Limpar seleção")
+                    .help(L10n.tr("Limpar seleção"))
+                    .accessibilityLabel(L10n.tr("Limpar seleção"))
                 }
             }
 
@@ -373,7 +373,7 @@ public struct MessageList: View {
                         .buttonStyle(.plain)
                         .font(theme.sans.font(size: 11.5, weight: .semibold))
                         .foregroundStyle(theme.accentInk.color)
-                        .help("Sincroniza agora para trazer o que falta")
+                        .help(L10n.tr("Sincroniza agora para trazer o que falta"))
                         .accessibilityLabel(gapCaption)
                 }
             }
@@ -435,9 +435,9 @@ public struct MessageList: View {
         // A página já sabe se a caixa está vazia. `visibleConversations`
         // agrupa Tudo inteiro — era o tranco a cada clique na caixa.
         .disabled(isEmpty)
-        .help(all ? "Desmarcar todas nesta caixa" : "Selecionar todas nesta caixa")
-        .accessibilityLabel("Selecionar todas")
-        .accessibilityValue(all ? "Tudo" : some ? "Algumas" : "Nenhuma")
+        .help(all ? L10n.tr("Desmarcar todas nesta caixa") : L10n.tr("Selecionar todas nesta caixa"))
+        .accessibilityLabel(L10n.tr("Selecionar todas"))
+        .accessibilityValue(all ? L10n.tr("Tudo") : some ? L10n.tr("Algumas") : L10n.tr("Nenhuma"))
         .accessibilityAddTraits(all ? .isSelected : [])
     }
 
@@ -460,7 +460,7 @@ public struct MessageList: View {
         .frame(height: 30)
         .mask(railFadeMask)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Categorias de Hoje")
+        .accessibilityLabel(L10n.tr("Categorias de Hoje"))
     }
 
     /// O corte duro no último chip parecia texto quebrado. O fade diz que a
@@ -524,10 +524,10 @@ public struct MessageList: View {
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: radius)
-        .help("Filtrar Hoje por \(filter.label)")
-        .accessibilityLabel("Filtrar por \(filter.label)")
-        .accessibilityValue(active ? "Selecionado, \(count) mensagens" : "\(count) mensagens")
-        .accessibilityHint(active ? "Filtro atual" : "Mostra somente mensagens desta categoria")
+        .help(L10n.tr("Filtrar Hoje por \(filter.label)"))
+        .accessibilityLabel(L10n.tr("Filtrar por \(filter.label)"))
+        .accessibilityValue(active ? L10n.tr("Selecionado, \(count) mensagens") : L10n.tr("\(count) mensagens"))
+        .accessibilityHint(active ? L10n.tr("Filtro atual") : L10n.tr("Mostra somente mensagens desta categoria"))
         .accessibilityAddTraits(active ? .isSelected : [])
     }
 
@@ -540,37 +540,37 @@ public struct MessageList: View {
                     batchChip(
                         label: Self.batchBucketLabel(bucket),
                         symbol: Self.batchBucketSymbol(bucket),
-                        help: "Mover as selecionadas para \(bucket.label)"
+                        help: L10n.tr("Mover as selecionadas para \(bucket.label)")
                     ) {
                         moveChecked(to: bucket)
                     }
                 }
                 batchChip(
-                    label: store.bucket == .trash ? "Apagar de vez" : "Apagar",
+                    label: store.bucket == .trash ? L10n.tr("Apagar de vez") : L10n.tr("Apagar"),
                     symbol: "trash",
                     help: store.bucket == .trash
-                        ? "Tirar as selecionadas da Lixeira de vez"
-                        : "Mover as selecionadas para a Lixeira",
+                        ? L10n.tr("Tirar as selecionadas da Lixeira de vez")
+                        : L10n.tr("Mover as selecionadas para a Lixeira"),
                     destructive: true
                 ) {
                     _ = deleteChecked()
                 }
                 batchFolderMenu
                 batchChip(
-                    label: batchWillMarkRead ? "Lida" : "Não lida",
+                    label: batchWillMarkRead ? L10n.tr("Lida") : L10n.tr("Não lida"),
                     symbol: batchWillMarkRead ? "envelope.open" : "envelope.badge",
                     help: batchWillMarkRead
-                        ? "Marcar as selecionadas como lidas"
-                        : "Marcar as selecionadas como não lidas"
+                        ? L10n.tr("Marcar as selecionadas como lidas")
+                        : L10n.tr("Marcar as selecionadas como não lidas")
                 ) {
                     toggleCheckedRead()
                 }
                 batchChip(
-                    label: batchWillFlag ? "Sinalizar" : "Tirar",
+                    label: batchWillFlag ? L10n.tr("Sinalizar") : L10n.tr("Tirar"),
                     symbol: batchWillFlag ? "star" : "star.slash",
                     help: batchWillFlag
-                        ? "Sinalizar as selecionadas"
-                        : "Tirar a sinalização das selecionadas"
+                        ? L10n.tr("Sinalizar as selecionadas")
+                        : L10n.tr("Tirar a sinalização das selecionadas")
                 ) {
                     toggleCheckedFlag()
                 }
@@ -581,7 +581,7 @@ public struct MessageList: View {
         .frame(height: 30)
         .mask(railFadeMask)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Ações em lote")
+        .accessibilityLabel(L10n.tr("Ações em lote"))
     }
 
     /// Destinos de triagem do lote, sem a caixa já aberta e sem "Tudo", que
@@ -591,7 +591,7 @@ public struct MessageList: View {
     }
 
     nonisolated static func batchBucketLabel(_ bucket: TriageBucket) -> String {
-        bucket == .archived ? "Arquivar" : bucket.label
+        bucket == .archived ? L10n.tr("Arquivar") : bucket.label
     }
 
     nonisolated static func batchBucketSymbol(_ bucket: TriageBucket) -> String {
@@ -632,19 +632,19 @@ public struct MessageList: View {
                             }
                         }
                     } label: {
-                        batchChipLabel(label: "Mover para", symbol: "folder")
+                        batchChipLabel(label: L10n.tr("Mover para"), symbol: "folder")
                     }
                     .menuStyle(.borderlessButton)
                     .menuIndicator(.hidden)
                     .fixedSize()
-                    .help("Mover as selecionadas para uma pasta")
+                    .help(L10n.tr("Mover as selecionadas para uma pasta"))
                 }
             case .gmail:
                 let userLabels = folders.filter { $0.role == .other }
                 if !userLabels.isEmpty, let sample {
                     Menu {
                         if let source = gmailMoveSource(for: sample, folders: folders) {
-                            Section("Mover para marcador") {
+                            Section(L10n.tr("Mover para marcador")) {
                                 ForEach(userLabels.filter { $0.id != source.id }) { folder in
                                     Button(folder.displayName) {
                                         moveCheckedGmail(from: source, to: folder)
@@ -652,7 +652,7 @@ public struct MessageList: View {
                                 }
                             }
                         }
-                        Section("Aplicar marcador") {
+                        Section(L10n.tr("Aplicar marcador")) {
                             ForEach(userLabels) { folder in
                                 Button(folder.displayName) {
                                     placeChecked(in: folder, mode: .label)
@@ -660,12 +660,12 @@ public struct MessageList: View {
                             }
                         }
                     } label: {
-                        batchChipLabel(label: "Mover para", symbol: "folder")
+                        batchChipLabel(label: L10n.tr("Mover para"), symbol: "folder")
                     }
                     .menuStyle(.borderlessButton)
                     .menuIndicator(.hidden)
                     .fixedSize()
-                    .help("Mover ou aplicar marcador nas selecionadas")
+                    .help(L10n.tr("Mover ou aplicar marcador nas selecionadas"))
                 }
             case .microsoft:
                 EmptyView()
@@ -749,12 +749,12 @@ public struct MessageList: View {
     }
 
     private var headerTitle: String {
-        if store.searchesEverywhereNow { return "Tudo" }
+        if store.searchesEverywhereNow { return L10n.tr("Tudo") }
         if let selectedAccountID = store.selectedAccountID,
            let account = store.account(selectedAccountID) {
             return account.host
         }
-        return store.bucket == .all ? "Caixa unificada" : store.bucket.label
+        return store.bucket == .all ? L10n.tr("Caixa unificada") : store.bucket.label
     }
 
     private func messageList(
@@ -856,8 +856,8 @@ public struct MessageList: View {
             .buttonStyle(.plain)
             .focusRing(in: Rectangle())
             .help(swipe.isBlocked
-                  ? "Clique para fechar as ações"
-                  : "Arraste para o lado revela ações · duplo clique abre em janela")
+                  ? L10n.tr("Clique para fechar as ações")
+                  : L10n.tr("Arraste para o lado revela ações · duplo clique abre em janela"))
             // O clique simples continua sendo o do `Button` (selecionar);
             // este gesto só acrescenta o duplo, como o protótipo, que
             // declara os dois na linha.
@@ -1193,14 +1193,14 @@ public struct MessageList: View {
         }
     }
 
-    nonisolated static let emptyBox = "Nada nesta caixa agora."
-    nonisolated static let emptySearchHere = "Nada nesta caixa. Tudo procura nas outras pastas."
-    nonisolated static let emptySearchEverywhere = "Nada com este termo."
+    nonisolated static var emptyBox: String { L10n.tr("Nada nesta caixa agora.") }
+    nonisolated static var emptySearchHere: String { L10n.tr("Nada nesta caixa. Tudo procura nas outras pastas.") }
+    nonisolated static var emptySearchEverywhere: String { L10n.tr("Nada com este termo.") }
 
     nonisolated static func emptyFooter(
         isEmpty: Bool, query: String, searchingEverywhere: Bool
     ) -> String {
-        guard isEmpty else { return "Fim da lista" }
+        guard isEmpty else { return L10n.tr("Fim da lista") }
         if query.trimmingCharacters(in: .whitespaces).isEmpty { return emptyBox }
         return searchingEverywhere ? emptySearchEverywhere : emptySearchHere
     }

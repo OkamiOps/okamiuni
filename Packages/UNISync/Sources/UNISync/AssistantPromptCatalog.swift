@@ -1,3 +1,4 @@
+import UNICore
 import Foundation
 
 /// A parte estável do prompt que pode ser inspecionada em Configurações.
@@ -12,8 +13,8 @@ public enum AssistantPromptKind: String, CaseIterable, Identifiable, Sendable {
 
     public var label: String {
         switch self {
-        case .questions: "Perguntas e análises"
-        case .writing: "Escrita e respostas"
+        case .questions: L10n.tr("Perguntas e análises")
+        case .writing: L10n.tr("Escrita e respostas")
         }
     }
 }

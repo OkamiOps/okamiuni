@@ -75,10 +75,10 @@ public struct AssistantWindow: View {
 
     private var semConversa: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Nenhuma conversa ainda.")
+            Text(L10n.tr("Nenhuma conversa ainda."))
                 .font(theme.sans.font(size: AssistantDrawerMetrics.turnTextSize, weight: .medium))
                 .foregroundStyle(theme.ink.color)
-            Text("Abra o assistente na janela principal com ⌘J e pergunte alguma coisa.")
+            Text(L10n.tr("Abra o assistente na janela principal com ⌘J e pergunte alguma coisa."))
                 .font(theme.sans.font(size: AssistantDrawerMetrics.cardTextSize))
                 .foregroundStyle(theme.ink3.color)
                 .fixedSize(horizontal: false, vertical: true)

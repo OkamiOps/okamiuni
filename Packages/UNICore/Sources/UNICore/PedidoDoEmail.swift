@@ -42,7 +42,7 @@ public struct PedidoDoEmail: Equatable, Sendable {
     /// O rótulo inteiro, para leitor de tela e para o `help`.
     public var rotulo: String {
         guard let prazo else { return chamada }
-        return "\(chamada) · \(prazo)"
+        return L10n.tr("\(chamada) · \(prazo)")
     }
 
     public static func de(
@@ -58,14 +58,14 @@ public struct PedidoDoEmail: Equatable, Sendable {
         let chamada: String
         if triagem.needsReply {
             switch triagem.intent {
-            case .scheduling: chamada = "Pede confirmação de horário"
-            case .lead: chamada = "Lead esperando retorno"
-            default: chamada = "Pede resposta"
+            case .scheduling: chamada = L10n.tr("Pede confirmação de horário")
+            case .lead: chamada = L10n.tr("Lead esperando retorno")
+            default: chamada = L10n.tr("Pede resposta")
             }
         } else if triagem.deadline != nil {
-            chamada = "Tem prazo"
+            chamada = L10n.tr("Tem prazo")
         } else {
-            chamada = "Marcado como urgente"
+            chamada = L10n.tr("Marcado como urgente")
         }
 
         var prazo: String?
@@ -78,15 +78,15 @@ public struct PedidoDoEmail: Equatable, Sendable {
             ).day ?? 0
             vencendoHoje = dias <= 0
             switch dias {
-            case ..<0: prazo = "prazo vencido"
-            case 0: prazo = "hoje"
-            case 1: prazo = "amanhã"
+            case ..<0: prazo = L10n.tr("prazo vencido")
+            case 0: prazo = L10n.tr("hoje")
+            case 1: prazo = L10n.tr("amanhã")
             default:
                 let formatador = DateFormatter()
-                formatador.locale = Locale(identifier: "pt_BR")
+                formatador.locale = L10n.locale
                 formatador.calendar = calendario
                 formatador.dateFormat = "dd/MM"
-                prazo = "até \(formatador.string(from: limite.date))"
+                prazo = L10n.tr("até \(formatador.string(from: limite.date))")
             }
         }
 

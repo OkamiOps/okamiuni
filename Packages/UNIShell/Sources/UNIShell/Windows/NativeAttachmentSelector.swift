@@ -12,7 +12,7 @@ struct NativeAttachmentSelector: AttachmentSelecting {
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
-        panel.prompt = "Anexar"
+        panel.prompt = L10n.tr("Anexar")
         guard panel.runModal() == .OK else { return [] }
         return try panel.urls.map { url in
             let data = try Data(contentsOf: url, options: [.mappedIfSafe])
