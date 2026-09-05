@@ -1,5 +1,9 @@
 # Assistente de IA e Dashboard — desenho
 
+> **Registro histórico de design e implementação.** Este documento preserva as decisões da data indicada e não comprova o comportamento atual. [Read the English companion](2026-09-01-ia-e-dashboard-design.en.md).
+>
+> **Nota sobre consentimento de IA.** As regras de análise automática e consentimento abaixo são registro histórico, anterior ao ruling 0.5.3. Para o comportamento atual, consulte o [README 0.5.4](../../../README.md).
+
 Data: 2026-09-01. Estado: aprovado em conversa, aguardando leitura do dono.
 
 Esta spec cobre quatro sub-projetos que compartilham a mesma arquitetura e

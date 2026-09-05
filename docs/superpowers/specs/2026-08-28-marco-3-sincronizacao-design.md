@@ -1,5 +1,7 @@
 # Marco 3 — Sincronização viva: incremental, fila de saída, envio e o espelho da triagem
 
+> **Registro histórico de design e implementação.** Este documento preserva as decisões da data indicada e não comprova o comportamento atual. [Read the English companion](2026-08-28-marco-3-sincronizacao-design.en.md).
+
 Aprovado em 2026-08-28, junto com a spec do Marco 2
 (`2026-08-28-marco-2-contas-design.md`), que é pré-requisito integral: este
 marco assume o banco GRDB como fonte da verdade, `UNISync` com

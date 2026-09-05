@@ -1,5 +1,7 @@
 # Dashboard 08 — a IA trabalhando · plano de implementação
 
+> [English translation](2026-09-03-dashboard-08-ia-trabalhando.en.md)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development, uma tarefa por vez na mesma árvore.
 
 **Goal:** construir a tela `design/08-dashboard-ia.dc.html` (aprovada em 2026-09-03) com a gaveta (09) e a janela (10) do assistente, em Swift, sobre o que já existe.

@@ -1,66 +1,83 @@
-# OkamiUNI — Marco 1: Shell e Caixa Unificada
+# OkamiUNI — Milestone 1: Shell and Unified Inbox
 
-> **Registro histórico de design e implementação.** Este documento preserva as decisões da data indicada e não comprova o comportamento atual. [Read the English companion](2026-08-26-okamiuni-shell.en.md).
+> **Historical design and implementation record.** This document preserves the decisions made on its stated date and is not evidence of current behavior. [Leia o original em Português](2026-08-26-okamiuni-shell.md).
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Entregar o app macOS abrindo numa janela própria com a Caixa unificada de três painéis — barra lateral, lista de mensagens, leitor e trilha de agenda — navegável com dados mock e trocando entre os 26 temas.
+**Goal:** Deliver the macOS app opening in its own window with the unified three-pane Inbox — sidebar, message list, reader, and agenda rail — navigable with mock data and switching between the 26 themes.
 
-**Architecture:** SwiftUI para a composição e o sistema de temas; AppKit via `NSViewRepresentable` só onde a lista densa e o texto rico exigirem. A janela desenha o próprio chrome (a barra de 58px do design) sobre uma `NSWindow` com título escondido, mantendo os semáforos nativos. Os dados vêm de um `MessageStore` alimentado por fixtures neste marco e por backends reais no Marco 2 — a UI nunca vê o backend, só o protocolo.
+**Architecture:** SwiftUI for composition and the theme system; AppKit through `NSViewRepresentable` only where the dense list and rich text require it. The window draws its own chrome (the 58px bar from the design) over an `NSWindow` with hidden title, keeping the native traffic lights. Data comes from a `MessageStore` powered by fixtures in this milestone and real backends in Milestone 2 — the UI never sees the backend, only the protocol.
 
 **Tech Stack:** Swift 6.3, SwiftUI, AppKit, Swift Testing, XcodeGen, macOS 26 (Tahoe).
 
 ## Global Constraints
 
-- Alvo mínimo: **macOS 26.0**. `SWIFT_VERSION` 6.0, `SWIFT_STRICT_CONCURRENCY: complete`.
-- O projeto Xcode é **gerado** por `xcodegen` a partir de `project.yml`. O `.xcodeproj` fica no `.gitignore` — nunca editar à mão, nunca versionar.
-- `Packages/UNIDesign` já existe e está pronto: 26 temas, `TokenColor`, `FontFamily`, `FontRegistry`, `ThemeStore`, `EnvironmentValues.theme`. **Não reescrever.** Regenerar temas só via `python3 Tools/generate_themes.py`.
-- **Número de contas ilimitado, provedores abertos.** Nenhum literal de quantidade, nenhuma lista de domínios ou provedores conhecidos em código de produção. Ver "Contas" abaixo.
-- **Cor, raio e tipografia vêm sempre de `Theme`** — isto é absoluto. Nenhum literal de cor (`Color.blue`, `#FFF`), nenhum raio solto, nenhuma `Font.system` direta numa View. Se falta um token de cor ou raio, o caminho é acrescentar ao design e regenerar, nunca inventar no Swift.
-- **Espaçamento inline é permitido** (`padding(.horizontal, 24)`, `spacing: 10`, `frame(height: 40)`), porque o protótipo não tokeniza a escala de espaçamento — ele posiciona elemento a elemento. A regra é: **todo número de espaçamento tem de vir do protótipo, não da sua intuição.** Em caso de dúvida, medir no `.dc.html` em vez de arredondar. Os quatro tokens de métrica que existem (`radiusSmall`, `radiusLarge`, `rowPadding`, `capsTracking`) são obrigatórios onde se aplicam.
-- **Dois andaimes temporários são mandados pelo plano e não são defeitos:** o `Color.clear` que segura o lugar do seletor de temas na Task 5 (removido na Task 6) e o `print` do `onAddEvent` na Task 11 (substituído por EventKit no Marco 4). Ambos levam comentário dizendo o que os remove.
-- Todo texto de interface em **português do Brasil**, idêntico ao protótipo (`design/OkamiUNI - Mail + Agenda.dc.html`).
-- **Fonte da verdade visual: o protótipo.** Quando o plano e o protótipo divergirem, o implementador **NÃO decide**: para, devolve `NEEDS_CONTEXT` descrevendo a divergência (o valor do plano, o valor do protótipo, a linha do `.dc.html`) e espera resposta. Seguir o plano contra o protótipo já produziu retrabalho neste projeto — a barra lateral inteira teve de ser refeita porque um implementador achou a divergência, registrou no relatório, e mesmo assim seguiu o plano.
-- Testes com **Swift Testing** (`import Testing`, `@Test`, `#expect`), não XCTest.
-- Um commit por tarefa concluída, mensagem em português, com trailer `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
+- Minimum target: **macOS 26.0**. `SWIFT_VERSION` 6.0, `SWIFT_STRICT_CONCURRENCY: complete`.
+
+- The Xcode project is **generated** by `xcodegen` from `project.yml`. The `.xcodeproj` stays in `.gitignore` — never edit by hand, never version.
+
+- `Packages/UNIDesign` already exists and is ready: 26 themes, `TokenColor`, `FontFamily`, `FontRegistry`, `ThemeStore`, `EnvironmentValues.theme`. **Do not rewrite.** Regenerate themes only via `python3 Tools/generate_themes.py`.
+
+- **Unlimited accounts and open providers.** No literal quantity and no list of known domains or providers in production code. See "Accounts" below.
+
+- **Color, radius and typography always come from `Theme`** - this is absolute. No color literal (`Color.blue`, `#FFF`), no loose radius, no `Font.system` direct in a View. If a color or radius token is missing, the path is to add it to the design and regenerate, never invent in Swift.
+
+- **Inline spacing is allowed** (`padding(.horizontal, 24)`, `spacing: 10`, `frame(height: 40)`), because the prototype does not tokenize the spacing scale — it positions element by element. The rule is: **any spacing number must come from the prototype, not your intuition.** In case of doubt, measure on `.dc.html` instead of rounding. The four metric tokens that exist (`radiusSmall`, `radiusLarge`, `rowPadding`, `capsTracking`) are mandatory where applicable.
+
+- **Two temporary scaffolds are mandated by the plan and are not defects:** the `Color.clear` that holds the place of the theme selector in Task 5 (removed in Task 6) and the `print` of `onAddEvent` in Task 11 (replaced by EventKit in Milestone 4). Both have comments saying what removes them.
+
+- All interface text in **Brazilian Portuguese**, identical to the prototype (`design/OkamiUNI - Mail + Agenda.dc.html`).
+
+- **Visual source of truth: the prototype.** When plan and prototype diverge, the implementer
+  **DOES NOT decide**: stop, return `NEEDS_CONTEXT` with the discrepancy (plan value,
+  prototype value, and `.dc.html` line), and await a response. Following a plan over the
+  prototype has already caused rework here — an implementer found and recorded a discrepancy,
+  but still followed the plan, so the entire sidebar had to be rebuilt.
+
+- Tests with **Swift Testing** (`import Testing`, `@Test`, `#expect`), not XCTest.
+
+- One commit per completed task, message in Portuguese, with trailer `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
 
 ---
 
-## Contexto: onde este marco se encaixa
+## Context: where this milestone fits in
 
-O app inteiro é grande demais para um plano só. Esta é a sequência; **este documento cobre apenas o Marco 1**, que entrega software rodando e testável por si.
+The entire app is too big for a single plan. This is the sequence; **this document only covers Milestone 1**, which delivers software that runs and is testable on its own.
 
-| Marco | Entrega | Estado |
+| Milestone | Delivery | Status |
 |---|---|---|
-| 0 | Design baixado, 26 temas em Swift, testes verdes | ✅ feito |
-| **1** | **Shell + Caixa unificada navegável com mock** | **este plano** |
-| 2 | IMAP/SMTP universal com autodescoberta de servidor; Gmail API e Graph depois, como otimização | a planejar |
-| 3 | Composer (inline, em janela, nova mensagem) | a planejar |
-| 4 | Agenda semanal + EventKit | a planejar |
-| 5 | Detecção de compromisso e resumo no dispositivo (Foundation Models) | a planejar |
-| 6 | Janelas destacadas, atalhos, busca ⌘K | a planejar |
-| 7 | Empacotamento, assinatura, notarização | a planejar |
+| 0 | Design downloaded, 26 themes in Swift, green tests | ✅ done |
+| **1** | **Shell + navigable unified Inbox with mock data** | **this plan** |
+| 2 | Universal IMAP/SMTP with server self-discovery; Gmail API and Graph later, as optimization | to plan |
+| 3 | Compose (inline, in window, new message) | to plan |
+| 4 | Weekly agenda + EventKit | to be planned |
+| 5 | Commitment detection and summary on the device (Foundation Models) | to be planned |
+| 6 | Highlighted windows, shortcuts, search ⌘K | to plan |
+| 7 | Packaging, signature, notarization | to be planned |
 
-### Contas: quantas o usuário quiser, de onde ele quiser
+### Accounts: as many as the user wants, from wherever he wants
 
-**O número de contas é ilimitado e os provedores são abertos.** Qualquer provedor, qualquer domínio — servidor próprio, hospedagem compartilhada, provedor regional, o que for. Nada na UI nem no modelo pode presumir uma quantidade, um conjunto de provedores ou uma lista de domínios conhecidos.
+**The number of accounts is unlimited and providers are open.** Any provider, any domain - own server, shared hosting, regional provider, whatever. Nothing in the UI or template can assume a quantity, a set of providers or a list of known domains.
 
-As quatro caixas que aparecem no protótipo (`ricardo@empresa.com`, `ricardo@gmail.com`, `contato@meusite.com`, `ricardo@icloud.com`) são **exemplos que o designer usou para desenhar**, não o escopo do produto. Elas viram fixtures no Marco 1 só para a comparação visual bater com o protótipo.
+The four mailboxes that appear in the prototype (`ricardo@empresa.com`, `ricardo@gmail.com`, `contato@meusite.com`, `ricardo@icloud.com`) are **examples the designer used to draw**, not product scope. They become fixtures in Milestone 1 only so the visual comparison matches the prototype.
 
-Consequências concretas, que valem para todas as tarefas deste plano:
+Concrete consequences, which apply to all tasks of this plan:
 
-- Nenhum literal `4` em código de produção. O texto da busca é `"Buscar nas \(accountCount) caixas…"`.
-- Nenhum `switch` exaustivo sobre contas conhecidas. `Account.id` é opaco.
-- A UI tem de aguentar 0, 1 e 30 contas. A barra lateral rola; a lista não muda de largura.
-- `Account.Provider` classifica **como falar com o servidor**, não quem é o provedor. `.imap` é o caso geral, não a exceção.
+- No literal `4` in production code. The search text is `"Buscar nas \(accountCount) caixas…"`.
 
-**IMAP/SMTP é o caminho universal e a prioridade número um do Marco 2** — é o que faz "qualquer provedor, qualquer domínio" ser verdade. Gmail API e Microsoft Graph entram depois, como otimização para esses dois casos (sync incremental melhor, threading nativo), nunca como pré-requisito para a conta funcionar. Uma conta Gmail tem de funcionar via IMAP mesmo antes de a Gmail API existir no código.
+- No `switch` exhaustive on known accounts. `Account.id` is opaque.
 
-Isso obriga o Marco 2 a incluir **autodescoberta de servidor** — Mozilla ISPDB, `autoconfig.<domínio>`, `autodiscover`, registros SRV — para o usuário digitar email e senha e o app achar host e porta sozinho. Sem isso, "qualquer domínio" vira "qualquer domínio desde que você saiba decorar IMAP/SMTP", que não é a mesma coisa.
+- The UI must handle 0, 1, and 30 accounts. The sidebar scrolls; the list does not change width.
+
+- `Account.Provider` classifies **how to talk to the server**, not who the provider is. `.imap` is the general case, not the exception.
+
+**IMAP/SMTP is the universal path and Milestone 2’s top priority** — that is what makes “any provider, any domain” true. Gmail API and Microsoft Graph come later, as an optimization for those two cases (better incremental sync, native threading), never as a prerequisite for an account to work. A Gmail account must work through IMAP even before the Gmail API exists in the code.
+
+This requires Milestone 2 to include **server self-discovery** — Mozilla ISPDB, `autoconfig.<domain>`, `autodiscover`, and SRV records — so the user can enter an email address and password and the app can find the host and port itself. Without it, “any domain” becomes “any domain if you already know the IMAP/SMTP settings,” which is not the same thing.
 
 ---
 
-## Estrutura de arquivos
+## File structure
 
 ```
 project.yml                              XcodeGen: alvo do app, pacotes, entitlements
@@ -98,24 +115,32 @@ Packages/UNIShell/                       As Views
       TokenModifiers.swift               .tokenBackground, .hairline, .capsLabel
 ```
 
-**Por que essa divisão:** `UNICore` não importa SwiftUI, então os modelos podem ser testados sem UI e reaproveitados pelos backends do Marco 2. `UNIShell` não conhece rede. `UNIDesign` não conhece nem modelos nem rede. As três camadas só apontam para baixo.
+
+**Why this split:** `UNICore` does not import SwiftUI, so its models can be tested without UI and reused by Milestone 2 backends. `UNIShell` does not know about networking. `UNIDesign` knows neither models nor networking. The three layers point only downward.
 
 ---
 
-### Task 1: Projeto Xcode que abre uma janela temada
+### Task 1: Xcode project that opens a themed window
 
 **Files:**
+
 - Create: `project.yml`
+
 - Create: `App/OkamiUNIApp.swift`
+
 - Create: `App/Info.plist`
+
 - Create: `App/OkamiUNI.entitlements`
+
 - Modify: `.gitignore`
 
 **Interfaces:**
-- Consumes: `UNIDesign.Theme`, `UNIDesign.ThemeStore`, `View.theme(_:)`
-- Produces: alvo `OkamiUNI` compilável; `OkamiUNIApp` como `@main`
 
-- [ ] **Step 1: Escrever `project.yml`**
+- Consumes: `UNIDesign.Theme`, `UNIDesign.ThemeStore`, `View.theme(_:)`
+
+- Produces: a compilable `OkamiUNI` target; `OkamiUNIApp` as `@main`
+
+- [ ] **Step 1: Write `project.yml`**
 
 ```yaml
 name: OkamiUNI
@@ -157,7 +182,8 @@ targets:
         COMBINE_HIDPI_IMAGES: YES
 ```
 
-- [ ] **Step 2: Escrever `App/Info.plist`**
+
+- [ ] **Step 2: Write `App/Info.plist`**
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -179,7 +205,8 @@ targets:
 </plist>
 ```
 
-- [ ] **Step 3: Escrever `App/OkamiUNI.entitlements`**
+
+- [ ] **Step 3: Write `App/OkamiUNI.entitlements`**
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -194,9 +221,10 @@ targets:
 </plist>
 ```
 
-- [ ] **Step 4: Escrever `App/OkamiUNIApp.swift`**
 
-A janela do design não usa a barra de título do sistema: ela desenha a própria barra de 58px e mantém só os semáforos. `.windowStyle(.hiddenTitleBar)` faz isso.
+- [ ] **Step 4: Write `App/OkamiUNIApp.swift`**
+
+The design window does not use the system title bar: it draws its own 58px bar and only keeps the traffic lights. `.windowStyle(.hiddenTitleBar)` does that.
 
 ```swift
 import SwiftUI
@@ -236,29 +264,33 @@ struct RootView: View {
 }
 ```
 
-- [ ] **Step 5: Ignorar o projeto gerado**
 
-Acrescentar a `.gitignore`:
+- [ ] **Step 5: Ignore the generated project**
+
+Add `.gitignore`:
 
 ```
 *.xcodeproj
 ```
 
-- [ ] **Step 6: Gerar e compilar**
+
+- [ ] **Step 6: Generate and compile**
 
 Run:
+
 ```bash
 xcodegen generate && xcodebuild -project OkamiUNI.xcodeproj -scheme OkamiUNI -configuration Debug build 2>&1 | tail -5
 ```
 Expected: `** BUILD SUCCEEDED **`
 
-- [ ] **Step 7: Abrir o app e confirmar visualmente**
+- [ ] **Step 7: Open the app and confirm visually**
 
 Run:
+
 ```bash
 open "$(xcodebuild -project OkamiUNI.xcodeproj -scheme OkamiUNI -showBuildSettings 2>/dev/null | awk -F'= ' '/BUILT_PRODUCTS_DIR/{print $2; exit}')/OkamiUNI.app"
 ```
-Expected: janela sem barra de título, fundo `#F4F2EE` (o `paper` do tema Tinta), texto "OkamiUNI" em serifa escura. Se o fundo vier branco puro, o tema não chegou ao ambiente — verificar `.theme(themes.theme)`.
+Expected: window without title bar, background `#F4F2EE` (the `paper` from the Ink theme), text "OkamiUNI" in dark serif. If the background comes in pure white, the theme has not arrived in the environment - check `.theme(themes.theme)`.
 
 - [ ] **Step 8: Commit**
 
@@ -269,23 +301,30 @@ git commit -m "Projeto Xcode gerado por XcodeGen, janela com chrome próprio
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
+
 ---
 
-### Task 2: Fontes do design embarcadas
+### Task 2: Embedded design fonts
 
-Sem isso, `FontRegistry.missing` lista as seis famílias e todo o app renderiza em system font — parecido, mas não é o design.
+Without that, `FontRegistry.missing` lists the six families and the entire app renders in system font - similar, but it's not the design.
 
 **Files:**
+
 - Create: `Tools/fetch_fonts.sh`
-- Create: `App/Resources/Fonts/` (arquivos baixados)
+
+- Create: `App/Resources/Fonts/` (downloaded files)
+
 - Modify: `project.yml`
+
 - Test: `Packages/UNIDesign/Tests/UNIDesignTests/FontRegistryTests.swift`
 
 **Interfaces:**
-- Consumes: `FontRegistry.required`, `FontRegistry.registerBundledFonts(in:)`
-- Produces: bundle com `Fonts/*.ttf`; `FontRegistry.missing` vazio em runtime
 
-- [ ] **Step 1: Escrever o teste que falha**
+- Consumes: `FontRegistry.required`, `FontRegistry.registerBundledFonts(in:)`
+
+- Produces: bundle with `Fonts/*.ttf`; `FontRegistry.missing` empty in runtime
+
+- [ ] **Step 1: Write the failing test**
 
 ```swift
 import Testing
@@ -317,14 +356,16 @@ struct FontRegistryTests {
 }
 ```
 
-- [ ] **Step 2: Rodar o teste**
+
+- [ ] **Step 2: Run the test**
 
 Run: `cd Packages/UNIDesign && swift test --filter FontRegistry`
-Expected: PASS nos dois — este teste protege o contrato, não a presença dos arquivos.
 
-- [ ] **Step 3: Escrever `Tools/fetch_fonts.sh`**
+Expected: PASS in both - this test protects the contract, not the presence of the files.
 
-As seis famílias estão no repositório `google/fonts` sob licença OFL. Baixamos as variable fonts, que cobrem todos os pesos que o design pede num arquivo por família.
+- [ ] **Step 3: Write `Tools/fetch_fonts.sh`**
+
+The six families are in the `google/fonts` repository under the OFL license. Download the variable fonts, which cover every weight the design needs in one file per family.
 
 ```bash
 #!/usr/bin/env bash
@@ -360,18 +401,20 @@ echo "arquivos em $DEST:"
 ls -la "$DEST"
 ```
 
-- [ ] **Step 4: Rodar e conferir**
+
+- [ ] **Step 4: Run and check**
 
 Run:
+
 ```bash
 chmod +x Tools/fetch_fonts.sh && ./Tools/fetch_fonts.sh
 file App/Resources/Fonts/*.ttf
 ```
-Expected: cada arquivo reportado como `TrueType Font data` ou `OpenType font data`. Se algum vier como `ASCII text`, o caminho no repo `google/fonts` mudou — abrir `https://github.com/google/fonts/tree/main/ofl/<familia>` e corrigir a entrada em `FILES`. Não seguir com um arquivo inválido: o registro falha silenciosamente e a fonte cai no fallback.
+Expected: each file is reported as `TrueType Font data` or `OpenType font data`. If any is `ASCII text`, the path in the `google/fonts` repository changed — open `https://github.com/google/fonts/tree/main/ofl/<familia>` and correct the entry in `FILES`. Do not continue with an invalid file: registration fails silently and the font falls back.
 
-- [ ] **Step 5: Declarar os recursos no `project.yml`**
+- [ ] **Step 5: Declare the resources in `project.yml`**
 
-Dentro de `targets.OkamiUNI`, acrescentar antes de `dependencies`:
+Inside `targets.OkamiUNI`, add before `dependencies`:
 
 ```yaml
     sources:
@@ -382,12 +425,12 @@ Dentro de `targets.OkamiUNI`, acrescentar antes de `dependencies`:
         type: folder
 ```
 
-O `type: folder` preserva `Fonts/` como pasta dentro do bundle, que é onde `registerBundledFonts` procura (`subdirectory: "Fonts"`).
 
-- [ ] **Step 6: Verificar o registro em runtime**
+`type: folder` preserves `Fonts/` as a folder inside the bundle, where `registerBundledFonts` looks (`subdirectory: "Fonts"`).
 
-Acrescentar temporariamente ao `init()` de `OkamiUNIApp`:
+- [ ] **Step 6: Verify the runtime record**
 
+Temporarily add to `init()` of `OkamiUNIApp`:
 ```swift
 init() {
     let registered = FontRegistry.registerBundledFonts()
@@ -395,8 +438,10 @@ init() {
 }
 ```
 
+
 Run: `xcodegen generate && xcodebuild -project OkamiUNI.xcodeproj -scheme OkamiUNI build && open ...`
-Expected no console: `faltando: []`. Se alguma família aparecer, o nome no `FontRegistry.required` não bate com o nome interno da face — conferir com `fc-scan` ou abrindo no Font Book.
+
+Expected on the console: `faltando: []`. If any family appears, the name in `FontRegistry.required` does not match the internal name of the face - check with `fc-scan` or open it in the Font Book.
 
 - [ ] **Step 7: Commit**
 
@@ -408,24 +453,34 @@ git commit -m "Embarca as 6 famílias OFL que o design usa
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
+
 ---
 
-### Task 3: Modelos de domínio
+### Task 3: Domain models
 
 **Files:**
+
 - Create: `Packages/UNICore/Package.swift`
+
 - Create: `Packages/UNICore/Sources/UNICore/Account.swift`
+
 - Create: `Packages/UNICore/Sources/UNICore/Contact.swift`
+
 - Create: `Packages/UNICore/Sources/UNICore/Message.swift`
+
 - Create: `Packages/UNICore/Sources/UNICore/DetectedEvent.swift`
+
 - Create: `Packages/UNICore/Sources/UNICore/AgendaItem.swift`
+
 - Test: `Packages/UNICore/Tests/UNICoreTests/ModelTests.swift`
 
 **Interfaces:**
-- Consumes: nada (camada de baixo)
+
+- Consumes: nothing (bottom layer)
+
 - Produces: `Account`, `Account.Provider`, `Contact`, `Message`, `Tag`, `TriageBucket`, `DetectedEvent`, `AgendaItem`
 
-- [ ] **Step 1: Escrever `Package.swift`**
+- [ ] **Step 1: Write `Package.swift`**
 
 ```swift
 // swift-tools-version: 6.2
@@ -442,7 +497,8 @@ let package = Package(
 )
 ```
 
-- [ ] **Step 2: Escrever os testes que falham**
+
+- [ ] **Step 2: Write the failing tests**
 
 ```swift
 import Testing
@@ -488,12 +544,14 @@ struct ModelTests {
 }
 ```
 
-- [ ] **Step 3: Rodar para ver falhar**
+
+- [ ] **Step 3: Run to see it fail**
 
 Run: `cd Packages/UNICore && swift test`
-Expected: FAIL na compilação — `cannot find 'Contact' in scope`.
 
-- [ ] **Step 4: Escrever `Contact.swift`**
+Expected: FAIL in compilation — `cannot find 'Contact' in scope`.
+
+- [ ] **Step 4: Write `Contact.swift`**
 
 ```swift
 import Foundation
@@ -531,7 +589,8 @@ public struct Contact: Sendable, Hashable, Identifiable {
 }
 ```
 
-- [ ] **Step 5: Escrever `Account.swift`**
+
+- [ ] **Step 5: Write `Account.swift`**
 
 ```swift
 import Foundation
@@ -570,7 +629,8 @@ public struct Account: Sendable, Hashable, Identifiable {
 }
 ```
 
-- [ ] **Step 6: Escrever `DetectedEvent.swift` e `AgendaItem.swift`**
+
+- [ ] **Step 6: Write `DetectedEvent.swift` and `AgendaItem.swift`**
 
 ```swift
 // DetectedEvent.swift
@@ -592,6 +652,7 @@ public struct DetectedEvent: Sendable, Hashable {
     public var end: Date { start.addingTimeInterval(duration) }
 }
 ```
+
 
 ```swift
 // AgendaItem.swift
@@ -626,7 +687,8 @@ public struct AgendaItem: Sendable, Hashable, Identifiable {
 }
 ```
 
-- [ ] **Step 7: Escrever `Message.swift`**
+
+- [ ] **Step 7: Write `Message.swift`**
 
 ```swift
 import Foundation
@@ -718,10 +780,12 @@ extension Message {
 }
 ```
 
-- [ ] **Step 8: Rodar os testes**
+
+- [ ] **Step 8: Run the tests**
 
 Run: `cd Packages/UNICore && swift test`
-Expected: PASS, 5 testes.
+
+Expected: PASS, 5 tests.
 
 - [ ] **Step 9: Commit**
 
@@ -732,20 +796,26 @@ git commit -m "UNICore: modelos de conta, contato, mensagem e agenda
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
+
 ---
 
-### Task 4: Store e fixtures do protótipo
+### Task 4: Prototype store and fixtures
 
 **Files:**
+
 - Create: `Packages/UNICore/Sources/UNICore/MessageStore.swift`
+
 - Create: `Packages/UNICore/Sources/UNICore/Fixtures/Fixtures.swift`
+
 - Test: `Packages/UNICore/Tests/UNICoreTests/StoreTests.swift`
 
 **Interfaces:**
+
 - Consumes: `Account`, `Message`, `TriageBucket`, `AgendaItem`
+
 - Produces: `protocol MailSource`, `InMemoryMailSource`, `MailStore` (`@Observable`), `Fixtures.accounts`, `Fixtures.messages`, `Fixtures.agenda`
 
-- [ ] **Step 1: Escrever os testes que falham**
+- [ ] **Step 1: Write down the failing tests**
 
 ```swift
 import Testing
@@ -890,12 +960,14 @@ struct StoreTests {
 }
 ```
 
-- [ ] **Step 2: Rodar para ver falhar**
+
+- [ ] **Step 2: Run to see failure**
 
 Run: `cd Packages/UNICore && swift test --filter MailStore`
+
 Expected: FAIL — `cannot find 'MailStore' in scope`.
 
-- [ ] **Step 3: Escrever `MessageStore.swift`**
+- [ ] **Step 3: Write `MessageStore.swift`**
 
 ```swift
 import Foundation
@@ -1019,11 +1091,12 @@ public final class MailStore {
 }
 ```
 
-- [ ] **Step 4: Escrever `Fixtures.swift`**
 
-Copiar os dados de `MSGS`, `ACC` e `RAIL` do protótipo. As cores OKLCH das contas já convertidas: `zoho` `oklch(0.52 0.10 255)` → `#3E6FA8`, `gmail` `oklch(0.52 0.10 300)` → `#7E5FB4`, `host` `oklch(0.52 0.09 155)` → `#2C7D5E`, `icloud` `oklch(0.55 0.08 200)` → `#3C87A0`.
+- [ ] **Step 4: Write `Fixtures.swift`**
 
-Conferir cada conversão com o helper que já existe:
+Copy the data of `MSGS`, `ACC` and `RAIL` from the prototype. The OKLCH colors of the already converted lines: `zoho` `oklch(0.52 0.10 255)` → `#3E6FA8`, `gmail` `oklch(0.52 0.10 300)` → `#7E5FB4`, `host` `oklch(0.52 0.09 155)` → `#2C7D5E`, `icloud` `oklch(0.55 0.08 200)` → `#3C87A0`.
+
+Compare each conversion with the existing helper:
 
 ```bash
 python3 -c "
@@ -1036,7 +1109,8 @@ for nome,L,C,H in [('zoho',0.52,0.10,255),('gmail',0.52,0.10,300),
 "
 ```
 
-Usar a saída desse comando, não os valores acima, se divergirem.
+
+Use the output of this command, not the values above, if they differ.
 
 ```swift
 import Foundation
@@ -1159,10 +1233,12 @@ public enum Fixtures {
 }
 ```
 
-- [ ] **Step 5: Rodar os testes**
+
+- [ ] **Step 5: Run the tests**
 
 Run: `cd Packages/UNICore && swift test`
-Expected: PASS, 15 testes (5 de modelos + 10 do store).
+
+Expected: PASS, 15 tests (5 of models + 10 from the store).
 
 - [ ] **Step 6: Commit**
 
@@ -1173,29 +1249,42 @@ git commit -m "UNICore: MailStore observável e fixtures do protótipo
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
+
 ---
 
-### Task 5: Assets de marca, modificadores de token e a barra de 58px
+### Task 5: Brand assets, token modifiers and the 58px bar
 
 **Files:**
+
 - Create: `design/assets/uni-lockup-dark.png`, `uni-mark-light.png`, `uni-mark-dark.png`
+
 - Create: `App/Resources/Assets.xcassets/` (4 image sets)
+
 - Create: `Packages/UNIShell/Package.swift`
+
 - Create: `Packages/UNIShell/Sources/UNIShell/Support/TokenModifiers.swift`
+
 - Create: `Packages/UNIShell/Sources/UNIShell/Chrome/WindowChrome.swift`
+
 - Modify: `App/OkamiUNIApp.swift`
+
 - Modify: `project.yml`
+
 - Test: `Packages/UNIShell/Tests/UNIShellTests/TokenModifierTests.swift`
 
 **Interfaces:**
+
 - Consumes: `UNIDesign.Theme`, `UNICore.TriageBucket`, `UNICore.MailStore`
+
 - Produces: `View.hairline(_:edges:)`, `View.capsLabel(size:)`, `WindowChrome`, `enum Workspace { case mail, calendar }`
 
-- [ ] **Step 1: Baixar os 3 assets que faltam**
+- [ ] **Step 1: Download the 3 missing assets**
 
-Só o `uni-lockup-light.png` foi baixado no Marco 0. Os outros três estão no projeto do Claude Design `40478c81-e3be-42cc-aad1-f0c2d28d292c`: `uni-lockup-dark.png`, `uni-mark-light.png`, `uni-mark-dark.png`.
+Only `uni-lockup-light.png` was downloaded in Milestone 0. The other three are in the Claude
+Design project `40478c81-e3be-42cc-aad1-f0c2d28d292c`: `uni-lockup-dark.png`,
+`uni-mark-light.png`, `uni-mark-dark.png`.
 
-Para cada um, chamar a ferramenta `DesignSync` com `method: "get_file"`, esse `projectId` e o `path` do arquivo. A resposta é JSON com `content` em base64 e `isBase64: true`. Quando o resultado for grande demais e for salvo em arquivo, decodificar assim (foi o caminho usado no Marco 0):
+For each one, call the `DesignSync` tool with `method: "get_file"`, this `projectId` and the `path` from the file. The response is JSON with `content` in base64 and `isBase64: true`. When the result is too large and is saved to a file, decode it like this (it was the path used in Marker 0):
 
 ```bash
 python3 - <<'PY'
@@ -1210,9 +1299,10 @@ PY
 file design/assets/*.png
 ```
 
-Expected: `file` reporta os quatro como `PNG image data` com dimensões plausíveis (o lockup claro é 587×162).
 
-Depois criar os image sets. Os nomes têm de ser exatamente `uni-lockup-light`, `uni-lockup-dark`, `uni-mark-light`, `uni-mark-dark` — é o que `WindowChrome` e `ReaderPane` já pedem em `Image(...)`.
+Expected: `file` reports the four as `PNG image data` with plausible dimensions (the clear lockup is 587×162).
+
+Then create the image sets. The names must be exactly `uni-lockup-light`, `uni-lockup-dark`, `uni-mark-light`, `uni-mark-dark` — that's what `WindowChrome` and `ReaderPane` already ask for in `Image(...)`.
 
 ```bash
 for n in uni-lockup-light uni-lockup-dark uni-mark-light uni-mark-dark; do
@@ -1236,11 +1326,12 @@ JSON
 ls App/Resources/Assets.xcassets/
 ```
 
-Expected: quatro pastas `.imageset` mais o `Contents.json` raiz.
 
-Se o lockup vier em resolução baixa e pixelar a 38pt de altura, pedir ao design uma exportação 2×/3× em vez de escalar o 1× — a barra é a primeira coisa que a pessoa vê.
+Expected: four folders `.imageset` plus the `Contents.json` root.
 
-- [ ] **Step 2: Escrever `Package.swift`**
+If the lockup comes in low resolution and pixelates at 38pt height, ask the design for a 2×/3× export instead of scaling the 1× - the bar is the first thing the person sees.
+
+- [ ] **Step 2: Write `Package.swift`**
 
 ```swift
 // swift-tools-version: 6.2
@@ -1261,7 +1352,8 @@ let package = Package(
 )
 ```
 
-- [ ] **Step 3: Escrever o teste que falha**
+
+- [ ] **Step 3: Write the failing test**
 
 ```swift
 import Testing
@@ -1300,12 +1392,14 @@ struct TokenModifierTests {
 }
 ```
 
-- [ ] **Step 4: Rodar para ver falhar**
+
+- [ ] **Step 4: Run to see failure**
 
 Run: `cd Packages/UNIShell && swift test`
+
 Expected: FAIL — `cannot find 'Workspace' in scope`.
 
-- [ ] **Step 5: Escrever `TokenModifiers.swift`**
+- [ ] **Step 5: Write `TokenModifiers.swift`**
 
 ```swift
 import SwiftUI
@@ -1354,7 +1448,8 @@ extension View {
 }
 ```
 
-- [ ] **Step 6: Escrever `WindowChrome.swift`**
+
+- [ ] **Step 6: Write `WindowChrome.swift`**
 
 ```swift
 import SwiftUI
@@ -1504,9 +1599,11 @@ public struct WindowChrome: View {
 }
 ```
 
-- [ ] **Step 7: Adicionar `UNIShell` ao `project.yml`**
 
-Em `packages`:
+- [ ] **Step 7: Add `UNIShell` to `project.yml`**
+
+In `packages`:
+
 ```yaml
   UNICore:
     path: Packages/UNICore
@@ -1514,7 +1611,9 @@ Em `packages`:
     path: Packages/UNIShell
 ```
 
-Em `targets.OkamiUNI.dependencies`:
+
+In `targets.OkamiUNI.dependencies`:
+
 ```yaml
       - package: UNICore
         product: UNICore
@@ -1522,10 +1621,12 @@ Em `targets.OkamiUNI.dependencies`:
         product: UNIShell
 ```
 
-- [ ] **Step 8: Rodar os testes**
+
+- [ ] **Step 8: Run the tests**
 
 Run: `cd Packages/UNIShell && swift test`
-Expected: PASS, 4 testes.
+
+Expected: PASS, 4 tests.
 
 - [ ] **Step 9: Commit**
 
@@ -1536,19 +1637,24 @@ git commit -m "UNIShell: modificadores de token e a barra de 58px
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
+
 ---
 
-### Task 6: Seletor de temas
+### Task 6: Theme selector
 
 **Files:**
+
 - Create: `Packages/UNIShell/Sources/UNIShell/Chrome/ThemePicker.swift`
+
 - Test: `Packages/UNIShell/Tests/UNIShellTests/ThemePickerTests.swift`
 
 **Interfaces:**
+
 - Consumes: `UNIDesign.ThemeStore`, `UNIDesign.Theme.all`
+
 - Produces: `ThemePicker`, `ThemePreview`
 
-- [ ] **Step 1: Escrever o teste que falha**
+- [ ] **Step 1: Write the failing test**
 
 ```swift
 import Testing
@@ -1593,14 +1699,16 @@ struct ThemePickerTests {
 }
 ```
 
-- [ ] **Step 2: Rodar para ver falhar**
+
+- [ ] **Step 2: Run to see failure**
 
 Run: `cd Packages/UNIShell && swift test --filter ThemePicker`
-Expected: FAIL na compilação — `ThemePicker` não existe.
 
-- [ ] **Step 3: Escrever `ThemePicker.swift`**
+Expected: FAIL in compilation — `ThemePicker` does not exist.
 
-Cada card é uma miniatura da janela: barra com dois pontos, barra lateral, corpo com duas linhas.
+- [ ] **Step 3: Write `ThemePicker.swift`**
+
+Each card is a miniature window: a bar with two dots, a sidebar, and a body with two lines.
 
 ```swift
 import SwiftUI
@@ -1742,14 +1850,16 @@ struct ThemePreview: View {
 }
 ```
 
-- [ ] **Step 4: Rodar os testes**
+
+- [ ] **Step 4: Run the tests**
 
 Run: `cd Packages/UNIShell && swift test`
-Expected: PASS, 7 testes.
 
-- [ ] **Step 5: Ligar o seletor na barra**
+Expected: PASS, 7 tests.
 
-Em `WindowChrome.swift`, trocar o vazio que a Task 5 deixou:
+- [ ] **Step 5: Turn on the selector on the bar**
+
+In `WindowChrome.swift`, change the blank space that Task 5 left:
 
 ```swift
             // antes
@@ -1759,12 +1869,14 @@ Em `WindowChrome.swift`, trocar o vazio que a Task 5 deixou:
             ThemePicker()
 ```
 
-- [ ] **Step 6: Verificar no app**
 
-Gerar e abrir.
+- [ ] **Step 6: Check in the app**
+
+Generate and open.
 
 Run: `xcodegen generate && xcodebuild -project OkamiUNI.xcodeproj -scheme OkamiUNI build && open ...`
-Expected: clicar em "Tinta" abre o popover com 26 miniaturas; escolher "Okami" muda a janela inteira para onyx com o laranja `#FF7527`; fechar e reabrir o app mantém Okami.
+
+Expected: click on "Tinta" opens the popover with 26 thumbnails; choose "Okami" changes the entire window to onyx with the orange `#FF7527`; closing and reopening the app keeps Okami.
 
 - [ ] **Step 7: Commit**
 
@@ -1775,49 +1887,63 @@ git commit -m "Seletor de temas com as 26 miniaturas, escolha persistida
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
+
 ---
 
-### Task 7: Filtro por conta e barra lateral expandida
+### Task 7: Account filter and expanded sidebar
 
-O plano original descrevia esta barra errada em quase tudo. Os valores abaixo foram
-extraídos do protótipo e são os corretos.
+The original plan described this sidebar incorrectly in nearly every respect. The values below were extracted from the prototype and are correct.
 
 **Files:**
+
 - Modify: `Packages/UNICore/Sources/UNICore/Account.swift`
+
 - Modify: `Packages/UNICore/Sources/UNICore/MessageStore.swift`
+
 - Modify: `Packages/UNICore/Sources/UNICore/Fixtures/Fixtures.swift`
+
 - Modify: `Packages/UNICore/Tests/UNICoreTests/StoreTests.swift`
+
 - Rewrite: `Packages/UNIShell/Sources/UNIShell/Inbox/FolderSidebar.swift`
+
 - Modify: `Packages/UNIShell/Tests/UNIShellTests/SidebarTests.swift`
 
 **Interfaces:**
+
 - Consumes: `Theme`, `MailStore`, `TriageBucket`, `Account`
+
 - Produces: `Account.tint(isDark:)`, `MailStore.selectedAccountID`,
-  `MailStore.select(account:)`, `MailStore.count(for:)` sensível ao filtro,
-  `FolderSidebar`, `FolderSidebar.expandedWidth` (= 236)
 
-#### Parte A — o modelo aprende o filtro por conta
+`MailStore.select(account:)`, filter-sensitive `MailStore.count(for:)`,
 
-No protótipo, clicar numa conta filtra a lista, e os contadores das pastas passam a
-contar só aquela conta. Clicar de novo na mesma conta desliga o filtro.
+`FolderSidebar`, `FolderSidebar.expandedWidth` (= 236)
 
-O código do protótipo:
+### Part A — the model learns the filter by account
+
+In the prototype, clicking an account filters the list, and folder counters count only that account. Clicking the same account again disables the filter.
+
+The prototype code:
+
 ```js
 onPick: () => this.setState({ account: on ? null : k })
 // e nos contadores:
 MSGS.filter(m => (v.id === 'todos' ? true : bucketOf(m) === v.id) && (!st.account || m.acc === st.account))
 ```
 
-`MailStore` ganha:
+
+`MailStore` gains:
+
 - `public private(set) var selectedAccountID: String?`
-- `public func select(account id: String?)` — passar o id já selecionado desliga o filtro
-- `visibleMessages` passa a aplicar o filtro de conta junto com bucket e busca
-- `count(for:)` passa a respeitar o filtro de conta
 
-#### Parte B — cores de conta que se adaptam ao tema
+- `public func select(account id: String?)` — pass the already selected ID turns off the filter
 
-O protótipo troca a cor de cada conta conforme o tema, porque a cor clara não tem
-contraste em fundo escuro:
+- `visibleMessages` applies the account filter together with bucket and search
+
+- `count(for:)` respects the account filter
+
+### Part B — account colors that adapt to the theme
+
+The prototype changes each account’s color according to the theme because the light color lacks contrast on a dark background:
 
 ```js
 // tema claro:  ACC[k].c        — L ~0.52
@@ -1826,136 +1952,174 @@ DK = { zoho: oklch(0.78 0.10 255), gmail: oklch(0.78 0.11 300),
        host: oklch(0.80 0.10 155), icloud: oklch(0.80 0.09 200) }
 ```
 
-`Account.tintHex` vira dois campos: `tintLightHex` e `tintDarkHex`, mais
-`public func tint(isDark: Bool) -> String`. Converter os OKLCH acima para hex com
-`Tools/generate_themes.py` (função `oklch_to_srgb`) e usar a saída real.
 
-#### Parte C — a barra expandida, com os valores do protótipo
+`Account.tintHex` becomes two fields, `tintLightHex` and `tintDarkHex`, plus
+`public func tint(isDark: Bool) -> String`. Convert the OKLCH values above to hex with
+`Tools/generate_themes.py` (the `oklch_to_srgb` function) and use its actual output.
 
-Container: largura **236**, fundo `surface2`, borda direita `0.5px line`,
-`padding-top: 14`, e transição de largura de 180ms.
+### Part C — the expanded bar, with the prototype values
 
-Cabeçalho de seção (os dois): mono **9.5px**, caps, tracking `capsTracking`, cor `ink4`.
-- "**Fluxo**" com padding `0 16px 7px`  (o plano antigo dizia "Pastas" — errado)
-- "**Caixas**" com padding `22px 16px 7px`
+Container: width **236**, `surface2` background, `0.5px line` right border,
 
-Linha de pasta (`views`): altura **30**, gap **9**, padding `0 8`, raio `radiusSmall`.
-- rótulo 13px peso 500, ocupando o espaço livre
-- contador em mono 10px
-- selecionada: cor `accentInk`, fundo `accentSoft`, contador também `accentInk`
-- não selecionada: cor `ink2`, contador `ink4`, fundo transparente
+`padding-top: 14`, and 180ms width transition.
 
-Linha de conta (`accounts`): altura **32**, gap **8**, padding `0 8`, raio `radiusSmall`.
-- chip do host à esquerda: mono **9px**, tracking 0.06em, caps, padding `2px 6px 1.5px`,
-  raio 4, cor = tint da conta, fundo = tint a 14% (22% quando selecionada),
-  borda `0.5px` do tint a 32%
-- rótulo (endereço) 12.5px, truncado com reticências, ocupando o espaço livre
-- contador em mono 10px, `ink4`
-- selecionada: fundo = tint a 16% e uma barra interna de 2px à esquerda na cor do tint
-  (no CSS é `box-shadow: inset 2px 0 0`; em SwiftUI, um retângulo de 2px alinhado à esquerda)
+Section header (both): mono **9.5px**, caps, tracking `capsTracking`, color `ink4`.
 
-Rodapé, fixo no fim (`margin-top: auto`), padding 16, borda superior `0.5px line`:
-- um ponto de 5px na cor semântica "ok" (verde), gap 7
-- "**Triagem local ativa**" — 11.5px, peso 590, `ink2`
+- "**Fluxo**" with padding `0 16px 7px`  (the old plan said "Pastas" — wrong)
+
+- "**Caixas**" with padding `22px 16px 7px`
+
+Folder row (`views`): height **30**, gap **9**, padding `0 8`, radius `radiusSmall`.
+
+- label 13px weight 500, occupying the free space
+
+- counter in mono 10px
+
+- selected: color `accentInk`, background `accentSoft`, counter also `accentInk`
+
+- not selected: color `ink2`, counter `ink4`, transparent background
+
+Account row (`accounts`): height **32**, gap **8**, padding `0 8`, radius `radiusSmall`.
+
+- host chip on the left: mono **9px**, tracking 0.06em, caps, padding `2px 6px 1.5px`,
+  radius 4, account-tint foreground, 14% tint background (22% when selected), and a
+  `0.5px` tint border at 32%
+
+- label (address) 12.5px, truncated with an ellipsis, occupying the free space
+
+- counter in mono 10px, `ink4`
+
+- selected: background = tint at 16% and an inner bar of 2px on the left in the tint color
+
+(in CSS it is `box-shadow: inset 2px 0 0`; in SwiftUI, a 2px rectangle aligned to the left)
+
+Footer, fixed at the end (`margin-top: auto`), padding 16, top border `0.5px line`:
+
+- a 5px point in the semantic color "ok" (green), gap 7
+
+- "**Triagem local ativa**" — 11.5px, weight 590, `ink2`
+
 - "**Classificação, resumo e busca semântica rodam no Mac. Nada sai daqui.**"
-  — 11px, line-height 1.5, `ink3`
 
-Este rodapé é promessa de produto, não decoração. O texto vai verbatim.
+- 11px, line-height 1.5, `ink3`
+
+This footer is a product promise, not decoration. The text will go verbatim.
 
 #### Steps
 
-- [ ] **Step 1: Escrever os testes que falham** — no UNICore, cobrindo o filtro por
-  conta: filtrar reduz `visibleMessages`; clicar de novo na mesma conta desliga;
-  `count(for:)` respeita o filtro; filtro por conta e busca se combinam. No UNIShell,
-  os testes de escalabilidade que já existem mais um que fixe `expandedWidth == 236`.
-  Todo teste tem de falhar antes da implementação — rode e confirme.
+- [ ] **Step 1: Write the failing tests** — in UNICore, cover account filtering: filtering
+  reduces `visibleMessages`; clicking the selected account again disables it;
+  `count(for:)` respects it; and account filtering combines with search. In UNIShell, retain
+  existing scalability tests and add one that fixes `expandedWidth == 236`. Every test must
+  fail before implementation — run and confirm it.
 
-- [ ] **Step 2: Implementar a Parte A** (filtro no `MailStore`), rodar os testes do
-  UNICore até passarem.
+- [ ] **Step 2: Implement Part A** (the `MailStore` filter), then run UNICore tests until
+  they pass.
 
-- [ ] **Step 3: Implementar a Parte B** (tint por tema). Converter os OKLCH com o
-  helper e registrar a saída no relatório.
+- [ ] **Step 3: Implement Part B** (tint by theme). Convert the OKLCH values with the helper
+  and record the result in the report.
 
-- [ ] **Step 4: Reescrever a `FolderSidebar`** com os valores da Parte C.
+- [ ] **Step 4: Rewrite the `FolderSidebar`** with the values from Part C.
 
-- [ ] **Step 5: Verificar contra o protótipo.** Abrir o app e comparar com o
-  `.dc.html`: largura, "Fluxo", chips de host, contadores, seleção de conta com a
-  barrinha à esquerda, rodapé. Trocar para um tema escuro e confirmar que as cores das
-  contas clareiam.
+- [ ] **Step 5: Verify against the prototype.** Open the app and compare with the `.dc.html`:
+  width, "Fluxo", host chips, counters, selected-account left bar, and footer. Switch to a
+  dark theme and confirm that account colors become lighter.
 
 - [ ] **Step 6: Commit.**
 
 ---
 
-### Task 7B: Trilha recolhida de 62px
+### Task 7B: 62px collapsed rail
 
-O botão da barra de 58px não esconde a barra lateral: ele a troca por uma trilha
-estreita. O plano original tratava isso como mostrar/esconder — errado.
+The 58px bar button does not hide the sidebar: it replaces it with a narrow rail. The original plan treated this as show/hide behavior — incorrectly.
 
 **Files:**
+
 - Create: `Packages/UNIShell/Sources/UNIShell/Inbox/SidebarRail.swift`
+
 - Modify: `Packages/UNIShell/Sources/UNIShell/Inbox/FolderSidebar.swift`
+
 - Test: `Packages/UNIShell/Tests/UNIShellTests/SidebarRailTests.swift`
 
 **Interfaces:**
+
 - Consumes: `MailStore`, `Theme`, `TriageBucket`
+
 - Produces: `SidebarRail`, `SidebarRail.width` (= 62)
 
-Container: largura **62**, fundo `surface2`, borda direita `0.5px line`,
-conteúdo centralizado, padding `14px 0`.
+Container: width **62**, `surface2` background, `0.5px line` right border, centered content, padding `14px 0`.
 
-Botão de pasta: **46×40**, raio `radiusSmall`, coluna centralizada, gap 3.
-- abreviação em mono **8.5px**, tracking 0.06em, caps: `hoje`, `dep`, `tudo`, `arq`
-  (nessa ordem, correspondendo a Hoje/Depois/Tudo/Arquivado)
-- contador 13px peso 650
-- selecionado: cor `accentInk`, fundo `accentSoft`, borda `0.5px accentLine`
-- não selecionado: cor `ink3`, fundo transparente
+Folder button: **46×40**, radius `radiusSmall`, centered column, gap 3.
 
-Divisória: 26px de largura, `0.5px line`, margem vertical 8.
+- abbreviation in mono **8.5px**, tracking 0.06em, caps: `hoje`, `dep`, `tudo`, `arq`
 
-Rótulo "caixas": mono **7.5px**, tracking 0.08em, caps, `ink4`, margem inferior 2.
+(in this order, corresponding to Today/Later/All/Archived)
 
-Marca de conta: **40×24**, raio `radiusSmall`, mono 10px peso 500, centralizado.
-- texto = as **3 primeiras letras do host** (`zoh`, `gma`, `hos`, `icl`)
-- cor = tint da conta; fundo = tint a 12% (26% quando selecionada);
-  borda `0.5px` do tint a 26% (70% quando selecionada)
-- cada uma leva o endereço completo num `.help()`
+- counter 13px weight 650
+
+- selected: color `accentInk`, background `accentSoft`, border `0.5px accentLine`
+
+- not selected: color `ink3`, transparent background
+
+Divider: 26px wide, `0.5px line`, vertical margin 8.
+
+Label "caixas": mono **7.5px**, tracking 0.08em, caps, `ink4`, bottom margin 2.
+
+Account mark: **40×24**, radius `radiusSmall`, mono 10px weight 500, centralized.
+
+- text = the **first 3 letters of the host** (`zoh`, `gma`, `hos`, `icl`)
+
+- color = account tint; background = 12% tint (26% when selected);
+
+`0.5px` border in the tint at 26% (70% when selected)
+
+- each carries the full address in `.help()`
 
 #### Steps
 
-- [ ] **Step 1: Escrever os testes que falham** — `SidebarRail.width == 62`; as
-  abreviações das quatro pastas na ordem certa; a marca de conta são as 3 primeiras
-  letras do host; a trilha aguenta 0 e 25 contas.
+- [ ] **Step 1: Write the failing tests** — `SidebarRail.width == 62`; the
 
-- [ ] **Step 2: Rodar e ver falhar.**
+Abbreviations of the four folders in the correct order; the account number is the first 3 digits
 
-- [ ] **Step 3: Implementar `SidebarRail`.**
+Host letters; the track can hold 0 and 25 accounts.
 
-- [ ] **Step 4: Ligar o toggle.** O botão da barra alterna entre `FolderSidebar`
-  (236px) e `SidebarRail` (62px) — nunca esconde tudo. Animar com a transição de
-  180ms que o protótipo usa.
+- [ ] **Step 2: Run and see it fail.**
 
-- [ ] **Step 5: Verificar no app.** Clicar no botão vai e volta entre os dois estados,
-  a seleção de pasta e de conta sobrevive à troca.
+- [ ] **Step 3: Implement `SidebarRail`.**
+
+- [ ] **Step 4: Turn on the toggle.** The bar button alternates between `FolderSidebar`
+
+(236px) and `SidebarRail` (62px) — never hides everything. Cheer with the transition of
+
+180ms that the prototype uses.
+
+- [ ] **Step 5: Check in the app.** Click the go and return button between the two states,
+
+The folder and account selection survive the exchange.
 
 - [ ] **Step 6: Commit.**
 
 ---
 
-### Task 8: Lista de mensagens agrupada
+### Task 8: Grouped message list
 
-O painel de 370px do design. As mensagens vêm agrupadas por dia, com cabeçalho em versalete.
+The 370px design panel. The messages come grouped by day, with a bold header.
 
 **Files:**
+
 - Create: `Packages/UNIShell/Sources/UNIShell/Inbox/MessageRow.swift`
+
 - Create: `Packages/UNIShell/Sources/UNIShell/Inbox/MessageList.swift`
+
 - Test: `Packages/UNIShell/Tests/UNIShellTests/MessageListTests.swift`
 
 **Interfaces:**
+
 - Consumes: `MailStore.visibleMessages`, `MailStore.select(message:)`, `Message`, `Tag`
+
 - Produces: `MessageList`, `MessageList.width` (= 370), `MessageRow`, `MessageGroup`
 
-- [ ] **Step 1: Escrever os testes que falham**
+- [ ] **Step 1: Write down the failing tests**
 
 ```swift
 import Testing
@@ -1999,14 +2163,16 @@ struct MessageListTests {
 }
 ```
 
-- [ ] **Step 2: Rodar para ver falhar**
+
+- [ ] **Step 2: Run to see failure**
 
 Run: `cd Packages/UNIShell && swift test --filter MessageList`
-Expected: FAIL — `MessageGroup` não existe.
 
-- [ ] **Step 3: Escrever `MessageRow.swift`**
+Expected: FAIL — `MessageGroup` does not exist.
 
-A anatomia da linha, direto do protótipo: remetente à esquerda e hora à direita; assunto; trecho em duas linhas; rodapé com o host da conta e as etiquetas.
+- [ ] **Step 3: Write `MessageRow.swift`**
+
+The anatomy of the line, straight from the prototype: sender to the left and time to the right; subject; paragraph in two lines; footer with the account host and the labels.
 
 ```swift
 import SwiftUI
@@ -2087,7 +2253,8 @@ struct TagChip: View {
 }
 ```
 
-- [ ] **Step 4: Escrever `MessageList.swift`**
+
+- [ ] **Step 4: Write `MessageList.swift`**
 
 ```swift
 import SwiftUI
@@ -2213,10 +2380,12 @@ public struct MessageList: View {
 }
 ```
 
-- [ ] **Step 5: Rodar os testes**
+
+- [ ] **Step 5: Run the tests**
 
 Run: `cd Packages/UNIShell && swift test`
-Expected: PASS, 13 testes.
+
+Expected: PASS, 13 tests.
 
 - [ ] **Step 6: Commit**
 
@@ -2227,19 +2396,24 @@ git commit -m "Lista de mensagens agrupada por dia, com etiquetas
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
+
 ---
 
-### Task 9: Painel de leitura
+### Task 9: Reading panel
 
 **Files:**
+
 - Create: `Packages/UNIShell/Sources/UNIShell/Inbox/ReaderPane.swift`
+
 - Test: `Packages/UNIShell/Tests/UNIShellTests/ReaderTests.swift`
 
 **Interfaces:**
+
 - Consumes: `MailStore.selectedMessage`, `Message.summary`, `Message.detectedEvent`
+
 - Produces: `ReaderPane`
 
-- [ ] **Step 1: Escrever o teste que falha**
+- [ ] **Step 1: Write the failing test**
 
 ```swift
 import Testing
@@ -2284,12 +2458,14 @@ struct ReaderTests {
 }
 ```
 
-- [ ] **Step 2: Rodar para ver falhar**
+
+- [ ] **Step 2: Run to see failure**
 
 Run: `cd Packages/UNIShell && swift test --filter ReaderPane`
-Expected: FAIL na compilação.
 
-- [ ] **Step 3: Escrever `ReaderPane.swift`**
+Expected: FAIL in compilation.
+
+- [ ] **Step 3: Write `ReaderPane.swift`**
 
 ```swift
 import SwiftUI
@@ -2455,10 +2631,12 @@ public struct ReaderPane: View {
 }
 ```
 
-- [ ] **Step 4: Rodar os testes**
+
+- [ ] **Step 4: Run the tests**
 
 Run: `cd Packages/UNIShell && swift test`
-Expected: PASS, 16 testes.
+
+Expected: PASS, 16 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -2469,19 +2647,24 @@ git commit -m "Painel de leitura com resumo e compromisso detectado
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
+
 ---
 
-### Task 10: Trilha de agenda
+### Task 10: Agenda trail
 
 **Files:**
+
 - Create: `Packages/UNIShell/Sources/UNIShell/Inbox/AgendaRail.swift`
+
 - Test: `Packages/UNIShell/Tests/UNIShellTests/AgendaRailTests.swift`
 
 **Interfaces:**
+
 - Consumes: `MailStore.agenda`, `AgendaItem`
+
 - Produces: `AgendaRail`, `AgendaRail.width` (= 262), `AgendaRail.Layout`
 
-- [ ] **Step 1: Escrever os testes que falham**
+- [ ] **Step 1: Write down the failing tests**
 
 ```swift
 import Testing
@@ -2533,12 +2716,14 @@ struct AgendaRailTests {
 }
 ```
 
-- [ ] **Step 2: Rodar para ver falhar**
+
+- [ ] **Step 2: Run to see failure**
 
 Run: `cd Packages/UNIShell && swift test --filter AgendaRail`
-Expected: FAIL na compilação.
 
-- [ ] **Step 3: Escrever `AgendaRail.swift`**
+Expected: FAIL in compilation.
+
+- [ ] **Step 3: Write `AgendaRail.swift`**
 
 ```swift
 import SwiftUI
@@ -2672,10 +2857,12 @@ public struct AgendaRail: View {
 }
 ```
 
-- [ ] **Step 4: Rodar os testes**
+
+- [ ] **Step 4: Run the tests**
 
 Run: `cd Packages/UNIShell && swift test`
-Expected: PASS, 21 testes.
+
+Expected: PASS, 21 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -2686,22 +2873,28 @@ git commit -m "Trilha de agenda com posicionamento por minuto do dia
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
+
 ---
 
-### Task 11: Montar a tela e ligar no app
+### Task 11: Assemble the screen and turn on the app
 
-O último passo: compor os quatro painéis sob a barra e trocar o `RootView` provisório da Task 1.
+The last step: assemble the four panels under the bar and replace the Task 1's temporary `RootView`.
 
 **Files:**
+
 - Create: `Packages/UNIShell/Sources/UNIShell/Inbox/InboxScreen.swift`
+
 - Modify: `App/OkamiUNIApp.swift`
+
 - Test: `Packages/UNIShell/Tests/UNIShellTests/InboxScreenTests.swift`
 
 **Interfaces:**
+
 - Consumes: `WindowChrome`, `FolderSidebar`, `MessageList`, `ReaderPane`, `AgendaRail`, `MailStore`
+
 - Produces: `InboxScreen`
 
-- [ ] **Step 1: Escrever o teste que falha**
+- [ ] **Step 1: Write the failing test**
 
 ```swift
 import Testing
@@ -2732,12 +2925,14 @@ struct InboxScreenTests {
 }
 ```
 
-- [ ] **Step 2: Rodar para ver falhar**
+
+- [ ] **Step 2: Run to see failure**
 
 Run: `cd Packages/UNIShell && swift test --filter InboxScreen`
-Expected: FAIL na compilação — `InboxScreen` não existe.
 
-- [ ] **Step 3: Escrever `InboxScreen.swift`**
+Expected: FAIL in compilation — `InboxScreen` does not exist.
+
+- [ ] **Step 3: Write `InboxScreen.swift`**
 
 ```swift
 import SwiftUI
@@ -2815,9 +3010,10 @@ public struct InboxScreen: View {
 }
 ```
 
-- [ ] **Step 4: Trocar o `RootView` provisório**
 
-Em `App/OkamiUNIApp.swift`, substituir o `RootView` da Task 1:
+- [ ] **Step 4: Replace the temporary `RootView`**
+
+In `App/OkamiUNIApp.swift`, replace the `RootView` from Task 1:
 
 ```swift
 import SwiftUI
@@ -2847,44 +3043,63 @@ struct OkamiUNIApp: App {
 }
 ```
 
-- [ ] **Step 5: Rodar todos os testes**
+
+- [ ] **Step 5: Run all tests**
 
 Run:
+
 ```bash
 for p in UNIDesign UNICore UNIShell; do
   echo "== $p =="
   (cd "Packages/$p" && swift test 2>&1 | grep -E 'Test run with')
 done
 ```
-Expected: os três suites passando, sem falha.
+Expected: the three suites passing, without failure.
 
-- [ ] **Step 6: Compilar e conferir contra o protótipo**
+- [ ] **Step 6: Compile and check against the prototype**
 
 Run:
+
 ```bash
 xcodegen generate
 xcodebuild -project OkamiUNI.xcodeproj -scheme OkamiUNI -configuration Debug build 2>&1 | tail -3
 open "$(xcodebuild -project OkamiUNI.xcodeproj -scheme OkamiUNI -showBuildSettings 2>/dev/null | awk -F'= ' '/BUILT_PRODUCTS_DIR/{print $2; exit}')/OkamiUNI.app"
 ```
 
-Abrir `design/OkamiUNI - Mail + Agenda.dc.html` no navegador ao lado e comparar. Conferir cada item:
 
-- [ ] Barra de 58px com os semáforos nativos à esquerda, sem barra de título do sistema
-- [ ] Logo trocando entre `uni-lockup-light` e `uni-lockup-dark` ao mudar para um tema escuro
-- [ ] Abas Caixa/Agenda com a ativa em fundo `surface`
-- [ ] Busca dizendo "Buscar nas 4 caixas…" com "⌘K" em mono à direita
-- [ ] Barra lateral com Hoje/Depois/Tudo/Arquivado e uma linha por conta das fixtures, cada uma com seu ponto colorido
-- [ ] Lista de 370px, agrupada, com etiquetas coloridas no rodapé de cada linha
-- [ ] Clicar numa linha carrega o leitor e o remetente perde o negrito
-- [ ] O cartão "Resumo no dispositivo" aparece em m1 com a faixa "Compromisso detectado" e o botão "Colocar na agenda"
-- [ ] m2 mostra o leitor sem o cartão de compromisso
-- [ ] Trilha de agenda de 262px com os cinco compromissos nas alturas certas
-- [ ] Sem seleção, o leitor mostra a marca em opacidade baixa e "Nada aqui. Bom sinal."
-- [ ] Trocar para "Okami" no seletor muda tudo e o laranja é `#FF7527`
-- [ ] Trocar para "Brutal" zera os raios de canto (`radiusSmall` = 0)
-- [ ] Digitar "marina" na busca filtra a lista; apagar restaura
+Open `design/OkamiUNI - Mail + Agenda.dc.html` in a browser alongside it and compare. Check
+each item:
 
-Anotar cada divergência com o número da linha do protótipo. Divergências viram tarefas de ajuste — não são para "arrumar depois", são o próximo commit.
+- [ ] 58 px bar with native traffic lights on the left and no system title bar
+
+- [ ] Logo switches between `uni-lockup-light` and `uni-lockup-dark` when switching to a dark theme
+
+- [ ] Caixa/Agenda tabs, with the active tab on a `surface` background
+
+- [ ] Search saying "Buscar nas 4 caixas…" with "⌘K" in mono on the right
+
+- [ ] Sidebar with Hoje/Depois/Tudo/Arquivado and one row per fixture account, each with its colored dot
+
+- [ ] List of 370px, grouped, with colored tags at the bottom of each line
+
+- [ ] Clicking on a line loads the reader and the sender loses the bold text
+
+- [ ] The "Resumo no dispositivo" card appears in m1, with the "Compromisso detectado" band and "Colocar na agenda" button
+
+- [ ] m2 shows the reader without the appointment card
+
+- [ ] 262 px agenda rail with five appointments at the correct heights
+
+- [ ] Without selection, the reader shows the mark in low opacity and "Nada aqui. Bom sinal."
+
+- [ ] Change to "Okami" in the selector changes everything and the orange is `#FF7527`
+
+- [ ] Change to "Brutal" sets the corner rays to zero (`radiusSmall` = 0)
+
+- [ ] Type "marina" in the search to filter the list; delete restores
+
+Record every divergence with the prototype line number. Divergences become adjustment tasks;
+they are not for “fix later,” they are the next commit.
 
 - [ ] **Step 7: Commit**
 
@@ -2895,130 +3110,143 @@ git commit -m "Caixa unificada montada: quatro painéis sob a barra
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 ```
 
----
-
-## Task P: Passe de polimento visual — OBRIGATÓRIA antes de fechar o marco
-
-**Pedido explícito do dono do projeto, 27/08/2026:** *"vamos ter que fazer um polimento na
-interface, tem muita coisa desalinhada... essa parte estética conta muito pra mim."*
-
-Esta tarefa **não é opcional** e não pode ser dispensada por "os testes passam". Nenhum teste
-deste projeto mede alinhamento; o olho mede.
-
-### O caso que originou a tarefa
-
-O vão entre os semáforos nativos do macOS e o primeiro controle da barra estava grande demais,
-fazendo a janela parecer amadora ao lado de qualquer app nativo.
-
-Medições reais, feitas via acessibilidade na janela rodando:
-- semáforos nativos: fechar em x=8, minimizar em x=31, tela cheia em x=54 — todos com 16pt de
-  largura, então o **último termina em x=70**
-- o protótipo põe seu primeiro controle **14pt depois** do fim dos semáforos
-- portanto o primeiro controle deve começar em **x=84**
-
-Compare com o Chrome e com o app do Claude: em ambos os controles encostam nos semáforos com
-uma folga curta. É esse o padrão da plataforma.
-
-### O que a passe tem de cobrir
-
-Percorrer a janela inteira **lado a lado com o protótipo**, na mesma escala, e corrigir:
-
-1. **Alinhamento horizontal entre painéis.** Os cabeçalhos de lista, leitor e agenda começam
-   na mesma linha de base? As divisórias verticais caem onde o protótipo põe?
-2. **Alinhamento vertical dentro da barra.** Logo, abas, busca e seletor centrados na mesma
-   linha média dos 58px?
-3. **Ritmo vertical da barra lateral.** O espaço entre "Fluxo" e a primeira pasta é igual ao
-   que há entre "Caixas" e a primeira conta?
-4. **Densidade das linhas de mensagem.** O `rowPadding` do tema está sendo respeitado, ou algum
-   `padding` extra está somando por cima?
-5. **Óptica dos chips e etiquetas.** Alturas, raios e folga interna consistentes entre a barra
-   lateral e a lista.
-6. **Estados vazios.** Os textos reservados estão opticamente centrados no painel, não apenas
-   matematicamente?
-
-### Método
-
-Capturar a janela e o protótipo no mesmo tamanho, sobrepor, e listar cada desvio com a medida.
-Corrigir os desvios. Recapturar. Repetir até o desvio ser imperceptível.
-
-Onde uma medida do protótipo brigar com a convenção do macOS — como o caso dos semáforos, que
-no protótipo são desenhados e no app são nativos — **a convenção da plataforma vence**, e a
-decisão fica registrada no relatório.
 
 ---
 
-## Task R: Layout responsivo — OBRIGATÓRIA antes de fechar o marco
+## Task P: Visual-polish pass — REQUIRED before closing the milestone
 
-**Pedido explícito do dono do projeto, 27/08/2026:** *"tem mais polimento, primeiro que voce
-deixou tudo fixo, e eu quero responsividade eu nao consigo redimensionar o app e isso é
-fundamental."*
+**Explicit request from the project owner, 08/27/2026:** *“we will need to polish the
+interface; many things are misaligned … the visual part matters a lot to me.”*
 
-### O estado medido
+This task **is not optional** and cannot be waived because “the tests pass.” No test in this
+project measures alignment; the eye does.
 
-A janela **redimensiona**, mas trava num piso de 1100pt de largura (`App/OkamiUNIApp.swift:20`,
-`minWidth: 1100`) e a altura trava em 732 mesmo pedindo 700. Medido via acessibilidade na
-janela rodando: pedi 900×700, recebi 1100×732.
+### The case that originated the task
 
-O piso é sintoma. A causa é que três dos quatro painéis têm largura cravada:
+The gap between native macOS traffic lights and the first control in the bar was too wide,
+making the window look amateur beside any native app.
 
-| painel | largura | onde |
+Actual measurements, made with accessibility in the running window:
+
+- native traffic lights: close at x=8, minimize at x=31, full screen at x=54 — each 16 pt
+  wide, so the **last ends at x=70**;
+- the prototype places its first control **14 pt after** the traffic lights end;
+- therefore the first control must begin at **x=84**.
+
+Compare with Chrome and the Claude app: in both, controls sit next to traffic lights with a
+short gap. That is the platform standard.
+
+### What the pass must cover
+
+Traverse the entire window **side by side with the prototype**, at the same scale, and correct:
+
+1. **Horizontal alignment between panels.** Do list, reader, and agenda headers begin on the
+   same baseline? Do vertical dividers fall where the prototype places them?
+2. **Vertical alignment inside the bar.** Are logo, tabs, search, and selector centered on the
+   same midline of the 58 px bar?
+3. **Sidebar vertical rhythm.** Does the space between “Fluxo” and the first folder equal the
+   space between “Caixas” and the first account?
+4. **Message-row density.** Is the theme’s `rowPadding` respected, or is extra `padding` being
+   added on top?
+5. **Chip and tag optics.** Are heights, radii, and internal spacing consistent between the
+   sidebar and list?
+6. **Empty states.** Are reserved texts optically centered in their panel, rather than merely
+   mathematically centered?
+
+### Method
+
+Capture the window and prototype at the same size, overlay them, and list every deviation
+with its measurement. Correct deviations, capture again, and repeat until deviations are
+imperceptible.
+
+When a prototype measurement conflicts with a macOS convention — as with traffic lights,
+which are drawn in the prototype and native in the app — **the platform convention wins**;
+record that decision in the report.
+
+---
+
+## Task R: Responsive layout — MANDATORY before closing the milestone
+
+**Explicit request from the project owner, 08/27/2026:** *“there is more polishing: first,
+you left everything fixed. I need responsiveness; I cannot resize the app, and that is
+fundamental.”*
+
+### The measured state
+
+The window **resizes**, but is constrained to a 1100 pt minimum width
+(`App/OkamiUNIApp.swift:20`, `minWidth: 1100`), and height locks at 732 even when 700 is
+requested. Measured through accessibility in the running window: request 900×700, receive
+1100×732.
+
+That floor is a symptom. The cause is that three of four panels have fixed widths:
+
+| panel | width | where |
 |---|---|---|
-| `FolderSidebar` | 236 fixa | `FolderSidebar.swift:6,58` |
-| `MessageList` | 370 fixa | `MessageList.swift:44,63` |
-| `AgendaRail` | 262 fixa | `AgendaRail.swift:6,101` |
+| `FolderSidebar` | 236 fixed | `FolderSidebar.swift:6,58` |
+| `MessageList` | 370 fixed | `MessageList.swift:44,63` |
+| `AgendaRail` | 262 fixed | `AgendaRail.swift:6,101` |
 | `ReaderPane` | `maxWidth: .infinity` | `ReaderPane.swift:23` |
 
-São 868pt cravados. Só o leitor estica. A 1100 sobram **232pt para o leitor** — mais estreito
-que a lista de mensagens, e muito abaixo da medida de 64ch que a Task 9 estabeleceu para o
-corpo serif 16. O layout não tem como funcionar em janela pequena porque nada cede.
+That locks 868 pt. Only the reader stretches. At 1100, **232 pt remain for the reader** —
+narrower than the message list and far below the 64ch measurement Task 9 established for a
+16 pt serif body. The layout cannot work in a small window because nothing yields.
 
-A busca em `WindowChrome.swift:161` também é `.frame(width: 400, height: 28)` fixa e é
-candidata a estourar a barra em janela estreita.
+The search in `WindowChrome.swift:161` is also fixed at `.frame(width: 400, height: 28)` and
+can overflow the bar in a narrow window.
 
-### O modelo
+### The model
 
-Painéis somem por faixa de largura, e a **intenção do usuário é preservada**. O erro clássico
-aqui é o recolhimento automático sobrescrever o toggle manual: o usuário abre a lateral, a
-janela encolhe, a lateral fecha sozinha, a janela cresce de novo e a lateral **não volta**.
+Panels disappear by width band while **preserving user intent**. The classic mistake is to let
+automatic collapse overwrite the manual toggle: the user opens the sidebar, the window
+shrinks and sidebar closes itself, then the window grows and the sidebar **does not return**.
 
-Evita-se separando as duas coisas: `sidebarExpanded` e `agendaVisible` são **intenção**, e o
-que é renderizado é intenção **E** largura suficiente. Quando a janela cresce de novo, a
-intenção original volta a valer sozinha.
+Avoid this by separating both concerns: `sidebarExpanded` and `agendaVisible` express
+**intent**; rendering requires intent **and** sufficient width. When the window grows again,
+the original intent becomes valid again by itself.
 
-Faixas:
+Bands:
 
-| largura da janela | lateral | lista | leitor | agenda |
+| window width | sidebar | list | reader | agenda |
 |---|---|---|---|---|
-| ≥ 1360 | 236 expandida | flexível 340–420 | resto (≥ 478) | 262 |
-| 1120–1360 | 236 expandida | flexível 340–420 | resto | **oculta** |
-| 920–1120 | **trilha de 62** | flexível 320–380 | resto | oculta |
-| < 920 | trilha de 62 | 320 | resto (≥ 420) | oculta |
+| ≥ 1360 | 236 expanded | flexible 340–420 | remainder (≥ 478) | 262 |
+| 1120–1360 | 236 expanded | flexible 340–420 | rest | **hidden** |
+| 920–1120 | **62 pt rail** | flexible 320–380 | remainder | hidden |
+| < 920 | 62 pt rail | 320 | remainder (≥ 420) | hidden |
 
-Piso da janela: `minWidth` cai de 1100 para **860**, `minHeight` de 700 para **600**.
+Window floor: `minWidth` drops from 1100 to **860**, `minHeight` from 700 to **600**.
 
-> **Correção, 27/08:** a primeira versão desta tabela anotava "resto (≥ 568)" na faixa ≥1360.
-> É impossível com os próprios números da tabela: em 1360, `236 + 340 + 262 = 838`, sobrando
-> 522 no melhor caso. O implementador da Task R achou o erro e implementou contra a invariante
-> que de fato importa e que os testes travam — o leitor nunca abaixo de 420. Medido, o mínimo
-> real é 478.
+> **Correction, 08/27:** the first version of this table noted "resto (≥ 568)" in the ≥1360 range.
+
+> It is impossible with the numbers in the table itself: in 1360, `236 + 340 + 262 = 838`, remaining
+
+> 522 at best. The Task R implementer found the error and implemented against the invariant
+
+> that actually matters and that the tests stop - the reader never below 420. Measured, the minimum
+
+> real is 478.
+
 >
-> **`minHeight: 600` significa 600 de conteúdo, 632 de quadro.** Os 32pt são a barra de título
-> que a janela `.hiddenTitleBar` reserva no quadro, e não conteúdo que se recusa a comprimir —
-> com `minHeight: 100` o shell inteiro comprime até 100. Fica 600, porque é o conteúdo que a
-> constante deve descrever.
 
-A lateral **nunca some por completo** — recolhida ela é a trilha de 62pt da Task 7B, que já
-existe. Esse comportamento já está especificado e testado; a Task R só o dispara por largura
-além de por clique.
+> **`minHeight: 600` means 600 of content, 632 of frame.** The 32pt are the title bar
 
-### O núcleo testável
+> that the `.hiddenTitleBar` window reserves in the frame, and not content that refuses to compress —
 
-A decisão é aritmética pura e não pode morar numa `View` — um `View` do SwiftUI é
-implicitamente `@MainActor` no Swift 6, e uma `static` dentro dele herda o isolamento e
-**trapa em runtime** quando chamada de teste nonisolated. Isso já aconteceu nesta base
-(`AgendaRail`, resolvido criando `AgendaSummary` em UNICore).
+> with `minHeight: 100` the entire shell compresses up to 100. It stays at 600, because it is the content that the
 
-Portanto: criar `Packages/UNICore/Sources/UNICore/PaneLayout.swift`.
+> constant must describe.
+
+The sidebar **never disappears completely** — when collapsed, it is the 62 pt rail from Task
+7B, which already exists. That behavior is specified and tested; Task R only triggers it by
+width as well as by click.
+
+### The testable core
+
+The decision is pure arithmetic and cannot live in a `View` — a SwiftUI `View` is implicitly
+`@MainActor` in Swift 6, and a `static` member inside it inherits that isolation and **traps
+at runtime** when a nonisolated test calls it. That has already occurred in this codebase
+(`AgendaRail`, resolved by creating `AgendaSummary` in UNICore).
+
+Therefore: create `Packages/UNICore/Sources/UNICore/PaneLayout.swift`.
 
 ```swift
 /// Quais painéis cabem numa janela desta largura, dada a intenção do usuário.
@@ -3037,7 +3265,8 @@ public struct PaneLayout: Sendable, Hashable {
 }
 ```
 
-- [ ] **Step 1: Escrever os testes que falham**
+
+- [ ] **Step 1: Write down the failing tests**
 
 ```swift
 import Testing
@@ -3105,213 +3334,272 @@ struct PaneLayoutTests {
 }
 ```
 
-- [ ] **Step 2: Rodar para ver falhar**
 
-`cd Packages/UNICore && swift test --filter PaneLayout` → FAIL, `PaneLayout` não existe.
+- [ ] **Step 2: Run to see failure**
 
-- [ ] **Step 3: Implementar `PaneLayout`**, **Step 4: ver passar**, **Step 5: commit**
+`cd Packages/UNICore && swift test --filter PaneLayout` → FAIL, `PaneLayout` does not exist.
 
-- [ ] **Step 6: Ligar na `InboxScreen`**
+- [ ] **Step 3: Implement `PaneLayout`**, **Step 4: see pass**, **Step 5: commit**
 
-`InboxScreen` lê a largura com `GeometryReader` (ou `containerRelativeFrame`), chama
-`PaneLayout.resolve`, e passa o resultado adiante. `FolderSidebar`, `MessageList` e
-`AgendaRail` param de cravar `.frame(width:)` e passam a receber a largura resolvida.
-As constantes `expandedWidth` / `width` viram os valores **canônicos** que `PaneLayout`
-usa, não larguras aplicadas direto na View.
+- [ ] **Step 6: Connect `InboxScreen`**
 
-Animar a transição com o mesmo `easeInOut(duration: 0.18)` que o toggle manual já usa, para
-recolher por arraste e por clique parecerem a mesma coisa.
+`InboxScreen` read the width with `GeometryReader` (or `containerRelativeFrame`), call
 
-- [ ] **Step 7: Baixar o piso da janela**
+`PaneLayout.resolve`, and forward the result. `FolderSidebar`, `MessageList` and
 
-`App/OkamiUNIApp.swift`: `minWidth: 860, minHeight: 600`. Verificar que a altura de fato
-desce até 600 — hoje ela trava em 732 mesmo com `minHeight: 700`, o que significa que algum
-conteúdo tem altura intrínseca grande demais. Achar e corrigir.
+`AgendaRail` stop applying fixed `.frame(width:)` values and receive the resolved width.
 
-- [ ] **Step 8: A busca da barra**
+The `expandedWidth` / `width` constants become the **canonical** values used by `PaneLayout`,
+not widths applied directly in the view.
 
-`WindowChrome.swift:161` sai de `.frame(width: 400, height: 28)` para uma faixa que encolhe
-em janela estreita sem colidir com as abas nem com o seletor de temas.
+Animate the transition with the same `easeInOut(duration: 0.18)` that the manual toggle already uses, to
 
-- [ ] **Step 9: Verificar com a janela na mão**
+collapsing through dragging and clicking feels like the same behavior.
 
-Redimensionar de 860 até a tela cheia observando as três transições. Capturar em 880, 1000,
-1200 e 1440. Nenhuma transição pode cortar texto, sobrepor painel, ou fazer a barra estourar.
+- [ ] **Step 7: Lower the window minimum**
 
-### O que não muda
+`App/OkamiUNIApp.swift`: `minWidth: 860, minHeight: 600`. Verify that height actually drops
+to 600 — today it stops at 732 even with `minHeight: 700`, meaning some content has too much
+intrinsic height. Find and correct it.
 
-A fidelidade em 1440×916 que a Task P estabeleceu. Depois da Task R, a janela em 1440×916
-tem de continuar idêntica ao que a Task P entregou — a responsividade acontece **fora** desse
-ponto, não em cima dele. Recapturar em 1440 e comparar com a captura da Task P.
+- [ ] **Step 8: Bar search.** In `WindowChrome.swift:161`, replace
+  `.frame(width: 400, height: 28)` with a width range that shrinks in a narrow window without
+  colliding with tabs or the theme selector.
 
----
+- [ ] **Step 9: Check with the window in hand**
 
-## Marco 1.5 — o que o dono do projeto pediu em 27/08 para conseguir validar
+Resize from 860 to full screen while observing the three transitions. Capture at 880, 1000,
 
-Palavras dele, na íntegra:
+1200 and 1440. No transition can cut text, overlay panel, or make the bar explode.
 
-> "varias coisas, primeiro a gente ta sem modal nehum eu nem consigo testar escrever email,
-> responder, agenda e etc, outra coisa a barra superior está bem ruim nao está conforme eu
-> falei ou seja os icones do mac ainda estao desalinhados da nossa ferramenta, recomendo
-> colocar o logo ao lado do seletor de tema e ajustar a barra porque está bem ruim, terceiro
-> ponto, tem uma barra entre a lista de email e o email em si porém eu nao consigo
-> redimensionar para direita e esquerda para deixar o composer maior ou menor, isso também
-> deveria se repetir com a barra de calendário outro ponto a aba de agenda está literalmente
-> vazia"
+### What does not change
 
-Três destes itens estavam **fora do Marco 1 por decisão minha**, registrada na seção "o que
-este marco deliberadamente não faz": composer, aba Agenda e janelas destacadas. A decisão
-estava errada pelo motivo que importa — ela deixou o app impossível de validar por quem
-encomendou. O escopo passa a incluí-los.
+The 1440×916 fidelity established by Task P. After Task R, the 1440×916 window must remain
+identical to Task P’s result — responsiveness happens **outside** that point, not on top of it.
+Capture at 1440 again and compare it with the Task P capture.
 
 ---
 
-## Task S: Barra superior — alinhamento com os controles nativos
+## Milestone 1.5 — what the project owner requested on 08/27 to be able to validate
+
+His words, in full:
+
+> "several things, first we are without any mode I can't even test writing an email,
+
+> reply, agenda and etc, another thing the top bar is very bad it's not as I like it
+
+> I said that the Mac icons are still misaligned from our tool, I recommend it
+
+> put the logo next to the theme selector and adjust the bar because it's very bad, third
+
+> point, there is a bar between the email list and the email itself but I can't
+
+> resize to the right and left to make the composer larger or smaller, this also
+
+> it should be repeated with the calendar bar another point the agenda tab is literally
+
+> empty"
+
+Three of these items were **outside Milestone 1 by my decision**, recorded in “What this
+milestone deliberately does not do”: composer, the Agenda tab, and detached windows. The
+decision was wrong for the reason that matters — it made the app impossible to validate for
+the person who commissioned it. Scope now includes them.
+
+---
+
+## Task S: Top bar — alignment with the native controls
 
 **Files:** `Packages/UNIShell/Sources/UNIShell/Chrome/WindowChrome.swift`, `App/OkamiUNIApp.swift`
 
-O dono reclamou disto **duas vezes**. A Task P reduziu o vão de 45pt para 13pt corrigindo a
-área segura, mas o resíduo vertical continua: os semáforos nativos têm centro em y=16 e os
-nossos controles em y=29, numa barra de 58pt.
+The owner complained about this **twice**. Task P reduced the gap from 45pt to 13pt by correcting the
 
-O relatório da Task P registra que `NSTitlebarAccessoryViewController` não teve efeito em
-janela `.hiddenTitleBar`. Isso não esgota as opções. Tentar, nesta ordem:
+Safe area, but the vertical residue continues: the native traffic lights have the center at y=16 and the
 
-1. **Reposicionar os botões nativos.** `window.standardWindowButton(.closeButton)` devolve um
-   `NSButton` real; dá para mover cada um, ou mover a superview deles, para o centro vertical
-   da barra de 58pt. É API pública e é como apps de barra alta fazem.
-2. Se (1) não funcionar, **alinhar os nossos controles aos deles** — a primeira fileira da
-   barra passa a ter centro em y=16 em vez de y=29.
+Our controls at y=29, on a 58pt bar.
 
-Uma das duas tem de resolver. "Não dá" não é resultado aceitável aqui: existem apps de
-terceiros nesta máquina com barra alta e semáforos centrados, e o dono citou dois deles.
+The Task P report records that `NSTitlebarAccessoryViewController` had no effect on
 
-**Layout que o dono pediu:** o lockup do logo sai da esquerda e vai **ao lado do seletor de
-temas**, à direita. A esquerda fica com os semáforos, o botão da lateral e as abas —
-encostados, no ritmo do Chrome e do app do Claude, que foram as referências que ele deu.
+window `.hiddenTitleBar`. This does not exhaust the options. Try, in this order:
 
-Isso é divergência deliberada do protótipo, pedida pelo dono. Registrar no relatório.
+1. **Reposition the native buttons.** `window.standardWindowButton(.closeButton)` returns a
 
-- [ ] Medir as posições atuais por acessibilidade e registrar antes/depois de cada controle
-- [ ] Aplicar (1) ou, falhando, (2)
-- [ ] Mover o lockup para a direita, ao lado do seletor
-- [ ] Recapturar em 880, 1200 e 1440 — a barra não pode estourar em nenhuma
-- [ ] Teste travando as posições/ordem dos controles como função pura (fora de `View`)
+`NSButton` real; you can move each one, or move their superview, to the vertical center
+
+From the 58pt bar. It is a public API and it is like high-end bar apps do.
+
+2. If (1) does not work, **align our controls with theirs** - the first row of the
+
+The bar now has its center at y=16 instead of y=29.
+
+One of the two has to be solved. "Não dá" it is not an acceptable result here: there are apps of
+
+Third parties on this machine with a high bar and centered traffic lights, and the owner mentioned two of them.
+
+**Layout that the owner requested:** the logo lockup comes out from the left and goes **next to the selector of
+
+Themes**, on the right. On the left are the traffic lights, the side button and the tabs —
+
+Aligned, to the rhythm of Chrome and the Claude app, which were the references he gave.
+
+This is deliberate divergence from the prototype, requested by the owner. Record in the report.- [ ] Measure the current positions by accessibility and record before/after each control
+
+- [ ] Apply (1) or, failing, (2)
+
+- [ ] Move the lockup to the right, next to the selector
+
+- [ ] Recapture at 880, 1200 and 1440 — the bar cannot burst in any
+
+- [ ] Test locking the positions/order of the controls as a pure function (outside `View`)
 
 ---
 
-## Task T: Divisórias arrastáveis entre painéis
+## Task T: Dragable dividers between panels
 
 **Files:** `Packages/UNICore/Sources/UNICore/PaneLayout.swift`,
-`Packages/UNIShell/Sources/UNIShell/Inbox/InboxScreen.swift`, novo `Inbox/PaneDivider.swift`
 
-Pedido: *"tem uma barra entre a lista de email e o email em si porém eu nao consigo
-redimensionar para direita e esquerda... isso também deveria se repetir com a barra de
-calendário"*.
+`Packages/UNIShell/Sources/UNIShell/Inbox/InboxScreen.swift`, new `Inbox/PaneDivider.swift`
 
-Duas divisórias arrastáveis: **lista ↔ leitor** e **leitor ↔ agenda**. A da lateral também,
-se sair de graça.
+Request: *"there is a bar between the email list and the email itself but I can't
 
-Regras:
+Resize to the right and left... this should also repeat with the bar of
 
-- O arraste ajusta a largura **dentro das faixas que a `PaneLayout` já define** (lista
-  320–420 hoje; a faixa pode ser alargada se o arraste pedir, mas o leitor nunca abaixo de
-  420). A `PaneLayout` continua sendo quem decide o que cabe — o arraste vira mais uma
-  entrada dela, ao lado de `wantsSidebar`/`wantsAgenda`, e **não** um bypass.
-- A largura escolhida **persiste** entre execuções (`UserDefaults`, como o `ThemeStore`).
-- Estreitar a janela até a faixa não caber mais não pode apagar a preferência: mesma regra de
-  intenção-versus-cabimento da Task R.
-- Cursor de redimensionamento horizontal ao passar por cima; alvo de arraste com pelo menos
-  6pt de largura mesmo que a linha desenhada tenha 0,5pt.
-- Duplo clique na divisória volta à largura canônica.
+Calendar"*.
 
-O núcleo (clamp, persistência, resolução com as faixas) é aritmética pura → vai na
-`PaneLayout`, em UNICore, com testes. A `View` só traduz o gesto.
+Two dragable dividers: **list ↔ reader** and **reader ↔ agenda**. The one on the side too,
+
+If it comes out for free.
+
+Rules:
+
+- The drag adjusts the width **within the ranges that `PaneLayout` already defines** (list
+
+320–420 today; the range can be extended if you drag it, but the reader will never go below
+
+420). `PaneLayout` continues to be the one who decides what is appropriate - the drag becomes another one
+
+an additional input alongside `wantsSidebar`/`wantsAgenda`, and **not** a bypass.
+
+- The chosen width **persists** between executions (`UserDefaults`, as the `ThemeStore`).
+
+- Narrow the window until the strip no longer fits, you cannot delete the preference: same rule as
+
+Intention-versus-fit of the Task R.
+
+- Horizontal resizing cursor when hovering over; drag target with at least
+
+6pt wide even if the drawn line has 0.5pt.
+
+- Double click on the divider returns to the canonical width.
+
+The core (clamp, persistence, resolution with the bands) is pure arithmetic → goes in the
+
+`PaneLayout`, in UNICore, with tests. The `View` only translates the gesture.
 
 ---
 
-## Task U: Janelas — composer, resposta, email destacado, detalhe do compromisso
+## Task U: Windows — composer, reply, detached email, appointment detail
 
-**Files:** novo diretório `Packages/UNIShell/Sources/UNIShell/Windows/`, mais os ganchos em
+**Files:** new directory `Packages/UNIShell/Sources/UNIShell/Windows/`, plus the hooks in
+
 `ReaderPane.swift`, `AgendaRail.swift`, `InboxScreen.swift`
 
-Sem isto o dono não consegue testar nada do fluxo de escrita. As quatro telas estão no
-protótipo e são a fonte da verdade:
+Without this, the owner cannot test the writing flow. The four screens are in the prototype
+and are the source of truth:
 
-| tela | linha do `.dc.html` | tamanho |
+| screen | `.dc.html` line | size |
 |---|---|---|
-| 03 Composer em janela | 788–1059 | 820×660 |
-| 04 Detalhe do compromisso | 588–742 | 560 × até 86% |
-| 05 Email em janela | 743–787 | 800×600 |
-| 06 Nova mensagem | 368–587 | 820×620 |
+| 03 Composer in a window | 788–1059 | 820×660 |
+| 04 Appointment detail | 588–742 | 560 × up to 86% |
+| 05 Detached email | 743–787 | 800×600 |
+| 06 New message | 368–587 | 820×620 |
 
-- Cada uma é uma janela de verdade (`Window`/`WindowGroup` ou `NSWindow`), não uma folha
-  dentro da janela principal — o protótipo as chama de "em janela" e desenha sombra e raio
-  próprios.
-- Gatilhos: "Responder" no leitor abre 03; duplo clique numa mensagem abre 05; "Nova
-  mensagem" (⌘N e um botão na barra) abre 06; clicar num compromisso da trilha abre 04.
-- **Não envia nada.** Marco 1 não tem rede. "Enviar" fecha a janela e registra no console.
-  Isso é limite de marco, não de fidelidade: a janela tem de ficar visualmente completa.
-- O tema atual atravessa para as janelas novas (`.theme(...)` e o `ThemeStore` no ambiente).
+- Each is a real window (`Window`/`WindowGroup` or `NSWindow`), not a sheet inside the main
+  window — the prototype calls them “em janela” and draws its own shadow and radius.
 
----
+- Triggers: "Responder" in the reader opens 03; double-clicking a message opens 05; "Nova
+  mensagem" (⌘N and a button in the bar) opens 06; clicking a rail appointment opens 04.
 
-## Task V: Aba Agenda — a tela 02 do protótipo
+- **Do not send anything.** Milestone 1 has no network. "Enviar" closes the window and logs
+  to the console. That is a milestone boundary, not a fidelity exemption: the window must be
+  visually complete.
 
-**Files:** novo `Packages/UNIShell/Sources/UNIShell/Calendar/WeekScreen.swift`,
-`InboxScreen.swift` (troca de aba)
-
-Hoje `Workspace.calendar` renderiza vazio — *"a aba de agenda está literalmente vazia"*.
-
-A tela 02 "Agenda semanal" começa na linha **1394** do `.dc.html` e é a fonte da verdade:
-cabeçalho com as abas Dia/Semana/Mês, grade da semana, colunas por dia, faixa de horas e
-blocos de compromisso.
-
-> **Correção, 27/08:** a primeira versão desta tarefa listava "a seção que vem do email" como
-> parte da tela 02. Errado — "Vindo do email" está na linha 1381, dentro da tela 01, e já está
-> implementada como `AgendaRail.pendingSection`. O implementador achou e devolveu
-> NEEDS_CONTEXT em vez de inventar a seção.
->
-> **Contradição do próprio protótipo, decidida no produto:** `RAIL` (1617) põe 5 compromissos
-> na terça 25; `WEEK` (1625) põe 3, com títulos encurtados. A regra "o protótipo vence"
-> pressupõe que ele tenha uma resposta; aqui tem duas, então o critério passa a ser o produto —
-> a mesma terça não pode mostrar coisas diferentes em duas visões do mesmo app. A terça sai de
-> `Fixtures.agenda`; os outros seis dias saem do `WEEK`. Os títulos curtos do `WEEK` são
-> renderização para coluna estreita, não dados: encurte ao desenhar, não guarde dois títulos.
->
-> **`AgendaItem` ganha `dayOffset: Int = 0`**, dias relativos a `Fixtures.today`, aditivo.
-> Não uma `Date`: o tipo modela horário de parede de propósito, e uma data reintroduz a
-> conversão de fuso que já foi bug aqui. O Marco 4 troca por data real com o EventKit.
-> A alternativa (semana num `Fixtures.week` separado) foi recusada por embarcar um defeito
-> conhecido — clicar num evento de quarta abriria a janela 04 vazia.
->
-> **Dia e Mês** (1439–1497) ficam fora deste marco, desenhadas e **visivelmente desabilitadas**,
-> não inertes: aba que parece clicável e não faz nada é a mesma falha que originou esta tarefa. Mesmas regras dos outros painéis: cor/raio/tipografia do `Theme`, medidas do
-protótipo, nada de limitar contas.
-
-Sem EventKit neste marco — a semana sai das fixtures, como a trilha diária. Estender
-`Fixtures` com uma semana de compromissos, mantendo `Fixtures.today` como âncora e sem
-refixar fuso (ver a nota da Task 10).
+- The current theme propagates to new windows (`.theme(...)` and `ThemeStore` in the environment).
 
 ---
 
-## Definição de pronto
+## Task V: Agenda tab — screen 02 of the prototype
 
-O Marco 1 está fechado quando:
+**Files:** new `Packages/UNIShell/Sources/UNIShell/Calendar/WeekScreen.swift`,
 
-1. `xcodegen generate && xcodebuild ... build` termina em `BUILD SUCCEEDED` sem avisos de concorrência.
-2. Os três pacotes passam nos testes.
-3. `FontRegistry.missing` volta vazio em runtime.
-4. Todos os itens do checklist do Step 7 da Task 11 estão marcados.
-5. O app abre, navega entre mensagens, filtra por busca e troca entre os 26 temas sem travar.
+`InboxScreen.swift` (tab change)
 
-## O que este marco deliberadamente não faz
+Today `Workspace.calendar` renders nothing — *“the agenda tab is literally empty.”*
 
-Para o Marco 2 não achar que herdou algo pronto:
+Screen 02, “Agenda semanal,” starts on line **1394** of `.dc.html` and is the source of truth:
+its header has Day/Week/Month tabs, a weekly grid, day columns, a time rail, and appointment blocks.
 
-- Nenhuma rede. `MailStore` só fala com `InMemoryMailSource`.
-- Nenhum acesso a calendário. O botão "Colocar na agenda" só imprime no console.
-- Nada de composer — a barra de resposta do protótipo (linhas 1128–1340) fica fora.
-- A aba Agenda é um placeholder.
-- Nenhum resumo é gerado; `Message.summary` vem das fixtures.
-- Sem janelas destacadas, sem ⌘K funcional, sem anexos.
+> **Correction, 08/27:** the first version of this task listed “the section that comes from
+> email” as part of screen 02. Incorrect — “Vindo do email” is on line 1381, inside screen
+> 01, and is already implemented as `AgendaRail.pendingSection`. The implementer found this
+> and returned `NEEDS_CONTEXT` instead of inventing a section.
+
+>
+
+> **A contradiction in the prototype itself, resolved at the product level:** `RAIL` (1617)
+> puts five appointments on Tuesday the 25th; `WEEK` (1625) puts three, with shortened
+> titles. The “prototype wins” rule assumes it has one answer; here it has two, so the
+> product decides — the same Tuesday cannot show different items in two views of one app.
+> Tuesday comes from `Fixtures.agenda`; the other six days come from `WEEK`. Short `WEEK`
+> titles are narrow-column rendering, not data: shorten while drawing; do not store two titles.
+
+>
+
+> **`AgendaItem` gains `dayOffset: Int = 0`**, additive days relative to `Fixtures.today`.
+> Not a `Date`: the type deliberately models wall-clock time, and a date would reintroduce
+> the time-zone conversion that has already been a bug here. Milestone 4 replaces it with a
+> real date through EventKit. The alternative (a week in a separate `Fixtures.week`) was
+> rejected because it would retain a known defect — clicking a Wednesday event would open an
+> empty window 04.
+
+>
+
+> **Day and Month** (1439–1497) remain outside this milestone, drawn and **visibly disabled**,
+> never inert: a tab that looks clickable and does nothing is the same bug that originated
+> this task. Apply the same rules as other panels: color/radius/typography from `Theme`,
+> prototype measurements, and no account limit.
+
+There is no EventKit in this milestone — the week comes from fixtures, as does the daily rail.
+Extend `Fixtures` with one week of appointments, keeping `Fixtures.today` as the anchor and
+without reintroducing time-zone conversion (see the Task 10 note).
+
+---
+
+## Ready definition
+
+Milestone 1 is complete when:
+
+1. `xcodegen generate && xcodebuild ... build` ends in `BUILD SUCCEEDED` without concurrency warnings.
+
+2. The three packages pass the tests.
+
+3. `FontRegistry.missing` returns empty at runtime.
+
+4. All items on the checklist of Step 7 of Task 11 are marked.
+
+5. The app opens, navigates between messages, filters by search and switches between the 26 themes without freezing.
+
+## What this milestone deliberately does not do
+
+So Milestone 2 does not assume it inherited finished work:
+
+- No network. `MailStore` talks only to `InMemoryMailSource`.
+
+- No access to calendar. The "Colocar na agenda" button only prints on the console.
+
+- No composing — the prototype's response bar (lines 1128–1340) is omitted.
+
+- The Agenda tab is a placeholder.
+
+- No summary is generated; `Message.summary` comes from the fixtures.
+
+- No highlighted windows, no functional ⌘K, no attachments.

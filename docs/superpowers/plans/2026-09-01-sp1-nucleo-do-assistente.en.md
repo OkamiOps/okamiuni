@@ -1,45 +1,45 @@
-# Sub-projeto 1 — Núcleo do assistente: plano de implementação
+# Sub-project 1 — Assistant core: implementation plan
 
-**Português (Brasil)** · [English](2026-09-01-sp1-nucleo-do-assistente.en.md)
+[Português (Brasil)](2026-09-01-sp1-nucleo-do-assistente.md) · **English**
 
-> Plano histórico de 1 de setembro de 2026. Instruções, totais de testes e exemplos de código descrevem aquela etapa do projeto. O opt-in separado para IA remota foi substituído na v0.5.3; veja o [README da v0.5.4](../../../README.pt-BR.md) para o comportamento atual. Identificadores, comandos e literais originais são preservados.
+> Historical implementation plan from September 1, 2026. Instructions, test counts and code examples describe that stage of the project. The separate remote-AI opt-in below was superseded in v0.5.3; see the [v0.5.4 README](../../../README.md) for current behavior. Original identifiers, commands and source literals are preserved.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Fazer o assistente do OkamiUNI dizer a verdade sobre o provedor, ter uma única máquina de estado e um único orçamento de prompt, e nunca mandar conteúdo para fora do Mac sem a pessoa ter escolhido isso.
+**Goal:** Make the OkamiUNI assistant tell the truth about the provider, have a single state machine and a single prompt budget, and never send content off the Mac without the person choosing that.
 
-**Architecture:** O contrato puro (`TextAssisting`, `AssistantMailContext`, `AssistantPrompt`) fica em UNICore/UNISync sem prefixo mentiroso; `AssistantRouter` continua a única porta que escolhe adaptador por chamada e passa a publicar `AssistantDestination` e `AssistantAvailability` baratos, sem rede. No shell, `AssistantConversation` (`@MainActor @Observable`) vira a dona única de transcript, `isLoading`, `failure` e `task`, injetada em painel, dashboard, janela de mensagem e popover do leitor; erro de qualquer adaptador atravessa um só tradutor (`AssistantFailure`) e uma só faixa (`AssistantFailureBand`).
+**Architecture:** The pure contract (`TextAssisting`, `AssistantMailContext`, `AssistantPrompt`) lives in UNICore/UNISync without a misleading prefix; `AssistantRouter` remains the single gateway that chooses an adapter per call and will publish cheap, network-free `AssistantDestination` and `AssistantAvailability`. In the shell, `AssistantConversation` (`@MainActor @Observable`) becomes the sole owner of the transcript, `isLoading`, `failure`, and `task`, injected into the panel, dashboard, message window, and reader popover; errors from any adapter pass through one translator (`AssistantFailure`) and one band (`AssistantFailureBand`).
 
-**Tech Stack:** Swift 6 strict concurrency, SwiftUI, Swift Testing, GRDB (migração v15 da fila de análise), FoundationModels
+**Tech Stack:** Swift 6 strict concurrency, SwiftUI, Swift Testing, GRDB (v15 migration of the analysis queue), FoundationModels
 
-**Spec:** docs/superpowers/specs/2026-09-01-ia-e-dashboard-design.md (seções 0 e 1)
+**Spec:** docs/superpowers/specs/2026-09-01-ia-e-dashboard-design.md (sections 0 and 1)
 
 ---
 
 ## Global Constraints
 
-- **Swift Testing, nunca XCTest.** `import Testing`, `@Suite`, `@Test`, `#expect`, `#require`.
-- **Teste novo nasce vermelho.** Cada tarefa escreve o teste, roda, vê falhar com a mensagem esperada, e só então implementa. Teste que passa com o código quebrado é defeito (`README.md` → "Como este projeto se testa").
-- **Sem typealias de transição nos renames.** A tabela 1.1 é aplicada de uma vez, em todos os pacotes e testes; nada de `typealias OnDeviceTextAssisting = TextAssisting`.
-- **Nada de cor, raio ou sombra literal em view nova.** Só tokens do `Theme` (`theme.surface2`, `theme.line2`, `theme.radiusSmall`, `Hairline.thickness(displayScale)`); nada de `Color.black.opacity(...)` nem `cornerRadius: 20`.
-- **Timeouts de 120 s.** `AssistantRouter.requestTimeout` padrão 120; `cliRequestTimeout` padrão 120 com faixa 30–300; `.providerOAuth` mantém `max(requestTimeout, 120)`; `URLSessionConfiguration` dos adaptadores recebe `timeoutIntervalForResource` além de `timeoutIntervalForRequest`.
-- **`maximumCustomInstructionCharacters = 6_000`** limita `customInstruction` (hoje ele é cortado em 1 200 pelo `maximumHistoryTurnCharacters`).
-- **`automaticAnalysis` nasce `.onDeviceOnly`.** A rota remota é opt-in explícito; a fila **pausa** em vez de cair para o Mac em silêncio.
-- **A cópia "local" some.** Nenhuma frase pode afirmar processamento local sem consultar `AssistantDestination`. "Nada sai deste Mac." só aparece em `.foundationModels`.
-- **Lógica pura fora das views.** Uma `View` SwiftUI é `@MainActor` implícito; `static` de lógica dentro dela trapa em runtime quando um teste nonisolated a chama (`docs/decisoes-de-engenharia.md`).
-- **Hairline é `1/displayScale`**, borda é `strokeBorder`.
-- **Commits frequentes**, um por tarefa no mínimo, terminando com:
+- **Swift Testing, never XCTest.** `import Testing`, `@Suite`, `@Test`, `#expect`, `#require`.
+- **A new test starts red.** Each task writes the test, runs it, sees it fail with the expected message, and only then implements. A test that passes with broken code is a defect (`README.md` → "How this project is tested").
+- **No transitional typealiases during renames.** Table 1.1 is applied at once, across all packages and tests; there is no `typealias OnDeviceTextAssisting = TextAssisting`.
+- **No literal color, radius, or shadow in a new view.** Use only `Theme` tokens (`theme.surface2`, `theme.line2`, `theme.radiusSmall`, `Hairline.thickness(displayScale)`); no `Color.black.opacity(...)` or `cornerRadius: 20`.
+- **120-second timeouts.** `AssistantRouter.requestTimeout` defaults to 120; `cliRequestTimeout` defaults to 120 with a 30–300 range; `.providerOAuth` keeps `max(requestTimeout, 120)`; adapters' `URLSessionConfiguration` receives `timeoutIntervalForResource` in addition to `timeoutIntervalForRequest`.
+- **`maximumCustomInstructionCharacters = 6_000`** limits `customInstruction` (today it is truncated to 1,200 by `maximumHistoryTurnCharacters`).
+- **`automaticAnalysis` starts as `.onDeviceOnly`.** The remote route is explicit opt-in; the queue **pauses** instead of silently falling back to the Mac.
+- **The "local" copy disappears.** No sentence may claim local processing without consulting `AssistantDestination`. "Nada sai deste Mac." appears only for `.foundationModels`.
+- **Keep pure logic outside views.** A SwiftUI `View` is implicitly `@MainActor`; `static` logic inside it traps at runtime when a nonisolated test calls it (`docs/decisoes-de-engenharia.md`).
+- **Hairline is `1/displayScale`**, and a border is `strokeBorder`.
+- **Frequent commits**, at least one per task, ending with:
   ```
   Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
   ```
-- **Cada tarefa termina compilando e com os testes do pacote tocado verdes.** "Verde" significa sem falha nova. A linha de base medida em 2026-09-01 sobre `main` (0a6330a) já tem 4 falhas que não são deste trabalho e não devem ser "consertadas" de passagem: `DatabaseMailSourceTests.swift:57` ("O corpo vem junto para quem já o tem no banco"), `DatabaseBodyFetcherTests.swift:180`, `GmailMirrorTests.swift:110` ("Arquivar tira a INBOX") em UNISync, e, em UNIShell, `QuickReplyBandTests.swift:817`, `TrashTests.swift:102` ("só a Lixeira e Enviadas têm símbolo"), `ReaderHTMLLoadingTests.swift:62` e `:90` e `InboxAssistantIntegrationTests.swift:450` e `:516` (medidos em 2026-09-02 num checkout limpo de 3d9af34: 9 falhas herdadas no total, todas de pixel/harness ou do Gmail/corpo, nenhuma de IA). Se uma tarefa fizer alguma delas passar ou mudar de mensagem, registre no commit.
-- **A suíte de UNIShell rodou inteira no shell do orquestrador em 2026-09-01** (≈135 s, com sandbox). Se travar no seu ambiente, veja a nota de ambiente no fim do plano antes de suspeitar do código.
+- **Each task ends compiling with the touched package's tests green.** "Green" means no new failure. The baseline measured on 2026-09-01 on `main` (0a6330a) already has 4 failures unrelated to this work and they must not be "fixed" in passing: `DatabaseMailSourceTests.swift:57` ("O corpo vem junto para quem já o tem no banco"), `DatabaseBodyFetcherTests.swift:180`, `GmailMirrorTests.swift:110` ("Arquivar tira a INBOX") in UNISync, and in UNIShell, `QuickReplyBandTests.swift:817`, `TrashTests.swift:102` ("só a Lixeira e Enviadas têm símbolo"), `ReaderHTMLLoadingTests.swift:62` and `:90`, and `InboxAssistantIntegrationTests.swift:450` and `:516` (measured on 2026-09-02 in a clean checkout of 3d9af34: 9 inherited failures in total, all pixel/harness or Gmail/body failures, none AI-related). If a task makes any of them pass or changes its message, record it in the commit.
+- **The full UNIShell suite ran in the orchestrator shell on 2026-09-01** (≈135 s, sandboxed). If it hangs in your environment, see the environment note at the end of the plan before suspecting the code.
 
 ---
 
-## Comandos de teste conferidos nesta máquina (2026-09-01)
+## Test commands verified on this machine (2026-09-01)
 
-Os quatro pacotes são SwiftPM puros. **Não existe scheme de teste no Xcode** — `project.yml` só monta o alvo do app.
+All four packages are pure SwiftPM. **There is no test scheme in Xcode** — `project.yml` only builds the app target.
 
 ```bash
 # suíte inteira de um pacote (o que fecha cada tarefa)
@@ -57,15 +57,15 @@ swift test --package-path Packages/UNIShell --filter DashboardScreenTests
 for p in UNICore UNIDesign UNIShell UNISync; do (cd "Packages/$p" && swift test); done
 ```
 
-Conferido de verdade nesta máquina em 2026-09-01:
+Actually verified on this machine on 2026-09-01:
 
-- `swift test --package-path Packages/UNICore --filter DashboardFocusTests` → `✔ Test run with 11 tests in 1 suite passed`, 16 s (primeira vez, com compilação).
-- `swift test --package-path Packages/UNISync --filter AssistantRouterTests` → `✔ Test run with 4 tests in 1 suite passed`, 5,8 s (incremental).
-- `swift test --package-path Packages/UNIShell --filter DashboardScreenTests` → `✔ Test run with 4 tests in 1 suite passed`, 3,5 s. **Só fora de um shell sandboxed** — ver a nota de ambiente no fim deste plano.
+- `swift test --package-path Packages/UNICore --filter DashboardFocusTests` → `✔ Test run with 11 tests in 1 suite passed`, 16 s (first run, with compilation).
+- `swift test --package-path Packages/UNISync --filter AssistantRouterTests` → `✔ Test run with 4 tests in 1 suite passed`, 5.8 s (incremental).
+- `swift test --package-path Packages/UNIShell --filter DashboardScreenTests` → `✔ Test run with 4 tests in 1 suite passed`, 3.5 s. **Only outside a sandboxed shell** — see the environment note at the end of this plan.
 
-A primeira compilação de `Packages/UNIShell` passa de 2 min; rode em segundo plano quando o laço for longo.
+The first compilation of `Packages/UNIShell` takes more than 2 min; run it in the background for the long loop.
 
-O alvo do app não tem testes; ele é só a fiação. Depois de mexer em `App/`, compile:
+The app target has no tests; it is only the wiring. After changing `App/`, compile:
 
 ```bash
 test -f Config/Google.xcconfig || cp Config/Google.example.xcconfig Config/Google.xcconfig
@@ -73,91 +73,91 @@ xcodegen generate
 xcodebuild -project OkamiUNI.xcodeproj -scheme OkamiUNI -configuration Debug build 2>&1 | grep -E "error:|BUILD"
 ```
 
-Nunca rode `Tools/rodar.sh` para verificar: ele **abre o app**. Verificação de interface é o harness offscreen (`Packages/UNIShell/Tests/UNIShellTests/RenderHarness.swift`, `Render.snapshot`).
+Never run `Tools/rodar.sh` for verification: it **opens the app**. Interface verification uses the offscreen harness (`Packages/UNIShell/Tests/UNIShellTests/RenderHarness.swift`, `Render.snapshot`).
 
 ---
 
-## Estrutura de arquivos
+## File structure
 
-### Renomeados (`git mv`, sem typealias)
+### Renamed (`git mv`, no typealias)
 
-| De | Para | Responsabilidade |
+| From | To | Responsibility |
 |---|---|---|
-| `Packages/UNICore/Sources/UNICore/OnDeviceTextAssistant.swift` | `.../TextAssistant.swift` | Contrato puro do assistente de texto: contextos, turnos, ações de escrita, erro |
-| `Packages/UNICore/Sources/UNICore/OnDeviceAssistantMailContext+Message.swift` | `.../AssistantMailContext+Message.swift` | Tradução do modelo do app para a fronteira factual |
-| `Packages/UNICore/Sources/UNICore/OnDeviceMessageAnalysis.swift` | `.../MessageAnalysis.swift` | Contrato puro da análise persistida por mensagem |
-| `Packages/UNICore/Tests/UNICoreTests/OnDeviceTextAssistantTests.swift` | `.../TextAssistantTests.swift` | Testes do contrato |
-| `Packages/UNICore/Tests/UNICoreTests/OnDeviceAssistantMailContextTests.swift` | `.../AssistantMailContextTests.swift` | Testes da tradução |
-| `Packages/UNICore/Tests/UNICoreTests/OnDeviceMessageAnalysisTests.swift` | `.../MessageAnalysisTests.swift` | Testes do contrato de análise |
-| `Packages/UNIShell/Sources/UNIShell/Support/OnDeviceAssistantBridge.swift` | `.../Support/AssistantBridge.swift` | Liga superfícies do shell ao `TextAssisting` |
-| `Packages/UNIShell/Tests/UNIShellTests/OnDeviceAssistantBridgeTests.swift` | `.../AssistantBridgeTests.swift` | Testes da ponte |
-| `Packages/UNIShell/Sources/UNIShell/Inbox/LocalAssistantPanel.swift` | `.../Inbox/AssistantPanel.swift` | A view do painel (a máquina de estado sai daqui na Task 6) |
-| `Packages/UNIShell/Tests/UNIShellTests/LocalAssistantPanelTests.swift` | `.../AssistantPanelTests.swift` | Testes do painel |
-| `Packages/UNISync/Tests/UNISyncTests/FoundationModelsTextAssistantTests.swift` | `.../AssistantPromptTests.swift` | Testes do prompt compartilhado pelos quatro adaptadores |
+| `Packages/UNICore/Sources/UNICore/OnDeviceTextAssistant.swift` | `.../TextAssistant.swift` | Pure text-assistant contract: contexts, turns, writing actions, errors |
+| `Packages/UNICore/Sources/UNICore/OnDeviceAssistantMailContext+Message.swift` | `.../AssistantMailContext+Message.swift` | Translates the app model to the factual boundary |
+| `Packages/UNICore/Sources/UNICore/OnDeviceMessageAnalysis.swift` | `.../MessageAnalysis.swift` | Pure contract for per-message persisted analysis |
+| `Packages/UNICore/Tests/UNICoreTests/OnDeviceTextAssistantTests.swift` | `.../TextAssistantTests.swift` | Contract tests |
+| `Packages/UNICore/Tests/UNICoreTests/OnDeviceAssistantMailContextTests.swift` | `.../AssistantMailContextTests.swift` | Translation tests |
+| `Packages/UNICore/Tests/UNICoreTests/OnDeviceMessageAnalysisTests.swift` | `.../MessageAnalysisTests.swift` | Analysis-contract tests |
+| `Packages/UNIShell/Sources/UNIShell/Support/OnDeviceAssistantBridge.swift` | `.../Support/AssistantBridge.swift` | Connects shell surfaces to `TextAssisting` |
+| `Packages/UNIShell/Tests/UNIShellTests/OnDeviceAssistantBridgeTests.swift` | `.../AssistantBridgeTests.swift` | Bridge tests |
+| `Packages/UNIShell/Sources/UNIShell/Inbox/LocalAssistantPanel.swift` | `.../Inbox/AssistantPanel.swift` | The panel view (the state machine leaves here in Task 6) |
+| `Packages/UNIShell/Tests/UNIShellTests/LocalAssistantPanelTests.swift` | `.../AssistantPanelTests.swift` | Panel tests |
+| `Packages/UNISync/Tests/UNISyncTests/FoundationModelsTextAssistantTests.swift` | `.../AssistantPromptTests.swift` | Prompt tests shared by the four adapters |
 
-### Criados
+### Created
 
-| Arquivo | Responsabilidade |
+| File | Responsibility |
 |---|---|
-| `Packages/UNISync/Sources/UNISync/AssistantDestination.swift` | `AssistantDestination` — `label`/`detail`/`isLocal` derivados de `AssistantSettings` |
-| `Packages/UNISync/Sources/UNISync/AssistantAvailability.swift` | `AssistantAvailability` + `AssistantAvailabilityModel` observável |
-| `Packages/UNISync/Sources/UNISync/AssistantURLSessionFactory.swift` | Deriva uma `URLSession` com `timeoutIntervalForRequest` **e** `ForResource` |
-| `Packages/UNISync/Sources/UNISync/CachedAssistantCLIDiscovery.swift` | Cache de 60 s da varredura de CLIs, com `invalidate()` |
-| `Packages/UNISync/Sources/UNISync/RoutedMessageAnalyzer.swift` | Escolhe motor de análise por chamada, conforme `automaticAnalysis` |
-| `Packages/UNISync/Sources/UNISync/TextAssistantMessageAnalyzer.swift` | Análise por JSON estrito pelo provedor configurado |
-| `Packages/UNISync/Sources/UNISync/Database/AnalysisQueueState.swift` | Estado persistido `running`/`paused(reason)` da fila de análise |
-| `Packages/UNIShell/Sources/UNIShell/Inbox/AssistantConversation.swift` | A única máquina de estado: transcript, `isLoading`, `failure`, `task`, `briefing` |
-| `Packages/UNIShell/Sources/UNIShell/Support/AssistantMarkdown.swift` | `AssistantMarkdown` + `AssistantMarkdownBlock`, saídos do popover |
-| `Packages/UNIShell/Sources/UNIShell/Support/AssistantFailure.swift` | `AssistantFailure`, `AssistantFailure.Recovery` e `AssistantFailureBand` |
-| `Packages/UNISync/Tests/UNISyncTests/AssistantDestinationTests.swift` | Um caso por provedor da tabela 1.2 |
-| `Packages/UNISync/Tests/UNISyncTests/AssistantAvailabilityTests.swift` | Cada provedor em cada estado de credencial |
-| `Packages/UNISync/Tests/UNISyncTests/CachedAssistantCLIDiscoveryTests.swift` | Validade de 60 s e `invalidate()` |
-| `Packages/UNISync/Tests/UNISyncTests/RoutedMessageAnalyzerTests.swift` | Rota por configuração e JSON estrito |
-| `Packages/UNISync/Tests/UNISyncTests/Golden/workspace-prompt.txt` | Golden do prompt de workspace |
-| `Packages/UNIShell/Tests/UNIShellTests/AssistantConversationTests.swift` | `draftReply`, `cancel`, histórico 16, `emptyResponse`, `briefing` |
-| `Packages/UNIShell/Tests/UNIShellTests/AssistantFailureTests.swift` | Cada enum de adaptador → mensagem e recuperação |
-| `Packages/UNIShell/Tests/UNIShellTests/AssistantMarkdownTests.swift` | Blocos e turno `.draft` sem Markdown |
+| `Packages/UNISync/Sources/UNISync/AssistantDestination.swift` | `AssistantDestination` — `label`/`detail`/`isLocal` derived from `AssistantSettings` |
+| `Packages/UNISync/Sources/UNISync/AssistantAvailability.swift` | Observable `AssistantAvailability` + `AssistantAvailabilityModel` |
+| `Packages/UNISync/Sources/UNISync/AssistantURLSessionFactory.swift` | Derives a `URLSession` with `timeoutIntervalForRequest` **and** `ForResource` |
+| `Packages/UNISync/Sources/UNISync/CachedAssistantCLIDiscovery.swift` | 60-second cache of CLI scanning, with `invalidate()` |
+| `Packages/UNISync/Sources/UNISync/RoutedMessageAnalyzer.swift` | Chooses the analysis engine per call, according to `automaticAnalysis` |
+| `Packages/UNISync/Sources/UNISync/TextAssistantMessageAnalyzer.swift` | Strict JSON analysis through the configured provider |
+| `Packages/UNISync/Sources/UNISync/Database/AnalysisQueueState.swift` | Persisted `running`/`paused(reason)` state of the analysis queue |
+| `Packages/UNIShell/Sources/UNIShell/Inbox/AssistantConversation.swift` | The sole state machine: transcript, `isLoading`, `failure`, `task`, `briefing` |
+| `Packages/UNIShell/Sources/UNIShell/Support/AssistantMarkdown.swift` | `AssistantMarkdown` + `AssistantMarkdownBlock`, moved out of the popover |
+| `Packages/UNIShell/Sources/UNIShell/Support/AssistantFailure.swift` | `AssistantFailure`, `AssistantFailure.Recovery`, and `AssistantFailureBand` |
+| `Packages/UNISync/Tests/UNISyncTests/AssistantDestinationTests.swift` | One case per provider in table 1.2 |
+| `Packages/UNISync/Tests/UNISyncTests/AssistantAvailabilityTests.swift` | Each provider in each credential state |
+| `Packages/UNISync/Tests/UNISyncTests/CachedAssistantCLIDiscoveryTests.swift` | 60-second validity and `invalidate()` |
+| `Packages/UNISync/Tests/UNISyncTests/RoutedMessageAnalyzerTests.swift` | Routing by configuration and strict JSON |
+| `Packages/UNISync/Tests/UNISyncTests/Golden/workspace-prompt.txt` | Workspace prompt golden |
+| `Packages/UNIShell/Tests/UNIShellTests/AssistantConversationTests.swift` | `draftReply`, `cancel`, history 16, `emptyResponse`, `briefing` |
+| `Packages/UNIShell/Tests/UNIShellTests/AssistantFailureTests.swift` | Each adapter enum → message and recovery |
+| `Packages/UNIShell/Tests/UNIShellTests/AssistantMarkdownTests.swift` | Blocks and `.draft` turn without Markdown |
 
-### Modificados (arquivo → o que muda)
+### Modified (file → what changes)
 
-| Arquivo | Mudança |
+| File | Change |
 |---|---|
-| `Packages/UNISync/Sources/UNISync/FoundationModelsTextAssistant.swift` | `FoundationModelsTextAssistantPrompt` → `AssistantPrompt`; `Budget` ganha `maximumTextCharacters`, `maximumWorkspaceEmails`, `maximumWorkspaceAgendaItems`; `transform` e `render(_:budget:)` passam a respeitá-los; idioma sai do prompt fixo |
-| `Packages/UNISync/Sources/UNISync/AssistantSettings.swift` | `generatedInstructions()` sempre emite idioma; `automaticAnalysis`; `currentSchemaVersion = 5` |
-| `Packages/UNISync/Sources/UNISync/AssistantSettingsStore.swift` | `addDidChangeHandler(_:)` publicando cada `save`/`reset` |
-| `Packages/UNISync/Sources/UNISync/AssistantRouter.swift` | Timeouts 120; sessão com `timeoutIntervalForResource`; cache de CLIs; `assistantAvailability()`; `destination()` |
-| `Packages/UNISync/Sources/UNISync/AssistantCLITextAssistant.swift` | `processFailed(exitCode:stderrTail:)`; stderr capturado (4 KiB, cauda); faixa de timeout 30–300 |
-| `Packages/UNISync/Sources/UNISync/LiteLLMOAuthCoordinator.swift` | Vira `actor` + `LiteLLMOAuthSessionState` observável |
-| `Packages/UNISync/Sources/UNISync/AssistantProviderOAuthCoordinator.swift` | Vira `actor` + `AssistantProviderOAuthSessionState` observável |
-| `Packages/UNISync/Sources/UNISync/MessageIntelligenceCoordinator.swift` | Pausa a fila após 3 falhas de auth/rede, com estado persistido |
-| `Packages/UNISync/Sources/UNISync/Database/SyncDatabase.swift` | Migração `v15`: tabela do estado da fila de análise |
-| `Packages/UNISync/Sources/UNISync/AppComposition.swift` | `RoutedMessageAnalyzer`, `assistantAvailability`, discovery em cache |
-| `Packages/UNIShell/Sources/UNIShell/Inbox/FolderSidebar.swift` | `IntelligencePresentation` com `needsSetup`/`needsSignIn`, sem `.configuredAssistant` |
-| `Packages/UNIShell/Sources/UNIShell/Inbox/DashboardScreen.swift` | Consome `AssistantConversation`; `run/runDraft/runSuggestion` removidos |
-| `Packages/UNIShell/Sources/UNIShell/Inbox/InboxScreen.swift` | Dono da `AssistantConversation`; passa `AssistantDestination` |
-| `Packages/UNIShell/Sources/UNIShell/Inbox/ReaderIntelligencePopover.swift` | Usa `AssistantMarkdown` e `AssistantConversation` |
-| `Packages/UNIShell/Sources/UNIShell/Windows/MessageWindow.swift` | Recebe `AssistantConversation` por injeção |
-| `Packages/UNIShell/Sources/UNIShell/Windows/SettingsSections.swift` | Estado dos coordenadores; toggle de análise automática; cópia condicional |
-| `App/OkamiUNIApp.swift` | `IntelligencePresentation` vinda de `assistantAvailability`, sem `.configuredAssistant` fixo |
-| `README.md` | "sem mandar conteúdo para servidor algum" vira condicional ao provedor |
-| `docs/decisoes-de-engenharia.md` | Cinco entradas novas (§1.10) |
+| `Packages/UNISync/Sources/UNISync/FoundationModelsTextAssistant.swift` | `FoundationModelsTextAssistantPrompt` → `AssistantPrompt`; `Budget` gains `maximumTextCharacters`, `maximumWorkspaceEmails`, `maximumWorkspaceAgendaItems`; `transform` and `render(_:budget:)` start respecting them; language leaves the fixed prompt |
+| `Packages/UNISync/Sources/UNISync/AssistantSettings.swift` | `generatedInstructions()` always emits language; `automaticAnalysis`; `currentSchemaVersion = 5` |
+| `Packages/UNISync/Sources/UNISync/AssistantSettingsStore.swift` | `addDidChangeHandler(_:)` publishes every `save`/`reset` |
+| `Packages/UNISync/Sources/UNISync/AssistantRouter.swift` | Timeouts 120; session with `timeoutIntervalForResource`; cached CLI discovery; `assistantAvailability()`; `destination()` |
+| `Packages/UNISync/Sources/UNISync/AssistantCLITextAssistant.swift` | `processFailed(exitCode:stderrTail:)`; captured stderr (4 KiB, tail); timeout range 30–300 |
+| `Packages/UNISync/Sources/UNISync/LiteLLMOAuthCoordinator.swift` | Becomes an `actor` + observable `LiteLLMOAuthSessionState` |
+| `Packages/UNISync/Sources/UNISync/AssistantProviderOAuthCoordinator.swift` | Becomes an `actor` + observable `AssistantProviderOAuthSessionState` |
+| `Packages/UNISync/Sources/UNISync/MessageIntelligenceCoordinator.swift` | Pauses the queue after 3 auth/network failures, with persisted state |
+| `Packages/UNISync/Sources/UNISync/Database/SyncDatabase.swift` | `v15` migration: analysis-queue state table |
+| `Packages/UNISync/Sources/UNISync/AppComposition.swift` | `RoutedMessageAnalyzer`, `assistantAvailability`, cached discovery |
+| `Packages/UNIShell/Sources/UNIShell/Inbox/FolderSidebar.swift` | `IntelligencePresentation` with `needsSetup`/`needsSignIn`, without `.configuredAssistant` |
+| `Packages/UNIShell/Sources/UNIShell/Inbox/DashboardScreen.swift` | Consumes `AssistantConversation`; `run/runDraft/runSuggestion` removed |
+| `Packages/UNIShell/Sources/UNIShell/Inbox/InboxScreen.swift` | Owns `AssistantConversation`; passes `AssistantDestination` |
+| `Packages/UNIShell/Sources/UNIShell/Inbox/ReaderIntelligencePopover.swift` | Uses `AssistantMarkdown` and `AssistantConversation` |
+| `Packages/UNIShell/Sources/UNIShell/Windows/MessageWindow.swift` | Receives `AssistantConversation` by injection |
+| `Packages/UNIShell/Sources/UNIShell/Windows/SettingsSections.swift` | Coordinator state; automatic-analysis toggle; conditional copy |
+| `App/OkamiUNIApp.swift` | `IntelligencePresentation` from `assistantAvailability`, without fixed `.configuredAssistant` |
+| `README.md` | "sem mandar conteúdo para servidor algum" becomes provider-dependent |
+| `docs/decisoes-de-engenharia.md` | Five new entries (§1.10) |
 
 ---
 
-### Task 1: Renomes do contrato de texto (tabela 1.1, grupo A)
+### Task 1: Text-contract renames (table 1.1, group A)
 
-O protocolo vive em UNICore e é implementado em UNISync e consumido em UNIShell e `App/`. Renomear em um pacote só não compila: esta tarefa é atômica nos quatro.
+The protocol lives in UNICore, is implemented in UNISync, and is consumed in UNIShell and `App/`. Renaming it in only one package does not compile: this task is atomic across all four.
 
 **Files**
 - Rename `Packages/UNICore/Sources/UNICore/OnDeviceTextAssistant.swift` → `Packages/UNICore/Sources/UNICore/TextAssistant.swift` (via `git mv`)
 - Rename `Packages/UNICore/Sources/UNICore/OnDeviceAssistantMailContext+Message.swift` → `Packages/UNICore/Sources/UNICore/AssistantMailContext+Message.swift` (via `git mv`)
 - Rename `Packages/UNICore/Tests/UNICoreTests/OnDeviceTextAssistantTests.swift` → `.../TextAssistantTests.swift` (via `git mv`)
 - Rename `Packages/UNICore/Tests/UNICoreTests/OnDeviceAssistantMailContextTests.swift` → `.../AssistantMailContextTests.swift` (via `git mv`)
-- Modify: todo `.swift` versionado que cite os nomes antigos (25 arquivos hoje; `git grep -l` na etapa 1 dá a lista exata)
+- Modify: any versioned `.swift` file that cites the old names (25 files today; `git grep -l` in step 1 gives the exact list)
 
 **Interfaces**
-- Consumes: nada novo.
-- Produces (UNICore, público):
+- Consumes: nothing new.
+- Produces (UNICore, public):
   ```swift
   public protocol TextAssisting: Sendable {
       var modelVersion: String { get }
@@ -179,17 +179,17 @@ O protocolo vive em UNICore e é implementado em UNISync e consumido em UNIShell
   public enum WritingAction: Sendable, Hashable { /* casos inalterados */ }
   public enum TextAssistantError: Error, Sendable, Equatable, LocalizedError { /* casos inalterados */ }
   ```
-  Junto vão os contextos que carregam o mesmo prefixo mentiroso (extensão coerente da tabela 1.1, que só nomeia o guarda-chuva): `AssistantEmailContext`, `AssistantMailboxContext`, `AssistantAgendaContext`, `AssistantWorkspaceEmailContext`, `AssistantPendingContext`, `AssistantWorkspaceContext`.
+The contexts carrying the same misleading prefix go along with it (a coherent extension of table 1.1, which only names the umbrella): `AssistantEmailContext`, `AssistantMailboxContext`, `AssistantAgendaContext`, `AssistantWorkspaceEmailContext`, `AssistantPendingContext`, `AssistantWorkspaceContext`.
 
 **Steps**
 
-- [ ] Registrar o alvo antes de mexer: rode
+- [ ] Record the target before changing anything: run
       ```bash
       git grep -c -E 'OnDeviceTextAssisting|OnDeviceAssistantMailContext|OnDeviceAssistantConversation|OnDeviceAssistantTurn|OnDeviceWritingAction|OnDeviceTextAssistantError|OnDeviceAssistant(Email|Mailbox|Agenda|WorkspaceEmail|Workspace|Pending)Context' -- '*.swift' | sort -t: -k2 -rn
       ```
-      e guarde a saída no corpo do commit. Ela é a prova de que nada ficou para trás.
+      and save the output in the commit body. It proves that nothing was left behind.
 
-- [ ] Escrever o teste que falha. Em `Packages/UNICore/Tests/UNICoreTests/AssistantNamingTests.swift` (arquivo novo):
+- [ ] Write the failing test. In `Packages/UNICore/Tests/UNICoreTests/AssistantNamingTests.swift` (new file):
       ```swift
       import Foundation
       import Testing
@@ -218,13 +218,13 @@ O protocolo vive em UNICore e é implementado em UNISync e consumido em UNIShell
       }
       ```
 
-- [ ] Rodar e ver falhar:
+- [ ] Run it and see it fail:
       ```bash
       swift test --package-path Packages/UNICore --filter AssistantNamingTests
       ```
-      Esperado: erro de compilação `cannot find 'AssistantTurn' in scope` (e o mesmo para `AssistantConversationSnapshot`, `AssistantEmailContext`, `WritingAction`, `TextAssistantError`, `TextAssisting`). Falha de compilação **é** a falha esperada aqui: o rename é o defeito.
+      Expected: compilation error `cannot find 'AssistantTurn' in scope` (and the same for `AssistantConversationSnapshot`, `AssistantEmailContext`, `WritingAction`, `TextAssistantError`, `TextAssisting`). A compilation failure **is** the expected failure here: the rename is the defect.
 
-- [ ] Renomear os arquivos:
+- [ ] Rename the files:
       ```bash
       git mv Packages/UNICore/Sources/UNICore/OnDeviceTextAssistant.swift \
              Packages/UNICore/Sources/UNICore/TextAssistant.swift
@@ -236,7 +236,7 @@ O protocolo vive em UNICore e é implementado em UNISync e consumido em UNIShell
              Packages/UNICore/Tests/UNICoreTests/AssistantMailContextTests.swift
       ```
 
-- [ ] Aplicar os nomes, do mais longo para o mais curto (a ordem evita que um prefixo coma o outro):
+- [ ] Apply the names from longest to shortest (the order prevents one prefix from consuming another):
       ```bash
       files=$(git ls-files '*.swift')
       perl -pi -e '
@@ -259,7 +259,7 @@ O protocolo vive em UNICore e é implementado em UNISync e consumido em UNIShell
       git grep -n -E 'OnDeviceTextAssisting|OnDeviceAssistantMailContext|OnDeviceAssistantConversation|OnDeviceAssistantTurn|OnDeviceWritingAction|OnDeviceTextAssistantError' -- '*.swift' || echo "nenhum nome antigo restou"
       ```
 
-- [ ] Ajustar à mão o que o `perl` não alcança: comentários que dizem "assistente local" onde o tipo agora é neutro. Em `Packages/UNICore/Sources/UNICore/TextAssistant.swift`, o doc-comment de `AssistantEmailContext` (linha 3 do arquivo) passa de "contexto factual para o assistente local" para "contexto factual para o assistente"; o de `TextAssisting` ("A porta assíncrona…") perde a palavra "local"; `TextAssistantError.errorDescription` troca "O assistente local" por "O assistente" nos quatro casos que citam:
+- [ ] Adjust by hand what `perl` cannot reach: comments that say "assistente local" where the type is now neutral. In `Packages/UNICore/Sources/UNICore/TextAssistant.swift`, the `AssistantEmailContext` doc comment (line 3 of the file) changes from "contexto factual para o assistente local" to "contexto factual para o assistente"; the `TextAssisting` comment ("A porta assíncrona…") loses the word "local"; `TextAssistantError.errorDescription` changes "O assistente local" to "O assistente" in the four cases that mention it:
       ```swift
       case .unavailable(.available):
           return "O assistente não está disponível neste momento."
@@ -273,19 +273,19 @@ O protocolo vive em UNICore e é implementado em UNISync e consumido em UNIShell
           return "O assistente devolveu uma resposta vazia."
       ```
 
-- [ ] Rodar e ver passar, pacote a pacote:
+- [ ] Run it and see it pass, package by package:
       ```bash
       swift test --package-path Packages/UNICore
       swift test --package-path Packages/UNISync
       swift test --package-path Packages/UNIShell
       ```
-      Esperado: três `✔ Test run with N tests ... passed`, nenhum aviso de `OnDevice…` não encontrado.
+      Expected: three `✔ Test run with N tests ... passed` lines, with no `OnDevice…` not-found warning.
 
-- [ ] Compilar o app (é ele que consome `composition.textAssistant`):
+- [ ] Compile the app (it is the consumer of `composition.textAssistant`):
       ```bash
       xcodegen generate && xcodebuild -project OkamiUNI.xcodeproj -scheme OkamiUNI -configuration Debug build 2>&1 | grep -E "error:|BUILD"
       ```
-      Esperado: `** BUILD SUCCEEDED **`.
+      Expected: `** BUILD SUCCEEDED **`.
 
 - [ ] Commit:
       ```bash
@@ -299,7 +299,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-### Task 2: Renomes da análise, da ponte, do painel e do prompt (tabela 1.1, grupo B)
+### Task 2: Renames of analysis, bridge, panel, and prompt (table 1.1, group B)
 
 **Files**
 - Rename `Packages/UNICore/Sources/UNICore/OnDeviceMessageAnalysis.swift` → `.../MessageAnalysis.swift`
@@ -309,10 +309,10 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Rename `Packages/UNIShell/Sources/UNIShell/Inbox/LocalAssistantPanel.swift` → `.../Inbox/AssistantPanel.swift`
 - Rename `Packages/UNIShell/Tests/UNIShellTests/LocalAssistantPanelTests.swift` → `.../AssistantPanelTests.swift`
 - Rename `Packages/UNISync/Tests/UNISyncTests/FoundationModelsTextAssistantTests.swift` → `.../AssistantPromptTests.swift`
-- Modify: todo `.swift` versionado que cite os nomes antigos
+- Modify: any versioned `.swift` file that cites the old names
 
 **Interfaces**
-- Produces (UNICore, público):
+- Produces (UNICore, public):
   ```swift
   public enum AppleIntelligenceAvailability: Sendable, Hashable {
       case available, deviceNotEligible, appleIntelligenceNotEnabled, modelNotReady
@@ -327,12 +327,12 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
   public struct MessageAnalysisResult: Sendable, Hashable { /* campos inalterados */ }
   public enum MessageAnalysisError: Error, Sendable, Equatable, LocalizedError { /* casos inalterados */ }
   ```
-- Produces (UNISync, interno): `enum AssistantPrompt` (era `FoundationModelsTextAssistantPrompt`). `FoundationModelsTextAssistantValidation` **mantém o nome** — a spec §4.2 ainda o cita.
-- Produces (UNIShell, público): `AssistantPanel`, `AssistantPanelDebugState`, `AssistantConversation`, `AssistantScope`, `AssistantSuggestion`, `AssistantContext`, `AssistantMessage`, `AssistantSpeaker`, `AssistantRequest`, `AssistantBridge`.
+- Produces (UNISync, internal): `enum AssistantPrompt` (formerly `FoundationModelsTextAssistantPrompt`). `FoundationModelsTextAssistantValidation` **keeps its name** — spec §4.2 still cites it.
+- Produces (UNIShell, public): `AssistantPanel`, `AssistantPanelDebugState`, `AssistantConversation`, `AssistantScope`, `AssistantSuggestion`, `AssistantContext`, `AssistantMessage`, `AssistantSpeaker`, `AssistantRequest`, `AssistantBridge`.
 
 **Steps**
 
-- [ ] Escrever o teste que falha. Em `Packages/UNIShell/Tests/UNIShellTests/AssistantNamingTests.swift` (arquivo novo):
+- [ ] Write the failing test. In `Packages/UNIShell/Tests/UNIShellTests/AssistantNamingTests.swift` (new file):
       ```swift
       import Foundation
       import Testing
@@ -358,13 +358,13 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
       }
       ```
 
-- [ ] Rodar e ver falhar:
+- [ ] Run it and see it fail:
       ```bash
       swift test --package-path Packages/UNIShell --filter AssistantShellNamingTests
       ```
-      Esperado: `cannot find 'AssistantScope' in scope`, `cannot find 'AssistantSuggestion' in scope`, `cannot find type 'AppleIntelligenceAvailability' in scope`.
+      Expected: `cannot find 'AssistantScope' in scope`, `cannot find 'AssistantSuggestion' in scope`, `cannot find type 'AppleIntelligenceAvailability' in scope`.
 
-- [ ] Renomear os arquivos:
+- [ ] Rename the files:
       ```bash
       git mv Packages/UNICore/Sources/UNICore/OnDeviceMessageAnalysis.swift \
              Packages/UNICore/Sources/UNICore/MessageAnalysis.swift
@@ -382,7 +382,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
              Packages/UNISync/Tests/UNISyncTests/AssistantPromptTests.swift
       ```
 
-- [ ] Aplicar os nomes, do mais longo para o mais curto:
+- [ ] Apply the names from longest to shortest:
       ```bash
       files=$(git ls-files '*.swift')
       perl -pi -e '
@@ -411,16 +411,16 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
       git grep -n -E 'OnDeviceMessageAnalys|OnDeviceAssistantBridge|FoundationModelsTextAssistantPrompt|LocalAssistant' -- '*.swift' || echo "nenhum nome antigo restou"
       ```
 
-- [ ] Corrigir os nomes de `@Suite` que o `perl` não toca porque são literais soltos. Em `Packages/UNISync/Tests/UNISyncTests/AssistantPromptTests.swift`, trocar `@Suite("Assistente de texto local")` (ou o rótulo que estiver lá) por `@Suite("Prompt do assistente")`. Em `Packages/UNIShell/Tests/UNIShellTests/AssistantPanelTests.swift`, o rótulo vira `@Suite("Painel do assistente")`.
+- [ ] Correct the `@Suite` names that `perl` does not touch because they are standalone literals. In `Packages/UNISync/Tests/UNISyncTests/AssistantPromptTests.swift`, change `@Suite("Assistente de texto local")` (or whatever label is there) to `@Suite("Prompt do assistente")`. In `Packages/UNIShell/Tests/UNIShellTests/AssistantPanelTests.swift`, the label becomes `@Suite("Painel do assistente")`.
 
-- [ ] Rodar e ver passar:
+- [ ] Run it and see it pass:
       ```bash
       swift test --package-path Packages/UNICore
       swift test --package-path Packages/UNISync
       swift test --package-path Packages/UNIShell
       xcodegen generate && xcodebuild -project OkamiUNI.xcodeproj -scheme OkamiUNI -configuration Debug build 2>&1 | grep -E "error:|BUILD"
       ```
-      Esperado: três suítes verdes e `** BUILD SUCCEEDED **`.
+      Expected: three green suites and `** BUILD SUCCEEDED **`.
 
 - [ ] Commit:
       ```bash
@@ -436,7 +436,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ### Task 3: `AssistantDestination` (spec 1.2)
 
-Um único valor responde "para onde vai o meu email quando eu aperto isto?".
+A single value answers "where does my email go when I press this?"
 
 **Files**
 - Create `Packages/UNISync/Sources/UNISync/AssistantDestination.swift`
@@ -458,7 +458,7 @@ Um único valor responde "para onde vai o meu email quando eu aperto isto?".
 
 **Steps**
 
-- [ ] Escrever o teste que falha. `Packages/UNISync/Tests/UNISyncTests/AssistantDestinationTests.swift`:
+- [ ] Write the failing test. `Packages/UNISync/Tests/UNISyncTests/AssistantDestinationTests.swift`:
       ```swift
       import Foundation
       import Testing
@@ -547,13 +547,13 @@ Um único valor responde "para onde vai o meu email quando eu aperto isto?".
       }
       ```
 
-- [ ] Rodar e ver falhar:
+- [ ] Run it and see it fail:
       ```bash
       swift test --package-path Packages/UNISync --filter AssistantDestinationTests
       ```
-      Esperado: `cannot find 'AssistantDestination' in scope`.
+      Expected: `cannot find 'AssistantDestination' in scope`.
 
-- [ ] Implementar. `Packages/UNISync/Sources/UNISync/AssistantDestination.swift`:
+- [ ] Implement. `Packages/UNISync/Sources/UNISync/AssistantDestination.swift`:
       ```swift
       import Foundation
 
@@ -633,15 +633,15 @@ Um único valor responde "para onde vai o meu email quando eu aperto isto?".
       }
       ```
 
-- [ ] Rodar e ver passar:
+- [ ] Run it and see it pass:
       ```bash
       swift test --package-path Packages/UNISync --filter AssistantDestinationTests
       ```
-      Esperado: `✔ Test run with 5 tests in 1 suite passed`.
+      Expected: `✔ Test run with 5 tests in 1 suite passed`.
 
-- [ ] Provar por mutação: troque `isLocal: true` por `isLocal: false` no ramo `.foundationModels` e confirme que `localDestination` falha; desfaça. Troque `"LiteLLM"` por `"API"` e confirme que `openAICompatibleDestinations` falha; desfaça.
+- [ ] Prove it by mutation: change `isLocal: true` to `isLocal: false` in the `.foundationModels` branch and confirm that `localDestination` fails; undo. Change `"LiteLLM"` to `"API"` and confirm that `openAICompatibleDestinations` fails; undo.
 
-- [ ] Suíte do pacote e commit:
+- [ ] Package suite and commit:
       ```bash
       swift test --package-path Packages/UNISync
       git add -A && git commit -m "feat: AssistantDestination diz para onde o email vai
@@ -654,14 +654,14 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-### Task 4: Orçamento e tempo atravessando prompt, router e adaptadores (spec 1.4)
+### Task 4: Budget and timing through the prompt, router, and adapters (spec 1.4)
 
-Hoje `AssistantPrompt.transform` corta o texto em 8 000 caracteres fixos (`FoundationModelsTextAssistant.swift:352`) e `render(_ workspace:)` (`:429`) ignora o orçamento e crava 24 emails / 32 compromissos. O commit `0a6330a` só passou o `Budget` para o contexto de email.
+Today `AssistantPrompt.transform` truncates text at a fixed 8,000 characters (`FoundationModelsTextAssistant.swift:352`), and `render(_ workspace:)` (`:429`) ignores the budget and hard-codes 24 emails / 32 appointments. Commit `0a6330a` only passed `Budget` to the email context.
 
 **Files**
-- Modify `Packages/UNISync/Sources/UNISync/FoundationModelsTextAssistant.swift` (`Budget` em `:192-208`; `transform` em `:308-356`; `mailContext` em `:394-413`; `render(_ workspace:)` em `:429-506`; `actionDescription` em `:358-377`)
-- Modify `Packages/UNISync/Sources/UNISync/AssistantRouter.swift` (`init` em `:34-57`, `providerOAuthAssistant` em `:250`)
-- Modify `Packages/UNISync/Sources/UNISync/AssistantCLITextAssistant.swift` (`requestTimeout` em `:451-462`)
+- Modify `Packages/UNISync/Sources/UNISync/FoundationModelsTextAssistant.swift` (`Budget` at `:192-208`; `transform` at `:308-356`; `mailContext` at `:394-413`; `render(_ workspace:)` at `:429-506`; `actionDescription` at `:358-377`)
+- Modify `Packages/UNISync/Sources/UNISync/AssistantRouter.swift` (`init` at `:34-57`, `providerOAuthAssistant` at `:250`)
+- Modify `Packages/UNISync/Sources/UNISync/AssistantCLITextAssistant.swift` (`requestTimeout` at `:451-462`)
 - Create `Packages/UNISync/Sources/UNISync/AssistantURLSessionFactory.swift`
 - Modify `Packages/UNISync/Tests/UNISyncTests/AssistantPromptTests.swift`
 - Modify `Packages/UNISync/Tests/UNISyncTests/AssistantRouterTests.swift`
@@ -699,7 +699,7 @@ Hoje `AssistantPrompt.transform` corta o texto em 8 000 caracteres fixos (`Found
 
 **Steps**
 
-- [ ] Escrever os testes que falham. Acrescentar a `Packages/UNISync/Tests/UNISyncTests/AssistantPromptTests.swift`:
+- [ ] Write the failing tests. Add to `Packages/UNISync/Tests/UNISyncTests/AssistantPromptTests.swift`:
       ```swift
       @Test("com a IA configurada, o texto de escrita não é elidido em 8 mil")
       func configuredTransformKeepsLongText() {
@@ -761,7 +761,7 @@ Hoje `AssistantPrompt.transform` corta o texto em 8 000 caracteres fixos (`Found
           #expect(AssistantPrompt.maximumCustomInstructionCharacters == 6_000)
       }
       ```
-      E, em `Packages/UNISync/Tests/UNISyncTests/AssistantRouterTests.swift`:
+      And in `Packages/UNISync/Tests/UNISyncTests/AssistantRouterTests.swift`:
       ```swift
       @Test("o tempo padrão é 120 s e vale para pedido e para recurso")
       @available(macOS 26.0, *)
@@ -780,13 +780,13 @@ Hoje `AssistantPrompt.transform` corta o texto em 8 000 caracteres fixos (`Found
       }
       ```
 
-- [ ] Rodar e ver falhar:
+- [ ] Run it and see it fail:
       ```bash
       swift test --package-path Packages/UNISync --filter 'AssistantPromptTests|AssistantRouterTests'
       ```
-      Esperado: `extra argument 'budget' in call` em `AssistantPrompt.render`, `cannot find 'AssistantURLSessionFactory' in scope`, e `AssistantPrompt.maximumCustomInstructionCharacters` inexistente.
+      Expected: `extra argument 'budget' in call` in `AssistantPrompt.render`, `cannot find 'AssistantURLSessionFactory' in scope`, and `AssistantPrompt.maximumCustomInstructionCharacters` does not exist.
 
-- [ ] Ampliar o `Budget`. Em `FoundationModelsTextAssistant.swift`, substituir o bloco `struct Budget` (linhas 190–208) por:
+- [ ] Expand `Budget`. In `FoundationModelsTextAssistant.swift`, replace the `struct Budget` block (lines 190–208) with:
       ```swift
       /// Orçamento do prompt. A Foundation Models local tem janela curta; Grok,
       /// LiteLLM e CLI aguentam o email completo — e é isso que a pessoa pediu.
@@ -822,15 +822,15 @@ Hoje `AssistantPrompt.transform` corta o texto em 8 000 caracteres fixos (`Found
       static let maximumCustomInstructionCharacters = 6_000
       ```
 
-- [ ] Fazer `transform` usar o orçamento. Em `AssistantPrompt.transform` (linha 351 do arquivo original), trocar
+- [ ] Make `transform` use the budget. In `AssistantPrompt.transform` (line 351 of the original file), replace
       ```swift
       \(bounded(text, maximumCharacters: maximumTextCharacters))
       ```
-      por
+      with
       ```swift
       \(bounded(text, maximumCharacters: budget.maximumTextCharacters))
       ```
-      e, em `actionDescription`, passar o orçamento da instrução personalizada:
+      and in `actionDescription`, pass the custom-instruction budget:
       ```swift
       static func actionDescription(_ action: WritingAction) -> String {
           switch action {
@@ -842,7 +842,7 @@ Hoje `AssistantPrompt.transform` corta o texto em 8 000 caracteres fixos (`Found
       }
       ```
 
-- [ ] Fazer o retrato do ambiente usar o orçamento. Trocar a assinatura privada por uma interna e propagar:
+- [ ] Make the workspace snapshot use the budget. Change the private signature to internal and propagate it:
       ```swift
       private static func mailContext(_ context: AssistantMailContext, budget: Budget) -> String {
           switch context {
@@ -870,9 +870,9 @@ Hoje `AssistantPrompt.transform` corta o texto em 8 000 caracteres fixos (`Found
           // … resto inalterado …
       }
       ```
-      `maximumWorkspaceEmails` e `maximumWorkspaceAgendaItems` deixam de ser constantes do tipo (linhas 176 e 178) e são apagadas; quem quiser o número lê do `Budget`.
+      `maximumWorkspaceEmails` and `maximumWorkspaceAgendaItems` stop being type constants (lines 176 and 178) and are deleted; anyone who needs the number reads it from `Budget`.
 
-- [ ] Criar a fábrica de sessão. `Packages/UNISync/Sources/UNISync/AssistantURLSessionFactory.swift`:
+- [ ] Create the session factory. `Packages/UNISync/Sources/UNISync/AssistantURLSessionFactory.swift`:
       ```swift
       import Foundation
 
@@ -893,7 +893,7 @@ Hoje `AssistantPrompt.transform` corta o texto em 8 000 caracteres fixos (`Found
       }
       ```
 
-- [ ] Trocar os tempos no roteador. Em `AssistantRouter.swift`, no `init` (linhas 34–57):
+- [ ] Change the router timings. In `AssistantRouter.swift`, in `init` (lines 34–57):
       ```swift
       public init(
           settingsStore: AssistantSettingsStore,
@@ -925,18 +925,18 @@ Hoje `AssistantPrompt.transform` corta o texto em 8 000 caracteres fixos (`Found
       }
       ```
 
-- [ ] Ampliar a faixa do CLI. Em `AssistantCLITextAssistant.swift`, `init` (linha 457) passa a `requestTimeout: TimeInterval = 120` e a linha 462 vira:
+- [ ] Expand the CLI range. In `AssistantCLITextAssistant.swift`, `init` (line 457) now takes `requestTimeout: TimeInterval = 120`, and line 462 becomes:
       ```swift
       self.requestTimeout = min(max(requestTimeout, 30), 300)
       ```
 
-- [ ] Rodar e ver passar:
+- [ ] Run it and see it pass:
       ```bash
       swift test --package-path Packages/UNISync
       ```
-      Esperado: suíte verde. Se `FoundationModelsTextAssistantTests` (agora `AssistantPromptTests`) tinha uma asserção travando `maximumWorkspaceEmails` como constante do tipo, atualize-a para `AssistantPrompt.Budget.onDevice.maximumWorkspaceEmails`.
+      Expected: green suite. If `FoundationModelsTextAssistantTests` (now `AssistantPromptTests`) had an assertion pinning `maximumWorkspaceEmails` as a type constant, update it to `AssistantPrompt.Budget.onDevice.maximumWorkspaceEmails`.
 
-- [ ] Provar por mutação: volte `budget.maximumTextCharacters` para `maximumTextCharacters` em `transform` e confirme que `configuredTransformKeepsLongText` falha; desfaça. Volte `budget.maximumWorkspaceEmails` para `24` e confirme que `workspaceRespectsBudget` falha; desfaça.
+- [ ] Prove it by mutation: change `budget.maximumTextCharacters` back to `maximumTextCharacters` in `transform` and confirm that `configuredTransformKeepsLongText` fails; undo. Change `budget.maximumWorkspaceEmails` back to `24` and confirm that `workspaceRespectsBudget` fails; undo.
 
 - [ ] Commit:
       ```bash
@@ -950,21 +950,21 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-### Task 5: O idioma das preferências sempre vence (spec 1.4)
+### Task 5: The preferences' language always wins (spec 1.4)
 
-`generatedInstructions()` só emite a linha de idioma quando ele **não** é pt-BR (`AssistantSettings.swift:418`), e o prompt de `answer` abre com "Responda à pergunta atual em português do Brasil" (`FoundationModelsTextAssistant.swift:283`) — depois da camada de instruções. A preferência nunca vence.
+`generatedInstructions()` emits the language line only when it is **not** pt-BR (`AssistantSettings.swift:418`), while the `answer` prompt opens with "Responda à pergunta atual em português do Brasil" (`FoundationModelsTextAssistant.swift:283`) — after the instruction layer. The preference never wins.
 
 **Files**
-- Modify `Packages/UNISync/Sources/UNISync/AssistantSettings.swift` (`generatedInstructions()` em `:414-424`)
-- Modify `Packages/UNISync/Sources/UNISync/FoundationModelsTextAssistant.swift` (`answer` em `:277-306`; `transform` em `:308-330`)
+- Modify `Packages/UNISync/Sources/UNISync/AssistantSettings.swift` (`generatedInstructions()` at `:414-424`)
+- Modify `Packages/UNISync/Sources/UNISync/FoundationModelsTextAssistant.swift` (`answer` at `:277-306`; `transform` at `:308-330`)
 - Create `Packages/UNISync/Tests/UNISyncTests/AssistantBehaviorPreferencesTests.swift`
 
 **Interfaces**
-- Produces: `AssistantBehaviorPreferences.generatedInstructions() -> String` passa a emitir a linha de idioma em todos os casos.
+- Produces: `AssistantBehaviorPreferences.generatedInstructions() -> String` now emits the language line in every case.
 
 **Steps**
 
-- [ ] Escrever o teste que falha. `Packages/UNISync/Tests/UNISyncTests/AssistantBehaviorPreferencesTests.swift`:
+- [ ] Write the failing test. `Packages/UNISync/Tests/UNISyncTests/AssistantBehaviorPreferencesTests.swift`:
       ```swift
       import Foundation
       import Testing
@@ -1010,29 +1010,29 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
       }
       ```
 
-- [ ] Rodar e ver falhar:
+- [ ] Run it and see it fail:
       ```bash
       swift test --package-path Packages/UNISync --filter AssistantBehaviorPreferencesTests
       ```
-      Esperado: duas falhas — `portugueseIsEmittedToo` porque a linha é suprimida, e `englishNeverMentionsPortuguese` porque `AssistantPrompt.answer` começa com "em português do Brasil".
+      Expected: two failures — `portugueseIsEmittedToo` because the line is suppressed, and `englishNeverMentionsPortuguese` because `AssistantPrompt.answer` starts with "em português do Brasil".
 
-- [ ] Sempre emitir o idioma. Em `AssistantSettings.swift`, dentro de `generatedInstructions()`, trocar a linha 418
+- [ ] Always emit the language. In `AssistantSettings.swift`, inside `generatedInstructions()`, replace line 418
       ```swift
       if language != .portugueseBrazil { instructions.append(language.promptInstruction) }
       ```
-      por
+      with
       ```swift
       // Sem condição: enquanto pt-BR era o silêncio, a preferência da pessoa
       // perdia para a linha fixa do prompt, que dizia português sempre.
       instructions.append(language.promptInstruction)
       ```
 
-- [ ] Tirar o idioma do prompt fixo. Em `AssistantPrompt.answer`, a abertura (linhas 283–284) vira:
+- [ ] Remove the language from the fixed prompt. In `AssistantPrompt.answer`, the opening (lines 283–284) becomes:
       ```swift
       Responda à pergunta atual com a profundidade que ela exigir. Comece pela
       resposta mais útil.
       ```
-      E em `AssistantPrompt.transform`, os dois `languageInstruction` que cravam pt-BR (linhas 326 e 329) viram:
+      And in `AssistantPrompt.transform`, the two `languageInstruction` values that hard-code pt-BR (lines 326 and 329) become:
       ```swift
       case .customInstruction:
           usesMailContext = true
@@ -1041,15 +1041,15 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
           usesMailContext = false
           languageInstruction = "Execute a tarefa de escrita abaixo."
       ```
-      O caso `.draftReply` **não muda**: responder em português a uma mensagem em inglês é o defeito que aquela regra conserta, e ela é sobre o idioma da conversa, não sobre a preferência.
+      The `.draftReply` case **does not change**: replying in Portuguese to an English message is the defect that rule fixes, and it concerns the conversation's language, not the preference.
 
-- [ ] Rodar e ver passar:
+- [ ] Run it and see it pass:
       ```bash
       swift test --package-path Packages/UNISync
       ```
-      Esperado: suíte verde. Testes antigos que afirmavam a ausência da linha de idioma para pt-BR precisam ser invertidos — a ausência era o defeito.
+      Expected: green suite. Older tests that asserted the absence of the language line for pt-BR need to be inverted — the absence was the defect.
 
-- [ ] Provar por mutação: recoloque o `if language != .portugueseBrazil` e confirme que `portugueseIsEmittedToo` falha; desfaça.
+- [ ] Prove it by mutation: put back `if language != .portugueseBrazil` and confirm that `portugueseIsEmittedToo` fails; undo.
 
 - [ ] Commit:
       ```bash
@@ -1063,9 +1063,9 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-### Task 6: `AssistantFailure` e `AssistantFailureBand` (spec 1.5)
+### Task 6: `AssistantFailure` and `AssistantFailureBand` (spec 1.5)
 
-Quatro enums de erro achatadas em `localizedDescription`, sem ação de recuperação (`LocalAssistantPanel.swift:267-274`, `DashboardScreen.swift:774-777`). Uma tradução só, uma faixa só. Vem **antes** da máquina de estado porque é ela que guarda `failure`.
+Four error enums were flattened into `localizedDescription`, with no recovery action (`LocalAssistantPanel.swift:267-274`, `DashboardScreen.swift:774-777`). One translation, one band. It comes **before** the state machine because the state machine stores `failure`.
 
 **Files**
 - Create `Packages/UNIShell/Sources/UNIShell/Support/AssistantFailure.swift`
@@ -1096,7 +1096,7 @@ Quatro enums de erro achatadas em `localizedDescription`, sem ação de recupera
 
 **Steps**
 
-- [ ] Escrever o teste que falha. `Packages/UNIShell/Tests/UNIShellTests/AssistantFailureTests.swift`:
+- [ ] Write the failing test. `Packages/UNIShell/Tests/UNIShellTests/AssistantFailureTests.swift`:
       ```swift
       import Foundation
       import Testing
@@ -1159,13 +1159,13 @@ Quatro enums de erro achatadas em `localizedDescription`, sem ação de recupera
       }
       ```
 
-- [ ] Rodar e ver falhar:
+- [ ] Run it and see it fail:
       ```bash
       swift test --package-path Packages/UNIShell --filter AssistantFailureTests
       ```
-      Esperado: `cannot find 'AssistantFailure' in scope` e, depois de existir, `processFailed(exitCode:stderrTail:)` inexistente (a Task 11 traz o stderr; **antecipe só a assinatura** do caso na Task 11 se quiser rodar este teste isolado — este passo assume a ordem do plano e deixa `cliFailureShowsStderr` marcado com `.disabled("stderr chega na Task 11")` até lá).
+      Expected: `cannot find 'AssistantFailure' in scope` and, once it exists, `processFailed(exitCode:stderrTail:)` is missing (Task 11 brings stderr; **anticipate only the case signature** from Task 11 if you want to run this test in isolation — this step assumes the plan's order and leaves `cliFailureShowsStderr` marked with `.disabled("stderr chega na Task 11")` until then).
 
-- [ ] Implementar. `Packages/UNIShell/Sources/UNIShell/Support/AssistantFailure.swift`:
+- [ ] Implement. `Packages/UNIShell/Sources/UNIShell/Support/AssistantFailure.swift`:
       ```swift
       import SwiftUI
       import UNICore
@@ -1300,7 +1300,7 @@ Quatro enums de erro achatadas em `localizedDescription`, sem ação de recupera
           static let fallbackMessage = "Não foi possível responder agora."
       }
       ```
-      E, no mesmo arquivo, a faixa que painel e dashboard compartilham:
+      And in the same file, the band shared by the panel and dashboard:
       ```swift
       /// A faixa única de erro. Painel, dashboard e janela de mensagem mostram
       /// esta, e nenhuma tem cópia própria.
@@ -1358,15 +1358,15 @@ Quatro enums de erro achatadas em `localizedDescription`, sem ação de recupera
           }
       }
       ```
-      Confira a assinatura real de `ChromeButton` em `Packages/UNIShell/Sources/UNIShell/Windows/ChromeButton.swift` antes de compilar — o uso atual no painel é `ChromeButton("Tentar de novo", appearance: .outlined, size: 11.5, height: 27, horizontalPadding: 10) { … }` (`AssistantPanel.swift:547-552`); use exatamente essa forma.
+      Check the actual `ChromeButton` signature in `Packages/UNIShell/Sources/UNIShell/Windows/ChromeButton.swift` before compiling — the current panel use is `ChromeButton("Tentar de novo", appearance: .outlined, size: 11.5, height: 27, horizontalPadding: 10) { … }` (`AssistantPanel.swift:547-552`); use exactly this form.
 
-- [ ] Rodar e ver passar:
+- [ ] Run it and see it pass:
       ```bash
       swift test --package-path Packages/UNIShell --filter AssistantFailureTests
       ```
-      Esperado: `✔ Test run with 5 tests in 1 suite passed` (com `cliFailureShowsStderr` ainda desabilitado até a Task 11).
+      Expected: `✔ Test run with 5 tests in 1 suite passed` (with `cliFailureShowsStderr` still disabled until Task 11).
 
-- [ ] Provar por mutação: troque `.openSettings` por `.retry` no ramo de `missingAPIKey` e confirme que `missingCredentialsOpenSettings` falha; desfaça.
+- [ ] Prove it by mutation: change `.openSettings` to `.retry` in the `missingAPIKey` branch and confirm that `missingCredentialsOpenSettings` fails; undo.
 
 - [ ] Commit:
       ```bash
@@ -1380,15 +1380,15 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-### Task 7: `AssistantMarkdown` sai do popover (spec 1.7)
+### Task 7: `AssistantMarkdown` leaves the popover (spec 1.7)
 
-Markdown só é renderizado em `ReaderIntelligencePopover` (`ReaderAssistantMarkdownBlock` em `:653`, `ReaderAssistantMarkdown` em `:732`); painel e dashboard mostram `Text` cru (`AssistantPanel.swift:509`, `DashboardScreen.swift:430`).
+Markdown is rendered only in `ReaderIntelligencePopover` (`ReaderAssistantMarkdownBlock` at `:653`, `ReaderAssistantMarkdown` at `:732`); the panel and dashboard show raw `Text` (`AssistantPanel.swift:509`, `DashboardScreen.swift:430`).
 
 **Files**
-- Create `Packages/UNIShell/Sources/UNIShell/Support/AssistantMarkdown.swift` (recorte de `ReaderIntelligencePopover.swift:651-792`)
-- Modify `Packages/UNIShell/Sources/UNIShell/Inbox/ReaderIntelligencePopover.swift` (apagar as duas definições; a chamada em `:344` continua igual, só muda o nome do tipo)
+- Create `Packages/UNIShell/Sources/UNIShell/Support/AssistantMarkdown.swift` (extracted from `ReaderIntelligencePopover.swift:651-792`)
+- Modify `Packages/UNIShell/Sources/UNIShell/Inbox/ReaderIntelligencePopover.swift` (delete the two definitions; the call at `:344` stays the same, only the type name changes)
 - Create `Packages/UNIShell/Tests/UNIShellTests/AssistantMarkdownTests.swift`
-- Modify `Packages/UNIShell/Tests/UNIShellTests/` — o conjunto que hoje testa `ReaderAssistantMarkdownBlock.parse` (procure com `git grep -l ReaderAssistantMarkdownBlock -- Packages/UNIShell/Tests`) passa a citar `AssistantMarkdownBlock`
+- Modify `Packages/UNIShell/Tests/UNIShellTests/` — the suite that currently tests `ReaderAssistantMarkdownBlock.parse` (find it with `git grep -l ReaderAssistantMarkdownBlock -- Packages/UNIShell/Tests`) now cites `AssistantMarkdownBlock`
 
 **Interfaces**
 - Produces:
@@ -1412,7 +1412,7 @@ Markdown só é renderizado em `ReaderIntelligencePopover` (`ReaderAssistantMark
 
 **Steps**
 
-- [ ] Escrever o teste que falha. `Packages/UNIShell/Tests/UNIShellTests/AssistantMarkdownTests.swift`:
+- [ ] Write the failing test. `Packages/UNIShell/Tests/UNIShellTests/AssistantMarkdownTests.swift`:
       ```swift
       import AppKit
       import Foundation
@@ -1455,15 +1455,15 @@ Markdown só é renderizado em `ReaderIntelligencePopover` (`ReaderAssistantMark
       }
       ```
 
-- [ ] Rodar e ver falhar:
+- [ ] Run it and see it fail:
       ```bash
       swift test --package-path Packages/UNIShell --filter AssistantMarkdownTests
       ```
-      Esperado: `cannot find 'AssistantMarkdownBlock' in scope`.
+      Expected: `cannot find 'AssistantMarkdownBlock' in scope`.
 
-- [ ] Mover o código. Criar `Support/AssistantMarkdown.swift` com o conteúdo integral de `ReaderIntelligencePopover.swift:651-792`, renomeando `ReaderAssistantMarkdownBlock` → `AssistantMarkdownBlock` e `ReaderAssistantMarkdown` → `AssistantMarkdown`, e trocando `private struct ReaderAssistantMarkdown` por `struct AssistantMarkdown` (deixa de ser `private` porque painel, dashboard e janela de mensagem passam a usá-lo). Apagar as duas definições do popover.
+- [ ] Move the code. Create `Support/AssistantMarkdown.swift` with the complete contents of `ReaderIntelligencePopover.swift:651-792`, renaming `ReaderAssistantMarkdownBlock` → `AssistantMarkdownBlock` and `ReaderAssistantMarkdown` → `AssistantMarkdown`, and changing `private struct ReaderAssistantMarkdown` to `struct AssistantMarkdown` (it is no longer `private` because the panel, dashboard, and message window will use it). Delete the two definitions from the popover.
 
-- [ ] Propagar o nome:
+- [ ] Propagate the name:
       ```bash
       perl -pi -e '
         s/\bReaderAssistantMarkdownBlock\b/AssistantMarkdownBlock/g;
@@ -1472,7 +1472,7 @@ Markdown só é renderizado em `ReaderIntelligencePopover` (`ReaderAssistantMark
       git grep -n ReaderAssistantMarkdown -- '*.swift' || echo "nome antigo eliminado"
       ```
 
-- [ ] Adotar no painel. Em `Packages/UNIShell/Sources/UNIShell/Inbox/AssistantPanel.swift`, dentro de `messageBubble` (linha 509), trocar
+- [ ] Adopt it in the panel. In `Packages/UNIShell/Sources/UNIShell/Inbox/AssistantPanel.swift`, inside `messageBubble` (line 509), replace
       ```swift
       Text(message.text)
           .font(theme.sans.font(size: 12.5))
@@ -1480,7 +1480,7 @@ Markdown só é renderizado em `ReaderIntelligencePopover` (`ReaderAssistantMark
           .fixedSize(horizontal: false, vertical: true)
           .textSelection(.enabled)
       ```
-      por
+      with
       ```swift
       // Turno de rascunho é prosa de email: asterisco e hífen ali são
       // literais que a pessoa vai colar no composer.
@@ -1494,13 +1494,13 @@ Markdown só é renderizado em `ReaderIntelligencePopover` (`ReaderAssistantMark
           AssistantMarkdown(text: message.text)
       }
       ```
-      (`message.kind` chega na Task 8; até lá use só `message.speaker == .user` e complete a condição naquela tarefa.)
+      (`message.kind` arrives in Task 8; until then use only `message.speaker == .user` and complete the condition in that task.)
 
-- [ ] Rodar e ver passar:
+- [ ] Run it and see it pass:
       ```bash
       swift test --package-path Packages/UNIShell
       ```
-      Esperado: suíte verde, inclusive os conjuntos do popover que já testavam o parser.
+      Expected: green suite, including the popover suites that already tested the parser.
 
 - [ ] Commit:
       ```bash
@@ -1514,16 +1514,16 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-### Task 8: `AssistantConversation`, a única máquina de estado (spec 1.3)
+### Task 8: `AssistantConversation`, the sole state machine (spec 1.3)
 
-Hoje existem duas: a do painel (`AssistantPanel.swift:184-276`) e a reimplementada em `DashboardScreen.run/runDraft/runSuggestion` (`:728-778`). Nenhuma cancela; nenhuma tem `Task` guardado; o rascunho do dashboard vai por `answer()`, cujo prompt pede Markdown, e volta com `**` e listas.
+There are two today: the panel's (`AssistantPanel.swift:184-276`) and the one reimplemented in `DashboardScreen.run/runDraft/runSuggestion` (`:728-778`). Neither cancels; neither stores a `Task`; the dashboard draft goes through `answer()`, whose prompt asks for Markdown, and comes back with `**` and lists.
 
-> **Desvio consciente da spec, forçado pelo Swift:** a spec pede `func briefing()` (§1.3) **e** `AssistantConversation.briefing: String?` (§2.5). Swift recusa: `invalid redeclaration of 'briefing()'` (conferido com `swiftc`). O método fica com o nome da spec; a propriedade vira `briefingText: String?`.
+> **Conscious spec deviation, forced by Swift:** the spec requests `func briefing()` (§1.3) **and** `AssistantConversation.briefing: String?` (§2.5). Swift refuses: `invalid redeclaration of 'briefing()'` (verified with `swiftc`). The method keeps the spec's name; the property becomes `briefingText: String?`.
 
 **Files**
 - Create `Packages/UNIShell/Sources/UNIShell/Inbox/AssistantConversation.swift`
-- Modify `Packages/UNIShell/Sources/UNIShell/Inbox/AssistantPanel.swift` (apagar a classe das linhas 184–276; mover `AssistantMessage`, `AssistantSpeaker`, `AssistantRequest` e `AssistantPanelDebugState` para o arquivo novo; o `AssistantPanel` passa a **receber** a conversa)
-- Modify `Packages/UNIShell/Sources/UNIShell/Support/AssistantBridge.swift` (fábrica do motor)
+- Modify `Packages/UNIShell/Sources/UNIShell/Inbox/AssistantPanel.swift` (delete the class from lines 184–276; move `AssistantMessage`, `AssistantSpeaker`, `AssistantRequest`, and `AssistantPanelDebugState` to the new file; `AssistantPanel` starts **receiving** the conversation)
+- Modify `Packages/UNIShell/Sources/UNIShell/Support/AssistantBridge.swift` (engine factory)
 - Create `Packages/UNIShell/Tests/UNIShellTests/AssistantConversationTests.swift`
 
 **Interfaces**
@@ -1591,7 +1591,7 @@ Hoje existem duas: a do painel (`AssistantPanel.swift:184-276`) e a reimplementa
 
 **Steps**
 
-- [ ] Escrever os testes que falham. `Packages/UNIShell/Tests/UNIShellTests/AssistantConversationTests.swift`:
+- [ ] Write the failing tests. `Packages/UNIShell/Tests/UNIShellTests/AssistantConversationTests.swift`:
       ```swift
       import Foundation
       import Testing
@@ -1790,7 +1790,7 @@ Hoje existem duas: a do painel (`AssistantPanel.swift:184-276`) e a reimplementa
           }
       }
       ```
-      E, no próprio `AssistantConversation.swift`, o auxiliar que os testes usam para esperar o `Task` guardado sem dormir:
+      And in `AssistantConversation.swift` itself, the helper the tests use to wait for the stored `Task` without sleeping:
       ```swift
       #if DEBUG
       public extension AssistantConversation {
@@ -1801,13 +1801,13 @@ Hoje existem duas: a do painel (`AssistantPanel.swift:184-276`) e a reimplementa
       #endif
       ```
 
-- [ ] Rodar e ver falhar:
+- [ ] Run it and see it fail:
       ```bash
       swift test --package-path Packages/UNIShell --filter AssistantConversationTests
       ```
-      Esperado: `cannot find 'AssistantEngine' in scope`, `extra argument 'scope' in call`, `value of type 'AssistantConversation' has no member 'draftReply'`.
+      Expected: `cannot find 'AssistantEngine' in scope`, `extra argument 'scope' in call`, `value of type 'AssistantConversation' has no member 'draftReply'`.
 
-- [ ] Implementar a máquina. `Packages/UNIShell/Sources/UNIShell/Inbox/AssistantConversation.swift`:
+- [ ] Implement the machine. `Packages/UNIShell/Sources/UNIShell/Inbox/AssistantConversation.swift`:
       ```swift
       import Foundation
       import Observation
@@ -2100,9 +2100,9 @@ Hoje existem duas: a do painel (`AssistantPanel.swift:184-276`) e a reimplementa
       }
       #endif
       ```
-      `currentTask` precisa ser visível na extensão `#if DEBUG` do mesmo arquivo: deixe-o `private` e a extensão no **mesmo** arquivo (extensão no mesmo arquivo enxerga `private`).
+      `currentTask` must be visible to the `#if DEBUG` extension in the same file: leave it `private` and keep the extension in the **same** file (an extension in the same file can see `private`).
 
-- [ ] Construir o motor na ponte. Acrescentar a `Packages/UNIShell/Sources/UNIShell/Support/AssistantBridge.swift`:
+- [ ] Build the engine in the bridge. Add to `Packages/UNIShell/Sources/UNIShell/Support/AssistantBridge.swift`:
       ```swift
       public extension AssistantBridge {
           /// O contexto é resolvido **no momento da chamada**: a mensagem aberta
@@ -2141,7 +2141,7 @@ Hoje existem duas: a do painel (`AssistantPanel.swift:184-276`) e a reimplementa
           }
       }
       ```
-      `AssistantBridge.answer` (linhas 21–46 do arquivo) já corta o turno do usuário duplicado; deixe-o como está, apenas troque o teto do histórico para `AssistantConversation.maximumHistoryTurns` na hora de montar `turns`:
+      `AssistantBridge.answer` (lines 21–46 of the file) already removes the duplicate user turn; leave it as is, only change the history cap to `AssistantConversation.maximumHistoryTurns` when building `turns`:
       ```swift
       let turns = history.suffix(AssistantConversation.maximumHistoryTurns).map { message in
           AssistantTurn(
@@ -2151,7 +2151,7 @@ Hoje existem duas: a do painel (`AssistantPanel.swift:184-276`) e a reimplementa
       }
       ```
 
-- [ ] Fazer o painel receber a conversa em vez de criá-la. Em `AssistantPanel.swift`, trocar `@State private var conversation` (linha 288) e o `init` (linhas 299–322) por:
+- [ ] Make the panel receive the conversation instead of creating it. In `AssistantPanel.swift`, replace `@State private var conversation` (line 288) and the `init` (lines 299–322) with:
       ```swift
       private let conversation: AssistantConversation
       private let onClose: () -> Void
@@ -2172,7 +2172,7 @@ Hoje existem duas: a do painel (`AssistantPanel.swift:184-276`) e a reimplementa
           self.onClose = onClose
       }
       ```
-      O cabeçalho passa a mostrar `conversation.destination.label.uppercased()` no lugar de `providerLabel`; o rodapé (`mode.footer`, linha 620) passa a mostrar `conversation.destination.detail`; a faixa de erro (linhas 532–565) é substituída por
+      The header now shows `conversation.destination.label.uppercased()` instead of `providerLabel`; the footer (`mode.footer`, line 620) now shows `conversation.destination.detail`; the error band (lines 532–565) is replaced by
       ```swift
       if let failure = conversation.failure {
           AssistantFailureBand(
@@ -2182,25 +2182,25 @@ Hoje existem duas: a do painel (`AssistantPanel.swift:184-276`) e a reimplementa
           )
       }
       ```
-      e `submit()` (linha 629) vira `conversation.submit()`; `suggestionButton` chama `conversation.run(suggestion)` sem `Task`; o botão de limpar chama `conversation.clear`.
+      and `submit()` (line 629) becomes `conversation.submit()`; `suggestionButton` calls `conversation.run(suggestion)` without a `Task`; the clear button calls `conversation.clear`.
 
-- [ ] Fechar a superfície cancela. Em `AssistantPanel.body`, acrescentar depois de `.accessibilityIdentifier("local-assistant-panel")`:
+- [ ] Closing the surface cancels. In `AssistantPanel.body`, add after `.accessibilityIdentifier("local-assistant-panel")`:
       ```swift
       .onDisappear { conversation.cancel() }
       ```
-      e mudar o identificador para `"assistant-panel"` (a cópia "local" também some daqui). Atualize `AssistantPanelTests` e `InboxAssistantIntegrationTests` que procuram o identificador antigo:
+      and change the identifier to `"assistant-panel"` (the "local" copy disappears here too). Update `AssistantPanelTests` and `InboxAssistantIntegrationTests` that look for the old identifier:
       ```bash
       git grep -n 'local-assistant-panel' -- '*.swift'
       ```
 
-- [ ] Rodar e ver passar:
+- [ ] Run it and see it pass:
       ```bash
       swift test --package-path Packages/UNIShell --filter AssistantConversationTests
       swift test --package-path Packages/UNIShell
       ```
-      Esperado: `✔ Test run with 8 tests in 1 suite passed` e depois a suíte inteira verde. `InboxScreen`, `MessageWindow`, `ReaderPane` e `DashboardScreen` ainda passam pelo caminho antigo — se a compilação quebrar neles, a Task 9 é quem os move; nesta tarefa faça o mínimo para compilar (construir a `AssistantConversation` no ponto onde hoje se constrói o painel).
+      Expected: `✔ Test run with 8 tests in 1 suite passed`, followed by the full green suite. `InboxScreen`, `MessageWindow`, `ReaderPane`, and `DashboardScreen` still use the old path — if compilation breaks there, Task 9 moves them; in this task, do the minimum needed to compile (construct the `AssistantConversation` where the panel is currently constructed).
 
-- [ ] Provar por mutação: troque `kind: .draft` por `kind: .message` no ramo `.draftReply` e confirme que `draftReplyUsesTransform` falha; desfaça. Troque `engine.draftReply(request)` por `engine.answer(request)` e confirme que o mesmo teste falha por `spy.answers` não estar vazio; desfaça. Troque `maximumHistoryTurns` para 20 e confirme que `historyIsCappedAtSixteen` falha; desfaça.
+- [ ] Prove it by mutation: change `kind: .draft` to `kind: .message` in the `.draftReply` branch and confirm that `draftReplyUsesTransform` fails; undo. Change `engine.draftReply(request)` to `engine.answer(request)` and confirm the same test fails because `spy.answers` is not empty; undo. Change `maximumHistoryTurns` to 20 and confirm that `historyIsCappedAtSixteen` fails; undo.
 
 - [ ] Commit:
       ```bash
@@ -2215,15 +2215,15 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-### Task 9: Dashboard, janela de mensagem e popover consomem a conversa (spec 1.3)
+### Task 9: Dashboard, message window, and popover consume the conversation (spec 1.3)
 
-`DashboardScreen.run/runDraft/runSuggestion` somem. "Gerar rascunho" passa a chamar `draftReply()`.
+`DashboardScreen.run/runDraft/runSuggestion` disappear. "Gerar rascunho" now calls `draftReply()`.
 
 **Files**
-- Modify `Packages/UNIShell/Sources/UNIShell/Inbox/DashboardScreen.swift` (`init` em `:37-64`; `transcriptList` em `:429-447`; `draftButton` em `:448-465`; `askScope`/`run` em `:695-778`)
-- Modify `Packages/UNIShell/Sources/UNIShell/Inbox/InboxScreen.swift` (`assistantPanel` em `:660-676`; `askAssistant` em `:686-712`)
+- Modify `Packages/UNIShell/Sources/UNIShell/Inbox/DashboardScreen.swift` (`init` at `:37-64`; `transcriptList` at `:429-447`; `draftButton` at `:448-465`; `askScope`/`run` at `:695-778`)
+- Modify `Packages/UNIShell/Sources/UNIShell/Inbox/InboxScreen.swift` (`assistantPanel` at `:660-676`; `askAssistant` at `:686-712`)
 - Modify `Packages/UNIShell/Sources/UNIShell/Windows/MessageWindow.swift` (`:18-37`, `:70-82`)
-- Modify `Packages/UNIShell/Sources/UNIShell/Inbox/ReaderIntelligencePopover.swift` (recebe `AssistantConversation`)
+- Modify `Packages/UNIShell/Sources/UNIShell/Inbox/ReaderIntelligencePopover.swift` (receives `AssistantConversation`)
 - Modify `Packages/UNIShell/Tests/UNIShellTests/DashboardScreenTests.swift`
 
 **Interfaces**
@@ -2247,11 +2247,11 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
       )
   }
   ```
-  `transcript`, `draft` e `onAsk` saem do `init`: o transcript agora é `conversation.messages`, o campo é `conversation.draft` e a rota é `conversation.ask/draftReply`.
+`transcript`, `draft`, and `onAsk` are removed from `init`: the transcript is now `conversation.messages`, the field is `conversation.draft`, and the route is `conversation.ask/draftReply`.
 
 **Steps**
 
-- [ ] Escrever o teste que falha. Acrescentar a `Packages/UNIShell/Tests/UNIShellTests/DashboardScreenTests.swift`:
+- [ ] Write the failing test. Add to `Packages/UNIShell/Tests/UNIShellTests/DashboardScreenTests.swift`:
       ```swift
       @Test("\"Gerar rascunho\" chama draftReply(), não ask()")
       func draftButtonUsesDraftReply() async throws {
@@ -2294,18 +2294,18 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
           #expect(!source.contains("@State private var errorMessage"))
       }
       ```
-      O segundo teste lê o próprio arquivo-fonte: é grosseiro de propósito. A spec manda **remover** os três métodos, e nenhuma asserção de comportamento prova remoção — só a ausência do texto prova.
+      The second test reads its own source file: it is deliberately crude. The spec says to **remove** the three methods, and no behavioral assertion proves removal—only the absence of the text proves it.
 
-- [ ] Rodar e ver falhar:
+- [ ] Run it and see it fail:
       ```bash
       swift test --package-path Packages/UNIShell --filter DashboardScreenTests
       ```
-      Esperado: `extra argument 'conversation' in call` e, em `dashboardHasNoOwnStateMachine`, quatro `#expect` falhando com `Expectation failed: !source.contains("private func run(")`.
+      Expected: `extra argument 'conversation' in call` and, in `dashboardHasNoOwnStateMachine`, four `#expect` assertions failing with `Expectation failed: !source.contains("private func run(")`.
 
-- [ ] Trocar o `init` e o corpo do dashboard. Em `DashboardScreen.swift`:
-      - apagar `@Binding var transcript`, `@Binding var draft`, `let onAsk`, `@State private var loading`, `@State private var errorMessage`, `static let briefingQuestion` (ela agora é `AssistantConversation.briefingQuestion`) e os três métodos `run`, `runDraft`, `runSuggestion` (linhas 728–778);
-      - acrescentar `let conversation: AssistantConversation` e `let onOpenSettings: () -> Void`;
-      - `transcriptList` (linha 429) passa a iterar `conversation.messages` e a renderizar:
+- [ ] Replace the dashboard `init` and body. In `DashboardScreen.swift`:
+      - remove `@Binding var transcript`, `@Binding var draft`, `let onAsk`, `@State private var loading`, `@State private var errorMessage`, `static let briefingQuestion` (it is now `AssistantConversation.briefingQuestion`), and the three methods `run`, `runDraft`, `runSuggestion` (lines 728–778);
+      - add `let conversation: AssistantConversation` and `let onOpenSettings: () -> Void`;
+      - `transcriptList` (line 429) now iterates `conversation.messages` and renders:
         ```swift
         ForEach(conversation.messages) { message in
             VStack(alignment: .leading, spacing: 4) {
@@ -2324,7 +2324,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
             }
         }
         ```
-      - `draftButton` (linha 448) vira:
+      - `draftButton` (line 448) becomes:
         ```swift
         private func draftButton(_ focus: DashboardFocus) -> some View {
             Button {
@@ -2350,7 +2350,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
             .accessibilityLabel(conversation.canDraftReply ? "Gerar rascunho" : "Gerar briefing")
         }
         ```
-      - a faixa de erro passa a ser
+      - the error band becomes
         ```swift
         if let failure = conversation.failure {
             AssistantFailureBand(
@@ -2360,7 +2360,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
             )
         }
         ```
-      - o briefing gerado aparece acima do campo, em superfície plana e hairline (nada de cartão flutuante — a faixa desenhada da §2.2 é do sub-projeto 2):
+      - the generated briefing appears above the field, on a flat surface with a hairline (no floating card—the band designed in §2.2 belongs to sub-project 2):
         ```swift
         @ViewBuilder
         private var briefingBand: some View {
@@ -2377,15 +2377,15 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
             }
         }
         ```
-      - o campo mostra o destino embaixo:
+      - the field shows the destination below:
         ```swift
         Text(conversation.destination.label)
             .font(theme.sans.font(size: 11))
             .foregroundStyle(theme.ink3.color)
         ```
-      - `DashboardMailSheet`'s `onDraft` (linha 92) passa a `{ message in readingMailID = nil; selectedMailID = message.id; conversation.draftReply() }`.
+      - `DashboardMailSheet`'s `onDraft` (line 92) becomes `{ message in readingMailID = nil; selectedMailID = message.id; conversation.draftReply() }`.
 
-- [ ] Dono da conversa no `InboxScreen`. Em `InboxScreen.swift`, trocar `@State private var assistantTranscript`/`assistantDraft` (procure com `git grep -n 'assistantTranscript\|assistantDraft' -- Packages/UNIShell`) por:
+- [ ] Conversation owner in `InboxScreen`. In `InboxScreen.swift`, replace `@State private var assistantTranscript`/`assistantDraft` (search with `git grep -n 'assistantTranscript\|assistantDraft' -- Packages/UNIShell`) with:
       ```swift
       @State private var assistantConversation: AssistantConversation?
 
@@ -2426,18 +2426,18 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
           }
       }
       ```
-      `openWorkspaceAssistant()`/`openEmailAssistant()` passam a fazer `assistantConversation = makeConversation(for: scope)`; `closeAssistant()` chama `assistantConversation?.cancel()`. `assistantPanel` passa `conversation:` e `onOpenSettings: openAccounts`.
+`openWorkspaceAssistant()`/`openEmailAssistant()` now assign `assistantConversation = makeConversation(for: scope)`; `closeAssistant()` calls `assistantConversation?.cancel()`. `assistantPanel` passes `conversation:` and `onOpenSettings: openAccounts`.
 
-- [ ] `MessageWindow` recebe a conversa. Em `MessageWindow.swift`, trocar `textAssistant`/`assistantSettings`/`assistantProviderLabel` (linhas 18–19, 49) por `let conversation: AssistantConversation?` e passar `conversation` ao `AssistantPanel` (linha 70). Quem constrói é `App/OkamiUNIApp.swift`, na cena `UNIWindow.message`.
+- [ ] `MessageWindow` receives the conversation. In `MessageWindow.swift`, replace `textAssistant`/`assistantSettings`/`assistantProviderLabel` (lines 18–19, 49) with `let conversation: AssistantConversation?` and pass `conversation` to `AssistantPanel` (line 70). The constructor is `App/OkamiUNIApp.swift`, in the `UNIWindow.message` scene.
 
-- [ ] `ReaderIntelligencePopover` recebe a conversa. Trocar o `onAsk`/estado interno pelo mesmo padrão: `let conversation: AssistantConversation`, `onGenerateReply` passa a ser `conversation.draftReply()` e "Usar no composer" lê `conversation.messages.last(where: { $0.kind == .draft })?.text`. `ReaderPane.generateReply(for:)` (`:870-892`) é apagado: ele existia só para o popover, e agora o caminho é o mesmo `transform(.draftReply)` da conversa.
+- [ ] `ReaderIntelligencePopover` receives the conversation. Replace the `onAsk`/internal state with the same pattern: `let conversation: AssistantConversation`, `onGenerateReply` becomes `conversation.draftReply()`, and "Usar no composer" reads `conversation.messages.last(where: { $0.kind == .draft })?.text`. `ReaderPane.generateReply(for:)` (`:870-892`) is deleted: it existed only for the popover, and the route is now the same `transform(.draftReply)` path through the conversation.
 
-- [ ] Rodar e ver passar:
+- [ ] Run and see it pass:
       ```bash
       swift test --package-path Packages/UNIShell
       xcodegen generate && xcodebuild -project OkamiUNI.xcodeproj -scheme OkamiUNI -configuration Debug build 2>&1 | grep -E "error:|BUILD"
       ```
-      Esperado: suíte verde e `** BUILD SUCCEEDED **`.
+      Expected: green suite and `** BUILD SUCCEEDED **`.
 
 - [ ] Commit:
       ```bash
@@ -2451,21 +2451,21 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-### Task 10: `AssistantAvailability`, `didChange` e a apresentação honesta (spec 1.5)
+### Task 10: `AssistantAvailability`, `didChange`, and honest presentation (spec 1.5)
 
-`AssistantRouter.availability()` não tem chamador fora dos testes; `IntelligencePresentation` é `.configuredAssistant` cravado em `App/OkamiUNIApp.swift:136` e `:259`. Não existe estado "não configurado".
+`AssistantRouter.availability()` has no caller outside the tests; `IntelligencePresentation` is hard-coded as `.configuredAssistant` in `App/OkamiUNIApp.swift:136` and `:259`. There is no "not configured" state.
 
 **Files**
 - Create `Packages/UNISync/Sources/UNISync/AssistantAvailability.swift`
-- Modify `Packages/UNISync/Sources/UNISync/AssistantRouter.swift` (`availability()` em `:59-102`)
+- Modify `Packages/UNISync/Sources/UNISync/AssistantRouter.swift` (`availability()` at `:59-102`)
 - Modify `Packages/UNISync/Sources/UNISync/AssistantSettingsStore.swift`
 - Modify `Packages/UNISync/Sources/UNISync/AppComposition.swift`
-- Modify `Packages/UNIShell/Sources/UNIShell/Inbox/FolderSidebar.swift` (`IntelligencePresentation` em `:11-84`)
+- Modify `Packages/UNIShell/Sources/UNIShell/Inbox/FolderSidebar.swift` (`IntelligencePresentation` at `:11-84`)
 - Modify `App/OkamiUNIApp.swift` (`:136`, `:259`)
 - Create `Packages/UNISync/Tests/UNISyncTests/AssistantAvailabilityTests.swift`
 - Modify `Packages/UNIShell/Tests/UNIShellTests/IntelligenceFooterTests.swift`
 
-> **Desvio consciente da spec:** a spec diz que `AssistantRouter.availability()` "vira" `AssistantAvailability`. Não pode: `availability()` é requisito de `TextAssisting` e devolve `AppleIntelligenceAvailability`; `AssistantAvailability` mora em UNISync e carrega `AssistantDestination`, que UNICore não enxerga. O método rico chama-se `assistantAvailability()`; o do protocolo passa a ser derivado dele, e é assim que a fila de análise e o `MessageIntelligenceCoordinator` continuam funcionando.
+> **Conscious deviation from the spec:** the spec says that `AssistantRouter.availability()` "becomes" `AssistantAvailability`. It cannot: `availability()` is a `TextAssisting` requirement and returns `AppleIntelligenceAvailability`; `AssistantAvailability` lives in `UNISync` and carries `AssistantDestination`, which `UNICore` cannot see. The rich method is named `assistantAvailability()`; the protocol method is derived from it, and this is how the analysis queue and `MessageIntelligenceCoordinator` continue to work.
 
 **Interfaces**
 - Produces:
@@ -2501,7 +2501,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Steps**
 
-- [ ] Escrever o teste que falha. `Packages/UNISync/Tests/UNISyncTests/AssistantAvailabilityTests.swift`:
+- [ ] Write the failing test. `Packages/UNISync/Tests/UNISyncTests/AssistantAvailabilityTests.swift`:
       ```swift
       import Foundation
       import Testing
@@ -2629,13 +2629,13 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
       }
       ```
 
-- [ ] Rodar e ver falhar:
+- [ ] Run it and see it fail:
       ```bash
       swift test --package-path Packages/UNISync --filter AssistantAvailabilityTests
       ```
-      Esperado: `cannot find 'AssistantAvailability' in scope` e `value of type 'AssistantSettingsStore' has no member 'addDidChangeHandler'`.
+      Expected: `cannot find 'AssistantAvailability' in scope` and `value of type 'AssistantSettingsStore' has no member 'addDidChangeHandler'`.
 
-- [ ] Implementar `AssistantAvailability`. `Packages/UNISync/Sources/UNISync/AssistantAvailability.swift`:
+- [ ] Implement `AssistantAvailability`. `Packages/UNISync/Sources/UNISync/AssistantAvailability.swift`:
       ```swift
       import Foundation
       import Observation
@@ -2717,7 +2717,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
       }
       ```
 
-- [ ] Publicar mudanças no cofre de preferências. Em `AssistantSettingsStore.swift`, acrescentar ao corpo da classe:
+- [ ] Publish changes from the preference store. In `AssistantSettingsStore.swift`, add to the class body:
       ```swift
       private var didChangeHandlers: [@Sendable (AssistantSettings) -> Void] = []
 
@@ -2736,7 +2736,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
           for handler in handlers { handler(settings) }
       }
       ```
-      e, no fim de `save(_:)` (linha 49), depois de `cached = normalized` e **fora** do escopo do lock:
+      and, at the end of `save(_:)` (line 49), after `cached = normalized` and **outside** the lock scope:
       ```swift
       @discardableResult
       public func save(_ settings: AssistantSettings) throws -> AssistantSettings {
@@ -2755,7 +2755,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
       }
       ```
 
-- [ ] Implementar o cálculo no roteador. Em `AssistantRouter.swift`, substituir `availability()` (linhas 59–102) por:
+- [ ] Implement the calculation in the router. In `AssistantRouter.swift`, replace `availability()` (lines 59–102) with:
       ```swift
       public nonisolated func destination() -> AssistantDestination {
           AssistantDestination(settings: settingsStore.snapshot())
@@ -2834,7 +2834,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
       }
       ```
 
-- [ ] Refazer `IntelligencePresentation`. Em `FolderSidebar.swift`, substituir o enum (linhas 11–84) por:
+- [ ] Rework `IntelligencePresentation`. In `FolderSidebar.swift`, replace the enum (lines 11–84) with:
       ```swift
       /// O que a lateral pode afirmar sobre o assistente neste momento.
       /// Deixou de ser `CaseIterable`: os casos carregam o destino, e é ele que
@@ -2924,7 +2924,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
           public var actionHelp: String { isAvailable ? "Abre o assistente global para suas caixas, emails e agenda." : detail }
       }
       ```
-      `usesConfiguredProvider` some (só existia para escolher o glifo). `IntelligenceFooter` (a partir da linha 86) ganha, quando `!isAvailable`, um segundo botão:
+      `usesConfiguredProvider` is removed (it existed only to choose the glyph). `IntelligenceFooter` (from line 86 onward) gains, when `!isAvailable`, a second button:
       ```swift
       if !presentation.isAvailable {
           ChromeButton("Abrir Ajustes", appearance: .outlined,
@@ -2933,9 +2933,9 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
               .help(presentation.detail)
       }
       ```
-      com `let onOpenSettings: () -> Void` novo na struct; `SidebarRail` passa a mesma closure.
+      with a new `let onOpenSettings: () -> Void` in the struct; `SidebarRail` passes the same closure.
 
-- [ ] Ligar na composição. Em `AppComposition.swift`, acrescentar a propriedade e montá-la em `make` (linhas 148–158):
+- [ ] Wire it into the composition. In `AppComposition.swift`, add the property and instantiate it in `make` (lines 148–158):
       ```swift
       /// Recalculado a cada save das preferências; a interface só observa.
       public let assistantAvailability: AssistantAvailabilityModel
@@ -2954,18 +2954,18 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
           probe: { await router.assistantAvailability() }
       )
       ```
-      e passar `assistantAvailability:` nos dois `return AppComposition(...)` da função.
+      and pass `assistantAvailability:` in both `return AppComposition(...)` statements in the function.
 
-- [ ] Trocar a fiação do app. Em `App/OkamiUNIApp.swift`, linhas 136 e 259, `intelligencePresentation: .configuredAssistant` vira:
+- [ ] Update the app wiring. In `App/OkamiUNIApp.swift`, on lines 136 and 259, `intelligencePresentation: .configuredAssistant` becomes:
       ```swift
       intelligencePresentation: IntelligencePresentation(composition.assistantAvailability.availability),
       ```
-      e a cena principal ganha, no `.task`, o primeiro cálculo:
+      and the main scene gains, in `.task`, the initial calculation:
       ```swift
       .task { await composition.assistantAvailability.refresh() }
       ```
 
-- [ ] Atualizar `IntelligenceFooterTests`: `allCases` não existe mais; a tabela da linha 18 passa a listar os casos à mão, e as asserções das linhas 66–78 sobre `.configuredAssistant`/`.available` viram:
+- [ ] Update `IntelligenceFooterTests`: `allCases` no longer exists; the table at line 18 now lists the cases by hand, and the assertions on lines 66–78 about `.configuredAssistant`/`.available` become:
       ```swift
       let remote = IntelligencePresentation.available(
           .init(label: "Grok · xAI", detail: "Sai deste Mac para a xAI.", isLocal: false)
@@ -2988,14 +2988,14 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
       #expect(missing.detail == "Adicione a chave de API deste provedor.")
       ```
 
-- [ ] Rodar e ver passar:
+- [ ] Run and see it pass:
       ```bash
       swift test --package-path Packages/UNISync
       swift test --package-path Packages/UNIShell
       xcodegen generate && xcodebuild -project OkamiUNI.xcodeproj -scheme OkamiUNI -configuration Debug build 2>&1 | grep -E "error:|BUILD"
       ```
 
-- [ ] Provar por mutação: faça `assistantAvailability()` devolver sempre `.ready(destination)` e confirme que `apiKeyMissingNeedsSetup`, `providerOAuthWithoutSession` e `cliNotFoundNeedsSetup` falham; desfaça.
+- [ ] Prove by mutation: make `assistantAvailability()` always return `.ready(destination)` and confirm that `apiKeyMissingNeedsSetup`, `providerOAuthWithoutSession`, and `cliNotFoundNeedsSetup` fail; undo it.
 
 - [ ] Commit:
       ```bash
@@ -3010,15 +3010,15 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-### Task 11: Cache de descoberta de CLIs e stderr capturado (spec 1.6)
+### Task 11: CLI discovery cache and captured stderr (spec 1.6)
 
-`AssistantCLIDiscovery().scan()` varre o disco a cada requisição (`AssistantRouter.swift:42`) e o stderr do processo filho vai para `/dev/null` (`AssistantCLITextAssistant.swift:187`) — é justamente lá que "not logged in" aparece.
+`AssistantCLIDiscovery().scan()` scans the disk for every request (`AssistantRouter.swift:42`), and the child process's stderr goes to `/dev/null` (`AssistantCLITextAssistant.swift:187`)—that is exactly where "not logged in" appears.
 
 **Files**
 - Create `Packages/UNISync/Sources/UNISync/CachedAssistantCLIDiscovery.swift`
-- Modify `Packages/UNISync/Sources/UNISync/AssistantCLITextAssistant.swift` (`AssistantCLITextAssistantError` em `:301-323`; executor em `:118-200`; tratamento do resultado em `:531-549`)
+- Modify `Packages/UNISync/Sources/UNISync/AssistantCLITextAssistant.swift` (`AssistantCLITextAssistantError` at `:301-323`; executor at `:118-200`; result handling at `:531-549`)
 - Modify `Packages/UNISync/Sources/UNISync/AppComposition.swift`
-- Modify `Packages/UNIShell/Sources/UNIShell/Windows/SettingsSections.swift` (invalidar ao salvar)
+- Modify `Packages/UNIShell/Sources/UNIShell/Windows/SettingsSections.swift` (invalidate on save)
 - Create `Packages/UNISync/Tests/UNISyncTests/CachedAssistantCLIDiscoveryTests.swift`
 - Modify `Packages/UNISync/Tests/UNISyncTests/AssistantCLITextAssistantTests.swift`
 
@@ -3045,11 +3045,11 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
       case invalidResponse
   }
   ```
-- Consumes: `AssistantCLIProcessResult.standardError` (`AssistantCLITextAssistant.swift:10`) — o campo **já existe** e sempre chegou vazio.
+- Consumes: `AssistantCLIProcessResult.standardError` (`AssistantCLITextAssistant.swift:10`)—the field **already exists** and has always arrived empty.
 
 **Steps**
 
-- [ ] Escrever o teste que falha. `Packages/UNISync/Tests/UNISyncTests/CachedAssistantCLIDiscoveryTests.swift`:
+- [ ] Write the failing test. `Packages/UNISync/Tests/UNISyncTests/CachedAssistantCLIDiscoveryTests.swift`:
       ```swift
       import Foundation
       import Testing
@@ -3123,7 +3123,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
           }
       }
       ```
-      E, em `AssistantCLITextAssistantTests.swift`:
+      And, in `AssistantCLITextAssistantTests.swift`:
       ```swift
       @Test("o CLI que morreu entrega o stderr, não um silêncio")
       func processFailureCarriesStderr() async {
@@ -3152,15 +3152,15 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
           }
       }
       ```
-      (`StubAssistantCLIExecutor` já existe no conjunto atual; se o nome local for outro, use o que estiver lá.)
+      (`StubAssistantCLIExecutor` already exists in the current suite; if the local name is different, use the one that is there.)
 
-- [ ] Rodar e ver falhar:
+- [ ] Run it and see it fail:
       ```bash
       swift test --package-path Packages/UNISync --filter 'CachedAssistantCLIDiscoveryTests|AssistantCLITextAssistantTests'
       ```
-      Esperado: `cannot find 'CachedAssistantCLIDiscovery' in scope`; e `processFailureCarriesStderr` falhando porque o erro lançado é `.processFailed` sem payload.
+      Expected: `cannot find 'CachedAssistantCLIDiscovery' in scope`; and `processFailureCarriesStderr` fails because the thrown error is `.processFailed` without a payload.
 
-- [ ] Implementar o cache. `Packages/UNISync/Sources/UNISync/CachedAssistantCLIDiscovery.swift`:
+- [ ] Implement the cache. `Packages/UNISync/Sources/UNISync/CachedAssistantCLIDiscovery.swift`:
       ```swift
       import Foundation
 
@@ -3216,8 +3216,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
       }
       ```
 
-- [ ] Capturar o stderr. Em `AssistantCLITextAssistant.swift`:
-      - no executor, trocar `process.standardError = FileHandle.nullDevice` (linha 187) por um arquivo temporário irmão do `stdout`, com o mesmo padrão das linhas 161–174:
+- [ ] Capture stderr. In `AssistantCLITextAssistant.swift`:
+      - in the executor, replace `process.standardError = FileHandle.nullDevice` (line 187) with a temporary file next to `stdout`, using the same pattern as lines 161–174:
         ```swift
         let errorURL = workingDirectory.appendingPathComponent("stderr")
         guard fileManager.createFile(
@@ -3232,7 +3232,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
         defer { try? errorHandle.close() }
         process.standardError = errorHandle
         ```
-        e, onde hoje o resultado é montado com `standardError: Data()`, ler a **cauda** de 4 KiB:
+        and, where the result is currently built with `standardError: Data()`, read the **tail** of 4 KiB:
         ```swift
         /// Cauda, e não cabeça: a causa real ("not logged in", "model not
         /// found") vem na última linha, depois de banner e barra de progresso.
@@ -3249,12 +3249,12 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
             return (try? handle.readToEnd()) ?? Data()
         }
         ```
-      - o caso do erro (linha 306) vira `case processFailed(exitCode: Int32, stderrTail: String)` e sua descrição:
+      - the error case (line 306) becomes `case processFailed(exitCode: Int32, stderrTail: String)` and its description:
         ```swift
         case .processFailed:
             "O CLI de IA encerrou com erro."
         ```
-      - o tratamento do resultado (linhas 542 e 546–549) passa a carregar o payload:
+      - result handling (lines 542 and 546–549) now carries the payload:
         ```swift
         case .failedToStart:
             throw AssistantCLITextAssistantError.processFailed(exitCode: -1, stderrTail: "")
@@ -3268,33 +3268,33 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
             )
         }
         ```
-      Todo `catch { throw AssistantCLITextAssistantError.processFailed }` restante recebe `(exitCode: -1, stderrTail: "")`.
+      Every remaining `catch { throw AssistantCLITextAssistantError.processFailed }` receives `(exitCode: -1, stderrTail: "")`.
 
-- [ ] Ligar o cache. Em `AppComposition.make`, antes do roteador:
+- [ ] Wire in the cache. In `AppComposition.make`, before the router:
       ```swift
       let cliDiscovery = CachedAssistantCLIDiscovery()
       ```
-      e passar `cliInstallationProvider: { cliDiscovery.installations() }` ao `AssistantRouter`; expor `public let assistantCLIDiscovery: CachedAssistantCLIDiscovery` para os Ajustes poderem invalidar. Em `SettingsSections.swift`, o `save()` da IA (procure `private func save()` dentro de `GeneralSettingsView`) chama `assistantCLIDiscovery?.invalidate()` logo depois de `settingsStore.save(draft)`.
+      and pass `cliInstallationProvider: { cliDiscovery.installations() }` to `AssistantRouter`; expose `public let assistantCLIDiscovery: CachedAssistantCLIDiscovery` so Settings can invalidate it. In `SettingsSections.swift`, `save()` for AI (search for `private func save()` inside `GeneralSettingsView`) calls `assistantCLIDiscovery?.invalidate()` immediately after `settingsStore.save(draft)`.
 
-- [ ] Registrar a data das flags. Acima de `AssistantCLICommand.make` (`AssistantCLITextAssistant.swift:73-79`), acrescentar:
+- [ ] Record the flag date. Above `AssistantCLICommand.make` (`AssistantCLITextAssistant.swift:73-79`), add:
       ```swift
       // Conferido em 2026-09-01 contra os binários instalados nesta máquina:
       // `codex exec --json`, `claude --print --output-format json`,
       // `opencode --pure run --format json`. As flags existem; o defeito que
       // fazia o CLI parecer mudo era o stderr descartado, não o argv.
       ```
-      O conjunto que trava o argv continua como está.
+      The set that locks down argv remains unchanged.
 
-- [ ] Rodar e ver passar:
+- [ ] Run and see it pass:
       ```bash
       swift test --package-path Packages/UNISync
       ```
-      Esperado: suíte verde, e o `cliFailureShowsStderr` da Task 6 pode ser reabilitado agora:
+      Expected: green suite, and `cliFailureShowsStderr` from Task 6 can now be re-enabled:
       ```bash
       swift test --package-path Packages/UNIShell --filter AssistantFailureTests
       ```
 
-- [ ] Provar por mutação: devolva `Data()` em `standardErrorTail` e confirme que `processFailureCarriesStderr` e `cliFailureShowsStderr` falham; desfaça. Faça `installations()` sempre varrer e confirme que `scansOncePerWindow` falha; desfaça.
+- [ ] Prove by mutation: return `Data()` from `standardErrorTail` and confirm that `processFailureCarriesStderr` and `cliFailureShowsStderr` fail; undo. Make `installations()` always scan and confirm that `scansOncePerWindow` fails; undo.
 
 - [ ] Commit:
       ```bash
@@ -3308,9 +3308,9 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-### Task 12: Coordenadores OAuth viram `actor` (spec 1.6)
+### Task 12: OAuth coordinators become `actor` (spec 1.6)
 
-`LiteLLMOAuthCoordinator` (`:25-26`) e `AssistantProviderOAuthCoordinator` (`:37-38`) são `@MainActor`: toda chamada remota passa pela thread de interface para ler ou renovar token.
+`LiteLLMOAuthCoordinator` (`:25-26`) and `AssistantProviderOAuthCoordinator` (`:37-38`) are `@MainActor`: every remote call goes through the interface thread to read or renew a token.
 
 **Files**
 - Modify `Packages/UNISync/Sources/UNISync/LiteLLMOAuthCoordinator.swift`
@@ -3351,7 +3351,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Steps**
 
-- [ ] Escrever o teste que falha. Acrescentar a `Packages/UNISync/Tests/UNISyncTests/AssistantProviderOAuthTests.swift`:
+- [ ] Write the failing test. Add to `Packages/UNISync/Tests/UNISyncTests/AssistantProviderOAuthTests.swift`:
       ```swift
       @Test("o token é lido fora do ator principal, e o estado chega à interface")
       func tokenReadHappensOffMainActor() async throws {
@@ -3371,21 +3371,21 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
       }
       ```
 
-- [ ] Rodar e ver falhar:
+- [ ] Run it and see it fail:
       ```bash
       swift test --package-path Packages/UNISync --filter AssistantProviderOAuthTests
       ```
-      Esperado: `cannot find 'AssistantProviderOAuthSessionState' in scope`.
+      Expected: `cannot find 'AssistantProviderOAuthSessionState' in scope`.
 
-- [ ] Converter `AssistantProviderOAuthCoordinator`. Trocar `@MainActor public final class` (linhas 37–38) por `public actor`, apagar `public private(set) var status` (linha 39) e guardar `private let sessionState: AssistantProviderOAuthSessionState`. Todo ponto que hoje escreve `status = …` passa a:
+- [ ] Convert `AssistantProviderOAuthCoordinator`. Replace `@MainActor public final class` (lines 37–38) with `public actor`, remove `public private(set) var status` (line 39), and store `private let sessionState: AssistantProviderOAuthSessionState`. Every point that currently writes `status = …` becomes:
       ```swift
       private func publish(_ status: AssistantProviderOAuthStatus) async {
           await MainActor.run { self.sessionState.apply(status) }
       }
       ```
-      Onde o coordenador apresentar UI do sistema (login por navegador/dispositivo), o salto explícito para `MainActor.run` fica **no ponto da apresentação**, não no tipo inteiro: era esse o custo que fazia toda chamada remota atravessar a interface.
+      Wherever the coordinator presents system UI (browser/device login), the explicit jump to `MainActor.run` remains **at the presentation point**, rather than on the entire type: that was the cost that made every remote call cross the interface.
 
-- [ ] Criar o estado observável, no mesmo arquivo:
+- [ ] Create the observable state, in the same file:
       ```swift
       /// O que Ajustes desenha. Só status — nunca token, nunca endpoint com
       /// credencial. O ator publica; a tela observa.
@@ -3398,18 +3398,18 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
       }
       ```
 
-- [ ] Repetir para `LiteLLMOAuthCoordinator` (linhas 25–29 e todos os pontos que escrevem `status`).
+- [ ] Repeat for `LiteLLMOAuthCoordinator` (lines 25–29 and every point that writes `status`).
 
-- [ ] Ajustar a composição e os Ajustes. Em `AppComposition.make` (linhas 151–152):
+- [ ] Adjust composition and Settings. In `AppComposition.make` (lines 151–152):
       ```swift
       let liteLLMOAuthState = LiteLLMOAuthSessionState()
       let liteLLMOAuth = LiteLLMOAuthCoordinator(sessionState: liteLLMOAuthState)
       let assistantProviderOAuthState = AssistantProviderOAuthSessionState()
       let assistantProviderOAuth = AssistantProviderOAuthCoordinator(sessionState: assistantProviderOAuthState)
       ```
-      e expor os dois estados em `AppComposition` (`public let liteLLMOAuthState: LiteLLMOAuthSessionState`, idem para o outro). Em `SettingsSections.swift`, toda leitura de `coordinator.status` vira leitura do estado; toda chamada de método do coordenador ganha `await`.
+      and expose both states in `AppComposition` (`public let liteLLMOAuthState: LiteLLMOAuthSessionState`, and likewise for the other). In `SettingsSections.swift`, every read of `coordinator.status` becomes a read of the state; every coordinator method call gains `await`.
 
-- [ ] Rodar e ver passar:
+- [ ] Run and see it pass:
       ```bash
       swift test --package-path Packages/UNISync
       swift test --package-path Packages/UNIShell
@@ -3428,20 +3428,20 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-### Task 13: A cópia deixa de mentir (spec 1.2)
+### Task 13: The copy stops lying (spec 1.2)
 
-`AssistantScope.footer` diz "Usa todas as caixas e a agenda carregadas neste Mac" (`AssistantPanel.swift:113`) e a espera diz "Lendo o contexto local…" (`:572`) com Grok selecionado. `IntelligencePresentation.scopeLabel` dizia "· local".
+`AssistantScope.footer` says "Usa todas as caixas e a agenda carregadas neste Mac" (`AssistantPanel.swift:113`), and the waiting message says "Lendo o contexto local…" (`:572`) with Grok selected. `IntelligencePresentation.scopeLabel` said "· local".
 
 **Files**
 - Modify `Packages/UNIShell/Sources/UNIShell/Inbox/AssistantPanel.swift` (`:110-115`, `:567-578`)
-- Modify `Packages/UNIShell/Sources/UNIShell/Inbox/ReaderIntelligencePopover.swift` (título do popover)
-- Modify `Packages/UNIShell/Sources/UNIShell/Inbox/DashboardScreen.swift` (rodapé do campo)
+- Modify `Packages/UNIShell/Sources/UNIShell/Inbox/ReaderIntelligencePopover.swift` (popover title)
+- Modify `Packages/UNIShell/Sources/UNIShell/Inbox/DashboardScreen.swift` (field footer)
 - Modify `Packages/UNIShell/Sources/UNIShell/Windows/SettingsSections.swift` (`:282-283`, `:332`, `:1719-1736`)
 - Modify `Packages/UNIShell/Tests/UNIShellTests/AssistantPanelTests.swift`
 
 **Steps**
 
-- [ ] Escrever o teste que falha. Acrescentar a `AssistantPanelTests.swift`:
+- [ ] Write the failing test. Add to `AssistantPanelTests.swift`:
       ```swift
       @Test("com provedor remoto, nenhuma superfície promete processamento local")
       func remoteDestinationNeverPromisesLocal() async throws {
@@ -3477,13 +3477,13 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
       }
       ```
 
-- [ ] Rodar e ver falhar:
+- [ ] Run it and see it fail:
       ```bash
       swift test --package-path Packages/UNIShell --filter AssistantPanelTests
       ```
-      Esperado: `value of type 'AssistantScope' has no member 'footer(for:)'`.
+      Expected: `value of type 'AssistantScope' has no member 'footer(for:)'`.
 
-- [ ] Implementar. Em `AssistantPanel.swift`, substituir `var footer: String` (linhas 110–115) por:
+- [ ] Implement. In `AssistantPanel.swift`, replace `var footer: String` (lines 110–115) with:
       ```swift
       /// O rodapé é o destino, não uma promessa fixa. Foi essa frase, com Grok
       /// selecionado, que motivou a spec.
@@ -3495,19 +3495,19 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
               : "Falando com \(destination.label)…"
       }
       ```
-      O `loadingBand` (linha 567) passa a usar `conversation.scope.loadingLabel(for: conversation.destination)`; o composer (linha 620) usa `conversation.scope.footer(for: conversation.destination)`.
+      `loadingBand` (line 567) now uses `conversation.scope.loadingLabel(for: conversation.destination)`; the composer (line 620) uses `conversation.scope.footer(for: conversation.destination)`.
 
-- [ ] Varrer o resto da cópia:
+- [ ] Scan the rest of the copy:
       ```bash
       git grep -n -i 'neste Mac\|processamento local\|contexto local\|assistente local\|IA local\|Nada sai' -- 'Packages/*/Sources' 'App'
       ```
-      Cada ocorrência que **não** consulta `AssistantDestination.isLocal` é corrigida:
-      - `SettingsSections.swift:282-283` — a `SettingsNotice` de "Processamento local" continua, mas só no ramo `.foundationModels` (já é o caso) e o texto passa a "Perguntas e escrita usam o Foundation Models deste Mac. A análise automática de mensagens segue a rota escolhida abaixo." (a rota deixa de ser sempre local na Task 14).
-      - `SettingsSections.swift:332` — o texto do `assistantRoutingNotice` perde a promessa sobre o TL;DR: "Este é o destino usado quando você aciona Resumo, Pontos-chave, Insights ou Gerar resposta."
-      - `SettingsSections.swift:1719-1736` — `interactiveProviderLabel` é apagado; seus três chamadores (`:337`, `InboxScreen.swift:674`, `MessageWindow.swift:49`) passam a `AssistantDestination(settings: …).label`.
-      - `ReaderIntelligencePopover` — o título do popover ganha `· \(conversation.destination.label)`.
+      Every occurrence that does **not** consult `AssistantDestination.isLocal` is corrected:
+      - `SettingsSections.swift:282-283`—the `SettingsNotice` for "Processamento local" remains, but only in the `.foundationModels` branch (which is already the case), and the text becomes "Perguntas e escrita usam o Foundation Models deste Mac. A análise automática de mensagens segue a rota escolhida abaixo." (the route is no longer always local after Task 14).
+      - `SettingsSections.swift:332`—the `assistantRoutingNotice` text drops the promise about the TL;DR: "Este é o destino usado quando você aciona Resumo, Pontos-chave, Insights ou Gerar resposta."
+      - `SettingsSections.swift:1719-1736`—`interactiveProviderLabel` is removed; its three callers (`:337`, `InboxScreen.swift:674`, `MessageWindow.swift:49`) now pass `AssistantDestination(settings: …).label`.
+      - `ReaderIntelligencePopover`—the popover title gains `· \(conversation.destination.label)`.
 
-- [ ] Rodar e ver passar:
+- [ ] Run and see it pass:
       ```bash
       swift test --package-path Packages/UNIShell
       git grep -n 'Usa todas as caixas e a agenda carregadas neste Mac\|Lendo o contexto local' -- '*.swift' || echo "cópia mentirosa eliminada"
@@ -3526,19 +3526,19 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-### Task 14: Análise automática com opt-in e fila que pausa (spec 1.8)
+### Task 14: Automatic analysis with opt-in and a queue that pauses (spec 1.8)
 
-A análise persistida é sempre `FoundationModelsMessageAnalyzer` (`AppComposition.swift:148`), independente do provedor — e é a única coisa do app que roda **sem** a pessoa pedir. Torná-la remota sem opt-in seria mandar cada mensagem recebida para um servidor.
+Persisted analysis is always `FoundationModelsMessageAnalyzer` (`AppComposition.swift:148`), regardless of the provider—and it is the only thing in the app that runs **without** the person asking. Making it remote without opt-in would send every received message to a server.
 
-> **Desvio consciente da spec:** ela diz "estado `paused(reason)` persistido em `sync_state`". A tabela `sync_state` tem `accountID TEXT NOT NULL REFERENCES account(id)` (`SyncDatabase.swift:231-239`) e chaves estrangeiras estão ligadas: **sem conta conectada não haveria onde gravar** — exatamente a lição já registrada em `docs/decisoes-de-engenharia.md` sobre `created_agenda_item`. E a fila é global, não por conta. A migração `v15` cria `analysis_queue_state`, de linha única.
+> **Conscious deviation from the spec:** it says "persisted `paused(reason)` state in `sync_state`." The `sync_state` table has `accountID TEXT NOT NULL REFERENCES account(id)` (`SyncDatabase.swift:231-239`), and foreign keys are enabled: **without a connected account there would be nowhere to write**—exactly the lesson already recorded in `docs/decisoes-de-engenharia.md` about `created_agenda_item`. And the queue is global, not per account. Migration `v15` creates `analysis_queue_state`, a single-row table.
 
 **Files**
-- Modify `Packages/UNISync/Sources/UNISync/AssistantSettings.swift` (`currentSchemaVersion` em `:430`; `migrated()` em `:465-485`; `CodingKeys`/`init(from:)`/`encode` em `:503-546`)
-- Modify `Packages/UNISync/Sources/UNISync/Database/SyncDatabase.swift` (migração nova depois de `v14`, `:629-632`)
+- Modify `Packages/UNISync/Sources/UNISync/AssistantSettings.swift` (`currentSchemaVersion` at `:430`; `migrated()` at `:465-485`; `CodingKeys`/`init(from:)`/`encode` at `:503-546`)
+- Modify `Packages/UNISync/Sources/UNISync/Database/SyncDatabase.swift` (new migration after `v14`, `:629-632`)
 - Create `Packages/UNISync/Sources/UNISync/Database/AnalysisQueueState.swift`
 - Create `Packages/UNISync/Sources/UNISync/RoutedMessageAnalyzer.swift`
 - Create `Packages/UNISync/Sources/UNISync/TextAssistantMessageAnalyzer.swift`
-- Modify `Packages/UNISync/Sources/UNISync/MessageIntelligenceCoordinator.swift` (`processPending` em `:88-160`)
+- Modify `Packages/UNISync/Sources/UNISync/MessageIntelligenceCoordinator.swift` (`processPending` at `:88-160`)
 - Modify `Packages/UNISync/Sources/UNISync/AppComposition.swift` (`:148`)
 - Modify `Packages/UNIShell/Sources/UNIShell/Inbox/FolderSidebar.swift`, `Inbox/InboxScreen.swift`, `Windows/SettingsSections.swift`
 - Create `Packages/UNISync/Tests/UNISyncTests/RoutedMessageAnalyzerTests.swift`
@@ -3586,7 +3586,7 @@ A análise persistida é sempre `FoundationModelsMessageAnalyzer` (`AppCompositi
 
 **Steps**
 
-- [ ] Escrever os testes que falham. `Packages/UNISync/Tests/UNISyncTests/RoutedMessageAnalyzerTests.swift`:
+- [ ] Write the failing tests. `Packages/UNISync/Tests/UNISyncTests/RoutedMessageAnalyzerTests.swift`:
       ```swift
       import Foundation
       import Testing
@@ -3703,7 +3703,7 @@ A análise persistida é sempre `FoundationModelsMessageAnalyzer` (`AppCompositi
           func transform(_ text: String, using action: WritingAction, context: AssistantMailContext?) async throws -> String { result }
       }
       ```
-      E, em `MessageIntelligenceCoordinatorTests.swift`:
+      And, in `MessageIntelligenceCoordinatorTests.swift`:
       ```swift
       @Test("três falhas de autenticação seguidas pausam a fila; nada cai para o Mac")
       func threeAuthFailuresPauseTheQueue() async throws {
@@ -3753,7 +3753,7 @@ A análise persistida é sempre `FoundationModelsMessageAnalyzer` (`AppCompositi
           }
       }
       ```
-      E, em `AssistantSettingsTests.swift`:
+      And, in `AssistantSettingsTests.swift`:
       ```swift
       @Test("a v5 preenche a rota da análise sem mudar o provedor")
       func migratesToSchemaFive() throws {
@@ -3774,13 +3774,13 @@ A análise persistida é sempre `FoundationModelsMessageAnalyzer` (`AppCompositi
       }
       ```
 
-- [ ] Rodar e ver falhar:
+- [ ] Run them and see them fail:
       ```bash
       swift test --package-path Packages/UNISync --filter 'RoutedMessageAnalyzerTests|MessageIntelligenceCoordinatorTests|AssistantSettingsTests'
       ```
-      Esperado: `cannot find 'AutomaticAnalysisRoute' in scope`, `extra argument 'automaticAnalysis' in call`, `has no member 'queueState'`.
+      Expected: `cannot find 'AutomaticAnalysisRoute' in scope`, `extra argument 'automaticAnalysis' in call`, `has no member 'queueState'`.
 
-- [ ] Acrescentar a preferência. Em `AssistantSettings.swift`, antes de `AssistantSettings`:
+- [ ] Add the preference. In `AssistantSettings.swift`, before `AssistantSettings`:
       ```swift
       /// Para onde vai a análise que roda **sem** a pessoa pedir.
       ///
@@ -3794,13 +3794,13 @@ A análise persistida é sempre `FoundationModelsMessageAnalyzer` (`AppCompositi
           public var id: String { rawValue }
       }
       ```
-      e, no corpo de `AssistantSettings`:
+      and, in the body of `AssistantSettings`:
       ```swift
       public static let currentSchemaVersion = 5
       // …
       public var automaticAnalysis: AutomaticAnalysisRoute
       ```
-      com `automaticAnalysis: AutomaticAnalysisRoute = .onDeviceOnly` no `init`, `case automaticAnalysis` em `CodingKeys`, e no `init(from:)`:
+      with `automaticAnalysis: AutomaticAnalysisRoute = .onDeviceOnly` in `init`, `case automaticAnalysis` in `CodingKeys`, and in `init(from:)`:
       ```swift
       // Documento v4 não conhecia a rota. `onDeviceOnly` é o único padrão que
       // não muda o comportamento de quem já tinha o app instalado.
@@ -3808,9 +3808,9 @@ A análise persistida é sempre `FoundationModelsMessageAnalyzer` (`AppCompositi
           AutomaticAnalysisRoute.self, forKey: .automaticAnalysis
       ) ?? .onDeviceOnly
       ```
-      e `try values.encode(automaticAnalysis, forKey: .automaticAnalysis)` no `encode`.
+      and `try values.encode(automaticAnalysis, forKey: .automaticAnalysis)` in `encode`.
 
-- [ ] Migração `v15`. Em `SyncDatabase.swift`, logo depois do bloco `v14` (linha 629):
+- [ ] Migration `v15`. In `SyncDatabase.swift`, immediately after the `v14` block (line 629):
       ```swift
       // A v15: o estado da fila de análise automática. Tabela própria, e não
       // `sync_state`, porque `sync_state.accountID` tem REFERENCES account(id)
@@ -3827,7 +3827,7 @@ A análise persistida é sempre `FoundationModelsMessageAnalyzer` (`AppCompositi
       }
       ```
 
-- [ ] Criar o estado. `Packages/UNISync/Sources/UNISync/Database/AnalysisQueueState.swift`:
+- [ ] Create the state. `Packages/UNISync/Sources/UNISync/Database/AnalysisQueueState.swift`:
       ```swift
       import Foundation
       import GRDB
@@ -3895,7 +3895,7 @@ A análise persistida é sempre `FoundationModelsMessageAnalyzer` (`AppCompositi
       }
       ```
 
-- [ ] Criar o roteador de análise. `Packages/UNISync/Sources/UNISync/RoutedMessageAnalyzer.swift`:
+- [ ] Create the analysis router. `Packages/UNISync/Sources/UNISync/RoutedMessageAnalyzer.swift`:
       ```swift
       import Foundation
       import UNICore
@@ -3939,7 +3939,7 @@ A análise persistida é sempre `FoundationModelsMessageAnalyzer` (`AppCompositi
       }
       ```
 
-- [ ] Criar o analisador por JSON. `Packages/UNISync/Sources/UNISync/TextAssistantMessageAnalyzer.swift`:
+- [ ] Create the JSON analyzer. `Packages/UNISync/Sources/UNISync/TextAssistantMessageAnalyzer.swift`:
       ```swift
       import Foundation
       import UNICore
@@ -4064,9 +4064,9 @@ A análise persistida é sempre `FoundationModelsMessageAnalyzer` (`AppCompositi
           }
       }
       ```
-      **Antes de escrever**, confira a assinatura real de `DetectedEvent.init` em `Packages/UNICore/Sources/UNICore/DetectedEvent.swift` e a de `MailCategory` em `.../MailCategory.swift`, e use exatamente os rótulos que existirem lá; o `Output.Event.validated` acima assume `title/dayOffset/startMinute/endMinute`.
+      **Before writing**, check the actual signature of `DetectedEvent.init` in `Packages/UNICore/Sources/UNICore/DetectedEvent.swift` and that of `MailCategory` in `.../MailCategory.swift`, and use exactly the labels that exist there; the `Output.Event.validated` above assumes `title/dayOffset/startMinute/endMinute`.
 
-- [ ] Pausar a fila. Em `MessageIntelligenceCoordinator.swift`:
+- [ ] Pause the queue. In `MessageIntelligenceCoordinator.swift`:
       ```swift
       /// Três seguidas. Uma falha é ruído de rede; três é configuração errada,
       /// e insistir manda a caixa inteira para um endpoint que recusa.
@@ -4124,11 +4124,11 @@ A análise persistida é sempre `FoundationModelsMessageAnalyzer` (`AppCompositi
           }
       }
       ```
-      e, dentro de `processPending`, logo depois da guarda de `isProcessing` (linha 89):
+      and, inside `processPending`, immediately after the `isProcessing` guard (line 89):
       ```swift
       guard case .running = queueState() else { return 0 }
       ```
-      e no `catch` genérico (linhas 147–157):
+      and in the generic `catch` (lines 147–157):
       ```swift
       } catch {
           if Self.isEnvironmentFailure(error) {
@@ -4154,9 +4154,9 @@ A análise persistida é sempre `FoundationModelsMessageAnalyzer` (`AppCompositi
           }
       }
       ```
-      Um sucesso zera `consecutivePolicyFailures` (logo depois de `if saved { completed += 1 }`).
+      A success resets `consecutivePolicyFailures` (immediately after `if saved { completed += 1 }`).
 
-- [ ] Compor. Em `AppComposition.make`, trocar a linha 148:
+- [ ] Compose it. In `AppComposition.make`, replace line 148:
       ```swift
       let foundationModelsAnalyzer = FoundationModelsMessageAnalyzer()
       // Só existe depois do router; ver a ordem em Task 10.
@@ -4170,7 +4170,7 @@ A análise persistida é sempre `FoundationModelsMessageAnalyzer` (`AppCompositi
       )
       ```
 
-- [ ] Mostrar a pausa. Em `FolderSidebar.swift`, abaixo do `IntelligenceFooter`:
+- [ ] Show the pause. In `FolderSidebar.swift`, below `IntelligenceFooter`:
       ```swift
       /// "Nenhum controle mudo": a fila parada aparece com o motivo e um botão
       /// que religa de verdade, como a fila de saída do Marco 3.
@@ -4202,9 +4202,9 @@ A análise persistida é sempre `FoundationModelsMessageAnalyzer` (`AppCompositi
           }
       }
       ```
-      `InboxScreen` recebe `let analysisPause: (reason: String, retry: () -> Void)?` e desenha a faixa quando não for `nil`; `App/OkamiUNIApp.swift` a alimenta de `composition.intelligence?.queueState()`.
+      `InboxScreen` receives `let analysisPause: (reason: String, retry: () -> Void)?` and draws the band when it is non-`nil`; `App/OkamiUNIApp.swift` feeds it from `composition.intelligence?.queueState()`.
 
-- [ ] Toggle nos Ajustes. Em `SettingsSections.swift`, dentro de `assistantCard`, depois de `assistantRoutingNotice`, só para destino remoto:
+- [ ] Toggle in Settings. In `SettingsSections.swift`, inside `assistantCard`, after `assistantRoutingNotice`, only for a remote destination:
       ```swift
       if !AssistantDestination(settings: draft).isLocal {
           SettingsLabeledRow(label: "Análise automática") {
@@ -4227,14 +4227,14 @@ A análise persistida é sempre `FoundationModelsMessageAnalyzer` (`AppCompositi
       }
       ```
 
-- [ ] Rodar e ver passar:
+- [ ] Run and see it pass:
       ```bash
       swift test --package-path Packages/UNISync
       swift test --package-path Packages/UNIShell
       xcodegen generate && xcodebuild -project OkamiUNI.xcodeproj -scheme OkamiUNI -configuration Debug build 2>&1 | grep -E "error:|BUILD"
       ```
 
-- [ ] Provar por mutação: troque `?? .onDeviceOnly` por `?? .configuredProvider` no `init(from:)` e confirme que `migratesToSchemaFive` e `defaultsToOnDevice` falham; desfaça. Troque `failuresBeforePause` para 30 e confirme que `threeAuthFailuresPauseTheQueue` falha; desfaça. Apague a checagem `input.body.contains(evidence)` e confirme que `strictJSONValidation` falha; desfaça.
+- [ ] Prove by mutation: change `?? .onDeviceOnly` to `?? .configuredProvider` in `init(from:)` and confirm that `migratesToSchemaFive` and `defaultsToOnDevice` fail; undo. Change `failuresBeforePause` to 30 and confirm that `threeAuthFailuresPauseTheQueue` fails; undo. Delete the `input.body.contains(evidence)` check and confirm that `strictJSONValidation` fails; undo.
 
 - [ ] Commit:
       ```bash
@@ -4249,22 +4249,22 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-### Task 15: Golden do prompt de workspace e a cobertura que faltava do roteador (spec 1.9)
+### Task 15: Workspace prompt golden and the router coverage that was missing (spec 1.9)
 
-`AssistantRouterTests` não cobre `.cli` nem `.providerOAuth`, e não existe golden do que sai da máquina no contexto de workspace — acrescentar campo novo ao contexto hoje não quebra nada.
+`AssistantRouterTests` does not cover `.cli` or `.providerOAuth`, and there is no golden for what leaves the machine in the workspace context—adding a new context field currently breaks nothing.
 
 **Files**
 - Create `Packages/UNISync/Tests/UNISyncTests/Golden/workspace-prompt.txt`
 - Modify `Packages/UNISync/Tests/UNISyncTests/AssistantPromptTests.swift`
 - Modify `Packages/UNISync/Tests/UNISyncTests/AssistantRouterTests.swift`
-- Modify `Packages/UNISync/Package.swift` (declarar o recurso do golden)
+- Modify `Packages/UNISync/Package.swift` (declare the golden resource)
 
 **Interfaces**
-- Consumes: `AssistantPrompt.render(_:budget:)` (Task 4), `AssistantRouter` (Tasks 4 e 10), `CachedAssistantCLIDiscovery` (Task 11).
+- Consumes: `AssistantPrompt.render(_:budget:)` (Task 4), `AssistantRouter` (Tasks 4 and 10), `CachedAssistantCLIDiscovery` (Task 11).
 
 **Steps**
 
-- [ ] Declarar o recurso. Em `Packages/UNISync/Package.swift`, no alvo de testes:
+- [ ] Declare the resource. In `Packages/UNISync/Package.swift`, in the test target:
       ```swift
       .testTarget(
           name: "UNISyncTests",
@@ -4272,9 +4272,9 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
           resources: [.copy("Golden")]
       )
       ```
-      (mantenha as dependências que já estiverem lá; só acrescente `resources:`.)
+      (keep any dependencies already there; only add `resources:`.)
 
-- [ ] Escrever o golden que falha. Em `AssistantPromptTests.swift`:
+- [ ] Write the failing golden. In `AssistantPromptTests.swift`:
       ```swift
       @Test("o prompt de workspace é congelado: campo novo no contexto quebra o golden")
       func workspacePromptGolden() throws {
@@ -4319,17 +4319,17 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
       }
       ```
 
-- [ ] Rodar e ver falhar:
+- [ ] Run it and see it fail:
       ```bash
       swift test --package-path Packages/UNISync --filter AssistantPromptTests
       ```
-      Esperado: o `#require` do recurso falha — o arquivo não existe.
+      Expected: the resource `#require` fails—the file does not exist.
 
-- [ ] Gerar o golden **uma vez**, conferindo com os olhos antes de gravar. Acrescente temporariamente `print(rendered)` no teste, rode com `--filter workspacePromptGolden`, leia a saída inteira (ela tem de conter `<workspace-summary>`, `<workspace-emails priority-first="flagged-unread-recent">`, `<workspace-agenda chronological="true">` e `<workspace-pending-items>`), e só então grave o texto em `Packages/UNISync/Tests/UNISyncTests/Golden/workspace-prompt.txt`. Remova o `print`.
+- [ ] Generate the golden **once**, checking it visually before saving. Temporarily add `print(rendered)` to the test, run with `--filter workspacePromptGolden`, read the entire output (it must contain `<workspace-summary>`, `<workspace-emails priority-first="flagged-unread-recent">`, `<workspace-agenda chronological="true">`, and `<workspace-pending-items>`), and only then save the text to `Packages/UNISync/Tests/UNISyncTests/Golden/workspace-prompt.txt`. Remove the `print`.
 
-- [ ] Provar que o golden serve para alguma coisa: acrescente um campo qualquer ao render (por exemplo `threadCount:` dentro de `<email>`) e confirme que o teste falha; desfaça.
+- [ ] Prove that the golden is useful: add any field to the render (for example `threadCount:` inside `<email>`) and confirm that the test fails; undo.
 
-- [ ] Cobrir `.cli` no roteador. Em `AssistantRouterTests.swift`:
+- [ ] Cover `.cli` in the router. In `AssistantRouterTests.swift`:
       ```swift
       @Test("cada CLI da allowlist chega ao executor com o argv dele")
       @available(macOS 26.0, *)
@@ -4418,9 +4418,9 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
           #expect(scans.value == afterTen)
       }
       ```
-      `RecordingAssistantCLIExecutor` guarda o último `AssistantCLIProcessRequest` e devolve uma saída válida no formato de cada CLI (`AssistantCLIResponseFormat`, `AssistantCLITextAssistant.swift:559-583`); `AlwaysAuthorizedProviderOAuth` implementa `AssistantProviderOAuthTokenProviding` devolvendo `true`/`"token"`; `Counter` é o mesmo da Task 11. Ponha os três em `Packages/UNISync/Tests/UNISyncTests/Fixtures/`, ao lado dos auxiliares que já existem lá.
+      `RecordingAssistantCLIExecutor` stores the last `AssistantCLIProcessRequest` and returns valid output in the format of each CLI (`AssistantCLIResponseFormat`, `AssistantCLITextAssistant.swift:559-583`); `AlwaysAuthorizedProviderOAuth` implements `AssistantProviderOAuthTokenProviding` by returning `true`/`"token"`; `Counter` is the same one from Task 11. Put all three in `Packages/UNISync/Tests/UNISyncTests/Fixtures/`, alongside the helpers already there.
 
-- [ ] Cobrir `.providerOAuth` xAI com timeout chegando ao adaptador:
+- [ ] Cover `.providerOAuth` xAI with the timeout reaching the adapter:
       ```swift
       @Test("xAI recebe o tempo generoso, não os 30 s antigos")
       @available(macOS 26.0, *)
@@ -4449,9 +4449,9 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
           #expect(request.timeoutInterval >= 120)
       }
       ```
-      Confira em `Packages/UNISync/Tests/UNISyncTests/Fixtures/` a forma exata de `StubURLProtocol.session(routes:)` e `StubURLProtocol.requests(for:)` — os testes atuais do roteador já as usam (`AssistantRouterTests.swift:20-24, 41-46`) — e o caminho real de `AssistantProviderOAuthClient.xAIResponsesURL` para montar a rota.
+      Check `Packages/UNISync/Tests/UNISyncTests/Fixtures/` for the exact form of `StubURLProtocol.session(routes:)` and `StubURLProtocol.requests(for:)`—the router's current tests already use them (`AssistantRouterTests.swift:20-24, 41-46`)—and the real path of `AssistantProviderOAuthClient.xAIResponsesURL` to build the route.
 
-- [ ] Rodar e ver passar:
+- [ ] Run and see it pass:
       ```bash
       swift test --package-path Packages/UNISync
       ```
@@ -4469,17 +4469,17 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-### Task 16: Registro das decisões e a cópia do README (spec 1.10)
+### Task 16: Recording the decisions and the README copy (spec 1.10)
 
-O README ainda promete "sem mandar conteúdo para servidor algum" — verdade em 2026-08, mentira desde que o provedor virou configurável.
+The README still promises "sem mandar conteúdo para servidor algum"—true in 2026-08, false since the provider became configurable.
 
 **Files**
-- Modify `docs/decisoes-de-engenharia.md` (acrescentar ao fim, antes de nada apagar)
-- Modify `README.md` (linha do Marco 5 no TL;DR: "✨ **Inteligência no dispositivo**: … sem mandar conteúdo para servidor algum."; tabela do Marco 5: "✨ **Análise local**"; "💬 **Perguntas contextuais**": "A resposta usa apenas o contexto local")
+- Modify `docs/decisoes-de-engenharia.md` (append at the end, without deleting anything first)
+- Modify `README.md` (Marco 5 line in the TL;DR: "✨ **Inteligência no dispositivo**: … sem mandar conteúdo para servidor algum."; Marco 5 table: "✨ **Análise local**"; "💬 **Perguntas contextuais**": "A resposta usa apenas o contexto local")
 
 **Steps**
 
-- [ ] Escrever as cinco entradas em `docs/decisoes-de-engenharia.md`:
+- [ ] Write the five entries in `docs/decisoes-de-engenharia.md`:
       ```markdown
       ## Timeout de 30 s era errado para prompt de 400 mil caracteres (2026-09-01, SP1)
 
@@ -4554,24 +4554,24 @@ O README ainda promete "sem mandar conteúdo para servidor algum" — verdade em
       exata: "Cada mensagem recebida sai deste Mac para {label}."
       ```
 
-- [ ] Corrigir o README. Três trocas:
-      - TL;DR, item do Marco 5:
+- [ ] Correct the README. Three changes:
+      - Marco 5 item in the TL;DR:
         > ✨ **Inteligência com destino honesto**: o Foundation Models resume e identifica compromissos, responde perguntas sobre o email/conversa aberta e atua no composer (resumir, reescrever, encurtar, ajustar tom, corrigir e criar resposta) — e, quando você escolhe Grok, LiteLLM, Codex ou um CLI, o app **diz para onde o conteúdo vai**, em cada superfície, antes de mandar.
-      - Tabela do Marco 5, linha "✨ **Análise local**": acrescentar ao fim "A análise automática continua no Mac por padrão; usar o provedor configurado nela é opt-in explícito, com a consequência escrita no toggle."
-      - Tabela do Marco 5, linha "💬 **Perguntas contextuais**": trocar "A resposta usa apenas o contexto local" por "A resposta usa apenas o contexto do app e diz quando a informação não está nele; o rodapé mostra o destino (`Neste Mac`, `Grok · xAI`, `LiteLLM · host`…)".
+      - Marco 5 table, row "✨ **Análise local**": append "A análise automática continua no Mac por padrão; usar o provedor configurado nela é opt-in explícito, com a consequência escrita no toggle."
+      - Marco 5 table, row "💬 **Perguntas contextuais**": replace "A resposta usa apenas o contexto local" with "A resposta usa apenas o contexto do app e diz quando a informação não está nele; o rodapé mostra o destino (`Neste Mac`, `Grok · xAI`, `LiteLLM · host`…)".
 
-- [ ] Conferir que nenhuma promessa incondicional sobrou:
+- [ ] Check that no unconditional promise remains:
       ```bash
       git grep -n -i 'sem mandar conteúdo para servidor algum\|apenas o contexto local\|nada sai deste Mac' -- README.md docs
       ```
-      Esperado: só a linha de `AssistantDestination` no plano/decisões, nunca uma promessa do README.
+      Expected: only the `AssistantDestination` line in the plan/decisions, never a README promise.
 
-- [ ] Rodar a suíte inteira e o app:
+- [ ] Run the full suite and the app:
       ```bash
       for p in UNICore UNIDesign UNIShell UNISync; do (cd "Packages/$p" && swift test) || echo "FALHOU: $p"; done
       xcodegen generate && xcodebuild -project OkamiUNI.xcodeproj -scheme OkamiUNI -configuration Debug build 2>&1 | grep -E "error:|BUILD"
       ```
-      Esperado: quatro suítes verdes e `** BUILD SUCCEEDED **`.
+      Expected: four green suites and `** BUILD SUCCEEDED **`.
 
 - [ ] Commit:
       ```bash
@@ -4585,75 +4585,63 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-## Nota de ambiente: a suíte de UNIShell precisa de sessão gráfica
+## Environment note: the UNIShell suite needs a graphical session
 
-`Packages/UNIShell/Tests/UNIShellTests/RenderHarness.swift` hospeda SwiftUI numa `NSWindow`
-posicionada a −50 000 pt e nunca trazida à frente: `Render.snapshot` grava o bitmap e
-`CliqueDeEnsaio` (`:198-223`) injeta um evento de mouse dentro do processo.
+`Packages/UNIShell/Tests/UNIShellTests/RenderHarness.swift` hosts SwiftUI in an `NSWindow` positioned at −50,000 pt and never brought to the front: `Render.snapshot` records the bitmap, and `CliqueDeEnsaio` (`:198-223`) injects a mouse event inside the process.
 
-Medido nesta máquina em 2026-09-01, e vale para quem executar este plano:
+Measured on this machine on 2026-09-01, and applicable to anyone executing this plan:
 
-- **Fora do sandbox** a suíte roda normal — `swift test --package-path Packages/UNIShell
-  --filter DashboardScreenTests` fecha em **3,5 s**, `✔ Test run with 4 tests in 1 suite passed`,
-  e `--filter HairlineThicknessTests` em 1,7 s.
-- **Dentro de um shell sandboxed** (sem acesso ao servidor de janelas), os conjuntos que
-  sintetizam clique travam indefinidamente: `-[NSWindow _handleMouseDownEvent:]` fica parado em
-  `__CFRunLoopServiceMachPort`. Travamento, não falha — nenhuma linha de relatório sai.
+- **Outside the sandbox**, the suite runs normally—`swift test --package-path Packages/UNIShell
+  --filter DashboardScreenTests` finishes in **3.5 s**, `✔ Test run with 4 tests in 1 suite passed`,
+  and `--filter HairlineThicknessTests` in 1.7 s.
+- **Inside a sandboxed shell** (without access to the window server), the sets that synthesize clicks hang indefinitely: `-[NSWindow _handleMouseDownEvent:]` remains stuck in `__CFRunLoopServiceMachPort`. A hang, not a failure—no report line is produced.
 
-Portanto: rode a suíte de UNIShell numa sessão gráfica de verdade. Se você for um agente com shell
-sandboxed, desative o sandbox para esta suíte ou peça ao dono do projeto para rodá-la; e não
-confunda o travamento com defeito do código que você acabou de escrever. É o mesmo terreno da
-decisão já registrada, "`NSApp.postEvent` mata um processo de teste em silêncio".
+Therefore: run the UNIShell suite in a real graphical session. If you are an agent with a sandboxed shell, disable the sandbox for this suite or ask the project owner to run it; and do not confuse the hang with a defect in the code you just wrote. It is the same ground as the decision already recorded, "`NSApp.postEvent` mata um processo de teste em silêncio".
 
 ---
 
-## Auto-revisão
+## Self-review
 
-### Cobertura da spec, item por item
+### Spec coverage, item by item
 
-| Item da spec | Onde |
+| Spec item | Where |
 |---|---|
-| 1.1 Renomes (tabela) | Task 1 (contrato de texto) e Task 2 (análise, ponte, painel, prompt) |
-| 1.2 `AssistantDestination` + cópia | Task 3 (o valor) e Task 13 (adoção em painel, dashboard, popover, Ajustes) |
-| 1.3 `AssistantConversation` unificada | Task 8 (máquina, `ask/draftReply/summarize/briefing/cancel/clear/retry`, `kind: .draft`, histórico 16, `emptyResponse`) e Task 9 (as superfícies; `run/runDraft/runSuggestion` removidos) |
-| 1.4 Budget, timeouts, idioma | Task 4 (`maximumTextCharacters`, `maximumWorkspaceEmails`, `maximumWorkspaceAgendaItems`, `maximumCustomInstructionCharacters`, 120 s, `timeoutIntervalForResource`) e Task 5 (idioma sempre emitido) |
-| 1.5 `AssistantAvailability`, `didChange`, `IntelligencePresentation`, `AssistantFailure` | Task 10 (disponibilidade, `addDidChangeHandler`, `AppComposition.assistantAvailability`, `needsSetup`/`needsSignIn`, botão com motivo e "Abrir Ajustes") e Task 6 (`AssistantFailure` + `AssistantFailureBand`) |
-| 1.6 Coordenadores, cache de CLI, stderr | Task 12 (atores + estado observável) e Task 11 (`CachedAssistantCLIDiscovery` 60 s + `invalidate()`, stderr 4 KiB, comentário datado das flags) |
+| 1.1 Renames (table) | Task 1 (text contract) and Task 2 (analysis, bridge, panel, prompt) |
+| 1.2 `AssistantDestination` + copy | Task 3 (the value) and Task 13 (adoption in panel, dashboard, popover, Settings) |
+| 1.3 Unified `AssistantConversation` | Task 8 (machine, `ask/draftReply/summarize/briefing/cancel/clear/retry`, `kind: .draft`, history 16, `emptyResponse`) and Task 9 (the surfaces; `run/runDraft/runSuggestion` removed) |
+| 1.4 Budget, timeouts, language | Task 4 (`maximumTextCharacters`, `maximumWorkspaceEmails`, `maximumWorkspaceAgendaItems`, `maximumCustomInstructionCharacters`, 120 s, `timeoutIntervalForResource`) and Task 5 (language always emitted) |
+| 1.5 `AssistantAvailability`, `didChange`, `IntelligencePresentation`, `AssistantFailure` | Task 10 (availability, `addDidChangeHandler`, `AppComposition.assistantAvailability`, `needsSetup`/`needsSignIn`, button with reason and "Abrir Ajustes") and Task 6 (`AssistantFailure` + `AssistantFailureBand`) |
+| 1.6 Coordinators, CLI cache, stderr | Task 12 (actors + observable state) and Task 11 (`CachedAssistantCLIDiscovery` 60 s + `invalidate()`, stderr 4 KiB, dated comment on flags) |
 | 1.7 `AssistantMarkdown` | Task 7 |
-| 1.8 `automaticAnalysis` opt-in | Task 14 (schema v5, `RoutedMessageAnalyzer`, `TextAssistantMessageAnalyzer`, pausa após 3 falhas, faixa na lateral, toggle em Ajustes) |
-| 1.9 Testes | Distribuídos: `AssistantRouterTests` `.cli`/`.providerOAuth`/timeout/cache → Task 15; `AssistantPromptTests` (100 mil caracteres, 100 emails, golden) → Tasks 4 e 15; `AssistantConversationTests` → Task 8; `DashboardScreenTests` "Gerar rascunho" → Task 9; `AssistantAvailabilityTests` → Task 10; `AssistantFailureTests` → Task 6; `RoutedMessageAnalyzerTests` e `MessageIntelligenceCoordinatorTests` → Task 14; `AssistantBehaviorPreferencesTests` → Task 5 |
-| 1.10 Registro | Task 16 |
+| 1.8 `automaticAnalysis` opt-in | Task 14 (schema v5, `RoutedMessageAnalyzer`, `TextAssistantMessageAnalyzer`, pause after 3 failures, sidebar band, Settings toggle) |
+| 1.9 Tests | Distributed: `AssistantRouterTests` `.cli`/`.providerOAuth`/timeout/cache → Task 15; `AssistantPromptTests` (100 thousand characters, 100 emails, golden) → Tasks 4 and 15; `AssistantConversationTests` → Task 8; `DashboardScreenTests` "Gerar rascunho" → Task 9; `AssistantAvailabilityTests` → Task 10; `AssistantFailureTests` → Task 6; `RoutedMessageAnalyzerTests` and `MessageIntelligenceCoordinatorTests` → Task 14; `AssistantBehaviorPreferencesTests` → Task 5 |
+| 1.10 Recording | Task 16 |
 
-Nenhum item de 1.1 a 1.10 ficou sem tarefa.
+No item from 1.1 to 1.10 is missing a task.
 
-### O que a seção 1 deixa pronto para as seções 2–4 (planejadas depois, não aqui)
+### What section 1 leaves ready for sections 2–4 (planned later, not here)
 
-- `AssistantConversation.briefing()` e `briefingText` existem e são testados (§2.5).
-- `AssistantConversation.briefingQuestion` já é o texto fixo da §2.5.
-- `AssistantMarkdown` é público dentro do pacote, pronto para a faixa de briefing da §2.2.
-- `AssistantDestination.label` já é o rótulo que o cabeçalho do dashboard vai mostrar (§2.2).
-- `MessageAnalysisResult` mantém a forma que a §3.1 vai estender com `triage`.
-- `DashboardFocus` **não** muda de contrato nesta seção, como a §2.3 exige.
+- `AssistantConversation.briefing()` and `briefingText` exist and are tested (§2.5).
+- `AssistantConversation.briefingQuestion` is already the fixed text for §2.5.
+- `AssistantMarkdown` is public within the package, ready for the briefing band in §2.2.
+- `AssistantDestination.label` is already the label the dashboard header will show (§2.2).
+- `MessageAnalysisResult` keeps the shape that §3.1 will extend with `triage`.
+- `DashboardFocus` does **not** change contract in this section, as §2.3 requires.
 
-### Três desvios da spec, todos deliberados e registrados no corpo do plano
+### Three spec deviations, all deliberate and recorded in the body of the plan
 
-1. **`AssistantConversation.briefing` propriedade + `briefing()` método** — impossível em Swift (`invalid redeclaration`, conferido com `swiftc`). A propriedade chama-se `briefingText`. (Task 8)
-2. **`AssistantRouter.availability()` "vira" `AssistantAvailability`** — impossível sem quebrar o requisito de `TextAssisting`, que vive em UNICore e não enxerga `AssistantDestination`. O método rico é `assistantAvailability()`; o do protocolo passa a ser derivado dele. (Task 10)
-3. **Pausa da fila em `sync_state`** — a tabela tem `accountID REFERENCES account(id)` e a fila é global; sem conta conectada não haveria onde gravar. A migração `v15` cria `analysis_queue_state`, de linha única. (Task 14)
+1. **`AssistantConversation.briefing` property + `briefing()` method**—impossible in Swift (`invalid redeclaration`, checked with `swiftc`). The property is named `briefingText`. (Task 8)
+2. **`AssistantRouter.availability()` "becomes" `AssistantAvailability`**—impossible without breaking the `TextAssisting` requirement, which lives in `UNICore` and cannot see `AssistantDestination`. The rich method is `assistantAvailability()`; the protocol method is derived from it. (Task 10)
+3. **Pausing the queue in `sync_state`**—the table has `accountID REFERENCES account(id)` and the queue is global; without a connected account there would be nowhere to write. Migration `v15` creates `analysis_queue_state`, a single-row table. (Task 14)
 
-### Varredura de marcadores
+### Marker scan
 
-Nenhum "TBD", "similar à Task N", "adicione tratamento de erro" ou "escreva testes" no corpo das
-tarefas: todo passo de código traz o código, e o código repetido entre tarefas foi repetido de
-propósito, porque o executor lê uma tarefa isolada.
+There is no "TBD", "similar to Task N", "add error handling", or "write tests" in the body of the tasks: every code step includes the code, and code repeated between tasks was repeated intentionally because the executor reads one task in isolation.
 
-Quatro pontos pedem **conferência no código antes de escrever**, e estão marcados como tal dentro
-das tarefas (não são placeholders — são as fronteiras onde uma assinatura existente manda):
-a forma exata de `ChromeButton` (Task 6), a de `DetectedEvent.init` e `MailCategory` (Task 14),
-a de `StubURLProtocol` e o nome do stub de executor de CLI (Task 15), e o nome atual dos
-auxiliares de teste em `Packages/UNISync/Tests/UNISyncTests/Fixtures/` (Tasks 11 e 15).
+Four points ask for **a code check before writing**, and are marked as such inside the tasks (they are not placeholders—they are boundaries where an existing signature governs):
+the exact form of `ChromeButton` (Task 6), that of `DetectedEvent.init` and `MailCategory` (Task 14), that of `StubURLProtocol` and the name of the CLI executor stub (Task 15), and the current names of the test helpers in `Packages/UNISync/Tests/UNISyncTests/Fixtures/` (Tasks 11 and 15).
 
-### Consistência de nomes entre tarefas
+### Name consistency across tasks
 
 `TextAssisting`, `AssistantMailContext`, `AssistantEmailContext`, `AssistantWorkspaceContext`,
 `AssistantWorkspaceEmailContext`, `AssistantConversationSnapshot`, `AssistantTurn`,
@@ -4666,6 +4654,6 @@ auxiliares de teste em `Packages/UNISync/Tests/UNISyncTests/Fixtures/` (Tasks 11
 `AssistantAvailabilityModel`, `AssistantFailure`, `AssistantFailureBand`, `AssistantMarkdown`,
 `AssistantMarkdownBlock`, `AutomaticAnalysisRoute`, `RoutedMessageAnalyzer`,
 `TextAssistantMessageAnalyzer`, `CachedAssistantCLIDiscovery`, `AnalysisQueueState`,
-`AnalysisQueueStateStore` — usados com a mesma grafia em todas as tarefas que os citam.
-`FoundationModelsTextAssistant`, `FoundationModelsMessageAnalyzer` e
-`FoundationModelsTextAssistantValidation` **mantêm** o nome, como a spec manda.
+`AnalysisQueueStateStore`—used with the same spelling in every task that cites them.
+`FoundationModelsTextAssistant`, `FoundationModelsMessageAnalyzer`, and
+`FoundationModelsTextAssistantValidation` **keep** their names, as the spec requires.

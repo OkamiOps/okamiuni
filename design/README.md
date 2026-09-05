@@ -1,7 +1,9 @@
 # OkamiUNI — Design de referência
 
+**Português (Brasil)** · [English](README.en.md)
+
 Origem: Claude Design, projeto **"Unibox: email e agenda integrados"**
-`https://claude.ai/design/p/40478c81-e3be-42cc-aad1-f0c2d28d292c`
+[Projeto no Claude Design](https://claude.ai/design/p/40478c81-e3be-42cc-aad1-f0c2d28d292c)
 
 Baixado em 2026-08-26.
 
@@ -18,7 +20,7 @@ Baixado em 2026-08-26.
 | `10-assistente-janela.dc.html` | O chat destacado em janela própria |
 | `assets/uni-lockup-light.png` | Lockup da marca (tema claro) |
 
-Assets ainda não baixados do projeto: `uni-lockup-dark.png`, `uni-mark-light.png`, `uni-mark-dark.png`.
+Os lockups e símbolos de marca claros e escuros usados pelo aplicativo estão em [`App/Resources/Assets.xcassets`](../App/Resources/Assets.xcassets). Use os assets originais; não redesenhe a marca.
 
 ## Telas (`data-screen-label`)
 
@@ -28,8 +30,8 @@ Assets ainda não baixados do projeto: `uni-lockup-dark.png`, `uni-mark-light.pn
 4. **04 Detalhe do compromisso** — 560px, com campo de encaminhar
 5. **05 Email em janela** — 800×600
 6. **06 Nova mensagem** — 820×620
-8. **08 Dashboard com a IA trabalhando** — substitui a 07. Em `design/08-dashboard-ia.dc.html`, com a gaveta (09) e a janela (10) do assistente. A IA propõe uma ação por linha e escreve a resposta antes de você abrir; nada executa sem clique.
-7. **07 Dashboard** (substituída) — a tela do dia, em `design/07-dashboard.html` (arquivo próprio, não está no `.dc.html`): 1440×916, chrome de 64px com as abas Dashboard/Caixa/Agenda, prioridades em coluna única, trilha de agenda de 300px, pendências e o campo do assistente no rodapé. Quatro estados (cheio, vazio, com briefing, com transcript) e seletor de tema embutidos para conferência.
+7. **08 Dashboard com a IA trabalhando** (substituída pela 11) — substituiu a 07. Em `design/08-dashboard-ia.dc.html`, com a gaveta (09) e a janela (10) do assistente. A IA propõe uma ação por linha e escreve a resposta antes de você abrir; nada executa sem clique.
+8. **07 Dashboard** (substituída) — a tela do dia, em `design/07-dashboard.html` (arquivo próprio, não está no `.dc.html`): 1440×916, chrome de 64px com as abas Dashboard/Caixa/Agenda, prioridades em coluna única, trilha de agenda de 300px, pendências e o campo do assistente no rodapé. Quatro estados (cheio, vazio, com briefing, com transcript) e seletor de tema embutidos para conferência.
 
 Janela principal: **1440×916**, chrome de macOS (semáforo), barra de 58px.
 
@@ -69,3 +71,5 @@ contraste, reboot, comando, override, ambar.
 - Composer inline + em janela, com campos To/Cc/Bcc com autocomplete
 - "Enviar e arquivar", "Salvar", rascunho sugerido
 - Seletor de tema no chrome (popover com previews)
+
+Os quatro endereços do protótipo são dados de exemplo, não um limite de contas. Protótipos anteriores ficam como registro histórico; a tela 11 é a referência atual do dashboard. A documentação tem versão em inglês, mas os textos dos protótipos e os identificadores dos tokens preservam o original.

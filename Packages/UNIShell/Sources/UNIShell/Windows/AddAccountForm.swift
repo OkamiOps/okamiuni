@@ -17,14 +17,22 @@ public enum AccountsDocs {
     /// O que é uma senha de app, e onde gerar uma em cada provedor.
     public static let senhaDeApp = "senha-de-app"
 
-    /// Os nomes dos dois recursos, para quem verifica o empacotamento.
-    public static let all = [oauthGoogle, senhaDeApp]
+    /// Os guias nos dois idiomas, para quem verifica o empacotamento.
+    public static let all = [oauthGoogle, senhaDeApp, "oauth-google.en", "senha-de-app.en"]
 
     /// O arquivo dentro do bundle. Nulo quando o app não foi empacotado com ele
     /// — o que acontece num alvo de teste, e é por isso que o botão que o abre
     /// pergunta antes de se acender.
-    public static func url(_ name: String, in bundle: Bundle = .main) -> URL? {
-        bundle.url(forResource: name, withExtension: "md")
+    public static func url(
+        _ name: String,
+        in bundle: Bundle = .main,
+        language: AppLanguage = L10n.language
+    ) -> URL? {
+        if language.resolved != .portugueseBrazil,
+           let english = bundle.url(forResource: "\(name).en", withExtension: "md") {
+            return english
+        }
+        return bundle.url(forResource: name, withExtension: "md")
     }
 
     /// Abre o roteiro. Devolve `false` quando não havia o que abrir — quem

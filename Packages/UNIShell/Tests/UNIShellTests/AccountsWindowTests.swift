@@ -822,7 +822,7 @@ struct AccountsDocsTests {
             .deletingLastPathComponent()  // raiz
     }
 
-    @Test("Os dois roteiros existem no repositório com o nome que o código pede")
+    @Test("Os roteiros nos dois idiomas existem com o nome que o código pede")
     func arquivosExistem() {
         for nome in AccountsDocs.all {
             let caminho = raiz.appendingPathComponent("docs/\(nome).md").path
@@ -830,7 +830,7 @@ struct AccountsDocsTests {
         }
     }
 
-    @Test("Os dois entram no app como recurso, e não como link para a web")
+    @Test("Os roteiros nos dois idiomas entram no app como recurso")
     func declaradosComoRecurso() throws {
         let projeto = try String(contentsOf: raiz.appendingPathComponent("project.yml"), encoding: .utf8)
         for nome in AccountsDocs.all {
@@ -850,6 +850,30 @@ struct AccountsDocsTests {
         // roteiros nascem desabilitados aqui, com o `help` dizendo onde está o
         // arquivo — em vez de abrirem um "arquivo não encontrado".
         #expect(AccountsDocs.url(AccountsDocs.oauthGoogle, in: Bundle(for: SondaDeBundle.self)) == nil)
+    }
+
+    @Test("A ajuda resolve o arquivo local no idioma escolhido", arguments: [
+        AppLanguage.portugueseBrazil, .english, .german, .french
+    ])
+    func idiomaDoGuia(language: AppLanguage) throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let contents = directory.appendingPathComponent("Help.bundle/Contents")
+        let resources = contents.appendingPathComponent("Resources")
+        try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+        let info = try PropertyListSerialization.data(
+            fromPropertyList: ["CFBundleIdentifier": "com.okamiops.test.\(UUID().uuidString)"],
+            format: .xml, options: 0)
+        try info.write(to: contents.appendingPathComponent("Info.plist"))
+        for name in AccountsDocs.all {
+            try name.write(to: resources.appendingPathComponent("\(name).md"), atomically: true, encoding: .utf8)
+        }
+        let bundle = try #require(Bundle(url: contents.deletingLastPathComponent()))
+        for name in [AccountsDocs.oauthGoogle, AccountsDocs.senhaDeApp] {
+            let url = try #require(AccountsDocs.url(name, in: bundle, language: language))
+            let expected = language == .portugueseBrazil ? name : "\(name).en"
+            #expect(try String(contentsOf: url, encoding: .utf8) == expected)
+        }
     }
 }
 

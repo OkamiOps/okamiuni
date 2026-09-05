@@ -1,41 +1,42 @@
-# OkamiUNI — Marco 2: Contas de verdade (OAuth Google, IMAP, Keychain e o banco local)
-
+# OkamiUNI — Milestone 2: Real Accounts (Google OAuth, IMAP, Keychain, and a Local Database)
+> **Historical implementation plan (28 August 2026).** It records intended work at that point in time and is not evidence of the current application.
+>
 > [Português original](2026-08-28-marco-2-contas.md) | [English](2026-08-28-marco-2-contas.en.md)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Sair das fixtures — o usuário conecta quantas contas quiser (Google por OAuth, qualquer outra por IMAP com senha de app), os segredos vivem no Keychain, os últimos 90 dias descem para um banco GRDB, e o shell do Marco 1 passa a ler desse banco sem mudar de forma.
+**Goal:** Move beyond fixtures: users can connect any number of accounts (Google through OAuth and any other provider through IMAP with an app password). Secrets live in the Keychain, the most recent 90 days are stored in a GRDB database, and the Milestone 1 shell reads that database without changing its shape.
 
-**Architecture:** Um pacote novo, `Packages/UNISync`, entre o `UNICore` e o mundo. Ele importa `UNICore` (os tipos `Account`, `Message`, `AgendaItem` são a moeda) e **nunca** importa SwiftUI. O `UNIShell` só o conhece por duas portas: `MailSource` (leitura, que já existe) e `AccountDirector`/`AccountsModel` (gestão de contas). O banco é a fonte da verdade: a UI lê por `ValueObservation` e nunca espera rede.
+**Architecture:** A new package, `Packages/UNISync`, sits between `UNICore` and the outside world. It imports `UNICore` (`Account`, `Message`, and `AgendaItem` are the shared types) and **never** imports SwiftUI. `UNIShell` knows it only through two ports: the existing read-side `MailSource`, and `AccountDirector`/`AccountsModel` for account management. The database is the source of truth: the UI reads through `ValueObservation` and never waits for the network.
 
-**Tech Stack:** Swift 6.3, SwiftUI (só no `UNIShell`/`App`), AppKit, `AuthenticationServices`, `Security.framework`, GRDB.swift (SQLite + FTS5 + `ValueObservation`), swift-nio-imap (+ SwiftNIO que ele traz), Swift Testing, XcodeGen, macOS 26.
+**Tech Stack:** Swift 6.3, SwiftUI (only in `UNIShell`/`App`), AppKit, `AuthenticationServices`, `Security.framework`, GRDB.swift (SQLite + FTS5 + `ValueObservation`), swift-nio-imap (and its SwiftNIO dependency), Swift Testing, XcodeGen, macOS 26.
 
-**Spec:** `docs/superpowers/specs/2026-08-28-marco-2-contas-design.md` — o plano argumenta a partir dela; leia as duas.
+**Spec:** `docs/superpowers/specs/2026-08-28-marco-2-contas-design.md` — this plan is derived from that spec; read both.
 
 ## Global Constraints
 
-- Alvo mínimo **macOS 26.0**, Swift 6.3, `SWIFT_VERSION` 6.0 no projeto e `swift-tools-version: 6.2` nos pacotes, `SWIFT_STRICT_CONCURRENCY: complete`. Nenhum aviso de concorrência no build.
-- Testes com **Swift Testing** (`import Testing`, `@Test`, `#expect`, `#require`). **Nunca XCTest**, em nenhum pacote, em nenhuma tarefa.
-- **Teste novo só conta provado vermelho com o defeito reintroduzido.** Cada tarefa tem um passo "rodar para ver falhar" antes do passo que implementa; pular esse passo invalida a tarefa. Quando o teste passar de primeira, arranque a linha que o faz passar, rode de novo, veja vermelho, devolva a linha.
-- **Interação de UI nova ganha ensaio no app real.** O instrumento deste marco é `--ensaiar-contas`, no estilo de `Packages/UNIShell/Sources/UNIShell/Windows/SwipeRehearsal.swift`: eventos sintetizados **dentro do processo** (`NSApp.postEvent` / `NSWindow.sendEvent`), capturas de tela por fase, `NSApp.terminate` no fim. Teste de View sem ensaio não prova interação.
-- **NUNCA lançar o app fora dos instrumentos de ensaio/captura.** Nada de `open` solto, nada de `Tools/rodar.sh` para "dar uma olhada". O app só sobe com `--capturar=…`, `--ensaiar-arraste`, `--ensaiar-teclado`, `--ensaiar-barra` ou `--ensaiar-contas`, que se encerram sozinhos.
-- **Dependências novas: SOMENTE `GRDB.swift` e `swift-nio-imap`** (mais o `swift-nio` que ele já traz, declarado só para o alvo de teste nomear `NIOCore`/`NIOPosix`/`NIOEmbedded`). OAuth é `ASWebAuthenticationSession` + `URLSession`; Keychain é `Security.framework`. Nenhum SDK do Google, nenhuma biblioteca de HTTP, nenhum wrapper de Keychain.
-- **`UNISync` não importa SwiftUI.** `Observation`, `Foundation`, `AppKit` (só no apresentador do OAuth) e `AuthenticationServices` são permitidos; `import SwiftUI` dentro de `Packages/UNISync` é defeito.
-- **Nada limita provedor, domínio ou número de contas.** `Account.Provider` continua aberto e `.imap` é o caso geral. `ImapPresets` é conveniência de preenchimento, nunca porteiro: entrada manual de host/porta/TLS é sempre possível, para qualquer domínio.
-- **Lógica pura fora de `View`.** Tudo que merece teste `nonisolated` mora em `UNICore` ou `UNISync`. Uma `View` é `@MainActor` implícito e não é lugar de decisão.
-- **Erro nunca engolido.** `try?` em caminho de rede, banco ou Keychain é defeito. Todo erro vira um caso de `SyncError`, com mensagem em português, e chega a uma superfície que oferece ação (reconectar, tentar de novo).
-- **Fuso não atravessa o modelo.** Dia continua sendo `dayOffset: Int` e horário continua sendo minuto-do-dia. `Date` só nas bordas (epoch UTC no banco, `internalDate` do Gmail, `INTERNALDATE` do IMAP). Nenhuma conversão de calendário dentro de `UNISync` fora do cálculo da janela de 90 dias, que é explícito e recebe o `Calendar`.
-- **Cor, raio e tipografia vêm sempre de `Theme`** (`@Environment(\.theme)`), nos 26 temas. Nenhum literal de cor, nenhum raio solto, nenhuma `Font.system` numa View da janela de Contas. Hairlines com o mesmo `.hairline` do Marco 1 (1 pixel de dispositivo, inclusive em telas 1×). O dropdown de referência é `ComposerSelect`.
-- **Espaçamento inline é permitido**, com a mesma regra do Marco 1: todo número vem do desenho, não da intuição.
-- Todo texto de interface em **português do Brasil**.
-- **Nenhum teste toca rede externa.** HTTP é sempre `URLProtocol` stub; IMAP é sempre servidor falso em memória sobre NIO ligado em `127.0.0.1:0`. Uma conta real só é usada manualmente pelo dono do projeto, no teste manual final.
-- **O `.xcodeproj` é gerado** por `xcodegen` a partir de `project.yml`. Nunca editar à mão, nunca versionar.
-- Um commit por tarefa concluída, mensagem em português, com trailer `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
-- **O plano não bloqueia no Google.** Só a Task 1 depende do dono do projeto, e nenhuma tarefa de código espera por ela: `GoogleAuth` e `GmailClient` são provados contra stub local. O client ID real só aparece no teste manual do critério de aceite.
+- Minimum deployment target: **macOS 26.0**, Swift 6.3, `SWIFT_VERSION` 6.0 in the project, `swift-tools-version: 6.2` in packages, and `SWIFT_STRICT_CONCURRENCY: complete`. The build must have no concurrency warnings.
+- Tests use **Swift Testing** (`import Testing`, `@Test`, `#expect`, `#require`). **Never XCTest**, in any package or task.
+- **A new test counts only after it has been shown to fail with the defect reintroduced.** Each task has a “run to see it fail” step before its implementation step; skipping it invalidates the task. If the test passes immediately, remove the line that makes it pass, run it again to confirm the failure, then restore the line.
+- **Every new UI interaction requires a rehearsal in the real app.** This milestone uses `--ensaiar-contas`, following `Packages/UNIShell/Sources/UNIShell/Windows/SwipeRehearsal.swift`: events are synthesized **inside the process** (`NSApp.postEvent` / `NSWindow.sendEvent`), screenshots are captured for each phase, and `NSApp.terminate` runs at the end. A View test without a rehearsal does not prove interaction.
+- **NEVER launch the app outside rehearsal/capture instruments.** Do not run bare `open` or use `Tools/rodar.sh` merely to inspect it. Launch the app only with `--capturar=…`, `--ensaiar-arraste`, `--ensaiar-teclado`, `--ensaiar-barra`, or `--ensaiar-contas`; each exits on its own.
+- **New dependencies: ONLY `GRDB.swift` and `swift-nio-imap`** (plus the included `swift-nio`, declared only so the test target can name `NIOCore`/`NIOPosix`/`NIOEmbedded`). OAuth uses `ASWebAuthenticationSession` and `URLSession`; Keychain uses `Security.framework`. Do not add a Google SDK, HTTP library, or Keychain wrapper.
+- **`UNISync` does not import SwiftUI.** `Observation`, `Foundation`, `AppKit` (only in the OAuth presenter), and `AuthenticationServices` are allowed; `import SwiftUI` inside `Packages/UNISync` is a defect.
+- **Nothing limits the provider, domain, or number of accounts.** `Account.Provider` remains open and `.imap` is the general case. `ImapPresets` is an autofill convenience, never a gatekeeper: manual host/port/TLS entry is always available for any domain.
+- **Keep pure logic out of `View`.** Everything worth testing as `nonisolated` lives in `UNICore` or `UNISync`. A `View` is implicitly `@MainActor` and is not a place for decisions.
+- **Never swallow an error.** `try?` in a network, database, or Keychain path is a defect. Every error becomes a `SyncError` case with a Portuguese message and reaches a surface that offers an action (reconnect or try again).
+- **Time zones do not cross the model.** A day remains `dayOffset: Int` and a time remains minute-of-day. `Date` exists only at the boundaries (UTC epoch in the database, Gmail’s `internalDate`, and IMAP’s `INTERNALDATE`). `UNISync` performs no calendar conversion except the explicit 90-day window calculation, which receives a `Calendar`.
+- **Color, corner radius, and typography always come from `Theme`** (`@Environment(\.theme)`) across all 26 themes. Do not use color literals, ad hoc corner radii, or `Font.system` in an Accounts-window View. Use the Milestone 1 `.hairline` (one device pixel, including on 1× screens). The reference dropdown is `ComposerSelect`.
+- **Inline spacing is allowed**, following the Milestone 1 rule: every value comes from the drawing, not intuition.
+- All interface text is in **Brazilian Portuguese**.
+- **No test touches the external network.** HTTP always uses a `URLProtocol` stub; IMAP always uses an in-memory fake NIO server bound to `127.0.0.1:0`. A real account is used only manually by the project owner in the final manual test.
+- **The `.xcodeproj` is generated** by `xcodegen` from `project.yml`. Never edit it by hand or commit it.
+- One commit per completed task, with a Portuguese message and the trailer `Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>`.
+- **The plan does not block on Google.** Only Task 1 depends on the project owner; no coding task waits for it, because `GoogleAuth` and `GmailClient` are proven against local stubs. The real client ID appears only in the acceptance-criteria manual test.
 
 ---
 
-## Estrutura de arquivos
+## File structure
 
 ```
 Config/Google.example.xcconfig           Modelo versionado do client ID
@@ -102,40 +103,40 @@ Packages/UNIShell/Sources/UNIShell/
   Inbox/FolderSidebar.swift              A linha da conta mostra estado e progresso
 ```
 
-**Por que essa divisão:** `UNISync` é o único que conhece rede, disco e Keychain; ele importa `UNICore` e devolve os tipos do `UNICore`, então `UNIShell` continua sem saber que backend existe. Dentro de `UNISync`, os arquivos puros (`ProviderDetector`, `ImapPresets`, `FolderRoles`, `PKCE`, `OAuthCallback`, `GmailMessageParser`, `ImapWire`, `TriageProjection`, `MessageIdentity`) são testáveis sem rede nenhuma — é neles que mora a maior parte das decisões, e é por isso que o pedaço realmente assíncrono (`GoogleAuth`, `GmailClient`, `ImapSession`) fica fino.
+**Why this division:** Only `UNISync` knows about networking, disk and Keychain. It imports and returns `UNICore` types, leaving `UNIShell` unaware of the backend. Within `UNISync`, pure files (`ProviderDetector`, `ImapPresets`, `FolderRoles`, `PKCE`, `OAuthCallback`, `GmailMessageParser`, `ImapWire`, `TriageProjection`, `MessageIdentity`) can be tested without networking. They contain most decisions, keeping the genuinely asynchronous pieces (`GoogleAuth`, `GmailClient`, `ImapSession`) thin.
 
 ---
 
-## Ordem e dependências entre tarefas
+## Task order and dependencies
 
-| # | Tarefa | Depende de |
+| # | Task | Depends on |
 |---|---|---|
-| 1 | Roteiro do OAuth Client no Google Cloud (dono do projeto) | — |
-| 2 | Wiring SPM: pacote `UNISync`, GRDB, swift-nio-imap, `project.yml` | — |
-| 3 | `UNICore` evolui: `Account` e `Message` ganham os campos reais | 2 |
-| 4 | `SyncError` + `SecretStore` (protocolo, Keychain, fake) | 2 |
-| 5 | Esquema GRDB v1, migração e FTS5 com acento dobrado | 3, 4 |
-| 6 | `ProviderDetector`, `ImapPresets`, `FolderRoles` (puros) | 3 |
-| 7 | `GoogleAuth`: PKCE, callback, troca, refresh, corrida única | 4 |
-| 8 | `GmailClient` contra fixtures JSON | 7 |
-| 9 | Servidor IMAP falso + `ImapSession`: conectar, login, sair | 6 |
-| 10 | `ImapSession`: LIST, SELECT, UID SEARCH, FETCH em lote, UIDVALIDITY | 9 |
-| 11 | `TriageProjection` e `MessageIdentity` (puros) | 6 |
-| 12 | `InitialLoader` para Gmail | 5, 8, 11 |
-| 13 | `InitialLoader` para IMAP | 5, 10, 11 |
-| 14 | `DatabaseMailSource`, observação e a busca de corpo no `MailStore` | 5, 12 |
-| 15 | `AccountDirector` e `AccountsModel` | 12, 13, 14 |
-| 16 | A janela de Contas (UI) | 15 |
-| 17 | O ensaio `--ensaiar-contas` | 16 |
-| 18 | Composição no App e o critério de aceite | 14, 16, 17 |
+| 1 | Google Cloud OAuth client guide (project owner) | — |
+| 2 | SPM wiring: package `UNISync`, GRDB, swift-nio-imap, `project.yml` | — |
+| 3 | Evolve `UNICore`: `Account` and `Message` gain real fields | 2 |
+| 4 | `SyncError` + `SecretStore` (protocol, Keychain, fake) | 2 |
+| 5 | GRDB v1 schema, migration and accent-folding FTS5 | 3, 4 |
+| 6 | `ProviderDetector`, `ImapPresets`, `FolderRoles` (pure) | 3 |
+| 7 | `GoogleAuth`: PKCE, callback, exchange, refresh, single flight | 4 |
+| 8 | `GmailClient` against JSON fixtures | 7 |
+| 9 | Fake IMAP server + `ImapSession`: connect, log in, log out | 6 |
+| 10 | `ImapSession`: LIST, SELECT, UID SEARCH, batch FETCH, UIDVALIDITY | 9 |
+| 11 | `TriageProjection` and `MessageIdentity` (pure) | 6 |
+| 12 | Gmail `InitialLoader` | 5, 8, 11 |
+| 13 | IMAP `InitialLoader` | 5, 10, 11 |
+| 14 | `DatabaseMailSource`, observation and body search in `MailStore` | 5, 12 |
+| 15 | `AccountDirector` and `AccountsModel` | 12, 13, 14 |
+| 16 | Accounts window (UI) | 15 |
+| 17 | The `--ensaiar-contas` rehearsal | 16 |
+| 18 | App composition and acceptance | 14, 16, 17 |
 
-**Desvio deliberado da ordem sugerida na spec:** a evolução de `Account`/`Message` (Task 3) subiu para antes do esquema GRDB (Task 5). O esquema precisa gravar `Account.State`, o endpoint IMAP e os ids de servidor de `Message`; escrever a tabela antes dos tipos obrigaria a inventar um segundo enum de estado dentro do banco e depois reconciliá-lo — duas verdades para a mesma pergunta, que é o defeito que `QuickReply.fold` já custou a este projeto.
+**Deliberate departure from the suggested specification order:** `Account`/`Message` evolution (Task 3) moved ahead of the GRDB schema (Task 5). The schema must persist `Account.State`, the IMAP endpoint and `Message` server IDs. Writing tables before types would require inventing and later reconciling a second database state enum: two truths for one question, a defect this project already encountered with `QuickReply.fold`.
 
 ---
 
-### Task 1: Roteiro do OAuth Client no Google Cloud (para o dono do projeto)
+### Task 1: Google Cloud OAuth client guide (for the project owner)
 
-Esta é a **única** tarefa que não escreve código e a única que depende de outra pessoa. Ela existe primeiro porque o dono do projeto pode executá-la em paralelo com o resto do plano — **nenhuma tarefa de código espera por ela.** Todas as tarefas de `GoogleAuth` e `GmailClient` são provadas contra stub local; o client ID real só aparece no teste manual da Task 18.
+This is the **only** task that writes no code and depends on another person. It comes first so the project owner can perform it alongside the rest of the plan; **no coding task waits for it.** All `GoogleAuth` and `GmailClient` tasks use local stubs. The real client ID appears only in Task 18’s manual test.
 
 **Files:**
 - Create: `docs/oauth-google.md`
@@ -143,12 +144,12 @@ Esta é a **única** tarefa que não escreve código e a única que depende de o
 - Modify: `.gitignore`
 
 **Interfaces:**
-- Consumes: nada.
-- Produces: `docs/oauth-google.md` (o roteiro); `Config/Google.example.xcconfig` com a chave `OKAMIUNI_GOOGLE_CLIENT_ID`, que a Task 2 liga ao `Info.plist` e a Task 7 lê por `GoogleAuthConfig.fromBundle(_:)`.
+- Consumes: nothing.
+- Produces: `docs/oauth-google.md` (the guide); `Config/Google.example.xcconfig` with `OKAMIUNI_GOOGLE_CLIENT_ID`, wired to `Info.plist` by Task 2 and read through `GoogleAuthConfig.fromBundle(_:)` by Task 7.
 
-- [ ] **Step 1: Escrever o roteiro**
+- [ ] **Step 1: Write the guide**
 
-Crie `docs/oauth-google.md` com exatamente este conteúdo:
+Create `docs/oauth-google.md` with exactly this content:
 
 ````markdown
 # Criar o OAuth Client do Google (uma vez, pelo dono do projeto)
@@ -256,7 +257,7 @@ ID configurado, traz `contas: rota google pronta`. O ensaio **não** abre o
 navegador nem toca a rede: ele usa o apresentador de autorização falso.
 ````
 
-- [ ] **Step 2: Escrever o modelo do xcconfig**
+- [ ] **Step 2: Write the xcconfig template**
 
 `Config/Google.example.xcconfig`:
 
@@ -269,24 +270,24 @@ navegador nem toca a rede: ele usa o apresentador de autorização falso.
 OKAMIUNI_GOOGLE_CLIENT_ID =
 ```
 
-- [ ] **Step 3: Ignorar o arquivo real**
+- [ ] **Step 3: Ignore the real file**
 
-Acrescente ao fim de `.gitignore`:
+Add this to the end of `.gitignore`:
 
 ```
 # O client ID do OAuth do Google. Ver docs/oauth-google.md.
 Config/Google.xcconfig
 ```
 
-- [ ] **Step 4: Conferir que o segredo não escapa**
+- [ ] **Step 4: Confirm that the secret does not escape**
 
 Run: `git status --porcelain Config/ && git check-ignore -v Config/Google.xcconfig || echo "AINDA NAO IGNORADO"`
 
-Expected: `Config/Google.example.xcconfig` aparece como novo (`??`); o
-`check-ignore` só imprime a regra quando o arquivo existir localmente — antes de
-o dono do projeto copiá-lo, a linha `AINDA NAO IGNORADO` é esperada e não é
-defeito. Crie um `Config/Google.xcconfig` vazio, rode de novo e confirme que
-agora o `check-ignore` casa; apague-o em seguida se não for usar.
+Expected: `Config/Google.example.xcconfig` appears as new (`??`).
+`check-ignore` prints the rule only when the file exists locally, so before the
+project owner copies it, `AINDA NAO IGNORADO` is expected and is not a defect.
+Create an empty `Config/Google.xcconfig`, run the command again, and confirm
+that `check-ignore` now matches; delete it afterwards if it is not needed.
 
 - [ ] **Step 5: Commit**
 
@@ -304,12 +305,12 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 2: Wiring SPM — o pacote `UNISync` com GRDB e swift-nio-imap, build verde antes de qualquer código
+### Task 2: SPM wiring — the `UNISync` package with GRDB and swift-nio-imap; a green build before any product code
 
-Nenhuma linha de lógica nesta tarefa. Ela existe sozinha porque puxar duas
-dependências novas para um projeto XcodeGen com `SWIFT_STRICT_CONCURRENCY:
-complete` falha de maneiras que não têm nada a ver com o produto, e descobrir
-isso no meio de uma tarefa de `ImapSession` custa o dobro.
+This task contains no product logic. It stands alone because adding two
+dependencies to an XcodeGen project with `SWIFT_STRICT_CONCURRENCY: complete`
+can fail for reasons unrelated to the product; discovering that in the middle
+of an `ImapSession` task costs twice as much.
 
 **Files:**
 - Create: `Packages/UNISync/Package.swift`
@@ -320,10 +321,10 @@ isso no meio de uma tarefa de `ImapSession` custa o dobro.
 - Modify: `Packages/UNIShell/Package.swift`
 
 **Interfaces:**
-- Consumes: `Config/Google.example.xcconfig` da Task 1 (só a chave `OKAMIUNI_GOOGLE_CLIENT_ID`). **O XcodeGen 2.46 trata `configFiles` ausente como erro, não aviso** — por isso todo caminho que roda `xcodegen generate` primeiro garante o arquivo: `test -f Config/Google.xcconfig || cp Config/Google.example.xcconfig Config/Google.xcconfig` (a cópia é o exemplo com o ID vazio, que é legítimo). `Tools/rodar.sh` ganha essa linha nesta tarefa.
-- Produces: o produto `UNISync`, importável por `UNIShell` e pelo alvo do app; `UNISync.wiringCheck() -> String`, que só existe para provar que os dois pacotes de terceiros linkam.
+- Consumes: `Config/Google.example.xcconfig` from Task 1 (only the `OKAMIUNI_GOOGLE_CLIENT_ID` key). **XcodeGen 2.46 treats a missing `configFiles` entry as an error, not a warning**, so every path that first runs `xcodegen generate` ensures the file exists: `test -f Config/Google.xcconfig || cp Config/Google.example.xcconfig Config/Google.xcconfig`. That copy is the legitimate template with an empty ID. This task adds the same guard to `Tools/rodar.sh`.
+- Produces: the `UNISync` product, importable by `UNIShell` and the app target; `UNISync.wiringCheck() -> String`, which exists only to prove that the two third-party packages link.
 
-- [ ] **Step 1: Escrever o teste que falha**
+- [ ] **Step 1: Write the failing test**
 
 `Packages/UNISync/Tests/UNISyncTests/WiringTests.swift`:
 
@@ -373,13 +374,13 @@ struct WiringTests {
 }
 ```
 
-- [ ] **Step 2: Rodar para ver falhar**
+- [ ] **Step 2: Run it to see it fail**
 
 Run: `cd Packages/UNISync && swift test`
 
-Expected: FAIL — `error: could not find Package.swift in this directory or any of its parent directories`. O pacote não existe.
+Expected: FAIL — `error: could not find Package.swift in this directory or any of its parent directories`. The package does not exist.
 
-- [ ] **Step 3: Criar o pacote**
+- [ ] **Step 3: Create the package**
 
 `Packages/UNISync/Package.swift`:
 
@@ -428,14 +429,14 @@ let package = Package(
 )
 ```
 
-`swift-nio-ssl` é o TLS do SwiftNIO e vem na árvore do `swift-nio-imap`; ele
-precisa de uma linha própria em `dependencies` para o produto ser nomeável:
+`swift-nio-ssl` provides SwiftNIO TLS and comes from the `swift-nio-imap`
+dependency tree. It needs its own `dependencies` entry so the product can be named:
 
 ```swift
         .package(url: "https://github.com/apple/swift-nio-ssl.git", from: "2.25.0"),
 ```
 
-Acrescente essa linha ao array `dependencies` acima, depois de `swift-nio`.
+Add that line to the `dependencies` array above, after `swift-nio`.
 
 `Packages/UNISync/Sources/UNISync/Wiring.swift`:
 
@@ -461,24 +462,24 @@ public enum UNISync {
 }
 ```
 
-`Packages/UNISync/Tests/UNISyncTests/Fixtures/.gitkeep` (arquivo vazio — o
-`resources: [.copy("Fixtures")]` exige que o diretório exista; os JSON do Gmail
-entram na Task 8):
+`Packages/UNISync/Tests/UNISyncTests/Fixtures/.gitkeep` (an empty file: the
+`resources: [.copy("Fixtures")]` declaration requires the directory to exist;
+Gmail JSON files arrive in Task 8):
 
 ```
 ```
 
-- [ ] **Step 4: Rodar para ver passar**
+- [ ] **Step 4: Run it to see it pass**
 
 Run: `cd Packages/UNISync && swift test`
 
-Expected: PASS, 4 testes. A primeira execução baixa GRDB, swift-nio,
-swift-nio-ssl e swift-nio-imap; espere a resolução terminar.
+Expected: PASS, 4 tests. The first run downloads GRDB, swift-nio,
+swift-nio-ssl, and swift-nio-imap; wait for dependency resolution to finish.
 
-- [ ] **Step 5: Ligar o pacote ao `UNIShell` e ao alvo do app**
+- [ ] **Step 5: Connect the package to `UNIShell` and the app target**
 
-Em `Packages/UNIShell/Package.swift`, acrescente a dependência de caminho e a
-do alvo:
+In `Packages/UNIShell/Package.swift`, add the path dependency and the target
+dependency:
 
 ```swift
     dependencies: [
@@ -492,8 +493,8 @@ do alvo:
     ]
 ```
 
-Em `project.yml`, acrescente o pacote e a dependência do alvo, e o arquivo de
-configuração do client ID:
+In `project.yml`, add the package, target dependency, and client-ID configuration
+file:
 
 ```yaml
 packages:
@@ -511,16 +512,16 @@ configFiles:
   Release: Config/Google.xcconfig
 ```
 
-e, dentro de `targets: OkamiUNI: dependencies:`, depois de `UNIShell`:
+Then, inside `targets: OkamiUNI: dependencies:`, after `UNIShell`:
 
 ```yaml
       - package: UNISync
         product: UNISync
 ```
 
-- [ ] **Step 6: Levar o client ID e o esquema de redirect ao bundle**
+- [ ] **Step 6: Add the client ID and redirect scheme to the bundle**
 
-Em `App/Info.plist`, antes do `</dict>` final:
+In `App/Info.plist`, before the final `</dict>`:
 
 ```xml
   <key>OkamiUNIGoogleClientID</key>
@@ -538,7 +539,7 @@ Em `App/Info.plist`, antes do `</dict>` final:
   </array>
 ```
 
-- [ ] **Step 7: Build verde do app inteiro**
+- [ ] **Step 7: Build the full app successfully**
 
 Run:
 
@@ -546,13 +547,13 @@ Run:
 xcodegen generate && xcodebuild -project OkamiUNI.xcodeproj -scheme OkamiUNI -configuration Debug build 2>&1 | tail -20
 ```
 
-Expected: `BUILD SUCCEEDED`, **sem** nenhuma linha contendo `warning:` que
-mencione `Sendable`, `concurrency` ou `actor-isolated`. Se `Config/Google.xcconfig`
-ainda não existir, o `xcodegen` avisa que o arquivo de configuração não foi
-achado e segue — a chave do `Info.plist` fica vazia, que é o estado que a Task 7
-sabe explicar.
+Expected: `BUILD SUCCEEDED`, with **no** `warning:` line mentioning
+`Sendable`, `concurrency`, or `actor-isolated`. If `Config/Google.xcconfig`
+does not exist yet, `xcodegen` warns that the configuration file was not found
+and continues; the `Info.plist` key remains empty, which is the state Task 7
+knows how to explain.
 
-- [ ] **Step 8: Confirmar que os 807 continuam verdes**
+- [ ] **Step 8: Confirm that the 807 tests remain green**
 
 Run:
 
@@ -562,8 +563,8 @@ for p in UNIDesign UNICore UNIShell UNISync; do
 done
 ```
 
-Expected: quatro linhas `Test run with N tests passed`, nenhuma com `failed`.
-A soma de `UNIDesign`+`UNICore`+`UNIShell` continua 807.
+Expected: four `Test run with N tests passed` lines, none containing `failed`.
+The `UNIDesign`+`UNICore`+`UNIShell` total remains 807.
 
 - [ ] **Step 9: Commit**
 
@@ -581,7 +582,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 3: `UNICore` evolui — `Account` e `Message` ganham os campos reais, sem mexer numa fixture
+### Task 3: `UNICore` evolves — `Account` and `Message` gain real fields without changing a fixture
 
 **Files:**
 - Modify: `Packages/UNICore/Sources/UNICore/Account.swift`
@@ -589,16 +590,16 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Create: `Packages/UNICore/Tests/UNICoreTests/AccountEvolutionTests.swift`
 
 **Interfaces:**
-- Consumes: nada de tarefas anteriores.
-- Produces, e o resto do plano usa exatamente estas assinaturas:
-  - `struct ImapEndpoint: Sendable, Hashable` com `let host: String`, `let port: Int`, `let security: ImapEndpoint.Security`, `init(host:port:security:)`, e `enum Security: String, Sendable, Hashable, CaseIterable { case tls, startTLS }`.
+- Consumes: nothing from earlier tasks.
+- Produces the following interfaces, used unchanged by the rest of the plan:
+  - `struct ImapEndpoint: Sendable, Hashable` with `let host: String`, `let port: Int`, `let security: ImapEndpoint.Security`, `init(host:port:security:)`, and `enum Security: String, Sendable, Hashable, CaseIterable { case tls, startTLS }`.
   - `enum Account.State: String, Sendable, Hashable, CaseIterable { case ativa, carregando, erroDeAutenticacao }`.
-  - `Account.init(id:address:displayName:provider:host:tintLightHex:tintDarkHex:signature:imap:state:lastSyncedAt:)` — os três últimos com default (`nil`, `.ativa`, `nil`), e `signature` continua com default `""`.
+  - `Account.init(id:address:displayName:provider:host:tintLightHex:tintDarkHex:signature:imap:state:lastSyncedAt:)` — the last three parameters default to (`nil`, `.ativa`, `nil`), while `signature` retains its `""` default.
   - `Account.imap: ImapEndpoint?`, `Account.state: Account.State`, `Account.lastSyncedAt: Date?`.
   - `Account.withState(_ state: Account.State) -> Account`, `Account.withLastSynced(_ date: Date?) -> Account`, `Account.withImap(_ endpoint: ImapEndpoint?) -> Account`.
-  - `Message.serverID: String?`, `Message.uidValidity: Int64?`, ambos com default `nil` no `init` e ambos preservados por `Message.copy`.
+  - `Message.serverID: String?` and `Message.uidValidity: Int64?`, both defaulting to `nil` in `init` and both preserved by `Message.copy`.
 
-- [ ] **Step 1: Escrever o teste que falha**
+- [ ] **Step 1: Write the failing test**
 
 `Packages/UNICore/Tests/UNICoreTests/AccountEvolutionTests.swift`:
 
@@ -688,15 +689,15 @@ struct AccountEvolutionTests {
 }
 ```
 
-- [ ] **Step 2: Rodar para ver falhar**
+- [ ] **Step 2: Run it to see it fail**
 
 Run: `cd Packages/UNICore && swift test --filter AccountEvolution`
 
 Expected: FAIL — `cannot find 'ImapEndpoint' in scope`, `value of type 'Account' has no member 'state'`, `extra arguments 'serverID', 'uidValidity'`.
 
-- [ ] **Step 3: Acrescentar os campos a `Account`**
+- [ ] **Step 3: Add the fields to `Account`**
 
-Em `Packages/UNICore/Sources/UNICore/Account.swift`, antes de `public struct Account`:
+In `Packages/UNICore/Sources/UNICore/Account.swift`, before `public struct Account`:
 
 ```swift
 /// Onde e como falar IMAP com um servidor.
@@ -727,7 +728,7 @@ public struct ImapEndpoint: Sendable, Hashable {
 }
 ```
 
-Dentro de `Account`, depois do `enum Provider`:
+Inside `Account`, after `enum Provider`:
 
 ```swift
     /// Em que pé a conta está — o que a lateral e a janela de Contas mostram.
@@ -746,7 +747,7 @@ Dentro de `Account`, depois do `enum Provider`:
     }
 ```
 
-e, depois de `public let signature: String`:
+Then, after `public let signature: String`:
 
 ```swift
     /// Nulo para contas que não falam IMAP (uma conta Google, por exemplo).
@@ -766,7 +767,7 @@ e, depois de `public let signature: String`:
     public let lastSyncedAt: Date?
 ```
 
-Substitua o `init` por:
+Replace `init` with:
 
 ```swift
     public init(
@@ -791,8 +792,8 @@ Substitua o `init` por:
     }
 ```
 
-E, depois de `tint(isDark:)`, o funil de cópia — pelo mesmo motivo que
-`Message.copy` existe:
+Then add the copy funnel after `tint(isDark:)`, for the same reason
+`Message.copy` exists:
 
 ```swift
     /// A mesma conta noutro estado.
@@ -835,9 +836,9 @@ E, depois de `tint(isDark:)`, o funil de cópia — pelo mesmo motivo que
     }
 ```
 
-- [ ] **Step 4: Acrescentar os ids de servidor a `Message`**
+- [ ] **Step 4: Add server IDs to `Message`**
 
-Em `Packages/UNICore/Sources/UNICore/Message.swift`, depois de
+In `Packages/UNICore/Sources/UNICore/Message.swift`, after
 `public let replyHints: [String]`:
 
 ```swift
@@ -862,8 +863,8 @@ Em `Packages/UNICore/Sources/UNICore/Message.swift`, depois de
     public let uidValidity: Int64?
 ```
 
-No `init`, acrescente os dois parâmetros ao fim (com default) e as duas
-atribuições:
+In `init`, add both parameters at the end with defaults, along with their
+assignments:
 
 ```swift
     public init(
@@ -880,16 +881,16 @@ atribuições:
         self.to = to
 ```
 
-(o resto do corpo do `init` fica como está).
+(the rest of the `init` body stays as-is).
 
-E no funil `copy`, na reconstrução, acrescente os dois ao fim da chamada:
+In the `copy` funnel reconstruction, add both at the end of the call:
 
 ```swift
             to: to, cc: cc, isFlagged: isFlagged ?? self.isFlagged,
             serverID: serverID, uidValidity: uidValidity
 ```
 
-Atualize o comentário de `copy` para dizer sete, e não cinco:
+Update the `copy` comment to say seven rather than five:
 
 ```swift
     /// Cada campo novo com default no `init` é uma armadilha a mais para quem
@@ -899,23 +900,23 @@ Atualize o comentário de `copy` para dizer sete, e não cinco:
     /// copiadores acima passam por ela.
 ```
 
-- [ ] **Step 5: Rodar para ver passar**
+- [ ] **Step 5: Run it to see it pass**
 
 Run: `cd Packages/UNICore && swift test --filter AccountEvolution`
 
-Expected: PASS, 5 testes.
+Expected: PASS, 5 tests.
 
-- [ ] **Step 6: Provar por mutação que o funil `copy` está mesmo carregando os ids**
+- [ ] **Step 6: Prove by mutation that the `copy` funnel carries the IDs**
 
-Arranque `serverID: serverID, uidValidity: uidValidity` da chamada dentro de
-`Message.copy` (deixe os defaults valerem) e rode de novo.
+Remove `serverID: serverID, uidValidity: uidValidity` from the call inside
+`Message.copy` (letting the defaults apply), then run it again.
 
 Run: `cd Packages/UNICore && swift test --filter idsDeServidorSobrevivem`
 
 Expected: FAIL — `Expectation failed: arquivada.serverID == "18f0a1b2c3"`.
-Devolva a linha e confirme o verde.
+Restore the line and confirm that the test is green.
 
-- [ ] **Step 7: Os 807 continuam verdes**
+- [ ] **Step 7: The 807 tests remain green**
 
 Run:
 
@@ -925,9 +926,8 @@ for p in UNIDesign UNICore UNIShell; do
 done
 ```
 
-Expected: nenhuma linha com `failed`. Nenhuma fixture foi tocada e nenhum
-chamador de `Account(...)` ou `Message(...)` precisou mudar — é isso que
-"aditivo" quer dizer.
+Expected: no line containing `failed`. No fixture was touched and no caller of
+`Account(...)` or `Message(...)` had to change—that is what “additive” means.
 
 - [ ] **Step 8: Commit**
 
@@ -946,7 +946,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 4: `SyncError` e o `SecretStore` — o Keychain atrás de um protocolo
+### Task 4: `SyncError` and `SecretStore` — the Keychain behind a protocol
 
 **Files:**
 - Create: `Packages/UNISync/Sources/UNISync/SyncError.swift`
@@ -957,16 +957,16 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Create: `Packages/UNISync/Tests/UNISyncTests/SyncErrorTests.swift`
 
 **Interfaces:**
-- Consumes: nada — só `Foundation` e `Security`.
+- Consumes: nothing—only `Foundation` and `Security`.
 - Produces:
-  - `enum SyncError: Error, Sendable, Hashable, LocalizedError` com os casos `.rede(String)`, `.tls(String)`, `.autenticacao`, `.autorizacaoRevogada`, `.quota`, `.servidor(codigo: Int, mensagem: String)`, `.keychain(status: Int32)`, `.semClientID`, `.resposta(String)`; propriedade `var mensagem: String` e `var errorDescription: String?` devolvendo a mesma coisa.
-  - `struct OAuthTokens: Sendable, Hashable, Codable` com `accessToken: String`, `refreshToken: String`, `expiresAt: Date`, `init(accessToken:refreshToken:expiresAt:)` e `func isExpired(at now: Date, margin: TimeInterval = 60) -> Bool`.
+  - `enum SyncError: Error, Sendable, Hashable, LocalizedError` with cases `.rede(String)`, `.tls(String)`, `.autenticacao`, `.autorizacaoRevogada`, `.quota`, `.servidor(codigo: Int, mensagem: String)`, `.keychain(status: Int32)`, `.semClientID`, and `.resposta(String)`; it exposes `var mensagem: String` and `var errorDescription: String?`, both returning the same value.
+  - `struct OAuthTokens: Sendable, Hashable, Codable` with `accessToken: String`, `refreshToken: String`, `expiresAt: Date`, `init(accessToken:refreshToken:expiresAt:)`, and `func isExpired(at now: Date, margin: TimeInterval = 60) -> Bool`.
   - `enum Secret: Sendable, Hashable, Codable { case password(String); case oauth(OAuthTokens) }`.
-  - `protocol SecretStore: Sendable` com `func store(_ secret: Secret, for accountID: String) throws`, `func secret(for accountID: String) throws -> Secret?`, `func remove(for accountID: String) throws`.
-  - `final class InMemorySecretStore: SecretStore, @unchecked Sendable`, com `init()`.
-  - `struct KeychainSecretStore: SecretStore, Sendable`, com `init(service: String = "com.okamiops.okamiuni")`.
+  - `protocol SecretStore: Sendable` with `func store(_ secret: Secret, for accountID: String) throws`, `func secret(for accountID: String) throws -> Secret?`, and `func remove(for accountID: String) throws`.
+  - `final class InMemorySecretStore: SecretStore, @unchecked Sendable`, with `init()`.
+  - `struct KeychainSecretStore: SecretStore, Sendable`, with `init(service: String = "com.okamiops.okamiuni")`.
 
-- [ ] **Step 1: Escrever o teste que falha**
+- [ ] **Step 1: Write the failing test**
 
 `Packages/UNISync/Tests/UNISyncTests/SyncErrorTests.swift`:
 
@@ -1102,13 +1102,13 @@ struct SecretStoreTests {
 }
 ```
 
-- [ ] **Step 2: Rodar para ver falhar**
+- [ ] **Step 2: Run it to see it fail**
 
 Run: `cd Packages/UNISync && swift test --filter 'SyncError|SecretStore'`
 
 Expected: FAIL — `cannot find 'SyncError' in scope`, `cannot find 'InMemorySecretStore' in scope`.
 
-- [ ] **Step 3: Escrever `SyncError`**
+- [ ] **Step 3: Write `SyncError`**
 
 `Packages/UNISync/Sources/UNISync/SyncError.swift`:
 
@@ -1178,7 +1178,7 @@ public enum SyncError: Error, Sendable, Hashable, LocalizedError {
 }
 ```
 
-- [ ] **Step 4: Escrever o protocolo e o fake**
+- [ ] **Step 4: Write the protocol and fake**
 
 `Packages/UNISync/Sources/UNISync/Secrets/SecretStore.swift`:
 
@@ -1280,7 +1280,7 @@ public final class InMemorySecretStore: SecretStore, @unchecked Sendable {
 }
 ```
 
-- [ ] **Step 5: Escrever o Keychain de verdade**
+- [ ] **Step 5: Write the real Keychain implementation**
 
 `Packages/UNISync/Sources/UNISync/Secrets/KeychainSecretStore.swift`:
 
@@ -1359,31 +1359,31 @@ private func SecUpdateItemDataStatus(_ data: Data) -> [String: Any] {
 }
 ```
 
-- [ ] **Step 6: Rodar para ver passar**
+- [ ] **Step 6: Run it to see it pass**
 
 Run: `cd Packages/UNISync && swift test --filter 'SyncError|SecretStore'`
 
-Expected: PASS. O teste do Keychain real aparece como **skipped** (a marca de
-ambiente não está ligada) — isso é o esperado, não uma falha.
+Expected: PASS. The real Keychain test appears as **skipped** because its
+environment flag is off; that is expected, not a failure.
 
-- [ ] **Step 7: Provar por mutação que o `LocalizedError` está fazendo trabalho**
+- [ ] **Step 7: Prove by mutation that `LocalizedError` is doing work**
 
-Apague a linha `public var errorDescription: String? { mensagem }` e rode:
+Delete `public var errorDescription: String? { mensagem }` and run:
 
 Run: `cd Packages/UNISync && swift test --filter localizedDescriptionEmPortugues`
 
-Expected: FAIL — `localizedDescription` volta a ser
+Expected: FAIL — `localizedDescription` returns to
 "The operation couldn’t be completed. (UNISync.SyncError error 2.)".
-Devolva a linha e confirme o verde.
+Restore the line and confirm that the test is green.
 
-- [ ] **Step 8: Rodar o Keychain real, uma vez, à mão**
+- [ ] **Step 8: Run the real Keychain once, manually**
 
 Run: `cd Packages/UNISync && OKAMIUNI_KEYCHAIN_TESTS=1 swift test --filter keychainReal`
 
-Expected: PASS. Se o macOS pedir permissão para acessar a keychain, autorize.
-Se falhar com `-34018` (`errSecMissingEntitlement`), o binário de teste do SPM
-não está assinado com o direito de keychain — registre no relatório da tarefa e
-siga: o caminho que importa é o do app assinado, coberto pela Task 18.
+Expected: PASS. If macOS asks for Keychain-access permission, allow it. A
+failure with `-34018` (`errSecMissingEntitlement`) means the SPM test binary
+is not signed with the Keychain entitlement. Record that in the task report and
+continue: the path that matters is the signed app, covered by Task 18.
 
 - [ ] **Step 9: Commit**
 
@@ -1402,7 +1402,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 5: O esquema GRDB v1 — migração, registros e a busca FTS5 que dobra acento
+### Task 5: The GRDB v1 schema — migration, records, and accent-folding FTS5 search
 
 **Files:**
 - Create: `Packages/UNISync/Sources/UNISync/Database/SyncDatabase.swift`
@@ -1413,14 +1413,14 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: `Account`, `Account.State`, `ImapEndpoint`, `Message`, `TriageBucket`, `AgendaItem`, `Contact` (Task 3); `SyncError` (Task 4).
 - Produces:
-  - `struct SyncDatabase: Sendable` com `let pool: DatabasePool`, `init(path: String) throws`, `static func inMemory() throws -> SyncDatabase`, `static func defaultPath() throws -> String`, `static var migrator: DatabaseMigrator`.
-  - `enum FolderRole: String, Sendable, Hashable, CaseIterable { case inbox, archive, trash, sent, later = "depois", other = "outra" }` — mora em `Database/Records.swift` porque a tabela `folder` é quem o grava; a Task 6 o usa e não o redefine.
-  - `struct AccountRecord`, `struct FolderRecord`, `struct MessageRecord`, `struct MessageBodyRecord`, `struct AgendaItemRecord`, `struct SyncStateRecord` — todos `Codable, FetchableRecord, PersistableRecord, Sendable, Equatable`, com os campos listados no passo 4.
-  - `AccountRecord.init(_ account: Account, createdAt: Date)` e `AccountRecord.account -> Account`.
-  - `MessageRecord.init(_ message: Message, folderID: String)` e `MessageRecord.message(body: [String]) -> Message`.
+  - `struct SyncDatabase: Sendable` with `let pool: DatabasePool`, `init(path: String) throws`, `static func inMemory() throws -> SyncDatabase`, `static func defaultPath() throws -> String`, and `static var migrator: DatabaseMigrator`.
+  - `enum FolderRole: String, Sendable, Hashable, CaseIterable { case inbox, archive, trash, sent, later = "depois", other = "outra" }` — it lives in `Database/Records.swift` because the `folder` table persists it; Task 6 uses it without redefining it.
+  - `struct AccountRecord`, `struct FolderRecord`, `struct MessageRecord`, `struct MessageBodyRecord`, `struct AgendaItemRecord`, and `struct SyncStateRecord` — all `Codable, FetchableRecord, PersistableRecord, Sendable, Equatable`, with the fields listed in step 4.
+  - `AccountRecord.init(_ account: Account, createdAt: Date)` and `AccountRecord.account -> Account`.
+  - `MessageRecord.init(_ message: Message, folderID: String)` and `MessageRecord.message(body: [String]) -> Message`.
   - `enum MessageSearch { static func matchingBodyIDs(_ db: Database, term: String, accountID: String?) throws -> Set<String>; static func ftsQuery(_ term: String) -> String? }`.
 
-- [ ] **Step 1: Escrever o teste que falha**
+- [ ] **Step 1: Write the failing test**
 
 `Packages/UNISync/Tests/UNISyncTests/SyncDatabaseTests.swift`:
 
@@ -1668,13 +1668,13 @@ struct SyncDatabaseTests {
 }
 ```
 
-- [ ] **Step 2: Rodar para ver falhar**
+- [ ] **Step 2: Run it to see it fail**
 
 Run: `cd Packages/UNISync && swift test --filter SyncDatabase`
 
 Expected: FAIL — `cannot find 'SyncDatabase' in scope`.
 
-- [ ] **Step 3: Escrever a abertura e o migrador**
+- [ ] **Step 3: Write opening and migration**
 
 `Packages/UNISync/Sources/UNISync/Database/SyncDatabase.swift`:
 
@@ -1875,7 +1875,7 @@ public struct SyncDatabase: Sendable {
 }
 ```
 
-- [ ] **Step 4: Escrever os registros**
+- [ ] **Step 4: Write the records**
 
 `Packages/UNISync/Sources/UNISync/Database/Records.swift`:
 
@@ -2147,7 +2147,7 @@ public struct SyncStateRecord: Codable, FetchableRecord, PersistableRecord, Send
 }
 ```
 
-- [ ] **Step 5: Escrever a busca**
+- [ ] **Step 5: Write search**
 
 `Packages/UNISync/Sources/UNISync/Database/MessageSearch.swift`:
 
@@ -2205,25 +2205,25 @@ public enum MessageSearch {
 }
 ```
 
-- [ ] **Step 6: Rodar para ver passar**
+- [ ] **Step 6: Run it to see it pass**
 
 Run: `cd Packages/UNISync && swift test --filter SyncDatabase`
 
-Expected: PASS, 11 testes.
+Expected: PASS, 11 tests.
 
-- [ ] **Step 7: Provar por mutação que o gatilho de UPDATE e o tokenizer estão trabalhando**
+- [ ] **Step 7: Prove by mutation that the UPDATE trigger and tokenizer work**
 
-Duas mutações, uma de cada vez:
+Make two mutations, one at a time:
 
-1. Apague o gatilho `message_body_au` da migração e rode
+1. Delete the `message_body_au` trigger from the migration and run
    `swift test --filter atualizarCorpoReindexa`.
-   Expected: FAIL — `MessageSearch.matchingBodyIDs(term: "previa")` volta a
-   achar `m1`, porque o índice ficou no texto velho.
-2. Troque `remove_diacritics 2` por `remove_diacritics 0` e rode
+   Expected: FAIL — `MessageSearch.matchingBodyIDs(term: "previa")` finds
+   `m1` again because the index remains on the old text.
+2. Replace `remove_diacritics 2` with `remove_diacritics 0` and run
    `swift test --filter buscaDobraAcento`.
-   Expected: FAIL — `"Revisao"` deixa de achar `"revisão"`.
+   Expected: FAIL — `"Revisao"` no longer finds `"revisão"`.
 
-Devolva as duas e confirme o verde.
+Restore both changes and confirm that the test is green.
 
 - [ ] **Step 8: Commit**
 
@@ -2242,7 +2242,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 6: `ProviderDetector`, `ImapPresets` e `FolderRoles` — as três decisões puras da rota
+### Task 6: `ProviderDetector`, `ImapPresets`, and `FolderRoles` — the three pure routing decisions
 
 **Files:**
 - Create: `Packages/UNISync/Sources/UNISync/Providers/ImapPresets.swift`
@@ -2252,15 +2252,15 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Create: `Packages/UNISync/Tests/UNISyncTests/FolderRolesTests.swift`
 
 **Interfaces:**
-- Consumes: `ImapEndpoint` e `ImapEndpoint.Security` (Task 3); `FolderRole` (Task 5).
+- Consumes: `ImapEndpoint` and `ImapEndpoint.Security` (Task 3); `FolderRole` (Task 5).
 - Produces:
-  - `struct ImapPreset: Sendable, Hashable` com `let name: String`, `let hostMark: String`, `let endpoint: ImapEndpoint`, `let domains: [String]`, `init(name:hostMark:endpoint:domains:)`.
+  - `struct ImapPreset: Sendable, Hashable` with `let name: String`, `let hostMark: String`, `let endpoint: ImapEndpoint`, `let domains: [String]`, and `init(name:hostMark:endpoint:domains:)`.
   - `enum ImapPresets { static let all: [ImapPreset]; static func preset(forDomain domain: String) -> ImapPreset? }`.
   - `enum ProviderRoute: Sendable, Hashable { case google; case imap(ImapPreset); case manual(suggested: ImapEndpoint) }`.
   - `enum ProviderDetector { static func domain(of address: String) -> String?; static func isValidAddress(_ address: String) -> Bool; static func route(for address: String) -> ProviderRoute? }`.
   - `enum FolderRoles { static func role(specialUse: String?, name: String) -> FolderRole; static let laterFolderName: String }`.
 
-- [ ] **Step 1: Escrever os testes que falham**
+- [ ] **Step 1: Write the failing tests**
 
 `Packages/UNISync/Tests/UNISyncTests/ProviderDetectorTests.swift`:
 
@@ -2405,13 +2405,13 @@ struct FolderRolesTests {
 }
 ```
 
-- [ ] **Step 2: Rodar para ver falhar**
+- [ ] **Step 2: Run them to see them fail**
 
 Run: `cd Packages/UNISync && swift test --filter 'ProviderDetector|FolderRoles'`
 
 Expected: FAIL — `cannot find 'ProviderDetector' in scope`, `cannot find 'FolderRoles' in scope`, `cannot find 'ImapPresets' in scope`.
 
-- [ ] **Step 3: Escrever a tabela de presets**
+- [ ] **Step 3: Write the presets table**
 
 `Packages/UNISync/Sources/UNISync/Providers/ImapPresets.swift`:
 
@@ -2505,7 +2505,7 @@ public enum ImapPresets {
 }
 ```
 
-- [ ] **Step 4: Escrever o detector**
+- [ ] **Step 4: Write the detector**
 
 `Packages/UNISync/Sources/UNISync/Providers/ProviderDetector.swift`:
 
@@ -2567,7 +2567,7 @@ public enum ProviderDetector {
 }
 ```
 
-- [ ] **Step 5: Escrever a detecção de papel**
+- [ ] **Step 5: Write role detection**
 
 `Packages/UNISync/Sources/UNISync/Providers/FolderRoles.swift`:
 
@@ -2630,21 +2630,21 @@ public enum FolderRoles {
 }
 ```
 
-- [ ] **Step 6: Rodar para ver passar**
+- [ ] **Step 6: Run them to see them pass**
 
 Run: `cd Packages/UNISync && swift test --filter 'ProviderDetector|FolderRoles'`
 
-Expected: PASS, 11 testes.
+Expected: PASS, 11 tests.
 
-- [ ] **Step 7: Provar por mutação que o caso geral é mesmo geral**
+- [ ] **Step 7: Prove by mutation that the general case is truly general**
 
-Troque o `return .manual(...)` de `ProviderDetector.route` por `return nil` e rode:
+Replace `return .manual(...)` in `ProviderDetector.route` with `return nil`, then run:
 
 Run: `cd Packages/UNISync && swift test --filter rotaManual`
 
-Expected: FAIL — `#require` devolve nulo e o teste registra o problema. Isto é
-a tabela virando porteiro, que é o defeito que a restrição herdada proíbe.
-Devolva a linha e confirme o verde.
+Expected: FAIL — `#require` returns `nil` and the test reports the problem. That
+turns the table into a gatekeeper, the defect prohibited by the inherited constraint.
+Restore the line and confirm that the test is green.
 
 - [ ] **Step 8: Commit**
 
@@ -2663,7 +2663,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 7: `GoogleAuth` — PKCE, callback, troca, refresh e a corrida única, contra stub local
+### Task 7: `GoogleAuth` — PKCE, callback, token exchange, refresh, and single-flight, against a local stub
 
 **Files:**
 - Create: `Packages/UNISync/Sources/UNISync/Google/GoogleAuthConfig.swift`
@@ -2678,12 +2678,12 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Consumes: `SyncError`, `SecretStore`, `Secret`, `OAuthTokens`, `InMemorySecretStore` (Task 4).
 - Produces:
   - `struct PKCEPair: Sendable, Hashable { let verifier: String; let challenge: String; static func make(from bytes: [UInt8]) -> PKCEPair; static func random() -> PKCEPair }`.
-  - `struct GoogleAuthConfig: Sendable, Hashable` com `let clientID: String`, `let redirectURI: String`, `let callbackScheme: String`, `let scopes: [String]`, `let authorizationEndpoint: URL`, `let tokenEndpoint: URL`, `let revocationEndpoint: URL`; `static let defaultScopes: [String]`; `init(clientID:redirectURI:callbackScheme:scopes:authorizationEndpoint:tokenEndpoint:revocationEndpoint:)` com defaults para tudo menos `clientID`; `static func fromBundle(_ bundle: Bundle) throws -> GoogleAuthConfig`; `func authorizationURL(pkce: PKCEPair, state: String, loginHint: String?) -> URL`.
+  - `struct GoogleAuthConfig: Sendable, Hashable` with `let clientID: String`, `let redirectURI: String`, `let callbackScheme: String`, `let scopes: [String]`, `let authorizationEndpoint: URL`, `let tokenEndpoint: URL`, `let revocationEndpoint: URL`; `static let defaultScopes: [String]`; `init(clientID:redirectURI:callbackScheme:scopes:authorizationEndpoint:tokenEndpoint:revocationEndpoint:)` with defaults for everything except `clientID`; `static func fromBundle(_ bundle: Bundle) throws -> GoogleAuthConfig`; and `func authorizationURL(pkce: PKCEPair, state: String, loginHint: String?) -> URL`.
   - `enum OAuthCallback { static func code(from url: URL, expectedState: String) throws -> String }`.
-  - `protocol AuthorizationPresenter: Sendable { func authorize(url: URL, callbackScheme: String) async throws -> URL }`; `final class WebAuthorizationPresenter: NSObject, AuthorizationPresenter, @unchecked Sendable`; `struct StubAuthorizationPresenter: AuthorizationPresenter` com `init(redirect: @Sendable @escaping (URL) throws -> URL)`.
-  - `actor GoogleAuth` com `init(config: GoogleAuthConfig, session: URLSession, secrets: any SecretStore, presenter: any AuthorizationPresenter, now: @Sendable @escaping () -> Date = Date.init)`, `func connect(accountID: String, loginHint: String?) async throws -> OAuthTokens`, `func accessToken(for accountID: String) async throws -> String`, `func revoke(accountID: String) async throws`.
+  - `protocol AuthorizationPresenter: Sendable { func authorize(url: URL, callbackScheme: String) async throws -> URL }`; `final class WebAuthorizationPresenter: NSObject, AuthorizationPresenter, @unchecked Sendable`; and `struct StubAuthorizationPresenter: AuthorizationPresenter` with `init(redirect: @Sendable @escaping (URL) throws -> URL)`.
+  - `actor GoogleAuth` with `init(config: GoogleAuthConfig, session: URLSession, secrets: any SecretStore, presenter: any AuthorizationPresenter, now: @Sendable @escaping () -> Date = Date.init)`, `func connect(accountID: String, loginHint: String?) async throws -> OAuthTokens`, `func accessToken(for accountID: String) async throws -> String`, and `func revoke(accountID: String) async throws`.
 
-- [ ] **Step 1: Escrever o stub de HTTP**
+- [ ] **Step 1: Write the HTTP stub**
 
 `Packages/UNISync/Tests/UNISyncTests/StubURLProtocol.swift`:
 
@@ -2804,7 +2804,7 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
 }
 ```
 
-- [ ] **Step 2: Escrever o teste que falha**
+- [ ] **Step 2: Write the failing test**
 
 `Packages/UNISync/Tests/UNISyncTests/GoogleAuthTests.swift`:
 
@@ -3093,13 +3093,13 @@ struct GoogleAuthTests {
 private final class BundleAnchor {}
 ```
 
-- [ ] **Step 3: Rodar para ver falhar**
+- [ ] **Step 3: Run it to see it fail**
 
 Run: `cd Packages/UNISync && swift test --filter GoogleAuth`
 
 Expected: FAIL — `cannot find 'PKCEPair' in scope`, `cannot find 'GoogleAuthConfig' in scope`.
 
-- [ ] **Step 4: Escrever o PKCE**
+- [ ] **Step 4: Write PKCE**
 
 `Packages/UNISync/Sources/UNISync/Google/PKCE.swift`:
 
@@ -3146,7 +3146,7 @@ public struct PKCEPair: Sendable, Hashable {
 }
 ```
 
-- [ ] **Step 5: Escrever a configuração e o parser do callback**
+- [ ] **Step 5: Write configuration and the callback parser**
 
 `Packages/UNISync/Sources/UNISync/Google/GoogleAuthConfig.swift`:
 
@@ -3269,7 +3269,7 @@ public enum OAuthCallback {
 }
 ```
 
-- [ ] **Step 6: Escrever o apresentador**
+- [ ] **Step 6: Write the presenter**
 
 `Packages/UNISync/Sources/UNISync/Google/AuthorizationPresenter.swift`:
 
@@ -3356,7 +3356,7 @@ public struct StubAuthorizationPresenter: AuthorizationPresenter {
 }
 ```
 
-- [ ] **Step 7: Escrever o `GoogleAuth`**
+- [ ] **Step 7: Write `GoogleAuth`**
 
 `Packages/UNISync/Sources/UNISync/Google/GoogleAuth.swift`:
 
@@ -3572,31 +3572,31 @@ public actor GoogleAuth {
 }
 ```
 
-- [ ] **Step 8: Rodar para ver passar**
+- [ ] **Step 8: Run it to see it pass**
 
 Run: `cd Packages/UNISync && swift test --filter GoogleAuth`
 
-Expected: PASS, 14 testes.
+Expected: PASS, 14 tests.
 
-- [ ] **Step 9: Provar por mutação as duas decisões que mais custam**
+- [ ] **Step 9: Prove by mutation the two decisions that cost the most**
 
-1. Apague o `if let emVoo = inFlight[accountID] { return try await emVoo.value }` e rode
+1. Delete `if let emVoo = inFlight[accountID] { return try await emVoo.value }` and run
    `swift test --filter corridaDeRefreshEhUnica`.
-   Expected: FAIL — a segunda chamada não acha resposta no roteiro (a fila do
-   `/token` tem uma só) e o teste morre com `Nenhuma resposta no roteiro`.
-2. Troque `fio.refresh_token ?? anterior` por `fio.refresh_token` e rode
+   Expected: FAIL — the second call finds no response in the stub (the `/token`
+   queue has only one) and the test dies with `Nenhuma resposta no roteiro`.
+2. Replace `fio.refresh_token ?? anterior` with `fio.refresh_token` and run
    `swift test --filter refreshPreservaRefreshToken`.
-   Expected: FAIL — a renovação lança, porque o Google não repete o refresh
-   token e o app teria apagado o único que tinha.
+   Expected: FAIL — refresh throws because Google does not repeat the refresh
+   token and the app would have deleted the only one it had.
 
-Devolva as duas e confirme o verde.
+Restore both changes and confirm that the test is green.
 
-- [ ] **Step 10: Confirmar que nenhum teste saiu para a rede**
+- [ ] **Step 10: Confirm that no test reaches the network**
 
 Run: `cd Packages/UNISync && swift test --filter GoogleAuth 2>&1 | grep -ci 'accounts.google.com\|oauth2.googleapis.com' || echo "0 (nenhuma URL real)"`
 
-Expected: `0 (nenhuma URL real)`. Toda URL dos testes é `oauth2.example`, que
-só existe dentro do `StubURLProtocol`.
+Expected: `0 (nenhuma URL real)`. Every test URL is `oauth2.example`, which
+exists only inside `StubURLProtocol`.
 
 - [ ] **Step 11: Commit**
 
@@ -3616,7 +3616,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 8: `GmailClient` — a API tipada, contra fixtures JSON gravadas
+### Task 8: `GmailClient` — the typed API, against recorded JSON fixtures
 
 **Files:**
 - Create: `Packages/UNISync/Sources/UNISync/Gmail/GmailTypes.swift`
@@ -3630,7 +3630,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Create: `Packages/UNISync/Tests/UNISyncTests/GmailClientTests.swift`
 
 **Interfaces:**
-- Consumes: `SyncError` (Task 4); `StubURLProtocol` (Task 7); `Contact` do `UNICore`.
+- Consumes: `SyncError` (Task 4); `StubURLProtocol` (Task 7); `Contact` from `UNICore`.
 - Produces:
   - `struct GmailProfile: Sendable, Hashable { let emailAddress: String; let historyID: String }`.
   - `struct GmailLabel: Sendable, Hashable { let id: String; let name: String }`.
@@ -3639,12 +3639,12 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
   - `struct GmailMessage: Sendable, Hashable { let id: String; let labelIDs: [String]; let internalDate: Date; let from: Contact; let to: [Contact]; let cc: [Contact]; let subject: String; let snippet: String; let body: [String] }`.
   - `enum MailAddress { static func parse(_ header: String) -> Contact?; static func parseList(_ header: String) -> [Contact] }`.
   - `enum GmailMessageParser { static func parse(_ data: Data) throws -> GmailMessage; static func decodeBody(base64URL: String) -> String; static func paragraphs(from text: String) -> [String] }`.
-  - `struct GmailClient: Sendable` com `init(session: URLSession, accessToken: @Sendable @escaping () async throws -> String, baseURL: URL = URL(string: "https://gmail.googleapis.com/gmail/v1/users/me")!)`, `func profile() async throws -> GmailProfile`, `func labels() async throws -> [GmailLabel]`, `func messageIDs(query: String, pageToken: String?) async throws -> GmailPage`, `func message(id: String, format: GmailFormat) async throws -> GmailMessage`.
+  - `struct GmailClient: Sendable` with `init(session: URLSession, accessToken: @Sendable @escaping () async throws -> String, baseURL: URL = URL(string: "https://gmail.googleapis.com/gmail/v1/users/me")!)`, `func profile() async throws -> GmailProfile`, `func labels() async throws -> [GmailLabel]`, `func messageIDs(query: String, pageToken: String?) async throws -> GmailPage`, and `func message(id: String, format: GmailFormat) async throws -> GmailMessage`.
 
-- [ ] **Step 1: Gravar as fixtures da API**
+- [ ] **Step 1: Record the API fixtures**
 
-São respostas reais da Gmail API, com os endereços trocados. Grave-as
-literalmente.
+These are real Gmail API responses with substituted addresses. Record them
+literally.
 
 `Fixtures/gmail-profile.json`:
 
@@ -3685,9 +3685,9 @@ literalmente.
  ]}}
 ```
 
-`Fixtures/gmail-message-full.json` — o caso que ensina o parser: `multipart/alternative`,
-corpo em base64url, assunto codificado em RFC 2047, `To` com dois nomes e `Cc`
-com um:
+`Fixtures/gmail-message-full.json` — the parser-teaching case: `multipart/alternative`,
+a base64url body, an RFC 2047-encoded subject, `To` with two names, and `Cc`
+with one:
 
 ```json
 {"id":"18f0a1b2c3","threadId":"18f0a1b2c3",
@@ -3712,12 +3712,12 @@ com um:
  }}
 ```
 
-> O `data` do `text/plain` é `A revisão do contrato ficou pronta.\n\nPodemos fechar quinta?`
-> em base64**url** (com `-`/`_` no lugar de `+`/`/`, e sem `=` de padding) — é
-> exatamente o que a API devolve, e é por isso que decodificar com o base64
-> comum falha.
+> The `text/plain` `data` is `A revisão do contrato ficou pronta.\n\nPodemos fechar quinta?`
+> in base64**url** (`-`/`_` instead of `+`/`/`, with no `=` padding). That is
+> exactly what the API returns, which is why decoding with standard base64
+> fails.
 
-- [ ] **Step 2: Escrever o teste que falha**
+- [ ] **Step 2: Write the failing test**
 
 `Packages/UNISync/Tests/UNISyncTests/GmailClientTests.swift`:
 
@@ -3925,13 +3925,13 @@ private actor Contador {
 }
 ```
 
-- [ ] **Step 3: Rodar para ver falhar**
+- [ ] **Step 3: Run it to see it fail**
 
 Run: `cd Packages/UNISync && swift test --filter GmailClient`
 
 Expected: FAIL — `cannot find 'GmailClient' in scope`, `cannot find 'MailAddress' in scope`.
 
-- [ ] **Step 4: Escrever os tipos e o parser de endereço**
+- [ ] **Step 4: Write the types and address parser**
 
 `Packages/UNISync/Sources/UNISync/Gmail/GmailTypes.swift`:
 
@@ -4079,7 +4079,7 @@ public enum MailAddress {
 }
 ```
 
-- [ ] **Step 5: Escrever o parser de mensagem**
+- [ ] **Step 5: Write the message parser**
 
 `Packages/UNISync/Sources/UNISync/Gmail/GmailMessageParser.swift`:
 
@@ -4189,7 +4189,7 @@ public enum GmailMessageParser {
 }
 ```
 
-- [ ] **Step 6: Escrever o cliente**
+- [ ] **Step 6: Write the client**
 
 `Packages/UNISync/Sources/UNISync/Gmail/GmailClient.swift`:
 
@@ -4321,27 +4321,27 @@ public struct GmailClient: Sendable {
 }
 ```
 
-- [ ] **Step 7: Rodar para ver passar**
+- [ ] **Step 7: Run it to see it pass**
 
 Run: `cd Packages/UNISync && swift test --filter GmailClient`
 
-Expected: PASS, 14 testes.
+Expected: PASS, 14 tests.
 
-- [ ] **Step 8: Provar por mutação os três erros que compilam calados**
+- [ ] **Step 8: Prove by mutation the three silently compiling errors**
 
-Uma mutação de cada vez:
+Make one mutation at a time:
 
-1. Troque `milissegundos / 1_000` por `milissegundos` e rode
+1. Replace `milissegundos / 1_000` with `milissegundos` and run
    `swift test --filter mensagemCheia`.
-   Expected: FAIL — a data vira o ano 58 mil.
-2. Troque `MailAddress.parseList` por `header.components(separatedBy: ",").compactMap(parse)`
-   e rode `swift test --filter listaDeEnderecos`.
-   Expected: FAIL — `lista.count == 3`, com um destinatário chamado "Duarte".
-3. Troque `decodeBody(base64URL:)` por `String(data: Data(base64Encoded: base64URL) ?? Data(), encoding: .utf8) ?? ""`
-   e rode `swift test --filter 'base64URL|mensagemCheia'`.
-   Expected: FAIL — o corpo vem vazio, porque a API usa base64url sem padding.
+   Expected: FAIL — the date becomes year 58,000.
+2. Replace `MailAddress.parseList` with `header.components(separatedBy: ",").compactMap(parse)`
+   and run `swift test --filter listaDeEnderecos`.
+   Expected: FAIL — `lista.count == 3`, with a recipient called "Duarte".
+3. Replace `decodeBody(base64URL:)` with `String(data: Data(base64Encoded: base64URL) ?? Data(), encoding: .utf8) ?? ""`
+   and run `swift test --filter 'base64URL|mensagemCheia'`.
+   Expected: FAIL — the body is empty because the API uses unpadded base64url.
 
-Devolva as três e confirme o verde.
+Restore all three and confirm that the test is green.
 
 - [ ] **Step 9: Commit**
 
@@ -4359,18 +4359,18 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 9: O servidor IMAP falso e a sessão que conecta, autentica e sai
+### Task 9: The fake IMAP server and the session that connects, authenticates, and logs out
 
-> **Regra de divergência, obrigatória nesta tarefa e na Task 10.** O código
-> abaixo é escrito contra `ResponseDecoder` (do produto `NIOIMAP`, que reexporta o núcleo) — o decodificador de
-> respostas do `swift-nio-imap`, usado dentro de um `ByteToMessageHandler`. Se
-> a versão que o SPM resolver tiver nome ou forma diferentes para esse tipo, o
-> implementador **NÃO decide sozinho**: para, devolve `NEEDS_CONTEXT`
-> descrevendo a divergência (o nome que o plano usa, o nome que existe na
-> versão resolvida, o arquivo do pacote onde ele aparece) e espera resposta.
-> Seguir o plano contra a biblioteca já produziu retrabalho neste projeto.
-> A **forma** não muda em hipótese nenhuma: montar comando é nosso e é puro
-> (`ImapWire`), interpretar resposta é da biblioteca.
+> **Divergence rule, mandatory for this task and Task 10.** The code below is
+> written against `ResponseDecoder` (from the `NIOIMAP` product, which re-exports its core): the
+> `swift-nio-imap` response decoder used inside a `ByteToMessageHandler`. If
+> the version resolved by SPM names or shapes this type differently, the
+> implementer **MUST NOT decide alone**: stop, return `NEEDS_CONTEXT`, describe
+> the divergence (the plan’s name, the resolved version’s name, and the package
+> file where it appears), and wait for a response. Forcing the plan onto the
+> library has already caused rework in this project. The **boundary** never
+> changes: command construction is ours and pure (`ImapWire`); response
+> interpretation belongs to the library.
 
 **Files:**
 - Create: `Packages/UNISync/Sources/UNISync/Imap/ImapWire.swift`
@@ -4381,13 +4381,13 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: `ImapEndpoint`, `ImapEndpoint.Security` (Task 3); `SyncError` (Task 4); `FolderRole` (Task 5); `FolderRoles` (Task 6).
 - Produces:
-  - `enum ImapWire` com `static func tag(_ n: Int) -> String`, `static func login(tag:user:password:) -> String`, `static func list(tag:) -> String`, `static func select(tag:mailbox:) -> String`, `static func uidSearchSince(tag:date:calendar:) -> String`, `static func uidFetchEnvelopes(tag:uids:) -> String`, `static func uidFetchBody(tag:uid:) -> String`, `static func logout(tag:) -> String`, `static func quoted(_ s: String) -> String`, `static func imapDate(_ date: Date, calendar: Calendar) -> String`.
+  - `enum ImapWire` with `static func tag(_ n: Int) -> String`, `static func login(tag:user:password:) -> String`, `static func list(tag:) -> String`, `static func select(tag:mailbox:) -> String`, `static func uidSearchSince(tag:date:calendar:) -> String`, `static func uidFetchEnvelopes(tag:uids:) -> String`, `static func uidFetchBody(tag:uid:) -> String`, `static func logout(tag:) -> String`, `static func quoted(_ s: String) -> String`, and `static func imapDate(_ date: Date, calendar: Calendar) -> String`.
   - `struct ImapFolder: Sendable, Hashable { let name: String; let specialUse: String?; let role: FolderRole }`.
   - `struct ImapMailboxStatus: Sendable, Hashable { let uidValidity: Int64; let uidNext: Int64; let exists: Int }`.
   - `struct ImapEnvelope: Sendable, Hashable { let uid: Int64; let from: Contact; let to: [Contact]; let cc: [Contact]; let subject: String; let date: Date; let isRead: Bool; let isFlagged: Bool }`.
-  - `actor ImapSession` com `static func connect(endpoint: ImapEndpoint, group: any EventLoopGroup) async throws -> ImapSession`, `func login(user: String, password: String) async throws`, `func logout() async`.
+  - `actor ImapSession` with `static func connect(endpoint: ImapEndpoint, group: any EventLoopGroup) async throws -> ImapSession`, `func login(user: String, password: String) async throws`, and `func logout() async`.
 
-- [ ] **Step 1: Escrever o servidor falso**
+- [ ] **Step 1: Write the fake server**
 
 `Packages/UNISync/Tests/UNISyncTests/FakeImapServer.swift`:
 
@@ -4527,7 +4527,7 @@ final class FakeImapServer: @unchecked Sendable {
 }
 ```
 
-- [ ] **Step 2: Escrever o teste que falha**
+- [ ] **Step 2: Write the failing test**
 
 `Packages/UNISync/Tests/UNISyncTests/ImapSessionTests.swift`:
 
@@ -4676,13 +4676,13 @@ struct ImapSessionTests {
 }
 ```
 
-- [ ] **Step 3: Rodar para ver falhar**
+- [ ] **Step 3: Run it to see it fail**
 
 Run: `cd Packages/UNISync && swift test --filter ImapSession`
 
 Expected: FAIL — `cannot find 'ImapWire' in scope`, `cannot find 'ImapSession' in scope`.
 
-- [ ] **Step 4: Escrever a parte pura**
+- [ ] **Step 4: Write the pure portion**
 
 `Packages/UNISync/Sources/UNISync/Imap/ImapWire.swift`:
 
@@ -4817,7 +4817,7 @@ public struct ImapEnvelope: Sendable, Hashable {
 }
 ```
 
-- [ ] **Step 5: Escrever a sessão**
+- [ ] **Step 5: Write the session**
 
 `Packages/UNISync/Sources/UNISync/Imap/ImapSession.swift`:
 
@@ -5064,34 +5064,33 @@ final class ImapChannelHandler: ChannelInboundHandler, @unchecked Sendable {
 }
 ```
 
-> Sobre a regra de divergência do topo desta tarefa: o `ImapChannelHandler`
-> acima junta linhas cruas. Quando a Task 10 precisar de `ENVELOPE` — que é
-> gramática de verdade, com literais `{123}` e continuação —, é o
-> `ResponseDecoder` (do produto `NIOIMAP`, que reexporta o núcleo) que entra no lugar do `LineBasedFrameDecoder`,
-> e o `untagged: [String]` vira `untagged: [Response]`. Esta tarefa para no
-> ponto em que linha crua ainda é suficiente, de propósito: é o menor pedaço
-> que dá para provar sozinho.
+> Regarding the divergence rule above: `ImapChannelHandler` currently joins
+> raw lines. When Task 10 needs `ENVELOPE`—real grammar with `{123}` literals
+> and continuations—`ResponseDecoder` (from `NIOIMAP`, which re-exports its core) replaces
+> `LineBasedFrameDecoder`, and `untagged: [String]` becomes `untagged: [Response]`.
+> This task deliberately stops where raw lines are still sufficient: it is the
+> smallest independently provable unit.
 
-- [ ] **Step 6: Rodar para ver passar**
+- [ ] **Step 6: Run it to see it pass**
 
 Run: `cd Packages/UNISync && swift test --filter ImapSession`
 
-Expected: PASS, 9 testes.
+Expected: PASS, 9 tests.
 
-- [ ] **Step 7: Provar por mutação as duas armadilhas de protocolo**
+- [ ] **Step 7: Prove by mutation the two protocol traps**
 
-1. Troque `ImapWire.imapDate` por um `DateFormatter` com
-   `dateFormat = "dd-MMM-yyyy"` **sem** `locale = Locale(identifier: "en_US_POSIX")`
-   e rode `swift test --filter dataDoSearch` numa máquina em pt_BR.
-   Expected: FAIL — sai `25-ago-2026`.
-2. Apague o corpo de `falha(_:)` (deixe a função vazia), tire o servidor do ar
-   no meio (troque o roteiro de `LOGIN` por `[:]` e o teste `loginOK`) e rode
+1. Replace `ImapWire.imapDate` with a `DateFormatter` using
+   `dateFormat = "dd-MMM-yyyy"` **without** `locale = Locale(identifier: "en_US_POSIX")`,
+   then run `swift test --filter dataDoSearch` on a pt_BR machine.
+   Expected: FAIL — it emits `25-ago-2026`.
+2. Delete the body of `falha(_:)` (leave the function empty), take the server
+   down midway (change the `LOGIN` script to `[:]` and run `loginOK`), then run
    `swift test --filter loginOK`.
-   Expected: o teste **trava** até o timeout do Swift Testing em vez de falhar
-   com mensagem — que é exatamente o defeito. Devolva o corpo e confirme que
-   passa a falhar rápido e com motivo.
+   Expected: the test **hangs** until the Swift Testing timeout rather than
+   failing with a message—the exact defect. Restore the body and confirm that
+   it fails quickly and with a reason.
 
-Devolva as duas e confirme o verde.
+Restore both changes and confirm that the test is green.
 
 - [ ] **Step 8: Commit**
 
@@ -5110,15 +5109,9 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 10: `ImapSession` lista, seleciona, busca e traz envelopes em lote
+### Task 10: `ImapSession` lists, selects, searches and fetches envelope batches
 
-A regra de divergência do topo da Task 9 continua valendo, e agora com um alvo
-único: **todo contato com os tipos de resposta do `swift-nio-imap` mora em
-`Imap/ImapResponseAdapter.swift`, e em nenhum outro arquivo.** Ele converte o
-que a biblioteca decodifica no nosso `ImapWire.Untagged`, que é puro. Toda a
-lógica desta tarefa é testada contra `ImapWire.Untagged`, sem NIO nenhum; se a
-biblioteca mudar de forma, quem quebra é um arquivo só, e os testes de lógica
-continuam válidos.
+The divergence rule at the top of Task 9 still applies, now with one target: **all contact with `swift-nio-imap` response types belongs in `Imap/ImapResponseAdapter.swift`, nowhere else.** It converts the library's decoded output into our pure `ImapWire.Untagged`. All logic in this task is tested against `ImapWire.Untagged`, without NIO. If the library changes shape, only one file breaks and the logic tests remain valid.
 
 **Files:**
 - Create: `Packages/UNISync/Sources/UNISync/Imap/ImapResponseAdapter.swift`
@@ -5130,13 +5123,13 @@ continuam válidos.
 **Interfaces:**
 - Consumes: `ImapWire`, `ImapFolder`, `ImapMailboxStatus`, `ImapEnvelope`, `ImapSession.run(_:)`, `ImapCommandResult` (Task 9).
 - Produces:
-  - `enum ImapWire.Untagged: Sendable, Hashable` com os casos `.list(name: String, attributes: [String])`, `.search([Int64])`, `.exists(Int)`, `.ok(code: String, value: String)`, `.fetch(ImapWire.FetchLine)`, `.outra(String)`.
-  - `struct ImapWire.FetchLine: Sendable, Hashable` com `uid: Int64`, `flags: [String]`, `internalDate: Date?`, `from: String?`, `to: String?`, `cc: String?`, `subject: String?`, `text: String?`.
+  - `enum ImapWire.Untagged: Sendable, Hashable` with cases `.list(name: String, attributes: [String])`, `.search([Int64])`, `.exists(Int)`, `.ok(code: String, value: String)`, `.fetch(ImapWire.FetchLine)`, `.outra(String)`.
+  - `struct ImapWire.FetchLine: Sendable, Hashable` with `uid: Int64`, `flags: [String]`, `internalDate: Date?`, `from: String?`, `to: String?`, `cc: String?`, `subject: String?`, `text: String?`.
   - `static func folders(from: [ImapWire.Untagged]) -> [ImapFolder]`, `static func status(from: [ImapWire.Untagged]) -> ImapMailboxStatus?`, `static func uids(from: [ImapWire.Untagged]) -> [Int64]`, `static func envelopes(from: [ImapWire.Untagged]) -> [ImapEnvelope]`, `static func bodyText(from: [ImapWire.Untagged], uid: Int64) -> [String]`, `static let fetchBatchSize: Int`.
   - `ImapSession.folders() async throws -> [ImapFolder]`, `.select(_ folder: ImapFolder) async throws -> ImapMailboxStatus`, `.uids(since: Date, calendar: Calendar) async throws -> [Int64]`, `.envelopes(uids: [Int64]) async throws -> [ImapEnvelope]`, `.bodyText(uid: Int64) async throws -> [String]`.
   - `enum ImapUidValidity { static func changed(previous: Int64?, current: Int64) -> Bool }`.
 
-- [ ] **Step 1: Escrever o teste que falha (tudo puro, mais um de ponta a ponta)**
+- [ ] **Step 1: Write failing tests (pure logic plus an end-to-end test)**
 
 `Packages/UNISync/Tests/UNISyncTests/ImapFetchTests.swift`:
 
@@ -5342,16 +5335,15 @@ struct ImapFetchTests {
 }
 ```
 
-- [ ] **Step 2: Rodar para ver falhar**
+- [ ] **Step 2: Run to confirm failure**
 
 Run: `cd Packages/UNISync && swift test --filter ImapFetch`
 
 Expected: FAIL — `type 'ImapWire' has no member 'Untagged'`, `has no member 'folders'`.
 
-- [ ] **Step 3: Acrescentar os tipos e os interpretadores puros ao `ImapWire`**
+- [ ] **Step 3: Add the pure types and interpreters to `ImapWire`**
 
-Ao fim de `Packages/UNISync/Sources/UNISync/Imap/ImapWire.swift`, dentro do
-`enum ImapWire`:
+At the end of `Packages/UNISync/Sources/UNISync/Imap/ImapWire.swift`, inside `enum ImapWire`:
 
 ```swift
     // MARK: Respostas, do nosso lado
@@ -5490,7 +5482,7 @@ Ao fim de `Packages/UNISync/Sources/UNISync/Imap/ImapWire.swift`, dentro do
     }
 ```
 
-E, ao fim do arquivo, fora do `enum`:
+At the end of the file, outside the `enum`:
 
 ```swift
 /// A troca de `UIDVALIDITY` — o sinal de que os UIDs da pasta foram reciclados.
@@ -5507,7 +5499,7 @@ public enum ImapUidValidity {
 }
 ```
 
-- [ ] **Step 4: Escrever o adaptador — o único arquivo que toca a biblioteca**
+- [ ] **Step 4: Write the adapter — the only file touching the library**
 
 `Packages/UNISync/Sources/UNISync/Imap/ImapResponseAdapter.swift`:
 
@@ -5724,11 +5716,9 @@ enum ImapResponseAdapter {
 }
 ```
 
-- [ ] **Step 5: Ligar o adaptador à sessão**
+- [ ] **Step 5: Connect the adapter to the session**
 
-Em `Packages/UNISync/Sources/UNISync/Imap/ImapSession.swift`, troque o tipo de
-`ImapCommandResult.untagged` e acrescente os cinco comandos. Em
-`ImapCommandResult`:
+In `Packages/UNISync/Sources/UNISync/Imap/ImapSession.swift`, change the type of `ImapCommandResult.untagged` and add the five commands. In `ImapCommandResult`:
 
 ```swift
     /// As linhas `*` que chegaram enquanto o comando estava em voo, já
@@ -5736,15 +5726,15 @@ Em `Packages/UNISync/Sources/UNISync/Imap/ImapSession.swift`, troque o tipo de
     let untagged: [ImapWire.Untagged]
 ```
 
-No `ImapChannelHandler`, troque `collected.append(linha)` por:
+In `ImapChannelHandler`, replace `collected.append(linha)` with:
 
 ```swift
             collected.append(ImapResponseAdapter.untagged(fromLogicalLine: linha))
 ```
 
-e a declaração por `private var collected: [ImapWire.Untagged] = []`.
+Change its declaration to `private var collected: [ImapWire.Untagged] = []`.
 
-E acrescente ao `actor ImapSession`, depois de `login(user:password:)`:
+Add this to `actor ImapSession`, after `login(user:password:)`:
 
 ```swift
     /// As pastas do servidor, com o papel já resolvido.
@@ -5797,30 +5787,22 @@ E acrescente ao `actor ImapSession`, depois de `login(user:password:)`:
     }
 ```
 
-- [ ] **Step 6: Rodar para ver passar**
+- [ ] **Step 6: Run to confirm success**
 
 Run: `cd Packages/UNISync && swift test --filter 'ImapFetch|ImapSession'`
 
-Expected: PASS, 19 testes (10 desta tarefa + os 9 da Task 9, que continuam
-verdes com o `untagged` de tipo novo).
+Expected: PASS, 19 tests (10 from this task plus Task 9's nine, which remain green with the new `untagged` type).
 
-- [ ] **Step 7: Provar por mutação as três decisões que só aparecem em produção**
+- [ ] **Step 7: Prove through mutation the three decisions that surface in production**
 
-1. Tire o descarte de `\Noselect` de `ImapWire.folders` e rode
-   `swift test --filter pastas`.
-   Expected: FAIL — "Projetos" entra na lista, e em produção o `SELECT` nele
-   devolveria `NO` derrubando a carga inteira.
-2. Troque `guard let uidValidity else { return nil }` por
-   `let uidValidity = uidValidity ?? 0` e rode
-   `swift test --filter selecaoSemUidValidity`.
-   Expected: FAIL — o status inventado passa.
-3. Em `envelopes(from:)`, troque `guard let data = linha.internalDate else { return nil }`
-   por `let data = linha.internalDate ?? Date()` e rode
-   `swift test --filter envelopeSemData`.
-   Expected: FAIL — a mensagem sem data entra, e em produção subiria ao topo
-   da lista acima do que chegou hoje.
+1. Remove the exclusion of `\Noselect` in `ImapWire.folders` and run `swift test --filter pastas`.
+   Expected: FAIL — “Projetos” enters the list; in production, selecting it would return `NO` and fail the entire load.
+2. Replace `guard let uidValidity else { return nil }` with `let uidValidity = uidValidity ?? 0` and run `swift test --filter selecaoSemUidValidity`.
+   Expected: FAIL — the invented status is accepted.
+3. In `envelopes(from:)`, replace `guard let data = linha.internalDate else { return nil }` with `let data = linha.internalDate ?? Date()` and run `swift test --filter envelopeSemData`.
+   Expected: FAIL — the undated message is included and would rise above today's arrivals in production.
 
-Devolva as três e confirme o verde.
+Restore all three and confirm green.
 
 - [ ] **Step 8: Commit**
 
@@ -5840,7 +5822,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 11: `TriageProjection` e `MessageIdentity` — a projeção de triagem e o id estável
+### Task 11: `TriageProjection` and `MessageIdentity` — triage projection and stable IDs
 
 **Files:**
 - Create: `Packages/UNISync/Sources/UNISync/Load/TriageProjection.swift`
@@ -5848,12 +5830,12 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Create: `Packages/UNISync/Tests/UNISyncTests/TriageProjectionTests.swift`
 
 **Interfaces:**
-- Consumes: `TriageBucket` do `UNICore`; `FolderRole` (Task 5); `GmailLabel` (Task 8).
+- Consumes: `TriageBucket` from `UNICore`; `FolderRole` (Task 5); `GmailLabel` (Task 8).
 - Produces:
   - `enum TriageProjection { static func bucket(role: FolderRole) -> TriageBucket?; static func bucket(gmailLabelIDs: [String], laterLabelID: String?) -> TriageBucket?; static func laterLabelID(in labels: [GmailLabel]) -> String? }`.
   - `enum MessageIdentity { static func gmail(accountID: String, serverID: String) -> String; static func imap(accountID: String, folderID: String, uidValidity: Int64, uid: Int64) -> String }`.
 
-- [ ] **Step 1: Escrever o teste que falha**
+- [ ] **Step 1: Write the failing test**
 
 `Packages/UNISync/Tests/UNISyncTests/TriageProjectionTests.swift`:
 
@@ -5952,13 +5934,13 @@ struct TriageProjectionTests {
 }
 ```
 
-- [ ] **Step 2: Rodar para ver falhar**
+- [ ] **Step 2: Run to confirm failure**
 
 Run: `cd Packages/UNISync && swift test --filter TriageProjection`
 
 Expected: FAIL — `cannot find 'TriageProjection' in scope`.
 
-- [ ] **Step 3: Escrever as duas**
+- [ ] **Step 3: Write both types**
 
 `Packages/UNISync/Sources/UNISync/Load/TriageProjection.swift`:
 
@@ -6059,19 +6041,17 @@ public enum MessageIdentity {
 }
 ```
 
-- [ ] **Step 4: Rodar para ver passar**
+- [ ] **Step 4: Run to confirm success**
 
 Run: `cd Packages/UNISync && swift test --filter TriageProjection`
 
-Expected: PASS, 8 testes.
+Expected: PASS, eight tests.
 
-- [ ] **Step 5: Provar por mutação a precedência**
+- [ ] **Step 5: Prove precedence through mutation**
 
-Mova `if rotulos.contains("INBOX") { return .today }` para antes do
-`if rotulos.contains("TRASH")` e rode `swift test --filter precedencia`.
+Move `if rotulos.contains("INBOX") { return .today }` before `if rotulos.contains("TRASH")` and run `swift test --filter precedencia`.
 
-Expected: FAIL — a mensagem com `INBOX` e `TRASH` volta para Hoje, que é a
-mensagem apagada reaparecendo na caixa. Devolva e confirme o verde.
+Expected: FAIL — a message with both `INBOX` and `TRASH` returns to Today: a deleted message reappears in the inbox. Restore and confirm green.
 
 - [ ] **Step 6: Commit**
 
@@ -6090,7 +6070,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 12: `InitialLoader` para Gmail — 90 dias no banco, por lote, retomável
+### Task 12: Gmail `InitialLoader` — 90 days in the database, in resumable batches
 
 **Files:**
 - Create: `Packages/UNISync/Sources/UNISync/Load/InitialLoader.swift`
@@ -6100,10 +6080,10 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Consumes: `SyncDatabase`, `AccountRecord`, `FolderRecord`, `MessageRecord`, `MessageBodyRecord`, `SyncStateRecord` (Task 5); `GmailClient`, `GmailMessage`, `GmailProfile`, `GmailLabel` (Task 8); `TriageProjection`, `MessageIdentity` (Task 11).
 - Produces:
   - `struct LoadProgress: Sendable, Hashable { let accountID: String; let done: Int; let total: Int; var fraction: Double }`.
-  - `struct InitialLoader: Sendable` com `init(database: SyncDatabase, calendar: Calendar = Calendar(identifier: .gregorian))`, `static let windowDays: Int`, `static let fullBodyCount: Int`, `func loadGmail(account: Account, client: GmailClient, now: Date, progress: @Sendable (LoadProgress) -> Void) async throws`.
+  - `struct InitialLoader: Sendable` with `init(database: SyncDatabase, calendar: Calendar = Calendar(identifier: .gregorian))`, `static let windowDays: Int`, `static let fullBodyCount: Int`, `func loadGmail(account: Account, client: GmailClient, now: Date, progress: @Sendable (LoadProgress) -> Void) async throws`.
   - `InitialLoader.since(now:) -> Date`.
 
-- [ ] **Step 1: Escrever o teste que falha**
+- [ ] **Step 1: Write the failing test**
 
 `Packages/UNISync/Tests/UNISyncTests/InitialLoaderGmailTests.swift`:
 
@@ -6371,13 +6351,13 @@ private final class Recebedor: @unchecked Sendable {
 }
 ```
 
-- [ ] **Step 2: Rodar para ver falhar**
+- [ ] **Step 2: Run to confirm failure**
 
 Run: `cd Packages/UNISync && swift test --filter InitialLoaderGmail`
 
 Expected: FAIL — `cannot find 'InitialLoader' in scope`.
 
-- [ ] **Step 3: Escrever o carregador**
+- [ ] **Step 3: Write the loader**
 
 `Packages/UNISync/Sources/UNISync/Load/InitialLoader.swift`:
 
@@ -6586,22 +6566,20 @@ public struct InitialLoader: Sendable {
 }
 ```
 
-- [ ] **Step 4: Rodar para ver passar**
+- [ ] **Step 4: Run to confirm success**
 
 Run: `cd Packages/UNISync && swift test --filter InitialLoaderGmail`
 
-Expected: PASS, 10 testes.
+Expected: PASS, 10 tests.
 
-- [ ] **Step 5: Provar por mutação as duas garantias que sustentam "retomável"**
+- [ ] **Step 5: Prove the two resumability guarantees through mutation**
 
-1. Troque `try MessageRecord(nossa, folderID: folderID).save(db)` por `.insert(db)`
-   e rode `swift test --filter retomavelSemDuplicar`.
-   Expected: FAIL — a segunda carga lança violação de chave primária, que é
-   "reabrir o app quebra".
-2. Troque o `id` por `UUID().uuidString` e rode o mesmo teste.
-   Expected: FAIL — `depoisDaSegunda == 6`, a caixa dobrada.
+1. Replace `try MessageRecord(nossa, folderID: folderID).save(db)` with `.insert(db)` and run `swift test --filter retomavelSemDuplicar`.
+   Expected: FAIL — the second load violates the primary key: reopening the app breaks it.
+2. Replace `id` with `UUID().uuidString` and run the same test.
+   Expected: FAIL — `depoisDaSegunda == 6`, doubling the inbox.
 
-Devolva as duas e confirme o verde.
+Restore both and confirm green.
 
 - [ ] **Step 6: Commit**
 
@@ -6619,17 +6597,17 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 13: `InitialLoader` para IMAP — pastas com papel, envelopes em lote, corpos das 50 mais recentes
+### Task 13: IMAP `InitialLoader` — folder roles, envelope batches and the 50 most recent bodies
 
 **Files:**
 - Modify: `Packages/UNISync/Sources/UNISync/Load/InitialLoader.swift`
 - Create: `Packages/UNISync/Tests/UNISyncTests/InitialLoaderImapTests.swift`
 
 **Interfaces:**
-- Consumes: tudo da Task 12, mais `ImapSession`, `ImapFolder`, `ImapEnvelope`, `ImapMailboxStatus`, `ImapUidValidity` (Tasks 9 e 10); `FakeImapServer` (Task 9).
+- Consumes: everything from Task 12 plus `ImapSession`, `ImapFolder`, `ImapEnvelope`, `ImapMailboxStatus`, `ImapUidValidity` (Tasks 9 and 10); `FakeImapServer` (Task 9).
 - Produces: `InitialLoader.loadImap(account: Account, session: ImapSession, now: Date, progress: @Sendable (LoadProgress) -> Void) async throws`.
 
-- [ ] **Step 1: Escrever o teste que falha**
+- [ ] **Step 1: Write the failing test**
 
 `Packages/UNISync/Tests/UNISyncTests/InitialLoaderImapTests.swift`:
 
@@ -6861,16 +6839,15 @@ private final class RecebedorImap: @unchecked Sendable {
 }
 ```
 
-- [ ] **Step 2: Rodar para ver falhar**
+- [ ] **Step 2: Run to confirm failure**
 
 Run: `cd Packages/UNISync && swift test --filter InitialLoaderImap`
 
 Expected: FAIL — `value of type 'InitialLoader' has no member 'loadImap'`.
 
-- [ ] **Step 3: Escrever o carregador IMAP**
+- [ ] **Step 3: Write the IMAP loader**
 
-Acrescente a `Packages/UNISync/Sources/UNISync/Load/InitialLoader.swift`, dentro
-do `struct InitialLoader`, depois de `grava(_:account:folderID:laterLabelID:)`:
+Add this inside `struct InitialLoader` in `Packages/UNISync/Sources/UNISync/Load/InitialLoader.swift`, after `grava(_:account:folderID:laterLabelID:)`:
 
 ```swift
     // MARK: IMAP
@@ -7022,25 +6999,23 @@ do `struct InitialLoader`, depois de `grava(_:account:folderID:laterLabelID:)`:
     }
 ```
 
-- [ ] **Step 4: Rodar para ver passar**
+- [ ] **Step 4: Run to confirm success**
 
 Run: `cd Packages/UNISync && swift test --filter InitialLoaderImap`
 
-Expected: PASS, 8 testes.
+Expected: PASS, eight tests.
 
-- [ ] **Step 5: Provar por mutação a limpeza do UIDVALIDITY**
+- [ ] **Step 5: Prove UIDVALIDITY cleanup through mutation**
 
-Apague o bloco `if trocou { … DELETE … }` e rode
-`swift test --filter uidValidityTrocadaLimpa`.
+Delete the `if trocou { … DELETE … }` block and run `swift test --filter uidValidityTrocadaLimpa`.
 
-Expected: FAIL — `validades == [1755000000, 1999999999]`, as duas gerações
-convivendo. Devolva e confirme o verde.
+Expected: FAIL — `validades == [1755000000, 1999999999]`, with both generations coexisting. Restore and confirm green.
 
-- [ ] **Step 6: Rodar o pacote inteiro**
+- [ ] **Step 6: Run the entire package**
 
 Run: `cd Packages/UNISync && swift test 2>&1 | tail -5`
 
-Expected: `Test run with N tests passed`, sem falha.
+Expected: `Test run with N tests passed`, without failures.
 
 - [ ] **Step 7: Commit**
 
@@ -7059,7 +7034,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 14: `DatabaseMailSource`, a observação e a busca de corpo no `MailStore`
+### Task 14: `DatabaseMailSource`, observation and body search in `MailStore`
 
 **Files:**
 - Modify: `Packages/UNICore/Sources/UNICore/MessageStore.swift`
@@ -7068,14 +7043,14 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Create: `Packages/UNISync/Tests/UNISyncTests/DatabaseMailSourceTests.swift`
 
 **Interfaces:**
-- Consumes: `SyncDatabase`, os registros e `MessageSearch` (Task 5); `MailSource`, `MailStore` (Marco 1).
+- Consumes: `SyncDatabase`, records and `MessageSearch` (Task 5); `MailSource`, `MailStore` (Milestone 1).
 - Produces:
-  - `struct MailSnapshot: Sendable, Hashable` com `let accounts: [Account]`, `let messages: [Message]`, `let agenda: [AgendaItem]`, `let pendingItems: [PendingItem]`, `init(accounts:messages:agenda:pendingItems:)`.
-  - `MailSource.snapshot() async throws -> MailSnapshot` (extensão com implementação padrão), `MailSource.snapshots() -> AsyncThrowingStream<MailSnapshot, any Error>` (extensão com implementação padrão de um elemento), `MailSource.bodyMatches(_ term: String, accountID: String?) async throws -> Set<String>?` (extensão devolvendo `nil`).
-  - `MailStore.observe() async` e `MailStore.refreshBodyMatches() async`.
-  - `struct DatabaseMailSource: MailSource, Sendable` com `init(database: SyncDatabase)`.
+  - `struct MailSnapshot: Sendable, Hashable` with `let accounts: [Account]`, `let messages: [Message]`, `let agenda: [AgendaItem]`, `let pendingItems: [PendingItem]`, `init(accounts:messages:agenda:pendingItems:)`.
+  - `MailSource.snapshot() async throws -> MailSnapshot` (extension with default implementation), `MailSource.snapshots() -> AsyncThrowingStream<MailSnapshot, any Error>` (extension with a one-element default implementation), `MailSource.bodyMatches(_ term: String, accountID: String?) async throws -> Set<String>?` (extension returning `nil`).
+  - `MailStore.observe() async` and `MailStore.refreshBodyMatches() async`.
+  - `struct DatabaseMailSource: MailSource, Sendable` with `init(database: SyncDatabase)`.
 
-- [ ] **Step 1: Escrever os testes que falham**
+- [ ] **Step 1: Write the failing tests**
 
 `Packages/UNICore/Tests/UNICoreTests/MailStoreObservationTests.swift`:
 
@@ -7314,7 +7289,7 @@ struct DatabaseMailSourceTests {
 }
 ```
 
-- [ ] **Step 2: Rodar para ver falhar**
+- [ ] **Step 2: Run to confirm failure**
 
 Run:
 
@@ -7323,12 +7298,11 @@ Run:
 (cd Packages/UNISync && swift test --filter DatabaseMailSource)
 ```
 
-Expected: FAIL — `cannot find 'MailSnapshot' in scope`;
-`cannot find 'DatabaseMailSource' in scope`.
+Expected: FAIL — `cannot find 'MailSnapshot' in scope`; `cannot find 'DatabaseMailSource' in scope`.
 
-- [ ] **Step 3: Acrescentar o snapshot e a observação ao `MailSource`**
+- [ ] **Step 3: Add snapshots and observation to `MailSource`**
 
-Em `Packages/UNICore/Sources/UNICore/MessageStore.swift`, depois do `protocol MailSource`:
+In `Packages/UNICore/Sources/UNICore/MessageStore.swift`, after `protocol MailSource`:
 
 ```swift
 /// Tudo o que a UI precisa, num valor só.
@@ -7393,11 +7367,9 @@ extension MailSource {
 }
 ```
 
-- [ ] **Step 4: Ensinar o `MailStore` a observar e a usar os acertos de corpo**
+- [ ] **Step 4: Teach `MailStore` to observe and use body matches**
 
-Ainda em `MessageStore.swift`, dentro de `MailStore`:
-
-Substitua o corpo de `load()` por:
+Still inside `MailStore` in `MessageStore.swift`, replace the body of `load()` with:
 
 ```swift
     public func load() async {
@@ -7444,7 +7416,7 @@ Substitua o corpo de `load()` por:
     }
 ```
 
-Depois de `public var query: String = ""`, acrescente:
+After `public var query: String = ""`, add:
 
 ```swift
     /// Os ids que a fonte achou pelo **corpo**, para a busca corrente.
@@ -7455,7 +7427,7 @@ Depois de `public var query: String = ""`, acrescente:
     private var bodyHits: Set<String> = []
 ```
 
-E, depois de `matches(_:_:)`, acrescente:
+After `matches(_:_:)`, add:
 
 ```swift
     /// Pergunta à fonte quais mensagens casam **pelo corpo** com a busca atual.
@@ -7480,7 +7452,7 @@ E, depois de `matches(_:_:)`, acrescente:
     }
 ```
 
-E dentro de `matches(_:_:)`, na primeira linha do corpo:
+At the first line inside `matches(_:_:)`:
 
 ```swift
     private func matches(_ message: Message, _ term: String) -> Bool {
@@ -7491,7 +7463,7 @@ E dentro de `matches(_:_:)`, na primeira linha do corpo:
     }
 ```
 
-- [ ] **Step 5: Escrever a fonte do banco**
+- [ ] **Step 5: Write the database source**
 
 `Packages/UNISync/Sources/UNISync/Source/DatabaseMailSource.swift`:
 
@@ -7593,7 +7565,7 @@ public struct DatabaseMailSource: MailSource, Sendable {
 }
 ```
 
-- [ ] **Step 6: Rodar para ver passar**
+- [ ] **Step 6: Run to confirm success**
 
 Run:
 
@@ -7602,9 +7574,9 @@ Run:
 (cd Packages/UNISync && swift test --filter DatabaseMailSource)
 ```
 
-Expected: PASS, 5 + 5 testes.
+Expected: PASS, 5 + 5 tests.
 
-- [ ] **Step 7: Confirmar que os 807 continuam verdes**
+- [ ] **Step 7: Confirm the existing 807 remain green**
 
 Run:
 
@@ -7615,20 +7587,13 @@ for p in UNIDesign UNICore UNIShell UNISync; do
 done
 ```
 
-Expected: nenhuma linha com `failed`. `UNIDesign`+`UNICore`+`UNIShell` continuam
-somando 807 mais os testes novos desta tarefa e da Task 3 — nenhum teste antigo
-mudou de resultado.
+Expected: no line containing `failed`. `UNIDesign` + `UNICore` + `UNIShell` still total 807 plus the new tests from this task and Task 3. No previous test changes result.
 
-- [ ] **Step 8: Provar por mutação que a distinção `nil` vs `[]` faz trabalho**
+- [ ] **Step 8: Prove that the `nil` versus `[]` distinction matters**
 
-Troque `?? []` em `refreshBodyMatches` por um `bodyHits = try await source.bodyMatches(termo, accountID: selectedAccountID) ?? []`
-que ignore o `nil` tratando-o como conjunto vazio **e** troque `matches` para
-usar `bodyHits.contains(message.id)` como **única** condição. Rode
-`swift test --filter buscaVaziaLimpa` e a suíte de `MailStore` do Marco 1.
+Replace `?? []` in `refreshBodyMatches` with `bodyHits = try await source.bodyMatches(termo, accountID: selectedAccountID) ?? []`, treating `nil` as an empty set, **and** change `matches` to use `bodyHits.contains(message.id)` as its **only** condition. Run `swift test --filter buscaVaziaLimpa` and the Milestone 1 `MailStore` suite.
 
-Expected: FAIL — a busca do Marco 1 (assunto, remetente, prévia) some, porque a
-fonte em memória devolve `nil` e a lista fica vazia a cada tecla. Devolva o
-código correto e confirme o verde.
+Expected: FAIL — Milestone 1's subject/sender/preview search disappears, since the in-memory source returns `nil` and the list empties on every keystroke. Restore the correct code and confirm green.
 
 - [ ] **Step 9: Commit**
 
@@ -7647,7 +7612,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 15: `AccountDirector` e `AccountsModel` — adicionar, testar, remover, carregar
+### Task 15: `AccountDirector` and `AccountsModel` — add, test, remove and load
 
 **Files:**
 - Create: `Packages/UNISync/Sources/UNISync/Accounts/AccountStatus.swift`
@@ -7657,14 +7622,14 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Create: `Packages/UNISync/Tests/UNISyncTests/AccountDirectorTests.swift`
 
 **Interfaces:**
-- Consumes: tudo das Tasks 4–14.
+- Consumes: everything from Tasks 4–14.
 - Produces:
-  - `struct AccountStatus: Sendable, Hashable, Identifiable` com `var id: String { accountID }`, `let accountID: String`, `let address: String`, `let hostMark: String`, `let state: Account.State`, `let messageCount: Int`, `let lastSyncedAt: Date?`, `let error: SyncError?`, `let progress: LoadProgress?`.
+  - `struct AccountStatus: Sendable, Hashable, Identifiable` with `var id: String { accountID }`, `let accountID: String`, `let address: String`, `let hostMark: String`, `let state: Account.State`, `let messageCount: Int`, `let lastSyncedAt: Date?`, `let error: SyncError?`, `let progress: LoadProgress?`.
   - `enum AccountTints { static func pair(forIndex index: Int) -> (light: String, dark: String) }`.
-  - `actor AccountDirector` com `init(database:secrets:auth:session:eventLoopGroup:imapConnect:now:)`, `func statuses() -> AsyncStream<[AccountStatus]>`, `func refresh() async`, `func addGoogleAccount(address: String) async throws -> Account`, `func testImap(address: String, password: String, endpoint: ImapEndpoint) async throws`, `func addImapAccount(address: String, password: String, endpoint: ImapEndpoint, hostMark: String, displayName: String) async throws -> Account`, `func remove(accountID: String) async throws`, `func loadInitial(accountID: String) async`, `static func accountID(for address: String) -> String`.
-  - `@MainActor @Observable final class AccountsModel` com `init(director: AccountDirector)`, `private(set) var statuses: [AccountStatus]`, `func start() async`, e os repasses `addGoogle(address:)`, `testImap(...)`, `addImap(...)`, `remove(_:)`, `loadInitial(_:)`, mais `private(set) var lastError: SyncError?`.
+  - `actor AccountDirector` with `init(database:secrets:auth:session:eventLoopGroup:imapConnect:now:)`, `func statuses() -> AsyncStream<[AccountStatus]>`, `func refresh() async`, `func addGoogleAccount(address: String) async throws -> Account`, `func testImap(address: String, password: String, endpoint: ImapEndpoint) async throws`, `func addImapAccount(address: String, password: String, endpoint: ImapEndpoint, hostMark: String, displayName: String) async throws -> Account`, `func remove(accountID: String) async throws`, `func loadInitial(accountID: String) async`, `static func accountID(for address: String) -> String`.
+  - `@MainActor @Observable final class AccountsModel` with `init(director: AccountDirector)`, `private(set) var statuses: [AccountStatus]`, `func start() async`, forwarding methods `addGoogle(address:)`, `testImap(...)`, `addImap(...)`, `remove(_:)`, `loadInitial(_:)`, and `private(set) var lastError: SyncError?`.
 
-- [ ] **Step 1: Escrever o teste que falha**
+- [ ] **Step 1: Write the failing test**
 
 `Packages/UNISync/Tests/UNISyncTests/AccountDirectorTests.swift`:
 
@@ -7952,13 +7917,13 @@ struct AccountDirectorTests {
 }
 ```
 
-- [ ] **Step 2: Rodar para ver falhar**
+- [ ] **Step 2: Run to confirm failure**
 
 Run: `cd Packages/UNISync && swift test --filter AccountDirector`
 
 Expected: FAIL — `cannot find 'AccountDirector' in scope`.
 
-- [ ] **Step 3: Escrever o estado publicado e as cores**
+- [ ] **Step 3: Write published state and colors**
 
 `Packages/UNISync/Sources/UNISync/Accounts/AccountStatus.swift`:
 
@@ -8033,7 +7998,7 @@ public enum AccountTints {
 }
 ```
 
-- [ ] **Step 4: Escrever o diretor**
+- [ ] **Step 4: Write the director**
 
 `Packages/UNISync/Sources/UNISync/Accounts/AccountDirector.swift`:
 
@@ -8316,7 +8281,7 @@ public actor AccountDirector {
 }
 ```
 
-- [ ] **Step 5: Escrever a ponte para a UI**
+- [ ] **Step 5: Write the UI bridge**
 
 `Packages/UNISync/Sources/UNISync/Accounts/AccountsModel.swift`:
 
@@ -8406,23 +8371,20 @@ public final class AccountsModel {
 }
 ```
 
-- [ ] **Step 6: Rodar para ver passar**
+- [ ] **Step 6: Run to confirm success**
 
 Run: `cd Packages/UNISync && swift test --filter AccountDirector`
 
-Expected: PASS, 9 testes.
+Expected: PASS, nine tests.
 
-- [ ] **Step 7: Provar por mutação as duas promessas da janela**
+- [ ] **Step 7: Prove the window's two promises through mutation**
 
-1. Faça `testImap` gravar (chame `grava(...)` no fim) e rode
-   `swift test --filter testarImapOK`.
-   Expected: FAIL — `AccountRecord.fetchCount == 1`. "Testar" que grava é
-   adição com etiqueta errada.
-2. Apague `try secrets.remove(for: accountID)` de `remove` e rode
-   `swift test --filter removerApagaOsDois`.
-   Expected: FAIL — a senha continua no cofre depois de a conta sumir.
+1. Make `testImap` persist data by calling `grava(...)` at the end, then run `swift test --filter testarImapOK`.
+   Expected: FAIL — `AccountRecord.fetchCount == 1`. A “Test” operation that saves is a mislabeled add operation.
+2. Delete `try secrets.remove(for: accountID)` from `remove` and run `swift test --filter removerApagaOsDois`.
+   Expected: FAIL — the password remains in the vault after the account disappears.
 
-Devolva as duas e confirme o verde.
+Restore both and confirm green.
 
 - [ ] **Step 8: Commit**
 
@@ -8440,7 +8402,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 16: A janela de Contas
+### Task 16: The Accounts window
 
 **Files:**
 - Create: `Packages/UNIShell/Sources/UNIShell/Windows/AccountsWindow.swift`
@@ -8454,16 +8416,16 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Create: `Packages/UNICore/Tests/UNICoreTests/AccountsMenuTests.swift`
 
 **Interfaces:**
-- Consumes: `AccountsModel`, `AccountStatus`, `SyncError`, `ProviderDetector`, `ProviderRoute`, `ImapPreset`, `ImapPresets`, `ImapEndpoint`, `LoadProgress` (Tasks 4–15); `Theme`, `@Environment(\.theme)`, `.hairline`, `.capsLabel`, `TintChip`, `ComposerSelect` (Marco 1).
+- Consumes: `AccountsModel`, `AccountStatus`, `SyncError`, `ProviderDetector`, `ProviderRoute`, `ImapPreset`, `ImapPresets`, `ImapEndpoint`, `LoadProgress` (Tasks 4–15); `Theme`, `@Environment(\.theme)`, `.hairline`, `.capsLabel`, `TintChip`, `ComposerSelect` (Milestone 1).
 - Produces:
-  - `UNIWindow.accounts: String` = `"uni.accounts"` e `UNIWindow.Size.accounts: CGSize`.
-  - `ContextCommand.openAccounts` e o item "Contas…" em `ContextMenus.accountRow`.
-  - `struct AccountsWindow: View` com `init(model: AccountsModel)`.
-  - `struct AccountsList: View` com `init(statuses: [AccountStatus], onReconnect: (String) -> Void, onRetry: (String) -> Void, onRemove: (String) -> Void)`.
-  - `struct AddAccountForm: View` com `init(model: AccountsModel)`.
-  - `enum AccountsCopy` com `static func status(_ s: AccountStatus, now: Date, calendar: Calendar) -> String` — **puro, e é onde mora toda a decisão de texto**.
+  - `UNIWindow.accounts: String` = `"uni.accounts"` and `UNIWindow.Size.accounts: CGSize`.
+  - `ContextCommand.openAccounts` and the “Contas…” item in `ContextMenus.accountRow`.
+  - `struct AccountsWindow: View` with `init(model: AccountsModel)`.
+  - `struct AccountsList: View` with `init(statuses: [AccountStatus], onReconnect: (String) -> Void, onRetry: (String) -> Void, onRemove: (String) -> Void)`.
+  - `struct AddAccountForm: View` with `init(model: AccountsModel)`.
+  - `enum AccountsCopy` with `static func status(_ s: AccountStatus, now: Date, calendar: Calendar) -> String` — **pure, and the home of every copy decision**.
 
-- [ ] **Step 1: Escrever os testes que falham (a lógica primeiro, pura)**
+- [ ] **Step 1: Write the failing tests (pure logic first)**
 
 `Packages/UNICore/Tests/UNICoreTests/AccountsMenuTests.swift`:
 
@@ -8673,7 +8635,7 @@ struct AccountsWindowTests {
 }
 ```
 
-- [ ] **Step 2: Rodar para ver falhar**
+- [ ] **Step 2: Run to confirm failure**
 
 Run:
 
@@ -8682,13 +8644,11 @@ Run:
 (cd Packages/UNIShell && swift test --filter AccountsWindow)
 ```
 
-Expected: FAIL — `type 'ContextCommand' has no member 'openAccounts'`;
-`cannot find 'AccountsWindow' in scope`.
+Expected: FAIL — `type 'ContextCommand' has no member 'openAccounts'`; `cannot find 'AccountsWindow' in scope`.
 
-- [ ] **Step 3: Abrir o caminho até a janela**
+- [ ] **Step 3: Wire the path to the window**
 
-Em `Packages/UNICore/Sources/UNICore/ContextMenu.swift`, acrescente ao
-`enum ContextCommand`, depois de `case clearAccountFilter`:
+In `Packages/UNICore/Sources/UNICore/ContextMenu.swift`, add to `enum ContextCommand` after `case clearAccountFilter`:
 
 ```swift
     /// Abre a janela de Contas. Cena própria (`UNIWindow.accounts`), como as
@@ -8696,7 +8656,7 @@ Em `Packages/UNICore/Sources/UNICore/ContextMenu.swift`, acrescente ao
     case openAccounts
 ```
 
-e, em `ContextMenus.accountRow`, antes de `entries.append(.item(ContextMenuItem("Copiar endereço", …)))`:
+In `ContextMenus.accountRow`, before `entries.append(.item(ContextMenuItem("Copiar endereço", …)))`:
 
 ```swift
         entries.append(.item(ContextMenuItem(
@@ -8706,23 +8666,21 @@ e, em `ContextMenus.accountRow`, antes de `entries.append(.item(ContextMenuItem(
         )))
 ```
 
-Em `Packages/UNIShell/Sources/UNIShell/Support/ContextMenuHost.swift`, no
-`switch` que abre janelas (junto de `.openEvent`):
+In the window-opening `switch` of `Packages/UNIShell/Sources/UNIShell/Support/ContextMenuHost.swift`, alongside `.openEvent`:
 
 ```swift
         case .openAccounts:
             openWindow(id: UNIWindow.accounts)
 ```
 
-Em `Packages/UNIShell/Sources/UNIShell/Windows/UNIWindow.swift`, depois de
-`public static let event`:
+In `Packages/UNIShell/Sources/UNIShell/Windows/UNIWindow.swift`, after `public static let event`:
 
 ```swift
     /// A janela de Contas do Marco 2. Sem valor: ela é uma só.
     public static let accounts = "uni.accounts"
 ```
 
-e dentro de `enum Size`:
+Inside `enum Size`:
 
 ```swift
         /// A lista mede pelo endereço mais largo que cabe sem truncar
@@ -8731,9 +8689,9 @@ e dentro de `enum Size`:
         public static let accounts = CGSize(width: 720, height: 560)
 ```
 
-- [ ] **Step 4: Escrever o texto (a parte pura)**
+- [ ] **Step 4: Write the copy (the pure part)**
 
-`Packages/UNIShell/Sources/UNIShell/Windows/AccountsList.swift`, no topo:
+At the top of `Packages/UNIShell/Sources/UNIShell/Windows/AccountsList.swift`:
 
 ```swift
 import SwiftUI
@@ -8802,9 +8760,9 @@ public enum AccountsCopy {
 }
 ```
 
-- [ ] **Step 5: Escrever a lista**
+- [ ] **Step 5: Write the list**
 
-Ainda em `AccountsList.swift`, depois de `AccountsCopy`:
+Still in `AccountsList.swift`, after `AccountsCopy`:
 
 ```swift
 /// A lista de contas: endereço, chip do provedor, estado e o que fazer.
@@ -8902,7 +8860,7 @@ public struct AccountsList: View {
 }
 ```
 
-- [ ] **Step 6: Escrever o formulário e a janela**
+- [ ] **Step 6: Write the form and window**
 
 `Packages/UNIShell/Sources/UNIShell/Windows/AddAccountForm.swift`:
 
@@ -9154,10 +9112,9 @@ public struct AccountsWindow: View {
 }
 ```
 
-- [ ] **Step 7: Mostrar o estado na linha da conta da lateral**
+- [ ] **Step 7: Show state in the sidebar's account row**
 
-Em `Packages/UNIShell/Sources/UNIShell/Inbox/FolderSidebar.swift`, dentro de
-`accountRow`, entre o `Text(account.address)` e o `Spacer`:
+In `Packages/UNIShell/Sources/UNIShell/Inbox/FolderSidebar.swift`, inside `accountRow`, between `Text(account.address)` and `Spacer`:
 
 ```swift
                 // O estado da conta na lateral, sem tirar espaço do endereço:
@@ -9174,7 +9131,7 @@ Em `Packages/UNIShell/Sources/UNIShell/Inbox/FolderSidebar.swift`, dentro de
                 }
 ```
 
-- [ ] **Step 8: Rodar para ver passar**
+- [ ] **Step 8: Run to confirm success**
 
 Run:
 
@@ -9183,20 +9140,16 @@ Run:
 (cd Packages/UNIShell && swift test --filter AccountsWindow)
 ```
 
-Expected: PASS, 2 + 9 testes.
+Expected: PASS, 2 + 9 tests.
 
-- [ ] **Step 9: Provar por mutação as duas regras de texto**
+- [ ] **Step 9: Prove both copy rules through mutation**
 
-1. Troque o `guard let quando = s.lastSyncedAt` por `let quando = s.lastSyncedAt ?? now`
-   e rode `swift test --filter textoNuncaSincronizou`.
-   Expected: FAIL — a conta que nunca sincronizou passa a exibir um horário
-   inventado.
-2. Faça `AccountsCopy.action(for:)` devolver `"Tentar de novo"` para tudo e rode
-   `swift test --filter acaoCombinaComACausa`.
-   Expected: FAIL — a conta com token revogado passa a oferecer a ação que não
-   resolve.
+1. Replace `guard let quando = s.lastSyncedAt` with `let quando = s.lastSyncedAt ?? now`, then run `swift test --filter textoNuncaSincronizou`.
+   Expected: FAIL — an account that never synchronized displays an invented time.
+2. Make `AccountsCopy.action(for:)` return `"Tentar de novo"` for everything and run `swift test --filter acaoCombinaComACausa`.
+   Expected: FAIL — an account with a revoked token offers an action that cannot resolve it.
 
-Devolva as duas e confirme o verde.
+Restore both and confirm green.
 
 - [ ] **Step 10: Commit**
 
@@ -9215,7 +9168,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 17: O ensaio `--ensaiar-contas` — o fluxo inteiro no app de verdade, sem sair da máquina
+### Task 17: `--ensaiar-contas` — the full flow in the real app, without leaving the machine
 
 **Files:**
 - Create: `Packages/UNIShell/Sources/UNIShell/Windows/AccountsRehearsal.swift`
@@ -9223,13 +9176,13 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Create: `Packages/UNIShell/Tests/UNIShellTests/AccountsRehearsalTests.swift`
 
 **Interfaces:**
-- Consumes: `RehearsalStage`, `RehearsalDriver`, `RehearsalKey` (Marco 1, `Windows/RehearsalStage.swift`); `AccountsModel`, `AccountDirector`, `SyncDatabase`, `InMemorySecretStore`, `StubAuthorizationPresenter`, `ImapEndpoint` (Tasks 4–15).
+- Consumes: `RehearsalStage`, `RehearsalDriver`, `RehearsalKey` (Milestone 1, `Windows/RehearsalStage.swift`); `AccountsModel`, `AccountDirector`, `SyncDatabase`, `InMemorySecretStore`, `StubAuthorizationPresenter`, `ImapEndpoint` (Tasks 4–15).
 - Produces:
-  - `struct AccountsRehearsal: Sendable` com `static func parse(_ arguments: [String]) -> AccountsRehearsal?`, `static var fromProcess: AccountsRehearsal?`.
+  - `struct AccountsRehearsal: Sendable` with `static func parse(_ arguments: [String]) -> AccountsRehearsal?`, `static var fromProcess: AccountsRehearsal?`.
   - `View.rehearseAccountsIfRequested(_ request: AccountsRehearsal?, model: AccountsModel?) -> some View`.
-  - `final class RehearsalImapServer: @unchecked Sendable` com `init()`, `func start() throws -> Int`, `func stop()` — o mesmo servidor falso da Task 9, agora dentro do alvo de produção porque o ensaio roda no app.
+  - `final class RehearsalImapServer: @unchecked Sendable` with `init()`, `func start() throws -> Int`, `func stop()` — Task 9's fake server, now in the production target because the rehearsal runs inside the app.
 
-- [ ] **Step 1: Escrever o teste que falha**
+- [ ] **Step 1: Write the failing test**
 
 `Packages/UNIShell/Tests/UNIShellTests/AccountsRehearsalTests.swift`:
 
@@ -9270,13 +9223,13 @@ struct AccountsRehearsalTests {
 }
 ```
 
-- [ ] **Step 2: Rodar para ver falhar**
+- [ ] **Step 2: Run to confirm failure**
 
 Run: `cd Packages/UNIShell && swift test --filter AccountsRehearsal`
 
 Expected: FAIL — `cannot find 'AccountsRehearsal' in scope`.
 
-- [ ] **Step 3: Trazer o servidor falso para o alvo de produção**
+- [ ] **Step 3: Bring the fake server into the production target**
 
 `Packages/UNIShell/Sources/UNIShell/Windows/RehearsalImapServer.swift`:
 
@@ -9383,7 +9336,7 @@ public final class RehearsalImapServer: @unchecked Sendable {
 }
 ```
 
-- [ ] **Step 4: Escrever o ensaio**
+- [ ] **Step 4: Write the rehearsal**
 
 `Packages/UNIShell/Sources/UNIShell/Windows/AccountsRehearsal.swift`:
 
@@ -9584,16 +9537,15 @@ extension AccountsModel {
 }
 ```
 
-- [ ] **Step 5: Rodar para ver passar**
+- [ ] **Step 5: Run to confirm success**
 
 Run: `cd Packages/UNIShell && swift test --filter AccountsRehearsal`
 
-Expected: PASS, 3 testes.
+Expected: PASS, three tests.
 
-- [ ] **Step 6: Rodar o ensaio no app de verdade**
+- [ ] **Step 6: Run the rehearsal in the real app**
 
-A cena e a bandeira são ligadas na Task 18; este passo só pode ser executado
-**depois** dela. Se a Task 18 já estiver feita:
+Task 18 wires the scene and flag; this step can run only **after** that task. If Task 18 is already complete:
 
 Run:
 
@@ -9605,11 +9557,7 @@ sleep 12
 ls -la "$(getconf DARWIN_USER_TEMP_DIR)"/ensaio-contas-*.png 2>/dev/null || echo "sem quadros"
 ```
 
-Expected: cinco PNGs (`ensaio-contas-01-vazio` … `05-removida`) e, no
-Console.app filtrando por `[ensaio]`, uma linha `ok:` para cada afirmação e
-nenhuma `FALHOU:`. Abra os cinco quadros e confira a olho: a lista vazia com a
-frase de exemplo, a conta com o estado "Carregando…", a conta ativa com
-"2 mensagens", o erro do Google explicado, e a lista vazia de novo.
+Expected: five PNGs (`ensaio-contas-01-vazio` … `05-removida`) and, in Console.app filtered to `[ensaio]`, an `ok:` line for each assertion and no `FALHOU:`. Inspect all five frames: the empty list with its sample-data explanation, the account showing “Carregando…”, the active account with “2 mensagens”, the explained Google error, and the empty list again.
 
 - [ ] **Step 7: Commit**
 
@@ -9627,7 +9575,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 18: Composição no App e o critério de aceite do marco
+### Task 18: App composition and milestone acceptance
 
 **Files:**
 - Modify: `App/OkamiUNIApp.swift`
@@ -9636,11 +9584,11 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - Modify: `README.md`
 
 **Interfaces:**
-- Consumes: tudo.
+- Consumes: everything.
 - Produces:
-  - `struct AppComposition: Sendable` (em `UNISync`, não no alvo do app — ver o passo 3) com `static func make(databasePath: String?, bundle: Bundle) -> AppComposition`, `let database: SyncDatabase?`, `let director: AccountDirector?`, `let source: any MailSource`, `let configError: SyncError?`.
+  - `struct AppComposition: Sendable` (in `UNISync`, not the app target — see step 3) with `static func make(databasePath: String?, bundle: Bundle) -> AppComposition`, `let database: SyncDatabase?`, `let director: AccountDirector?`, `let source: any MailSource`, `let configError: SyncError?`.
 
-- [ ] **Step 1: Escrever o teste que falha**
+- [ ] **Step 1: Write the failing test**
 
 `Packages/UNISync/Tests/UNISyncTests/CompositionTests.swift`:
 
@@ -9712,17 +9660,15 @@ struct CompositionTests {
 }
 ```
 
-- [ ] **Step 2: Rodar para ver falhar**
+- [ ] **Step 2: Run to confirm failure**
 
 Run: `cd Packages/UNISync && swift test --filter Composition`
 
 Expected: FAIL — `cannot find 'AppComposition' in scope`.
 
-- [ ] **Step 3: Escrever a composição**
+- [ ] **Step 3: Write composition**
 
-Ela mora em `UNISync`, e não em `App/`, por uma razão simples: o alvo do app
-não tem testes, e esta é a decisão mais consequente do marco (quando o app usa
-o banco e quando usa as fixtures).
+It lives in `UNISync`, not `App/`, because the app target has no tests and this is the milestone's most consequential decision: when the app uses the database and when it uses fixtures.
 
 `Packages/UNISync/Sources/UNISync/AppComposition.swift`:
 
@@ -9817,10 +9763,9 @@ public struct AppComposition: Sendable {
 }
 ```
 
-- [ ] **Step 4: Ligar no `App`**
+- [ ] **Step 4: Wire it into `App`**
 
-Em `App/OkamiUNIApp.swift`, acrescente `import UNISync` e, junto dos outros
-`@State`:
+In `App/OkamiUNIApp.swift`, add `import UNISync` and, alongside the other `@State` properties:
 
 ```swift
     /// O mundo do UNISync: banco, diretor e a fonte que a UI vai ler.
@@ -9831,13 +9776,13 @@ Em `App/OkamiUNIApp.swift`, acrescente `import UNISync` e, junto dos outros
     @State private var accountsModel: AccountsModel?
 ```
 
-Troque a criação do `mailStore`:
+Replace the `mailStore` creation:
 
 ```swift
     @State private var mailStore: MailStore
 ```
 
-e, no `init`, depois de `FontRegistry.registerBundledFonts()`:
+In `init`, after `FontRegistry.registerBundledFonts()`:
 
 ```swift
         _mailStore = State(initialValue: MailStore(source: composition.source))
@@ -9851,8 +9796,7 @@ e, no `init`, depois de `FontRegistry.registerBundledFonts()`:
         }
 ```
 
-Na `WindowGroup` principal, troque o `.task` de carga (ou acrescente, se não
-houver) e a bandeira do ensaio:
+In the main `WindowGroup`, replace the loading `.task` (or add it if absent) and the rehearsal flag:
 
 ```swift
                 // Assina em vez de puxar: a carga inicial acorda a lista
@@ -9869,7 +9813,7 @@ houver) e a bandeira do ensaio:
                 .rehearseAccountsIfRequested(AccountsRehearsal.fromProcess, model: accountsModel)
 ```
 
-Acrescente a cena, depois da de `event`:
+Add the scene after `event`:
 
 ```swift
         Window("Contas", id: UNIWindow.accounts) {
@@ -9889,13 +9833,13 @@ Acrescente a cena, depois da de `event`:
         .defaultSize(UNIWindow.Size.accounts)
 ```
 
-e o item no menu do app, dentro de `.commands`:
+Add the app menu item inside `.commands`:
 
 ```swift
             CommandGroup(after: .appSettings) { AccountsCommand() }
 ```
 
-Ao fim do arquivo:
+At the end of the file:
 
 ```swift
 /// ⇧⌘A abre a janela de Contas. Vive num `View` porque `openWindow` é chave de
@@ -9931,13 +9875,13 @@ private struct ContasIndisponiveis: View {
 }
 ```
 
-- [ ] **Step 5: Rodar para ver passar**
+- [ ] **Step 5: Run to confirm success**
 
 Run: `cd Packages/UNISync && swift test --filter Composition`
 
-Expected: PASS, 4 testes.
+Expected: PASS, four tests.
 
-- [ ] **Step 6: A suíte inteira, os quatro pacotes**
+- [ ] **Step 6: Run the complete suite across all four packages**
 
 Run:
 
@@ -9948,9 +9892,9 @@ for p in UNIDesign UNICore UNIShell UNISync; do
 done
 ```
 
-Expected: quatro linhas, nenhuma com `failed`.
+Expected: four lines, none containing `failed`.
 
-- [ ] **Step 7: Build do app, sem avisos de concorrência**
+- [ ] **Step 7: Build the app without concurrency warnings**
 
 Run:
 
@@ -9960,13 +9904,11 @@ xcodebuild -project OkamiUNI.xcodeproj -scheme OkamiUNI -configuration Debug bui
   | grep -E 'BUILD|warning:' | grep -vi 'deprecat' | head -20
 ```
 
-Expected: `BUILD SUCCEEDED` e nenhuma linha de `warning:` que mencione
-`Sendable`, `concurrency` ou `actor-isolated`.
+Expected: `BUILD SUCCEEDED` and no `warning:` line mentioning `Sendable`, `concurrency` or `actor-isolated`.
 
-- [ ] **Step 8: Os instrumentos do Marco 1 continuam idênticos**
+- [ ] **Step 8: Milestone 1's instruments remain identical**
 
-Sem conta conectada, o app é o do Marco 1 — é isso que o critério de aceite
-promete, e é o que este passo verifica.
+Without a connected account, this is the Milestone 1 app, as promised by the acceptance criterion and verified here.
 
 Run:
 
@@ -9980,58 +9922,43 @@ sleep 14
 ls "$(getconf DARWIN_USER_TEMP_DIR)"/ensaio-*.png | head -20
 ```
 
-Expected: os quadros dos três ensaios; no Console.app, filtrando por
-`[ensaio]`, nenhuma linha `FALHOU:` em nenhum dos três. Se o de arraste ou o de
-teclado mudar de comportamento, **pare**: a composição alterou o app sem conta,
-o que contraria o critério de aceite.
+Expected: frames from all three rehearsals; in Console.app filtered to `[ensaio]`, no `FALHOU:` line in any rehearsal. If swipe or keyboard behavior changes, **stop**: composition changed the app without accounts, violating acceptance.
 
-- [ ] **Step 9: Teste manual do dono do projeto — o critério de aceite**
+- [ ] **Step 9: Project owner's manual test — acceptance**
 
-Este passo **exige a Task 1 concluída** e uma conta Google real. É o único
-lugar do plano que toca a internet, e é feito à mão.
+This step **requires Task 1 complete** and a real Google account. It is the plan's only internet-connected step, performed manually.
 
-1. `cp Config/Google.example.xcconfig Config/Google.xcconfig`, cole o client ID,
-   `xcodegen generate`, `xcodebuild … build`.
-2. Abra o app pelo `Tools/rodar.sh` — **este é o único momento do marco em que
-   o app é lançado fora dos instrumentos**, e é o dono do projeto quem o faz.
-3. ⇧⌘A abre Contas. Digite o endereço Gmail → **Autorizar no Google** → conceda
-   os três escopos. A conta entra com "Carregando…" e a barra anda.
-4. Digite o endereço de uma conta IMAP de **qualquer** provedor. O host e a
-   porta vêm preenchidos (preset) ou sugeridos (`imap.<domínio>:993`). Cole a
-   senha de app → **Testar e adicionar**.
-5. Feche o app. **Desligue o wi-fi.** Abra de novo.
+1. `cp Config/Google.example.xcconfig Config/Google.xcconfig`, paste the client ID, `xcodegen generate`, `xcodebuild … build`.
+2. Open the app with `Tools/rodar.sh`. **This is the milestone's only launch outside the instruments**, performed by the owner.
+3. ⇧⌘A opens Accounts. Enter Gmail address → **Autorizar no Google** → grant all three scopes. The account shows “Carregando…” and the bar advances.
+4. Enter an IMAP address from **any** provider. Host and port are prefilled from a preset or suggested as `imap.<domínio>:993`. Paste the app password → **Testar e adicionar**.
+5. Close the app. **Turn off Wi-Fi.** Reopen it.
 
-Critério de aceite, item por item:
-- [ ] O app abre **offline** mostrando as mensagens dos últimos 90 dias das
-      duas contas.
-- [ ] A busca acha por remetente, assunto e **corpo**, com acento dobrado
-      ("Revisao" acha "Revisão" dentro de um corpo).
-- [ ] Clicar numa conta na lateral filtra **a lista e a agenda**.
-- [ ] A janela de Contas mostra, por conta, "Sincronizada às HH:MM · N
-      mensagens".
-- [ ] Trocar a senha de app no provedor e tentar carregar deixa a conta em
-      erro **com a causa** e o botão "Reconectar".
-- [ ] Remover uma conta pergunta antes, e depois a conta, as mensagens e a
-      senha somem.
-- [ ] Com as duas contas removidas, o app volta às fixtures.
+Acceptance, item by item:
 
-- [ ] **Step 10: Atualizar o README**
+- [ ] The app opens **offline**, showing the last 90 days of mail from both accounts.
+- [ ] Search matches sender, subject and **body**, with accent folding (“Revisao” finds “Revisão” in a body).
+- [ ] Clicking a sidebar account filters **both list and calendar**.
+- [ ] Accounts displays “Sincronizada às HH:MM · N mensagens” per account.
+- [ ] Changing the provider's app password and trying to load produces an account error **with its cause** and “Reconectar”.
+- [ ] Removing an account asks first, then removes its account, messages and password.
+- [ ] Removing both accounts restores fixtures.
 
-Em `README.md`, troque a linha do badge de marco e acrescente a linha do Marco 2
-na tabela "O que já funciona":
+- [ ] **Step 10: Update the README**
+
+In `README.md`, replace the milestone badge line and add Milestone 2 to the “What already works” table:
 
 ```markdown
 ![Marco](https://img.shields.io/badge/marco-2%20·%20contas-orange)
 ```
 
-e, na tabela:
+In the table:
 
 ```markdown
 | 🔐 **Contas de verdade** | OAuth do Google com PKCE, IMAP para qualquer provedor com detecção de servidor, segredos no Keychain, cache local em SQLite com busca no corpo (FTS5, acento dobrado) e carga dos últimos 90 dias — o app abre **offline** |
 ```
 
-E, na tabela de marcos do plano do Marco 1 (referência histórica), nada muda: a
-sequência dos marcos vive lá.
+Leave the milestone table in the Milestone 1 plan unchanged: it is a historical reference containing that sequence.
 
 - [ ] **Step 11: Commit**
 
@@ -10049,212 +9976,125 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-## Autorrevisão
+## Self-review
 
-Feita depois de escrever o plano inteiro, contra a spec, com olhos frescos.
+Performed against the specification with fresh eyes after writing the entire plan.
 
-### 1. Cobertura da spec, ponto a ponto
+### 1. Specification coverage, point by point
 
-| Requisito da spec | Onde |
+| Specification requirement | Location |
 |---|---|
-| Pacote `UNISync`, importa `UNICore`, não importa SwiftUI | Task 2 (pacote); Global Constraints (a proibição) |
-| Dependências novas só GRDB e swift-nio-imap | Task 2; Global Constraints |
-| Wiring SPM primeiro, build verde antes de código | Task 2 |
-| Roteiro do OAuth Client, sem bloquear o plano | Task 1; Tasks 7/8/15 provam contra stub |
-| `SyncDatabase` — abertura, migração, `DatabasePool` | Task 5 |
-| `SecretStore` — protocolo, Keychain, fake | Task 4 |
-| `GoogleAuth` — PKCE, troca, refresh, revogação | Task 7 |
-| `ProviderDetector` puro | Task 6 |
-| `ImapPresets` — tabela pura, aberta, manual sempre possível | Task 6 |
-| `ImapSession` — conectar, autenticar, listar, envelopes, corpos | Tasks 9 e 10 |
+| `UNISync` package imports `UNICore`, never SwiftUI | Task 2 (package); Global Constraints (prohibition) |
+| Only GRDB and swift-nio-imap as new dependencies | Task 2; Global Constraints |
+| SPM wiring first, green build before code | Task 2 |
+| OAuth client guide without blocking the plan | Task 1; Tasks 7/8/15 prove against stubs |
+| `SyncDatabase` — opening, migration, `DatabasePool` | Task 5 |
+| `SecretStore` — protocol, Keychain, fake | Task 4 |
+| `GoogleAuth` — PKCE, exchange, refresh, revocation | Task 7 |
+| Pure `ProviderDetector` | Task 6 |
+| `ImapPresets` — pure open table, manual entry always available | Task 6 |
+| `ImapSession` — connect, authenticate, list, envelopes, bodies | Tasks 9 and 10 |
 | `GmailClient` — profile, labels, `messages.list/get` | Task 8 |
-| `AccountDirector` — ator, adicionar/testar/remover/carregar/publicar | Task 15 |
-| `InitialLoader` — 90 dias, por conta | Tasks 12 (Gmail) e 13 (IMAP) |
-| `DatabaseMailSource` — `MailSource` do banco | Task 14 |
-| Tabelas `account`/`folder`/`message`/`message_body`+FTS5/`agenda_item`/`sync_state` | Task 5 |
-| Sem segredo no banco | Task 5 (teste `nenhumaColunaDeSegredo`); Task 15 (teste do `addImap`) |
-| Tokenizer `unicode61 remove_diacritics 2` | Task 5, provado por mutação |
-| `ValueObservation` → `AsyncSequence`; `MailStore` assina | Task 14 |
-| Sem conta, o app continua nas fixtures | Task 18 |
-| PKCE S256, redirect `com.okamiops.okamiuni:/oauth` | Task 7; `Info.plist` na Task 2 |
-| Escopos `gmail.modify` + `gmail.send` + `userinfo.email` | Task 7 (`defaultScopes`), Task 1 (roteiro) |
-| Client ID por configuração, não hardcoded | Task 1 (xcconfig), Task 2 (`Info.plist`), Task 7 (`fromBundle`) |
-| Tokens no Keychain, serviço `com.okamiops.okamiuni`, conta = id | Task 4 |
-| Refresh transparente com **uma corrida por conta** | Task 7, provado por mutação |
-| Falha de refresh → `erroDeAutenticacao` + oferecer reconectar | Tasks 12/15 (estado), Task 16 (`AccountsCopy.action`) |
-| IMAP `LOGIN` sobre TLS implícito **ou** STARTTLS conforme preset | Tasks 3 (`ImapEndpoint.Security`), 9 (pipeline) |
-| `LIST`/`SELECT`, envelopes em lote, corpo por demanda com cache | Task 10 |
-| Papel por `SPECIAL-USE` senão por nome, tabela pura | Task 6 |
-| Detecção sem consulta de MX | Task 6 (registrado no comentário e no commit) |
-| Janela de Contas — cena `UNIWindow.accounts`, menu do app e menu de contexto | Task 16 |
-| Lista: endereço, provedor, estado, contador, remover com confirmação | Task 16 |
-| Adicionar: endereço → rota → OAuth ou formulário → "Testar e adicionar" com resultado explicado | Task 16; Task 15 (`testImap` não grava) |
-| Progresso por conta na janela **e** na linha da lateral | Task 16 (janela e ponto na lateral) |
-| Gmail: `messages.list` `newer_than:90d` paginado + `get` metadata/full + `labels.list` + `historyId` | Task 12 |
-| IMAP: `SELECT`, `UID SEARCH SINCE`, lotes de 200, 50 corpos por pasta | Tasks 10 e 13 |
-| Projeção de triagem nas fronteiras, `Sent` fora | Task 11 |
-| Interrompível e retomável, transações por lote | Tasks 12 e 13, provado por mutação |
-| `UNICore`: `Account` e `Message` com campos novos, fixtures válidas | Task 3 |
-| `UNIShell`: janela, estado na lateral, fonte real | Tasks 16 e 18 |
-| `App`: composição | Task 18 |
-| `SyncError` único, casos distintos, mensagem em português, ação | Task 4; Task 16 (`action(for:)`) |
-| Log estruturado por conta, categoria por componente | Tasks 12, 13, 15, 18 (`Logger(subsystem:category:)`) |
-| `SecretStore` fake; Keychain real atrás de marca local | Task 4 (`OKAMIUNI_KEYCHAIN_TESTS`) |
-| `GoogleAuth` contra `URLProtocol` stub: troca, refresh, falha, corrida | Task 7 |
-| `ImapSession` contra servidor falso NIO, com UIDVALIDITY trocada | Tasks 9, 10, 13 |
-| `GmailClient` contra fixtures JSON reais | Task 8 |
-| Banco: migração, FTS com acento, observação, projeção nas fronteiras | Tasks 5 e 11 |
-| Puros nas fronteiras: detector, presets, papel | Task 6 |
-| Ensaio `--ensaiar-contas` com IMAP falso local | Task 17 |
-| Nenhum teste toca rede externa | Global Constraints; Task 7 passo 10 verifica |
-| Critério de aceite completo | Task 18, passo 9 |
+| `AccountDirector` — actor, add/test/remove/load/publish | Task 15 |
+| `InitialLoader` — 90 days, per account | Tasks 12 (Gmail) and 13 (IMAP) |
+| `DatabaseMailSource` — database-backed `MailSource` | Task 14 |
+| `account`/`folder`/`message`/`message_body`+FTS5/`agenda_item`/`sync_state` tables | Task 5 |
+| No secret in the database | Task 5 (`nenhumaColunaDeSegredo` test); Task 15 (`addImap` test) |
+| `unicode61 remove_diacritics 2` tokenizer | Task 5, mutation-proven |
+| `ValueObservation` → `AsyncSequence`; `MailStore` subscribes | Task 14 |
+| Without an account, the app keeps fixtures | Task 18 |
+| PKCE S256, `com.okamiops.okamiuni:/oauth` redirect | Task 7; Task 2 `Info.plist` |
+| `gmail.modify` + `gmail.send` + `userinfo.email` scopes | Task 7 (`defaultScopes`), Task 1 (guide) |
+| Configured client ID, not hardcoded | Task 1 (xcconfig), Task 2 (`Info.plist`), Task 7 (`fromBundle`) |
+| Tokens in Keychain, service `com.okamiops.okamiuni`, account = ID | Task 4 |
+| Transparent refresh with **one flight per account** | Task 7, mutation-proven |
+| Failed refresh → `erroDeAutenticacao` + reconnect action | Tasks 12/15 (state), Task 16 (`AccountsCopy.action`) |
+| IMAP `LOGIN` over implicit TLS **or** STARTTLS per preset | Tasks 3 (`ImapEndpoint.Security`), 9 (pipeline) |
+| `LIST`/`SELECT`, envelope batches, on-demand cached bodies | Task 10 |
+| Roles from `SPECIAL-USE` or names, pure table | Task 6 |
+| Detection without MX lookup | Task 6 (recorded in comment and commit) |
+| Accounts window — `UNIWindow.accounts`, app menu and context menu | Task 16 |
+| List: address, provider, state, count, removal confirmation | Task 16 |
+| Add: address → route → OAuth or form → “Testar e adicionar” with explained result | Task 16; Task 15 (`testImap` does not persist) |
+| Per-account progress in the window **and** sidebar row | Task 16 (window and sidebar dot) |
+| Gmail: paginated `messages.list` `newer_than:90d`, metadata/full `get`, `labels.list`, `historyId` | Task 12 |
+| IMAP: `SELECT`, `UID SEARCH SINCE`, batches of 200, 50 bodies per folder | Tasks 10 and 13 |
+| Triage projection at boundaries, excluding `Sent` | Task 11 |
+| Interruptible and resumable, batch transactions | Tasks 12 and 13, mutation-proven |
+| `UNICore`: new `Account`/`Message` fields, valid fixtures | Task 3 |
+| `UNIShell`: window, sidebar state, real source | Tasks 16 and 18 |
+| `App`: composition | Task 18 |
+| One `SyncError`, distinct cases, Portuguese message, action | Task 4; Task 16 (`action(for:)`) |
+| Structured per-account logs, category per component | Tasks 12, 13, 15, 18 (`Logger(subsystem:category:)`) |
+| Fake `SecretStore`; real Keychain behind local flag | Task 4 (`OKAMIUNI_KEYCHAIN_TESTS`) |
+| `GoogleAuth` against `URLProtocol` stub: exchange, refresh, failure, single flight | Task 7 |
+| `ImapSession` against fake NIO server, changed UIDVALIDITY | Tasks 9, 10, 13 |
+| `GmailClient` against real JSON fixtures | Task 8 |
+| Database: migration, accented FTS, observation, boundary projection | Tasks 5 and 11 |
+| Pure boundary logic: detector, presets, roles | Task 6 |
+| `--ensaiar-contas` rehearsal with local fake IMAP | Task 17 |
+| No test touches external networks | Global Constraints; Task 7 step 10 checks |
+| Complete acceptance criterion | Task 18, step 9 |
 
-**Nenhum requisito da spec ficou sem tarefa.** Fora de escopo declarado
-(Microsoft Graph, envio, sync incremental, espelho de triagem, threads,
-assinatura sincronizada, MX) continua fora — nenhuma tarefa o toca.
+**Every specification requirement has a task.** Declared exclusions (Microsoft Graph, sending, incremental sync, mirrored triage, threads, synchronized signatures and MX) remain out of scope; no task touches them.
 
-### 2. Lacunas achadas e corrigidas durante a revisão
+### 2. Gaps found and corrected during review
 
-1. **`Account.State` era necessário antes do esquema.** A ordem sugerida punha
-   o GRDB (Task 5) antes da evolução do `UNICore`. Escrever a tabela `account`
-   sem `Account.State` obrigaria a inventar um segundo enum no banco e depois
-   reconciliá-lo — duas verdades para a mesma pergunta. **Corrigido:** a
-   evolução do `UNICore` virou a Task 3, e o desvio está registrado com a razão
-   logo abaixo da tabela de dependências.
-2. **`MailStore.load()` virando assinatura quebraria os 807.** A spec diz "o
-   `MailStore` ganha um `load()` que assina". Trocar a semântica de `load()`
-   mudaria o resultado de dezenas de testes do Marco 1. **Corrigido:** `load()`
-   fica com a semântica de sempre (um retrato), `observe()` é o novo método que
-   assina, e `MailSource.snapshots()` tem implementação padrão de um elemento —
-   `InMemoryMailSource` não muda uma linha. A Task 14, passo 7, verifica.
-3. **A busca no corpo não tinha porta.** A spec pede busca no corpo com acento
-   dobrado no banco, mas `MailSource` não tem consulta e `MailStore.matches` é
-   síncrono. **Corrigido:** `MailSource.bodyMatches(_:accountID:)` com
-   implementação padrão devolvendo `nil` (que significa "não sei procurar no
-   corpo", diferente de "não achei"), `MailStore.bodyHits` +
-   `refreshBodyMatches()`, e a distinção `nil` vs `[]` provada por mutação na
-   Task 14.
-4. **O risco da API do `swift-nio-imap`.** A biblioteca é a única dependência
-   cuja superfície o plano não pode verificar antes de o SPM resolver.
-   **Corrigido:** regra de divergência explícita nas Tasks 9 e 10 (parar e
-   devolver `NEEDS_CONTEXT`, como a regra do protótipo no Marco 1) mais uma
-   decisão de arquitetura que limita o estrago: **todo** contato com os tipos
-   da biblioteca mora em `ImapResponseAdapter.swift`, e a lógica inteira do
-   IMAP é testada contra `ImapWire.Untagged`, que é nosso.
-5. **`FolderRole` estava listado em dois lugares.** A estrutura de arquivos o
-   punha em `Providers/ImapEndpointTypes.swift` e a Task 5 o definia em
-   `Database/Records.swift`. **Corrigido:** a definição fica em
-   `Database/Records.swift` (é a tabela `folder` quem o grava) e a estrutura de
-   arquivos foi ajustada — `ImapEndpointTypes.swift` não existe, e `ImapPreset`
-   mora em `Providers/ImapPresets.swift`.
-6. **Task 17 dependia da Task 18 para o passo de ensaio real.** A cena e a
-   bandeira só existem depois da composição. **Corrigido:** o passo 6 da Task 17
-   diz isso explicitamente e manda executá-lo depois da Task 18.
-7. **`AccountTints` com lista finita recusaria a nona conta.** Restrição
-   herdada: nada limita o número de contas. **Corrigido:** a tabela cicla, e há
-   teste que pede a cor da trigésima conta.
-8. **Erro de rede marcando `erroDeAutenticacao`.** A primeira versão do
-   `InitialLoader` derrubava a conta para `erroDeAutenticacao` em qualquer
-   falha, o que faria a janela oferecer "Reconectar" a quem só perdeu o wi-fi.
-   **Corrigido:** `InitialLoader.estadoPara(_:)` separa os casos, e
-   `AccountsCopy.action(for:)` casa a ação com a causa — provado por mutação na
-   Task 16.
+1. **`Account.State` was needed before the schema.** The suggested order placed GRDB (Task 5) before evolving `UNICore`. Writing `account` without `Account.State` would require inventing and later reconciling another database enum: two truths for one question. **Corrected:** `UNICore` evolution became Task 3, with the reason recorded below the dependency table.
+2. **Making `MailStore.load()` a subscription would break the 807 tests.** The specification says `load()` subscribes. Changing its semantics would alter dozens of Milestone 1 tests. **Corrected:** `load()` remains a single snapshot, `observe()` subscribes, and `MailSource.snapshots()` defaults to one element. `InMemoryMailSource` remains unchanged. Task 14, step 7 verifies this.
+3. **Body search lacked a port.** The specification requires database body search with accent folding, but `MailSource` lacks a query and `MailStore.matches` is synchronous. **Corrected:** `MailSource.bodyMatches(_:accountID:)` defaults to `nil`, meaning “cannot search bodies” rather than “no matches”; `MailStore.bodyHits` + `refreshBodyMatches()` consume it. Task 14 proves `nil` versus `[]` through mutation.
+4. **The `swift-nio-imap` API risk.** It is the only dependency whose surface cannot be verified before SPM resolution. **Corrected:** explicit divergence rules in Tasks 9/10 require stopping with `NEEDS_CONTEXT`, like Milestone 1's prototype rule. Architecture limits damage: **all** library-type contact belongs in `ImapResponseAdapter.swift`; all IMAP logic is tested against our `ImapWire.Untagged`.
+5. **`FolderRole` appeared in two places.** The file tree put it in `Providers/ImapEndpointTypes.swift`, while Task 5 defined it in `Database/Records.swift`. **Corrected:** the definition stays in `Database/Records.swift`, since `folder` persists it. The tree was corrected: `ImapEndpointTypes.swift` does not exist and `ImapPreset` lives in `Providers/ImapPresets.swift`.
+6. **Task 17's live rehearsal depended on Task 18.** Scene and flag exist only after composition. **Corrected:** Task 17 step 6 explicitly runs after Task 18.
+7. **A finite `AccountTints` list would reject account nine.** The inherited constraint forbids account limits. **Corrected:** the table cycles, and a test requests account thirty's color.
+8. **Network errors incorrectly set `erroDeAutenticacao`.** The first `InitialLoader` version used that state for any failure, offering “Reconectar” to someone who merely lost Wi-Fi. **Corrected:** `InitialLoader.estadoPara(_:)` separates cases; `AccountsCopy.action(for:)` matches action to cause, mutation-proven in Task 16.
 
-### 3. Consistência de tipos entre tarefas
+### 3. Type consistency across tasks
 
-Conferido nome a nome, do uso à definição:
+Checked name by name from use to definition:
 
-- `ImapEndpoint(host:port:security:)` — definido na Task 3; usado nas 5, 6, 9,
-  13, 15, 16, 17. Mesma assinatura em todas.
-- `Account.State` (`ativa`/`carregando`/`erroDeAutenticacao`) — Task 3; usado
-  nas 5, 12, 13, 15, 16.
-- `Account.withState(_:)` / `withLastSynced(_:)` / `withImap(_:)` — Task 3;
-  usados na 12 (`marca`, `conclui`).
-- `Message.serverID` / `uidValidity` — Task 3; gravados na 5, preenchidos na 12
-  e na 13, lidos na 14.
-- `FolderRole` (`inbox`/`archive`/`trash`/`sent`/`later = "depois"`/`other = "outra"`)
-  — Task 5; usado nas 6, 10, 11, 13.
-- `FolderRecord.id(accountID:serverName:)` — Task 5; usado nas 13, 14, e nos
-  testes da 13.
-- `SyncError` — Task 4; lançado nas 7, 8, 9, 10, 12, 13, 15, 18; traduzido na 16.
-- `SecretStore` / `Secret` / `OAuthTokens` — Task 4; usados nas 7, 15, 18.
-- `PKCEPair.make(from:)` / `.random()` — Task 7; `random()` usado em `connect`.
-- `GoogleAuthConfig.authorizationURL(pkce:state:loginHint:)` — Task 7; chamado
-  em `GoogleAuth.connect`.
-- `GoogleAuth.connect(accountID:loginHint:)` / `.accessToken(for:)` / `.revoke(accountID:)`
-  — Task 7; usados na 15.
-- `AuthorizationPresenter.authorize(url:callbackScheme:)` — Task 7; implementado
-  por `WebAuthorizationPresenter` (Task 18) e `StubAuthorizationPresenter`
-  (Tasks 7, 15, 17).
-- `GmailClient(session:accessToken:baseURL:)` — Task 8; construído nas 12
-  (testes), 15, e o `baseURL` é parâmetro do `AccountDirector`.
-- `GmailMessage` (campo `labelIDs`, não `labelIds`) — Task 8; lido na 11
-  (`bucket(gmailLabelIDs:)`) e na 12.
-- `MailAddress.parse` / `.parseList` / `.decodeRFC2047` — Task 8; reusados na 10
-  (`ImapWire.envelopes`), sem segunda implementação.
-- `GmailMessageParser.paragraphs(from:)` — Task 8; reusado na 10
-  (`ImapWire.bodyText`), sem segunda implementação.
-- `ImapWire.fetchBatchSize` / `.uidFetchEnvelopes(tag:uids:)` — Tasks 9 e 10;
-  usados em `ImapSession.envelopes(uids:)`.
-- `ImapSession.folders()` / `.select(_:)` / `.uids(since:calendar:)` /
-  `.envelopes(uids:)` / `.bodyText(uid:)` / `.login(user:password:)` / `.logout()`
-  — Tasks 9 e 10; usados na 13 e na 15.
-- `ImapCommandResult.untagged: [ImapWire.Untagged]` — declarado como `[String]`
-  na Task 9 e **trocado explicitamente** na Task 10, passo 5, com a linha do
-  handler que muda junto. Não há uso do tipo antigo depois da troca.
-- `TriageProjection.bucket(role:)` / `.bucket(gmailLabelIDs:laterLabelID:)` /
-  `.laterLabelID(in:)` — Task 11; usados nas 12 e 13.
-- `MessageIdentity.gmail(accountID:serverID:)` / `.imap(accountID:folderID:uidValidity:uid:)`
-  — Task 11; usados nas 12 e 13, e afirmados nos testes das duas.
-- `LoadProgress(accountID:done:total:)` e `.fraction` — Task 12; usado na 13, na
-  15 (`AccountStatus.progress`) e na 16 (`AccountsCopy`).
-- `InitialLoader(database:calendar:)`, `.loadGmail(account:client:now:progress:)`,
-  `.loadImap(account:session:now:progress:)`, `.windowDays`, `.fullBodyCount`,
-  `.batchSize`, `.marca`, `.conclui`, `.estadoPara` — Tasks 12 e 13; usados na 15.
-- `MailSnapshot(accounts:messages:agenda:pendingItems:)`, `MailSource.snapshot()`,
-  `.snapshots()`, `.bodyMatches(_:accountID:)` — Task 14; implementados por
-  `DatabaseMailSource` na mesma tarefa e usados na 18.
-- `MailStore.observe()` / `.refreshBodyMatches()` — Task 14; chamados na 18.
-- `AccountStatus(accountID:address:hostMark:state:messageCount:lastSyncedAt:error:progress:)`
-  — Task 15; construído no `AccountDirector` e consumido na 16 e na 17.
-- `AccountDirector.init(database:secrets:auth:session:gmailBaseURL:eventLoopGroup:imapConnect:now:)`
-  — Task 15; chamado com os mesmos rótulos nos testes da 15 e na composição da 18.
-- `AccountsModel.start()` / `.addGoogle(address:)` / `.testImap(address:password:endpoint:)` /
-  `.addImap(address:password:endpoint:hostMark:displayName:)` / `.remove(_:)` /
-  `.loadInitial(_:)` / `.statuses` / `.lastError` / `.isBusy` — Task 15; usados
-  nas 16 e 17 com os mesmos rótulos.
-- `AccountsCopy.status(_:now:calendar:)` / `.action(for:)` — Task 16; usados por
-  `AccountsList` na mesma tarefa.
-- `UNIWindow.accounts` e `UNIWindow.Size.accounts` — Task 16; usados na 18.
-- `ContextCommand.openAccounts` — Task 16; despachado no `ContextMenuHost` na
-  mesma tarefa.
-- `AppComposition.make(databasePath:bundle:)` e os quatro campos — Task 18;
-  usados no `OkamiUNIApp` na mesma tarefa.
-- `RehearsalStage.log` / `.framePath` — do Marco 1; usados na 17.
+- `ImapEndpoint(host:port:security:)` — defined in Task 3; used in 5, 6, 9, 13, 15, 16 and 17 with the same signature.
+- `Account.State` (`ativa`/`carregando`/`erroDeAutenticacao`) — Task 3; used in 5, 12, 13, 15 and 16.
+- `Account.withState(_:)` / `withLastSynced(_:)` / `withImap(_:)` — Task 3; used in 12 (`marca`, `conclui`).
+- `Message.serverID` / `uidValidity` — Task 3; persisted in 5, populated in 12/13, read in 14.
+- `FolderRole` (`inbox`/`archive`/`trash`/`sent`/`later = "depois"`/`other = "outra"`) — Task 5; used in 6, 10, 11 and 13.
+- `FolderRecord.id(accountID:serverName:)` — Task 5; used in 13, 14 and Task 13 tests.
+- `SyncError` — Task 4; thrown in 7, 8, 9, 10, 12, 13, 15 and 18; translated in 16.
+- `SecretStore` / `Secret` / `OAuthTokens` — Task 4; used in 7, 15 and 18.
+- `PKCEPair.make(from:)` / `.random()` — Task 7; `random()` used in `connect`.
+- `GoogleAuthConfig.authorizationURL(pkce:state:loginHint:)` — Task 7; called in `GoogleAuth.connect`.
+- `GoogleAuth.connect(accountID:loginHint:)` / `.accessToken(for:)` / `.revoke(accountID:)` — Task 7; used in 15.
+- `AuthorizationPresenter.authorize(url:callbackScheme:)` — Task 7; implemented by `WebAuthorizationPresenter` (Task 18) and `StubAuthorizationPresenter` (Tasks 7, 15, 17).
+- `GmailClient(session:accessToken:baseURL:)` — Task 8; built in 12 (tests), 15; `baseURL` is an `AccountDirector` parameter.
+- `GmailMessage` (`labelIDs`, not `labelIds`) — Task 8; read in 11 (`bucket(gmailLabelIDs:)`) and 12.
+- `MailAddress.parse` / `.parseList` / `.decodeRFC2047` — Task 8; reused in 10 (`ImapWire.envelopes`) without another implementation.
+- `GmailMessageParser.paragraphs(from:)` — Task 8; reused in 10 (`ImapWire.bodyText`) without another implementation.
+- `ImapWire.fetchBatchSize` / `.uidFetchEnvelopes(tag:uids:)` — Tasks 9/10; used in `ImapSession.envelopes(uids:)`.
+- `ImapSession.folders()` / `.select(_:)` / `.uids(since:calendar:)` / `.envelopes(uids:)` / `.bodyText(uid:)` / `.login(user:password:)` / `.logout()` — Tasks 9/10; used in 13 and 15.
+- `ImapCommandResult.untagged: [ImapWire.Untagged]` — declared as `[String]` in Task 9 and **explicitly changed** in Task 10 step 5, including the handler line. No old-type use remains afterwards.
+- `TriageProjection.bucket(role:)` / `.bucket(gmailLabelIDs:laterLabelID:)` / `.laterLabelID(in:)` — Task 11; used in 12/13.
+- `MessageIdentity.gmail(accountID:serverID:)` / `.imap(accountID:folderID:uidValidity:uid:)` — Task 11; used and asserted by tests in 12/13.
+- `LoadProgress(accountID:done:total:)` and `.fraction` — Task 12; used in 13, 15 (`AccountStatus.progress`) and 16 (`AccountsCopy`).
+- `InitialLoader(database:calendar:)`, `.loadGmail(account:client:now:progress:)`, `.loadImap(account:session:now:progress:)`, `.windowDays`, `.fullBodyCount`, `.batchSize`, `.marca`, `.conclui`, `.estadoPara` — Tasks 12/13; used in 15.
+- `MailSnapshot(accounts:messages:agenda:pendingItems:)`, `MailSource.snapshot()`, `.snapshots()`, `.bodyMatches(_:accountID:)` — Task 14; implemented by `DatabaseMailSource` there and used in 18.
+- `MailStore.observe()` / `.refreshBodyMatches()` — Task 14; called in 18.
+- `AccountStatus(accountID:address:hostMark:state:messageCount:lastSyncedAt:error:progress:)` — Task 15; built in `AccountDirector`, consumed in 16/17.
+- `AccountDirector.init(database:secrets:auth:session:gmailBaseURL:eventLoopGroup:imapConnect:now:)` — Task 15; called with identical labels in Task 15 tests and Task 18 composition.
+- `AccountsModel.start()` / `.addGoogle(address:)` / `.testImap(address:password:endpoint:)` / `.addImap(address:password:endpoint:hostMark:displayName:)` / `.remove(_:)` / `.loadInitial(_:)` / `.statuses` / `.lastError` / `.isBusy` — Task 15; used in 16/17 with the same labels.
+- `AccountsCopy.status(_:now:calendar:)` / `.action(for:)` — Task 16; used by `AccountsList` there.
+- `UNIWindow.accounts` and `UNIWindow.Size.accounts` — Task 16; used in 18.
+- `ContextCommand.openAccounts` — Task 16; dispatched in `ContextMenuHost` there.
+- `AppComposition.make(databasePath:bundle:)` and its four fields — Task 18; used by `OkamiUNIApp` there.
+- `RehearsalStage.log` / `.framePath` — Milestone 1; used in 17.
 
-**Nenhuma divergência de nome sobrou.** As três armadilhas clássicas foram
-conferidas em separado: `labelIDs` (nosso) contra `labelIds` (o JSON, que só
-aparece dentro do `Wire` privado do parser); `historyID` (nosso) contra
-`historyId` (o JSON, idem); e `hostMark` (do preset e do `AccountStatus`) contra
-`Account.host` (o campo do `UNICore`), que são o mesmo valor com nomes
-diferentes de cada lado da fronteira — o `AccountDirector.grava` faz a ponte, e
-o teste `adicionarImap` afirma `conta.host == "meusite"`.
+**No naming divergence remains.** Three classic traps were checked separately: our `labelIDs` versus JSON's `labelIds`, which appears only in the parser's private `Wire`; our `historyID` versus JSON's `historyId`, likewise; and preset/`AccountStatus` `hostMark` versus `UNICore`'s `Account.host`. The last pair carries the same value across differently named boundaries: `AccountDirector.grava` bridges it, and `adicionarImap` asserts `conta.host == "meusite"`.
 
-### 4. Varredura de placeholder
+### 4. Placeholder scan
 
-Procurados no documento inteiro: `TBD`, `TODO`, `implementar depois`,
-`preencher`, `tratamento de erro apropriado`, `adicionar validação`, `casos de
-borda`, `escrever testes para o acima`, `similar à Task N`, e passos de código
-sem bloco de código.
+Searched the whole document for `TBD`, `TODO`, `implementar depois`, `preencher`, `tratamento de erro apropriado`, `adicionar validação`, `casos de borda`, `escrever testes para o acima`, `similar à Task N`, and code steps lacking code blocks.
 
-**Nenhuma ocorrência.** Os três lugares que poderiam parecer placeholder e não
-são, registrados aqui para o revisor não os confundir:
+**No occurrences.** Three things might resemble placeholders but are not:
 
-- A **regra de divergência** das Tasks 9 e 10 não é uma lacuna: é uma instrução
-  de processo (parar e devolver `NEEDS_CONTEXT`), a mesma que o Marco 1 usa para
-  divergências com o protótipo, e o código completo está escrito ao lado dela.
-- O **passo 6 da Task 17** depende da Task 18 e diz isso; o código do ensaio
-  está inteiro na própria tarefa.
-- O **passo 9 da Task 18** é manual e do dono do projeto por definição — é o
-  único momento do marco que toca a internet, e cada item do critério de aceite
-  está escrito como caixa de verificação.
+- Tasks 9/10's **divergence rule** is a process instruction to stop with `NEEDS_CONTEXT`, like Milestone 1's prototype-divergence rule. Complete code appears alongside it.
+- **Task 17 step 6** explicitly depends on Task 18; the entire rehearsal code is present in Task 17 itself.
+- **Task 18 step 9** is the owner's manual step by definition, the milestone's only internet-connected moment; every acceptance item is written as a checkbox.

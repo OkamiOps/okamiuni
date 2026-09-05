@@ -11,8 +11,8 @@ settings:
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
     ENABLE_USER_SCRIPT_SANDBOXING: YES
-    MARKETING_VERSION: "0.5.3"
-    CURRENT_PROJECT_VERSION: "8"
+    MARKETING_VERSION: "0.5.4"
+    CURRENT_PROJECT_VERSION: "9"
     DEAD_CODE_STRIPPING: YES
 
 packages:
@@ -47,6 +47,10 @@ targets:
       - path: docs/oauth-google.md
         buildPhase: resources
       - path: docs/senha-de-app.md
+        buildPhase: resources
+      - path: docs/oauth-google.en.md
+        buildPhase: resources
+      - path: docs/senha-de-app.en.md
         buildPhase: resources
     dependencies:
       - package: UNIDesign

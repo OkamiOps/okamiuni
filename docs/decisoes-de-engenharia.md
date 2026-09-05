@@ -1,5 +1,9 @@
 # Decisões de engenharia — OkamiUNI
 
+**Português (Brasil)** · [English](decisoes-de-engenharia.en.md)
+
+> Registro histórico de engenharia. Cada entrada descreve evidências e decisões da época. Totais de testes, etapas de implementação e regras iniciais de consentimento de IA são históricos; o [README da v0.5.4](../README.pt-BR.md) descreve o comportamento atual. Em particular, a v0.5.3 substituiu o opt-in separado para análise remota descrito abaixo. Exemplos de código e identificadores originais são preservados.
+
 Registro do que **não** dá para deduzir lendo o código. Cada entrada existe porque a escolha
 custou caro, ou porque a alternativa óbvia estava errada.
 

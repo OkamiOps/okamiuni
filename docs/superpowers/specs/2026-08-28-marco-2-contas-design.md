@@ -1,5 +1,7 @@
 # Marco 2 — Contas de verdade: OAuth Google, IMAP, Keychain e o banco local
 
+> **Registro histórico de design e implementação.** Este documento preserva as decisões da data indicada e não comprova o comportamento atual. [Read the English companion](2026-08-28-marco-2-contas-design.en.md).
+
 Aprovado em 2026-08-28. Decisões tomadas com o dono do projeto:
 OAuth **só Google** por ora (Microsoft Graph fora de escopo); IMAP cobre todo
 o resto; cache local em **SQLite via GRDB**; cliente IMAP sobre
