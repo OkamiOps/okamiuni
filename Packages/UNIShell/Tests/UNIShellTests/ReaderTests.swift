@@ -8,6 +8,18 @@ import UNIDesign
 
 @Suite("ReaderPane")
 struct ReaderTests {
+    @Test("Janela destacada conserva o leitor completo com anexos")
+    @MainActor
+    func detachedReaderAttachments() async throws {
+        let message = readerMessage(id: "m", event: nil, attachments: [
+            .init(id: "slides", filename: "slides.pdf", mimeType: "application/pdf", byteCount: 2048)
+        ])
+        let store = MailStore(source: InMemoryMailSource(accounts: [], messages: [message], agenda: []))
+        await store.load()
+        let rendered = Render.snapshot(MessageWindow(store: store, messageID: "m"),
+            named: "janela-anexos", size: CGSize(width: 800, height: 600), theme: .okami)
+        #expect(rendered != nil)
+    }
 
     @Test("o cabeçalho junta remetente e assunto numa linha")
     func identityCaptionIsOneLine() {
