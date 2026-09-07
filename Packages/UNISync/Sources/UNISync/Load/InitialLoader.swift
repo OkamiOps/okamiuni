@@ -444,8 +444,7 @@ public struct InitialLoader: Sendable {
             // `text/calendar`. Exigir texto para gravar a linha o deixaria de
             // fora do banco, e o cartão do leitor nunca teria o que desenhar.
             let ics = GmailCalendar.ics(in: mensagem)
-            if temCorpo, !mensagem.body.isEmpty
-                || mensagem.html != nil || ics != nil {
+            if temCorpo {
                 try Self.gravaCorpo(
                     db, id: id, paragrafos: mensagem.body,
                     html: mensagem.html ?? "", calendarICS: ics
@@ -482,6 +481,7 @@ public struct InitialLoader: Sendable {
             existente.plain = novo.plain
             existente.html = novo.html
             existente.calendarICS = novo.calendarICS
+            existente.attachmentsResolved = true
             try existente.update(db)
         } else {
             var corpo = MessageBodyRecord(

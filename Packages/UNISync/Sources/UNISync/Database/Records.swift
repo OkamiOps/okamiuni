@@ -476,6 +476,7 @@ public struct MessageBodyRecord: Codable, FetchableRecord, MutablePersistableRec
     public var html: String?
     /// O `text/calendar` cru do convite, quando a mensagem trouxe um.
     public var calendarICS: String?
+    public var attachmentsResolved: Bool = true
 
     public init(
         messageID: String, paragraphs: [String],

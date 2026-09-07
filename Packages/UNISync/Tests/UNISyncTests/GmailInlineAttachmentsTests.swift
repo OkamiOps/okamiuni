@@ -114,7 +114,8 @@ struct GmailInlineAttachmentsTests {
           ], "parts":[
             {"mimeType":"text/plain", "body":{"data":"U2VndWU"}},
             {"mimeType":"application/pdf", "filename":"../../proposta.pdf",
-             "headers":[{"name":"Content-Disposition", "value":"attachment"}],
+             "headers":[{"name":"Content-Disposition", "value":"attachment"},
+                        {"name":"Content-ID", "value":"<documento>"}],
              "body":{"attachmentId":"arquivo-1", "size":321}}
           ]}
         }

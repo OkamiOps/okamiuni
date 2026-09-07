@@ -59,7 +59,8 @@ struct DatabaseBodyFetcherTests {
     }
 
     private func roteiro(
-        uidValidity: Int64 = DatabaseBodyFetcherTests.uidValidity
+        uidValidity: Int64 = DatabaseBodyFetcherTests.uidValidity,
+        rawBody: String = DatabaseBodyFetcherTests.corpoCru
     ) -> FakeImapServer.Script {
         .init(replies: [
             "LOGIN": ["TAG OK LOGIN completed"],
@@ -68,7 +69,7 @@ struct DatabaseBodyFetcherTests {
                 "* 1 FETCH (UID 9001 "
                 + "BODY[HEADER.FIELDS (CONTENT-TYPE CONTENT-TRANSFER-ENCODING)] "
                 + "{\(Self.cabecalhoCru.utf8.count)}\r\n\(Self.cabecalhoCru)"
-                + "BODY[TEXT] {\(Self.corpoCru.utf8.count)}\r\n\(Self.corpoCru))",
+                + "BODY[TEXT] {\(rawBody.utf8.count)}\r\n\(rawBody))",
                 "TAG OK UID FETCH completed",
             ],
             "LOGOUT": ["TAG OK LOGOUT completed"],
@@ -131,6 +132,30 @@ struct DatabaseBodyFetcherTests {
 
     // MARK: Ponta a ponta
 
+    @Test("Cache legado com HTML mas sem manifesto volta ao servidor uma vez")
+    func legacyAttachmentManifest() async throws {
+        let db = try SyncDatabase.temporary()
+        try await semeia(db)
+        try await db.pool.write { connection in
+            var cached = MessageBodyRecord(messageID: self.messageID, paragraphs: ["cache antigo"], html: "<p>antigo</p>")
+            cached.attachmentsResolved = false
+            try cached.insert(connection)
+        }
+        let messages = try await DatabaseMailSource(database: db).messages()
+        #expect(messages.first?.htmlResolved == false)
+        let raw = Self.corpoCru.replacingOccurrences(of: "--xyz--", with:
+            "--xyz\r\nContent-Type: application/pdf\r\nContent-Disposition: attachment; filename=slides.pdf\r\nContent-ID: <slides>\r\nContent-Transfer-Encoding: base64\r\n\r\nUERG\r\n--xyz--")
+        try await comBuscador(db, script: roteiro(rawBody: raw)) { fetcher, _ in
+            let fetched = try await fetcher.fetchBody(accountID: "conta-i", messageID: self.messageID)
+            #expect(fetched.paragraphs == ["A revisão do orçamento ficou pronta."])
+            #expect(fetched.attachments.map(\.filename) == ["slides.pdf"])
+            #expect(try await db.pool.read { try Data.fetchOne($0, sql: "SELECT data FROM message_attachment WHERE messageID = ?", arguments: [self.messageID]) } == Data("PDF".utf8))
+            let saved = try await db.pool.read { try MessageBodyRecord.fetchOne($0, sql: "SELECT * FROM message_body WHERE messageID = ?", arguments: [self.messageID]) }
+            #expect(saved?.attachmentsResolved == true)
+            #expect(try await fetcher.fetchBody(accountID: "conta-i", messageID: self.messageID).paragraphs == fetched.paragraphs)
+        }
+    }
+
     @Test("Mensagem sem corpo: pedir o corpo o traz decodificado e o GRAVA no banco")
     func pontaAPonta() async throws {
         let db = try SyncDatabase.temporary()
@@ -177,7 +202,8 @@ struct DatabaseBodyFetcherTests {
         // escrita de `message_body`, e o retrato seguinte traz a mensagem com
         // corpo. Nada na UI precisou saber que houve rede.
         let retrato = try await fonte.snapshot()
-        #expect(retrato.messages.first?.body == ["A revisão do orçamento ficou pronta."])
+        #expect(retrato.messages.first?.body == []) // O snapshot leve não duplica corpos.
+        #expect(try await fonte.messages().first?.body == ["A revisão do orçamento ficou pronta."])
         // E o índice FTS foi mantido pelo gatilho de INSERT da v1.
         #expect(try await fonte.bodyMatches("orcamento", accountID: nil) == [messageID])
     }

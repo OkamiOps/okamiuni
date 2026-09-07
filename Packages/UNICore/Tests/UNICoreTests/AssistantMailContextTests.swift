@@ -4,6 +4,14 @@ import Testing
 
 @Suite("Contexto factual do assistente")
 struct AssistantMailContextTests {
+    @Test("IA recebe nomes de anexos sem alegar leitura do arquivo")
+    func attachmentManifest() {
+        let message = Fixtures.messages[0].withBody(["Veja os slides"], html: "", calendarICS: nil,
+            attachments: [.init(id: "slides", filename: "slides.pdf", mimeType: "application/pdf", byteCount: 100)])
+        let context = AssistantEmailContext(message: message)
+        #expect(context.body.contains("slides.pdf"))
+        #expect(context.body.contains("file contents have NOT been read"))
+    }
     @Test("Mensagem preserva remetente, destinatários e corpo")
     func messageContext() throws {
         let message = Fixtures.messages[0]

@@ -391,7 +391,9 @@ public enum MimeBody {
         let isAttachment = disposicao?.lowercased().contains("attachment") == true || nome != nil
         // `cid:` é conteúdo da mensagem; uma imagem com nome, mas sem a marca
         // de anexo, continua sendo inline e não ganha um download duplicado.
-        guard isAttachment, contentID == nil else { return [] }
+        guard isAttachment,
+              contentID == nil || disposicao?.lowercased().contains("attachment") == true
+                || !mime.hasPrefix("image/") else { return [] }
         let attachmentFilename = nome ?? "anexo"
         let mimeType = mime.isEmpty ? "application/octet-stream" : mime
         // Antes de base64/quoted-printable materializar bytes, calcula uma

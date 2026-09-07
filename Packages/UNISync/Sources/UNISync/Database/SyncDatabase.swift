@@ -757,6 +757,11 @@ public struct SyncDatabase: Sendable {
                 )
                 """)
         }
+        migrator.registerMigration("v21") { db in
+            // O cache antigo não distingue "sem anexos" de "anexos nunca lidos".
+            // Preservar o conteúdo offline; confirmar o manifesto na próxima abertura.
+            try db.execute(sql: "ALTER TABLE message_body ADD COLUMN attachmentsResolved BOOLEAN NOT NULL DEFAULT 0")
+        }
         return migrator
     }
 }

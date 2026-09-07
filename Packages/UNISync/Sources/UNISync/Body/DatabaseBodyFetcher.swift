@@ -50,7 +50,7 @@ public actor DatabaseBodyFetcher: BodyFetching {
     }
 
     public func fetchBody(accountID: String, messageID: String) async throws -> FetchedBody {
-        if let local = try await corpoLocal(messageID) { return local }
+        if let local = try await corpoLocal(messageID, accountID: accountID) { return local }
         guard let conta = try await database.pool.read({ db in
             try AccountRecord.fetchOne(db, key: accountID)?.account
         }) else {
@@ -91,12 +91,14 @@ public actor DatabaseBodyFetcher: BodyFetching {
     /// chegou sem o texto na lista. Sem isto, `local-draft-…` não tem
     /// coordenada de servidor e a busca rebentava com "não foi possível
     /// descobrir onde esta mensagem está".
-    private func corpoLocal(_ messageID: String) async throws -> FetchedBody? {
+    private func corpoLocal(_ messageID: String, accountID: String) async throws -> FetchedBody? {
         try await database.pool.read { db in
             guard let linha = try MessageBodyRecord
                 .filter(Column("messageID") == messageID)
                 .fetchOne(db)
             else { return nil }
+            if !linha.attachmentsResolved,
+               MessageIdentity.parse(messageID, accountID: accountID) != nil { return nil }
             let anexos = try MessageAttachmentRecord
                 .filter(Column("messageID") == messageID)
                 .order(Column("id"))
@@ -235,7 +237,6 @@ public actor DatabaseBodyFetcher: BodyFetching {
         // Sem texto, sem HTML e sem convite não há linha a gravar — mas basta
         // **um** dos três para haver: o convite de agenda é justamente a
         // mensagem sem parágrafo nenhum.
-        guard !paragrafos.isEmpty || corpo.html != nil || corpo.calendar != nil || !corpo.attachments.isEmpty else { return }
         try await database.pool.write { db in
             try InitialLoader.gravaCorpo(
                 db, id: messageID, paragrafos: paragrafos,

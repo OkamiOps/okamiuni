@@ -290,7 +290,10 @@ struct ReaderTests {
             mimeType: "application/pdf", byteCount: 1_572_864
         )
         let withAttachment = try #require(await renderReader(
-            event: nil, attachments: [attachment], snapshotName: "m4-anexos-recebidos"
+            event: nil, attachments: [attachment,
+                .init(id: "slides", filename: "slides.pdf", mimeType: "application/pdf", byteCount: 2048),
+                .init(id: "planilha", filename: "orcamento.xlsx", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", byteCount: 4096)],
+            snapshotName: "m4-anexos-recebidos"
         ))
         let withoutAttachment = try #require(await renderReader(event: nil))
         #expect(withAttachment.pixelsDiffering(from: withoutAttachment) > 0)

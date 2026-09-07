@@ -559,9 +559,6 @@ public struct ReaderPane: View {
         return VStack(alignment: .leading, spacing: aberto ? 10 : 0) {
             if aberto {
                 identityExpanded(message)
-                if !message.attachments.isEmpty {
-                    attachmentChips(message)
-                }
             } else {
                 HStack(alignment: .center, spacing: 8) {
                     Button {
@@ -575,10 +572,10 @@ public struct ReaderPane: View {
                     .accessibilityAddTraits(.isButton)
                     .accessibilityValue(L10n.tr("Recolhido"))
 
-                    if !message.attachments.isEmpty {
-                        attachmentChips(message)
-                    }
                 }
+            }
+            if !message.attachments.isEmpty {
+                attachmentChips(message).padding(.top, 10)
             }
         }
     }
@@ -717,8 +714,9 @@ public struct ReaderPane: View {
     }
 
     private func attachmentChips(_ message: Message) -> some View {
-        HStack(spacing: 5) {
-            ForEach(Array(message.attachments.prefix(2))) { attachment in
+        ScrollView(.horizontal) {
+          HStack(spacing: 5) {
+            ForEach(message.attachments) { attachment in
                 Button {
                     save(attachment, from: message)
                 } label: {
@@ -727,6 +725,7 @@ public struct ReaderPane: View {
                             .font(.system(size: 9, weight: .semibold))
                         Text(attachment.filename)
                             .lineLimit(1)
+                            .frame(maxWidth: 240)
                     }
                     .font(theme.sans.font(size: 11, weight: .medium))
                     .foregroundStyle(theme.ink2.color)
@@ -746,14 +745,10 @@ public struct ReaderPane: View {
                     ? L10n.tr("Baixando \(attachment.filename)…")
                     : L10n.tr("Baixar \(attachment.filename) (\(attachment.mimeType), \(attachment.sizeLabel))"))
             }
-            if message.attachments.count > 2 {
-                Text("+\(message.attachments.count - 2)")
-                    .font(theme.sans.font(size: 11, weight: .medium))
-                    .foregroundStyle(theme.ink3.color)
-                    .help(message.attachments.dropFirst(2).map(\.filename).joined(separator: " · "))
-            }
+          }
+          .padding(.bottom, 8)
         }
-        .fixedSize(horizontal: true, vertical: true)
+        .frame(height: 38)
     }
 
     private func accountTint(_ message: Message) -> Color {

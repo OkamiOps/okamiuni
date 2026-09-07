@@ -236,7 +236,7 @@ public enum GmailMessageParser {
         let contentID = part.headers?.contains { $0.name.lowercased() == "content-id" } == true
         let isAttachment = !filename.isEmpty || disposition.contains("attachment")
         var found: [GmailMessage.Attachment] = []
-        if isAttachment, !contentID {
+        if isAttachment, !contentID || disposition.contains("attachment") || !mime.hasPrefix("image/") {
             let declaredSize = max(0, part.body?.size ?? 0)
             let inline: Data? = {
                 guard declaredSize <= OutgoingAttachment.maximumByteCount,

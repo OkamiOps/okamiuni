@@ -100,6 +100,7 @@ struct MimeBodyTests {
         --outer
         Content-Type: application/pdf; name=../../contrato.pdf
         Content-Disposition: attachment; filename=../../contrato.pdf
+        Content-ID: <documento-com-identificador>
         Content-Transfer-Encoding: base64
 
         UERG

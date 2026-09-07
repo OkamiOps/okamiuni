@@ -49,12 +49,13 @@ struct DatabaseMailSourceTests {
         #expect(snapshot.pendingItems.isEmpty)
     }
 
-    @Test("O corpo vem junto para quem já o tem no banco")
+    @Test("A leitura completa traz o corpo e o snapshot permanece leve")
     func corpoNoSnapshot() async throws {
         let db = try SyncDatabase.temporary()
         try await semeia(db)
         let snapshot = try await DatabaseMailSource(database: db).snapshot()
-        #expect(snapshot.messages.first?.body == ["A revisão saiu."])
+        #expect(snapshot.messages.first?.body == [])
+        #expect(try await DatabaseMailSource(database: db).messages().first?.body == ["A revisão saiu."])
     }
 
     @Test("A busca de corpo desce para o índice e dobra acento")

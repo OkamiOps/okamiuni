@@ -12,7 +12,9 @@ public extension AssistantEmailContext {
             sender: message.from.display,
             recipients: (message.to + message.cc).map(\.display),
             sentAt: message.receivedAt,
-            body: paragraphs.isEmpty ? message.snippet : paragraphs.joined(separator: "\n\n"),
+            body: (paragraphs.isEmpty ? message.snippet : paragraphs.joined(separator: "\n\n"))
+                + (message.attachments.isEmpty ? "" : "\n\n[Attachments — filenames only; file contents have NOT been read]\n"
+                    + message.attachments.map { "- \($0.filename) (\($0.mimeType), \($0.byteCount) bytes)" }.joined(separator: "\n")),
             html: message.hasHTML ? message.bodyHTML : nil,
             messageID: message.id,
             hasDetectedEvent: message.detectedEvent != nil

@@ -230,7 +230,8 @@ public struct DatabaseMailSource: MailSource, Sendable {
                 // A mensagem **sem linha nenhuma** em `message_body` continua
                 // com `nil` aqui — e é assim que o leitor sabe que ainda há o
                 // que buscar. Trocar por `""` a daria por decodificada.
-                bodyHTML: corpo?.html, calendarICS: corpo?.calendarICS,
+                bodyHTML: corpo?.attachmentsResolved == false ? nil : corpo?.html,
+                calendarICS: corpo?.calendarICS,
                 attachments: (anexosPorMensagem[registro.id] ?? []).map(\.attachment),
                 summaryModelVersion: versaoDoResumo[registro.id] ?? nil,
                 triage: triagem[registro.id] ?? nil
