@@ -585,6 +585,7 @@ public final class MailStore {
         sourceAgenda = sourceAgenda.map { $0.rebased(from: oldReference, to: newReference) }
         synchronizedAgenda = synchronizedAgenda.map { $0.rebased(from: oldReference, to: newReference) }
         persistedAgenda = persistedAgenda.map { $0.rebased(from: oldReference, to: newReference) }
+        removedFromAgenda = removedFromAgenda.mapValues { $0.rebased(from: oldReference, to: newReference) }
         agenda = agenda.map { $0.rebased(from: oldReference, to: newReference) }
         agendaReferenceDate = newReference
     }

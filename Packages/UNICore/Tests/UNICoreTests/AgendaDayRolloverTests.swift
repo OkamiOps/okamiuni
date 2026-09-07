@@ -114,4 +114,25 @@ struct AgendaDayRolloverTests {
                              accountID: "calendar", dayOffset: 1)
         #expect(item.rebased(from: before, to: after, calendar: calendar).dayOffset == 0)
     }
+
+    @Test("Desfazer uma remoção após a meia-noite preserva a data no disco")
+    func undoAcrossMidnight() async throws {
+        let clock = AgendaTestClock(date(6))
+        let saved = StoredAgendaItem(
+            AgendaItem(id: "undo", title: "Reunião", startMinute: 600, endMinute: 660,
+                       accountID: "calendar", dayOffset: 3), referenceDay: clock.now
+        )
+        let port = AgendaEmMemoria([saved])
+        let store = MailStore(
+            source: InMemoryMailSource(accounts: [], messages: [], agenda: []),
+            agendaPort: port, agendaReferenceDay: { clock.now }
+        )
+        await store.load()
+        store.removeFromAgenda("undo")
+        clock.set(date(7))
+        store.updateAgendaDay()
+        store.restoreToAgenda("undo")
+        #expect(try port.savedAgendaItems() == [saved])
+        #expect(store.calendarAgenda.first?.dayOffset == 2)
+    }
 }
