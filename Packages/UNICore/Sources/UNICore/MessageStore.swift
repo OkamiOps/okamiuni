@@ -538,6 +538,9 @@ public final class MailStore {
     /// que uma observação do banco não apague o resultado que acabou de chegar
     /// do EventKit/CalDAV entre dois retratos.
     private var sourceAgenda: [AgendaItem] = []
+    /// MailSource entrega offsets sem data absoluta (fixtures/tabela legada).
+    /// Retratos repetidos continuam relativos à âncora da abertura.
+    private let sourceAgendaReferenceDate: Date
     private var synchronizedAgenda: [AgendaItem] = []
 
     /// De quem as imagens remotas carregam sozinhas. `nil` nas fixtures e em
@@ -569,6 +572,22 @@ public final class MailStore {
     /// **têm** de concordar, senão um compromisso criado hoje aparece no dia
     /// errado da grade.
     private let agendaReferenceDay: @Sendable () -> Date
+    /// A mesma âncora para os offsets em memória e para todas as telas.
+    /// Só avança junto com os itens; ler Date() aqui fazia todos andarem um dia.
+    public private(set) var agendaReferenceDate: Date
+
+    /// Atualização local e atômica, inclusive offline e após suspensão.
+    /// Não escreve nas agendas externas nem altera o dia civil persistido.
+    public func updateAgendaDay() {
+        let newReference = Calendar.current.startOfDay(for: agendaReferenceDay())
+        let oldReference = agendaReferenceDate
+        guard newReference != oldReference else { return }
+        sourceAgenda = sourceAgenda.map { $0.rebased(from: oldReference, to: newReference) }
+        synchronizedAgenda = synchronizedAgenda.map { $0.rebased(from: oldReference, to: newReference) }
+        persistedAgenda = persistedAgenda.map { $0.rebased(from: oldReference, to: newReference) }
+        agenda = agenda.map { $0.rebased(from: oldReference, to: newReference) }
+        agendaReferenceDate = newReference
+    }
     private let calendarDefaults: UserDefaults?
     private static let hiddenCalendarsKey = "uni.hiddenCalendarIDs"
     private static let collapsedCalendarSourcesKey = "uni.collapsedCalendarSources"
@@ -585,8 +604,8 @@ public final class MailStore {
     /// agosto") para qualquer evento, em qualquer dia real.
     public func agendaDate(for item: AgendaItem) -> Date {
         Calendar.current.date(
-            byAdding: .day, value: item.dayOffset, to: agendaReferenceDay()
-        ) ?? agendaReferenceDay()
+            byAdding: .day, value: item.dayOffset, to: agendaReferenceDate
+        ) ?? agendaReferenceDate
     }
 
     /// Os compromissos vindos do disco, já traduzidos para o "hoje" desta
@@ -626,6 +645,9 @@ public final class MailStore {
         self.trustPort = trustPort
         self.senderRulePort = senderRulePort
         self.agendaReferenceDay = agendaReferenceDay
+        let initialAgendaDay = Calendar.current.startOfDay(for: agendaReferenceDay())
+        self.agendaReferenceDate = initialAgendaDay
+        self.sourceAgendaReferenceDate = initialAgendaDay
         self.calendarDefaults = calendarDefaults
         if let stored = calendarDefaults?.stringArray(forKey: Self.hiddenCalendarsKey) {
             hiddenCalendarIDs = Set(stored)
@@ -1066,7 +1088,9 @@ public final class MailStore {
         conversationPages.removeAll(keepingCapacity: true)
         rebuildIndexOnNextDidSet = true
         messages = incoming
-        sourceAgenda = snapshot.agenda
+        sourceAgenda = snapshot.agenda.map {
+            $0.rebased(from: sourceAgendaReferenceDate, to: agendaReferenceDate)
+        }
         agenda = mergedAgenda(combinedAgenda()).map(overlayCancelled)
         pendingItems = snapshot.pendingItems
         folders = snapshot.folders
@@ -2374,14 +2398,20 @@ public final class MailStore {
     /// Mesmo sem autorização do EventKit a sincronização roda: CalDAV das
     /// caixas IMAP (Zoho, Yahoo, Fastmail) não depende do Calendário do macOS.
     public func refreshCalendar(requestAuthorization: Bool = false) async {
+        updateAgendaDay()
         guard let calendarSync else { return }
         calendarAvailability = .loading
+        let reference = agendaReferenceDate
         do {
-            synchronizedAgenda = try await calendarSync.synchronize(
-                referenceDay: agendaReferenceDay(), requestAuthorization: requestAuthorization
+            let fetched = try await calendarSync.synchronize(
+                referenceDay: reference, requestAuthorization: requestAuthorization
             )
             connectedCalendars = await calendarSync.calendars()
             calendarAvailability = await calendarSync.availability()
+            updateAgendaDay()
+            synchronizedAgenda = fetched.map {
+                $0.rebased(from: reference, to: agendaReferenceDate)
+            }
             agenda = mergedAgenda(combinedAgenda()).map(overlayCancelled)
         } catch {
             let reported = await calendarSync.availability()
@@ -2452,7 +2482,7 @@ public final class MailStore {
     private func reloadPersistedAgenda() {
         guard let agendaPort else { return }
         do {
-            let hoje = agendaReferenceDay()
+            let hoje = agendaReferenceDate
             persistedAgenda = try agendaPort.savedAgendaItems().map { $0.item(referenceDay: hoje) }
         } catch {
             report(error)
@@ -2502,7 +2532,7 @@ public final class MailStore {
             persistedAgenda.append(item)
             do {
                 try agendaPort.saveAgendaItem(
-                    StoredAgendaItem(item, referenceDay: agendaReferenceDay())
+                    StoredAgendaItem(item, referenceDay: agendaReferenceDate)
                 )
             } catch {
                 report(error)
@@ -2544,7 +2574,7 @@ public final class MailStore {
             return
         }
         guard let calendarSync else { return }
-        let referenceDay = agendaReferenceDay()
+        let referenceDay = agendaReferenceDate
         Task { [weak self, calendarSync] in
             do {
                 try await calendarSync.save(item, referenceDay: referenceDay)
@@ -2557,7 +2587,7 @@ public final class MailStore {
 
     private func removeFromConnectedCalendar(_ id: String) {
         guard let calendarSync else { return }
-        let referenceDay = agendaReferenceDay()
+        let referenceDay = agendaReferenceDate
         Task { [weak self, calendarSync] in
             do {
                 try await calendarSync.remove(id: id, referenceDay: referenceDay)
@@ -2698,8 +2728,8 @@ public final class MailStore {
 
     private func date(dayOffset: Int, minute: Int) -> Date {
         let day = Calendar.current.date(
-            byAdding: .day, value: dayOffset, to: Calendar.current.startOfDay(for: agendaReferenceDay())
-        ) ?? agendaReferenceDay()
+            byAdding: .day, value: dayOffset, to: agendaReferenceDate
+        ) ?? agendaReferenceDate
         return Calendar.current.date(byAdding: .minute, value: minute, to: Calendar.current.startOfDay(for: day))
             ?? day
     }
@@ -2730,7 +2760,7 @@ public final class MailStore {
             for: event,
             messageID: message.id,
             accountID: message.accountID,
-            referenceDay: agendaReferenceDay(),
+            referenceDay: agendaReferenceDate,
             in: agenda
         )
     }
@@ -2743,7 +2773,7 @@ public final class MailStore {
         let item = stampedForMailbox(
             DetectedEventConversion.agendaItem(
                 from: event, id: id, accountID: message.accountID,
-                referenceDay: agendaReferenceDay(),
+                referenceDay: agendaReferenceDate,
                 detail: InviteAgenda.detail(
                     from: message,
                     accountHost: account(message.accountID)?.host
@@ -2796,7 +2826,7 @@ public final class MailStore {
     ) -> AgendaItem? {
         let proposto = InviteAgenda.item(
             for: invite, id: id, accountID: message.accountID,
-            referenceDay: agendaReferenceDay(),
+            referenceDay: agendaReferenceDate,
             detail: InviteAgenda.detail(
                 for: invite,
                 subject: message.subject,

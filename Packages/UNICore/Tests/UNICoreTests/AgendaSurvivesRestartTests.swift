@@ -211,7 +211,7 @@ struct AgendaDateTests {
         let esperado = Calendar.current.date(byAdding: .day, value: 3, to: hoje)!
         // A janela de compromisso desenhava a âncora das fixtures para
         // qualquer evento; a data tem que ser a DO ITEM.
-        #expect(store.agendaDate(for: item) == esperado)
+        #expect(Calendar.current.isDate(store.agendaDate(for: item), inSameDayAs: esperado))
         #expect(store.agendaDate(for: item) != hoje)
     }
 }

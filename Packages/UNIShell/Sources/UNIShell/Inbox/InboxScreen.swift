@@ -213,11 +213,12 @@ public struct InboxScreen: View {
     /// conectada a agenda continuava destacando terça, 25 de agosto: a âncora
     /// congelada do Marco 1. Dois "hojes" no mesmo processo também poriam um
     /// compromisso criado num dia e desenhado noutro; ver
-    /// `MailStore.agendaReferenceDay`, que recebe este mesmo relógio pelo
-    /// `OkamiUNIApp`.
+    /// `MailStore.agendaReferenceDate`. A tela lê a âncora já atualizada junto
+    /// com os eventos, nunca um Date() independente: à meia-noite isso punha
+    /// aniversários e reuniões na coluna do dia seguinte.
     ///
     /// `internal`: `AgendaHojeTests` afere a decisão sem renderizar nada.
-    var agendaAnchor: Date { clock.today }
+    var agendaAnchor: Date { store.agendaReferenceDate }
 
     /// Contagem local vs Entrada do Gmail, quando uma conta está selecionada.
     var mailboxPortrait: MailboxPortrait? {
@@ -351,6 +352,20 @@ public struct InboxScreen: View {
             assistantSession.receiptChanged(to: id)
         }
         .task { await subscribeToSource() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            store.updateAgendaDay()
+        }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
+            store.updateAgendaDay()
+        }
+        .task {
+            guard clock == .live else { return }
+            while !Task.isCancelled {
+                store.updateAgendaDay()
+                do { try await Task.sleep(for: .seconds(15)) }
+                catch { return }
+            }
+        }
         .task { await accountsModel?.start() }
         .onChange(of: query) { _, newQuery in
             Task { await searchChanged(to: newQuery) }

@@ -27,7 +27,18 @@ public struct AgendaItem: Sendable, Hashable, Identifiable {
     ///
     /// O default `0` é aditivo: todo call site que existia antes da semana
     /// continua compilando e continua significando "hoje".
-    public let dayOffset: Int
+    public private(set) var dayOffset: Int
+
+    /// Mantém o mesmo dia civil quando o "hoje" da projeção muda.
+    public func rebased(from reference: Date, to newReference: Date, calendar: Calendar = .current) -> AgendaItem {
+        let elapsedDays = calendar.dateComponents(
+            [.day], from: calendar.startOfDay(for: reference),
+            to: calendar.startOfDay(for: newReference)
+        ).day ?? 0
+        var result = self
+        result.dayOffset -= elapsedDays
+        return result
+    }
 
     /// O `UID` do convite que gerou este compromisso — a identidade que o
     /// iCalendar dá ao evento, igual em todas as cópias dele.

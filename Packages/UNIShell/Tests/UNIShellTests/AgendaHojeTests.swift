@@ -3,6 +3,7 @@ import SwiftUI
 import Testing
 import UNICore
 import UNIDesign
+import Synchronization
 @testable import UNIShell
 
 /// O "hoje" que a agenda desenha vem do relógio escolhido — e não da fixture.
@@ -17,6 +18,39 @@ import UNIDesign
 @MainActor
 struct AgendaHojeTests {
 
+    @Test("a semana mantém aniversário no dia 9 após a meia-noite")
+    func aniversarioNaoMudaDeColuna() async throws {
+        let calendar = Calendar.current
+        let sunday = calendar.date(from: DateComponents(year: 2026, month: 9, day: 6, hour: 23))!
+        let monday = calendar.date(from: DateComponents(year: 2026, month: 9, day: 7, hour: 3))!
+        let time = Mutex(sunday)
+        let birthday = AgendaItem(
+            id: "birthday", title: "Meu aniversário · 9 setembro", startMinute: 0, endMinute: 1440,
+            accountID: "calendar", dayOffset: 3, calendarID: "personal",
+            calendarTitle: "Pessoal", calendarColorHex: "#8BA8BD"
+        )
+        let store = MailStore(
+            source: InMemoryMailSource(accounts: [], messages: [], agenda: [birthday]),
+            agendaReferenceDay: { time.withLock { $0 } }
+        )
+        await store.load()
+        time.withLock { $0 = monday }
+        store.updateAgendaDay()
+        let screen = InboxScreen(store: store, clock: .fixed(195))
+        let days = WeekAgenda.days(from: store.calendarAgenda, anchor: screen.agendaAnchor)
+        #expect(days.first(where: { !$0.events.isEmpty })?.dayNumber == 9)
+        #expect(days.first?.dayNumber == 7)
+        let actual = try #require(Render.snapshot(
+            screen.calendarContent, named: "agenda-aniversario-9-set-apos-meia-noite",
+            size: CGSize(width: 1200, height: 900), theme: .tinta
+        ))
+        let expected = try #require(Render.bitmap(
+            CalendarScreen(store: store, now: 195, anchor: monday, onCompose: {}, onOpenAccounts: {}),
+            size: CGSize(width: 1200, height: 900), theme: .tinta
+        ))
+        #expect(actual.pixelsDiffering(from: expected) == 0)
+    }
+
     /// Sem conta, o mundo congelado; com conta, o dia da máquina. É a mesma
     /// regra do minuto, um degrau acima — e agora há **um** lugar onde ela é
     /// decidida para as três visões, a trilha e a lista.
@@ -27,7 +61,8 @@ struct AgendaHojeTests {
         let congelado = InboxScreen(store: store, clock: .fixed(Fixtures.nowMinute))
         #expect(Calendar.current.isDate(congelado.agendaAnchor, inSameDayAs: Fixtures.today))
 
-        let vivo = InboxScreen(store: store, clock: .live)
+        let liveStore = MailStore(source: InMemoryMailSource.fixtures, agendaReferenceDay: { Date() })
+        let vivo = InboxScreen(store: liveStore, clock: .live)
         #expect(
             Calendar.current.isDate(vivo.agendaAnchor, inSameDayAs: Date()),
             "com conta conectada o hoje da agenda tem de ser o dia da máquina"
@@ -47,7 +82,7 @@ struct AgendaHojeTests {
             !Calendar.current.isDate(Date(), inSameDayAs: Fixtures.today),
             "este caso só diz alguma coisa fora do dia da fixture"
         )
-        let store = MailStore(source: InMemoryMailSource.fixtures)
+        let store = MailStore(source: InMemoryMailSource.fixtures, agendaReferenceDay: { Date() })
         await store.load()
 
         let tamanho = CGSize(width: 1200, height: CalendarHeader.height + 60)
@@ -98,8 +133,10 @@ struct AgendaHojeTests {
     @Test("a trilha do dia com relógio vivo tem a data de hoje no cabeçalho")
     func trilhaSegueORelogio() async throws {
         try #require(!Calendar.current.isDate(Date(), inSameDayAs: Fixtures.today))
-        let store = MailStore(source: InMemoryMailSource.fixtures)
+        let store = MailStore(source: InMemoryMailSource.fixtures, agendaReferenceDay: { Date() })
         await store.load()
+        let fixedStore = MailStore(source: InMemoryMailSource.fixtures)
+        await fixedStore.load()
 
         let largura: CGFloat = 1440
         let tamanho = CGSize(width: largura, height: 120)
@@ -114,7 +151,7 @@ struct AgendaHojeTests {
         let congelado = try #require(
             Render.bitmap(
                 InboxScreen(
-                    store: store, clock: .fixed(AgendaClock.minutesSinceMidnight())
+                    store: fixedStore, clock: .fixed(AgendaClock.minutesSinceMidnight())
                 ).mailContent,
                 size: tamanho, theme: .tinta
             )
