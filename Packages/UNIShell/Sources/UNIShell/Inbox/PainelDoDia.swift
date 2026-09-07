@@ -28,6 +28,7 @@ struct PainelDoDia: View {
     let today: Date
     let drafts: [String: ReadyDraft]
     let conversation: AssistantConversation
+    let briefing: AssistantConversation
     let isWorking: Bool
     @Binding var filter: DayPlan.Filter
     @Binding var selectedMailID: String?
@@ -65,6 +66,7 @@ struct PainelDoDia: View {
         today: Date,
         drafts: [String: ReadyDraft] = [:],
         conversation: AssistantConversation,
+        briefing: AssistantConversation? = nil,
         isWorking: Bool = false,
         filter: Binding<DayPlan.Filter> = .constant(.standard),
         selectedMailID: Binding<String?> = .constant(nil),
@@ -90,6 +92,7 @@ struct PainelDoDia: View {
         self.today = today
         self.drafts = drafts
         self.conversation = conversation
+        self.briefing = briefing ?? conversation
         self.isWorking = isWorking
         self._filter = filter
         self._selectedMailID = selectedMailID
@@ -232,6 +235,10 @@ struct PainelDoDia: View {
             )
         }
         .agendaUndoBand(store: store)
+        .onChange(of: store.dashboardContentRevision) { _, _ in briefing.invalidateBriefing() }
+        .onChange(of: store.selectedAccountID) { _, _ in briefing.invalidateBriefing() }
+        .onChange(of: store.agenda) { _, _ in briefing.invalidateBriefing() }
+        .onDisappear { briefing.invalidateBriefing() }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L10n.tr("Painel do dia"))
     }
@@ -438,7 +445,10 @@ struct PainelDoDia: View {
     private func painéis(_ modelo: PainelDoDiaModelo) -> some View {
         HStack(alignment: .top, spacing: 32) {
             esperandoVoce(modelo).frame(maxWidth: .infinity, alignment: .topLeading)
-            compromissos(modelo).frame(maxWidth: .infinity, alignment: .topLeading)
+            VStack(alignment: .leading, spacing: 24) {
+                orientacaoIA
+                if !modelo.promessas.isEmpty { compromissos(modelo) }
+            }.frame(maxWidth: .infinity, alignment: .topLeading)
             dinheiroEPrazos(modelo).frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -492,7 +502,7 @@ struct PainelDoDia: View {
     private func esperandoVoce(_ modelo: PainelDoDiaModelo) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             cabecalho(
-                L10n.tr("Esperando você"), modelo.espera.count, modelo.legendaDaEspera,
+                L10n.tr("Para revisar"), modelo.espera.count, modelo.legendaDaEspera,
                 // "Ativar" e "Entrar" levam a Ajustes → IA; "ainda não
                 // escreveu" não leva a lugar nenhum, o botão é que resolve.
                 acaoDaLegenda: precisaDeAjustes(modelo) ? onOpenAISettings : nil,
@@ -515,13 +525,14 @@ struct PainelDoDia: View {
                     iniciais: espera.iniciais,
                     tint: accountTint(espera.accountID).color,
                     nome: espera.nome,
-                    numero: espera.numero,
-                    sufixo: espera.sufixo,
-                    palavra: espera.palavra,
-                    alerta: espera.alerta,
+                    numero: espera.sufixo == "h" ? espera.numero : "",
+                    sufixo: espera.sufixo == "h" ? "h" : "",
+                    palavra: espera.sufixo == "h" ? espera.palavra : L10n.tr("Pedido identificado"),
+                    alerta: espera.sufixo == "h" && espera.alerta,
                     porque: espera.porque,
                     acaoPrimaria: espera.temRascunho ? L10n.tr("Enviar a pronta") : L10n.tr("Ver"),
                     destacada: índice == 0 && espera.pedeGente && espera.temRascunho,
+                    acaoSecundaria: L10n.tr("Arquivar"),
                     onPrimary: {
                         selectedMailID = espera.id
                         if espera.temRascunho {
@@ -530,13 +541,43 @@ struct PainelDoDia: View {
                             readingMailID = espera.id
                         }
                     },
+                    onSecondary: { onCommand(.move(messageID: espera.id, to: .archived)) },
                     onSelect: { selectedMailID = espera.id },
                     onOpen: {
                         selectedMailID = espera.id
                         readingMailID = espera.id
                     }
                 ))
-            } + [AnyView(PainelAzulejoVazado(frase: modelo.foraDaLista))])
+            })
+            if modelo.espera.isEmpty {
+                Text(L10n.tr("Nenhum pedido de resposta identificado na caixa ativa."))
+                    .font(theme.sans.font(size: 12)).foregroundStyle(theme.ink3.color)
+                    .padding(.top, 16)
+            }
+        }
+    }
+
+    private var orientacaoIA: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text(L10n.tr("Seu próximo passo")).font(theme.sans.font(size: 14, weight: .semibold))
+                Spacer()
+                Text(briefing.destination.label).font(theme.sans.font(size: 11)).foregroundStyle(theme.ink3.color)
+            }.padding(.bottom, 10).hairline(theme.line, edges: .bottom)
+            if briefing.isLoading {
+                ProgressView(L10n.tr("Analisando o dia…")).controlSize(.small)
+            } else if let failure = briefing.failure {
+                Text(failure.message).font(theme.sans.font(size: 12)).foregroundStyle(theme.warning.color)
+            } else if let text = briefing.briefingText {
+                AssistantMarkdown(text: text, style: .compact)
+            } else {
+                Text(L10n.tr("A IA cruza pedidos ativos e agenda para sugerir até três ações, com o motivo de cada uma."))
+                    .font(theme.sans.font(size: 13)).foregroundStyle(theme.ink3.color)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            PainelBotao(titulo: L10n.tr("Analisar meu dia"), primario: true, altura: 30) {
+                briefing.briefing()
+            }.disabled(briefing.isLoading)
         }
     }
 
@@ -585,9 +626,6 @@ struct PainelDoDia: View {
                 ))
             })
             .padding(.top, 8)
-            Text(L10n.tr("Devem a você")).capsLabel(size: 9.5).padding(.top, 16)
-            PainelAzulejoVazado(frase: L10n.tr("Lido dos seus enviados · na próxima versão"))
-                .padding(.top, 8)
         }
     }
 
@@ -651,15 +689,6 @@ struct PainelDoDia: View {
     private func barraInferior(_ modelo: PainelDoDiaModelo) -> some View {
         HStack(spacing: 16) {
             Text(L10n.tr("Hoje")).capsLabel(size: 9.5)
-            ZStack(alignment: .leading) {
-                Capsule().fill(theme.line2.color).frame(width: 160, height: 3)
-                Capsule()
-                    .fill(theme.accent.color)
-                    .frame(width: 160 * modelo.progresso, height: 3)
-            }
-            Text(modelo.progressoEscrito)
-                .font(theme.sans.font(size: 12.5, weight: .semibold))
-                .foregroundStyle(theme.ink.color)
             Text(modelo.composicao)
                 .font(theme.sans.font(size: 12))
                 .foregroundStyle(theme.ink3.color)
@@ -667,7 +696,7 @@ struct PainelDoDia: View {
             Spacer(minLength: 12)
             Text(L10n.tr("em jogo")).capsLabel(size: 9.5)
             if modelo.emJogo.isEmpty {
-                Text(DashboardMetrics.updateLabel(nowMinute: now, isBusy: isWorking))
+                Text(isWorking ? L10n.tr("Atualizando…") : L10n.tr("Reflete a caixa sincronizada"))
                     .font(theme.sans.font(size: 11.5))
                     .foregroundStyle(theme.ink4.color)
             } else {

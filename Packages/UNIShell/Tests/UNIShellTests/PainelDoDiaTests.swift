@@ -138,12 +138,12 @@ struct PainelDoDiaTests {
         // O Jayden tem prazo hoje: é a etiqueta que vence todas, e ela é a
         // única que acaba.
         #expect(porID["jayden"]?.palavra == "prazo hoje")
-        #expect(porID["formulario"]?.palavra == "esperando")
+        #expect(porID["formulario"] == nil)
         // Máquina não vira azulejo.
         #expect(porID["resend"] == nil)
         #expect(porID["carol"] == nil)
         #expect(porID["abacus"] == nil)
-        #expect(modelo.espera.count == 6, "a captura tinha seis azulejos")
+        #expect(modelo.espera.count == 5, "o próprio remetente não espera resposta de si mesmo")
     }
 
     /// Defeito 7: "parece que a IA não tá fazendo porra nenhuma".

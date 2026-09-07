@@ -103,7 +103,7 @@ public enum EtiquetaDoAzulejo: String, Sendable, Hashable, CaseIterable {
         let eu = Set(myAddresses.map { SenderRule.normalize($0) })
         let remetente = SenderRule.normalize(message.from.address)
         let maquina = marks.isBulk || DayPlan.isAutomated(message)
-        guard !maquina else { return nil }
+        guard !maquina, !eu.contains(remetente) else { return nil }
 
         if triage?.intent == .lead,
            !ehResposta(assunto: message.subject),

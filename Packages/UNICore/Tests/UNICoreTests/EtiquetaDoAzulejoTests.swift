@@ -115,7 +115,7 @@ struct EtiquetaDoAzulejoTests {
             assunto: "Novo contato pelo site",
             triagem: MessageTriage(needsReply: true, intent: .lead, urgency: .high)
         )
-        #expect(decidir(formulario) == .esperando)
+        #expect(decidir(formulario) == nil)
     }
 
     @Test("a Maria, que chegou pelo site e nunca falou comigo, é lead novo")

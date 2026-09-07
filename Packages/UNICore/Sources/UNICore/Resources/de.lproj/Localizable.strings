@@ -1613,3 +1613,11 @@
 "às {0}" = "um {0}";
 "← para a esquerda" = "← nach links";
 "→ para a direita" = "→ nach rechts";
+"Para revisar" = "Zur Prüfung";
+"Pedido identificado" = "Anfrage erkannt";
+"Nenhum pedido de resposta identificado na caixa ativa." = "Keine Antwortanfrage im aktiven Posteingang erkannt.";
+"Seu próximo passo" = "Ihr nächster Schritt";
+"Analisando o dia…" = "Ihr Tag wird analysiert…";
+"A IA cruza pedidos ativos e agenda para sugerir até três ações, com o motivo de cada uma." = "Die KI prüft aktive Anfragen und Ihren Kalender und schlägt bis zu drei Aktionen mit Begründung vor.";
+"Analisar meu dia" = "Meinen Tag analysieren";
+"Reflete a caixa sincronizada" = "Basiert auf dem synchronisierten Posteingang";

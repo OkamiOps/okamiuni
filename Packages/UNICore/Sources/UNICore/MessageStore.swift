@@ -267,6 +267,7 @@ public final class MailStore {
     @ObservationIgnored private var listIndexCache: MessageListIndex?
     @ObservationIgnored private var accountCountCache: [String: Int] = [:]
     @ObservationIgnored private var dashboardFocusCache: (key: DashboardFocusCacheKey, value: DashboardFocus)?
+    public var dashboardContentRevision: UInt { messagesRevision }
 
     private struct DashboardFocusCacheKey: Equatable {
         var messagesRevision: UInt
@@ -2451,17 +2452,17 @@ public final class MailStore {
         let index = messageListIndex()
         var candidates: [Message] = []
         candidates.reserveCapacity(min(DashboardFocus.candidateCap, index.ranked.count))
+        let myAddresses = Set(accounts.map { $0.address.lowercased() })
         for i in index.ranked {
             if let account, index.accountIDs[i] != account { continue }
-            switch index.buckets[i] {
-            case .junk, .trash, .drafts, .sent: continue
-            case .today, .later, .all, .archived: break
-            }
+            guard DashboardFocus.isActiveCandidate(messages[i]),
+                  !myAddresses.contains(messages[i].from.address.lowercased()) else { continue }
             candidates.append(messages[i])
             if candidates.count >= DashboardFocus.candidateCap { break }
         }
         let value = DashboardFocus.snapshot(
-            messages: candidates,
+            // Enviados são evidência de trabalho concluído, não candidatos.
+            messages: candidates + messages.filter { $0.bucket == .sent && (account == nil || $0.accountID == account) },
             agenda: agendaVisible,
             pending: pending,
             nowMinute: nowMinute,

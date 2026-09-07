@@ -1613,3 +1613,11 @@
 "às {0}" = "à {0}";
 "← para a esquerda" = "← vers la gauche";
 "→ para a direita" = "→ vers la droite";
+"Para revisar" = "À examiner";
+"Pedido identificado" = "Demande identifiée";
+"Nenhum pedido de resposta identificado na caixa ativa." = "Aucune demande de réponse identifiée dans la boîte active.";
+"Seu próximo passo" = "Votre prochaine étape";
+"Analisando o dia…" = "Analyse de votre journée…";
+"A IA cruza pedidos ativos e agenda para sugerir até três ações, com o motivo de cada uma." = "L’IA examine les demandes actives et votre agenda pour suggérer jusqu’à trois actions, chacune justifiée.";
+"Analisar meu dia" = "Analyser ma journée";
+"Reflete a caixa sincronizada" = "Basé sur la boîte synchronisée";

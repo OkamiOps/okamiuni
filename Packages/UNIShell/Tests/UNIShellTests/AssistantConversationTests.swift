@@ -144,6 +144,8 @@ struct AssistantConversationTests {
         #expect(conversation.briefingText == "Hoje: responder Marina às 9h42.")
         #expect(conversation.messages.isEmpty)
         #expect(spy.answers.count == 1)
+        conversation.invalidateBriefing()
+        #expect(conversation.briefingText == nil)
     }
 
     @Test("retry repete a última ação, inclusive o rascunho")

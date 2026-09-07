@@ -11,6 +11,31 @@ import UNICore
 /// memória, e uma URL fora dele derruba o teste em vez de sair pela placa.
 @Suite("Sincronização contínua: Gmail")
 struct GmailIncrementalSyncTests {
+    @Test("404 confirmado remove a cópia local legada")
+    func removesConfirmedMissingLegacyMessage() async throws {
+        let db = try await bancoCarregado(comMensagem: "velha")
+        let session = StubURLProtocol.session(routes: [
+            "/gmail/v1/users/me/history": [.json("{\"historyId\":\"100\"}")],
+            "/gmail/v1/users/me/labels": [.json("{\"labels\":[]}")],
+            "/gmail/v1/users/me/messages/velha": [.json("{}", status: 404)],
+        ])
+        let result = try await GmailIncrementalSync(database: db).run(account: conta, client: cliente(session), now: agora)
+        #expect(try await mensagens(db).isEmpty)
+        #expect(result.apagadas == 1)
+    }
+    @Test("Registro legado sem rótulos é reconciliado mesmo sem histórico novo")
+    func reconcilesLegacyInboxState() async throws {
+        let db = try await bancoCarregado(comMensagem: "velha")
+        let session = StubURLProtocol.session(routes: [
+            "/gmail/v1/users/me/history": [.json("{\"historyId\":\"100\"}")],
+            "/gmail/v1/users/me/labels": [.json("{\"labels\":[]}")],
+            "/gmail/v1/users/me/messages/velha": [.json(
+                mensagemJSON(id: "velha", rotulos: ["TRASH"], assunto: "Já excluída")
+            )],
+        ])
+        _ = try await GmailIncrementalSync(database: db).run(account: conta, client: cliente(session), now: agora)
+        #expect(try await mensagens(db).first?.bucket == TriageBucket.trash.rawValue)
+    }
     private let agora = Date(timeIntervalSince1970: 1_800_000_000)
 
     private let conta = Account(

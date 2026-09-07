@@ -1613,3 +1613,11 @@
 "às {0}" = "at {0}";
 "← para a esquerda" = "← to the left";
 "→ para a direita" = "→ to the right";
+"Para revisar" = "To review";
+"Pedido identificado" = "Request identified";
+"Nenhum pedido de resposta identificado na caixa ativa." = "No reply request identified in the active inbox.";
+"Seu próximo passo" = "Your next step";
+"Analisando o dia…" = "Analyzing your day…";
+"A IA cruza pedidos ativos e agenda para sugerir até três ações, com o motivo de cada uma." = "AI reviews active requests and your calendar to suggest up to three actions, with a reason for each.";
+"Analisar meu dia" = "Analyze my day";
+"Reflete a caixa sincronizada" = "Based on the synced inbox";

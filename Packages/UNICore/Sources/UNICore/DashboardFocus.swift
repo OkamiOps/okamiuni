@@ -17,6 +17,15 @@ public struct DashboardFocus: Sendable, Hashable {
     /// freeze na primeira abertura.
     public static let candidateCap = 300
 
+    /// Decisões da pessoa e estado confirmado vêm antes da classificação por IA.
+    public static func isActiveCandidate(_ message: Message) -> Bool {
+        guard message.bucket == .today || message.bucket == .all else { return false }
+        // Registros Gmail legados sem rótulos precisam ser reconciliados antes
+        // de virarem uma cobrança. A sincronização revalida esses metadados.
+        if message.id.hasPrefix(message.accountID + ":g:"), message.folderIDs.isEmpty { return false }
+        return true
+    }
+
     /// Por que esta mensagem sobreviveu ao filtro. Um rótulo só: o motivo
     /// mais forte, não a soma. A tela escreve isto ao lado do remetente.
     public enum Reason: String, Sendable, Hashable {

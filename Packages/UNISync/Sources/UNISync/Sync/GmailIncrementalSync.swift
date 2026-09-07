@@ -85,7 +85,7 @@ public struct GmailIncrementalSync: Sendable {
             return Outcome(recarregou: true, remoteInboxCount: remoteInbox)
         }
 
-        let mudancas: Mudancas
+        var mudancas: Mudancas
         do {
             mudancas = try await coleta(desde: marcador, com: gmail)
         } catch SyncError.servidor(let codigo, _) where codigo == 404 {
@@ -102,6 +102,19 @@ public struct GmailIncrementalSync: Sendable {
             return Outcome(recarregou: true, remoteInboxCount: remoteInbox)
         }
 
+        // Projeções antigas sem rótulos não podem permanecer em INBOX para
+        // sempre depois de o marcador ter avançado. Revalidar é leitura de
+        // metadados; só um 404 confirmado autoriza remover a cópia local.
+        let legadas = try await database.pool.read { db in
+            try String.fetchAll(db, sql: """
+                SELECT serverID FROM message
+                WHERE accountID = ? AND folderMembershipJSON = '[]'
+                  AND bucket IN (?, ?) AND serverID IS NOT NULL
+                ORDER BY receivedAt DESC LIMIT 20
+                """, arguments: [account.id, TriageBucket.today.rawValue, TriageBucket.later.rawValue])
+        }
+        let conhecidas = Set(mudancas.paraBuscar + mudancas.apagadas)
+        mudancas.paraBuscar += legadas.filter { !conhecidas.contains($0) }
         var resultado = Outcome(remoteInboxCount: remoteInbox)
         // Nada mudou: nem os rótulos são lidos. É o ciclo ocioso, e ele custa
         // uma ida e volta — que é o mínimo que "continuar sincronizando" pode
@@ -116,13 +129,15 @@ public struct GmailIncrementalSync: Sendable {
             // nenhuma mensagem se mexer espera o próximo ciclo com mudança.
             try await sincronizaPastas(rotulos, account: account)
             let idDoDepois = TriageProjection.laterLabelID(in: rotulos)
-            resultado.gravadas = try await aplica(
+            let aplicadas = try await aplica(
                 mudancas.paraBuscar, account: account, laterLabelID: idDoDepois, gmail: gmail
             )
+            resultado.gravadas = aplicadas.gravadas
+            resultado.apagadas = aplicadas.apagadas
         }
         // Os apagamentos por último: uma mensagem que chegou e foi apagada
         // dentro do mesmo intervalo termina apagada, que é o estado do servidor.
-        resultado.apagadas = try await apaga(mudancas.apagadas, account: account)
+        resultado.apagadas += try await apaga(mudancas.apagadas, account: account)
 
         // O carimbo **só depois** de aplicar. Carimbar antes faria uma falha no
         // meio da aplicação enterrar as mensagens daquele intervalo para
@@ -202,9 +217,10 @@ public struct GmailIncrementalSync: Sendable {
 
     private func aplica(
         _ ids: [String], account: Account, laterLabelID: String?, gmail: GmailAuthReplay
-    ) async throws -> Int {
+    ) async throws -> (gravadas: Int, apagadas: Int) {
         let folderID = FolderRecord.gmail(accountID: account.id).id
         var gravadas = 0
+        var apagadas = 0
         for lote in stride(from: 0, to: ids.count, by: InitialLoader.defaultBatchSize) {
             try Task.checkCancellation()
             let fatia = ids[lote..<min(lote + InitialLoader.defaultBatchSize, ids.count)]
@@ -214,6 +230,8 @@ public struct GmailIncrementalSync: Sendable {
                     // `false` no segundo campo: **sem corpo**, sempre. O corpo
                     // desce por demanda, e é `.metadata` que está sendo pedido.
                     mensagens.append((try await gmail.message(id: id, format: .metadata), false))
+                } catch SyncError.servidor(let code, _) where code == 404 {
+                    apagadas += try await apaga([id], account: account)
                 } catch let erro as SyncError where !InitialLoader.derrubaACarga(erro) {
                     // Mensagem que sumiu entre o histórico e a leitura, ou que
                     // veio num formato que não conhecemos: ela fica de fora, e
@@ -236,7 +254,7 @@ public struct GmailIncrementalSync: Sendable {
                 )
             }
         }
-        return gravadas
+        return (gravadas, apagadas)
     }
 
     private func apaga(_ ids: [String], account: Account) async throws -> Int {

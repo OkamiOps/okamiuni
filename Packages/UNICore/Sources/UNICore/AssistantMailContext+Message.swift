@@ -33,8 +33,12 @@ public extension AssistantMailContext {
     /// Constrói o retrato do botão global. A seleção atual fica deliberadamente
     /// de fora: este caminho representa o ambiente do app, não o e-mail aberto.
     @MainActor
-    init(workspace store: MailStore) {
-        let emails = store.messages
+    init(workspace store: MailStore, dashboardOnly: Bool = false) {
+        let sourceMessages = dashboardOnly
+            ? store.dashboardFocus(nowMinute: Calendar.current.component(.hour, from: Date()) * 60
+                + Calendar.current.component(.minute, from: Date())).mail.map(\.message)
+            : store.messages
+        let emails = sourceMessages
             .sorted { lhs, rhs in
                 if lhs.isFlagged != rhs.isFlagged { return lhs.isFlagged }
                 if lhs.isRead != rhs.isRead { return !lhs.isRead }
@@ -62,7 +66,7 @@ public extension AssistantMailContext {
                 unreadCount: messages.filter { !$0.isRead }.count
             )
         }
-        let agenda = store.agenda
+        let agenda = (dashboardOnly ? store.calendarAgenda.filter { !$0.isCancelled && (0...7).contains($0.dayOffset) } : store.agenda)
             .sorted {
                 let lhs = ($0.dayOffset, $0.startMinute, $0.title)
                 let rhs = ($1.dayOffset, $1.startMinute, $1.title)
@@ -91,8 +95,8 @@ public extension AssistantMailContext {
 
         self = .workspace(AssistantWorkspaceContext(
             accounts: accounts,
-            emailCount: store.messages.count,
-            unreadCount: store.messages.filter { !$0.isRead }.count,
+            emailCount: sourceMessages.count,
+            unreadCount: sourceMessages.filter { !$0.isRead }.count,
             mailboxes: mailboxes,
             emails: emails,
             agenda: agenda,

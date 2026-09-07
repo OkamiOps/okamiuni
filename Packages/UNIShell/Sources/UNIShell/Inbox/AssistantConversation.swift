@@ -162,9 +162,13 @@ public final class AssistantConversation {
     /// A pergunta fixa do briefing (spec §2.5). É constante para o
     /// resultado ser comparável entre dias e provedores.
     public static let briefingQuestion = """
-        Faça um briefing do meu dia em até 120 palavras: o que exige \
-        resposta hoje, os compromissos de hoje em ordem, e o que pode \
-        esperar. Cite remetentes e horários.
+        Ajude a decidir meu próximo passo em até 120 palavras e no máximo 3 itens.
+        Use apenas as mensagens e eventos fornecidos agora. Para cada ação, cite
+        remetente ou evento e a evidência concreta (pedido, prazo ou horário).
+        Não transforme oferta comercial, onboarding, newsletter ou teste em
+        obrigação. Não interprete idade ou não lido como atraso. Diferencie
+        sugestão de compromisso confirmado. Se não houver ação comprovada, diga
+        isso claramente. Não invente cobranças, datas nem promessas. Não execute nada.
         """
 
     public private(set) var messages: [AssistantMessage]
@@ -301,6 +305,12 @@ public final class AssistantConversation {
     }
 
     public func briefing() { start(.briefing) }
+
+    public func invalidateBriefing() {
+        cancel()
+        briefingText = nil
+        failure = nil
+    }
 
     /// Fechar a superfície chama isto. Cancelamento não é falha: quem
     /// fechou a janela não precisa ver "não foi possível responder".

@@ -61,6 +61,7 @@ public struct InboxScreen: View {
     /// A conversa do Dashboard vive aqui: a aba some da árvore ao ir para
     /// Caixa ou Agenda, e o `@State` dela ia embora com ela.
     @State private var dashboardConversation: AssistantConversation?
+    @State private var dashboardBriefing: AssistantConversation?
     @State private var dashboardSelectedMailID: String?
     @State private var dashboardReadingID: String?
     /// O filtro do dashboard 08 vive aqui para sobreviver à troca de aba —
@@ -250,7 +251,7 @@ public struct InboxScreen: View {
 
     var chromeWorkload: ChromeWorkload {
         var jobs: [ChromeWork] = [.sync(MailboxChromeStatus.from(accountsModel?.statuses ?? []))]
-        for conversa in [dashboardConversation, assistantConversation].compactMap({ $0 }) {
+        for conversa in [dashboardConversation, dashboardBriefing, assistantConversation].compactMap({ $0 }) {
             if let kind = conversa.workKind {
                 jobs.append(.assistant(kind: kind, destination: conversa.destination))
             }
@@ -667,12 +668,14 @@ public struct InboxScreen: View {
         // A conversa é criada uma vez e guardada; construí-la no corpo faria
         // uma máquina de estado nova a cada repintura.
         let conversation = dashboardConversation ?? makeDashboardConversation()
+        let briefing = dashboardBriefing ?? makeDashboardBriefing()
         return PainelDoDia(
             store: store,
             now: now,
             today: agendaAnchor,
             drafts: readyDrafts?.drafts ?? [:],
             conversation: conversation,
+            briefing: briefing,
             // "Atualizando…" enquanto a barra fina do chrome trabalha — a
             // mesma soma, só lida (`ChromeWorkload` não é tocado aqui).
             isWorking: chromeWorkload.isBusy,
@@ -707,6 +710,7 @@ public struct InboxScreen: View {
         )
         .task {
             if dashboardConversation == nil { dashboardConversation = conversation }
+            if dashboardBriefing == nil { dashboardBriefing = briefing }
         }
     }
 
@@ -952,6 +956,19 @@ public struct InboxScreen: View {
                 supportsDraftReply: textAssistant != nil,
                 resolving: { dashboardSelectedMailID.map(InboxAssistantScope.email) ?? .workspace }
             ),
+            provider: assistantProvider
+        )
+    }
+
+    private func makeDashboardBriefing() -> AssistantConversation {
+        AssistantConversation(
+            scope: .workspace, context: AssistantContext(subject: L10n.tr("Caixa e agenda de hoje")),
+            destination: assistantDestination,
+            engine: textAssistant.map { assistant in
+                AssistantBridge.engine(using: assistant, supportsDraftReply: false,
+                    mailContext: { AssistantMailContext(workspace: store, dashboardOnly: true) },
+                    currentDraft: { "" })
+            } ?? .unavailable,
             provider: assistantProvider
         )
     }
