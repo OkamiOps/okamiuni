@@ -26,8 +26,20 @@ struct DashboardPreviewColumn: View {
     let today: Date
     /// O rascunho antecipado desta mensagem, quando a fila já o escreveu.
     let readyDraft: ReadyDraft?
+    /// O rascunho que acabou de ser gerado para esta mensagem. Ele já vem
+    /// associado ao id da origem: nunca se lê o último turno global da
+    /// conversa, porque a seleção do dashboard pode ter mudado nesse meio.
+    let generatedDraft: DashboardGeneratedDraft?
     /// A máquina de estado do "Gerar resposta" — nada aqui dispara sozinho.
     let conversation: AssistantConversation
+    let isGeneratingDraft: Bool
+    let isSendingDraft: Bool
+    /// Falha de geração, persistência ou envio. O cartão fica aberto para o
+    /// texto continuar recuperável e a pessoa poder tentar de novo.
+    let draftError: String?
+    /// A superfície dona captura a mensagem antes de chamar a IA e recebe o
+    /// turno de volta com a mesma chave de solicitação.
+    let onGenerateDraft: (Message) -> Void
     /// Enviar (direto — ver o cabeçalho). O texto vai junto para o teste
     /// poder afirmar o que saiu.
     let onSendDraft: (Message, String) -> Void
@@ -46,7 +58,12 @@ struct DashboardPreviewColumn: View {
         item: DashboardFocus.MailItem?,
         today: Date,
         readyDraft: ReadyDraft? = nil,
+        generatedDraft: DashboardGeneratedDraft? = nil,
         conversation: AssistantConversation,
+        isGeneratingDraft: Bool = false,
+        isSendingDraft: Bool = false,
+        draftError: String? = nil,
+        onGenerateDraft: @escaping (Message) -> Void = { _ in },
         onSendDraft: @escaping (Message, String) -> Void = { _, _ in },
         onEditDraft: @escaping (Message, String) -> Void = { _, _ in },
         onDiscardDraft: @escaping (Message) -> Void = { _ in },
@@ -56,7 +73,12 @@ struct DashboardPreviewColumn: View {
         self.item = item
         self.today = today
         self.readyDraft = readyDraft
+        self.generatedDraft = generatedDraft
         self.conversation = conversation
+        self.isGeneratingDraft = isGeneratingDraft
+        self.isSendingDraft = isSendingDraft
+        self.draftError = draftError
+        self.onGenerateDraft = onGenerateDraft
         self.onSendDraft = onSendDraft
         self.onEditDraft = onEditDraft
         self.onDiscardDraft = onDiscardDraft
@@ -78,13 +100,29 @@ struct DashboardPreviewColumn: View {
         return store.message(item.id) ?? item.message
     }
 
-    /// O texto do cartão: o rascunho antecipado primeiro; sem ele, o turno
-    /// `.draft` que "Gerar resposta" acabou de produzir.
+    /// O texto do cartão. Rascunho recém-gerado vence o antecipado, mas só
+    /// quando foi explicitamente associado a esta mensagem.
     private var draftText: String? {
-        if let readyDraft { return readyDraft.text }
-        return conversation.messages.last {
-            $0.kind == .draft && $0.speaker == .assistant
-        }?.text
+        Self.draftText(
+            for: message?.id,
+            readyDraft: readyDraft,
+            generatedDraft: generatedDraft
+        )
+    }
+
+    /// Decisão pura para a prévia e o teste: o resultado de uma solicitação
+    /// não pode aparecer na mensagem selecionada depois que a pessoa mudou de
+    /// foco. O cartão fica visível para a origem assim que ela o recebe.
+    static func draftText(
+        for messageID: String?,
+        readyDraft: ReadyDraft?,
+        generatedDraft: DashboardGeneratedDraft?
+    ) -> String? {
+        if let generatedDraft,
+           generatedDraft.sourceMessageID == messageID {
+            return generatedDraft.text
+        }
+        return readyDraft?.text
     }
 
     var body: some View {
@@ -198,7 +236,7 @@ struct DashboardPreviewColumn: View {
                 Button {
                     onSendDraft(message, text)
                 } label: {
-                    Text(L10n.tr("Enviar"))
+                    Text(isSendingDraft ? L10n.tr("Enviando…") : L10n.tr("Enviar"))
                         .font(theme.sans.font(
                             size: DashboardMetrics.actionTextSize, weight: .semibold
                         ))
@@ -210,6 +248,7 @@ struct DashboardPreviewColumn: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .disabled(isSendingDraft)
                 .focusRing(cornerRadius: theme.radiusSmall, tint: \.onAccent)
                 .accessibilityLabel(L10n.tr("Enviar a resposta pronta"))
                 textAction(L10n.tr("Editar"), tone: theme.ink2.color) {
@@ -220,6 +259,14 @@ struct DashboardPreviewColumn: View {
                 }
             }
             .padding(.top, DashboardMetrics.draftActionsTopSpacing)
+            if let draftError {
+                Text(draftError)
+                    .font(theme.sans.font(size: 11, weight: .medium))
+                    .foregroundStyle(theme.danger.color)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 10)
+                    .accessibilityIdentifier("dashboard-draft-error")
+            }
         }
         .padding(DashboardMetrics.draftCardPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -289,9 +336,9 @@ struct DashboardPreviewColumn: View {
             }
             .padding(.top, DashboardMetrics.wroteTopSpacing)
             Button {
-                conversation.draftReply()
+                onGenerateDraft(message)
             } label: {
-                Text(conversation.isLoading ? L10n.tr("Escrevendo…") : L10n.tr("Gerar resposta"))
+                Text(isGeneratingDraft ? L10n.tr("Escrevendo…") : L10n.tr("Gerar resposta"))
                     .font(theme.sans.font(
                         size: DashboardMetrics.actionTextSize, weight: .semibold
                     ))
@@ -304,29 +351,52 @@ struct DashboardPreviewColumn: View {
             }
             .buttonStyle(.plain)
             .focusRing(cornerRadius: theme.radiusSmall, tint: \.onAccent)
-            .disabled(conversation.isLoading)
+            .disabled(isGeneratingDraft || !conversation.canDraftReply)
             .padding(.top, DashboardMetrics.wroteTopSpacing)
             .accessibilityLabel(L10n.tr("Gerar resposta"))
+            if let draftError {
+                Text(draftError)
+                    .font(theme.sans.font(size: 11, weight: .medium))
+                    .foregroundStyle(theme.danger.color)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 10)
+                    .accessibilityIdentifier("dashboard-draft-error")
+            }
         }
     }
 
     // MARK: - Rodapé
 
-    /// Ações em texto `ink3`, atrás da hairline: Responder eu mesmo ·
-    /// Arquivar · Depois. Todas saem pela porta única (`ContextCommand`).
+    /// Ações diretas em texto `ink3`, atrás da hairline. Responder,
+    /// Responder a todos e Encaminhar seguem a mesma porta única da Caixa;
+    /// Arquivar e Depois mantêm o recibo/desfazer dela.
     private func footer(_ message: Message) -> some View {
-        HStack(spacing: DashboardMetrics.previewFooterGap) {
-            textAction(L10n.tr("Responder eu mesmo"), tone: theme.ink3.color) {
-                onCommand(.reply(messageID: message.id))
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: DashboardMetrics.previewFooterGap) {
+                textAction(L10n.tr("Responder"), tone: theme.ink3.color) {
+                    onCommand(.reply(messageID: message.id))
+                }
+                textAction(L10n.tr("Responder a todos"), tone: theme.ink3.color) {
+                    onCommand(.replyAll(messageID: message.id))
+                }
+                textAction(L10n.tr("Encaminhar"), tone: theme.ink3.color) {
+                    onCommand(.forward(messageID: message.id))
+                }
             }
-            textAction(L10n.tr("Arquivar"), tone: theme.ink3.color) {
-                onCommand(.move(messageID: message.id, to: .archived))
-            }
-            textAction(L10n.tr("Depois"), tone: theme.ink3.color) {
-                onCommand(.move(messageID: message.id, to: .later))
+            HStack(spacing: DashboardMetrics.previewFooterGap) {
+                textAction(L10n.tr("Arquivar"), tone: theme.ink3.color) {
+                    onCommand(.move(messageID: message.id, to: .archived))
+                }
+                textAction(L10n.tr("Depois"), tone: theme.ink3.color) {
+                    onCommand(.move(messageID: message.id, to: .later))
+                }
             }
         }
         .padding(.top, DashboardMetrics.previewFooterTopPadding)
+        // O rodapé mora no fim de uma coluna que também é usada dentro da
+        // folha de revisão. Este respiro impede a segunda linha de ficar
+        // encostada no limite da área rolável ou no botão "Fechar" da folha.
+        .padding(.bottom, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .hairline(theme.line2, edges: .top)
     }

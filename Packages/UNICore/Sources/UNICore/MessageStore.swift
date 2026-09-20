@@ -796,6 +796,12 @@ public final class MailStore {
     @discardableResult
     public func saveDraft(_ message: Message) -> Bool {
         let rascunho = message.withBucket(.drafts).withRead(true)
+        // Publish only after durable storage accepts the write. A failed
+        // write must not look like a saved draft to the UI or an agent.
+        if let draftPort {
+            do { try draftPort.saveDraft(rascunho) }
+            catch { report(error); return false }
+        }
         rebuildIndexOnNextDidSet = true
         if let index = messages.firstIndex(where: { $0.id == rascunho.id }) {
             messages[index] = rascunho
@@ -808,14 +814,7 @@ public final class MailStore {
             calendarICS: rascunho.calendarICS,
             attachments: rascunho.attachments
         )
-        guard let draftPort else { return true }
-        do {
-            try draftPort.saveDraft(rascunho)
-            return true
-        } catch {
-            report(error)
-            return false
-        }
+        return true
     }
 
     /// Tira o rascunho da caixa — depois de enviar, ou se a pessoa descartar.

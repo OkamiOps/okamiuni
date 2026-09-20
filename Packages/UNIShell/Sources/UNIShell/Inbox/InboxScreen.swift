@@ -52,6 +52,7 @@ public struct InboxScreen: View {
     /// precisa saber se cancelar a busca é a camada de agora.
     @State private var searchFocused = false
     @State private var assistantOpen = false
+    @State private var assistantActionFailure: String?
     @State private var assistantScope: InboxAssistantScope = .workspace
     @State private var assistantSessionID = UUID()
     @State private var readerAssistantOpen = false
@@ -341,6 +342,10 @@ public struct InboxScreen: View {
             }
         }
         .environment(receipts)
+        .alert(L10n.tr("Não foi possível preparar a resposta"), isPresented: Binding(
+            get: { assistantActionFailure != nil }, set: { if !$0 { assistantActionFailure = nil } }
+        )) { Button(L10n.tr("OK")) { assistantActionFailure = nil } }
+        message: { Text(assistantActionFailure ?? "") }
         // A janela destacada clica no **mesmo** executor da gaveta: ela não
         // tem store nem fila, e um segundo caminho lá divergiria daqui.
         .task {
@@ -918,7 +923,10 @@ public struct InboxScreen: View {
     /// era o que fazia o rodapé dizer "neste Mac" com o Grok escolhido.
     private var assistantDestination: @Sendable () -> AssistantDestination {
         let settings = assistantSettings
-        return { settings.map { AssistantDestination(settings: $0.snapshot()) } ?? .unconfigured }
+        return { settings.map {
+            let value = $0.snapshot()
+            return value.agent.enabled ? value.agent.destination : AssistantDestination(settings: value)
+        } ?? .unconfigured }
     }
 
     /// Só é conhecido quando o provedor é uma assinatura: sem ele um 401 do
@@ -928,7 +936,7 @@ public struct InboxScreen: View {
         let store = assistantSettings
         return {
             guard let settings = store?.snapshot() else { return nil }
-            return settings.provider == .providerOAuth ? settings.providerOAuth.kind : nil
+            return !settings.agent.enabled && settings.provider == .providerOAuth ? settings.providerOAuth.kind : nil
         }
     }
 
@@ -954,7 +962,11 @@ public struct InboxScreen: View {
             destination: assistantDestination,
             engine: makeEngine(
                 supportsDraftReply: textAssistant != nil,
-                resolving: { dashboardSelectedMailID.map(InboxAssistantScope.email) ?? .workspace }
+                resolving: {
+                    let selected = workspace == .dashboard ? dashboardSelectedMailID : store.selectedMessageID
+                    return AssistantDrawerCopy.context(chosen: assistantSession.chosenContext, hasSelection: selected != nil) == .selectedEmail
+                        ? selected.map(InboxAssistantScope.email) ?? .workspace : .workspace
+                }
             ),
             provider: assistantProvider
         )
@@ -963,7 +975,7 @@ public struct InboxScreen: View {
     private func makeDashboardBriefing() -> AssistantConversation {
         AssistantConversation(
             scope: .workspace, context: AssistantContext(subject: L10n.tr("Caixa e agenda de hoje")),
-            destination: assistantDestination,
+            destination: { assistantSettings.map { AssistantDestination(settings: $0.snapshot()) } ?? .unconfigured },
             engine: textAssistant.map { assistant in
                 AssistantBridge.engine(using: assistant, supportsDraftReply: false,
                     mailContext: { AssistantMailContext(workspace: store, dashboardOnly: true) },
@@ -978,8 +990,17 @@ public struct InboxScreen: View {
         resolving scope: @escaping @MainActor () -> InboxAssistantScope
     ) -> AssistantEngine {
         guard let textAssistant else { return .unavailable }
+        let settingsStore = assistantSettings
+        let agent = WorkspaceAgentAssistant(
+            base: textAssistant,
+            settings: { settingsStore?.snapshot() ?? .default },
+            makeTools: { MailAgentTools(store: store, open: { id in
+                runDashboardCommand(.openMessageWindow(messageID: id))
+            }) },
+            onActivity: { assistantSession.activity = $0 }
+        )
         return AssistantBridge.engine(
-            using: textAssistant,
+            using: agent,
             supportsDraftReply: supportsDraftReply,
             mailContext: { try await self.mailContext(for: scope()) },
             currentDraft: {
@@ -1133,7 +1154,20 @@ public struct InboxScreen: View {
         for efeito in card.effects {
             switch efeito {
             case let .command(comando):
-                runDashboardCommand(comando)
+                if case let .revealMessage(id) = comando, store.message(id)?.bucket == .drafts {
+                    runDashboardCommand(.openMessageWindow(messageID: id))
+                } else { runDashboardCommand(comando) }
+            case let .prepareReply(messageID, draft):
+                do {
+                    let saved = try MailAgentTools(store: store).saveReplyDraft(
+                        messageID: messageID, text: draft, requestID: String(card.id.prefix(100))
+                    )
+                    runDashboardCommand(.openMessageWindow(messageID: saved.id))
+                } catch {
+                    assistantActionFailure = error.localizedDescription
+                    _ = receipts.sealBatch(undoable: false, stamp: ActionReceipts.stamp)
+                    return
+                }
             case let .addToAgenda(messageID):
                 guard let mensagem = store.message(messageID),
                       let evento = mensagem.detectedEvent else { continue }

@@ -424,7 +424,7 @@ struct AssistantTranscript: View {
     private var loading: some View {
         HStack(spacing: 8) {
             ProgressView().controlSize(.small)
-            Text(conversation.scope.loadingLabel(for: conversation.destination))
+            Text(session.activity ?? conversation.scope.loadingLabel(for: conversation.destination))
                 .font(theme.sans.font(size: AssistantDrawerMetrics.cardTextSize))
                 .foregroundStyle(theme.ink3.color)
         }

@@ -31,6 +31,7 @@ public struct AssistantProposalCard: Sendable, Hashable, Identifiable {
     /// gaveta.
     public enum Effect: Sendable, Hashable {
         case command(ContextCommand)
+        case prepareReply(messageID: String, draft: String)
         /// Usa o `DetectedEvent` já persistido da mensagem.
         case addToAgenda(messageID: String)
         /// O bloco da coluna do dia, no idioma do `AgendaItem`.
@@ -107,6 +108,8 @@ public extension AssistantProposalCard {
             switch efeito {
             case .addToAgenda, .reserveBlock:
                 return false
+            case .prepareReply:
+                continue
             case let .command(comando):
                 switch comando {
                 case .move, .setRead, .setFlagged, .placeMessage, .learnSender:
@@ -186,12 +189,8 @@ public extension AssistantProposalCard {
             [.command(.setRead(messageID: id, isRead: true))]
         case let .flag(id):
             [.command(.setFlagged(messageID: id, isFlagged: true))]
-        case let .reply(id, _):
-            // O rascunho da proposta não viaja no comando: quem semeia o
-            // composer é `ComposerSeed`, a partir da mensagem, e um segundo
-            // caminho de semeadura faria a resposta da gaveta divergir da do
-            // ⌘R no primeiro conserto. Ver a ressalva no relatório.
-            [.command(.reply(messageID: id))]
+        case let .reply(id, draft):
+            [.prepareReply(messageID: id, draft: draft)]
         case let .addToAgenda(id):
             [.addToAgenda(messageID: id)]
         case let .openMessage(id):

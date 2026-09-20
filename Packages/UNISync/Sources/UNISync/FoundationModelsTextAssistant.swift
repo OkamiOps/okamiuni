@@ -4,7 +4,7 @@ import UNICore
 
 /// Adaptador local de Foundation Models para perguntas contextuais e escrita.
 @available(macOS 26.0, *)
-public struct FoundationModelsTextAssistant: TextAssisting {
+public struct FoundationModelsTextAssistant: TextAssisting, AgentPlanning {
     /// Versão da política de prompts deste adaptador, e não da versão interna
     /// do modelo do sistema.
     public static let currentModelVersion = "foundation-models/text-assistant-v4"
@@ -31,6 +31,12 @@ public struct FoundationModelsTextAssistant: TextAssisting {
 
     public func availability() async -> AppleIntelligenceAvailability {
         Self.systemAvailability
+    }
+
+    public func agentPlan(prompt: String) async throws -> String {
+        try await requireAvailability()
+        let session = LanguageModelSession(model: .default, instructions: AgentToolLoop.instructions)
+        return try await session.respond(to: prompt).content
     }
 
     public func answer(

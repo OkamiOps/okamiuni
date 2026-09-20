@@ -287,6 +287,39 @@ struct GeneralSettingsView: View {
         }
     }
 
+    private var agentConnectionFields: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle(L10n.tr("Usar agente ACP nas conversas"), isOn: $draft.agent.enabled)
+                .toggleStyle(.switch)
+                .accessibilityIdentifier("assistant-acp-enabled")
+            Text(L10n.tr("O assistente pode buscar mensagens, consultar a agenda e salvar rascunhos. O envio continua no compositor."))
+                .font(theme.sans.font(size: 11.5))
+                .foregroundStyle(theme.ink3.color)
+                .fixedSize(horizontal: false, vertical: true)
+            if draft.agent.enabled {
+                SettingsLabeledRow(label: L10n.tr("Executável ACP")) {
+                    TextField("/opt/homebrew/bin/codex-acp", text: $draft.agent.executablePath)
+                        .settingsTextField()
+                        .accessibilityIdentifier("assistant-acp-path")
+                }
+                SettingsLabeledRow(label: L10n.tr("Argumentos · um por linha")) {
+                    TextEditor(text: Binding(
+                        get: { draft.agent.arguments.joined(separator: "\n") },
+                        set: { draft.agent.arguments = $0.components(separatedBy: "\n").filter { !$0.isEmpty } }
+                    ))
+                    .settingsTextEditor(minHeight: 60)
+                    .accessibilityLabel(L10n.tr("Argumentos do agente ACP"))
+                    .accessibilityIdentifier("assistant-acp-arguments")
+                }
+                Text(L10n.tr("Use um agente compatível com Agent Client Protocol e MCP por HTTP. A autenticação pertence ao agente instalado. Análise automática e ajuda de escrita mantêm o provedor acima."))
+                    .font(theme.sans.font(size: 11.5))
+                    .foregroundStyle(theme.ink3.color)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.vertical, 8)
+    }
+
     private var assistantCard: some View {
         SettingsCard(
             eyebrow: L10n.tr("CONEXÃO"),
@@ -315,7 +348,9 @@ struct GeneralSettingsView: View {
                 SettingsNotice(
                     symbol: "lock.shield",
                     title: L10n.tr("Processamento local"),
-                    text: L10n.tr("Perguntas, escrita e a análise automática de mensagens usam o Foundation Models deste Mac.")
+                    text: draft.agent.enabled
+                        ? L10n.tr("Escrita e análise automática usam este Mac. As conversas usam o agente ACP configurado.")
+                        : L10n.tr("Perguntas, escrita e a análise automática de mensagens usam o Foundation Models deste Mac.")
                 )
             case .openAICompatible:
                 remoteFields
@@ -330,6 +365,8 @@ struct GeneralSettingsView: View {
             case .cli:
                 cliProviderFields
             }
+
+            agentConnectionFields
 
             automaticAnalysisControls
 
@@ -536,9 +573,13 @@ struct GeneralSettingsView: View {
 
     private var assistantRoutingNotice: some View {
         SettingsNotice(
-            symbol: draft.provider == .foundationModels ? "lock.shield" : "arrow.triangle.branch",
-            title: L10n.tr("Perguntas e escrita: \(assistantRouteLabel)"),
-            text: L10n.tr("Este é o destino usado quando você aciona Resumo, Pontos-chave, Insights ou Gerar resposta.")
+            symbol: !draft.agent.enabled && draft.provider == .foundationModels ? "lock.shield" : "arrow.triangle.branch",
+            title: draft.agent.enabled
+                ? L10n.tr("Conversas: \(draft.agent.destination.label)")
+                : L10n.tr("Perguntas e escrita: \(assistantRouteLabel)"),
+            text: draft.agent.enabled
+                ? L10n.tr("Escrita e análise automática: \(assistantRouteLabel). O agente ACP pode usar seu provedor remoto.")
+                : L10n.tr("Este é o destino usado quando você aciona Resumo, Pontos-chave, Insights ou Gerar resposta.")
         )
     }
 

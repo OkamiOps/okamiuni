@@ -26,7 +26,7 @@ public enum AssistantProviderOAuthTextAssistantError: Error, Sendable, Equatable
     }
 }
 
-public struct AssistantProviderOAuthTextAssistant: TextAssisting, Sendable {
+public struct AssistantProviderOAuthTextAssistant: TextAssisting, AgentPlanning, Sendable {
     public let modelVersion: String
     private let configuration: AssistantProviderOAuthConfiguration
     private let accessToken: String
@@ -57,6 +57,10 @@ public struct AssistantProviderOAuthTextAssistant: TextAssisting, Sendable {
     }
 
     public func availability() async -> AppleIntelligenceAvailability { .available }
+
+    public func agentPlan(prompt: String) async throws -> String {
+        try await complete(instructions: AgentToolLoop.instructions, input: prompt)
+    }
 
     public func answer(question: String, in conversation: AssistantConversationSnapshot) async throws -> String {
         let question = try FoundationModelsTextAssistantValidation.question(question)

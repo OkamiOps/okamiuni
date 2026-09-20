@@ -17,6 +17,10 @@ public enum AssistantSpeaker: String, Sendable, Hashable {
 
 public struct AssistantMessage: Identifiable, Sendable, Hashable {
     public let id: UUID
+    /// Identifica a solicitação que produziu este turno. Uma conversa pode
+    /// sobreviver à troca de foco (como no Painel do Dia); quem iniciou um
+    /// rascunho usa este id para não anexar a resposta à mensagem errada.
+    public let requestID: UUID?
     public let speaker: AssistantSpeaker
     public let text: String
     public let kind: AssistantTurnKind
@@ -27,12 +31,14 @@ public struct AssistantMessage: Identifiable, Sendable, Hashable {
 
     public init(
         id: UUID = UUID(),
+        requestID: UUID? = nil,
         speaker: AssistantSpeaker,
         text: String,
         kind: AssistantTurnKind = .message,
         proposals: [AssistantProposal] = []
     ) {
         self.id = id
+        self.requestID = requestID
         self.speaker = speaker
         self.text = text
         self.kind = kind
@@ -202,7 +208,7 @@ public final class AssistantConversation {
 
     enum Action: Equatable {
         case ask(String)
-        case draftReply
+        case draftReply(UUID)
         case briefing
     }
 
@@ -299,9 +305,15 @@ public final class AssistantConversation {
 
     public func summarize() { ask(Self.summaryQuestion) }
 
-    public func draftReply() {
-        guard canDraftReply else { return }
-        start(.draftReply)
+    /// Pede um rascunho e devolve a chave que vai acompanhar o turno pronto.
+    /// Quem não precisa associar o resultado a uma superfície específica pode
+    /// ignorar o retorno; o id ainda impede que o Painel do Dia confunda um
+    /// rascunho antigo com a mensagem aberta agora.
+    @discardableResult
+    public func draftReply(requestID: UUID = UUID()) -> UUID? {
+        guard canDraftReply else { return nil }
+        start(.draftReply(requestID))
+        return requestID
     }
 
     public func briefing() { start(.briefing) }
@@ -389,8 +401,15 @@ public final class AssistantConversation {
                 messages.append(
                     .init(speaker: .assistant, text: trimmed, proposals: propostas)
                 )
-            case .draftReply:
-                messages.append(.init(speaker: .assistant, text: trimmed, kind: .draft))
+            case let .draftReply(requestID):
+                messages.append(
+                    .init(
+                        requestID: requestID,
+                        speaker: .assistant,
+                        text: trimmed,
+                        kind: .draft
+                    )
+                )
             case .briefing:
                 briefingText = trimmed
             }

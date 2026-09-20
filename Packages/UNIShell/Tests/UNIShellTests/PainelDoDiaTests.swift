@@ -286,6 +286,112 @@ struct PainelDoDiaTests {
         #expect(modelo.dinheiro.contains { $0.valor == "6.000 créditos" })
     }
 
+    @Test("o rascunho gerado permanece na mensagem que iniciou a revisão")
+    func generatedDraftKeepsItsOriginalMessage() {
+        let handoff = DashboardDraftHandoff(sourceMessageID: "marina")
+        let turnoCerto = AssistantMessage(
+            requestID: handoff.requestID,
+            speaker: .assistant,
+            text: "Oi Marina, consigo te responder hoje.",
+            kind: .draft
+        )
+        let turnoDeOutraSolicitacao = AssistantMessage(
+            requestID: UUID(),
+            speaker: .assistant,
+            text: "Texto da outra mensagem.",
+            kind: .draft
+        )
+
+        let rascunho = handoff.generatedDraft(
+            from: turnoCerto, persistedDraftID: "agent-draft-marina"
+        )
+        #expect(rascunho?.sourceMessageID == "marina")
+        #expect(rascunho?.persistedDraftID == "agent-draft-marina")
+        #expect(handoff.generatedDraft(from: turnoDeOutraSolicitacao, persistedDraftID: nil) == nil)
+    }
+
+    @Test("a prévia mostra o rascunho recém-gerado só no cartão da origem")
+    func generatedDraftIsVisibleOnlyAtItsSource() {
+        let rascunho = DashboardGeneratedDraft(
+            sourceMessageID: "marina",
+            persistedDraftID: "agent-draft-marina",
+            text: "Oi Marina, consigo te responder hoje."
+        )
+
+        #expect(
+            DashboardPreviewColumn.draftText(
+                for: "marina", readyDraft: nil, generatedDraft: rascunho
+            ) == "Oi Marina, consigo te responder hoje."
+        )
+        #expect(
+            DashboardPreviewColumn.draftText(
+                for: "jayden", readyDraft: nil, generatedDraft: rascunho
+            ) == nil
+        )
+    }
+
+    /// Retrato do caminho novo: depois de fechar a leitura, o cartão mostra o
+    /// texto que a pessoa vai revisar, as três saídas diretas e conserva o
+    /// erro de envio para que o texto não pareça perdido.
+    @Test("o cartão de revisão do rascunho e a falha de envio desenham completos")
+    func generatedDraftReviewCardRendersWithSendFailure() async throws {
+        let message = QuatroEmails.mensagem(
+            id: "draft-review",
+            assunto: "Proposta para a próxima etapa",
+            corpo: ["Obrigado pela conversa. Posso enviar uma proposta com os próximos passos."],
+            resumo: "Marina pediu uma proposta com próximos passos.",
+            triagem: .init(needsReply: true, intent: .lead, urgency: .normal)
+        )
+        let store = await PainelDeEnsaio.loja(message)
+        let item = DashboardFocus.MailItem(message: message, reason: .needsReply)
+        let rascunho = DashboardGeneratedDraft(
+            sourceMessageID: message.id,
+            persistedDraftID: "agent-draft-review",
+            text: "Oi, Marina. Obrigado pela conversa. Envio a proposta com os próximos passos ainda hoje."
+        )
+        let size = CGSize(width: 460, height: 560)
+
+        func cartao(erro: String? = nil) -> some View {
+            DashboardPreviewColumn(
+                store: store,
+                item: item,
+                today: Fixtures.today,
+                generatedDraft: rascunho,
+                conversation: inertConversation(),
+                draftError: erro
+            )
+            .environment(ThemeStore())
+        }
+
+        func folha(erro: String? = nil) -> some View {
+            VStack(alignment: .leading, spacing: 0) {
+                cartao(erro: erro)
+                HStack {
+                    Spacer(minLength: 0)
+                    PainelBotao(titulo: "Fechar", primario: false) {}
+                }
+                .padding(.top, 12)
+            }
+            .padding(20)
+            .frame(width: size.width, height: size.height, alignment: .topLeading)
+        }
+
+        let pronto = try #require(Render.snapshot(
+            folha(), named: "dashboard-draft-review-card", size: size, theme: .okami
+        ))
+        let falhou = try #require(Render.snapshot(
+            folha(erro: "Não foi possível enviar a resposta. Revise a fila de saída e tente novamente."),
+            named: "dashboard-draft-send-failed", size: size, theme: .okami
+        ))
+
+        #expect(pronto.pixelsWide == Int(size.width))
+        #expect(falhou.pixelsHigh == Int(size.height))
+        #expect(
+            falhou.pixels(matching: Theme.okami.danger, tolerance: 0.04) > 50,
+            "a falha de envio precisa continuar visível no cartão"
+        )
+    }
+
     @Test("Aceitar o plano cria os blocos propostos como compromissos")
     func acceptingThePlanCreatesTheEvents() async throws {
         let store = await DiaDoDono.loja()

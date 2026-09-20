@@ -475,7 +475,7 @@ public struct AssistantCLICommand: Sendable, Hashable {
 /// de prompt dos outros transportes. Não tenta login nem sabe onde cada CLI
 /// guarda sua sessão; falhas de sessão permanecem um erro acionável do processo
 /// filho, sem importar/copiar credenciais para o OkamiUNI.
-public struct AssistantCLITextAssistant: TextAssisting, Sendable {
+public struct AssistantCLITextAssistant: TextAssisting, AgentPlanning, Sendable {
     public let modelVersion: String
 
     private let command: AssistantCLICommand
@@ -498,6 +498,10 @@ public struct AssistantCLITextAssistant: TextAssisting, Sendable {
     }
 
     public func availability() async -> AppleIntelligenceAvailability { .available }
+
+    public func agentPlan(prompt: String) async throws -> String {
+        try await complete(systemInstructions: AgentToolLoop.instructions, prompt: prompt)
+    }
 
     public func answer(
         question: String,

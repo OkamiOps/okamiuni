@@ -293,6 +293,47 @@ struct SettingsSectionsTests {
         )
     }
 
+    /// O ACP acrescenta dois campos de configuração à seção já mais densa da
+    /// central. O retrato usa a janela larga e alta para que mudanças de
+    /// fonte, quebra ou uma borda nativa diferente fiquem visíveis sem abrir
+    /// a aplicação.
+    @Test("Inteligência mostra os campos ACP ativos sem cortar a configuração")
+    func inteligenciaACPRenderiza() async throws {
+        let model = try await model(with: [account(
+            id: "trabalho", address: "marcos@trabalho.example", host: "trabalho"
+        )])
+        let suite = try isolatedDefaults()
+        defer { suite.defaults.removePersistentDomain(forName: suite.name) }
+
+        let configuration = AssistantSettings(
+            agent: .init(
+                enabled: true,
+                executablePath: "/bin/echo",
+                arguments: ["--acp", "--stdio"]
+            )
+        )
+        let settings = AssistantSettingsStore(defaults: suite.defaults, key: "assistant-ui-acp")
+        _ = try settings.save(configuration)
+        let size = CGSize(width: renderSize.width, height: 1_200)
+
+        let image = try #require(Render.snapshot(
+            AccountsWindow(
+                model: model,
+                initialSection: .intelligence,
+                assistantSettings: settings,
+                themes: ThemeStore(defaults: suite.defaults),
+                swipes: SwipeSettingsStore(defaults: suite.defaults)
+            ),
+            named: "settings-inteligencia-acp-ativo",
+            size: size,
+            theme: .tinta
+        ))
+
+        #expect(settings.snapshot().agent == configuration.agent)
+        #expect(image.pixelsWide == Int(size.width))
+        #expect(image.pixelsHigh == Int(size.height))
+    }
+
     @Test("Inteligência renderiza LiteLLM sem autenticação sem pedir uma chave")
     func inteligenciaSemAutenticacaoRenderiza() async throws {
         let model = try await model(with: [account(

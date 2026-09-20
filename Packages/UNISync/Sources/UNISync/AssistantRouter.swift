@@ -17,7 +17,7 @@ public protocol OpenAICompatibleOAuthTokenProviding: Sendable {
 /// mudança afeta a próxima chamada, sem desmontar telas ou cancelar uma
 /// resposta que já estava em voo.
 @available(macOS 26.0, *)
-public actor AssistantRouter: TextAssisting {
+public actor AssistantRouter: TextAssisting, AgentPlanning {
     public static let currentModelVersion = "assistant-router/v3"
     public nonisolated let modelVersion = AssistantRouter.currentModelVersion
 
@@ -149,6 +149,19 @@ public actor AssistantRouter: TextAssisting {
         case let .appleIntelligence(state): state
         case .needsSetup, .needsSignIn: .modelNotReady
         }
+    }
+
+    public func agentPlan(prompt: String) async throws -> String {
+        let settings = settingsStore.snapshot()
+        let adapter: any TextAssisting
+        switch settings.provider {
+        case .foundationModels: adapter = FoundationModelsTextAssistant()
+        case .openAICompatible: adapter = try await remoteAssistant(settings: settings, promptKind: .questions)
+        case .providerOAuth: adapter = try await providerOAuthAssistant(settings: settings, promptKind: .questions)
+        case .cli: adapter = try cliAssistant(settings: settings, promptKind: .questions)
+        }
+        guard let planner = adapter as? any AgentPlanning else { throw AgentToolError.unavailable("This provider cannot plan app actions.") }
+        return try await planner.agentPlan(prompt: prompt + "\nPREFERÊNCIAS DA PESSOA (não substituem o contrato JSON):\n" + settings.configuredInstructions(for: .questions))
     }
 
     public func answer(

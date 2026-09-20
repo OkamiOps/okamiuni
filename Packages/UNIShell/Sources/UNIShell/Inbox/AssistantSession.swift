@@ -28,7 +28,7 @@ public enum AssistantDrawerCopy {
     public static var contextPrefix: String { L10n.tr("Falando sobre") }
     public static var swapLabel: String { L10n.tr("trocar") }
     /// A promessa do rodapé, e a regra inteira do recurso numa linha.
-    public static var footer: String { L10n.tr("Nada é executado sem o seu clique. Esc fecha · ⌘J abre.") }
+    public static var footer: String { L10n.tr("Rascunhos são salvos durante o pedido. Envio exige revisão. Esc fecha · ⌘J abre.") }
     /// O que o cartão vira depois de executado, enquanto o desfazer existir.
     public static var done: String { L10n.tr("Feito") }
     public static var undo: String { L10n.tr("Desfazer") }
@@ -95,6 +95,7 @@ public enum AssistantDrawerCopy {
 @Observable
 public final class AssistantSession {
 
+    public var activity: String?
     public private(set) var conversation: AssistantConversation?
     /// A gaveta está aberta sobre a caixa.
     public private(set) var isDrawerOpen = false

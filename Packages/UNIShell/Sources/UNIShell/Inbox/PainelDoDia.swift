@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 import UNICore
 import UNIDesign
@@ -55,6 +56,22 @@ struct PainelDoDia: View {
     /// A mensagem cujo **cartão do rascunho** está aberto — o cartão é o de
     /// sempre (`DashboardPreviewColumn`), e é lá que o Enviar envia.
     @State private var cartaoDoRascunho: String?
+    /// A solicitação que está esperando o turno `.draft`. Ela prende o texto
+    /// à mensagem em que a pessoa começou, mesmo se trocar a seleção enquanto
+    /// o provedor ainda estiver escrevendo.
+    @State private var rascunhoEmGeracao: DashboardDraftHandoff?
+    /// Rascunhos já recebidos nesta sessão, indexados pela mensagem de origem.
+    /// O registro durável mora em `MailStore`; este mapa só mantém o cartão
+    /// aberto e não permite que um turno global vaze para outro email.
+    @State private var rascunhosGerados: [String: DashboardGeneratedDraft] = [:]
+    @State private var errosDeRascunho: [String: String] = [:]
+    /// A mesma ação não pode entrar duas vezes na fila enquanto a folha ainda
+    /// está fechando. Em falha o id é removido para permitir uma nova tentativa.
+    @State private var enviosDeRascunhoIniciados: Set<String> = []
+    /// A conversa de um pedido do dashboard. Quando a fábrica existe, ela
+    /// nasce com o `messageID` fixo, em vez de seguir a seleção mutável do
+    /// dashboard.
+    @State private var conversaDoRascunho: AssistantConversation?
     /// "Ajustar": o seletor de hora que já existe.
     @State private var ajustando = false
     /// O desfazer do "Já fiz" — a promessa que saiu por último.
@@ -238,6 +255,12 @@ struct PainelDoDia: View {
         .onChange(of: store.dashboardContentRevision) { _, _ in briefing.invalidateBriefing() }
         .onChange(of: store.selectedAccountID) { _, _ in briefing.invalidateBriefing() }
         .onChange(of: store.agenda) { _, _ in briefing.invalidateBriefing() }
+        .onChange(of: mensagensDoRascunho) { _, mensagens in
+            receberRascunhoGerado(em: mensagens)
+        }
+        .onChange(of: falhaDoRascunho) { _, falha in
+            receberFalhaDoRascunho(falha)
+        }
         .onDisappear { briefing.invalidateBriefing() }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L10n.tr("Painel do dia"))
@@ -530,7 +553,7 @@ struct PainelDoDia: View {
                     palavra: espera.sufixo == "h" ? espera.palavra : L10n.tr("Pedido identificado"),
                     alerta: espera.sufixo == "h" && espera.alerta,
                     porque: espera.porque,
-                    acaoPrimaria: espera.temRascunho ? L10n.tr("Enviar a pronta") : L10n.tr("Ver"),
+                    acaoPrimaria: espera.temRascunho ? L10n.tr("Revisar resposta") : L10n.tr("Ver"),
                     destacada: índice == 0 && espera.pedeGente && espera.temRascunho,
                     acaoSecundaria: L10n.tr("Arquivar"),
                     onPrimary: {
@@ -767,9 +790,7 @@ struct PainelDoDia: View {
                     onOpenMessage(message)
                 },
                 onDraft: { message in
-                    readingMailID = nil
-                    selectedMailID = message.id
-                    conversation.draftReply()
+                    iniciarRevisaoDoRascunho(para: message)
                 },
                 onPresented: onPresented,
                 onCompose: onCompose,
@@ -792,25 +813,52 @@ struct PainelDoDia: View {
                     item: DashboardFocus.MailItem(message: message, reason: .today),
                     today: today,
                     readyDraft: validatedDrafts[id],
+                    generatedDraft: rascunhosGerados[id],
                     conversation: conversation,
+                    isGeneratingDraft: rascunhoEmGeracao?.sourceMessageID == id
+                        && (conversaDoRascunho?.isLoading ?? false),
+                    isSendingDraft: enviosDeRascunhoIniciados.contains(id),
+                    draftError: errosDeRascunho[id],
+                    onGenerateDraft: iniciarRevisaoDoRascunho,
                     onSendDraft: { message, texto in
+                        guard enviosDeRascunhoIniciados.insert(message.id).inserted else { return }
                         if DashboardSend.send(
                             draft: texto, for: message, in: store, theme: theme
                         ) {
                             onDiscardDraft(message.id)
+                            if let idDoRascunho = rascunhosGerados[message.id]?.persistedDraftID {
+                                store.discardDraft(id: idDoRascunho)
+                            }
+                            rascunhosGerados.removeValue(forKey: message.id)
+                            errosDeRascunho.removeValue(forKey: message.id)
+                            cartaoDoRascunho = nil
+                        } else {
+                            enviosDeRascunhoIniciados.remove(message.id)
+                            errosDeRascunho[message.id] = L10n.tr(
+                                "Não foi possível enviar a resposta. Revise a fila de saída e tente novamente."
+                            )
                         }
-                        cartaoDoRascunho = nil
                     },
                     onEditDraft: { message, texto in
-                        store.setReplyDraft(
-                            ReplyDraft(to: [message.from], text: texto, savedAt: Date()),
-                            for: message.id
-                        )
                         cartaoDoRascunho = nil
-                        onCommand(.reply(messageID: message.id))
+                        if let idDoRascunho = rascunhosGerados[message.id]?.persistedDraftID {
+                            onCompose(.draft(messageID: idDoRascunho))
+                        } else {
+                            store.setReplyDraft(
+                                ReplyDraft(to: [message.from], text: texto, savedAt: Date()),
+                                for: message.id
+                            )
+                            onCommand(.reply(messageID: message.id))
+                        }
                     },
                     onDiscardDraft: { message in
                         onDiscardDraft(message.id)
+                        if let idDoRascunho = rascunhosGerados[message.id]?.persistedDraftID {
+                            store.discardDraft(id: idDoRascunho)
+                        }
+                        rascunhosGerados.removeValue(forKey: message.id)
+                        errosDeRascunho.removeValue(forKey: message.id)
+                        enviosDeRascunhoIniciados.remove(message.id)
                         cartaoDoRascunho = nil
                     },
                     onCommand: onCommand
@@ -829,6 +877,76 @@ struct PainelDoDia: View {
         }
     }
 
+    private var mensagensDoRascunho: [AssistantMessage] {
+        conversaDoRascunho?.messages ?? []
+    }
+
+    private var falhaDoRascunho: AssistantFailure? {
+        conversaDoRascunho?.failure
+    }
+
+    /// Fecha a leitura e abre o cartão imediatamente. A conversa que gera o
+    /// texto é criada para este `messageID`, para o contexto não acompanhar a
+    /// seleção caso a pessoa continue navegando no dashboard enquanto espera.
+    private func iniciarRevisaoDoRascunho(para message: Message) {
+        let conversa = makeAssistantConversation?(message.id) ?? conversation
+        guard conversa.canDraftReply, !conversa.isLoading else { return }
+
+        let handoff = DashboardDraftHandoff(sourceMessageID: message.id)
+        selectedMailID = message.id
+        readingMailID = nil
+        cartaoDoRascunho = message.id
+        rascunhoEmGeracao = handoff
+        errosDeRascunho.removeValue(forKey: message.id)
+        enviosDeRascunhoIniciados.remove(message.id)
+        conversaDoRascunho = conversa
+
+        guard conversa.draftReply(requestID: handoff.requestID) != nil else {
+            rascunhoEmGeracao = nil
+            errosDeRascunho[message.id] = L10n.tr(
+                "Não foi possível gerar a resposta. Tente novamente."
+            )
+            return
+        }
+    }
+
+    private func receberRascunhoGerado(em mensagens: [AssistantMessage]) {
+        guard let handoff = rascunhoEmGeracao,
+              let turno = mensagens.last(where: { $0.requestID == handoff.requestID }),
+              let mensagem = store.message(handoff.sourceMessageID)
+        else { return }
+
+        defer { rascunhoEmGeracao = nil }
+        do {
+            let salvo = try MailAgentTools(store: store).saveReplyDraft(
+                messageID: mensagem.id,
+                text: turno.text,
+                requestID: handoff.requestID.uuidString
+            )
+            guard let rascunho = handoff.generatedDraft(
+                from: turno, persistedDraftID: salvo.id
+            ) else { return }
+            rascunhosGerados[mensagem.id] = rascunho
+            errosDeRascunho.removeValue(forKey: mensagem.id)
+        } catch {
+            // A resposta já foi produzida; não a escondemos só porque o disco
+            // falhou. Ela fica no cartão e pode ser promovida ao composer.
+            if let rascunho = handoff.generatedDraft(from: turno, persistedDraftID: nil) {
+                rascunhosGerados[mensagem.id] = rascunho
+            }
+            errosDeRascunho[mensagem.id] = L10n.tr(
+                "Não foi possível salvar o rascunho. O texto continua disponível para revisão."
+            )
+        }
+    }
+
+    private func receberFalhaDoRascunho(_ falha: AssistantFailure?) {
+        guard let handoff = rascunhoEmGeracao, let falha else { return }
+        rascunhoEmGeracao = nil
+        errosDeRascunho[handoff.sourceMessageID] = falha.message
+        cartaoDoRascunho = handoff.sourceMessageID
+    }
+
     // MARK: - Peças
 
     private func accountTint(_ accountID: String) -> TokenColor {
@@ -836,4 +954,39 @@ struct PainelDoDia: View {
         let hex = theme.isDark ? account.tintDarkHex : account.tintLightHex
         return TokenColor(css: hex) ?? theme.ink3
     }
+}
+
+/// A ponte curta entre o clique em uma mensagem e o turno assíncrono que a IA
+/// devolve. O `requestID` pertence ao clique; o `sourceMessageID`, à mensagem
+/// cuja resposta será revisada. Os dois são necessários porque a conversa do
+/// dashboard sobrevive à mudança de seleção.
+struct DashboardDraftHandoff: Hashable {
+    let sourceMessageID: String
+    let requestID: UUID
+
+    init(sourceMessageID: String, requestID: UUID = UUID()) {
+        self.sourceMessageID = sourceMessageID
+        self.requestID = requestID
+    }
+
+    func generatedDraft(
+        from turn: AssistantMessage,
+        persistedDraftID: String?
+    ) -> DashboardGeneratedDraft? {
+        guard turn.kind == .draft, turn.requestID == requestID else { return nil }
+        return DashboardGeneratedDraft(
+            sourceMessageID: sourceMessageID,
+            persistedDraftID: persistedDraftID,
+            text: turn.text
+        )
+    }
+}
+
+/// Texto gerado exclusivamente para uma mensagem do dashboard. A cópia do
+/// texto fica aqui só enquanto o cartão está aberto; `persistedDraftID` aponta
+/// para o rascunho real no `MailStore`, que o Composer sabe reabrir.
+struct DashboardGeneratedDraft: Hashable {
+    let sourceMessageID: String
+    let persistedDraftID: String?
+    let text: String
 }

@@ -58,7 +58,7 @@ struct AssistantProposalCardTests {
             ).first
         )
         #expect(cartao.verb == "Responder")
-        #expect(cartao.effects == [.command(.reply(messageID: "m1"))])
+        #expect(cartao.effects == [.prepareReply(messageID: "m1", draft: "Oi")])
     }
 
     @Test("uma mensagem dá Ver; várias dão Ver a lista; nenhuma não dá secundário")

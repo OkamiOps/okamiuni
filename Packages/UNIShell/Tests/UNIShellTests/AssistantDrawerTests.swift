@@ -136,7 +136,7 @@ struct AssistantDrawerCopyTests {
     func theFooterSaysTheRule() {
         #expect(
             AssistantDrawerCopy.footer
-                == "Nada é executado sem o seu clique. Esc fecha · ⌘J abre."
+                == "Rascunhos são salvos durante o pedido. Envio exige revisão. Esc fecha · ⌘J abre."
         )
     }
 

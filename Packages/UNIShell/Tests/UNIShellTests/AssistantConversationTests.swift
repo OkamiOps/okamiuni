@@ -75,6 +75,20 @@ struct AssistantConversationTests {
         #expect(conversation.failure == nil)
     }
 
+    @Test("o rascunho devolve a chave da solicitação que o iniciou")
+    func draftReplyKeepsRequestIdentity() async throws {
+        let spy = SpyTextAssistant()
+        let conversation = conversation(spy)
+        let requestID = UUID()
+
+        #expect(conversation.draftReply(requestID: requestID) == requestID)
+        await conversation.waitForIdle()
+
+        let draft = try #require(conversation.messages.last)
+        #expect(draft.kind == .draft)
+        #expect(draft.requestID == requestID)
+    }
+
     @Test("no ambiente inteiro não existe rascunho")
     func workspaceHasNoDraftReply() {
         let conversation = conversation(SpyTextAssistant(), scope: .workspace)

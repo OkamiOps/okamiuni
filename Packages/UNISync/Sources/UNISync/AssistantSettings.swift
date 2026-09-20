@@ -464,6 +464,7 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
     public var provider: AssistantProvider
     public var openAICompatible: OpenAICompatibleAssistantConfiguration
     public var providerOAuth: AssistantProviderOAuthConfiguration
+    public var agent: AgentConnectionConfiguration
     public var cli: AssistantCLIConfiguration
     public var behavior: AssistantBehaviorPreferences
     public var additionalInstructions: String
@@ -495,6 +496,7 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
         openAICompatible: OpenAICompatibleAssistantConfiguration = .init(),
         providerOAuth: AssistantProviderOAuthConfiguration = .init(),
         cli: AssistantCLIConfiguration = .init(),
+        agent: AgentConnectionConfiguration = .init(),
         behavior: AssistantBehaviorPreferences = .default,
         additionalInstructions: String = "",
         automaticAnalysis: AutomaticAnalysisRoute? = nil,
@@ -506,6 +508,7 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
         self.openAICompatible = openAICompatible
         self.providerOAuth = providerOAuth
         self.cli = cli
+        self.agent = agent
         self.behavior = behavior
         self.additionalInstructions = additionalInstructions
         self.automaticAnalysis = automaticAnalysis ?? .default(for: provider)
@@ -528,6 +531,7 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
         migrated.additionalInstructions = additionalInstructions
             .trimmingCharacters(in: .whitespacesAndNewlines)
         migrated.behavior = try behavior.validated()
+        migrated.agent = try agent.validated(requireExecutable: false)
         guard migrated.additionalInstructions.count <= Self.maximumAdditionalInstructionsCharacters else {
             throw AssistantSettingsError.additionalInstructionsTooLong
         }
@@ -585,6 +589,7 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
         case openAICompatible
         case providerOAuth
         case cli
+        case agent
         case behavior
         case additionalInstructions
         case automaticAnalysis
@@ -608,6 +613,7 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
             AssistantProviderOAuthConfiguration.self,
             forKey: .providerOAuth
         ) ?? .init()
+        agent = try values.decodeIfPresent(AgentConnectionConfiguration.self, forKey: .agent) ?? .init()
         cli = try values.decodeIfPresent(AssistantCLIConfiguration.self, forKey: .cli) ?? .init()
         behavior = try values.decodeIfPresent(
             AssistantBehaviorPreferences.self,
@@ -640,6 +646,7 @@ public struct AssistantSettings: Codable, Sendable, Hashable {
         try values.encode(openAICompatible, forKey: .openAICompatible)
         try values.encode(providerOAuth, forKey: .providerOAuth)
         try values.encode(cli, forKey: .cli)
+        try values.encode(agent, forKey: .agent)
         try values.encode(behavior, forKey: .behavior)
         try values.encode(additionalInstructions, forKey: .additionalInstructions)
         try values.encode(automaticAnalysis, forKey: .automaticAnalysis)
