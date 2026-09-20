@@ -88,7 +88,10 @@ python3 Tools/audit_localizations.py
 `OKAMIUNI_LIVE_ACP_NODE` aponta para o Node e `OKAMIUNI_LIVE_ACP_SCRIPT` para o
 adaptador. Usa apenas fixtures; não possui porta de envio nem acesso ao banco
 de emails da pessoa. Os testes reais cobrem o caminho nativo e ACP → MCP →
-rascunho salvo → leitura no SQLite.
+rascunho salvo → leitura no SQLite. Esses testes executam fora do App Sandbox.
+A execução do adaptador e o acesso à autenticação a partir do aplicativo Release
+sandboxed ainda exigem validação na sessão instalada; o teste de protocolo não
+comprova essas permissões do macOS.
 
 A2A depende da escolha de um agente parceiro e de uma tarefa concreta; não há
 uma integração A2A ativa nesta entrega. Edição completa de eventos e leitura
