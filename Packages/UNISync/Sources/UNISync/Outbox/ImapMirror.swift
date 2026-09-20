@@ -171,6 +171,9 @@ public actor ImapMirror: MailMirror {
     ///    de novo. A falha vai para o log; a cópia aparece no próximo ciclo se
     ///    o servidor a tiver por conta própria (vários põem), ou não aparece.
     private func envia(_ mensagem: OutgoingMessage) async throws -> MessageCoordinate? {
+        guard mensagem.isValidForDelivery else {
+            throw SyncError.recusado(EmailAddress.invalidForDeliveryMessage)
+        }
         guard let conectarSmtp else {
             throw SyncError.resposta(
                 "A conta não tem servidor de envio, e enviar precisa de um."

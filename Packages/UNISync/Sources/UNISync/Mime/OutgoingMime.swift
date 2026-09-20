@@ -52,10 +52,14 @@ public enum OutgoingMime {
         let safeHTML = EmailSignature.sanitizedHTML(
             message.html, inlineResources: inlineResources
         )
-        linhas.append("From: \(addressList([message.from]))")
-        if !message.to.isEmpty { linhas.append("To: \(addressList(message.to))") }
-        if !message.cc.isEmpty { linhas.append("Cc: \(addressList(message.cc))") }
-        if includeBcc, !message.bcc.isEmpty { linhas.append("Bcc: \(addressList(message.bcc))") }
+        let from = [message.from].filter { $0.validatedAddress != nil }
+        let to = message.to.filter { $0.validatedAddress != nil }
+        let cc = message.cc.filter { $0.validatedAddress != nil }
+        let bcc = message.bcc.filter { $0.validatedAddress != nil }
+        linhas.append("From: \(addressList(from))")
+        if !to.isEmpty { linhas.append("To: \(addressList(to))") }
+        if !cc.isEmpty { linhas.append("Cc: \(addressList(cc))") }
+        if includeBcc, !bcc.isEmpty { linhas.append("Bcc: \(addressList(bcc))") }
         linhas.append("Subject: \(encodeHeaderText(message.subject))")
         linhas.append("Date: \(rfc5322Date(date))")
         linhas.append("Message-ID: <\(message.messageID)>")
@@ -254,10 +258,11 @@ public enum OutgoingMime {
 
     /// `Nome <endereço>`, com o nome citado ou codificado quando precisa.
     static func addressList(_ enderecos: [OutgoingAddress]) -> String {
-        enderecos.map { endereco in
+        enderecos.compactMap { endereco -> String? in
+            guard let address = endereco.validatedAddress else { return nil }
             let nome = endereco.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !nome.isEmpty, nome != endereco.address else { return endereco.address }
-            return "\(encodeHeaderText(nome)) <\(endereco.address)>"
+            guard !nome.isEmpty, nome != address else { return address }
+            return "\(encodeHeaderText(nome)) <\(address)>"
         }.joined(separator: ", ")
     }
 

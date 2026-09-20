@@ -250,7 +250,17 @@ enum ImapResponseAdapter {
                 switch byte {
                 case UInt8(ascii: "\""): aspas = true
                 case UInt8(ascii: "("): profundidade += 1
-                case UInt8(ascii: ")"): profundidade -= 1
+                case UInt8(ascii: ")"):
+                    profundidade -= 1
+                    // Listas de endereço IMAP podem trazer dois grupos
+                    // adjacentes: `(...)(...)`. Espaço separa átomos, mas não
+                    // é o delimitador desses grupos; esperar por ele colava o
+                    // host do primeiro à abertura do segundo e produzia um
+                    // domínio impossível de resolver no SMTP.
+                    if profundidade == 0, i >= inicio {
+                        saida.append(inicio..<(i + 1))
+                        inicio = i + 1
+                    }
                 case UInt8(ascii: " ") where profundidade == 0:
                     if i > inicio { saida.append(inicio..<i) }
                     inicio = i + 1

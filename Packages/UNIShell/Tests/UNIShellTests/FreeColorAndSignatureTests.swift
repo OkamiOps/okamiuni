@@ -250,18 +250,15 @@ struct SignatureButtonTests {
         ))
         await store.load()
 
-        var insertedText: String?
-        var insertedPreview: WKWebView?
         var untouchedPreview: WKWebView?
-        EditorProbe.withHostedView(
+        let rendered = await loadedSignaturePreview(
             ComposerWindow(
                 store: store, mode: .new(accountID: account.id), debugInsertSignature: true
             ),
-            size: CGSize(width: 820, height: 620), theme: .tinta
-        ) { content in
-            insertedText = EditorProbe.anyTextView(in: content)?.string
-            insertedPreview = EditorProbe.signaturePreview(in: content)
-        }
+            size: CGSize(width: 820, height: 620),
+            theme: .tinta,
+            snapshotAt: Render.outputDirectory?.appendingPathComponent("assinatura-preview.png")
+        )
         EditorProbe.withHostedView(
             ComposerWindow(store: store, mode: .new(accountID: account.id)),
             size: CGSize(width: 820, height: 620), theme: .tinta
@@ -269,10 +266,18 @@ struct SignatureButtonTests {
             untouchedPreview = EditorProbe.signaturePreview(in: content)
         }
 
-        #expect(insertedText == "", "a assinatura ainda foi achatada no editor: «\(insertedText ?? "nil")»")
-        let preview = try #require(insertedPreview)
+        let preview = try #require(rendered)
+        #expect(preview.editorText == "", "a assinatura ainda foi achatada no editor: «\(preview.editorText)»")
         #expect(preview.frame.height >= 44)
         #expect(preview.frame.height <= 380)
+        let dom = preview.dom
+        #expect(dom.text.contains("Marcos Santos"))
+        #expect(dom.text.contains("CAIO · Software Development"))
+        // A prévia local resolve o CID para `data:` antes de chegar ao WebKit.
+        // O MIME do e-mail continua com CID (coberto em ComposerOutgoingTests),
+        // enquanto esta prova verifica que a imagem efetivamente renderiza.
+        #expect(dom.imageSource.hasPrefix("data:image/png;base64,"))
+        #expect(dom.hasTable)
         #expect(untouchedPreview == nil, "a assinatura apareceu sem apertar o botão")
 
         if Render.outputDirectory != nil {
@@ -288,6 +293,271 @@ struct SignatureButtonTests {
             ) != nil)
         }
     }
+
+    @Test("a assinatura rica fica no cursor em início, meio e fim da resposta")
+    func richSignatureFollowsCaretAcrossTheReply() async throws {
+        let rich = try signatureForCursorTests()
+        let base = try #require(Fixtures.accounts.first)
+        let account = base.withEmailSignature(rich)
+
+        for (offset, before, after) in [
+            (0, "", "AntesDepois"),
+            (5, "Antes", "Depois"),
+            (11, "AntesDepois", ""),
+        ] {
+            let store = MailStore(source: InMemoryMailSource(
+                accounts: [account], messages: Fixtures.messages, agenda: Fixtures.month
+            ))
+            await store.load()
+            let message = try #require(store.messages.first)
+            store.setReplyDraft(ReplyDraft(text: "AntesDepois"), for: message.id)
+
+            var editors: [ComposerNSTextView] = []
+            var preview: WKWebView?
+            var positions: (before: CGRect, signature: CGRect, after: CGRect)?
+            EditorProbe.withHostedView(
+                ComposerWindow(
+                    store: store,
+                    mode: .reply(messageID: message.id),
+                    debugInsertSignature: true,
+                    debugSignatureOffset: offset
+                ),
+                size: CGSize(width: 820, height: 660), theme: .tinta
+            ) { content in
+                editors = EditorProbe.composerTextViews(in: content)
+                preview = EditorProbe.signaturePreview(in: content)
+                if let signature = preview,
+                   let prefix = editors.first(where: { $0.string == before }),
+                   let suffix = editors.first(where: { $0.string == after })
+                {
+                    positions = (
+                        before: prefix.convert(prefix.bounds, to: content),
+                        signature: signature.convert(signature.bounds, to: content),
+                        after: suffix.convert(suffix.bounds, to: content)
+                    )
+                }
+            }
+
+            #expect(editors.map(\.string).contains(before))
+            #expect(editors.map(\.string).contains(after))
+            #expect(editors.allSatisfy { !$0.string.contains("Marcos Santos") })
+            let renderedPreview = try #require(preview)
+            #expect(renderedPreview.frame.height >= 44)
+            let frames = try #require(positions)
+            let firstStep = frames.signature.midY - frames.before.midY
+            let secondStep = frames.after.midY - frames.signature.midY
+            #expect(firstStep * secondStep > 0, "o preview não ficou entre os trechos em offset \(offset)")
+            #expect(
+                abs(firstStep) < 170,
+                "o preview ficou \(abs(firstStep))pt depois do cursor em offset \(offset)"
+            )
+            if offset == 5, Render.outputDirectory != nil {
+                #expect(Render.snapshot(
+                    ComposerWindow(
+                        store: store, mode: .reply(messageID: message.id),
+                        debugInsertSignature: true, debugSignatureOffset: offset
+                    ),
+                    named: "composer-assinatura-no-cursor",
+                    size: CGSize(width: 820, height: 660), theme: .tinta
+                ) != nil)
+            }
+        }
+    }
+
+    @Test("uma seleção é substituída pela assinatura sem perder o texto vizinho")
+    func richSignatureReplacesTheCurrentSelection() async throws {
+        let rich = try signatureForCursorTests()
+        let base = try #require(Fixtures.accounts.first)
+        let account = base.withEmailSignature(rich)
+        let store = MailStore(source: InMemoryMailSource(
+            accounts: [account], messages: Fixtures.messages, agenda: Fixtures.month
+        ))
+        await store.load()
+        let message = try #require(store.messages.first)
+        store.setReplyDraft(ReplyDraft(text: "AntesREMOVERDepois"), for: message.id)
+
+        var editors: [ComposerNSTextView] = []
+        var preview: WKWebView?
+        EditorProbe.withHostedView(
+            ComposerWindow(
+                store: store,
+                mode: .reply(messageID: message.id),
+                debugInsertSignature: true,
+                debugSignatureSelection: 5..<12
+            ),
+            size: CGSize(width: 820, height: 660), theme: .tinta
+        ) { content in
+            editors = EditorProbe.composerTextViews(in: content)
+            preview = EditorProbe.signaturePreview(in: content)
+        }
+
+        #expect(editors.map(\.string).contains("Antes"))
+        #expect(editors.map(\.string).contains("Depois"))
+        #expect(editors.allSatisfy { !$0.string.contains("REMOVER") })
+        #expect(preview != nil)
+    }
+
+    @Test("rascunho salvo reabre a assinatura rica no ponto registrado", arguments: ["", "  \n\n\n"])
+    func savedDraftRestoresRichSignatureAtItsOffset(prefix: String) async throws {
+        let rich = try signatureForCursorTests()
+        let base = try #require(Fixtures.accounts.first)
+        let account = base.withEmailSignature(rich)
+        let store = MailStore(source: InMemoryMailSource(
+            accounts: [account], messages: Fixtures.messages, agenda: Fixtures.month
+        ))
+        await store.load()
+        let message = try #require(store.messages.first)
+        store.setReplyDraft(ReplyDraft(text: prefix + "AntesDepois"), for: message.id)
+
+        EditorProbe.withHostedView(
+            ComposerWindow(
+                store: store,
+                mode: .reply(messageID: message.id),
+                debugInsertSignature: true,
+                debugSignatureOffset: prefix.count + 5,
+                debugSaveDraft: true
+            ),
+            size: CGSize(width: 820, height: 660), theme: .tinta
+        ) { _ in }
+
+        let saved = try #require(store.messages.first(where: { $0.bucket == .drafts }))
+        #expect(saved.bodyHTML?.contains("okamiuni-signature:") == true)
+
+        var editors: [ComposerNSTextView] = []
+        var preview: WKWebView?
+        EditorProbe.withHostedView(
+            ComposerWindow(store: store, mode: .draft(messageID: saved.id)),
+            size: CGSize(width: 820, height: 660), theme: .tinta
+        ) { content in
+            editors = EditorProbe.composerTextViews(in: content)
+            preview = EditorProbe.signaturePreview(in: content)
+        }
+
+        #expect(editors.map(\.string).contains(prefix + "Antes"))
+        #expect(editors.map(\.string).contains("Depois"))
+        #expect(editors.allSatisfy { !$0.string.contains("Marcos Santos") })
+        #expect(preview != nil)
+    }
+
+    private func signatureForCursorTests() throws -> EmailSignature {
+        let image = try InlineSignatureResource(
+            contentID: "logo@vantion.local",
+            mimeType: "image/png",
+            data: try #require(Data(base64Encoded:
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+            ))
+        )
+        return try EmailSignature(
+            plainText: "Marcos Santos\nCAIO · Software Development",
+            html: """
+            <table role="presentation" cellpadding="0" cellspacing="0" style="width:600px">
+              <tr>
+                <td style="width:180px;background:#121415;padding:16px">
+                  <img src="cid:logo@vantion.local" width="120" height="80" alt="Vantion">
+                </td>
+                <td style="padding:16px"><strong>Marcos Santos</strong><br>CAIO · Software Development</td>
+              </tr>
+            </table>
+            """,
+            inlineResources: [image]
+        )
+    }
+
+    /// `cacheDisplay` não vê a camada remota do WebKit e fotografa um retângulo
+    /// branco. Esta janela fica fora da tela, mas viva durante os `await`s do
+    /// próprio WebKit; assim o carregamento e o snapshot recebem tempo de
+    /// execução sem usar mouse, teclado ou o harness compartilhado.
+    private func loadedSignaturePreview<V: View>(
+        _ view: V,
+        size: CGSize,
+        theme: Theme,
+        snapshotAt destination: URL?
+    ) async -> SignaturePreviewRender? {
+        let root = view
+            .theme(theme)
+            .environment(\.locale, Locale(identifier: "pt_BR"))
+            .frame(width: size.width, height: size.height)
+        let window = NSWindow(
+            contentRect: NSRect(x: -50_000, y: -50_000, width: size.width, height: size.height),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: root)
+        defer { window.close() }
+        guard let content = window.contentView else { return nil }
+
+        let deadline = Date().addingTimeInterval(5)
+        var preview: WKWebView?
+        while preview == nil && Date() < deadline {
+            content.layoutSubtreeIfNeeded()
+            preview = EditorProbe.signaturePreview(in: content)
+            if preview == nil { try? await Task.sleep(for: .milliseconds(20)) }
+        }
+        guard let preview else { return nil }
+
+        let script = """
+        [document.body.innerText || '',
+         document.querySelector('img')?.getAttribute('src') || '',
+         document.querySelector('table') ? 'table' : ''].join('\\u001F')
+        """
+        var dom: SignaturePreviewDOM?
+        while dom == nil && Date() < deadline {
+            if let result = try? await preview.evaluateJavaScript(script) as? String {
+                dom = SignaturePreviewDOM.parse(result)
+            }
+            if dom == nil { try? await Task.sleep(for: .milliseconds(20)) }
+        }
+        guard let dom else { return nil }
+
+        if let destination {
+            try? await Task.sleep(for: .milliseconds(120))
+            let configuration = WKSnapshotConfiguration()
+            configuration.rect = preview.bounds
+            guard let image = try? await preview.takeSnapshot(configuration: configuration),
+                  let tiff = image.tiffRepresentation,
+                  let bitmap = NSBitmapImageRep(data: tiff),
+                  let png = bitmap.representation(using: .png, properties: [:])
+            else { return nil }
+            do {
+                try FileManager.default.createDirectory(
+                    at: destination.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try png.write(to: destination)
+            } catch {
+                return nil
+            }
+        }
+
+        return SignaturePreviewRender(
+            editorText: EditorProbe.anyTextView(in: content)?.string ?? "",
+            frame: preview.frame,
+            dom: dom
+        )
+    }
+}
+
+private struct SignaturePreviewDOM {
+    let text: String
+    let imageSource: String
+    let hasTable: Bool
+
+    static func parse(_ value: String) -> SignaturePreviewDOM? {
+        let fields = value.split(separator: "\u{001F}", maxSplits: 2, omittingEmptySubsequences: false)
+        guard fields.count == 3 else { return nil }
+        let result = SignaturePreviewDOM(
+            text: String(fields[0]),
+            imageSource: String(fields[1]),
+            hasTable: fields[2] == "table"
+        )
+        return result.text.contains("Marcos Santos") && result.hasTable ? result : nil
+    }
+}
+
+private struct SignaturePreviewRender {
+    let editorText: String
+    let frame: CGRect
+    let dom: SignaturePreviewDOM
 }
 
 @MainActor
@@ -298,5 +568,10 @@ private extension EditorProbe {
             if let preview = signaturePreview(in: child) { return preview }
         }
         return nil
+    }
+
+    static func composerTextViews(in view: NSView) -> [ComposerNSTextView] {
+        let own = (view as? ComposerNSTextView).map { [$0] } ?? []
+        return own + view.subviews.flatMap { composerTextViews(in: $0) }
     }
 }

@@ -150,6 +150,9 @@ public actor GmailMirror: MailMirror {
 
     /// Manda, e diz onde o servidor guardou a cópia.
     private func envia(_ mensagem: OutgoingMessage) async throws -> MessageCoordinate? {
+        guard mensagem.isValidForDelivery else {
+            throw SyncError.recusado(EmailAddress.invalidForDeliveryMessage)
+        }
         // **A pergunta antes do envio**, e ela é o que faz esta operação
         // ser repetível: o retry de um tempo esgotado ambíguo não sabe se a
         // primeira tentativa passou, então ele procura o `Message-ID` na

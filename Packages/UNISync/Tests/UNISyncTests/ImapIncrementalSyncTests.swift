@@ -212,6 +212,51 @@ struct ImapIncrementalSyncTests {
         #expect(try await estado(db)?.highestUID == 31)
     }
 
+    @Test("Envelope corrompido é rebuscado sem contá-lo como mensagem nova")
+    func reparaEnderecoColadoNoCache() async throws {
+        let db = try await banco(maiorUID: 30, mensagens: [(30, true, false)])
+        try await db.pool.write { conexao in
+            try conexao.execute(
+                sql: """
+                    UPDATE message
+                    SET fromAddress = ?, snippet = ?, bucket = ?, isRead = ?, isFlagged = ?
+                    WHERE serverID = ?
+                    """,
+                arguments: [
+                    "favini@vantion.com.br\")(\"Ben-Hur", "Prévia que o envelope não tem",
+                    TriageBucket.archived.rawValue, false, true, "30",
+                ]
+            )
+            try InitialLoader.gravaCorpo(
+                conexao,
+                id: MessageIdentity.imap(
+                    accountID: conta.id, folderID: folderID, uidValidity: 55, uid: 30
+                ),
+                paragrafos: ["Corpo em cache"], html: "<p>Corpo em cache</p>", calendarICS: nil
+            )
+        }
+
+        let (saida, comandos) = try await delta(db, script: roteiro(
+            busca: ["* SEARCH", "TAG OK UID SEARCH completed"],
+            envelopes: [envelope(uid: 30, assunto: "Reparada"), "TAG OK UID FETCH completed"],
+            bandeiras: [envelopeFlags(uid: 30, flags: "\\Flagged"), "TAG OK UID FETCH completed"]
+        ))
+
+        #expect(saida.novas == 0)
+        #expect(comandos.contains { $0.contains("UID FETCH 30") && $0.contains("ENVELOPE") })
+        let reparada = try #require(try await linhas(db).first)
+        #expect(reparada.fromAddress == "marina@clientepremium.com")
+        #expect(reparada.subject == "UID 30")
+        #expect(reparada.snippet == "Prévia que o envelope não tem")
+        #expect(reparada.bucket == TriageBucket.archived.rawValue)
+        #expect(!reparada.isRead)
+        #expect(reparada.isFlagged)
+        let corpo = try await db.pool.read {
+            try MessageBodyRecord.filter(Column("messageID") == reparada.id).fetchOne($0)
+        }
+        #expect(corpo?.body == ["Corpo em cache"])
+    }
+
     /// A resposta que chega **depois** da carga inicial entra na conversa que
     /// já está no banco, em vez de abrir uma linha nova ao lado dela — que é
     /// exatamente o que o dono via.

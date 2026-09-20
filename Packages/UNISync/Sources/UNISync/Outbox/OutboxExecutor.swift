@@ -599,29 +599,38 @@ public actor OutboxExecutor {
     /// dela que a pessoa precisa ver.
     private func paradaGravada() async -> SyncError? {
         let conta = accountID
-        let linha = try? await database.pool.read { db in
-            try Row.fetchOne(
-                db,
-                sql: """
-                    SELECT lastError FROM outbox
-                    WHERE accountID = ? AND state = ?
-                    ORDER BY createdAt, rowid LIMIT 1
-                    """,
-                arguments: [conta, OutboxState.falhou.rawValue]
-            )
+        do {
+            // `Row` é uma visão mutável do SQLite e não atravessa a fronteira
+            // do ator. Resolvemos a causa ainda dentro do `read`, devolvendo
+            // só o `SyncError` Sendable. Isso também preserva a diferença
+            // entre não haver linha falhada (nil, a fila segue) e haver uma
+            // linha antiga cujo `lastError` é NULL (a fila continua parada).
+            return try await database.pool.read { db -> SyncError? in
+                guard let row = try Row.fetchOne(
+                    db,
+                    sql: """
+                        SELECT lastError FROM outbox
+                        WHERE accountID = ? AND state = ?
+                        ORDER BY createdAt, rowid LIMIT 1
+                        """,
+                    arguments: [conta, OutboxState.falhou.rawValue]
+                ) else { return nil }
+                let json: String? = row["lastError"]
+                guard let json, let dados = json.data(using: .utf8),
+                      let erro = try? JSONDecoder().decode(SyncError.self, from: dados)
+                else {
+                    // Linha parada por uma versão anterior à v7, ou JSON que
+                    // não decodifica. A fila está parada de qualquer jeito, e
+                    // dizer isso sem a causa exata é o único caminho honesto:
+                    // voltar a andar por cima dela executaria a de trás na
+                    // frente da que falhou.
+                    return .resposta("Uma operação da fila não pôde ser concluída.")
+                }
+                return erro
+            }
+        } catch {
+            return nil
         }
-        guard let linha = linha ?? nil else { return nil }
-        let json: String? = linha["lastError"]
-        guard let json, let dados = json.data(using: .utf8),
-              let erro = try? JSONDecoder().decode(SyncError.self, from: dados)
-        else {
-            // Linha parada por uma versão anterior à v7, ou JSON que não
-            // decodifica. A fila está parada de qualquer jeito, e dizer isso
-            // sem a causa exata é o único caminho honesto: voltar a andar por
-            // cima dela executaria a de trás na frente da que falhou.
-            return .resposta("Uma operação da fila não pôde ser concluída.")
-        }
-        return erro
     }
 
     private func adia(_ ids: [String], tentativas: Int) async {

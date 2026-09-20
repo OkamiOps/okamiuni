@@ -130,8 +130,8 @@ struct BodyRedecodingHTMLTests {
         #expect(try await BodyRedecoding.run(db) == 0)
     }
 
-    @Test("A varredura da abertura grava as duas metades e converge")
-    func varreduraGrava() async throws {
+    @Test("A varredura da abertura grava as duas metades e converge", arguments: [corpoDoDono, RawHTMLSniffTests.fragmentoComEstilo])
+    func varreduraGrava(fonte: String) async throws {
         let db = try SyncDatabase.temporary()
         try await db.pool.write { conexao in
             try AccountRecord(
@@ -150,12 +150,12 @@ struct BodyRedecodingHTMLTests {
                 id: "m-html", accountID: "conta-a",
                 from: Contact(name: "SpaceXAI", address: "noreply@spacexai.com"),
                 receivedAt: Date(timeIntervalSince1970: 100),
-                subject: "Sua conta", snippet: "<!doctype html>", body: [corpoDoDono],
+                subject: "Sua conta", snippet: fonte, body: [fonte],
                 tags: [], bucket: .today, isRead: false,
                 summary: nil, detectedEvent: nil
             )
             try MessageRecord(mensagem, folderID: "conta-a/INBOX").insert(conexao)
-            var registro = MessageBodyRecord(messageID: "m-html", paragraphs: [corpoDoDono])
+            var registro = MessageBodyRecord(messageID: "m-html", paragraphs: [fonte])
             try registro.insert(conexao)
         }
 
@@ -165,11 +165,14 @@ struct BodyRedecodingHTMLTests {
         }
         let registro = try #require(depois)
         // A página está na coluna que o leitor lê.
-        #expect(registro.html?.contains("SpaceXAI") == true)
+        #expect(registro.html?.contains(fonte == corpoDoDono ? "SpaceXAI" : "Boleto") == true)
         #expect(registro.html?.contains("=3D") == false)
         // E o texto, o que a busca indexa, está legível.
-        #expect(registro.plain.contains("O código é 4821."))
+        #expect(registro.plain.contains(fonte == corpoDoDono ? "O código é 4821." : "Boleto para pagamento."))
         #expect(!registro.plain.contains("doctype"))
+        #expect(!registro.plain.contains("font-size"))
+        let mensagem = try await DatabaseMailSource(database: db).messages().first
+        #expect(mensagem?.snippet == registro.body.first)
 
         // Converge: a segunda abertura não tem o que consertar.
         #expect(try await BodyRedecoding.run(db) == 0)

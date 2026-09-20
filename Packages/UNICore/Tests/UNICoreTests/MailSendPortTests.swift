@@ -95,4 +95,28 @@ struct MailSendPortTests {
         #expect(decodedLegacy.calendarICS == nil)
         #expect(decodedLegacy.attachments.isEmpty)
     }
+
+    @Test("A entrega exige caixas válidas, inclusive parte local não vazia")
+    func validaCaixasDeSaida() {
+        let valido = mensagem()
+        #expect(valido.isValidForDelivery)
+        #expect(valido.recipients == ["ela@y.com"])
+
+        let corrompido = OutgoingMessage(
+            messageID: "id-2@x.com", accountID: "conta-a",
+            from: OutgoingAddress(name: "Eu", address: "eu@x.com"),
+            to: [OutgoingAddress(name: "Favini", address: "favini@vantion.com.br\")(\"Ben-Hur")],
+            subject: "Oi", plainText: "corpo"
+        )
+        #expect(!corrompido.isValidForDelivery)
+        #expect(corrompido.recipients.isEmpty)
+
+        let semParteLocal = OutgoingMessage(
+            messageID: "id-3@x.com", accountID: "conta-a",
+            from: OutgoingAddress(name: "Eu", address: "eu@x.com"),
+            to: [OutgoingAddress(name: "Sem nome", address: "@vantion.com.br")],
+            subject: "Oi", plainText: "corpo"
+        )
+        #expect(!semParteLocal.isValidForDelivery)
+    }
 }

@@ -145,13 +145,34 @@ public struct ImapIncrementalSync: Sendable {
             ).save(db)
         }
 
-        if !novos.isEmpty || reciclou {
-            let envelopes = try await session.envelopes(uids: novos)
+        // A versão que separava address-lists somente por espaço podia gravar
+        // `)(` dentro do domínio de uma caixa. Rebuscamos somente esses UIDs:
+        // o envelope é a fonte completa e recupera todos os destinatários,
+        // sem inventar ou truncar endereço algum.
+        let corrompidos = reciclou
+            ? []
+            : try await uidsComEnderecoCorrompido(folderID: folderID, uidValidity: status.uidValidity)
+        let paraEnvelope = Array(Set(novos).union(corrompidos)).sorted()
+
+        if !paraEnvelope.isEmpty || reciclou {
+            let envelopes = try await session.envelopes(uids: paraEnvelope)
+            let novosSet = Set(novos)
+            let envelopesNovos = envelopes.filter { novosSet.contains($0.uid) }
+            let envelopesCorrompidos = envelopes.filter { !novosSet.contains($0.uid) }
+
+            // Mensagem nova continua pelo caminho completo. Só os envelopes
+            // já no cache recebem a atualização das quatro colunas de
+            // endereço: `grava` também alteraria snippet, triagem e flags,
+            // que são projeções locais ou acertadas no passo próprio abaixo.
             resultado.novas = try await grava(
-                envelopes, account: account, folderID: folderID,
+                envelopesNovos, account: account, folderID: folderID,
                 uidValidity: status.uidValidity, bucket: bucket,
                 etiqueta: TriageProjection.tag(folderRole: folder.role, folderName: folder.name),
                 apagandoAGeracaoVelha: reciclou
+            )
+            try await atualizaEnderecos(
+                envelopesCorrompidos, accountID: account.id,
+                folderID: folderID, uidValidity: status.uidValidity
             )
         }
 
@@ -211,6 +232,64 @@ public struct ImapIncrementalSync: Sendable {
                 arguments: [folderID, uidValidity, limite]
             )
         }
+    }
+
+    /// UIDs cujo envelope foi gravado pelo parser antigo com duas mailboxes
+    /// coladas. A assinatura é deliberadamente estreita: `)(` não é válido em
+    /// uma mailbox SMTP e é exatamente a fronteira dos grupos IMAP adjacentes.
+    private func uidsComEnderecoCorrompido(
+        folderID: String, uidValidity: Int64
+    ) async throws -> [Int64] {
+        try await database.pool.read { db in
+            try Int64.fetchAll(
+                db,
+                sql: """
+                    SELECT CAST(serverID AS INTEGER)
+                    FROM message
+                    WHERE folderID = ? AND uidValidity IS ? AND serverID IS NOT NULL
+                      AND (
+                        instr(fromAddress, ')(') > 0
+                        OR instr(toJSON, ')(') > 0
+                        OR instr(ccJSON, ')(') > 0
+                      )
+                    """,
+                arguments: [folderID, uidValidity]
+            )
+        }
+    }
+
+    private struct ContactWire: Encodable {
+        let name: String
+        let address: String
+    }
+
+    private func atualizaEnderecos(
+        _ envelopes: [ImapEnvelope], accountID: String, folderID: String, uidValidity: Int64
+    ) async throws {
+        guard !envelopes.isEmpty else { return }
+        try await database.pool.write { db in
+            for envelope in envelopes {
+                let id = MessageIdentity.imap(
+                    accountID: accountID, folderID: folderID,
+                    uidValidity: uidValidity, uid: envelope.uid
+                )
+                let to = try Self.encodedContacts(envelope.to)
+                let cc = try Self.encodedContacts(envelope.cc)
+                try db.execute(
+                    sql: """
+                        UPDATE message
+                        SET fromName = ?, fromAddress = ?, toJSON = ?, ccJSON = ?
+                        WHERE id = ?
+                        """,
+                    arguments: [envelope.from.name, envelope.from.address, to, cc, id]
+                )
+            }
+        }
+    }
+
+    private static func encodedContacts(_ contacts: [Contact]) throws -> String {
+        let wire = contacts.map { ContactWire(name: $0.name, address: $0.address) }
+        return String(decoding: try JSONEncoder().encode(wire), as: UTF8.self)
     }
 
     private func acertaBandeiras(

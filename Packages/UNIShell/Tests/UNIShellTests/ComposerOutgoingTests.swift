@@ -97,6 +97,38 @@ struct ComposerOutgoingTests {
         #expect(conteudo.inlineResources == [imagem])
     }
 
+    @Test("Assinatura HTML fica entre o texto antes e depois do cursor")
+    func assinaturaRicaNoCursor() throws {
+        let imagem = try InlineSignatureResource(
+            contentID: "logo@okamiuni.local", mimeType: "image/png",
+            data: Data([0x89, 0x50, 0x4E, 0x47])
+        )
+        let assinatura = try EmailSignature(
+            plainText: "Marcos\nOkamiUNI",
+            html: "<strong>Marcos</strong><img src=\"cid:logo@okamiuni.local\">",
+            inlineResources: [imagem]
+        )
+        var corpo = rico("AntesDepois")
+        corpo[BodyStyleAttribute.self] = BodyStyle(bold: true)
+
+        let conteudo = ComposerOutgoing.content(
+            corpo,
+            theme: tema,
+            signature: assinatura,
+            signatureIsInserted: true,
+            signatureOffset: 5
+        )
+
+        #expect(conteudo.plainText == "Antes\n\nMarcos\nOkamiUNI\n\nDepois")
+        let html = try #require(conteudo.html)
+        let antes = try #require(html.range(of: "Antes")?.lowerBound)
+        let assinaturaHTML = try #require(html.range(of: "cid:logo@okamiuni.local")?.lowerBound)
+        let depois = try #require(html.range(of: "Depois")?.lowerBound)
+        #expect(antes < assinaturaHTML && assinaturaHTML < depois)
+        #expect(!html.contains("okamiuni-signature-anchor-"))
+        #expect(conteudo.inlineResources == [imagem])
+    }
+
     @Test("Assinatura gerenciada desligada não entra silenciosamente numa mensagem")
     func assinaturaNaoInserida() throws {
         let assinatura = try EmailSignature(
@@ -274,6 +306,38 @@ struct ComposerSendWiringTests {
         // Um `Message-ID` próprio, que é o que a fila usa para não mandar duas
         // vezes depois de um tempo esgotado ambíguo.
         #expect(!enviada.messageID.isEmpty)
+    }
+
+    @Test("Enviar inclui o endereço novo ainda digitado no campo")
+    func enviaDestinatarioPendente() async throws {
+        let porta = PortaFalsa()
+        let store = MailStore(source: InMemoryMailSource.fixtures, sendPort: porta)
+        await store.load()
+        let conta = try #require(store.accounts.first)
+        EditorProbe.withHostedView(
+            ComposerWindow(
+                store: store, mode: .new(accountID: conta.id),
+                debugSuggestion: .init(slot: .to, query: "novo@example.com"), debugSend: true
+            ),
+            size: CGSize(width: 820, height: 620), theme: .tinta
+        ) { _ in }
+        #expect(porta.enviadas.first?.to.map(\.address) == ["novo@example.com"])
+    }
+
+    @Test("Texto inválido pendente impede enviar só aos chips já existentes")
+    func invalidoPendenteImpedeEnvioParcial() async throws {
+        let porta = PortaFalsa()
+        let store = MailStore(source: InMemoryMailSource.fixtures, sendPort: porta)
+        await store.load()
+        let original = try #require(store.messages.first)
+        EditorProbe.withHostedView(
+            ComposerWindow(
+                store: store, mode: .reply(messageID: original.id),
+                debugSuggestion: .init(slot: .cc, query: "email incompleto"), debugSend: true
+            ),
+            size: CGSize(width: 820, height: 620), theme: .tinta
+        ) { _ in }
+        #expect(porta.enviadas.isEmpty)
     }
 
     @Test("Enviar sem destinatário nenhum não manda nada, e a janela fica aberta")

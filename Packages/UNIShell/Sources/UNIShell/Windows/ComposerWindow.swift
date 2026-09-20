@@ -70,6 +70,10 @@ public struct ComposerWindow: View {
     @State private var to: [Contact] = []
     @State private var cc: [Contact] = []
     @State private var bcc: [Contact] = []
+    @State private var toQuery = ""
+    @State private var ccQuery = ""
+    @State private var bccQuery = ""
+    @State private var sendError: String?
     @State private var ccOpen = false
     @State private var bccOpen = false
     @State private var subject = ""
@@ -95,10 +99,11 @@ public struct ComposerWindow: View {
     @State private var savedFingerprint = DraftFingerprint()
     @State private var hasBaseline = false
     @State private var closeController = ComposerCloseController()
-    /// A assinatura rica não pertence ao `NSTextStorage` do corpo. Mantê-la
-    /// como bloco gerenciado preserva tabela, imagens CID e hyperlinks na
-    /// tela, sem transformar o HTML em dezenas de linhas vazias.
-    @State private var signatureInserted = false
+    /// A assinatura rica é um bloco não editável entre dois trechos do corpo.
+    /// O inteiro é um deslocamento de caracteres em `draft`, que **não**
+    /// contém a assinatura; dessa forma nenhuma âncora invisível vaza para
+    /// IA, contadores, rascunhos ou a mensagem enviada.
+    @State private var signatureOffset: Int?
 
     /// Só para verificação: abre um painel da barra sem clique, para dar para
     /// provar fora da tela que as amostras aparecem inteiras.
@@ -116,6 +121,15 @@ public struct ComposerWindow: View {
     /// continuou verde. O que corre aqui é a ação do botão, a mesma que o
     /// clique dispara, não uma cópia dela.
     let debugInsertSignature: Bool
+    /// Posição para a porta de verificação da assinatura. O app nunca passa
+    /// este valor; o harness usa-o para provar a ação com o cursor no meio do
+    /// corpo, sem evento sintético de mouse ou teclado.
+    let debugSignatureOffset: Int?
+    /// Intervalo para a porta de verificação da assinatura. Ele cobre o caso
+    /// em que a pessoa seleciona uma palavra antes de escolher o botão: o
+    /// bloco substitui precisamente a seleção, como qualquer inserção de
+    /// conteúdo rico faria.
+    let debugSignatureSelection: Range<Int>?
     /// Só para verificação: aperta **Enviar** no primeiro passe.
     ///
     /// A mesma porta de `debugInsertSignature`, e pela mesma razão registrada
@@ -155,6 +169,8 @@ public struct ComposerWindow: View {
         self.debugOpenPanel = nil
         self.debugSuggestion = nil
         self.debugInsertSignature = false
+        self.debugSignatureOffset = nil
+        self.debugSignatureSelection = nil
         self.debugSend = false
         self.debugSaveDraft = false
         self.debugLeaveConfirm = false
@@ -168,6 +184,8 @@ public struct ComposerWindow: View {
         debugOpenPanel: ComposerToolbar.Panel? = nil,
         debugSuggestion: DebugSuggestion? = nil,
         debugInsertSignature: Bool = false,
+        debugSignatureOffset: Int? = nil,
+        debugSignatureSelection: Range<Int>? = nil,
         debugSend: Bool = false,
         debugSaveDraft: Bool = false,
         debugLeaveConfirm: Bool = false,
@@ -180,6 +198,8 @@ public struct ComposerWindow: View {
         self.debugOpenPanel = debugOpenPanel
         self.debugSuggestion = debugSuggestion
         self.debugInsertSignature = debugInsertSignature
+        self.debugSignatureOffset = debugSignatureOffset
+        self.debugSignatureSelection = debugSignatureSelection
         self.debugSend = debugSend
         self.debugSaveDraft = debugSaveDraft
         self.debugLeaveConfirm = debugLeaveConfirm
@@ -190,6 +210,9 @@ public struct ComposerWindow: View {
         // delas o harness precisa da linha aberta desde o primeiro passe.
         _ccOpen = State(initialValue: debugSuggestion?.slot == .cc)
         _bccOpen = State(initialValue: debugSuggestion?.slot == .bcc)
+        _toQuery = State(initialValue: debugSuggestion?.slot == .to ? debugSuggestion?.query ?? "" : "")
+        _ccQuery = State(initialValue: debugSuggestion?.slot == .cc ? debugSuggestion?.query ?? "" : "")
+        _bccQuery = State(initialValue: debugSuggestion?.slot == .bcc ? debugSuggestion?.query ?? "" : "")
     }
 
     /// A busca semeada neste campo, ou nula — que é o caso do app.
@@ -230,19 +253,19 @@ public struct ComposerWindow: View {
         var bcc: [String] = []
         var attachmentIDs: [String] = []
         var fromAccountID: String?
-        var signatureInserted = false
+        var signatureOffset: Int?
     }
 
     private var currentFingerprint: DraftFingerprint {
         DraftFingerprint(
             plain: plainDraft,
             subject: subject,
-            to: to.map(\.address),
-            cc: cc.map(\.address),
-            bcc: bcc.map(\.address),
+            to: to.map(\.address) + (toQuery.isEmpty ? [] : [toQuery]),
+            cc: cc.map(\.address) + (ccQuery.isEmpty ? [] : [ccQuery]),
+            bcc: bcc.map(\.address) + (bccQuery.isEmpty ? [] : [bccQuery]),
             attachmentIDs: attachments.map(\.id),
             fromAccountID: fromAccountID,
-            signatureInserted: signatureInserted
+            signatureOffset: signatureOffset
         )
     }
 
@@ -353,8 +376,10 @@ public struct ComposerWindow: View {
     }
 
     private var canInsertSignature: Bool {
-        hasSignature && !signatureInserted
+        hasSignature && signatureOffset == nil
     }
+
+    private var signatureInserted: Bool { signatureOffset != nil }
 
     /// A legenda da linha "De". Ela dizia sempre a mesma frase; agora diz de
     /// quem é a assinatura que o botão vai inserir, porque a partir daqui isso
@@ -372,12 +397,25 @@ public struct ComposerWindow: View {
     /// registrada como divergência no relatório da tarefa.
     ///
     /// O HTML não é convertido em `AttributedString`: TextKit não representa
-    /// fielmente tabelas e recursos CID importados. O botão inclui um bloco
-    /// renderizado abaixo do corpo e a fronteira de envio recebe esta decisão
-    /// explicitamente.
+    /// fielmente tabelas e recursos CID importados. Em vez de mandá-lo para o
+    /// fim da janela, a posição que o `NSTextView` já reportou vira a fronteira
+    /// entre os dois trechos editáveis que cercam a prévia rica.
     private func insertSignature() {
         guard canInsertSignature else { return }
-        signatureInserted = true
+        // A seleção vem do delegado do `NSTextView`. Se a janela acabou de
+        // nascer antes de o AppKit publicar o primeiro ponto de inserção,
+        // inserir no fim é a mesma convenção do editor vazio — nunca ignora o
+        // botão em silêncio.
+        let selected = ComposerEditor.ranges(selection, in: draft).first
+            ?? draft.endIndex..<draft.endIndex
+        let offset = characterOffset(of: selected.lowerBound, in: draft)
+        draft.transform(updating: &selection) { body in
+            body.removeSubrange(selected)
+            ComposerEditor.decorate(&body, theme: theme)
+        }
+        let insertion = characterIndex(offset, in: draft)
+        selection = AttributedTextSelection(insertionPoint: insertion)
+        signatureOffset = offset
     }
 
     public var body: some View {
@@ -410,15 +448,10 @@ public struct ComposerWindow: View {
                     of: draft, selection: selection
                 ),
                 applyIntelligence: { proposal in
-                    ComposerEditor.apply(
-                        proposal,
-                        on: &draft,
-                        selection: &selection,
-                        theme: theme
-                    )
+                    applyIntelligence(proposal)
                 },
                 perform: { command in
-                    ComposerEditor.perform(command, on: &draft, selection: &selection, theme: theme)
+                    performComposerCommand(command)
                 }
             )
             // Os painéis de cor e realce e os menus de fonte e corpo são
@@ -479,6 +512,15 @@ public struct ComposerWindow: View {
             // A porta do harness: dispara a **mesma** ação do botão, depois da
             // semeadura, para o corpo já estar no estado em que o clique o
             // encontraria.
+            if let debugSignatureSelection {
+                let lower = characterIndex(debugSignatureSelection.lowerBound, in: draft)
+                let upper = characterIndex(debugSignatureSelection.upperBound, in: draft)
+                selection = AttributedTextSelection(range: lower..<upper)
+            } else if let debugSignatureOffset {
+                selection = AttributedTextSelection(
+                    insertionPoint: characterIndex(debugSignatureOffset, in: draft)
+                )
+            }
             if debugInsertSignature, canInsertSignature { insertSignature() }
             if debugSend { send(archiving: false) }
             if debugSaveDraft { saveDraft() }
@@ -583,11 +625,14 @@ public struct ComposerWindow: View {
             ccOpen = ccOpen || !gravado.cc.isEmpty
             subject = gravado.subject == "(sem assunto)" ? "" : gravado.subject
             let texto = gravado.body.joined(separator: "\n\n")
-            if !texto.isEmpty {
+            if let restored = restoreSignature(from: texto, metadata: gravado.bodyHTML) {
+                draft = AttributedString(restored.body)
+                signatureOffset = restored.offset
+            } else if !texto.isEmpty {
                 draft = AttributedString(texto)
             }
             draftMessageID = gravado.id
-            savedPlain = texto
+            savedPlain = plainDraft
             savedSubject = gravado.subject == "(sem assunto)" ? "" : gravado.subject
             if gravado.receivedAt != .distantPast {
                 savedStamp = gravado.receivedAt.formatted(date: .omitted, time: .shortened)
@@ -595,6 +640,49 @@ public struct ComposerWindow: View {
         }
         seeded = true
         rememberSaved()
+    }
+
+    /// Só um metadado escrito pelo próprio salvamento autoriza tirar a
+    /// alternativa textual do rascunho. Procurar “Marcos” no texto e assumir
+    /// que é assinatura transformaria uma frase normal em logo/link ao
+    /// reabrir — perda de conteúdo por heurística.
+    private func restoreSignature(
+        from text: String, metadata: String?
+    ) -> (body: String, offset: Int)? {
+        guard let metadata = ComposerDraftSignatureMetadata.read(from: metadata),
+              metadata.plainText == signature.plainText,
+              metadata.offset >= 0,
+              metadata.offset <= text.count
+        else { return nil }
+
+        let start = text.index(text.startIndex, offsetBy: metadata.offset)
+        let signatureStart = text.index(
+            start,
+            offsetBy: metadata.leadingSeparator.count,
+            limitedBy: text.endIndex
+        )
+        guard let signatureStart,
+              String(text[start..<signatureStart]) == metadata.leadingSeparator,
+              text[signatureStart...].hasPrefix(metadata.plainText)
+        else { return nil }
+        let signatureEnd = text.index(
+            signatureStart,
+            offsetBy: metadata.plainText.count,
+            limitedBy: text.endIndex
+        )
+        guard let signatureEnd,
+              text[signatureEnd...].hasPrefix(metadata.trailingSeparator)
+        else { return nil }
+        let end = text.index(
+            signatureEnd,
+            offsetBy: metadata.trailingSeparator.count,
+            limitedBy: text.endIndex
+        )
+        guard let end else { return nil }
+        return (
+            body: String(text[..<start]) + String(text[end...]),
+            offset: metadata.offset
+        )
     }
 
     // MARK: - Linhas de cabeçalho
@@ -684,6 +772,7 @@ public struct ComposerWindow: View {
                 menuWidth: 340,
                 pool: store.contactPool,
                 chips: $to,
+                typed: $toQuery,
                 seededQuery: seededQuery(.to)
             )
 
@@ -719,6 +808,7 @@ public struct ComposerWindow: View {
             menuWidth: 330,
             pool: store.contactPool,
             chips: chips,
+            typed: slot == .cc ? $ccQuery : $bccQuery,
             seededQuery: seededQuery(slot)
         )
         .padding(.horizontal, 18)
@@ -753,8 +843,6 @@ public struct ComposerWindow: View {
             VStack(alignment: .leading, spacing: 0) {
                 editor(minHeight: 200, placeholder: L10n.tr("Escreva a resposta… selecione o texto para formatar"))
 
-                signatureBlock
-
                 VStack(alignment: .leading, spacing: 12) {
                     ChromeButton(
                         appearance: .outlined, height: 26, horizontalPadding: 11,
@@ -782,10 +870,17 @@ public struct ComposerWindow: View {
 
     /// 06: o editor ocupa toda a altura livre.
     private var newBody: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            editor(minHeight: 0, placeholder: L10n.tr("Escreva a mensagem…"))
-                .frame(maxHeight: .infinity)
-            signatureBlock
+        Group {
+            if signatureInserted, hasSignature {
+                // Com assinatura no meio há dois trechos de texto e um bloco
+                // rico. Um scroll único mantém os três juntos; dois scrolls
+                // internos fariam a assinatura parecer que foi parar no fim.
+                ScrollView {
+                    editor(minHeight: 0, placeholder: L10n.tr("Escreva a mensagem…"))
+                }
+            } else {
+                editor(minHeight: 0, placeholder: L10n.tr("Escreva a mensagem…"))
+            }
         }
         .frame(maxHeight: .infinity)
     }
@@ -794,7 +889,7 @@ public struct ComposerWindow: View {
     private var signatureBlock: some View {
         if signatureInserted, hasSignature {
             ComposerSignatureBlock(signature: signature) {
-                signatureInserted = false
+                removeSignature()
             }
             .padding(.horizontal, 22)
             .padding(.bottom, 16)
@@ -804,7 +899,30 @@ public struct ComposerWindow: View {
 
     /// Protótipo: `padding: 20px 22px; font-size: 16px; line-height: 1.7`,
     /// com o texto-fantasma no mesmo lugar do cursor.
+    @ViewBuilder
     private func editor(minHeight: CGFloat, placeholder: String) -> some View {
+        if signatureInserted, hasSignature {
+            signatureAnchoredEditor(minHeight: minHeight, placeholder: placeholder)
+        } else {
+            editorText(
+                text: $draft,
+                selection: $selection,
+                minHeight: minHeight,
+                placeholder: placeholder,
+                showsPlaceholder: draft.characters.isEmpty,
+                scrolls: minHeight == 0
+            )
+        }
+    }
+
+    private func editorText(
+        text: Binding<AttributedString>,
+        selection: Binding<AttributedTextSelection>,
+        minHeight: CGFloat,
+        placeholder: String,
+        showsPlaceholder: Bool,
+        scrolls: Bool
+    ) -> some View {
         ZStack(alignment: .topLeading) {
             // Fonte, cor, sublinhado, tachado e alinhamento vêm **do texto**,
             // não de modificadores do editor: é isso que faz a barra pegar só
@@ -817,19 +935,19 @@ public struct ComposerWindow: View {
             // `Sendable` e `NSParagraphStyle` não o é. No `NSTextView` os quatro
             // problemas somem de uma vez. Ver `ComposerTextView`.
             ComposerTextView(
-                text: $draft,
-                selection: $selection,
+                text: text,
+                selection: selection,
                 theme: theme,
                 // Protótipo: `padding: 20px 22px`. A folga é do container de
                 // texto, não um `.padding` por fora: clicar na margem tem de
                 // pôr o cursor, e um `.padding` do SwiftUI deixaria essa faixa
                 // morta.
                 insets: CGSize(width: 22, height: 20),
-                scrolls: minHeight == 0
+                scrolls: scrolls
             )
             .frame(minHeight: minHeight, alignment: .top)
 
-            if draft.characters.isEmpty {
+            if showsPlaceholder {
                 Text(placeholder)
                     .font(theme.serif.font(size: 16))
                     .foregroundStyle(theme.ink4.color)
@@ -847,6 +965,186 @@ public struct ComposerWindow: View {
             if novo != (savedSubject ?? "") { savedStamp = nil }
         }
         .onChange(of: to) { _, _ in savedStamp = nil }
+    }
+
+    private func signatureAnchoredEditor(minHeight: CGFloat, placeholder: String) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            editorText(
+                text: signatureTextBinding(.before),
+                selection: signatureSelectionBinding(.before),
+                // A assinatura fica depois da altura desenhada do trecho, não
+                // depois do mínimo de 200pt que a resposta sem assinatura usa.
+                minHeight: signatureText(.before).characters.isEmpty ? 48 : 0,
+                placeholder: placeholder,
+                showsPlaceholder: signatureText(.before).characters.isEmpty,
+                scrolls: false
+            )
+
+            signatureBlock
+
+            // Depois de uma assinatura no meio do texto existe sempre uma área
+            // clicável para continuar escrevendo. Ela é outro `NSTextView`,
+            // mas ambos escrevem no mesmo `draft`; a assinatura em si continua
+            // deliberadamente não editável, como uma tabela/imagem do Mail.
+            editorText(
+                text: signatureTextBinding(.after),
+                selection: signatureSelectionBinding(.after),
+                minHeight: 48,
+                placeholder: "",
+                showsPlaceholder: false,
+                scrolls: false
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private enum SignatureSegment: Equatable { case before, after }
+
+    /// Converte entre os índices opacos de `AttributedString` e o deslocamento
+    /// estável que a âncora guarda. Os dois `NSTextView`s nunca recebem a
+    /// assinatura no seu armazenamento: recebem somente o trecho antes ou
+    /// depois dela.
+    private func characterIndex(_ offset: Int, in text: AttributedString) -> AttributedString.Index {
+        let safe = min(max(0, offset), text.characters.count)
+        return text.characters.index(text.startIndex, offsetBy: safe)
+    }
+
+    private func characterOffset(
+        of index: AttributedString.Index, in text: AttributedString
+    ) -> Int {
+        text.characters.distance(from: text.startIndex, to: index)
+    }
+
+    private func resolvedSignatureOffset(in text: AttributedString) -> Int {
+        min(max(0, signatureOffset ?? text.characters.count), text.characters.count)
+    }
+
+    private func signatureRange(
+        _ segment: SignatureSegment, in text: AttributedString
+    ) -> Range<AttributedString.Index> {
+        let anchor = characterIndex(resolvedSignatureOffset(in: text), in: text)
+        switch segment {
+        case .before: return text.startIndex..<anchor
+        case .after: return anchor..<text.endIndex
+        }
+    }
+
+    private func signatureText(_ segment: SignatureSegment) -> AttributedString {
+        AttributedString(draft[signatureRange(segment, in: draft)])
+    }
+
+    private func signatureTextBinding(_ segment: SignatureSegment) -> Binding<AttributedString> {
+        Binding(
+            get: { signatureText(segment) },
+            set: { replaceSignatureText(segment, with: $0) }
+        )
+    }
+
+    private func replaceSignatureText(_ segment: SignatureSegment, with replacement: AttributedString) {
+        let oldPart = signatureText(segment)
+        let oldSelection = signatureSelection(segment)
+        let localRange = ComposerEditor.ranges(oldSelection, in: oldPart).first
+            ?? oldPart.endIndex..<oldPart.endIndex
+        let localOffset = characterOffset(of: localRange.lowerBound, in: oldPart)
+
+        draft.replaceSubrange(signatureRange(segment, in: draft), with: replacement)
+        if segment == .before {
+            signatureOffset = replacement.characters.count
+        }
+
+        let local = min(localOffset, replacement.characters.count)
+        let base = segment == .before ? 0 : resolvedSignatureOffset(in: draft)
+        selection = AttributedTextSelection(
+            insertionPoint: characterIndex(base + local, in: draft)
+        )
+    }
+
+    private func signatureSelection(_ segment: SignatureSegment) -> AttributedTextSelection {
+        let part = signatureText(segment)
+        let span = signatureRange(segment, in: draft)
+        let segmentStart = characterOffset(of: span.lowerBound, in: draft)
+        let segmentEnd = characterOffset(of: span.upperBound, in: draft)
+        let global = ComposerEditor.ranges(selection, in: draft).first
+            ?? draft.endIndex..<draft.endIndex
+        let lower = characterOffset(of: global.lowerBound, in: draft)
+        let upper = characterOffset(of: global.upperBound, in: draft)
+        let localLower = min(max(lower, segmentStart), segmentEnd) - segmentStart
+        let localUpper = min(max(upper, segmentStart), segmentEnd) - segmentStart
+        let start = characterIndex(localLower, in: part)
+        let end = characterIndex(localUpper, in: part)
+        return start == end
+            ? AttributedTextSelection(insertionPoint: start)
+            : AttributedTextSelection(range: start..<end)
+    }
+
+    private func signatureSelectionBinding(_ segment: SignatureSegment) -> Binding<AttributedTextSelection> {
+        Binding(
+            get: { signatureSelection(segment) },
+            set: { local in
+                let part = signatureText(segment)
+                guard let range = ComposerEditor.ranges(local, in: part).first else { return }
+                let base = segment == .before ? 0 : resolvedSignatureOffset(in: draft)
+                let lower = base + characterOffset(of: range.lowerBound, in: part)
+                let upper = base + characterOffset(of: range.upperBound, in: part)
+                let start = characterIndex(lower, in: draft)
+                let end = characterIndex(upper, in: draft)
+                selection = start == end
+                    ? AttributedTextSelection(insertionPoint: start)
+                    : AttributedTextSelection(range: start..<end)
+            }
+        )
+    }
+
+    private func removeSignature() {
+        guard let signatureOffset else { return }
+        self.signatureOffset = nil
+        selection = AttributedTextSelection(
+            insertionPoint: characterIndex(signatureOffset, in: draft)
+        )
+    }
+
+    private func performComposerCommand(_ command: ComposerCommand) {
+        let oldCount = draft.characters.count
+        let selectionStart = ComposerEditor.ranges(selection, in: draft).first
+            .map { characterOffset(of: $0.lowerBound, in: draft) } ?? oldCount
+        ComposerEditor.perform(command, on: &draft, selection: &selection, theme: theme)
+        preserveSignatureOffset(
+            afterMutationFrom: selectionStart,
+            previousCharacterCount: oldCount
+        )
+    }
+
+    private func applyIntelligence(
+        _ proposal: ComposerIntelligenceProposal
+    ) -> ComposerIntelligenceApplyResult {
+        let oldCount = draft.characters.count
+        let selectionStart = ComposerEditor.ranges(selection, in: draft).first
+            .map { characterOffset(of: $0.lowerBound, in: draft) } ?? oldCount
+        let result = ComposerEditor.apply(
+            proposal, on: &draft, selection: &selection, theme: theme
+        )
+        if result == .applied {
+            preserveSignatureOffset(
+                afterMutationFrom: selectionStart,
+                previousCharacterCount: oldCount
+            )
+        }
+        return result
+    }
+
+    /// Ações da barra também podem inserir caracteres (link/tabela/IA). A
+    /// âncora desloca-se somente quando a mudança ficou antes dela; conteúdo
+    /// depois da assinatura não a puxa de volta para o fim.
+    private func preserveSignatureOffset(
+        afterMutationFrom selectionStart: Int,
+        previousCharacterCount: Int
+    ) {
+        guard let signatureOffset, selectionStart <= signatureOffset else { return }
+        let delta = draft.characters.count - previousCharacterCount
+        self.signatureOffset = min(
+            max(0, signatureOffset + delta),
+            draft.characters.count
+        )
     }
 
     /// O histórico citado da 03. Protótipo: `border-left: 2px solid var(--line);
@@ -902,48 +1200,56 @@ public struct ComposerWindow: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 8) {
-            AttachButton { addAttachment() }
-
-            SignatureButton(enabled: canInsertSignature, reason: signatureHelp) {
-                insertSignature()
+        VStack(alignment: .leading, spacing: 8) {
+            if let error = sendError ?? attachmentError {
+                Text(error)
+                    .font(theme.sans.font(size: 11))
+                    .foregroundStyle(theme.accent.color)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            HStack(spacing: 8) {
+                AttachButton { addAttachment() }
 
-            ChromeButton(
-                appearance: .accent, horizontalPadding: 18,
-                labelSize: nil, action: { send(archiving: false) }
-            ) {
-                HStack(spacing: 8) {
-                    Text(L10n.tr("Enviar"))
-                        .font(theme.sans.font(size: 13, weight: .semibold))
-                    Text("⌘⏎")
-                        .font(theme.mono.font(size: 10))
-                        .opacity(0.75)
+                SignatureButton(enabled: canInsertSignature, reason: signatureHelp) {
+                    insertSignature()
                 }
-            }
-            .keyboardShortcut(.return, modifiers: .command)
 
-            if isReply {
-                ChromeButton(L10n.tr("Enviar e arquivar"), appearance: .outlined, size: 13) {
-                    send(archiving: true)
+                ChromeButton(
+                    appearance: .accent, horizontalPadding: 18,
+                    labelSize: nil, action: { send(archiving: false) }
+                ) {
+                    HStack(spacing: 8) {
+                        Text(L10n.tr("Enviar"))
+                            .font(theme.sans.font(size: 13, weight: .semibold))
+                        Text("⌘⏎")
+                            .font(theme.mono.font(size: 10))
+                            .opacity(0.75)
+                    }
                 }
-            }
+                .keyboardShortcut(.return, modifiers: .command)
 
-            ChromeButton(L10n.tr("Salvar rascunho"), appearance: .outlined) { saveDraft() }
+                if isReply {
+                    ChromeButton(L10n.tr("Enviar e arquivar"), appearance: .outlined, size: 13) {
+                        send(archiving: true)
+                    }
+                }
 
-            // O carimbo de salvamento mora no rodapé nas **duas** janelas. Na
-            // 03 ele ficava no fim da barra de formatação e a quebrava em duas
-            // linhas; ver a nota no topo deste arquivo.
-            Spacer(minLength: 8)
-            Text(DraftMeta.savedLabel(savedStamp))
-                .capsLabel(size: 9.5)
-                .lineLimit(1)
-            Spacer(minLength: 8)
+                ChromeButton(L10n.tr("Salvar rascunho"), appearance: .outlined) { saveDraft() }
 
-            if isReply {
-                ChromeButton(L10n.tr("Voltar ao painel"), appearance: .outlined) { requestLeave() }
-            } else {
-                ChromeButton(L10n.tr("Descartar"), appearance: .outlined) { requestLeave() }
+                // O carimbo de salvamento mora no rodapé nas **duas** janelas. Na
+                // 03 ele ficava no fim da barra de formatação e a quebrava em duas
+                // linhas; ver a nota no topo deste arquivo.
+                Spacer(minLength: 8)
+                Text(DraftMeta.savedLabel(savedStamp))
+                    .capsLabel(size: 9.5)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+
+                if isReply {
+                    ChromeButton(L10n.tr("Voltar ao painel"), appearance: .outlined) { requestLeave() }
+                } else {
+                    ChromeButton(L10n.tr("Descartar"), appearance: .outlined) { requestLeave() }
+                }
             }
         }
         .padding(.horizontal, 18)
@@ -951,15 +1257,6 @@ public struct ComposerWindow: View {
         .padding(.bottom, 14)
         .background(theme.surface2.color)
         .hairline(theme.line2, edges: .top)
-        .overlay(alignment: .topLeading) {
-            if let attachmentError {
-                Text(attachmentError)
-                    .font(theme.sans.font(size: 11))
-                    .foregroundStyle(theme.accent.color)
-                    .padding(.horizontal, 18)
-                    .padding(.top, 4)
-            }
-        }
     }
 
     // MARK: - Ações
@@ -992,12 +1289,13 @@ public struct ComposerWindow: View {
         if !canInsertSignature {
             return L10n.tr("Inserir assinatura — a assinatura desta conta já está incluída")
         }
-        return L10n.tr("Inserir a assinatura de \(account?.host ?? "") abaixo da mensagem")
+        return L10n.tr("Inserir a assinatura de \(account?.host ?? "") no cursor")
     }
 
     @discardableResult
     private func saveDraft() -> Bool {
         guard let account else { return false }
+        guard resolveRecipients() else { return false }
         let texto = plainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         let assunto = subject.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !texto.isEmpty || !assunto.isEmpty || to.contains(where: { !$0.address.isEmpty })
@@ -1007,7 +1305,14 @@ public struct ComposerWindow: View {
             draft,
             theme: theme,
             signature: account.emailSignature,
-            signatureIsInserted: signatureInserted && hasSignature
+            signatureIsInserted: signatureInserted && hasSignature,
+            signatureOffset: signatureOffset
+        )
+        let draftHTML = ComposerDraftSignatureMetadata.inserting(
+            into: outgoingContent.html,
+            offset: signatureOffset,
+            body: plainDraft,
+            signature: signature
         )
         let paragrafos = outgoingContent.plainText
             .components(separatedBy: "\n\n")
@@ -1024,7 +1329,9 @@ public struct ComposerWindow: View {
             receivedAt: agora,
             subject: assunto.isEmpty ? "(sem assunto)" : assunto,
             snippet: paragrafos.first ?? assunto,
-            body: paragrafos,
+            // Preserva espaços e linhas: a posição salva da assinatura usa
+            // exatamente esse texto, inclusive ao reabrir o rascunho.
+            body: [outgoingContent.plainText],
             tags: [],
             bucket: .drafts,
             isRead: true,
@@ -1032,7 +1339,7 @@ public struct ComposerWindow: View {
             detectedEvent: nil,
             to: to.filter { !$0.address.trimmingCharacters(in: .whitespaces).isEmpty },
             cc: cc.filter { !$0.address.trimmingCharacters(in: .whitespaces).isEmpty },
-            bodyHTML: outgoingContent.html ?? "",
+            bodyHTML: draftHTML,
             rfcMessageID: id,
             references: conversa.references,
             threadKey: origem?.id ?? id
@@ -1117,9 +1424,31 @@ public struct ComposerWindow: View {
     ///   fazer a pessoa esperar por algo que o app já se comprometeu a fazer
     ///   sozinho. Falha permanente aparece onde as outras falhas da fila
     ///   aparecem, com "tentar de novo" ao lado.
+    private func resolveRecipients() -> Bool {
+        guard let resolvedTo = ComposerRecipients.resolve(to, typed: toQuery, pool: store.contactPool),
+              let resolvedCC = ComposerRecipients.resolve(cc, typed: ccQuery, pool: store.contactPool),
+              let resolvedBCC = ComposerRecipients.resolve(bcc, typed: bccQuery, pool: store.contactPool)
+        else {
+            sendError = EmailAddress.invalidForDeliveryMessage
+            return false
+        }
+        to = resolvedTo
+        cc = resolvedCC
+        bcc = resolvedBCC
+        toQuery = ""
+        ccQuery = ""
+        bccQuery = ""
+        sendError = nil
+        return true
+    }
+
     private func send(archiving: Bool) {
+        guard resolveRecipients() else { return }
         let recipients = (to + cc + bcc).map(\.address).filter { !$0.isEmpty }
-        guard !recipients.isEmpty else { return }
+        guard !recipients.isEmpty else {
+            sendError = L10n.tr("Enviar — indisponível: escolha pelo menos um destinatário.")
+            return
+        }
         guard let account, store.canSend else {
             UNIWindow.logSend(
                 "Enviaria \"\(subject)\" para [\(recipients.joined(separator: ", "))] "
@@ -1138,7 +1467,8 @@ public struct ComposerWindow: View {
             draft,
             theme: theme,
             signature: account.emailSignature,
-            signatureIsInserted: signatureInserted && hasSignature
+            signatureIsInserted: signatureInserted && hasSignature,
+            signatureOffset: signatureOffset
         )
         let outgoingContent: ComposerOutgoing.Content
         if let original = answeredMessage {
@@ -1167,7 +1497,10 @@ public struct ComposerWindow: View {
         // Não enfileirou? A janela fica aberta com o rascunho inteiro, e o erro
         // já está no `loadError` do store — a pessoa não perde o que escreveu
         // por causa de uma escrita de banco que falhou.
-        guard store.send(mensagem) else { return }
+        guard store.send(mensagem) else {
+            sendError = store.loadError
+            return
+        }
         if let rascunho = draftMessageID {
             store.discardDraft(id: rascunho)
         }
@@ -1175,6 +1508,75 @@ public struct ComposerWindow: View {
             store.move(original, to: .archived)
         }
         dismiss()
+    }
+}
+
+/// Metadado local de rascunho, nunca usado no e-mail enviado. Ele dá à janela
+/// uma prova explícita da assinatura que ela própria materializou, inclusive
+/// para assinaturas HTML compostas só por imagem e sem fallback textual.
+private enum ComposerDraftSignatureMetadata {
+    private static let prefix = "<!--okamiuni-signature:"
+    private static let suffix = "-->"
+
+    struct Value: Equatable {
+        let offset: Int
+        let plainText: String
+        let leadingSeparator: String
+        let trailingSeparator: String
+    }
+
+    static func inserting(
+        into html: String?,
+        offset: Int?,
+        body: String,
+        signature: EmailSignature
+    ) -> String {
+        guard let offset else { return html ?? "" }
+        let position = ComposerOutgoing.positionedSignature(
+            in: body, signature: signature.plainText, at: offset
+        )
+        let marker = prefix
+            + [String(offset), signature.plainText, position.leadingSeparator, position.trailingSeparator]
+                .map { Data($0.utf8).base64EncodedString() }
+                .joined(separator: ":")
+            + suffix
+
+        var document = html ?? "<html><body></body></html>"
+        if let close = document.range(of: "</body>", options: [.caseInsensitive, .backwards]) {
+            document.insert(contentsOf: marker, at: close.lowerBound)
+        } else {
+            document += marker
+        }
+        return document
+    }
+
+    static func read(from html: String?) -> Value? {
+        guard let html,
+              let start = html.range(of: prefix)?.lowerBound,
+              let end = html.range(
+                of: suffix, range: start..<html.endIndex
+              )?.lowerBound
+        else { return nil }
+        let payloadStart = html.index(start, offsetBy: prefix.count)
+        let fields = html[payloadStart..<end].split(separator: ":", omittingEmptySubsequences: false)
+        guard fields.count == 4,
+              let offsetField = decode(String(fields[0])),
+              let offset = Int(offsetField),
+              let plainText = decode(String(fields[1])),
+              let leading = decode(String(fields[2])),
+              let trailing = decode(String(fields[3]))
+        else { return nil }
+        return Value(
+            offset: offset,
+            plainText: plainText,
+            leadingSeparator: leading,
+            trailingSeparator: trailing
+        )
+    }
+
+    private static func decode(_ value: String) -> String? {
+        guard let data = Data(base64Encoded: value) else { return nil }
+        return String(data: data, encoding: .utf8)
     }
 }
 

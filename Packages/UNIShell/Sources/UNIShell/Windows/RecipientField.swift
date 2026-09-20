@@ -77,7 +77,7 @@ struct RecipientField: View {
         }
         .task {
             guard !seeded else { return }
-            if let seededQuery { query = seededQuery }
+            if let seededQuery { queryBinding.wrappedValue = seededQuery }
             seeded = true
         }
     }
@@ -195,8 +195,12 @@ struct RecipientField: View {
     }
 
     private func commitFirst() {
-        guard let first = suggestions.first else { return }
-        add(first)
+        // Um endereço novo não tem sugestão, mas Enter ainda precisa fechá-lo
+        // como etiqueta. Sem isso, o texto ficava no campo e o composer só
+        // via a lista de chips vazia ao enviar.
+        if let typed = ContactDirectory.resolve(typed: queryBinding.wrappedValue, in: pool) {
+            add(typed)
+        }
     }
 
     /// Protótipo: terminar com ";" ou "," fecha a etiqueta ali mesmo.
@@ -204,7 +208,8 @@ struct RecipientField: View {
         guard text.hasSuffix(";") || text.hasSuffix(",") else { return }
         let raw = String(text.dropLast())
         guard let resolved = ContactDirectory.resolve(typed: raw, in: pool) else {
-            queryBinding.wrappedValue = ""
+            // Não apague em silêncio um endereço inválido: mantê-lo visível
+            // permite corrigir o texto antes de enviar.
             return
         }
         add(resolved)

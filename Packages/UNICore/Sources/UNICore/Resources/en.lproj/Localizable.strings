@@ -1621,3 +1621,5 @@
 "A IA cruza pedidos ativos e agenda para sugerir até três ações, com o motivo de cada uma." = "AI reviews active requests and your calendar to suggest up to three actions, with a reason for each.";
 "Analisar meu dia" = "Analyze my day";
 "Reflete a caixa sincronizada" = "Based on the synced inbox";
+"Não foi possível enviar porque há um endereço de e-mail inválido." = "The email could not be sent because an email address is invalid.";
+"Inserir a assinatura de {0} no cursor" = "Insert the signature for {0} at the cursor";

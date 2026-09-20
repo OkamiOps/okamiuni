@@ -1,5 +1,65 @@
 import Foundation
 
+/// Um endereço de caixa de correio que pode atravessar o transporte.
+///
+/// A leitura de mensagens é necessariamente tolerante: cabeçalhos antigos e
+/// servidores malformados continuam úteis como texto. Já o caminho de saída
+/// não pode ser tolerante. Um caractere de nome que escapou para o domínio faz
+/// o SMTP tentar resolver algo como `empresa.com\")(`, exatamente o tipo de
+/// falha que parece DNS mas nasceu no cliente.
+public enum EmailAddress {
+    public static var invalidForDeliveryMessage: String {
+        L10n.tr("Não foi possível enviar porque há um endereço de e-mail inválido.")
+    }
+
+    /// Aceita uma única caixa ASCII que o SMTP comum consegue entregar e
+    /// devolve-a sem os espaços externos. Não tenta validar se o domínio
+    /// existe: essa é uma pergunta de DNS do servidor, não do editor.
+    public static func normalized(_ raw: String) -> String? {
+        // Não faça trim antes desta barreira: CRLF no fim não é um espaço
+        // inocente, é um potencial separador de comando/cabeçalho.
+        guard !raw.unicodeScalars.contains(where: { $0.value == 0 || $0.value == 10 || $0.value == 13 })
+        else { return nil }
+
+        let candidate = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !candidate.isEmpty,
+              candidate.utf8.count <= 254,
+              !candidate.unicodeScalars.contains(where: { $0.properties.isWhitespace || !$0.isASCII })
+        else { return nil }
+
+        let parts = candidate.split(separator: "@", omittingEmptySubsequences: false)
+        guard parts.count == 2 else { return nil }
+        let local = String(parts[0])
+        let domain = String(parts[1])
+        guard local.utf8.count <= 64,
+              validLocalPart(local),
+              validDomain(domain)
+        else { return nil }
+        return candidate
+    }
+
+    private static func validLocalPart(_ local: String) -> Bool {
+        guard !local.isEmpty, !local.hasPrefix("."), !local.hasSuffix("."), !local.contains("..") else { return false }
+        let allowed = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.!#$%&'*+/=?^_`{|}~-".unicodeScalars)
+        return local.unicodeScalars.allSatisfy { allowed.contains($0) }
+    }
+
+    private static func validDomain(_ domain: String) -> Bool {
+        let labels = domain.split(separator: ".", omittingEmptySubsequences: false)
+        guard !labels.isEmpty else { return false }
+        for label in labels {
+            guard !label.isEmpty, label.utf8.count <= 63,
+                  let first = label.first, let last = label.last,
+                  first.isASCII && (first.isLetter || first.isNumber),
+                  last.isASCII && (last.isLetter || last.isNumber),
+                  label.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") })
+            else { return false }
+        }
+        return true
+    }
+
+}
+
 /// Um endereço de uma mensagem que **vai sair**.
 ///
 /// Não é `Contact` por uma razão só: `Contact` é do desenho (ele tem
@@ -20,6 +80,10 @@ public struct OutgoingAddress: Codable, Sendable, Hashable {
     public init(_ contact: Contact) {
         self.init(name: contact.name, address: contact.address)
     }
+
+    /// O endereço normalizado quando é seguro entregar; nulo para lixo de
+    /// cabeçalho que nunca pode chegar a `RCPT TO`.
+    public var validatedAddress: String? { EmailAddress.normalized(address) }
 }
 
 /// A mensagem que a janela do composer entregou para sair.
@@ -135,8 +199,17 @@ public struct OutgoingMessage: Codable, Sendable, Hashable {
     /// cópia oculta entra nela mesmo não entrando em cabeçalho nenhum.
     public var recipients: [String] {
         var vistos = Set<String>()
-        return (to + cc + bcc).map(\.address)
-            .filter { !$0.isEmpty && vistos.insert($0.lowercased()).inserted }
+        return (to + cc + bcc).compactMap(\.validatedAddress)
+            .filter { vistos.insert($0.lowercased()).inserted }
+    }
+
+    /// A fila e os espelhos chamam esta barreira antes de qualquer SMTP ou
+    /// Gmail API. Ela também protege linhas antigas do outbox, que foram
+    /// gravadas antes da validação existir.
+    public var isValidForDelivery: Bool {
+        guard from.validatedAddress != nil else { return false }
+        let allRecipients = to + cc + bcc
+        return !allRecipients.isEmpty && allRecipients.allSatisfy { $0.validatedAddress != nil }
     }
 
     /// Um `Message-ID` novo para uma mensagem que está nascendo.

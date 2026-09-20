@@ -335,6 +335,27 @@ struct SendTests {
         #expect(restantes == 0)
     }
 
+    @Test("Endereço corrompido não entra na fila nem chama provedor")
+    func enderecoCorrompidoNaoEnfileiraNemEnvia() async throws {
+        let corrompida = mensagem(
+            to: [OutgoingAddress(name: "Favini", address: "favini@vantion.com.br\")(\"Ben-Hur")]
+        )
+        let db = try banco()
+        do {
+            try DatabaseCommandPort(database: db).send(corrompida)
+            Issue.record("A porta aceitou um destinatário corrompido.")
+        } catch let error as SyncError {
+            #expect(error == .recusado(EmailAddress.invalidForDeliveryMessage))
+        }
+        #expect(try await db.pool.read { try OutboxRecord.fetchCount($0) } == 0)
+
+        let (espelho, sessao) = gmail(routes: [:])
+        await #expect(throws: SyncError.self) {
+            try await espelho.apply(.send(message: corrompida), targets: [])
+        }
+        #expect(StubURLProtocol.requests(for: sessao).isEmpty)
+    }
+
     /// O executor com o relógio adiantado que estes testes usam — a porta
     /// carimba com o relógio de verdade, e um "agora" no passado deixaria a
     /// linha eternamente no futuro para o `drain`.

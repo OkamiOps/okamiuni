@@ -137,9 +137,8 @@ extension MimeBody {
         // mesma marcação sem os `=3D`, e o leitor continuava desenhando fonte.
         // É a tela "Zoho Workplace — Informações alteradas" da M3-21.
         //
-        // Só um prefixo é desfeito: a pergunta é sobre o **começo** do corpo, e
-        // decodificar cem kB para olhar os primeiros cem caracteres seria pagar
-        // a decodificação duas vezes em toda mensagem do banco.
+        // Só um prefixo limitado é desfeito; inclui CSS inicial quando o
+        // remetente envia um fragmento em vez de um documento completo.
         if pareceQuotedPrintable(texto), pareceHTMLCru(semQuotedPrintable(texto)) {
             return .htmlCru
         }
@@ -170,13 +169,17 @@ extension MimeBody {
 
     /// Um prefixo do corpo com o quoted-printable desfeito, para farejar.
     ///
-    /// Só o prefixo, e de propósito: quem pergunta é `pareceHTMLCru`, e a
-    /// pergunta dele é sobre os primeiros caracteres. A folga de 512 cabe o
-    /// `DOCTYPE` mais comprido que existe (o XHTML Transitional tem 109) com o
-    /// prólogo XML e um comentário na frente.
+    /// O prefixo inclui a folha de estilo inicial de newsletters: precisamos
+    /// ver também o bloco de conteúdo que a segue para reconhecer o fragmento.
+    /// O teto mantém a sondagem limitada mesmo sobre mensagens muito grandes.
     private static func semQuotedPrintable(_ texto: String) -> String {
-        string(
+        let cabeca = string(
             de: quotedPrintable(String(texto.prefix(512)), sublinhadoEhEspaco: false),
+            charset: .utf8
+        )
+        guard abreTag("style", em: semPrologoHTML(Substring(cabeca))) else { return cabeca }
+        return string(
+            de: quotedPrintable(String(texto.prefix(MimeSanitize.tetoDoHTML)), sublinhadoEhEspaco: false),
             charset: .utf8
         )
     }
@@ -199,7 +202,33 @@ extension MimeBody {
     /// do Zoho é tão documento quanto o `<!doctype html>` do HTML5, e o espaço
     /// entre `<!doctype` e `html` pode ser mais de um.
     private static func pareceHTMLCru(_ texto: String) -> Bool {
-        var inicio = Substring(texto).drop { $0.isWhitespace }
+        let inicio = semPrologoHTML(Substring(texto))
+        let cabeca = inicio.prefix(120).lowercased()
+        if ["html", "head", "body"].contains(where: { abreTag($0, em: inicio) }) { return true }
+        // Alguns geradores enviam só `<style>…</style><table>…</table>`.
+        // Exigir o estilo fechado seguido de um bloco HTML fechado evita
+        // converter explicações sobre CSS em páginas e apagar a prosa.
+        if abreTag("style", em: inicio) {
+            var resto = inicio
+            while abreTag("style", em: resto) {
+                guard let fim = resto.range(of: "</style\\s*>", options: [.regularExpression, .caseInsensitive])
+                else { return false }
+                resto = semPrologoHTML(resto[fim.upperBound...])
+            }
+            return [
+                "html", "body", "table", "div", "p", "section", "article", "center",
+                "main", "header", "footer", "ul", "ol", "tbody", "tr", "td", "span",
+            ].contains { tag in
+                abreTag(tag, em: resto)
+                    && resto.range(of: "</\(tag)\\s*>", options: [.regularExpression, .caseInsensitive]) != nil
+            }
+        }
+        guard cabeca.hasPrefix("<!doctype") else { return false }
+        return cabeca.dropFirst("<!doctype".count).drop { $0.isWhitespace }.hasPrefix("html")
+    }
+
+    private static func semPrologoHTML(_ texto: Substring) -> Substring {
+        var inicio = texto.drop { $0.isWhitespace }
         // Comentário e prólogo na frente ainda são "a página começa aqui".
         var pulou = true
         while pulou {
@@ -213,10 +242,15 @@ extension MimeBody {
                 pulou = true
             }
         }
-        let cabeca = inicio.prefix(120).lowercased()
-        if ["<html", "<head", "<body"].contains(where: cabeca.hasPrefix) { return true }
-        guard cabeca.hasPrefix("<!doctype") else { return false }
-        return cabeca.dropFirst("<!doctype".count).drop { $0.isWhitespace }.hasPrefix("html")
+        return inicio
+    }
+
+    private static func abreTag(_ nome: String, em texto: Substring) -> Bool {
+        let prefixo = "<" + nome
+        guard texto.prefix(prefixo.count).lowercased() == prefixo,
+              texto.count > prefixo.count else { return false }
+        let proximo = texto[texto.index(texto.startIndex, offsetBy: prefixo.count)]
+        return proximo == ">" || proximo.isWhitespace
     }
 
     /// Uma quebra suave (`=` sozinho no fim da linha) ou dois escapes `=XX`.

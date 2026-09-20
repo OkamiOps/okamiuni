@@ -26,6 +26,61 @@ private let zohoDoDono = """
 @Suite("O fonte de QP que escapava da sondagem")
 struct RawHTMLSniffTests {
 
+    static let fragmentoComEstilo = """
+        <style>
+        .alert-about-link { font-size: 11px; padding-top: 10px; }
+        @media (max-width: 620px) { .footer { width: 100% !important; } }
+        </style>
+        <table><tr><td><p>Boleto para pagamento.</p></td></tr></table>
+        """
+
+    @Test("Fragmento iniciado por style vira HTML e não despeja CSS no texto")
+    func fragmentoComCSS() throws {
+        let corpo = MimeBody.decode(raw: Self.fragmentoComEstilo)
+        #expect(try #require(corpo.html).contains("<table>"))
+        #expect(corpo.paragraphs == ["Boleto para pagamento."])
+    }
+
+    @Test("Fragmento com style sobrevive ao quoted-printable e ao cache antigo")
+    func fragmentoComCSSCodificado() throws {
+        let cru = Self.fragmentoComEstilo.replacingOccurrences(
+            of: "<style>", with: "<sty=\nle>" + String(repeating: ".footer { padding: 10px; }\n", count: 60)
+        )
+        let corpo = try #require(MimeBody.redecodedBody([cru]))
+        #expect(corpo.html?.contains("<table>") == true)
+        #expect(corpo.paragraphs == ["Boleto para pagamento."])
+    }
+
+    @Test("Comentários de Outlook e center após CSS não escondem o fragmento")
+    func fragmentoComComentarios() throws {
+        let cru = Self.fragmentoComEstilo
+            .replacingOccurrences(of: "<table>", with: "<!--[if mso]>layout<![endif]--><center><table>")
+            .replacingOccurrences(of: "</table>", with: "</table></center>")
+        #expect(try #require(MimeBody.decode(raw: cru).html).contains("<center>"))
+        #expect(MimeBody.redecodedBody([cru])?.paragraphs == ["Boleto para pagamento."])
+    }
+
+    @Test("Fragmento QP longo é reconhecido até o limite aceito pelo leitor")
+    func fragmentoLongo() throws {
+        let cru = Self.fragmentoComEstilo.replacingOccurrences(
+            of: "<style>", with: "<sty=\nle>/*" + String(repeating: "x", count: 70_000) + "*/"
+        )
+        #expect(try #require(MimeBody.redecodedBody([cru])).paragraphs == ["Boleto para pagamento."])
+    }
+
+    @Test("Trecho de CSS citado sem estrutura de email continua texto")
+    func cssCitado() {
+        for texto in [
+            "<style> define as cores do template, veja abaixo.",
+            "<style>.footer { width: 100%; }</style>\nEsse é o estilo que precisamos revisar.",
+            "<stylesheet>Exemplo</stylesheet>",
+            "<header>Este elemento é citado no manual.</header>",
+        ] {
+            #expect(MimeBody.decode(raw: texto).html == nil)
+            #expect(MimeBody.redecodedBody([texto]) == nil)
+        }
+    }
+
     // MARK: A porta da decodificação ao vivo
 
     @Test("Sem cabeçalho nenhum, o fonte do dono ainda vira mensagem")

@@ -251,6 +251,22 @@ struct ImapFetchTests {
         #expect(fetch.to == "Ricardo <ricardo@empresa.com>")
     }
 
+    @Test("Dois mailboxes adjacentes no ENVELOPE não colam o host ao nome seguinte")
+    func mailboxesAdjacentesSemEspaco() throws {
+        // O RFC permite os grupos de uma address-list encostados. Antes, o
+        // parser só separava itens no espaço em profundidade zero: o primeiro
+        // domínio saía como `vantion.com.br\")(\"Ben-Hur` e uma resposta
+        // tentava resolver esse texto como DNS.
+        let linha = "1 FETCH (UID 9001 ENVELOPE (NIL \"Assunto\" "
+            + "((\"Favini\" NIL \"favini\" \"vantion.com.br\")(\"Ben-Hur\" NIL \"ben-hur\" \"vantion.com.br\")) "
+            + "NIL NIL NIL NIL NIL NIL NIL))"
+        guard case .fetch(let fetch) = try ImapResponseAdapter.untagged(fromLogicalLine: linha) else {
+            Issue.record("Esperava um `.fetch`.")
+            return
+        }
+        #expect(fetch.from == "Favini <favini@vantion.com.br>, Ben-Hur <ben-hur@vantion.com.br>")
+    }
+
     @Test("`{4}` no meio da linha, sem CRLF, é texto — e não cabeçalho de literal")
     func chavesSemCRLFNaoSaoLiteral() throws {
         // Um assunto pode conter `{4}`: é texto de outra pessoa. Sem exigir o

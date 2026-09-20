@@ -152,6 +152,22 @@ struct OutgoingMimeTests {
             == "so@angulos.com")
     }
 
+    @Test("Cabeçalho nunca serializa endereço que o transporte recusaria")
+    func enderecoCorrompidoFicaForaDoMime() {
+        let lista = OutgoingMime.addressList([
+            OutgoingAddress(name: "Favini", address: "favini@vantion.com.br\")(\"Ben-Hur"),
+            OutgoingAddress(name: "Marina", address: "marina@cliente.com"),
+        ])
+        #expect(lista == "Marina <marina@cliente.com>")
+
+        let texto = OutgoingMime.compose(
+            mensagem(to: [OutgoingAddress(name: "Favini", address: "favini@vantion.com.br\")(\"Ben-Hur")]),
+            date: quando, includeBcc: false
+        )
+        #expect(!texto.contains("favini@vantion.com.br"))
+        #expect(!texto.contains("To:"))
+    }
+
     @Test("A resposta carrega In-Reply-To e References")
     func resposta() {
         let texto = OutgoingMime.compose(

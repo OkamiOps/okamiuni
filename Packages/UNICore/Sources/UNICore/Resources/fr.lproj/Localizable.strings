@@ -1621,3 +1621,5 @@
 "A IA cruza pedidos ativos e agenda para sugerir até três ações, com o motivo de cada uma." = "L’IA examine les demandes actives et votre agenda pour suggérer jusqu’à trois actions, chacune justifiée.";
 "Analisar meu dia" = "Analyser ma journée";
 "Reflete a caixa sincronizada" = "Basé sur la boîte synchronisée";
+"Não foi possível enviar porque há um endereço de e-mail inválido." = "L’e-mail n’a pas pu être envoyé car une adresse e-mail est invalide.";
+"Inserir a assinatura de {0} no cursor" = "Insérer la signature de {0} à la position du curseur";

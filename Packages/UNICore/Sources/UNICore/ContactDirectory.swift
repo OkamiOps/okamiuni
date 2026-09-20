@@ -58,11 +58,13 @@ public enum ContactDirectory {
         )
 
         func touch(_ contact: Contact, at date: Date) {
-            guard !contact.address.isEmpty, !excluded.contains(contact.id) else { return }
-            let key = contact.id
+            guard let safeAddress = EmailAddress.normalized(contact.address),
+                  !excluded.contains(safeAddress.lowercased())
+            else { return }
+            let key = safeAddress.lowercased()
             if seen.insert(key).inserted {
                 order.append(key)
-                address[key] = contact.address
+                address[key] = safeAddress
             }
             frequency[key, default: 0] += 1
             if let atual = latest[key] {
@@ -147,7 +149,14 @@ public enum ContactDirectory {
         in pool: [DirectoryContact]
     ) -> [DirectoryContact] {
         let taken = Set(chosen.map { $0.address.lowercased() })
-        let available = pool.filter { !taken.contains($0.address.lowercased()) }
+        let available = pool.compactMap { contact -> DirectoryContact? in
+            guard let address = EmailAddress.normalized(contact.address),
+                  !taken.contains(address.lowercased())
+            else { return nil }
+            return DirectoryContact(
+                name: contact.name, address: address, org: contact.org, frequency: contact.frequency
+            )
+        }
         let term = query.trimmingCharacters(in: .whitespaces)
 
         let matched: [DirectoryContact]
@@ -166,7 +175,22 @@ public enum ContactDirectory {
     public static func resolve(typed raw: String, in pool: [DirectoryContact]) -> DirectoryContact? {
         let term = raw.trimmingCharacters(in: .whitespaces)
         guard !term.isEmpty else { return nil }
-        return pool.first { matches($0, query: term) } ?? .typed(term)
+        // Um endereço completo é uma escolha explícita. Uma sugestão como
+        // pessoa@example.com.br não pode substituir pessoa@example.com.
+        if let address = EmailAddress.normalized(term) {
+            if let exact = pool.first(where: { $0.address.lowercased() == address.lowercased() }) {
+                return DirectoryContact(name: exact.name, address: address, org: exact.org, frequency: exact.frequency)
+            }
+            return .typed(address)
+        }
+        guard !term.contains("@") else { return nil }
+        if let matched = pool.first(where: { matches($0, query: term) }),
+           let address = EmailAddress.normalized(matched.address) {
+            return DirectoryContact(
+                name: matched.name, address: address, org: matched.org, frequency: matched.frequency
+            )
+        }
+        return nil
     }
 }
 

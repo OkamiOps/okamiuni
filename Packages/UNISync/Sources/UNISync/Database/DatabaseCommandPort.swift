@@ -201,6 +201,12 @@ public struct DatabaseCommandPort: MailCommandPort, MailSendPort, MailDraftPort,
     /// falha de fila que as outras operações já mostram, com "tentar de novo"
     /// ao lado.
     public func send(_ message: OutgoingMessage) throws {
+        guard message.isValidForDelivery else {
+            // A fila persiste entre versões. Recusar aqui também impede que
+            // uma linha antiga, vinda do parser IMAP que antes colava duas
+            // mailboxes, pare na rede tentando resolver um "domínio" inválido.
+            throw SyncError.recusado(EmailAddress.invalidForDeliveryMessage)
+        }
         try database.pool.write { db in
             try Self.enfileira(db, accountID: message.accountID, operation: .send(message: message))
         }

@@ -17,6 +17,47 @@ enum ComposerOutgoing {
         let inlineResources: [InlineSignatureResource]
     }
 
+    struct PositionedSignature: Equatable {
+        let plainText: String
+        let leadingSeparator: String
+        let trailingSeparator: String
+    }
+
+    /// A assinatura é um bloco, inclusive na alternativa texto. A posição é o
+    /// cursor original, mas o conteúdo não pode sair como “antesASSINATURAdepois”.
+    /// Os separadores retornam para a persistência do rascunho poder retirar
+    /// exatamente o que foi acrescentado, sem adivinhar pelo nome da pessoa.
+    static func positionedSignature(
+        in body: String, signature: String, at requestedOffset: Int
+    ) -> PositionedSignature {
+        let offset = min(max(0, requestedOffset), body.count)
+        let index = body.index(body.startIndex, offsetBy: offset)
+        let before = String(body[..<index])
+        let after = String(body[index...])
+        guard !signature.isEmpty else {
+            return PositionedSignature(
+                plainText: body, leadingSeparator: "", trailingSeparator: ""
+            )
+        }
+        let leading: String
+        if before.isEmpty || before.hasSuffix("\n\n") {
+            leading = ""
+        } else {
+            leading = before.hasSuffix("\n") ? "\n" : "\n\n"
+        }
+        let trailing: String
+        if after.isEmpty || after.hasPrefix("\n\n") {
+            trailing = ""
+        } else {
+            trailing = after.hasPrefix("\n") ? "\n" : "\n\n"
+        }
+        return PositionedSignature(
+            plainText: before + leading + signature + trailing + after,
+            leadingSeparator: leading,
+            trailingSeparator: trailing
+        )
+    }
+
     /// O rascunho tem alguma formatação, ou é texto e nada mais?
     ///
     /// A pergunta decide se a mensagem sai como `text/plain` simples ou como
@@ -94,6 +135,7 @@ enum ComposerOutgoing {
             theme: theme,
             signature: signature,
             signatureIsInserted: true,
+            signatureOffset: nil,
             legacyPlainText: plain,
             legacySignatureHTML: signatureHTML
         )
@@ -112,13 +154,15 @@ enum ComposerOutgoing {
         _ text: AttributedString,
         theme: Theme,
         signature: EmailSignature,
-        signatureIsInserted: Bool
+        signatureIsInserted: Bool,
+        signatureOffset: Int? = nil
     ) -> Content {
         content(
             text,
             theme: theme,
             signature: signature,
             signatureIsInserted: signatureIsInserted,
+            signatureOffset: signatureOffset,
             legacyPlainText: nil,
             legacySignatureHTML: nil
         )
@@ -130,6 +174,7 @@ enum ComposerOutgoing {
         theme: Theme,
         signature: EmailSignature,
         signatureIsInserted: Bool,
+        signatureOffset: Int?,
         legacyPlainText: String?,
         legacySignatureHTML: String?
     ) -> Content {
@@ -143,6 +188,20 @@ enum ComposerOutgoing {
                 plainText: legacyPlainText ?? bodyPlain,
                 html: html(text, theme: theme),
                 inlineResources: []
+            )
+        }
+
+        // A janela inteira mantém a assinatura rica como um bloco não
+        // editável, entre os dois trechos do corpo. A posição é um
+        // deslocamento no texto real — não há caractere sentinela no rascunho
+        // que possa chegar à IA, ao contador ou ao servidor. Aqui criamos uma
+        // âncora efêmera somente na cópia que o TextKit exporta para HTML.
+        if let signatureOffset {
+            return content(
+                text,
+                theme: theme,
+                signature: signature,
+                at: signatureOffset
             )
         }
 
@@ -177,6 +236,52 @@ enum ComposerOutgoing {
                 needsSeparator: !bodyPlain.isEmpty
             ),
             inlineResources: signature.inlineResources
+        )
+    }
+
+    /// Materializa uma assinatura que ocupa uma posição explícita no composer.
+    /// O texto antes e depois continua com a própria formatação, e o HTML/CID
+    /// da assinatura entra entre os dois na mesma ordem que a pessoa vê.
+    @MainActor
+    private static func content(
+        _ text: AttributedString,
+        theme: Theme,
+        signature: EmailSignature,
+        at requestedOffset: Int
+    ) -> Content {
+        let count = text.characters.count
+        let offset = min(max(0, requestedOffset), count)
+        let insertion = text.characters.index(text.startIndex, offsetBy: offset)
+        let plain = String(text.characters)
+        let positioned = positionedSignature(
+            in: plain, signature: signature.plainText, at: offset
+        )
+
+        let existingHTML = html(text, theme: theme)
+        guard signature.html != nil || existingHTML != nil else {
+            return Content(plainText: positioned.plainText, html: nil, inlineResources: [])
+        }
+
+        // O token nasce só nesta cópia para preservar o documento HTML inteiro
+        // produzido pelo AppKit, inclusive a folha de estilos de tabela.
+        // UUID elimina a chance de texto digitado ser confundido com a âncora;
+        // ele nunca volta ao AttributedString nem ao resultado.
+        let token = "okamiuni-signature-anchor-\(UUID().uuidString.lowercased())"
+        var anchored = text
+        anchored.replaceSubrange(insertion..<insertion, with: AttributedString(token))
+        let document = html(anchored, theme: theme)
+            ?? htmlDocument(forPlainText: String(anchored.characters))
+        let fragment = signature.html.map { htmlFragment($0) }
+            ?? htmlFragment(htmlDocument(forPlainText: signature.plainText))
+        let spacedFragment = htmlBreaks(for: positioned.leadingSeparator)
+            + fragment
+            + htmlBreaks(for: positioned.trailingSeparator)
+        let replaced = replacingSignatureAnchor(token, with: spacedFragment, in: document)
+
+        return Content(
+            plainText: positioned.plainText,
+            html: replaced,
+            inlineResources: signature.html == nil ? [] : signature.inlineResources
         )
     }
 
@@ -279,6 +384,16 @@ enum ComposerOutgoing {
               openEnd.upperBound <= bodyClose.lowerBound
         else { return html }
         return String(html[openEnd.upperBound..<bodyClose.lowerBound])
+    }
+
+    private static func replacingSignatureAnchor(
+        _ token: String, with signature: String, in document: String
+    ) -> String {
+        document.replacingOccurrences(of: token, with: signature)
+    }
+
+    private static func htmlBreaks(for separator: String) -> String {
+        String(repeating: "<br>", count: separator.filter { $0 == "\n" }.count)
     }
 
     private static func insertingSignatureHTML(

@@ -1621,3 +1621,5 @@
 "A IA cruza pedidos ativos e agenda para sugerir até três ações, com o motivo de cada uma." = "A IA cruza pedidos ativos e agenda para sugerir até três ações, com o motivo de cada uma.";
 "Analisar meu dia" = "Analisar meu dia";
 "Reflete a caixa sincronizada" = "Reflete a caixa sincronizada";
+"Não foi possível enviar porque há um endereço de e-mail inválido." = "Não foi possível enviar porque há um endereço de e-mail inválido.";
+"Inserir a assinatura de {0} no cursor" = "Inserir a assinatura de {0} no cursor";

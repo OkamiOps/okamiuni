@@ -70,6 +70,26 @@ struct ContactDirectoryTests {
 
         #expect(ContactDirectory.resolve(typed: "   ", in: shuffledPool) == nil)
     }
+
+    @Test("Endereço malformado não vira etiqueta nem sugestão")
+    func rejeitaEnderecoMalformado() {
+        let corrompido = "favini@vantion.com.br\")(\"Ben-Hur"
+        #expect(ContactDirectory.resolve(typed: corrompido, in: shuffledPool) == nil)
+        #expect(ContactDirectory.resolve(typed: "@vantion.com.br", in: shuffledPool) == nil)
+        #expect(
+            ContactDirectory.suggestions(
+                matching: "", excluding: [],
+                in: [DirectoryContact(name: "Corrompido", address: corrompido, org: "", frequency: 1)]
+            ).isEmpty
+        )
+    }
+
+    @Test("Email digitado completo prevalece sobre sugestão com domínio parecido")
+    func preservaEnderecoDigitado() {
+        let pool = [DirectoryContact(name: "Contato", address: "pessoa@example.com.br", org: "", frequency: 1)]
+        #expect(ContactDirectory.resolve(typed: "pessoa@example.com", in: pool)?.address == "pessoa@example.com")
+        #expect(ContactDirectory.resolve(typed: "pessoa@", in: pool) == nil)
+    }
 }
 
 @Suite("Rótulos do rascunho")

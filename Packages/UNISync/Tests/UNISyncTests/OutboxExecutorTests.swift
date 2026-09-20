@@ -434,6 +434,39 @@ struct OutboxExecutorTests {
         #expect(resultado.pendentes == 2)
     }
 
+    @Test("Sem linha falhada gravada, a fila continua consumindo")
+    func semParadaGravadaNaoBloqueiaAFila() async throws {
+        let db = try banco()
+        let espelho = EspelhoFalso()
+        try enfileira(db, .delete(messageIDs: [idIMAP(1)]), criadaEm: 10)
+
+        let resultado = await executor(db, espelho).drain()
+
+        #expect(resultado.falhaPermanente == nil)
+        #expect(resultado.executadas == 1)
+        #expect(await espelho.operacoes == [.delete(messageIDs: [idIMAP(1)])])
+    }
+
+    @Test("Uma falha antiga sem causa gravada continua parando a fila")
+    func paradaLegadaSemCausaContinuaVisivel() async throws {
+        let db = try banco()
+        let parada = try enfileira(db, .delete(messageIDs: [idIMAP(1)]), criadaEm: 10)
+        try enfileira(db, .delete(messageIDs: [idIMAP(2)]), criadaEm: 20)
+        try await db.pool.write { conexao in
+            try conexao.execute(
+                sql: "UPDATE outbox SET state = ?, lastError = NULL WHERE id = ?",
+                arguments: [OutboxState.falhou.rawValue, parada]
+            )
+        }
+
+        let espelho = EspelhoFalso()
+        let resultado = await executor(db, espelho).drain()
+
+        #expect(resultado.falhaPermanente == .resposta("Uma operação da fila não pôde ser concluída."))
+        #expect(await espelho.chamadas.isEmpty)
+        #expect(resultado.pendentes == 2)
+    }
+
     // MARK: - A fila não engole ação nenhuma
 
     @Test("Ler, não-ler e ler de novo: o servidor termina LIDA")
