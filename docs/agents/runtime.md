@@ -91,7 +91,11 @@ de emails da pessoa. Os testes reais cobrem o caminho nativo e ACP → MCP →
 rascunho salvo → leitura no SQLite. Esses testes executam fora do App Sandbox.
 A execução do adaptador e o acesso à autenticação a partir do aplicativo Release
 sandboxed ainda exigem validação na sessão instalada; o teste de protocolo não
-comprova essas permissões do macOS.
+comprova essas permissões do macOS. A configuração externa usada na prova
+(Node em `~/.nvm`, adaptador no repositório e sessão em `~/.codex`) não recebe
+acesso por um caminho digitado em Ajustes. ACP ainda precisa de runtime
+autorizado e autenticação dentro do container para ser considerado pronto no
+Release; esta integração de distribuição permanece pendente.
 
 A2A depende da escolha de um agente parceiro e de uma tarefa concreta; não há
 uma integração A2A ativa nesta entrega. Edição completa de eventos e leitura
