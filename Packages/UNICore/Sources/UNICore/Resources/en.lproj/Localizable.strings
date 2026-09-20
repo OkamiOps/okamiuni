@@ -491,6 +491,8 @@
 "Enviar para {0}?" = "Send to {0}?";
 "Enviar pergunta" = "Send question";
 "Enviar por um alias" = "Send from an alias";
+"Enviar — indisponível: a fila de saída não está disponível." = "Send — unavailable: the outgoing queue is unavailable.";
+"Enviar — indisponível: escolha uma conta para enviar." = "Send — unavailable: choose an account to send from.";
 "Enviar — indisponível: escolha pelo menos um destinatário." = "Send — unavailable: choose at least one recipient.";
 "Enviar — indisponível: escreva uma resposta ou anexe um arquivo." = "Send — unavailable: write a reply or attach a file.";
 "Equilibrado" = "Balanced";
@@ -869,6 +871,7 @@
 "Não foi possível falar com o provedor de IA. Verifique a conexão e o endpoint." = "Could not reach the AI provider. Check the connection and endpoint.";
 "Não foi possível falar com o provedor de IA. Verifique a conexão e tente novamente." = "Could not reach the AI provider. Check your connection and try again.";
 "Não foi possível falar com o servidor: {0}. Verifique a conexão e tente de novo." = "Could not reach the server: {0}. Check your connection and try again.";
+"Não foi possível colocar esta mensagem na fila de saída." = "Could not add this message to the outgoing queue.";
 "Não foi possível gravar o padrão." = "Could not save the default.";
 "Não foi possível gravar." = "Could not save.";
 "Não foi possível guardar o segredo no Keychain (código {0})." = "Could not store the secret in Keychain (code {0}).";

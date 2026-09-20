@@ -99,6 +99,10 @@ public struct ComposerWindow: View {
     @State private var savedFingerprint = DraftFingerprint()
     @State private var hasBaseline = false
     @State private var closeController = ComposerCloseController()
+    /// Depois que a fila aceitou esta mensagem, o compositor já está a
+    /// caminho de fechar. Ignorar uma segunda ação evita enfileirar a mesma
+    /// mensagem duas vezes enquanto o AppKit desmonta a janela.
+    @State private var sendAccepted = false
     /// A assinatura rica é um bloco não editável entre dois trechos do corpo.
     /// O inteiro é um deslocamento de caracteres em `draft`, que **não**
     /// contém a assinatura; dessa forma nenhuma âncora invisível vaza para
@@ -140,6 +144,10 @@ public struct ComposerWindow: View {
     let debugSend: Bool
     /// Porta do harness: aperta **Salvar rascunho** no primeiro passe.
     let debugSaveDraft: Bool
+    /// Quantas vezes a porta de verificação tenta enviar. O app sempre usa
+    /// uma ação por clique; o harness usa mais de uma para provar que a
+    /// guarda contra duplicidade fica no fluxo real, não no teste.
+    let debugSendAttempts: Int
     /// Porta do harness: abre o aviso de sair com o cartão já visível.
     let debugLeaveConfirm: Bool
     /// Porta injetável: o app usa o seletor nativo, e o harness pode escolher
@@ -173,6 +181,7 @@ public struct ComposerWindow: View {
         self.debugSignatureSelection = nil
         self.debugSend = false
         self.debugSaveDraft = false
+        self.debugSendAttempts = 0
         self.debugLeaveConfirm = false
         self.attachmentSelector = NativeAttachmentSelector()
         if case .draft(let id) = mode { _draftMessageID = State(initialValue: id) }
@@ -187,6 +196,7 @@ public struct ComposerWindow: View {
         debugSignatureOffset: Int? = nil,
         debugSignatureSelection: Range<Int>? = nil,
         debugSend: Bool = false,
+        debugSendAttempts: Int = 1,
         debugSaveDraft: Bool = false,
         debugLeaveConfirm: Bool = false,
         attachmentSelector: (any AttachmentSelecting)? = nil,
@@ -201,6 +211,7 @@ public struct ComposerWindow: View {
         self.debugSignatureOffset = debugSignatureOffset
         self.debugSignatureSelection = debugSignatureSelection
         self.debugSend = debugSend
+        self.debugSendAttempts = debugSend ? max(1, debugSendAttempts) : 0
         self.debugSaveDraft = debugSaveDraft
         self.debugLeaveConfirm = debugLeaveConfirm
         self.attachmentSelector = attachmentSelector
@@ -522,7 +533,7 @@ public struct ComposerWindow: View {
                 )
             }
             if debugInsertSignature, canInsertSignature { insertSignature() }
-            if debugSend { send(archiving: false) }
+            for _ in 0..<debugSendAttempts { send(archiving: false) }
             if debugSaveDraft { saveDraft() }
         }
     }
@@ -921,7 +932,8 @@ public struct ComposerWindow: View {
         minHeight: CGFloat,
         placeholder: String,
         showsPlaceholder: Bool,
-        scrolls: Bool
+        scrolls: Bool,
+        selectionProjection: ComposerTextView.SelectionProjection? = nil
     ) -> some View {
         ZStack(alignment: .topLeading) {
             // Fonte, cor, sublinhado, tachado e alinhamento vêm **do texto**,
@@ -943,7 +955,8 @@ public struct ComposerWindow: View {
                 // pôr o cursor, e um `.padding` do SwiftUI deixaria essa faixa
                 // morta.
                 insets: CGSize(width: 22, height: 20),
-                scrolls: scrolls
+                scrolls: scrolls,
+                selectionProjection: selectionProjection
             )
             .frame(minHeight: minHeight, alignment: .top)
 
@@ -971,13 +984,14 @@ public struct ComposerWindow: View {
         VStack(alignment: .leading, spacing: 0) {
             editorText(
                 text: signatureTextBinding(.before),
-                selection: signatureSelectionBinding(.before),
+                selection: $selection,
                 // A assinatura fica depois da altura desenhada do trecho, não
                 // depois do mínimo de 200pt que a resposta sem assinatura usa.
                 minHeight: signatureText(.before).characters.isEmpty ? 48 : 0,
                 placeholder: placeholder,
                 showsPlaceholder: signatureText(.before).characters.isEmpty,
-                scrolls: false
+                scrolls: false,
+                selectionProjection: signatureSelectionProjection(.before)
             )
 
             signatureBlock
@@ -988,11 +1002,12 @@ public struct ComposerWindow: View {
             // deliberadamente não editável, como uma tabela/imagem do Mail.
             editorText(
                 text: signatureTextBinding(.after),
-                selection: signatureSelectionBinding(.after),
+                selection: $selection,
                 minHeight: 48,
                 placeholder: "",
                 showsPlaceholder: false,
-                scrolls: false
+                scrolls: false,
+                selectionProjection: signatureSelectionProjection(.after)
             )
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -1042,7 +1057,7 @@ public struct ComposerWindow: View {
 
     private func replaceSignatureText(_ segment: SignatureSegment, with replacement: AttributedString) {
         let oldPart = signatureText(segment)
-        let oldSelection = signatureSelection(segment)
+        let oldSelection = signatureSelection(segment, in: oldPart)
         let localRange = ComposerEditor.ranges(oldSelection, in: oldPart).first
             ?? oldPart.endIndex..<oldPart.endIndex
         let localOffset = characterOffset(of: localRange.lowerBound, in: oldPart)
@@ -1059,8 +1074,7 @@ public struct ComposerWindow: View {
         )
     }
 
-    private func signatureSelection(_ segment: SignatureSegment) -> AttributedTextSelection {
-        let part = signatureText(segment)
+    private func signatureSelection(_ segment: SignatureSegment, in part: AttributedString) -> AttributedTextSelection {
         let span = signatureRange(segment, in: draft)
         let segmentStart = characterOffset(of: span.lowerBound, in: draft)
         let segmentEnd = characterOffset(of: span.upperBound, in: draft)
@@ -1077,11 +1091,10 @@ public struct ComposerWindow: View {
             : AttributedTextSelection(range: start..<end)
     }
 
-    private func signatureSelectionBinding(_ segment: SignatureSegment) -> Binding<AttributedTextSelection> {
-        Binding(
-            get: { signatureSelection(segment) },
-            set: { local in
-                let part = signatureText(segment)
+    private func signatureSelectionProjection(_ segment: SignatureSegment) -> ComposerTextView.SelectionProjection {
+        ComposerTextView.SelectionProjection(
+            read: { part in signatureSelection(segment, in: part) },
+            write: { local, part in
                 guard let range = ComposerEditor.ranges(local, in: part).first else { return }
                 let base = segment == .before ? 0 : resolvedSignatureOffset(in: draft)
                 let lower = base + characterOffset(of: range.lowerBound, in: part)
@@ -1091,7 +1104,8 @@ public struct ComposerWindow: View {
                 selection = start == end
                     ? AttributedTextSelection(insertionPoint: start)
                     : AttributedTextSelection(range: start..<end)
-            }
+            },
+            typingStyle: { selection.typingAttributes(in: draft)[BodyStyleAttribute.self] }
         )
     }
 
@@ -1227,11 +1241,13 @@ public struct ComposerWindow: View {
                     }
                 }
                 .keyboardShortcut(.return, modifiers: .command)
+                .disabled(sendAccepted)
 
                 if isReply {
                     ChromeButton(L10n.tr("Enviar e arquivar"), appearance: .outlined, size: 13) {
                         send(archiving: true)
                     }
+                    .disabled(sendAccepted)
                 }
 
                 ChromeButton(L10n.tr("Salvar rascunho"), appearance: .outlined) { saveDraft() }
@@ -1416,9 +1432,8 @@ public struct ComposerWindow: View {
     ///
     /// - **Sem destinatário não envia**, e a janela **fica aberta**. Fechar
     ///   engoliria o texto junto com o engano.
-    /// - **Sem porta de envio** (o app nas fixtures, sem conta nenhuma) o
-    ///   comportamento continua sendo o do Marco 1: a linha no console e a
-    ///   janela fechando. Nada aqui promete o que não existe.
+    /// - **Sem fila de saída** a janela fica aberta com um erro claro. Fechar
+    ///   fingindo sucesso faria a pessoa perder o texto sem ter enviado nada.
     /// - **A janela fecha ao enfileirar**, e não ao a mensagem chegar: a fila
     ///   pode estar esperando a rede voltar, e prender a janela até lá seria
     ///   fazer a pessoa esperar por algo que o app já se comprometeu a fazer
@@ -1443,23 +1458,19 @@ public struct ComposerWindow: View {
     }
 
     private func send(archiving: Bool) {
+        guard !sendAccepted else { return }
         guard resolveRecipients() else { return }
         let recipients = (to + cc + bcc).map(\.address).filter { !$0.isEmpty }
         guard !recipients.isEmpty else {
             sendError = L10n.tr("Enviar — indisponível: escolha pelo menos um destinatário.")
             return
         }
-        guard let account, store.canSend else {
-            UNIWindow.logSend(
-                "Enviaria \"\(subject)\" para [\(recipients.joined(separator: ", "))] "
-                + "pela conta \(account?.address ?? "—") "
-                + "(\(DraftMeta.wordCount(plainDraft)) palavras, \(attachments.count) anexos)"
-                + (archiving ? " e arquivaria a original." : ".")
-            )
-            if archiving, let original = repliedMessage {
-                store.move(original, to: .archived)
-            }
-            dismiss()
+        guard let account else {
+            sendError = L10n.tr("Enviar — indisponível: escolha uma conta para enviar.")
+            return
+        }
+        guard store.canSend else {
+            sendError = L10n.tr("Enviar — indisponível: a fila de saída não está disponível.")
             return
         }
 
@@ -1498,16 +1509,17 @@ public struct ComposerWindow: View {
         // já está no `loadError` do store — a pessoa não perde o que escreveu
         // por causa de uma escrita de banco que falhou.
         guard store.send(mensagem) else {
-            sendError = store.loadError
+            sendError = store.loadError ?? L10n.tr("Não foi possível colocar esta mensagem na fila de saída.")
             return
         }
+        sendAccepted = true
         if let rascunho = draftMessageID {
             store.discardDraft(id: rascunho)
         }
         if archiving, let original = repliedMessage {
             store.move(original, to: .archived)
         }
-        dismiss()
+        leaveNow()
     }
 }
 

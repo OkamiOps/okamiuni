@@ -491,6 +491,8 @@
 "Enviar para {0}?" = "An {0} senden?";
 "Enviar pergunta" = "Frage senden";
 "Enviar por um alias" = "Von einem Alias senden";
+"Enviar — indisponível: a fila de saída não está disponível." = "Senden — nicht verfügbar: Die Ausgangswarteschlange ist nicht verfügbar.";
+"Enviar — indisponível: escolha uma conta para enviar." = "Senden — nicht verfügbar: Wähle ein Konto zum Senden.";
 "Enviar — indisponível: escolha pelo menos um destinatário." = "Senden — nicht verfügbar: Wähle mindestens einen Empfänger.";
 "Enviar — indisponível: escreva uma resposta ou anexe um arquivo." = "Senden — nicht verfügbar: Schreibe eine Antwort oder hänge eine Datei an.";
 "Equilibrado" = "Ausgewogen";
@@ -869,6 +871,7 @@
 "Não foi possível falar com o provedor de IA. Verifique a conexão e o endpoint." = "Der KI-Anbieter ist nicht erreichbar. Prüfen Sie Verbindung und Endpunkt.";
 "Não foi possível falar com o provedor de IA. Verifique a conexão e tente novamente." = "Der KI-Anbieter ist nicht erreichbar. Prüfen Sie die Verbindung.";
 "Não foi possível falar com o servidor: {0}. Verifique a conexão e tente de novo." = "Der Server ist nicht erreichbar: {0}. Prüfen Sie die Verbindung.";
+"Não foi possível colocar esta mensagem na fila de saída." = "Diese Nachricht konnte nicht zur Ausgangswarteschlange hinzugefügt werden.";
 "Não foi possível gravar o padrão." = "Standard konnte nicht gespeichert werden.";
 "Não foi possível gravar." = "Speichern fehlgeschlagen.";
 "Não foi possível guardar o segredo no Keychain (código {0})." = "Das Geheimnis konnte nicht im Schlüsselbund gespeichert werden (Code {0}).";

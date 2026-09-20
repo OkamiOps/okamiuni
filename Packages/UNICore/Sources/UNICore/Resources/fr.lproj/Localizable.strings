@@ -491,6 +491,8 @@
 "Enviar para {0}?" = "Envoyer à {0} ?";
 "Enviar pergunta" = "Envoyer la question";
 "Enviar por um alias" = "Envoyer depuis un alias";
+"Enviar — indisponível: a fila de saída não está disponível." = "Envoyer — indisponible : la file d’envoi n’est pas disponible.";
+"Enviar — indisponível: escolha uma conta para enviar." = "Envoyer — indisponible : choisissez un compte d’envoi.";
 "Enviar — indisponível: escolha pelo menos um destinatário." = "Envoyer — indisponible : choisissez au moins un destinataire.";
 "Enviar — indisponível: escreva uma resposta ou anexe um arquivo." = "Envoyer — indisponible : écrivez une réponse ou joignez un fichier.";
 "Equilibrado" = "Équilibré";
@@ -869,6 +871,7 @@
 "Não foi possível falar com o provedor de IA. Verifique a conexão e o endpoint." = "Impossible de joindre le fournisseur d’IA. Vérifiez la connexion et le point de terminaison.";
 "Não foi possível falar com o provedor de IA. Verifique a conexão e tente novamente." = "Impossible de joindre le fournisseur d’IA. Vérifiez la connexion et réessayez.";
 "Não foi possível falar com o servidor: {0}. Verifique a conexão e tente de novo." = "Impossible de joindre le serveur : {0}. Vérifiez la connexion et réessayez.";
+"Não foi possível colocar esta mensagem na fila de saída." = "Impossible d’ajouter ce message à la file d’envoi.";
 "Não foi possível gravar o padrão." = "Impossible d’enregistrer la valeur par défaut.";
 "Não foi possível gravar." = "Impossible d’enregistrer.";
 "Não foi possível guardar o segredo no Keychain (código {0})." = "Impossible d’enregistrer le secret dans le trousseau (code {0}).";

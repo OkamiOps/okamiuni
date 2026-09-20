@@ -491,6 +491,8 @@
 "Enviar para {0}?" = "Enviar para {0}?";
 "Enviar pergunta" = "Enviar pergunta";
 "Enviar por um alias" = "Enviar por um alias";
+"Enviar — indisponível: a fila de saída não está disponível." = "Enviar — indisponível: a fila de saída não está disponível.";
+"Enviar — indisponível: escolha uma conta para enviar." = "Enviar — indisponível: escolha uma conta para enviar.";
 "Enviar — indisponível: escolha pelo menos um destinatário." = "Enviar — indisponível: escolha pelo menos um destinatário.";
 "Enviar — indisponível: escreva uma resposta ou anexe um arquivo." = "Enviar — indisponível: escreva uma resposta ou anexe um arquivo.";
 "Equilibrado" = "Equilibrado";
@@ -869,6 +871,7 @@
 "Não foi possível falar com o provedor de IA. Verifique a conexão e o endpoint." = "Não foi possível falar com o provedor de IA. Verifique a conexão e o endpoint.";
 "Não foi possível falar com o provedor de IA. Verifique a conexão e tente novamente." = "Não foi possível falar com o provedor de IA. Verifique a conexão e tente novamente.";
 "Não foi possível falar com o servidor: {0}. Verifique a conexão e tente de novo." = "Não foi possível falar com o servidor: {0}. Verifique a conexão e tente de novo.";
+"Não foi possível colocar esta mensagem na fila de saída." = "Não foi possível colocar esta mensagem na fila de saída.";
 "Não foi possível gravar o padrão." = "Não foi possível gravar o padrão.";
 "Não foi possível gravar." = "Não foi possível gravar.";
 "Não foi possível guardar o segredo no Keychain (código {0})." = "Não foi possível guardar o segredo no Keychain (código {0}).";

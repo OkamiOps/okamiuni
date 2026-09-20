@@ -65,6 +65,15 @@ struct ComposerTextView: NSViewRepresentable {
     /// passa nada continuam sem mexer no foco de ninguém.
     var focusToken: Int = 0
 
+    /// Trechos de um documento usam cópias de AttributedString. Uma seleção
+    /// só pode ser interpretada na mesma cópia que originou seus índices.
+    struct SelectionProjection {
+        let read: (AttributedString) -> AttributedTextSelection
+        let write: (AttributedTextSelection, AttributedString) -> Void
+        let typingStyle: () -> BodyStyle?
+    }
+    var selectionProjection: SelectionProjection?
+
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -117,14 +126,17 @@ struct ComposerTextView: NSViewRepresentable {
         }
 
         context.coordinator.textView = view
-        context.coordinator.push(text, theme: theme, into: view)
-        context.coordinator.applySelection(selection, in: text, to: view)
+        let model = text
+        context.coordinator.push(model, theme: theme, into: view)
+        context.coordinator.applySelection(context.coordinator.currentSelection(in: model), in: model, to: view)
         return scroll
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let view = scroll.documentView as? ComposerNSTextView else { return }
         context.coordinator.parent = self
+        let model = text
+        let selected = context.coordinator.currentSelection(in: model)
         scroll.hasVerticalScroller = scrolls
         view.textContainerInset = insets
         view.linkTextAttributes = Coordinator.linkAttributes(theme)
@@ -135,13 +147,13 @@ struct ComposerTextView: NSViewRepresentable {
         // da barra, a semeadura, ou a troca de tema. Reescrever a cada tecla
         // apagaria a pilha de desfazer do AppKit e mataria a composição do IME
         // no meio de uma palavra acentuada.
-        if context.coordinator.needsPush(text, theme: theme) {
-            context.coordinator.push(text, theme: theme, into: view)
-            context.coordinator.applySelection(selection, in: text, to: view)
-        } else if context.coordinator.selectionChangedOutside(selection, in: text, view: view) {
-            context.coordinator.applySelection(selection, in: text, to: view)
+        if context.coordinator.needsPush(model, theme: theme) {
+            context.coordinator.push(model, theme: theme, into: view)
+            context.coordinator.applySelection(selected, in: model, to: view)
+        } else if context.coordinator.selectionChangedOutside(selected, in: model, view: view) {
+            context.coordinator.applySelection(selected, in: model, to: view)
         }
-        context.coordinator.applyTypingAttributes(selection, in: text, theme: theme, to: view)
+        context.coordinator.applyTypingAttributes(selected, in: model, theme: theme, to: view)
 
         // O pedido de foco do "Responder". `makeFirstResponder` age dentro da
         // janela do próprio app — não mexe em teclado nem em mouse do sistema,
@@ -184,6 +196,7 @@ struct ComposerTextView: NSViewRepresentable {
         private var settled: AttributedString?
         private var settledTheme: Theme?
         private var pushing = false
+        private var applyingSelection = false
         /// O último pedido de foco já atendido — ver `ComposerTextView.focusToken`.
         var focusToken = 0
 
@@ -224,6 +237,18 @@ struct ComposerTextView: NSViewRepresentable {
 
         // MARK: Seleção
 
+        func currentSelection(in model: AttributedString) -> AttributedTextSelection {
+            parent.selectionProjection?.read(model) ?? parent.selection
+        }
+
+        private func publishSelection(_ selection: AttributedTextSelection, in model: AttributedString) {
+            if let projection = parent.selectionProjection {
+                projection.write(selection, model)
+            } else {
+                parent.selection = selection
+            }
+        }
+
         func applySelection(
             _ selection: AttributedTextSelection, in model: AttributedString,
             to view: ComposerNSTextView
@@ -234,7 +259,14 @@ struct ComposerTextView: NSViewRepresentable {
                 length: 0
             )
             let safe = NSMaxRange(range) <= (view.textStorage?.length ?? 0) ? range : clamped
-            if view.selectedRange() != safe { view.setSelectedRange(safe) }
+            if view.selectedRange() != safe {
+                // O outro trecho do compositor recebe uma seleção projetada
+                // no começo/fim. Isso não é uma nova seleção do usuário e
+                // nunca pode substituir a seleção global do editor ativo.
+                applyingSelection = true
+                defer { applyingSelection = false }
+                view.setSelectedRange(safe)
+            }
         }
 
         func selectionChangedOutside(
@@ -281,7 +313,12 @@ struct ComposerTextView: NSViewRepresentable {
             _ selection: AttributedTextSelection, in model: AttributedString,
             theme: Theme, to view: ComposerNSTextView
         ) {
-            let reading = ComposerEditor.reading(of: model, selection: selection)
+            let reading = RichBody.reading(
+                of: model,
+                over: ComposerEditor.ranges(selection, in: model),
+                typing: parent.selectionProjection?.typingStyle()
+                    ?? selection.typingAttributes(in: model)[BodyStyleAttribute.self]
+            )
             guard !reading.hasSelection else { return }
             let style = BodyStyle(
                 family: reading.family ?? BodyStyle.defaultFamily,
@@ -345,7 +382,7 @@ struct ComposerTextView: NSViewRepresentable {
 
             let start = grown.characters.index(grown.startIndex, offsetBy: offset)
             parent.text = grown
-            parent.selection = AttributedTextSelection(insertionPoint: start)
+            publishSelection(AttributedTextSelection(insertionPoint: start), in: grown)
             parent.onEdit?()
             return true
         }
@@ -408,7 +445,8 @@ struct ComposerTextView: NSViewRepresentable {
             // virava 3×6, com o parágrafo do cursor fora da tabela). O item
             // fica apagado com o motivo no `toolTip`, em vez de sumir — a
             // recusa tem de se explicar.
-            let reading = ComposerEditor.reading(of: parent.text, selection: parent.selection)
+            let model = parent.text
+            let reading = ComposerEditor.reading(of: model, selection: currentSelection(in: model))
             let allowed = ComposerTableCommand.isEnabled(reading)
             let table = NSMenuItem(title: L10n.tr("Inserir tabela"), action: nil, keyEquivalent: "")
             table.isEnabled = allowed
@@ -458,7 +496,8 @@ struct ComposerTextView: NSViewRepresentable {
             // O item já nasce apagado dentro de uma célula; esta é a mesma
             // guarda no caminho de ação, para um menu montado antes de o cursor
             // entrar na tabela não conseguir parti-la mesmo assim.
-            let reading = ComposerEditor.reading(of: parent.text, selection: parent.selection)
+            let model = parent.text
+            let reading = ComposerEditor.reading(of: model, selection: currentSelection(in: model))
             guard ComposerTableCommand.isEnabled(reading) else { return }
             let side = max(1, sender.tag)
             run(.table(rows: side, columns: side))
@@ -469,12 +508,12 @@ struct ComposerTextView: NSViewRepresentable {
         /// divergem no primeiro conserto.
         func run(_ command: ComposerCommand) {
             var text = parent.text
-            var selection = parent.selection
+            var selection = currentSelection(in: text)
             ComposerEditor.perform(
                 command, on: &text, selection: &selection, theme: parent.theme
             )
             parent.text = text
-            parent.selection = selection
+            publishSelection(selection, in: text)
             parent.onEdit?()
         }
 
@@ -486,16 +525,16 @@ struct ComposerTextView: NSViewRepresentable {
             settled = model
             settledTheme = parent.theme
             parent.text = model
-            parent.selection = Self.selection(view.selectedRange(), in: model)
+            publishSelection(Self.selection(view.selectedRange(), in: model), in: model)
             parent.onEdit?()
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
-            guard !pushing, let view = textView else { return }
-            let model = settled ?? parent.text
+            guard !pushing, !applyingSelection, let view = textView else { return }
+            let model = parent.text
             let next = Self.selection(view.selectedRange(), in: model)
-            if Self.nsRange(of: next, in: model) != Self.nsRange(of: parent.selection, in: model) {
-                parent.selection = next
+            if Self.nsRange(of: next, in: model) != Self.nsRange(of: currentSelection(in: model), in: model) {
+                publishSelection(next, in: model)
             }
         }
     }
