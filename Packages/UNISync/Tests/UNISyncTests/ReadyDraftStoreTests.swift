@@ -23,7 +23,7 @@ struct ReadyDraftStoreTests {
             path: diretorio.appendingPathComponent("mail.sqlite").path, configuration: config
         )
         try SyncDatabase.migrator.migrate(pool, upTo: "v19")
-        try Fixture.escreveMensagem(in: pool, id: "m1")
+        try Fixture.escreveMensagemV19(in: pool, id: "m1")
 
         let antes = try pool.read { conexao in
             try String.fetchSet(conexao, sql: "SELECT name FROM sqlite_master WHERE type = 'table'")
@@ -131,6 +131,39 @@ struct ReadyDraftStoreTests {
 /// mão: o esquema anda a cada migração, e um `INSERT` escrito aqui envelhece
 /// em silêncio.
 enum Fixture {
+
+    /// A v19 não tinha `attachmentsResolved` (ela chega na v21). Este é um
+    /// fixture de banco legado: escrever pelos records atuais alteraria o
+    /// esquema que a migração precisa receber.
+    static func escreveMensagemV19(in pool: DatabasePool, id: String) throws {
+        let mensagem = Message(
+            id: id, accountID: "conta-a",
+            from: Contact(name: "Jack Whitmore", address: "jack@whitmore.dev"),
+            receivedAt: Date(timeIntervalSince1970: 1_800_000_000),
+            subject: "Assunto", snippet: "Trecho", body: ["Corpo da mensagem."],
+            tags: [], bucket: .today, isRead: false, summary: nil, detectedEvent: nil
+        )
+        let paragraphs = String(decoding: try JSONEncoder().encode(mensagem.body), as: UTF8.self)
+        try pool.write { db in
+            try AccountRecord(
+                Account(
+                    id: "conta-a", address: "eu@exemplo.com", displayName: "Conta",
+                    provider: .imap, host: "imap.exemplo.com",
+                    tintLightHex: "#000000", tintDarkHex: "#FFFFFF", state: .ativa
+                ),
+                createdAt: Date(timeIntervalSince1970: 0)
+            ).insert(db)
+            try FolderRecord(
+                id: "f1-conta-a", accountID: "conta-a", serverName: "INBOX",
+                role: .inbox, displayName: "Caixa"
+            ).insert(db)
+            try MessageRecord(mensagem, folderID: "f1-conta-a").insert(db)
+            try db.execute(
+                sql: "INSERT INTO message_body (messageID, paragraphs, plain, html, calendarICS) VALUES (?, ?, ?, ?, ?)",
+                arguments: [id, paragraphs, mensagem.body.joined(separator: "\n"), nil, nil]
+            )
+        }
+    }
 
     @discardableResult
     static func escreveMensagem(

@@ -157,10 +157,13 @@ struct MessageIntelligenceStoreTests {
                     nil, nil, "[]", nil, "[]", "m1", "[]",
                 ]
             )
-            var body = MessageBodyRecord(
-                messageID: "m1", paragraphs: ["Corpo que já existia."]
+            // `attachmentsResolved` só existe na v21. A v10 tinha estas cinco
+            // colunas; inserir o record atual esconderia a migração que este
+            // teste precisa exercer.
+            try db.execute(
+                sql: "INSERT INTO message_body (messageID, paragraphs, plain, html, calendarICS) VALUES (?, ?, ?, ?, ?)",
+                arguments: ["m1", #"["Corpo que já existia."]"#, "Corpo que já existia.", nil, nil]
             )
-            try body.insert(db)
         }
 
         let upgraded = try SyncDatabase(path: path)

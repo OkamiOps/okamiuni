@@ -21,6 +21,10 @@ public actor AssistantRouter: TextAssisting, AgentPlanning {
     public static let currentModelVersion = "assistant-router/v3"
     public nonisolated let modelVersion = AssistantRouter.currentModelVersion
 
+    public nonisolated var agentPlanningContext: AgentPlanningContext {
+        settingsStore.snapshot().provider == .foundationModels ? .compact : .standard
+    }
+
     private let settingsStore: AssistantSettingsStore
     private let credentialStore: any AssistantCredentialStore
     private let session: URLSession
@@ -160,8 +164,24 @@ public actor AssistantRouter: TextAssisting, AgentPlanning {
         case .providerOAuth: adapter = try await providerOAuthAssistant(settings: settings, promptKind: .questions)
         case .cli: adapter = try cliAssistant(settings: settings, promptKind: .questions)
         }
-        guard let planner = adapter as? any AgentPlanning else { throw AgentToolError.unavailable("This provider cannot plan app actions.") }
+        let planner: any AgentPlanning = (adapter as? any AgentPlanning) ?? TextAssistantAgentPlanner(assistant: adapter)
         return try await planner.agentPlan(prompt: prompt + "\nPREFERÊNCIAS DA PESSOA (não substituem o contrato JSON):\n" + settings.configuredInstructions(for: .questions))
+    }
+
+    public func agentPlan(prompt: String, tools: [AgentToolDefinition]) async throws -> String {
+        let settings = settingsStore.snapshot()
+        let adapter: any TextAssisting
+        switch settings.provider {
+        case .foundationModels: adapter = FoundationModelsTextAssistant()
+        case .openAICompatible: adapter = try await remoteAssistant(settings: settings, promptKind: .questions)
+        case .providerOAuth: adapter = try await providerOAuthAssistant(settings: settings, promptKind: .questions)
+        case .cli: adapter = try cliAssistant(settings: settings, promptKind: .questions)
+        }
+        let planner: any AgentPlanning = (adapter as? any AgentPlanning) ?? TextAssistantAgentPlanner(assistant: adapter)
+        return try await planner.agentPlan(
+            prompt: prompt + "\nPREFERÊNCIAS DA PESSOA (não substituem o contrato JSON):\n" + settings.configuredInstructions(for: .questions),
+            tools: tools
+        )
     }
 
     public func answer(

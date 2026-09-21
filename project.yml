@@ -37,6 +37,7 @@ targets:
       - path: App
         excludes:
           - "Resources/Fonts"
+          - "AgentRuntimeService"
       - path: App/Resources/Fonts
         type: folder
       # Os dois roteiros que a janela de Contas abre ("Ver o roteiro" e "O que
@@ -53,6 +54,8 @@ targets:
       - path: docs/senha-de-app.en.md
         buildPhase: resources
     dependencies:
+      - target: AgentRuntimeService
+        embed: true
       - package: UNIDesign
         product: UNIDesign
       - package: UNICore
@@ -85,3 +88,72 @@ targets:
         # comentários nos dois arquivos de entitlements.
         Debug:
           CODE_SIGN_ENTITLEMENTS: App/OkamiUNI-Debug.entitlements
+
+  # The service validates the connecting app's signed audit token itself. It
+  # intentionally has no App Sandbox entitlement because it is the narrow
+  # execution boundary for a user-configured ACP CLI; the UI app stays
+  # sandboxed and passes a bounded request through XPC.
+  AgentRuntimeService:
+    type: xpc-service
+    platform: macOS
+    sources:
+      - path: App/AgentRuntimeService
+    dependencies:
+      - package: UNICore
+        product: UNICore
+      - package: UNISync
+        product: UNISync
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.okamiops.okamiuni.AgentRuntimeService
+        INFOPLIST_FILE: App/AgentRuntimeService/Info.plist
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: Apple Development
+        DEVELOPMENT_TEAM: 7U9S5DB9K9
+        ENABLE_HARDENED_RUNTIME: YES
+
+  # Headless signed acceptance target. It is never embedded in the shipping
+  # app; it proves the same transport with its own sandboxed client identity.
+  AgentRuntimeServiceProbe:
+    type: xpc-service
+    platform: macOS
+    sources:
+      - path: App/AgentRuntimeService
+    dependencies:
+      - package: UNICore
+        product: UNICore
+      - package: UNISync
+        product: UNISync
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.okamiops.okamiuni.acp-release-probe.AgentRuntimeService
+        INFOPLIST_FILE: App/AgentRuntimeService/ProbeInfo.plist
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: Apple Development
+        DEVELOPMENT_TEAM: 7U9S5DB9K9
+        ENABLE_HARDENED_RUNTIME: YES
+
+  ACPExternalRuntimeProbe:
+    type: application
+    platform: macOS
+    sources:
+      - path: Tools/ACPExternalRuntimeProbe
+        excludes:
+          - "Fixture"
+          - "build-and-run.sh"
+    dependencies:
+      - target: AgentRuntimeServiceProbe
+        embed: true
+      - package: UNICore
+        product: UNICore
+      - package: UNISync
+        product: UNISync
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.okamiops.okamiuni.acp-release-probe
+        INFOPLIST_FILE: Tools/ACPExternalRuntimeProbe/Info.plist
+        CODE_SIGN_ENTITLEMENTS: App/OkamiUNI.entitlements
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: Apple Development
+        DEVELOPMENT_TEAM: 7U9S5DB9K9
+        ENABLE_HARDENED_RUNTIME: YES

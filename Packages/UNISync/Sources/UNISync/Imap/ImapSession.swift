@@ -277,10 +277,10 @@ public actor ImapSession {
     /// para espiar o comando, outra para mandar) transformaria qualquer
     /// construção com efeito colateral num bug silencioso.
     @discardableResult
-    func run(_ build: (String) -> String) async throws -> ImapCommandResult {
+    func run(_ build: (String) throws -> String) async throws -> ImapCommandResult {
         guard !closed else { throw SyncError.rede("A sessão IMAP já foi encerrada.") }
         let tag = proximaTag()
-        let comando = build(tag)
+        let comando = try build(tag)
         let resultado = try await send(comando: comando, tag: tag)
         switch resultado.status {
         case .ok:
@@ -340,6 +340,14 @@ public actor ImapSession {
             ImapWire.uidSearchSince(tag: $0, date: since, calendar: calendar)
         }
         return ImapWire.uids(from: resultado.untagged)
+    }
+
+    /// Searches headers and body on the server without marking mail as read.
+    /// The caller selects a real folder first; UIDs retain that folder's identity.
+    public func searchText(_ term: String) async throws -> [Int64] {
+        try Task.checkCancellation()
+        let result = try await run { try ImapWire.uidSearchText(tag: $0, text: term) }
+        return ImapWire.uids(from: result.untagged)
     }
 
     /// Envelopes em lotes de `ImapWire.fetchBatchSize`.

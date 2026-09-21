@@ -95,7 +95,7 @@ struct GmailMirrorTests {
 
     // MARK: - As caixas
 
-    @Test("Arquivar tira a INBOX")
+    @Test("Arquivar tira INBOX e SPAM")
     func arquiva() async throws {
         let (espelho, sessao) = par(routes: [
             "\(base)/labels": [.json(#"{"labels":[{"id":"INBOX","name":"INBOX"}]}"#)],
@@ -107,7 +107,7 @@ struct GmailMirrorTests {
         )
         let pedido = try corpo(sessao, caminho: "\(base)/messages/batchModify")
         #expect(pedido["ids"] as? [String] == ["m1", "m2"])
-        #expect(pedido["removeLabelIds"] as? [String] == ["INBOX"])
+        #expect(pedido["removeLabelIds"] as? [String] == ["INBOX", "SPAM"])
         #expect((pedido["addLabelIds"] as? [String])?.isEmpty == true)
     }
 

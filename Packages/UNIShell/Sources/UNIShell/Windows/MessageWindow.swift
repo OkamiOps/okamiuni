@@ -13,6 +13,7 @@ public struct MessageWindow: View {
     let messageID: String
     let textAssistant: (any TextAssisting)?
     let assistantSettings: AssistantSettingsStore?
+    let agentServices: AgentApplicationServices
     let intelligencePresentation: IntelligencePresentation
     let analysisDestination: @Sendable (String?) -> AssistantDestination
     let onMessagePresented: (String) -> Void
@@ -22,6 +23,7 @@ public struct MessageWindow: View {
         messageID: String,
         textAssistant: (any TextAssisting)? = nil,
         assistantSettings: AssistantSettingsStore? = nil,
+        agentServices: AgentApplicationServices = .init(),
         intelligencePresentation: IntelligencePresentation = .onThisMac,
         analysisDestination: @escaping @Sendable (String?) -> AssistantDestination = { _ in .onThisMac },
         onMessagePresented: @escaping (String) -> Void = { _ in }
@@ -30,6 +32,7 @@ public struct MessageWindow: View {
         self.messageID = messageID
         self.textAssistant = textAssistant
         self.assistantSettings = assistantSettings
+        self.agentServices = agentServices
         self.intelligencePresentation = intelligencePresentation
         self.analysisDestination = analysisDestination
         self.onMessagePresented = onMessagePresented
@@ -64,7 +67,13 @@ public struct MessageWindow: View {
         let message = store.message(id)
         let engine: AssistantEngine = textAssistant.map { assistant in
             AssistantBridge.engine(
-                using: assistant,
+                using: WorkspaceAgentAssistant(
+                    base: assistant,
+                    settings: { assistantSettings?.snapshot() ?? .default },
+                    makeTools: { agentServices.tools(store: store, open: { messageID in
+                        openWindow(id: UNIWindow.message, value: messageID)
+                    }) }
+                ),
                 supportsDraftReply: true,
                 mailContext: {
                     let ids = store.conversation(of: id)?.messageIDs ?? [id]

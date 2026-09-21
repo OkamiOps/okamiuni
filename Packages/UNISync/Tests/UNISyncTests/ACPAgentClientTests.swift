@@ -25,6 +25,20 @@ struct ACPAgentClientTests {
         #expect(await updates.values() == ["Olá, ", "mundo."])
     }
 
+    @Test("testa o handshake sem enviar prompt ao agente")
+    func checksConnectionWithoutPrompt() async throws {
+        let fixture = try ACPFixture(mode: "stream")
+        defer { fixture.remove() }
+
+        let name = try await fixture.client.checkConnection(
+            mcpURL: URL(string: "https://mcp.example.test/rpc")!,
+            bearerToken: "test-token"
+        )
+
+        #expect(name == "ACP v1")
+        #expect(!FileManager.default.fileExists(atPath: fixture.markerURL.path))
+    }
+
     @Test("o filho ACP chama tools/list e tools/call no MCP local autenticado")
     func bridgesACPChildToLocalMCPServer() async throws {
         let calls = ACPBridgeCallRecorder()
@@ -227,6 +241,60 @@ struct ACPAgentClientTests {
 
         #expect(answer == "Autorizado.")
         #expect(try String(contentsOf: fixture.markerURL, encoding: .utf8) == "allow-once")
+    }
+
+    @Test("autoriza MCP estrutural de adaptador genérico sem metadados Codex")
+    func permitsStructuredMCPFromGenericProvider() async throws {
+        let fixture = try ACPFixture(
+            mode: "generic-structured-mcp",
+            safeMCPToolNames: ["okamiuni.lookup"]
+        )
+        defer { fixture.remove() }
+
+        let answer = try await fixture.client.answer(
+            prompt: "oi",
+            mcpURL: URL(string: "https://mcp.example.test/rpc")!,
+            bearerToken: "test-token"
+        )
+
+        #expect(answer == "Autorizado.")
+        #expect(try String(contentsOf: fixture.markerURL, encoding: .utf8) == "allow-once")
+    }
+
+    @Test("autoriza nome MCP padrão de segundo adaptador sem metadados privados")
+    func permitsStandardNamedMCPFromGenericProvider() async throws {
+        let fixture = try ACPFixture(
+            mode: "generic-standard-mcp",
+            safeMCPToolNames: ["okamiuni.lookup"]
+        )
+        defer { fixture.remove() }
+
+        let answer = try await fixture.client.answer(
+            prompt: "oi",
+            mcpURL: URL(string: "https://mcp.example.test/rpc")!,
+            bearerToken: "test-token"
+        )
+
+        #expect(answer == "Autorizado.")
+        #expect(try String(contentsOf: fixture.markerURL, encoding: .utf8) == "allow-once")
+    }
+
+    @Test("recusa prompt MCP que contradiz o servidor observado")
+    func rejectsMismatchedStandardMCPPermission() async throws {
+        let fixture = try ACPFixture(
+            mode: "generic-mismatched-mcp",
+            safeMCPToolNames: ["okamiuni.lookup"]
+        )
+        defer { fixture.remove() }
+
+        let answer = try await fixture.client.answer(
+            prompt: "oi",
+            mcpURL: URL(string: "https://mcp.example.test/rpc")!,
+            bearerToken: "test-token"
+        )
+
+        #expect(answer == "Recusado.")
+        #expect(try String(contentsOf: fixture.markerURL, encoding: .utf8) == "reject-once")
     }
 
     @Test("recusa aprovação MCP cujo ID não corresponde à chamada anunciada")
@@ -444,6 +512,18 @@ private struct ACPFixture {
               printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-1","update":{"sessionUpdate":"tool_call","toolCallId":"mcp-call-1","kind":"execute","rawInput":{"server":"okamiuni","tool":"okamiuni.lookup","arguments":{}},"_meta":{"is_mcp_tool_call":true}}}}'
               printf '%s\n' '{"jsonrpc":"2.0","id":42,"method":"session/request_permission","params":{"sessionId":"session-1","toolCall":{"toolCallId":"mcp-call-1","kind":"execute"},"_meta":{"is_mcp_tool_approval":true},"options":[{"optionId":"allow-once","kind":"allow_once"},{"optionId":"reject-once","kind":"reject_once"}]}}'
               ;;
+            generic-structured-mcp)
+              printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-1","update":{"sessionUpdate":"tool_call","toolCallId":"mcp-call-1","kind":"execute","rawInput":{"serverName":"okamiuni","toolName":"okamiuni.lookup","arguments":{}}}}}'
+              printf '%s\n' '{"jsonrpc":"2.0","id":42,"method":"session/request_permission","params":{"sessionId":"session-1","toolCall":{"toolCallId":"mcp-call-1","kind":"execute"},"options":[{"optionId":"allow-once","kind":"allow_once"},{"optionId":"reject-once","kind":"reject_once"}]}}'
+              ;;
+            generic-standard-mcp)
+              printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-1","update":{"sessionUpdate":"tool_call","toolCallId":"mcp-call-1","name":"mcp__okamiuni__okamiuni.lookup","kind":"execute","rawInput":{"query":"status"}}}}'
+              printf '%s\n' '{"jsonrpc":"2.0","id":42,"method":"session/request_permission","params":{"sessionId":"session-1","toolCall":{"toolCallId":"mcp-call-1","name":"mcp__okamiuni__okamiuni.lookup","kind":"execute","rawInput":{}},"options":[{"optionId":"allow-once","kind":"allow_once"},{"optionId":"reject-once","kind":"reject_once"}]}}'
+              ;;
+            generic-mismatched-mcp)
+              printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-1","update":{"sessionUpdate":"tool_call","toolCallId":"mcp-call-1","name":"mcp__okamiuni__okamiuni.lookup","kind":"execute","rawInput":{}}}}'
+              printf '%s\n' '{"jsonrpc":"2.0","id":42,"method":"session/request_permission","params":{"sessionId":"session-1","toolCall":{"toolCallId":"mcp-call-1","name":"mcp__outside__okamiuni.lookup","kind":"execute","rawInput":{}},"options":[{"optionId":"allow-once","kind":"allow_once"},{"optionId":"reject-once","kind":"reject_once"}]}}'
+              ;;
             unknown-tool-call)
               printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-1","update":{"sessionUpdate":"tool_call","toolCallId":"mcp-call-1","kind":"execute","rawInput":{"server":"okamiuni","tool":"okamiuni.lookup","arguments":{}},"_meta":{"is_mcp_tool_call":true}}}}'
               printf '%s\n' '{"jsonrpc":"2.0","id":42,"method":"session/request_permission","params":{"sessionId":"session-1","toolCall":{"toolCallId":"unknown-call","kind":"execute"},"_meta":{"is_mcp_tool_approval":true},"options":[{"optionId":"allow-once","kind":"allow_once"},{"optionId":"reject-once","kind":"reject_once"}]}}'
@@ -481,7 +561,7 @@ private struct ACPFixture {
           ;;
         *'"id":42'*'"outcome"'*)
           case "$mode" in
-            linked-safe)
+            linked-safe|generic-structured-mcp|generic-standard-mcp)
               case "$line" in *'"optionId":"allow-once"'*) printf 'allow-once' > "$marker" ;; *) exit 42 ;; esac
               printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"session-1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Autorizado."}}}}'
               ;;

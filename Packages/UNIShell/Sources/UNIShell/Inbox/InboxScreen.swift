@@ -95,6 +95,7 @@ public struct InboxScreen: View {
     /// A mesma preferência que o roteador consulta no momento da pergunta.
     /// Ela existe aqui só para rotular honestamente a superfície interativa.
     let assistantSettings: AssistantSettingsStore?
+    let agentServices: AgentApplicationServices
     let composerIntelligence: ComposerIntelligenceGenerator?
     let onMessagePresented: (String) -> Void
     let debugReaderAssistantOpen: Bool
@@ -131,6 +132,7 @@ public struct InboxScreen: View {
         analysisDestination: @escaping @Sendable (String?) -> AssistantDestination = { _ in .onThisMac },
         textAssistant: (any TextAssisting)? = nil,
         assistantSettings: AssistantSettingsStore? = nil,
+        agentServices: AgentApplicationServices = .init(),
         onMessagePresented: @escaping (String) -> Void = { _ in },
         accountsModel: AccountsModel? = nil,
         analysisQueue: AnalysisQueueStateModel? = nil,
@@ -147,6 +149,7 @@ public struct InboxScreen: View {
             analysisDestination: analysisDestination,
             textAssistant: textAssistant,
             assistantSettings: assistantSettings,
+            agentServices: agentServices,
             onMessagePresented: onMessagePresented,
             accountsModel: accountsModel,
             analysisQueue: analysisQueue,
@@ -169,6 +172,7 @@ public struct InboxScreen: View {
         analysisDestination: @escaping @Sendable (String?) -> AssistantDestination = { _ in .onThisMac },
         textAssistant: (any TextAssisting)? = nil,
         assistantSettings: AssistantSettingsStore? = nil,
+        agentServices: AgentApplicationServices = .init(),
         onMessagePresented: @escaping (String) -> Void = { _ in },
         accountsModel: AccountsModel? = nil,
         analysisQueue: AnalysisQueueStateModel? = nil,
@@ -188,6 +192,7 @@ public struct InboxScreen: View {
         self.analysisDestination = analysisDestination
         self.textAssistant = textAssistant
         self.assistantSettings = assistantSettings
+        self.agentServices = agentServices
         self.onMessagePresented = onMessagePresented
         self.accountsModel = accountsModel
         self.analysisQueue = analysisQueue
@@ -994,7 +999,7 @@ public struct InboxScreen: View {
         let agent = WorkspaceAgentAssistant(
             base: textAssistant,
             settings: { settingsStore?.snapshot() ?? .default },
-            makeTools: { MailAgentTools(store: store, open: { id in
+            makeTools: { agentServices.tools(store: store, open: { id in
                 runDashboardCommand(.openMessageWindow(messageID: id))
             }) },
             onActivity: { assistantSession.activity = $0 }

@@ -32,4 +32,45 @@ struct AgentConnectionConfigurationTests {
             try AgentConnectionConfiguration(enabled: true, executablePath: "codex-acp").validated()
         }
     }
+
+    @Test("preferências anteriores decodificam sem conceder acesso externo")
+    func legacyConfigurationHasNoRuntimeAuthorization() throws {
+        let config = try JSONDecoder().decode(
+            AgentConnectionConfiguration.self,
+            from: Data(#"{"enabled":true,"executablePath":"/bin/echo","arguments":["ok"]}"#.utf8)
+        )
+        #expect(config.authorizedLocations.isEmpty)
+        #expect(config.environment.isEmpty)
+        #expect(throws: AgentRuntimeAuthorizationError.managedRuntimeRequired) {
+            try config.resolvedLaunch()
+        }
+    }
+
+    @Test("não persiste credenciais ou variáveis que alteram o interpretador")
+    func rejectsUnsafeRuntimeEnvironment() {
+        let credentials = AgentConnectionConfiguration(
+            enabled: true,
+            executablePath: "/bin/echo",
+            environment: ["OPENAI_API_KEY": "não-salve-isso"]
+        )
+        #expect(throws: AgentRuntimeAuthorizationError.unsafeEnvironment) {
+            try credentials.validated()
+        }
+
+        let loader = AgentConnectionConfiguration(
+            enabled: true,
+            executablePath: "/bin/echo",
+            environment: ["NODE_OPTIONS": "--require /tmp/never"]
+        )
+        #expect(throws: AgentRuntimeAuthorizationError.unsafeEnvironment) {
+            try loader.validated()
+        }
+    }
+
+    @Test("a autorização do runtime nunca pode abranger a pasta pessoal inteira")
+    func rejectsGlobalHomeAuthorization() {
+        #expect(throws: AgentRuntimeAuthorizationError.invalidBookmark) {
+            try AgentRuntimeAuthorization.make(url: FileManager.default.homeDirectoryForCurrentUser)
+        }
+    }
 }

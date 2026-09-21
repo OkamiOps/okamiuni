@@ -762,6 +762,17 @@ public struct SyncDatabase: Sendable {
             // Preservar o conteúdo offline; confirmar o manifesto na próxima abertura.
             try db.execute(sql: "ALTER TABLE message_body ADD COLUMN attachmentsResolved BOOLEAN NOT NULL DEFAULT 0")
         }
+        // A v22 preserva a origem do calendário e o estado de cancelamento dos
+        // compromissos que o agente atualiza. Sem essas colunas, reler o SQLite
+        // transforma um evento remoto em item local e uma atualização pode criar
+        // um duplicado no provedor.
+        migrator.registerMigration("v22") { db in
+            try db.execute(sql: "ALTER TABLE created_agenda_item ADD COLUMN calendarID TEXT")
+            try db.execute(sql: "ALTER TABLE created_agenda_item ADD COLUMN calendarTitle TEXT")
+            try db.execute(sql: "ALTER TABLE created_agenda_item ADD COLUMN calendarColorHex TEXT")
+            try db.execute(sql: "ALTER TABLE created_agenda_item ADD COLUMN calendarSource TEXT")
+            try db.execute(sql: "ALTER TABLE created_agenda_item ADD COLUMN isCancelled BOOLEAN NOT NULL DEFAULT 0")
+        }
         return migrator
     }
 }

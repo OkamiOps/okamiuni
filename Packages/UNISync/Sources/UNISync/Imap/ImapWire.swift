@@ -114,6 +114,17 @@ public enum ImapWire {
         "\(tag) UID SEARCH SINCE \(imapDate(date, calendar: calendar))"
     }
 
+    public static func uidSearchText(tag: String, text: String) throws -> String {
+        guard text.utf8.count <= 4_096,
+              !text.unicodeScalars.contains(where: { $0.value == 0 || $0.value == 10 || $0.value == 13 }) else {
+            throw SyncError.resposta("O texto de busca IMAP é inválido.")
+        }
+        let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return "\(tag) UID SEARCH ALL" }
+        let charset = normalized.unicodeScalars.contains(where: { !$0.isASCII }) ? "CHARSET UTF-8 " : ""
+        return "\(tag) UID SEARCH \(charset)TEXT \(quoted(normalized))"
+    }
+
     /// Envelopes em lote. Um `FETCH` por mensagem seria uma ida e volta por
     /// mensagem; a conta de 90 dias tem milhares.
     public static func uidFetchEnvelopes(tag: String, uids: [Int64]) -> String {

@@ -288,36 +288,7 @@ struct GeneralSettingsView: View {
     }
 
     private var agentConnectionFields: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Toggle(L10n.tr("Usar agente ACP nas conversas"), isOn: $draft.agent.enabled)
-                .toggleStyle(.switch)
-                .accessibilityIdentifier("assistant-acp-enabled")
-            Text(L10n.tr("O assistente pode buscar mensagens, consultar a agenda e salvar rascunhos. O envio continua no compositor."))
-                .font(theme.sans.font(size: 11.5))
-                .foregroundStyle(theme.ink3.color)
-                .fixedSize(horizontal: false, vertical: true)
-            if draft.agent.enabled {
-                SettingsLabeledRow(label: L10n.tr("Executável ACP")) {
-                    TextField("/opt/homebrew/bin/codex-acp", text: $draft.agent.executablePath)
-                        .settingsTextField()
-                        .accessibilityIdentifier("assistant-acp-path")
-                }
-                SettingsLabeledRow(label: L10n.tr("Argumentos · um por linha")) {
-                    TextEditor(text: Binding(
-                        get: { draft.agent.arguments.joined(separator: "\n") },
-                        set: { draft.agent.arguments = $0.components(separatedBy: "\n").filter { !$0.isEmpty } }
-                    ))
-                    .settingsTextEditor(minHeight: 60)
-                    .accessibilityLabel(L10n.tr("Argumentos do agente ACP"))
-                    .accessibilityIdentifier("assistant-acp-arguments")
-                }
-                Text(L10n.tr("Use um agente compatível com Agent Client Protocol e MCP por HTTP. A autenticação pertence ao agente instalado. Análise automática e ajuda de escrita mantêm o provedor acima."))
-                    .font(theme.sans.font(size: 11.5))
-                    .foregroundStyle(theme.ink3.color)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(.vertical, 8)
+        AgentConnectionsSettings(configuration: $draft.agent, delegation: $draft.a2a, credentials: credentialStore)
     }
 
     private var assistantCard: some View {
@@ -3484,7 +3455,7 @@ private struct SettingsCard<Content: View>: View {
     }
 }
 
-private struct SettingsLabeledRow<Content: View>: View {
+struct SettingsLabeledRow<Content: View>: View {
     @Environment(\.theme) private var theme
     let label: String
     @ViewBuilder let content: Content

@@ -794,12 +794,12 @@ public final class MailStore {
     /// linha sobrevive ao reinício. Falha de disco devolve `false` e deixa
     /// o texto na janela: gravar não pode apagar o que a pessoa escreveu.
     @discardableResult
-    public func saveDraft(_ message: Message) -> Bool {
+    public func saveDraft(_ message: Message, attachments: [OutgoingAttachment] = []) -> Bool {
         let rascunho = message.withBucket(.drafts).withRead(true)
         // Publish only after durable storage accepts the write. A failed
         // write must not look like a saved draft to the UI or an agent.
         if let draftPort {
-            do { try draftPort.saveDraft(rascunho) }
+            do { try draftPort.saveDraft(rascunho, attachments: attachments) }
             catch { report(error); return false }
         }
         rebuildIndexOnNextDidSet = true
@@ -1122,6 +1122,19 @@ public final class MailStore {
         // O estado vazio fica reservado para uma caixa de fato vazia.
         selectDefaultMessage()
         applyRulesToNewMessages()
+    }
+
+    /// Publica imediatamente no estado visível mensagens que uma ferramenta
+    /// acabou de materializar no banco. A observação do `MailSource` ainda é
+    /// a fonte durável e poderá substituir este retrato; esta ponte só evita
+    /// devolver um `messageID` pesquisado que as ferramentas seguintes ainda
+    /// não conseguem ler, encaminhar ou abrir no mesmo turno.
+    public func publishAgentSearchResults(_ incoming: [Message]) {
+        guard !incoming.isEmpty else { return }
+        var byID = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
+        for message in incoming { byID[message.id] = message }
+        rebuildIndexOnNextDidSet = true
+        messages = byID.values.sorted { $0.receivedAt > $1.receivedAt }
     }
 
     /// Executa regras somente sobre mensagens que chegaram depois do primeiro
@@ -2949,6 +2962,30 @@ public final class MailStore {
         if let item = agenda.first(where: { $0.id == id }) { removedFromAgenda[id] = item }
         agenda.removeAll { $0.id == id }
         forget(id)
+    }
+
+    /// Reflete uma mutação já persistida pelo adaptador do agente sem passar
+    /// pela ação de convite da interface. A persistência e a sincronização são
+    /// responsabilidade da porta do agente; este método só mantém a agenda
+    /// visível coerente até a próxima observação do SQLite/CalendarSync.
+    public func reflectAgentAgendaMutation(_ item: AgendaItem?, removingID: String? = nil) {
+        if let removingID {
+            agenda.removeAll { $0.id == removingID }
+            persistedAgenda.removeAll { $0.id == removingID }
+            synchronizedAgenda.removeAll { $0.id == removingID }
+        }
+        guard let item else { return }
+        let stamped = stampedForMailbox(item)
+        agenda.removeAll { $0.id == stamped.id }
+        persistedAgenda.removeAll { $0.id == stamped.id }
+        synchronizedAgenda.removeAll { $0.id == stamped.id }
+        agenda.append(stamped)
+        persistedAgenda.append(stamped)
+        agenda.sort {
+            $0.dayOffset == $1.dayOffset
+                ? $0.startMinute < $1.startMinute
+                : $0.dayOffset < $1.dayOffset
+        }
     }
 
     /// Cancela um compromisso criado no OkamiUNI: manda `METHOD:CANCEL` para

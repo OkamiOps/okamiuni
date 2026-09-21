@@ -52,6 +52,7 @@ public struct AppComposition: Sendable {
     public let bodyPort: BodyFetching?
     /// Recupera os bytes de um anexo recebido quando a pessoa pede para salvar.
     public let attachmentPort: AttachmentFetching?
+    public let agentServices: AgentApplicationServices
     /// De onde vem o catálogo real de contatos — quem já mandou, recebeu ou
     /// entrou em cópia numa mensagem sincronizada. `nil` quando o banco não
     /// abriu, pela mesma razão de `bodyPort`: sem banco não há onde
@@ -219,7 +220,7 @@ public struct AppComposition: Sendable {
                 database: nil, director: nil,
                 source: InMemoryMailSource.fixtures, commandPort: nil, sendPort: nil, draftPort: nil,
                 inviteRSVPPort: nil, bodyPort: nil,
-                attachmentPort: nil,
+                attachmentPort: nil, agentServices: .init(),
                 contactPort: nil, agendaPort: nil, calendarSync: EventKitCalendarAdapter(), trustPort: nil,
                 senderRulePort: nil, readyDraftQueue: nil, readyDrafts: nil,
                 outbox: nil, outboxSignal: nil, sync: nil, network: nil,
@@ -397,6 +398,13 @@ public struct AppComposition: Sendable {
         // Uma porta só para as duas coisas: a triagem e o envio escrevem na
         // mesma fila, e duas instâncias avisariam o executor duas vezes.
         let porta = DatabaseCommandPort(database: banco, signal: sinal)
+        let attachments = DatabaseAttachmentFetcher(database: banco, auth: auth, session: .shared)
+        let calendar = CompositeCalendarSync(accounts: DatabaseCalendarAccounts(database: banco), secrets: cofre)
+        let agentServices = AgentApplicationServices(
+            attachments: DatabaseAgentAttachmentReader(fetcher: attachments),
+            search: DatabaseAgentMailSearch(database: banco, secrets: cofre, auth: auth, eventLoopGroup: grupo),
+            calendar: DatabaseAgentCalendarManager(database: banco, agenda: agendaGuardada, calendarSync: calendar)
+        )
         return AppComposition(
             database: banco,
             director: director,
@@ -409,15 +417,11 @@ public struct AppComposition: Sendable {
                 database: banco, secrets: cofre, auth: auth,
                 session: .shared, eventLoopGroup: grupo
             ),
-            attachmentPort: DatabaseAttachmentFetcher(
-                database: banco, auth: auth, session: .shared
-            ),
+            attachmentPort: attachments,
+            agentServices: agentServices,
             contactPort: DatabaseContactDirectory(database: banco),
-            agendaPort: DatabaseAgendaStore(database: banco),
-            calendarSync: CompositeCalendarSync(
-                accounts: DatabaseCalendarAccounts(database: banco),
-                secrets: cofre
-            ),
+            agendaPort: agendaGuardada,
+            calendarSync: calendar,
             trustPort: DatabaseTrustedSenderStore(database: banco),
             senderRulePort: DatabaseSenderRuleStore(database: banco),
             readyDraftQueue: rascunhos,

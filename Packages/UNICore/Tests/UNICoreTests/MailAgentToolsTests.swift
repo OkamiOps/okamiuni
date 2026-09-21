@@ -414,10 +414,151 @@ struct MailAgentToolsTests {
         #expect(messageID == id)
     }
 
+    @Test("rascunho HTML preserva layout CID e assinatura e remove conteúdo executável")
+    func htmlDraftPreservesPayloadAndSignature() async throws {
+        let account = account("a")
+        let port = RecordingDraftPort()
+        let store = await loadedStore(
+            source: DraftBackedMailSource(accounts: [account], messages: [], port: port), draftPort: port
+        )
+        let tools = MailAgentTools(store: store)
+        let create = try await tools.execute(name: "drafts_create_html", arguments: .object([
+            "accountID": .string(account.id), "subject": .string("Proposta"), "body": .string("Alternativa"),
+            "html": .string("<table><tr><td><img src=\"cid:logo\"></td><td>Olá</td></tr></table><!--okamiuni-signature:work--><script>alert(1)</script>"),
+            "to": .array([.string("ana@example.com")]), "requestID": .string("html-1"),
+        ]))
+        let draftID = try #require(create["draftID"]?.stringValue)
+        let html = try #require(store.message(draftID)?.bodyHTML)
+        #expect(html.contains("<table>"))
+        #expect(html.contains("cid:logo"))
+        #expect(!html.lowercased().contains("script"))
+
+        let version = try #require(create["version"]?.stringValue)
+        _ = try await tools.execute(name: "drafts_update_html", arguments: .object([
+            "draftID": .string(draftID), "version": .string(version), "body": .string("Nova alternativa"),
+            "html": .string("<div style=\"display:grid\">Novo <img src=\"cid:logo\"></div><!--okamiuni-signature:work-->"),
+        ]))
+        #expect(store.message(draftID)?.bodyHTML?.contains("display:grid") == true)
+        #expect(store.message(draftID)?.bodyHTML?.contains("okamiuni-signature:work") == true)
+        #expect(port.draft(draftID)?.bodyHTML == store.message(draftID)?.bodyHTML)
+    }
+
+    @Test("encaminhamento busca e preserva bytes dos anexos conhecidos")
+    func forwardCopiesKnownAttachments() async throws {
+        let account = account("a")
+        let attachment = MailAttachment(id: "source-pdf", filename: "contrato.txt", mimeType: "text/plain", byteCount: 12)
+        let original = Message(
+            id: "incoming-attachment", accountID: account.id,
+            from: Contact(name: "Ana", address: "ana@example.com"), receivedAt: Date(),
+            subject: "Contrato", snippet: "segue", body: ["segue"], tags: [], bucket: .today,
+            isRead: false, summary: nil, detectedEvent: nil,
+            bodyHTML: "<table><tr><td><img src=\"cid:logo\"></td><td>Contrato</td></tr></table><script>alert(1)</script>",
+            attachments: [attachment]
+        )
+        let port = RecordingDraftPort()
+        let attachmentPort = FixedAttachmentPort(attachment: attachment, data: Data("conteudo-123".utf8))
+        let store = await loadedStore(
+            source: DraftBackedMailSource(accounts: [account], messages: [original], port: port),
+            draftPort: port, attachmentPort: attachmentPort
+        )
+        let tools = MailAgentTools(store: store)
+        let result = try await tools.execute(name: "mail_prepare_forward", arguments: .object([
+            "messageID": .string(original.id), "body": .string("Encaminho."), "requestID": .string("forward-files"),
+        ]))
+        let id = try #require(result["draftID"]?.stringValue)
+        #expect(port.outgoingAttachments(for: id).map(\.data) == [Data("conteudo-123".utf8)])
+        #expect(store.message(id)?.attachments.map(\.filename) == ["contrato.txt"])
+        let html = try #require(store.message(id)?.bodyHTML)
+        #expect(html.contains("Encaminho."))
+        #expect(html.contains("<table>"))
+        #expect(html.contains("cid:logo"))
+        #expect(!html.lowercased().contains("script"))
+        #expect(await attachmentPort.requests == [.init(accountID: account.id, messageID: original.id, attachmentID: attachment.id)])
+    }
+
+    @Test("leitura de anexo exige a identidade da mensagem e usa a porta segura")
+    func attachmentReadingUsesKnownIdentity() async throws {
+        let account = account("a")
+        let attachment = MailAttachment(id: "known", filename: "nota.txt", mimeType: "text/plain", byteCount: 4)
+        let mail = Message(
+            id: "message", accountID: account.id,
+            from: Contact(name: "Remetente", address: "sender@example.com"), receivedAt: Date(),
+            subject: "Anexo", snippet: "Anexo", body: ["Anexo"], tags: [], bucket: .today,
+            isRead: false, summary: nil, detectedEvent: nil, attachments: [attachment]
+        )
+        let store = await loadedStore(source: InMemoryMailSource(accounts: [account], messages: [mail], agenda: []))
+        let reader = FixedAttachmentReader()
+        let tools = MailAgentTools(store: store, attachmentReader: reader)
+        let content = try await tools.execute(name: "attachment_read", arguments: .object([
+            "accountID": .string(account.id), "messageID": .string(mail.id), "attachmentID": .string(attachment.id),
+        ]))
+        #expect(content["text"]?.stringValue == "lido")
+        #expect(await reader.requests == [.init(accountID: account.id, messageID: mail.id, attachmentID: attachment.id)])
+    }
+
+    @Test("agenda cria, atualiza e remove sem convite e reflete a lista imediatamente")
+    func calendarMutationsAreVersionedAndLocalImmediately() async throws {
+        let account = account("a")
+        let store = await loadedStore(source: InMemoryMailSource(accounts: [account], messages: [], agenda: []))
+        let manager = RecordingCalendarManager(reference: Date(timeIntervalSince1970: 1_730_000_000))
+        let tools = MailAgentTools(store: store, calendar: manager)
+        let create = try await tools.execute(name: "agenda_create", arguments: .object([
+            "accountID": .string(account.id), "title": .string("Reunião"),
+            "startsAt": .string("2024-10-27T09:00:00Z"), "endsAt": .string("2024-10-27T10:00:00Z"),
+            "requestID": .string("calendar-1"),
+            "place": .string("Sala 2"), "note": .string("Levar a proposta."),
+        ]))
+        let event = try #require(create["event"])
+        let id = try #require(event["eventID"]?.stringValue)
+        let version = try #require(event["version"]?.stringValue)
+        #expect(create["sentInvitations"]?.boolValue == false)
+        #expect(store.calendarAgenda.contains(where: { $0.id == id }))
+        let updated = try await tools.execute(name: "agenda_update", arguments: .object([
+            "eventID": .string(id), "version": .string(version), "accountID": .string(account.id),
+            "title": .string("Reunião atualizada"),
+            "startsAt": .string("2024-10-27T10:00:00Z"), "endsAt": .string("2024-10-27T11:00:00Z"),
+        ]))
+        let updatedVersion = try #require(updated["event"]?["version"]?.stringValue)
+        #expect(updated["event"]?["place"]?.stringValue == "Sala 2")
+        #expect(updated["event"]?["note"]?.stringValue == "Levar a proposta.")
+        #expect(await conflicts {
+            _ = try await tools.execute(name: "agenda_update", arguments: .object([
+                "eventID": .string(id), "version": .string(version), "accountID": .string(account.id),
+                "title": .string("Conflito"),
+                "startsAt": .string("2024-10-27T12:00:00Z"), "endsAt": .string("2024-10-27T13:00:00Z"),
+            ]))
+        })
+        _ = try await tools.execute(name: "agenda_delete", arguments: .object([
+            "eventID": .string(id), "version": .string(updatedVersion), "accountID": .string(account.id),
+        ]))
+        #expect(!store.calendarAgenda.contains(where: { $0.id == id }))
+        #expect(await manager.invitationAttempts == 0)
+    }
+
+    @Test("resultado pesquisado fora do retrato pode ser lido no mesmo turno")
+    func remoteSearchPublishesMessageBeforeThreadRead() async throws {
+        let account = account("a")
+        let remote = Message(
+            id: "remote-only", accountID: account.id,
+            from: Contact(name: "Ana", address: "ana@example.com"), receivedAt: Date(),
+            subject: "Fora do retrato", snippet: "Corpo remoto", body: ["Corpo remoto completo"],
+            tags: [], bucket: .today, isRead: false, summary: nil, detectedEvent: nil, bodyHTML: ""
+        )
+        let store = await loadedStore(source: InMemoryMailSource(accounts: [account], messages: [], agenda: []))
+        let tools = MailAgentTools(
+            store: store, mailSearch: StaticSearch(result: .init(messages: [remote], scope: .localAndRemote))
+        )
+        let search = try await tools.execute(name: "mail_search", arguments: .object(["query": .string("retrato")]))
+        #expect(search["items"]?.arrayValue?.first?["messageID"]?.stringValue == remote.id)
+        let read = try await tools.execute(name: "mail_read_thread", arguments: .object(["messageID": .string(remote.id)]))
+        #expect(read["messages"]?.arrayValue?.first?["body"]?.stringValue == "Corpo remoto completo")
+    }
+
     private func loadedStore(
-        source: some MailSource, bodyPort: BodyFetching? = nil, draftPort: MailDraftPort? = nil
+        source: some MailSource, bodyPort: BodyFetching? = nil, draftPort: MailDraftPort? = nil,
+        attachmentPort: AttachmentFetching? = nil
     ) async -> MailStore {
-        let store = MailStore(source: source, bodyPort: bodyPort, draftPort: draftPort)
+        let store = MailStore(source: source, bodyPort: bodyPort, attachmentPort: attachmentPort, draftPort: draftPort)
         await store.load()
         return store
     }
@@ -463,6 +604,7 @@ private final class RecordingDraftPort: MailDraftPort, @unchecked Sendable {
     private let lock = NSLock()
     private let failSaves: Bool
     private var drafts: [String: Message] = [:]
+    private var attachmentWrites: [String: [OutgoingAttachment]] = [:]
     private var writes = 0
 
     init(failSaves: Bool = false) {
@@ -476,6 +618,11 @@ private final class RecordingDraftPort: MailDraftPort, @unchecked Sendable {
             drafts[message.id] = message
         }
         if failSaves { throw RecordingDraftPortError.saveFailed }
+    }
+
+    func saveDraft(_ message: Message, attachments: [OutgoingAttachment]) throws {
+        try saveDraft(message)
+        lock.withLock { attachmentWrites[message.id] = attachments }
     }
 
     func deleteDraft(id: String) throws {
@@ -493,6 +640,10 @@ private final class RecordingDraftPort: MailDraftPort, @unchecked Sendable {
     var saveCount: Int {
         lock.withLock { writes }
     }
+
+    func outgoingAttachments(for id: String) -> [OutgoingAttachment] {
+        lock.withLock { attachmentWrites[id] ?? [] }
+    }
 }
 
 private enum RecordingDraftPortError: Error {
@@ -502,6 +653,103 @@ private enum RecordingDraftPortError: Error {
 private struct BodyRequest: Sendable, Equatable {
     let accountID: String
     let messageID: String
+}
+
+private struct AttachmentRequest: Sendable, Equatable {
+    let accountID: String
+    let messageID: String
+    let attachmentID: String
+}
+
+private actor FixedAttachmentPort: AttachmentFetching {
+    let attachment: MailAttachment
+    let data: Data
+    private(set) var requests: [AttachmentRequest] = []
+
+    init(attachment: MailAttachment, data: Data) {
+        self.attachment = attachment
+        self.data = data
+    }
+
+    func fetchAttachment(accountID: String, messageID: String, attachmentID: String) async throws -> FetchedAttachment {
+        requests.append(.init(accountID: accountID, messageID: messageID, attachmentID: attachmentID))
+        guard attachmentID == attachment.id else { throw AttachmentError.unavailable }
+        return try FetchedAttachment(attachment: attachment, data: data)
+    }
+}
+
+private actor FixedAttachmentReader: AgentAttachmentReading {
+    private(set) var requests: [AttachmentRequest] = []
+
+    func readAttachment(accountID: String, messageID: String, attachmentID: String) async throws -> AgentAttachmentContent {
+        requests.append(.init(accountID: accountID, messageID: messageID, attachmentID: attachmentID))
+        return .init(kind: .text, mimeType: "text/plain", text: "lido", truncated: false)
+    }
+}
+
+private actor RecordingCalendarManager: AgentCalendarManaging {
+    let reference: Date
+    private var events: [String: AgendaItem] = [:]
+    private(set) var invitationAttempts = 0
+
+    init(reference: Date) { self.reference = reference }
+
+    func event(id: String) async throws -> AgendaItem? { events[id] }
+
+    func search(query: String, accountIDs: Set<String>) async throws -> [AgendaItem] {
+        events.values.filter { accountIDs.isEmpty || accountIDs.contains($0.accountID) }
+    }
+
+    func create(_ draft: AgentCalendarDraft) async throws -> AgentCalendarMutation {
+        let item = make(draft)
+        if let old = events[draft.id] {
+            guard old == item else { throw AgentToolError.conflict }
+            return .init(item: old, sync: .synchronized, didChange: false)
+        }
+        events[draft.id] = item
+        return .init(item: item, sync: .synchronized, didChange: true)
+    }
+
+    func update(_ draft: AgentCalendarDraft) async throws -> AgentCalendarMutation {
+        guard events[draft.id] != nil else { throw AgentToolError.unavailable("ausente") }
+        let item = make(draft)
+        events[draft.id] = item
+        return .init(item: item, sync: .synchronized, didChange: true)
+    }
+
+    func delete(id: String, accountID: String) async throws -> AgentCalendarMutation {
+        guard let old = events[id] else { return .init(item: nil, sync: .synchronized, didChange: false) }
+        guard old.accountID == accountID else { throw AgentToolError.unavailable("outra conta") }
+        events[id] = nil
+        return .init(item: nil, sync: .synchronized, didChange: true)
+    }
+
+    private func make(_ draft: AgentCalendarDraft) -> AgendaItem {
+        let calendar = Calendar.current
+        let start = calendar.dateComponents([.hour, .minute], from: draft.startsAt)
+        let end = calendar.dateComponents([.hour, .minute], from: draft.endsAt)
+        let day = calendar.dateComponents(
+            [.day], from: calendar.startOfDay(for: reference), to: calendar.startOfDay(for: draft.startsAt)
+        ).day ?? 0
+        return AgendaItem(
+            id: draft.id, title: draft.title,
+            startMinute: (start.hour ?? 0) * 60 + (start.minute ?? 0),
+            endMinute: (end.hour ?? 0) * 60 + (end.minute ?? 0),
+            accountID: draft.accountID, dayOffset: day, calendarUID: draft.id,
+            detail: EventDetail(
+                place: draft.place, link: nil,
+                organizer: EventPerson(name: "Eu", address: "me@example.com", role: "organizador", status: .yes),
+                people: [], note: "", recurrence: "Evento único", notice: "Sem alerta",
+                agenda: [], thread: [], descricao: draft.note
+            )
+        )
+    }
+}
+
+private actor StaticSearch: AgentMailSearching {
+    let result: AgentMailSearchResult
+    init(result: AgentMailSearchResult) { self.result = result }
+    func search(_ request: AgentMailSearchRequest) async throws -> AgentMailSearchResult { result }
 }
 
 private actor LazyBodyPort: BodyFetching {

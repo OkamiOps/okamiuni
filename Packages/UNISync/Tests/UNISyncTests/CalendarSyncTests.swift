@@ -1,4 +1,5 @@
 import Foundation
+import EventKit
 import Testing
 import UNICore
 @testable import UNISync
@@ -125,6 +126,26 @@ struct EventKitCalendarAdapterTests {
                 == "Levar os números do trimestre.\n\nLink da reunião: https://empresa.webex.com/meet/revisao"
         )
         #expect(EventKitEventNotes.text(for: nil) == nil)
+    }
+
+    @Test("Participantes do EventKit preservam email e sinalizam entradas sem endereço")
+    func projectsAttendeesForMutationGuard() {
+        let identified = EventKitParticipantProjection.person(
+            name: "Ana", url: URL(string: "mailto:ana%40example.com"),
+            role: .required, status: .accepted, index: 0
+        )
+        let opaque = EventKitParticipantProjection.person(
+            name: nil, url: URL(string: "urn:uuid:7E5A"),
+            role: .optional, status: .tentative, index: 1
+        )
+
+        #expect(identified == EventPerson(
+            name: "Ana", address: "ana@example.com", role: "obrigatório", status: .yes
+        ))
+        #expect(opaque == EventPerson(
+            name: "Participante sem endereço 2", address: "",
+            role: "opcional", status: .maybe
+        ))
     }
 }
 

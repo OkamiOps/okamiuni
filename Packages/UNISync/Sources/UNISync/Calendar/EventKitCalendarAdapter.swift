@@ -186,7 +186,7 @@ private actor EventKitCalendarGateway: SystemCalendarGateway {
                 address: organizer?.url.absoluteString ?? "",
                 role: "organizador", status: .yes
             ),
-            people: [], note: sourceName,
+            people: EventKitParticipantProjection.people(from: event.attendees ?? []), note: sourceName,
             recurrence: EventKitRecurrence.storage(from: event) ?? (event.hasRecurrenceRules ? "Recorrente" : "Evento único"),
             notice: "Consulte o Calendário para alertas", agenda: [], thread: [], descricao: event.notes
         )
@@ -269,6 +269,63 @@ enum EventKitItemID {
     static func make(marker: String?, calendarItemIdentifier: String, start: Date) -> String {
         if let marker, !marker.isEmpty { return marker }
         return "eventkit:\(calendarItemIdentifier):\(Int(start.timeIntervalSince1970))"
+    }
+}
+
+/// Traduz convidados do EventKit sem expor URLs opacas do provedor como se
+/// fossem endereços de e-mail. A existência de qualquer linha aqui também é a
+/// guarda que impede a ferramenta de agente de salvar ou remover um evento que
+/// poderia notificar participantes.
+enum EventKitParticipantProjection {
+    static func people(from attendees: [EKParticipant]) -> [EventPerson] {
+        attendees.enumerated().map { index, attendee in
+            person(
+                name: attendee.name, url: attendee.url,
+                role: attendee.participantRole, status: attendee.participantStatus, index: index
+            )
+        }
+    }
+
+    static func person(
+        name: String?, url: URL?, role: EKParticipantRole,
+        status: EKParticipantStatus, index: Int
+    ) -> EventPerson {
+        let ordinal = index + 1
+        let displayName = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let address = mailAddress(from: url)
+            ?? ""
+        return EventPerson(
+            name: displayName?.isEmpty == false ? displayName! : "Participante sem endereço \(ordinal)",
+            address: address, role: participantRole(role), status: participantStatus(status)
+        )
+    }
+
+    private static func mailAddress(from url: URL?) -> String? {
+        guard let url, url.scheme?.caseInsensitiveCompare("mailto") == .orderedSame else { return nil }
+        let raw = String(url.absoluteString.dropFirst("mailto:".count))
+            .split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).first
+            .map(String.init)?.removingPercentEncoding ?? ""
+        return EmailAddress.normalized(raw)
+    }
+
+    private static func participantRole(_ role: EKParticipantRole) -> String {
+        switch role {
+        case .required: "obrigatório"
+        case .optional: "opcional"
+        case .chair: "responsável"
+        case .nonParticipant: "informativo"
+        case .unknown: "participante"
+        @unknown default: "participante"
+        }
+    }
+
+    private static func participantStatus(_ status: EKParticipantStatus) -> EventPerson.Status {
+        switch status {
+        case .accepted, .completed: .yes
+        case .tentative: .maybe
+        case .unknown, .pending, .declined, .delegated, .inProcess: .pending
+        @unknown default: .pending
+        }
     }
 }
 

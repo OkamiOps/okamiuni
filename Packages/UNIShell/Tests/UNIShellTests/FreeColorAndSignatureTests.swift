@@ -439,6 +439,27 @@ struct SignatureButtonTests {
         #expect(preview != nil)
     }
 
+    @Test("rascunho HTML preservado renderiza tabela e imagem sem limitar a altura")
+    func preservedDraftHTMLRendersWithoutClipping() async throws {
+        let html = """
+        <html><head><style>body{margin:0;background:#fff;color:#18232d;font:16px system-ui}td{padding:20px;border-bottom:1px solid #dce1e5}</style></head><body>
+        <table style="width:100%;border-collapse:collapse"><tr><td><h2>Proposta para revisão</h2><p>Marcos Santos · conteúdo de teste</p>
+        <img alt="Imagem inline" width="24" height="24" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="></td></tr>
+        <tr><td style="height:440px;vertical-align:top">Tabela mantida no rascunho.<br>O conteúdo continua disponível ao rolar.</td></tr>
+        <tr><td>Fim do documento preservado.</td></tr></table></body></html>
+        """
+        let result = await loadedSignaturePreview(
+            ScrollView { ComposerPreservedHTMLBlock(html: html).padding(20) },
+            size: CGSize(width: 820, height: 920), theme: .tinta,
+            snapshotAt: Render.outputDirectory?.appendingPathComponent("composer-html-preservado.png")
+        )
+        let rendered = try #require(result)
+        #expect(rendered.dom.hasTable)
+        #expect(rendered.dom.imageSource.hasPrefix("data:image/png;base64,"))
+        #expect(rendered.dom.text.contains("Fim do documento preservado."))
+        #expect(rendered.frame.height > 420)
+    }
+
     private func signatureForCursorTests() throws -> EmailSignature {
         let image = try InlineSignatureResource(
             contentID: "logo@vantion.local",

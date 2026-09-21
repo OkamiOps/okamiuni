@@ -23,6 +23,9 @@ public struct ACPAgentPermissionOption: Sendable, Equatable {
 public struct ACPAgentPermissionRequest: Sendable, Equatable {
     public let sessionID: String
     public let toolCallID: String
+    /// The MCP server observed in the associated standard ACP `tool_call`.
+    /// It is `nil` for non-MCP or uncorrelated requests.
+    public let mcpServerName: String?
     public let toolName: String?
     public let toolTitle: String?
     public let toolKind: String?
@@ -31,6 +34,7 @@ public struct ACPAgentPermissionRequest: Sendable, Equatable {
     public init(
         sessionID: String,
         toolCallID: String,
+        mcpServerName: String? = nil,
         toolName: String?,
         toolTitle: String?,
         toolKind: String?,
@@ -38,6 +42,7 @@ public struct ACPAgentPermissionRequest: Sendable, Equatable {
     ) {
         self.sessionID = sessionID
         self.toolCallID = toolCallID
+        self.mcpServerName = mcpServerName
         self.toolName = toolName
         self.toolTitle = toolTitle
         self.toolKind = toolKind
@@ -102,6 +107,10 @@ public struct ACPAgentClient: Sendable {
         public let executableURL: URL
         public let arguments: [String]
         public let environment: [String: String]
+        /// Keeps security-scoped bookmarks active while the configured child
+        /// process is running. It is optional so unit fixtures can launch
+        /// bundled system tools without an external authorization.
+        public let runtimeLaunch: AgentRuntimeLaunch?
         /// Diretório em que o filho é iniciado. O `cwd` enviado ao ACP continua
         /// sendo sempre uma pasta temporária privada por sessão.
         public let cwd: URL?
@@ -120,6 +129,7 @@ public struct ACPAgentClient: Sendable {
             executableURL: URL,
             arguments: [String] = [],
             environment: [String: String] = [:],
+            runtimeLaunch: AgentRuntimeLaunch? = nil,
             cwd: URL? = nil,
             timeout: TimeInterval = 120,
             maximumFrameBytes: Int = 1_024 * 1_024,
@@ -130,6 +140,7 @@ public struct ACPAgentClient: Sendable {
             self.executableURL = executableURL
             self.arguments = arguments
             self.environment = environment
+            self.runtimeLaunch = runtimeLaunch
             self.cwd = cwd
             self.timeout = min(max(timeout, 1), 300)
             self.maximumFrameBytes = min(max(maximumFrameBytes, 1_024), 4 * 1_024 * 1_024)
@@ -158,6 +169,23 @@ public struct ACPAgentClient: Sendable {
             run.cancel()
         })
     }
+
+    /// Verifies the ACP v1 and HTTP-MCP handshake without submitting a prompt.
+    /// Callers should provide an empty, throwaway MCP server for UI diagnostics;
+    /// this method never asks the agent to inspect mail or execute a tool.
+    public func checkConnection(mcpURL: URL, bearerToken: String) async throws -> String {
+        let run = ACPAgentRun(configuration: configuration, onUpdate: { _ in })
+        return try await withTaskCancellationHandler(operation: {
+            try await run.checkConnection(mcpURL: mcpURL, bearerToken: bearerToken)
+        }, onCancel: {
+            run.cancel()
+        })
+    }
+}
+
+private struct ACPStartedSession: Sendable {
+    let id: String
+    let agentName: String
 }
 
 private final class ACPAgentRun: @unchecked Sendable {
@@ -175,13 +203,7 @@ private final class ACPAgentRun: @unchecked Sendable {
     }
 
     func answer(prompt: String, mcpURL: URL, bearerToken: String) async throws -> String {
-        guard configuration.executableURL.isFileURL,
-              configuration.executableURL.path.hasPrefix("/")
-        else { throw ACPAgentClientError.invalidConfiguration }
-        guard mcpURL.scheme?.lowercased() == "http" || mcpURL.scheme?.lowercased() == "https" else {
-            throw ACPAgentClientError.invalidConfiguration
-        }
-        guard !bearerToken.isEmpty else { throw ACPAgentClientError.invalidConfiguration }
+        try validateRequest(mcpURL: mcpURL, bearerToken: bearerToken)
         try Task.checkCancellation()
 
         let temporaryDirectory = try makeSessionDirectory()
@@ -192,54 +214,17 @@ private final class ACPAgentRun: @unchecked Sendable {
         let timeoutTimer = startTimeoutTimer()
         defer { timeoutTimer.cancel() }
 
-        let initialize = try await request(
-            id: 0,
-            method: "initialize",
-            params: .object([
-                "protocolVersion": .number(1),
-                // Não anunciar `fs` ou `terminal` é a capacidade explicitamente
-                // ausente. O agente não recebe uma porta implícita para o Mac.
-                "clientCapabilities": .object([:]),
-                "clientInfo": .object([
-                    "name": .string("okamiuni"),
-                    "title": .string("OkamiUNI"),
-                    "version": .string("1"),
-                ]),
-            ])
+        let startedSession = try await startSession(
+            sessionDirectory: temporaryDirectory,
+            mcpURL: mcpURL,
+            bearerToken: bearerToken
         )
-        try validateInitialization(initialize)
-
-        let session = try await request(
-            id: 1,
-            method: "session/new",
-            params: .object([
-                "cwd": .string(temporaryDirectory.path),
-                "mcpServers": .array([
-                    .object([
-                        "type": .string("http"),
-                        "name": .string("okamiuni"),
-                        "url": .string(mcpURL.absoluteString),
-                        "headers": .array([
-                            .object([
-                                "name": .string("Authorization"),
-                                "value": .string("Bearer \(bearerToken)"),
-                            ]),
-                        ]),
-                    ]),
-                ]),
-            ])
-        )
-        let sessionID = try session["sessionId"]?.stringValue ?? {
-            throw ACPAgentClientError.invalidResponse
-        }()
-        guard !sessionID.isEmpty else { throw ACPAgentClientError.invalidResponse }
-        control.setSessionID(sessionID)
 
         let completion = try await request(
             id: 2,
             method: "session/prompt",
             params: .object([
-                "sessionId": .string(sessionID),
+                "sessionId": .string(startedSession.id),
                 "prompt": .array([
                     .object([
                         "type": .string("text"),
@@ -257,6 +242,25 @@ private final class ACPAgentRun: @unchecked Sendable {
             throw ACPAgentClientError.emptyResponse
         }
         return response
+    }
+
+    func checkConnection(mcpURL: URL, bearerToken: String) async throws -> String {
+        try validateRequest(mcpURL: mcpURL, bearerToken: bearerToken)
+        try Task.checkCancellation()
+
+        let temporaryDirectory = try makeSessionDirectory()
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+
+        try startProcess(sessionDirectory: temporaryDirectory)
+        defer { stopProcess() }
+        let timeoutTimer = startTimeoutTimer()
+        defer { timeoutTimer.cancel() }
+
+        return try await startSession(
+            sessionDirectory: temporaryDirectory,
+            mcpURL: mcpURL,
+            bearerToken: bearerToken
+        ).agentName
     }
 
     func cancel() {
@@ -294,7 +298,7 @@ private final class ACPAgentRun: @unchecked Sendable {
         ]
         let inherited = ProcessInfo.processInfo.environment.filter { inheritedKeys.contains($0.key) }
         process.environment = inherited.merging(configuration.environment) { _, configured in configured }
-        process.currentDirectoryURL = configuration.cwd ?? sessionDirectory
+        process.currentDirectoryURL = configuration.cwd ?? configuration.runtimeLaunch?.workingDirectoryURL ?? sessionDirectory
         process.standardInput = input
         process.standardOutput = output
         process.standardError = error
@@ -344,12 +348,77 @@ private final class ACPAgentRun: @unchecked Sendable {
         standardError?.finish()
     }
 
-    private func validateInitialization(_ result: AgentJSONValue) throws {
+    private func validateRequest(mcpURL: URL, bearerToken: String) throws {
+        guard configuration.executableURL.isFileURL,
+              configuration.executableURL.path.hasPrefix("/"),
+              mcpURL.scheme?.lowercased() == "http" || mcpURL.scheme?.lowercased() == "https",
+              !bearerToken.isEmpty
+        else { throw ACPAgentClientError.invalidConfiguration }
+    }
+
+    private func validateInitialization(_ result: AgentJSONValue) throws -> String {
         let version = result["protocolVersion"]?.intValue
         guard version == 1 else { throw ACPAgentClientError.unsupportedProtocol(version) }
         guard result["agentCapabilities"]?["mcpCapabilities"]?["http"]?.boolValue == true else {
             throw ACPAgentClientError.unsupportedHTTPTransport
         }
+        let name = result["agentInfo"]?["name"]?.stringValue ?? result["agentInfo"]?["title"]?.stringValue
+        guard let name,
+              !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              name.count <= 256,
+              !name.unicodeScalars.contains(where: { $0.value == 0 || $0.value == 10 || $0.value == 13 })
+        else { return "ACP v1" }
+        return name
+    }
+
+    private func startSession(
+        sessionDirectory: URL,
+        mcpURL: URL,
+        bearerToken: String
+    ) async throws -> ACPStartedSession {
+        let initialize = try await request(
+            id: 0,
+            method: "initialize",
+            params: .object([
+                "protocolVersion": .number(1),
+                // Not advertising fs or terminal deliberately leaves those
+                // client capabilities unavailable to the agent.
+                "clientCapabilities": .object([:]),
+                "clientInfo": .object([
+                    "name": .string("okamiuni"),
+                    "title": .string("OkamiUNI"),
+                    "version": .string("1"),
+                ]),
+            ])
+        )
+        let agentName = try validateInitialization(initialize)
+
+        let session = try await request(
+            id: 1,
+            method: "session/new",
+            params: .object([
+                "cwd": .string(sessionDirectory.path),
+                "mcpServers": .array([
+                    .object([
+                        "type": .string("http"),
+                        "name": .string("okamiuni"),
+                        "url": .string(mcpURL.absoluteString),
+                        "headers": .array([
+                            .object([
+                                "name": .string("Authorization"),
+                                "value": .string("Bearer \(bearerToken)"),
+                            ]),
+                        ]),
+                    ]),
+                ]),
+            ])
+        )
+        let sessionID = try session["sessionId"]?.stringValue ?? {
+            throw ACPAgentClientError.invalidResponse
+        }()
+        guard !sessionID.isEmpty else { throw ACPAgentClientError.invalidResponse }
+        control.setSessionID(sessionID)
+        return ACPStartedSession(id: sessionID, agentName: agentName)
     }
 
     private func request(id: Int, method: String, params: AgentJSONValue) async throws -> AgentJSONValue {
@@ -458,23 +527,31 @@ private final class ACPAgentRun: @unchecked Sendable {
             else { return nil }
             return ACPAgentPermissionOption(id: id, kind: kind)
         }
-        // The Codex ACP adapter does not repeat MCP origin or tool name on the
-        // approval request. It emits them first as a `tool_call` update. Never
-        // trust title/name supplied by the approval itself: only this pending,
-        // session-scoped correlation can select allow_once.
-        let isMCPToolApproval = params["_meta"]?["is_mcp_tool_approval"]?.boolValue == true
-        let linkedToolName = isMCPToolApproval ? control.trustedMCPToolName(for: toolCallID) : nil
+        // ACP reserves `_meta` for extensions, so a generic client must never
+        // use it as an authorization signal. A provider can omit tool details
+        // from this request, but it cannot omit the `toolCallId`: only a
+        // pending, same-session standard `tool_call` update with an observable
+        // MCP server/tool identity is eligible for one-time approval.
+        let trustedTool = control.trustedMCPTool(for: toolCallID)
+        let requestTool = observedMCPTool(in: toolCall)
+        let linkedTool: ACPMCPToolIdentity?
+        if let requestTool {
+            linkedTool = requestTool == trustedTool ? requestTool : nil
+        } else {
+            linkedTool = trustedTool
+        }
         let request = ACPAgentPermissionRequest(
             sessionID: sessionID,
             toolCallID: toolCallID,
-            toolName: linkedToolName,
-            toolTitle: nil,
+            mcpServerName: linkedTool?.server,
+            toolName: linkedTool?.tool,
+            toolTitle: toolCall["title"]?.stringValue,
             toolKind: toolCall["kind"]?.stringValue,
             options: options
         )
         var selected = selectedPermissionOption(for: request)
         if selected != nil,
-           control.takeTrustedMCPToolName(for: toolCallID) != linkedToolName {
+           control.takeTrustedMCPTool(for: toolCallID) != linkedTool {
             selected = nil
         }
         let outcome: AgentJSONValue
@@ -499,11 +576,12 @@ private final class ACPAgentRun: @unchecked Sendable {
     }
 
     private func selectedPermissionOption(for request: ACPAgentPermissionRequest) -> String? {
-        // Com fs e terminal ausentes do initialize, estes pedidos já violam a
-        // capacidade negociada. O nome vem exclusivamente da rawInput MCP
-        // ligada acima; title e kind do pedido não participam da autorização.
+        // `fs` and `terminal` are absent from initialize. The server/tool pair
+        // comes from a standard tool-call update, never title, kind, or `_meta`
+        // supplied by the permission prompt itself.
         let genericTerms = ["terminal", "shell", "filesystem", "read_file", "write_file", "delete_file"]
-        guard let name = request.toolName,
+        guard request.mcpServerName == "okamiuni",
+              let name = request.toolName,
               !genericTerms.contains(where: { name.lowercased().contains($0) }),
               configuration.safeMCPToolNames.contains(name),
               let selected = selectedPermissionOptionFromHandlerOrDefault(for: request),
@@ -524,15 +602,44 @@ private final class ACPAgentRun: @unchecked Sendable {
     private func rememberTrustedMCPToolCall(_ update: AgentJSONValue) {
         guard let updateKind = update["sessionUpdate"]?.stringValue,
               updateKind == "tool_call" || updateKind == "tool_call_update",
-              update["_meta"]?["is_mcp_tool_call"]?.boolValue == true,
               let toolCallID = update["toolCallId"]?.stringValue,
-              let rawInput = update["rawInput"],
-              rawInput["server"]?.stringValue == "okamiuni",
-              let toolName = rawInput["tool"]?.stringValue,
-              rawInput["arguments"] != nil,
-              configuration.safeMCPToolNames.contains(toolName)
+              let tool = observedMCPTool(in: update),
+              tool.server == "okamiuni",
+              configuration.safeMCPToolNames.contains(tool.tool)
         else { return }
-        control.rememberTrustedMCPToolCall(id: toolCallID, name: toolName)
+        control.rememberTrustedMCPTool(id: toolCallID, tool: tool)
+    }
+
+    /// Accepts only MCP identity that an ACP provider exposed in the standard
+    /// `tool_call` payload. `rawInput` intentionally has no ACP-mandated MCP
+    /// shape, so the two explicit shapes are checked independently and common
+    /// `mcp__server__tool` names are accepted only alongside an object input.
+    private func observedMCPTool(in toolCall: AgentJSONValue) -> ACPMCPToolIdentity? {
+        guard let rawInput = toolCall["rawInput"], rawInput.objectValue != nil else { return nil }
+        if let server = rawInput["server"]?.stringValue,
+           let tool = rawInput["tool"]?.stringValue,
+           let identity = ACPMCPToolIdentity(server: server, tool: tool) {
+            return identity
+        }
+        if let server = rawInput["serverName"]?.stringValue,
+           let tool = rawInput["toolName"]?.stringValue,
+           let identity = ACPMCPToolIdentity(server: server, tool: tool) {
+            return identity
+        }
+        guard let name = toolCall["name"]?.stringValue,
+              name.hasPrefix("mcp__")
+        else { return nil }
+        let components = name.split(separator: "_", omittingEmptySubsequences: false)
+        // `mcp__server__tool` splits to [mcp, "", server, "", tool]. Tool
+        // names may contain underscores, hence the fixed separator positions.
+        guard components.count >= 5,
+              components[0] == "mcp", components[1].isEmpty,
+              !components[2].isEmpty, components[3].isEmpty
+        else { return nil }
+        return ACPMCPToolIdentity(
+            server: String(components[2]),
+            tool: components.dropFirst(4).joined(separator: "_")
+        )
     }
 
     private func sendMethodNotFound(id: AgentJSONValue) throws {
@@ -544,6 +651,26 @@ private final class ACPAgentRun: @unchecked Sendable {
                 "message": .string("Method not supported"),
             ]),
         ]))
+    }
+}
+
+private struct ACPMCPToolIdentity: Sendable, Equatable {
+    let server: String
+    let tool: String
+
+    init?(server: String, tool: String) {
+        guard Self.isIdentifier(server, maximum: 128),
+              Self.isIdentifier(tool, maximum: 512)
+        else { return nil }
+        self.server = server
+        self.tool = tool
+    }
+
+    private static func isIdentifier(_ value: String, maximum: Int) -> Bool {
+        !value.isEmpty && value.count <= maximum &&
+            !value.unicodeScalars.contains { scalar in
+                scalar.value == 0 || scalar.value == 10 || scalar.value == 13
+            }
     }
 }
 
@@ -564,10 +691,9 @@ private final class ACPProcessControl: @unchecked Sendable {
     private var failureStorage: ACPAgentClientError?
     private var exitStatusStorage: Int32?
     private var answers: [String] = []
-    /// Apenas chamadas MCP que o adaptador anunciou durante a sessão atual.
-    /// A entrada é consumida ao aprovar para que um mesmo `toolCallId` não
-    /// possa transformar várias solicitações em permissões novas.
-    private var trustedMCPToolNames: [String: String] = [:]
+    /// Only MCP calls observed during this session. The entry is consumed when
+    /// approved so one `toolCallId` cannot yield several fresh permissions.
+    private var trustedMCPTools: [String: ACPMCPToolIdentity] = [:]
 
     var isCancelled: Bool { withLock { cancelled } }
     var failure: ACPAgentClientError? { withLock { failureStorage } }
@@ -593,19 +719,22 @@ private final class ACPProcessControl: @unchecked Sendable {
     func setSessionID(_ sessionID: String) {
         withLock {
             self.sessionID = sessionID
-            trustedMCPToolNames.removeAll(keepingCapacity: true)
+            trustedMCPTools.removeAll(keepingCapacity: true)
         }
     }
     func clearPromptActive() { withLock { promptActive = false } }
     func appendAnswer(_ text: String) { withLock { answers.append(text) } }
-    func rememberTrustedMCPToolCall(id: String, name: String) {
-        withLock { trustedMCPToolNames[id] = name }
+    func rememberTrustedMCPTool(id: String, tool: ACPMCPToolIdentity) {
+        withLock {
+            guard trustedMCPTools[id] == nil else { return }
+            trustedMCPTools[id] = tool
+        }
     }
-    func trustedMCPToolName(for id: String) -> String? {
-        withLock { trustedMCPToolNames[id] }
+    func trustedMCPTool(for id: String) -> ACPMCPToolIdentity? {
+        withLock { trustedMCPTools[id] }
     }
-    func takeTrustedMCPToolName(for id: String) -> String? {
-        withLock { trustedMCPToolNames.removeValue(forKey: id) }
+    func takeTrustedMCPTool(for id: String) -> ACPMCPToolIdentity? {
+        withLock { trustedMCPTools.removeValue(forKey: id) }
     }
 
     func write(

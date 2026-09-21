@@ -185,6 +185,7 @@ struct OkamiUNIApp: App {
                     analysisDestination: destinoDaAnalise,
                     textAssistant: composition.textAssistant,
                     assistantSettings: composition.assistantSettings,
+                    agentServices: composition.agentServices,
                     onMessagePresented: prioritizeMessageSummary,
                     accountsModel: accountsModel,
                     analysisQueue: composition.analysisQueue,
@@ -314,6 +315,7 @@ struct OkamiUNIApp: App {
                     messageID: messageID ?? "",
                     textAssistant: composition.textAssistant,
                     assistantSettings: composition.assistantSettings,
+                    agentServices: composition.agentServices,
                     intelligencePresentation: apresentacao,
                     analysisDestination: destinoDaAnalise,
                     onMessagePresented: prioritizeMessageSummary

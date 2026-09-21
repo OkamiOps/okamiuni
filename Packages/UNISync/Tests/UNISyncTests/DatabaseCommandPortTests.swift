@@ -68,7 +68,7 @@ struct DatabaseCommandPortTests {
         #expect(indices.contains("outbox_on_account_state_next"))
 
         let versoes = try db.pool.read { try SyncDatabase.migrator.appliedIdentifiers($0) }
-        #expect(versoes == ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15", "v16", "v17", "v18", "v19", "v20"])
+        #expect(versoes == Set((1...22).map { "v\($0)" }))
     }
 
     @Test("As colunas do outbox são as da spec, e o estado nasce pendente")
@@ -399,8 +399,19 @@ struct DatabaseCommandPortTests {
         let mensagem = try #require(store.messages.first { $0.id == "m1" })
         store.move(mensagem, to: .archived)
 
-        let bucket = try await db.pool.read { conexao in
-            try #require(try MessageRecord.fetchOne(conexao, key: "m1")).bucket
+        // O `MailStore` mantém a UI otimista e despacha a escrita SQLite numa
+        // fila serial. Aguarda a projeção, com limite, em vez de assumir que a
+        // fila já executou antes da primeira leitura.
+        let deadline = ContinuousClock.now + .seconds(1)
+        var bucket = ""
+        while true {
+            bucket = try await db.pool.read { conexao in
+                try #require(try MessageRecord.fetchOne(conexao, key: "m1")).bucket
+            }
+            if bucket == TriageBucket.archived.rawValue || ContinuousClock.now >= deadline {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(5))
         }
         #expect(bucket == TriageBucket.archived.rawValue)
     }

@@ -47,7 +47,7 @@ struct SyncDatabaseTests {
             #expect(tabelas.contains(esperada), "faltou a tabela \(esperada)")
         }
         let versoes = try db.pool.read { try SyncDatabase.migrator.appliedIdentifiers($0) }
-        #expect(versoes == ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15", "v16", "v17", "v18", "v19", "v20"])
+        #expect(versoes == ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15", "v16", "v17", "v18", "v19", "v20", "v21", "v22"])
         let colunas = try db.pool.read { conexao in
             Set(try conexao.columns(in: "message").map(\.name))
         }
@@ -59,7 +59,7 @@ struct SyncDatabaseTests {
         let db = try banco()
         try SyncDatabase.migrator.migrate(db.pool)
         let versoes = try db.pool.read { try SyncDatabase.migrator.appliedIdentifiers($0) }
-        #expect(versoes == ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15", "v16", "v17", "v18", "v19", "v20"])
+        #expect(versoes == ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10", "v11", "v12", "v13", "v14", "v15", "v16", "v17", "v18", "v19", "v20", "v21", "v22"])
     }
 
     @Test("Um banco já em v10 recebe a fila de inteligência na v11")
@@ -97,6 +97,40 @@ struct SyncDatabaseTests {
             "messageID", "contentHash", "state", "modelVersion", "lastError", "updatedAt",
             "triage", "triage_needs_reply", "triage_deadline_at",
         ]))
+    }
+
+    @Test("Um banco na v21 recebe metadados de agenda na v22 sem perder compromissos")
+    func migracaoIncrementalV22() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("okamiuni-v21-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        var configuration = Configuration()
+        configuration.foreignKeysEnabled = true
+        let pool = try DatabasePool(path: directory.appendingPathComponent("mail.sqlite").path, configuration: configuration)
+        try SyncDatabase.migrator.migrate(pool, upTo: "v21")
+        try pool.write { db in
+            try db.execute(
+                sql: """
+                INSERT INTO created_agenda_item
+                (id, accountID, title, day, startMinute, endMinute, calendarUID)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                arguments: ["legacy-event", "legacy-account", "Planejamento", "2026-09-21", 540, 600, "legacy-uid"]
+            )
+        }
+
+        try SyncDatabase.migrator.migrate(pool)
+        let columns = try pool.read { db in Set(try db.columns(in: "created_agenda_item").map(\.name)) }
+        #expect(columns.isSuperset(of: ["calendarID", "calendarTitle", "calendarColorHex", "calendarSource", "isCancelled"]))
+        let preserved = try pool.read { db in
+            try Row.fetchOne(db, sql: "SELECT id, title, calendarUID, isCancelled FROM created_agenda_item WHERE id = ?", arguments: ["legacy-event"])
+        }
+        #expect(preserved?["id"] as String? == "legacy-event")
+        #expect(preserved?["title"] as String? == "Planejamento")
+        #expect(preserved?["calendarUID"] as String? == "legacy-uid")
+        #expect(preserved?["isCancelled"] as Int? == 0)
     }
 
     @Test("A conta vai e volta inteira — inclusive o endpoint e o estado")

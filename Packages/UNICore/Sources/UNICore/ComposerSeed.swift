@@ -168,6 +168,29 @@ public struct ComposerSeed: Sendable, Hashable {
         return ComposerSeed(to: [], subject: subject, body: quoted(message, dateLabel: dateLabel))
     }
 
+    /// O fragmento rico do encaminhamento permanece separado do texto que a
+    /// pessoa escreve no compositor. Importar tabelas e CIDs para TextKit e
+    /// depois exportá-los de volta perde partes do documento; quem monta a
+    /// saída insere texto novo **antes** deste fragmento sem reserializá-lo.
+    /// A mensagem recebida já passou pelo sanitizador MIME. Os campos que
+    /// entram aqui são escapados porque pertencem ao cabeçalho criado pelo app.
+    public static func forwardedHTML(
+        introduction: String, original: Message, dateLabel: String
+    ) -> String? {
+        guard let source = original.bodyHTML?.trimmingCharacters(in: .whitespacesAndNewlines), !source.isEmpty else {
+            return nil
+        }
+        let header = [
+            "---------- Mensagem encaminhada ----------",
+            "De: \(original.from.display)",
+            "Data: \(dateLabel)",
+            original.subject.isEmpty ? nil : "Assunto: \(original.subject)",
+            original.to.isEmpty ? nil : "Para: \(original.to.map(\.display).joined(separator: ", "))",
+        ].compactMap { $0 }.map(escapeForwardHTML).joined(separator: "<br>")
+        let prefix = escapeForwardHTML(introduction).replacingOccurrences(of: "\n", with: "<br>")
+        return "<div class=\"okamiuni-forward\"><p>\(prefix)</p><hr><p>\(header)</p><div class=\"okamiuni-forwarded-message\">\(source)</div></div>"
+    }
+
     /// O corpo citado de um encaminhamento.
     ///
     /// Duas linhas em branco antes do cabeçalho: é onde o cursor começa a
@@ -186,6 +209,15 @@ public struct ComposerSeed: Sendable, Hashable {
         lines.append("")
         lines.append(contentsOf: message.body)
         return lines.joined(separator: "\n")
+    }
+
+    private static func escapeForwardHTML(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "'", with: "&#39;")
     }
 }
 

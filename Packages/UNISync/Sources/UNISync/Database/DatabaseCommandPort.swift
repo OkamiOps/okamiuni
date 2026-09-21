@@ -216,6 +216,15 @@ public struct DatabaseCommandPort: MailCommandPort, MailSendPort, MailDraftPort,
     /// Grava o rascunho **só no banco**. Não entra na fila: ainda não há o que
     /// mandar ao servidor, e um `APPEND` de rascunho IMAP/Gmail viria depois.
     public func saveDraft(_ message: Message) throws {
+        try saveDraft(message, attachments: [])
+    }
+
+    /// A variante usada pelo agente depois de buscar anexos de uma mensagem
+    /// conhecida. Os bytes entram na mesma transação que o envelope e o HTML;
+    /// assim um encaminhamento salvo não reaparece com um chip sem arquivo.
+    /// Uma atualização comum passa `[]` e preserva os anexos que já estavam no
+    /// rascunho.
+    public func saveDraft(_ message: Message, attachments: [OutgoingAttachment]) throws {
         try database.pool.write { db in
             let pasta = FolderRecord.localDrafts(accountID: message.accountID)
             try pasta.save(db)
@@ -228,6 +237,18 @@ public struct DatabaseCommandPort: MailCommandPort, MailSendPort, MailDraftPort,
                 db, id: nossa.id, paragrafos: nossa.body,
                 html: nossa.bodyHTML ?? "", calendarICS: nossa.calendarICS
             )
+            if !attachments.isEmpty {
+                try InitialLoader.gravaAnexos(
+                    db, messageID: nossa.id,
+                    anexos: attachments.map {
+                        MessageAttachmentRecord(
+                            id: $0.id, messageID: nossa.id,
+                            filename: $0.filename, mimeType: $0.mimeType,
+                            byteCount: $0.data.count, data: $0.data
+                        )
+                    }
+                )
+            }
         }
     }
 

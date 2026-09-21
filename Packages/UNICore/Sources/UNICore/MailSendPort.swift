@@ -253,5 +253,20 @@ public protocol MailSendPort: Sendable {
 /// fixtures e de todo teste que não passa uma.
 public protocol MailDraftPort: Sendable {
     func saveDraft(_ message: Message) throws
+    /// Persiste os bytes de anexos que já foram autorizados para este
+    /// rascunho. A sobrecarga evita que encaminhar uma mensagem pelo agente
+    /// reduza os arquivos a chips sem conteúdo.
+    func saveDraft(_ message: Message, attachments: [OutgoingAttachment]) throws
     func deleteDraft(id: String) throws
+}
+
+public extension MailDraftPort {
+    func saveDraft(_ message: Message, attachments: [OutgoingAttachment]) throws {
+        guard attachments.isEmpty else {
+            throw AgentToolError.unavailable(
+                "Este armazenamento de rascunhos não consegue preservar anexos encaminhados."
+            )
+        }
+        try saveDraft(message)
+    }
 }

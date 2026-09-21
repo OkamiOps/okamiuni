@@ -2,6 +2,50 @@ import Foundation
 import FoundationModels
 import UNICore
 
+@available(macOS 26.0, *)
+@Generable
+private enum FoundationModelsAgentAction { case tool, answer }
+
+@available(macOS 26.0, *)
+@Generable
+private enum FoundationModelsToolValue {
+    case text(String)
+    case textList([String])
+    case integer(Int)
+    case boolean(Bool)
+
+    var json: AgentJSONValue {
+        switch self {
+        case .text(let value): .string(value)
+        case .textList(let values): .array(values.map(AgentJSONValue.string))
+        case .integer(let value): .number(Double(value))
+        case .boolean(let value): .bool(value)
+        }
+    }
+}
+
+@available(macOS 26.0, *)
+@Generable
+private struct FoundationModelsToolArgument {
+    @Guide(description: "Nome exato do argumento no catálogo, como accountID, to ou draftID.")
+    var name: String
+    @Guide(description: "Valor exato solicitado. to sempre usa textList, mesmo com um único destinatário.")
+    var value: FoundationModelsToolValue
+}
+
+@available(macOS 26.0, *)
+@Generable
+private struct FoundationModelsAgentStep {
+    @Guide(description: "Confira o ESTADO DO APLICATIVO. Escolha answer se as etapas pedidas já foram concluídas; escolha tool apenas para uma etapa ainda não executada.")
+    var action: FoundationModelsAgentAction
+    @Guide(description: "Nome exato da ferramenta, ou vazio quando action é answer.")
+    var toolName: String
+    @Guide(description: "Argumentos necessários da ferramenta. Use uma lista vazia quando action é answer.")
+    var arguments: [FoundationModelsToolArgument]
+    @Guide(description: "Resposta final ao usuário. Vazio quando action é tool.")
+    var text: String
+}
+
 /// Adaptador local de Foundation Models para perguntas contextuais e escrita.
 @available(macOS 26.0, *)
 public struct FoundationModelsTextAssistant: TextAssisting, AgentPlanning {
@@ -14,6 +58,7 @@ public struct FoundationModelsTextAssistant: TextAssisting, AgentPlanning {
     /// prompt, abaixo da política fixa que protege conteúdo de e-mail e dados
     /// do app contra prompt injection.
     public let additionalInstructions: String
+    public var agentPlanningContext: AgentPlanningContext { .compact }
 
     public init(
         modelVersion: String = Self.currentModelVersion,
@@ -35,8 +80,77 @@ public struct FoundationModelsTextAssistant: TextAssisting, AgentPlanning {
 
     public func agentPlan(prompt: String) async throws -> String {
         try await requireAvailability()
-        let session = LanguageModelSession(model: .default, instructions: AgentToolLoop.instructions)
-        return try await session.respond(to: prompt).content
+        return try await legacyAgentPlan(prompt: prompt)
+    }
+
+    public func agentPlan(prompt: String, tools: [AgentToolDefinition]) async throws -> String {
+        try await requireAvailability()
+        if #available(macOS 26.4, *) {
+            return try await dynamicAgentPlan(prompt: prompt, tools: tools)
+        }
+        return try await legacyAgentPlan(prompt: prompt)
+    }
+
+    @available(macOS 26.4, *)
+    private func dynamicAgentPlan(prompt: String, tools: [AgentToolDefinition]) async throws -> String {
+        let routeSchema = try FoundationModelsAgentPlanningSchema.routeSchema(definitions: tools)
+        let route = try await planningSession().respond(
+            to: prompt,
+            schema: routeSchema
+        ).content
+        let action = try route.value(String.self, forProperty: "action")
+        switch action {
+        case "answer":
+            let text = try route.value(String.self, forProperty: "text")
+            return try AgentJSONValue.object(["answer": .string(text)]).jsonString()
+        case "tool":
+            let toolName = try route.value(String.self, forProperty: "toolName")
+            guard let definition = tools.first(where: { $0.name == toolName }) else { throw AgentToolError.unknownTool }
+            let argumentsSchema = try FoundationModelsAgentPlanningSchema.argumentsSchema(for: definition, prompt: prompt)
+            let arguments = try await planningSession().respond(
+                to: FoundationModelsAgentPlanningSchema.argumentsPrompt(from: prompt, toolName: toolName),
+                schema: argumentsSchema
+            ).content
+            let values = FoundationModelsAgentPlanningSchema.jsonValue(arguments)
+            guard values.objectValue != nil else { throw AgentToolError.invalidArguments("Generated tool arguments must be an object.") }
+            return try AgentJSONValue.object(["toolCalls": .array([.object([
+                "name": .string(toolName), "arguments": values
+            ])])]).jsonString()
+        default:
+            throw AgentToolError.invalidArguments("Generated action is not supported.")
+        }
+    }
+
+    private func legacyAgentPlan(prompt: String) async throws -> String {
+        let session = planningSession()
+        let response = try await session.respond(to: prompt, generating: FoundationModelsAgentStep.self).content
+        switch response.action {
+        case .answer:
+            return try AgentJSONValue.object(["answer": .string(response.text)]).jsonString()
+        case .tool:
+            var fields: [String: AgentJSONValue] = [:]
+            for argument in response.arguments {
+                guard fields[argument.name] == nil else { throw AgentToolError.invalidArguments("Duplicate generated tool argument") }
+                fields[argument.name] = argument.value.json
+            }
+            let arguments = AgentJSONValue.object(fields)
+            return try AgentJSONValue.object(["toolCalls": .array([.object([
+                "name": .string(response.toolName), "arguments": arguments
+            ])])]).jsonString()
+        }
+    }
+
+    private func planningSession() -> LanguageModelSession {
+        LanguageModelSession(model: .default, instructions: AgentToolLoop.safety + """
+
+        Gere UMA próxima etapa. action=tool executa uma ferramenta. action=answer encerra.
+        O schema da ferramenta escolhida contém todos os argumentos, inclusive os opcionais.
+        Preserve valores do pedido e use IDs somente quando vierem de resultados estruturados concluídos. Reutilize requestID.
+        Antes de uma ação que requer accountID ou peerID, liste as contas ou agentes quando ainda não houver um ID observado.
+        Nunca conclua que uma conta, agente ou item não existe sem consultar a ferramenta de listagem ou busca adequada.
+        Não repita uma ação concluída. Se o resultado tem isError, corrija os argumentos usando inputSchema antes de tentar novamente.
+        Quando o pedido foi cumprido, action=answer e text descrevem o resultado observado.
+        """)
     }
 
     public func answer(

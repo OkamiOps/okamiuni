@@ -17,6 +17,27 @@ enum ComposerOutgoing {
         let inlineResources: [InlineSignatureResource]
     }
 
+    /// O bloco é necessário somente quando importar para o TextKit faria o
+    /// rascunho perder estrutura ou recursos. HTML simples segue no editor
+    /// normal, incluindo o caminho de restauração de assinatura acima.
+    static func requiresLiteralPreservation(_ html: String) -> Bool {
+        let value = html.lowercased()
+        return value.contains("<table")
+            || value.contains("<img")
+            || value.contains("cid:")
+            || value.contains("data:image/")
+            || value.contains("<!--okamiuni-signature:")
+            || value.contains("okamiuni-forward")
+    }
+
+    /// Uma parte HTML que o TextKit não pode representar sem reduzir tabela,
+    /// CID ou assinatura a texto. Ela aparece como bloco no compositor e sai
+    /// como o mesmo HTML salvo; texto novo é inserido antes dela.
+    struct PreservedHTML: Equatable {
+        let html: String
+        let plainText: String
+    }
+
     struct PositionedSignature: Equatable {
         let plainText: String
         let leadingSeparator: String
@@ -90,11 +111,24 @@ enum ComposerOutgoing {
         // A preferência de leitura é só da interface. O HTML enviado deve
         // preservar os pontos do `BodyStyle`, não a escala escolhida nesta
         // máquina para visualizar o composer.
-        let ns = ComposerTextKit.nsAttributed(
+        let ns = NSMutableAttributedString(attributedString: ComposerTextKit.nsAttributed(
             text,
             theme: theme.applyingTypography(.standard),
             resolvesDefaultColorForPresentation: false
-        )
+        ))
+        // Cocoa HTML Writer escreve os componentes Generic RGB como valores
+        // CSS. Reidentificar somente esta cópia de exportação mantém os números
+        // sRGB do modelo: sem isso #336699 volta como #285287 a cada reabertura.
+        // O editor na tela continua usando cores sRGB normalmente.
+        for key in [NSAttributedString.Key.foregroundColor, .backgroundColor] {
+            ns.enumerateAttribute(key, in: NSRange(location: 0, length: ns.length)) { value, range, _ in
+                guard let color = (value as? NSColor)?.usingColorSpace(.sRGB) else { return }
+                ns.addAttribute(key, value: NSColor(
+                    calibratedRed: color.redComponent, green: color.greenComponent,
+                    blue: color.blueComponent, alpha: color.alphaComponent
+                ), range: range)
+            }
+        }
         let dados = try? ns.data(
             from: NSRange(location: 0, length: ns.length),
             documentAttributes: [
@@ -106,6 +140,62 @@ enum ComposerOutgoing {
         // texto simples. Perder a cor de uma palavra é incômodo; perder a
         // mensagem porque a cor não pôde ser escrita seria defeito.
         return dados.flatMap { String(data: $0, encoding: .utf8) }
+    }
+
+    /// Importa HTML simples para o modelo nativo do compositor. Esse caminho
+    /// é deliberadamente limitado ao HTML que não exigiu preservação literal:
+    /// links, peso, cor e tamanho voltam editáveis; tabelas e imagens seguem
+    /// para o bloco de revisão, onde o AppKit não pode reserializá-las sem
+    /// perda de estrutura.
+    @MainActor
+    static func editableText(from html: String?, fallback: String, theme: Theme) -> AttributedString {
+        guard let html, !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              let native = try? NSAttributedString(
+                data: Data(html.utf8),
+                options: [
+                    .documentType: NSAttributedString.DocumentType.html,
+                    .characterEncoding: String.Encoding.utf8.rawValue,
+                ], documentAttributes: nil
+              )
+        else { return AttributedString(fallback) }
+
+        var model = ComposerTextKit.model(native)
+        let plain = native.string
+        guard !plain.isEmpty else { return model }
+        native.enumerateAttributes(in: NSRange(location: 0, length: native.length)) { attributes, range, _ in
+            guard let span = ComposerTextKit.modelRange(range, in: model, plain: plain) else { return }
+            var style = BodyStyle.default
+            if let font = attributes[.font] as? NSFont {
+                let traits = font.fontDescriptor.symbolicTraits
+                style.family = font.familyName ?? BodyStyle.defaultFamily
+                style.size = Double(font.pointSize)
+                style.bold = traits.contains(.bold)
+                style.italic = traits.contains(.italic)
+            }
+            if let color = attributes[.foregroundColor] as? NSColor, let hex = hex(color) {
+                style.colorHex = hex
+            }
+            if let color = attributes[.backgroundColor] as? NSColor, let hex = hex(color) {
+                style.highlightHex = hex
+            }
+            style.underline = (attributes[.underlineStyle] as? Int ?? 0) != 0
+            style.strike = (attributes[.strikethroughStyle] as? Int ?? 0) != 0
+            model[span][BodyStyleAttribute.self] = style
+            if let url = attributes[.link] as? URL {
+                model[span].link = url
+            } else if let raw = attributes[.link] as? String, let url = URL(string: raw) {
+                model[span].link = url
+            }
+        }
+        return model
+    }
+
+    private static func hex(_ color: NSColor) -> String? {
+        guard let components = color.usingColorSpace(.sRGB) else { return nil }
+        let red = Int((components.redComponent * 255).rounded())
+        let green = Int((components.greenComponent * 255).rounded())
+        let blue = Int((components.blueComponent * 255).rounded())
+        return String(format: "#%02X%02X%02X", red, green, blue)
     }
 
     /// Materializa o corpo que vai para a fila, inclusive uma assinatura rica
@@ -138,6 +228,103 @@ enum ComposerOutgoing {
             signatureOffset: nil,
             legacyPlainText: plain,
             legacySignatureHTML: signatureHTML
+        )
+    }
+
+    /// Junta a introdução editável a um documento rico já salvo sem importar o
+    /// documento para `NSAttributedString`. O documento persistido continua
+    /// completo — inclusive para outro cliente que abrir o rascunho — e os
+    /// delimitadores locais permitem separar a fonte literal da introdução na
+    /// próxima abertura, sem achatar tabela, CID ou assinatura.
+    @MainActor
+    static func preserving(
+        _ editable: Content, before preserved: PreservedHTML
+    ) -> Content {
+        let editableHTML = editable.html ?? htmlDocument(forPlainText: editable.plainText)
+        let prefix = editable.plainText.isEmpty && editable.html == nil
+            ? ""
+            : htmlFragment(editableHTML)
+        let source = applyingEditableStyles(from: editableHTML, to: preserved.html)
+        return Content(
+            plainText: joining(editable.plainText, and: preserved.plainText),
+            html: composingLiteralHTML(prefix: prefix, source: source),
+            inlineResources: editable.inlineResources
+        )
+    }
+
+    /// Recupera a fonte HTML literal de um rascunho que o compositor salvou
+    /// anteriormente. Rascunhos externos e versões antigas não têm esses
+    /// delimitadores e permanecem integralmente no bloco de revisão.
+    static func extractingPreservedHTML(from document: String, plainText: String) -> PreservedHTML? {
+        guard let start = document.range(of: literalStart),
+              let end = document.range(of: literalEnd, range: start.upperBound..<document.endIndex),
+              start.upperBound <= end.lowerBound
+        else { return nil }
+        let fragment = String(document[start.upperBound..<end.lowerBound])
+        guard let bodyOpen = document.range(of: "<body", options: .caseInsensitive),
+              let openEnd = document.range(of: ">", range: bodyOpen.lowerBound..<document.endIndex),
+              let bodyClose = document.range(
+                of: "</body>", options: [.caseInsensitive, .backwards]
+              ), openEnd.upperBound <= bodyClose.lowerBound
+        else {
+            return PreservedHTML(
+                html: "<html><body>\(fragment)</body></html>", plainText: plainText
+            )
+        }
+        var source = document
+        source.replaceSubrange(openEnd.upperBound..<bodyClose.lowerBound, with: fragment)
+        return PreservedHTML(html: source, plainText: plainText)
+    }
+
+    /// A introdução fica fora do bloco literal, mas ainda no mesmo documento
+    /// que vai para o rascunho. Recuperamo-la com o `<head>` original para que
+    /// classes e estilos exportados pelo TextKit continuem disponíveis ao
+    /// importar de volta para a área editável.
+    static func extractingEditableHTML(from document: String) -> String? {
+        guard let bodyOpen = document.range(of: "<body", options: .caseInsensitive),
+              let openEnd = document.range(of: ">", range: bodyOpen.lowerBound..<document.endIndex),
+              let literal = document.range(of: literalStart, range: openEnd.upperBound..<document.endIndex)
+        else { return nil }
+
+        let prefix: String
+        if let start = document.range(of: editableStart, range: openEnd.upperBound..<literal.lowerBound),
+           let end = document.range(of: editableEnd, range: start.upperBound..<literal.lowerBound) {
+            prefix = String(document[start.upperBound..<end.lowerBound])
+        } else {
+            // Rascunhos criados antes dos delimitadores da introdução usavam
+            // apenas os do HTML literal; o separador imediatamente anterior
+            // era gerado pelo compositor e pode sair com segurança.
+            var legacyPrefix = String(document[openEnd.upperBound..<literal.lowerBound])
+            if legacyPrefix.hasSuffix("<br><br>") {
+                legacyPrefix.removeLast("<br><br>".count)
+            }
+            prefix = legacyPrefix
+        }
+        guard !prefix.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+
+        let tail: String
+        if let close = document.range(of: "</body>", options: [.caseInsensitive, .backwards]) {
+            tail = String(document[close.lowerBound...])
+        } else {
+            tail = "</body></html>"
+        }
+        return String(document[..<openEnd.upperBound]) + prefix + tail
+    }
+
+    /// Materializa os `data:image` do HTML preservado somente para o envio.
+    /// O rascunho recebe a fonte original; portanto reabrir e salvar de novo
+    /// nunca deixa uma referência CID separada dos bytes que a originaram.
+    static func materializingInlineResources(_ content: Content) -> (content: Content, warnings: [String]) {
+        let prepared = OutgoingHTMLResources.materialize(
+            html: content.html, existingResources: content.inlineResources
+        )
+        return (
+            Content(
+                plainText: content.plainText,
+                html: prepared.html,
+                inlineResources: prepared.inlineResources
+            ),
+            prepared.warnings
         )
     }
 
@@ -384,6 +571,83 @@ enum ComposerOutgoing {
               openEnd.upperBound <= bodyClose.lowerBound
         else { return html }
         return String(html[openEnd.upperBound..<bodyClose.lowerBound])
+    }
+
+    private static let literalStart = "<!--okamiuni-preserved-html:start-->"
+    private static let literalEnd = "<!--okamiuni-preserved-html:end-->"
+    private static let editableStart = "<!--okamiuni-editable-html:start-->"
+    private static let editableEnd = "<!--okamiuni-editable-html:end-->"
+    private static let editableStyleStart = "<!--okamiuni-editable-style:start-->"
+    private static let editableStyleEnd = "<!--okamiuni-editable-style:end-->"
+
+    private static func composingLiteralHTML(prefix: String, source: String) -> String {
+        let cleanSource = removingLiteralDelimiters(from: source)
+        let editable = prefix.isEmpty ? "" : editableStart + prefix + editableEnd + "<br><br>"
+        let addition = editable + literalStart
+        guard let bodyOpen = cleanSource.range(of: "<body", options: .caseInsensitive),
+              let openEnd = cleanSource.range(
+                of: ">", range: bodyOpen.lowerBound..<cleanSource.endIndex
+              ), let bodyClose = cleanSource.range(
+                of: "</body>", options: [.caseInsensitive, .backwards]
+              ), openEnd.upperBound <= bodyClose.lowerBound
+        else {
+            return "<html><body>\(addition)\(cleanSource)\(literalEnd)</body></html>"
+        }
+        var result = cleanSource
+        result.insert(contentsOf: addition, at: openEnd.upperBound)
+        let close = result.range(of: "</body>", options: [.caseInsensitive, .backwards])!
+        result.insert(contentsOf: literalEnd, at: close.lowerBound)
+        return result
+    }
+
+    private static func removingLiteralDelimiters(from source: String) -> String {
+        source
+            .replacingOccurrences(of: literalStart, with: "")
+            .replacingOccurrences(of: literalEnd, with: "")
+            .replacingOccurrences(of: editableStart, with: "")
+            .replacingOccurrences(of: editableEnd, with: "")
+    }
+
+    /// `NSAttributedString` exporta a formatação em classes dentro do body e
+    /// regras no head. Ao colocar a introdução em outro documento, carregamos
+    /// somente essas regras no head do original — sem mexer no layout literal
+    /// nem criar folhas repetidas a cada salvar/reabrir.
+    private static func applyingEditableStyles(from editable: String, to source: String) -> String {
+        let styles = styleElements(in: editable)
+        var result = removingEditableStyles(from: source)
+        guard !styles.isEmpty else { return result }
+        let marked = editableStyleStart + styles + editableStyleEnd
+        if let head = result.range(of: "<head", options: .caseInsensitive),
+           let end = result.range(of: ">", range: head.lowerBound..<result.endIndex) {
+            result.insert(contentsOf: marked, at: end.upperBound)
+            return result
+        }
+        if let html = result.range(of: "<html", options: .caseInsensitive),
+           let end = result.range(of: ">", range: html.lowerBound..<result.endIndex) {
+            result.insert(contentsOf: "<head>\(marked)</head>", at: end.upperBound)
+            return result
+        }
+        return "<html><head>\(marked)</head><body>\(result)</body></html>"
+    }
+
+    private static func styleElements(in html: String) -> String {
+        var remaining = html[...]
+        var styles = ""
+        while let start = remaining.range(of: "<style", options: .caseInsensitive),
+              let end = remaining.range(of: "</style>", options: .caseInsensitive, range: start.lowerBound..<remaining.endIndex) {
+            styles += String(remaining[start.lowerBound..<end.upperBound])
+            remaining = remaining[end.upperBound...]
+        }
+        return styles
+    }
+
+    private static func removingEditableStyles(from html: String) -> String {
+        var result = html
+        while let start = result.range(of: editableStyleStart),
+              let end = result.range(of: editableStyleEnd, range: start.upperBound..<result.endIndex) {
+            result.removeSubrange(start.lowerBound..<end.upperBound)
+        }
+        return result
     }
 
     private static func replacingSignatureAnchor(

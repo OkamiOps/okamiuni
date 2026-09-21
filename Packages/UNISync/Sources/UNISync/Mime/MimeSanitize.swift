@@ -148,6 +148,19 @@ public enum MimeSanitize {
         return podado
     }
 
+    /// Outgoing drafts retain Content-ID references and the composer's own
+    /// signature marker. All other HTML follows the same scanner as received mail.
+    public static func sanitizeDraft(html: String) throws -> String {
+        guard !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              html.utf8.count <= AgentDraftHTML.maximumByteCount else {
+            throw AgentToolError.invalidArguments("O HTML do rascunho está vazio ou grande demais.")
+        }
+        let result = varre(html, imagens: [:], preservingDraftMetadata: true)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !result.isEmpty else { throw AgentToolError.invalidArguments("O HTML não contém conteúdo seguro para salvar.") }
+        return result
+    }
+
     /// As imagens viram `data:` — na ordem do documento, gastando o orçamento
     /// até ele acabar.
     ///
@@ -197,7 +210,7 @@ public enum MimeSanitize {
 
     // MARK: - O varredor
 
-    private static func varre(_ html: String, imagens: [String: String]) -> String {
+    private static func varre(_ html: String, imagens: [String: String], preservingDraftMetadata: Bool = false) -> String {
         var saida = ""
         var mudo: String?
         var i = html.startIndex
@@ -211,6 +224,9 @@ public enum MimeSanitize {
             }
             if html[i...].hasPrefix("<!--") {
                 if let fim = html.range(of: "-->", range: i..<html.endIndex) {
+                    if preservingDraftMetadata, mudo == nil, html[i...].hasPrefix("<!--okamiuni-signature:") {
+                        saida += html[i..<fim.upperBound]
+                    }
                     i = fim.upperBound
                 } else {
                     i = html.endIndex
@@ -258,7 +274,7 @@ public enum MimeSanitize {
                 saida += "</\(nome)>"
                 continue
             }
-            saida += reescreve(nome: nome, crua: crua, imagens: imagens)
+            saida += reescreve(nome: nome, crua: crua, imagens: imagens, preservingDraftMetadata: preservingDraftMetadata)
         }
         return saida
     }
@@ -287,12 +303,12 @@ public enum MimeSanitize {
 
     /// A etiqueta de abertura, remontada só com o que passou.
     private static func reescreve(
-        nome: String, crua: String, imagens: [String: String]
+        nome: String, crua: String, imagens: [String: String], preservingDraftMetadata: Bool = false
     ) -> String {
         var saida = "<" + nome
         for (chave, valor) in atributos(de: crua) {
             guard let limpo = valorPermitido(
-                atributo: chave, valor: valor, imagens: imagens
+                atributo: chave, valor: valor, imagens: imagens, preservingDraftMetadata: preservingDraftMetadata
             ) else { continue }
             saida += " \(chave)=\"\(escapa(limpo))\""
         }
@@ -302,7 +318,7 @@ public enum MimeSanitize {
 
     /// O que sobra de um atributo, ou `nil` quando ele inteiro vai embora.
     static func valorPermitido(
-        atributo: String, valor: String, imagens: [String: String]
+        atributo: String, valor: String, imagens: [String: String], preservingDraftMetadata: Bool = false
     ) -> String? {
         let chave = atributo.lowercased()
         // `onclick`, `onerror`, `onload`: o vetor mais comum que existe em
@@ -319,7 +335,9 @@ public enum MimeSanitize {
             .filter { !$0.isWhitespace && $0.unicodeScalars.allSatisfy { e in e.value >= 0x20 } }
             .lowercased()
         if esquemasProibidos.contains(where: { alvo.hasPrefix($0) }) { return nil }
+        if preservingDraftMetadata, alvo.hasPrefix("file:") { return nil }
         if alvo.hasPrefix("cid:") {
+            if preservingDraftMetadata { return valor }
             // A imagem embutida da própria mensagem. Resolvida **aqui**, contra
             // o que veio no MIME — nunca por uma busca que a WebView faria.
             let id = normalizaContentID(String(alvo.dropFirst(4)))

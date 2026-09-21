@@ -2,6 +2,7 @@ import SwiftUI
 import Testing
 import UNICore
 import UNIDesign
+import UNISync
 @testable import UNIShell
 
 @Suite("O rascunho vira mensagem")
@@ -254,6 +255,90 @@ struct ComposerOutgoingTests {
         )
         #expect(mensagem.to.map(\.address) == ["marina@y.com"])
     }
+
+    @Test("HTML literal conserva documento inteiro e materializa data URI só ao enviar")
+    func literalHTMLPreservesDocumentAndMaterializesInlineImage() throws {
+        let image = Data([0x89, 0x50, 0x4E, 0x47])
+        let source = """
+        <html><head><style>.quote { color: #123456; }</style></head><body>
+        <table role="presentation"><tr><td><img src="data:image/png;base64,\(image.base64EncodedString())"></td><td>Proposta</td></tr></table>
+        </body></html>
+        """
+        let preserved = ComposerOutgoing.PreservedHTML(html: source, plainText: "Proposta")
+        let composed = ComposerOutgoing.preserving(
+            .init(plainText: "Olá, segue o contexto.", html: nil, inlineResources: []),
+            before: preserved
+        )
+        let saved = try #require(composed.html)
+        #expect(saved.contains("Olá, segue o contexto."))
+        #expect(saved.contains("<table role=\"presentation\">"))
+        #expect(saved.contains("okamiuni-preserved-html:start"))
+
+        let restored = try #require(
+            ComposerOutgoing.extractingPreservedHTML(from: saved, plainText: "Proposta")
+        )
+        #expect(restored.html == source)
+        #expect(restored.plainText == "Proposta")
+
+        let prepared = ComposerOutgoing.materializingInlineResources(composed)
+        let html = try #require(prepared.content.html)
+        let resource = try #require(prepared.content.inlineResources.first)
+        #expect(prepared.warnings.isEmpty)
+        #expect(!html.contains("data:image"))
+        #expect(html.contains(resource.cidURL))
+        #expect(resource.data == image)
+
+        let message = ComposerOutgoing.message(
+            accountID: "a", from: .init(name: "Marcos", address: "marcos@example.com"),
+            to: [.init(name: "Cliente", address: "cliente@example.com")], cc: [], bcc: [],
+            subject: "Enc: proposta", plainText: prepared.content.plainText, html: html,
+            inlineResources: prepared.content.inlineResources
+        )
+        let mime = OutgoingMime.compose(
+            message, date: Date(timeIntervalSince1970: 1), includeBcc: false, boundary: "literal"
+        )
+        #expect(mime.contains("Content-ID: <\(resource.contentID)>"))
+        #expect(mime.contains(image.base64EncodedString()))
+    }
+
+    @Test("HTML simples reabre no editor com peso e cor")
+    func simpleHTMLReturnsToNativeEditor() {
+        let editable = ComposerOutgoing.editableText(
+            from: "<p><strong><span style=\"color:#336699;font-size:20px\">Proposta</span></strong></p>",
+            fallback: "Proposta", theme: tema
+        )
+        let run = editable.runs.first
+        #expect(String(editable.characters).contains("Proposta"))
+        #expect(run?.attributes[BodyStyleAttribute.self]?.bold == true)
+        #expect(run?.attributes[BodyStyleAttribute.self]?.colorHex == "#336699")
+    }
+
+    @Test("introdução formatada mantém estilo após salvar e reabrir duas vezes")
+    func preservedIntroductionRetainsFormatting() throws {
+        var introduction = ComposerOutgoing.editableText(
+            from: "<p><strong><span style=\"color:#336699\">Introdução</span></strong></p>",
+            fallback: "Introdução", theme: tema
+        )
+        var literal = ComposerOutgoing.PreservedHTML(
+            html: "<html><body><table><tr><td>Original</td></tr></table></body></html>",
+            plainText: "Original"
+        )
+        for _ in 0..<2 {
+            let content = ComposerOutgoing.Content(
+                plainText: String(introduction.characters),
+                html: ComposerOutgoing.html(introduction, theme: tema), inlineResources: []
+            )
+            let saved = try #require(ComposerOutgoing.preserving(content, before: literal).html)
+            introduction = ComposerOutgoing.editableText(
+                from: ComposerOutgoing.extractingEditableHTML(from: saved),
+                fallback: "Introdução", theme: tema
+            )
+            literal = try #require(ComposerOutgoing.extractingPreservedHTML(from: saved, plainText: "Original"))
+            #expect(introduction.runs.first?.attributes[BodyStyleAttribute.self]?.bold == true)
+            #expect(introduction.runs.first?.attributes[BodyStyleAttribute.self]?.colorHex == "#336699")
+            #expect(saved.components(separatedBy: "<!--okamiuni-editable-style:start-->").count == 2)
+        }
+    }
 }
 
 /// **O botão "Enviar" envia.** É a queixa que abriu esta tarefa: o composer do
@@ -278,6 +363,65 @@ struct ComposerSendWiringTests {
             lock.lock()
             _enviadas.append(message)
             lock.unlock()
+        }
+    }
+
+    private final class DraftAndSendPort: MailSendPort, MailDraftPort, @unchecked Sendable {
+        private let lock = NSLock()
+        private var _drafts: [Message] = []
+        private var _draftAttachments: [OutgoingAttachment] = []
+        private var _enviadas: [OutgoingMessage] = []
+        private var _draftWriteCount = 0
+
+        var drafts: [Message] { lock.lock(); defer { lock.unlock() }; return _drafts }
+        var draftAttachments: [OutgoingAttachment] { lock.lock(); defer { lock.unlock() }; return _draftAttachments }
+        var enviadas: [OutgoingMessage] { lock.lock(); defer { lock.unlock() }; return _enviadas }
+        var draftWriteCount: Int { lock.lock(); defer { lock.unlock() }; return _draftWriteCount }
+
+        func send(_ message: OutgoingMessage) throws {
+            lock.lock(); defer { lock.unlock() }
+            _enviadas.append(message)
+        }
+
+        func saveDraft(_ message: Message) throws {
+            try saveDraft(message, attachments: [])
+        }
+
+        func saveDraft(_ message: Message, attachments: [OutgoingAttachment]) throws {
+            lock.lock(); defer { lock.unlock() }
+            _draftWriteCount += 1
+            _drafts.removeAll { $0.id == message.id }
+            _drafts.append(message)
+            _draftAttachments = attachments
+        }
+
+        func deleteDraft(id: String) throws {
+            lock.lock(); defer { lock.unlock() }
+            _drafts.removeAll { $0.id == id }
+        }
+    }
+
+    private final class AttachmentBytes: AttachmentFetching, @unchecked Sendable {
+        let data: Data
+        private let lock = NSLock()
+        private(set) var requests: [(accountID: String, messageID: String, attachmentID: String)] = []
+
+        init(data: Data) {
+            self.data = data
+        }
+
+        func fetchAttachment(
+            accountID: String, messageID: String, attachmentID: String
+        ) async throws -> FetchedAttachment {
+            lock.withLock {
+                requests.append((accountID, messageID, attachmentID))
+            }
+            return try FetchedAttachment(
+                attachment: .init(
+                    id: attachmentID, filename: "proposta.pdf",
+                    mimeType: "application/pdf", byteCount: data.count
+                ), data: data
+            )
         }
     }
 
@@ -456,4 +600,92 @@ struct ComposerSendWiringTests {
 
         #expect(porta.enviadas.isEmpty)
     }
+
+    @Test("encaminhar rico salva, reabre e envia HTML, CID e bytes reais")
+    func richForwardSaveReopenAndSend() async throws {
+        let file = Data([0x25, 0x50, 0x44, 0x46])
+        let image = Data([0x89, 0x50, 0x4E, 0x47])
+        let account = Account(
+            id: "a", address: "marcos@example.com", displayName: "Marcos",
+            provider: .imap, host: "example.com", tintLightHex: "#111111", tintDarkHex: "#eeeeee"
+        )
+        let original = Message(
+            id: "original", accountID: account.id,
+            from: .init(name: "Ana", address: "ana@example.com"),
+            receivedAt: Date(timeIntervalSince1970: 1), subject: "Proposta", snippet: "Tabela",
+            body: ["Tabela da proposta"], tags: [], bucket: .today, isRead: true,
+            summary: nil, detectedEvent: nil,
+            bodyHTML: "<html><body><table><tr><td><img src=\"data:image/png;base64,\(image.base64EncodedString())\"></td><td>Proposta</td></tr></table></body></html>",
+            attachments: [.init(id: "pdf", filename: "proposta.pdf", mimeType: "application/pdf", byteCount: file.count)]
+        )
+        let port = DraftAndSendPort()
+        let attachmentPort = AttachmentBytes(data: file)
+        let store = MailStore(
+            source: InMemoryMailSource(accounts: [account], messages: [original], agenda: []),
+            attachmentPort: attachmentPort, sendPort: port, draftPort: port
+        )
+        await store.load()
+
+        await withHostedComposer(
+            ComposerWindow(
+                store: store, mode: .forward(messageID: original.id),
+                debugSaveDraft: true, debugBody: "Olá, encaminho a proposta."
+            ), until: { !port.drafts.isEmpty }
+        )
+
+        #expect(
+            !port.drafts.isEmpty,
+            "forward draft was not saved; attachment requests: \(attachmentPort.requests.count); draft writes: \(port.draftWriteCount); store error: \(store.loadError ?? "none")"
+        )
+        let saved = try #require(port.drafts.first)
+        let savedHTML = try #require(saved.bodyHTML)
+        #expect(savedHTML.contains("Olá, encaminho a proposta."))
+        #expect(savedHTML.contains("<table>"))
+        #expect(savedHTML.contains("data:image/png;base64"))
+        #expect(port.draftAttachments.first?.data == file)
+
+        await withHostedComposer(
+            ComposerWindow(
+                store: store, mode: .draft(messageID: saved.id),
+                debugSuggestion: .init(slot: .to, query: "cliente@example.com"), debugSend: true
+            ), until: { !port.enviadas.isEmpty }
+        )
+
+        let sent = try #require(port.enviadas.first)
+        let sentHTML = try #require(sent.html)
+        let resource = try #require(sent.inlineResources.first)
+        #expect(sent.to.map(\.address) == ["cliente@example.com"])
+        #expect(sentHTML.contains("Olá, encaminho a proposta."))
+        #expect(sentHTML.contains("<table>"))
+        #expect(sentHTML.contains(resource.cidURL))
+        #expect(!sentHTML.contains("data:image"))
+        #expect(sent.attachments.first?.data == file)
+
+        let mime = OutgoingMime.compose(
+            sent, date: Date(timeIntervalSince1970: 1), includeBcc: false, boundary: "reopened"
+        )
+        #expect(mime.contains("Content-ID: <\(resource.contentID)>"))
+        #expect(mime.contains(file.base64EncodedString()))
+    }
+
+    /// A porta de anexos suspende a tarefa do compositor. Ceder o ator aqui
+    /// permite retomar essa tarefa antes de fechar a janela fora da tela.
+    private func withHostedComposer<V: View>(
+        _ view: V, until finished: @MainActor () -> Bool
+    ) async {
+        let size = CGSize(width: 820, height: 660)
+        let window = NSWindow(
+            contentRect: NSRect(origin: CGPoint(x: -50_000, y: -50_000), size: size),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: view.theme(.tinta).frame(width: size.width, height: size.height))
+        defer { window.close() }
+        let deadline = Date().addingTimeInterval(5)
+        while !finished(), Date() < deadline {
+            window.contentView?.layoutSubtreeIfNeeded()
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
 }

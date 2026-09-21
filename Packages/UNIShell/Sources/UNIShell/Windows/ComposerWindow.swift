@@ -86,6 +86,14 @@ public struct ComposerWindow: View {
     @State private var fromAddress: String?
     @State private var attachments: [OutgoingAttachment] = []
     @State private var attachmentError: String?
+    /// Rascunhos e encaminhamentos podem ter chips persistidos sem os bytes na
+    /// memória. Enquanto a porta existente não os recuperar, salvar ou enviar
+    /// não pode transformar o anexo em ausência silenciosa.
+    @State private var attachmentsHydrated = true
+    /// HTML recebido não entra no TextKit: tabelas, CIDs e assinaturas ficam
+    /// neste bloco visível e o texto novo é composto antes dele na saída.
+    @State private var preservedHTML: ComposerOutgoing.PreservedHTML?
+    @State private var forwardAttachmentNamespace = UUID().uuidString.lowercased()
     @State private var savedStamp: String?
     /// O id na caixa Rascunhos. Nulo até o primeiro "Salvar rascunho"; nas
     /// reaberturas já vem preenchido, para o segundo salvar atualizar a mesma
@@ -144,6 +152,10 @@ public struct ComposerWindow: View {
     let debugSend: Bool
     /// Porta do harness: aperta **Salvar rascunho** no primeiro passe.
     let debugSaveDraft: Bool
+    /// Texto inicial injetado apenas pelo harness depois da semeadura. Ele
+    /// permite provar salvar e reabrir um encaminhamento rico sem fabricar
+    /// eventos de teclado.
+    let debugBody: String?
     /// Quantas vezes a porta de verificação tenta enviar. O app sempre usa
     /// uma ação por clique; o harness usa mais de uma para provar que a
     /// guarda contra duplicidade fica no fluxo real, não no teste.
@@ -181,10 +193,15 @@ public struct ComposerWindow: View {
         self.debugSignatureSelection = nil
         self.debugSend = false
         self.debugSaveDraft = false
+        self.debugBody = nil
         self.debugSendAttempts = 0
         self.debugLeaveConfirm = false
         self.attachmentSelector = NativeAttachmentSelector()
         if case .draft(let id) = mode { _draftMessageID = State(initialValue: id) }
+        switch mode {
+        case .draft, .forward: _attachmentsHydrated = State(initialValue: false)
+        case .reply, .replyAll, .new: break
+        }
     }
 
     init(
@@ -198,6 +215,7 @@ public struct ComposerWindow: View {
         debugSend: Bool = false,
         debugSendAttempts: Int = 1,
         debugSaveDraft: Bool = false,
+        debugBody: String? = nil,
         debugLeaveConfirm: Bool = false,
         attachmentSelector: (any AttachmentSelecting)? = nil,
         intelligence: ComposerIntelligenceGenerator? = nil
@@ -213,9 +231,14 @@ public struct ComposerWindow: View {
         self.debugSend = debugSend
         self.debugSendAttempts = debugSend ? max(1, debugSendAttempts) : 0
         self.debugSaveDraft = debugSaveDraft
+        self.debugBody = debugBody
         self.debugLeaveConfirm = debugLeaveConfirm
         self.attachmentSelector = attachmentSelector
         if case .draft(let id) = mode { _draftMessageID = State(initialValue: id) }
+        switch mode {
+        case .draft, .forward: _attachmentsHydrated = State(initialValue: false)
+        case .reply, .replyAll, .new: break
+        }
         _leaveConfirm = State(initialValue: debugLeaveConfirm)
         // As linhas Cc e Cco nascem fechadas; para desenhar a lista de uma
         // delas o harness precisa da linha aberta desde o primeiro passe.
@@ -370,7 +393,35 @@ public struct ComposerWindow: View {
     }
 
     private var plainDraft: String { String(draft.characters) }
-    private var draftCount: String { DraftMeta.countLabel(plainDraft) }
+    private var visiblePlainDraft: String {
+        guard let preservedHTML else { return plainDraft }
+        guard !plainDraft.isEmpty else { return preservedHTML.plainText }
+        guard !preservedHTML.plainText.isEmpty else { return plainDraft }
+        return plainDraft + "\n\n" + preservedHTML.plainText
+    }
+    private var draftCount: String { DraftMeta.countLabel(visiblePlainDraft) }
+
+    /// Conteúdo que a pessoa pode editar nesta janela. Quando há um bloco
+    /// preservado, ele permanece fora desta representação para que salvar o
+    /// rascunho guarde a fonte literal, sem CIDs órfãos.
+    private func editableContent() -> ComposerOutgoing.Content {
+        ComposerOutgoing.content(
+            draft,
+            theme: theme,
+            signature: signature,
+            signatureIsInserted: signatureInserted && hasSignature,
+            signatureOffset: signatureOffset
+        )
+    }
+
+    /// O conteúdo enviado junta a introdução editável ao HTML preservado sem
+    /// round-trip por TextKit. O salvamento usa a fonte preservada separada,
+    /// para a próxima abertura repetir essa mesma composição.
+    private func outgoingContent() -> ComposerOutgoing.Content {
+        let editable = editableContent()
+        guard let preservedHTML else { return editable }
+        return ComposerOutgoing.preserving(editable, before: preservedHTML)
+    }
 
     // MARK: - Assinatura
 
@@ -515,8 +566,13 @@ public struct ComposerWindow: View {
             if store.messages.isEmpty { await store.load() }
             if case .draft(let id) = mode {
                 await store.loadBodyIfNeeded(id)
+            } else if case .forward(let id) = mode {
+                await store.loadBodyIfNeeded(id)
             }
-            seed()
+            await seed()
+            if let debugBody {
+                draft = AttributedString(debugBody)
+            }
             if let origem = draftOrigin {
                 await store.loadBodyIfNeeded(origem.id)
             }
@@ -572,7 +628,7 @@ public struct ComposerWindow: View {
         let mode: Mode
     }
 
-    private func seed() {
+    private func seed() async {
         guard !seeded else { return }
         switch mode {
         case .reply, .replyAll, .forward:
@@ -615,10 +671,26 @@ public struct ComposerWindow: View {
             bccOpen = bccOpen || !seed.bcc.isEmpty
             attachments = seed.attachments
             subject = seed.subject
-            // `seed.rich` e não `seed.body`: por `String` a formatação que a
-            // pessoa aplicou na faixa do leitor se perderia ao promover para cá
-            // com o "⤢", e ela não teria como saber por quê.
-            if !seed.rich.characters.isEmpty {
+            if case .forward = mode {
+                // O HTML não atravessa o `NSTextView`: o bloco abaixo dele é
+                // a fonte que sai. A área editável fica livre para a
+                // introdução, sem achatar tabela, CID ou assinatura recebida.
+                if let html = ComposerSeed.forwardedHTML(
+                    introduction: "", original: repliedMessage,
+                    dateLabel: DateLabels.eventDate(repliedMessage.receivedAt)
+                ) {
+                    preservedHTML = .init(html: html, plainText: seed.body)
+                    draft = AttributedString()
+                } else if !seed.rich.characters.isEmpty {
+                    draft = seed.rich
+                }
+                await hydrateAttachments(
+                    from: repliedMessage,
+                    idPrefix: "local-forward-\(forwardAttachmentNamespace)"
+                )
+            } else if !seed.rich.characters.isEmpty {
+                // `seed.rich` e não `seed.body`: por `String` a formatação que
+                // a pessoa aplicou na faixa do leitor se perderia ao promover.
                 draft = seed.rich
             }
             fromAccountID = repliedMessage.accountID
@@ -636,12 +708,60 @@ public struct ComposerWindow: View {
             ccOpen = ccOpen || !gravado.cc.isEmpty
             subject = gravado.subject == "(sem assunto)" ? "" : gravado.subject
             let texto = gravado.body.joined(separator: "\n\n")
-            if let restored = restoreSignature(from: texto, metadata: gravado.bodyHTML) {
+            let metadata = ComposerDraftSignatureMetadata.read(from: gravado.bodyHTML)
+            if metadata?.preservedPlainCharacterCount == nil,
+               let restored = restoreSignature(from: texto, metadata: gravado.bodyHTML) {
+                // Rascunhos normais criados pelo compositor restauram antes de
+                // olhar a presença de `<table>` na assinatura. A assinatura
+                // rica continua no fluxo editável próprio, não num bloco.
+                draft = AttributedString(restored.body)
+                signatureOffset = restored.offset
+            } else if let html = gravado.bodyHTML?.trimmingCharacters(in: .whitespacesAndNewlines),
+                      ComposerOutgoing.requiresLiteralPreservation(html)
+            {
+                let split = ComposerDraftSignatureMetadata.splitPreservedPlain(
+                    from: texto, metadata: metadata
+                )
+                if let restored = ComposerOutgoing.extractingPreservedHTML(
+                    from: html, plainText: split.preserved
+                ) {
+                    // Este é o formato atual: o bodyHTML persistido contém a
+                    // introdução completa para outros clientes, enquanto os
+                    // delimitadores recuperam a fonte que o TextKit não pode
+                    // representar sem perda.
+                    preservedHTML = restored
+                    if let signature = restoreSignature(from: split.editable, metadata: gravado.bodyHTML) {
+                        draft = AttributedString(signature.body)
+                        signatureOffset = signature.offset
+                    } else if !split.editable.isEmpty {
+                        // A introdução pode ter nascido no editor rico. Ela é
+                        // guardada fora do bloco literal, mas preserva seu
+                        // próprio HTML no mesmo documento para voltar a ser
+                        // editável sem reduzir cor, peso ou links a texto.
+                        draft = ComposerOutgoing.editableText(
+                            from: ComposerOutgoing.extractingEditableHTML(from: html),
+                            fallback: split.editable,
+                            theme: theme
+                        )
+                    }
+                } else {
+                    // Rascunhos externos ou antigos continuam íntegros e
+                    // visíveis; sem delimitador não inventamos qual parte era
+                    // uma introdução editável.
+                    preservedHTML = .init(html: html, plainText: texto)
+                }
+            } else if let restored = restoreSignature(from: texto, metadata: gravado.bodyHTML) {
                 draft = AttributedString(restored.body)
                 signatureOffset = restored.offset
             } else if !texto.isEmpty {
-                draft = AttributedString(texto)
+                // Para HTML simples, preserva atributos nativos quando o
+                // importador do AppKit conseguir reconstruí-los; o texto puro
+                // continua como fallback para conteúdo que não seja HTML.
+                draft = ComposerOutgoing.editableText(
+                    from: gravado.bodyHTML, fallback: texto, theme: theme
+                )
             }
+            await hydrateAttachments(from: gravado)
             draftMessageID = gravado.id
             savedPlain = plainDraft
             savedSubject = gravado.subject == "(sem assunto)" ? "" : gravado.subject
@@ -653,6 +773,38 @@ public struct ComposerWindow: View {
         rememberSaved()
     }
 
+    /// Materializa os bytes antes de deixar o compositor salvar ou enviar. A
+    /// porta já valida o trio conta/mensagem/anexo e pode usar cache, Gmail ou
+    /// IMAP; a janela não recebe caminho local nem URL.
+    private func hydrateAttachments(from message: Message, idPrefix: String? = nil) async {
+        guard !message.attachments.isEmpty else {
+            attachmentsHydrated = true
+            return
+        }
+        do {
+            var resolved: [OutgoingAttachment] = []
+            for (index, attachment) in message.attachments.enumerated() {
+                try Task.checkCancellation()
+                let fetched = try await store.fetchAttachment(attachment, from: message)
+                guard fetched.attachment.id == attachment.id else {
+                    throw AttachmentError.unavailable
+                }
+                let id = idPrefix.map { "\($0):attachment:\(index)" } ?? fetched.attachment.id
+                resolved.append(try OutgoingAttachment(
+                    id: id, filename: fetched.attachment.filename,
+                    mimeType: fetched.attachment.mimeType, data: fetched.data
+                ))
+            }
+            attachments = resolved
+            attachmentError = nil
+            attachmentsHydrated = true
+        } catch is CancellationError {
+            return
+        } catch {
+            attachmentError = error.localizedDescription
+        }
+    }
+
     /// Só um metadado escrito pelo próprio salvamento autoriza tirar a
     /// alternativa textual do rascunho. Procurar “Marcos” no texto e assumir
     /// que é assinatura transformaria uma frase normal em logo/link ao
@@ -662,11 +814,12 @@ public struct ComposerWindow: View {
     ) -> (body: String, offset: Int)? {
         guard let metadata = ComposerDraftSignatureMetadata.read(from: metadata),
               metadata.plainText == signature.plainText,
-              metadata.offset >= 0,
-              metadata.offset <= text.count
+              let offset = metadata.offset,
+              offset >= 0,
+              offset <= text.count
         else { return nil }
 
-        let start = text.index(text.startIndex, offsetBy: metadata.offset)
+        let start = text.index(text.startIndex, offsetBy: offset)
         let signatureStart = text.index(
             start,
             offsetBy: metadata.leadingSeparator.count,
@@ -692,7 +845,7 @@ public struct ComposerWindow: View {
         guard let end else { return nil }
         return (
             body: String(text[..<start]) + String(text[end...]),
-            offset: metadata.offset
+            offset: offset
         )
     }
 
@@ -847,6 +1000,14 @@ public struct ComposerWindow: View {
 
     // MARK: - Corpo
 
+    private var showsQuotedHistory: Bool {
+        // O encaminhamento rico já contém a mensagem original no bloco HTML.
+        // Repeti-la logo abaixo criaria duas fontes visuais para o mesmo
+        // conteúdo e sugeriria que apenas uma delas fosse enviada.
+        guard case .forward = mode else { return true }
+        return preservedHTML == nil
+    }
+
     /// 03: o editor tem altura mínima de 200 e **rola junto** com o histórico
     /// citado embaixo dele.
     private var replyBody: some View {
@@ -854,26 +1015,28 @@ public struct ComposerWindow: View {
             VStack(alignment: .leading, spacing: 0) {
                 editor(minHeight: 200, placeholder: L10n.tr("Escreva a resposta… selecione o texto para formatar"))
 
-                VStack(alignment: .leading, spacing: 12) {
-                    ChromeButton(
-                        appearance: .outlined, height: 26, horizontalPadding: 11,
-                        labelSize: 11.5, labelWeight: .medium,
-                        action: { historyOpen.toggle() }
-                    ) {
-                        HStack(spacing: 7) {
-                            Text("⋯").font(theme.mono.font(size: 10))
-                            Text(historyOpen ? L10n.tr("Ocultar histórico") : L10n.tr("Mostrar histórico (1 mensagem)"))
+                if showsQuotedHistory {
+                    VStack(alignment: .leading, spacing: 12) {
+                        ChromeButton(
+                            appearance: .outlined, height: 26, horizontalPadding: 11,
+                            labelSize: 11.5, labelWeight: .medium,
+                            action: { historyOpen.toggle() }
+                        ) {
+                            HStack(spacing: 7) {
+                                Text("⋯").font(theme.mono.font(size: 10))
+                                Text(historyOpen ? L10n.tr("Ocultar histórico") : L10n.tr("Mostrar histórico (1 mensagem)"))
+                            }
+                        }
+
+                        if historyOpen, let original = repliedMessage {
+                            history(original)
                         }
                     }
-
-                    if historyOpen, let original = repliedMessage {
-                        history(original)
-                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 22)
+                    .padding(.top, 4)
+                    .padding(.bottom, 24)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 22)
-                .padding(.top, 4)
-                .padding(.bottom, 24)
             }
         }
         .frame(maxHeight: .infinity)
@@ -912,6 +1075,20 @@ public struct ComposerWindow: View {
     /// com o texto-fantasma no mesmo lugar do cursor.
     @ViewBuilder
     private func editor(minHeight: CGFloat, placeholder: String) -> some View {
+        if let preservedHTML {
+            VStack(alignment: .leading, spacing: 0) {
+                editableEditor(minHeight: minHeight, placeholder: placeholder)
+                ComposerPreservedHTMLBlock(html: preservedHTML.html)
+                    .padding(.horizontal, 22)
+                    .padding(.bottom, 16)
+            }
+        } else {
+            editableEditor(minHeight: minHeight, placeholder: placeholder)
+        }
+    }
+
+    @ViewBuilder
+    private func editableEditor(minHeight: CGFloat, placeholder: String) -> some View {
         if signatureInserted, hasSignature {
             signatureAnchoredEditor(minHeight: minHeight, placeholder: placeholder)
         } else {
@@ -1223,6 +1400,7 @@ public struct ComposerWindow: View {
             }
             HStack(spacing: 8) {
                 AttachButton { addAttachment() }
+                    .disabled(!attachmentsHydrated)
 
                 SignatureButton(enabled: canInsertSignature, reason: signatureHelp) {
                     insertSignature()
@@ -1241,16 +1419,17 @@ public struct ComposerWindow: View {
                     }
                 }
                 .keyboardShortcut(.return, modifiers: .command)
-                .disabled(sendAccepted)
+                .disabled(sendAccepted || !attachmentsHydrated)
 
                 if isReply {
                     ChromeButton(L10n.tr("Enviar e arquivar"), appearance: .outlined, size: 13) {
                         send(archiving: true)
                     }
-                    .disabled(sendAccepted)
+                    .disabled(sendAccepted || !attachmentsHydrated)
                 }
 
                 ChromeButton(L10n.tr("Salvar rascunho"), appearance: .outlined) { saveDraft() }
+                    .disabled(!attachmentsHydrated)
 
                 // O carimbo de salvamento mora no rodapé nas **duas** janelas. Na
                 // 03 ele ficava no fim da barra de formatação e a quebrava em duas
@@ -1310,25 +1489,24 @@ public struct ComposerWindow: View {
 
     @discardableResult
     private func saveDraft() -> Bool {
+        guard attachmentsHydrated else { return false }
         guard let account else { return false }
         guard resolveRecipients() else { return false }
-        let texto = plainDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         let assunto = subject.trimmingCharacters(in: .whitespacesAndNewlines)
+        let outgoingContent = outgoingContent()
+        let texto = outgoingContent.plainText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !texto.isEmpty || !assunto.isEmpty || to.contains(where: { !$0.address.isEmpty })
         else { return false }
 
-        let outgoingContent = ComposerOutgoing.content(
-            draft,
-            theme: theme,
-            signature: account.emailSignature,
-            signatureIsInserted: signatureInserted && hasSignature,
-            signatureOffset: signatureOffset
-        )
+        // O HTML com `data:image` fica literalmente no rascunho. A conversão
+        // para CID acontece só em `send`, onde os bytes viajam junto do MIME.
+        // Isso evita abrir o rascunho depois com um `cid:` sem recurso.
         let draftHTML = ComposerDraftSignatureMetadata.inserting(
             into: outgoingContent.html,
             offset: signatureOffset,
             body: plainDraft,
-            signature: signature
+            signature: signature,
+            preservedPlainCharacterCount: preservedHTML?.plainText.count
         )
         let paragrafos = outgoingContent.plainText
             .components(separatedBy: "\n\n")
@@ -1345,8 +1523,6 @@ public struct ComposerWindow: View {
             receivedAt: agora,
             subject: assunto.isEmpty ? "(sem assunto)" : assunto,
             snippet: paragrafos.first ?? assunto,
-            // Preserva espaços e linhas: a posição salva da assinatura usa
-            // exatamente esse texto, inclusive ao reabrir o rascunho.
             body: [outgoingContent.plainText],
             tags: [],
             bucket: .drafts,
@@ -1358,9 +1534,10 @@ public struct ComposerWindow: View {
             bodyHTML: draftHTML,
             rfcMessageID: id,
             references: conversa.references,
-            threadKey: origem?.id ?? id
+            threadKey: origem?.id ?? id,
+            attachments: attachments.map(\.metadata)
         )
-        guard store.saveDraft(gravado) else { return false }
+        guard store.saveDraft(gravado, attachments: attachments) else { return false }
         draftMessageID = id
         savedPlain = plainDraft
         savedSubject = subject
@@ -1459,6 +1636,7 @@ public struct ComposerWindow: View {
 
     private func send(archiving: Bool) {
         guard !sendAccepted else { return }
+        guard attachmentsHydrated else { return }
         guard resolveRecipients() else { return }
         let recipients = (to + cc + bcc).map(\.address).filter { !$0.isEmpty }
         guard !recipients.isEmpty else {
@@ -1474,23 +1652,23 @@ public struct ComposerWindow: View {
             return
         }
 
-        let bruto = ComposerOutgoing.content(
-            draft,
-            theme: theme,
-            signature: account.emailSignature,
-            signatureIsInserted: signatureInserted && hasSignature,
-            signatureOffset: signatureOffset
-        )
-        let outgoingContent: ComposerOutgoing.Content
+        let bruto = outgoingContent()
+        let composed: ComposerOutgoing.Content
         if let original = answeredMessage {
-            outgoingContent = ComposerOutgoing.citing(
+            composed = ComposerOutgoing.citing(
                 original,
                 dateLabel: DateLabels.eventDate(original.receivedAt),
                 onto: bruto
             )
         } else {
-            outgoingContent = bruto
+            composed = bruto
         }
+        let prepared = ComposerOutgoing.materializingInlineResources(composed)
+        guard prepared.warnings.isEmpty else {
+            sendError = prepared.warnings.joined(separator: " ")
+            return
+        }
+        let outgoingContent = prepared.content
         let mensagem = ComposerOutgoing.message(
             accountID: account.id,
             from: Contact(name: sendingFrom.name, address: sendingFrom.address),
@@ -1531,29 +1709,42 @@ private enum ComposerDraftSignatureMetadata {
     private static let suffix = "-->"
 
     struct Value: Equatable {
-        let offset: Int
+        let offset: Int?
         let plainText: String
         let leadingSeparator: String
         let trailingSeparator: String
+        /// Número de caracteres da alternativa texto do bloco HTML literal.
+        /// Ele permite separar, na reabertura, a introdução editável sem
+        /// serializar HTML ou imagens dentro do próprio marcador.
+        let preservedPlainCharacterCount: Int?
     }
 
     static func inserting(
         into html: String?,
         offset: Int?,
         body: String,
-        signature: EmailSignature
+        signature: EmailSignature,
+        preservedPlainCharacterCount: Int? = nil
     ) -> String {
-        guard let offset else { return html ?? "" }
-        let position = ComposerOutgoing.positionedSignature(
-            in: body, signature: signature.plainText, at: offset
-        )
+        guard offset != nil || preservedPlainCharacterCount != nil else { return html ?? "" }
+        let position = offset.map {
+            ComposerOutgoing.positionedSignature(
+                in: body, signature: signature.plainText, at: $0
+            )
+        }
         let marker = prefix
-            + [String(offset), signature.plainText, position.leadingSeparator, position.trailingSeparator]
-                .map { Data($0.utf8).base64EncodedString() }
-                .joined(separator: ":")
+            + [
+                offset.map(String.init) ?? "",
+                position.map { _ in signature.plainText } ?? "",
+                position?.leadingSeparator ?? "",
+                position?.trailingSeparator ?? "",
+                preservedPlainCharacterCount.map(String.init) ?? "",
+            ]
+            .map { Data($0.utf8).base64EncodedString() }
+            .joined(separator: ":")
             + suffix
 
-        var document = html ?? "<html><body></body></html>"
+        var document = removingMarkers(from: html ?? "<html><body></body></html>")
         if let close = document.range(of: "</body>", options: [.caseInsensitive, .backwards]) {
             document.insert(contentsOf: marker, at: close.lowerBound)
         } else {
@@ -1571,19 +1762,44 @@ private enum ComposerDraftSignatureMetadata {
         else { return nil }
         let payloadStart = html.index(start, offsetBy: prefix.count)
         let fields = html[payloadStart..<end].split(separator: ":", omittingEmptySubsequences: false)
-        guard fields.count == 4,
-              let offsetField = decode(String(fields[0])),
-              let offset = Int(offsetField),
+        guard fields.count == 4 || fields.count == 5,
               let plainText = decode(String(fields[1])),
               let leading = decode(String(fields[2])),
               let trailing = decode(String(fields[3]))
+        else { return nil }
+        let offsetText = decode(String(fields[0])) ?? ""
+        let preservedText = fields.count == 5 ? decode(String(fields[4])) ?? "" : ""
+        let offset = offsetText.isEmpty ? nil : Int(offsetText)
+        let preservedCount = preservedText.isEmpty ? nil : Int(preservedText)
+        guard (offset == nil || offset! >= 0), (preservedCount == nil || preservedCount! >= 0)
         else { return nil }
         return Value(
             offset: offset,
             plainText: plainText,
             leadingSeparator: leading,
-            trailingSeparator: trailing
+            trailingSeparator: trailing,
+            preservedPlainCharacterCount: preservedCount
         )
+    }
+
+    private static func removingMarkers(from html: String) -> String {
+        var result = html
+        while let start = result.range(of: prefix),
+              let end = result.range(of: suffix, range: start.lowerBound..<result.endIndex) {
+            result.removeSubrange(start.lowerBound..<end.upperBound)
+        }
+        return result
+    }
+
+    static func splitPreservedPlain(from text: String, metadata: Value?) -> (editable: String, preserved: String) {
+        guard let count = metadata?.preservedPlainCharacterCount,
+              count <= text.count
+        else { return (text, "") }
+        let split = text.index(text.endIndex, offsetBy: -count)
+        let preserved = String(text[split...])
+        var editable = String(text[..<split])
+        if editable.hasSuffix("\n\n") { editable.removeLast(2) }
+        return (editable, preserved)
     }
 
     private static func decode(_ value: String) -> String? {
@@ -1704,6 +1920,89 @@ struct ComposerSignatureBlock: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .hairline(theme.line2, edges: .top)
         .accessibilityIdentifier("composer-signature-block")
+    }
+}
+
+/// HTML de um rascunho existente não é transformado em texto editável. O
+/// mesmo renderer seguro da assinatura permite revisar o layout enquanto a
+/// fonte original continua sendo a que `ComposerOutgoing` entrega ao MIME.
+struct ComposerPreservedHTMLBlock: View {
+    @Environment(\.theme) private var theme
+    let html: String
+    @State private var measuredHeight: CGFloat = 150
+
+    private var previewDocument: String? {
+        // A mensagem já foi sanitizada no carregamento. Repassá-la pelo
+        // sanitizador de assinatura aqui apagaria `data:` que representam as
+        // imagens inline recebidas antes da composição do MIME. A CSP entra
+        // como defesa do renderer, sem modificar o conteúdo revisado.
+        ComposerPreservedHTMLPreview.document(html)
+    }
+
+    private var previewHeight: CGFloat {
+        // A janela inteira já rola. Limitar este bloco cortaria tabelas longas
+        // sem uma rolagem interna acessível.
+        max(measuredHeight, 44)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 7) {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(theme.ink3.color)
+                Text(L10n.tr("Conteúdo HTML preservado"))
+                    .capsLabel(size: 9.5)
+                Spacer(minLength: 8)
+            }
+
+            Text(L10n.tr("Edite a introdução acima. O conteúdo formatado abaixo será mantido no envio."))
+                .font(.system(size: 12))
+                .foregroundStyle(theme.ink3.color)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let previewDocument {
+                SignaturePreviewWebView(
+                    html: previewDocument,
+                    measuredHeight: $measuredHeight
+                )
+                .frame(height: previewHeight)
+                .frame(maxWidth: 720, alignment: .leading)
+                .clipped()
+                .accessibilityLabel(L10n.tr("Conteúdo HTML preservado"))
+            }
+        }
+        .padding(.top, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .hairline(theme.line2, edges: .top)
+        .accessibilityIdentifier("composer-preserved-html-block")
+    }
+}
+
+/// Encapsula HTML já sanitizado para a WebView sem submetê-lo ao sanitizador
+/// de assinatura, que deliberadamente descartaria os `data:` inline da
+/// mensagem. A CSP bloqueia scripts, conexões, frames e navegação; o delegado
+/// da `SignaturePreviewWebView` mantém a mesma defesa em profundidade.
+private enum ComposerPreservedHTMLPreview {
+    private static let policy = "default-src 'none'; img-src data: https:; style-src 'unsafe-inline'; font-src 'none'; connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"
+
+    static func document(_ source: String) -> String? {
+        let html = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !html.isEmpty else { return nil }
+        let csp = "<meta http-equiv=\"Content-Security-Policy\" content=\"\(policy)\">"
+        if let head = html.range(of: "<head", options: .caseInsensitive),
+           let end = html.range(of: ">", range: head.lowerBound..<html.endIndex) {
+            var result = html
+            result.insert(contentsOf: csp, at: end.upperBound)
+            return result
+        }
+        if let document = html.range(of: "<html", options: .caseInsensitive),
+           let end = html.range(of: ">", range: document.lowerBound..<html.endIndex) {
+            var result = html
+            result.insert(contentsOf: "<head>\(csp)</head>", at: end.upperBound)
+            return result
+        }
+        return "<!doctype html><html><head>\(csp)</head><body>\(html)</body></html>"
     }
 }
 

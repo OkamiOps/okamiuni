@@ -66,6 +66,11 @@ struct CreatedAgendaItemRecord: Codable, FetchableRecord, PersistableRecord, Sen
     var endMinute: Int
     var calendarUID: String?
     var calendarSequence: Int?
+    var calendarID: String?
+    var calendarTitle: String?
+    var calendarColorHex: String?
+    var calendarSource: String?
+    var isCancelled: Bool
     var place: String?
     var link: String?
     var descricao: String?
@@ -86,6 +91,11 @@ struct CreatedAgendaItemRecord: Codable, FetchableRecord, PersistableRecord, Sen
         endMinute = item.endMinute
         calendarUID = item.calendarUID
         calendarSequence = item.calendarSequence
+        calendarID = item.calendarID
+        calendarTitle = item.calendarTitle
+        calendarColorHex = item.calendarColorHex
+        calendarSource = item.calendarSource
+        isCancelled = item.isCancelled
         // `place` é o que distingue "tem detalhe" de "não tem": ele é o único
         // campo não-opcional de `EventDetail`, e é por ele que a leitura decide
         // se remonta o detalhe ou devolve `nil`.
@@ -113,7 +123,12 @@ struct CreatedAgendaItemRecord: Codable, FetchableRecord, PersistableRecord, Sen
             day: CivilDay(iso: day) ?? CivilDay.from(dayOffset: 0, reference: Date()),
             calendarUID: calendarUID,
             calendarSequence: calendarSequence,
-            detail: detalhe
+            detail: detalhe,
+            calendarID: calendarID,
+            calendarTitle: calendarTitle,
+            calendarColorHex: calendarColorHex,
+            calendarSource: calendarSource,
+            isCancelled: isCancelled
         )
     }
 

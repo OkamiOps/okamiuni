@@ -100,11 +100,18 @@ public struct StoredAgendaItem: Sendable, Hashable {
     public let calendarUID: String?
     public let calendarSequence: Int?
     public let detail: EventDetail?
+    public let calendarID: String?
+    public let calendarTitle: String?
+    public let calendarColorHex: String?
+    public let calendarSource: String?
+    public let isCancelled: Bool
 
     public init(
         id: String, title: String, startMinute: Int, endMinute: Int,
         accountID: String, day: CivilDay,
-        calendarUID: String? = nil, calendarSequence: Int? = nil, detail: EventDetail? = nil
+        calendarUID: String? = nil, calendarSequence: Int? = nil, detail: EventDetail? = nil,
+        calendarID: String? = nil, calendarTitle: String? = nil,
+        calendarColorHex: String? = nil, calendarSource: String? = nil, isCancelled: Bool = false
     ) {
         self.id = id
         self.title = title
@@ -115,6 +122,11 @@ public struct StoredAgendaItem: Sendable, Hashable {
         self.calendarUID = calendarUID
         self.calendarSequence = calendarSequence
         self.detail = detail
+        self.calendarID = calendarID
+        self.calendarTitle = calendarTitle
+        self.calendarColorHex = calendarColorHex
+        self.calendarSource = calendarSource
+        self.isCancelled = isCancelled
     }
 
     /// O compromisso da tela virando o compromisso do disco.
@@ -128,7 +140,12 @@ public struct StoredAgendaItem: Sendable, Hashable {
             ),
             calendarUID: item.calendarUID,
             calendarSequence: item.calendarSequence,
-            detail: item.detail
+            detail: item.detail,
+            calendarID: item.calendarID,
+            calendarTitle: item.calendarTitle,
+            calendarColorHex: item.calendarColorHex,
+            calendarSource: item.calendarSource,
+            isCancelled: item.isCancelled
         )
     }
 
@@ -141,7 +158,12 @@ public struct StoredAgendaItem: Sendable, Hashable {
             dayOffset: day.dayOffset(from: referenceDay, calendar: calendar),
             calendarUID: calendarUID,
             calendarSequence: calendarSequence,
-            detail: detail
+            detail: detail,
+            calendarID: calendarID,
+            calendarTitle: calendarTitle,
+            calendarColorHex: calendarColorHex,
+            calendarSource: calendarSource,
+            isCancelled: isCancelled
         )
     }
 }
