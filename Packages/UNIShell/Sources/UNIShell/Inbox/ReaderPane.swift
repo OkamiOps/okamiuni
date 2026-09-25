@@ -371,6 +371,7 @@ public struct ReaderPane: View {
                 )
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .avisaQueRola(L10n.tr("O email continua abaixo. Role para ver o resto."))
 
             // `.id` porque a faixa guarda o rascunho da mensagem que está
             // aberta: trocar de mensagem tem de trocar de rascunho, não herdar

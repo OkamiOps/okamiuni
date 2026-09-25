@@ -36,6 +36,58 @@ struct ReaderHTMLPolicyTests {
         #expect(ReaderHTMLPolicy.pedeRecursoRemoto("<div style=\"background:url(https://x/y)\">"))
     }
 
+    @Test("Imagem protocol-relative vira https quando as remotas estão liberadas")
+    func promoveProtocolRelativeQuandoLivre() {
+        let html = """
+            <img src="//cdn.exemplo.com/logo.png">
+            <div style="background-image: url('//cdn.exemplo.com/fundo.png')"></div>
+            """
+        let livre = ReaderHTMLPolicy.documento(
+            html: html, fundo: "#fff", tinta: "#000", link: "#00f", fonte: "ui-serif",
+            bloqueiaRemotas: false
+        )
+        #expect(livre.contains("src=\"https://cdn.exemplo.com/logo.png\""))
+        #expect(livre.contains("url('https://cdn.exemplo.com/fundo.png')"))
+        #expect(!livre.contains("src=\"//cdn.exemplo.com/logo.png\""))
+    }
+
+    @Test("Pixel de rastreio 1×1 some mesmo com imagens liberadas")
+    func rastreioNaoViajaQuandoAsImagensEstaoLivres() {
+        let html = """
+            <img src="https://us.list-manage.com/track.gif" width="1" height="1" \
+            style="display:none;" alt="">
+            <img src="https://cdn.exemplo.com/cartaz.png" width="400" alt="cartaz">
+            """
+        let livre = ReaderHTMLPolicy.documento(
+            html: html, fundo: "#fff", tinta: "#000", link: "#00f", fonte: "ui-serif",
+            bloqueiaRemotas: false
+        )
+        #expect(!livre.contains("list-manage.com"))
+        #expect(livre.contains("cdn.exemplo.com/cartaz.png"))
+        #expect(livre.contains(ReaderHTMLPolicy.imagemRemotaBloqueada))
+        #expect(ReaderHTMLPolicy.ehRastreio(
+            "<img src=\"https://x/p.gif\" width=\"1\" height=\"1\">"
+        ))
+        #expect(!ReaderHTMLPolicy.ehRastreio(
+            "<img src=\"https://x/icon.png\" width=\"32\" height=\"32\">"
+        ))
+    }
+
+    @Test("Recurso https da imagem não é tratado como clique")
+    func recursoNaoAbreONavegador() {
+        let alvo = URL(string: "https://cdn.exemplo.com/cartaz.png")!
+        #expect(
+            ReaderHTMLPolicy.decide(url: alvo, origem: .recurso, permiteRemotas: true)
+            == .permitir
+        )
+        #expect(
+            ReaderHTMLPolicy.decide(url: alvo, origem: .recurso, permiteRemotas: false)
+            == .recusar
+        )
+        #expect(ReaderHTMLPolicy.decide(url: alvo, origem: .clique) == .abrirNoNavegador(alvo))
+        #expect(ReaderHTMLPolicy.decide(url: alvo) == .abrirNoNavegador(alvo))
+    }
+
     @Test("Imagem protocol-relative é bloqueada sem deixar ícone quebrado")
     func imagemProtocolRelative() {
         let html = """

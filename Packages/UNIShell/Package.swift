@@ -25,6 +25,10 @@ let package = Package(
                 .product(name: "NIOPosix", package: "swift-nio"),
             ]
         ),
-        .testTarget(name: "UNIShellTests", dependencies: ["UNIShell"]),
+        .testTarget(
+            name: "UNIShellTests",
+            dependencies: ["UNIShell"],
+            resources: [.copy("Fixtures")]
+        ),
     ]
 )

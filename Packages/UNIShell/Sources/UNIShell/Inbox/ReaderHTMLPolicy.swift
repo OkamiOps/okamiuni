@@ -33,8 +33,19 @@ enum ReaderHTMLPolicy {
     private static let httpEmURL = try! NSRegularExpression(
         pattern: #"(?i)(url\(\s*(?:[\"']|&(?:#(?:34|39)|quot|apos);)?)http://(?!127\.0\.0\.1)(?!localhost)(?!\[::1\])"#
     )
+    /// `src="//cdn…"`. Com `baseURL` nulo o documento é `about:blank`, e a
+    /// imagem protocol-relative não resolve — o cartaz some.
+    private static let protocolRelativoEmAtributo = try! NSRegularExpression(
+        pattern: #"(?i)(\b(?:src|background|poster)\s*=\s*[\"']?)//(?!/)"#
+    )
+    private static let protocolRelativoEmURL = try! NSRegularExpression(
+        pattern: #"(?i)(url\(\s*(?:[\"']|&(?:#(?:34|39)|quot|apos);)?)//(?!/)"#
+    )
     private static let srcsetAtributo = try! NSRegularExpression(
         pattern: #"(?i)\bsrcset\s*=\s*(\"[^\"]*\"|'[^']*')"#
+    )
+    private static let etiquetaImg = try! NSRegularExpression(
+        pattern: #"(?is)<img\b[^>]*>"#
     )
 
     // MARK: - Nada de rede, por padrão
@@ -131,7 +142,45 @@ enum ReaderHTMLPolicy {
     static func promoveHTTPS(_ html: String) -> String {
         var resultado = substitui(httpEmAtributo, em: html, por: "$1https://")
         resultado = substitui(httpEmURL, em: resultado, por: "$1https://")
+        resultado = substitui(protocolRelativoEmAtributo, em: resultado, por: "$1https://")
+        resultado = substitui(protocolRelativoEmURL, em: resultado, por: "$1https://")
         return promoveHTTPSNoSrcset(resultado)
+    }
+
+    /// Pixel de rastreio (1×1 ou `display:none`) vira o gif local **mesmo**
+    /// quando as imagens visíveis estão liberadas. O `list-manage.com` do
+    /// Mailchimp não completa a carga: sem isto o `didFinish` nunca chega, a
+    /// régua mede o email sem o cartaz, e o texto some abaixo da dobra.
+    static func neutralizaRastreio(_ html: String) -> String {
+        let range = NSRange(html.startIndex..<html.endIndex, in: html)
+        let achados = etiquetaImg.matches(in: html, range: range)
+        guard !achados.isEmpty else { return html }
+        var resultado = html
+        for achado in achados.reversed() {
+            guard let trecho = Range(achado.range, in: resultado) else { continue }
+            let tag = String(resultado[trecho])
+            guard ehRastreio(tag) else { continue }
+            resultado.replaceSubrange(trecho, with: substituiSrc(em: tag, por: imagemRemotaBloqueada))
+        }
+        return resultado
+    }
+
+    /// 1×1, ou escondido no estilo. Ícone de 32px do rodapé não entra.
+    static func ehRastreio(_ tag: String) -> Bool {
+        let baixo = tag.lowercased()
+        if baixo.contains("display:none") || baixo.contains("display: none") { return true }
+        let temLargura1 = baixo.contains("width=\"1\"") || baixo.contains("width='1'")
+            || baixo.contains("width=1") || baixo.contains("width:1px") || baixo.contains("width: 1px")
+        let temAltura1 = baixo.contains("height=\"1\"") || baixo.contains("height='1'")
+            || baixo.contains("height=1") || baixo.contains("height:1px") || baixo.contains("height: 1px")
+        return temLargura1 && temAltura1
+    }
+
+    private static func substituiSrc(em tag: String, por fonte: String) -> String {
+        let src = try! NSRegularExpression(
+            pattern: #"(?i)(\bsrc\s*=\s*)(\"[^\"]*\"|'[^']*'|[^\s>]+)"#
+        )
+        return substitui(src, em: tag, por: "$1\"\(fonte)\"")
     }
 
     private static func promoveHTTPSNoSrcset(_ html: String) -> String {
@@ -141,9 +190,12 @@ enum ReaderHTMLPolicy {
         var resultado = html
         for achado in achados.reversed() {
             guard let trecho = Range(achado.range, in: resultado) else { continue }
-            let promovido = resultado[trecho].replacingOccurrences(
+            var promovido = resultado[trecho].replacingOccurrences(
                 of: "http://", with: "https://", options: [.caseInsensitive]
             )
+            promovido = promovido.replacingOccurrences(of: " //", with: " https://")
+            promovido = promovido.replacingOccurrences(of: "=\"//", with: "=\"https://")
+            promovido = promovido.replacingOccurrences(of: "='//", with: "='https://")
             // Loopback no srcset de ensaio: devolve o que tirou.
             let corrigido = promovido
                 .replacingOccurrences(of: "https://127.0.0.1", with: "http://127.0.0.1")
@@ -196,17 +248,33 @@ enum ReaderHTMLPolicy {
         case recusar
     }
 
-    /// **A `WebView` nunca navega.** Ela desenha uma mensagem e só; qualquer
-    /// destino de verdade vai para o navegador padrão.
+    /// De onde veio o pedido de navegação. O `src` de uma imagem não é um
+    /// clique: tratá-lo como "abrir no navegador" **cancela** a imagem — o
+    /// cartaz some, o texto desce para fora da régua, e o email parece vazio.
+    enum OrigemDaNavegacao: Equatable {
+        /// Clique da pessoa num `href`.
+        case clique
+        /// Carga do documento ou de um recurso (`img`, `src`, subframe).
+        case recurso
+    }
+
+    /// **A `WebView` nunca navega por clique.** Qualquer destino de verdade vai
+    /// para o navegador padrão. Recurso `http(s)` — imagem, fundo — só passa
+    /// quando a pessoa liberou as remotas desta mensagem.
     ///
     /// É o que impede um link de trocar o conteúdo do painel por uma página de
     /// terceiro — que passaria a rodar com as permissões da nossa `WebView`, e
     /// dentro do leitor de email da pessoa, com a cara do leitor de email da
     /// pessoa. Um phishing não precisa de mais do que isso.
-    static func decide(url: URL?) -> Navegacao {
+    static func decide(
+        url: URL?, origem: OrigemDaNavegacao = .clique, permiteRemotas: Bool = false
+    ) -> Navegacao {
         guard let url, let esquema = url.scheme?.lowercased() else { return .recusar }
         if let resposta = rsvp(from: url) { return .rsvp(resposta) }
-        if esquema == "about" || esquema == "data" { return .permitir }
+        if esquema == "about" || esquema == "data" || esquema == "blob" { return .permitir }
+        if origem == .recurso, esquema == "http" || esquema == "https" {
+            return permiteRemotas ? .permitir : .recusar
+        }
         // A lista dos esquemas que saem para o mundo mora em
         // `UNICore.LinkDoCorpo` desde que o menu do link passou a precisar dela.
         // Uma fonte só: com duas, o menu ofereceria "Abrir" para um esquema que
@@ -406,7 +474,9 @@ enum ReaderHTMLPolicy {
     ) -> String {
         let consertado = recuperaFechamentosQuebrados(html)
         let preparado = bloqueiaRemotas ? consertado : promoveHTTPS(consertado)
-        let conteudo = bloqueiaRemotas ? neutralizaRecursosRemotos(preparado) : preparado
+        let conteudo = bloqueiaRemotas
+            ? neutralizaRecursosRemotos(preparado)
+            : neutralizaRastreio(preparado)
         let papel = paleta(para: conteudo, forçada: forçada) == .papel
         // Só quando a pessoa pediu "Como o tema" num HTML que já tinha cor:
         // a folha inicial perde para `bgcolor` e para o `@media dark` do

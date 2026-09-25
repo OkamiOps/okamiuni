@@ -407,6 +407,117 @@ struct ReaderWebFitTests {
         let altura = try #require(await sonda.numero("document.documentElement.scrollHeight"))
         #expect(altura > 0)
     }
+
+    /// O convite da Symphonic (Mailchimp): `#bodyTable height="100%"`, fundo
+    /// preto, título, cartaz alto, texto embaixo. No Gmail o cartaz e o
+    /// parágrafo aparecem; no leitor o dono só via "One Week Away //" num
+    /// retângulo preto — o `height=100%` em modo quirks faz a tabela virar a
+    /// área visível, `overflow: hidden` no `html` recorta o resto, e a régua
+    /// devolve a viewport em vez do conteúdo.
+    private static let mailchimpBodyTableCemPorCento = """
+        <html><head><style>
+        body{height:100%;margin:0;padding:0;width:100%;background:#ffffff;}
+        body, #bodyTable{background-color:rgb(255, 255, 255);}
+        </style></head>
+        <body>
+        <div style="display: none; max-height: 0px; overflow: hidden;" >\
+        \u{00AD}="" \u{00AD}="" \u{00AD}<="" div="">
+        <div style="display:none;"><img src="https://example.invalid/pixel.gif" \
+        height="1" width="1" style="display:none;" alt="" /></div>
+        <center>
+        <table border="0" cellpadding="0" cellspacing="0" height="100%" width="100%" \
+        id="bodyTable" role="presentation">
+        <tbody><tr>
+        <td class="bodyCell" align="center" valign="top">
+        <table id="root" border="0" cellpadding="0" cellspacing="0" width="100%" \
+        role="presentation"><tbody><tr>
+        <td style="background-color:#000000" valign="top" align="center">
+        <table border="0" cellpadding="0" cellspacing="0" width="100%" \
+        style="max-width:660px" role="presentation"><tbody>
+        <tr><td id="titulo" style="padding:12px 24px;color:#ffffff;\
+        text-align:center;font-size:22px">One Week Away //</td></tr>
+        <tr><td id="cartaz" style="height:600px;background:#111111"></td></tr>
+        <tr><td id="texto" style="padding:12px 24px;color:#ffffff;\
+        text-align:center;font-size:16px">We're bringing the Symphonic Social \
+        to Hamburg for a night of music.</td></tr>
+        </tbody></table>
+        </td></tr></tbody></table>
+        </td></tr></tbody></table>
+        </center>
+        </body></html>
+        """
+
+    @Test("O HTML real da Symphonic mostra o parágrafo, mesmo sem o cartaz remoto")
+    func htmlRealDaSymphonicMostraOTexto() async throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("Fixtures/symphonic-mailchimp.html")
+        let html = try String(contentsOf: url, encoding: .utf8)
+        #expect(html.contains("Hamburg"))
+        #expect(html.contains("One Week Away"))
+
+        let sonda = SondaDeWebView(largura: 500)
+        await sonda.carrega(ReaderHTMLPolicy.documento(
+            html: html, fundo: "#ffffff", tinta: "#1a1a1a",
+            link: "#1155cc", fonte: "ui-serif", bloqueiaRemotas: true
+        ))
+
+        let hamburgCaixa = try #require(await sonda.numero("""
+            (function () {
+              var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+              var n;
+              while (n = walker.nextNode()) {
+                if ((n.data || '').indexOf('Hamburg') === -1) { continue; }
+                var r = document.createRange();
+                r.selectNode(n);
+                var b = r.getBoundingClientRect();
+                return b.height > 0 && b.width > 0 ? 1 : 0;
+              }
+              return 0;
+            })()
+            """))
+        #expect(hamburgCaixa == 1, "o texto abaixo do cartaz some no HTML real do Mailchimp")
+
+        let medida = try #require(await sonda.numero(ReaderHTMLPolicy.medidaDaAltura))
+        #expect(medida > 120, "a régua colapsou o email real: \(medida)")
+    }
+
+    @Test("O Mailchimp com bodyTable 100% não recorta o cartaz nem o texto")
+    func mailchimpBodyTableNaoRecorta() async throws {
+        let sonda = SondaDeWebView(largura: 500)
+        await sonda.carrega(ReaderHTMLPolicy.documento(
+            html: Self.mailchimpBodyTableCemPorCento, fundo: "#ffffff",
+            tinta: "#1a1a1a", link: "#1155cc", fonte: "ui-serif"
+        ))
+
+        let titulo = try #require(await sonda.numero("""
+            (function () {
+              var el = document.getElementById('titulo');
+              if (!el) { return 0; }
+              var r = el.getBoundingClientRect();
+              return (r.height > 0 && r.width > 0) ? 1 : 0;
+            })()
+            """))
+        #expect(titulo == 1, "o título do convite desapareceu")
+
+        let texto = try #require(await sonda.numero("""
+            (function () {
+              var el = document.getElementById('texto');
+              if (!el) { return 0; }
+              var r = el.getBoundingClientRect();
+              return (r.height > 0 && r.width > 0) ? 1 : 0;
+            })()
+            """))
+        #expect(texto == 1, "o parágrafo abaixo do cartaz foi recortado ou engolido")
+
+        let fundoDoCartaz = try #require(await sonda.numero(
+            "document.getElementById('cartaz').getBoundingClientRect().height"
+        ))
+        #expect(fundoDoCartaz >= 600, "o cartaz perdeu a altura")
+
+        let medida = try #require(await sonda.numero(ReaderHTMLPolicy.medidaDaAltura))
+        #expect(medida >= 700, "a régua devolveu a viewport em vez do email inteiro: \(medida)")
+    }
 }
 
 /// Uma `WKWebView` fora da tela, montada como a do leitor.

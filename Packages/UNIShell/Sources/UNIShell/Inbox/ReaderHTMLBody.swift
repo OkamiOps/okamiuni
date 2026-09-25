@@ -143,14 +143,23 @@ struct ReaderHTMLBody: NSViewRepresentable {
         /// newsletter com imagem remota presa nunca dispara o fim da navegação
         /// e a roda girava para sempre.
         private var tetoDaRegua: Task<Void, Never>?
+        /// A régua continua medindo depois do teto: o cartaz de 2 MB chega
+        /// depois, cresce 500px, e sem isto o texto embaixo fica recortado.
+        private var acompanhamento: Task<Void, Never>?
         private weak var tela: WKWebView?
 
-        deinit { tetoDaRegua?.cancel() }
+        deinit {
+            tetoDaRegua?.cancel()
+            acompanhamento?.cancel()
+        }
 
         /// A última altura que a régua devolveu. É ela que volta com a página
         /// guardada: sem isso a `WebView` reaproveitada entraria com um ponto de
         /// altura e a mensagem piscaria antes de reabrir no tamanho certo.
         private var ultimaAltura: CGFloat = 1
+        /// A escala aplicada na última `ajusta`. O acompanhamento reusa ela
+        /// para não zerar `pageZoom` a cada 250 ms — isso é o pisca-pisca.
+        private var ultimaEscala: CGFloat = 1
         /// A página desta `WebView` chegou a pintar de verdade — a régua
         /// respondeu. Só uma dessas vale a pena guardar.
         private var pintouDeVerdade = false
@@ -225,6 +234,8 @@ struct ReaderHTMLBody: NSViewRepresentable {
         func guarda(_ webView: WKWebView) {
             tetoDaRegua?.cancel()
             tetoDaRegua = nil
+            acompanhamento?.cancel()
+            acompanhamento = nil
             guard pintouDeVerdade, let assinatura = ultimoCarregado,
                   let view = webView as? WebViewQueNaoRouba
             else { return }
@@ -253,6 +264,7 @@ struct ReaderHTMLBody: NSViewRepresentable {
             ultimoCarregado = assinatura
             geracao += 1
             pintouDeVerdade = false
+            ultimaEscala = 1
             tela = webView
 
             // **Carga nova é espera nova — e é o defeito da M3-21.** O sinal só
@@ -264,6 +276,8 @@ struct ReaderHTMLBody: NSViewRepresentable {
             // sem a espera que a M3-21 desenhou.
             tetoDaRegua?.cancel()
             tetoDaRegua = nil
+            acompanhamento?.cancel()
+            acompanhamento = nil
             armaOTeto()
 
             let permite = pai.permiteRemotas
@@ -306,7 +320,13 @@ struct ReaderHTMLBody: NSViewRepresentable {
             decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void
         ) {
             aplicaEsquema(em: webView)
-            switch ReaderHTMLPolicy.decide(url: navigationAction.request.url) {
+            let origem: ReaderHTMLPolicy.OrigemDaNavegacao =
+                navigationAction.navigationType == .linkActivated ? .clique : .recurso
+            switch ReaderHTMLPolicy.decide(
+                url: navigationAction.request.url,
+                origem: origem,
+                permiteRemotas: pai.permiteRemotas
+            ) {
             case .permitir:
                 decisionHandler(.allow)
             case .abrirNoNavegador(let url):
@@ -329,12 +349,15 @@ struct ReaderHTMLBody: NSViewRepresentable {
             // Segunda passada: a primeira acontece antes de as imagens
             // embutidas terem layout, e uma newsletter cresce meia tela quando
             // elas entram. Sem ela, o fim da mensagem fica cortado.
+            // **Só a altura.** Zerar o zoom de novo aqui — e no acompanhamento
+            // a cada 250 ms — era o cartaz piscando na tela.
             let geracao = self.geracao
             Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(120))
-                ajusta(webView, largura: webView.bounds.width, geracao: geracao)
+                remede(webView, geracao: geracao)
             }
             armaOTeto()
+            acompanhaImagens(webView, geracao: geracao)
         }
 
         /// Navegação que falhou também acaba a espera: sem isto, um documento
@@ -366,6 +389,73 @@ struct ReaderHTMLBody: NSViewRepresentable {
                 guard !Task.isCancelled else { return }
                 if !self.pai.pintou { self.pai.pintou = true }
                 if self.pai.altura < 40 { self.pai.altura = 280 }
+                if let tela = self.tela {
+                    self.acompanhaImagens(tela, geracao: self.geracao)
+                }
+            }
+        }
+
+        /// A régua não pode parar no teto: o cartaz de 2 MB ainda pode estar
+        /// descendo. Mede **só a altura**, sem zerar o zoom — zerar 40 vezes
+        /// por abertura fazia a newsletter piscar inteira.
+        private func acompanhaImagens(_ webView: WKWebView, geracao: Int) {
+            guard acompanhamento == nil else { return }
+            acompanhamento = Task { @MainActor [weak self] in
+                var estavel = 0
+                for _ in 0..<24 {
+                    try? await Task.sleep(for: .milliseconds(400))
+                    guard let self, !Task.isCancelled, self.geracao == geracao else { return }
+                    self.remede(webView, geracao: geracao)
+                    let pendentes = await self.imagensPendentes(webView)
+                    if pendentes == 0 {
+                        estavel += 1
+                        if estavel >= 2 { return }
+                    } else {
+                        estavel = 0
+                    }
+                }
+            }
+        }
+
+        private func imagensPendentes(_ webView: WKWebView) async -> Int {
+            await withCheckedContinuation { continuacao in
+                webView.evaluateJavaScript("""
+                    (function () {
+                      var n = 0, imgs = document.images;
+                      for (var i = 0; i < imgs.length; i++) {
+                        if (!imgs[i].complete) { n++; }
+                      }
+                      return n;
+                    })()
+                    """) { valor, _ in
+                    let n = (valor as? Int)
+                        ?? (valor as? NSNumber)?.intValue
+                        ?? (valor as? CGFloat).map(Int.init)
+                        ?? 0
+                    continuacao.resume(returning: n)
+                }
+            }
+        }
+
+        /// Recalcula a altura na escala já aplicada. Usado pelo teste e pelo
+        /// acompanhamento: não toca em `pageZoom`.
+        func remede(_ webView: WKWebView) {
+            remede(webView, geracao: geracao)
+        }
+
+        private func remede(_ webView: WKWebView, geracao: Int) {
+            let escala = ultimaEscala
+            webView.evaluateJavaScript(
+                ReaderHTMLPolicy.medidaDaAltura
+            ) { [weak self] valor, _ in
+                guard let self, self.geracao == geracao,
+                      let numero = valor as? CGFloat, numero > 0 else { return }
+                let altura = ReaderHTMLPolicy.altura(documento: numero, escala: escala)
+                self.ultimaAltura = max(self.ultimaAltura, altura)
+                // Só cresce: o cartaz que chega aumenta o email. Encolher de
+                // volta por ruído da régua é um segundo pisca.
+                guard altura > self.pai.altura + 1 else { return }
+                self.pai.altura = altura
             }
         }
 
@@ -384,7 +474,9 @@ struct ReaderHTMLBody: NSViewRepresentable {
             ajusta(webView, largura: largura, geracao: geracao)
         }
 
-        private func ajusta(_ webView: WKWebView, largura: CGFloat, geracao: Int) {
+        private func ajusta(
+            _ webView: WKWebView, largura: CGFloat, geracao: Int, anunciaPintou: Bool = true
+        ) {
             guard largura > 0 else { return }
             webView.pageZoom = 1
             // `body.scrollWidth`, e **não** `documentElement.scrollWidth`: com
@@ -397,11 +489,16 @@ struct ReaderHTMLBody: NSViewRepresentable {
                 let conteudo = (valor as? CGFloat) ?? 0
                 let escala = ReaderHTMLPolicy.escala(painel: largura, conteudo: conteudo)
                 webView.pageZoom = escala
-                self.mede(webView, escala: escala, geracao: geracao)
+                self.ultimaEscala = escala
+                self.mede(
+                    webView, escala: escala, geracao: geracao, anunciaPintou: anunciaPintou
+                )
             }
         }
 
-        private func mede(_ webView: WKWebView, escala: CGFloat, geracao: Int) {
+        private func mede(
+            _ webView: WKWebView, escala: CGFloat, geracao: Int, anunciaPintou: Bool
+        ) {
             webView.evaluateJavaScript(
                 ReaderHTMLPolicy.medidaDaAltura
             ) { [weak self] valor, _ in
@@ -411,8 +508,10 @@ struct ReaderHTMLBody: NSViewRepresentable {
                 // desenhado. É aqui, e não no `didFinish`, porque entre os dois
                 // a `WebView` ainda mede um ponto de altura — anunciar "pintou"
                 // lá deixaria um fio no lugar da mensagem.
-                if !self.pai.pintou { self.pai.pintou = true }
-                self.pintouDeVerdade = true
+                if anunciaPintou {
+                    if !self.pai.pintou { self.pai.pintou = true }
+                    self.pintouDeVerdade = true
+                }
                 let altura = ReaderHTMLPolicy.altura(documento: numero, escala: escala)
                 self.ultimaAltura = altura
                 guard abs(altura - self.pai.altura) > 1 else { return }

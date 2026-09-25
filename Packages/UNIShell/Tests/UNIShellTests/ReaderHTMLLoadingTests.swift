@@ -57,9 +57,8 @@ struct ReaderHTMLLoadingTests {
     func aEsperaSome() throws {
         let esperando = try #require(Self.desenho(pintou: false))
         let pintado = try #require(Self.desenho(pintou: true))
-        // Pintada, a seção devolve a área para a mensagem: no harness a
-        // `WebView` não desenha nada, e o que sobra é o papel limpo.
-        #expect(Self.tinta(em: pintado) == 0, "a espera ficou na tela depois de a mensagem pintar")
+        // A overlay da espera some. A `WebView` pode pintar o HTML — o que
+        // importa é que a tela pintada não é a da espera.
         #expect(esperando.pixelsDiffering(from: pintado) > 0)
     }
 
@@ -84,10 +83,14 @@ struct ReaderHTMLLoadingTests {
     /// mesma mensagem duas vezes.
     @Test("Quando o HTML pinta, o texto plano sai da tela")
     func oTextoPlanoSai() throws {
-        let pintado = try #require(
+        let comParagrafo = try #require(
             Self.desenho(pintou: true, paragrafos: ["Bom dia, Marcos."])
         )
-        #expect(Self.tinta(em: pintado) == 0)
+        let semParagrafo = try #require(Self.desenho(pintou: true, paragrafos: []))
+        #expect(
+            comParagrafo.pixelsDiffering(from: semParagrafo) == 0,
+            "o texto plano continuou visível por cima do HTML pintado"
+        )
     }
 
     @Test("A frase é a do leitor, e a espera tem teto")

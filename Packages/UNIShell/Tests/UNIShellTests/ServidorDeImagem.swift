@@ -22,6 +22,17 @@ final class ServidorDeImagem: @unchecked Sendable {
         hQGAhKmMIQAAAABJRU5ErkJggg==
         """)!
 
+    /// 40×500, para o cartaz que chega depois do teto e empurra o texto.
+    static let cartazAlto = Data(base64Encoded: """
+        iVBORw0KGgoAAAANSUhEUgAAACgAAAH0CAIAAADAF/jaAAAA7UlEQVR42u3NMQ0AAAgD\
+        sGnBAv4dIIoDETxN+jfT9SJisVgsFovFYrFYLBaLxWKxWCwWi8VisVgsFovFYrFYLBaL\
+        xWKxWCwWi8VisVgsFovFYrFYLBaLxWKxWCwWi8VisVgsFovFYrFYLBaLxWKxWCwWi8Vi\
+        sVgsFovFYrFYLBaLxWKxWCwWi8VisVgsFovFYrFYLBaLxWKxWCwWi8VisVgsFovFYrFY\
+        LBaLxWKxWCwWi8VisVgsFovFYrFYLBaLxWKxWCwWi8VisVgsFovFYrFYLBaLxWKxWCwW\
+        i8VisVgsFovFYrFYLBaLxWKxWCwWi8VisVgsFovFYrFYLBaLxWLxWZFKN0nEjRLpAAAA\
+        AElFTkSuQmCC
+        """)!
+
     private let listener: NWListener
     private let fila = DispatchQueue(label: "uni.teste.servidor-de-imagem")
     private let trava = NSLock()
@@ -34,6 +45,7 @@ final class ServidorDeImagem: @unchecked Sendable {
     private let liberacao = DispatchSemaphore(value: 0)
     /// A imagem pode ser guardada por quem a buscou?
     private let cacheavel: Bool
+    private let corpo: Data
 
     /// Quantas vezes a imagem foi **buscada pela rede**. É o número que separa
     /// "veio do cache" de "desceu de novo".
@@ -41,10 +53,14 @@ final class ServidorDeImagem: @unchecked Sendable {
 
     private(set) var porta: UInt16 = 0
 
-    init(atraso: TimeInterval = 0, preso: Bool = false, cacheavel: Bool = true) throws {
+    init(
+        atraso: TimeInterval = 0, preso: Bool = false, cacheavel: Bool = true,
+        imagem: Data? = nil
+    ) throws {
         self.atraso = atraso
         self.preso = preso
         self.cacheavel = cacheavel
+        self.corpo = imagem ?? Self.pixel
         let parametros = NWParameters.tcp
         parametros.requiredLocalEndpoint = NWEndpoint.hostPort(host: "127.0.0.1", port: .any)
         listener = try NWListener(using: parametros)
@@ -90,7 +106,7 @@ final class ServidorDeImagem: @unchecked Sendable {
     }
 
     private func resposta() -> Data {
-        let corpo = Self.pixel
+        let corpo = self.corpo
         let linhas = [
             "HTTP/1.1 200 OK",
             "Content-Type: image/png",

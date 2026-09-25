@@ -100,11 +100,97 @@ struct ReaderHTMLReloadTests {
         )
     }
 
+    /// Zerar `pageZoom` a cada 250 ms — o acompanhamento que media o cartaz
+    /// tardio — faz a newsletter inteira piscar. A régua de acompanhamento
+    /// mede a altura **sem** mexer no zoom.
+    @Test("Acompanhar o cartaz tardio não zera o zoom")
+    func acompanhamentoNaoZeraOZoom() async throws {
+        ReaderWebSession.esvazia()
+        let caixa = Caixa()
+        let corpo = ReaderHTMLBody(
+            html: """
+                <table width="640" cellpadding="0" cellspacing="0">
+                <tr><td style="width:640px;height:120px">Olá, Marcos</td></tr>
+                </table>
+                """,
+            permiteRemotas: true,
+            fundo: "#ffffff", tinta: "#1a1a1a", link: "#1155cc", fonte: "ui-serif",
+            altura: Binding(get: { caixa.altura }, set: { caixa.altura = $0 }),
+            pintou: Binding(get: { caixa.pintou }, set: { caixa.pintou = $0 })
+        )
+        let coordenador = corpo.makeCoordinator()
+        let web = WebViewQueNaoRouba(
+            frame: NSRect(x: 0, y: 0, width: 500, height: 400),
+            configuration: ReaderWebSession.configuracao()
+        )
+        web.navigationDelegate = coordenador
+        coordenador.carrega(em: web)
+        for _ in 0..<200 where !caixa.pintou {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(caixa.pintou)
+        let zoom = web.pageZoom
+        #expect(zoom < 1, "a tabela de 640 num painel de 500 deveria ter encolhido")
+        for _ in 0..<4 {
+            coordenador.remede(web)
+            try? await Task.sleep(for: .milliseconds(50))
+            #expect(
+                abs(web.pageZoom - zoom) < 0.001,
+                "o acompanhamento zerou o zoom (\(web.pageZoom) contra \(zoom))"
+            )
+        }
+    }
+
     /// O teto é curto: imagem remota presa não pode girar a espera para sempre.
     @Test("O teto da espera é curto porque só começa quando a navegação acaba")
     func oTetoEDaRegua() {
         #expect(ReaderHTMLSection.tetoDaEspera <= .seconds(8))
         #expect(ReaderHTMLSection.tetoDaEspera > .zero)
+    }
+
+    /// O cartaz da Symphonic: 2 MB, `height=auto`, pixel de rastreio que não
+    /// termina. O teto pinta o título; o cartaz chega depois e empurra o
+    /// texto para fora da WebView. A régua tem de crescer de novo.
+    @Test("A régua cresce quando o cartaz chega depois do teto")
+    func aReguaCresceComOCartazTardio() async throws {
+        ReaderWebSession.esvazia()
+        let servidor = try ServidorDeImagem(preso: true, imagem: ServidorDeImagem.cartazAlto)
+        defer { servidor.para() }
+
+        let caixa = Caixa()
+        let corpo = ReaderHTMLBody(
+            html: """
+                <p>One Week Away //</p>
+                <img src="\(servidor.endereco)" width="40" style="height:auto;display:block" alt="">
+                <p>We're bringing the Symphonic Social to Hamburg</p>
+                """,
+            permiteRemotas: true,
+            fundo: "#ffffff", tinta: "#1a1a1a", link: "#1155cc", fonte: "ui-serif",
+            altura: Binding(get: { caixa.altura }, set: { caixa.altura = $0 }),
+            pintou: Binding(get: { caixa.pintou }, set: { caixa.pintou = $0 })
+        )
+        let coordenador = corpo.makeCoordinator()
+        let web = WebViewQueNaoRouba(
+            frame: NSRect(x: 0, y: 0, width: 500, height: 400),
+            configuration: ReaderWebSession.configuracao()
+        )
+        web.navigationDelegate = coordenador
+        coordenador.carrega(em: web)
+
+        for _ in 0..<400 where !caixa.pintou {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(caixa.pintou, "o teto não pintou com o cartaz preso")
+        let antes = caixa.altura
+
+        servidor.solta()
+        for _ in 0..<80 where caixa.altura <= antes + 80 {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(
+            caixa.altura > antes + 80,
+            "a régua não cresceu depois do cartaz (antes \(antes), depois \(caixa.altura))"
+        )
     }
 }
 
