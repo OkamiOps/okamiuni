@@ -161,6 +161,62 @@ struct RawHTMLSniffTests {
         #expect(conserto.paragraphs.isEmpty)
     }
 
+    // MARK: O pixel de rastreio na frente da página
+
+    /// A Maxipas (via traceleads) injeta o pixel de abertura **antes** do
+    /// `<!DOCTYPE html>`. A página continua sendo página; o `<img>` de 1×1 não
+    /// é prosa de ninguém.
+    static let paginaComPixel = """
+        <img src="https://api.v2.traceleads.com.br/email/track/open/8cbf5dd8" \
+        width="1" height="1" border="0" alt="" /><!DOCTYPE html>
+        <html lang="pt-BR">
+        <head><meta charset="UTF-8"><title>A NR-1 mudou.</title></head>
+        <body><table><tr><td><p>A NR-1 passou a incluir fatores psicossociais.</p></td></tr></table></body>
+        </html>
+        """
+
+    @Test("Pixel de rastreio antes do DOCTYPE não esconde a página")
+    func pixelAntesDoDoctype() throws {
+        let corpo = MimeBody.decode(raw: Self.paginaComPixel)
+        #expect(try #require(corpo.html).contains("<table>"))
+        #expect(corpo.text.contains("fatores psicossociais"))
+        #expect(!corpo.text.contains("<!DOCTYPE"))
+
+        let conserto = try #require(MimeBody.redecodedBody([Self.paginaComPixel]))
+        #expect(conserto.html?.contains("<table>") == true)
+        #expect(!conserto.paragraphs.joined().contains("<html"))
+    }
+
+    /// O email do registro de CNPJ: nem doctype, nem `<html>` — um fragmento
+    /// que abre em `<p>`, usa entidades e termina num pixel.
+    static let fragmentoSemDocumento = """
+        <p>Ol&aacute; <strong>Edmilson</strong>, boa tarde! Tudo bem?</p>
+        <p>Seu CNPJ foi aberto com sucesso.</p>
+        <p><a href="https://example.com/sair"><font size="1">Remover desta lista</font></a></p>
+        <img src="https://example.com/pix.php?a=1">
+        """
+
+    @Test("Fragmento HTML sem documento, iniciado por bloco, vira HTML")
+    func fragmentoIniciadoPorBloco() throws {
+        let corpo = MimeBody.decode(raw: Self.fragmentoSemDocumento)
+        #expect(try #require(corpo.html).contains("<strong>"))
+        #expect(corpo.text.contains("Olá Edmilson"))
+        #expect(MimeBody.redecodedBody([Self.fragmentoSemDocumento])?.html != nil)
+    }
+
+    @Test("Texto que começa citando uma tag continua texto")
+    func textoQueComecaComTag() {
+        for texto in [
+            "<p> é a tag de parágrafo. Veja o manual em <https://example.com>",
+            "<img> sem alt é problema de acessibilidade, corrija o template.",
+            "<img src=\"x\"> ficou quebrado no rodapé, dá uma olhada.",
+            "<p>Oi</p> ficou assim no preview do cliente.",
+        ] {
+            #expect(MimeBody.decode(raw: texto).html == nil, "\(texto)")
+            #expect(MimeBody.redecodedBody([texto]) == nil, "\(texto)")
+        }
+    }
+
     // MARK: A guarda da M3-12, intacta
 
     @Test("O email que FALA de HTML continua sendo texto — em todas as portas")

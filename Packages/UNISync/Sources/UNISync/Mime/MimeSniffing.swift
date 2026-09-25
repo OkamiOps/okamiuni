@@ -194,8 +194,9 @@ extension MimeBody {
     ///
     /// O prefixo é procurado depois de pular linhas em branco, comentários
     /// (`<!-- … -->`, que é onde alguns geradores põem a condicional do
-    /// Outlook antes do `<html>`) e o prólogo XML (`<?xml … ?>`), que é como
-    /// meio gerador de XHTML abre o documento — e que não é prosa de ninguém.
+    /// Outlook antes do `<html>`), o prólogo XML (`<?xml … ?>`), que é como
+    /// meio gerador de XHTML abre o documento, e pixels `<img>` de rastreio
+    /// injetados na frente da página — nada disso é prosa de ninguém.
     ///
     /// O `DOCTYPE` é aceito **em qualquer caixa e com qualquer declaração**:
     /// o `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" …>`
@@ -223,8 +224,32 @@ extension MimeBody {
                     && resto.range(of: "</\(tag)\\s*>", options: [.regularExpression, .caseInsensitive]) != nil
             }
         }
-        guard cabeca.hasPrefix("<!doctype") else { return false }
-        return cabeca.dropFirst("<!doctype".count).drop { $0.isWhitespace }.hasPrefix("html")
+        if cabeca.hasPrefix("<!doctype") {
+            return cabeca.dropFirst("<!doctype".count).drop { $0.isWhitespace }.hasPrefix("html")
+        }
+        return pareceFragmentoHTML(inicio)
+    }
+
+    /// Fragmento sem documento: `<p>Olá <strong>…</strong></p>…<img …>`.
+    ///
+    /// Há remetente que manda só o miolo, sem `<html>` nem doctype. Três
+    /// evidências juntas, para não virar página o email que só **começa**
+    /// citando uma tag: abre num bloco conhecido, termina em `>` e fecha pelo
+    /// menos três tags pelo caminho. Prosa sobre HTML não fecha tag em série e
+    /// raramente termina em `>`.
+    private static func pareceFragmentoHTML(_ inicio: Substring) -> Bool {
+        let blocos = ["p", "div", "table", "center", "section", "article", "ul", "ol", "h1", "h2", "h3"]
+        guard blocos.contains(where: { abreTag($0, em: inicio) }),
+              inicio.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix(">")
+        else { return false }
+        var fechamentos = 0
+        var resto = inicio[...]
+        while fechamentos < 3,
+              let achado = resto.range(of: "</[a-zA-Z][a-zA-Z0-9]*\\s*>", options: .regularExpression) {
+            fechamentos += 1
+            resto = resto[achado.upperBound...]
+        }
+        return fechamentos >= 3
     }
 
     private static func semPrologoHTML(_ texto: Substring) -> Substring {
@@ -239,6 +264,13 @@ extension MimeBody {
             }
             if inicio.hasPrefix("<?xml"), let fim = inicio.range(of: "?>") {
                 inicio = inicio[fim.upperBound...].drop { $0.isWhitespace }
+                pulou = true
+            }
+            // O pixel de rastreio que plataformas de disparo (traceleads) põem
+            // **antes** do `<!DOCTYPE html>`. Um `<img>` de abertura não é
+            // prosa; o que decide é o que vem depois dele.
+            if abreTag("img", em: inicio), let fim = inicio.firstIndex(of: ">") {
+                inicio = inicio[inicio.index(after: fim)...].drop { $0.isWhitespace }
                 pulou = true
             }
         }

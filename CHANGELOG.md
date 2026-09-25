@@ -4,6 +4,12 @@
 
 Versions correspond to [GitHub releases](https://github.com/OkamiOps/okamiuni/releases). All dates below are in 2026.
 
+## Unreleased
+
+- HTML emails with a tracking pixel before `<!DOCTYPE html>` (e.g. traceleads) or sent as a bare fragment (`<p>…</p>` without `<html>`) no longer open as source code. Bodies already stored this way are repaired automatically on the next launch.
+- Tracking pixels (1×1 or hidden) stay blocked even when remote images are allowed, so a stalled tracker no longer keeps the reader from finishing its layout.
+- Protocol-relative images (`//cdn…`) load over HTTPS, and the reader's height follows images that arrive late instead of clipping the end of the message.
+
 ## 0.5.4 — September 5
 
 - Portuguese, English, German and French interfaces, with a persisted language preference and an option to follow the system.

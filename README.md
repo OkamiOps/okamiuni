@@ -26,7 +26,7 @@ OkamiUNI combines a unified inbox, calendar and daily planning dashboard in a na
 |---|---|
 | Daily dashboard | Today's plan on a scrolling timeline, people waiting for a reply, appointments, money and deadlines, account filtering and an anchored activity bar. |
 | Email | Unified inbox, provider folders, search, conversation stacks, swipe actions with Undo, keyboard shortcuts and custom context menus. |
-| Reader | Sanitized HTML, readable text, collapsible quoted history/signatures, attachments on demand and confirmation showing the real destination before opening a link. Remote images are blocked until allowed. |
+| Reader | Sanitized HTML, readable text, collapsible quoted history/signatures, attachments on demand and confirmation showing the real destination before opening a link. Remote images are blocked until allowed; tracking pixels stay blocked even then. HTML sent without a `Content-Type`, with a tracker before the doctype or as a bare fragment is still rendered as HTML. |
 | Sending | Gmail API or SMTP with TLS, account aliases from Gmail/Workspace, rich text, attachments, drafts and an offline queue with retry/error states. |
 | Accounts | Google OAuth and IMAP/SMTP for providers accepting the implemented password authentication. Credentials live in Keychain; local data uses SQLite/GRDB. There is no hardcoded account limit. |
 | Sync | IMAP IDLE, incremental Gmail history and network recovery; account reconnection preserves local account identity and data. |

@@ -26,7 +26,7 @@ O OkamiUNI reúne caixa unificada, agenda e painel de planejamento diário em um
 |---|---|
 | Painel do dia | Plano de hoje em linha do tempo com rolagem, pessoas esperando resposta, compromissos, dinheiro e prazos, filtro por conta e barra de atividade fixa no rodapé. |
 | Email | Caixa unificada, pastas do provedor, busca, conversas em pilha, arraste com Desfazer, atalhos e menus de contexto próprios. |
-| Leitor | HTML sanitizado, texto legível, histórico citado e assinaturas recolhíveis, anexos sob demanda e confirmação com destino real antes de abrir links. Imagens remotas ficam bloqueadas até autorização. |
+| Leitor | HTML sanitizado, texto legível, histórico citado e assinaturas recolhíveis, anexos sob demanda e confirmação com destino real antes de abrir links. Imagens remotas ficam bloqueadas até autorização; pixels de rastreio continuam bloqueados mesmo assim. HTML enviado sem `Content-Type`, com rastreador antes do doctype ou como fragmento solto é renderizado como HTML. |
 | Envio | Gmail API ou SMTP com TLS, aliases do Gmail/Workspace, texto rico, anexos, rascunhos e fila offline com estados de erro e nova tentativa. |
 | Contas | OAuth do Google e IMAP/SMTP para provedores compatíveis com a autenticação por senha implementada. Credenciais no Keychain; dados locais em SQLite/GRDB. Não há limite fixo de contas. |
 | Sincronização | IMAP IDLE, histórico incremental do Gmail e recuperação de rede; reconectar preserva a identidade local e os dados da conta. |
