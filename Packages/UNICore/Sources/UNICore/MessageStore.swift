@@ -595,6 +595,11 @@ public final class MailStore {
     private static let collapsedCalendarSourcesKey = "uni.collapsedCalendarSources"
     private static let concealedCalendarsKey = "uni.concealedCalendarIDs"
     private static let cancelledAgendaKeysKey = "uni.cancelledAgendaKeys"
+    private static let removedCancelledEventKitOccurrencesKey = "uni.removedCancelledEventKitOccurrences"
+    /// O EventKit pode continuar devolvendo uma ocorrência cancelada mesmo
+    /// depois de removê-la. A escolha explícita vale para o id completo com
+    /// data da ocorrência, nunca para o UID compartilhado pela série.
+    private var removedCancelledEventKitOccurrenceIDs: Set<String> = []
 
     /// Nome da seção da lateral onde ficam os calendários ocultados pelo
     /// clique direito. Não é origem do EventKit.
@@ -662,6 +667,9 @@ public final class MailStore {
         }
         if let stored = calendarDefaults?.stringArray(forKey: Self.cancelledAgendaKeysKey) {
             cancelledAgendaKeys = Set(stored)
+        }
+        if let stored = calendarDefaults?.stringArray(forKey: Self.removedCancelledEventKitOccurrencesKey) {
+            removedCancelledEventKitOccurrenceIDs = Set(stored)
         }
         // Uma leitura de uma tabela de dezenas de linhas, na montagem. Adiá-la
         // faria o primeiro email aberto mostrar a faixa de bloqueio antes de a
@@ -2521,6 +2529,7 @@ public final class MailStore {
             juntos = daFonte.filter { !guardados.contains($0.id) } + persistedAgenda
         }
         return juntos
+            .filter { !removedCancelledEventKitOccurrenceIDs.contains($0.id) }
             .map(stampedForMailbox)
             .sorted { $0.startMinute < $1.startMinute }
     }
@@ -2560,7 +2569,7 @@ public final class MailStore {
     /// O contrário: some do disco e da lista. É o "Desfazer" e o "Tirar da
     /// agenda", e os dois têm de alcançar o disco — senão reabrir traz de volta
     /// o que a pessoa acabou de tirar.
-    private func forget(_ id: String) {
+    private func forget(_ id: String, removalIntent: UUID) {
         if let agendaPort {
             persistedAgenda.removeAll { $0.id == id }
             do {
@@ -2569,7 +2578,7 @@ public final class MailStore {
                 report(error)
             }
         }
-        removeFromConnectedCalendar(id)
+        removeFromConnectedCalendar(id, removalIntent: removalIntent)
     }
 
     /// A escrita no calendário real é assíncrona; a confirmação local continua
@@ -2599,15 +2608,29 @@ public final class MailStore {
         }
     }
 
-    private func removeFromConnectedCalendar(_ id: String) {
+    private func removeFromConnectedCalendar(_ id: String, removalIntent: UUID) {
         guard let calendarSync else { return }
         let referenceDay = agendaReferenceDate
         Task { [weak self, calendarSync] in
             do {
                 try await calendarSync.remove(id: id, referenceDay: referenceDay)
-                await self?.refreshCalendar()
+                guard let self, self.agendaRemovalIntents[id] == removalIntent else { return }
+                self.agendaRemovalIntents[id] = nil
+                await self.refreshCalendar()
             } catch {
-                self?.calendarAvailability = .unavailable(error.localizedDescription)
+                guard let self, self.agendaRemovalIntents[id] == removalIntent else { return }
+                self.agendaRemovalIntents[id] = nil
+                if self.removedCancelledEventKitOccurrenceIDs.remove(id) != nil {
+                    self.persistRemovedCancelledEventKitOccurrences()
+                    if let item = self.removedFromAgenda.removeValue(forKey: id),
+                       !self.agenda.contains(where: { $0.id == id }) {
+                        // Recupera só a projeção local. Salvar novamente no
+                        // provedor poderia recriar o evento ou avisar convidados.
+                        self.agenda.append(item)
+                        self.agenda.sort { $0.startMinute < $1.startMinute }
+                    }
+                }
+                self.calendarAvailability = .unavailable(error.localizedDescription)
             }
         }
     }
@@ -2959,9 +2982,17 @@ public final class MailStore {
     /// pessoa apagou por outro caminho, ou "Desfazer" foi clicado duas vezes
     /// — não é erro, é o mesmo estado a que se pretendia chegar.
     public func removeFromAgenda(_ id: String) {
-        if let item = agenda.first(where: { $0.id == id }) { removedFromAgenda[id] = item }
+        if let item = agenda.first(where: { $0.id == id }) {
+            removedFromAgenda[id] = item
+            if item.isCancelled, item.id.hasPrefix("eventkit:") {
+                removedCancelledEventKitOccurrenceIDs.insert(item.id)
+                persistRemovedCancelledEventKitOccurrences()
+            }
+        }
+        let removalIntent = UUID()
+        agendaRemovalIntents[id] = removalIntent
         agenda.removeAll { $0.id == id }
-        forget(id)
+        forget(id, removalIntent: removalIntent)
     }
 
     /// Reflete uma mutação já persistida pelo adaptador do agente sem passar
@@ -3029,6 +3060,15 @@ public final class MailStore {
     /// cofre de sessão que `deleteForever` usa, e pelo mesmo motivo: fora da
     /// lista, o compromisso não sabe mais o horário nem a conta dele.
     private var removedFromAgenda: [String: AgendaItem] = [:]
+    /// Uma resposta antiga não pode desfazer uma restauração ou remoção nova.
+    private var agendaRemovalIntents: [String: UUID] = [:]
+
+    private func persistRemovedCancelledEventKitOccurrences() {
+        calendarDefaults?.set(
+            Array(removedCancelledEventKitOccurrenceIDs).sorted(),
+            forKey: Self.removedCancelledEventKitOccurrencesKey
+        )
+    }
 
     /// Caixa IMAP ganha o calendário OkamiUNI da conta. Gmail fica sem, para
     /// o EventKit continuar sendo a fonte daquela agenda. Item que já veio
@@ -3044,6 +3084,10 @@ public final class MailStore {
     /// O "Desfazer" de "Tirar da agenda". Devolve o compromisso à ordenação
     /// por horário em que a trilha e as três grades o esperam.
     public func restoreToAgenda(_ id: String) {
+        agendaRemovalIntents[id] = nil
+        if removedCancelledEventKitOccurrenceIDs.remove(id) != nil {
+            persistRemovedCancelledEventKitOccurrences()
+        }
         guard let item = removedFromAgenda.removeValue(forKey: id) else { return }
         guard !agenda.contains(where: { $0.id == id }) else { return }
         agenda.append(item)

@@ -8,6 +8,14 @@ private final class CalendarSyncDouble: CalendarSyncing {
     var synchronized: [AgendaItem] = []
     var listed: [ConnectedCalendar] = []
     var failure: Error?
+    var removalFailure: Error?
+    var removedIDs: [String] = []
+    var savedIDs: [String] = []
+    var pauseRemovals = false
+    var completedRemovals = 0
+    private var pendingRemovals: [CheckedContinuation<Void, any Error>] = []
+
+    var pendingRemovalCount: Int { pendingRemovals.count }
 
     func availability() async -> CalendarAvailability { state }
     func calendars() async -> [ConnectedCalendar] { listed }
@@ -17,13 +25,214 @@ private final class CalendarSyncDouble: CalendarSyncing {
         return synchronized
     }
 
-    func save(_: AgendaItem, referenceDay _: Date) async throws {}
-    func remove(id _: String, referenceDay _: Date) async throws {}
+    func save(_ item: AgendaItem, referenceDay _: Date) async throws { savedIDs.append(item.id) }
+
+    func remove(id: String, referenceDay _: Date) async throws {
+        removedIDs.append(id)
+        defer { completedRemovals += 1 }
+        if pauseRemovals {
+            try await withCheckedThrowingContinuation { pendingRemovals.append($0) }
+        }
+        if let removalFailure { throw removalFailure }
+    }
+
+    func completeRemoval(throwing error: Error? = nil) {
+        guard !pendingRemovals.isEmpty else {
+            Issue.record("Não há remoção de calendário aguardando resposta.")
+            return
+        }
+        let pending = pendingRemovals.removeFirst()
+        if let error { pending.resume(throwing: error) } else { pending.resume() }
+    }
 }
 
 @Suite("Agenda conectada no MailStore")
 @MainActor
 struct CalendarSyncTests {
+    @Test("Remover uma ocorrência cancelada não deixa os retratos trazê-la de volta nem esconde a próxima semana")
+    func removedCancelledOccurrenceStaysAbsentAcrossSnapshots() async {
+        let removed = occurrence(dayOffset: 0)
+        let nextWeek = occurrence(dayOffset: 7)
+        let active = occurrence(dayOffset: 1, isCancelled: false)
+        let sync = CalendarSyncDouble()
+        sync.synchronized = [removed, nextWeek, active]
+        let source = InMemoryMailSource(accounts: [], messages: [], agenda: [removed])
+        let store = MailStore(source: source, calendarSync: sync)
+        await store.load()
+
+        store.removeFromAgenda(removed.id)
+        await store.refreshCalendar()
+        store.apply(.init(accounts: [], messages: [], agenda: [removed], pendingItems: []))
+        await waitUntil { sync.completedRemovals == 1 }
+
+        #expect(sync.removedIDs == [removed.id])
+        #expect(Set(store.agenda.map(\.id)) == [nextWeek.id, active.id])
+        #expect(!store.calendarAgenda.contains { $0.id == removed.id })
+    }
+
+    @Test("A exclusão explícita de ocorrência cancelada sobrevive a uma nova instância do MailStore")
+    func removedCancelledOccurrenceSurvivesRestart() async throws {
+        let suite = "okamiuni.removed-calendar-occurrence.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let removed = occurrence(dayOffset: 0)
+        let nextWeek = occurrence(dayOffset: 7)
+        let sync = CalendarSyncDouble()
+        sync.synchronized = [removed, nextWeek]
+        let source = InMemoryMailSource(accounts: [], messages: [], agenda: [removed])
+        let first = MailStore(source: source, calendarSync: sync, calendarDefaults: defaults)
+        await first.load()
+
+        first.removeFromAgenda(removed.id)
+        let reopenedDefaults = try #require(UserDefaults(suiteName: suite))
+        let second = MailStore(source: source, calendarSync: sync, calendarDefaults: reopenedDefaults)
+        await second.load()
+        await waitUntil { sync.completedRemovals == 1 }
+
+        #expect(Set(second.agenda.map(\.id)) == [nextWeek.id])
+        #expect(sync.removedIDs == [removed.id])
+    }
+
+    @Test("Desfazer limpa a exclusão da ocorrência e a mantém visível após atualizar e reabrir")
+    func restoringCancelledOccurrenceClearsDurableExclusion() async throws {
+        let suite = "okamiuni.restored-calendar-occurrence.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let item = occurrence(dayOffset: 0)
+        let sync = CalendarSyncDouble()
+        sync.synchronized = [item]
+        let source = InMemoryMailSource(accounts: [], messages: [], agenda: [])
+        let first = MailStore(source: source, calendarSync: sync, calendarDefaults: defaults)
+        await first.load()
+        first.removeFromAgenda(item.id)
+        await waitUntil { sync.completedRemovals == 1 }
+
+        first.restoreToAgenda(item.id)
+        await first.refreshCalendar()
+        let second = MailStore(source: source, calendarSync: sync, calendarDefaults: defaults)
+        await second.load()
+
+        #expect(first.agenda.contains { $0.id == item.id })
+        #expect(second.agenda.contains { $0.id == item.id })
+    }
+
+    @Test("Falha real da remoção devolve a ocorrência, limpa a exclusão persistida e não salva nem envia outro convite")
+    func failedRemovalRestoresCancelledOccurrenceWithoutSaving() async throws {
+        let suite = "okamiuni.failed-calendar-removal.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let item = occurrence(dayOffset: 0)
+        let sync = CalendarSyncDouble()
+        sync.synchronized = [item]
+        sync.removalFailure = removalError
+        let source = InMemoryMailSource(accounts: [], messages: [], agenda: [])
+        let store = MailStore(source: source, calendarSync: sync, calendarDefaults: defaults)
+        await store.load()
+
+        store.removeFromAgenda(item.id)
+        await waitUntil { store.calendarAvailability == .unavailable("A remoção foi recusada.") }
+
+        #expect(store.agenda == [item])
+        #expect(sync.savedIDs.isEmpty)
+        #expect(store.calendarAvailability == .unavailable("A remoção foi recusada."))
+        let reopened = MailStore(source: source, calendarSync: sync, calendarDefaults: defaults)
+        await reopened.load()
+        #expect(reopened.agenda == [item])
+    }
+
+    @Test("A exclusão durável é limitada a cancelados importados do EventKit")
+    func activeAndManualRemovalsDoNotCreateExclusions() async throws {
+        let suite = "okamiuni.calendar-removal-scope.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let active = occurrence(dayOffset: 0, isCancelled: false)
+        let manual = AgendaItem(
+            id: "manual-cancelled", title: "Cancelado manual", startMinute: 600, endMinute: 660,
+            accountID: "okamiuni.system-calendar", isCancelled: true
+        )
+        let sync = CalendarSyncDouble()
+        sync.synchronized = [active, manual]
+        let source = InMemoryMailSource(accounts: [], messages: [], agenda: [])
+        let store = MailStore(source: source, calendarSync: sync, calendarDefaults: defaults)
+        await store.load()
+
+        store.removeFromAgenda(active.id)
+        store.removeFromAgenda(manual.id)
+        await waitUntil { sync.completedRemovals == 2 }
+        let reopened = MailStore(source: source, calendarSync: sync, calendarDefaults: defaults)
+        await reopened.load()
+
+        #expect(Set(reopened.agenda.map(\.id)) == [active.id, manual.id])
+    }
+
+    @Test("Uma falha antiga não desfaz uma restauração mais recente")
+    func staleRemovalFailureDoesNotOverrideRestore() async {
+        let item = occurrence(dayOffset: 0)
+        let sync = CalendarSyncDouble()
+        sync.synchronized = [item]
+        sync.pauseRemovals = true
+        let store = MailStore(
+            source: InMemoryMailSource(accounts: [], messages: [], agenda: []), calendarSync: sync
+        )
+        await store.load()
+        store.removeFromAgenda(item.id)
+        await waitUntil { sync.pendingRemovalCount == 1 }
+        store.restoreToAgenda(item.id)
+        await waitUntil { !sync.savedIDs.isEmpty && store.calendarAvailability == .available }
+
+        sync.completeRemoval(throwing: removalError)
+        await waitUntil { sync.completedRemovals == 1 }
+
+        #expect(store.agenda.contains { $0.id == item.id })
+        #expect(store.calendarAvailability == .available)
+    }
+
+    @Test("Uma falha antiga não desfaz uma segunda remoção da mesma ocorrência")
+    func staleRemovalFailureDoesNotOverrideNewRemoval() async {
+        let item = occurrence(dayOffset: 0)
+        let sync = CalendarSyncDouble()
+        sync.synchronized = [item]
+        sync.pauseRemovals = true
+        let store = MailStore(
+            source: InMemoryMailSource(accounts: [], messages: [], agenda: []), calendarSync: sync
+        )
+        await store.load()
+        store.removeFromAgenda(item.id)
+        await waitUntil { sync.pendingRemovalCount == 1 }
+        store.restoreToAgenda(item.id)
+        store.removeFromAgenda(item.id)
+        await waitUntil { sync.pendingRemovalCount == 2 }
+
+        sync.completeRemoval(throwing: removalError)
+        await waitUntil { sync.completedRemovals == 1 }
+        await store.refreshCalendar()
+
+        #expect(!store.agenda.contains { $0.id == item.id })
+        sync.completeRemoval()
+        await waitUntil { sync.completedRemovals == 2 }
+    }
+
+    private func occurrence(dayOffset: Int, isCancelled: Bool = true) -> AgendaItem {
+        AgendaItem(
+            id: "eventkit:recurring-meeting:\(1_788_163_200 + dayOffset * 86_400)",
+            title: "Reunião recorrente", startMinute: 600, endMinute: 660,
+            accountID: "okamiuni.system-calendar", dayOffset: dayOffset,
+            calendarUID: "recurring-meeting", calendarID: "google-calendar",
+            calendarTitle: "Trabalho", calendarSource: "Google", isCancelled: isCancelled
+        )
+    }
+
+    private var removalError: NSError {
+        NSError(domain: "calendar", code: 8, userInfo: [
+            NSLocalizedDescriptionKey: "A remoção foi recusada."
+        ])
+    }
+
+    private func waitUntil(_ condition: () -> Bool) async {
+        for _ in 0..<200 where !condition() { await Task.yield() }
+        #expect(condition())
+    }
+
     @Test("O retrato do calendário conectado soma à agenda existente")
     func mergeConnectedCalendar() async {
         let remote = AgendaItem(

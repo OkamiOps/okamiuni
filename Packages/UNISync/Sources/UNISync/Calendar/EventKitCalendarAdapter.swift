@@ -154,8 +154,24 @@ private actor EventKitCalendarGateway: SystemCalendarGateway {
     private func existingEvent(id: String, referenceDay: Date) -> EKEvent? {
         let start = calendar.date(byAdding: .day, value: -366, to: calendar.startOfDay(for: referenceDay))!
         let end = calendar.date(byAdding: .day, value: 731, to: calendar.startOfDay(for: referenceDay))!
-        return store.events(matching: store.predicateForEvents(withStart: start, end: end, calendars: nil))
-            .first { markerID(for: $0) == id }
+        let events = store.events(matching: store.predicateForEvents(withStart: start, end: end, calendars: nil))
+        if let existing = EventKitEventLookup.find(id: id, in: events, identity: {
+            .init(marker: markerID(for: $0), calendarItemIdentifier: $0.calendarItemIdentifier, start: $0.startDate)
+        }) {
+            return existing
+        }
+        // Um item importado também pode ser removido depois de mudar o dia de
+        // referência da UI. A data codificada no id mantém a busca na mesma
+        // ocorrência, mesmo se ela estiver fora da janela de markers.
+        guard let occurrence = EventKitItemID.importedOccurrenceDay(id: id, calendar: calendar),
+              occurrence.start < start || occurrence.end > end
+        else { return nil }
+        let occurrences = store.events(matching: store.predicateForEvents(
+            withStart: occurrence.start, end: occurrence.end, calendars: nil
+        ))
+        return EventKitEventLookup.find(id: id, in: occurrences) {
+            .init(marker: markerID(for: $0), calendarItemIdentifier: $0.calendarItemIdentifier, start: $0.startDate)
+        }
     }
 
     private func item(from event: EKEvent, referenceDay: Date) -> AgendaItem? {
@@ -269,6 +285,36 @@ enum EventKitItemID {
     static func make(marker: String?, calendarItemIdentifier: String, start: Date) -> String {
         if let marker, !marker.isEmpty { return marker }
         return "eventkit:\(calendarItemIdentifier):\(Int(start.timeIntervalSince1970))"
+    }
+
+    static func importedOccurrenceDay(id: String, calendar: Calendar) -> DateInterval? {
+        guard id.hasPrefix("eventkit:"), let separator = id.lastIndex(of: ":"),
+              separator > id.index(id.startIndex, offsetBy: "eventkit:".count),
+              let seconds = Int(id[id.index(after: separator)...]),
+              String(seconds) == id[id.index(after: separator)...]
+        else { return nil }
+        return calendar.dateInterval(of: .day, for: Date(timeIntervalSince1970: TimeInterval(seconds)))
+    }
+}
+
+/// Os mesmos metadados usados na importação identificam a ocorrência na
+/// escrita. A seleção é pura para poder validá-la sem acessar calendários.
+struct EventKitEventIdentity {
+    let marker: String?
+    let calendarItemIdentifier: String
+    let start: Date?
+}
+
+enum EventKitEventLookup {
+    static func find<Event>(id: String, in events: [Event], identity: (Event) -> EventKitEventIdentity) -> Event? {
+        if let marked = events.first(where: { identity($0).marker == id }) { return marked }
+        return events.first {
+            let value = identity($0)
+            guard let start = value.start else { return false }
+            return EventKitItemID.make(
+                marker: value.marker, calendarItemIdentifier: value.calendarItemIdentifier, start: start
+            ) == id
+        }
     }
 }
 

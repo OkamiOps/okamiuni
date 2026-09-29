@@ -112,6 +112,80 @@ struct EventKitCalendarAdapterTests {
         #expect(b.hasPrefix("eventkit:\(identifier):"))
     }
 
+    @Test("Remove a ocorrência Google importada sem depender de marker do app")
+    func resolvesImportedOccurrenceWithoutMarker() throws {
+        let start = Date(timeIntervalSince1970: 1_788_163_200)
+        let cancelledGoogle = EventKitLookupFixture(key: "google-cancelled", marker: nil, identifier: "Google:opaque:identifier", start: start)
+        let id = EventKitItemID.make(marker: nil, calendarItemIdentifier: cancelledGoogle.identifier, start: start)
+
+        let selected = try #require(EventKitEventLookup.find(id: id, in: [cancelledGoogle], identity: \.identity))
+        #expect(selected.key == "google-cancelled")
+    }
+
+    @Test("O id da recorrência não seleciona outro dia, outro horário ou outra série")
+    func resolvesOnlyRequestedOccurrence() throws {
+        let start = Date(timeIntervalSince1970: 1_788_163_200)
+        let otherDay = EventKitLookupFixture(key: "next-week", marker: nil, identifier: "recurring-series", start: start.addingTimeInterval(7 * 86_400))
+        let otherTime = EventKitLookupFixture(key: "same-day-later", marker: nil, identifier: "recurring-series", start: start.addingTimeInterval(3_600))
+        let otherSeries = EventKitLookupFixture(key: "other-series", marker: nil, identifier: "other-series", start: start)
+        let target = EventKitLookupFixture(key: "requested", marker: nil, identifier: "recurring-series", start: start)
+        let id = EventKitItemID.make(marker: nil, calendarItemIdentifier: target.identifier, start: start)
+
+        let selected = try #require(EventKitEventLookup.find(id: id, in: [otherDay, otherTime, otherSeries, target], identity: \.identity))
+        #expect(selected.key == "requested")
+        #expect(EventKitEventLookup.find(id: id, in: [otherDay, otherTime, otherSeries], identity: \.identity) == nil)
+    }
+
+    @Test("Marker de um evento criado no app continua sendo a identidade preferencial")
+    func preservesCreatedEventMarkerLookup() throws {
+        let start = Date(timeIntervalSince1970: 1_788_163_200)
+        let id = EventKitItemID.make(marker: nil, calendarItemIdentifier: "imported-original", start: start)
+        let imported = EventKitLookupFixture(key: "unmarked", marker: nil, identifier: "imported-original", start: start)
+        let movedAppEvent = EventKitLookupFixture(key: "marked", marker: id, identifier: "new-system-identifier", start: start.addingTimeInterval(86_400))
+        let selected = try #require(EventKitEventLookup.find(id: id, in: [imported, movedAppEvent], identity: \.identity))
+        #expect(selected.key == "marked")
+
+        let manual = EventKitLookupFixture(key: "manual", marker: "email-created-event", identifier: "system-manual", start: start)
+        #expect(EventKitEventLookup.find(id: "email-created-event", in: [manual], identity: \.identity)?.key == "manual")
+    }
+
+    @Test("Ocorrência inexistente e segunda remoção não atingem os outros eventos")
+    func absentOccurrenceIsIdempotent() throws {
+        let start = Date(timeIntervalSince1970: 1_788_163_200)
+        let target = EventKitLookupFixture(key: "target", marker: nil, identifier: "series", start: start)
+        let next = EventKitLookupFixture(key: "next", marker: nil, identifier: "series", start: start.addingTimeInterval(86_400))
+        let id = EventKitItemID.make(marker: nil, calendarItemIdentifier: "series", start: start)
+        var events = [target, next]
+        let firstRemoval = try #require(EventKitEventLookup.find(id: id, in: events, identity: \.identity))
+        events.removeAll { $0.key == firstRemoval.key }
+        #expect(EventKitEventLookup.find(id: id, in: events, identity: \.identity) == nil)
+        #expect(events.map(\.key) == ["next"])
+        #expect(EventKitEventLookup.find(id: "missing", in: events, identity: \.identity) == nil)
+    }
+
+    @Test("A busca importada usa o dia codificado mesmo fora da referência atual")
+    func importedLookupUsesEncodedDay() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let start = Date(timeIntervalSince1970: 1_788_163_200)
+        let id = EventKitItemID.make(marker: nil, calendarItemIdentifier: "Google:opaque:identifier", start: start)
+        let interval = try #require(EventKitItemID.importedOccurrenceDay(id: id, calendar: calendar))
+        #expect(interval.start == calendar.startOfDay(for: start))
+        #expect(interval.end == calendar.date(byAdding: .day, value: 1, to: interval.start))
+        #expect(interval.contains(start))
+        #expect(EventKitItemID.importedOccurrenceDay(id: "email-created-event", calendar: calendar) == nil)
+        #expect(EventKitItemID.importedOccurrenceDay(id: "eventkit:series:not-a-time", calendar: calendar) == nil)
+    }
+
+    @Test("Marker diferente e evento sem início nunca são removidos por um id importado")
+    func refusesMismatchedIdentity() {
+        let start = Date(timeIntervalSince1970: 1_788_163_200)
+        let id = EventKitItemID.make(marker: nil, calendarItemIdentifier: "series", start: start)
+        let markedOtherEvent = EventKitLookupFixture(key: "marked-other", marker: "other-app-event", identifier: "series", start: start)
+        let missingStart = EventKitLookupFixture(key: "missing-start", marker: nil, identifier: "series", start: nil)
+        #expect(EventKitEventLookup.find(id: id, in: [markedOtherEvent, missingStart], identity: \.identity) == nil)
+    }
+
     @Test("A ponte exporta a sala sem perder as notas")
     func exportsMeetingInNotes() {
         let detail = EventDetail(
@@ -147,6 +221,14 @@ struct EventKitCalendarAdapterTests {
             role: "opcional", status: .maybe
         ))
     }
+}
+
+private struct EventKitLookupFixture {
+    let key: String
+    let marker: String?
+    let identifier: String
+    let start: Date?
+    var identity: EventKitEventIdentity { .init(marker: marker, calendarItemIdentifier: identifier, start: start) }
 }
 
 @Suite("CalDAV sem rede externa")
