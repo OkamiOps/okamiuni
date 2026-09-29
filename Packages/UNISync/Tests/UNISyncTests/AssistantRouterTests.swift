@@ -238,9 +238,9 @@ struct AssistantRouterTests {
         }
     }
 
-    @Test("codex sem binário instalado devolve executableNotFound")
+    @Test("a assinatura ChatGPT responde por HTTP sem descobrir ou executar CLI", arguments: [false, true])
     @available(macOS 26.0, *)
-    func codexSubscriptionWithoutBinary() async throws {
+    func codexSubscriptionUsesHTTPRegardlessOfCLIInstallation(cliInstalled: Bool) async throws {
         let suite = "okamiuni.assistant-router-codex.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defaults.removePersistentDomain(forName: suite)
@@ -249,17 +249,42 @@ struct AssistantRouterTests {
         let settingsStore = AssistantSettingsStore(defaults: defaults, key: "assistant")
         try settingsStore.save(.init(
             provider: .providerOAuth,
-            providerOAuth: .init(kind: .codex, model: "gpt-5-codex")
+            providerOAuth: .init(kind: .codex, model: "gpt-da-conta", credentialID: "chatgpt-personal")
         ))
+        let session = StubURLProtocol.session(routes: [
+            "/backend-api/codex/responses": [.init(
+                body: Data("""
+                event: response.completed
+                data: {"type":"response.completed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"Resposta da assinatura."}]}]}}
+
+
+                """.utf8),
+                headers: ["Content-Type": "text/event-stream"]
+            )],
+        ])
+        let scans = Counter()
+        let executor = RecordingAssistantCLIExecutor(output: .codex)
         let router = AssistantRouter(
             settingsStore: settingsStore,
             credentialStore: InMemoryAssistantCredentialStore(),
-            providerOAuthTokenProvider: AlwaysAuthorizedProviderOAuth(),
-            cliInstallationProvider: { [.init(kind: .codex, executablePath: nil)] }
+            session: session,
+            providerOAuthTokenProvider: CodexSubscriptionTokenProvider(),
+            cliInstallationProvider: {
+                scans.bump()
+                return [.init(kind: .codex, executablePath: cliInstalled ? "/usr/local/bin/codex" : nil)]
+            },
+            cliExecutor: executor
         )
-        await #expect(throws: AssistantCLITextAssistantError.executableNotFound(.codex)) {
-            _ = try await router.answer(question: "oi", in: conversation)
-        }
+
+        #expect(await router.availability() == .available)
+        #expect(try await router.answer(question: "oi", in: conversation) == "Resposta da assinatura.")
+        let request = try #require(StubURLProtocol.requests(for: session).first)
+        #expect(request.path == "/backend-api/codex/responses")
+        #expect(request.authorization == "Bearer chatgpt-access")
+        #expect(request.headers.first { $0.key.caseInsensitiveCompare("ChatGPT-Account-ID") == .orderedSame }?.value == "account-personal")
+        #expect(request.body.contains("gpt-da-conta"))
+        #expect(scans.value == 0)
+        #expect(await executor.lastRequest == nil)
     }
 
     @Test("assinatura ausente para o Codex devolve missingSession")
@@ -278,8 +303,11 @@ struct AssistantRouterTests {
         let router = AssistantRouter(
             settingsStore: settingsStore,
             credentialStore: InMemoryAssistantCredentialStore(),
+            session: StubURLProtocol.session(),
+            providerOAuthTokenProvider: CodexSubscriptionTokenProvider(accessToken: nil),
             cliInstallationProvider: { [.init(kind: .codex, executablePath: "/usr/local/bin/codex")] }
         )
+        #expect(await router.availability() == .modelNotReady)
         await #expect(throws: AssistantProviderOAuthError.missingSession) {
             _ = try await router.answer(question: "oi", in: conversation)
         }
@@ -416,6 +444,22 @@ struct AssistantRouterTests {
         #expect(timed.configuration.timeoutIntervalForRequest == 120)
         #expect(timed.configuration.timeoutIntervalForResource == 120)
         #expect(timed.configuration.protocolClasses?.contains { $0 == StubURLProtocol.self } == true)
+    }
+}
+
+private struct CodexSubscriptionTokenProvider: AssistantProviderOAuthTokenProviding {
+    var accessToken: String? = "chatgpt-access"
+
+    func hasAccessToken(for configuration: AssistantProviderOAuthConfiguration) async -> Bool {
+        configuration.kind == .codex && accessToken != nil
+    }
+
+    func accessToken(for configuration: AssistantProviderOAuthConfiguration) async throws -> String? {
+        configuration.kind == .codex ? accessToken : nil
+    }
+
+    func accountID(for configuration: AssistantProviderOAuthConfiguration) async throws -> String? {
+        configuration.kind == .codex && accessToken != nil ? "account-personal" : nil
     }
 }
 

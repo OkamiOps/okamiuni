@@ -29,7 +29,7 @@ struct GeneralSettingsView: View {
     /// callback PKCE neste build. Sem ele a interface explica o próximo passo,
     /// em vez de oferecer um botão de login que não faz nada.
     let liteLLMOAuthAuthorizer: (any LiteLLMOAuthAuthorizing)?
-    /// Login da assinatura pelo runtime oficial do provedor. Este fluxo não
+    /// Login direto da assinatura por OAuth HTTP. Este fluxo não
     /// depende de LiteLLM, chave de API ou de um CLI separado instalado.
     let providerOAuthAuthorizer: (any AssistantProviderOAuthAuthorizing)?
     /// A ação de analisar o acervo já guardado. Opcional porque sem banco não
@@ -106,7 +106,7 @@ struct GeneralSettingsView: View {
                     intelligenceWelcome
                     promptCard
                     assistantCard
-                    cliCard
+                    if draft.provider == .cli { cliCard }
                 case .gestures:
                     gesturesWelcome
                     gesturesCard
@@ -303,7 +303,7 @@ struct GeneralSettingsView: View {
                     set: { updateProvider($0) }
                 )) {
                     Text(L10n.tr("Apple Intelligence · neste Mac")).tag(AssistantProvider.foundationModels)
-                    Text(L10n.tr("OAuth direto · Codex ou Grok")).tag(AssistantProvider.providerOAuth)
+                    Text(L10n.tr("OAuth direto · ChatGPT ou Grok")).tag(AssistantProvider.providerOAuth)
                     Text(L10n.tr("API / LiteLLM · chave ou proxy")).tag(AssistantProvider.openAICompatible)
                     Text(L10n.tr("CLI · sessão já instalada")).tag(AssistantProvider.cli)
                 }
@@ -748,6 +748,13 @@ struct GeneralSettingsView: View {
                         .capsLabel()
                 }
 
+                if case let .failed(message) = providerOAuthStatus {
+                    Text(message)
+                        .font(theme.sans.font(size: 10.5))
+                        .foregroundStyle(theme.danger.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
                 providerOAuthSessionActions
             }
         }
@@ -756,8 +763,8 @@ struct GeneralSettingsView: View {
         case .codex:
             SettingsNotice(
                 symbol: "person.badge.key",
-                title: L10n.tr("Device Code oficial do Codex"),
-                text: L10n.tr("Conecta sua assinatura ChatGPT por código de dispositivo dentro do OkamiUNI. A sessão fica no espaço privado do app e o catálogo vem do runtime oficial Codex disponível neste Mac, sem expor tokens. Isso não transforma a assinatura em créditos da API.")
+                title: L10n.tr("Assinatura ChatGPT"),
+                text: L10n.tr("Conecta sua assinatura ChatGPT diretamente por OAuth. A sessão fica no Keychain deste Mac e os modelos são carregados da sua conta. Esta conexão é independente da opção CLI.")
             )
         case .xAI:
             SettingsNotice(
@@ -892,7 +899,6 @@ struct GeneralSettingsView: View {
                     .font(theme.mono.font(size: 19, weight: .bold))
                     .tracking(1.2)
                     .foregroundStyle(theme.ink.color)
-                    .textSelection(.enabled)
                     .padding(.horizontal, 12)
                     .frame(height: 42)
                     .background(theme.surface.color, in: RoundedRectangle(cornerRadius: 8))
@@ -913,7 +919,6 @@ struct GeneralSettingsView: View {
             Text(presentation.verificationURL.absoluteString)
                 .font(theme.mono.font(size: 9.5))
                 .foregroundStyle(theme.ink4.color)
-                .textSelection(.enabled)
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
@@ -1227,6 +1232,7 @@ struct GeneralSettingsView: View {
             await refreshCredentialPresence()
             refreshLiteLLMOAuthStatus()
             await refreshProviderOAuthStatus()
+            if provider == .cli { await scanCLIInstallations() }
         }
     }
 
@@ -1402,6 +1408,7 @@ struct GeneralSettingsView: View {
     }
 
     private func scanCLIInstallations() async {
+        guard draft.provider == .cli else { return }
         let installations = await Task.detached {
             AssistantCLIDiscovery().scan()
         }.value
@@ -1919,6 +1926,7 @@ struct GeneralSettingsView: View {
             // inicial. Reaplique o estado do coordenador para nunca manter um
             // “Autenticado” verde ao lado de um erro de autenticação.
             providerOAuthStatus = authorizer.sessionState.status
+            providerOAuthModels = []
             providerOAuthModelsError = error.localizedDescription
         }
     }

@@ -1735,3 +1735,8 @@
 "Runtime importado. Teste a conexão e salve a configuração de IA." = "Runtime importado. Teste a conexão e salve a configuração de IA.";
 "Conteúdo HTML preservado" = "Conteúdo HTML preservado";
 "Edite a introdução acima. O conteúdo formatado abaixo será mantido no envio." = "Edite a introdução acima. O conteúdo formatado abaixo será mantido no envio.";
+"OAuth direto · ChatGPT ou Grok" = "OAuth direto · ChatGPT ou Grok";
+"Assinatura ChatGPT" = "Assinatura ChatGPT";
+"Conecta sua assinatura ChatGPT diretamente por OAuth. A sessão fica no Keychain deste Mac e os modelos são carregados da sua conta. Esta conexão é independente da opção CLI." = "Conecta sua assinatura ChatGPT diretamente por OAuth. A sessão fica no Keychain deste Mac e os modelos são carregados da sua conta. Esta conexão é independente da opção CLI.";
+"Sai deste Mac para a conta ChatGPT conectada." = "Sai deste Mac para a conta ChatGPT conectada.";
+"Esta assinatura não liberou acesso a este modelo. Verifique a conta e tente novamente." = "Esta assinatura não liberou acesso a este modelo. Verifique a conta e tente novamente.";

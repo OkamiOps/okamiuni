@@ -11,19 +11,24 @@ public struct AssistantProviderOAuthSession: Codable, Sendable, Hashable {
     public var refreshToken: String
     public var expiresAt: Date
     public var tokenEndpoint: URL
+    /// Identificador de conta retornado pelo OAuth ChatGPT. Fica junto aos
+    /// tokens no Keychain; não é importado de sessões de CLI.
+    public var accountID: String?
 
     public init(
         kind: AssistantProviderOAuthKind,
         accessToken: String,
         refreshToken: String,
         expiresAt: Date,
-        tokenEndpoint: URL
+        tokenEndpoint: URL,
+        accountID: String? = nil
     ) {
         self.kind = kind
         self.accessToken = accessToken
         self.refreshToken = refreshToken
         self.expiresAt = expiresAt
         self.tokenEndpoint = tokenEndpoint
+        self.accountID = accountID
     }
 
     public func needsRefresh(at date: Date) -> Bool {

@@ -36,6 +36,8 @@ OkamiUNI combines a unified inbox, calendar and daily planning dashboard in a na
 
 Connecting a remote or CLI AI provider intentionally enables automatic analysis and prepared replies through that provider. The AI settings switch restricts automatic work to this Mac. The interface identifies the destination; generated writing appears as a preview for acceptance. The interface language and AI response language are separate preferences.
 
+The **Direct OAuth → Codex · ChatGPT account** connection uses the subscription directly over HTTP, with its own Keychain session. Login, the account’s model catalog and responses are independent of a CLI installation. **CLI · existing session** remains a separate connection; the subscription catalog has no embedded model list or fallback.
+
 ## Languages
 
 The interface supports **Português (Brasil), English, Deutsch and Français**. Portuguese remains the default. In **Settings → General → App language**, choose a language or follow the system language. Quit and reopen the app to apply it to every window. If none of the system's preferred languages is supported, Portuguese is used.

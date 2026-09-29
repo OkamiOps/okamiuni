@@ -36,6 +36,8 @@ O OkamiUNI reúne caixa unificada, agenda e painel de planejamento diário em um
 
 Conectar um provedor de IA remoto ou CLI de propósito habilita análise automática e respostas prontas por esse provedor. O interruptor nas configurações de IA restringe o trabalho automático a este Mac. A interface identifica o destino; a escrita gerada aparece como prévia para aceitação. O idioma da interface e o das respostas da IA são preferências separadas.
 
+A conexão **OAuth direto → Codex · conta ChatGPT** usa a assinatura por HTTP diretamente no app, com sessão própria no Keychain. Login, catálogo de modelos da conta e respostas independem de uma instalação CLI. A opção **CLI · sessão já instalada** continua sendo uma conexão separada; o catálogo da assinatura não tem lista embutida nem fallback.
+
 ## Idiomas
 
 A interface oferece **Português (Brasil), English, Deutsch e Français**. O português continua sendo o padrão. Em **Configurações → Geral → Idioma do aplicativo**, escolha um idioma ou siga o sistema. Feche e reabra o app para aplicar a escolha em todas as janelas. Se nenhum idioma preferido do sistema for suportado, o app usa português.

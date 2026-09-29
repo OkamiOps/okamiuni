@@ -59,7 +59,7 @@ public struct AssistantFailure: Sendable, Hashable {
                 recovery: {
                     switch error {
                     case .missingAuthorization, .authenticationFailed,
-                         .subscriptionNotEligible, .managedByCodexRuntime:
+                         .subscriptionNotEligible:
                         // Sem saber qual assinatura é, o caminho ainda existe:
                         // Ajustes. `nil` deixaria a faixa de erro sem botão.
                         provider.map(Recovery.reconnect) ?? .openSettings

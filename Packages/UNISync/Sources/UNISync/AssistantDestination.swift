@@ -51,7 +51,7 @@ public struct AssistantDestination: Sendable, Hashable {
             case .codex:
                 self.init(
                     label: "Codex · ChatGPT",
-                    detail: L10n.tr("Sai deste Mac pelo Codex instalado."),
+                    detail: L10n.tr("Sai deste Mac para a conta ChatGPT conectada."),
                     isLocal: false
                 )
             }

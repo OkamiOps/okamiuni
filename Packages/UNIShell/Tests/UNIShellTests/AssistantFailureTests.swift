@@ -150,7 +150,6 @@ struct AssistantFailureTests {
                AssistantFailure.Recovery.openSettings, AssistantFailure.Recovery.reconnect(.codex)),
               (.authenticationFailed, .openSettings, .reconnect(.codex)),
               (.subscriptionNotEligible, .openSettings, .reconnect(.codex)),
-              (.managedByCodexRuntime, .openSettings, .reconnect(.codex)),
               (.rateLimited, .retry, .retry),
               (.timedOut, .retry, .retry),
               (.connectionFailed, .retry, .retry),

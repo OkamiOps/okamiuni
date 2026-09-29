@@ -29,56 +29,63 @@ struct AssistantProviderOAuthTests {
         #expect(!document.contains("refresh_token"))
     }
 
-    @Test("completion do Codex sem loginId conclui a conexão dedicada")
-    func acceptsNullLoginIDCompletion() {
-        let completion = CodexDeviceLoginCompletion(loginID: nil, success: true)
-        #expect(completion.matches("login-do-runtime"))
-        #expect(!CodexDeviceLoginCompletion(loginID: "outro-login", success: true).matches("login-do-runtime"))
-    }
-
-    @Test("CODEX_HOME fica em espaço privado compartilhado pelo runtime")
-    func createsManagedCodexHome() throws {
-        let base = FileManager.default.temporaryDirectory
-            .appendingPathComponent("okamiuni-codex-home-test-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: base) }
-
-        let environment = try CodexManagedRuntimeEnvironment.environment(
-            applicationSupportDirectory: base
-        )
-        let path = try #require(environment["CODEX_HOME"])
-        #expect(path == base.appendingPathComponent("OkamiUNI/Codex", isDirectory: true).path)
-        #expect(FileManager.default.fileExists(atPath: path))
-    }
-
-    @Test("Codex expõe somente link e código do runtime, persiste nada e carrega catálogo após concluir")
+    @Test("a assinatura ChatGPT usa somente a sessão própria guardada pelo app")
     @MainActor
-    func usesManagedCodexDeviceRuntime() async throws {
-        let runtime = CodexRuntimeStub()
+    func usesDirectCodexSession() async throws {
+        let transport = ProviderOAuthStubTransport { request in
+            Self.json(request, ["models": [["slug": "gpt-da-conta"]]])
+        }
         let store = InMemoryAssistantProviderOAuthSessionStore()
-        let coordinator = AssistantProviderOAuthCoordinator(
-            sessions: store,
-            codexRuntime: runtime
-        )
+        let coordinator = AssistantProviderOAuthCoordinator(modelCatalog: .init(transport: transport), sessions: store)
         let configuration = AssistantProviderOAuthConfiguration(
             kind: .codex,
             model: "gpt-da-conta",
-            credentialID: "codex-runtime"
+            credentialID: "chatgpt-personal"
         )
 
-        try await coordinator.start(configuration: configuration)
-        let presentation = try #require(coordinator.sessionState.status.deviceAuthorization)
-        #expect(presentation.kind == .codex)
-        #expect(presentation.verificationURL.absoluteString == "https://auth.openai.com/device")
-        #expect(presentation.userCode == "OKAMI-4242")
-        #expect(presentation.expiresAt == .distantFuture)
-        #expect(try store.session(for: configuration.credentialID) == nil)
         await coordinator.refreshStatus(configuration: configuration)
-        #expect(coordinator.sessionState.status == .awaitingDeviceCode(presentation))
+        await waitForOAuthStatus(coordinator) { $0 == .signedOut }
+        #expect(coordinator.sessionState.status == .signedOut)
+        #expect(await coordinator.hasAccessToken(for: configuration) == false)
 
-        await runtime.completeLogin()
-        for _ in 0..<200 where coordinator.sessionState.status != .signedIn { await Task.yield() }
+        try store.store(Self.codexSession(), for: configuration.credentialID)
+        await coordinator.refreshStatus(configuration: configuration)
+        await waitForOAuthStatus(coordinator) { $0 == .signedIn }
         #expect(coordinator.sessionState.status == .signedIn)
-        #expect(try await coordinator.availableModels(configuration: configuration).map(\.id) == ["gpt-da-conta", "gpt-raciocinio"])
+        #expect(try await coordinator.accessToken(for: configuration) == "chatgpt-access")
+        #expect(try await coordinator.accountID(for: configuration) == "account-personal")
+
+        let otherAccount = AssistantProviderOAuthConfiguration(kind: .codex, credentialID: "chatgpt-other")
+        #expect(await coordinator.hasAccessToken(for: otherAccount) == false)
+        #expect(try await coordinator.accessToken(for: otherAccount) == nil)
+        #expect(try await coordinator.accountID(for: otherAccount) == nil)
+    }
+
+    @Test("login ChatGPT recusado não inventa uma sessão conectada")
+    @MainActor
+    func failedCodexAuthorizationDoesNotCreateSession() async throws {
+        let transport = ProviderOAuthStubTransport { request in
+            Self.json(request, ["error": "access_denied"], status: 401)
+        }
+        let store = InMemoryAssistantProviderOAuthSessionStore()
+        let coordinator = AssistantProviderOAuthCoordinator(client: .init(transport: transport), sessions: store)
+        let configuration = AssistantProviderOAuthConfiguration(kind: .codex, credentialID: "chatgpt-rejected")
+
+        await #expect(throws: AssistantProviderOAuthError.self) {
+            try await coordinator.start(configuration: configuration)
+        }
+
+        await waitForOAuthStatus(coordinator) {
+            if case .failed = $0 { return true }
+            return false
+        }
+        guard case .failed = coordinator.sessionState.status else {
+            Issue.record("O login recusado deve mostrar o erro de autenticação.")
+            return
+        }
+        #expect(try store.session(for: configuration.credentialID) == nil)
+        #expect(await coordinator.hasAccessToken(for: configuration) == false)
+        #expect(transport.capturedRequests().count == 1)
     }
 
     @Test("o token é lido fora do ator principal, e o estado chega à interface")
@@ -174,48 +181,77 @@ struct AssistantProviderOAuthTests {
         #expect(state.status == .signedOut)
     }
 
-    @Test("account/read reconhece somente uma sessão ChatGPT estruturada")
-    func parsesStructuredCodexAccountState() {
-        let chatGPT = Data(#"{"account":{"type":"chatgpt","email":"pessoa@example.com","planType":"plus"}}"#.utf8)
-        let signedOut = Data(#"{"account":null}"#.utf8)
-        let apiKey = Data(#"{"account":{"type":"apiKey"}}"#.utf8)
-
-        #expect(CodexAccountReadParser.isChatGPTSignedIn(chatGPT))
-        #expect(!CodexAccountReadParser.isChatGPTSignedIn(signedOut))
-        #expect(!CodexAccountReadParser.isChatGPTSignedIn(apiKey))
-        #expect(!CodexAccountReadParser.isChatGPTSignedIn(Data("não é JSON".utf8)))
-        #expect(!CodexAccountReadParser.isChatGPTSignedIn(Data(repeating: 0, count: 1_048_577)))
-    }
-
     @Test("falha de autenticação do catálogo remove o estado verde anterior")
     @MainActor
-    func clearsStaleSignedInStateWhenCatalogRejectsSession() async {
-        let runtime = CatalogCodexRuntimeStub(reportedSignedIn: true, models: nil)
-        let coordinator = AssistantProviderOAuthCoordinator(codexRuntime: runtime)
-        let configuration = AssistantProviderOAuthConfiguration(kind: .codex)
+    func clearsStaleSignedInStateWhenCatalogRejectsSession() async throws {
+        let calls = NSLockingCounter()
+        let transport = ProviderOAuthStubTransport { request in
+            if calls.next() == 1 {
+                Self.json(request, ["models": [["slug": "gpt-da-conta"]]])
+            } else {
+                Self.json(request, [:], status: 401)
+            }
+        }
+        let store = InMemoryAssistantProviderOAuthSessionStore()
+        let configuration = AssistantProviderOAuthConfiguration(kind: .codex, model: "modelo-antigo")
+        try store.store(Self.codexSession(), for: configuration.credentialID)
+        let coordinator = AssistantProviderOAuthCoordinator(modelCatalog: .init(transport: transport), sessions: store)
 
         await coordinator.refreshStatus(configuration: configuration)
+        await waitForOAuthStatus(coordinator) { $0 == .signedIn }
         #expect(coordinator.sessionState.status == .signedIn)
-        await #expect(throws: CodexDeviceLoginRuntimeError.notAuthenticated) {
+        await #expect(throws: AssistantProviderOAuthModelCatalogError.authenticationFailed) {
             _ = try await coordinator.availableModels(configuration: configuration)
         }
 
+        await waitForOAuthStatus(coordinator) { $0 == .signedOut }
         #expect(coordinator.sessionState.status == .signedOut)
-        #expect(await runtime.signedInCheckCount() == 1)
+        #expect(await coordinator.hasAccessToken(for: configuration) == false)
+        #expect(try store.session(for: configuration.credentialID) == nil)
+        #expect(transport.capturedRequests().count == 2)
+        #expect(transport.capturedRequests().first?.value(forHTTPHeaderField: "Authorization") == "Bearer chatgpt-access")
     }
 
-    @Test("catálogo Codex é a fonte única e não sofre uma segunda sondagem textual")
+    @Test("catálogo ChatGPT vem do HTTP autenticado, sem uma segunda sondagem")
     @MainActor
     func loadsCodexCatalogWithoutDuplicatePreflight() async throws {
         let expected = [AssistantProviderModel(id: "gpt-da-conta", displayName: "GPT da conta")]
-        let runtime = CatalogCodexRuntimeStub(reportedSignedIn: false, models: expected)
-        let coordinator = AssistantProviderOAuthCoordinator(codexRuntime: runtime)
+        let transport = ProviderOAuthStubTransport { request in
+            Self.json(request, ["models": [["slug": "gpt-da-conta", "display_name": "GPT da conta"]]])
+        }
+        let store = InMemoryAssistantProviderOAuthSessionStore()
+        let configuration = AssistantProviderOAuthConfiguration(kind: .codex)
+        try store.store(Self.codexSession(), for: configuration.credentialID)
+        let coordinator = AssistantProviderOAuthCoordinator(modelCatalog: .init(transport: transport), sessions: store)
 
-        let models = try await coordinator.availableModels(configuration: .init(kind: .codex))
+        let models = try await coordinator.availableModels(configuration: configuration)
 
         #expect(models == expected)
+        await waitForOAuthStatus(coordinator) { $0 == .signedIn }
         #expect(coordinator.sessionState.status == .signedIn)
-        #expect(await runtime.signedInCheckCount() == 0)
+        #expect(transport.capturedRequests().count == 1)
+        #expect(transport.capturedRequests().first?.url?.host == "chatgpt.com")
+        #expect(transport.capturedRequests().first?.value(forHTTPHeaderField: "ChatGPT-Account-ID") == "account-personal")
+    }
+
+    @Test("sem sessão ChatGPT, o modelo salvo não vira um catálogo de fallback")
+    @MainActor
+    func missingCodexSessionDoesNotLoadCatalog() async {
+        let transport = ProviderOAuthStubTransport { request in
+            Self.json(request, ["models": [["slug": "nao-autenticado"]]])
+        }
+        let coordinator = AssistantProviderOAuthCoordinator(
+            modelCatalog: .init(transport: transport),
+            sessions: InMemoryAssistantProviderOAuthSessionStore()
+        )
+        let configuration = AssistantProviderOAuthConfiguration(kind: .codex, model: "modelo-antigo")
+
+        await #expect(throws: AssistantProviderOAuthModelCatalogError.missingAuthorization) {
+            _ = try await coordinator.availableModels(configuration: configuration)
+        }
+
+        #expect(transport.capturedRequests().isEmpty)
+        #expect(coordinator.sessionState.status != .signedIn)
     }
 
     @Test("xAI usa discovery estrito, respeita pending e slow_down, e conclui via token endpoint")
@@ -475,14 +511,54 @@ struct AssistantProviderOAuthTests {
         #expect(!description.localizedCaseInsensitiveContains("prompt"))
     }
 
-    @Test("Codex recusa o adaptador HTTP que receberia bearer")
-    func refusesCodexBearerAdapter() {
-        #expect(throws: AssistantProviderOAuthTextAssistantError.managedByCodexRuntime) {
-            _ = try AssistantProviderOAuthTextAssistant(
-                configuration: .init(kind: .codex, model: "gpt-da-conta"),
-                accessToken: "never-exported"
-            )
+    @Test("ChatGPT envia a sessão da assinatura diretamente ao endpoint oficial")
+    func sendsDirectCodexResponsesWithoutRuntime() async throws {
+        let transport = TextAssistantTransportStub { request in
+            let response = HTTPURLResponse(
+                url: request.url!, statusCode: 200,
+                httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "text/event-stream"]
+            )!
+            let body = """
+            event: response.completed
+            data: {"type":"response.completed","response":{"output":[{"type":"message","content":[{"type":"output_text","text":"Resumo da conta ChatGPT."}]}]}}
+
+
+            """
+            return (Data(body.utf8), response)
         }
+        let assistant = try AssistantProviderOAuthTextAssistant(
+            configuration: .init(kind: .codex, model: "gpt-da-conta"),
+            accessToken: "chatgpt-access",
+            accountID: "account-personal",
+            transport: transport
+        )
+
+        let answer = try await assistant.answer(question: "Resuma", in: .init(mailContext: .email(.init(
+            subject: "Contrato", sender: "Lia <lia@example.com>", body: "Assinatura ativa."
+        ))))
+
+        #expect(answer == "Resumo da conta ChatGPT.")
+        let call = try #require(transport.capturedCalls().first)
+        #expect(call.request.url?.absoluteString == "https://chatgpt.com/backend-api/codex/responses")
+        #expect(call.request.value(forHTTPHeaderField: "Authorization") == "Bearer chatgpt-access")
+        #expect(call.request.value(forHTTPHeaderField: "ChatGPT-Account-ID") == "account-personal")
+        #expect(call.rejectingRedirects)
+        let body = try #require(call.request.httpBody)
+        let payload = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(payload["model"] as? String == "gpt-da-conta")
+        #expect(payload["store"] as? Bool == false)
+        #expect(payload["stream"] as? Bool == true)
+    }
+
+    private static func codexSession() -> AssistantProviderOAuthSession {
+        .init(
+            kind: .codex,
+            accessToken: "chatgpt-access",
+            refreshToken: "chatgpt-refresh",
+            expiresAt: .distantFuture,
+            tokenEndpoint: URL(string: "https://auth.openai.com/oauth/token")!,
+            accountID: "account-personal"
+        )
     }
 
     private static func json(
@@ -514,13 +590,6 @@ private extension AssistantProviderOAuthPollResult {
     var nextInterval: TimeInterval? {
         guard case let .pending(nextInterval) = self else { return nil }
         return nextInterval
-    }
-}
-
-private extension AssistantProviderOAuthStatus {
-    var deviceAuthorization: AssistantProviderOAuthDeviceAuthorization? {
-        guard case let .awaitingDeviceCode(value) = self else { return nil }
-        return value
     }
 }
 
@@ -630,156 +699,122 @@ private actor OAuthTokenProviderStub: AssistantProviderOAuthTokenProviding {
     }
 }
 
-/// A sonda de disponibilidade pergunta "há sessão?" a cada `save` das
-/// preferências. Para o Codex isso é subir o `codex app-server --stdio`; a
-/// janela curta é o que impede uma rajada de saves de virar uma rajada de
-/// processos — sem esconder um login que a pessoa acabou de fazer ou desfazer.
-@Suite("Janela curta da sessão Codex")
+@Suite("Sessões independentes de assinatura")
 @MainActor
-struct CodexSessionCacheTests {
-    private static let configuration = AssistantProviderOAuthConfiguration(kind: .codex)
-
-    @Test("a presença Codex é reaproveitada por 30 s e invalidada ao sair")
-    func codexPresenceIsCachedBriefly() async {
-        let runtime = CatalogCodexRuntimeStub(reportedSignedIn: true, models: [])
-        let relogio = RelogioDeEnsaio()
-        let coordinator = AssistantProviderOAuthCoordinator(
-            sessions: InMemoryAssistantProviderOAuthSessionStore(),
-            codexRuntime: runtime,
-            now: { relogio.agora }
-        )
-
-        #expect(await coordinator.hasAccessToken(for: Self.configuration))
-        #expect(await coordinator.hasAccessToken(for: Self.configuration))
-        #expect(await coordinator.hasAccessToken(for: Self.configuration))
-        #expect(await runtime.signedInCheckCount() == 1)
-
-        // Passada a janela, a resposta volta a ser medida.
-        relogio.avancar(31)
-        #expect(await coordinator.hasAccessToken(for: Self.configuration))
-        #expect(await runtime.signedInCheckCount() == 2)
-
-        // Sair invalida na hora: esperar 30 s para admitir que a pessoa saiu
-        // seria mentir por meio minuto.
-        await coordinator.signOut(configuration: Self.configuration)
-        #expect(await coordinator.hasAccessToken(for: Self.configuration))
-        #expect(await runtime.signedInCheckCount() == 3)
-    }
-
-    @Test("a presença xAI não é cacheada — ela já é barata e mora no Keychain")
-    func xAIPresenceIsNotCached() async throws {
-        let runtime = CatalogCodexRuntimeStub(reportedSignedIn: true, models: [])
+struct AssistantProviderOAuthSessionIsolationTests {
+    @Test("a presença da assinatura segue o cofre, sem cache de sessão CLI", arguments: AssistantProviderOAuthKind.allCases)
+    func subscriptionPresenceFollowsStoredSession(kind: AssistantProviderOAuthKind) async throws {
         let sessions = InMemoryAssistantProviderOAuthSessionStore()
-        let relogio = RelogioDeEnsaio()
-        let coordinator = AssistantProviderOAuthCoordinator(
-            sessions: sessions, codexRuntime: runtime, now: { relogio.agora }
-        )
-        let configuration = AssistantProviderOAuthConfiguration(kind: .xAI, model: "grok-4.6")
-        try sessions.store(
-            .init(
-                kind: .xAI, accessToken: "a", refreshToken: "r",
-                expiresAt: relogio.agora.addingTimeInterval(86_400),
-                tokenEndpoint: URL(string: "https://auth.x.ai/oauth2/token")!
-            ),
-            for: configuration.credentialID
-        )
+        let configuration = AssistantProviderOAuthConfiguration(kind: kind)
+        try sessions.store(Self.session(kind: kind), for: configuration.credentialID)
+        let coordinator = AssistantProviderOAuthCoordinator(sessions: sessions)
 
         #expect(await coordinator.hasAccessToken(for: configuration))
+        #expect(await coordinator.hasAccessToken(for: configuration))
         try sessions.removeSession(for: configuration.credentialID)
-        // Sem TTL nenhum: a próxima pergunta já vê o cofre vazio.
         #expect(await coordinator.hasAccessToken(for: configuration) == false)
-        #expect(await runtime.signedInCheckCount() == 0)
+        #expect(try await coordinator.accessToken(for: configuration) == nil)
+        #expect(try await coordinator.accountID(for: configuration) == nil)
     }
-}
 
-/// Relógio de ensaio: o cache tem prazo, e prazo se testa andando com o tempo,
-/// não dormindo.
-private final class RelogioDeEnsaio: @unchecked Sendable {
-    private let lock = NSLock()
-    private var instante = Date(timeIntervalSince1970: 1_800_000_000)
+    @Test("sair de ChatGPT remove somente aquela credencial e preserva xAI")
+    func signingOutCodexPreservesXAISession() async throws {
+        let sessions = InMemoryAssistantProviderOAuthSessionStore()
+        let codex = AssistantProviderOAuthConfiguration(kind: .codex, credentialID: "chatgpt-personal")
+        let xAI = AssistantProviderOAuthConfiguration(kind: .xAI, credentialID: "xai-personal")
+        let xAISession = Self.session(kind: .xAI)
+        try sessions.store(Self.session(kind: .codex), for: codex.credentialID)
+        try sessions.store(xAISession, for: xAI.credentialID)
+        let coordinator = AssistantProviderOAuthCoordinator(sessions: sessions)
 
-    var agora: Date { lock.withLock { instante } }
+        await coordinator.signOut(configuration: codex)
 
-    func avancar(_ segundos: TimeInterval) {
-        lock.withLock { instante = instante.addingTimeInterval(segundos) }
+        await waitForOAuthStatus(coordinator) { $0 == .signedOut }
+        #expect(coordinator.sessionState.status == .signedOut)
+        #expect(await coordinator.hasAccessToken(for: codex) == false)
+        #expect(try sessions.session(for: codex.credentialID) == nil)
+        #expect(await coordinator.hasAccessToken(for: xAI))
+        #expect(try sessions.session(for: xAI.credentialID) == xAISession)
     }
-}
 
-private actor CodexRuntimeStub: CodexDeviceLoginRuntime {
-    private var signedIn = false
-    private var completion: CheckedContinuation<Void, Error>?
+    @Test("uma referência de outro provedor não reutiliza nem apaga a sessão guardada")
+    func mismatchedProviderCannotReadOrRemoveSession() async throws {
+        let sessions = InMemoryAssistantProviderOAuthSessionStore()
+        let original = Self.session(kind: .codex)
+        let configuration = AssistantProviderOAuthConfiguration(kind: .xAI, credentialID: "shared-reference")
+        try sessions.store(original, for: configuration.credentialID)
+        let coordinator = AssistantProviderOAuthCoordinator(sessions: sessions)
 
-    func startDeviceLogin() async throws -> CodexDeviceLogin {
+        #expect(await coordinator.hasAccessToken(for: configuration) == false)
+        await #expect(throws: AssistantProviderOAuthError.sessionProviderMismatch) {
+            _ = try await coordinator.accessToken(for: configuration)
+        }
+        await coordinator.signOut(configuration: configuration)
+
+        await waitForOAuthStatus(coordinator) { $0 == .signedOut }
+        #expect(coordinator.sessionState.status == .signedOut)
+        #expect(try sessions.session(for: configuration.credentialID) == original)
+    }
+
+    private static func session(kind: AssistantProviderOAuthKind) -> AssistantProviderOAuthSession {
         .init(
-            loginID: "login-do-runtime",
-            verificationURL: URL(string: "https://auth.openai.com/device")!,
-            userCode: "OKAMI-4242"
+            kind: kind,
+            accessToken: "subscription-access",
+            refreshToken: "subscription-refresh",
+            expiresAt: .distantFuture,
+            tokenEndpoint: URL(string: kind == .codex
+                ? "https://auth.openai.com/oauth/token"
+                : "https://auth.x.ai/oauth2/token")!,
+            accountID: kind == .codex ? "account-personal" : nil
         )
     }
+}
 
-    func waitForDeviceLogin(loginID: String) async throws {
-        guard loginID == "login-do-runtime" else { throw CodexDeviceLoginRuntimeError.loginFailed }
-        if signedIn { return }
-        try await withCheckedThrowingContinuation { completion = $0 }
+@Suite("Utilitários da conexão CLI separada")
+struct CodexCLIConnectionUtilitiesTests {
+    @Test("completion do Codex sem loginId conclui a conexão dedicada")
+    func acceptsNullLoginIDCompletion() {
+        let completion = CodexDeviceLoginCompletion(loginID: nil, success: true)
+        #expect(completion.matches("login-do-runtime"))
+        #expect(!CodexDeviceLoginCompletion(loginID: "outro-login", success: true).matches("login-do-runtime"))
     }
 
-    func cancelDeviceLogin() async {
-        completion?.resume(throwing: CancellationError())
-        completion = nil
+    @Test("CODEX_HOME fica em espaço privado compartilhado pelo runtime")
+    func createsManagedCodexHome() throws {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("okamiuni-codex-home-test-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+
+        let environment = try CodexManagedRuntimeEnvironment.environment(
+            applicationSupportDirectory: base
+        )
+        let path = try #require(environment["CODEX_HOME"])
+        #expect(path == base.appendingPathComponent("OkamiUNI/Codex", isDirectory: true).path)
+        #expect(FileManager.default.fileExists(atPath: path))
     }
 
-    func isSignedIn() async -> Bool { signedIn }
+    @Test("account/read reconhece somente uma sessão ChatGPT estruturada")
+    func parsesStructuredCodexAccountState() {
+        let chatGPT = Data(#"{"account":{"type":"chatgpt","email":"pessoa@example.com","planType":"plus"}}"#.utf8)
+        let signedOut = Data(#"{"account":null}"#.utf8)
+        let apiKey = Data(#"{"account":{"type":"apiKey"}}"#.utf8)
 
-    func availableModels() async throws -> [AssistantProviderModel] {
-        guard signedIn else { throw CodexDeviceLoginRuntimeError.notAuthenticated }
-        return [
-            .init(id: "gpt-da-conta", displayName: "GPT da conta"),
-            .init(id: "gpt-raciocinio", displayName: "GPT Raciocínio"),
-        ]
-    }
-
-    func signOut() async throws { signedIn = false }
-
-    func completeLogin() {
-        signedIn = true
-        completion?.resume()
-        completion = nil
+        #expect(CodexAccountReadParser.isChatGPTSignedIn(chatGPT))
+        #expect(!CodexAccountReadParser.isChatGPTSignedIn(signedOut))
+        #expect(!CodexAccountReadParser.isChatGPTSignedIn(apiKey))
+        #expect(!CodexAccountReadParser.isChatGPTSignedIn(Data("não é JSON".utf8)))
+        #expect(!CodexAccountReadParser.isChatGPTSignedIn(Data(repeating: 0, count: 1_048_577)))
     }
 }
 
-private actor CatalogCodexRuntimeStub: CodexDeviceLoginRuntime {
-    private let reportedSignedIn: Bool
-    private let models: [AssistantProviderModel]?
-    private var signedInChecks = 0
-
-    init(reportedSignedIn: Bool, models: [AssistantProviderModel]?) {
-        self.reportedSignedIn = reportedSignedIn
-        self.models = models
+@MainActor
+private func waitForOAuthStatus(
+    _ coordinator: AssistantProviderOAuthCoordinator,
+    satisfies predicate: (AssistantProviderOAuthStatus) -> Bool
+) async {
+    for _ in 0..<200 where !predicate(coordinator.sessionState.status) {
+        await Task.yield()
     }
-
-    func startDeviceLogin() async throws -> CodexDeviceLogin {
-        throw CodexDeviceLoginRuntimeError.protocolUnavailable
-    }
-
-    func waitForDeviceLogin(loginID: String) async throws {
-        throw CodexDeviceLoginRuntimeError.protocolUnavailable
-    }
-
-    func cancelDeviceLogin() async {}
-
-    func isSignedIn() async -> Bool {
-        signedInChecks += 1
-        return reportedSignedIn
-    }
-
-    func availableModels() async throws -> [AssistantProviderModel] {
-        guard let models else { throw CodexDeviceLoginRuntimeError.notAuthenticated }
-        return models
-    }
-
-    func signOut() async throws {}
-
-    func signedInCheckCount() -> Int { signedInChecks }
 }
 
 /// Registra em que thread o cofre foi consultado: é a prova de que ler ou

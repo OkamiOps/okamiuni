@@ -347,7 +347,7 @@ public actor MessageIntelligenceCoordinator {
             switch error {
             case .missingAuthorization, .authenticationFailed, .subscriptionNotEligible,
                  .rateLimited, .timedOut, .connectionFailed, .redirectRefused,
-                 .upgradeRequired, .server, .managedByCodexRuntime:
+                 .upgradeRequired, .server:
                 return true
             case .invalidResponse:
                 return false

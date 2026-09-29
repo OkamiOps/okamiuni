@@ -126,10 +126,6 @@ public actor AssistantRouter: TextAssisting, AgentPlanning {
             else {
                 return .needsSignIn(destination, provider: configuration.kind)
             }
-            if configuration.kind == .codex,
-               cliInstallationProvider().first(where: { $0.kind == .codex && $0.isDetected }) == nil {
-                return .needsSetup(destination, reason: L10n.tr("O runtime do Codex não foi encontrado neste Mac."))
-            }
             return .ready(destination)
         case .cli:
             guard let installation = cliInstallationProvider().first(where: {
@@ -365,32 +361,13 @@ public actor AssistantRouter: TextAssisting, AgentPlanning {
         guard let providerOAuthTokenProvider else {
             throw AssistantProviderOAuthError.missingSession
         }
-        if configuration.kind == .codex {
-            guard await providerOAuthTokenProvider.hasAccessToken(for: configuration) else {
-                throw AssistantProviderOAuthError.missingSession
-            }
-            guard let installation = cliInstallationProvider().first(where: {
-                $0.kind == .codex && $0.isDetected
-            }) else {
-                throw AssistantCLITextAssistantError.executableNotFound(.codex)
-            }
-            let command = try AssistantCLICommand.makeCodexSubscription(
-                configuration: configuration,
-                installation: installation
-            )
-            return AssistantCLITextAssistant(
-                command: command,
-                executor: cliExecutor,
-                additionalInstructions: settings.configuredInstructions(for: promptKind),
-                requestTimeout: cliRequestTimeout
-            )
-        }
         guard let token = try await providerOAuthTokenProvider.accessToken(for: configuration) else {
             throw AssistantProviderOAuthError.missingSession
         }
         return try AssistantProviderOAuthTextAssistant(
             configuration: configuration,
             accessToken: token,
+            accountID: try await providerOAuthTokenProvider.accountID(for: configuration),
             additionalInstructions: settings.configuredInstructions(for: promptKind),
             session: session,
             requestTimeout: max(requestTimeout, 120)
