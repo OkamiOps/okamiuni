@@ -191,7 +191,7 @@ struct PainelDoDia: View {
             plan: plan,
             drafts: validatedDrafts,
             pending: promessasFiltradas,
-            agenda: store.agenda,
+            agenda: store.dashboardAgenda(accountIDs: filter.accounts),
             messages: store.messages,
             today: today,
             nowMinute: now,
@@ -252,16 +252,22 @@ struct PainelDoDia: View {
             )
         }
         .agendaUndoBand(store: store)
-        .onChange(of: store.dashboardContentRevision) { _, _ in briefing.invalidateBriefing() }
+        .task(id: briefingInputKey) {
+            guard intelligencePresentation.isAvailable else { return }
+            do { try await Task.sleep(for: .milliseconds(600)) } catch { return }
+            guard !Task.isCancelled else { return }
+            briefing.refreshBriefingIfNeeded(inputKey: briefingInputKey)
+        }
+        .onChange(of: filter.accounts) { _, _ in briefing.invalidateBriefing() }
         .onChange(of: store.selectedAccountID) { _, _ in briefing.invalidateBriefing() }
-        .onChange(of: store.agenda) { _, _ in briefing.invalidateBriefing() }
+        .onChange(of: briefing.destination) { _, _ in briefing.invalidateBriefing() }
         .onChange(of: mensagensDoRascunho) { _, mensagens in
             receberRascunhoGerado(em: mensagens)
         }
         .onChange(of: falhaDoRascunho) { _, falha in
             receberFalhaDoRascunho(falha)
         }
-        .onDisappear { briefing.invalidateBriefing() }
+        .onDisappear { briefing.cancel() }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L10n.tr("Painel do dia"))
     }
@@ -419,9 +425,22 @@ struct PainelDoDia: View {
                 }
                 PainelBotao(titulo: L10n.tr("Ajustar"), primario: false) { ajustando = true }
             }
+            if let evento = proximoCompromisso {
+                proximoCompromissoRow(evento)
+                    .padding(.vertical, 10)
+            } else {
+                Text(L10n.tr("Nenhuma reunião restante hoje. Seu tempo está livre para as prioridades abaixo."))
+                    .font(theme.sans.font(size: 12)).foregroundStyle(theme.ink3.color)
+                    .padding(.vertical, 8)
+            }
             PainelLinhaDoTempo(
                 blocos: modelo.blocos,
                 nowMinute: now,
+                onTapCompromisso: { bloco in
+                    if let item = store.agenda.first(where: { $0.id == bloco.id }) {
+                        onOpenEvent(item)
+                    }
+                },
                 onTapProposto: { _ in ajustando = true }
             )
         }
@@ -437,6 +456,49 @@ struct PainelDoDia: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L10n.tr("Plano de hoje"))
+    }
+
+    private var proximoCompromisso: AgendaItem? {
+        store.dashboardAgenda(accountIDs: filter.accounts)
+            .filter { !$0.isCancelled && $0.dayOffset == 0 && $0.endMinute > now }
+            .sorted { $0.startMinute < $1.startMinute }.first
+    }
+
+    private func proximoCompromissoRow(_ evento: AgendaItem) -> some View {
+        HStack(spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(evento.startMinute <= now ? L10n.tr("Em andamento") : L10n.tr("Próximo compromisso"))
+                    .capsLabel(size: 9.5).foregroundStyle(theme.accentInk.color)
+                Text(evento.title)
+                    .font(theme.sans.font(size: 16, weight: .semibold))
+                    .foregroundStyle(theme.ink.color)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 12)
+            Text("\(hora(evento.startMinute)) – \(hora(evento.endMinute))")
+                .font(theme.mono.font(size: 13)).foregroundStyle(theme.ink2.color)
+            PainelBotao(titulo: L10n.tr("Abrir compromisso"), primario: true, altura: 32) {
+                onOpenEvent(evento)
+            }.accessibilityIdentifier("dashboard-proximo-compromisso")
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    private func hora(_ minuto: Int) -> String {
+        String(format: "%02d:%02d", minuto / 60, minuto % 60)
+    }
+
+    private var briefingInputKey: String {
+        let focus = store.dashboardFocus(nowMinute: now, now: today, accountIDs: filter.accounts)
+        let emails = focus.mail.map { item in
+            let m = item.message
+            return "\(m.id)|\(m.subject)|\(m.snippet)|\(m.isFlagged)|\(m.isRead)|\(String(describing: m.triage))"
+        }.joined(separator: "\n")
+        let eventos = store.dashboardAgenda(accountIDs: filter.accounts).filter {
+            !$0.isCancelled && (0...7).contains($0.dayOffset) && ($0.dayOffset > 0 || $0.endMinute > now)
+        }.map { "\($0.id)|\($0.title)|\($0.dayOffset)|\($0.startMinute)|\($0.endMinute)|\($0.detail?.place ?? "")" }.joined(separator: "\n")
+        let pendencias = focus.pending.map { "\($0.id)|\($0.text)|\(String(describing: $0.dueDate))" }.joined(separator: "\n")
+        return "\(today)|\(now / 15)|\(filter.accounts.sorted())|\(store.selectedAccountID ?? "")|\(briefing.destination)|\(intelligencePresentation)|\(emails)|\(eventos)|\(pendencias)"
     }
 
     /// "Aceitar o plano": os blocos propostos viram compromissos numa leva
@@ -525,10 +587,10 @@ struct PainelDoDia: View {
     private func esperandoVoce(_ modelo: PainelDoDiaModelo) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             cabecalho(
-                L10n.tr("Para revisar"), modelo.espera.count, modelo.legendaDaEspera,
+                L10n.tr("Precisa de você"), modelo.espera.count, L10n.tr("Recentes e sinalizados"),
                 // "Ativar" e "Entrar" levam a Ajustes → IA; "ainda não
                 // escreveu" não leva a lugar nenhum, o botão é que resolve.
-                acaoDaLegenda: precisaDeAjustes(modelo) ? onOpenAISettings : nil,
+                acaoDaLegenda: nil,
                 // O botão é ação **explícita** da pessoa — a mesma natureza do
                 // "Gerar resposta" do leitor —, e por isso não depende do
                 // opt-in da fila de fundo.
@@ -550,9 +612,10 @@ struct PainelDoDia: View {
                     nome: espera.nome,
                     numero: espera.sufixo == "h" ? espera.numero : "",
                     sufixo: espera.sufixo == "h" ? "h" : "",
-                    palavra: espera.sufixo == "h" ? espera.palavra : L10n.tr("Pedido identificado"),
+                    palavra: espera.palavra,
                     alerta: espera.sufixo == "h" && espera.alerta,
                     porque: espera.porque,
+                    detalhe: "\(espera.recebida) · \(store.account(espera.accountID)?.shortName ?? espera.accountID)",
                     acaoPrimaria: espera.temRascunho ? L10n.tr("Revisar resposta") : L10n.tr("Ver"),
                     destacada: índice == 0 && espera.pedeGente && espera.temRascunho,
                     acaoSecundaria: L10n.tr("Arquivar"),
@@ -573,7 +636,7 @@ struct PainelDoDia: View {
                 ))
             })
             if modelo.espera.isEmpty {
-                Text(L10n.tr("Nenhum pedido de resposta identificado na caixa ativa."))
+                Text(L10n.tr("Nenhum pedido recente de resposta. Mensagens antigas continuam disponíveis na Caixa."))
                     .font(theme.sans.font(size: 12)).foregroundStyle(theme.ink3.color)
                     .padding(.top, 16)
             }
@@ -583,24 +646,36 @@ struct PainelDoDia: View {
     private var orientacaoIA: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text(L10n.tr("Seu próximo passo")).font(theme.sans.font(size: 14, weight: .semibold))
+                Text(L10n.tr("Próximas ações")).font(theme.sans.font(size: 14, weight: .semibold))
                 Spacer()
                 Text(briefing.destination.label).font(theme.sans.font(size: 11)).foregroundStyle(theme.ink3.color)
             }.padding(.bottom, 10).hairline(theme.line, edges: .bottom)
             if briefing.isLoading {
-                ProgressView(L10n.tr("Analisando o dia…")).controlSize(.small)
-            } else if let failure = briefing.failure {
+                ProgressView(L10n.tr("Atualizando suas prioridades…")).controlSize(.small)
+            }
+            if let failure = briefing.failure {
                 Text(failure.message).font(theme.sans.font(size: 12)).foregroundStyle(theme.warning.color)
-            } else if let text = briefing.briefingText {
+            }
+            if let text = briefing.briefingText {
+                if briefing.isLoading || briefing.failure != nil {
+                    Text(L10n.tr("Última análise disponível"))
+                        .capsLabel(size: 9.5).foregroundStyle(theme.ink4.color)
+                }
                 AssistantMarkdown(text: text, style: .compact)
-            } else {
-                Text(L10n.tr("A IA cruza pedidos ativos e agenda para sugerir até três ações, com o motivo de cada uma."))
+            } else if !intelligencePresentation.isAvailable {
+                Text(intelligencePresentation.detail)
                     .font(theme.sans.font(size: 13)).foregroundStyle(theme.ink3.color)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            PainelBotao(titulo: L10n.tr("Analisar meu dia"), primario: true, altura: 30) {
-                briefing.briefing()
-            }.disabled(briefing.isLoading)
+            if intelligencePresentation.isAvailable {
+                Text(L10n.tr("Atualiza automaticamente com as mudanças do dia."))
+                    .font(theme.sans.font(size: 11)).foregroundStyle(theme.ink4.color)
+                PainelBotao(titulo: briefing.failure == nil ? L10n.tr("Atualizar prioridades") : L10n.tr("Tentar novamente"), primario: false) {
+                    briefing.briefing()
+                }.disabled(briefing.isLoading)
+            } else {
+                PainelBotao(titulo: L10n.tr("Conectar IA"), primario: false, acao: onOpenAISettings)
+            }
         }
     }
 
@@ -667,7 +742,7 @@ struct PainelDoDia: View {
 
     private func dinheiroEPrazos(_ modelo: PainelDoDiaModelo) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            cabecalho(L10n.tr("Dinheiro e prazos"), modelo.dinheiro.count, L10n.tr("próximos 7 dias"))
+            cabecalho(L10n.tr("Dinheiro e prazos"), modelo.dinheiro.count, L10n.tr("datas recentes e próximas"))
             ForEach(modelo.dinheiro) { linha in
                 HStack(alignment: .center, spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
@@ -771,8 +846,11 @@ struct PainelDoDia: View {
     /// As promessas do recorte, já filtradas pela conta escolhida.
     private var promessasFiltradas: [PendingItem] {
         let contas = filter.accounts
-        return store.pendingItems.filter {
-            contas.isEmpty || contas.contains($0.accountID)
+        let hoje = Calendar.current.startOfDay(for: today)
+        let limite = Calendar.current.date(byAdding: .day, value: 8, to: hoje) ?? hoje
+        return store.visiblePendingItems.filter {
+            (contas.isEmpty || contas.contains($0.accountID))
+                && ($0.dueDate == nil || ($0.dueDate! >= hoje && $0.dueDate! < limite))
         }
     }
 

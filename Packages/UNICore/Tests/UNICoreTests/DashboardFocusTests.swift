@@ -11,10 +11,10 @@ struct DashboardFocusTests {
             messages: Fixtures.messages,
             agenda: Fixtures.agenda,
             pending: Fixtures.pendingItems,
-            nowMinute: Fixtures.nowMinute
+            nowMinute: Fixtures.nowMinute, now: Fixtures.today
         )
-        #expect(snap.mail.map(\.id) == ["m6", "m1", "m4", "m2", "m3"])
-        #expect(snap.mail.map(\.reason) == [.lead, .needsReply, .needsReply, .deadline, .unread])
+        #expect(snap.mail.map(\.id) == ["m6", "m1", "m4"])
+        #expect(snap.mail.map(\.reason) == [.lead, .needsReply, .needsReply])
         #expect(snap.mail.contains { $0.id == "m5" } == false)
         #expect(snap.mail.contains { $0.id == "m7" } == false)
         #expect(snap.meetings.map(\.id) == ["e3", "e4", "e5"])
@@ -34,7 +34,7 @@ struct DashboardFocusTests {
             mail(id: "ok", bucket: .today, tags: [UNICore.Tag(name: "Precisa resposta")], isRead: false),
         ]
         let snap = DashboardFocus.snapshot(
-            messages: tagged, agenda: [], pending: [], nowMinute: 720
+            messages: tagged, agenda: [], pending: [], nowMinute: 720, now: Fixtures.today
         )
         #expect(snap.mail.map(\.id) == ["ok"])
     }
@@ -50,28 +50,27 @@ struct DashboardFocusTests {
         )
         let flagged = mail(
             id: "star",
-            bucket: .later,
+            bucket: .today,
             tags: [],
             isRead: true,
             isFlagged: true,
             category: .promotions
         )
         let snap = DashboardFocus.snapshot(
-            messages: [promo, flagged], agenda: [], pending: [], nowMinute: 720
+            messages: [promo, flagged], agenda: [], pending: [], nowMinute: 720, now: Fixtures.today
         )
         #expect(snap.mail.map(\.id) == ["star"])
         #expect(snap.mail.first?.reason == .flagged)
     }
 
-    @Test("recibo arquivado some; prazo ou estrela no arquivo ficam")
-    func archivedNeedsAction() {
+    @Test("arquivado permanece fora, mesmo com prazo")
+    func archivedStaysDismissed() {
         let recibo = mail(id: "recibo", bucket: .archived, tags: [UNICore.Tag(name: "Recibo")], isRead: false)
         let prazo = mail(id: "prazo", bucket: .archived, tags: [UNICore.Tag(name: "Prazo")], isRead: true)
         let snap = DashboardFocus.snapshot(
-            messages: [recibo, prazo], agenda: [], pending: [], nowMinute: 720
+            messages: [recibo, prazo], agenda: [], pending: [], nowMinute: 720, now: Fixtures.today
         )
-        #expect(snap.mail.map(\.id) == ["prazo"])
-        #expect(snap.mail.first?.reason == .deadline)
+        #expect(snap.mail.isEmpty)
     }
 
     @Test("compromisso cancelado e o que já passou não entram")
@@ -111,7 +110,7 @@ struct DashboardFocusTests {
             )
         }
         let snap = DashboardFocus.snapshot(
-            messages: many, agenda: meetings, pending: [], nowMinute: 720
+            messages: many, agenda: meetings, pending: [], nowMinute: 720, now: Fixtures.today
         )
         #expect(snap.mail.count == DashboardFocus.mailLimit)
         #expect(snap.omittedMailCount == 3)
@@ -124,7 +123,7 @@ struct DashboardFocusTests {
     func todayBucketFillsEmptyRanking() {
         let hoje = mail(id: "hoje", bucket: .today, tags: [], isRead: true)
         let snap = DashboardFocus.snapshot(
-            messages: [hoje], agenda: [], pending: [], nowMinute: 720
+            messages: [hoje], agenda: [], pending: [], nowMinute: 720, now: Fixtures.today
         )
         #expect(snap.mail.map(\.id) == ["hoje"])
         #expect(snap.mail.first?.reason == .today)
@@ -165,7 +164,7 @@ struct DashboardFocusTests {
             )
         }
         let snap = DashboardFocus.snapshot(
-            messages: many, agenda: [], pending: [], nowMinute: 720
+            messages: many, agenda: [], pending: [], nowMinute: 720, now: Fixtures.today
         )
         #expect(snap.mail.count == DashboardFocus.mailLimit)
         #expect(DashboardFocus.candidateCap == 300)
@@ -178,7 +177,7 @@ struct DashboardFocusTests {
             agenda: Fixtures.agenda,
             pending: Fixtures.pendingItems,
             nowMinute: Fixtures.nowMinute,
-            accountID: "zoho"
+            accountID: "zoho", now: Fixtures.today
         )
         #expect(Set(snap.mail.map(\.message.accountID)) == ["zoho"])
         #expect(Set(snap.meetings.map(\.accountID)) == ["zoho"])
@@ -223,7 +222,7 @@ struct DashboardDiscardedTests {
             id: id,
             accountID: "a1",
             from: Contact(name: "Quem \(id)", address: "\(id)@exemplo.com"),
-            receivedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            receivedAt: Fixtures.today,
             subject: "Assunto \(id)",
             snippet: "trecho",
             body: ["corpo"],
@@ -257,7 +256,7 @@ struct DashboardDiscardedTests {
             ],
             agenda: [],
             pending: [],
-            nowMinute: 600
+            nowMinute: 600, now: Fixtures.today
         )
 
         #expect(focus.mail.map(\.id) == ["m1"])
@@ -272,7 +271,7 @@ struct DashboardDiscardedTests {
         )
         let focus = DashboardFocus.snapshot(
             messages: [mensagem("m1", triage: pedeResposta)],
-            agenda: [], pending: [], nowMinute: 600
+            agenda: [], pending: [], nowMinute: 600, now: Fixtures.today
         )
         #expect(focus.discardedMailCount == 0)
     }

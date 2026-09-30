@@ -7,7 +7,7 @@ import Testing
 @Suite("DashboardFocus com triagem")
 struct DashboardFocusTriageTests {
 
-    private let agora = Date(timeIntervalSince1970: 1_800_000_000)
+    private let agora = Fixtures.today
 
     @Test("a triagem vence a etiqueta: a ordem muda quando a análise discorda")
     func triageBeatsTags() {
@@ -160,7 +160,7 @@ struct DashboardFocusTriageTests {
             nowMinute: Fixtures.nowMinute,
             now: agora
         )
-        #expect(snap.mail.map(\.id) == ["m6", "m1", "m4", "m2", "m3"])
+        #expect(snap.mail.map(\.id) == ["m6", "m1", "m4"])
     }
 
     private func triagemComPrazo(horas: Double) -> MessageTriage {

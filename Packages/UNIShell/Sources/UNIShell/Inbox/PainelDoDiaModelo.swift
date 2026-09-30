@@ -25,6 +25,7 @@ struct PainelDoDiaModelo {
         /// A intenção é de gente (`request`, `scheduling`, `lead`) — só assim
         /// o azulejo pode ganhar o botão primário.
         let pedeGente: Bool
+        let recebida: String
     }
 
     /// Uma promessa sua: o azulejo de "Você deve".
@@ -102,7 +103,8 @@ struct PainelDoDiaModelo {
     var legendaDoPlano: String {
         let n = propostos.count
         let blocos = n == 1 ? L10n.tr("1 bloco proposto") : L10n.tr("\(n) blocos propostos")
-        return L10n.tr("agenda + prazos + o que você prometeu · \(blocos)")
+        let base = L10n.tr("Compromissos, prazos e espaço para responder")
+        return n == 0 ? base : "\(base) · \(blocos)"
     }
 
     static func reciboDoPlano(_ count: Int) -> String {
@@ -130,13 +132,12 @@ struct PainelDoDiaModelo {
             .filter { $0.kind == .waitingOnYou || $0.kind == .lead }
             .flatMap(\.rows)
 
-        // Quem espera há mais tempo primeiro — e o prazo de hoje na frente de
-        // todos, porque ele é o único que acaba.
+        // Prazo de hoje primeiro; depois as conversas mais recentes.
         let ordenadas = linhas.sorted { a, b in
             let pa = Self.venceHoje(a, today: today, calendar: calendar)
             let pb = Self.venceHoje(b, today: today, calendar: calendar)
             if pa != pb { return pa }
-            return a.item.message.receivedAt < b.item.message.receivedAt
+            return a.item.message.receivedAt > b.item.message.receivedAt
         }
 
         // As conversas em que eu já falei: um lead não é lead depois de eu ter
@@ -174,14 +175,16 @@ struct PainelDoDiaModelo {
 
             // Máquina não espera você: sem etiqueta, o azulejo não existe e a
             // mensagem cai no excedente do rodapé.
-            guard etiqueta != nil else { return nil }
+            guard etiqueta != nil || mensagem.isFlagged else { return nil }
 
             let numero: String
             let sufixo: String
             let palavra: String
-            if prazoHoje, let prazo = mensagem.triage?.deadline?.date {
+            if prazoHoje, let prazo = DashboardFocus.relevantDeadline(for: mensagem, now: today)?.date {
+                let instante = calendar.date(byAdding: .minute, value: nowMinute,
+                    to: calendar.startOfDay(for: today)) ?? today
                 let horas = max(
-                    0, calendar.dateComponents([.hour], from: today, to: prazo).hour ?? 0
+                    0, calendar.dateComponents([.hour], from: instante, to: prazo).hour ?? 0
                 )
                 numero = "\(horas)"
                 sufixo = "h"
@@ -189,7 +192,7 @@ struct PainelDoDiaModelo {
             } else {
                 numero = "\(dias)"
                 sufixo = "d"
-                palavra = (etiqueta ?? .esperando).palavra
+                palavra = mensagem.isFlagged ? L10n.tr("Sinalizado") : (etiqueta ?? .esperando).palavra
             }
 
             return Espera(
@@ -200,10 +203,11 @@ struct PainelDoDiaModelo {
                 numero: numero,
                 sufixo: sufixo,
                 palavra: palavra,
-                alerta: prazoHoje || dias >= 3,
+                alerta: prazoHoje,
                 porque: row.why,
                 temRascunho: drafts[row.id] != nil,
-                pedeGente: DayPlan.pedeGente(mensagem.triage)
+                pedeGente: DayPlan.pedeGente(mensagem.triage),
+                recebida: Self.recebida(mensagem.receivedAt, today: today, calendar: calendar)
             )
         }
 
@@ -250,7 +254,7 @@ struct PainelDoDiaModelo {
         // quando o texto o escreve.
         dinheiro = plan.sections.flatMap(\.rows).compactMap { row -> LinhaDeDinheiro? in
             let mensagem = row.item.message
-            guard let prazo = mensagem.triage?.deadline else { return nil }
+            guard let prazo = DashboardFocus.relevantDeadline(for: mensagem, now: today) else { return nil }
             let cheia = messages.first { $0.id == row.id } ?? mensagem
             let quantia = DinheiroNoTexto.primeiro(
                 em: [prazo.evidence, mensagem.subject, mensagem.snippet] + cheia.body
@@ -258,9 +262,11 @@ struct PainelDoDiaModelo {
             let horas = calendar.dateComponents(
                 [.hour], from: today, to: prazo.date
             ).hour ?? .max
-            let quando = calendar.isDate(prazo.date, inSameDayAs: today)
-                ? L10n.tr("vence hoje · \(mensagem.accountID)")
-                : "\(Self.dataCurta(prazo.date)) · \(mensagem.accountID)"
+            let venceu = prazo.date < calendar.startOfDay(for: today)
+            let quando = venceu ? L10n.tr("venceu \(Self.recebida(prazo.date, today: today, calendar: calendar)) · \(mensagem.accountID)")
+                : calendar.isDate(prazo.date, inSameDayAs: today)
+                    ? L10n.tr("vence hoje · \(mensagem.accountID)")
+                    : "\(Self.dataCurta(prazo.date)) · \(mensagem.accountID)"
             return LinhaDeDinheiro(
                 id: row.id,
                 titulo: Self.titulo(de: mensagem.subject),
@@ -411,8 +417,18 @@ struct PainelDoDiaModelo {
     private static func venceHoje(
         _ row: DayPlan.Row, today: Date, calendar: Calendar
     ) -> Bool {
-        guard let prazo = row.item.message.triage?.deadline?.date else { return false }
+        guard let prazo = DashboardFocus.relevantDeadline(for: row.item.message, now: today)?.date else { return false }
         return calendar.isDate(prazo, inSameDayAs: today)
+    }
+
+    static func recebida(_ date: Date, today: Date, calendar: Calendar = .current) -> String {
+        if calendar.isDate(date, inSameDayAs: today) { return L10n.tr("Hoje") }
+        if let ontem = calendar.date(byAdding: .day, value: -1, to: today),
+           calendar.isDate(date, inSameDayAs: ontem) { return L10n.tr("Ontem") }
+        let formatter = DateFormatter()
+        formatter.locale = L10n.locale
+        formatter.setLocalizedDateFormatFromTemplate("ddMM")
+        return formatter.string(from: date)
     }
 
     /// "JW" de "Jack Whitmore"; "PM" de "Proposta Marina".

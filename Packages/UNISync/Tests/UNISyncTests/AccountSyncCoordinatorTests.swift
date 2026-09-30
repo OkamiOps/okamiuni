@@ -25,6 +25,17 @@ private final class Relatos: @unchecked Sendable {
     }
 }
 
+private final class RelogioDoCiclo: @unchecked Sendable {
+    private let lock = NSLock()
+    private var date: Date
+
+    init(_ date: Date) { self.date = date }
+    func now() -> Date { lock.withLock { date } }
+    func advance(_ interval: TimeInterval) {
+        lock.withLock { date = date.addingTimeInterval(interval) }
+    }
+}
+
 /// O coordenador de uma conta e o corredor que liga e desliga os coordenadores.
 ///
 /// **Nada aqui toca rede externa**: o servidor IMAP é o falso, em `127.0.0.1`.
@@ -84,7 +95,8 @@ struct AccountSyncCoordinatorTests {
 
     private func coordenador(
         _ db: SyncDatabase, porta: Int, grupo: MultiThreadedEventLoopGroup,
-        cofre: any SecretStore, relatos: Relatos = Relatos()
+        cofre: any SecretStore, relatos: Relatos = Relatos(),
+        now: (@Sendable () -> Date)? = nil
     ) -> AccountSyncCoordinator {
         AccountSyncCoordinator(
             accountID: "conta-i", database: db, secrets: cofre, auth: nil,
@@ -95,7 +107,7 @@ struct AccountSyncCoordinatorTests {
                     group: elg
                 )
             },
-            now: { self.agora },
+            now: now ?? { self.agora },
             report: { conta, erro in relatos.registra(conta, erro) }
         )
     }
@@ -125,6 +137,9 @@ struct AccountSyncCoordinatorTests {
         // `DatabaseMailSource` tira o próximo retrato: nenhuma ponte nova para
         // a tela foi inventada, e é essa a promessa.
         #expect(linhas.map(\.subject) == ["Chegou agora"])
+        #expect(try await db.pool.read {
+            try AccountRecord.fetchOne($0, key: "conta-i")?.lastSyncedAt
+        } == agora)
     }
 
     @Test("Dois ciclos seguidos não duplicam nada, e a conexão é reaproveitada")
@@ -139,12 +154,26 @@ struct AccountSyncCoordinatorTests {
         let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
         defer { encerra(grupo) }
 
-        let coordenador = coordenador(db, porta: porta, grupo: grupo, cofre: cofre)
+        let relogio = RelogioDoCiclo(agora)
+        let coordenador = coordenador(
+            db, porta: porta, grupo: grupo, cofre: cofre, now: { relogio.now() }
+        )
         await coordenador.syncOnce()
-        await coordenador.syncOnce()
+        let primeiroCarimbo = try await db.pool.read {
+            try AccountRecord.fetchOne($0, key: "conta-i")?.lastSyncedAt
+        }
+        relogio.advance(60)
+        let segundoCiclo = await coordenador.syncOnce()
         await coordenador.stop()
 
         #expect(try await db.pool.read { try MessageRecord.fetchCount($0) } == 1)
+        #expect(segundoCiclo.erro == nil)
+        #expect(segundoCiclo.gravadas == 0)
+        #expect(primeiroCarimbo == agora)
+        // Um ciclo sem novidades também confirma o frescor da caixa.
+        #expect(try await db.pool.read {
+            try AccountRecord.fetchOne($0, key: "conta-i")?.lastSyncedAt
+        } == agora.addingTimeInterval(60))
         // Um `LOGIN` só: reconectar a cada ciclo trocaria o aviso do servidor
         // por uma autenticação por minuto — e o `IDLE`, que **é** uma sessão
         // aberta, deixaria de existir.
@@ -155,7 +184,8 @@ struct AccountSyncCoordinatorTests {
 
     @Test("Sem senha no cofre, a conta cai em erro de autenticação e o relato sai")
     func semSenhaMarcaAConta() async throws {
-        let db = try await banco(conta())
+        let carimboAnterior = agora.addingTimeInterval(-86_400)
+        let db = try await banco(conta().withLastSynced(carimboAnterior))
         let relatos = Relatos()
 
         let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
@@ -174,6 +204,9 @@ struct AccountSyncCoordinatorTests {
             try AccountRecord.fetchOne($0, key: "conta-i")?.account.state
         }
         #expect(estado == .erroDeAutenticacao)
+        #expect(try await db.pool.read {
+            try AccountRecord.fetchOne($0, key: "conta-i")?.lastSyncedAt
+        } == carimboAnterior)
         #expect(relatos.lista.contains { $0.0 == "conta-i" && $0.1 == .autenticacao })
     }
 

@@ -236,8 +236,21 @@ public struct DayPlan: Sendable, Hashable {
 
         for item in focus.mail {
             let mensagem = item.message
+            guard DashboardFocus.isRelevantCandidate(mensagem, now: now) else { continue }
             let marcas = mensagem.effectiveBulkMarks
-            let triagem = mensagem.triage?.barred(byBulk: marcas)
+            // Uma classificação guardada há semanas não prova que alguém
+            // ainda espera resposta. A estrela mantém a linha como escolha da
+            // pessoa; só uma data atual mantém a seção de vencimentos.
+            let atual = DashboardFocus.isRecent(mensagem, now: now)
+                && !DashboardFocus.hasClosedInvitation(mensagem, now: now)
+            let triagem = mensagem.triage.map { stored in
+                MessageTriage(
+                    needsReply: atual && stored.needsReply,
+                    intent: atual ? stored.intent : .informational,
+                    urgency: atual ? stored.urgency : .low,
+                    deadline: DashboardFocus.relevantDeadline(for: mensagem, now: now)
+                ).barred(byBulk: marcas)
+            }
             let classe = classify(message: mensagem, marks: marcas, triage: triagem)
 
             // A contagem é do que **chegou**, não do que sobrou: a tela escreve
@@ -316,7 +329,14 @@ public struct DayPlan: Sendable, Hashable {
         }
 
         let esperando = secoes.first { $0.kind == .waitingOnYou }?.rows ?? []
-        let heroi = hero(from: esperando, drafts: drafts, now: now)
+        let heroi = hero(from: esperando.filter { row in
+            let message = row.item.message
+            return DashboardFocus.isRecent(message, now: now)
+                && !DashboardFocus.hasClosedInvitation(message, now: now)
+                && !message.effectiveBulkMarks.isBulk && !isAutomated(message)
+                && ((message.triage?.needsReply == true && pedeGente(message.triage))
+                    || (message.triage == nil && message.hasNeedsReplyTag))
+        }, drafts: drafts, now: now)
 
         let visiveis = secoes.flatMap(\.rows)
         let bloco = replyBlock(
@@ -357,6 +377,17 @@ public struct DayPlan: Sendable, Hashable {
     private static func classify(
         message: Message, marks: BulkMailMarks, triage: MessageTriage?
     ) -> Classification {
+        // A estrela é escolha explícita de revisão, inclusive para um aviso.
+        // Não transforma máquina em gente, nem reativa uma análise antiga;
+        // um vencimento atual conserva sua seção própria.
+        if message.isFlagged,
+           marks.isBulk || isAutomated(message) || triage?.intent.isBackgroundNoise == true {
+            return Classification(
+                section: triage?.deadline == nil ? .waitingOnYou : .due,
+                category: triage?.deadline == nil ? .people : .deadlines,
+                removalReason: nil
+            )
+        }
         if marks.isBulk {
             if triage?.deadline != nil {
                 return Classification(

@@ -10,7 +10,7 @@ import Testing
 @Suite("Triagem de disparo em massa no dashboard")
 struct DashboardTriagemDeDisparoTests {
 
-    private let agora = Date(timeIntervalSince1970: 1_800_000_000)
+    private let agora = Fixtures.today
 
     // MARK: A barreira determinística
 

@@ -618,6 +618,14 @@ enum AssistantPrompt {
     }
 
     static func render(_ workspace: AssistantWorkspaceContext, budget: Budget) -> String {
+        let reference = workspace.referenceDate.map {
+            let formatter = ISO8601DateFormatter()
+            formatter.timeZone = .current
+            return "Current local date and time: \(formatter.string(from: $0))\n"
+        } ?? ""
+        let scope = workspace.referenceDate == nil
+            ? "todas as caixas e toda a agenda carregadas no OkamiUNI"
+            : "apenas as caixas, mensagens e eventos fornecidos neste contexto"
         let detailedAccounts = workspace.accounts.prefix(maximumWorkspaceAccounts)
         var accountLines = detailedAccounts.map {
             "- \(escapedData(bounded($0, maximumCharacters: maximumWorkspaceNameCharacters)))"
@@ -670,7 +678,7 @@ enum AssistantPrompt {
 
         return """
         <workspace-summary>
-        scope: todas as caixas e toda a agenda carregadas no OkamiUNI
+        \(reference)scope: \(scope)
         emailCount: \(workspace.emailCount)
         unreadCount: \(workspace.unreadCount)
         accounts:

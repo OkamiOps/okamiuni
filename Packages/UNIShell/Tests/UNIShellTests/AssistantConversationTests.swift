@@ -179,6 +179,72 @@ struct AssistantConversationTests {
         #expect(conversation.messages.last?.kind == .draft)
     }
 
+    @Test("briefing automático não repete o mesmo contexto ao voltar ao painel")
+    func automaticBriefingIsCached() async {
+        let spy = SpyTextAssistant()
+        let c = conversation(spy, scope: .workspace)
+        let instant = Date(timeIntervalSince1970: 1_800_000_000)
+        c.refreshBriefingIfNeeded(inputKey: "conta-a/dia", now: instant)
+        await c.waitForIdle()
+        c.cancel()
+        c.refreshBriefingIfNeeded(inputKey: "conta-a/dia", now: instant.addingTimeInterval(60))
+        await c.waitForIdle()
+        #expect(spy.answers.count == 1)
+        #expect(c.briefingText == "resposta")
+        #expect(c.messages.isEmpty)
+    }
+
+    @Test("nova entrada renova o briefing mantendo o resultado até a resposta")
+    func automaticBriefingRefreshesChangedInputs() async {
+        let spy = SpyTextAssistant()
+        let c = conversation(spy, scope: .workspace)
+        c.refreshBriefingIfNeeded(inputKey: "antes")
+        await c.waitForIdle()
+        spy.answerResult = .success("prioridade nova")
+        c.refreshBriefingIfNeeded(inputKey: "depois")
+        #expect(c.briefingText == "resposta")
+        await c.waitForIdle()
+        #expect(spy.answers.count == 2)
+        #expect(c.briefingText == "prioridade nova")
+    }
+
+    @Test("falha automática não entra em loop e permite nova tentativa após o intervalo")
+    func automaticFailureBacksOff() async {
+        let spy = SpyTextAssistant()
+        spy.answerResult = .failure(OpenAICompatibleTextAssistantError.timedOut)
+        let c = conversation(spy, scope: .workspace)
+        let instant = Date(timeIntervalSince1970: 1_800_000_000)
+        c.refreshBriefingIfNeeded(inputKey: "mesmo", now: instant)
+        await c.waitForIdle()
+        c.refreshBriefingIfNeeded(inputKey: "mesmo", now: instant.addingTimeInterval(30))
+        await c.waitForIdle()
+        #expect(spy.answers.count == 1)
+        #expect(c.failure != nil)
+        spy.answerResult = .success("recuperado")
+        c.refreshBriefingIfNeeded(inputKey: "mesmo", now: instant.addingTimeInterval(901))
+        await c.waitForIdle()
+        #expect(spy.answers.count == 2)
+        #expect(c.briefingText == "recuperado")
+    }
+
+    @Test("briefing cancelado ao sair pode retomar o mesmo contexto")
+    func cancelledAutomaticBriefingCanResume() async {
+        let spy = SpyTextAssistant()
+        let started = AsyncGate()
+        spy.beforeAnswer = { await started.openAndWaitForever() }
+        let c = conversation(spy, scope: .workspace)
+        c.refreshBriefingIfNeeded(inputKey: "hoje")
+        await started.waitUntilOpen()
+        c.cancel()
+        spy.beforeAnswer = nil
+        spy.answerResult = .success("retomado")
+        c.refreshBriefingIfNeeded(inputKey: "hoje")
+        await c.waitForIdle()
+        #expect(spy.answers.count == 2)
+        #expect(c.briefingText == "retomado")
+        #expect(!c.isLoading)
+    }
+
     @Test("cancelamento depois do portão não publica falha")
     func cancellationAfterGateIsNotAFailure() async {
         let spy = SpyTextAssistant()

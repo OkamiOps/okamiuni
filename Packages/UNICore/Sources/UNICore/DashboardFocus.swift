@@ -5,8 +5,8 @@ import Foundation
 /// A Caixa e a Agenda continuam sendo o lugar do detalhe. Aqui entra só o
 /// que pede a pessoa agora: e-mail com ação, o que ainda resta hoje na
 /// agenda, as pendências que o texto já detectou. A ordem é heurística —
-/// etiquetas, sinalização, leitura, categoria — para a aba abrir cheia
-/// sem gastar uma ida à IA. O briefing em linguagem fica a um clique.
+/// etiquetas, sinalização, leitura, categoria — sobre ações atuais. Uma
+/// lista vazia é preferível a promover avisos antigos para preencher a aba.
 public struct DashboardFocus: Sendable, Hashable {
 
     public static let mailLimit = 7
@@ -16,6 +16,9 @@ public struct DashboardFocus: Sendable, Hashable {
     /// mais recentes da triagem bastam para o recorte, e é o que impede o
     /// freeze na primeira abertura.
     public static let candidateCap = 300
+    /// Sem uma estrela ou uma data atual, uma análise antiga não prova que
+    /// a pessoa ainda precisa agir. A mensagem continua disponível na Caixa.
+    public static let freshnessDays = 7
 
     /// Decisões da pessoa e estado confirmado vêm antes da classificação por IA.
     public static func isActiveCandidate(_ message: Message) -> Bool {
@@ -24,6 +27,64 @@ public struct DashboardFocus: Sendable, Hashable {
         // de virarem uma cobrança. A sincronização revalida esses metadados.
         if message.id.hasPrefix(message.accountID + ":g:"), message.folderIDs.isEmpty { return false }
         return true
+    }
+
+    /// O mesmo recorte para o ranking, a seleção anterior ao teto e o contexto
+    /// da IA. Arquivar/adiar vence qualquer análise; a estrela preserva uma
+    /// pendência antiga que a pessoa explicitamente quis manter.
+    public static func isRelevantCandidate(_ message: Message, now: Date) -> Bool {
+        guard isActiveCandidate(message) else { return false }
+        if message.isFlagged { return true }
+        guard !hasClosedInvitation(message, now: now) else { return false }
+        return isRecent(message, now: now) || relevantDeadline(for: message, now: now) != nil
+    }
+
+    /// Data que ainda ajuda a organizar esta semana. Uma fonte antiga pode
+    /// anunciar um vencimento futuro; um vencimento passado só sobrevive com
+    /// um pedido recebido recentemente, sem inferir pagamento ou resolução.
+    public static func relevantDeadline(for message: Message, now: Date) -> DetectedDeadline? {
+        guard let deadline = message.triage?.deadline,
+              !hasClosedInvitation(message, now: now) else { return nil }
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: now)
+        let end = calendar.date(byAdding: .day, value: freshnessDays + 1, to: today)!
+        guard deadline.date < end else { return nil }
+        if deadline.date >= today { return deadline }
+        // Uma data num aviso de encerramento, feedback ou recibo não prova
+        // ação pendente. Só pedidos ou uma necessidade de resposta que o
+        // cabeçalho não desmentiu podem ser apresentados como atraso.
+        guard let triage = message.triage,
+              triage.intent == .request || triage.barred(byBulk: message.effectiveBulkMarks).needsReply
+        else { return nil }
+        let oldest = calendar.date(byAdding: .day, value: -freshnessDays, to: today)!
+        return isRecent(message, now: now) && deadline.date >= oldest ? deadline : nil
+    }
+
+    static func isRecent(_ message: Message, now: Date) -> Bool {
+        let calendar = Calendar.current
+        let oldest = calendar.date(byAdding: .day, value: -freshnessDays,
+                                   to: calendar.startOfDay(for: now))!
+        return message.receivedAt >= oldest && message.receivedAt <= now.addingTimeInterval(300)
+    }
+
+    /// Datas e cancelamento do convite são fatos; `needsReply` não pode
+    /// transformar um encontro encerrado num trabalho pendente.
+    static func hasClosedInvitation(_ message: Message, now: Date) -> Bool {
+        if let ics = message.calendarICS, let invite = ICalendar.parse(ics) {
+            if invite.isCancelled { return true }
+            // O parser lê a primeira ocorrência, não a expansão da série.
+            // Seu fim não prova que uma reunião recorrente foi encerrada.
+            if ics.split(whereSeparator: \.isNewline).contains(where: {
+                let line = $0.uppercased()
+                return line.hasPrefix("RRULE:") || line.hasPrefix("RRULE;")
+            }) { return false }
+            if let event = invite.detectedEvent, event.end <= now { return true }
+        }
+        guard message.triage?.intent == .scheduling else { return false }
+        if let event = message.detectedEvent, event.end <= now { return true }
+        if let deadline = message.triage?.deadline,
+           deadline.date < Calendar.current.startOfDay(for: now) { return true }
+        return false
     }
 
     /// Por que esta mensagem sobreviveu ao filtro. Um rótulo só: o motivo
@@ -161,12 +222,8 @@ public struct DashboardFocus: Sendable, Hashable {
         // apareceram — e isso só se sabe depois de a lista estar pronta.
         var disparos: Set<String> = []
         for message in scopedMessages {
-            switch message.bucket {
-            case .junk, .trash, .drafts, .sent:
-                continue
-            case .today, .later, .all, .archived:
-                break
-            }
+            guard isRelevantCandidate(message, now: now) else { continue }
+            guard scanned < candidateCap else { break }
             scanned += 1
             if message.effectiveBulkMarks.isBulk { disparos.insert(message.id) }
             if isAnswered(message, by: respondidas) {
@@ -179,11 +236,10 @@ public struct DashboardFocus: Sendable, Hashable {
                 ranked.append(hit)
             } else {
                 descartadas += 1
-                if fallback.count < mailLimit, let hit = todayFallback(message) {
+                if fallback.count < mailLimit, let hit = todayFallback(message, now: now) {
                     fallback.append(hit)
                 }
             }
-            if scanned >= candidateCap { break }
         }
         ranked.sort { a, b in
             if a.score != b.score { return a.score > b.score }
@@ -213,7 +269,12 @@ public struct DashboardFocus: Sendable, Hashable {
         return DashboardFocus(
             mail: mail,
             meetings: meetings,
-            pending: Array(scopedPending.prefix(pendingLimit)),
+            pending: Array(scopedPending.filter { item in
+                guard let date = item.dueDate else { return true }
+                let today = Calendar.current.startOfDay(for: now)
+                let end = Calendar.current.date(byAdding: .day, value: freshnessDays + 1, to: today)!
+                return date >= today && date < end
+            }.prefix(pendingLimit)),
             omittedMailCount: max(0, ranked.count - mailLimit),
             omittedMeetingCount: max(0, upcoming.count - meetingLimit),
             nextUpLabel: AgendaSummary.nextUpLabel(for: scopedAgenda.filter { $0.dayOffset == 0 }, now: nowMinute),
@@ -319,12 +380,7 @@ public struct DashboardFocus: Sendable, Hashable {
     /// se já tiverem sido sinalizadas ou marcadas como resposta — o filtro
     /// não esconde um follow-up que a pessoa mesma marcou.
     private static func rank(_ message: Message, now: Date) -> Ranked? {
-        switch message.bucket {
-        case .junk, .trash, .drafts, .sent:
-            return nil
-        case .today, .later, .all, .archived:
-            break
-        }
+        guard isRelevantCandidate(message, now: now) else { return nil }
 
         // A triagem, quando existe, substitui **quatro** coisas: os três
         // sinais de etiqueta e a leitura de ruído de fundo. `isPromoOrSocial`
@@ -342,17 +398,25 @@ public struct DashboardFocus: Sendable, Hashable {
         // faixas fortes (resposta, lead, prazo). Ver `BulkMailMarks`.
         let marcas = message.effectiveBulkMarks
         let triagem = message.triage?.barred(byBulk: marcas)
-        var sinais = triagem.map { triageSignals($0, now: now) } ?? tagSignals(message)
+        let deadline = relevantDeadline(for: message, now: now)
+        var sinais: Signals
+        if isRecent(message, now: now), !hasClosedInvitation(message, now: now) {
+            sinais = triagem.map { triageSignals($0, deadline: deadline, now: now) } ?? tagSignals(message)
+        } else {
+            sinais = Signals(score: deadline.map { deadlineWeight($0.date, now: now) } ?? 0,
+                             reason: deadline == nil ? nil : .deadline,
+                             needsReply: false, isBackgroundNoise: false)
+        }
         if marcas.isBulk {
-            sinais.score = 0
-            sinais.reason = nil
+            sinais.score = deadline.map { deadlineWeight($0.date, now: now) } ?? 0
+            sinais.reason = deadline == nil ? nil : .deadline
         }
 
         // Ruído de fundo é o que ninguém marcou: a newsletter e o recibo
         // saem, mas a estrela da pessoa e um "precisa resposta" os trazem de
         // volta — o filtro não pode esconder o que ela mesma sinalizou.
         if sinais.isBackgroundNoise {
-            guard message.isFlagged || sinais.needsReply else { return nil }
+            guard message.isFlagged || sinais.needsReply || deadline != nil else { return nil }
         }
 
         var score = sinais.score
@@ -375,15 +439,9 @@ public struct DashboardFocus: Sendable, Hashable {
         switch message.bucket {
         case .today:
             score += 20
-        case .later, .all:
+        case .all:
             score += 10
-        case .archived:
-            // Arquivo só entra com **ação**: resposta, lead, prazo ou a estrela
-            // que a pessoa mesma pôs. Não lido sozinho é ruído de recibo — e
-            // disparo em massa arquivado é ruído duas vezes.
-            let temAcao = (reason?.isUrgent ?? false) || reason == .flagged
-            if !temAcao { return nil }
-        case .junk, .trash, .drafts, .sent:
+        case .later, .archived, .junk, .trash, .drafts, .sent:
             return nil
         }
 
@@ -477,18 +535,20 @@ public struct DashboardFocus: Sendable, Hashable {
     /// A mesma escala, agora com o que a análise afirmou. O prazo pesa pela
     /// distância: o que vence hoje vale mais do que o que vence na semana que
     /// vem, e sem isso "Prazo" seria um rótulo sem hierarquia nenhuma.
-    private static func triageSignals(_ triage: MessageTriage, now: Date) -> Signals {
+    private static func triageSignals(
+        _ triage: MessageTriage, deadline: DetectedDeadline?, now: Date
+    ) -> Signals {
         var signals = Signals(
             score: 0, reason: nil, needsReply: triage.needsReply,
             isBackgroundNoise: triage.intent.isBackgroundNoise
         )
         if triage.needsReply { signals.score += Weight.needsReply }
         if triage.intent == .lead { signals.score += Weight.lead }
-        if let deadline = triage.deadline {
+        if let deadline {
             signals.score += deadlineWeight(deadline.date, now: now)
         }
         signals.reason = strongestReason(
-            deadline: triage.deadline != nil,
+            deadline: deadline != nil,
             lead: triage.intent == .lead,
             needsReply: triage.needsReply
         )
@@ -501,8 +561,8 @@ public struct DashboardFocus: Sendable, Hashable {
     }
 
     /// 700 até 24 h, 500 até 72 h, 300 depois — a faixa forte, como resposta e
-    /// lead. Um prazo já vencido conta como o mais próximo possível: ele é o
-    /// que mais pede a pessoa agora.
+    /// lead. O chamador primeiro confere se a data e o contexto ainda são
+    /// atuais; um aviso de meses atrás não recebe peso por estar vencido.
     static func deadlineWeight(_ deadline: Date, now: Date) -> Int {
         let horas = deadline.timeIntervalSince(now) / 3_600
         if horas <= 24 { return Weight.deadlineNear }
@@ -510,7 +570,8 @@ public struct DashboardFocus: Sendable, Hashable {
         return Weight.deadlineFar
     }
 
-    private static func todayFallback(_ message: Message) -> Ranked? {
+    private static func todayFallback(_ message: Message, now: Date) -> Ranked? {
+        guard Calendar.current.isDate(message.receivedAt, inSameDayAs: now) else { return nil }
         switch message.bucket {
         case .today:
             break

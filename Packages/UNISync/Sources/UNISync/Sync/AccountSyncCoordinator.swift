@@ -246,6 +246,18 @@ public actor AccountSyncCoordinator {
             case .gmail: resultado = try await cicloDoGmail(conta)
             case .imap, .microsoft: resultado = try await cicloDoImap(conta)
             }
+            try Task.checkCancellation()
+            // O carimbo é do último ciclo confirmado, mesmo sem mensagens
+            // novas. Atualizar só esta coluna preserva mudanças concorrentes
+            // de configuração e não recria uma conta removida durante a rede.
+            let syncedAt = now().timeIntervalSince1970
+            let syncedAccountID = accountID
+            try await database.pool.write { db in
+                try db.execute(
+                    sql: "UPDATE account SET lastSyncedAt = ? WHERE id = ?",
+                    arguments: [syncedAt, syncedAccountID]
+                )
+            }
             report(accountID, nil)
             return resultado
         } catch is CancellationError {

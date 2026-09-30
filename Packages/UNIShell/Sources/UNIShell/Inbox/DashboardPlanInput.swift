@@ -18,18 +18,20 @@ enum DashboardPlanInput {
         filter: DayPlan.Filter, today: Date, nowMinute: Int
     ) -> DayPlan {
         let selecionada = store.selectedAccountID
+        let instant = Calendar.current.date(byAdding: .minute, value: nowMinute,
+            to: Calendar.current.startOfDay(for: today)) ?? today
         let disparos = store.messages.filter { message in
             message.bucket == .today
                 && message.effectiveBulkMarks.isBulk
                 && (selecionada == nil || message.accountID == selecionada)
         }
         return DayPlan.make(
-            focus: planFocus(store.dashboardFocus(nowMinute: nowMinute), broadcasts: disparos),
+            focus: planFocus(store.dashboardFocus(nowMinute: nowMinute, now: today, accountIDs: filter.accounts), broadcasts: disparos),
             drafts: validatedDrafts(drafts) { store.message($0) },
             rules: store.senderRules,
-            agenda: store.agenda,
+            agenda: store.dashboardAgenda(accountIDs: filter.accounts),
             filter: filter,
-            now: today,
+            now: instant,
             nowMinute: nowMinute
         )
     }

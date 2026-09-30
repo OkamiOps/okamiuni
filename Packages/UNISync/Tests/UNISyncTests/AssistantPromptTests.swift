@@ -5,6 +5,16 @@ import UNICore
 
 @Suite("Prompt do assistente")
 struct AssistantPromptTests {
+    @Test("briefing recebe relógio explícito sem prometer contexto de todas as contas")
+    func dashboardClockAndScope() {
+        let workspace = AssistantWorkspaceContext(accounts: [], emailCount: 0, unreadCount: 0,
+            mailboxes: [], emails: [], agenda: [], referenceDate: Date(timeIntervalSince1970: 1_800_000_000))
+        let prompt = AssistantPrompt.answer(question: "Meu próximo passo",
+            conversation: .init(mailContext: .workspace(workspace)))
+        #expect(prompt.contains("Current local date and time:"))
+        #expect(prompt.contains("scope: apenas as caixas, mensagens e eventos fornecidos"))
+        #expect(!prompt.contains("scope: todas as caixas"))
+    }
     private let email = AssistantEmailContext(
         subject: "Planejamento",
         sender: "Marina <marina@example.com>",

@@ -80,4 +80,39 @@ struct AssistantMailContextTests {
             allMessages.contains(where: { $0.id == email.id })
         })
     }
+
+    @Test("contexto automático segue o negócio escolhido, relógio e reuniões restantes")
+    @MainActor
+    func dashboardContextFollowsVisibleScope() async throws {
+        let now = Calendar.current.date(from: DateComponents(year: 2026, month: 9, day: 30, hour: 11))!
+        let ids = Fixtures.accounts.prefix(2).map(\.id)
+        let accountA = try #require(ids.first)
+        let accountB = try #require(ids.last)
+        let messages = ids.enumerated().map { index, id in
+            Message(id: "mail-\(index)", accountID: id,
+                from: Contact(name: "Pessoa \(index)", address: "p\(index)@example.com"),
+                receivedAt: now.addingTimeInterval(-60), subject: "Pedido \(index)",
+                snippet: "Preciso da revisão", body: ["CORPO PRIVADO NÃO ENVIADO"],
+                tags: [], bucket: .today, isRead: false, summary: nil, detectedEvent: nil,
+                triage: .init(needsReply: true, intent: .request, urgency: .normal))
+        }
+        let agenda = [
+            AgendaItem(id: "ended", title: "Já terminou", startMinute: 540, endMinute: 600, accountID: accountA),
+            AgendaItem(id: "next", title: "Próxima reunião", startMinute: 720, endMinute: 750, accountID: accountA),
+            AgendaItem(id: "other", title: "Outra conta", startMinute: 720, endMinute: 750, accountID: accountB)
+        ]
+        let store = MailStore(source: InMemoryMailSource(accounts: Fixtures.accounts,
+            messages: messages, agenda: agenda), agendaReferenceDay: { now })
+        await store.load()
+        guard case let .workspace(context) = AssistantMailContext(workspace: store, dashboardOnly: true,
+            nowMinute: 660, dashboardAccountIDs: [accountA]) else {
+            Issue.record("Esperava contexto do dashboard"); return
+        }
+        #expect(context.emails.map(\.id) == ["mail-0"])
+        #expect(context.agenda.map(\.title) == ["Próxima reunião"])
+        #expect(context.accounts.count == 1)
+        #expect(context.referenceDate == now)
+        #expect(!context.emails.contains { $0.snippet.contains("CORPO PRIVADO") })
+        #expect(context.mailboxes.allSatisfy { $0.totalCount <= 1 })
+    }
 }

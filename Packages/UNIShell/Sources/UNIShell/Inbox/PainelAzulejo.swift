@@ -27,6 +27,7 @@ struct PainelAzulejo: View {
     /// Warn: atrasado, ou vence hoje.
     let alerta: Bool
     let porque: String
+    let detalhe: String?
     let acaoPrimaria: String?
     /// O primeiro azulejo — e só ele — pinta a ação em accent.
     let destacada: Bool
@@ -38,7 +39,7 @@ struct PainelAzulejo: View {
 
     init(
         iniciais: String, tint: Color, nome: String, numero: String, sufixo: String = "",
-        palavra: String, alerta: Bool = false, porque: String,
+        palavra: String, alerta: Bool = false, porque: String, detalhe: String? = nil,
         acaoPrimaria: String? = nil, destacada: Bool = false,
         acaoSecundaria: String? = nil,
         onPrimary: @escaping () -> Void = {}, onSecondary: @escaping () -> Void = {},
@@ -52,6 +53,7 @@ struct PainelAzulejo: View {
         self.palavra = palavra
         self.alerta = alerta
         self.porque = porque
+        self.detalhe = detalhe
         self.acaoPrimaria = acaoPrimaria
         self.destacada = destacada
         self.acaoSecundaria = acaoSecundaria
@@ -99,6 +101,12 @@ struct PainelAzulejo: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .help(porque)
+            if let detalhe {
+                Text(detalhe)
+                    .font(theme.sans.font(size: 10.5))
+                    .foregroundStyle(theme.ink3.color)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if acaoPrimaria != nil || acaoSecundaria != nil {
                 HStack(spacing: 6) {
                     if let acaoPrimaria {
@@ -119,7 +127,7 @@ struct PainelAzulejo: View {
         .onTapGesture(count: 2, perform: onOpen)
         .onTapGesture(perform: onSelect)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(nome), \(numero)\(sufixo) \(palavra). \(porque)")
+        .accessibilityLabel("\(nome), \(numero)\(sufixo) \(palavra). \(porque). \(detalhe ?? "")")
     }
 }
 

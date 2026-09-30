@@ -983,7 +983,8 @@ public struct InboxScreen: View {
             destination: { assistantSettings.map { AssistantDestination(settings: $0.snapshot()) } ?? .unconfigured },
             engine: textAssistant.map { assistant in
                 AssistantBridge.engine(using: assistant, supportsDraftReply: false,
-                    mailContext: { AssistantMailContext(workspace: store, dashboardOnly: true) },
+                    mailContext: { AssistantMailContext(workspace: store, dashboardOnly: true,
+                        nowMinute: dashboardNowMinute, dashboardAccountIDs: dashboardFilter.accounts) },
                     currentDraft: { "" })
             } ?? .unavailable,
             provider: assistantProvider

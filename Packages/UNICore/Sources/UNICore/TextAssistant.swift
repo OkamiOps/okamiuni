@@ -142,6 +142,8 @@ public struct AssistantPendingContext: Sendable, Hashable {
 /// carregadas, os e-mails disponíveis e a agenda, sem depender da mensagem
 /// que por acaso esteja aberta no leitor.
 public struct AssistantWorkspaceContext: Sendable, Hashable {
+    /// Relógio factual da superfície, quando ela representa o plano do dia.
+    public let referenceDate: Date?
     /// Quantos e-mails prioritários recebem cabeçalho e prévia no prompt.
     /// Totais e contagens continuam cobrindo o ambiente inteiro.
     public static let detailedEmailLimit = 24
@@ -161,7 +163,8 @@ public struct AssistantWorkspaceContext: Sendable, Hashable {
         mailboxes: [AssistantMailboxContext],
         emails: [AssistantWorkspaceEmailContext],
         agenda: [AssistantAgendaContext],
-        pendingItems: [AssistantPendingContext] = []
+        pendingItems: [AssistantPendingContext] = [],
+        referenceDate: Date? = nil
     ) {
         self.accounts = accounts
         self.emailCount = emailCount
@@ -170,6 +173,7 @@ public struct AssistantWorkspaceContext: Sendable, Hashable {
         self.emails = emails
         self.agenda = agenda
         self.pendingItems = pendingItems
+        self.referenceDate = referenceDate
     }
 }
 

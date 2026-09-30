@@ -22,8 +22,12 @@ struct PainelLinhaDoTempo: View {
 
     let blocos: [PlanoDoDia.Bloco]
     let nowMinute: Int
+    /// Abre o mesmo compromisso e as mesmas ações disponíveis na Agenda.
+    let onTapCompromisso: (PlanoDoDia.Bloco) -> Void
     /// Clique num bloco proposto — "Ajustar" abre o seletor de hora.
     let onTapProposto: (PlanoDoDia.Bloco) -> Void
+
+    @State private var retornoAoAgora = 0
 
     private let alturaDoBloco: CGFloat = 28
     /// A folga entre a trilha da agenda e a trilha "você".
@@ -131,6 +135,26 @@ struct PainelLinhaDoTempo: View {
                 .capsLabel(size: 9)
                 .foregroundStyle(theme.accentInk.color)
                 .offset(y: desenho.topoDoVoce + 8)
+            Button { retornoAoAgora += 1 } label: {
+                Text(L10n.tr("Agora"))
+                    .font(theme.sans.font(size: Self.tamanhoDoTitulo, weight: .semibold))
+                    .foregroundStyle(theme.ink.color)
+                    .frame(width: larguraDosRotulos - 4, height: 24)
+                    .background(theme.btn.color)
+                    .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: theme.radiusSmall)
+                            .strokeBorder(
+                                theme.btnLine.color,
+                                lineWidth: Hairline.thickness(displayScale)
+                            )
+                    }
+            }
+            .buttonStyle(.plain)
+            .offset(y: desenho.linhaDoEixo + 4)
+            .help(L10n.tr("Voltar ao horário atual"))
+            .accessibilityLabel(L10n.tr("Voltar ao horário atual"))
+            .accessibilityIdentifier("dashboard-linha-do-tempo-agora")
         }
         .frame(width: larguraDosRotulos, height: desenho.altura, alignment: .topLeading)
     }
@@ -157,10 +181,13 @@ struct PainelLinhaDoTempo: View {
                     height: desenho.altura, alignment: .topLeading
                 )
             }
-            .scrollIndicators(.hidden)
+            .scrollIndicators(.visible)
             .onAppear {
                 // Sem animação: a linha do tempo já nasce no lugar certo, em
                 // vez de deslizar sozinha assim que o painel abre.
+                leitor.scrollTo(Self.ancoraDoAgora, anchor: UnitPoint(x: 0.35, y: 0))
+            }
+            .onChange(of: retornoAoAgora) { _, _ in
                 leitor.scrollTo(Self.ancoraDoAgora, anchor: UnitPoint(x: 0.35, y: 0))
             }
         }
@@ -182,8 +209,8 @@ struct PainelLinhaDoTempo: View {
         .allowsHitTesting(false)
     }
 
-    /// O esmaecimento das bordas: o eixo continua para os dois lados, e é isto
-    /// que diz isso sem uma barra de rolagem atravessada no desenho.
+    /// O esmaecimento das bordas reforça a continuação do eixo, junto da
+    /// barra de rolagem horizontal nativa.
     private func veu(_ borda: HorizontalAlignment) -> some View {
         LinearGradient(
             colors: [theme.surface.color, theme.surface.color.opacity(0)],
@@ -215,6 +242,32 @@ struct PainelLinhaDoTempo: View {
         let y = desenho.topo(da: bloco.trilha)
             + CGFloat(posto.subLinha) * CGFloat(PlanoDoDia.alturaDaSubLinha)
 
+        Group {
+            switch bloco.tipo {
+            case .compromisso:
+                Button { onTapCompromisso(bloco) } label: {
+                    conteudo(bloco, posto: posto)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint(L10n.tr("Abre os detalhes e as ações do compromisso"))
+                .accessibilityIdentifier("dashboard-compromisso-\(bloco.id)")
+            case .proposto:
+                Button { onTapProposto(bloco) } label: {
+                    conteudo(bloco, posto: posto)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint(L10n.tr("Ajusta o horário proposto"))
+                .accessibilityIdentifier("dashboard-proposto-\(bloco.id)")
+            case .prazo:
+                conteudo(bloco, posto: posto)
+            }
+        }
+        .offset(x: CGFloat(posto.x), y: y)
+        .help(rotulo(bloco))
+        .accessibilityLabel(rotulo(bloco))
+    }
+
+    private func conteudo(_ bloco: PlanoDoDia.Bloco, posto: PlanoDoDia.Posto) -> some View {
         HStack(spacing: Self.entreTituloEDuracao) {
             // Sempre o título, inteiro: a largura foi calculada para ele caber.
             // "Te…", ou um chip escrito "01:00", não dizem o que está agendado.
@@ -238,11 +291,7 @@ struct PainelLinhaDoTempo: View {
         .background(fundo(bloco))
         .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
         .overlay { borda(bloco) }
-        .offset(x: CGFloat(posto.x), y: y)
         .contentShape(Rectangle())
-        .onTapGesture { if bloco.tipo == .proposto { onTapProposto(bloco) } }
-        .help(rotulo(bloco))
-        .accessibilityLabel(rotulo(bloco))
     }
 
     private static let tamanhoDoTitulo: CGFloat = 11.5

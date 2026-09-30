@@ -272,6 +272,8 @@ public final class MailStore {
     private struct DashboardFocusCacheKey: Equatable {
         var messagesRevision: UInt
         var accountID: String?
+        var accountIDs: Set<String>
+        var referenceDay: Date
         var nowMinute: Int
         var agendaFingerprint: Int
         var pendingCount: Int
@@ -2454,14 +2456,18 @@ public final class MailStore {
 
     /// Recorte da aba Dashboard. Cacheado: o `body` da aba lia a caixa
     /// inteira várias vezes por quadro, e era isso que congelava a troca.
-    public func dashboardFocus(nowMinute: Int) -> DashboardFocus {
+    public func dashboardFocus(nowMinute: Int, now: Date? = nil, accountIDs: Set<String> = []) -> DashboardFocus {
+        let day = Calendar.current.startOfDay(for: now ?? agendaReferenceDate)
+        let reference = Calendar.current.date(byAdding: .minute, value: nowMinute, to: day) ?? day
         let revision = messagesRevision
         let account = selectedAccountID
-        let pending = visiblePendingItems
-        let agendaVisible = visibleAgenda
+        let pending = visiblePendingItems.filter { accountIDs.isEmpty || accountIDs.contains($0.accountID) }
+        let agendaVisible = dashboardAgenda(accountIDs: accountIDs)
         let key = DashboardFocusCacheKey(
             messagesRevision: revision,
             accountID: account,
+            accountIDs: accountIDs,
+            referenceDay: Calendar.current.startOfDay(for: reference),
             nowMinute: nowMinute,
             agendaFingerprint: agendaProjectionFingerprint(),
             pendingCount: pending.count
@@ -2475,21 +2481,37 @@ public final class MailStore {
         let myAddresses = Set(accounts.map { $0.address.lowercased() })
         for i in index.ranked {
             if let account, index.accountIDs[i] != account { continue }
-            guard DashboardFocus.isActiveCandidate(messages[i]),
+            if !accountIDs.isEmpty, !accountIDs.contains(index.accountIDs[i]) { continue }
+            guard DashboardFocus.isRelevantCandidate(messages[i], now: reference),
                   !myAddresses.contains(messages[i].from.address.lowercased()) else { continue }
             candidates.append(messages[i])
             if candidates.count >= DashboardFocus.candidateCap { break }
         }
         let value = DashboardFocus.snapshot(
             // Enviados são evidência de trabalho concluído, não candidatos.
-            messages: candidates + messages.filter { $0.bucket == .sent && (account == nil || $0.accountID == account) },
+            messages: candidates + messages.filter {
+                $0.bucket == .sent && (account == nil || $0.accountID == account)
+                    && (accountIDs.isEmpty || accountIDs.contains($0.accountID))
+            },
             agenda: agendaVisible,
             pending: pending,
             nowMinute: nowMinute,
-            accountID: nil
+            accountID: nil,
+            now: reference
         )
         dashboardFocusCache = (key, value)
         return value
+    }
+
+    /// Calendários sem vínculo com uma caixa continuam visíveis em todos os
+    /// negócios, como na Agenda. Contas conhecidas seguem o recorte do painel.
+    public func dashboardAgenda(accountIDs: Set<String> = []) -> [AgendaItem] {
+        let knownAccounts = Set(accounts.map(\.id))
+        return calendarAgenda.filter { item in
+            !knownAccounts.contains(item.accountID)
+                || ((selectedAccountID == nil || selectedAccountID == item.accountID)
+                    && (accountIDs.isEmpty || accountIDs.contains(item.accountID)))
+        }
     }
 
     // MARK: - A agenda que sobrevive ao fechar o app

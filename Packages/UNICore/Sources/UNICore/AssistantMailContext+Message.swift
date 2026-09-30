@@ -35,10 +35,18 @@ public extension AssistantMailContext {
     /// Constrói o retrato do botão global. A seleção atual fica deliberadamente
     /// de fora: este caminho representa o ambiente do app, não o e-mail aberto.
     @MainActor
-    init(workspace store: MailStore, dashboardOnly: Bool = false) {
+    init(workspace store: MailStore, dashboardOnly: Bool = false,
+         nowMinute: Int? = nil, dashboardAccountIDs: Set<String> = []) {
+        let minute = nowMinute ?? Calendar.current.component(.hour, from: Date()) * 60
+            + Calendar.current.component(.minute, from: Date())
+        let focus = dashboardOnly
+            ? store.dashboardFocus(nowMinute: minute, accountIDs: dashboardAccountIDs) : nil
+        let scopedAccount: (String) -> Bool = { id in
+            !dashboardOnly || ((store.selectedAccountID == nil || store.selectedAccountID == id)
+                && (dashboardAccountIDs.isEmpty || dashboardAccountIDs.contains(id)))
+        }
         let sourceMessages = dashboardOnly
-            ? store.dashboardFocus(nowMinute: Calendar.current.component(.hour, from: Date()) * 60
-                + Calendar.current.component(.minute, from: Date())).mail.map(\.message)
+            ? focus?.mail.map(\.message) ?? []
             : store.messages
         let emails = sourceMessages
             .sorted { lhs, rhs in
@@ -61,14 +69,17 @@ public extension AssistantMailContext {
                 )
         }
         let mailboxes = TriageBucket.allCases.map { bucket in
-            let messages = store.messages.filter { store.includes($0, in: bucket) }
+            let messages = (dashboardOnly ? sourceMessages : store.messages).filter { store.includes($0, in: bucket) }
             return AssistantMailboxContext(
                 name: bucket.label,
                 totalCount: messages.count,
                 unreadCount: messages.filter { !$0.isRead }.count
             )
         }
-        let agenda = (dashboardOnly ? store.calendarAgenda.filter { !$0.isCancelled && (0...7).contains($0.dayOffset) } : store.agenda)
+        let agenda = (dashboardOnly ? store.dashboardAgenda(accountIDs: dashboardAccountIDs).filter {
+            !$0.isCancelled && (0...7).contains($0.dayOffset)
+                && ($0.dayOffset > 0 || $0.endMinute > minute)
+        } : store.agenda)
             .sorted {
                 let lhs = ($0.dayOffset, $0.startMinute, $0.title)
                 let rhs = ($1.dayOffset, $1.startMinute, $1.title)
@@ -85,10 +96,10 @@ public extension AssistantMailContext {
                     place: place?.isEmpty == false ? place : nil
                 )
             }
-        let accounts = store.accounts.map { account in
+        let accounts = store.accounts.filter { scopedAccount($0.id) }.map { account in
             "\(account.displayName) · \(account.address) · \(account.host)"
         }
-        let pendingItems = store.pendingItems.map { item in
+        let pendingItems = (dashboardOnly ? focus?.pending ?? [] : store.pendingItems).map { item in
             AssistantPendingContext(
                 text: item.text,
                 account: store.account(item.accountID)?.address ?? item.accountID
@@ -102,7 +113,9 @@ public extension AssistantMailContext {
             mailboxes: mailboxes,
             emails: emails,
             agenda: agenda,
-            pendingItems: pendingItems
+            pendingItems: pendingItems,
+            referenceDate: dashboardOnly ? Calendar.current.date(byAdding: .minute, value: minute,
+                to: store.agendaReferenceDate) : nil
         ))
     }
 }

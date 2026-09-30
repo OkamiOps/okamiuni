@@ -205,6 +205,8 @@ public final class AssistantConversation {
     private let engine: AssistantEngine
     @ObservationIgnored private var currentTask: Task<Void, Never>?
     @ObservationIgnored private var lastAction: Action?
+    @ObservationIgnored private var briefingInputKey: String?
+    @ObservationIgnored private var briefingRequestedAt: Date?
 
     enum Action: Equatable {
         case ask(String)
@@ -318,15 +320,34 @@ public final class AssistantConversation {
 
     public func briefing() { start(.briefing) }
 
+    /// A abertura do painel e mudanças relevantes renovam o resumo. O mesmo
+    /// contexto não dispara de novo em cada renderização ou após uma falha.
+    public func refreshBriefingIfNeeded(
+        inputKey: String, now: Date = Date(), maximumAge: TimeInterval = 900
+    ) {
+        if briefingInputKey == inputKey, let requested = briefingRequestedAt,
+           now.timeIntervalSince(requested) < maximumAge { return }
+        cancel()
+        briefingInputKey = inputKey
+        briefingRequestedAt = now
+        start(.briefing)
+    }
+
     public func invalidateBriefing() {
         cancel()
         briefingText = nil
         failure = nil
+        briefingInputKey = nil
+        briefingRequestedAt = nil
     }
 
     /// Fechar a superfície chama isto. Cancelamento não é falha: quem
     /// fechou a janela não precisa ver "não foi possível responder".
     public func cancel() {
+        if isLoading, lastAction == .briefing {
+            briefingInputKey = nil
+            briefingRequestedAt = nil
+        }
         currentTask?.cancel()
         currentTask = nil
         isLoading = false
@@ -339,6 +360,8 @@ public final class AssistantConversation {
         failure = nil
         briefingText = nil
         lastAction = nil
+        briefingInputKey = nil
+        briefingRequestedAt = nil
     }
 
     public func retry() {
