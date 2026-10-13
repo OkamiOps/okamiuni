@@ -4,6 +4,14 @@
 
 Versions correspond to [GitHub releases](https://github.com/OkamiOps/okamiuni/releases). All dates below are in 2026.
 
+## 0.5.6 — October 13
+
+- Automatic updates: OkamiUNI checks for new versions at launch and every 6 hours, downloads them in the background and shows a small button in the sidebar with what changed. "Install and relaunch" updates on the spot; otherwise the update is installed when you quit the app.
+- Silent mode for those who prefer it (Settings → General → Updates): installs on quit without any button, and the next launch shows once what changed.
+- "Check for Updates…" in the app menu, and Settings shows the current version with a "Check now" button.
+- Releases are now signed with Developer ID and notarized by Apple, so the app opens on any Mac without being blocked. Each update package is also signed with OkamiUNI's own key and is never installed if the signature does not match.
+- App version 0.5.6, build 11. [Release notes](docs/releases/v0.5.6.md).
+
 ## 0.5.5 — October 13
 
 - Accepting or answering a calendar invite no longer creates a copy of the event in Google Calendar. The reply is still sent to the organizer, but the event stays the organizer's: OkamiUNI keeps it only in its own agenda and recognizes the original that Google already shows, even after the organizer reschedules. Before, every accepted reschedule left an extra event owned by you, without guests and with its own Meet link.
