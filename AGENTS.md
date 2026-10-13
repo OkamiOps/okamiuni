@@ -32,6 +32,14 @@ público. Nunca imprima o valor de uma senha no terminal ou no chat.
 - `xcrun notarytool history --keychain-profile okamiuni-notary` deve
   responder. Se o perfil sumiu, recrie a partir do Keychain:
   `xcrun notarytool store-credentials okamiuni-notary --apple-id msant262@gmail.com --team-id 7U9S5DB9K9 --password "$(security find-generic-password -s okami_asc_pw -a msant262@gmail.com -w)"`
+- O perfil `okamiuni-notary` mora no Keychain protegido do macOS e some
+  ("No Keychain password item found") enquanto a tela está bloqueada. O
+  `Tools/publicar-release.sh` já cai sozinho para a senha `okami_asc_pw` do
+  Keychain de login nesse caso; comandos avulsos podem fazer o mesmo com
+  `--apple-id msant262@gmail.com --team-id 7U9S5DB9K9 --password "$(security find-generic-password -s okami_asc_pw -a msant262@gmail.com -w)"`.
+- A primeira notarização de um certificado novo pode levar horas na Apple;
+  rode a publicação desacoplada (`nohup … &`) para não ser morta por limite de
+  tempo da sessão.
 - Só pergunte ao dono se a senha de app tiver sido revogada pela Apple (a
   validação do `store-credentials` falha com erro de autenticação).
 

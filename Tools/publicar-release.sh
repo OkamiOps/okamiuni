@@ -143,9 +143,25 @@ if security find-identity -v -p codesigning 2>/dev/null | grep -q "Developer ID 
   HAVE_DEVID=1
 fi
 
+# Credencial do notarytool. O perfil mora no Keychain protegido do macOS, que
+# fica inacessível com a tela bloqueada — e uma notarização pode levar horas.
+# Sem ele, usa a senha de app guardada no Keychain de login (`okami_asc_pw`),
+# que continua legível. Ver AGENTS.md.
+NOTARY_ARGS=()
 HAVE_NOTARY=0
 if xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
+  NOTARY_ARGS=(--keychain-profile "$NOTARY_PROFILE")
   HAVE_NOTARY=1
+else
+  NOTARY_PW="$(security find-generic-password -s okami_asc_pw -a msant262@gmail.com -w 2>/dev/null || true)"
+  if [[ -n "$NOTARY_PW" ]]; then
+    NOTARY_ARGS=(--apple-id msant262@gmail.com --team-id 7U9S5DB9K9 --password "$NOTARY_PW")
+    if xcrun notarytool history "${NOTARY_ARGS[@]}" >/dev/null 2>&1; then
+      log "perfil '$NOTARY_PROFILE' inacessível; usando a senha de app do Keychain de login"
+      HAVE_NOTARY=1
+    fi
+  fi
+  unset NOTARY_PW
 fi
 
 # O sign_update vem nos artefatos do pacote do Sparkle. Procura primeiro no
@@ -317,7 +333,7 @@ if [[ $HAVE_DEVID -eq 1 && $HAVE_NOTARY -eq 1 ]]; then
 
   log "enviando para o notarytool (--wait)"
   NOTARY_LOG="$WORK_DIR/notarytool-submit.log"
-  if ! xcrun notarytool submit "$NOTARIZE_ZIP" --keychain-profile "$NOTARY_PROFILE" --wait \
+  if ! xcrun notarytool submit "$NOTARIZE_ZIP" "${NOTARY_ARGS[@]}" --wait \
       > "$NOTARY_LOG" 2>&1; then
     err "notarytool submit falhou — log em $NOTARY_LOG"
     cat "$NOTARY_LOG" >&2
@@ -329,7 +345,7 @@ if [[ $HAVE_DEVID -eq 1 && $HAVE_NOTARY -eq 1 ]]; then
     SUBMISSION_ID="$(awk -F': ' '/^[ ]*id:/{print $2; exit}' "$NOTARY_LOG")"
     err "notarização não foi aceita"
     if [[ -n "$SUBMISSION_ID" ]]; then
-      xcrun notarytool log "$SUBMISSION_ID" --keychain-profile "$NOTARY_PROFILE" || true
+      xcrun notarytool log "$SUBMISSION_ID" "${NOTARY_ARGS[@]}" || true
     fi
     exit 1
   fi
