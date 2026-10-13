@@ -312,6 +312,11 @@ public struct FolderSidebar: View {
     let onCompose: (() -> Void)?
     let onOpenAccounts: (() -> Void)?
 
+    /// O estado das atualizações. `nil` em Debug, nos ensaios e em qualquer
+    /// ponto de chamada sem atualizador — e aí o rodapé fica exatamente como
+    /// antes, sem reservar espaço para um botão que não vai aparecer.
+    let updates: UpdateController?
+
     /// Qual caixa está esperando a confirmação de "Esvaziar lixeira".
     ///
     /// É o **único** destrutivo sem volta do app, e o único que pergunta antes.
@@ -330,7 +335,8 @@ public struct FolderSidebar: View {
         onOpenAssistant: @escaping () -> Void = {},
         onOpenSettings: @escaping () -> Void = {},
         onCompose: (() -> Void)? = nil,
-        onOpenAccounts: (() -> Void)? = nil
+        onOpenAccounts: (() -> Void)? = nil,
+        updates: UpdateController? = nil
     ) {
         self.store = store
         self.width = width
@@ -340,6 +346,7 @@ public struct FolderSidebar: View {
         self.onOpenSettings = onOpenSettings
         self.onCompose = onCompose
         self.onOpenAccounts = onOpenAccounts
+        self.updates = updates
     }
 
     public var body: some View {
@@ -413,6 +420,12 @@ public struct FolderSidebar: View {
                     onOpenAssistant: onOpenAssistant,
                     onOpenSettings: onOpenSettings
                 )
+                // A notícia da versão nova fica **acima** da linha de contas e
+                // abaixo do cartão da IA: é o canto do rodapé onde o olho já
+                // passa, e um ponto de acento ali não disputa com nada.
+                if let updates, updates.showsReadyButton {
+                    UpdateReadyButton(controller: updates)
+                }
                 if onOpenAccounts != nil {
                     accountsButton
                 }

@@ -9,5 +9,20 @@
   <key>com.apple.security.network.server</key><true/>
   <key>com.apple.security.personal-information.calendars</key><true/>
   <key>com.apple.security.files.user-selected.read-write</key><true/>
+  <!-- As duas exceções que o Sparkle 2 pede num app em sandbox.
+       `-spks` é o serviço que lança o instalador (Installer.xpc embarcado no
+       framework) e `-spki` é o canal de progresso com ele; sem as duas, o
+       sandbox recusa o `bootstrap_look_up` e a instalação para com
+       SUInstallationError sem explicação na tela.
+       `Downloader.xpc` NÃO entra aqui: ele existe para apps sem
+       `network.client`, e este app tem. Ver a página "Sandboxing" da
+       documentação do Sparkle.
+       Em Debug o atualizador nunca sobe (ver UpdaterComposition), e por isso
+       OkamiUNI-Debug.entitlements continua sem estas duas linhas. -->
+  <key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
+  <array>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)-spks</string>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)-spki</string>
+  </array>
 </dict>
 </plist>

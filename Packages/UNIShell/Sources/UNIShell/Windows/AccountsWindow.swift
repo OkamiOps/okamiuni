@@ -91,6 +91,9 @@ public struct AccountsWindow: View {
     /// destinos concretos em vez de pedir que a pessoa digite um nome.
     private let mailStore: MailStore?
     private let meetingRooms: MeetingRoomSettingsStore?
+    /// O estado das atualizações, lido pelo cartão de Geral. `nil` em Debug e
+    /// nos testes — ver `GeneralSettingsView.updatesCard`.
+    private let updates: UpdateController?
     @State private var selectedSection: SettingsSection
     @State private var selectedAccountID: String?
     @State private var addingAccount = false
@@ -111,7 +114,8 @@ public struct AccountsWindow: View {
         themes: ThemeStore? = nil,
         swipes: SwipeSettingsStore? = nil,
         mailStore: MailStore? = nil,
-        meetingRooms: MeetingRoomSettingsStore? = nil
+        meetingRooms: MeetingRoomSettingsStore? = nil,
+        updates: UpdateController? = nil
     ) {
         self.model = model
         self.assistantSettings = assistantSettings
@@ -125,6 +129,7 @@ public struct AccountsWindow: View {
         self.swipes = swipes
         self.mailStore = mailStore
         self.meetingRooms = meetingRooms
+        self.updates = updates
         _selectedSection = State(initialValue: initialSection)
         _selectedAccountID = State(initialValue: model.statuses.first?.accountID)
     }
@@ -283,6 +288,7 @@ public struct AccountsWindow: View {
                     liteLLMOAuthAuthorizer: liteLLMOAuthAuthorizer,
                     providerOAuthAuthorizer: providerOAuthAuthorizer,
                     backlogAnalysis: backlogAnalysis,
+                    updates: updates,
                     themes: themes,
                     swipes: swipes,
                     moveDestinations: swipeMoveDestinations

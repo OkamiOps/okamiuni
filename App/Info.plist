@@ -19,6 +19,29 @@
   <string>$(OKAMIUNI_GOOGLE_CLIENT_ID)</string>
   <key>OkamiUNIGoogleClientSecret</key>
   <string>$(OKAMIUNI_GOOGLE_CLIENT_SECRET)</string>
+  <!-- O atualizador (Sparkle 2). Em Debug ele nunca sobe — ver
+       UpdaterComposition — mas as chaves ficam aqui de todo jeito: o
+       Info.plist é um só, e o SPUUpdater lê o feed e a chave pública daqui em
+       vez de do código. -->
+
+  <!-- Obrigatória num app em sandbox: o Sparkle não pode instalar de dentro
+       da caixa, então ele lança o Installer.xpc embarcado no framework. Ver a
+       página "Sandboxing" da documentação do Sparkle e as duas exceções de
+       mach-lookup em OkamiUNI.entitlements. O Downloader.xpc NÃO é preciso:
+       este app já tem com.apple.security.network.client. -->
+  <key>SUEnableInstallerLauncherService</key><true/>
+  <key>SUFeedURL</key><string>https://okamiops.github.io/okamiuni/appcast.xml</string>
+  <!-- A chave pública EdDSA (ed25519) dos releases. A privada fica no
+       Keychain de login de quem publica e nunca entra neste repositório. Um
+       appcast assinado com outra chave é recusado e nada é instalado. -->
+  <key>SUPublicEDKey</key><string>+pfQBbz8gIzPjZzWaqY/NCxsyvS7oBaP6ERFj2UGr3I=</string>
+  <!-- Procura sozinho, sem o diálogo "deseja verificar automaticamente?" que
+       o Sparkle mostraria na primeira abertura. A pessoa pode desligar isto em
+       Configurações ▸ Geral ▸ Atualizações. -->
+  <key>SUEnableAutomaticChecks</key><true/>
+  <!-- Seis horas, em segundos. -->
+  <key>SUScheduledCheckInterval</key><integer>21600</integer>
+
   <key>CFBundleURLTypes</key>
   <array>
     <dict>

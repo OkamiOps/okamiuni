@@ -54,6 +54,11 @@ struct OkamiUNIApp: App {
     /// destacada dividem esta — é o que faz a conversa ser a mesma nas duas.
     /// Mora no app porque uma cena não alcança o `@State` de outra.
     @State private var assistantSession = AssistantSession()
+    /// O estado das atualizações. **Nulo em Debug**, e é de propósito: ver
+    /// `UpdaterComposition`. Mora no app, e não dentro de uma cena, porque três
+    /// superfícies o leem — o rodapé da lateral, Configurações ▸ Geral e o item
+    /// "Procurar atualizações…" do menu do app.
+    @State private var updates: UpdateController?
 
     private var composerIntelligence: ComposerIntelligenceGenerator {
         AssistantBridge.composerGenerator(using: composition.textAssistant)
@@ -136,6 +141,9 @@ struct OkamiUNIApp: App {
         if WindowCapture.fromProcess != nil || KeyboardRehearsal.fromProcess != nil {
             WindowCapture.seedForCapture(mailStore)
         }
+        // O atualizador. Em Debug isto é `nil` e nada do atualizador existe —
+        // nem o botão da lateral, nem o ciclo de seis horas.
+        _updates = State(initialValue: UpdaterComposition.make(database: composicao.database))
     }
 
     /// A pausa da fila, quando existe. O modelo observa o banco; ela aparece
@@ -193,7 +201,8 @@ struct OkamiUNIApp: App {
                     readyDrafts: composition.readyDrafts,
                     // O "Gerar as prontas" do painel do dia fala com a fila.
                     readyDraftQueue: composition.readyDraftQueue,
-                    assistantSession: assistantSession
+                    assistantSession: assistantSession,
+                    updates: updates
                 )
             }
                 // Porta de depuração: `open -g --args --nova-mensagem` abre a
@@ -245,6 +254,11 @@ struct OkamiUNIApp: App {
                 // inteiro comprime até 100. Então 600 aqui é 600 de conteúdo,
                 // 632 de janela.
                 .frame(minWidth: 860, minHeight: 600)
+                // O atualizador liga junto com a primeira janela, e não no
+                // `init`: a busca de abertura é rede, e rede no `init` de um
+                // `App` atrasa o primeiro quadro. Em Debug, `updates` é nulo e
+                // isto não faz nada.
+                .task { updates?.start() }
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1440, height: 916)
@@ -265,6 +279,15 @@ struct OkamiUNIApp: App {
             // ao lado delas — duas entradas ali confundiriam o que abre com
             // ⌘,.
             CommandGroup(replacing: .appSettings) { AccountsCommand() }
+            // "Procurar atualizações…" logo depois de "Sobre o OkamiUNI", que
+            // é onde o macOS inteiro o põe. Sem tecla de atalho: é uma ação
+            // rara, e toda combinação livre já significa outra coisa em algum
+            // app. Em Debug o item não existe — ver `UpdaterComposition`.
+            CommandGroup(after: .appInfo) {
+                if let updates {
+                    CheckForUpdatesCommand(updates: updates)
+                }
+            }
         }
 
         // As quatro janelas da Task U. Cenas de verdade, não folhas: o protótipo
@@ -375,7 +398,8 @@ struct OkamiUNIApp: App {
                         themes: themes,
                         swipes: swipes,
                         mailStore: mailStore,
-                        meetingRooms: meetingRooms
+                        meetingRooms: meetingRooms,
+                        updates: updates
                     )
                 } else {
                     // Sem diretor não há o que gerenciar — e dizer isso é
@@ -498,6 +522,26 @@ private struct AccountsCommand: View {
     var body: some View {
         Button(L10n.tr("Configurações…")) { openWindow(id: UNIWindow.accounts) }
             .keyboardShortcut(",", modifiers: .command)
+    }
+}
+
+/// "Procurar atualizações…" do menu do app.
+///
+/// É uma `View` pela mesma razão que `AccountsCommand`: um item de menu do
+/// SwiftUI é um `View`, e o resultado da busca aparece em Configurações ▸
+/// Geral, que é onde a linha de versão e o "Procurar agora" já moram.
+private struct CheckForUpdatesCommand: View {
+    @Environment(\.openWindow) private var openWindow
+    let updates: UpdateController
+
+    var body: some View {
+        Button(L10n.tr("Procurar atualizações…")) {
+            // Abre Configurações junto: sem isso, um "não há nada novo" não
+            // teria onde aparecer, e o item de menu seria um botão mudo.
+            openWindow(id: UNIWindow.accounts)
+            updates.checkNow()
+        }
+        .disabled(updates.isChecking)
     }
 }
 

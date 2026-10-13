@@ -123,6 +123,9 @@ public struct InboxScreen: View {
     /// nos dois lugares" ser verdade. O padrão é uma sessão local, para
     /// previews e para o harness.
     let assistantSession: AssistantSession
+    /// O estado das atualizações, para o rodapé da lateral poder acender o
+    /// botão da versão nova. `nil` nas previews e no harness.
+    let updates: UpdateController?
 
     public init(
         store: MailStore,
@@ -139,7 +142,8 @@ public struct InboxScreen: View {
         backlogAnalysis: BacklogAnalysisController? = nil,
         readyDrafts: ReadyDraftsModel? = nil,
         readyDraftQueue: ReadyDraftCoordinator? = nil,
-        assistantSession: AssistantSession? = nil
+        assistantSession: AssistantSession? = nil,
+        updates: UpdateController? = nil
     ) {
         self.init(
             store: store,
@@ -157,6 +161,7 @@ public struct InboxScreen: View {
             readyDrafts: readyDrafts,
             readyDraftQueue: readyDraftQueue,
             assistantSession: assistantSession,
+            updates: updates,
             debugAssistantOpen: false,
             debugReaderAssistantOpen: false
         )
@@ -180,6 +185,7 @@ public struct InboxScreen: View {
         readyDrafts: ReadyDraftsModel? = nil,
         readyDraftQueue: ReadyDraftCoordinator? = nil,
         assistantSession: AssistantSession? = nil,
+        updates: UpdateController? = nil,
         debugAssistantOpen: Bool,
         debugAssistantScope: InboxAssistantScope = .workspace,
         debugReaderAssistantOpen: Bool = false,
@@ -200,6 +206,7 @@ public struct InboxScreen: View {
         self.readyDrafts = readyDrafts
         self.readyDraftQueue = readyDraftQueue
         self.assistantSession = assistantSession ?? AssistantSession()
+        self.updates = updates
         self.composerIntelligence = textAssistant.map {
             AssistantBridge.composerGenerator(using: $0)
         }
@@ -510,7 +517,8 @@ public struct InboxScreen: View {
                         onOpenAssistant: openWorkspaceAssistant,
                         onOpenSettings: openAccounts,
                         onCompose: openNewMessage,
-                        onOpenAccounts: openAccounts
+                        onOpenAccounts: openAccounts,
+                        updates: updates
                     )
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 } else {

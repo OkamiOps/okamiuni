@@ -24,6 +24,14 @@ packages:
     path: Packages/UNIShell
   UNISync:
     path: Packages/UNISync
+  # O atualizador. Fica **fora** dos pacotes locais de propósito: `UNIShell`
+  # declara só o protocolo `UpdateEngine` e é testado contra um motor de
+  # mentira, enquanto a implementação que fala com o Sparkle mora no alvo do
+  # app. Sem isso, `swift test` do `UNIShell` baixaria um binário assinado da
+  # rede para rodar testes de View.
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: 2.10.0
 
 configFiles:
   Debug: Config/Google.xcconfig
@@ -64,6 +72,10 @@ targets:
         product: UNIShell
       - package: UNISync
         product: UNISync
+      # O Sparkle entra **só** aqui. Ele traz um framework com XPC Services
+      # embarcados, e é o alvo do app que os assina e os embarca.
+      - package: Sparkle
+        product: Sparkle
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.okamiops.okamiuni

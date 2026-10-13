@@ -35,6 +35,10 @@ struct GeneralSettingsView: View {
     /// A ação de analisar o acervo já guardado. Opcional porque sem banco não
     /// há acervo — e nesse caso o cartão simplesmente não a oferece.
     let backlogAnalysis: BacklogAnalysisController?
+    /// O estado das atualizações. `nil` em Debug e nos testes: o atualizador
+    /// nunca sobe num build de desenvolvimento, e o cartão então diz só a
+    /// versão em uso em vez de oferecer um "Procurar agora" que não procura.
+    let updates: UpdateController?
     let scope: GeneralSettingsScope
 
     @AppStorage(AppLanguage.defaultsKey) private var interfaceLanguage = AppLanguage.portugueseBrazil.rawValue
@@ -72,10 +76,12 @@ struct GeneralSettingsView: View {
         liteLLMOAuthAuthorizer: (any LiteLLMOAuthAuthorizing)? = nil,
         providerOAuthAuthorizer: (any AssistantProviderOAuthAuthorizing)? = nil,
         backlogAnalysis: BacklogAnalysisController? = nil,
+        updates: UpdateController? = nil,
         themes: ThemeStore?,
         swipes: SwipeSettingsStore?,
         moveDestinations: [SwipeMoveDestination] = []
     ) {
+        self.updates = updates
         self.scope = scope
         self.settingsStore = settingsStore
         self.credentialStore = credentialStore
@@ -102,6 +108,7 @@ struct GeneralSettingsView: View {
                     generalWelcome
                     appearanceCard
                     languageCard
+                    updatesCard
                 case .intelligence:
                     intelligenceWelcome
                     promptCard
@@ -151,6 +158,123 @@ struct GeneralSettingsView: View {
                 )
             }
         }
+    }
+
+    /// O cartão de atualizações.
+    ///
+    /// Ele mora em Geral, e não numa seção própria, porque é uma decisão sobre
+    /// **este Mac** — a mesma família do tema e do idioma — e porque uma seção
+    /// com três controles na barra lateral custaria mais atenção do que vale.
+    ///
+    /// Sem `updates` ele continua existindo e diz a versão em uso. É o caso dos
+    /// builds de desenvolvimento: ali o atualizador está desligado de propósito
+    /// (um release instalado por cima de um build local apagaria o trabalho do
+    /// dia), e esconder o cartão faria parecer que o app não tem atualização.
+    @ViewBuilder
+    private var updatesCard: some View {
+        SettingsCard(
+            eyebrow: L10n.tr("ATUALIZAÇÕES"),
+            title: L10n.tr("O OkamiUNI se mantém em dia"),
+            subtitle: L10n.tr("As versões novas são verificadas e baixadas em segundo plano. Você escolhe quando instalar.")
+        ) {
+            SettingsLabeledRow(label: L10n.tr("Versão em uso")) {
+                Text(updates?.versionLine ?? Self.bundleVersionLine)
+                    .font(theme.mono.font(size: 11.5))
+                    .foregroundStyle(theme.ink2.color)
+                    .textSelection(.enabled)
+            }
+
+            if let updates {
+                SettingsLabeledRow(label: L10n.tr("Verificação")) {
+                    Toggle(
+                        L10n.tr("Procurar atualizações automaticamente"),
+                        isOn: Binding(
+                            get: { updates.checksAutomatically },
+                            set: { updates.checksAutomatically = $0 }
+                        )
+                    )
+                    .font(theme.sans.font(size: 11.5))
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                }
+
+                SettingsLabeledRow(label: L10n.tr("Como instalar")) {
+                    Picker("", selection: Binding(
+                        get: { updates.installMode },
+                        set: { updates.installMode = $0 }
+                    )) {
+                        ForEach(UpdateInstallMode.allCases) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    }
+                    .labelsHidden()
+                    .accessibilityLabel(L10n.tr("Como instalar"))
+                    .frame(maxWidth: 320, alignment: .leading)
+                }
+
+                // Esta linha não leva rótulo: "Verificar" ao lado de
+                // "Verificação" (a do interruptor acima) faria a pessoa ler
+                // duas vezes para descobrir que são coisas diferentes.
+                HStack(spacing: 10) {
+                    Button(L10n.tr("Procurar agora")) { updates.checkNow() }
+                        .settingsQuietButton()
+                        .disabled(updates.isChecking)
+                    // O resultado não se repete: quando a falha foi de
+                    // assinatura, a faixa logo abaixo já a explica inteira.
+                    if let resultado = updates.manualCheckMessage,
+                       resultado != updates.signatureWarning {
+                        Text(resultado)
+                            .font(theme.sans.font(size: 11))
+                            .foregroundStyle(theme.ink3.color)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                }
+
+                // O painel de mudanças também abre por aqui, e é o mesmo do
+                // botão da lateral. Duas razões: quem está em modo silencioso
+                // não tem botão nenhum e é aqui que vai procurar o que mudou; e
+                // um "Procurar agora" que encontra alguma coisa precisa mostrar
+                // o que encontrou sem mandar a pessoa para outra janela.
+                if let aviso = updates.changelogNotice {
+                    Button(aviso) { updates.showChangelog() }
+                        .settingsQuietButton()
+                        .popover(isPresented: Binding(
+                            get: { updates.isShowingChangelog },
+                            set: { $0 ? updates.showChangelog() : updates.dismiss() }
+                        )) {
+                            UpdatePanel(controller: updates)
+                        }
+                }
+
+                // Assinatura inválida não é "tente mais tarde": ou o arquivo
+                // foi trocado no caminho, ou a chave do release está errada. As
+                // duas pedem alguém olhando, e por isso o aviso **fica**.
+                if let warning = updates.signatureWarning {
+                    SettingsNotice(
+                        symbol: "exclamationmark.shield",
+                        title: L10n.tr("Atualização recusada por assinatura inválida"),
+                        text: warning
+                    )
+                    .accessibilityIdentifier("update-signature-warning")
+                }
+            } else {
+                SettingsNotice(
+                    symbol: "hammer",
+                    title: L10n.tr("Atualizações desligadas neste build"),
+                    text: L10n.tr("Builds de desenvolvimento não se atualizam: um release instalado por cima apagaria o trabalho em andamento.")
+                )
+            }
+        }
+    }
+
+    /// A versão lida do bundle, para o cartão poder dizer a verdade mesmo sem
+    /// atualizador. `internal` porque um teste a compara com o Info.plist.
+    static var bundleVersionLine: String {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String ?? "—"
+        let build = info?["CFBundleVersion"] as? String ?? "—"
+        return L10n.tr("Versão \(version) (build \(build))")
     }
 
     private var appearanceCard: some View {
