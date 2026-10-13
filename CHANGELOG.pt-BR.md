@@ -4,10 +4,17 @@
 
 Todas as versões seguem o [release no GitHub](https://github.com/OkamiOps/okamiuni/releases). Datas em 2026.
 
-## Não lançado
+## 0.5.5 — 13 de outubro
+- Aceitar ou responder um convite de calendário não cria mais uma cópia do evento no Google Agenda. A resposta continua indo ao organizador, mas o evento segue sendo dele: o OkamiUNI o guarda só na própria agenda e reconhece o original que o Google já mostra, mesmo depois de o organizador mudar o horário. Antes, cada remarcação aceita deixava um evento a mais organizado por você, sem convidados e com Meet próprio.
 - Emails HTML com pixel de rastreio antes do `<!DOCTYPE html>` (ex.: traceleads) ou enviados como fragmento solto (`<p>…</p>` sem `<html>`) não abrem mais como código-fonte. Corpos já gravados assim são consertados sozinhos na próxima abertura.
 - Pixels de rastreio (1×1 ou escondidos) continuam bloqueados mesmo com imagens remotas liberadas: um rastreador que não responde não impede mais o leitor de terminar o layout.
 - Imagens protocol-relative (`//cdn…`) carregam por HTTPS, e a altura do leitor acompanha imagens que chegam tarde em vez de cortar o fim da mensagem.
+- O assistente ganha ferramentas nativas de rascunho e se conecta a agentes externos por ACP e A2A.
+- Correções de email: destinatários, assinatura no cursor, fragmentos HTML, anexos que faltavam e janela de mensagem avulsa com o leitor completo. O compositor preserva a seleção de formatação e fecha depois de um envio aceito.
+- Correções de agenda: datas de eventos sobrevivem à meia-noite e à virada do dia, e remover uma ocorrência cancelada importada fica removida.
+- O dashboard usa o estado atual da caixa, com prioridades atuais e proativas e um briefing de IA acionável.
+- O login pela assinatura do ChatGPT (OAuth direto) volta a funcionar e a lista de modelos vem do catálogo ao vivo.
+- Versão do app 0.5.5, build 10. [Notas da versão](docs/releases/v0.5.5.pt-BR.md).
 
 ## 0.5.4 — 5 de setembro
 - Interface em português, inglês, alemão e francês, com seleção persistida nas configurações e opção de seguir o sistema.
