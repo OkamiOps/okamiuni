@@ -457,3 +457,41 @@ struct UpdateChangelogParsingTests {
         #expect(changelog == UpdateChangelog(undetermined: ["Uma coisa"]))
     }
 }
+
+@Suite("O clique no ícone de atualização")
+@MainActor
+struct UpdateIconClickTests {
+
+    @Test("sem nada novo, o clique abre o painel e já procura")
+    func cliqueSemNovidadeProcura() throws {
+        let (controller, motor, _) = try controlador("clique-parado")
+        controller.openPanel()
+        #expect(controller.isShowingChangelog)
+        #expect(motor.buscas == 1)
+        #expect(controller.isChecking)
+        #expect(controller.readyVersion == nil)
+        #expect(controller.currentVersion == "0.5.5")
+    }
+
+    @Test("com versão pronta, o clique só abre o changelog, sem procurar de novo")
+    func cliqueProntaNaoProcura() throws {
+        let (controller, motor, _) = try controlador("clique-pronta")
+        motor.emite(.ready(releaseDeExemplo))
+        controller.openPanel()
+        #expect(controller.isShowingChangelog)
+        #expect(motor.buscas == 0)
+        #expect(controller.readyVersion == "0.5.6")
+    }
+
+    @Test("a busca disparada pelo clique termina em 'versão mais recente'")
+    func cliqueTerminaEmAtual() throws {
+        let (controller, motor, _) = try controlador("clique-atual")
+        controller.openPanel()
+        motor.emite(.upToDate(userInitiated: true))
+        #expect(controller.manualCheckMessage == L10n.tr("Você está na versão mais recente"))
+        controller.dismiss()
+        #expect(!controller.isShowingChangelog)
+        #expect(controller.state == .idle)
+    }
+}
+

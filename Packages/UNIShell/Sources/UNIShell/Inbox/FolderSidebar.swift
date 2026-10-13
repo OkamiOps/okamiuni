@@ -420,14 +420,20 @@ public struct FolderSidebar: View {
                     onOpenAssistant: onOpenAssistant,
                     onOpenSettings: onOpenSettings
                 )
-                // A notícia da versão nova fica **acima** da linha de contas e
-                // abaixo do cartão da IA: é o canto do rodapé onde o olho já
-                // passa, e um ponto de acento ali não disputa com nada.
-                if let updates, updates.showsReadyButton {
-                    UpdateReadyButton(controller: updates)
-                }
-                if onOpenAccounts != nil {
-                    accountsButton
+                // O ícone de atualização mora na ponta da linha de contas,
+                // sempre visível: é o canto do rodapé onde o olho já passa, e
+                // dividir a linha não custa altura à lista de pastas.
+                if onOpenAccounts != nil || updates != nil {
+                    HStack(spacing: 4) {
+                        if onOpenAccounts != nil {
+                            accountsButton
+                        } else {
+                            Spacer(minLength: 0)
+                        }
+                        if let updates {
+                            UpdateButton(controller: updates)
+                        }
+                    }
                 }
             }
             .padding(10)

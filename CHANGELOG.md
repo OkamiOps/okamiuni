@@ -4,6 +4,11 @@
 
 Versions correspond to [GitHub releases](https://github.com/OkamiOps/okamiuni/releases). All dates below are in 2026.
 
+## 0.5.7 — October 13
+
+- Update icon always visible in the sidebar footer, next to "Accounts and providers". When a new version is ready it gets an orange dot and opens what changed; otherwise one click checks right away and shows the current version. No more trips to Settings.
+- App version 0.5.7, build 12. [Release notes](docs/releases/v0.5.7.md).
+
 ## 0.5.6 — October 13
 
 - Automatic updates: OkamiUNI checks for new versions at launch and every 6 hours, downloads them in the background and shows a small button in the sidebar with what changed. "Install and relaunch" updates on the spot; otherwise the update is installed when you quit the app.

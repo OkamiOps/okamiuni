@@ -2,16 +2,15 @@ import SwiftUI
 import UNICore
 import UNIDesign
 
-/// O botão da lateral: um ícone de download com um ponto de acento.
+/// O ícone de atualização do rodapé da lateral. Fica sempre ali.
 ///
-/// Ele só existe em um estado — atualização pronta, no modo de avisar — e é
-/// isso que o faz ser lido como notícia em vez de decoração. Um "procurar
-/// atualizações" permanente no rodapé seria um botão que na vida real nunca
-/// tem nada para dizer; o lugar desse é Ajustes, e ele está lá.
-///
-/// O ponto é o mesmo recurso que a linha da conta usa para dizer "esta precisa
-/// de você" (ver `FolderSidebar.accountRow`): 6pt, cor do acento, sem número.
-struct UpdateReadyButton: View {
+/// Sempre, e não só com versão pronta: é o lugar onde a pessoa olha para
+/// saber "estou na última?", e mandá-la a Ajustes para isso é esconder a
+/// resposta. O que vira notícia é o ponto de acento — 6pt, sem número, o mesmo
+/// recurso que a linha da conta usa para "esta precisa de você" (ver
+/// `FolderSidebar.accountRow`) — e ele só acende com versão pronta no modo de
+/// avisar.
+struct UpdateButton: View {
     @Environment(\.theme) private var theme
     @Environment(\.displayScale) private var displayScale
     let controller: UpdateController
@@ -24,64 +23,71 @@ struct UpdateReadyButton: View {
     private var aberto: Binding<Bool> {
         Binding(
             get: { controller.isShowingChangelog },
-            set: { $0 ? controller.showChangelog() : controller.dismiss() }
+            set: { $0 ? controller.openPanel() : controller.dismiss() }
         )
     }
 
+    private var pronta: Bool { controller.showsReadyButton }
+
     private var rotulo: String {
-        guard let version = controller.readyVersion else {
-            return L10n.tr("Atualização pronta")
+        if pronta, let version = controller.readyVersion {
+            return L10n.tr("Atualização \(version) pronta para instalar")
         }
-        return L10n.tr("Atualização \(version) pronta para instalar")
+        return L10n.tr("Procurar atualizações…")
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            Button { controller.showChangelog() } label: {
-                ZStack(alignment: .topTrailing) {
-                    Image(systemName: "arrow.down.circle")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(theme.ink2.color)
-                        .accessibilityHidden(true)
+        Button { controller.openPanel() } label: {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: "arrow.down.circle")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle((pronta ? theme.ink2 : theme.ink3).color)
+                    .frame(width: Self.side, height: Self.side)
+                    .accessibilityHidden(true)
+                if pronta {
                     Circle()
                         .fill(theme.accent.color)
                         .frame(width: Self.dotSize, height: Self.dotSize)
-                        .offset(x: 1, y: -1)
+                        .offset(x: -6, y: 6)
                         .accessibilityHidden(true)
                 }
-                .frame(width: Self.side, height: Self.side)
-                .background(
-                    theme.surface3.color,
-                    in: RoundedRectangle(cornerRadius: theme.radiusSmall)
-                )
-                .overlay {
+            }
+            .frame(width: Self.side, height: Self.side)
+            .background {
+                if pronta {
+                    RoundedRectangle(cornerRadius: theme.radiusSmall)
+                        .fill(theme.surface3.color)
+                }
+            }
+            .overlay {
+                if pronta {
                     RoundedRectangle(cornerRadius: theme.radiusSmall)
                         .strokeBorder(
                             theme.accentLine.color,
                             lineWidth: Hairline.thickness(displayScale)
                         )
                 }
-                .contentShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
             }
-            .buttonStyle(.plain)
-            .focusRing(cornerRadius: theme.radiusSmall)
-            .help(rotulo)
-            .accessibilityLabel(rotulo)
-            .accessibilityIdentifier("update-ready-button")
-            .popover(isPresented: aberto, arrowEdge: .trailing) {
-                UpdatePanel(controller: controller)
-            }
-            Spacer(minLength: 0)
+            .contentShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
+        .help(rotulo)
+        .accessibilityLabel(rotulo)
+        .accessibilityIdentifier("update-button")
+        .popover(isPresented: aberto, arrowEdge: .trailing) {
+            UpdatePanel(controller: controller)
         }
     }
 }
 
-/// O painel compacto que o botão abre — e o mesmo que o anúncio "atualizado
+/// O painel compacto que o ícone abre — e o mesmo que o anúncio "atualizado
 /// para X" de Ajustes abre.
 ///
-/// É um painel só para os dois casos porque o conteúdo é o mesmo pergunta por
-/// pergunta: que versão, o que mudou, onde ler o resto. O que muda é o rodapé:
-/// uma atualização pronta oferece duas ações, uma já instalada só se fecha.
+/// Três casos, um painel: versão pronta, versão recém-instalada e "nada novo".
+/// Os dois primeiros têm o mesmo conteúdo pergunta por pergunta — que versão,
+/// o que mudou, onde ler o resto — e só o rodapé muda. O terceiro diz a versão
+/// em uso e como foi a busca que o clique disparou.
 struct UpdatePanel: View {
     @Environment(\.theme) private var theme
     @Environment(\.displayScale) private var displayScale
@@ -97,7 +103,53 @@ struct UpdatePanel: View {
         return false
     }
 
+    /// Nem pronta nem recém-instalada: o painel é o "você está na última".
+    private var semNovidade: Bool { controller.readyVersion == nil }
+
     var body: some View {
+        if semNovidade {
+            situacao
+        } else {
+            novidade
+        }
+    }
+
+    private var situacao: some View {
+        VStack(alignment: .leading, spacing: 11) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(L10n.tr("Atualizações"))
+                    .font(theme.sans.font(size: 13.5, weight: .semibold))
+                    .foregroundStyle(theme.ink.color)
+                Text(L10n.tr("Versão \(controller.currentVersion)"))
+                    .font(theme.mono.font(size: 11))
+                    .foregroundStyle(theme.ink3.color)
+            }
+            if let mensagem = controller.manualCheckMessage {
+                Text(mensagem)
+                    .font(theme.sans.font(size: 11.5))
+                    .foregroundStyle(theme.ink2.color)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Rectangle()
+                .fill(theme.line.color)
+                .frame(height: Hairline.thickness(displayScale))
+            HStack(spacing: 8) {
+                ChromeButton(
+                    L10n.tr("Procurar agora"), appearance: .outlined,
+                    size: 11.5, height: 27, horizontalPadding: 11
+                ) { controller.checkNow() }
+                .disabled(controller.isChecking)
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(14)
+        .frame(width: Self.width, alignment: .leading)
+        .background(theme.surface.color)
+        .accessibilityIdentifier("update-panel")
+        .accessibilityElement(children: .contain)
+    }
+
+    private var novidade: some View {
         VStack(alignment: .leading, spacing: 11) {
             cabecalho
             if !controller.changelogBullets.isEmpty {

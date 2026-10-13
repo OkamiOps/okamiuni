@@ -120,14 +120,18 @@ public final class UpdateController {
 
     // MARK: - Leituras da interface
 
+    /// A versão em uso, para o painel do ícone da lateral quando não há nada
+    /// novo.
+    public var currentVersion: String { engine.currentVersion }
+
     /// A linha "Versão 0.5.5 (build 10)" do cartão de Ajustes.
     public var versionLine: String {
         L10n.tr("Versão \(engine.currentVersion) (build \(engine.currentBuild))")
     }
 
-    /// O botão da lateral existe? Só com atualização pronta **e** no modo de
-    /// avisar. No modo silencioso ele não aparece nunca — é essa a promessa que
-    /// a pessoa aceitou ao escolher o silêncio.
+    /// O ícone da lateral ganha o ponto de "pronta"? Só com atualização pronta
+    /// **e** no modo de avisar. No modo silencioso o ponto não acende nunca —
+    /// é essa a promessa que a pessoa aceitou ao escolher o silêncio.
     public var showsReadyButton: Bool {
         guard case .ready = state else { return false }
         return installMode == .notify
@@ -232,6 +236,21 @@ public final class UpdateController {
 
     public func showChangelog() {
         isShowingChangelog = true
+    }
+
+    /// O clique no ícone da lateral. Com algo a mostrar — versão pronta,
+    /// recém-instalada, download ou busca em curso — só abre o painel. Sem
+    /// nada, abre e já procura: quem clicou num ícone de atualização quer
+    /// saber se há uma, e um segundo clique em "Procurar agora" seria pedir a
+    /// mesma coisa duas vezes.
+    public func openPanel() {
+        isShowingChangelog = true
+        switch state {
+        case .ready, .justUpdated, .downloading, .checking:
+            return
+        case .idle, .upToDate, .error:
+            checkNow()
+        }
     }
 
     /// Fecha o painel e limpa o que era resposta a um pedido. Nada é adiado

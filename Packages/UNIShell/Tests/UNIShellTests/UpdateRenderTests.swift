@@ -60,13 +60,35 @@ struct UpdateRenderTests {
 
     // MARK: - O botão do rodapé da lateral
 
-    /// O rodapé da barra, em pontos. O botão da versão nova nasce entre o
-    /// cartão da IA e a linha de contas, e é essa faixa que o caso mede — a
-    /// imagem inteira mudaria por qualquer outro motivo.
+    /// O rodapé da barra, em pontos. O ícone de atualização mora na ponta da
+    /// linha de contas, e é essa faixa que o caso mede — a imagem inteira
+    /// mudaria por qualquer outro motivo.
     private static let sidebarSize = CGSize(width: PaneLayout.expandedSidebarWidth, height: 700)
     private static let footerRows = 540..<700
 
-    @Test("o botão da versão nova só aparece com atualização pronta, no claro e no escuro")
+    @Test("o ícone fica sempre no rodapé, mesmo sem versão nova")
+    func iconeSempreVisivel() async throws {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+
+        let semAtualizador = try #require(Render.snapshot(
+            FolderSidebar(store: store, onOpenAccounts: {}),
+            named: "atualizacao-sem-atualizador",
+            size: Self.sidebarSize, theme: .tinta
+        ))
+        let parado = try controlador("icone-parado", pronta: false)
+        let comIcone = try #require(Render.snapshot(
+            FolderSidebar(store: store, onOpenAccounts: {}, updates: parado),
+            named: "atualizacao-icone-parado",
+            size: Self.sidebarSize, theme: .tinta
+        ))
+        #expect(
+            comIcone.pixelsDiffering(from: semAtualizador, inColumns: 0..<comIcone.pixelsWide, rows: Self.footerRows) > 0,
+            "o ícone de atualização não apareceu no rodapé sem versão nova"
+        )
+    }
+
+    @Test("o ponto de acento só acende com atualização pronta, no claro e no escuro")
     func botaoApareceSoQuandoPronta() async throws {
         for theme in [Theme.tinta, Theme.noite] {
             let store = MailStore(source: InMemoryMailSource.fixtures)
@@ -106,7 +128,7 @@ struct UpdateRenderTests {
         }
     }
 
-    /// No modo silencioso o botão **não** existe, mesmo com a atualização
+    /// No modo silencioso o ponto **não** acende, mesmo com a atualização
     /// pronta no disco. É a promessa que a pessoa aceitou ao escolher o
     /// silêncio, e ela tem de valer no desenho, não só no estado.
     @Test("no modo silencioso o rodapé fica igual ao de sempre")
