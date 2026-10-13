@@ -213,8 +213,9 @@ class BuildItemXmlTests(unittest.TestCase):
 
     def test_descriptions_are_cdata_with_both_languages(self):
         item = self._item()
-        self.assertIn('<description xml:lang="pt-BR"><![CDATA[', item)
-        self.assertIn('<description xml:lang="en"><![CDATA[', item)
+        self.assertEqual(item.count("<description>"), 1)
+        self.assertIn('<description><![CDATA[<ul lang="pt-BR">', item)
+        self.assertIn('</ul><ul lang="en">', item)
         self.assertIn("<strong>negrito</strong>", item)
         self.assertIn("<strong>bold</strong>", item)
 

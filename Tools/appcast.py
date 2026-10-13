@@ -149,6 +149,10 @@ def build_item_xml(
 ) -> str:
     html_pt = bullets_to_html_list(bullets_pt) if bullets_pt else "<ul></ul>"
     html_en = bullets_to_html_list(bullets_en) if bullets_en else "<ul></ul>"
+    notes_html = (
+        html_pt.replace("<ul>", '<ul lang="pt-BR">', 1)
+        + html_en.replace("<ul>", '<ul lang="en">', 1)
+    )
 
     return (
         "    <item>\n"
@@ -161,8 +165,10 @@ def build_item_xml(
         "</sparkle:shortVersionString>\n"
         f"      <sparkle:minimumSystemVersion>{xml_escape_attr(min_system_version)}"
         "</sparkle:minimumSystemVersion>\n"
-        f'      <description xml:lang="pt-BR"><![CDATA[{html_pt}]]></description>\n'
-        f'      <description xml:lang="en"><![CDATA[{html_en}]]></description>\n'
+        # Uma <description> só: o Sparkle guarda uma por item, escolhida pelo
+        # idioma do sistema, e descarta as outras. As duas listas vão juntas,
+        # marcadas por `lang`, e o app escolhe pelo idioma da interface.
+        f"      <description><![CDATA[{notes_html}]]></description>\n"
         f'      <enclosure url="{xml_escape_attr(url)}" length="{int(length)}" '
         'type="application/octet-stream" '
         f'sparkle:edSignature="{xml_escape_attr(signature)}" />\n'

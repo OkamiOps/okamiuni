@@ -3,8 +3,8 @@ import UNICore
 
 /// O "o que mudou" de uma versão, em duas listas.
 ///
-/// Duas, e não quatro: o appcast carrega `<description xml:lang="pt-BR">` e
-/// `<description xml:lang="en">`, porque manter quatro traduções de changelog
+/// Duas, e não quatro: o appcast carrega `<ul lang="pt-BR">` e `<ul lang="en">`
+/// numa mesma `<description>`, porque manter quatro traduções de changelog
 /// a cada release é um custo que ninguém ia pagar por muito tempo — e um
 /// changelog desatualizado é pior do que um changelog em inglês. Alemão e
 /// francês leem a lista em inglês; ver `bullets(for:)`.
@@ -58,6 +58,32 @@ public struct UpdateChangelog: Codable, Sendable, Equatable {
     }
 
     // MARK: - Leitura do HTML do appcast
+
+    /// A `<description>` única que o `Tools/appcast.py` emite: uma `<ul>` por
+    /// idioma, marcada com `lang`. É o jeito de as duas listas sobreviverem ao
+    /// Sparkle, que guarda uma `<description>` só. Sem `lang` nenhum — appcast
+    /// antigo ou escrito à mão —, a lista inteira fica sem idioma declarado.
+    public init(appcastHTML html: String) {
+        let regra = /<ul\b[^>]*\blang\s*=\s*"([^"]+)"[^>]*>(.*?)<\/ul\s*>/
+            .ignoresCase()
+            .dotMatchesNewlines()
+        var portuguese: [String] = []
+        var english: [String] = []
+        for bloco in html.matches(of: regra) {
+            let idioma = bloco.output.1.lowercased()
+            let itens = Self.bullets(fromHTML: String(bloco.output.2))
+            if idioma.hasPrefix("pt") {
+                portuguese = itens
+            } else if idioma.hasPrefix("en") {
+                english = itens
+            }
+        }
+        if portuguese.isEmpty, english.isEmpty {
+            self.init(undetermined: Self.bullets(fromHTML: html))
+        } else {
+            self.init(portuguese: portuguese, english: english)
+        }
+    }
 
     /// Quantos marcadores o painel mostra, no máximo.
     ///

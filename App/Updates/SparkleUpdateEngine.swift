@@ -262,28 +262,26 @@ final class SparkleUpdateEngine: NSObject, UpdateEngine, SPUUpdaterDelegate, SPU
 
     /// O que a tela precisa saber de um item do appcast.
     ///
-    /// As notas vão para `undetermined` de propósito. O Sparkle guarda **uma**
-    /// `<description>` por item — ele escolhe pelo idioma preferido do
-    /// **sistema** e descarta as outras (ver `-[SUAppcast bestNodeInNodes:]`) —
-    /// então o idioma da lista que chega aqui não é conhecido. Dizer "não sei"
-    /// é melhor do que carimbar a lista com um idioma adivinhado: o recuo de
-    /// `UpdateChangelog.bullets(for:)` mostra a única lista que existe em
-    /// qualquer interface, que é o comportamento certo nos dois casos.
+    /// O Sparkle guarda **uma** `<description>` por item — ele escolhe pelo
+    /// idioma preferido do **sistema** e descarta as outras (ver
+    /// `-[SUAppcast bestNodeInNodes:]`). Por isso o appcast traz as duas
+    /// listas numa só, marcadas por `lang`, e `UpdateChangelog(appcastHTML:)`
+    /// as separa. Texto puro não tem marca: fica sem idioma declarado.
     static func release(from item: SUAppcastItem) -> UpdateRelease {
-        let notas: [String]
+        let changelog: UpdateChangelog
         if let descricao = item.itemDescription {
-            notas = item.itemDescriptionFormat?.lowercased() == "plaintext"
-                ? descricao
+            changelog = item.itemDescriptionFormat?.lowercased() == "plaintext"
+                ? UpdateChangelog(undetermined: descricao
                     .components(separatedBy: .newlines)
                     .map { $0.trimmingCharacters(in: .whitespaces) }
-                    .filter { !$0.isEmpty }
-                : UpdateChangelog.bullets(fromHTML: descricao)
+                    .filter { !$0.isEmpty })
+                : UpdateChangelog(appcastHTML: descricao)
         } else {
-            notas = []
+            changelog = UpdateChangelog()
         }
         return UpdateRelease(
             version: item.displayVersionString,
-            changelog: UpdateChangelog(undetermined: notas),
+            changelog: changelog,
             // A página do release, na ordem em que o appcast pode declará-la.
             releaseURL: item.fullReleaseNotesURL ?? item.releaseNotesURL ?? item.infoURL
         )

@@ -439,4 +439,21 @@ struct UpdateChangelogParsingTests {
         #expect(UpdateChangelog.bullets(fromHTML: "<ul><li> </li><li></li></ul>").isEmpty)
         #expect(UpdateChangelog.bullets(fromHTML: "   \n  ").isEmpty)
     }
+
+    @Test("a description única do appcast separa as duas listas pelo lang")
+    func listasMarcadasPorIdioma() {
+        let html = #"<ul lang="pt-BR"><li>Convite sem cópia</li></ul><ul lang="en"><li>Invite without copy</li><li>Faster</li></ul>"#
+        let changelog = UpdateChangelog(appcastHTML: html)
+        #expect(changelog.portuguese == ["Convite sem cópia"])
+        #expect(changelog.english == ["Invite without copy", "Faster"])
+        #expect(changelog.undetermined.isEmpty)
+        #expect(changelog.bullets(for: .portugueseBrazil) == ["Convite sem cópia"])
+        #expect(changelog.bullets(for: .german) == ["Invite without copy", "Faster"])
+    }
+
+    @Test("sem lang, a lista do appcast continua sem idioma declarado")
+    func listaSemIdioma() {
+        let changelog = UpdateChangelog(appcastHTML: "<ul><li>Uma coisa</li></ul>")
+        #expect(changelog == UpdateChangelog(undetermined: ["Uma coisa"]))
+    }
 }
