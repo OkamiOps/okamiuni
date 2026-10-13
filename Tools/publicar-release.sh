@@ -211,8 +211,15 @@ trap restaurar_project_yml EXIT
 # 3. xcodegen + archive
 # ---------------------------------------------------------------------------
 
+log "garantindo o xcconfig do Google (vazio é legítimo — ver docs/oauth-google.md)"
+test -f Config/Google.xcconfig || cp Config/Google.example.xcconfig Config/Google.xcconfig
+
 log "xcodegen generate"
-xcodegen generate >/dev/null
+if ! xcodegen generate > "$WORK_DIR/xcodegen.log" 2>&1; then
+  err "xcodegen generate falhou — log em $WORK_DIR/xcodegen.log"
+  cat "$WORK_DIR/xcodegen.log" >&2
+  exit 1
+fi
 
 ARCHIVE_PATH="$WORK_DIR/OkamiUNI.xcarchive"
 log "xcodebuild archive (Release) → $ARCHIVE_PATH"
