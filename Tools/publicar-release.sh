@@ -148,10 +148,28 @@ if xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1
   HAVE_NOTARY=1
 fi
 
+# O sign_update vem nos artefatos do pacote do Sparkle. Procura primeiro no
+# cache próprio do script e no DerivedData do Xcode; sem achar, resolve os
+# pacotes no cache — assim a release não depende de onde o Xcode baixou.
+# `old_dsa_scripts/sign_update` é o assinador DSA antigo: nunca serve aqui.
+SPARKLE_PKG_CACHE="$HOME/Library/Caches/okamiuni-release/SourcePackages"
+acha_sign_update() {
+  find "$SPARKLE_PKG_CACHE" "$HOME/Library/Developer/Xcode/DerivedData" -maxdepth 7 \
+    -path '*/artifacts/*/Sparkle/bin/sign_update' -perm +111 2>/dev/null | head -1 || true
+}
 SPARKLE_BIN="${SPARKLE_BIN:-}"
 if [[ -z "$SPARKLE_BIN" ]]; then
-  SPARKLE_BIN="$(find "$HOME/Library/Developer/Xcode/DerivedData" -maxdepth 6 \
-    -path '*SourcePackages/artifacts*' -name sign_update -perm +111 2>/dev/null | head -1)"
+  SPARKLE_BIN="$(acha_sign_update)"
+fi
+if [[ -z "$SPARKLE_BIN" && -z "$SIGNATURE_OVERRIDE" ]]; then
+  log "resolvendo os pacotes Swift para achar o sign_update do Sparkle"
+  test -f Config/Google.xcconfig || cp Config/Google.example.xcconfig Config/Google.xcconfig
+  xcodegen generate >/dev/null
+  mkdir -p "$SPARKLE_PKG_CACHE"
+  xcodebuild -project OkamiUNI.xcodeproj -scheme OkamiUNI \
+    -resolvePackageDependencies -clonedSourcePackagesDirPath "$SPARKLE_PKG_CACHE" >/dev/null \
+    || log "AVISO: xcodebuild -resolvePackageDependencies falhou"
+  SPARKLE_BIN="$(acha_sign_update)"
 fi
 HAVE_SPARKLE=0
 [[ -n "$SPARKLE_BIN" && -x "$SPARKLE_BIN" ]] && HAVE_SPARKLE=1
