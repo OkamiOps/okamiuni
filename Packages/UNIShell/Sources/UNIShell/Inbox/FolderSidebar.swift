@@ -420,17 +420,23 @@ public struct FolderSidebar: View {
                     onOpenAssistant: onOpenAssistant,
                     onOpenSettings: onOpenSettings
                 )
-                // O ícone de atualização mora na ponta da linha de contas,
-                // sempre visível: é o canto do rodapé onde o olho já passa, e
-                // dividir a linha não custa altura à lista de pastas.
-                if onOpenAccounts != nil || updates != nil {
+                // Atualização: com versão pronta, uma faixa com o número e
+                // "Instalar" logo acima da linha de contas; sem versão pronta,
+                // o ícone na ponta da linha de contas, sempre visível. Os dois
+                // nunca aparecem juntos — os dois abrem o mesmo painel, e dois
+                // popovers presos ao mesmo estado abririam juntos.
+                let pronta = updates?.showsReadyButton == true
+                if let updates, pronta {
+                    UpdateReadyRow(controller: updates)
+                }
+                if onOpenAccounts != nil || (updates != nil && !pronta) {
                     HStack(spacing: 4) {
                         if onOpenAccounts != nil {
                             accountsButton
                         } else {
                             Spacer(minLength: 0)
                         }
-                        if let updates {
+                        if let updates, !pronta {
                             UpdateButton(controller: updates)
                         }
                     }

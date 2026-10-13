@@ -251,6 +251,44 @@ struct UpdateRenderTests {
         }
     }
 
+    @Test("com versão pronta, Ajustes mostra o botão de instalar no acento")
+    func cartaoComVersaoPronta() throws {
+        let parado = try controlador("ajustes-parado-btn", pronta: false)
+        let semBotao = try #require(Render.snapshot(
+            GeneralSettingsView(
+                scope: .general,
+                settingsStore: nil, credentialStore: nil, textAssistant: nil,
+                updates: parado, themes: ThemeStore(), swipes: nil
+            ),
+            named: "ajustes-parado", size: Self.settingsSize, theme: .noite
+        ))
+        let pronto = try controlador("ajustes-pronto-btn", pronta: true)
+        let comBotao = try #require(Render.snapshot(
+            GeneralSettingsView(
+                scope: .general,
+                settingsStore: nil, credentialStore: nil, textAssistant: nil,
+                updates: pronto, themes: ThemeStore(), swipes: nil
+            ),
+            named: "ajustes-pronta", size: Self.settingsSize, theme: .noite
+        ))
+        #expect(
+            comBotao.pixels(matching: Theme.noite.accent, tolerance: 0.02)
+                > semBotao.pixels(matching: Theme.noite.accent, tolerance: 0.02) + 400,
+            "o botão de instalar não foi pintado no acento"
+        )
+    }
+
+    @Test("o painel do ícone, sem versão nova, mostra a versão em uso")
+    func painelSemNovidade() throws {
+        let parado = try controlador("painel-parado", pronta: false)
+        let rep = try #require(Render.snapshot(
+            UpdatePanel(controller: parado),
+            named: "painel-sem-novidade", size: CGSize(width: UpdatePanel.width, height: 130),
+            theme: .noite
+        ))
+        #expect(rep.pixels(matching: Theme.noite.surface, tolerance: 0.01) > 10_000)
+    }
+
     /// O aviso de assinatura inválida é uma faixa que **tem** de aparecer: ela
     /// é o único lugar onde o app conta que uma atualização foi recusada.
     @Test("o aviso de assinatura inválida muda o cartão de Atualizações")

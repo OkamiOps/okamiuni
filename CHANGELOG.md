@@ -4,6 +4,12 @@
 
 Versions correspond to [GitHub releases](https://github.com/OkamiOps/okamiuni/releases). All dates below are in 2026.
 
+## 0.5.8 — October 14
+
+- A ready update now shows in the sidebar as a strip with "New version", the version number and an **Install** button, above "Accounts and providers". With nothing new, the update icon stays at the end of that row; one click checks right away.
+- In Settings → General → Updates, a ready update gets an **Install X and reopen** button, with "What changed" next to it. Before, it was a line of text that did not look clickable.
+- App version 0.5.8, build 13. [Release notes](docs/releases/v0.5.8.md).
+
 ## 0.5.7 — October 13
 
 - Update icon always visible in the sidebar footer, next to "Accounts and providers". When a new version is ready it gets an orange dot and opens what changed; otherwise one click checks right away and shows the current version. No more trips to Settings.

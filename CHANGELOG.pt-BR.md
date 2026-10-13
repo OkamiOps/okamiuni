@@ -4,6 +4,11 @@
 
 Todas as versões seguem o [release no GitHub](https://github.com/OkamiOps/okamiuni/releases). Datas em 2026.
 
+## 0.5.8 — 14 de outubro
+- Versão nova pronta agora aparece na barra lateral como uma faixa com "Nova versão", o número e o botão **Instalar**, acima de "Contas e providers". Sem versão nova, fica o ícone de atualização na ponta da mesma linha; um clique procura na hora.
+- Em Configurações → Geral → Atualizações, a versão pronta ganha o botão **Instalar X e reabrir**, com "O que mudou" ao lado. Antes era um texto que não parecia clicável.
+- Versão do app 0.5.8, build 13. [Notas da versão](docs/releases/v0.5.8.pt-BR.md).
+
 ## 0.5.7 — 13 de outubro
 - Ícone de atualização fixo no rodapé da barra lateral, ao lado de "Contas e providers". Com versão nova pronta ele ganha um ponto laranja e abre o que mudou; sem versão nova, um clique procura na hora e mostra a versão em uso. Não é mais preciso ir às Configurações.
 - Versão do app 0.5.7, build 12. [Notas da versão](docs/releases/v0.5.7.pt-BR.md).

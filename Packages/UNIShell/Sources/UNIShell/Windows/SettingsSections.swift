@@ -231,20 +231,22 @@ struct GeneralSettingsView: View {
                     Spacer(minLength: 0)
                 }
 
-                // O painel de mudanças também abre por aqui, e é o mesmo do
-                // botão da lateral. Duas razões: quem está em modo silencioso
-                // não tem botão nenhum e é aqui que vai procurar o que mudou; e
-                // um "Procurar agora" que encontra alguma coisa precisa mostrar
-                // o que encontrou sem mandar a pessoa para outra janela.
-                if let aviso = updates.changelogNotice {
-                    Button(aviso) { updates.showChangelog() }
-                        .settingsQuietButton()
-                        .popover(isPresented: Binding(
-                            get: { updates.isShowingChangelog },
-                            set: { $0 ? updates.showChangelog() : updates.dismiss() }
-                        )) {
-                            UpdatePanel(controller: updates)
+                // Versão pronta: a ação vem escrita no botão, no acento, e o
+                // "O que mudou" ao lado abre o mesmo painel da lateral. Um
+                // aviso em texto corrido não dizia que era clicável.
+                // Recém-instalada (modo silencioso): só o "O que mudou".
+                if updates.showsReadyButton, let version = updates.readyVersion {
+                    HStack(spacing: 10) {
+                        Button(L10n.tr("Instalar \(version) e reabrir")) {
+                            updates.installAndRelaunch()
                         }
+                        .settingsPrimaryButton()
+                        .accessibilityIdentifier("settings-install-update")
+                        changelogButton(updates, title: L10n.tr("O que mudou"))
+                        Spacer(minLength: 0)
+                    }
+                } else if let aviso = updates.justUpdatedNotice {
+                    changelogButton(updates, title: aviso)
                 }
 
                 // Assinatura inválida não é "tente mais tarde": ou o arquivo
@@ -266,6 +268,18 @@ struct GeneralSettingsView: View {
                 )
             }
         }
+    }
+
+    /// O botão que abre o painel de mudanças a partir de Ajustes.
+    private func changelogButton(_ updates: UpdateController, title: String) -> some View {
+        Button(title) { updates.showChangelog() }
+            .settingsQuietButton()
+            .popover(isPresented: Binding(
+                get: { updates.isShowingChangelog },
+                set: { $0 ? updates.showChangelog() : updates.dismiss() }
+            )) {
+                UpdatePanel(controller: updates)
+            }
     }
 
     /// A versão lida do bundle, para o cartão poder dizer a verdade mesmo sem
