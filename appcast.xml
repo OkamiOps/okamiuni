@@ -6,6 +6,16 @@
     <description>Atualizações do OkamiUNI</description>
     <language>pt-BR</language>
     <item>
+      <title>Version 0.5.8</title>
+      <pubDate>Tue, 13 Oct 2026 22:51:00 GMT</pubDate>
+      <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.5.8</sparkle:fullReleaseNotesLink>
+      <sparkle:version>13</sparkle:version>
+      <sparkle:shortVersionString>0.5.8</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<ul lang="pt-BR"><li>Versão nova pronta agora aparece na barra lateral como uma faixa com "Nova versão", o número e o botão <strong>Instalar</strong>, acima de "Contas e providers". Sem versão nova, fica o ícone de atualização na ponta da mesma linha; um clique procura na hora.</li><li>Em Configurações → Geral → Atualizações, a versão pronta ganha o botão <strong>Instalar X e reabrir</strong>, com "O que mudou" ao lado. Antes era um texto que não parecia clicável.</li><li>Versão do app 0.5.8, build 13. <a href="docs/releases/v0.5.8.pt-BR.md">Notas da versão</a>.</li></ul><ul lang="en"><li>A ready update now shows in the sidebar as a strip with "New version", the version number and an <strong>Install</strong> button, above "Accounts and providers". With nothing new, the update icon stays at the end of that row; one click checks right away.</li><li>In Settings → General → Updates, a ready update gets an <strong>Install X and reopen</strong> button, with "What changed" next to it. Before, it was a line of text that did not look clickable.</li><li>App version 0.5.8, build 13. <a href="docs/releases/v0.5.8.md">Release notes</a>.</li></ul>]]></description>
+      <enclosure url="https://github.com/OkamiOps/okamiuni/releases/download/v0.5.8/OkamiUNI-0.5.8.zip" length="34525968" type="application/octet-stream" sparkle:edSignature="WHf1Gqq27Itp4aXWppvkBF3oTGImJG1jODX4NRovObb5T4lVQEpKxn6frO0h6SGRRDrnp8b5MHwO+tqAcR+bCw==" />
+    </item>
+    <item>
       <title>Version 0.5.7</title>
       <pubDate>Tue, 13 Oct 2026 21:30:23 GMT</pubDate>
       <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.5.7</sparkle:fullReleaseNotesLink>
@@ -15,7 +25,7 @@
       <description><![CDATA[<ul lang="pt-BR"><li>Ícone de atualização fixo no rodapé da barra lateral, ao lado de "Contas e providers". Com versão nova pronta ele ganha um ponto laranja e abre o que mudou; sem versão nova, um clique procura na hora e mostra a versão em uso. Não é mais preciso ir às Configurações.</li><li>Versão do app 0.5.7, build 12. <a href="docs/releases/v0.5.7.pt-BR.md">Notas da versão</a>.</li></ul><ul lang="en"><li>Update icon always visible in the sidebar footer, next to "Accounts and providers". When a new version is ready it gets an orange dot and opens what changed; otherwise one click checks right away and shows the current version. No more trips to Settings.</li><li>App version 0.5.7, build 12. <a href="docs/releases/v0.5.7.md">Release notes</a>.</li></ul>]]></description>
       <enclosure url="https://github.com/OkamiOps/okamiuni/releases/download/v0.5.7/OkamiUNI-0.5.7.zip" length="34505341" type="application/octet-stream" sparkle:edSignature="rVfIbQ1gjKdLPdytSqgYegv8qQo/5dY4ROvdT9vUa++pxI5i3JcpKzHMIYZAe3ilNARWw+QLCO8Bp9aKc3qwDw==" />
     </item>
-    <item>
+<item>
       <title>Version 0.5.6</title>
       <pubDate>Tue, 13 Oct 2026 20:03:02 GMT</pubDate>
       <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.5.6</sparkle:fullReleaseNotesLink>
