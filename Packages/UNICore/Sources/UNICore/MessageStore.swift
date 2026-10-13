@@ -2910,6 +2910,11 @@ public final class MailStore {
     /// Devolve o item criado **ou atualizado**, e `nil` quando não havia o que
     /// fazer (já está lá, igual) ou quando o convite não tem começo. É o mesmo
     /// contrato de `addToAgenda(_:from:)`: só há confirmação quando algo mudou.
+    ///
+    /// **Nunca grava no EventKit.** O evento é do organizador; o provedor já o
+    /// põe e o mantém na agenda de quem foi convidado. Um `EKEvent` novo nasce
+    /// organizado pela conta do calendário — no Google, sem convidados e com
+    /// Meet próprio — e cada remarcação deixava mais uma cópia dessas.
     @discardableResult
     public func addToAgenda(_ invite: CalendarInvite, from message: Message) -> AgendaItem? {
         let id = DetectedEventConversion.agendaID(forMessageID: message.id)
@@ -2924,7 +2929,7 @@ public final class MailStore {
         case .ausente:
             agenda.append(proposto)
             agenda.sort { $0.startMinute < $1.startMinute }
-            persist(proposto)
+            persist(proposto, writeToSystemCalendar: false)
             return proposto
         case .desatualizado:
             guard let existente,
@@ -2933,7 +2938,7 @@ public final class MailStore {
             let atualizado = InviteAgenda.updated(existente, with: proposto)
             agenda[posicao] = atualizado
             agenda.sort { $0.startMinute < $1.startMinute }
-            persist(atualizado)
+            persist(atualizado, writeToSystemCalendar: false)
             return atualizado
         }
     }

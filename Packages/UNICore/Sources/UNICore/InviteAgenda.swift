@@ -207,7 +207,18 @@ public enum InviteAgenda {
                 return porUID
             }
         }
-        return agenda.first { $0.id == id }
+        if let porID = agenda.first(where: { $0.id == id }) { return porID }
+        // O original que o provedor já pôs na agenda volta pelo EventKit com
+        // a conta do sistema, não a da caixa. Sem este passo, o convite
+        // remarcado não o reencontrava e virava uma cópia nova no Google.
+        guard let uid = invite.uid else { return nil }
+        return agenda.first { isProviderOwned($0) && $0.calendarUID == uid }
+    }
+
+    /// Evento que o calendário do sistema trouxe e o OkamiUNI não criou. É do
+    /// provedor: o organizador o atualiza, e uma escrita daqui o duplicaria.
+    public static func isProviderOwned(_ item: AgendaItem) -> Bool {
+        item.id.hasPrefix("eventkit:")
     }
 
     /// O compromisso que um evento **detectado no texto** já é, se houver.
@@ -301,7 +312,7 @@ public enum InviteAgenda {
         for invite: CalendarInvite, existing: AgendaItem?, proposed: AgendaItem?
     ) -> InviteAgendaState {
         guard let existing else { return .ausente }
-        guard let proposed else { return .naAgenda }
+        guard let proposed, !isProviderOwned(existing) else { return .naAgenda }
         if (invite.sequence ?? 0) > (existing.calendarSequence ?? 0) { return .desatualizado }
         return sameSchedule(proposed, existing) ? .naAgenda : .desatualizado
     }
