@@ -110,6 +110,17 @@ Translations live in `Packages/UNICore/Sources/UNICore/Resources/*/Localizable.s
 
 The localization audit checks coverage, catalog parity and interpolation placeholders. Release-specific validation is recorded in the [v0.5.4 notes](docs/releases/v0.5.4.md); historical test totals are not a claim about a fresh full-suite run.
 
+## Publishing a release
+
+`Tools/publicar-release.sh X.Y.Z` builds a Developer ID–signed, notarized Release archive, generates the Sparkle 2 `appcast.xml`, and publishes the GitHub release plus the `gh-pages` appcast, in that order (the zip always lands before the appcast does). It requires a clean `main`, changelog sections for `X.Y.Z` in both languages, `docs/releases/vX.Y.Z.md`/`.pt-BR.md`, a "Developer ID Application" identity, a `notarytool` keychain profile named `okamiuni-notary`, and Sparkle's `sign_update` (override with `SPARKLE_BIN`).
+
+```bash
+Tools/publicar-release.sh 0.5.6 --dry-run   # build, sign, package and appcast, without publishing
+Tools/publicar-release.sh 0.5.6              # the real thing: tag, GitHub release, gh-pages
+```
+
+`--dry-run` tolerates a missing Developer ID certificate, notary profile or `sign_update` binary — it skips exactly those steps and writes its output under `/tmp/okamiuni-release-dryrun`. `--instalar` replaces `/Applications/OkamiUNI.app` with the build just produced. `Tools/appcast.py` (the appcast generator) and its tests (`python3 -I -m unittest discover -s Tools -p 'test_*.py'`) can also be run on their own.
+
 ## Roadmap and limits
 
 The native shell, account persistence, continuous sync, sending, EventKit calendar integration, AI assistant and daily planning dashboard are implemented. Version 0.5.4 adds four interface languages and bilingual documentation.

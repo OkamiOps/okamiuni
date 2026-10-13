@@ -110,6 +110,17 @@ As traduções ficam em `Packages/UNICore/Sources/UNICore/Resources/*/Localizabl
 
 A auditoria de localização verifica cobertura, paridade de catálogos e marcadores de interpolação. A validação específica da release está nas [notas da v0.5.4](docs/releases/v0.5.4.pt-BR.md); totais históricos de testes não representam uma nova execução da suíte completa.
 
+## Publicando uma release
+
+`Tools/publicar-release.sh X.Y.Z` compila um archive Release assinado com Developer ID e notarizado, gera o `appcast.xml` (Sparkle 2) e publica o release no GitHub e o appcast em `gh-pages`, nessa ordem (o zip sempre sobe antes do appcast). Exige `main` limpa, seções do changelog para `X.Y.Z` nos dois idiomas, `docs/releases/vX.Y.Z.md`/`.pt-BR.md`, uma identidade "Developer ID Application", um perfil do `notarytool` chamado `okamiuni-notary` e o `sign_update` do Sparkle (pode ser indicado via `SPARKLE_BIN`).
+
+```bash
+Tools/publicar-release.sh 0.5.6 --dry-run   # build, assinatura, empacotamento e appcast, sem publicar
+Tools/publicar-release.sh 0.5.6              # o real: tag, release no GitHub, gh-pages
+```
+
+`--dry-run` tolera a ausência do certificado Developer ID, do perfil de notarização ou do binário `sign_update` — pula exatamente essas etapas e escreve o resultado em `/tmp/okamiuni-release-dryrun`. `--instalar` troca `/Applications/OkamiUNI.app` pela build recém-gerada. O gerador de appcast (`Tools/appcast.py`) e seus testes (`python3 -I -m unittest discover -s Tools -p 'test_*.py'`) também podem ser rodados isoladamente.
+
 ## Roteiro e limitações
 
 O shell nativo, a persistência de contas, a sincronização contínua, o envio, a integração de agenda via EventKit, o assistente de IA e o painel do dia estão implementados. A versão 0.5.4 adiciona quatro idiomas de interface e documentação bilíngue.
