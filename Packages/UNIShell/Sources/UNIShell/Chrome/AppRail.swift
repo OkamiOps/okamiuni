@@ -40,6 +40,9 @@ struct AppRail: View {
     let accountMonogram: String
     /// A sincronização está em pé? É o pontinho verde no canto do avatar.
     let isSynced: Bool
+    /// Presente só com a coluna de contexto recolhida pelo dono: é o botão que
+    /// a traz de volta. Sem ele o trilho ficava sem saída (14/10/2026).
+    var onExpandSidebar: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 6) {
@@ -53,6 +56,11 @@ struct AppRail: View {
 
             ForEach(Workspace.allCases, id: \.self) { tab in
                 navigationButton(tab)
+            }
+
+            if let onExpandSidebar {
+                expandButton(onExpandSidebar)
+                    .padding(.top, 6)
             }
 
             Spacer(minLength: 8)
@@ -91,7 +99,11 @@ struct AppRail: View {
     private func navigationButton(_ tab: Workspace) -> some View {
         let active = tab == workspace
         let badge = tab == .mail ? store.unreadCount(in: .today) : 0
-        return Button { workspace = tab } label: {
+        return Button {
+            // Clicar na tela que já está no ar, com a coluna recolhida,
+            // também a abre de volta.
+            if active, let onExpandSidebar { onExpandSidebar() } else { workspace = tab }
+        } label: {
             VStack(spacing: 4) {
                 ZStack(alignment: .topTrailing) {
                     Image(systemName: symbol(for: tab))
@@ -126,6 +138,21 @@ struct AppRail: View {
         .help(tab.label)
         .accessibilityLabel(tab.label)
         .accessibilityAddTraits(active ? .isSelected : [])
+    }
+
+    private func expandButton(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "sidebar.left")
+                .font(.system(size: 15, weight: .regular))
+                .foregroundStyle(theme.ink3.color)
+                .frame(width: AppRail.actionSize, height: AppRail.actionSize)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut("s", modifiers: [.control, .command])
+        .focusRing(cornerRadius: AppRail.actionRadius)
+        .help(L10n.tr("Mostrar a barra lateral"))
+        .accessibilityLabel(L10n.tr("Mostrar a barra lateral"))
     }
 
     private func symbol(for tab: Workspace) -> String {

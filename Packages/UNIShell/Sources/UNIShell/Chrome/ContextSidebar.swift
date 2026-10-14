@@ -92,6 +92,7 @@ struct ContextSidebar: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .keyboardShortcut("s", modifiers: [.control, .command])
             .focusRing(cornerRadius: theme.radiusSmall)
             .help(L10n.tr("Recolher a barra lateral"))
             .accessibilityLabel(L10n.tr("Recolher a barra lateral"))

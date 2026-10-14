@@ -417,7 +417,8 @@ public struct InboxScreen: View {
                 onOpenAssistant: toggleDrawer,
                 onOpenSettings: openAccounts,
                 accountMonogram: accountMonogram,
-                isSynced: !chromeWorkload.status.isBusy
+                isSynced: !chromeWorkload.status.isBusy,
+                onExpandSidebar: expandSidebarAction
             )
             if contextOpen {
                 // A hairline entre o trilho e o contexto, como no protótipo:
@@ -1126,6 +1127,12 @@ public struct InboxScreen: View {
             ?? "UNI"
         let local = address.split(separator: "@", maxSplits: 1).first.map(String.init) ?? address
         return String(local.prefix(2)).uppercased()
+    }
+
+    /// O botão do trilho que devolve a coluna de contexto, só quando foi o
+    /// dono quem a recolheu.
+    private var expandSidebarAction: (() -> Void)? {
+        wantsSidebar ? nil : { toggleSidebar() }
     }
 
     private func toggleSidebar() {
