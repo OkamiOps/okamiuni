@@ -867,7 +867,12 @@ public struct MessageList: View {
                                 sectionLabel(InboxWaitingLine.restHeader, accent: false)
                             }
                             ForEach(partes.rest) { conversa in
-                                rowCell(conversa, foldersByAccount, last: conversations.last?.key, hasMore: hasMore)
+                                rowCell(
+                                    conversa, foldersByAccount,
+                                    last: conversations.last?.key, hasMore: hasMore,
+                                    // A segunda seção é a compacta do protótipo.
+                                    compact: !partes.waiting.isEmpty
+                                )
                             }
                         }
                     } else {
@@ -895,9 +900,14 @@ public struct MessageList: View {
         _ conversation: Conversation,
         _ foldersByAccount: [String: [MailFolder]],
         last: String?,
-        hasMore: Bool
+        hasMore: Bool,
+        compact: Bool = false
     ) -> some View {
-        row(conversation, folders: foldersByAccount[conversation.latest.accountID] ?? [])
+        row(
+            conversation,
+            folders: foldersByAccount[conversation.latest.accountID] ?? [],
+            compact: compact
+        )
             .id(conversation.key)
             .onAppear {
                 if hasMore, conversation.key == last { rowLimit += Self.rowPageSize }
@@ -934,7 +944,9 @@ public struct MessageList: View {
     /// Uma linha é **uma conversa**. Quando ela tem uma mensagem só — o caso
     /// das fixtures e de quase toda caixa — tudo aqui dentro se resolve na
     /// mensagem dela, e o desenho é exatamente o de antes desta tarefa.
-    private func row(_ conversation: Conversation, folders: [MailFolder]) -> some View {
+    private func row(
+        _ conversation: Conversation, folders: [MailFolder], compact: Bool = false
+    ) -> some View {
         let message = conversation.latest
         let account = store.account(message.accountID)
         return SwipeRow(
@@ -972,7 +984,8 @@ public struct MessageList: View {
                             for: message,
                             hasReadyDraft: readyDrafts[message.id] != nil,
                             today: today
-                        )
+                        ),
+                        compact: compact
                     )
                 } else {
                 MessageRow(

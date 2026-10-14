@@ -82,6 +82,25 @@ struct VidroRenderTests {
         ) async throws -> String { "" }
     }
 
+    /// A caixa "Tudo", que é onde as duas seções aparecem juntas: as que
+    /// esperam resposta em cima, o resto compacto embaixo.
+    @Test("as duas seções da lista de vidro aparecem em Tudo")
+    func glassSectionsRender() async throws {
+        let store = await loja()
+        store.select(bucket: .all)
+        let partes = InboxWaitingLine.split(store.conversationPage(limit: 20).conversations)
+        #expect(!partes.waiting.isEmpty, "ninguém espera resposta — não há seção de cima")
+        #expect(!partes.rest.isEmpty, "ninguém sobrou — não há seção de baixo")
+
+        let rep = try #require(Render.snapshot(
+            InboxScreen(store: store).environment(ThemeStore()),
+            named: "vidro-caixa-secoes",
+            size: CGSize(width: 1440, height: 916),
+            theme: .vidro
+        ))
+        #expect(rep.pixelsWide == 1440)
+    }
+
     /// O painel da IA aberto sobre o leitor, com a lista de ações do
     /// protótipo — "Traduzir" e "Explicar termos" entre elas.
     @Test("o painel da IA abre no leitor de vidro")

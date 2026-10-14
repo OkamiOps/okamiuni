@@ -29,6 +29,13 @@ struct GlassMessageRow: View {
     /// A frase de acento, já decidida por `InboxWaitingLine`. `nil` é linha
     /// sem ✦ — e é o caso comum.
     let aiLine: String?
+    /// A linha de "MAIS CEDO": remetente, assunto e hora, sem a prévia.
+    ///
+    /// O protótipo desenha as duas seções com densidades diferentes de
+    /// propósito — a de cima é o trabalho de agora e ganha a prévia; a de
+    /// baixo é o que já passou e cabe em duas linhas. A frase da IA sobrevive
+    /// quando existe: um prazo não deixa de valer por a mensagem ser de ontem.
+    var compact = false
 
     /// O raio do cartão da linha selecionada. Protótipo: `border-radius: 12px`.
     static let cornerRadius: CGFloat = 12
@@ -64,10 +71,12 @@ struct GlassMessageRow: View {
                     .foregroundStyle(theme.ink.color)
                     .lineLimit(1)
 
-                Text(message.snippet)
-                    .font(theme.sans.font(size: 12))
-                    .foregroundStyle(theme.ink3.color)
-                    .lineLimit(1)
+                if !compact {
+                    Text(message.snippet)
+                        .font(theme.sans.font(size: 12))
+                        .foregroundStyle(theme.ink3.color)
+                        .lineLimit(1)
+                }
 
                 if let aiLine {
                     HStack(spacing: 5) {
@@ -84,7 +93,7 @@ struct GlassMessageRow: View {
             }
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 11)
+        .padding(.vertical, compact ? 9 : 11)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
             RoundedRectangle(cornerRadius: Self.cornerRadius, style: .continuous)
