@@ -6,11 +6,11 @@ import UNIDesign
 @Suite("ThemePicker")
 struct ThemePickerTests {
 
-    @Test("o seletor oferece os 26 temas")
+    @Test("o seletor oferece os 28 temas")
     @MainActor
     func offersEveryTheme() {
         let store = ThemeStore(defaults: UserDefaults(suiteName: #function)!)
-        #expect(store.all.count == 26)
+        #expect(store.all.count == 28)
     }
 
     @Test("a escolha sobrevive a uma nova instância")

@@ -335,13 +335,20 @@ struct PainelDoDia: View {
                         Text(L10n.tr("Depois disso"))
                             .font(theme.sans.font(size: 17, weight: .semibold))
                             .foregroundStyle(theme.ink.color)
-                        Text(L10n.tr("o resto do dia, em \(frentes.count) frentes"))
+                        Text(frentes.count == 1
+                             ? L10n.tr("o resto do dia, numa frente só")
+                             : L10n.tr("o resto do dia, em \(frentes.count) frentes"))
                             .font(theme.sans.font(size: 13))
                             .foregroundStyle(theme.ink3.color)
                     }
                     HStack(alignment: .top, spacing: 12) {
                         ForEach(frentes) { frente in
                             PainelVidroAzulejoDaFrente(frente: frente)
+                        }
+                        // A grade é sempre de três colunas: uma frente sozinha
+                        // não estica na largura toda, fica no terço dela.
+                        ForEach(0..<max(0, 3 - frentes.count), id: \.self) { _ in
+                            Color.clear.frame(maxWidth: .infinity)
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
