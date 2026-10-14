@@ -291,7 +291,9 @@ public struct ReaderPane: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(theme.surface.color)
+        // No Vidro o preenchimento é o do painel (`readerFill`), e ele é um
+        // só: pintar `surface` aqui poria uma segunda folha opaca por baixo.
+        .background(theme.isGlass ? Color.clear : theme.surface.color)
         // A pergunta antes de abrir link vale para o leitor inteiro: o HTML da
         // `WebView` e o texto desenhado passam os dois por aqui. Pendurada no
         // topo do painel para o cartão ter a largura dele, e não a da coluna.
@@ -329,14 +331,25 @@ public struct ReaderPane: View {
         let conversa = store.conversation(of: message.id)
 
         return VStack(spacing: 0) {
-            header(message)
+            if theme.isGlass {
+                // No Vidro a linha fica **sob a barra de ferramentas**, como no
+                // protótipo: o cabeçalho e o corpo são o mesmo papel, e um fio
+                // entre eles partiria o leitor em dois.
+                glassToolbar(message)
+                Rectangle()
+                    .fill(theme.line.color)
+                    .frame(height: Hairline.thickness(displayScale))
+                glassHeader(message)
+            } else {
+                header(message)
 
-            // A divisória dados/corpo é irmã, não overlay do cabeçalho. Como
-            // overlay ela atravessava o painel da IA na borda de baixo — o
-            // mesmo defeito da faixa da conta, que já saiu do overlay.
-            Rectangle()
-                .fill(theme.line2.color)
-                .frame(height: Hairline.thickness(displayScale))
+                // A divisória dados/corpo é irmã, não overlay do cabeçalho. Como
+                // overlay ela atravessava o painel da IA na borda de baixo — o
+                // mesmo defeito da faixa da conta, que já saiu do overlay.
+                Rectangle()
+                    .fill(theme.line2.color)
+                    .frame(height: Hairline.thickness(displayScale))
+            }
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -403,9 +416,16 @@ public struct ReaderPane: View {
             if emailAssistantOpen, assistantAnchor != .zero {
                 emailAssistantPopover(message)
                     .offset(
-                        x: assistantAnchor.x - ReaderIntelligencePopover.clampedSize(
-                            emailAssistantPanelSize
-                        ).width,
+                        // No Vidro o botão está na **ponta esquerda** da barra,
+                        // e a âncora publicada é o `minX` dele: o painel cresce
+                        // para a direita, como no protótipo. Na barra clássica
+                        // o botão está à direita e a âncora é o `maxX`, de onde
+                        // o painel cresce para a esquerda.
+                        x: theme.isGlass
+                            ? assistantAnchor.x
+                            : assistantAnchor.x - ReaderIntelligencePopover.clampedSize(
+                                emailAssistantPanelSize
+                            ).width,
                         y: assistantAnchor.y + 34
                     )
             }
@@ -882,6 +902,255 @@ public struct ReaderPane: View {
         }
     }
 
+    // MARK: - O leitor de vidro
+
+    /// A barra do protótipo: o botão de acento da IA na ponta esquerda, um
+    /// fio, os ícones de ação, e as setas de anterior/próxima na direita.
+    ///
+    /// **O atalho não é ⌘E.** O protótipo escreve ⌘E ao lado do botão, mas ⌘E
+    /// já é "Arquivar" no menu Mensagem — o atalho do Mail e do Gmail, que
+    /// este app reivindicou de propósito no menu principal (ver
+    /// `MessageCommands`). Dois donos para a mesma tecla significa que o menu
+    /// principal ganha e o botão fica mudo. O que a IA deste e-mail ganha é
+    /// ⌥⌘J, irmão do ⌘J que abre a gaveta do ambiente inteiro — e o botão
+    /// escreve o atalho que de fato existe.
+    private func glassToolbar(_ message: Message) -> some View {
+        HStack(spacing: 2) {
+            glassAssistantButton(message)
+
+            Rectangle()
+                .fill(theme.line.color)
+                .frame(width: 1, height: 20)
+                .padding(.horizontal, 5)
+
+            glassIcon("arrowshape.turn.up.left", L10n.tr("Responder"), L10n.tr("Responder a este email")) {
+                pedidoDeResposta += 1
+            }
+            .keyboardShortcut("r", modifiers: .command)
+
+            glassIcon("arrowshape.turn.up.right", L10n.tr("Encaminhar"), L10n.tr("Encaminhar este email")) {
+                onCompose(.forward(messageID: message.id))
+            }
+            .keyboardShortcut("f", modifiers: [.command, .shift])
+
+            glassIcon("archivebox", L10n.tr("Arquivar"), L10n.tr("Tira da caixa e guarda")) {
+                store.move(message, to: .archived)
+                mensagemSaiuDaLista()
+            }
+
+            glassIcon("clock", L10n.tr("Depois"), L10n.tr("Adia esta mensagem para Depois")) {
+                store.move(message, to: .later)
+                mensagemSaiuDaLista()
+            }
+
+            glassFolderButton(for: message)
+
+            glassIcon(
+                SwipeAction.trash.symbol(for: message),
+                Self.apagarLabel(message),
+                ContextMenus.deleteItem(message).help ?? ""
+            ) {
+                _ = receipts.delete(message, on: store)
+                mensagemSaiuDaLista()
+            }
+
+            // "Responder a todos" não ganha um sétimo ícone: ele continua no
+            // menu de contexto da mensagem e no ⇧⌘R, que este botão invisível
+            // é quem põe no `performKeyEquivalent` da janela.
+            Button(L10n.tr("Responder a todos")) {
+                onCompose(.replyAll(messageID: message.id))
+            }
+            .keyboardShortcut("r", modifiers: [.command, .shift])
+            .hidden()
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
+
+            Spacer(minLength: 8)
+
+            glassIcon("chevron.up", L10n.tr("Mensagem anterior"), L10n.tr("Abre a conversa acima na lista")) {
+                _ = store.selectAdjacentConversation(offset: -1)
+            }
+            glassIcon("chevron.down", L10n.tr("Próxima mensagem"), L10n.tr("Abre a conversa abaixo na lista")) {
+                _ = store.selectAdjacentConversation(offset: 1)
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 46)
+        .zIndex(emailAssistantOpen ? 90 : 0)
+    }
+
+    /// Ícone quieto da barra de vidro: sem moldura e sem fundo, como no
+    /// protótipo — o acento só aparece no hover.
+    private func glassIcon(
+        _ symbol: String, _ label: String, _ help: String, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(theme.ink2.color)
+                .frame(width: 30, height: 30)
+                .contentShape(RoundedRectangle(cornerRadius: 9))
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: 9)
+        .help(help)
+        .accessibilityLabel(label)
+    }
+
+    /// O "Mover para pasta" da barra de vidro — o mesmo painel do botão
+    /// clássico, sem a moldura dele.
+    private func glassFolderButton(for message: Message) -> some View {
+        let entries = Self.folderMenuEntries(for: message, store: store)
+        return Button { folderPickerOpen.toggle() } label: {
+            MoveToFolderGlyph()
+                .foregroundStyle((folderPickerOpen ? theme.accentInk : theme.ink2).color)
+                .frame(width: 30, height: 30)
+                .contentShape(RoundedRectangle(cornerRadius: 9))
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: 9)
+        .help(L10n.tr("Mover para pasta ou marcador"))
+        .accessibilityLabel(L10n.tr("Mover para pasta ou marcador"))
+        .popover(isPresented: $folderPickerOpen, arrowEdge: .bottom) {
+            MoveFolderPanel(
+                groups: MoveFolderPanel.groups(from: entries),
+                onPick: { command in
+                    runFolderCommand(command)
+                    folderPickerOpen = false
+                }
+            )
+        }
+        .onChange(of: message.id) { _, _ in folderPickerOpen = false }
+    }
+
+    /// "✦ IA ⌥⌘J": aceso em acento cheio enquanto o painel está aberto.
+    private func glassAssistantButton(_ message: Message) -> some View {
+        let aberto = emailAssistantOpen
+        return Button {
+            setEmailAssistantOpen(!emailAssistantOpen, for: message.id)
+            onOpenAssistant()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 12, weight: .semibold))
+                Text(L10n.tr("IA"))
+                    .font(theme.sans.font(size: 12.5, weight: .semibold))
+                Text("⌥⌘J")
+                    .font(theme.mono.font(size: 10))
+                    .opacity(0.75)
+            }
+            .foregroundStyle((aberto ? theme.onAccent : theme.accentInk).color)
+            .padding(.horizontal, 11)
+            .frame(height: 30)
+            .background((aberto ? theme.accent : theme.accentSoft).color)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: 10)
+        .keyboardShortcut("j", modifiers: [.command, .option])
+        .help(L10n.tr("IA neste e-mail (⌥⌘J)"))
+        .accessibilityLabel(L10n.tr("IA neste e-mail"))
+        .background {
+            GeometryReader { proxy in
+                let frame = proxy.frame(in: .named(Self.assistantAnchorSpace))
+                Color.clear.preference(
+                    key: ReaderAssistantAnchorKey.self,
+                    value: CGPoint(x: frame.minX, y: frame.minY)
+                )
+            }
+        }
+    }
+
+    /// O cabeçalho do protótipo: a linha fina da conta e da pasta, o assunto
+    /// grande, e o remetente com avatar, endereço e hora.
+    ///
+    /// Sem a faixa opaca de `surface` que o cabeçalho clássico pinta: no Vidro
+    /// o leitor é **um** preenchimento só, o do painel.
+    private func glassHeader(_ message: Message) -> some View {
+        let tint = accountTint(message)
+        let count = store.conversation(of: message.id)?.count ?? 1
+        return VStack(alignment: .leading, spacing: 14) {
+            if let nextEvent {
+                nextEventCapsule(nextEvent)
+            }
+            HStack(spacing: 8) {
+                Circle().fill(tint).frame(width: 7, height: 7).accessibilityHidden(true)
+                Text(Self.glassOrigin(
+                    account: store.account(message.accountID)?.address ?? "",
+                    folder: store.selectedFolderID.flatMap { id in
+                        store.folders(of: message.accountID).first { $0.id == id }?.displayName
+                    } ?? store.bucket.label
+                ))
+                .font(theme.sans.font(size: 11.5))
+                .foregroundStyle(theme.ink3.color)
+                .lineLimit(1)
+                Spacer(minLength: 8)
+                Text(MessageList.messageCountLabel(count))
+                    .font(theme.sans.font(size: 11.5))
+                    .foregroundStyle(theme.ink3.color)
+            }
+
+            Text(message.subject)
+                .font(theme.serif.font(size: 24, weight: .bold))
+                .tracking(-0.02 * 24)
+                .foregroundStyle(theme.ink.color)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+
+            HStack(alignment: .center, spacing: 12) {
+                senderAvatar(message.from.initials, tint: tint, size: 38, font: 14)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(message.from.name.isEmpty ? message.from.address : message.from.name)
+                        .font(theme.sans.font(size: 14, weight: .semibold))
+                        .foregroundStyle(theme.ink.color)
+                        .lineLimit(1)
+                    Text(Self.glassSenderCaption(message))
+                        .font(theme.sans.font(size: 12))
+                        .foregroundStyle(theme.ink3.color)
+                        .lineLimit(1)
+                        .textSelection(.enabled)
+                }
+                Spacer(minLength: 8)
+                identityStamp(message)
+            }
+
+            if !message.attachments.isEmpty {
+                attachmentChips(message)
+            }
+            if let attachmentError {
+                Text(attachmentError)
+                    .font(theme.sans.font(size: 11))
+                    .foregroundStyle(theme.danger.color)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 28)
+        .padding(.top, 18)
+        .padding(.bottom, 14)
+        .allowsHitTesting(!emailAssistantOpen)
+    }
+
+    /// "ricardo@empresa.com · Caixa de entrada"
+    nonisolated static func glassOrigin(account: String, folder: String) -> String {
+        let conta = account.trimmingCharacters(in: .whitespaces)
+        if conta.isEmpty { return folder }
+        return "\(conta) · \(folder)"
+    }
+
+    /// "marina@cliente.com · para você"
+    nonisolated static func glassSenderCaption(_ message: Message) -> String {
+        let endereço = message.from.address.trimmingCharacters(in: .whitespaces)
+        let para = destinatarios(message)
+        switch (endereço.isEmpty, para) {
+        case (true, nil): return ""
+        case (true, let para?): return para
+        case (false, nil): return endereço
+        case (false, let para?): return "\(endereço) · \(para)"
+        }
+    }
+
     /// Destinos da conversa num **trilho só**. Cada rótulo tem largura própria
     /// (`.fixedSize`) — espremer o HStack pai quebrava "Hoje" no meio.
     private func bucketSegment(
@@ -1197,21 +1466,35 @@ public struct ReaderPane: View {
     private func summaryCardBody(
         _ summary: String, event: DetectedEvent?, message: Message, aberto: Bool
     ) -> some View {
-        VStack(alignment: .leading, spacing: aberto ? 8 : 0) {
-            if aberto {
-                summaryCardAberto(summary, event: event, message: message)
-            } else {
-                summaryCardRecolhido(summary, message: message)
+        // No Vidro a faixa é a do protótipo: acento suave, ✦ na frente e sem
+        // moldura. Os dados são os mesmos — o resumo, a legenda que diz de
+        // onde ele veio, a triagem e o compromisso detectado.
+        HStack(alignment: .top, spacing: 12) {
+            if theme.isGlass {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(theme.accentInk.color)
+                    .padding(.top, 1)
+                    .accessibilityHidden(true)
+            }
+            VStack(alignment: .leading, spacing: aberto ? 8 : 0) {
+                if aberto {
+                    summaryCardAberto(summary, event: event, message: message)
+                } else {
+                    summaryCardRecolhido(summary, message: message)
+                }
             }
         }
         .padding(.vertical, aberto ? 15 : 8)
-        .padding(.horizontal, 17)
+        .padding(.horizontal, theme.isGlass ? 14 : 17)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.infoSoft.color)
-        .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
+        .background((theme.isGlass ? theme.accentSoft : theme.infoSoft).color)
+        .clipShape(RoundedRectangle(cornerRadius: theme.isGlass ? 12 : theme.radiusLarge))
         .overlay {
-            RoundedRectangle(cornerRadius: theme.radiusLarge)
-                .strokeBorder(theme.infoLine.color, lineWidth: Hairline.thickness(displayScale))
+            if !theme.isGlass {
+                RoundedRectangle(cornerRadius: theme.radiusLarge)
+                    .strokeBorder(theme.infoLine.color, lineWidth: Hairline.thickness(displayScale))
+            }
         }
         .contentShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
     }
@@ -1233,7 +1516,11 @@ public struct ReaderPane: View {
 
     private func resumoEstaAberto(_ message: Message) -> Bool {
         if debugResumoAberto { return true }
-        return resumoAbertoPorID[message.id] ?? Self.resumoComecaAberto
+        // No Vidro a faixa nasce aberta: o protótipo a desenha como banda de
+        // acento com a frase inteira, e não como uma linha dobrada. Nos 26
+        // temas opacos ela continua recolhida, que é o que `ReaderTests`
+        // afirma.
+        return resumoAbertoPorID[message.id] ?? (theme.isGlass || Self.resumoComecaAberto)
     }
 
     private func summaryCardAberto(
