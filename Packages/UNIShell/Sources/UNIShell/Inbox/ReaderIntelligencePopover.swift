@@ -42,17 +42,39 @@ struct ReaderIntelligencePopover: View {
     }
 
     enum Action: String, CaseIterable, Sendable {
-        case summary, keyPoints, insights, pending, reply, custom
+        case summary, keyPoints, insights, pending, translate, terms, reply, custom
 
         var title: String {
             switch self {
-            case .summary: L10n.tr("Resumo")
+            case .summary: L10n.tr("Resumir")
             case .keyPoints: L10n.tr("Pontos-chave")
             case .insights: "Insights"
-            case .pending: L10n.tr("Pendências")
-            case .reply: L10n.tr("Gerar resposta")
+            case .pending: L10n.tr("Tarefas e prazos")
+            case .translate: L10n.tr("Traduzir")
+            case .terms: L10n.tr("Explicar termos")
+            case .reply: L10n.tr("Rascunhar resposta")
             case .custom: L10n.tr("Pergunta livre")
             }
+        }
+
+        /// O ícone da lista do protótipo. Ação sem ícone é ação que a pessoa
+        /// lê duas vezes antes de achar.
+        var symbol: String {
+            switch self {
+            case .summary: "text.alignleft"
+            case .keyPoints: "list.bullet"
+            case .insights: "lightbulb"
+            case .pending: "checklist"
+            case .translate: "character.bubble"
+            case .terms: "questionmark.circle"
+            case .reply: "square.and.pencil"
+            case .custom: "sparkles"
+            }
+        }
+
+        /// A dica da direita — o idioma para quem traduz, vazio no resto.
+        var hint: String {
+            self == .translate ? AppLanguage.selected.resolved.nativeName : ""
         }
 
         var question: String {
@@ -65,6 +87,14 @@ struct ReaderIntelligencePopover: View {
                 "Analise esta conversa e destaque insights, riscos e pontos em aberto."
             case .pending:
                 "Liste pendências, responsáveis e prazos confirmados nesta conversa, um item por linha."
+            case .translate:
+                // Pergunta livre com texto fixo: a rota é a mesma do campo de
+                // baixo, e nenhum encanamento de provedor muda por causa dela.
+                "Traduza este e-mail para \(AppLanguage.selected.resolved.nativeName), "
+                    + "mantendo o tom e a formatação. Não resuma: traduza o texto inteiro."
+            case .terms:
+                "Explique, em uma linha cada, os termos técnicos, siglas e jargões "
+                    + "deste e-mail que alguém de fora da área não entenderia."
             case .reply, .custom:
                 ""
             }
@@ -124,8 +154,18 @@ struct ReaderIntelligencePopover: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
             hairline
-            conversationArea
-            composer
+            // No Vidro o campo vem **antes** da lista, como no protótipo: o
+            // menu da IA começa com "Peça algo sobre este e-mail…" e as ações
+            // prontas vêm por baixo dele. Nos temas opacos ele continua no pé,
+            // onde o transcrito o empurra.
+            if theme.isGlass {
+                composer
+                hairline
+                conversationArea
+            } else {
+                conversationArea
+                composer
+            }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .background(theme.surface.color)
@@ -249,8 +289,12 @@ struct ReaderIntelligencePopover: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            actionGrid
-            replyButton
+            if theme.isGlass {
+                actionList
+            } else {
+                actionGrid
+                replyButton
+            }
 
             if !isAvailable {
                 Text(L10n.tr("Conecte um provedor de IA nas Configurações para usar estas ações."))
@@ -260,6 +304,61 @@ struct ReaderIntelligencePopover: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// A lista do protótipo: ícone, rótulo e dica, uma ação por linha.
+    ///
+    /// Duas ações novas entram aqui e nenhum encanamento de provedor muda por
+    /// causa delas — **Traduzir** e **Explicar termos** são perguntas livres
+    /// com texto fixo, pela mesma rota do campo lá de cima. Traduzir vai para
+    /// o idioma escolhido do app (`AppLanguage.selected`), que é a única
+    /// preferência de idioma que existe para dizer a verdade sobre o destino.
+    private var actionList: some View {
+        VStack(spacing: 1) {
+            ForEach(
+                [Action.summary, .translate, .reply, .pending, .keyPoints, .terms], id: \.self
+            ) { action in
+                actionRow(action)
+            }
+        }
+    }
+
+    private func actionRow(_ action: Action) -> some View {
+        let habilitada = action == .reply
+            ? canInteract && conversation.canDraftReply
+            : canInteract
+        return Button {
+            if action == .reply {
+                guard habilitada else { return }
+                conversation.draftReply()
+            } else {
+                run(action)
+            }
+        } label: {
+            HStack(spacing: 11) {
+                Image(systemName: action.symbol)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(theme.accentInk.color)
+                    .frame(width: 17)
+                Text(action.title)
+                    .font(theme.sans.font(size: 13))
+                    .foregroundStyle(theme.ink.color)
+                Spacer(minLength: 8)
+                if !action.hint.isEmpty {
+                    Text(action.hint)
+                        .font(theme.sans.font(size: 11))
+                        .foregroundStyle(theme.ink3.color)
+                        .lineLimit(1)
+                }
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 34)
+            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: 9)
+        .disabled(!habilitada)
+        .accessibilityLabel(action.title)
     }
 
     private var actionGrid: some View {
@@ -392,7 +491,7 @@ struct ReaderIntelligencePopover: View {
             TextField(
                 conversation.hasConversation
                     ? L10n.tr("Continue a conversa ou peça outro formato…")
-                    : L10n.tr("Pergunte sobre este email…"),
+                    : L10n.tr("Peça algo sobre este e-mail…"),
                 text: $conversation.draft,
                 axis: .vertical
             )
