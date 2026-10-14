@@ -287,9 +287,16 @@ struct RenderHarnessTests {
         }
     }
 
+    /// Os catorze escuros **opacos**. O Vidro Noite é o décimo quinto escuro
+    /// do catálogo e fica de fora daqui porque as contagens abaixo perguntam
+    /// por pixels da cor exata de `surface`, `surface2` e `line` — tokens que
+    /// no vidro são translúcidos e nunca pintam a cor declarada em pixel
+    /// nenhum. O retrato dele está em `VidroRenderTests`, com as asserções que
+    /// valem para um painel sobre gradiente.
     @Test("os catorze temas escuros preservam hierarquia na caixa real")
     func everyDarkThemeRendersTheInbox() async throws {
-        let darkThemes = Theme.all.filter(\.isDark)
+        #expect(Theme.all.filter(\.isDark).count == 15)
+        let darkThemes = Theme.all.filter { $0.isDark && !$0.isGlass }
         #expect(darkThemes.count == 14)
 
         let store = MailStore(source: InMemoryMailSource.fixtures)

@@ -9,7 +9,7 @@ struct TokenModifierTests {
 
     @Test("as três áreas de trabalho batem com as abas da barra")
     func workspaceTabs() {
-        #expect(Workspace.allCases.map(\.label) == ["Dashboard", "Caixa", "Agenda"])
+        #expect(Workspace.allCases.map(\.label) == ["Painel", "Caixa", "Agenda"])
     }
 
     @Test("digitar na busca sai do Dashboard para a Caixa")
