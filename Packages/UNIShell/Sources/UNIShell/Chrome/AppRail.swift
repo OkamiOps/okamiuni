@@ -26,6 +26,26 @@ struct AppRail: View {
     /// que o selo de não lidas usa.
     static let itemWidth: CGFloat = 52
 
+    // As medidas do `<nav>` com nome, para o teste poder somá-las em vez de
+    // repetir números à mão. Protótipo: `padding: 14px 0 12px; gap: 6px` no
+    // `<nav>`, e `padding: 2px 0 4px; gap: 4px` em cada `<a>`.
+    static let topPadding: CGFloat = 14
+    static let bottomPadding: CGFloat = 12
+    static let gap: CGFloat = 6
+    static let itemTopPadding: CGFloat = 2
+    static let itemBottomPadding: CGFloat = 4
+    static let itemSpacing: CGFloat = 4
+    /// Altura da legenda de 10pt. É o que o SwiftUI dá a uma linha nesse
+    /// corpo, e é o que o `line-height: normal` do protótipo dá à dele.
+    static let labelHeight: CGFloat = 12
+
+    /// Altura de uma tela do trilho, legenda inclusa.
+    static var itemHeight: CGFloat {
+        itemTopPadding + actionSize + itemSpacing + labelHeight + itemBottomPadding
+    }
+    /// Distância de centro a centro entre duas telas.
+    static var itemPitch: CGFloat { itemHeight + gap }
+
     /// Quanto o selo de não lidas recua da aresta do quadrado do ícone.
     ///
     /// Protótipo: `top: 0; right: 6px` no `<a>` de 52pt, o que põe a caixa de
@@ -61,7 +81,7 @@ struct AppRail: View {
     var onReopenContext: (() -> Void)? = nil
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: AppRail.gap) {
             // O vazio em que os semáforos nativos da janela são desenhados.
             // Eles não são `View` nossa — moram no `NSThemeFrame` — então o
             // que o trilho reserva é o lugar deles. Ver
@@ -104,18 +124,22 @@ struct AppRail: View {
         .frame(width: AppRail.width)
         .frame(maxHeight: .infinity)
         // Protótipo: `padding: 14px 0 12px` no `<nav>`.
-        .padding(.top, 14)
-        .padding(.bottom, 12)
+        .padding(.top, AppRail.topPadding)
+        .padding(.bottom, AppRail.bottomPadding)
     }
 
     /// Quanto o trilho guarda no alto para os três botões do sistema.
     ///
-    /// Protótipo: a fila dos semáforos é um `<div>` com `padding: 2px 0 16px` e
-    /// bolinhas de 11 — 29pt no total. Com os 14pt do alto do `<nav>` e o
-    /// painel começando `PanelStyle.vidroGap` abaixo da borda da janela, o
-    /// centro das bolinhas cai em 31,5pt do topo da janela, que é onde a
-    /// plataforma as desenha (ver `TrafficLightLayout.railCenterFromTop`).
-    static let trafficLightReserve: CGFloat = 29
+    /// Protótipo: a fila é um `<div>` com `padding: 2px 0 16px`. O que ele
+    /// embrulha, aqui, não são as bolinhas de 11 do desenho mas os botões de
+    /// 14 do macOS — então a faixa é `2 + 14 + 16`, e não `2 + 11 + 16`.
+    ///
+    /// Copiar os 29 do desenho com botões de 14 tirava 3pt de folga de quem os
+    /// tem de verdade: eles subiam para dentro da quina arredondada do painel,
+    /// que é o que o dono recusou em 14/10/2026. Ver
+    /// `TrafficLightLayout.railCenterFromTop`, que faz a mesma tradução.
+    static let trafficLightReserve: CGFloat =
+        2 + TrafficLightLayout.nativeButtonSide + 16  // 32
 
     /// A faixa do alto da janela em que o duplo clique faz o que o sistema
     /// manda e o arraste move a janela. Ela cobre a altura dos semáforos com
@@ -132,7 +156,7 @@ struct AppRail: View {
             // também a abre de volta.
             if active, let onReopenContext { onReopenContext() } else { workspace = tab }
         } label: {
-            VStack(spacing: 4) {
+            VStack(spacing: AppRail.itemSpacing) {
                 ZStack(alignment: .topTrailing) {
                     Image(systemName: symbol(for: tab))
                         .font(.system(size: 17, weight: .medium))
@@ -159,8 +183,8 @@ struct AppRail: View {
             }
             // Protótipo: `width: 52px; padding: 2px 0 4px`.
             .frame(width: AppRail.itemWidth)
-            .padding(.top, 2)
-            .padding(.bottom, 4)
+            .padding(.top, AppRail.itemTopPadding)
+            .padding(.bottom, AppRail.itemBottomPadding)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
