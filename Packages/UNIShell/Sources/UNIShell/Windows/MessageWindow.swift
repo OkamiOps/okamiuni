@@ -38,9 +38,32 @@ public struct MessageWindow: View {
         self.onMessagePresented = onMessagePresented
     }
 
+    /// A janela da mensagem: **chrome e medida**, e o leitor inteiro por
+    /// dentro.
+    ///
+    /// Protótipo: `ModalJanelas.dc.html`, bloco "MENSAGEM EM JANELA" — 880×720,
+    /// raio de janela, a barra de 44 com os semáforos na linha da plataforma e,
+    /// na ponta direita dela, **onde a mensagem mora**: "na Caixa de entrada ·
+    /// ricardo@empresa.com". Essa linha é a única coisa que a janela solta não
+    /// herda da Caixa de graça — sem ela, a mensagem aberta fora da lista
+    /// perde a caixa e a conta de vista.
+    ///
+    /// O que está **dentro** é o `ReaderPane`, o mesmo da Caixa, e o desenho
+    /// dele é de outra tarefa: a barra de ferramentas, o cartão da IA e o
+    /// corpo não são tocados aqui. É por isso que o desenho mostra uma barra
+    /// só, com os semáforos e as ferramentas juntos, e aqui há duas — a nossa,
+    /// com os semáforos e o lugar, e a do leitor logo abaixo.
     public var body: some View {
         VStack(spacing: 0) {
-            WindowTitleBar(title: store.message(messageID)?.subject ?? L10n.tr("Mensagem")) { EmptyView() }
+            WindowTitleBar(title: store.message(messageID)?.subject ?? L10n.tr("Mensagem")) {
+                if let lugar = ondeMora {
+                    Text(lugar)
+                        .font(theme.sans.font(size: 12))
+                        .foregroundStyle(theme.ink3.color)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
             ReaderPane(
                 store: store,
                 debugEmailAssistantOpen: false,
@@ -55,11 +78,26 @@ public struct MessageWindow: View {
             )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(theme.surface.color)
+        // `glassWindow`: o fundo de uma janela **solta**, que no Vidro é
+        // fechado o bastante para texto longo e nos 26 opacos é `surface`,
+        // que é o que a janela sempre pintou. Mesmo token do compositor.
+        .background(theme.glassWindow.color)
         .task(id: messageID) {
             if store.messages.isEmpty { await store.load() }
             await store.loadBodyIfNeeded(messageID)
         }
+    }
+
+    /// "na Caixa de entrada · ricardo@empresa.com" — a caixa e a conta desta
+    /// mensagem, como o desenho as escreve. Nulo quando a mensagem já não está
+    /// no banco: a barra fica só com o assunto em vez de afirmar um lugar.
+    private var ondeMora: String? {
+        guard let message = store.message(messageID) else { return nil }
+        let caixa = message.bucket.label
+        guard let conta = store.account(message.accountID)?.address else {
+            return L10n.tr("na \(caixa)")
+        }
+        return L10n.tr("na \(caixa) · \(conta)")
     }
 
     private func makeAssistantConversation(messageID id: String) -> AssistantConversation {

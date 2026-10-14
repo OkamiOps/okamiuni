@@ -292,7 +292,39 @@ struct TopHangingSheet<Sheet: View>: ViewModifier {
     }
 }
 
+/// O diálogo **centrado**: a outra metade da regra.
+///
+/// Confirmação destrutiva e primeiro abrir ficam no meio da janela, na
+/// vertical e na horizontal, porque eles não são um pedaço do app — são uma
+/// parada. Ver `TopHangingSheet` para a folha, que é o contrário.
+struct CenteredModal<Sheet: View>: ViewModifier {
+    let isPresented: Bool
+    let onDismiss: (() -> Void)?
+    @ViewBuilder var sheet: Sheet
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            if isPresented {
+                ZStack {
+                    ModalScrim(onTap: onDismiss)
+                    sheet.transition(.opacity)
+                }
+                .accessibilityAddTraits(.isModal)
+                .onExitCommand { onDismiss?() }
+            }
+        }
+    }
+}
+
 extension View {
+    func centeredModal<Sheet: View>(
+        isPresented: Bool,
+        onDismiss: (() -> Void)? = nil,
+        @ViewBuilder sheet: () -> Sheet
+    ) -> some View {
+        modifier(CenteredModal(isPresented: isPresented, onDismiss: onDismiss) { sheet() })
+    }
+
     func topHangingSheet<Sheet: View>(
         isPresented: Bool,
         onDismiss: (() -> Void)? = nil,

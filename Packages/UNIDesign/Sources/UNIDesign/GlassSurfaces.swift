@@ -54,7 +54,7 @@ public struct Backdrop: View {
 
     /// Converte o ângulo do `linear-gradient` do CSS nos dois `UnitPoint` que
     /// o SwiftUI pede.
-    static func unitPoint(degrees: Double, start: Bool) -> UnitPoint {
+    public static func unitPoint(degrees: Double, start: Bool) -> UnitPoint {
         let radians = (degrees - 90) * .pi / 180
         let dx = cos(radians) / 2
         let dy = sin(radians) / 2

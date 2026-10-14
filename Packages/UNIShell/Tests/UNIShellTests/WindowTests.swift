@@ -15,8 +15,12 @@ struct WindowTests {
         // compositor têm o mesmo desenho e a mesma medida.
         #expect(UNIWindow.Size.composer == CGSize(width: 980, height: 700))
         #expect(UNIWindow.Size.newMessage == CGSize(width: 980, height: 700))
-        #expect(UNIWindow.Size.message == CGSize(width: 800, height: 600))     // 05, linha 745
-        #expect(UNIWindow.Size.event.width == 560)                             // 04, linha 590
+        // As duas janelas soltas passaram para a medida do desenho dos
+        // modais: `ModalJanelas.dc.html` escreve 880×720 para a mensagem e
+        // `ModalAgenda.dc.html` escreve 640 para o compromisso. A garantia do
+        // caso é a mesma — ninguém arredonda um destes sem isto acusar.
+        #expect(UNIWindow.Size.message == CGSize(width: 880, height: 720))
+        #expect(UNIWindow.Size.event.width == 640)
     }
 
     @Test("cada janela tem seu identificador de cena")

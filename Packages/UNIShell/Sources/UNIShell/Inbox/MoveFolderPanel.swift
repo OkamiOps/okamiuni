@@ -9,17 +9,35 @@ struct MoveFolderGroup: Identifiable, Hashable {
     let items: [ContextMenuItem]
 }
 
-/// O painel nosso no lugar do `Menu` do sistema. A lista do Gmail tem dezenas
-/// de marcadores; o submenu nativo ocupava a tela inteira. Aqui cabem
-/// **20 linhas** e o resto rola.
+/// O balão "Mover para…", nosso, no lugar do `Menu` do sistema.
+///
+/// A lista do Gmail tem dezenas de marcadores e o submenu nativo ocupava a
+/// tela inteira. Aqui cabem **20 linhas** e o resto rola.
+///
+/// ## O desenho
+///
+/// Protótipo: `ModalSistema.dc.html`, bloco "MOVER PARA…". Balão de 300 nascido
+/// no botão da barra do leitor, **sem véu**: `padding: 8px`, a busca em cima
+/// como campo de 14 com a lupa, as seções em versalete de 10,5, as linhas em
+/// 13,5 com o ícone de pasta, e no pé uma linha de um pixel com a frase dos
+/// atalhos — `↩ move · esc fecha · dá para desfazer com ⌘Z`.
+///
+/// Essa última frase é a peça que faltava: mover **é** reversível, e dizer isso
+/// no próprio balão é o que dispensa a pergunta "tem certeza?" que o desenho
+/// reserva ao irreversível. Ver `SwipeUndoBand`.
+///
+/// **Sem os números de mensagem por pasta** que o protótipo mostra (214, 86):
+/// `ContextMenuItem` não os carrega, e inventá-los seria pior do que não
+/// mostrá-los. Está no relatório.
 struct MoveFolderPanel: View {
     @Environment(\.theme) private var theme
 
     static var visibleRows: Int { MenuSurface.visibleRows }
-    static var rowHeight: CGFloat { MenuSurface.listRowHeight }
-    static let headerHeight: CGFloat = 22
-    static let width: CGFloat = 280
-    static var listMaxHeight: CGFloat { MenuSurface.listMaxHeight }
+    static var rowHeight: CGFloat { 32 }
+    static let headerHeight: CGFloat = 24
+    /// `width: 300px`, do protótipo.
+    static let width: CGFloat = Theme.ModalWidth.folderPopover
+    static var listMaxHeight: CGFloat { CGFloat(visibleRows) * rowHeight }
 
     let groups: [MoveFolderGroup]
     let onPick: (ContextCommand) -> Void
@@ -63,35 +81,26 @@ struct MoveFolderPanel: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            TextField(L10n.tr("Buscar pasta…"), text: $query)
-                .textFieldStyle(.plain)
-                .font(theme.sans.font(size: 12))
-                .padding(.horizontal, 8)
-                .frame(height: 26)
-                .background(theme.surface2.color)
-                .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-                .accessibilityLabel(L10n.tr("Buscar pasta"))
-
+        VStack(alignment: .leading, spacing: 2) {
+            busca
             if filtered.isEmpty {
                 Text(groups.isEmpty
                      ? L10n.tr("Sincronize a conta para ver pastas e marcadores.")
                      : L10n.tr("Nenhuma pasta com esse nome."))
-                    .font(theme.sans.font(size: 12))
+                    .font(theme.sans.font(size: 13.5))
                     .foregroundStyle(theme.ink3.color)
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, 12)
                     .padding(.vertical, 10)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
+                    LazyVStack(alignment: .leading, spacing: 2) {
                         ForEach(filtered) { group in
                             if !group.title.isEmpty {
-                                Text(group.title)
-                                    .capsLabel()
-                                    .padding(.horizontal, MenuSurface.rowHorizontalPadding)
-                                    .padding(.top, 6)
-                                    .padding(.bottom, 4)
+                                ModalEyebrow(text: group.title, size: 10.5, tracking: 0.06)
+                                    .padding(.horizontal, 12)
+                                    .padding(.top, 4)
+                                    .padding(.bottom, 3)
                                     .frame(height: Self.headerHeight, alignment: .bottomLeading)
                             }
                             ForEach(group.items, id: \.self) { item in
@@ -102,10 +111,35 @@ struct MoveFolderPanel: View {
                 }
                 .frame(height: listHeight)
             }
+            atalhos
         }
         .padding(8)
         .frame(width: Self.width)
-        .background(theme.surface.color)
+        .background(theme.modalSheet.color)
+    }
+
+    /// `padding: 9px 12px`, lupa de 15 e o texto de 14. O rótulo é a ação
+    /// ("Mover para…"), e não "Buscar": o campo é a porta do balão.
+    private var busca: some View {
+        HStack(spacing: 9) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 12, weight: .regular))
+                .foregroundStyle(theme.ink3.color)
+                .frame(width: 15)
+                .accessibilityHidden(true)
+            TextField(L10n.tr("Mover para…"), text: $query)
+                .textFieldStyle(.plain)
+                .font(theme.sans.font(size: 14))
+                .foregroundStyle(theme.ink.color)
+                .accessibilityLabel(L10n.tr("Buscar pasta"))
+        }
+        .padding(.vertical, 9)
+        .padding(.horizontal, 12)
+        .background(
+            theme.modalField.color,
+            in: RoundedRectangle(cornerRadius: theme.modalButtonRadius, style: .continuous)
+        )
+        .padding(.bottom, 6)
     }
 
     private func row(_ item: ContextMenuItem, in group: MoveFolderGroup) -> some View {
@@ -114,21 +148,51 @@ struct MoveFolderPanel: View {
         return Button {
             onPick(item.command)
         } label: {
-            Text(item.title)
-                .font(theme.sans.font(size: MenuSurface.rowFontSize))
-                .foregroundStyle(hot ? theme.accentInk.color : theme.ink.color)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .padding(.horizontal, MenuSurface.rowHorizontalPadding)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(height: Self.rowHeight)
-                .menuRowHighlight(hot)
-                .contentShape(Rectangle())
+            HStack(spacing: 10) {
+                Image(systemName: "folder")
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(theme.ink3.color)
+                    .frame(width: 15)
+                    .accessibilityHidden(true)
+                Text(item.title)
+                    .font(theme.sans.font(size: 13.5))
+                    .foregroundStyle(hot ? theme.accentInk.color : theme.ink.color)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                // O `↩` da linha sob o cursor: o desenho o põe na que será
+                // movida com Enter, e é essa que o cursor escolhe.
+                if hot {
+                    Text("↩")
+                        .font(theme.mono.font(size: 11))
+                        .foregroundStyle(theme.ink3.color)
+                        .accessibilityHidden(true)
+                }
+            }
+            .padding(.horizontal, 12)
+            .frame(height: Self.rowHeight)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .menuRowHighlight(hot)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .onHover { inside in
             hovering = inside ? key : (hovering == key ? nil : hovering)
         }
         .accessibilityLabel(item.title)
+    }
+
+    /// A linha dos atalhos. Ela diz que a ação **volta**, e é por isso que
+    /// mover não pergunta nada.
+    private var atalhos: some View {
+        Text(L10n.tr("↩ move · esc fecha · dá para desfazer com ⌘Z"))
+            .font(theme.sans.font(size: 11.5))
+            .foregroundStyle(theme.ink3.color)
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .hairline(theme.modalLine, edges: .top)
+            .padding(.top, 6)
     }
 }

@@ -493,47 +493,125 @@ struct SwipeUndoBand: View {
     let receipt: SwipeReceipt
     let onUndo: () -> Void
 
-    var body: some View {
-        HStack(spacing: 8) {
-            Text("✓")
-                .font(theme.sans.font(size: 12, weight: .semibold))
-                .foregroundStyle(theme.accentInk.color)
+    /// Quanto da barra de tempo ainda falta, 1 → 0. Ela anda em `onAppear`
+    /// pela vida útil do recibo, que é a mesma `MessageList.receiptLifetime`
+    /// que o remove.
+    @State private var remaining: CGFloat = 1
 
-            Text(receipt.note)
-                .font(theme.sans.font(size: 12))
-                .foregroundStyle(theme.ink2.color)
+    /// `height: 2px` e `opacity: 0.6`, do protótipo.
+    static let timeBarHeight: CGFloat = 2
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(theme.modalGreen.color)
+                .frame(width: 17, height: 17)
+                .accessibilityHidden(true)
+
+            Text(frase)
+                .font(theme.sans.font(size: 13.5))
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
 
             Spacer(minLength: 6)
 
-            ChromeButton(
-                L10n.tr("Desfazer"), appearance: .outlined,
-                size: 12, height: 26, horizontalPadding: 10,
-                action: onUndo
-            )
-            // Não leva `fixedSize`. Tentei pôr, e o teste passou sem ele: o
-            // `ChromeButton` já tem `lineLimit(1)` e recuo fixo, e quem cede
-            // sob aperto é a frase, que quebra em duas linhas. Medido, o botão
-            // sai com 67pt de largura a 200, 240, 300 e 420 — e a lista mais
-            // estreita que `PaneLayout` concede é 320. Guarda que não muda
-            // medida nenhuma é decoração.
-            .help(L10n.tr("Desfazer: \(receipt.note)"))
+            botao
         }
-        .padding(.leading, 12)
-        .padding(.trailing, 8)
-        .padding(.vertical, 8)
-        .background(
-            theme.accentSoft.color,
-            in: RoundedRectangle(cornerRadius: theme.radiusLarge)
+        .padding(.leading, 16)
+        .padding(.trailing, 12)
+        .padding(.vertical, 12)
+        .background(theme.modalSheet.color)
+        .overlay(alignment: .bottomLeading) { barraDoTempo }
+        .clipShape(
+            RoundedRectangle(cornerRadius: theme.modalPopoverRadius, style: .continuous)
         )
         .overlay {
-            RoundedRectangle(cornerRadius: theme.radiusLarge)
+            RoundedRectangle(cornerRadius: theme.modalPopoverRadius, style: .continuous)
                 .strokeBorder(
-                    theme.accentLine.color,
-                    lineWidth: Hairline.thickness(displayScale)
+                    theme.modalSheetEdge.color, lineWidth: Hairline.thickness(displayScale)
                 )
         }
-        .shadow(theme.shadow)
+        .shadow(theme.modalShadow)
+        .onAppear {
+            remaining = 1
+            withAnimation(.linear(duration: Self.lifetimeSeconds)) { remaining = 0 }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(receipt.note)
+    }
+
+    /// `Arquivada` em semibold, `— Nubank · Fatura de setembro` em `ink3`.
+    ///
+    /// A frase do recibo já vem no formato `"<verbo> — <detalhe>"`
+    /// (`SwipeReceipt.note`), e o corte é no primeiro travessão: nada é
+    /// adivinhado, e um recibo sem travessão sai inteiro em semibold, que é o
+    /// que ele é — só o verbo.
+    private var frase: AttributedString {
+        let partes = receipt.note.components(separatedBy: " — ")
+        var linha = AttributedString(partes[0])
+        linha.font = theme.sans.font(size: 13.5, weight: .semibold)
+        linha.foregroundColor = theme.ink.color
+        guard partes.count > 1 else { return linha }
+        var cauda = AttributedString(" — " + partes.dropFirst().joined(separator: " — "))
+        cauda.foregroundColor = theme.ink3.color
+        linha.append(cauda)
+        return linha
+    }
+
+    /// `Desfazer` com `⌘Z` em mono ao lado — o atalho dito onde a mão está.
+    private var botao: some View {
+        Button(action: onUndo) {
+            HStack(spacing: 7) {
+                Text(L10n.tr("Desfazer"))
+                    .font(theme.sans.font(size: 13, weight: .semibold))
+                    .foregroundStyle(theme.ink.color)
+                Text("⌘Z")
+                    .font(theme.mono.font(size: 11))
+                    .foregroundStyle(theme.ink3.color)
+                    .accessibilityHidden(true)
+            }
+            .lineLimit(1)
+            .padding(.horizontal, 13)
+            .padding(.vertical, 8)
+            .background(
+                theme.modalButton.color,
+                in: RoundedRectangle(cornerRadius: theme.modalButtonRadius, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: theme.modalButtonRadius, style: .continuous)
+                    .strokeBorder(
+                        theme.modalButtonEdge.color, lineWidth: Hairline.thickness(displayScale)
+                    )
+            }
+            .contentShape(RoundedRectangle(cornerRadius: theme.modalButtonRadius))
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.modalButtonRadius)
+        .help(L10n.tr("Desfazer: \(receipt.note)"))
+    }
+
+    /// A barra que encurta: é ela que diz **quanto tempo ainda dá para voltar**.
+    ///
+    /// Sem ela a faixa some de repente e quem ia clicar não sabia que tinha
+    /// pressa — é o que o desenho conserta ao trocar a pergunta "tem certeza?"
+    /// por um aviso com prazo visível.
+    private var barraDoTempo: some View {
+        GeometryReader { proxy in
+            Rectangle()
+                .fill(theme.accentInk.color)
+                .opacity(0.6)
+                .frame(width: proxy.size.width * remaining, height: Self.timeBarHeight)
+                .frame(height: proxy.size.height, alignment: .bottom)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    /// A vida útil em segundos, para a animação. `Duration` não entrega
+    /// `TimeInterval` direto.
+    static var lifetimeSeconds: Double {
+        let partes = MessageList.receiptLifetime.components
+        return Double(partes.seconds) + Double(partes.attoseconds) / 1e18
     }
 }

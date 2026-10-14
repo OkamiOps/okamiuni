@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UNIDesign
 import UNICore
 import UniformTypeIdentifiers
 
@@ -63,50 +64,86 @@ enum MoveToApplications {
     }
 }
 
-/// A folha do convite, no visual do app.
+/// A folha do convite — o primeiro abrir, quando o app está rodando do
+/// instalador.
+///
+/// Protótipo: `ModalSistema.dc.html`, bloco "MOVER PARA APLICATIVOS". 460 de
+/// largura, **centrada** (é uma parada, não uma folha do app), `padding: 28px`,
+/// e no topo o ícone do app → a flecha → a pasta, que é a frase inteira dita em
+/// três desenhos antes de qualquer texto. O título e a explicação vêm
+/// centrados embaixo, e as duas ações dividem a largura em colunas iguais.
+///
+/// A ordem dos botões é a do desenho: "Agora não" à esquerda, "Mover e
+/// reabrir" à direita, no acento.
 struct MoveToApplicationsSheet: View {
     @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
     var icon: NSImage = NSApp?.applicationIconImage ?? NSImage()
     let onMove: () -> Void
     let onDismiss: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .top, spacing: 14) {
-                Image(nsImage: icon)
-                    .resizable()
-                    .frame(width: 56, height: 56)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(L10n.tr("Mover o OkamiUNI para Aplicativos?"))
-                        .font(theme.sans.font(size: 14, weight: .semibold))
-                        .foregroundStyle(theme.ink.color)
-                    Text(L10n.tr(
-                        "O app está aberto de dentro do instalador. Na pasta Aplicativos ele recebe as atualizações sozinho."
-                    ))
-                    .font(theme.sans.font(size: 12))
-                    .foregroundStyle(theme.ink2.color)
+        VStack(spacing: 18) {
+            jornada
+            VStack(spacing: 7) {
+                Text(L10n.tr("Mover para Aplicativos?"))
+                    .font(theme.sans.font(size: 20, weight: .bold))
+                    .tracking(theme.modalTitleTracking(at: 20) * 0.75)
+                    .foregroundStyle(theme.ink.color)
+                Text(L10n.tr("De lá o OkamiUNI atualiza sozinho e o macOS guarda as permissões de Calendários e notificações."))
+                    .font(theme.sans.font(size: 14))
+                    .lineSpacing(0.5 * 14)
+                    .foregroundStyle(theme.ink3.color)
+                    .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
-                }
             }
-            HStack(spacing: 8) {
-                Spacer(minLength: 0)
-                ChromeButton(
-                    L10n.tr("Agora não"), appearance: .outlined,
-                    size: 12, height: 28, horizontalPadding: 12
-                ) { onDismiss() }
-                .keyboardShortcut(.cancelAction)
-                ChromeButton(
-                    L10n.tr("Mover para Aplicativos"), appearance: .accent,
-                    size: 12, height: 28, horizontalPadding: 12
-                ) { onMove() }
+            HStack(spacing: 10) {
+                ModalSecondaryButton(L10n.tr("Agora não")) { onDismiss() }
+                    .keyboardShortcut(.cancelAction)
+                ModalPrimaryButton(
+                    title: L10n.tr("Mover e reabrir"), horizontalPadding: 0, action: onMove
+                )
+                .frame(maxWidth: .infinity)
                 .keyboardShortcut(.defaultAction)
                 .accessibilityIdentifier("move-to-applications")
             }
+            .padding(.top, 2)
         }
-        .padding(20)
-        .frame(width: 420, alignment: .leading)
-        .background(theme.surface.color)
+        .padding(28)
+        .frame(width: Theme.ModalWidth.smallSheet)
+        .modalSurface()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(L10n.tr("Mover para Aplicativos?"))
+    }
+
+    /// Daqui para lá: o ícone do app, a flecha, a pasta. Dois quadrados de 56
+    /// com a flecha de 26 entre eles.
+    private var jornada: some View {
+        HStack(spacing: 18) {
+            Image(nsImage: icon)
+                .resizable()
+                .frame(width: 56, height: 56)
+            Image(systemName: "arrow.right")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(theme.ink3.color)
+            Image(systemName: "folder")
+                .font(.system(size: 24, weight: .light))
+                .foregroundStyle(theme.accentInk.color)
+                .frame(width: 56, height: 56)
+                .background(
+                    theme.modalSoft.color,
+                    in: RoundedRectangle(cornerRadius: theme.modalFieldRadius, style: .continuous)
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: theme.modalFieldRadius, style: .continuous)
+                        .strokeBorder(
+                            theme.modalLine.color, lineWidth: Hairline.thickness(displayScale)
+                        )
+                }
+        }
+        .padding(.top, 8)
+        .padding(.bottom, 2)
+        .accessibilityHidden(true)
     }
 }
 
@@ -129,7 +166,9 @@ private struct MoveToApplicationsOffer: ViewModifier {
             .task {
                 aberto = enabled && AppLocation.needsMove(bundlePath: bundle.bundlePath)
             }
-            .sheet(isPresented: $aberto) {
+            // Centrado, e não `.sheet`: é o primeiro abrir do app, uma
+            // parada antes de qualquer coisa — ver `CenteredModal`.
+            .centeredModal(isPresented: aberto, onDismiss: { aberto = false }) {
                 MoveToApplicationsSheet(
                     onMove: {
                         aberto = false
