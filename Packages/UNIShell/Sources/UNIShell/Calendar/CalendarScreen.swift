@@ -187,10 +187,14 @@ public struct CalendarScreen: View {
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
             .animation(.easeInOut(duration: 0.18), value: expanded)
         }
-        .sheet(isPresented: Binding(
-            get: { state.creatingAppointment },
-            set: { state.creatingAppointment = $0 }
-        )) {
+        // Folha que **pende do topo**, e não `.sheet` centrada: o desenho dos
+        // modais põe a folha a 56pt do topo da janela, com a Agenda visível
+        // atrás dela e o véu por cima. É o que liga a folha ao lugar de onde
+        // ela veio — ver `TopHangingSheet`.
+        .topHangingSheet(
+            isPresented: state.creatingAppointment,
+            onDismiss: { state.creatingAppointment = false }
+        ) {
             NewAppointmentSheet(
                 store: store,
                 anchor: anchor,

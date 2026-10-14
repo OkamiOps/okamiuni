@@ -196,4 +196,21 @@ public enum DateLabels {
             : text
         return withoutWeekdaySuffix.prefix(1).uppercased() + withoutWeekdaySuffix.dropFirst()
     }
+
+    /// "QUINTA 15" — o rótulo de bloco que a trilha de 8h–19h da folha de novo
+    /// compromisso põe acima do dia (`ModalAgenda.dc.html`).
+    ///
+    /// Sem vírgula e sem mês: ele fica ao lado da frase do veredito, e a folha
+    /// já disse o dia por extenso no título. A caixa alta é do desenho e sai
+    /// no `textCase` da `View`, não daqui — em alemão e francês a maiúscula de
+    /// uma letra acentuada não é a mesma conta.
+    public static func shortWeekdayAndDay(_ date: Date, locale: Locale = L10n.locale) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.setLocalizedDateFormatFromTemplate("EEEE d")
+        let text = formatter.string(from: date)
+        return locale.language.languageCode?.identifier == "pt"
+            ? text.replacingOccurrences(of: "-feira", with: "")
+            : text
+    }
 }

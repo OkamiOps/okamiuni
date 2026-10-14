@@ -227,7 +227,8 @@ struct PainelDoDia: View {
         .sheet(isPresented: Binding(
             get: { cartaoDoRascunho != nil }, set: { if !$0 { cartaoDoRascunho = nil } }
         )) { cartaoSheet }
-        .sheet(isPresented: $ajustando) {
+        // Ver a nota em `CalendarScreen`: a folha de compromisso pende do topo.
+        .topHangingSheet(isPresented: ajustando, onDismiss: { ajustando = false }) {
             NewAppointmentSheet(
                 store: store,
                 anchor: today,
