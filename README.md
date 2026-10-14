@@ -18,7 +18,7 @@
 
 OkamiUNI combines a unified inbox, calendar and daily planning dashboard in a native SwiftUI/AppKit application. Accounts and mail are stored locally, queued actions survive going offline, and AI features use the provider you choose. The interface follows the [original design and theme tokens](design/README.en.md), including 26 themes.
 
-**Latest: [v0.5.4 — Four languages and bilingual documentation](https://github.com/OkamiOps/okamiuni/releases/tag/v0.5.4).** See the [changelog](CHANGELOG.md) and [documentation index](docs/README.md). This release provides source code; it does not include a downloadable installer.
+**[Download OkamiUNI for Mac](https://github.com/OkamiOps/okamiuni/releases/latest/download/OkamiUNI.dmg)** (macOS, signed and notarized). Open the `.dmg` and drag OkamiUNI onto Applications; after that it updates itself. See the [changelog](CHANGELOG.md), [all releases](https://github.com/OkamiOps/okamiuni/releases) and the [documentation index](docs/README.md).
 
 ## What the app does
 

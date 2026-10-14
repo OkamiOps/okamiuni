@@ -4,6 +4,12 @@
 
 Versions correspond to [GitHub releases](https://github.com/OkamiOps/okamiuni/releases). All dates below are in 2026.
 
+## 0.5.9 — October 14
+
+- Installer for new users: each release now includes `OkamiUNI.dmg`, signed and notarized by Apple. It opens a window with the app, an arrow and the Applications folder; drag one onto the other. Fixed link to the latest version: https://github.com/OkamiOps/okamiuni/releases/latest/download/OkamiUNI.dmg
+- If OkamiUNI is opened straight from the installer window, or from Downloads without moving it, the app offers **Move to Applications**. That is where automatic updates work.
+- App version 0.5.9, build 14. [Release notes](docs/releases/v0.5.9.md).
+
 ## 0.5.8 — October 14
 
 - A ready update now shows in the sidebar as a strip with "New version", the version number and an **Install** button, above "Accounts and providers". With nothing new, the update icon stays at the end of that row; one click checks right away.

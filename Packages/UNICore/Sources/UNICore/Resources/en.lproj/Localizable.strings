@@ -1794,3 +1794,9 @@
 "Nova versão" = "New version";
 "Instalar" = "Install";
 "Instalar {0} e reabrir" = "Install {0} and reopen";
+"Mover o OkamiUNI para Aplicativos?" = "Move OkamiUNI to Applications?";
+"O app está aberto de dentro do instalador. Na pasta Aplicativos ele recebe as atualizações sozinho." = "The app is open from inside the installer. In the Applications folder it updates itself.";
+"Mover para Aplicativos" = "Move to Applications";
+"Agora não" = "Not now";
+"Confirme a pasta Aplicativos para instalar o OkamiUNI." = "Confirm the Applications folder to install OkamiUNI.";
+"Arraste o OkamiUNI para a pasta Aplicativos pela janela do instalador." = "Drag OkamiUNI to the Applications folder from the installer window.";

@@ -259,6 +259,10 @@ struct OkamiUNIApp: App {
                 // `App` atrasa o primeiro quadro. Em Debug, `updates` é nulo e
                 // isto não faz nada.
                 .task { updates?.start() }
+                // Aberto de dentro do .dmg (ou translocado), o app não tem
+                // onde se atualizar: a folha oferece mover para Aplicativos.
+                // Só em Release — `updates` é nulo em Debug.
+                .offeringMoveToApplications(enabled: updates != nil)
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1440, height: 916)

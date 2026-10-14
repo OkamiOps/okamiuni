@@ -18,7 +18,7 @@
 
 O OkamiUNI reúne caixa unificada, agenda e painel de planejamento diário em um aplicativo nativo SwiftUI/AppKit. Contas e emails ficam armazenados localmente, ações enfileiradas sobrevivem à falta de conexão e os recursos de IA usam o provedor escolhido. A interface segue o [design original e seus tokens](design/README.md), com 26 temas.
 
-**Versão atual: [v0.5.4 — Quatro idiomas e documentação bilíngue](https://github.com/OkamiOps/okamiuni/releases/tag/v0.5.4).** Veja o [changelog](CHANGELOG.pt-BR.md) e o [índice da documentação](docs/README.pt-BR.md). Esta release oferece o código-fonte; não inclui instalador para download.
+**[Baixar o OkamiUNI para Mac](https://github.com/OkamiOps/okamiuni/releases/latest/download/OkamiUNI.dmg)** (macOS, assinado e notarizado). Abra o `.dmg` e arraste o OkamiUNI para Aplicativos; depois disso ele se atualiza sozinho. Veja o [changelog](CHANGELOG.pt-BR.md), [todas as versões](https://github.com/OkamiOps/okamiuni/releases) e o [índice da documentação](docs/README.pt-BR.md).
 
 ## O que o aplicativo faz
 

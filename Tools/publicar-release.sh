@@ -1,7 +1,7 @@
 #!/bin/zsh
 # Empacota, assina, notariza e publica uma release do OkamiUNI: build Release
-# assinado com Developer ID, notarização, appcast.xml (Sparkle 2) e release
-# no GitHub.
+# assinado com Developer ID, notarização, instalador .dmg (Tools/dmg),
+# appcast.xml (Sparkle 2) e release no GitHub.
 #
 # Uso:
 #   Tools/publicar-release.sh X.Y.Z [--dry-run] [--instalar] [--assinatura SIG]
@@ -190,6 +190,18 @@ fi
 HAVE_SPARKLE=0
 [[ -n "$SPARKLE_BIN" && -x "$SPARKLE_BIN" ]] && HAVE_SPARKLE=1
 
+# O instalador (.dmg) é montado pelo dmgbuild, que escreve o layout da janela
+# direto no .DS_Store — sem AppleScript no Finder, então funciona com a tela
+# bloqueada. Mora num venv próprio no cache, com a versão fixada.
+DMG_VENV="$HOME/Library/Caches/okamiuni-release/venv"
+DMGBUILD_VERSION="1.6.5"
+if ! "$DMG_VENV/bin/dmgbuild" --help >/dev/null 2>&1 \
+    || [[ "$("$DMG_VENV/bin/pip" show dmgbuild 2>/dev/null | awk '/^Version:/{print $2}')" != "$DMGBUILD_VERSION" ]]; then
+  log "instalando dmgbuild $DMGBUILD_VERSION em $DMG_VENV"
+  python3 -m venv "$DMG_VENV"
+  "$DMG_VENV/bin/pip" install -q "dmgbuild==$DMGBUILD_VERSION"
+fi
+
 if [[ $DRY_RUN -eq 0 ]]; then
   if [[ $HAVE_DEVID -eq 0 ]]; then
     err "identidade 'Developer ID Application' não encontrada (security find-identity -v -p codesigning)"
@@ -326,29 +338,33 @@ codesign --verify --deep --strict "$APP_PATH"
 # 5. Notarização + staple
 # ---------------------------------------------------------------------------
 
+# Envia ARQUIVO ao notarytool e espera; falha a release se não for aceito.
+notarizar() {
+  local arquivo="$1" nome="$2"
+  local registro="$WORK_DIR/notarytool-$nome.log"
+  log "enviando $nome para o notarytool (--wait)"
+  if ! xcrun notarytool submit "$arquivo" "${NOTARY_ARGS[@]}" --wait > "$registro" 2>&1; then
+    err "notarytool submit falhou — log em $registro"
+    cat "$registro" >&2
+    exit 1
+  fi
+  cat "$registro"
+  if ! grep -q "status: Accepted" "$registro"; then
+    local submissao
+    submissao="$(awk -F': ' '/^[ ]*id:/{print $2; exit}' "$registro")"
+    err "notarização de $nome não foi aceita"
+    if [[ -n "$submissao" ]]; then
+      xcrun notarytool log "$submissao" "${NOTARY_ARGS[@]}" || true
+    fi
+    exit 1
+  fi
+}
+
 if [[ $HAVE_DEVID -eq 1 && $HAVE_NOTARY -eq 1 ]]; then
   NOTARIZE_ZIP="$WORK_DIR/OkamiUNI-notarize.zip"
   log "empacotando para notarização"
   ditto -c -k --keepParent "$APP_PATH" "$NOTARIZE_ZIP"
-
-  log "enviando para o notarytool (--wait)"
-  NOTARY_LOG="$WORK_DIR/notarytool-submit.log"
-  if ! xcrun notarytool submit "$NOTARIZE_ZIP" "${NOTARY_ARGS[@]}" --wait \
-      > "$NOTARY_LOG" 2>&1; then
-    err "notarytool submit falhou — log em $NOTARY_LOG"
-    cat "$NOTARY_LOG" >&2
-    exit 1
-  fi
-  cat "$NOTARY_LOG"
-
-  if ! grep -q "status: Accepted" "$NOTARY_LOG"; then
-    SUBMISSION_ID="$(awk -F': ' '/^[ ]*id:/{print $2; exit}' "$NOTARY_LOG")"
-    err "notarização não foi aceita"
-    if [[ -n "$SUBMISSION_ID" ]]; then
-      xcrun notarytool log "$SUBMISSION_ID" "${NOTARY_ARGS[@]}" || true
-    fi
-    exit 1
-  fi
+  notarizar "$NOTARIZE_ZIP" app
 
   log "stapler staple"
   xcrun stapler staple "$APP_PATH"
@@ -362,6 +378,34 @@ fi
 FINAL_ZIP="$WORK_DIR/OkamiUNI-$VERSION.zip"
 log "empacotando zip final → $FINAL_ZIP"
 ditto -c -k --keepParent "$APP_PATH" "$FINAL_ZIP"
+
+# ---------------------------------------------------------------------------
+# 5b. Instalador (.dmg) para quem baixa pela primeira vez
+# ---------------------------------------------------------------------------
+# O zip acima é o que o Sparkle baixa; o .dmg é o que uma pessoa baixa. Nome
+# sem versão de propósito: é ele que o link fixo
+# releases/latest/download/OkamiUNI.dmg alcança.
+
+FINAL_DMG="$WORK_DIR/OkamiUNI.dmg"
+log "desenhando o fundo do instalador"
+swift Tools/dmg/fundo.swift "$WORK_DIR/dmg" >/dev/null
+log "montando o instalador → $FINAL_DMG"
+"$DMG_VENV/bin/dmgbuild" -s Tools/dmg/settings.py \
+  -D app="$APP_PATH" -D fundo="$WORK_DIR/dmg/fundo.png" \
+  "OkamiUNI" "$FINAL_DMG" 2>&1 | grep -v "is deprecated" || true
+[[ -f "$FINAL_DMG" ]] || { err "dmgbuild não gerou $FINAL_DMG"; exit 1; }
+
+if [[ $HAVE_DEVID -eq 1 ]]; then
+  log "assinando o instalador com Developer ID"
+  codesign --sign "Developer ID Application" --timestamp "$FINAL_DMG"
+fi
+if [[ $HAVE_DEVID -eq 1 && $HAVE_NOTARY -eq 1 ]]; then
+  notarizar "$FINAL_DMG" dmg
+  log "stapler staple (dmg)"
+  xcrun stapler staple "$FINAL_DMG"
+  log "spctl (dmg)"
+  spctl -a -t open --context context:primary-signature -vv "$FINAL_DMG"
+fi
 
 # ---------------------------------------------------------------------------
 # 6. Assinatura Sparkle (sign_update)
@@ -411,6 +455,7 @@ if [[ $DRY_RUN -eq 1 ]]; then
   log "dry-run concluído, nada foi publicado."
   log "  app:      $APP_PATH"
   log "  zip:      $FINAL_ZIP"
+  log "  dmg:      $FINAL_DMG"
   log "  appcast:  $APPCAST_OUT"
   exit 0
 fi
@@ -431,8 +476,8 @@ log "git push origin main e a tag v$VERSION"
 git push origin main
 git push origin "v$VERSION"
 
-log "gh release create v$VERSION (sobe $FINAL_ZIP)"
-gh release create "v$VERSION" "$FINAL_ZIP" \
+log "gh release create v$VERSION (sobe $FINAL_DMG e $FINAL_ZIP)"
+gh release create "v$VERSION" "$FINAL_DMG" "$FINAL_ZIP" \
   --repo "$REPO" \
   --title "v$VERSION" \
   --notes-file "$NOTES_EN" \
@@ -487,5 +532,6 @@ fi
 
 log "release v$VERSION publicada."
 log "  zip:      $FINAL_ZIP"
+log "  dmg:      https://github.com/$REPO/releases/latest/download/OkamiUNI.dmg"
 log "  release:  https://github.com/$REPO/releases/tag/v$VERSION"
 log "  appcast:  https://okamiops.github.io/okamiuni/appcast.xml"
