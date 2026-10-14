@@ -109,7 +109,8 @@ struct RecipientField: View {
             }
             TextField(placeholder, text: queryBinding)
                 .textFieldStyle(.plain)
-                .font(theme.sans.font(size: 13))
+                // Mock: as linhas do cabeçalho são de 14px no Vidro.
+                .font(theme.sans.font(size: theme.isGlass ? 14 : 13))
                 .foregroundStyle(theme.ink.color)
                 .frame(minWidth: inputMinWidth, maxWidth: .infinity)
                 .frame(height: 24)
@@ -130,35 +131,54 @@ struct RecipientField: View {
         }
     }
 
+    /// A etiqueta do mock `Compositor.dc.html` (linha 35): cápsula `soft` de
+    /// raio 999, avatar de 22pt, o nome e o email em `ink3` ao lado —
+    /// `padding: 3px 10px 3px 3px`.
+    ///
+    /// O mock não desenha o `×` da etiqueta (desenha o do anexo). Ele fica:
+    /// sem ele a única forma de tirar um destinatário é apagar com a tecla
+    /// delete a partir do campo vazio, e isso não é uma affordance.
     private func chip(_ contact: Contact) -> some View {
         HStack(spacing: 7) {
+            Text(contact.initials)
+                .font(theme.sans.font(size: 10, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 22, height: 22)
+                // `#3b82f6` literal do mock: o avatar não é a cor do acento do
+                // tema, é a cor de uma pessoa.
+                .background(Color(red: 59 / 255, green: 130 / 255, blue: 246 / 255))
+                .clipShape(Circle())
+
             Text(contact.name.isEmpty ? contact.address : contact.name)
-                .font(theme.sans.font(size: 12))
-                .foregroundStyle(theme.accentInk.color)
+                .font(theme.sans.font(size: 14))
+                .foregroundStyle(theme.ink.color)
                 .lineLimit(1)
+
+            if !contact.name.isEmpty, !contact.address.isEmpty {
+                Text(contact.address)
+                    .font(theme.sans.font(size: 12))
+                    .foregroundStyle(theme.ink3.color)
+                    .lineLimit(1)
+            }
+
             Button {
                 chips.removeAll { $0.id == contact.id }
             } label: {
-                Text("×")
-                    .font(theme.sans.font(size: 11))
-                    .foregroundStyle(theme.accentInk.color)
-                    .frame(width: 15, height: 15)
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(theme.ink3.color)
+                    .frame(width: 14, height: 14)
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
             .focusRing(in: Circle())
+            .help(L10n.tr("Tirar este destinatário"))
         }
-        .frame(height: 24)
-        .padding(.leading, 9)
-        .padding(.trailing, 5)
-        // Raio 12 literal no protótipo (`border-radius: 12px`), não `var(--r2)`:
-        // a etiqueta é uma cápsula em qualquer tema.
-        .background(theme.accentSoft.color)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(theme.accentLine.color, lineWidth: Hairline.thickness(displayScale))
-        }
+        .padding(.leading, 3)
+        .padding(.trailing, 10)
+        .padding(.vertical, 3)
+        .background(theme.glassSoft.color)
+        .clipShape(Capsule())
     }
 
     private var menu: some View {
@@ -177,14 +197,21 @@ struct RecipientField: View {
             }
         }
         .frame(width: menuWidth)
-        .background(theme.surface.color)
+        // **Opaco.** `surface` é translúcido nos dois temas Vidro, e um menu
+        // translúcido por cima do Assunto e da barra deixa o texto de baixo
+        // atravessar os nomes — o print do dono do projeto. Ver
+        // `Theme.glassElevated`, que fora do Vidro é o mesmo `surface` de
+        // sempre.
+        .background(theme.glassElevated.color)
         .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
         .overlay {
             RoundedRectangle(cornerRadius: theme.radiusLarge)
-                .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
+                .strokeBorder(
+                    theme.glassElevatedEdge.color, lineWidth: Hairline.thickness(displayScale)
+                )
         }
         // `0 18px 40px rgba(0,0,0,0.24)` — o blur do CSS vale o dobro do raio.
-        .shadow(color: .black.opacity(0.24), radius: 20, x: 0, y: 18)
+        .shadow(color: .black.opacity(theme.isDark ? 0.45 : 0.24), radius: 20, x: 0, y: 18)
         .onHover { hoveringMenu = $0 }
     }
 
