@@ -90,13 +90,20 @@ public final class ThemeStore {
     /// aparência do sistema.
     private var resolvedBase: Theme {
         guard followsSystemAppearance else { return baseTheme }
-        return Self.systemIsDark ? .vidroNoite : .vidro
+        return systemIsDark ? .vidroNoite : .vidro
     }
 
-    /// A aparência efetiva do app, lida do AppKit. Fora de um app com
-    /// `NSApplication` (testes, previews) ela cai no claro, que é o padrão do
-    /// sistema e o que o desenho mostra primeiro.
-    private static var systemIsDark: Bool {
+    /// A aparência efetiva do app.
+    ///
+    /// É **estado observado**, e não uma leitura de `NSApp` na hora: ler o
+    /// AppKit dentro de uma propriedade computada deixaria o Observation sem
+    /// nada para acordar, e trocar o Mac para escuro não repintaria janela
+    /// nenhuma até alguém mexer noutra coisa. O KVO abaixo escreve aqui, e é
+    /// essa escrita que as janelas observam.
+    public private(set) var systemIsDark: Bool
+    @ObservationIgnored private var appearanceObserver: NSKeyValueObservation?
+
+    private static var currentSystemIsDark: Bool {
         NSApp?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
 
@@ -107,17 +114,40 @@ public final class ThemeStore {
         self.typographyPreset = defaults.string(forKey: Self.typographyKey)
             .flatMap(TypographyPreset.init(rawValue:)) ?? .standard
         self.followsSystemAppearance = defaults.bool(forKey: Self.followsSystemKey)
+        self.systemIsDark = Self.currentSystemIsDark
+        observeSystemAppearance()
+    }
+
+    /// Fora de um app com `NSApplication` — testes e previews — não há
+    /// aparência de sistema para observar, e o estado inicial (claro) fica.
+    private func observeSystemAppearance() {
+        guard let app = NSApp else { return }
+        appearanceObserver = app.observe(\.effectiveAppearance, options: [.new]) { [weak self] _, _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let escuro = Self.currentSystemIsDark
+                if self.systemIsDark != escuro { self.systemIsDark = escuro }
+            }
+        }
     }
 
     private let defaults: UserDefaults
 
     public func select(_ theme: Theme) {
         let selected = Theme.named(theme.id) ?? theme
-        self.baseTheme = selected
-        defaults.set(selected.id, forKey: Self.key)
         // Escolher um tema é dizer qual: sai do automático sozinho, sem a
         // pessoa ter de desligar um interruptor que ela não viu.
-        if followsSystemAppearance { setFollowsSystemAppearance(false) }
+        //
+        // O desligamento vem **antes** da escrita, e não depois: ele preserva o
+        // tema que estava resolvido, e chamado por último ele sobrescreveria
+        // justamente o que acabou de ser escolhido — era o tema escolhido
+        // virando Vidro sozinho.
+        if followsSystemAppearance {
+            followsSystemAppearance = false
+            defaults.set(false, forKey: Self.followsSystemKey)
+        }
+        self.baseTheme = selected
+        defaults.set(selected.id, forKey: Self.key)
     }
 
     /// Liga ou desliga o "Automático". Ao desligar, o tema volta a ser o que
