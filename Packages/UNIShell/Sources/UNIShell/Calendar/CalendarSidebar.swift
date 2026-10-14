@@ -42,7 +42,12 @@ struct CalendarSidebar: View {
                 expanded
             }
         }
-        .frame(width: width, alignment: compact && chrome == .standalone ? .center : .leading)
+        // Embutida, a largura é a da coluna de contexto **já descontada** a
+        // folga de 10pt dela: pedi-la aqui punha 216 dentro de 196.
+        .frame(
+            width: chrome == .embedded ? nil : width,
+            alignment: compact && chrome == .standalone ? .center : .leading
+        )
         .frame(maxHeight: .infinity, alignment: .topLeading)
         .background(chrome == .standalone ? theme.surface2.color : Color.clear)
         .hairline(
@@ -56,19 +61,25 @@ struct CalendarSidebar: View {
     /// O miolo da lateral da Agenda dentro da coluna de contexto: mês miúdo e
     /// a lista de calendários, sem botão de criar e sem rodapé.
     private var embedded: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            CalendarMiniMonth(
-                store: store,
-                anchor: anchor,
-                selectedDayOffset: selectedDayOffset,
-                onPickDay: onPickDay
-            )
-            .padding(.horizontal, 8)
-            .padding(.bottom, 8)
+        // Protótipo: a lista de calendários vem primeiro e o mês miúdo é o
+        // último item do corpo da coluna (`sc-if value="{{showMini}}"` depois
+        // do `sc-for` das linhas) — não o primeiro, como estava aqui.
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                // O rótulo "CALENDÁRIOS" que o protótipo pede já encima a
+                // `groupedList` — ver abaixo.
+                groupedList
 
-            // O rótulo "CALENDÁRIOS" que o protótipo pede já encima a
-            // `groupedList` — ver abaixo.
-            ScrollView { groupedList }
+                CalendarMiniMonth(
+                    store: store,
+                    anchor: anchor,
+                    selectedDayOffset: selectedDayOffset,
+                    onPickDay: onPickDay
+                )
+                // Protótipo: `margin: 4px 0 6px` no cartão do mês.
+                .padding(.top, 4)
+                .padding(.bottom, 6)
+            }
         }
     }
 
@@ -167,9 +178,20 @@ struct CalendarSidebar: View {
 
     private var groupedList: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(L10n.tr("Calendários"))
-                .capsLabel(size: 9.5)
-                .padding(EdgeInsets(top: 4, leading: 16, bottom: 7, trailing: 16))
+            // Embutida, o cabeçalho é o do protótipo: sans de 11 em 8pt de
+            // recuo, a mesma coluna das linhas. Avulsa, continua o versalete
+            // mono que a barra sempre teve.
+            Group {
+                if chrome == .embedded {
+                    Text(L10n.tr("Calendários"))
+                        .glassSectionLabel()
+                        .padding(EdgeInsets(top: 0, leading: 8, bottom: 4, trailing: 8))
+                } else {
+                    Text(L10n.tr("Calendários"))
+                        .capsLabel(size: 9.5)
+                        .padding(EdgeInsets(top: 4, leading: 16, bottom: 7, trailing: 16))
+                }
+            }
 
             if groups.isEmpty {
                 Text(emptyCopy)
@@ -306,8 +328,8 @@ struct CalendarSidebar: View {
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
-            .frame(height: 32)
-            .padding(.horizontal, 8)
+            .frame(height: chrome == .embedded ? ContextSidebar.rowHeight : 32)
+            .padding(.horizontal, ContextSidebar.rowInset)
             .contentShape(Rectangle())
             .background {
                 if on {

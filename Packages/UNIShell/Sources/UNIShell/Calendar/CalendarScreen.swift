@@ -67,6 +67,18 @@ public struct CalendarScreen: View {
     /// contexto, do outro lado do painel.
     let showsSidebar: Bool
 
+    /// Presente só com a coluna de contexto recolhida: o `sidebar.left` que a
+    /// traz de volta, na ponta esquerda do cabeçalho da Agenda. Fica fora dos
+    /// `init` porque é do shell, não da tela — ver `expandingSidebar(_:)`.
+    var onExpandSidebar: (() -> Void)?
+
+    /// Liga o botão de mostrar a lateral no cabeçalho desta tela.
+    func expandingSidebar(_ action: (() -> Void)?) -> Self {
+        var copia = self
+        copia.onExpandSidebar = action
+        return copia
+    }
+
     /// Qual visão está no ar e qual dia a visão Dia mostra. Protótipo:
     /// `st.calView` (abre em `'semana'`) e `st.dayW`/`st.dayD` (abrem em hoje).
     @State private var ownState: CalendarShellState
@@ -231,7 +243,8 @@ public struct CalendarScreen: View {
                     onStepDay: step(_:),
                     onGoToday: goToday,
                     onTogglePicker: { pickerOpen.toggle() },
-                    onPickDay: pickDay(_:)
+                    onPickDay: pickDay(_:),
+                    onExpandSidebar: onExpandSidebar
                 )
                 .zIndex(30)
             } else {

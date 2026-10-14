@@ -21,11 +21,17 @@ struct AppRail: View {
     static let actionSize: CGFloat = 40
     static let actionRadius: CGFloat = 12
 
+    /// Largura do alvo de uma tela. Protótipo: `width: 52px` no `<a>`, com o
+    /// quadrado de 40 centrado nele — sobram 6pt de cada lado, e é essa folga
+    /// que o selo de não lidas usa.
+    static let itemWidth: CGFloat = 52
+
     /// Quanto o selo de não lidas recua da aresta do quadrado do ícone.
     ///
-    /// Positivo: ele mora **dentro** do quadrado. O valor negativo que estava
-    /// aqui o punha acima dele, onde a legenda da tela anterior já estava
-    /// escrita. Ver `navigationButton`.
+    /// Protótipo: `top: 0; right: 6px` no `<a>` de 52pt, o que põe a caixa de
+    /// 16 do selo com a aresta direita na aresta direita do quadrado e o topo
+    /// 2pt acima dele — mais o anel de 2pt que ela desenha para fora. Daí o
+    /// `offset(x: 2, y: -4)` de `navigationButton`.
     nonisolated static let badgeInset: CGFloat = 2
 
     @Environment(\.theme) private var theme
@@ -40,9 +46,19 @@ struct AppRail: View {
     let accountMonogram: String
     /// A sincronização está em pé? É o pontinho verde no canto do avatar.
     let isSynced: Bool
-    /// Presente só com a coluna de contexto recolhida pelo dono: é o botão que
-    /// a traz de volta. Sem ele o trilho ficava sem saída (14/10/2026).
-    var onExpandSidebar: (() -> Void)? = nil
+    /// Há atualização pronta? Com a coluna de contexto recolhida o cartão dela
+    /// não está na tela, e o protótipo põe o ícone no pé do trilho, acima do
+    /// ✦ — `sc-if value="{{closed}}"`.
+    var updates: UpdateController? = nil
+    /// A coluna de contexto está recolhida? É o que decide se o ícone da
+    /// atualização aparece aqui.
+    var contextCollapsed: Bool = false
+    /// Clicar na tela que já está no ar, com a coluna recolhida, abre a coluna
+    /// de volta. É a única porta que o trilho tem para ela: o botão
+    /// `sidebar.left` mora no cabeçalho do primeiro painel de conteúdo, não
+    /// aqui — ver o protótipo, que nunca desenhou controle de expandir no
+    /// trilho.
+    var onReopenContext: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 6) {
@@ -58,36 +74,48 @@ struct AppRail: View {
                 navigationButton(tab)
             }
 
-            if let onExpandSidebar {
-                expandButton(onExpandSidebar)
-                    .padding(.top, 6)
+            Spacer(minLength: 0)
+
+            // Protótipo: com a coluna recolhida o ícone da atualização entra
+            // **acima** do ✦. Com a coluna aberta quem avisa é o cartão do pé
+            // dela, e dois avisos da mesma coisa na mesma tela é um a mais.
+            if contextCollapsed, let updates, updates.showsReadyButton {
+                updateButton(updates)
             }
 
-            Spacer(minLength: 8)
-
+            // Protótipo: `margin-bottom: 2px` no ✦ e `margin: 4px 0 6px` no
+            // interruptor — com o `gap: 6px` do trilho isso dá 12pt entre o ✦
+            // e o interruptor, 12 entre o interruptor e a engrenagem e 10 até
+            // o avatar.
             assistantButton
+                .padding(.bottom, 2)
             // `theme.isDark` do ambiente, e não `themeStore.isDark`: o que o
             // interruptor mostra é o tema que **esta janela está desenhando**.
             // São o mesmo valor no app; no harness fora da tela o tema vem
             // injetado e a loja fica no padrão, e aí a lua apareceria
             // desligada num retrato escuro.
             ThemeSwitch(isDark: theme.isDark) { themeStore.toggleAppearance() }
-                .padding(.vertical, 2)
+                .padding(.top, 4)
+                .padding(.bottom, 6)
             settingsButton
             avatar
+                .padding(.top, 4)
         }
         .frame(width: AppRail.width)
         .frame(maxHeight: .infinity)
-        .padding(.vertical, 12)
+        // Protótipo: `padding: 14px 0 12px` no `<nav>`.
+        .padding(.top, 14)
+        .padding(.bottom, 12)
     }
 
     /// Quanto o trilho guarda no alto para os três botões do sistema.
     ///
-    /// `contentCenterFromTop` é a linha em que a plataforma põe o centro deles
-    /// contada do topo **da janela**; o trilho começa `PanelStyle.vidroGap`
-    /// abaixo disso, e os 12pt de `padding(.vertical)` já entram antes. O que
-    /// resta é a folga para a primeira tela não encostar nas bolinhas.
-    static let trafficLightReserve: CGFloat = 18
+    /// Protótipo: a fila dos semáforos é um `<div>` com `padding: 2px 0 16px` e
+    /// bolinhas de 11 — 29pt no total. Com os 14pt do alto do `<nav>` e o
+    /// painel começando `PanelStyle.vidroGap` abaixo da borda da janela, o
+    /// centro das bolinhas cai em 31,5pt do topo da janela, que é onde a
+    /// plataforma as desenha (ver `TrafficLightLayout.railCenterFromTop`).
+    static let trafficLightReserve: CGFloat = 29
 
     /// A faixa do alto da janela em que o duplo clique faz o que o sistema
     /// manda e o arraste move a janela. Ela cobre a altura dos semáforos com
@@ -102,7 +130,7 @@ struct AppRail: View {
         return Button {
             // Clicar na tela que já está no ar, com a coluna recolhida,
             // também a abre de volta.
-            if active, let onExpandSidebar { onExpandSidebar() } else { workspace = tab }
+            if active, let onReopenContext { onReopenContext() } else { workspace = tab }
         } label: {
             VStack(spacing: 4) {
                 ZStack(alignment: .topTrailing) {
@@ -115,14 +143,13 @@ struct AppRail: View {
                                 .fill(active ? theme.surface.color : Color.clear)
                         }
                     if badge > 0, !active {
-                        // **Dentro** do quadrado de 40pt, no canto superior
-                        // direito dele. Ele saía 4pt acima do quadrado e
-                        // encostava na legenda da tela de cima — na janela de
-                        // verdade o "2" da Caixa ficava em cima da palavra
-                        // "Painel". O selo mede 16: encostá-lo na aresta
-                        // interna o deixa visível sem invadir o vizinho.
+                        // Ver `AppRail.badgeInset`: o anel de 2pt fica para
+                        // fora do quadrado à direita e o topo do selo sobe 2pt
+                        // acima dele, dentro dos 6pt de folga que os 52 do
+                        // alvo deixam. Ele não alcança a legenda da tela de
+                        // cima, que é o que acontecia quando o selo subia 4.
                         BadgeDot(count: badge)
-                            .offset(x: AppRail.badgeInset, y: AppRail.badgeInset)
+                            .offset(x: AppRail.badgeInset, y: -2 * AppRail.badgeInset)
                     }
                 }
                 Text(tab.label)
@@ -130,7 +157,10 @@ struct AppRail: View {
                     .foregroundStyle((active ? theme.ink : theme.ink3).color)
                     .lineLimit(1)
             }
-            .frame(width: 56)
+            // Protótipo: `width: 52px; padding: 2px 0 4px`.
+            .frame(width: AppRail.itemWidth)
+            .padding(.top, 2)
+            .padding(.bottom, 4)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -140,19 +170,27 @@ struct AppRail: View {
         .accessibilityAddTraits(active ? .isSelected : [])
     }
 
-    private func expandButton(_ action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: "sidebar.left")
-                .font(.system(size: 15, weight: .regular))
-                .foregroundStyle(theme.ink3.color)
+    /// O ícone da atualização pronta, com o pontinho de acento no canto.
+    /// Protótipo: `sc-if value="{{closed}}"`, 40×40, seta em `accentInk` e o
+    /// ponto de 8pt em `top: 7px; right: 7px`.
+    private func updateButton(_ updates: UpdateController) -> some View {
+        Button { updates.openPanel() } label: {
+            Image(systemName: "arrow.down.circle")
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(theme.accentInk.color)
                 .frame(width: AppRail.actionSize, height: AppRail.actionSize)
+                .overlay(alignment: .topTrailing) {
+                    Circle()
+                        .fill(theme.accent.color)
+                        .frame(width: 8, height: 8)
+                        .padding(7)
+                }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .keyboardShortcut("s", modifiers: [.control, .command])
         .focusRing(cornerRadius: AppRail.actionRadius)
-        .help(L10n.tr("Mostrar a barra lateral"))
-        .accessibilityLabel(L10n.tr("Mostrar a barra lateral"))
+        .help(L10n.tr("Atualização pronta"))
+        .accessibilityLabel(L10n.tr("Atualização pronta"))
     }
 
     private func symbol(for tab: Workspace) -> String {
@@ -211,10 +249,12 @@ struct AppRail: View {
     /// mesma janela que o avatar da barra antiga abria.
     private var avatar: some View {
         Button(action: onOpenSettings) {
+            // Protótipo: 32pt de diâmetro, monograma de 12 e o ponto de 9 com
+            // anel de 2 no canto.
             Text(accountMonogram)
-                .font(theme.sans.font(size: 11, weight: .semibold))
+                .font(theme.sans.font(size: 12, weight: .semibold))
                 .foregroundStyle(theme.paper.color)
-                .frame(width: 30, height: 30)
+                .frame(width: 32, height: 32)
                 .background(theme.ink.color)
                 .clipShape(Circle())
                 .overlay(alignment: .bottomTrailing) {
@@ -223,7 +263,7 @@ struct AppRail: View {
                             .fill(theme.success.color)
                             .frame(width: 9, height: 9)
                             .overlay {
-                                Circle().strokeBorder(theme.paper.color, lineWidth: 1.5)
+                                Circle().strokeBorder(theme.paper.color, lineWidth: 2)
                             }
                             .offset(x: 1, y: 1)
                     }
@@ -243,13 +283,16 @@ struct BadgeDot: View {
     let count: Int
 
     var body: some View {
+        // Protótipo: caixa de 16 com `border: 2px solid {{t.badgeRing}}` em
+        // `content-box` — o anel fica **para fora** dos 16, não comendo deles.
         Text(count > 99 ? "99+" : "\(count)")
             .font(theme.sans.font(size: 9.5, weight: .bold))
             .foregroundStyle(theme.onAccent.color)
             .padding(.horizontal, count > 9 ? 4 : 0)
             .frame(minWidth: 16, minHeight: 16)
-            .background(theme.accent.color)
-            .clipShape(Capsule())
+            .background(theme.accent.color, in: Capsule())
+            .padding(2)
+            .background(theme.paper.color, in: Capsule())
             .accessibilityLabel(L10n.tr("\(count) não lidas"))
     }
 }
@@ -261,7 +304,10 @@ struct BadgeDot: View {
 /// Vertical, e não o `Toggle` do sistema: num trilho de 64pt um interruptor
 /// deitado não cabe, e o do sistema não aceita os dois glifos nas pontas.
 struct ThemeSwitch: View {
-    static let size = CGSize(width: 32, height: 58)
+    /// Protótipo: `width: 34px; height: 62px; border-radius: 17px`, com o
+    /// botão de 28 e 2pt de folga em volta dele.
+    static let size = CGSize(width: 34, height: 62)
+    static let knob: CGFloat = 28
 
     @Environment(\.theme) private var theme
     @Environment(\.displayScale) private var displayScale
@@ -281,9 +327,9 @@ struct ThemeSwitch: View {
 
                 Circle()
                     .fill(theme.surface.color)
-                    .frame(width: 26, height: 26)
+                    .frame(width: Self.knob, height: Self.knob)
                     .shadow(color: .black.opacity(0.18), radius: 3, x: 0, y: 2)
-                    .padding(.top, isDark ? Self.size.height - 29 : 3)
+                    .padding(.top, isDark ? Self.size.height - Self.knob - 2 : 2)
 
                 VStack(spacing: 0) {
                     Image(systemName: "sun.max.fill")

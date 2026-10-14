@@ -204,6 +204,11 @@ public struct MessageList: View {
     /// e em todo tema opaco, onde a linha não tem essa frase.
     var readyDrafts: [String: ReadyDraft] = [:]
 
+    /// Presente só com a coluna de contexto recolhida: é o `sidebar.left` que
+    /// a traz de volta, na ponta esquerda desta fila do cabeçalho, antes do
+    /// "Hoje". Fora daí a coluna já tem o botão dela e este não existe.
+    var onExpandSidebar: (() -> Void)?
+
     public init(
         store: MailStore,
         width: CGFloat = MessageList.width,
@@ -212,7 +217,8 @@ public struct MessageList: View {
         portraitCaption: String? = nil,
         gapCaption: String? = nil,
         onPullMissing: (() -> Void)? = nil,
-        readyDrafts: [String: ReadyDraft] = [:]
+        readyDrafts: [String: ReadyDraft] = [:],
+        onExpandSidebar: (() -> Void)? = nil
     ) {
         self.store = store
         self.listWidth = width
@@ -222,6 +228,7 @@ public struct MessageList: View {
         self.gapCaption = gapCaption
         self.onPullMissing = onPullMissing
         self.readyDrafts = readyDrafts
+        self.onExpandSidebar = onExpandSidebar
     }
 
     /// Formata o rótulo de contagem de mensagens com plural correto.
@@ -327,6 +334,11 @@ public struct MessageList: View {
     private func header(messageCount: Int, hasMore: Bool) -> some View {
         VStack(alignment: .leading, spacing: showsHeaderRail ? 8 : 3) {
             HStack(alignment: .center, spacing: 10) {
+                // Com a lateral recolhida, é por aqui que ela volta — na ponta
+                // esquerda do cabeçalho do primeiro painel, antes do título.
+                if let onExpandSidebar {
+                    SidebarToggleButton(collapse: false, action: onExpandSidebar)
+                }
                 headerCheckbox(isEmpty: messageCount == 0 && !hasMore)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(headerTitle)

@@ -52,6 +52,9 @@ struct PainelDoDia: View {
     let onGerarProntas: ([String]) -> Void
     /// Leva a Ajustes → IA, para a frase "· Ativar" ter para onde ir.
     let onOpenAISettings: () -> Void
+    /// Presente só com a coluna de contexto recolhida: o `sidebar.left` que a
+    /// traz de volta, na ponta esquerda do cabeçalho do Painel.
+    var onExpandSidebar: (() -> Void)?
 
     /// A mensagem cujo **cartão do rascunho** está aberto — o cartão é o de
     /// sempre (`DashboardPreviewColumn`), e é lá que o Enviar envia.
@@ -102,6 +105,7 @@ struct PainelDoDia: View {
         automaticAnalysisOn: Bool = false,
         onGerarProntas: @escaping ([String]) -> Void = { _ in },
         onOpenAISettings: @escaping () -> Void = {},
+        onExpandSidebar: (() -> Void)? = nil,
         debugCartaoDoRascunho: String? = nil
     ) {
         self.store = store
@@ -128,6 +132,7 @@ struct PainelDoDia: View {
         self.automaticAnalysisOn = automaticAnalysisOn
         self.onGerarProntas = onGerarProntas
         self.onOpenAISettings = onOpenAISettings
+        self.onExpandSidebar = onExpandSidebar
         _cartaoDoRascunho = State(initialValue: debugCartaoDoRascunho)
     }
 
@@ -306,7 +311,8 @@ struct PainelDoDia: View {
                     address: account?.address
                 ),
                 progresso: modelo.progresso,
-                progressoEscrito: modelo.progressoEscrito
+                progressoEscrito: modelo.progressoEscrito,
+                onExpandSidebar: onExpandSidebar
             )
 
             destaqueDeVidro(modelo)

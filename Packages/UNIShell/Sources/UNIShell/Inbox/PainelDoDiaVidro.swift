@@ -25,9 +25,18 @@ struct PainelVidroCabecalho: View {
     let saudacao: String
     let progresso: Double
     let progressoEscrito: String
+    /// Presente só com a coluna de contexto recolhida: o `sidebar.left` que a
+    /// traz de volta, antes da data e da saudação.
+    var onExpandSidebar: (() -> Void)?
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 16) {
+            if let onExpandSidebar {
+                SidebarToggleButton(collapse: false, action: onExpandSidebar)
+                    // Alinhado à saudação, não ao rodapé do bloco de duas
+                    // linhas: no `.bottom` ele descia para a base do 30pt.
+                    .padding(.bottom, 6)
+            }
             VStack(alignment: .leading, spacing: 4) {
                 Text(data)
                     .font(theme.sans.font(size: 13, weight: .medium))

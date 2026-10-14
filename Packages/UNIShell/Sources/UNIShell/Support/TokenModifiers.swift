@@ -87,6 +87,31 @@ extension View {
     }
 }
 
+/// O cabeçalho de seção da coluna de contexto do **Vidro**: sans de 11 em
+/// semibold, caixa alta e `letter-spacing: 0.04em`.
+///
+/// Não é o `capsLabel`: aquele é mono de 9,5, que é o idioma dos 26 temas
+/// opacos. O protótipo do Vidro escreve "CONTAS" e "NEGÓCIOS" na mesma Geist do
+/// resto da coluna, e em mono eles saíam menores e de outra família que tudo à
+/// volta. Protótipo: `Sidebar.dc.html`, o `sc-if value="{{r.isHeader}}"`.
+public struct GlassSectionLabel: ViewModifier {
+    @Environment(\.theme) private var theme
+
+    public func body(content: Content) -> some View {
+        content
+            .font(theme.sans.font(size: 11, weight: .semibold))
+            .tracking(11 * 0.04)
+            .textCase(.uppercase)
+            .foregroundStyle(theme.ink3.color)
+    }
+}
+
+extension View {
+    public func glassSectionLabel() -> some View {
+        modifier(GlassSectionLabel())
+    }
+}
+
 
 /// Ver `Hairline.thickness(_:)` para por que a espessura vem da escala da tela.
 private struct HairlineModifier: ViewModifier {

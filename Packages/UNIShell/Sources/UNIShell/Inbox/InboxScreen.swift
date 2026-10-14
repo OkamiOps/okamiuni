@@ -193,7 +193,11 @@ public struct InboxScreen: View {
         debugAssistantOpen: Bool,
         debugAssistantScope: InboxAssistantScope = .workspace,
         debugReaderAssistantOpen: Bool = false,
-        debugWorkspace: Workspace = .mail
+        debugWorkspace: Workspace = .mail,
+        /// A lateral recolhida de saída. O harness não clica em nada (ver
+        /// `RenderHarness`), então sem esta porta o estado recolhido seria um
+        /// que nenhum PNG mostraria.
+        debugWantsSidebar: Bool = true
     ) {
         self.store = store
         self.clock = clock
@@ -219,6 +223,7 @@ public struct InboxScreen: View {
         _assistantScope = State(initialValue: debugAssistantScope)
         _readerAssistantOpen = State(initialValue: debugReaderAssistantOpen)
         _workspace = State(initialValue: debugWorkspace)
+        _wantsSidebar = State(initialValue: debugWantsSidebar)
     }
 
     /// O **hoje** de tudo que esta tela desenha com data: o carimbo de cada
@@ -418,7 +423,9 @@ public struct InboxScreen: View {
                 onOpenSettings: openAccounts,
                 accountMonogram: accountMonogram,
                 isSynced: !chromeWorkload.status.isBusy,
-                onExpandSidebar: expandSidebarAction
+                updates: updates,
+                contextCollapsed: !contextOpen,
+                onReopenContext: expandSidebarAction
             )
             if contextOpen {
                 // A hairline entre o trilho e o contexto, como no protótipo:
@@ -530,7 +537,10 @@ public struct InboxScreen: View {
                 },
                 // Só a linha de vidro escreve "· resposta pronta"; sem fila
                 // de rascunho antecipado o dicionário é vazio e ela cala.
-                readyDrafts: readyDrafts?.drafts ?? [:]
+                readyDrafts: readyDrafts?.drafts ?? [:],
+                // Recolhida, a lateral volta por aqui: o botão nasce antes do
+                // "Hoje", na ponta esquerda do cabeçalho da lista.
+                onExpandSidebar: expandSidebarAction
             )
             .glassPanel(theme)
 
@@ -591,6 +601,7 @@ public struct InboxScreen: View {
                 shell: calendarShell,
                 showsSidebar: false
             )
+            .expandingSidebar(expandSidebarAction)
         }
     }
 
@@ -986,7 +997,10 @@ public struct InboxScreen: View {
             automaticAnalysisOn:
                 assistantSettings?.snapshot().automaticAnalysis == .configuredProvider,
             onGerarProntas: gerarAsProntas,
-            onOpenAISettings: openAccounts
+            onOpenAISettings: openAccounts,
+            // Só o cabeçalho de vidro desenha este botão; o corpo clássico não
+            // o chama, então passá-lo aqui não acende nada lá.
+            onExpandSidebar: expandSidebarAction
         )
         .task {
             if dashboardConversation == nil { dashboardConversation = conversation }

@@ -468,9 +468,10 @@ public struct FolderSidebar: View {
                 }
 
                 if !store.accounts.isEmpty {
+                    // Protótipo: `padding: 12px 8px 4px` no cabeçalho.
                     Text(L10n.tr("Contas"))
-                        .capsLabel(size: 9.5)
-                        .padding(EdgeInsets(top: 14, leading: 8, bottom: 4, trailing: 8))
+                        .glassSectionLabel()
+                        .padding(EdgeInsets(top: 12, leading: 8, bottom: 4, trailing: 8))
                     ForEach(store.accounts) { account in
                         glassAccountRow(account)
                         if store.foldersExpanded(account.id) {
@@ -481,10 +482,12 @@ public struct FolderSidebar: View {
                     }
                 }
             }
-            .padding(.horizontal, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(width: width, alignment: .leading)
+        // Sem largura fixa: quem a dá é a coluna de contexto, que já desconta
+        // os 10pt do protótipo. Pedir `width` aqui punha 216pt de lista dentro
+        // de 196 de coluna e o contador do fim da linha era cortado.
+        .frame(maxWidth: .infinity, alignment: .leading)
         .frame(maxHeight: .infinity, alignment: .topLeading)
     }
 
@@ -496,7 +499,7 @@ public struct FolderSidebar: View {
                 Image(systemName: GlassFolderList.symbol(for: bucket))
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle((active ? theme.accentInk : theme.ink3).color)
-                    .frame(width: 16)
+                    .frame(width: 15)
                     .accessibilityHidden(true)
                 Text(bucket.label)
                     .font(theme.sans.font(size: 13, weight: active ? .semibold : .regular))
@@ -510,8 +513,8 @@ public struct FolderSidebar: View {
                         .foregroundStyle(glassCountColor(bucket, active: active).color)
                 }
             }
-            .padding(.horizontal, 8)
-            .frame(height: 32)
+            .padding(.horizontal, ContextSidebar.rowInset)
+            .frame(height: ContextSidebar.rowHeight)
             .contentShape(Rectangle())
             .background {
                 RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous)
@@ -556,7 +559,7 @@ public struct FolderSidebar: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
                 Text(recado.sentence)
-                    .font(theme.sans.font(size: 11.5))
+                    .font(theme.sans.font(size: 12))
                     .foregroundStyle(theme.ink.color)
                     .fixedSize(horizontal: false, vertical: true)
                 Button(GlassFolderList.Misplaced.cta) {
@@ -566,7 +569,7 @@ public struct FolderSidebar: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .font(theme.sans.font(size: 11.5, weight: .semibold))
+                .font(theme.sans.font(size: 12, weight: .semibold))
                 .foregroundStyle(theme.accentInk.color)
                 .focusRing(cornerRadius: 4)
                 .help(L10n.tr("Move estas mensagens para Hoje"))
@@ -577,7 +580,9 @@ public struct FolderSidebar: View {
         .padding(.vertical, 9)
         .background(theme.accentSoft.color)
         .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous))
+        // Protótipo: `margin: 6px 2px` no cartão.
         .padding(.vertical, 6)
+        .padding(.horizontal, 2)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(recado.sentence)
     }
@@ -591,7 +596,8 @@ public struct FolderSidebar: View {
         let pastas = store.folders(of: account.id)
         let count = store.unreadCount(in: .all, accountID: account.id)
         return Button { store.select(account: account.id) } label: {
-            HStack(spacing: 7) {
+            // Protótipo: `gap: 9px` — seta de 12, ponto de 8 e o endereço.
+            HStack(spacing: 9) {
                 Group {
                     if pastas.isEmpty {
                         Color.clear
@@ -614,7 +620,7 @@ public struct FolderSidebar: View {
                     .accessibilityHidden(true)
 
                 Text(account.address)
-                    .font(theme.sans.font(size: 12.5, weight: active ? .semibold : .regular))
+                    .font(theme.sans.font(size: 13, weight: active ? .semibold : .regular))
                     .foregroundStyle((active ? theme.ink : theme.ink2).color)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -628,8 +634,8 @@ public struct FolderSidebar: View {
                         .foregroundStyle(theme.ink3.color)
                 }
             }
-            .padding(.horizontal, 8)
-            .frame(height: 32)
+            .padding(.horizontal, ContextSidebar.rowInset)
+            .frame(height: ContextSidebar.rowHeight)
             .contentShape(Rectangle())
             .background {
                 RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous)
@@ -647,14 +653,14 @@ public struct FolderSidebar: View {
     private func glassFolderRow(_ row: GlassFolderList.Row, account: Account) -> some View {
         let active = row.folder.id == store.selectedFolderID
         return Button { store.select(folder: row.folder.id) } label: {
-            HStack(spacing: 7) {
+            HStack(spacing: 9) {
                 Image(systemName: row.folder.symbol ?? "folder")
-                    .font(.system(size: 10.5))
+                    .font(.system(size: 11.5))
                     .foregroundStyle((active ? theme.accentInk : theme.ink4).color)
-                    .frame(width: 13)
+                    .frame(width: 15)
                     .accessibilityHidden(true)
                 Text(row.label)
-                    .font(theme.sans.font(size: 12))
+                    .font(theme.sans.font(size: 13))
                     .foregroundStyle((active ? theme.ink : theme.ink2).color)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -666,9 +672,12 @@ public struct FolderSidebar: View {
                         .foregroundStyle(theme.ink3.color)
                 }
             }
-            .padding(.leading, 27 + CGFloat(row.depth) * 14)
-            .padding(.trailing, 8)
-            .frame(height: 29)
+            // Protótipo: `indent: '30px'` nas pastas da conta. Cada nível mais
+            // fundo da árvore soma mais 14, que é a conta local — o protótipo
+            // só desenha um nível.
+            .padding(.leading, ContextSidebar.childInset + CGFloat(row.depth) * 14)
+            .padding(.trailing, ContextSidebar.rowInset)
+            .frame(height: ContextSidebar.rowHeight)
             .contentShape(Rectangle())
             .background {
                 RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous)

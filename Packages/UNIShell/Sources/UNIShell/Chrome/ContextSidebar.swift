@@ -2,6 +2,61 @@ import SwiftUI
 import UNICore
 import UNIDesign
 
+/// O `sidebar.left` que recolhe a coluna de contexto e o que a traz de volta.
+///
+/// É **um** botão em dois lugares, e de propósito: recolhida, ele reaparece na
+/// ponta esquerda do cabeçalho do primeiro painel de conteúdo — antes do "Hoje"
+/// na Caixa, antes da saudação no Painel, antes do título na Agenda. O
+/// protótipo nunca desenhou controle de expandir no trilho, e a versão que
+/// punha um lá embaixo de "Agenda" foi recusada pelo dono (14/10/2026).
+///
+/// Protótipo: `Sidebar.dc.html`, o botão "Recolher menu" — `padding: 6px`,
+/// ícone de 17 e `color: {{t.ink3}}`.
+struct SidebarToggleButton: View {
+    @Environment(\.theme) private var theme
+
+    /// `true` recolhe (está na coluna), `false` mostra (está no conteúdo). Só
+    /// muda o texto de ajuda: o desenho é o mesmo nos dois lados.
+    let collapse: Bool
+    let action: () -> Void
+    /// Quem carrega o ⌃⌘S. Só um dos dois está na tela por vez, mas declarar o
+    /// atalho nos dois seria duas respostas para a mesma tecla.
+    var shortcut: Bool = true
+
+    private var label: String {
+        collapse ? L10n.tr("Recolher a barra lateral") : L10n.tr("Mostrar a barra lateral")
+    }
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "sidebar.left")
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(theme.ink3.color)
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .modifier(OptionalSidebarShortcut(on: shortcut))
+        .focusRing(cornerRadius: theme.radiusSmall)
+        .help(label)
+        .accessibilityLabel(label)
+    }
+}
+
+/// `keyboardShortcut` não é opcional, então o ramo sem atalho tem de existir
+/// como ramo — ver `SidebarToggleButton.shortcut`.
+private struct OptionalSidebarShortcut: ViewModifier {
+    let on: Bool
+
+    func body(content: Content) -> some View {
+        if on {
+            content.keyboardShortcut("s", modifiers: [.control, .command])
+        } else {
+            content
+        }
+    }
+}
+
 /// A coluna de 216pt ao lado do trilho: título da tela, recolher, busca, a
 /// ação principal, o conteúdo da tela e, no pé, a atualização pronta.
 ///
@@ -12,6 +67,18 @@ import UNIDesign
 /// Protótipo: `Sidebar.dc.html`, o `<div>` do `sc-if value="{{open}}"`.
 struct ContextSidebar: View {
     static let width: CGFloat = PaneLayout.contextSidebarWidth
+
+    /// Altura de uma linha da coluna. Protótipo: `padding: 6px 8px` sobre uma
+    /// linha de 13px, o que dá 28 — e não os 32 que estavam aqui, que eram a
+    /// altura de linha da barra dos temas opacos.
+    static let rowHeight: CGFloat = 28
+    /// A folga interna de uma linha, à esquerda e à direita. Somada aos 10 da
+    /// coluna, põe o texto em 18pt da borda do painel — a mesma coluna do
+    /// título.
+    static let rowInset: CGFloat = 8
+    /// O recuo de uma pasta de provedor dentro da conta. Protótipo:
+    /// `indent: '30px'`.
+    static let childInset: CGFloat = 30
 
     @Environment(\.theme) private var theme
     @Environment(\.displayScale) private var displayScale
@@ -50,12 +117,10 @@ struct ContextSidebar: View {
                 onReload: onReloadMailbox,
                 onFocusChange: onSearchFocusChange
             )
-            .padding(.horizontal, 10)
             .padding(.bottom, 8)
 
             if let action = primaryAction {
                 primaryButton(action)
-                    .padding(.horizontal, 10)
                     .padding(.bottom, 10)
             }
 
@@ -64,13 +129,21 @@ struct ContextSidebar: View {
 
             if let analysisPause {
                 AnalysisPausedBand(reason: analysisPause.reason, onRetry: analysisPause.retry)
+                    .padding(.top, 8)
             }
 
             if let updates, updates.showsReadyButton {
                 UpdateReadyRow(controller: updates)
-                    .padding(10)
+                    .padding(.top, 8)
             }
         }
+        // Protótipo: `padding: 14px 10px 12px` na coluna. É esta folga de 10
+        // que soma com os 8 das linhas e põe o rótulo da pasta na mesma coluna
+        // do título — era o que faltava, e por isso a lista nascia colada no
+        // trilho enquanto o título começava longe dele.
+        .padding(.top, 14)
+        .padding(.horizontal, 10)
+        .padding(.bottom, 12)
         .frame(width: Self.width, alignment: .leading)
         .frame(maxHeight: .infinity, alignment: .topLeading)
     }
@@ -84,28 +157,22 @@ struct ContextSidebar: View {
                 .foregroundStyle(theme.ink.color)
                 .lineLimit(1)
             Spacer(minLength: 0)
-            Button(action: onCollapse) {
-                Image(systemName: "sidebar.left")
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(theme.ink3.color)
-                    .frame(width: 24, height: 24)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut("s", modifiers: [.control, .command])
-            .focusRing(cornerRadius: theme.radiusSmall)
-            .help(L10n.tr("Recolher a barra lateral"))
-            .accessibilityLabel(L10n.tr("Recolher a barra lateral"))
+            SidebarToggleButton(
+                collapse: true,
+                action: onCollapse,
+                shortcut: true
+            )
         }
-        .padding(.leading, 12)
-        .padding(.trailing, 8)
-        .padding(.top, 2)
-        .padding(.bottom, 10)
+        // Protótipo: `padding: 0 4px 12px 8px` na fila do título.
+        .padding(.leading, 8)
+        .padding(.trailing, 4)
+        .padding(.bottom, 12)
     }
 
     private var title: String {
         switch workspace {
-        case .dashboard: Workspace.dashboard.label
+        // Protótipo: no trilho a tela se chama "Painel"; aqui, "Painel do dia".
+        case .dashboard: L10n.tr("Painel do dia")
         case .mail: L10n.tr("Caixa")
         case .calendar: L10n.tr("Agenda")
         }
@@ -126,17 +193,20 @@ struct ContextSidebar: View {
         _ action: (label: String, symbol: String, action: () -> Void)
     ) -> some View {
         Button(action: action.action) {
+            // Protótipo: `padding: 10px`, `font-size: 14px`, ícone de 15 e
+            // `box-shadow: 0 4px 14px rgba(79,70,229,0.28)`.
             HStack(spacing: 8) {
                 Image(systemName: action.symbol)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                 Text(action.label)
-                    .font(theme.sans.font(size: 13, weight: .semibold))
+                    .font(theme.sans.font(size: 14, weight: .semibold))
                     .lineLimit(1)
             }
             .foregroundStyle(theme.onAccent.color)
             .frame(maxWidth: .infinity, minHeight: 38)
             .background(theme.accent.color)
             .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous))
+            .shadow(color: theme.accent.color.opacity(0.28), radius: 7, x: 0, y: 4)
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: theme.radiusSmall, tint: \.onAccent)
@@ -182,9 +252,11 @@ struct ContextSidebar: View {
     private var businessFilter: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 1) {
+                // Protótipo: `padding: 12px 8px 4px` no cabeçalho de seção —
+                // aqui sem os 12 do alto, que é a primeira linha da coluna.
                 Text(L10n.tr("Negócios"))
-                    .capsLabel(size: 9.5)
-                    .padding(EdgeInsets(top: 4, leading: 14, bottom: 7, trailing: 14))
+                    .glassSectionLabel()
+                    .padding(EdgeInsets(top: 0, leading: 8, bottom: 4, trailing: 8))
 
                 filterRow(
                     label: L10n.tr("Tudo"), tint: theme.ink3.color,
@@ -219,13 +291,13 @@ struct ContextSidebar: View {
                     .fill(tint)
                     .frame(width: 8, height: 8)
                 Text(label)
-                    .font(theme.sans.font(size: 12.5, weight: active ? .semibold : .regular))
+                    .font(theme.sans.font(size: 13, weight: active ? .semibold : .regular))
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
             .foregroundStyle((active ? theme.ink : theme.ink2).color)
             .padding(.horizontal, 8)
-            .frame(minHeight: 30)
+            .frame(minHeight: ContextSidebar.rowHeight)
             .background {
                 RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous)
                     .fill(active ? theme.accentSoft.color : Color.clear)
@@ -263,13 +335,15 @@ struct GlassSearchField: View {
 
     var body: some View {
         VStack(spacing: 5) {
-            HStack(spacing: 7) {
+            // Protótipo: `gap: 8px; padding: 8px 10px; font-size: 13px`, lupa
+            // de 15 e o ⌘K em mono de 11 — 32pt de altura no total.
+            HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(theme.ink3.color)
                 TextField(L10n.tr("Buscar em tudo"), text: $query)
                     .textFieldStyle(.plain)
-                    .font(theme.sans.font(size: 12.5))
+                    .font(theme.sans.font(size: 13))
                     .foregroundStyle(theme.ink.color)
                     .focused($focused)
                     .accessibilityIdentifier(WindowChrome.searchFieldID)
@@ -283,14 +357,14 @@ struct GlassSearchField: View {
                     everywhereChip
                 } else {
                     Text("⌘K")
-                        .font(theme.mono.font(size: 10))
+                        .font(theme.mono.font(size: 11))
                         .foregroundStyle(theme.ink4.color)
                 }
                 if let onReload {
                     reloadButton(onReload)
                 }
             }
-            .padding(.horizontal, 9)
+            .padding(.horizontal, 10)
             .frame(height: 32)
             .background(theme.surface3.color)
             .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous))

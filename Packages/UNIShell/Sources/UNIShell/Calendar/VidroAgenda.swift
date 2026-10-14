@@ -30,12 +30,18 @@ struct VidroAgendaCabecalho: View {
     let onGoToday: () -> Void
     let onTogglePicker: () -> Void
     let onPickDay: (Int) -> Void
+    /// Presente só com a coluna de contexto recolhida: o `sidebar.left` que a
+    /// traz de volta, antes do título do mês.
+    var onExpandSidebar: (() -> Void)?
 
     /// Protótipo: `padding: 16px 22px` e uma hairline embaixo.
     static let height: CGFloat = 60
 
     var body: some View {
         HStack(spacing: 12) {
+            if let onExpandSidebar {
+                SidebarToggleButton(collapse: false, action: onExpandSidebar)
+            }
             Text(titulo)
                 .font(theme.sans.font(size: 22, weight: .bold))
                 .tracking(-0.44)
