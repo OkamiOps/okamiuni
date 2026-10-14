@@ -16,6 +16,28 @@ import UNICore
 /// `CalendarSidebar`: os calendários do macOS (Todoist, iCloud, Gmail,
 /// inscritos), um interruptor por calendário. Não é a `FolderSidebar` do
 /// email — filtrar a grade pela caixa de correio escondia o EventKit.
+/// O estado da aba Agenda que o shell precisa dividir com a tela.
+///
+/// No shell Vidro a lateral da Agenda mora na **coluna de contexto**, que é
+/// irmã do painel da grade e não filha dela: o mês miúdo escolhe o dia que a
+/// grade desenha, e o "Novo compromisso" da coluna abre a folha que a tela
+/// apresenta. Com o estado dentro da `CalendarScreen`, os dois lados ficariam
+/// cada um com a sua cópia — clicar no dia 12 no mês miúdo não moveria a
+/// grade. Quem não precisa dividir nada (previews, testes, a aba antiga)
+/// deixa `nil` e a tela cria o seu.
+@MainActor
+@Observable
+public final class CalendarShellState {
+    public var mode: CalendarViewMode
+    public var selectedDayOffset: Int
+    public var creatingAppointment = false
+
+    public init(mode: CalendarViewMode = .week, selectedDayOffset: Int = 0) {
+        self.mode = mode
+        self.selectedDayOffset = selectedDayOffset
+    }
+}
+
 public struct CalendarScreen: View {
 
     @Environment(\.theme) private var theme
@@ -38,14 +60,22 @@ public struct CalendarScreen: View {
     /// Agenda: quem sabe voltar para o email é o `InboxScreen`.
     let onRevealMessage: (String) -> Void
 
-    /// Qual visão está no ar. Protótipo: `st.calView`, que abre em `'semana'`.
-    @State private var mode: CalendarViewMode = .week
-    /// Qual dia a visão Dia mostra, em dias a partir de `anchor`.
-    /// Protótipo: `st.dayW`/`st.dayD`, que abrem na célula de hoje.
-    @State private var selectedDayOffset = 0
+    /// O estado que a tela divide com a coluna de contexto do shell. `nil`
+    /// fora dele — e aí vale `ownState`.
+    let shell: CalendarShellState?
+    /// Desenha a própria lateral? No shell Vidro ela está na coluna de
+    /// contexto, do outro lado do painel.
+    let showsSidebar: Bool
+
+    /// Qual visão está no ar e qual dia a visão Dia mostra. Protótipo:
+    /// `st.calView` (abre em `'semana'`) e `st.dayW`/`st.dayD` (abrem em hoje).
+    @State private var ownState: CalendarShellState
     /// Protótipo: `st.picker`.
     @State private var pickerOpen = false
-    @State private var creatingAppointment = false
+
+    private var state: CalendarShellState { shell ?? ownState }
+    private var mode: CalendarViewMode { state.mode }
+    private var selectedDayOffset: Int { state.selectedDayOffset }
 
     public init(
         store: MailStore,
@@ -57,7 +87,9 @@ public struct CalendarScreen: View {
         onCompose: (() -> Void)? = nil,
         onOpenAccounts: (() -> Void)? = nil,
         onOpenEvent: @escaping (AgendaItem) -> Void = { _ in },
-        onRevealMessage: @escaping (String) -> Void = { _ in }
+        onRevealMessage: @escaping (String) -> Void = { _ in },
+        shell: CalendarShellState? = nil,
+        showsSidebar: Bool = true
     ) {
         self.init(
             store: store, now: now, anchor: anchor, wantsSidebar: wantsSidebar,
@@ -65,7 +97,8 @@ public struct CalendarScreen: View {
             initialMode: .week, initialPickerOpen: false,
             onOpenAssistant: onOpenAssistant, onCompose: onCompose,
             onOpenAccounts: onOpenAccounts, onOpenEvent: onOpenEvent,
-            onRevealMessage: onRevealMessage
+            onRevealMessage: onRevealMessage,
+            shell: shell, showsSidebar: showsSidebar
         )
     }
 
@@ -90,7 +123,9 @@ public struct CalendarScreen: View {
         onCompose: (() -> Void)? = nil,
         onOpenAccounts: (() -> Void)? = nil,
         onOpenEvent: @escaping (AgendaItem) -> Void = { _ in },
-        onRevealMessage: @escaping (String) -> Void = { _ in }
+        onRevealMessage: @escaping (String) -> Void = { _ in },
+        shell: CalendarShellState? = nil,
+        showsSidebar: Bool = true
     ) {
         self.store = store
         self.now = now
@@ -102,7 +137,9 @@ public struct CalendarScreen: View {
         self.onOpenAccounts = onOpenAccounts
         self.onOpenEvent = onOpenEvent
         self.onRevealMessage = onRevealMessage
-        _mode = State(initialValue: initialMode)
+        self.shell = shell
+        self.showsSidebar = showsSidebar
+        _ownState = State(initialValue: CalendarShellState(mode: initialMode))
         _pickerOpen = State(initialValue: initialPickerOpen)
     }
 
@@ -116,18 +153,20 @@ public struct CalendarScreen: View {
             )
 
             HStack(spacing: 0) {
-                CalendarSidebar(
-                    store: store,
-                    width: sidebarWidth,
-                    intelligencePresentation: intelligencePresentation,
-                    onOpenAssistant: onOpenAssistant,
-                    onCreate: { creatingAppointment = true },
-                    onOpenAccounts: onOpenAccounts,
-                    anchor: anchor,
-                    selectedDayOffset: selectedDayOffset,
-                    onPickDay: pickDay(_:)
-                )
-                .transition(.move(edge: .leading).combined(with: .opacity))
+                if showsSidebar {
+                    CalendarSidebar(
+                        store: store,
+                        width: sidebarWidth,
+                        intelligencePresentation: intelligencePresentation,
+                        onOpenAssistant: onOpenAssistant,
+                        onCreate: { state.creatingAppointment = true },
+                        onOpenAccounts: onOpenAccounts,
+                        anchor: anchor,
+                        selectedDayOffset: selectedDayOffset,
+                        onPickDay: pickDay(_:)
+                    )
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+                }
                 // A faixa de retorno pende da coluna da agenda, e não da
                 // tela inteira: a barra lateral tem o menu de caixa dela e
                 // não produz recibo nenhum.
@@ -136,12 +175,15 @@ public struct CalendarScreen: View {
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
             .animation(.easeInOut(duration: 0.18), value: expanded)
         }
-        .sheet(isPresented: $creatingAppointment) {
+        .sheet(isPresented: Binding(
+            get: { state.creatingAppointment },
+            set: { state.creatingAppointment = $0 }
+        )) {
             NewAppointmentSheet(
                 store: store,
                 anchor: anchor,
                 initialDayOffset: selectedDayOffset,
-                onClose: { creatingAppointment = false }
+                onClose: { state.creatingAppointment = false }
             )
         }
     }
@@ -198,8 +240,8 @@ public struct CalendarScreen: View {
                 store: store, anchor: anchor, focusOffset: selectedDayOffset,
                 onOpenEvent: onOpenEvent,
                 onOpenDay: { offset in
-                    selectedDayOffset = offset
-                    mode = .day
+                    state.selectedDayOffset = offset
+                    state.mode = .day
                 },
                 onRevealMessage: onRevealMessage
             )
@@ -213,7 +255,7 @@ public struct CalendarScreen: View {
     /// visão Dia, porque o `sc-if` que o desenha some junto. Fechar aqui é o
     /// equivalente: sem isso, sair para Mês e voltar para Dia o traria aberto.
     private func pick(_ candidate: CalendarViewMode) {
-        mode = candidate
+        state.mode = candidate
         pickerOpen = false
     }
 
@@ -224,7 +266,7 @@ public struct CalendarScreen: View {
     /// também se navegam. Travar nas pontas deixou de fazer sentido quando o
     /// mês passou a poder virar — agora o foco anda livre.
     private func step(_ direction: Int) {
-        selectedDayOffset = MonthAgenda.navigationStep(
+        state.selectedDayOffset = MonthAgenda.navigationStep(
             days: mode.navigationScope, from: selectedDayOffset,
             anchor: anchor, direction: direction
         )
@@ -233,12 +275,12 @@ public struct CalendarScreen: View {
 
     /// Protótipo: `goToday` volta para a célula de hoje, que é `dayOffset` 0.
     private func goToday() {
-        selectedDayOffset = 0
+        state.selectedDayOffset = 0
         pickerOpen = false
     }
 
     private func pickDay(_ offset: Int) {
-        selectedDayOffset = offset
+        state.selectedDayOffset = offset
         pickerOpen = false
     }
 }

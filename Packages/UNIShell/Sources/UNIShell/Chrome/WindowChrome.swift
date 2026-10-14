@@ -8,7 +8,10 @@ public enum Workspace: String, CaseIterable, Sendable {
 
     public var label: String {
         switch self {
-        case .dashboard: "Dashboard"
+        // "Dashboard" era a única das três abas em inglês, e a única sem
+        // tradução. O redesenho a chama **Painel**, que é como o dono já se
+        // refere a ela ("painel do dia").
+        case .dashboard: L10n.tr("Painel")
         case .mail: L10n.tr("Caixa")
         case .calendar: L10n.tr("Agenda")
         }

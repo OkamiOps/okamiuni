@@ -50,8 +50,43 @@ enum TrafficLightLayout {
     /// fica embaixo, como nesses apps.
     static let contentCenterFromTop: CGFloat = 22
 
+    /// Onde a fileira fica no shell Vidro, contada do topo da janela.
+    ///
+    /// O trilho não começa no topo: o painel flutuante dele é afastado da
+    /// borda por `PanelStyle.vidroGap` (10) e o trilho acrescenta 12pt de
+    /// folga antes do primeiro conteúdo. Centrar as bolinhas na faixa que o
+    /// trilho reserva para elas dá 10 + 12 + 9 = **31**. Os 22 da plataforma
+    /// as poriam acima do vidro, metade fora do painel.
+    static let railCenterFromTop: CGFloat = 31
+
+    /// Onde a primeira bolinha começa, e de quanto em quanto elas andam.
+    ///
+    /// O macOS as põe em x=8, 31 e 54, com 14pt cada: a última termina em 68,
+    /// mais largo do que o trilho de 64 **e** deslocado para a esquerda do
+    /// painel, que começa em x=10. Aqui elas são reposicionadas para caber
+    /// dentro do trilho: 16, 35, 54, terminando em 68 — 6pt antes da borda
+    /// direita do trilho, em 74. Mesma ordem, mesmo tamanho, só mais juntas.
+    static let railLeading: CGFloat = 16
+    static let railSpacing: CGFloat = 19
+
+    /// Altura que o container da barra de título precisa ter para a fileira do
+    /// trilho caber **clicável** dentro dele. Uma `NSView` desenha fora dos
+    /// próprios limites mas não recebe clique fora deles.
+    static let railBarHeight: CGFloat = 48
+
     static func buttonOriginY(barHeight: CGFloat, buttonHeight: CGFloat) -> CGFloat {
-        barHeight - contentCenterFromTop - buttonHeight / 2
+        buttonOriginY(barHeight: barHeight, buttonHeight: buttonHeight, centerFromTop: contentCenterFromTop)
+    }
+
+    static func buttonOriginY(
+        barHeight: CGFloat, buttonHeight: CGFloat, centerFromTop: CGFloat
+    ) -> CGFloat {
+        barHeight - centerFromTop - buttonHeight / 2
+    }
+
+    /// x da bolinha de índice `index` (0 = fechar) na fileira do trilho.
+    static func railButtonOriginX(index: Int) -> CGFloat {
+        railLeading + CGFloat(index) * railSpacing
     }
 
     /// Onde o centro do botão cai, contado do topo da janela — a mesma
@@ -81,11 +116,23 @@ enum TrafficLightLayout {
 @MainActor
 final class TrafficLightAligner: NSObject {
     private let barHeight: CGFloat
+    /// A linha em que a fileira centra, contada do topo da janela.
+    private let centerFromTop: CGFloat
+    /// `true` reposiciona também o **x** das bolinhas, para a fileira caber
+    /// dentro do trilho de 64pt. `false` deixa o x da plataforma intacto, que
+    /// é o que as outras cinco janelas querem.
+    private let compactRow: Bool
     private weak var window: NSWindow?
     private var observing = false
 
-    init(barHeight: CGFloat) {
+    init(
+        barHeight: CGFloat,
+        centerFromTop: CGFloat = TrafficLightLayout.contentCenterFromTop,
+        compactRow: Bool = false
+    ) {
         self.barHeight = barHeight
+        self.centerFromTop = centerFromTop
+        self.compactRow = compactRow
     }
 
     func attach(to window: NSWindow) {
@@ -147,19 +194,26 @@ final class TrafficLightAligner: NSObject {
             windowSize: window.frame.size, barHeight: barHeight
         )
         let buttons = [close, miniaturize, zoom]
-        let aligned = buttons.allSatisfy {
-            $0.frame.origin.y == TrafficLightLayout.buttonOriginY(
-                barHeight: barHeight, buttonHeight: $0.frame.height
+        let aligned = buttons.enumerated().allSatisfy { index, button in
+            button.frame.origin.y == TrafficLightLayout.buttonOriginY(
+                barHeight: barHeight, buttonHeight: button.frame.height,
+                centerFromTop: centerFromTop
             )
+                && (!compactRow
+                    || button.frame.origin.x == TrafficLightLayout.railButtonOriginX(index: index))
         }
         guard container.frame != wanted || !aligned else { return }
 
         container.frame = wanted
         titlebar.frame = CGRect(origin: .zero, size: wanted.size)
-        for button in buttons {
+        for (index, button) in buttons.enumerated() {
             button.frame.origin.y = TrafficLightLayout.buttonOriginY(
-                barHeight: barHeight, buttonHeight: button.frame.height
+                barHeight: barHeight, buttonHeight: button.frame.height,
+                centerFromTop: centerFromTop
             )
+            if compactRow {
+                button.frame.origin.x = TrafficLightLayout.railButtonOriginX(index: index)
+            }
         }
     }
 
@@ -173,9 +227,13 @@ final class TrafficLightAligner: NSObject {
 /// `OkamiUNIApp` precise saber que semáforos existem.
 struct TrafficLightAlignment: NSViewRepresentable {
     let barHeight: CGFloat
+    var centerFromTop: CGFloat = TrafficLightLayout.contentCenterFromTop
+    var compactRow: Bool = false
 
     func makeCoordinator() -> TrafficLightAligner {
-        TrafficLightAligner(barHeight: barHeight)
+        TrafficLightAligner(
+            barHeight: barHeight, centerFromTop: centerFromTop, compactRow: compactRow
+        )
     }
 
     func makeNSView(context: Context) -> NSView {
@@ -309,6 +367,24 @@ extension View {
             TrafficLightAlignment(barHeight: barHeight)
                 .frame(width: 0, height: 0)
                 .allowsHitTesting(false)
+        }
+    }
+
+    /// Põe os três botões do sistema no **alto do trilho** do shell Vidro.
+    ///
+    /// Eles não são `View` nossa: moram no `NSThemeFrame`, fora do conteúdo.
+    /// O trilho reserva o lugar deles (`AppRail.trafficLightReserve`) e esta
+    /// linha os move para lá — mais baixos, porque o painel começa 10pt abaixo
+    /// da borda, e mais juntos, porque 64pt não cabem os 68 da fileira nativa.
+    func trafficLightsInRail() -> some View {
+        overlay(alignment: .topLeading) {
+            TrafficLightAlignment(
+                barHeight: TrafficLightLayout.railBarHeight,
+                centerFromTop: TrafficLightLayout.railCenterFromTop,
+                compactRow: true
+            )
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
         }
     }
 }

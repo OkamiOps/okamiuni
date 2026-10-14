@@ -266,6 +266,21 @@ struct AnalysisPausedBand: View {
     }
 }
 
+/// Onde esta barra está montada — e, por consequência, o que ela desenha de
+/// moldura.
+///
+/// `.standalone` é a barra de sempre: fundo próprio, hairline na borda,
+/// "Escrever" no topo e o rodapé com a IA, as contas e a atualização.
+///
+/// `.embedded` é ela dentro da coluna de contexto do shell Vidro, que já tem
+/// título, busca, ação principal e o cartão da atualização — repeti-los aqui
+/// dava dois "Escrever" na mesma coluna. O **conteúdo** é o mesmo nos dois
+/// casos: as caixas do Fluxo e as contas com as pastas delas.
+public enum SidebarChrome: Sendable, Hashable {
+    case standalone
+    case embedded
+}
+
 public struct FolderSidebar: View {
     /// A largura canônica mora em `PaneLayout`, que é quem decide o que cabe.
     /// Este nome continua existindo porque o resto do shell já o usa — mas ele
@@ -317,6 +332,9 @@ public struct FolderSidebar: View {
     /// antes, sem reservar espaço para um botão que não vai aparecer.
     let updates: UpdateController?
 
+    /// Ver `SidebarChrome`.
+    let chrome: SidebarChrome
+
     /// Qual caixa está esperando a confirmação de "Esvaziar lixeira".
     ///
     /// É o **único** destrutivo sem volta do app, e o único que pergunta antes.
@@ -336,9 +354,11 @@ public struct FolderSidebar: View {
         onOpenSettings: @escaping () -> Void = {},
         onCompose: (() -> Void)? = nil,
         onOpenAccounts: (() -> Void)? = nil,
-        updates: UpdateController? = nil
+        updates: UpdateController? = nil,
+        chrome: SidebarChrome = .standalone
     ) {
         self.store = store
+        self.chrome = chrome
         self.width = width
         self.intelligencePresentation = intelligencePresentation
         self.analysisPause = analysisPause
@@ -351,7 +371,7 @@ public struct FolderSidebar: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if onCompose != nil {
+            if onCompose != nil, chrome == .standalone {
                 composeButton
                     .padding(.horizontal, 10)
                     .padding(.top, 14)
@@ -405,6 +425,24 @@ public struct FolderSidebar: View {
             // separador do sistema (medido, `rgb(202,199,192)`) por baixo do
             // fundo pedido, e sai 22 níveis mais escuro que `--line`. Era o
             // único traço da tela fora do idioma da hairline.
+            if chrome == .standalone {
+                footer
+            }
+        }
+        // A barra ocupa toda a altura que o painel conceder. Sem esse limite,
+        // um rodapé com três linhas pode disputar a altura ideal com o
+        // `ScrollView` e esmagar a lista acima dele no primeiro passe.
+        .frame(width: width, alignment: .leading)
+        .frame(maxHeight: .infinity, alignment: .topLeading)
+        // Embutida, o vidro do painel é o fundo: pintar `surface2` aqui
+        // dentro poria uma segunda camada opaca sobre o gradiente.
+        .background(chrome == .standalone ? theme.surface2.color : Color.clear)
+        .hairline(chrome == .standalone ? theme.line : TokenColor(red: 0, green: 0, blue: 0, opacity: 0), edges: .trailing)
+    }
+
+    @ViewBuilder
+    private var footer: some View {
+        Group {
             Rectangle()
                 .fill(theme.line.color)
                 .frame(height: Hairline.thickness(displayScale))
@@ -444,13 +482,6 @@ public struct FolderSidebar: View {
             }
             .padding(10)
         }
-        // A barra ocupa toda a altura que o painel conceder. Sem esse limite,
-        // um rodapé com três linhas pode disputar a altura ideal com o
-        // `ScrollView` e esmagar a lista acima dele no primeiro passe.
-        .frame(width: width, alignment: .leading)
-        .frame(maxHeight: .infinity, alignment: .topLeading)
-        .background(theme.surface2.color)
-        .hairline(theme.line, edges: .trailing)
     }
 
     private var composeButton: some View {

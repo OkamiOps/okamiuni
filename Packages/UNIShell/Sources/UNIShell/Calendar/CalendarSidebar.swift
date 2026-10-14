@@ -20,6 +20,9 @@ struct CalendarSidebar: View {
     var anchor: Date = Fixtures.today
     var selectedDayOffset: Int = 0
     var onPickDay: (Int) -> Void = { _ in }
+    /// Ver `SidebarChrome`: embutida na coluna de contexto do shell Vidro, o
+    /// "Novo compromisso" e o rodapé já existem lá fora.
+    var chrome: SidebarChrome = .standalone
 
     @State private var chevronHovering: String?
 
@@ -31,14 +34,40 @@ struct CalendarSidebar: View {
 
     var body: some View {
         Group {
-            if compact { rail } else { expanded }
+            if chrome == .embedded {
+                embedded
+            } else if compact {
+                rail
+            } else {
+                expanded
+            }
         }
-        .frame(width: width, alignment: compact ? .center : .leading)
+        .frame(width: width, alignment: compact && chrome == .standalone ? .center : .leading)
         .frame(maxHeight: .infinity, alignment: .topLeading)
-        .background(theme.surface2.color)
-        .hairline(theme.line, edges: .trailing)
+        .background(chrome == .standalone ? theme.surface2.color : Color.clear)
+        .hairline(
+            chrome == .standalone ? theme.line : TokenColor(red: 0, green: 0, blue: 0, opacity: 0),
+            edges: .trailing
+        )
         // Sem isto o cartão da IA, na trilha de 72pt, vazava para a grade.
         .clipped()
+    }
+
+    /// O miolo da lateral da Agenda dentro da coluna de contexto: mês miúdo e
+    /// a lista de calendários, sem botão de criar e sem rodapé.
+    private var embedded: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            CalendarMiniMonth(
+                store: store,
+                anchor: anchor,
+                selectedDayOffset: selectedDayOffset,
+                onPickDay: onPickDay
+            )
+            .padding(.horizontal, 8)
+            .padding(.bottom, 8)
+
+            ScrollView { groupedList }
+        }
     }
 
     private var expanded: some View {

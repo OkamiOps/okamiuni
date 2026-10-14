@@ -88,6 +88,7 @@
 "Abrir" = "Abrir";
 "Abrir Ajustes" = "Abrir Ajustes";
 "Abrir a linha {0}" = "Abrir a linha {0}";
+"Abrir a resposta aqui" = "Abrir a resposta aqui";
 "Abrir a reunião no navegador" = "Abrir a reunião no navegador";
 "Abrir contas e providers" = "Abrir contas e providers";
 "Abrir detalhe" = "Abrir detalhe";
@@ -246,6 +247,7 @@
 "Buscando aliases no Gmail…" = "Buscando aliases no Gmail…";
 "Buscando em todas as pastas. Clique para voltar a esta caixa." = "Buscando em todas as pastas. Clique para voltar a esta caixa.";
 "Buscar" = "Buscar";
+"Buscar em tudo" = "Buscar em tudo";
 "Buscar na caixa…" = "Buscar na caixa…";
 "Buscar nas {0} caixas…" = "Buscar nas {0} caixas…";
 "Buscar pasta" = "Buscar pasta";
@@ -800,6 +802,8 @@
 "Movida" = "Movida";
 "Movida para a Lixeira" = "Movida para a Lixeira";
 "Movida para {0}" = "Movida para {0}";
+"Mudar para o tema claro" = "Mudar para o tema claro";
+"Mudar para o tema escuro" = "Mudar para o tema escuro";
 "Média" = "Média";
 "Método de autenticação" = "Método de autenticação";
 "Mês" = "Mês";
@@ -819,6 +823,7 @@
 "Nas ações explícitas de IA, assunto, corpo e contexto necessário são enviados ao endpoint fixo do Codex ou da xAI. A sessão de um provedor nunca é reutilizada no outro nem enviada a uma URL configurável." = "Nas ações explícitas de IA, assunto, corpo e contexto necessário são enviados ao endpoint fixo do Codex ou da xAI. A sessão de um provedor nunca é reutilizada no outro nem enviada a uma URL configurável.";
 "Natural" = "Natural";
 "Negrito" = "Negrito";
+"Negócios" = "Negócios";
 "Nenhum" = "Nenhum";
 "Nenhum alias nesta conta." = "Nenhum alias nesta conta.";
 "Nenhum calendário encontrado neste Mac." = "Nenhum calendário encontrado neste Mac.";
@@ -1033,6 +1038,7 @@
 "PRÉVIA DA ASSINATURA" = "PRÉVIA DA ASSINATURA";
 "PRÉVIA TÉCNICA · {0}" = "PRÉVIA TÉCNICA · {0}";
 "Padrão" = "Padrão";
+"Painel" = "Painel";
 "Painel do dia" = "Painel do dia";
 "Para" = "Para";
 "Para a direita" = "Para a direita";
@@ -1062,6 +1068,8 @@
 "Perguntar" = "Perguntar";
 "Perguntar ao ambiente" = "Perguntar ao ambiente";
 "Perguntar ao assistente, comando J" = "Perguntar ao assistente, comando J";
+"Perguntar à IA" = "Perguntar à IA";
+"Perguntar à IA (⌘J)" = "Perguntar à IA (⌘J)";
 "Perguntas e análises" = "Perguntas e análises";
 "Perguntas e escrita: {0}" = "Perguntas e escrita: {0}";
 "Perguntas, escrita e a análise automática de mensagens usam o Foundation Models deste Mac." = "Perguntas, escrita e a análise automática de mensagens usam o Foundation Models deste Mac.";
@@ -1110,6 +1118,7 @@
 "Próxima semana" = "Próxima semana";
 "Próximo dia" = "Próximo dia";
 "Próximo mês" = "Próximo mês";
+"Próximo: {0} em {1}" = "Próximo: {0} em {1}";
 "Põe a resposta na fila de saída da conta {0} " = "Põe a resposta na fila de saída da conta {0} ";
 "Põe o convite na fila de saída da conta {0}." = "Põe o convite na fila de saída da conta {0}.";
 "Quando" = "Quando";
@@ -1128,8 +1137,10 @@
 "Recolhe o resumo para ler o email" = "Recolhe o resumo para ler o email";
 "Recolhe remetente e assunto" = "Recolhe remetente e assunto";
 "Recolher" = "Recolher";
+"Recolher a barra lateral" = "Recolher a barra lateral";
 "Recolher a faixa de resposta" = "Recolher a faixa de resposta";
 "Recolher a lista de participantes" = "Recolher a lista de participantes";
+"Recolher a resposta" = "Recolher a resposta";
 "Recolher as pastas de {0}" = "Recolher as pastas de {0}";
 "Recolher esta mensagem da conversa" = "Recolher esta mensagem da conversa";
 "Recolher o histórico deste compromisso" = "Recolher o histórico deste compromisso";
@@ -1301,6 +1312,7 @@
 "Tem prazo" = "Tem prazo";
 "Tema" = "Tema";
 "Tema ativo" = "Tema ativo";
+"Tema escuro" = "Tema escuro";
 "Temas indisponíveis nesta janela" = "Temas indisponíveis nesta janela";
 "Temas · cor, tipo e densidade" = "Temas · cor, tipo e densidade";
 "Tenant ID" = "Tenant ID";
@@ -1528,6 +1540,7 @@
 "seg" = "seg";
 "segunda" = "segunda";
 "seleção" = "seleção";
+"sem sincronizar" = "sem sincronizar";
 "semana" = "semana";
 "semana {0}" = "semana {0}";
 "semanas" = "semanas";
@@ -1535,6 +1548,7 @@
 "serif, espaçoso" = "serif, espaçoso";
 "sex" = "sex";
 "sexta" = "sexta";
+"sincronizado" = "sincronizado";
 "sáb" = "sáb";
 "sábado" = "sábado";
 "talvez" = "talvez";
@@ -1582,6 +1596,7 @@
 "{0} neste Mac" = "{0} neste Mac";
 "{0} não estão no app" = "{0} não estão no app";
 "{0} não foi encontrado. Instale-o ou escolha outro transporte." = "{0} não foi encontrado. Instale-o ou escolha outro transporte.";
+"{0} não lidas" = "{0} não lidas";
 "{0} palavra" = "{0} palavra";
 "{0} palavras" = "{0} palavras";
 "{0} promessas" = "{0} promessas";

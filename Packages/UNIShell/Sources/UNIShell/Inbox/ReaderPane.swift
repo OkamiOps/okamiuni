@@ -118,6 +118,10 @@ public struct ReaderPane: View {
     /// três colunas precisa elevar o painel inteiro e suspender as calhas de
     /// redimensionamento enquanto essa superfície estiver aberta.
     let onEmailAssistantOpenChange: (Bool) -> Void
+    /// "Próximo: <compromisso> em N min", pronto, ou `nil` quando não há nada
+    /// mais hoje. Ver `AgendaSummary.nextEventCapsule`: é o que substitui a
+    /// quarta coluna da Caixa no shell Vidro.
+    let nextEvent: String?
     /// Porta exclusiva do harness offscreen: mantém o painel contextual aberto
     /// sem automatizar a interface da sessão.
     let debugEmailAssistantOpen: Bool
@@ -194,7 +198,8 @@ public struct ReaderPane: View {
         onOpenAssistant: @escaping () -> Void = {},
         makeAssistantConversation: ((String) -> AssistantConversation)? = nil,
         onMessagePresented: @escaping (String) -> Void = { _ in },
-        onEmailAssistantOpenChange: @escaping (Bool) -> Void = { _ in }
+        onEmailAssistantOpenChange: @escaping (Bool) -> Void = { _ in },
+        nextEvent: String? = nil
     ) {
         self.init(
             store: store,
@@ -209,7 +214,8 @@ public struct ReaderPane: View {
             onOpenAssistant: onOpenAssistant,
             makeAssistantConversation: makeAssistantConversation,
             onMessagePresented: onMessagePresented,
-            onEmailAssistantOpenChange: onEmailAssistantOpenChange
+            onEmailAssistantOpenChange: onEmailAssistantOpenChange,
+            nextEvent: nextEvent
         )
     }
 
@@ -226,9 +232,11 @@ public struct ReaderPane: View {
         onOpenAssistant: @escaping () -> Void = {},
         makeAssistantConversation: ((String) -> AssistantConversation)? = nil,
         onMessagePresented: @escaping (String) -> Void = { _ in },
-        onEmailAssistantOpenChange: @escaping (Bool) -> Void = { _ in }
+        onEmailAssistantOpenChange: @escaping (Bool) -> Void = { _ in },
+        nextEvent: String? = nil
     ) {
         self.store = store
+        self.nextEvent = nextEvent
         self.presentation = presentation
         self.onCompose = onCompose
         self.attachmentSaver = attachmentSaver
@@ -521,6 +529,10 @@ public struct ReaderPane: View {
         let accentColor = accountTint(message)
 
         return VStack(alignment: .leading, spacing: 0) {
+            if let nextEvent {
+                nextEventCapsule(nextEvent)
+                    .padding(.bottom, 10)
+            }
             triageBar(message)
                 // O painel da IA é overlay do botão, irmão **anterior** do
                 // assunto. Sem isto o VStack pinta o título por cima e o
@@ -550,6 +562,24 @@ public struct ReaderPane: View {
                     .frame(width: 3)
             }
         }
+    }
+
+    /// A cápsula do próximo compromisso, no alto do leitor.
+    private func nextEventCapsule(_ label: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "calendar")
+                .font(.system(size: 10, weight: .semibold))
+            Text(label)
+                .font(theme.sans.font(size: 11, weight: .medium))
+                .lineLimit(1)
+        }
+        .foregroundStyle(theme.accentInk.color)
+        .padding(.horizontal, 9)
+        .frame(height: 22)
+        .background(theme.accentSoft.color)
+        .clipShape(Capsule())
+        .accessibilityIdentifier("reader-next-event")
+        .accessibilityLabel(label)
     }
 
     /// Remetente · assunto numa linha. O clique expande: email, destinatários

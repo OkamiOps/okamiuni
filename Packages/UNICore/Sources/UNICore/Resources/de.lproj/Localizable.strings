@@ -88,6 +88,7 @@
 "Abrir" = "Öffnen";
 "Abrir Ajustes" = "Einstellungen öffnen";
 "Abrir a linha {0}" = "Zeile {0} öffnen";
+"Abrir a resposta aqui" = "Antwort hier öffnen";
 "Abrir a reunião no navegador" = "Besprechung im Browser öffnen";
 "Abrir contas e providers" = "Konten und Anbieter öffnen";
 "Abrir detalhe" = "Details öffnen";
@@ -246,6 +247,7 @@
 "Buscando aliases no Gmail…" = "Gmail-Aliasse werden geladen…";
 "Buscando em todas as pastas. Clique para voltar a esta caixa." = "Alle Ordner werden durchsucht. Klicken, um zu diesem Postfach zurückzukehren.";
 "Buscar" = "Suchen";
+"Buscar em tudo" = "Alles durchsuchen";
 "Buscar na caixa…" = "Postfach durchsuchen…";
 "Buscar nas {0} caixas…" = "{0} Postfächer durchsuchen…";
 "Buscar pasta" = "Ordner suchen";
@@ -800,6 +802,8 @@
 "Movida" = "Verschoben";
 "Movida para a Lixeira" = "In den Papierkorb verschoben";
 "Movida para {0}" = "Nach {0} verschoben";
+"Mudar para o tema claro" = "Zum hellen Thema wechseln";
+"Mudar para o tema escuro" = "Zum dunklen Thema wechseln";
 "Média" = "Mittel";
 "Método de autenticação" = "Authentifizierungsmethode";
 "Mês" = "Monat";
@@ -819,6 +823,7 @@
 "Nas ações explícitas de IA, assunto, corpo e contexto necessário são enviados ao endpoint fixo do Codex ou da xAI. A sessão de um provedor nunca é reutilizada no outro nem enviada a uma URL configurável." = "Bei ausdrücklichen KI-Aktionen werden Betreff, Inhalt und Kontext an den festen Codex- oder xAI-Endpunkt gesendet. Eine Anbietersitzung wird nie für einen anderen Anbieter verwendet oder an eine konfigurierbare URL gesendet.";
 "Natural" = "Natürlich";
 "Negrito" = "Fett";
+"Negócios" = "Geschäfte";
 "Nenhum" = "Keiner";
 "Nenhum alias nesta conta." = "Keine Aliasse in diesem Konto.";
 "Nenhum calendário encontrado neste Mac." = "Keine Kalender auf diesem Mac gefunden.";
@@ -1033,6 +1038,7 @@
 "PRÉVIA DA ASSINATURA" = "SIGNATURVORSCHAU";
 "PRÉVIA TÉCNICA · {0}" = "TECHNISCHE VORSCHAU · {0}";
 "Padrão" = "Standard";
+"Painel" = "Übersicht";
 "Painel do dia" = "Tagesübersicht";
 "Para" = "An";
 "Para a direita" = "Nach rechts";
@@ -1062,6 +1068,8 @@
 "Perguntar" = "Fragen";
 "Perguntar ao ambiente" = "Zum Arbeitsbereich fragen";
 "Perguntar ao assistente, comando J" = "Assistenten fragen, Befehl J";
+"Perguntar à IA" = "KI fragen";
+"Perguntar à IA (⌘J)" = "KI fragen (⌘J)";
 "Perguntas e análises" = "Fragen und Analysen";
 "Perguntas e escrita: {0}" = "Fragen und Schreiben: {0}";
 "Perguntas, escrita e a análise automática de mensagens usam o Foundation Models deste Mac." = "Fragen, Schreiben und automatische Nachrichtenanalyse verwenden Foundation Models auf diesem Mac.";
@@ -1110,6 +1118,7 @@
 "Próxima semana" = "Nächste Woche";
 "Próximo dia" = "Nächster Tag";
 "Próximo mês" = "Nächster Monat";
+"Próximo: {0} em {1}" = "Als Nächstes: {0} in {1}";
 "Põe a resposta na fila de saída da conta {0} " = "Antwort in den Postausgang des Kontos {0} legen ";
 "Põe o convite na fila de saída da conta {0}." = "Die Einladung in den Postausgang von Konto {0} stellen.";
 "Quando" = "Wenn";
@@ -1128,8 +1137,10 @@
 "Recolhe o resumo para ler o email" = "Zusammenfassung einklappen, um die E-Mail zu lesen";
 "Recolhe remetente e assunto" = "Absender und Betreff einklappen";
 "Recolher" = "Einklappen";
+"Recolher a barra lateral" = "Seitenleiste einklappen";
 "Recolher a faixa de resposta" = "Antwortleiste einklappen";
 "Recolher a lista de participantes" = "Teilnehmerliste einklappen";
+"Recolher a resposta" = "Antwort einklappen";
 "Recolher as pastas de {0}" = "Ordner von {0} einklappen";
 "Recolher esta mensagem da conversa" = "Diese Nachricht im Gespräch einklappen";
 "Recolher o histórico deste compromisso" = "Terminverlauf einklappen";
@@ -1301,6 +1312,7 @@
 "Tem prazo" = "Hat eine Frist";
 "Tema" = "Design";
 "Tema ativo" = "Aktives Design";
+"Tema escuro" = "Dunkles Thema";
 "Temas indisponíveis nesta janela" = "Designs in diesem Fenster nicht verfügbar";
 "Temas · cor, tipo e densidade" = "Designs · Farbe, Schrift und Dichte";
 "Tenant ID" = "Mandanten-ID";
@@ -1528,6 +1540,7 @@
 "seg" = "Mo";
 "segunda" = "Montag";
 "seleção" = "Auswahl";
+"sem sincronizar" = "nicht synchronisiert";
 "semana" = "Woche";
 "semana {0}" = "Woche {0}";
 "semanas" = "Wochen";
@@ -1535,6 +1548,7 @@
 "serif, espaçoso" = "Serifen, großzügig";
 "sex" = "Fr";
 "sexta" = "Freitag";
+"sincronizado" = "synchronisiert";
 "sáb" = "Sa";
 "sábado" = "Samstag";
 "talvez" = "vielleicht";
@@ -1582,6 +1596,7 @@
 "{0} neste Mac" = "{0} auf diesem Mac";
 "{0} não estão no app" = "{0} sind nicht in der App";
 "{0} não foi encontrado. Instale-o ou escolha outro transporte." = "{0} wurde nicht gefunden. Installieren Sie es oder wählen Sie einen anderen Transport.";
+"{0} não lidas" = "{0} ungelesen";
 "{0} palavra" = "{0} Wort";
 "{0} palavras" = "{0} Wörter";
 "{0} promessas" = "{0} Zusagen";

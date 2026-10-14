@@ -88,6 +88,7 @@
 "Abrir" = "Open";
 "Abrir Ajustes" = "Open Settings";
 "Abrir a linha {0}" = "Open {0} row";
+"Abrir a resposta aqui" = "Open the reply here";
 "Abrir a reunião no navegador" = "Open meeting in browser";
 "Abrir contas e providers" = "Open accounts and providers";
 "Abrir detalhe" = "Open details";
@@ -246,6 +247,7 @@
 "Buscando aliases no Gmail…" = "Fetching Gmail aliases…";
 "Buscando em todas as pastas. Clique para voltar a esta caixa." = "Searching all folders. Click to return to this mailbox.";
 "Buscar" = "Search";
+"Buscar em tudo" = "Search everything";
 "Buscar na caixa…" = "Search mailbox…";
 "Buscar nas {0} caixas…" = "Search {0} mailboxes…";
 "Buscar pasta" = "Search folders";
@@ -800,6 +802,8 @@
 "Movida" = "Moved";
 "Movida para a Lixeira" = "Moved to Trash";
 "Movida para {0}" = "Moved to {0}";
+"Mudar para o tema claro" = "Switch to the light theme";
+"Mudar para o tema escuro" = "Switch to the dark theme";
 "Média" = "Medium";
 "Método de autenticação" = "Authentication method";
 "Mês" = "Month";
@@ -819,6 +823,7 @@
 "Nas ações explícitas de IA, assunto, corpo e contexto necessário são enviados ao endpoint fixo do Codex ou da xAI. A sessão de um provedor nunca é reutilizada no outro nem enviada a uma URL configurável." = "For explicit AI actions, the subject, body and required context are sent to the fixed Codex or xAI endpoint. A provider’s session is never reused for another or sent to a configurable URL.";
 "Natural" = "Natural";
 "Negrito" = "Bold";
+"Negócios" = "Businesses";
 "Nenhum" = "None";
 "Nenhum alias nesta conta." = "No aliases in this account.";
 "Nenhum calendário encontrado neste Mac." = "No calendars found on this Mac.";
@@ -1033,6 +1038,7 @@
 "PRÉVIA DA ASSINATURA" = "SIGNATURE PREVIEW";
 "PRÉVIA TÉCNICA · {0}" = "TECHNICAL PREVIEW · {0}";
 "Padrão" = "Default";
+"Painel" = "Dashboard";
 "Painel do dia" = "Daily dashboard";
 "Para" = "To";
 "Para a direita" = "To the right";
@@ -1062,6 +1068,8 @@
 "Perguntar" = "Ask";
 "Perguntar ao ambiente" = "Ask about workspace";
 "Perguntar ao assistente, comando J" = "Ask the assistant, Command J";
+"Perguntar à IA" = "Ask the AI";
+"Perguntar à IA (⌘J)" = "Ask the AI (⌘J)";
 "Perguntas e análises" = "Questions and analysis";
 "Perguntas e escrita: {0}" = "Questions and writing: {0}";
 "Perguntas, escrita e a análise automática de mensagens usam o Foundation Models deste Mac." = "Questions, writing and automatic message analysis use Foundation Models on this Mac.";
@@ -1110,6 +1118,7 @@
 "Próxima semana" = "Next week";
 "Próximo dia" = "Next day";
 "Próximo mês" = "Next month";
+"Próximo: {0} em {1}" = "Next: {0} in {1}";
 "Põe a resposta na fila de saída da conta {0} " = "Queue the reply in account {0}’s outbox ";
 "Põe o convite na fila de saída da conta {0}." = "Queue the invitation in account {0}’s outbox.";
 "Quando" = "When";
@@ -1128,8 +1137,10 @@
 "Recolhe o resumo para ler o email" = "Collapse the summary to read the email";
 "Recolhe remetente e assunto" = "Collapse sender and subject";
 "Recolher" = "Collapse";
+"Recolher a barra lateral" = "Collapse the sidebar";
 "Recolher a faixa de resposta" = "Collapse reply bar";
 "Recolher a lista de participantes" = "Collapse participant list";
+"Recolher a resposta" = "Collapse the reply";
 "Recolher as pastas de {0}" = "Collapse folders for {0}";
 "Recolher esta mensagem da conversa" = "Collapse this message in the conversation";
 "Recolher o histórico deste compromisso" = "Collapse event history";
@@ -1301,6 +1312,7 @@
 "Tem prazo" = "Has a deadline";
 "Tema" = "Theme";
 "Tema ativo" = "Active theme";
+"Tema escuro" = "Dark theme";
 "Temas indisponíveis nesta janela" = "Themes unavailable in this window";
 "Temas · cor, tipo e densidade" = "Themes · color, type, and density";
 "Tenant ID" = "Tenant ID";
@@ -1528,6 +1540,7 @@
 "seg" = "Mon";
 "segunda" = "Monday";
 "seleção" = "selection";
+"sem sincronizar" = "not synced";
 "semana" = "week";
 "semana {0}" = "week {0}";
 "semanas" = "weeks";
@@ -1535,6 +1548,7 @@
 "serif, espaçoso" = "serif, spacious";
 "sex" = "Fri";
 "sexta" = "Friday";
+"sincronizado" = "synced";
 "sáb" = "Sat";
 "sábado" = "Saturday";
 "talvez" = "maybe";
@@ -1582,6 +1596,7 @@
 "{0} neste Mac" = "{0} on this Mac";
 "{0} não estão no app" = "{0} are not in the app";
 "{0} não foi encontrado. Instale-o ou escolha outro transporte." = "{0} was not found. Install it or choose another transport.";
+"{0} não lidas" = "{0} unread";
 "{0} palavra" = "{0} word";
 "{0} palavras" = "{0} words";
 "{0} promessas" = "{0} commitments";

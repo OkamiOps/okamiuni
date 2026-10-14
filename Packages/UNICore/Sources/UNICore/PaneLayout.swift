@@ -42,6 +42,60 @@ public struct PaneLayout: Sendable, Hashable {
     /// Resumo da agenda à direita.
     public static let agendaWidth: CGFloat = 276
 
+    // MARK: - O shell Vidro
+    //
+    // No redesenho a navegação saiu da barra do topo e virou um trilho na
+    // ponta esquerda, com a coluna de contexto ao lado dele dentro do **mesmo**
+    // painel. Recolher esconde a coluna e deixa só o trilho — é o que o botão
+    // da barra do topo fazia, com outro desenho.
+
+    /// O trilho das telas: Painel, Caixa, Agenda.
+    public static let appRailWidth: CGFloat = 64
+
+    /// A coluna de contexto ao lado do trilho: título, busca, ação principal e
+    /// o conteúdo da tela.
+    public static let contextSidebarWidth: CGFloat = 216
+
+    /// Largura do painel da lateral: trilho + contexto, ou só o trilho.
+    public static func glassSidebarWidth(contextOpen: Bool) -> CGFloat {
+        contextOpen ? appRailWidth + contextSidebarWidth : appRailWidth
+    }
+
+    /// A coluna de contexto cabe nesta janela? Abaixo da fronteira de sempre
+    /// ela recolhe sozinha, como a lateral antiga — e volta quando a janela
+    /// cresce, porque nada aqui é persistido.
+    public static func contextSidebarOpen(width: CGFloat, wantsSidebar: Bool) -> Bool {
+        sidebarExpanded(width: width, wantsSidebar: wantsSidebar)
+    }
+
+    /// Largura da lista de mensagens no shell Vidro.
+    ///
+    /// `contentWidth` é o que sobrou depois do painel da lateral e das folgas:
+    /// aqui só se reparte lista e leitor. A regra é a mesma de `resolve` —
+    /// a lista fica com o que exceder a medida confortável do leitor, presa na
+    /// faixa, e nunca a ponto de o leitor furar o piso.
+    public static func glassListWidth(
+        contentWidth: CGFloat, dragged: CGFloat? = nil
+    ) -> CGFloat {
+        let floor: CGFloat
+        var list: CGFloat
+        if let dragged {
+            floor = draggableListRange.lowerBound
+            list = clampDraggedListWidth(dragged)
+        } else {
+            floor = narrowListRange.lowerBound
+            list = min(
+                wideListRange.upperBound,
+                max(floor, (contentWidth - readerComfortableWidth).rounded())
+            )
+        }
+        let deficit = readerMinimumWidth - (contentWidth - list)
+        if deficit > 0 {
+            list -= min(deficit, max(0, list - floor))
+        }
+        return max(0, min(list, contentWidth))
+    }
+
     /// Piso do leitor. O novo corpo sans e os cartões responsivos continuam
     /// legíveis nessa medida, inclusive na transição da lateral para o rail.
     public static let readerMinimumWidth: CGFloat = 320

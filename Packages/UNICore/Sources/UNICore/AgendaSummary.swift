@@ -29,10 +29,28 @@ public struct AgendaSummary {
         return L10n.tr("nada mais hoje")
     }
 
+    /// A cápsula "Próximo: <título> em N min" do topo do leitor.
+    ///
+    /// Ela existe porque o shell Vidro **não** monta a quarta coluna (a trilha
+    /// da agenda) na Caixa: o que o dono precisa dela enquanto lê um email é
+    /// saber se tem reunião em vinte minutos. Devolve `nil` quando não há nada
+    /// mais hoje — uma cápsula dizendo "nada mais hoje" seria ruído
+    /// permanente num canto que só deve falar quando tem recado.
+    ///
+    /// Compromisso em curso não conta: a pergunta é "o que vem", e durante a
+    /// reunião a pessoa não está lendo email.
+    public static func nextEventCapsule(for items: [AgendaItem], now: Int) -> String? {
+        let proximo = items
+            .filter { !$0.isCancelled && $0.startMinute > now }
+            .min { $0.startMinute < $1.startMinute }
+        guard let proximo else { return nil }
+        return L10n.tr("Próximo: \(proximo.title) em \(durationString(proximo.startMinute - now))")
+    }
+
     /// Formata duração em minutos para string legível.
     /// < 90 min: "N min"
     /// >= 90 min: "NhMM" (ex: "2h30", "1h", "1h30")
-    private static func durationString(_ minutes: Int) -> String {
+    static func durationString(_ minutes: Int) -> String {
         guard minutes >= 90 else {
             return L10n.tr("\(minutes) min")
         }

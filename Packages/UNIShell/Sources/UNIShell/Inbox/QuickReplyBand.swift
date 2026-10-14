@@ -598,41 +598,50 @@ struct QuickReplyBand: View {
     /// Nunca é um beco: diz o que aconteceu com o rascunho e traz o botão que
     /// reabre exatamente onde parou.
     private var closedCard: some View {
-        HStack(spacing: 10) {
-            Button {
-                open = true
-            } label: {
-                HStack(spacing: 10) {
-                    if let sentAt {
-                        Text("✓")
-                            .font(theme.sans.font(size: 12, weight: .semibold))
-                            .foregroundStyle(theme.accentInk.color)
-                        Text(Self.sentNote(
-                            words: DraftMeta.countLabel(plainText),
-                            stamp: sentAt.formatted(date: .omitted, time: .shortened),
-                            archived: archivedOriginal
-                        ))
+        HStack(spacing: 8) {
+            Image(systemName: sentAt == nil ? "sparkles" : "checkmark.circle.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(theme.accentInk.color)
+                .opacity(temRascunho || sentAt != nil ? 1 : 0.45)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(tituloFechado)
+                    .font(theme.sans.font(size: 11.5, weight: .semibold))
+                    .foregroundStyle(
+                        (temRascunho || sentAt != nil ? theme.accentInk : theme.ink3).color
+                    )
+                    .lineLimit(1)
+                if let previa = previaFechada {
+                    Text(previa)
                         .font(theme.sans.font(size: 12.5))
                         .foregroundStyle(theme.ink2.color)
                         .lineLimit(1)
-                    } else {
-                        Text(L10n.tr("Responder a \(message.from.name.isEmpty ? message.from.address : message.from.name)…"))
-                            .font(theme.sans.font(size: 12.5))
-                            .foregroundStyle(theme.ink3.color)
-                            .lineLimit(1)
-                    }
-                    Spacer(minLength: 8)
+                        .truncationMode(.tail)
                 }
-                .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel(sentAt == nil ? L10n.tr("Responder") : L10n.tr("Retomar"))
+            Spacer(minLength: 8)
 
+            // A seta abre a faixa **aqui**; o ⤢ leva o rascunho para a janela.
+            // Dois destinos diferentes para a mesma resposta, e é por isso que
+            // são dois botões e não um.
+            MiniGlyphButton(glyph: "⌃", help: L10n.tr("Abrir a resposta aqui")) {
+                open = true
+                focusToken += 1
+            }
             promoteButton
+
+            ChromeButton(
+                L10n.tr("Responder"), appearance: .accent,
+                size: 12.5, height: 28, horizontalPadding: 14
+            ) {
+                open = true
+                focusToken += 1
+            }
         }
         .padding(.leading, 14)
-        .padding(.trailing, 10)
-        .padding(.vertical, 9)
+        .padding(.trailing, 8)
+        .padding(.vertical, 8)
         .background(
             (sentAt == nil ? theme.surface2 : theme.accentSoft).color,
             in: RoundedRectangle(cornerRadius: theme.radiusLarge)
@@ -644,6 +653,44 @@ struct QuickReplyBand: View {
                     lineWidth: Hairline.thickness(displayScale)
                 )
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(tituloFechado)
+    }
+
+    /// Há texto guardado para esta mensagem? É o que separa "a resposta já
+    /// está escrita, confira" de "ainda não há nada".
+    private var temRascunho: Bool {
+        !plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var remetente: String {
+        message.from.name.isEmpty ? message.from.address : message.from.name
+    }
+
+    private var tituloFechado: String {
+        if sentAt != nil {
+            return Self.sentNote(
+                words: DraftMeta.countLabel(plainText),
+                stamp: sentAt?.formatted(date: .omitted, time: .shortened) ?? "",
+                archived: archivedOriginal
+            )
+        }
+        return temRascunho
+            ? L10n.tr("Resposta pronta para \(remetente)")
+            : L10n.tr("Responder a \(remetente)…")
+    }
+
+    /// A primeira linha do rascunho, para a faixa fechada dizer **o que** está
+    /// pronto em vez de só avisar que existe alguma coisa.
+    private var previaFechada: String? {
+        guard temRascunho else { return nil }
+        let linha = plainText
+            .split(whereSeparator: \.isNewline)
+            .first
+            .map(String.init)?
+            .trimmingCharacters(in: .whitespaces)
+        guard let linha, !linha.isEmpty else { return nil }
+        return linha
     }
 
     /// O retorno visível do "Enviar", e a única coisa na tela que diz o que o

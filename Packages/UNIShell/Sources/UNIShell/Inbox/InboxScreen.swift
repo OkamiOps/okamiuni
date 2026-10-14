@@ -68,6 +68,10 @@ public struct InboxScreen: View {
     /// O filtro do dashboard 08 vive aqui para sobreviver à troca de aba —
     /// "persistir na sessão" é literalmente isto.
     @State private var dashboardFilter = DayPlan.Filter.standard
+    /// O estado da aba Agenda que o shell divide com a `CalendarScreen`: no
+    /// Vidro o mês miúdo mora na coluna de contexto e a grade no painel ao
+    /// lado. Ver `CalendarShellState`.
+    @State private var calendarShell = CalendarShellState()
     let store: MailStore
 
     /// De onde vem o "agora" da trilha e das três visões da agenda.
@@ -280,6 +284,315 @@ public struct InboxScreen: View {
     }
 
     public var body: some View {
+        // Dois shells, e a escolha é do tema. Com `backdrop` e `panel` — os
+        // dois temas Vidro — a navegação é o trilho da esquerda e os painéis
+        // flutuam sobre o gradiente. Sem eles, os 26 temas antigos continuam
+        // com a barra do topo que sempre tiveram: o redesenho não os reescreve
+        // de lado nenhum.
+        Group {
+            if theme.isGlass {
+                glassShell
+            } else {
+                classicShell
+            }
+        }
+        .environment(receipts)
+        .alert(L10n.tr("Não foi possível preparar a resposta"), isPresented: Binding(
+            get: { assistantActionFailure != nil }, set: { if !$0 { assistantActionFailure = nil } }
+        )) { Button(L10n.tr("OK")) { assistantActionFailure = nil } }
+        message: { Text(assistantActionFailure ?? "") }
+        // A janela destacada clica no **mesmo** executor da gaveta: ela não
+        // tem store nem fila, e um segundo caminho lá divergiria daqui.
+        .task {
+            assistantSession.install(runner: runProposalCard, reveal: { reveal($0) })
+        }
+        // O "Desfazer" do cartão vale enquanto **o recibo da leva dele**
+        // estiver de pé. Um recibo de outra origem não serve, e por isso a
+        // comparação é por id e não por "existe algum".
+        .onChange(of: receipts.current?.id) { _, id in
+            assistantSession.receiptChanged(to: id)
+        }
+        .task { await subscribeToSource() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            store.updateAgendaDay()
+        }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
+            store.updateAgendaDay()
+        }
+        .task {
+            guard clock == .live else { return }
+            while !Task.isCancelled {
+                store.updateAgendaDay()
+                do { try await Task.sleep(for: .seconds(15)) }
+                catch { return }
+            }
+        }
+        .task { await accountsModel?.start() }
+        .onChange(of: query) { _, newQuery in
+            Task { await searchChanged(to: newQuery) }
+            workspace = workspace.switchingToMailIfSearching(newQuery)
+        }
+        // Revelar uma mensagem pode vir de **fora** desta tela: o botão "Email"
+        // da janela 04 é outra cena e só alcança o `MailStore`. `revealCount`
+        // é o único caminho que ele tem até a aba, e sem a troca o clique
+        // selecionaria uma mensagem numa lista que não está na tela.
+        .onChange(of: store.revealCount) { _, _ in
+            workspace = .mail
+            query = store.query
+        }
+        .bareKeyShortcuts { key in
+            guard key == .escape else { return false }
+            let wasSearch = searchFocused || BareKeyFocus.isSearchField(
+                NSApp.keyWindow?.firstResponder
+            )
+            let acted = handleEscape()
+            if acted, wasSearch {
+                NSApp.keyWindow?.makeFirstResponder(nil)
+            }
+            return acted
+        }
+    }
+
+    // MARK: - O shell Vidro
+
+    /// A folga entre painéis e deles para a borda da janela.
+    private var gap: CGFloat { theme.panel?.gap ?? PanelStyle.vidroGap }
+
+    /// O gradiente, o painel da lateral (trilho + contexto) e os painéis da
+    /// tela que está no ar.
+    private var glassShell: some View {
+        GeometryReader { proxy in
+            let contextOpen = PaneLayout.contextSidebarOpen(
+                width: proxy.size.width, wantsSidebar: wantsSidebar
+            )
+            let sidebarWidth = PaneLayout.glassSidebarWidth(contextOpen: contextOpen)
+            // Duas folgas de borda e uma entre a lateral e o conteúdo.
+            let contentWidth = max(
+                0, proxy.size.width - sidebarWidth - gap * 3
+            )
+
+            ZStack(alignment: .trailing) {
+                Backdrop()
+
+                HStack(spacing: gap) {
+                    sidebarPanel(contextOpen: contextOpen)
+                    glassContent(width: contentWidth)
+                }
+                .padding(gap)
+                .opacity(
+                    assistantSession.isDrawerOpen
+                        ? AssistantDrawerMetrics.backdropOpacity : 1
+                )
+
+                if assistantSession.isDrawerOpen {
+                    assistantDrawer
+                        .transition(.move(edge: .trailing))
+                        .zIndex(60)
+                }
+
+                if assistantOpen {
+                    assistantPanel
+                        .padding(12)
+                        .transition(.move(edge: .trailing).combined(with: .opacity))
+                        .zIndex(50)
+                }
+            }
+            .animation(Self.paneTransition, value: contextOpen)
+        }
+        // Duplo clique no alto da janela (gradiente ou vazio do trilho) faz o
+        // que o sistema manda, e o arraste da janela pelo fundo continua de pé
+        // — ver `TitleBarDoubleClick`, que também liga o
+        // `isMovableByWindowBackground`.
+        .titleBarDoubleClick(controls: [], barHeight: AppRail.dragStripHeight)
+        // Os semáforos nativos sobem para o alto do trilho, dentro do painel.
+        .trafficLightsInRail()
+    }
+
+    private func sidebarPanel(contextOpen: Bool) -> some View {
+        HStack(spacing: 0) {
+            AppRail(
+                store: store,
+                workspace: $workspace,
+                intelligencePresentation: intelligencePresentation,
+                onOpenAssistant: toggleDrawer,
+                onOpenSettings: openAccounts,
+                accountMonogram: accountMonogram,
+                isSynced: !chromeWorkload.status.isBusy
+            )
+            if contextOpen {
+                // A hairline entre o trilho e o contexto, como no protótipo:
+                // `border-right` no `<nav>` só quando a coluna está aberta.
+                Rectangle()
+                    .fill(theme.line.color)
+                    .frame(width: 1)
+                contextSidebar
+                    .transition(.opacity)
+            }
+        }
+        .frame(maxHeight: .infinity)
+        .glassPanel(theme)
+    }
+
+    private var contextSidebar: some View {
+        ContextSidebar(
+            store: store,
+            workspace: workspace,
+            query: $query,
+            searchEverywhere: Binding(
+                get: { store.searchEverywhere },
+                set: { store.searchEverywhere = $0 }
+            ),
+            dashboardFilter: $dashboardFilter,
+            intelligencePresentation: intelligencePresentation,
+            analysisPause: analysisPause,
+            syncStatus: chromeWorkload.status,
+            statusPhrase: statusPhrase,
+            onReloadMailbox: accountsModel == nil ? nil : { [accountsModel] in
+                Task { await accountsModel?.syncNow() }
+            },
+            onSearchFocusChange: { searchFocused = $0 },
+            onCollapse: toggleSidebar,
+            onCompose: openNewMessage,
+            onNewAppointment: { calendarShell.creatingAppointment = true },
+            onOpenAssistant: openWorkspaceAssistant,
+            onOpenSettings: openAccounts,
+            updates: updates,
+            calendarContent: workspace == .calendar
+                ? AnyView(
+                    CalendarSidebar(
+                        store: store,
+                        width: ContextSidebar.width,
+                        intelligencePresentation: intelligencePresentation,
+                        onOpenAssistant: openWorkspaceAssistant,
+                        onCreate: { calendarShell.creatingAppointment = true },
+                        onOpenAccounts: openAccounts,
+                        anchor: agendaAnchor,
+                        selectedDayOffset: calendarShell.selectedDayOffset,
+                        onPickDay: { calendarShell.selectedDayOffset = $0 },
+                        chrome: .embedded
+                    )
+                )
+                : nil
+        )
+    }
+
+    /// A frase que a barra fina de estado diz. Vinha da `WindowChrome`, que no
+    /// shell Vidro já não existe nesta janela.
+    var statusPhrase: String {
+        if let detail = chromeWorkload.detail { return detail }
+        if let caption = MailboxChromeStatus.lastSyncedCaption(
+            from: accountsModel?.statuses ?? []
+        ) {
+            return L10n.tr("Atualizada \(caption)")
+        }
+        return chromeWorkload.status.label
+    }
+
+    @ViewBuilder
+    private func glassContent(width: CGFloat) -> some View {
+        switch workspace {
+        case .dashboard:
+            AgendaClockReader(clock) { now in
+                dashboardContent(now: now)
+            }
+            .glassPanel(theme)
+        case .mail:
+            AgendaClockReader(clock) { _ in
+                glassMailContent(width: width)
+            }
+        case .calendar:
+            glassCalendarContent
+                .glassPanel(theme)
+        }
+    }
+
+    /// A Caixa no shell Vidro: dois painéis, lista e leitor.
+    ///
+    /// A trilha da agenda (a quarta coluna) **não é colocada** aqui. O código
+    /// dela segue inteiro e testado — ela continua montada no shell clássico —
+    /// mas no redesenho o que o dono precisa dela cabe numa cápsula no topo do
+    /// leitor ("Próximo: … em N min"), e três painéis já ocupam a janela.
+    private func glassMailContent(width: CGFloat) -> some View {
+        let listWidth = PaneLayout.glassListWidth(
+            contentWidth: max(0, width - gap), dragged: paneWidths.messageList
+        )
+        return HStack(spacing: gap) {
+            MessageList(
+                store: store,
+                width: listWidth,
+                today: agendaAnchor,
+                onOpenWindow: openMessageWindow,
+                portraitCaption: mailboxPortrait?.countCaption,
+                gapCaption: mailboxPortrait?.gapCaption,
+                onPullMissing: mailboxPortrait?.gapCaption == nil ? nil : { [accountsModel] in
+                    Task { await accountsModel?.syncNow() }
+                }
+            )
+            .glassPanel(theme)
+
+            ReaderPane(
+                store: store,
+                debugEmailAssistantOpen: debugReaderAssistantOpen,
+                onCompose: { openWindow(id: UNIWindow.composer, value: $0.value) },
+                attachmentSaver: NativeAttachmentSaver(),
+                intelligence: composerIntelligence,
+                intelligencePresentation: intelligencePresentation,
+                analysisDestination: analysisDestination,
+                makeAssistantConversation: readerConversationFactory,
+                onMessagePresented: onMessagePresented,
+                onEmailAssistantOpenChange: { open in
+                    readerAssistantOpen = open
+                },
+                nextEvent: AgendaSummary.nextEventCapsule(
+                    for: WeekAgenda.items(on: 0, in: store.visibleAgenda),
+                    now: dashboardNowMinute
+                )
+            )
+            .glassPanel(theme, kind: .reader)
+            .zIndex(readerAssistantOpen ? 100 : 0)
+        }
+        .overlay(alignment: .topLeading) {
+            // A divisória entre lista e leitor, centrada sobre a folga.
+            PaneDivider(
+                onDrag: { translation in
+                    let origin = listDragOrigin ?? listWidth
+                    listDragOrigin = origin
+                    paneWidths.setMessageList(origin + translation)
+                },
+                onEnd: { listDragOrigin = nil },
+                onReset: {
+                    withAnimation(Self.paneTransition) { paneWidths.resetMessageList() }
+                }
+            )
+            .offset(x: PaneDivider.leadingEdge(centeredOn: listWidth + gap / 2))
+            .opacity(readerAssistantOpen ? 0 : 1)
+            .allowsHitTesting(!readerAssistantOpen)
+        }
+        .coordinateSpace(.named(PaneDivider.coordinateSpace))
+    }
+
+    private var glassCalendarContent: some View {
+        AgendaClockReader(clock) { now in
+            CalendarScreen(
+                store: store,
+                now: now,
+                anchor: agendaAnchor,
+                wantsSidebar: false,
+                intelligencePresentation: intelligencePresentation,
+                onOpenAssistant: openWorkspaceAssistant,
+                onCompose: openNewMessage,
+                onOpenAccounts: openAccounts,
+                onOpenEvent: openEventWindow,
+                onRevealMessage: reveal,
+                shell: calendarShell,
+                showsSidebar: false
+            )
+        }
+    }
+
+    // MARK: - O shell clássico (os 26 temas de sempre)
+
+    private var classicShell: some View {
         VStack(spacing: 0) {
             // Barra do topo (58px)
             WindowChrome(
@@ -352,61 +665,6 @@ public struct InboxScreen: View {
                         .zIndex(50)
                 }
             }
-        }
-        .environment(receipts)
-        .alert(L10n.tr("Não foi possível preparar a resposta"), isPresented: Binding(
-            get: { assistantActionFailure != nil }, set: { if !$0 { assistantActionFailure = nil } }
-        )) { Button(L10n.tr("OK")) { assistantActionFailure = nil } }
-        message: { Text(assistantActionFailure ?? "") }
-        // A janela destacada clica no **mesmo** executor da gaveta: ela não
-        // tem store nem fila, e um segundo caminho lá divergiria daqui.
-        .task {
-            assistantSession.install(runner: runProposalCard, reveal: { reveal($0) })
-        }
-        // O "Desfazer" do cartão vale enquanto **o recibo da leva dele**
-        // estiver de pé. Um recibo de outra origem não serve, e por isso a
-        // comparação é por id e não por "existe algum".
-        .onChange(of: receipts.current?.id) { _, id in
-            assistantSession.receiptChanged(to: id)
-        }
-        .task { await subscribeToSource() }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            store.updateAgendaDay()
-        }
-        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in
-            store.updateAgendaDay()
-        }
-        .task {
-            guard clock == .live else { return }
-            while !Task.isCancelled {
-                store.updateAgendaDay()
-                do { try await Task.sleep(for: .seconds(15)) }
-                catch { return }
-            }
-        }
-        .task { await accountsModel?.start() }
-        .onChange(of: query) { _, newQuery in
-            Task { await searchChanged(to: newQuery) }
-            workspace = workspace.switchingToMailIfSearching(newQuery)
-        }
-        // Revelar uma mensagem pode vir de **fora** desta tela: o botão "Email"
-        // da janela 04 é outra cena e só alcança o `MailStore`. `revealCount`
-        // é o único caminho que ele tem até a aba, e sem a troca o clique
-        // selecionaria uma mensagem numa lista que não está na tela.
-        .onChange(of: store.revealCount) { _, _ in
-            workspace = .mail
-            query = store.query
-        }
-        .bareKeyShortcuts { key in
-            guard key == .escape else { return false }
-            let wasSearch = searchFocused || BareKeyFocus.isSearchField(
-                NSApp.keyWindow?.firstResponder
-            )
-            let acted = handleEscape()
-            if acted, wasSearch {
-                NSApp.keyWindow?.makeFirstResponder(nil)
-            }
-            return acted
         }
     }
 
