@@ -99,6 +99,9 @@ public struct WeekScreen: View {
     /// Qual semana/mês mostrar, em dias a partir de `anchor`. Ver
     /// `CalendarViewMode.navigationScope`.
     var focusOffset: Int = 0
+    /// Os blocos que a IA propõe para hoje — tracejados em accent, como no
+    /// protótipo do Vidro. Vazio fora dele.
+    var propostos: [PlanoDoDia.Bloco] = []
     /// Clicar num compromisso abre a janela 04.
     let onOpenEvent: (AgendaItem) -> Void
     /// "Ir para o email de origem", do menu de contexto do cartão. Recebe o id
@@ -111,6 +114,7 @@ public struct WeekScreen: View {
         now: Int? = nil,
         anchor: Date? = nil,
         focusOffset: Int = 0,
+        propostos: [PlanoDoDia.Bloco] = [],
         onOpenEvent: @escaping (AgendaItem) -> Void = { _ in },
         onRevealMessage: @escaping (String) -> Void = { _ in }
     ) {
@@ -119,6 +123,7 @@ public struct WeekScreen: View {
         self.now = now ?? Self.minutesNow()
         self.anchor = anchor ?? Date.now
         self.focusOffset = focusOffset
+        self.propostos = propostos
         self.onOpenEvent = onOpenEvent
         self.onRevealMessage = onRevealMessage
     }
@@ -154,36 +159,55 @@ public struct WeekScreen: View {
             grid(days: visibleDays, showsNow: displaysNow)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(theme.surface.color)
+        .background(theme.isGlass ? Color.clear : theme.surface.color)
     }
 
     // MARK: - Faixa dos dias
 
     /// Protótipo: `padding-left: 54px`, uma coluna por dia com
     /// `padding: 9px 12px 8px` e divisória à esquerda.
+    ///
+    /// No Vidro a abreviação e o número ficam lado a lado, e hoje ganha o
+    /// círculo cheio em accent — e a faixa perde as divisórias, que no
+    /// protótipo não existem acima da grade.
     private func dayHeaderStrip(_ days: [WeekAgenda.Day]) -> some View {
         HStack(spacing: 0) {
             Color.clear.frame(width: layout.labelGutter, height: 0)
             ForEach(days) { day in
-                VStack(alignment: .leading, spacing: 3) {  // protótipo: margin-top: 3px
-                    Text(day.weekdayLabel)
-                        .font(theme.mono.font(size: 9.5))
-                        // CSS `letter-spacing: 0.1em` a 9.5pt = 0.95pt.
-                        .tracking(0.95)
-                        .textCase(.uppercase)
-                        .foregroundStyle(theme.ink4.color)
-                    Text("\(day.dayNumber)")
-                        .font(theme.serif.font(size: 19, weight: .medium))
-                        .foregroundStyle(day.isToday ? theme.accent.color : theme.ink.color)
+                Group {
+                    if theme.isGlass {
+                        VidroNumeroDoDia(
+                            weekday: day.weekdayLabel.lowercased(),
+                            numero: day.dayNumber, hoje: day.isToday
+                        )
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 8)
+                    } else {
+                        VStack(alignment: .leading, spacing: 3) {  // protótipo: margin-top: 3px
+                            Text(day.weekdayLabel)
+                                .font(theme.mono.font(size: 9.5))
+                                // CSS `letter-spacing: 0.1em` a 9.5pt = 0.95pt.
+                                .tracking(0.95)
+                                .textCase(.uppercase)
+                                .foregroundStyle(theme.ink4.color)
+                            Text("\(day.dayNumber)")
+                                .font(theme.serif.font(size: 19, weight: .medium))
+                                .foregroundStyle(day.isToday ? theme.accent.color : theme.ink.color)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 9)
+                        .padding(.bottom, 8)
+                        .hairline(theme.line2, edges: .leading)
+                    }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12)
-                .padding(.top, 9)
-                .padding(.bottom, 8)
-                .hairline(theme.line2, edges: .leading)
             }
         }
-        .hairline(theme.line2, edges: .bottom)
+        .hairline(
+            theme.isGlass ? TokenColor(red: 0, green: 0, blue: 0, opacity: 0) : theme.line2,
+            edges: .bottom
+        )
     }
 
     // MARK: - A grade
@@ -203,6 +227,9 @@ public struct WeekScreen: View {
                         columnBackgrounds(columnWidth: columnWidth, days: days)
                         hourLines
                         events(columnWidth: columnWidth, days: days)
+                        if theme.isGlass, !propostos.isEmpty {
+                            blocosPropostos(columnWidth: columnWidth, days: days)
+                        }
                         if showsNow { nowMarker }
                         scrollAnchor
                     }
@@ -243,7 +270,15 @@ public struct WeekScreen: View {
             Color.clear.frame(width: layout.labelGutter)
             ForEach(days) { day in
                 Rectangle()
-                    .fill(day.isToday ? theme.accentSoft.color : Color.clear)
+                    // No Vidro `accentSoft` é opaco e apagaria o gradiente: o
+                    // realce de hoje é o acento a 5%, como no protótipo.
+                    .fill(
+                        day.isToday
+                            ? (theme.isGlass
+                                ? theme.accent.color.opacity(theme.isDark ? 0.07 : 0.05)
+                                : theme.accentSoft.color)
+                            : Color.clear
+                    )
                     .frame(width: columnWidth)
                     .hairline(theme.line2, edges: .leading)
             }
@@ -292,16 +327,21 @@ public struct WeekScreen: View {
         days.firstIndex { $0.dayOffset == day.dayOffset } ?? 0
     }
 
+    @ViewBuilder
     private func eventBlock(_ item: AgendaItem) -> some View {
         Button { onOpenEvent(item) } label: {
-            eventCard(item)
+            if theme.isGlass {
+                vidroEventCard(item)
+            } else {
+                eventCard(item)
+            }
         }
         .buttonStyle(.plain)
         .focusRing(in: UnevenRoundedRectangle(
-            topLeadingRadius: 0,
-            bottomLeadingRadius: 0,
-            bottomTrailingRadius: theme.radiusSmall,
-            topTrailingRadius: theme.radiusSmall
+            topLeadingRadius: theme.isGlass ? VidroEvento.radius : 0,
+            bottomLeadingRadius: theme.isGlass ? VidroEvento.radius : 0,
+            bottomTrailingRadius: theme.isGlass ? VidroEvento.radius : theme.radiusSmall,
+            topTrailingRadius: theme.isGlass ? VidroEvento.radius : theme.radiusSmall
         ))
         .help(item.isCancelled ? L10n.tr("Compromisso cancelado") : L10n.tr("Abre o compromisso"))
         .uniContextMenu(
@@ -317,6 +357,86 @@ public struct WeekScreen: View {
                 }
             }
         )
+    }
+
+    /// O cartão do Vidro: retângulo translúcido na cor do calendário, canto de
+    /// 8 nos quatro lados, título em 12 semibold e a hora em mono 10. Sem a
+    /// barra à esquerda — no protótipo é o fundo que diz de que calendário é.
+    private func vidroEventCard(_ item: AgendaItem) -> some View {
+        let tight = layout.isTight(for: item)
+        let tinta = VidroEvento.ink(item, in: store, theme: theme)
+        let forma = RoundedRectangle(cornerRadius: VidroEvento.radius, style: .continuous)
+        return VStack(alignment: .leading, spacing: 2) {
+            CalendarEventChrome.title(item.title, cancelled: item.isCancelled)
+                .font(theme.sans.font(size: 12, weight: .semibold))
+                .foregroundStyle(tinta)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            if !tight {
+                Text("\(item.startLabel)–\(item.endLabel)")
+                    .font(theme.mono.font(size: 10))
+                    .foregroundStyle(tinta.opacity(0.75))
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(.horizontal, 8)
+        .padding(.vertical, tight ? 3 : 6)
+        .background(VidroEvento.fill(item, in: store, theme: theme))
+        .clipShape(forma)
+        .overlay {
+            forma.strokeBorder(
+                CalendarEventChrome.border(cancelled: item.isCancelled, theme: theme),
+                lineWidth: 1
+            )
+        }
+        .contentShape(Rectangle())
+    }
+
+    /// Os blocos que a IA propôs para hoje: tracejados em accent, por cima da
+    /// grade e **sem** clique — eles não existem na agenda ainda.
+    private func blocosPropostos(
+        columnWidth: CGFloat, days: [WeekAgenda.Day]
+    ) -> some View {
+        let hoje = days.firstIndex { $0.isToday }
+        return ForEach(propostos) { bloco in
+            if let hoje {
+                let x = layout.labelGutter + CGFloat(hoje) * columnWidth + layout.eventLeading
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(bloco.title)
+                        .font(theme.sans.font(size: 12, weight: .semibold))
+                        .lineLimit(1)
+                    Text(L10n.tr("\(MinuteFormat.clock(bloco.startMinute)) · proposto"))
+                        .font(theme.mono.font(size: 10))
+                        .opacity(0.75)
+                        .lineLimit(1)
+                }
+                .foregroundStyle(theme.accentInk.color)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(theme.accent.color.opacity(theme.isDark ? 0.10 : 0.05))
+                .clipShape(RoundedRectangle(cornerRadius: VidroEvento.radius, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: VidroEvento.radius, style: .continuous)
+                        .strokeBorder(
+                            theme.accentInk.color,
+                            style: StrokeStyle(lineWidth: 1.5, dash: [4, 3])
+                        )
+                }
+                .frame(
+                    width: max(0, columnWidth - layout.eventWidthInset),
+                    height: CGFloat(bloco.minutes) * layout.pointsPerMinute
+                        - layout.eventHeightInset,
+                    alignment: .topLeading
+                )
+                .offset(x: x, y: CGFloat(bloco.startMinute) * layout.pointsPerMinute)
+                .allowsHitTesting(false)
+                .accessibilityLabel(
+                    L10n.tr("Proposto às \(MinuteFormat.clock(bloco.startMinute)), \(bloco.title)")
+                )
+            }
+        }
     }
 
     private func eventCard(_ item: AgendaItem) -> some View {
@@ -371,26 +491,37 @@ public struct WeekScreen: View {
     /// O traço de "agora", atravessando as sete colunas, com a pastilha do
     /// horário na calha. Protótipo: `nowWeekStyle` e `nowWeekPillStyle`.
     private var nowMarker: some View {
-        ZStack(alignment: .topLeading) {
+        // No Vidro o traço é laranja e a calha ganha um ponto no lugar da
+        // pastilha, como no protótipo; nos outros temas continua o vermelho
+        // semântico com "HH:MM".
+        let cor = theme.nowLine
+        return ZStack(alignment: .topLeading) {
             HStack(spacing: 0) {
                 Color.clear.frame(width: layout.labelGutter, height: 0)
                 Rectangle()
-                    .fill(theme.live.color)
+                    .fill(cor.color)
                     .frame(height: 2)
             }
             .frame(height: 0, alignment: .center)
             .offset(y: layout.offset(minuteOfDay: now))
 
-            Text(Self.hourLabel(minuteOfDay: now))
-                .font(theme.mono.font(size: 9.5, weight: .medium))
-                .foregroundStyle(theme.onAccent.color)
-                .padding(.horizontal, 6)
-                .frame(height: 18)
-                .background(theme.live.color)
-                .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-                // Protótipo: `left: 6px; top: now * 0.9 - 9` — os 9 são metade
-                // da pastilha, que a deixa centrada no traço.
-                .offset(x: 6, y: layout.offset(minuteOfDay: now) - 9)
+            if theme.isGlass {
+                Circle()
+                    .fill(cor.color)
+                    .frame(width: 12, height: 12)
+                    .offset(x: layout.labelGutter - 10, y: layout.offset(minuteOfDay: now) - 6)
+            } else {
+                Text(Self.hourLabel(minuteOfDay: now))
+                    .font(theme.mono.font(size: 9.5, weight: .medium))
+                    .foregroundStyle(theme.onAccent.color)
+                    .padding(.horizontal, 6)
+                    .frame(height: 18)
+                    .background(cor.color)
+                    .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+                    // Protótipo: `left: 6px; top: now * 0.9 - 9` — os 9 são
+                    // metade da pastilha, que a deixa centrada no traço.
+                    .offset(x: 6, y: layout.offset(minuteOfDay: now) - 9)
+            }
         }
         .allowsHitTesting(false)
     }

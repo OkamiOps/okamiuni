@@ -166,6 +166,22 @@ extension Theme {
             : TokenColor(red: 1, green: 1, blue: 1)
     }
 
+    /// `soft` / `active` do protótipo: a calha do segmentado e o segmento
+    /// escolhido, dentro do painel.
+    public var glassSoft: TokenColor {
+        guard isGlass else { return surface3 }
+        return isDark
+            ? TokenColor(red: 1, green: 1, blue: 1, opacity: 0.07)
+            : TokenColor(red: 20 / 255, green: 20 / 255, blue: 50 / 255, opacity: 0.06)
+    }
+
+    public var glassActive: TokenColor {
+        guard isGlass else { return surface }
+        return isDark
+            ? TokenColor(red: 1, green: 1, blue: 1, opacity: 0.14)
+            : TokenColor(red: 1, green: 1, blue: 1)
+    }
+
     /// O traço do "agora". O Vidro o quer laranja (`#f97316` do protótipo), e
     /// não no vermelho semântico que os outros temas usam: aqui o vermelho
     /// brigaria com o rosa do gradiente.
@@ -198,7 +214,7 @@ extension Theme {
     public func glassEventFill(_ tint: TokenColor) -> TokenColor {
         TokenColor(
             red: tint.red, green: tint.green, blue: tint.blue,
-            opacity: isDark ? 0.25 : 0.18
+            opacity: isDark ? 0.26 : 0.22
         )
     }
 

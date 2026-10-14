@@ -66,6 +66,8 @@ struct CalendarSidebar: View {
             .padding(.horizontal, 8)
             .padding(.bottom, 8)
 
+            // O rótulo "CALENDÁRIOS" que o protótipo pede já encima a
+            // `groupedList` — ver abaixo.
             ScrollView { groupedList }
         }
     }
@@ -290,9 +292,13 @@ struct CalendarSidebar: View {
                     .foregroundStyle((on ? Self.tint(calendar.colorHex) : theme.ink4.color))
                     .frame(width: 18)
                     .accessibilityHidden(true)
-                Circle()
+                // Protótipo do Vidro: quadradinho de canto 3, e não bolinha.
+                RoundedRectangle(cornerRadius: theme.isGlass ? 3 : 4, style: .continuous)
                     .fill(Self.tint(calendar.colorHex).opacity(concealed ? 0.4 : 1))
-                    .frame(width: 8, height: 8)
+                    .frame(
+                        width: theme.isGlass ? 9 : 8,
+                        height: theme.isGlass ? 9 : 8
+                    )
                     .accessibilityHidden(true)
                 Text(calendar.title)
                     .font(theme.sans.font(size: 13, weight: .medium))
@@ -552,23 +558,42 @@ struct CalendarMiniMonth: View {
             }
             .frame(maxWidth: .infinity)
             .frame(height: Self.cellHeight)
+            .background(semanaDeHoje(day) ? theme.accent.color.opacity(0.06) : .clear)
             .background(cellBackground(day, isSelected: isSelected))
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-            .contentShape(RoundedRectangle(cornerRadius: 4))
+            .clipShape(RoundedRectangle(cornerRadius: theme.isGlass ? 6 : 4))
+            .contentShape(RoundedRectangle(cornerRadius: theme.isGlass ? 6 : 4))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(MonthAgenda.longDayTitle(dayOffset: day.dayOffset, anchor: anchor))
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 
+    /// A semana em que hoje cai — tingida de leve, como no protótipo.
+    /// Fora do Vidro ninguém a tinge, e a resposta é sempre `false`.
+    private func semanaDeHoje(_ day: MonthAgenda.Day) -> Bool {
+        guard theme.isGlass else { return false }
+        let calendario = Calendar.current
+        guard let data = calendario.date(byAdding: .day, value: day.dayOffset, to: anchor)
+        else { return false }
+        return calendario.isDate(data, equalTo: anchor, toGranularity: .weekOfYear)
+    }
+
     private func numberColor(_ day: MonthAgenda.Day, isSelected: Bool) -> Color {
         if isSelected { return theme.onAccent.color }
+        // No Vidro hoje é um disco cheio em accent, então o número é branco
+        // mesmo quando o dia escolhido é outro.
+        if theme.isGlass, day.isToday { return theme.onAccent.color }
         if day.isOutsideMonth { return theme.ink4.color }
         if day.isToday { return theme.accent.color }
         return theme.ink2.color
     }
 
     private func cellBackground(_ day: MonthAgenda.Day, isSelected: Bool) -> Color {
+        if theme.isGlass {
+            if day.isToday { return theme.accent.color }
+            if isSelected { return theme.accent.color.opacity(0.18) }
+            return .clear
+        }
         if isSelected { return theme.accent.color }
         if day.isToday { return theme.accentSoft.color }
         return .clear
@@ -576,6 +601,7 @@ struct CalendarMiniMonth: View {
 
     private func dotColor(_ day: MonthAgenda.Day, isSelected: Bool) -> Color {
         guard day.hasEvents else { return .clear }
-        return isSelected ? theme.onAccent.color.opacity(0.8) : theme.accent.color
+        let sobreAccent = isSelected || (theme.isGlass && day.isToday)
+        return sobreAccent ? theme.onAccent.color.opacity(0.8) : theme.accent.color
     }
 }

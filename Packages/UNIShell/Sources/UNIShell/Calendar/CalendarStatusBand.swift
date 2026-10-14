@@ -42,10 +42,23 @@ struct CalendarStatusBand: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 18)
+            // No Vidro a faixa é discreta **dentro** do painel: um azulejo
+            // translúcido com a folga da faixa do topo, e não uma segunda
+            // superfície opaca atravessando a largura.
+            .padding(.horizontal, theme.isGlass ? 14 : 18)
             .padding(.vertical, 9)
-            .background(theme.surface2.color)
-            .hairline(theme.line2, edges: .bottom)
+            .background(
+                RoundedRectangle(
+                    cornerRadius: theme.isGlass ? 10 : 0, style: .continuous
+                )
+                .fill(theme.isGlass ? theme.glassTile.color : theme.surface2.color)
+            )
+            .padding(.horizontal, theme.isGlass ? 14 : 0)
+            .padding(.top, theme.isGlass ? 10 : 0)
+            .hairline(
+                theme.isGlass ? TokenColor(red: 0, green: 0, blue: 0, opacity: 0) : theme.line2,
+                edges: .bottom
+            )
         )
     }
 }
