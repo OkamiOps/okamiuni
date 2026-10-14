@@ -286,15 +286,10 @@ public struct MessageList: View {
         .frame(width: listWidth)
         .frame(maxHeight: .infinity, alignment: .top)
         .clipped()
-        // No Vidro o fundo é o painel de vidro, e a borda é a aresta dele.
-        // Pintar `surface` aqui dentro punha uma folha opaca sobre o gradiente
-        // — era o que fazia a coluna da lista parecer branca no retrato da
-        // fase 1.
-        .background(theme.isGlass ? Color.clear : theme.surface.color)
-        .hairline(
-            theme.isGlass ? TokenColor(red: 0, green: 0, blue: 0, opacity: 0) : theme.line,
-            edges: .trailing
-        )
+        // Quem pinta o fundo e a aresta da coluna é o painel — o vidro nos
+        // dois temas que o têm, a caixa opaca de tokens nos outros 26. Pintar
+        // `surface` aqui dentro punha uma segunda folha por cima dele: era o
+        // que fazia a coluna da lista parecer branca no retrato da fase 1.
         // O ⌫ e as setas. Não é `keyboardShortcut` porque tecla sem
         // modificador seria roubada do campo de busca e do editor do
         // composer — ver `BareKeyMonitor`.
@@ -367,22 +362,17 @@ public struct MessageList: View {
             if isSelecting {
                 batchActionRail
             } else if showsCategoryFilters {
-                if theme.isGlass { categoryTabRail } else { categoryFilterRail }
+                categoryTabRail
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, theme.isGlass ? 16 : 18)
+        .padding(.horizontal, 16)
         .frame(height: Self.headerHeight(
             for: store.bucket,
             selecting: isSelecting,
             searchingEverywhere: store.searchesEverywhereNow
         ))
         .clipped()
-        .background(theme.isGlass ? Color.clear : theme.surface.color)
-        .hairline(
-            theme.isGlass ? TokenColor(red: 0, green: 0, blue: 0, opacity: 0) : theme.line2,
-            edges: .bottom
-        )
     }
 
     @ViewBuilder
@@ -470,28 +460,6 @@ public struct MessageList: View {
         .accessibilityAddTraits(all ? .isSelected : [])
     }
 
-    /// A coluna mede 400pt: seis controles completos não cabem sem encolher
-    /// texto, então a faixa rola na horizontal como os filtros do Mail. Cada
-    /// cápsula mantém uma área de clique de 28pt e pode receber foco de teclado.
-    /// Clique-arraste **e** roda: `DragScrollRail`, não `ScrollView` — no macOS
-    /// a `ScrollView` ignora o botão esquerdo e o recognizer do AppKit perdia
-    /// para os `Button` de dentro.
-    private var categoryFilterRail: some View {
-        DragScrollRail {
-            HStack(spacing: 5) {
-                ForEach(InboxCategoryFilter.allCases) { filter in
-                    categoryFilterChip(filter)
-                }
-            }
-            .padding(.vertical, 1)
-            .padding(.trailing, 16)
-        }
-        .frame(height: 30)
-        .mask(railFadeMask)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(L10n.tr("Categorias de Hoje"))
-    }
-
     /// As mesmas categorias, no idioma do Vidro: **abas sublinhadas**, sem
     /// cápsula, sem moldura e sem ícone.
     ///
@@ -576,54 +544,6 @@ public struct MessageList: View {
     /// continua clicável; o valor vai no `accessibilityValue`.
     nonisolated static func categoryCountLabel(_ count: Int) -> String? {
         count > 0 ? "\(count)" : nil
-    }
-
-    private func categoryFilterChip(_ filter: InboxCategoryFilter) -> some View {
-        let active = store.categoryFilter == filter.category
-        let count = store.categoryCount(filter.category)
-        let radius = max(theme.radiusSmall, 7)
-
-        return Button {
-            store.select(category: filter.category)
-        } label: {
-            HStack(spacing: 5) {
-                Image(systemName: filter.symbol)
-                    .font(.system(size: 10, weight: .semibold))
-                    .accessibilityHidden(true)
-                Text(filter.label)
-                    .font(theme.sans.font(size: 11.5, weight: active ? .semibold : .medium))
-                    .lineLimit(1)
-                    .fixedSize()
-                if let label = Self.categoryCountLabel(count) {
-                    Text(label)
-                        .font(theme.mono.font(size: 9.5, weight: .semibold))
-                        .monospacedDigit()
-                        .foregroundStyle((active ? theme.accentInk : theme.ink3).color)
-                }
-            }
-            .foregroundStyle((active ? theme.accentInk : theme.ink2).color)
-            .padding(.horizontal, 9)
-            .frame(height: 26)
-            .background {
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .fill(active ? theme.accentSoft.color : theme.surface2.color.opacity(0.55))
-            }
-            .overlay {
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .strokeBorder(
-                        active ? theme.accentLine.color : theme.line2.color,
-                        lineWidth: Hairline.thickness(displayScale)
-                    )
-            }
-            .contentShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .focusRing(cornerRadius: radius)
-        .help(L10n.tr("Filtrar Hoje por \(filter.label)"))
-        .accessibilityLabel(L10n.tr("Filtrar por \(filter.label)"))
-        .accessibilityValue(active ? L10n.tr("Selecionado, \(count) mensagens") : L10n.tr("\(count) mensagens"))
-        .accessibilityHint(active ? L10n.tr("Filtro atual") : L10n.tr("Mostra somente mensagens desta categoria"))
-        .accessibilityAddTraits(active ? .isSelected : [])
     }
 
     /// A faixa de ações do lote. Rola na horizontal, como as categorias: a
@@ -863,40 +783,34 @@ public struct MessageList: View {
                 // O rodapé entra **dentro** do LazyVStack. Como irmão, o
                 // ScrollView precisava da altura de todas as linhas para
                 // posicioná-lo — Tudo deixava de ser preguiçoso.
-                LazyVStack(spacing: theme.isGlass ? 2 : 0) {
-                    if theme.isGlass {
-                        // As duas seções do protótipo. Quem espera resposta
-                        // sobe; o resto fica na ordem em que veio.
-                        let partes = InboxWaitingLine.split(conversations)
+                LazyVStack(spacing: 2) {
+                    // As duas seções do protótipo. Quem espera resposta sobe;
+                    // o resto fica na ordem em que veio.
+                    let partes = InboxWaitingLine.split(conversations)
+                    if !partes.waiting.isEmpty {
+                        sectionLabel(InboxWaitingLine.waitingHeader, accent: true)
+                        ForEach(partes.waiting) { conversa in
+                            rowCell(conversa, foldersByAccount, last: conversations.last?.key, hasMore: hasMore)
+                        }
+                    }
+                    if !partes.rest.isEmpty {
                         if !partes.waiting.isEmpty {
-                            sectionLabel(InboxWaitingLine.waitingHeader, accent: true)
-                            ForEach(partes.waiting) { conversa in
-                                rowCell(conversa, foldersByAccount, last: conversations.last?.key, hasMore: hasMore)
-                            }
+                            sectionLabel(InboxWaitingLine.restHeader, accent: false)
                         }
-                        if !partes.rest.isEmpty {
-                            if !partes.waiting.isEmpty {
-                                sectionLabel(InboxWaitingLine.restHeader, accent: false)
-                            }
-                            ForEach(partes.rest) { conversa in
-                                rowCell(
-                                    conversa, foldersByAccount,
-                                    last: conversations.last?.key, hasMore: hasMore,
-                                    // A segunda seção é a compacta do protótipo.
-                                    compact: !partes.waiting.isEmpty
-                                )
-                            }
-                        }
-                    } else {
-                        ForEach(conversations) { conversation in
-                            rowCell(conversation, foldersByAccount, last: conversations.last?.key, hasMore: hasMore)
+                        ForEach(partes.rest) { conversa in
+                            rowCell(
+                                conversa, foldersByAccount,
+                                last: conversations.last?.key, hasMore: hasMore,
+                                // A segunda seção é a compacta do protótipo.
+                                compact: !partes.waiting.isEmpty
+                            )
                         }
                     }
                     if !hasMore {
                         footer(isEmpty: isEmpty)
                     }
                 }
-                .padding(.horizontal, theme.isGlass ? 8 : 0)
+                .padding(.horizontal, 8)
             }
             .onChange(of: store.selectedMessageID) { _, id in
                 guard let id, let key = store.conversation(of: id)?.key else { return }
@@ -982,43 +896,25 @@ public struct MessageList: View {
                     if message.bucket == .drafts { onOpenWindow(message) }
                 }
             } label: {
-                if theme.isGlass {
-                    GlassMessageRow(
-                        message: message,
-                        accountTint: accountTint(account),
-                        isSelected: conversation.contains(store.selectedMessageID),
-                        conversationCount: conversation.count,
-                        unread: conversation.hasUnread,
-                        today: today,
-                        isChecked: store.isChecked(conversation.key),
-                        onToggleCheck: { store.toggleChecked(conversation.key) },
-                        aiLine: InboxWaitingLine.phrase(
-                            for: message,
-                            hasReadyDraft: readyDrafts[message.id] != nil,
-                            today: today
-                        ),
-                        compact: compact
-                    )
-                } else {
-                MessageRow(
+                GlassMessageRow(
                     message: message,
-                    accountHost: account?.host ?? "",
                     accountTint: accountTint(account),
-                    // Selecionada quando **qualquer** mensagem da conversa está
-                    // aberta: expandir a resposta antiga no leitor não pode
-                    // apagar o realce da linha que a contém.
+                    // Selecionada quando **qualquer** mensagem da conversa
+                    // está aberta: expandir a resposta antiga no leitor não
+                    // pode apagar o realce da linha que a contém.
                     isSelected: conversation.contains(store.selectedMessageID),
-                    emphasis: unreadEmphasis,
-                    // O selo, e o "não lida" da conversa: `nil` e `1` na
-                    // conversa de uma mensagem só, que é a garantia de a linha
-                    // desenhar o que sempre desenhou.
                     conversationCount: conversation.count,
                     unread: conversation.hasUnread,
                     today: today,
                     isChecked: store.isChecked(conversation.key),
-                    onToggleCheck: { store.toggleChecked(conversation.key) }
+                    onToggleCheck: { store.toggleChecked(conversation.key) },
+                    aiLine: InboxWaitingLine.phrase(
+                        for: message,
+                        hasReadyDraft: readyDrafts[message.id] != nil,
+                        today: today
+                    ),
+                    compact: compact
                 )
-                }
             }
             .buttonStyle(.plain)
             .focusRing(in: Rectangle())

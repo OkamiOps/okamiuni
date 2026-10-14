@@ -120,45 +120,52 @@ struct AgendaHojeTests {
         #expect(vivo.pixelsDiffering(from: comHoje) == 0)
     }
 
-    /// A trilha do dia, ao lado do leitor: o cabeçalho dela dizia "Terça,
-    /// 25 de agosto" com qualquer conta no ar.
+    /// A trilha do dia: o cabeçalho dela dizia "Terça, 25 de agosto" com
+    /// qualquer conta no ar.
     ///
-    /// Duas escolhas mantêm a data como **única** diferença possível entre os
-    /// dois desenhos. As colunas comparadas são só as da trilha, porque a
-    /// lista à esquerda já segue o relógio desde a M3-11. E o relógio congelado
-    /// leva o minuto **de agora**, e não o meio-dia da fixture: a linha de baixo
-    /// do cabeçalho ("Próximo · …") e o traço vermelho seguem o minuto, que já
-    /// era vivo desde a M3-4, e com o mesmo minuto dos dois lados eles saem
-    /// idênticos. Sobra a data.
-    @Test("a trilha do dia com relógio vivo tem a data de hoje no cabeçalho")
+    /// O shell novo não monta mais a quarta coluna — o que o dono precisava
+    /// dela virou a cápsula "Próximo: … em N min" no topo do leitor — então a
+    /// garantia foi partida nos dois pedaços que ela sempre teve, e os dois
+    /// continuam provados: `ancoraSegueORelogio` diz que a âncora da tela é a
+    /// do relógio, e este caso diz que a trilha **desenha** a data que recebe,
+    /// em vez de reescrever a da fixture por dentro.
+    ///
+    /// O relógio é o mesmo nos dois lados de propósito: a linha de baixo do
+    /// cabeçalho ("Próximo · …") e o traço vermelho seguem o minuto, e com o
+    /// mesmo minuto eles saem idênticos. Sobra a data.
+    @Test("a trilha do dia desenha a data que recebe, e não a da fixture")
     func trilhaSegueORelogio() async throws {
         try #require(!Calendar.current.isDate(Date(), inSameDayAs: Fixtures.today))
         let store = MailStore(source: InMemoryMailSource.fixtures, agendaReferenceDay: { Date() })
         await store.load()
-        let fixedStore = MailStore(source: InMemoryMailSource.fixtures)
-        await fixedStore.load()
 
-        let largura: CGFloat = 1440
-        let tamanho = CGSize(width: largura, height: 120)
-        let trilha = Int(largura - AgendaRail.width)..<Int(largura)
+        let tamanho = CGSize(width: AgendaRail.width, height: 120)
+        let agora = AgendaClock.minutesSinceMidnight()
+        let vivo = InboxScreen(store: store, clock: .live)
+        // A âncora da tela, que é a do relógio: é ela que o shell entrega.
+        #expect(Calendar.current.isDate(vivo.agendaAnchor, inSameDayAs: Date()))
 
-        let vivo = try #require(
+        let comHoje = try #require(
             Render.bitmap(
-                InboxScreen(store: store, clock: .live).mailContent,
+                AgendaRail(
+                    store: store, now: agora, headerDate: vivo.agendaAnchor,
+                    width: AgendaRail.width
+                ),
                 size: tamanho, theme: .tinta
             )
         )
-        let congelado = try #require(
+        let comFixture = try #require(
             Render.bitmap(
-                InboxScreen(
-                    store: fixedStore, clock: .fixed(AgendaClock.minutesSinceMidnight())
-                ).mailContent,
+                AgendaRail(
+                    store: store, now: agora, headerDate: Fixtures.today,
+                    width: AgendaRail.width
+                ),
                 size: tamanho, theme: .tinta
             )
         )
         #expect(
-            vivo.pixelsDiffering(from: congelado, inColumns: trilha) > 0,
-            "o cabeçalho da trilha continua com a data da fixture"
+            comHoje.pixelsDiffering(from: comFixture) > 0,
+            "o cabeçalho da trilha não está escrevendo a data que recebe"
         )
     }
 }

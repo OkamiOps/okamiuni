@@ -70,13 +70,60 @@ extension PanelStyle {
         ],
         radius: vidroRadius, gap: vidroGap
     )
+
+    /// O painel **opaco** de um tema clássico: a mesma caixa flutuante do
+    /// Vidro, feita só com os tokens do próprio tema.
+    ///
+    /// É o que o artboard `Painel-Classico` escreve para o Okami, token por
+    /// token: o painel é `surface` (`#0B0B12`), o leitor é `surface2`
+    /// (`#08080E`), a aresta é `line` (`#252636`) e a sombra é a do tema
+    /// (`0 30px 90px` + o fio de 0,5pt). Nada de translúcido e nada de
+    /// desfoque — é só a estrutura nova pintada com a paleta antiga.
+    ///
+    /// A folga é a mesma dos dois temas de vidro de propósito: ela é medida do
+    /// desenho, não da paleta, e os semáforos nativos são postos no trilho a
+    /// partir dela (`TrafficLightLayout.railLeading`). Um gap por tema moveria
+    /// as bolinhas a cada troca de tema.
+    public static func opaque(for theme: Theme) -> PanelStyle {
+        PanelStyle(
+            fill: theme.surface,
+            readerFill: theme.surface2,
+            edge: theme.line,
+            shadow: theme.shadow,
+            radius: theme.radiusLarge,
+            gap: vidroGap
+        )
+    }
 }
 
 extension Theme {
-    /// Este tema flutua? É a única pergunta que o shell faz: com `panel` e
-    /// `backdrop` ele desenha o gradiente e os painéis soltos; sem eles,
-    /// desenha o que desenhava antes.
-    public var isGlass: Bool { panel != nil && backdrop != nil }
+    /// O shell novo — trilho à esquerda, coluna de contexto, painéis
+    /// flutuantes, Painel/Caixa/Agenda redesenhados — é de **todos** os 28
+    /// temas. A regra do dono: "os temas clássicos devem perder o vidro mas
+    /// manter o design e todo restante".
+    ///
+    /// Fica como propriedade, e não como `true` espalhado pelo código, porque
+    /// ela é o que cada chamada antiga de `isGlass` **queria dizer** quando
+    /// falava de layout: assim um leitor vê de qual das duas perguntas aquela
+    /// linha depende.
+    public var usesFloatingPanels: Bool { true }
+
+    /// Este tema é de **vidro**: painéis translúcidos sobre um gradiente, com
+    /// desfoque atrás. Só `vidro` e `vidro-noite` são.
+    ///
+    /// Era isto que `isGlass` media, e era o layout que ele decidia por
+    /// acidente — as duas perguntas moravam numa só. Aqui ela responde apenas
+    /// pelo **material**: quem pergunta isto escolhe entre uma cor translúcida
+    /// do protótipo e o token opaco do tema.
+    public var isTranslucent: Bool { panel != nil && backdrop != nil }
+
+    /// Como os painéis deste tema são desenhados. Todo tema tem um: o do
+    /// Vidro vem declarado nos tokens, o dos 26 clássicos é montado a partir
+    /// deles em `PanelStyle.opaque(for:)`.
+    public var resolvedPanel: PanelStyle { panel ?? .opaque(for: self) }
+
+    /// A folga entre painéis e deles para a borda da janela.
+    public var panelGap: CGFloat { resolvedPanel.gap }
 
     /// A cor **como ela é pintada**, e não como foi declarada.
     ///
@@ -130,14 +177,14 @@ extension Theme {
 
     /// `card` / `cardEdge` do protótipo: a única caixa elevada do painel.
     public var glassCard: TokenColor {
-        guard isGlass else { return surface }
+        guard isTranslucent else { return surface }
         return isDark
             ? TokenColor(red: 32 / 255, green: 32 / 255, blue: 44 / 255)
             : TokenColor(red: 1, green: 1, blue: 1)
     }
 
     public var glassCardEdge: TokenColor {
-        guard isGlass else { return line }
+        guard isTranslucent else { return line }
         return isDark
             ? TokenColor(red: 1, green: 1, blue: 1, opacity: 0.08)
             : TokenColor(red: 1, green: 1, blue: 1, opacity: 0)
@@ -145,14 +192,14 @@ extension Theme {
 
     /// `tile` / `tileEdge`: o azulejo das frentes e dos cartões rasos.
     public var glassTile: TokenColor {
-        guard isGlass else { return surface2 }
+        guard isTranslucent else { return surface2 }
         return isDark
             ? TokenColor(red: 1, green: 1, blue: 1, opacity: 0.05)
             : TokenColor(red: 1, green: 1, blue: 1, opacity: 0.62)
     }
 
     public var glassTileEdge: TokenColor {
-        guard isGlass else { return line2 }
+        guard isTranslucent else { return line2 }
         return isDark
             ? TokenColor(red: 1, green: 1, blue: 1, opacity: 0.06)
             : TokenColor(red: 1, green: 1, blue: 1, opacity: 0.80)
@@ -169,7 +216,7 @@ extension Theme {
     /// Nos 26 temas opacos é `surface`, que é o que a janela sempre pintou:
     /// mesma estrutura, sem vidro.
     public var glassWindow: TokenColor {
-        guard isGlass else { return surface }
+        guard isTranslucent else { return surface }
         return isDark
             ? TokenColor(red: 26 / 255, green: 26 / 255, blue: 36 / 255, opacity: 0.94)
             : TokenColor(red: 1, green: 1, blue: 1, opacity: 0.96)
@@ -190,7 +237,7 @@ extension Theme {
     public var glassElevated: TokenColor { glassCard }
 
     public var glassElevatedEdge: TokenColor {
-        guard isGlass else { return line }
+        guard isTranslucent else { return line }
         return isDark
             ? TokenColor(red: 1, green: 1, blue: 1, opacity: 0.12)
             : TokenColor(red: 20 / 255, green: 20 / 255, blue: 50 / 255, opacity: 0.12)
@@ -198,7 +245,7 @@ extension Theme {
 
     /// `ring`: o que está atrás dos avatares sobrepostos.
     public var glassRing: TokenColor {
-        guard isGlass else { return paper }
+        guard isTranslucent else { return paper }
         return isDark
             ? TokenColor(red: 35 / 255, green: 35 / 255, blue: 47 / 255)
             : TokenColor(red: 1, green: 1, blue: 1)
@@ -207,14 +254,14 @@ extension Theme {
     /// `soft` / `active` do protótipo: a calha do segmentado e o segmento
     /// escolhido, dentro do painel.
     public var glassSoft: TokenColor {
-        guard isGlass else { return surface3 }
+        guard isTranslucent else { return surface3 }
         return isDark
             ? TokenColor(red: 1, green: 1, blue: 1, opacity: 0.07)
             : TokenColor(red: 20 / 255, green: 20 / 255, blue: 50 / 255, opacity: 0.06)
     }
 
     public var glassActive: TokenColor {
-        guard isGlass else { return surface }
+        guard isTranslucent else { return surface }
         return isDark
             ? TokenColor(red: 1, green: 1, blue: 1, opacity: 0.14)
             : TokenColor(red: 1, green: 1, blue: 1)
@@ -224,7 +271,7 @@ extension Theme {
     /// não no vermelho semântico que os outros temas usam: aqui o vermelho
     /// brigaria com o rosa do gradiente.
     public var nowLine: TokenColor {
-        isGlass
+        isTranslucent
             ? TokenColor(red: 249 / 255, green: 115 / 255, blue: 22 / 255)
             : live
     }

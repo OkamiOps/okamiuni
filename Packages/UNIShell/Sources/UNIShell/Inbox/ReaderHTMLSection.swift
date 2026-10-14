@@ -77,7 +77,7 @@ struct ReaderHTMLSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Group {
-                if theme.isGlass {
+                if theme.isTranslucent {
                     faixaDeVidro
                 } else {
                     HStack(alignment: .center, spacing: 12) {

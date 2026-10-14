@@ -370,9 +370,11 @@ public struct FolderSidebar: View {
     }
 
     public var body: some View {
-        // O Vidro embutido desenha a lista do protótipo; `standalone` e os 26
-        // temas opacos continuam com a barra de sempre, intocada.
-        if theme.isGlass, chrome == .embedded {
+        // Embutida na coluna de contexto, a lista é a do protótipo — em
+        // qualquer um dos 28 temas, porque o desenho é o mesmo e o que muda é
+        // só a paleta. `standalone` (a barra solta, que hoje só os testes
+        // montam) continua com a lista de sempre.
+        if chrome == .embedded {
             glassBody
         } else {
             classicBody

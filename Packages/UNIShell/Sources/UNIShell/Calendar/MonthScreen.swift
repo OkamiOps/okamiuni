@@ -59,7 +59,6 @@ public struct MonthScreen: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(theme.isGlass ? Color.clear : theme.surface.color)
     }
 
     /// Protótipo: `padding: 7px 10px` por célula, mono 9,5 em versalete.
@@ -109,20 +108,13 @@ public struct MonthScreen: View {
         VStack(alignment: .leading, spacing: 0) {
             Button { onOpenDay(day.dayOffset) } label: {
                 Text("\(day.dayNumber)")
-                    .font(
-                        theme.isGlass
-                            ? theme.sans.font(size: 14, weight: .semibold)
-                            : theme.serif.font(size: 15, weight: .medium)
-                    )
+                    .font(theme.sans.font(size: 14, weight: .semibold))
                     .foregroundStyle(numberColor(day))
-                    // No Vidro hoje é um disco cheio em accent com o número
-                    // branco — a mesma marca da faixa dos dias da semana.
-                    .frame(
-                        width: theme.isGlass ? 24 : nil,
-                        height: theme.isGlass ? 24 : nil
-                    )
+                    // Hoje é um disco cheio em accent com o número em
+                    // `onAccent` — a mesma marca da faixa dos dias da semana.
+                    .frame(width: 24, height: 24)
                     .background {
-                        if theme.isGlass, day.isToday { Circle().fill(theme.accent.color) }
+                        if day.isToday { Circle().fill(theme.accent.color) }
                     }
                     .contentShape(Rectangle())
             }
@@ -152,51 +144,21 @@ public struct MonthScreen: View {
 
     /// Protótipo: `e.style` (linhas 2415–2416).
     private func eventChip(_ event: AgendaItem) -> some View {
-        let swatch = CalendarTint.token(of: event, in: store, theme: theme)
-        let vidro = theme.isGlass
-        let shape = UnevenRoundedRectangle(
-            topLeadingRadius: vidro ? VidroEvento.radius : 0,
-            bottomLeadingRadius: vidro ? VidroEvento.radius : 0,
-            bottomTrailingRadius: vidro ? VidroEvento.radius : theme.radiusSmall,
-            topTrailingRadius: vidro ? VidroEvento.radius : theme.radiusSmall
-        )
-
+        let shape = RoundedRectangle(cornerRadius: VidroEvento.radius)
         let cancelled = event.isCancelled
         return Button { onOpenEvent(event) } label: {
             CalendarEventChrome.title(event.title, cancelled: cancelled)
                 .font(theme.sans.font(size: 10.5, weight: .medium))
-                .foregroundStyle(
-                    vidro
-                        ? VidroEvento.ink(event, in: store, theme: theme)
-                        : CalendarEventChrome.ink(swatch, cancelled: cancelled, theme: theme)
-                )
+                .foregroundStyle(VidroEvento.ink(event, in: store, theme: theme))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 // Protótipo: `padding: 2px 6px`, e o 6 conta a partir da faixa
                 // de cor — `border-left` do CSS fica fora do padding.
-                .padding(.leading, vidro ? 6 : 8)
+                .padding(.leading, 6)
                 .padding(.trailing, 6)
                 .padding(.vertical, 2)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(
-                    vidro
-                        ? VidroEvento.fill(event, in: store, theme: theme)
-                        : CalendarEventChrome.fill(swatch, cancelled: cancelled, theme: theme)
-                )
-                // A faixa de 2pt vem por **sobreposição**, não como irmã num
-                // `HStack`. Uma `Rectangle` irmã não tem altura própria e pede
-                // o máximo disponível: dentro de uma célula do mês, que tem
-                // altura de sobra, ela esticava a pastilha de 16pt para mais de
-                // 50 e três compromissos estouravam a linha. Nos cartões da
-                // semana e do dia o mesmo `HStack` funciona porque lá a altura
-                // do cartão é imposta por fora.
-                .overlay(alignment: .leading) {
-                    if !vidro {
-                        Rectangle()
-                            .fill(CalendarEventChrome.bar(swatch, cancelled: cancelled, theme: theme))
-                            .frame(width: 2)
-                    }
-                }
+                .background(VidroEvento.fill(event, in: store, theme: theme))
                 .clipShape(shape)
                 .overlay {
                     shape.strokeBorder(CalendarEventChrome.border(cancelled: cancelled, theme: theme), lineWidth: 1)
@@ -223,22 +185,17 @@ public struct MonthScreen: View {
     }
 
     private func numberColor(_ day: MonthAgenda.Day) -> Color {
-        if day.isToday { return theme.isGlass ? theme.onAccent.color : theme.accent.color }
+        if day.isToday { return theme.onAccent.color }
         if day.isOutsideMonth { return theme.ink4.color }
         return theme.ink2.color
     }
 
     private func cellBackground(_ day: MonthAgenda.Day) -> Color {
-        if theme.isGlass {
-            // `accentSoft` e `surface2` são opacos e apagariam o gradiente: no
-            // Vidro a célula de hoje é o acento a 5%, e a de fora do mês é um
-            // véu discreto.
-            if day.isToday { return theme.accent.color.opacity(theme.isDark ? 0.07 : 0.05) }
-            if day.isOutsideMonth { return theme.glassPast.color }
-            return .clear
-        }
-        if day.isToday { return theme.accentSoft.color }
-        if day.isOutsideMonth { return theme.surface2.color }
+        // `accentSoft` e `surface2` são opacos e no Vidro apagariam o
+        // gradiente: a célula de hoje é o acento a 5% e a de fora do mês é um
+        // véu discreto. Os dois saem dos tokens do tema, logo valem aos 28.
+        if day.isToday { return theme.accent.color.opacity(theme.isDark ? 0.07 : 0.05) }
+        if day.isOutsideMonth { return theme.glassPast.color }
         return .clear
     }
 }

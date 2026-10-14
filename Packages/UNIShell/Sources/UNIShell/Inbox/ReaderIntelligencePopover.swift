@@ -150,7 +150,7 @@ struct ReaderIntelligencePopover: View {
     /// `surface` do Vidro de fato pinta sobre o fundo da janela nos dois
     /// temas de vidro.
     private var painel: TokenColor {
-        theme.isGlass ? theme.flattened(\.surface) : theme.surface
+        theme.isTranslucent ? theme.flattened(\.surface) : theme.surface
     }
 
     var body: some View {
@@ -165,7 +165,7 @@ struct ReaderIntelligencePopover: View {
             // menu da IA começa com "Peça algo sobre este e-mail…" e as ações
             // prontas vêm por baixo dele. Nos temas opacos ele continua no pé,
             // onde o transcrito o empurra.
-            if theme.isGlass {
+            if theme.isTranslucent {
                 composer
                 hairline
                 conversationArea
@@ -301,7 +301,7 @@ struct ReaderIntelligencePopover: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            if theme.isGlass {
+            if theme.isTranslucent {
                 actionList
             } else {
                 actionGrid
