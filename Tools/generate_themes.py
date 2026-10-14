@@ -29,10 +29,21 @@ OUT = ROOT / "Packages/UNIDesign/Sources/UNIDesign/Themes+Generated.swift"
 
 
 def prototype_path() -> pathlib.Path:
+    """O protótipo que **tem** o catálogo de temas, não o primeiro da pasta.
+
+    Era `matches[0]`, e o alfabeto deixou de apontar para o arquivo certo
+    quando a pasta ganhou os protótipos numerados (08-, 09-, …): a função
+    devolvia `08-dashboard-ia.dc.html`, que não declara `THEMES`, e todos os
+    nomes e notas dos 26 temas saíam vazios — mascarado porque o fallback
+    `id.capitalize()` acerta o nome de um id de uma palavra.
+    """
     matches = sorted((ROOT / "design").glob("*.dc.html"))
     if not matches:
         sys.exit("no .dc.html prototype found in design/")
-    return matches[0]
+    for path in matches:
+        if re.search(r"id:\s*'[a-z]+',\s*name:", html.unescape(path.read_text(encoding="utf-8"))):
+            return path
+    sys.exit("no .dc.html prototype in design/ declares a THEMES array")
 
 
 # --- parsing -----------------------------------------------------------------
@@ -174,6 +185,8 @@ def parse_shadows(css: str) -> list[str]:
 
 
 FONT_MAP = {
+    "geist": ("Geist", ".default"),
+    "geist mono": ("Geist Mono", ".monospaced"),
     "newsreader": ("Newsreader", ".serif"),
     "space grotesk": ("Space Grotesk", ".default"),
     "inter tight": ("Inter Tight", ".default"),
@@ -232,6 +245,36 @@ def luminance(css: str) -> float:
     return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
 
 
+# Os temas que o protótipo antigo não lista: nome e nota escritos aqui, e o
+# vidro que cada um usa. `design/*.dc.html` é a referência visual dos 26
+# originais; o redesenho Vidro vive nos protótipos novos, fora deste diretório.
+EXTRA_CATALOGUE = {
+    "vidro": {
+        "name": "Vidro",
+        "note": "painéis flutuantes sobre um gradiente de aurora",
+        "backdrop": ".vidroClaro",
+        "panel": ".vidroClaro",
+    },
+    "vidro-noite": {
+        "name": "Vidro Noite",
+        "note": "o mesmo vidro, com dois halos num fundo quase preto",
+        "backdrop": ".vidroNoite",
+        "panel": ".vidroNoite",
+    },
+}
+
+
+def swift_property(theme_id: str) -> str:
+    """`vidro-noite` -> `vidroNoite`. Ids de uma palavra ficam intactos.
+
+    Apagar os hifens sem mais nada (era `re.sub(r"[^a-z0-9]", "", id)`) faria
+    `vidro-noite` virar `vidronoite` — ilegível — e qualquer par `x` / `x-y`
+    cujas letras coincidissem colidiria em silêncio.
+    """
+    head, *rest = theme_id.split("-")
+    return head + "".join(part.capitalize() for part in rest)
+
+
 def read_catalogue(path: pathlib.Path) -> dict[str, dict[str, str]]:
     """Pulls id/name/note out of the prototype's THEMES array."""
     source = html.unescape(path.read_text(encoding="utf-8"))
@@ -251,6 +294,7 @@ def main() -> None:
     data = json.loads(TOKENS.read_text(encoding="utf-8"))
     base, themes = data["base"], data["themes"]
     catalogue = read_catalogue(prototype_path())
+    catalogue.update(EXTRA_CATALOGUE)
 
     missing = sorted(set(themes) - set(catalogue))
     if missing:
@@ -281,7 +325,7 @@ def main() -> None:
         weight = WEIGHTS.get(token(theme_id, "--subj-weight").strip(), ".medium")
         is_dark = "true" if luminance(token(theme_id, "--paper")) < 0.4 else "false"
 
-        prop = re.sub(r"[^a-z0-9]", "", theme_id)
+        prop = swift_property(theme_id)
         if meta["note"]:
             lines.append(f'    /// {meta["name"]} — {meta["note"]}')
         lines += [
@@ -317,7 +361,10 @@ def main() -> None:
         )
         lines.append(f"        rowPadding: {swift_rowpad(token(theme_id, '--rowpad'))},")
         lines.append(f"        subjectWeight: {weight},")
-        lines.append(f"        subjectSize: {px(token(theme_id, '--subj-size'))}")
+        lines.append(f"        subjectSize: {px(token(theme_id, '--subj-size'))},")
+        lines.append(f"        typographyScale: 1,")
+        lines.append(f'        backdrop: {meta.get("backdrop", "nil")},')
+        lines.append(f'        panel: {meta.get("panel", "nil")}')
         lines += ["    )", ""]
 
     lines += [
@@ -325,12 +372,12 @@ def main() -> None:
         "    public static let all: [Theme] = [",
     ]
     for theme_id in ordered:
-        lines.append(f"        .{re.sub(r'[^a-z0-9]', '', theme_id)},")
+        lines.append(f"        .{swift_property(theme_id)},")
     lines += [
         "    ]",
         "",
         "    /// The design's default.",
-        "    public static let `default` = Theme.tinta",
+        f"    public static let `default` = Theme.{swift_property(data.get('default', 'tinta'))}",
         "",
         "    public static func named(_ id: String) -> Theme? {",
         "        all.first { $0.id == id }",

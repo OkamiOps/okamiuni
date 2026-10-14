@@ -38,7 +38,10 @@ extension Theme {
         capsTracking: 0.08,
         rowPadding: Insets(top: 12.0, leading: 14.0, bottom: 12.0, trailing: 14.0),
         subjectWeight: .semibold,
-        subjectSize: 13.0
+        subjectSize: 13.0,
+        typographyScale: 1,
+        backdrop: nil,
+        panel: nil
     )
 
     /// Linho — papel + oliva
@@ -75,7 +78,10 @@ extension Theme {
         capsTracking: 0.12,
         rowPadding: Insets(top: 11.0, leading: 16.0, bottom: 12.0, trailing: 16.0),
         subjectWeight: .regular,
-        subjectSize: 14.5
+        subjectSize: 14.5,
+        typographyScale: 1,
+        backdrop: nil,
+        panel: nil
     )
 
     /// Barro — papel + terracota
@@ -112,7 +118,10 @@ extension Theme {
         capsTracking: 0.12,
         rowPadding: Insets(top: 11.0, leading: 16.0, bottom: 12.0, trailing: 16.0),
         subjectWeight: .regular,
-        subjectSize: 14.5
+        subjectSize: 14.5,
+        typographyScale: 1,
+        backdrop: nil,
+        panel: nil
     )
 
     /// Noite — escuro quente
@@ -149,7 +158,10 @@ extension Theme {
         capsTracking: 0.12,
         rowPadding: Insets(top: 11.0, leading: 16.0, bottom: 12.0, trailing: 16.0),
         subjectWeight: .regular,
-        subjectSize: 14.5
+        subjectSize: 14.5,
+        typographyScale: 1,
+        backdrop: nil,
+        panel: nil
     )
 
     /// Grafite — escuro frio
@@ -186,7 +198,10 @@ extension Theme {
         capsTracking: 0.12,
         rowPadding: Insets(top: 11.0, leading: 16.0, bottom: 12.0, trailing: 16.0),
         subjectWeight: .regular,
-        subjectSize: 14.5
+        subjectSize: 14.5,
+        typographyScale: 1,
+        backdrop: nil,
+        panel: nil
     )
 
     /// Okami — onyx + laranja
@@ -223,7 +238,10 @@ extension Theme {
         capsTracking: 0.18,
         rowPadding: Insets(top: 11.0, leading: 16.0, bottom: 12.0, trailing: 16.0),
         subjectWeight: .regular,
-        subjectSize: 14.5
+        subjectSize: 14.5,
+        typographyScale: 1,
+        backdrop: nil,
+        panel: nil
     )
 
     /// Brutal — grotesk, sem raio
@@ -260,7 +278,10 @@ extension Theme {
         capsTracking: 0.16,
         rowPadding: Insets(top: 9.0, leading: 14.0, bottom: 10.0, trailing: 14.0),
         subjectWeight: .semibold,
-        subjectSize: 13.5
+        subjectSize: 13.5,
+        typographyScale: 1,
+        backdrop: nil,
+        panel: nil
     )
 
     /// Vapor — lilás, cantos macios
@@ -297,7 +318,10 @@ extension Theme {
         capsTracking: 0.14,
         rowPadding: Insets(top: 14.0, leading: 18.0, bottom: 15.0, trailing: 18.0),
         subjectWeight: .medium,
-        subjectSize: 15.0
+        subjectSize: 15.0,
+        typographyScale: 1,
+        backdrop: nil,
+        panel: nil
     )
 
     /// Papel — serif, espaçoso
@@ -334,7 +358,10 @@ extension Theme {
         capsTracking: 0.16,
         rowPadding: Insets(top: 15.0, leading: 18.0, bottom: 16.0, trailing: 18.0),
         subjectWeight: .medium,
-        subjectSize: 16.0
+        subjectSize: 16.0,
+        typographyScale: 1,
+        backdrop: nil,
+        panel: nil
     )
 
     /// Neon — terminal ciano
@@ -371,7 +398,10 @@ extension Theme {
         capsTracking: 0.2,
         rowPadding: Insets(top: 10.0, leading: 14.0, bottom: 11.0, trailing: 14.0),
         subjectWeight: .semibold,
-        subjectSize: 13.5
+        subjectSize: 13.5,
+        typographyScale: 1,
+        backdrop: nil,
+        panel: nil
     )
 
     /// Clínico — compacto, frio
@@ -408,7 +438,10 @@ extension Theme {
         capsTracking: 0.1,
         rowPadding: Insets(top: 8.0, leading: 14.0, bottom: 9.0, trailing: 14.0),
         subjectWeight: .medium,
-        subjectSize: 13.0
+        subjectSize: 13.0,
+        typographyScale: 1,
+        backdrop: nil,
+        panel: nil
     )
 
     /// Nexus — técnico, azul elétrico
@@ -445,7 +478,10 @@ extension Theme {
         capsTracking: 0.14,
         rowPadding: Insets(top: 9.0, leading: 15.0, bottom: 10.0, trailing: 15.0),
         subjectWeight: .medium,
-        subjectSize: 13.5
+        subjectSize: 13.5,
+        typographyScale: 1,
+        backdrop: nil,
+        panel: nil
     )
 
     /// Sinal — console, verde-sinal
@@ -482,7 +518,10 @@ extension Theme {
         capsTracking: 0.16,
         rowPadding: Insets(top: 10.0, leading: 15.0, bottom: 11.0, trailing: 15.0),
         subjectWeight: .medium,
-        subjectSize: 13.5
+        subjectSize: 13.5,
+        typographyScale: 1,
+        backdrop: nil,
+        panel: nil
     )
 
     /// Aura — lavanda, cantos macios
@@ -519,7 +558,10 @@ extension Theme {
         capsTracking: 0.14,
         rowPadding: Insets(top: 13.0, leading: 18.0, bottom: 14.0, trailing: 18.0),
         subjectWeight: .medium,
-        subjectSize: 15.0
+        subjectSize: 15.0,
+        typographyScale: 1,
+        backdrop: nil,
+        panel: nil
     )
 
     /// WhiteX — branco puro, mono
@@ -556,7 +598,10 @@ extension Theme {
         capsTracking: 0.2,
         rowPadding: Insets(top: 11.0, leading: 16.0, bottom: 12.0, trailing: 16.0),
         subjectWeight: .medium,
-        subjectSize: 14.0
+        subjectSize: 14.0,
+        typographyScale: 1,
+        backdrop: nil,
+        panel: nil
     )
 
     /// BlackBox — preto puro, mono
@@ -593,7 +638,10 @@ extension Theme {
         capsTracking: 0.2,
         rowPadding: Insets(top: 11.0, leading: 16.0, bottom: 12.0, trailing: 16.0),
         subjectWeight: .medium,
-        subjectSize: 14.0
+        subjectSize: 14.0,
+        typographyScale: 1,
+        backdrop: nil,
+        panel: nil
     )
 
     /// Magenta — Atmospheric Command · #D946EF
@@ -630,7 +678,10 @@ extension Theme {
         capsTracking: 0.12,
         rowPadding: Insets(top: 11.0, leading: 16.0, bottom: 12.0, trailing: 16.0),
         subjectWeight: .medium,
-        subjectSize: 14.0
+        subjectSize: 14.0,
+        typographyScale: 1,
+        backdrop: nil,
+        panel: nil
     )
 
     /// Reality — Choose Your Reality · violeta
@@ -667,7 +718,10 @@ extension Theme {
         capsTracking: 0.12,
         rowPadding: Insets(top: 12.0, leading: 17.0, bottom: 13.0, trailing: 17.0),
         subjectWeight: .medium,
-        subjectSize: 14.0
+        subjectSize: 14.0,
+        typographyScale: 1,
+        backdrop: nil,
+        panel: nil
     )
 
     /// Corsa — Ferrari · Rosso Corsa, raio 0
@@ -704,7 +758,10 @@ extension Theme {
         capsTracking: 0.14,
         rowPadding: Insets(top: 11.0, leading: 16.0, bottom: 12.0, trailing: 16.0),
         subjectWeight: .medium,
-        subjectSize: 14.0
+        subjectSize: 14.0,
+        typographyScale: 1,
+        backdrop: nil,
+        panel: nil
     )
 
     /// Corsa Luz — Ferrari · banda editorial clara
@@ -741,7 +798,10 @@ extension Theme {
         capsTracking: 0.14,
         rowPadding: Insets(top: 11.0, leading: 16.0, bottom: 12.0, trailing: 16.0),
         subjectWeight: .medium,
-        subjectSize: 14.0
+        subjectSize: 14.0,
+        typographyScale: 1,
+        backdrop: nil,
+        panel: nil
     )
 
     /// Brutal Noite — brutalist escuro, borda branca
@@ -778,7 +838,10 @@ extension Theme {
         capsTracking: 0.18,
         rowPadding: Insets(top: 9.0, leading: 14.0, bottom: 10.0, trailing: 14.0),
         subjectWeight: .semibold,
-        subjectSize: 13.5
+        subjectSize: 13.5,
+        typographyScale: 1,
+        backdrop: nil,
+        panel: nil
     )
 
     /// Contraste — preto/branco + amarelo, AAA
@@ -815,7 +878,10 @@ extension Theme {
         capsTracking: 0.22,
         rowPadding: Insets(top: 10.0, leading: 14.0, bottom: 11.0, trailing: 14.0),
         subjectWeight: .bold,
-        subjectSize: 14.0
+        subjectSize: 14.0,
+        typographyScale: 1,
+        backdrop: nil,
+        panel: nil
     )
 
     /// Reboot — Network Reboot · laranja em branco
@@ -852,7 +918,10 @@ extension Theme {
         capsTracking: 0.08,
         rowPadding: Insets(top: 12.0, leading: 16.0, bottom: 12.0, trailing: 16.0),
         subjectWeight: .medium,
-        subjectSize: 14.0
+        subjectSize: 14.0,
+        typographyScale: 1,
+        backdrop: nil,
+        panel: nil
     )
 
     /// Comando — Autonomous Infra · brasa suave
@@ -889,7 +958,10 @@ extension Theme {
         capsTracking: 0.1,
         rowPadding: Insets(top: 12.0, leading: 16.0, bottom: 12.0, trailing: 16.0),
         subjectWeight: .medium,
-        subjectSize: 14.0
+        subjectSize: 14.0,
+        typographyScale: 1,
+        backdrop: nil,
+        panel: nil
     )
 
     /// Override — System Focus · vermelho puro
@@ -926,7 +998,10 @@ extension Theme {
         capsTracking: 0.1,
         rowPadding: Insets(top: 10.0, leading: 15.0, bottom: 11.0, trailing: 15.0),
         subjectWeight: .medium,
-        subjectSize: 13.5
+        subjectSize: 13.5,
+        typographyScale: 1,
+        backdrop: nil,
+        panel: nil
     )
 
     /// Âmbar — laranja em papel
@@ -963,7 +1038,90 @@ extension Theme {
         capsTracking: 0.13,
         rowPadding: Insets(top: 12.0, leading: 16.0, bottom: 13.0, trailing: 16.0),
         subjectWeight: .medium,
-        subjectSize: 15.0
+        subjectSize: 15.0,
+        typographyScale: 1,
+        backdrop: nil,
+        panel: nil
+    )
+
+    /// Vidro — painéis flutuantes sobre um gradiente de aurora
+    public static let vidro = Theme(
+        id: "vidro",
+        name: "Vidro",
+        note: "painéis flutuantes sobre um gradiente de aurora",
+        isDark: false,
+        paper: TokenColor(red: 238 / 255, green: 240 / 255, blue: 251 / 255, opacity: 1),
+        surface: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 0.62),
+        surface2: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 0.45),
+        surface3: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 0.60),
+        ink: TokenColor(red: 20 / 255, green: 22 / 255, blue: 28 / 255, opacity: 1),
+        ink2: TokenColor(red: 74 / 255, green: 79 / 255, blue: 92 / 255, opacity: 1),
+        ink3: TokenColor(red: 86 / 255, green: 91 / 255, blue: 104 / 255, opacity: 1),
+        ink4: TokenColor(red: 95 / 255, green: 100 / 255, blue: 114 / 255, opacity: 1),
+        line: TokenColor(red: 20 / 255, green: 20 / 255, blue: 50 / 255, opacity: 0.10),
+        line2: TokenColor(red: 20 / 255, green: 20 / 255, blue: 50 / 255, opacity: 0.05),
+        accent: TokenColor(red: 79 / 255, green: 70 / 255, blue: 229 / 255, opacity: 1),
+        accentInk: TokenColor(red: 79 / 255, green: 70 / 255, blue: 229 / 255, opacity: 1),
+        accentSoft: TokenColor(red: 237 / 255, green: 236 / 255, blue: 252 / 255, opacity: 1),
+        accentLine: TokenColor(red: 207 / 255, green: 204 / 255, blue: 246 / 255, opacity: 1),
+        onAccent: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 1),
+        btn: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 0.60),
+        btnLine: TokenColor(red: 20 / 255, green: 20 / 255, blue: 50 / 255, opacity: 0.10),
+        btnShadow: [ShadowToken(x: 0.0, y: 1.0, blur: 2.0, spread: 0.0, color: TokenColor(red: 40 / 255, green: 40 / 255, blue: 90 / 255, opacity: 0.10))],
+        shadow: [ShadowToken(x: 0.0, y: 24.0, blur: 60.0, spread: 0.0, color: TokenColor(red: 30 / 255, green: 30 / 255, blue: 80 / 255, opacity: 0.22))],
+        serif: FontFamily(name: "Geist", design: .default),
+        sans: FontFamily(name: "Geist", design: .default),
+        mono: FontFamily(name: "Geist Mono", design: .monospaced),
+        bodyFont: .sans,
+        radiusSmall: 10.0,
+        radiusLarge: 14.0,
+        capsTracking: 0.06,
+        rowPadding: Insets(top: 12.0, leading: 14.0, bottom: 12.0, trailing: 14.0),
+        subjectWeight: .semibold,
+        subjectSize: 13.5,
+        typographyScale: 1,
+        backdrop: .vidroClaro,
+        panel: .vidroClaro
+    )
+
+    /// Vidro Noite — o mesmo vidro, com dois halos num fundo quase preto
+    public static let vidroNoite = Theme(
+        id: "vidro-noite",
+        name: "Vidro Noite",
+        note: "o mesmo vidro, com dois halos num fundo quase preto",
+        isDark: true,
+        paper: TokenColor(red: 11 / 255, green: 11 / 255, blue: 18 / 255, opacity: 1),
+        surface: TokenColor(red: 28 / 255, green: 28 / 255, blue: 40 / 255, opacity: 0.55),
+        surface2: TokenColor(red: 30 / 255, green: 30 / 255, blue: 42 / 255, opacity: 0.55),
+        surface3: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 0.09),
+        ink: TokenColor(red: 241 / 255, green: 241 / 255, blue: 244 / 255, opacity: 1),
+        ink2: TokenColor(red: 182 / 255, green: 184 / 255, blue: 195 / 255, opacity: 1),
+        ink3: TokenColor(red: 154 / 255, green: 157 / 255, blue: 171 / 255, opacity: 1),
+        ink4: TokenColor(red: 138 / 255, green: 141 / 255, blue: 155 / 255, opacity: 1),
+        line: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 0.08),
+        line2: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 0.05),
+        accent: TokenColor(red: 100 / 255, green: 89 / 255, blue: 245 / 255, opacity: 1),
+        accentInk: TokenColor(red: 169 / 255, green: 163 / 255, blue: 255 / 255, opacity: 1),
+        accentSoft: TokenColor(red: 37 / 255, green: 35 / 255, blue: 66 / 255, opacity: 1),
+        accentLine: TokenColor(red: 59 / 255, green: 55 / 255, blue: 102 / 255, opacity: 1),
+        onAccent: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 1),
+        btn: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 0.06),
+        btnLine: TokenColor(red: 255 / 255, green: 255 / 255, blue: 255 / 255, opacity: 0.12),
+        btnShadow: [ShadowToken(x: 0.0, y: 1.0, blur: 2.0, spread: 0.0, color: TokenColor(red: 0 / 255, green: 0 / 255, blue: 0 / 255, opacity: 0.35))],
+        shadow: [ShadowToken(x: 0.0, y: 24.0, blur: 60.0, spread: 0.0, color: TokenColor(red: 0 / 255, green: 0 / 255, blue: 0 / 255, opacity: 0.55))],
+        serif: FontFamily(name: "Geist", design: .default),
+        sans: FontFamily(name: "Geist", design: .default),
+        mono: FontFamily(name: "Geist Mono", design: .monospaced),
+        bodyFont: .sans,
+        radiusSmall: 10.0,
+        radiusLarge: 14.0,
+        capsTracking: 0.06,
+        rowPadding: Insets(top: 12.0, leading: 14.0, bottom: 12.0, trailing: 14.0),
+        subjectWeight: .semibold,
+        subjectSize: 13.5,
+        typographyScale: 1,
+        backdrop: .vidroNoite,
+        panel: .vidroNoite
     )
 
     /// Every theme, in the order the design's picker shows them.
@@ -994,10 +1152,12 @@ extension Theme {
         .comando,
         .override,
         .ambar,
+        .vidro,
+        .vidroNoite,
     ]
 
     /// The design's default.
-    public static let `default` = Theme.tinta
+    public static let `default` = Theme.vidro
 
     public static func named(_ id: String) -> Theme? {
         all.first { $0.id == id }

@@ -9,6 +9,8 @@ BASE="https://raw.githubusercontent.com/google/fonts/main"
 
 # caminho-no-repo -> nome-do-arquivo-local
 FILES=(
+  "ofl/geist/Geist%5Bwght%5D.ttf|Geist.ttf"
+  "ofl/geistmono/GeistMono%5Bwght%5D.ttf|GeistMono.ttf"
   "ofl/newsreader/Newsreader%5Bopsz,wght%5D.ttf|Newsreader.ttf"
   "ofl/newsreader/Newsreader-Italic%5Bopsz,wght%5D.ttf|Newsreader-Italic.ttf"
   "ofl/spacegrotesk/SpaceGrotesk%5Bwght%5D.ttf|SpaceGrotesk.ttf"

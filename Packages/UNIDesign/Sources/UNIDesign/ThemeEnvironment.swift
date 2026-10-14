@@ -91,6 +91,16 @@ public final class ThemeStore {
         defaults.set(selected.id, forKey: Self.key)
     }
 
+    /// O interruptor sol/lua do trilho. Troca para o par do tema atual — ver
+    /// `Theme.appearanceCounterpart`, que é quem sabe a regra — e grava, como
+    /// qualquer outra escolha de tema.
+    public func toggleAppearance() {
+        select(baseTheme.appearanceCounterpart)
+    }
+
+    /// Para o interruptor desenhar o estado certo sem perguntar duas coisas.
+    public var isDark: Bool { baseTheme.isDark }
+
     public func selectTypography(_ preset: TypographyPreset) {
         typographyPreset = preset
         defaults.set(preset.rawValue, forKey: Self.typographyKey)

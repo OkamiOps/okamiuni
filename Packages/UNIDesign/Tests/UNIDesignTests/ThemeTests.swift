@@ -71,7 +71,61 @@ struct ThemeCatalogueTests {
 
     @Test("every theme from the design is present")
     func catalogueIsComplete() {
-        #expect(Theme.all.count == 26)
+        // 26 do catálogo original + o par Vidro do redesenho.
+        #expect(Theme.all.count == 28)
+    }
+
+    @Test("só o par Vidro flutua, e ele traz fundo e painel juntos")
+    func onlyVidroIsGlass() {
+        for theme in Theme.all {
+            let esperado = theme.id == "vidro" || theme.id == "vidro-noite"
+            #expect(theme.isGlass == esperado, "\(theme.id)")
+            // Meio vidro não existe: um fundo sem painel deixaria o conteúdo
+            // solto sobre o gradiente, e um painel sem fundo flutuaria sobre
+            // nada.
+            #expect((theme.backdrop == nil) == (theme.panel == nil), "\(theme.id)")
+        }
+    }
+
+    @Test("o interruptor claro/escuro leva ao par e volta")
+    func appearanceCounterpartPairsVidro() {
+        #expect(Theme.vidro.appearanceCounterpart.id == "vidro-noite")
+        #expect(Theme.vidroNoite.appearanceCounterpart.id == "vidro")
+        // Os 26 temas sem par caem no Vidro do lado oposto, e nunca em si
+        // mesmos — um interruptor que não muda nada é um botão mudo.
+        for theme in Theme.all where !theme.isGlass {
+            let outro = theme.appearanceCounterpart
+            #expect(outro.isDark != theme.isDark, "\(theme.id)")
+            #expect(outro.isGlass, "\(theme.id)")
+        }
+    }
+
+    @Test("o interruptor do trilho grava a troca de aparência")
+    @MainActor
+    func toggleAppearancePersists() throws {
+        let name = "AppearanceToggleTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+
+        let store = ThemeStore(defaults: defaults)
+        #expect(store.theme.id == "vidro")
+        store.toggleAppearance()
+        #expect(store.theme.id == "vidro-noite")
+        #expect(ThemeStore(defaults: defaults).theme.id == "vidro-noite")
+        store.toggleAppearance()
+        #expect(store.theme.id == "vidro")
+    }
+
+    @Test("o vidro compõe os tokens translúcidos sobre o fundo de verdade")
+    func flattenCompositesOverTheBackdrop() {
+        // `surface` do Vidro é branco a 62%: perguntar contraste a ele sem
+        // compor devolve a resposta do branco puro.
+        let claro = Theme.vidro
+        #expect(claro.surface.opacity < 1)
+        #expect(claro.flattened(\.surface).opacity == 1)
+        #expect(claro.flattened(\.surface).luminance < 1)
+        // Token opaco é identidade: os 26 temas de sempre não mudam de valor.
+        #expect(Theme.tinta.flattened(\.surface) == Theme.tinta.surface)
     }
 
     @Test("theme ids are unique")
@@ -88,9 +142,11 @@ struct ThemeCatalogueTests {
         #expect(Theme.named("nao-existe") == nil)
     }
 
+    /// O padrão de instalação nova passou a ser o Vidro. Quem já escolheu um
+    /// tema continua com ele — `ThemeStore` só cai no padrão sem valor gravado.
     @Test("the default is the design's default")
-    func defaultIsTinta() {
-        #expect(Theme.default.id == "tinta")
+    func defaultIsVidro() {
+        #expect(Theme.default.id == "vidro")
     }
 
     @Test("light and dark are classified from the paper colour", arguments: [
@@ -98,6 +154,7 @@ struct ThemeCatalogueTests {
         ("whitex", false), ("reboot", false), ("corsaluz", false), ("ambar", false),
         ("noite", true), ("grafite", true), ("okami", true), ("neon", true),
         ("blackbox", true), ("contraste", true), ("override", true), ("comando", true),
+        ("vidro", false), ("vidro-noite", true),
     ])
     func darknessIsCorrect(id: String, expectedDark: Bool) throws {
         let theme = try #require(Theme.named(id))
@@ -130,8 +187,12 @@ struct ThemeCatalogueTests {
                 ("ink", theme.ink), ("ink2", theme.ink2),
                 ("ink3", theme.ink3), ("ink4", theme.ink4),
             ] {
+                // `flattened`, e não `surface` cru: o Vidro declara a
+                // superfície translúcida de propósito, e o contraste que
+                // importa é com a cor **pintada**. Para os 26 temas opacos
+                // isto é identidade — nenhum valor muda.
                 #expect(
-                    color.contrastRatio(with: theme.surface) >= 4.5,
+                    color.contrastRatio(with: theme.flattened(\.surface)) >= 4.5,
                     "\(theme.id): \(name)/surface abaixo de 4.5:1"
                 )
             }
@@ -146,11 +207,11 @@ struct ThemeCatalogueTests {
                 "\(theme.id): onAccent/accent abaixo de 4.5:1"
             )
             #expect(
-                theme.accentInk.contrastRatio(with: theme.accentSoft) >= 4.5,
+                theme.accentInk.contrastRatio(with: theme.flattened(\.accentSoft)) >= 4.5,
                 "\(theme.id): accentInk/accentSoft abaixo de 4.5:1"
             )
             #expect(
-                theme.accent.contrastRatio(with: theme.surface) >= 3,
+                theme.accent.contrastRatio(with: theme.flattened(\.surface)) >= 3,
                 "\(theme.id): accent/surface abaixo de 3:1 para foco e ícones"
             )
         }
@@ -163,8 +224,15 @@ struct ThemeCatalogueTests {
             "magenta", "neural", "corsa", "brutalnoite", "contraste", "comando",
             "override",
         ])
-        let darkThemes = Theme.all.filter(\.isDark)
+        // O Vidro Noite fica de fora **desta** prova, e não da cobertura: as
+        // faixas abaixo descrevem a hierarquia de um tema escuro opaco, onde
+        // `surface`, `surface2` e `line` são cores sólidas empilhadas. No
+        // vidro elas são translucidez sobre um gradiente — a mesma faixa
+        // numérica diria a coisa errada. O contrato dele está em
+        // `vidroNoiteKeepsItsOwnHierarchy`, logo abaixo.
+        let darkThemes = Theme.all.filter { $0.isDark && !$0.isGlass }
         #expect(Set(darkThemes.map(\.id)) == expectedDark)
+        #expect(Theme.all.filter(\.isDark).count == 15)
 
         for theme in darkThemes {
             let structuralLine = theme.line.contrastRatio(with: theme.surface)
@@ -217,6 +285,25 @@ struct ThemeCatalogueTests {
                 )
             }
         }
+    }
+
+    /// O que o Vidro Noite promete no lugar das faixas opacas: o painel se
+    /// separa do fundo, a hairline se vê sobre o painel pintado, e as tintas
+    /// mantêm AA sobre ele.
+    @Test("vidro-noite mantém a própria hierarquia sobre o gradiente")
+    func vidroNoiteKeepsItsOwnHierarchy() throws {
+        let t = try #require(Theme.named("vidro-noite"))
+        #expect(t.isDark)
+        let fundo = try #require(t.backdrop).base
+        let painel = t.flattened(\.surface)
+
+        #expect(painel.luminance > fundo.luminance, "o painel tem de subir do fundo")
+        // Hairline e campo são pintados **dentro** do painel.
+        #expect(t.flattened(\.line, over: painel).contrastRatio(with: painel) >= 1.1)
+        #expect(t.flattened(\.surface3, over: painel).contrastRatio(with: painel) >= 1.1)
+        #expect(t.ink.contrastRatio(with: painel) >= 4.5)
+        #expect(t.ink4.contrastRatio(with: painel) >= 4.5)
+        #expect(t.accentInk.contrastRatio(with: painel) >= 3)
     }
 
     @Test("metrics are sane")
@@ -323,6 +410,7 @@ struct ThemeCatalogueTests {
         ("magenta", "Inter"), ("neural", "Inter"), ("corsa", "Inter"),
         ("corsaluz", "Inter"), ("reboot", "Inter"), ("override", "Inter"),
         ("comando", "Inter Tight"),
+        ("vidro", "Geist"), ("vidro-noite", "Geist"),
     ])
     func bodyFamilyMatchesTheDesign(id: String, family: String) throws {
         let theme = try #require(Theme.named(id))
@@ -331,10 +419,15 @@ struct ThemeCatalogueTests {
 
     /// O redesenho usa Inter no tema padrão; os temas alternativos preservam a
     /// tipografia que já tinham.
-    @Test("só o tema padrão migra o corpo para sans")
+    /// O Vidro entrou no grupo do Tinta: corpo em sans (Geist). Os temas
+    /// editoriais continuam no serif que já tinham.
+    @Test("só os temas de corpo sans migram o corpo para sans")
     func onlyDefaultThemeUsesSansForBody() {
+        let sans: Set<String> = ["tinta", "vidro", "vidro-noite"]
         for theme in Theme.all {
-            #expect(theme.bodyFont == (theme.id == "tinta" ? .sans : .serif), "\(theme.id)")
+            #expect(
+                theme.bodyFont == (sans.contains(theme.id) ? .sans : .serif), "\(theme.id)"
+            )
         }
     }
 }

@@ -4,8 +4,8 @@ import os
 
 /// Tracks which of the design's font families are actually installed.
 ///
-/// The design calls for Newsreader, Space Grotesk, Inter, Inter Tight,
-/// IBM Plex Mono and JetBrains Mono. Until those faces are bundled,
+/// The design calls for Geist, Geist Mono, Newsreader, Space Grotesk, Inter,
+/// Inter Tight, IBM Plex Mono and JetBrains Mono. Until those faces are bundled,
 /// `FontFamily.font(size:weight:)` falls back to the system face rather than
 /// silently rendering in Helvetica.
 public enum FontRegistry {
@@ -13,6 +13,8 @@ public enum FontRegistry {
 
     /// Families the design references, in the order it prefers them.
     public static let required = [
+        "Geist",
+        "Geist Mono",
         "Newsreader",
         "Space Grotesk",
         "Inter",

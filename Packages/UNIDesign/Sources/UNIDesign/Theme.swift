@@ -31,6 +31,84 @@ public struct ShadowToken: Sendable, Hashable {
     public var radius: CGFloat { blur / 2 }
 }
 
+/// O fundo da janela quando o tema é de vidro: um gradiente, e não uma cor.
+///
+/// Só os temas "Vidro" têm um. Para os outros 26 `Theme.backdrop` é `nil`, a
+/// janela pinta `paper` como sempre pintou e nada muda de lugar.
+public struct BackdropToken: Sendable, Hashable {
+    /// Uma parada do gradiente linear. `location` é 0…1 ao longo do eixo.
+    public struct Stop: Sendable, Hashable {
+        public let color: TokenColor
+        public let location: Double
+
+        public init(color: TokenColor, location: Double) {
+            self.color = color
+            self.location = location
+        }
+    }
+
+    /// Um dos halos radiais do tema escuro. `center` é em coordenadas
+    /// unitárias da janela; `radius` é fração da maior dimensão dela.
+    public struct Glow: Sendable, Hashable {
+        public let color: TokenColor
+        public let center: UnitPoint
+        public let radius: Double
+
+        public init(color: TokenColor, center: UnitPoint, radius: Double) {
+            self.color = color
+            self.center = center
+            self.radius = radius
+        }
+    }
+
+    /// A cor por baixo de tudo. É ela, e não `paper`, que o vidro atravessa.
+    public let base: TokenColor
+    /// Vazio = sem gradiente linear, só a base e os halos.
+    public let stops: [Stop]
+    /// Ângulo CSS em graus: 135 é canto superior esquerdo → inferior direito.
+    public let angle: Double
+    public let glows: [Glow]
+
+    public init(
+        base: TokenColor, stops: [Stop] = [], angle: Double = 135, glows: [Glow] = []
+    ) {
+        self.base = base
+        self.stops = stops
+        self.angle = angle
+        self.glows = glows
+    }
+}
+
+/// Como um painel flutuante do shell Vidro é desenhado: preenchimento
+/// translúcido, fio de luz na aresta, sombra macia e cantos redondos.
+///
+/// `nil` em `Theme.panel` quer dizer "este tema não flutua": os painéis ficam
+/// encostados e opacos, como nos 26 temas que já existiam.
+public struct PanelStyle: Sendable, Hashable {
+    /// Preenchimento dos painéis de navegação e de lista.
+    public let fill: TokenColor
+    /// O leitor é mais fechado que os outros: texto longo sobre gradiente
+    /// cansa, e o protótipo pede 0,88 contra 0,62.
+    public let readerFill: TokenColor
+    public let edge: TokenColor
+    public let shadow: [ShadowToken]
+    public let radius: CGFloat
+    /// Folga entre painéis e entre eles e a borda da janela.
+    public let gap: CGFloat
+
+    public init(
+        fill: TokenColor, readerFill: TokenColor, edge: TokenColor,
+        shadow: [ShadowToken], radius: CGFloat, gap: CGFloat
+    ) {
+        self.fill = fill
+        self.readerFill = readerFill
+        self.edge = edge
+        self.shadow = shadow
+        self.radius = radius
+        self.gap = gap
+    }
+}
+
 /// Which of a theme's families the message body is set in.
 public enum BodyFont: String, Sendable, Hashable {
     case serif, sans
@@ -164,6 +242,10 @@ public struct Theme: Sendable, Hashable, Identifiable {
     public let subjectWeight: Font.Weight
     public let subjectSize: CGFloat
 
+    // Vidro. `nil` nos 26 temas que não flutuam.
+    public let backdrop: BackdropToken?
+    public let panel: PanelStyle?
+
     public init(
         id: String, name: String, note: String, isDark: Bool,
         paper: TokenColor, surface: TokenColor, surface2: TokenColor, surface3: TokenColor,
@@ -176,7 +258,8 @@ public struct Theme: Sendable, Hashable, Identifiable {
         serif: FontFamily, sans: FontFamily, mono: FontFamily, bodyFont: BodyFont,
         radiusSmall: CGFloat, radiusLarge: CGFloat, capsTracking: CGFloat,
         rowPadding: Insets, subjectWeight: Font.Weight, subjectSize: CGFloat,
-        typographyScale: CGFloat = 1
+        typographyScale: CGFloat = 1,
+        backdrop: BackdropToken? = nil, panel: PanelStyle? = nil
     ) {
         self.id = id
         self.name = name
@@ -212,6 +295,8 @@ public struct Theme: Sendable, Hashable, Identifiable {
         self.rowPadding = rowPadding
         self.subjectWeight = subjectWeight
         self.subjectSize = subjectSize
+        self.backdrop = backdrop
+        self.panel = panel
     }
 }
 
@@ -347,7 +432,8 @@ extension Theme {
             radiusSmall: radiusSmall, radiusLarge: radiusLarge,
             capsTracking: capsTracking, rowPadding: rowPadding,
             subjectWeight: subjectWeight, subjectSize: subjectSize,
-            typographyScale: preset.scale
+            typographyScale: preset.scale,
+            backdrop: backdrop, panel: panel
         )
     }
 }
