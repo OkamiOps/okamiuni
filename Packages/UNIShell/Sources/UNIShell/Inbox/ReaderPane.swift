@@ -3,51 +3,6 @@ import UNIDesign
 import UNICore
 import UNISync
 
-/// Acesso contextual à IA no próprio cabeçalho do e-mail. Separado apenas
-/// para o clique real do controle ser verificável fora da tela.
-struct ReaderAssistantButton: View {
-    @Environment(\.theme) private var theme
-    @Environment(\.displayScale) private var displayScale
-    let presentation: IntelligencePresentation
-    let action: () -> Void
-
-    private var help: String {
-        presentation.isAvailable
-            ? L10n.tr("Abre resumo, pontos-chave, insights, pendências e geração de resposta para este email.")
-            : presentation.detail
-    }
-
-    private var statusColor: Color {
-        theme.info.color
-    }
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: presentation.symbol)
-                .font(.system(size: 13, weight: .semibold))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(presentation.isAvailable ? statusColor : theme.ink4.color)
-                .frame(width: 28, height: 28)
-                .background(presentation.isAvailable ? statusColor.opacity(0.12) : theme.surface3.color)
-                .clipShape(Circle())
-                .overlay {
-                    Circle()
-                        .strokeBorder(
-                            presentation.isAvailable ? statusColor.opacity(0.38) : theme.line.color,
-                            lineWidth: Hairline.thickness(displayScale)
-                        )
-                }
-        }
-        .buttonStyle(.plain)
-        .focusRing(cornerRadius: 14)
-        .disabled(!presentation.isAvailable)
-        .help(help)
-        .accessibilityLabel(L10n.tr("Ações de inteligência deste email"))
-        .accessibilityValue(presentation.isAvailable ? L10n.tr("Disponível") : L10n.tr("Indisponível"))
-        .accessibilityHint(help)
-    }
-}
-
 /// Onde o leitor está desenhado — e o que muda por causa disso.
 ///
 /// O leitor nasceu para a Caixa, e por isso lia a mensagem da **seleção** do
@@ -127,6 +82,14 @@ public struct ReaderPane: View {
     let debugEmailAssistantOpen: Bool
     /// Força o TL;DR aberto — o harness que prova o cartão de compromisso.
     let debugResumoAberto: Bool
+    /// Trata o rascunho guardado como se a IA o tivesse escrito. Porta
+    /// exclusiva do harness: a barra de resposta com o rascunho da IA é um
+    /// desenho a conferir, e sintetizar uma ida ao provedor fora da tela não
+    /// é verificação de aparência.
+    var debugIADraft = false
+    /// Os passos que o motor já deu nesta ida — a lista de ✓ e o brilho do
+    /// passo atual. Vem da `AssistantSession`, que é quem ouve o `onActivity`.
+    var assistantSteps: [String] = []
     /// Destino injetável do anexo: evita painel do sistema no harness e deixa
     /// a ação testável sem automação da área de trabalho.
     let attachmentSaver: (any AttachmentSaving)?
@@ -149,11 +112,17 @@ public struct ReaderPane: View {
     @State private var folderPickerOpen = false
     @State private var quickReplyRevision = 0
     @State private var emailAssistantOpen = false
-    @State private var emailAssistantPanelSize = ReaderIntelligencePopover.defaultSize
+    /// O tom do rascunho da IA que está na barra de resposta.
+    @State private var inkTone: AssistantDraftTone = .direto
+    /// O seletor de tom, aberto pela barra **ou** pelo menu do ✦ IA.
+    @State private var tonePickerOpen = false
+    /// De qual mensagem é o rascunho que a IA escreveu nesta sessão. `nil`
+    /// quando o que está guardado foi escrito à mão: a barra só se diz "da
+    /// IA" quando foi a IA que a escreveu.
+    @State private var iaDraftMessageID: String?
     /// A conversa do popover: nasce ao abrir, é cancelada ao fechar. Uma só
     /// máquina de estado, a mesma do painel e do dashboard.
     @State private var readerConversation: AssistantConversation?
-    @State private var assistantAnchor: CGPoint = .zero
 
     /// O mesmo retorno com "Desfazer" que a lista desenha. O leitor **posta**
     /// nele e não o desenha: apagar daqui tira a mensagem do leitor, e uma
@@ -260,6 +229,17 @@ public struct ReaderPane: View {
         )
     }
 
+    /// Os passos do motor, ligados depois da construção.
+    ///
+    /// Modificador, e não parâmetro de `init`: as duas inicializações do
+    /// leitor já têm catorze argumentos, e quem passa isto é uma linha só do
+    /// `InboxScreen`.
+    func assistantSteps(_ steps: [String]) -> Self {
+        var copia = self
+        copia.assistantSteps = steps
+        return copia
+    }
+
     /// A mensagem que o leitor mostra: a da folha, quando há folha; a seleção
     /// da Caixa no resto do tempo.
     private var mensagemVisivel: Message? {
@@ -359,7 +339,7 @@ public struct ReaderPane: View {
                     // bloco que sempre esteve aqui.
                     if let conversa, conversa.count > 1 {
                         ConversationStackView(store: store, conversa: conversa, opened: $stackState) {
-                            cardsAndBody($0)
+                            cardsAndBody($0, inStack: true)
                         }
                     } else {
                         cardsAndBody(message)
@@ -403,32 +383,23 @@ public struct ReaderPane: View {
                     store: store, message: message,
                     onPromote: { onCompose(.reply(messageID: $0.id)) },
                     expandRequest: pedidoDeResposta,
-                    intelligence: intelligence
+                    intelligence: intelligence,
+                    iaDraft: iaDraft(for: message)
                 )
                 .id("\(message.id)-\(quickReplyRevision)")
             }
         }
-        .coordinateSpace(.named(Self.assistantAnchorSpace))
-        .onPreferenceChange(ReaderAssistantAnchorKey.self) { point in
-            if point != assistantAnchor { assistantAnchor = point }
-        }
-        .overlay(alignment: .topLeading) {
-            if emailAssistantOpen, assistantAnchor != .zero {
-                emailAssistantPopover(message)
-                    .offset(
-                        // No Vidro o botão está na **ponta esquerda** da barra,
-                        // e a âncora publicada é o `minX` dele: o painel cresce
-                        // para a direita, como no protótipo. Na barra clássica
-                        // o botão está à direita e a âncora é o `maxX`, de onde
-                        // o painel cresce para a esquerda.
-                        x: theme.isGlass
-                            ? assistantAnchor.x
-                            : assistantAnchor.x - ReaderIntelligencePopover.clampedSize(
-                                emailAssistantPanelSize
-                            ).width,
-                        y: assistantAnchor.y + 34
-                    )
-            }
+        // **Nenhum painel por cima do e-mail.** O ✦ IA abre um menu de ações
+        // (ver `ReaderInkMenu`) e o resultado é escrito no próprio e-mail ou
+        // vai para a barra de resposta — é a direção Tinta. O painel
+        // flutuante que cobria o texto saiu daqui.
+        //
+        // O rascunho que a IA devolve é adotado pela barra de resposta assim
+        // que chega: é lá que ele mora no desenho, e não num cartão à parte.
+        .onChange(of: readerConversation?.messages.count ?? 0) { _, _ in
+            guard let ultima = readerConversation?.messages.last,
+                  ultima.speaker == .assistant, ultima.kind == .draft else { return }
+            adoptIADraft(ultima.text, for: message)
         }
         // Abrir uma mensagem sem corpo **é** o pedido de busca. `id:` para que
         // trocar de mensagem cancele a busca da anterior e comece a desta: sem
@@ -467,24 +438,122 @@ public struct ReaderPane: View {
     /// Uma segunda cópia para o segundo caso divergiria da primeira no próximo
     /// conserto de espaçamento.
     @ViewBuilder
-    private func cardsAndBody(_ message: Message) -> some View {
-        if let summary = message.summary {
-            summaryCard(summary, event: message.detectedEvent, message: message)
+    private func cardsAndBody(_ message: Message, inStack: Bool = false) -> some View {
+        // A ordem é a do desenho `IA-Tinta`: a tinta da IA logo abaixo do
+        // assunto, depois o remetente, depois o e-mail. Quem abre a mensagem
+        // decide se vai ler o resto **depois** de saber o que ela pede dele —
+        // e por isso a tinta vem antes do avatar, não depois.
+        if temTinta(message) {
+            inkSection(message)
                 .padding(.horizontal, 28)
-                .padding(.top, 22)
-                .padding(.bottom, Self.convite(de: message) != nil ? 8 : 16)
+                .padding(.top, TintaMetrics.flowGap)
+        }
+
+        // No Vidro o remetente saiu do cabeçalho fixo e entrou no fluxo, que é
+        // onde o desenho o põe. Dentro de uma pilha de conversa a linha de
+        // cada mensagem já é o remetente dela, e repeti-la seria o nome duas
+        // vezes seguidas.
+        if theme.isGlass, !inStack {
+            identityRow(message)
+                .padding(.horizontal, 28)
+                .padding(.top, TintaMetrics.flowGap)
         }
 
         if let convite = Self.convite(de: message) {
             inviteCard(convite, message: message)
                 .padding(.horizontal, 28)
-                .padding(.top, message.summary == nil ? 22 : 8)
+                .padding(.top, TintaMetrics.flowGap)
                 .padding(.bottom, 16)
         }
 
         body(message)
-            .padding(.top, temCartao(message) ? 0 : 16)
+            .padding(.top, TintaMetrics.flowGap)
             .padding(.bottom, 28)
+    }
+
+    /// Há tinta para escrever nesta mensagem? Resumo guardado, resposta ao
+    /// vivo, tarefa com lastro ou um pedido em voo. Sem nada disso o leitor
+    /// não escreve versalete nenhum — um "RESUMO E TAREFAS" sobre o vazio é
+    /// pior do que silêncio.
+    private func temTinta(_ message: Message) -> Bool {
+        guard resumoEstaAberto(message) else { return false }
+        if readerConversation?.isLoading == true { return true }
+        if inkProse(message) != nil { return true }
+        return !inkTasks(message).isEmpty
+    }
+
+    /// A prosa da IA: a última resposta ao vivo desta sessão, ou o resumo que
+    /// a fila já gravou na mensagem.
+    private func inkProse(_ message: Message) -> String? {
+        if let ultima = readerConversation?.messages.last(
+            where: { $0.speaker == .assistant && $0.kind == .message }
+        ) {
+            return ultima.text
+        }
+        return message.summary
+    }
+
+    /// As tarefas que a IA escreve em linha.
+    ///
+    /// **Duas fontes, as duas com lastro**: o pedido que a análise já
+    /// persistida afirmou (com prazo e evidência) e o compromisso detectado na
+    /// mensagem. Nada é lido do texto na hora de desenhar.
+    private func inkTasks(_ message: Message) -> [ReaderInkTask] {
+        var tarefas: [ReaderInkTask] = []
+        if let pedido = PedidoDoEmail.de(triagem: message.triage, agora: Date()) {
+            tarefas.append(ReaderInkTask(
+                id: "pedido",
+                text: pedido.chamada,
+                deadline: pedido.prazo,
+                urgent: pedido.urgente,
+                action: podeRascunhar ? L10n.tr("Rascunhar") : nil,
+                run: podeRascunhar ? { pedirRascunho(for: message, tone: .direto) } : nil
+            ))
+        }
+        // Com `text/calendar` o cartão do convite já diz o compromisso: a
+        // tarefa seria a mesma reunião duas vezes.
+        if let evento = message.detectedEvent, Self.convite(de: message) == nil,
+           !isOnAgenda(message) {
+            tarefas.append(ReaderInkTask(
+                id: "evento",
+                text: evento.label,
+                action: L10n.tr("Criar evento"),
+                run: { addEvent(evento, for: message) }
+            ))
+        }
+        return tarefas
+    }
+
+    /// A tinta inteira — ver `ReaderInkSection`.
+    private func inkSection(_ message: Message) -> some View {
+        VStack(alignment: .leading, spacing: TintaMetrics.blockGap) {
+            ReaderInkSection(
+                prose: inkProse(message),
+                provenance: Self.inkProvenance(
+                    for: analysisDestination(message.summaryModelVersion)
+                ),
+                tasks: inkTasks(message),
+                isWorking: readerConversation?.isLoading == true,
+                steps: assistantSteps,
+                onHide: { toggleResumo(message, aberto: true) }
+            )
+            if let falha = readerConversation?.failure {
+                AssistantFailureBand(
+                    failure: falha,
+                    onRetry: { readerConversation?.retry() },
+                    onOpenSettings: { openWindow(id: UNIWindow.accounts) }
+                )
+            }
+            if let receipt = agendaReceipt, receipt.messageID == message.id {
+                agendaConfirmation(receipt)
+            }
+        }
+    }
+
+    /// "neste Mac", "Codex · ChatGPT" — a procedência que a nota da tinta
+    /// escreve. A mesma condição da legenda antiga do TL;DR.
+    static func inkProvenance(for destination: AssistantDestination) -> String {
+        destination.isLocal ? L10n.tr("neste Mac") : destination.label
     }
 
     private func save(_ attachment: MailAttachment, from message: Message) {
@@ -881,22 +950,7 @@ public struct ReaderPane: View {
 
                 Spacer(minLength: 16)
 
-                ReaderAssistantButton(
-                    presentation: intelligencePresentation,
-                    action: {
-                        setEmailAssistantOpen(!emailAssistantOpen, for: message.id)
-                        onOpenAssistant()
-                    }
-                )
-                .background {
-                    GeometryReader { proxy in
-                        let frame = proxy.frame(in: .named(Self.assistantAnchorSpace))
-                        Color.clear.preference(
-                            key: ReaderAssistantAnchorKey.self,
-                            value: CGPoint(x: frame.maxX, y: frame.minY)
-                        )
-                    }
-                }
+                inkPill(message)
             }
             .zIndex(emailAssistantOpen ? 90 : 0)
         }
@@ -916,7 +970,7 @@ public struct ReaderPane: View {
     /// escreve o atalho que de fato existe.
     private func glassToolbar(_ message: Message) -> some View {
         HStack(spacing: 2) {
-            glassAssistantButton(message)
+            inkPill(message)
 
             Rectangle()
                 .fill(theme.line.color)
@@ -1023,9 +1077,16 @@ public struct ReaderPane: View {
         .onChange(of: message.id) { _, _ in folderPickerOpen = false }
     }
 
-    /// "✦ IA ⌥⌘J": aceso em acento cheio enquanto o painel está aberto.
-    private func glassAssistantButton(_ message: Message) -> some View {
+    /// **"✦ IA ⌥⌘J" — a porta de entrada, a mesma nos 28 temas.**
+    ///
+    /// Era duas: esta pastilha no cabeçalho de vidro e um ícone redondo na
+    /// barra de triagem dos 26 opacos. O desenho aprovado (`IA-Tinta`) tem uma
+    /// pastilha, e o que muda de tema para tema é o que sempre muda — a cor do
+    /// acento e a superfície. Aceso em acento cheio enquanto o menu está
+    /// aberto; apagado e desabilitado sem provedor, com o motivo no `help`.
+    private func inkPill(_ message: Message) -> some View {
         let aberto = emailAssistantOpen
+        let disponivel = intelligencePresentation.isAvailable
         return Button {
             setEmailAssistantOpen(!emailAssistantOpen, for: message.id)
             onOpenAssistant()
@@ -1039,27 +1100,126 @@ public struct ReaderPane: View {
                     .font(theme.mono.font(size: 10))
                     .opacity(0.75)
             }
-            .foregroundStyle((aberto ? theme.onAccent : theme.accentInk).color)
+            .foregroundStyle(
+                (!disponivel ? theme.ink4 : (aberto ? theme.onAccent : theme.accentInk)).color
+            )
             .padding(.horizontal, 11)
             .frame(height: 30)
-            .background((aberto ? theme.accent : theme.accentSoft).color)
+            .background(
+                (!disponivel ? theme.surface3 : (aberto ? theme.accent : theme.accentSoft)).color
+            )
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: 10)
+        .disabled(!disponivel)
         .keyboardShortcut("j", modifiers: [.command, .option])
-        .help(L10n.tr("IA neste e-mail (⌥⌘J)"))
+        .help(
+            intelligencePresentation.isAvailable
+                ? L10n.tr("IA neste e-mail (⌥⌘J)")
+                : intelligencePresentation.detail
+        )
         .accessibilityLabel(L10n.tr("IA neste e-mail"))
-        .background {
-            GeometryReader { proxy in
-                let frame = proxy.frame(in: .named(Self.assistantAnchorSpace))
-                Color.clear.preference(
-                    key: ReaderAssistantAnchorKey.self,
-                    value: CGPoint(x: frame.minX, y: frame.minY)
-                )
-            }
+        .accessibilityValue(aberto ? L10n.tr("Aberto") : L10n.tr("Fechado"))
+        .popover(isPresented: inkMenuBinding(for: message), arrowEdge: .bottom) {
+            inkMenu(for: message)
         }
+    }
+
+    /// O menu do ✦ IA, com cada entrada ligada ao que o app de fato sabe
+    /// fazer. Entrada sem ação é entrada desabilitada, com o motivo no `help`
+    /// — nunca um botão mudo.
+    private func inkMenu(for message: Message) -> some View {
+        ReaderInkMenu(
+            isEnabled: { entrada in
+                switch entrada {
+                case .rascunhar: return podeRascunhar
+                case .tom: return podeRascunhar && iaDraftMessageID == message.id
+                case .evento: return message.detectedEvent != nil && !isOnAgenda(message)
+                default: return podeRascunhar
+                }
+            },
+            run: { entrada in
+                setEmailAssistantOpen(false)
+                switch entrada {
+                case .rascunhar:
+                    pedirRascunho(for: message, tone: .direto)
+                case .tom:
+                    tonePickerOpen = true
+                case .evento:
+                    if let evento = message.detectedEvent { addEvent(evento, for: message) }
+                default:
+                    if let pergunta = entrada.question { perguntar(pergunta, for: message) }
+                }
+            }
+        )
+    }
+
+    private func inkMenuBinding(for message: Message) -> Binding<Bool> {
+        Binding(
+            get: { emailAssistantOpen },
+            set: { setEmailAssistantOpen($0, for: message.id) }
+        )
+    }
+
+    /// Há motor de IA ligado a este leitor?
+    private var podeRascunhar: Bool {
+        intelligencePresentation.isAvailable && makeAssistantConversation != nil
+    }
+
+    private func ensureConversation(for messageID: String) {
+        if readerConversation == nil {
+            readerConversation = makeAssistantConversation?(messageID)
+        }
+    }
+
+    /// Uma pergunta do menu, pela mesma rota do campo do assistente. A
+    /// resposta volta para **dentro do e-mail**.
+    private func perguntar(_ question: String, for message: Message) {
+        ensureConversation(for: message.id)
+        resumoAbertoPorID[message.id] = true
+        readerConversation?.ask(question)
+    }
+
+    private func pedirRascunho(for message: Message, tone: AssistantDraftTone) {
+        ensureConversation(for: message.id)
+        inkTone = tone
+        readerConversation?.draftReply(tone: tone)
+    }
+
+    /// O rascunho da IA entra na barra de resposta, recolhida: é ali que ele
+    /// morava antes de existir painel nenhum.
+    private func adoptIADraft(_ text: String, for message: Message) {
+        var draft = store.replyDraft(for: message.id)
+            ?? ReplyDraft(to: [message.from], body: AttributedString())
+        draft.body = AttributedString(text)
+        draft.sentAt = nil
+        store.setReplyDraft(draft, for: message.id)
+        iaDraftMessageID = message.id
+        // A faixa relê o rascunho guardado ao trocar de `id`.
+        quickReplyRevision += 1
+    }
+
+    private func descartarIADraft(_ message: Message) {
+        store.setReplyDraft(nil, for: message.id)
+        iaDraftMessageID = nil
+        quickReplyRevision += 1
+    }
+
+    /// O rascunho da IA desta mensagem, para a barra de resposta desenhá-lo.
+    private func iaDraft(for message: Message) -> QuickReplyIADraft? {
+        guard debugIADraft || iaDraftMessageID == message.id else { return nil }
+        let texto = store.replyDraft(for: message.id)?.text
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !texto.isEmpty else { return nil }
+        return QuickReplyIADraft(
+            text: texto,
+            tone: inkTone,
+            tonePickerOpen: Binding(get: { tonePickerOpen }, set: { tonePickerOpen = $0 }),
+            onTone: podeRascunhar ? { pedirRascunho(for: message, tone: $0) } : nil,
+            onDiscard: { descartarIADraft(message) }
+        )
     }
 
     /// O cabeçalho do protótipo: a linha fina da conta e da pasta, o assunto
@@ -1099,23 +1259,6 @@ public struct ReaderPane: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
 
-            HStack(alignment: .center, spacing: 12) {
-                senderAvatar(message.from.initials, tint: tint, size: 38, font: 14)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(message.from.name.isEmpty ? message.from.address : message.from.name)
-                        .font(theme.sans.font(size: 14, weight: .semibold))
-                        .foregroundStyle(theme.ink.color)
-                        .lineLimit(1)
-                    Text(Self.glassSenderCaption(message))
-                        .font(theme.sans.font(size: 12))
-                        .foregroundStyle(theme.ink3.color)
-                        .lineLimit(1)
-                        .textSelection(.enabled)
-                }
-                Spacer(minLength: 8)
-                identityStamp(message)
-            }
-
             if !message.attachments.isEmpty {
                 attachmentChips(message)
             }
@@ -1130,6 +1273,32 @@ public struct ReaderPane: View {
         .padding(.top, 18)
         .padding(.bottom, 14)
         .allowsHitTesting(!emailAssistantOpen)
+    }
+
+    /// O remetente como o desenho `IA-Tinta` o escreve: avatar de 36, nome em
+    /// 14,5 semibold, "marina@cliente.com · para você" em 12,5, e a hora em
+    /// mono de 12 na ponta direita.
+    ///
+    /// Mora no fluxo de leitura, abaixo da tinta da IA — ver `cardsAndBody`.
+    private func identityRow(_ message: Message) -> some View {
+        let tint = accountTint(message)
+        return HStack(alignment: .center, spacing: 12) {
+            senderAvatar(message.from.initials, tint: tint, size: 36, font: 13)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(message.from.name.isEmpty ? message.from.address : message.from.name)
+                    .font(theme.sans.font(size: 14.5, weight: .semibold))
+                    .foregroundStyle(theme.ink.color)
+                    .lineLimit(1)
+                Text(Self.glassSenderCaption(message))
+                    .font(theme.sans.font(size: 12.5))
+                    .foregroundStyle(theme.ink3.color)
+                    .lineLimit(1)
+                    .textSelection(.enabled)
+            }
+            Spacer(minLength: 8)
+            identityStamp(message)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// "ricardo@empresa.com · Caixa de entrada"
@@ -1191,30 +1360,6 @@ public struct ReaderPane: View {
         }
     }
 
-    @ViewBuilder
-    private func emailAssistantPopover(_ message: Message) -> some View {
-        if let readerConversation {
-            ReaderIntelligencePopover(
-                conversation: readerConversation,
-                isAvailable: intelligencePresentation.isAvailable
-                    && makeAssistantConversation != nil,
-                panelSize: $emailAssistantPanelSize,
-                onUseReply: { useGeneratedReply($0, for: message) },
-                onOpenSettings: { openWindow(id: UNIWindow.accounts) },
-                onClose: { setEmailAssistantOpen(false) }
-            )
-        }
-    }
-
-    private func assistantContext(_ message: Message) -> AssistantContext {
-        let count = store.conversation(of: message.id)?.count ?? 1
-        return AssistantContext(
-            subject: message.subject,
-            sender: message.from.display,
-            conversationLabel: count > 1 ? L10n.tr("\(count) mensagens") : nil
-        )
-    }
-
     nonisolated static func appliedMarkers(
         for message: Message,
         in folders: [MailFolder]
@@ -1247,16 +1392,6 @@ public struct ReaderPane: View {
         }
         emailAssistantOpen = open
         onEmailAssistantOpenChange(open)
-    }
-
-    private func useGeneratedReply(_ text: String, for message: Message) {
-        var draft = store.replyDraft(for: message.id)
-            ?? ReplyDraft(to: [message.from], body: AttributedString())
-        draft.body = AttributedString(text)
-        draft.sentAt = nil
-        store.setReplyDraft(draft, for: message.id)
-        quickReplyRevision += 1
-        pedidoDeResposta += 1
     }
 
     /// O que o botão escreve — e ele diz a verdade sobre o que vai fazer.
@@ -1438,67 +1573,6 @@ public struct ReaderPane: View {
         )
     }
 
-    @ViewBuilder
-    private func summaryCard(_ summary: String, event: DetectedEvent?, message: Message) -> some View {
-        let aberto = resumoEstaAberto(message)
-        let miolo = summaryCardBody(summary, event: event, message: message, aberto: aberto)
-        if aberto {
-            miolo
-                .onTapGesture { toggleResumo(message, aberto: true) }
-                .accessibilityAction(named: Text(Self.recolherResumo)) {
-                    toggleResumo(message, aberto: true)
-                }
-        } else {
-            Button {
-                toggleResumo(message, aberto: false)
-            } label: {
-                miolo
-            }
-            .buttonStyle(.plain)
-            .help(Self.summaryHelp(for: analysisDestination(message.summaryModelVersion)))
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("TL;DR. \(summary)")
-            .accessibilityAddTraits(.isButton)
-            .accessibilityHint(Self.mostrarResumo)
-        }
-    }
-
-    private func summaryCardBody(
-        _ summary: String, event: DetectedEvent?, message: Message, aberto: Bool
-    ) -> some View {
-        // No Vidro a faixa é a do protótipo: acento suave, ✦ na frente e sem
-        // moldura. Os dados são os mesmos — o resumo, a legenda que diz de
-        // onde ele veio, a triagem e o compromisso detectado.
-        HStack(alignment: .top, spacing: 12) {
-            if theme.isGlass {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(theme.accentInk.color)
-                    .padding(.top, 1)
-                    .accessibilityHidden(true)
-            }
-            VStack(alignment: .leading, spacing: aberto ? 8 : 0) {
-                if aberto {
-                    summaryCardAberto(summary, event: event, message: message)
-                } else {
-                    summaryCardRecolhido(summary, message: message)
-                }
-            }
-        }
-        .padding(.vertical, aberto ? 15 : 8)
-        .padding(.horizontal, theme.isGlass ? 14 : 17)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background((theme.isGlass ? theme.accentSoft : theme.infoSoft).color)
-        .clipShape(RoundedRectangle(cornerRadius: theme.isGlass ? 12 : theme.radiusLarge))
-        .overlay {
-            if !theme.isGlass {
-                RoundedRectangle(cornerRadius: theme.radiusLarge)
-                    .strokeBorder(theme.infoLine.color, lineWidth: Hairline.thickness(displayScale))
-            }
-        }
-        .contentShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
-    }
-
     /// "neste Mac" só quando é verdade. Com o opt-in remoto ligado, a legenda
     /// nomeia o destino que de fato leu a mensagem.
     static func summaryCaption(for destination: AssistantDestination) -> String {
@@ -1514,108 +1588,19 @@ public struct ReaderPane: View {
             : L10n.tr("Mostra o resumo gerado por \(destination.label)")
     }
 
+    /// **Um desenho só para os 28 temas.** A tinta nasce escrita em todos:
+    /// não havia razão para o vidro ler a frase inteira e os 26 opacos
+    /// receberem uma linha dobrada, e o `theme.isGlass` que decidia isto aqui
+    /// voltou a ser o que ele deve ser — tratamento de superfície, não layout.
     private func resumoEstaAberto(_ message: Message) -> Bool {
         if debugResumoAberto { return true }
-        // No Vidro a faixa nasce aberta: o protótipo a desenha como banda de
-        // acento com a frase inteira, e não como uma linha dobrada. Nos 26
-        // temas opacos ela continua recolhida, que é o que `ReaderTests`
-        // afirma.
-        return resumoAbertoPorID[message.id] ?? (theme.isGlass || Self.resumoComecaAberto)
+        return resumoAbertoPorID[message.id] ?? Self.resumoComecaAberto
     }
 
-    private func summaryCardAberto(
-        _ summary: String, event: DetectedEvent?, message: Message
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text(Self.summaryCaption(for: analysisDestination(message.summaryModelVersion))).capsLabel()
-                Spacer(minLength: 0)
-                if case let .available(destino) = intelligencePresentation, !destino.isLocal,
-                   makeAssistantConversation != nil {
-                    Button(L10n.tr("Usar IA configurada")) {
-                        setEmailAssistantOpen(true, for: message.id)
-                        onOpenAssistant()
-                    }
-                    .buttonStyle(.plain)
-                    .font(theme.sans.font(size: 10.5, weight: .semibold))
-                    .foregroundStyle(theme.info.color)
-                    .help(L10n.tr("Abre o painel para resumir com o provedor e o modelo escolhidos em Configurações."))
-                }
-                resumoChevron(aberto: true)
-            }
-            .contentShape(Rectangle())
-            .help(L10n.tr("Recolhe o resumo para ler o email"))
-            Text(summary)
-                .font(theme.serif.font(size: 15))
-                .lineSpacing(8.25)
-                .foregroundStyle(theme.ink.color)
-                .fixedSize(horizontal: false, vertical: true)
-                .textSelection(.enabled)
-
-            // A triagem entra **depois** do resumo, no mesmo versalete da
-            // legenda: ela qualifica o que o resumo já disse, e pô-la antes
-            // faria a pessoa ler o rótulo antes do conteúdo.
-            let chips = Self.triageChips(for: message.triage)
-            if !chips.isEmpty {
-                HStack(spacing: 10) {
-                    ForEach(chips, id: \.self) { chip in
-                        Text(chip).capsLabel()
-                    }
-                    Spacer(minLength: 0)
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel(chips.joined(separator: ". "))
-            }
-
-            if let event, Self.convite(de: message) == nil {
-                // Com `text/calendar` o cartão do convite já diz o compromisso.
-                // "Compromisso detectado" em cima dele era a mesma reunião
-                // duas vezes, e empurrava o email para fora da tela.
-                Rectangle()
-                    .fill(theme.infoLine.color)
-                    .frame(height: Hairline.thickness(displayScale))
-                    .padding(.top, 6)
-                    .padding(.bottom, 5)
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(Self.eventLabelFormatted(event.label, ink2: theme.ink2.color, ink: theme.ink.color))
-                            .font(theme.sans.font(size: 12.5))
-                            .textSelection(.enabled)
-                    }
-                    Spacer(minLength: 8)
-                    if let agendaReceipt, agendaReceipt.messageID == message.id {
-                        agendaConfirmation(agendaReceipt)
-                    } else {
-                        addToAgendaButton(event, for: message)
-                    }
-                }
-            }
-        }
-    }
-
-    private func summaryCardRecolhido(_ summary: String, message: Message) -> some View {
-        HStack(spacing: 8) {
-            Text(Self.summaryCaption(for: analysisDestination(message.summaryModelVersion))).capsLabel()
-            Text(summary)
-                .font(theme.sans.font(size: 12.5))
-                .foregroundStyle(theme.ink2.color)
-                .lineLimit(1)
-            Spacer(minLength: 8)
-            resumoChevron(aberto: false)
-        }
-    }
-
+    /// "OCULTAR" / "Mostrar resumo": a escolha é por mensagem e não
+    /// sobrevive a nada — é estado de leitura desta janela.
     private func toggleResumo(_ message: Message, aberto: Bool) {
         resumoAbertoPorID[message.id] = !aberto
-    }
-
-    private func resumoChevron(aberto: Bool) -> some View {
-        Image(systemName: aberto ? "chevron.up" : "chevron.down")
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(theme.ink3.color)
-            .frame(width: 22, height: 22)
-            .contentShape(Rectangle())
-            .accessibilityHidden(true)
     }
 
     // MARK: - O convite de agenda
@@ -1631,10 +1616,6 @@ public struct ReaderPane: View {
         return ICalendar.parse(ics)
     }
 
-    private func temCartao(_ message: Message) -> Bool {
-        message.summary != nil || Self.convite(de: message) != nil
-    }
-
     /// "Convite de agenda", "Convite cancelado", e o rótulo de quem foi
     /// convidado. Estáticas pelo mesmo motivo de `carregandoCorpo`: o que a
     /// pessoa lê é comportamento.
@@ -1648,8 +1629,11 @@ public struct ReaderPane: View {
     nonisolated static var mostrarConvite: String { L10n.tr("Detalhes") }
     nonisolated static var recolherResumo: String { L10n.tr("Recolher resumo") }
     nonisolated static var mostrarResumo: String { L10n.tr("Mostrar resumo") }
-    /// O TL;DR nasce recolhido: uma linha, e quem quiser o texto expande.
-    nonisolated static let resumoComecaAberto = false
+    /// **A tinta nasce escrita.** Na direção Tinta o que a IA diz não é uma
+    /// gaveta a abrir: é texto no fluxo, entre o assunto e o remetente, com um
+    /// "OCULTAR" para quem não quiser. Era `false` quando aquilo era um cartão
+    /// dobrado — e um cartão que começa dobrado é uma frase que ninguém lê.
+    nonisolated static let resumoComecaAberto = true
 
     /// O que a faixa escreve depois do resumo: "Precisa resposta" e
     /// "Prazo: qui 15h", nesta ordem, quando existirem.
@@ -2454,13 +2438,6 @@ private enum TriageChipTone {
 /// O painel da IA não pode nascer overlay do cabeçalho: a hairline de baixo
 /// do cabeçalho é overlay **posterior** e corta o modal ao meio. O sparkle
 /// só reporta onde está; quem desenha o painel é a coluna inteira.
-private struct ReaderAssistantAnchorKey: PreferenceKey {
-    static let defaultValue: CGPoint = .zero
-    static func reduce(value: inout CGPoint, nextValue: () -> CGPoint) {
-        let next = nextValue()
-        if next != .zero { value = next }
-    }
-}
 
 /// Ícone 28×28 da barra do leitor: quieto, acende no hover.
 private struct ReaderChromeIcon: View {

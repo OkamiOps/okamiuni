@@ -140,14 +140,24 @@ struct AssistantDrawerCopyTests {
         )
     }
 
-    @Test("as medidas do 09 e do 10 saem dos desenhos")
+    /// A mesma garantia de antes — as medidas saem do desenho e não do dedo —
+    /// agora contra `IA-Presenca.dc.html`, que é o desenho aprovado: janela de
+    /// 880 × 744, botão ↑ de 32 e campo com `padding: 10px 10px 10px 14px`.
+    @Test("as medidas da Presença saem do desenho")
     func metricsMatchTheDrawings() {
         #expect(AssistantDrawerMetrics.width == 440)
         #expect(AssistantDrawerMetrics.backdropOpacity == 0.45)
-        #expect(AssistantDrawerMetrics.windowSize == CGSize(width: 460, height: 620))
-        #expect(AssistantDrawerMetrics.fieldHeight == 40)
-        #expect(AssistantDrawerMetrics.sendButtonSide == 28)
-        #expect(AssistantDrawerMetrics.cardButtonHeight == 26)
+        #expect(AssistantDrawerMetrics.windowSize == CGSize(width: 880, height: 744))
+        #expect(AssistantDrawerMetrics.sendButtonSide == 32)
+        #expect(PresencaMetrics.headlineSize == 27)
+        #expect(PresencaMetrics.numberColumn == 54)
+        #expect(PresencaMetrics.headerPadding.top == 13)
+        #expect(PresencaMetrics.headerPadding.leading == 18)
+        #expect(PresencaMetrics.fieldPadding.leading == 14)
+        #expect(PresencaMetrics.fieldMargin.leading == 24)
+        #expect(PresencaMetrics.stepListWidth == 340)
+        #expect(PresencaMetrics.gutter(forWidth: 880) == 44)
+        #expect(PresencaMetrics.gutter(forWidth: 440) == 20)
     }
 }
 

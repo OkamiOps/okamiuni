@@ -281,6 +281,42 @@ public enum WritingAction: Sendable, Hashable {
     case customInstruction(String)
 }
 
+/// O tom de um rascunho da IA — `design/IA-Mesa.dc.html`, as três opções que o
+/// dono mandou dobrar na direção Tinta.
+///
+/// **Os três têm lastro no motor**: "direto" é a própria escrita da resposta
+/// (`.draftReply`), "formal" e "mais curto" são reescritas do rascunho que já
+/// existe (`.formalize`, `.shorten`). Um quarto tom sem ação correspondente
+/// seria um botão que não faz nada.
+public enum AssistantDraftTone: String, Sendable, Hashable, CaseIterable, Identifiable {
+    case direto
+    case formal
+    case curto
+
+    public var id: String { rawValue }
+
+    /// Como o desenho escreve a opção: "direto", "formal", "mais curto".
+    public var label: String {
+        switch self {
+        case .direto: L10n.tr("direto")
+        case .formal: L10n.tr("formal")
+        case .curto: L10n.tr("mais curto")
+        }
+    }
+
+    /// O mesmo, em versalete, para o "RASCUNHO DA IA · TOM DIRETO".
+    public var caps: String { label.uppercased(with: L10n.locale) }
+
+    /// A reescrita que este tom pede ao motor.
+    public var writingAction: WritingAction {
+        switch self {
+        case .direto: .draftReply
+        case .formal: .formalize
+        case .curto: .shorten
+        }
+    }
+}
+
 /// Falhas que a interface pode apresentar sem importar FoundationModels.
 public enum TextAssistantError: Error, Sendable, Equatable, LocalizedError {
     case unavailable(AppleIntelligenceAvailability)

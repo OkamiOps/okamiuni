@@ -103,16 +103,25 @@ public extension AssistantBridge {
                     using: assistant
                 )
             },
-            draftReply: { _ in
+            draftReply: { request in
                 let context = try await mailContext()
                 if case .workspace = context {
                     throw TextAssistantError.invalidRequest(
                         L10n.tr("Criar uma resposta requer contexto de e-mail.")
                     )
                 }
+                // O tom escolhido escolhe a reescrita. "formal" e "mais curto"
+                // trabalham sobre o rascunho que **já** está guardado — é o
+                // rascunho da IA, que a barra de resposta gravou ao recebê-lo.
+                // Sem rascunho nenhum não há o que reescrever, e aí vale a
+                // escrita de sempre.
+                let rascunho = currentDraft()
+                let acao = rascunho.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? .draftReply
+                    : (request.tone?.writingAction ?? WritingAction.draftReply)
                 return try await assistant.transform(
-                    currentDraft(),
-                    using: .draftReply,
+                    rascunho,
+                    using: acao,
                     context: context
                 )
             },

@@ -83,6 +83,12 @@ struct QuickReplyBand: View {
     /// a implementação nativa abre o painel por ação direta da pessoa.
     var attachmentSelector: (any AttachmentSelecting)? = NativeAttachmentSelector()
 
+    /// O rascunho que a IA escreveu para esta mensagem. Com ele, a faixa
+    /// recolhida é o cartão do desenho `IA-Tinta`: versalete com o tom, a
+    /// prosa do rascunho e "Revisar e enviar". Sem ele, a faixa recolhida é a
+    /// de sempre.
+    var iaDraft: QuickReplyIADraft?
+
     /// A faixa nasce **recolhida** — ver `opensExpanded(for:)`.
     @State private var open = false
     /// Repassado ao editor para ele tomar o cursor quando a faixa abre por
@@ -167,7 +173,24 @@ struct QuickReplyBand: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if open { card } else { closedCard }
+            if open {
+                card
+            } else if let ia = iaDraft {
+                ReaderInkDraftBar(
+                    draft: ia.text,
+                    tone: ia.tone,
+                    tonesOpen: ia.tonePickerOpen,
+                    onTone: ia.onTone,
+                    onDiscard: ia.onDiscard,
+                    onPromote: { onPromote(message) },
+                    onReview: {
+                        open = true
+                        focusToken += 1
+                    }
+                )
+            } else {
+                closedCard
+            }
         }
         // Protótipo: `padding: 10px 28px 16px; border-top: 0.5px solid var(--line2)`.
         .padding(.horizontal, 28)
@@ -1372,4 +1395,17 @@ private struct SuggestedDraftPicker: View {
         .frame(width: 280)
         .background(theme.surface.color)
     }
+}
+
+
+/// O rascunho da IA que a barra de resposta recebe — ver `ReaderInkDraftBar`.
+///
+/// Não é `Sendable` nem `Hashable` de propósito: carrega os fechamentos que
+/// ligam os botões ao leitor, que é quem tem o store e a conversa.
+struct QuickReplyIADraft {
+    let text: String
+    let tone: AssistantDraftTone
+    let tonePickerOpen: Binding<Bool>
+    let onTone: ((AssistantDraftTone) -> Void)?
+    let onDiscard: () -> Void
 }

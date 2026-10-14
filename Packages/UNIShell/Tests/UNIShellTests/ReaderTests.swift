@@ -28,11 +28,15 @@ struct ReaderTests {
         #expect(ReaderPane.identityCaption(name: "Marina", subject: "") == "Marina")
     }
 
-    @Test("o TL;DR recolhido expande pela linha, não só pelo chevron")
+    /// A garantia é a mesma de antes — a escolha de nascer aberta ou recolhida
+    /// é uma constante nomeada, e não um `if` perdido numa `View` — só que o
+    /// desenho aprovado (`IA-Tinta`) a inverteu: a tinta da IA é texto no
+    /// fluxo, com "OCULTAR" para quem não quiser, e não um cartão dobrado.
+    @Test("a tinta da IA nasce escrita, e tem como ocultar")
     func tldrRowToggles() {
         #expect(ReaderPane.mostrarResumo == "Mostrar resumo")
         #expect(ReaderPane.recolherResumo == "Recolher resumo")
-        #expect(!ReaderPane.resumoComecaAberto)
+        #expect(ReaderPane.resumoComecaAberto)
     }
 
     @Test("o clique na linha revela o email do remetente")

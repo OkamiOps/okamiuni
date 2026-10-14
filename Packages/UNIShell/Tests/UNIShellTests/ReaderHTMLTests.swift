@@ -526,7 +526,8 @@ struct ReaderInviteTests {
         #expect(ReaderPane.conviteComecaAberto(responded: true, cancelled: true))
         #expect(ReaderPane.recolherConvite == "Recolher")
         #expect(ReaderPane.mostrarConvite == "Detalhes")
-        #expect(!ReaderPane.resumoComecaAberto)
+        // A tinta da IA nasce escrita — ver `ReaderTests.tldrRowToggles`.
+        #expect(ReaderPane.resumoComecaAberto)
         #expect(ReaderPane.recolherResumo == "Recolher resumo")
         #expect(ReaderPane.mostrarResumo == "Mostrar resumo")
     }

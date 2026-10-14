@@ -79,6 +79,35 @@ public enum AssistantDrawerCopy {
     }
 }
 
+/// O recibo de **uma** ida ao motor: os passos que ele deu e quanto tempo
+/// levou.
+///
+/// É o que a linha "li 12 e-mails de hoje · olhei a agenda · 2,4s" do desenho
+/// escreve. Os passos são os reais, vindos do mesmo `onActivity` que a barra
+/// de trabalho do chrome já lia; sem ferramenta no caminho o recibo nasce
+/// vazio e a linha não é desenhada.
+public struct AssistantRunReceipt: Sendable, Hashable {
+
+    public let steps: [String]
+    public let elapsed: TimeInterval?
+
+    public init(steps: [String], elapsed: TimeInterval?) {
+        self.steps = steps
+        self.elapsed = elapsed
+    }
+
+    /// "2,4s" — uma casa decimal, no separador do idioma escolhido.
+    public var elapsedLabel: String? {
+        guard let elapsed, elapsed > 0.05 else { return nil }
+        let numero = elapsed.formatted(
+            .number.precision(.fractionLength(1)).locale(L10n.locale)
+        )
+        return "\(numero)s"
+    }
+
+    public var isEmpty: Bool { steps.isEmpty }
+}
+
 /// A sessão do assistente: a conversa, a gaveta e a janela destacada.
 ///
 /// ## Por que existe, em vez de `@State` no `InboxScreen`
@@ -95,7 +124,45 @@ public enum AssistantDrawerCopy {
 @Observable
 public final class AssistantSession {
 
-    public var activity: String?
+    /// O passo em curso. Quem escreve é o motor, pelo `onActivity`; quem lê é
+    /// o estado "trabalhando" do desenho.
+    ///
+    /// É propriedade computada de propósito: escrever nela **acumula** o
+    /// passo em `steps`, e escrever `nil` fecha o recibo da ida. Sem isso o
+    /// desenho só poderia mostrar o passo atual, e a lista de ✓ que ele pede
+    /// teria de ser inventada.
+    public var activity: String? {
+        get { passoEmCurso }
+        set { noteActivity(newValue) }
+    }
+
+    /// Os passos desta ida, na ordem. O último está em curso.
+    public private(set) var steps: [String] = []
+    /// O recibo da última ida que terminou.
+    public private(set) var lastReceipt: AssistantRunReceipt?
+
+    private var passoEmCurso: String?
+    @ObservationIgnored private var runStartedAt: Date?
+
+    /// A conta do acúmulo, com o relógio injetável para o teste não depender
+    /// de quanto a máquina demorou.
+    public func noteActivity(_ step: String?, at now: Date = Date()) {
+        passoEmCurso = step
+        guard let step, !step.isEmpty else {
+            if !steps.isEmpty {
+                lastReceipt = AssistantRunReceipt(
+                    steps: steps,
+                    elapsed: runStartedAt.map { now.timeIntervalSince($0) }
+                )
+            }
+            steps = []
+            runStartedAt = nil
+            return
+        }
+        if runStartedAt == nil { runStartedAt = now }
+        if steps.last != step { steps.append(step) }
+    }
+
     public private(set) var conversation: AssistantConversation?
     /// A gaveta está aberta sobre a caixa.
     public private(set) var isDrawerOpen = false

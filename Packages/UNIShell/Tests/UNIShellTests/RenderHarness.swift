@@ -54,6 +54,11 @@ enum Render {
             .theme(theme)
             .environment(\.locale, Locale(identifier: "pt_BR"))
             .environment(\.displayScale, scale)
+            // **Sem movimento.** O desenho da Presença respira (orbe, cursor,
+            // fio de tinta) e dois quadros de uma animação nunca são o mesmo:
+            // a espera "até assentar" lá embaixo nunca assentaria, e toda
+            // comparação de pixels viraria sorteio. Ver `movimentoParado`.
+            .environment(\.movimentoParado, true)
             .frame(width: size.width, height: size.height)
 
         let window = NSWindow(
@@ -164,12 +169,14 @@ enum Render {
 enum CliqueDeEnsaio {
 
     static func em<V: View>(
-        _ view: V, size: CGSize, aY y: CGFloat, x: CGFloat = 60, cliques: Int = 1
+        _ view: V, size: CGSize, aY y: CGFloat, x: CGFloat = 60, cliques: Int = 1,
+        theme: Theme = .tinta
     ) {
         let raiz = view
-            .theme(.tinta)
+            .theme(theme)
             .environment(\.locale, Locale(identifier: "pt_BR"))
             .environment(\.displayScale, 1)
+            .environment(\.movimentoParado, true)
             // `topLeading`, e não o centro que o `frame` dá por padrão: as
             // coordenadas deste ensaio contam a partir da primeira linha da
             // pilha, e conteúdo centrado as faria depender da altura do que

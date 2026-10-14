@@ -55,7 +55,6 @@ public struct InboxScreen: View {
     @State private var assistantActionFailure: String?
     @State private var assistantScope: InboxAssistantScope = .workspace
     @State private var assistantSessionID = UUID()
-    @State private var readerAssistantOpen = false
     /// A conversa do painel lateral. Nasce ao abrir e é cancelada ao
     /// fechar — o dono é esta tela, não o painel.
     @State private var assistantConversation: AssistantConversation?
@@ -221,7 +220,6 @@ public struct InboxScreen: View {
         self.debugReaderAssistantOpen = debugReaderAssistantOpen
         _assistantOpen = State(initialValue: debugAssistantOpen)
         _assistantScope = State(initialValue: debugAssistantScope)
-        _readerAssistantOpen = State(initialValue: debugReaderAssistantOpen)
         _workspace = State(initialValue: debugWorkspace)
         _wantsSidebar = State(initialValue: debugWantsSidebar)
     }
@@ -554,16 +552,13 @@ public struct InboxScreen: View {
                 analysisDestination: analysisDestination,
                 makeAssistantConversation: readerConversationFactory,
                 onMessagePresented: onMessagePresented,
-                onEmailAssistantOpenChange: { open in
-                    readerAssistantOpen = open
-                },
                 nextEvent: AgendaSummary.nextEventCapsule(
                     for: WeekAgenda.items(on: 0, in: store.visibleAgenda),
                     now: dashboardNowMinute
                 )
             )
+            .assistantSteps(assistantSession.steps)
             .glassPanel(theme, kind: .reader)
-            .zIndex(readerAssistantOpen ? 100 : 0)
         }
         .overlay(alignment: .topLeading) {
             // A divisória entre lista e leitor, centrada sobre a folga.
@@ -579,8 +574,6 @@ public struct InboxScreen: View {
                 }
             )
             .offset(x: PaneDivider.leadingEdge(centeredOn: listWidth + gap / 2))
-            .opacity(readerAssistantOpen ? 0 : 1)
-            .allowsHitTesting(!readerAssistantOpen)
         }
         .coordinateSpace(.named(PaneDivider.coordinateSpace))
     }
@@ -834,13 +827,8 @@ public struct InboxScreen: View {
                     analysisDestination: analysisDestination,
                     makeAssistantConversation: readerConversationFactory,
                     onMessagePresented: onMessagePresented,
-                    onEmailAssistantOpenChange: { open in
-                        readerAssistantOpen = open
-                    }
                 )
-                // O popover sai dos limites do leitor para caber ao lado do
-                // ícone. Elevar só o cabeçalho não o coloca acima da lista.
-                .zIndex(readerAssistantOpen ? 100 : 0)
+                .assistantSteps(assistantSession.steps)
 
                 // Trilha de agenda — o primeiro painel a sair quando aperta.
                 // A data do cabeçalho e o minuto seguem o **mesmo** relógio:
@@ -873,11 +861,6 @@ public struct InboxScreen: View {
             // zero ao layout.
             .overlay(alignment: .topLeading) {
                 dividers(layout: layout, windowWidth: proxy.size.width)
-                    // A calha é um overlay do HStack inteiro; nenhum zIndex de
-                    // um filho passa por ela. Enquanto o popover está aberto,
-                    // a linha some e deixa de roubar clique.
-                    .opacity(readerAssistantOpen ? 0 : 1)
-                    .allowsHitTesting(!readerAssistantOpen)
             }
             // O referencial em que o arraste é medido, e o motivo de ele vir
             // **depois** do `.overlay`: assim as divisórias são descendentes

@@ -30,24 +30,39 @@ private func rehearsalConversation(
 @Suite("Assistente integrado ao leitor")
 @MainActor
 struct InboxAssistantIntegrationTests {
-    @Test("o botão contextual do leitor abre a IA e respeita indisponibilidade")
-    func readerButtonIsAnAction() {
-        var opens = 0
+    /// A mesma garantia de sempre — a porta da IA é um controle de verdade e
+    /// respeita indisponibilidade —, agora na pastilha ✦ IA do desenho
+    /// `IA-Tinta`, que é a porta única dos 28 temas. O ícone redondo que vivia
+    /// na barra de triagem dos temas opacos saiu: duas portas para a mesma
+    /// coisa divergiam no primeiro conserto.
+    @Test("a pastilha ✦ IA abre a IA e respeita indisponibilidade", arguments: [
+        (IntelligencePresentation.onThisMac, 1),
+        (IntelligencePresentation.modelNotReady, 0),
+    ])
+    func readerButtonIsAnAction(
+        presentation: IntelligencePresentation, esperado: Int
+    ) async throws {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        store.select(bucket: .all)
+        store.select(message: "m1")
+        var abriu = 0
         CliqueDeEnsaio.em(
-            ReaderAssistantButton(presentation: .onThisMac) { opens += 1 },
-            size: CGSize(width: 60, height: 50),
-            aY: 13,
-            x: 14
+            ReaderPane(
+                store: store,
+                intelligence: { _ in "ok" },
+                intelligencePresentation: presentation,
+                makeAssistantConversation: { _ in rehearsalConversation() },
+                onEmailAssistantOpenChange: { if $0 { abriu += 1 } }
+            ),
+            size: CGSize(width: 760, height: 700),
+            // A barra de ferramentas do leitor tem 46 de altura e a pastilha
+            // mora na ponta esquerda dela, depois dos 14 de recuo: é o que o
+            // desenho escreve, e é onde o clique tem de cair.
+            aY: 23, x: 50,
+            theme: .vidro
         )
-        #expect(opens == 1)
-
-        CliqueDeEnsaio.em(
-            ReaderAssistantButton(presentation: .modelNotReady) { opens += 1 },
-            size: CGSize(width: 60, height: 50),
-            aY: 13,
-            x: 14
-        )
-        #expect(opens == 1)
+        #expect(abriu == esperado)
     }
 
     @Test("marcador aplicado vira uma pastilha visível no leitor")
@@ -415,180 +430,49 @@ struct InboxAssistantIntegrationTests {
         )
     }
 
-    @Test("o painel contextual do leitor fica acima do corpo do email")
-    func readerPanelLayerRendersOffscreen() async throws {
-        let store = MailStore(source: InMemoryMailSource.fixtures)
-        await store.load()
-        store.select(bucket: .all)
-        store.select(message: "m1")
-        let size = CGSize(width: 760, height: 700)
-        let generatedReplies = ReaderReplyRecorder()
-        let generator: ComposerIntelligenceGenerator = { _ in
-            await generatedReplies.generate()
-        }
-
-        let closed = try #require(Render.bitmap(
-            ReaderPane(
-                store: store,
-                attachmentSaver: nil,
-                intelligence: generator,
-                makeAssistantConversation: { _ in
-                    rehearsalConversation(answer: { _ in "Análise" }, draftReply: { _ in await generatedReplies.generate() })
-                }
-            ),
-            size: size,
-            theme: .tinta
-        ))
-        let open = try #require(Render.snapshot(
-            ReaderPane(
-                store: store,
-                debugEmailAssistantOpen: true,
-                intelligence: generator,
-                makeAssistantConversation: { _ in
-                    rehearsalConversation(answer: { _ in "Análise" }, draftReply: { _ in await generatedReplies.generate() })
-                }
-            ),
-            named: "reader-intelligence-layering",
-            size: size,
-            theme: .tinta
-        ))
-
-        #expect(open.pixelsDiffering(from: closed) > 4_000)
-        // O sparkle mora no canto direito; o painel abre para a esquerda,
-        // sobre o corpo do email. Se o ScrollView ganhar a camada, aberto e
-        // fechado saem idênticos neste retângulo.
-        #expect(
-            open.pixelsDiffering(
-                from: closed,
-                inColumns: 280..<500,
-                rows: 70..<280
-            ) > 1_000
-        )
-
-        // O mesmo retângulo precisa ganhar também o hit-test. Este ponto cai
-        // no botão "Gerar resposta" do painel e, no código defeituoso, caía
-        // no cartão de resumo que estava desenhado por cima.
-        CliqueDeEnsaio.em(
-            ReaderPane(
-                store: store,
-                debugEmailAssistantOpen: true,
-                intelligence: generator,
-                makeAssistantConversation: { _ in
-                    rehearsalConversation(answer: { _ in "Análise" }, draftReply: { _ in await generatedReplies.generate() })
-                }
-            ),
-            size: size,
-            aY: 288,
-            x: 280
-        )
-        await Task.yield()
-        try? await Task.sleep(for: .milliseconds(50))
-        let total = await generatedReplies.total()
-        #expect(total == 1)
-    }
-
-    /// O painel nasce no botão da IA, **acima** do assunto. Sem `zIndex` na
-    /// barra de triagem, o `VStack` do cabeçalho pinta o título por cima — e o
-    /// clique cai no assunto, não no "Gerar resposta". É o print do dono.
-    @Test("o painel da IA fica acima de um assunto de várias linhas")
-    func painelPorCimaDoAssuntoLongo() async throws {
+    /// **A direção Tinta tira o painel do caminho.**
+    ///
+    /// Os três casos que viviam aqui — painel por cima do corpo, por cima de
+    /// um assunto de três linhas, por cima da divisória da pilha — eram
+    /// variações de um defeito só: uma superfície da IA desenhada **sobre** o
+    /// e-mail, que o `VStack` do cabeçalho às vezes ganhava. O desenho
+    /// aprovado (`IA-Tinta.dc.html`) não tem essa superfície: o ✦ IA abre um
+    /// menu (popover, fora da árvore do leitor) e o que a IA diz é escrito no
+    /// próprio fluxo de leitura.
+    ///
+    /// A garantia dos três, então, virou esta, e vale para qualquer assunto e
+    /// qualquer pilha: **com o menu aberto, a área de leitura sai idêntica.**
+    /// Nada é coberto, nada é cortado por hairline nenhuma, e não há camada
+    /// para o assunto disputar. Onde a tinta de fato aparece, e em que ordem,
+    /// é o que `IAPresencaTintaRenderTests` mede contra o desenho.
+    @Test(
+        "o menu da IA não pinta nada por cima do e-mail",
+        arguments: [(Theme.vidro, false), (Theme.vidro, true), (Theme.tinta, false)]
+    )
+    func readerInkNeverCoversTheEmail(tema: Theme, emPilha: Bool) async throws {
         let account = Account(
             id: "a", address: "conta@dominio.com", displayName: "Conta",
             provider: .imap, host: "host", tintLightHex: "#3E6FA8", tintDarkHex: "#7BA8D9"
         )
-        let message = Message(
-            id: "m", accountID: "a",
-            from: Contact(name: "cursor[bot]", address: "notifications@github.com"),
-            receivedAt: Fixtures.today,
-            subject: "Re: [aitherion-labs/contion-app] Contion — workflow contábil agêntico (fiscal real, certificado, agentes, WhatsApp) (PR #2)",
-            snippet: "pushed", body: ["commit"], tags: [], bucket: .today,
-            isRead: true, summary: nil, detectedEvent: nil
-        )
-        let store = MailStore(
-            source: InMemoryMailSource(accounts: [account], messages: [message], agenda: [])
-        )
-        await store.load()
-        store.select(message: "m")
-        let size = CGSize(width: 760, height: 700)
-        let generator: ComposerIntelligenceGenerator = { _ in "ok" }
-
-        let closed = try #require(Render.bitmap(
-            ReaderPane(
-                store: store,
-                intelligence: generator,
-                makeAssistantConversation: { _ in rehearsalConversation() }
-            ),
-            size: size, theme: .tinta
-        ))
-        let open = try #require(Render.bitmap(
-            ReaderPane(
-                store: store, debugEmailAssistantOpen: true,
-                intelligence: generator,
-                makeAssistantConversation: { _ in rehearsalConversation() }
-            ),
-            size: size, theme: .tinta
-        ))
-
-        // Faixa em que o título de três linhas e o painel se cruzam. Se o
-        // assunto ganhar a camada, aberto e fechado saem iguais aqui.
-        #expect(
-            open.pixelsDiffering(
-                from: closed,
-                inColumns: 280..<520,
-                rows: 100..<170
-            ) > 2_000,
-            "o assunto está pintando por cima do painel da IA"
-        )
-
-        let generatedReplies = ReaderReplyRecorder()
-        let clickGenerator: ComposerIntelligenceGenerator = { _ in
-            await generatedReplies.generate()
-        }
-        CliqueDeEnsaio.em(
-            ReaderPane(
-                store: store, debugEmailAssistantOpen: true,
-                intelligence: clickGenerator,
-                makeAssistantConversation: { _ in
-                    rehearsalConversation(draftReply: { _ in await generatedReplies.generate() })
-                }
-            ),
-            size: size,
-            aY: 288,
-            x: 280
-        )
-        await Task.yield()
-        try? await Task.sleep(for: .milliseconds(50))
-        #expect(
-            await generatedReplies.total() == 1,
-            "o clique no painel caiu no assunto em vez do Gerar resposta"
-        )
-    }
-
-    /// A divisória dados/corpo era overlay do cabeçalho. Overlay pinta **depois**
-    /// dos filhos, então a linha cortava o painel da IA ao meio — o print do
-    /// dono. O painel agora é overlay da coluna inteira, acima dessa linha.
-    @Test("o painel da IA fica acima da divisória do cabeçalho")
-    func painelPorCimaDaFaixaDaPilha() async throws {
-        let account = Account(
-            id: "a", address: "conta@dominio.com", displayName: "Conta",
-            provider: .imap, host: "host", tintLightHex: "#3E6FA8", tintDarkHex: "#7BA8D9"
-        )
+        // O assunto de três linhas do print do dono, que era o que disputava a
+        // camada com o painel antigo.
         func msg(_ id: String, at segundos: TimeInterval) -> Message {
             Message(
                 id: id, accountID: "a",
                 from: Contact(name: "cursor[bot]", address: "notifications@github.com"),
                 receivedAt: Date(timeIntervalSince1970: segundos),
-                subject: "Re: thread", snippet: "pushed", body: ["commit"],
-                tags: [], bucket: .today, isRead: true, summary: nil,
-                detectedEvent: nil, threadKey: "t1"
+                subject: "Re: [aitherion-labs/contion-app] Contion — workflow contábil "
+                    + "agêntico (fiscal real, certificado, agentes, WhatsApp) (PR #2)",
+                snippet: "pushed", body: ["commit"], tags: [], bucket: .today,
+                isRead: true, summary: nil, detectedEvent: nil,
+                threadKey: emPilha ? "t1" : nil
             )
         }
+        let mensagens = emPilha
+            ? [msg("c", at: 300), msg("a", at: 100)]
+            : [msg("c", at: 300)]
         let store = MailStore(
-            source: InMemoryMailSource(
-                accounts: [account],
-                messages: [msg("c", at: 300), msg("a", at: 100)],
-                agenda: []
-            )
+            source: InMemoryMailSource(accounts: [account], messages: mensagens, agenda: [])
         )
         await store.load()
         store.select(bucket: .all)
@@ -596,32 +480,32 @@ struct InboxAssistantIntegrationTests {
         let size = CGSize(width: 760, height: 700)
         let generator: ComposerIntelligenceGenerator = { _ in "ok" }
 
-        let closed = try #require(Render.bitmap(
-            ReaderPane(
-                store: store,
-                intelligence: generator,
-                makeAssistantConversation: { _ in rehearsalConversation() }
-            ),
-            size: size, theme: .tinta
-        ))
-        let open = try #require(Render.bitmap(
-            ReaderPane(
-                store: store, debugEmailAssistantOpen: true,
-                intelligence: generator,
-                makeAssistantConversation: { _ in rehearsalConversation() }
-            ),
-            size: size, theme: .tinta
-        ))
+        func desenho(menuAberto: Bool) throws -> NSBitmapImageRep {
+            try #require(Render.bitmap(
+                ReaderPane(
+                    store: store,
+                    debugEmailAssistantOpen: menuAberto,
+                    intelligence: generator,
+                    makeAssistantConversation: { _ in rehearsalConversation() }
+                ),
+                size: size, theme: tema
+            ))
+        }
 
-        // Faixa em que a contagem da pilha e o painel se cruzam. Se a hairline
-        // da conversa ganhar a camada, aberto e fechado saem iguais aqui.
+        let fechado = try desenho(menuAberto: false)
+        let aberto = try desenho(menuAberto: true)
+
+        // A pastilha acende em acento cheio: é a única coisa que muda.
         #expect(
-            open.pixelsDiffering(
-                from: closed,
-                inColumns: 280..<520,
-                rows: 120..<190
-            ) > 1_500,
-            "a faixa da pilha está pintando por cima do painel da IA"
+            aberto.pixels(matching: tema.accent, tolerance: 0.03)
+                > fechado.pixels(matching: tema.accent, tolerance: 0.03) + 200,
+            "\(tema.id): o ✦ IA não deu sinal de que o menu abriu"
+        )
+        // E no e-mail, nada. Nem o assunto, nem a divisória, nem o corpo:
+        // não há painel para cobrir nada disso.
+        #expect(
+            aberto.pixelsDiffering(from: fechado, inColumns: 0..<760, rows: 320..<700) == 0,
+            "\(tema.id): alguma coisa da IA foi desenhada por cima do e-mail"
         )
     }
 
@@ -668,8 +552,15 @@ struct InboxAssistantIntegrationTests {
         #expect(open.pixelsDiffering(from: emailActions) > 2_000)
     }
 
-    @Test("popover do leitor fica acima das três colunas e das divisórias")
-    func readerPopoverOwnsTheWholeShellLayer() async throws {
+    /// O caso inverso do que vivia aqui.
+    ///
+    /// Antes o painel da IA tinha de **atravessar** o `HStack` das três
+    /// colunas, e este teste media esse atravessamento. Na direção Tinta não
+    /// há painel: o menu é popover do AppKit e o resultado é escrito no fluxo,
+    /// então o shell não precisa elevar nada — e a prova disso é que a tela
+    /// inteira sai igual, tirando a pastilha acesa.
+    @Test("o shell não precisa elevar nada para a IA do leitor")
+    func readerInkNeedsNoShellLayer() async throws {
         let store = MailStore(source: InMemoryMailSource.fixtures)
         await store.load()
         store.select(bucket: .all)
@@ -677,6 +568,8 @@ struct InboxAssistantIntegrationTests {
         let assistant = IntegrationAssistant()
         let size = CGSize(width: 1_440, height: 858)
 
+        // O harness já desenha sem movimento (ver `Render.bitmap`): com o fio
+        // de tinta vivo, duas imagens do mesmo desenho nunca seriam iguais.
         let closed = try #require(Render.bitmap(
             InboxScreen(store: store, textAssistant: assistant)
                 .environment(ThemeStore()),
@@ -691,21 +584,20 @@ struct InboxAssistantIntegrationTests {
                 debugReaderAssistantOpen: true
             )
             .environment(ThemeStore()),
-            named: "reader-intelligence-shell-layering",
+            named: "reader-ink-menu-no-shell-layer",
             size: size,
             theme: .tinta
         ))
 
-        // O sparkle fica no canto direito do leitor; o painel abre para a
-        // esquerda, sobre o corpo. Se o ReaderPane não atravessar o HStack
-        // das três colunas, essa faixa continua sendo o email e a diferença
-        // despenca.
+        // A pastilha acende, na barra de ações do leitor.
         #expect(
-            open.pixelsDiffering(
-                from: closed,
-                inColumns: 720..<980,
-                rows: 90..<320
-            ) > 12_000
+            open.pixelsDiffering(from: closed, inColumns: 720..<1_440, rows: 100..<200) > 500,
+            "a pastilha ✦ IA não acendeu"
+        )
+        // E nada mais: nem a calha entre as colunas, nem a lista, nem o corpo.
+        #expect(
+            open.pixelsDiffering(from: closed, inColumns: 0..<1_440, rows: 300..<820) == 0,
+            "a IA do leitor voltou a cobrir as colunas do shell"
         )
     }
 

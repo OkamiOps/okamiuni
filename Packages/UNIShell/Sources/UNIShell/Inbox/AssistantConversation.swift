@@ -24,6 +24,10 @@ public struct AssistantMessage: Identifiable, Sendable, Hashable {
     public let speaker: AssistantSpeaker
     public let text: String
     public let kind: AssistantTurnKind
+    /// Quando o turno entrou na conversa. O desenho da Presença escreve a
+    /// hora ao lado do "VOCÊ" — a pergunta é uma linha de dossiê, e dossiê
+    /// tem hora.
+    public let at: Date
     /// As propostas de ação que vieram **com** este turno (§4). Já passaram
     /// pelo validador do roteador: o que ele descartou não chega aqui, e por
     /// isso não vira cartão.
@@ -35,7 +39,8 @@ public struct AssistantMessage: Identifiable, Sendable, Hashable {
         speaker: AssistantSpeaker,
         text: String,
         kind: AssistantTurnKind = .message,
-        proposals: [AssistantProposal] = []
+        proposals: [AssistantProposal] = [],
+        at: Date = Date()
     ) {
         self.id = id
         self.requestID = requestID
@@ -43,6 +48,7 @@ public struct AssistantMessage: Identifiable, Sendable, Hashable {
         self.text = text
         self.kind = kind
         self.proposals = proposals
+        self.at = at
     }
 
     /// Os cartões deste turno, na ordem em que a resposta os propôs.
@@ -56,11 +62,20 @@ public struct AssistantRequest: Sendable, Hashable {
     public let context: AssistantContext
     public let question: String
     public let conversation: [AssistantMessage]
+    /// O tom pedido, quando o pedido é de rascunho. `nil` em pergunta e
+    /// briefing, que não têm tom nenhum para escolher.
+    public let tone: AssistantDraftTone?
 
-    public init(context: AssistantContext, question: String, conversation: [AssistantMessage]) {
+    public init(
+        context: AssistantContext,
+        question: String,
+        conversation: [AssistantMessage],
+        tone: AssistantDraftTone? = nil
+    ) {
         self.context = context
         self.question = question
         self.conversation = conversation
+        self.tone = tone
     }
 }
 
@@ -210,7 +225,7 @@ public final class AssistantConversation {
 
     enum Action: Equatable {
         case ask(String)
-        case draftReply(UUID)
+        case draftReply(UUID, AssistantDraftTone)
         case briefing
     }
 
@@ -311,10 +326,14 @@ public final class AssistantConversation {
     /// Quem não precisa associar o resultado a uma superfície específica pode
     /// ignorar o retorno; o id ainda impede que o Painel do Dia confunda um
     /// rascunho antigo com a mensagem aberta agora.
+    /// `tone` escolhe a reescrita: "direto" escreve a resposta, "formal" e
+    /// "mais curto" reescrevem o rascunho que já está guardado.
     @discardableResult
-    public func draftReply(requestID: UUID = UUID()) -> UUID? {
+    public func draftReply(
+        tone: AssistantDraftTone = .direto, requestID: UUID = UUID()
+    ) -> UUID? {
         guard canDraftReply else { return nil }
-        start(.draftReply(requestID))
+        start(.draftReply(requestID, tone))
         return requestID
     }
 
@@ -391,10 +410,12 @@ public final class AssistantConversation {
     }
 
     private func perform(_ action: Action) async {
+        let tone: AssistantDraftTone? = if case let .draftReply(_, tom) = action { tom } else { nil }
         let request = AssistantRequest(
             context: context,
             question: question(for: action),
-            conversation: Array(messages.suffix(Self.maximumHistoryTurns + 1))
+            conversation: Array(messages.suffix(Self.maximumHistoryTurns + 1)),
+            tone: tone
         )
         do {
             let text: String
@@ -424,7 +445,7 @@ public final class AssistantConversation {
                 messages.append(
                     .init(speaker: .assistant, text: trimmed, proposals: propostas)
                 )
-            case let .draftReply(requestID):
+            case let .draftReply(requestID, _):
                 messages.append(
                     .init(
                         requestID: requestID,
