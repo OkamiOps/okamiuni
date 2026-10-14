@@ -135,9 +135,27 @@ final class TrafficLightAligner: NSObject {
         self.compactRow = compactRow
     }
 
+    /// Quem alinha cada janela agora. **Um dono por janela.**
+    ///
+    /// Trocar de um tema Vidro para um clássico (ou vice-versa) monta a barra
+    /// nova antes de desmontar a velha, e por um instante dois alinhadores com
+    /// alturas diferentes (64 e 48) observavam o mesmo container. Cada um
+    /// escrevia o próprio quadro, o `frameDidChange` acordava o outro, e a
+    /// pilha estourava dentro do `setFrame` — o crash de 14/10/2026. O último
+    /// a chegar despeja o anterior.
+    private static let owners = NSMapTable<NSWindow, TrafficLightAligner>.weakToWeakObjects()
+
+    /// Corta a reentrada: escrever o `frame` posta `frameDidChange`
+    /// **sincronamente**, ainda dentro de `align()`.
+    private var aligning = false
+
     func attach(to window: NSWindow) {
         guard self.window !== window else { return }
         detach()
+        if let previous = Self.owners.object(forKey: window), previous !== self {
+            previous.detach()
+        }
+        Self.owners.setObject(self, forKey: window)
         self.window = window
         guard let container = Self.titlebarContainer(of: window) else { return }
 
@@ -167,6 +185,9 @@ final class TrafficLightAligner: NSObject {
         if observing {
             NotificationCenter.default.removeObserver(self)
             observing = false
+        }
+        if let window, Self.owners.object(forKey: window) === self {
+            Self.owners.removeObject(forKey: window)
         }
         window = nil
     }
@@ -202,7 +223,9 @@ final class TrafficLightAligner: NSObject {
                 && (!compactRow
                     || button.frame.origin.x == TrafficLightLayout.railButtonOriginX(index: index))
         }
-        guard container.frame != wanted || !aligned else { return }
+        guard container.frame != wanted || !aligned, !aligning else { return }
+        aligning = true
+        defer { aligning = false }
 
         container.frame = wanted
         titlebar.frame = CGRect(origin: .zero, size: wanted.size)
