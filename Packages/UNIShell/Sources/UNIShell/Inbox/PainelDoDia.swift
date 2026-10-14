@@ -198,35 +198,15 @@ struct PainelDoDia: View {
             myAddresses: Set(store.accounts.map(\.address)),
             motivoSemProntas: motivoSemProntas
         )
-        return VStack(alignment: .leading, spacing: 0) {
-            // O topo é fixo: o plano de hoje é a única coisa que a pessoa
-            // precisa ver sem rolar, e ele não pode ser empurrado para fora.
-            VStack(alignment: .leading, spacing: 0) {
-                header(modelo)
-                planoDeHoje(modelo)
-                    .padding(.top, 16)
+        return Group {
+            if theme.isGlass {
+                corpoVidro(modelo)
+            } else {
+                corpoClassico(modelo)
             }
-            .padding(.top, 22)
-            .padding(.horizontal, 28)
-
-            // Os três painéis rolam. Com seis azulejos a grade já passava do
-            // pé da janela, e o que saía por baixo era a barra de estado —
-            // então a tela não tinha nem rolagem nem barra.
-            ScrollView(.vertical) {
-                painéis(modelo)
-                    .padding(.top, 22)
-                    .padding(.bottom, 20)
-                    .padding(.horizontal, 28)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .scrollBounceBehavior(.basedOnSize)
-
-            // E a barra fica colada no pé, sempre: ela é estado do dia, e
-            // estado que some quando o dia enche não é estado nenhum.
-            barraInferior(modelo)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(theme.paper.color)
+        .background(theme.isGlass ? Color.clear : theme.paper.color)
         .bareKeyShortcuts { key in
             let alvo = DashboardKeys.opens(
                 key: key,
@@ -270,6 +250,280 @@ struct PainelDoDia: View {
         .onDisappear { briefing.cancel() }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L10n.tr("Painel do dia"))
+    }
+
+    // MARK: - O corpo clássico (os 26 temas de sempre)
+
+    private func corpoClassico(_ modelo: PainelDoDiaModelo) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // O topo é fixo: o plano de hoje é a única coisa que a pessoa
+            // precisa ver sem rolar, e ele não pode ser empurrado para fora.
+            VStack(alignment: .leading, spacing: 0) {
+                header(modelo)
+                planoDeHoje(modelo)
+                    .padding(.top, 16)
+            }
+            .padding(.top, 22)
+            .padding(.horizontal, 28)
+
+            // Os três painéis rolam. Com seis azulejos a grade já passava do
+            // pé da janela, e o que saía por baixo era a barra de estado —
+            // então a tela não tinha nem rolagem nem barra.
+            ScrollView(.vertical) {
+                painéis(modelo)
+                    .padding(.top, 22)
+                    .padding(.bottom, 20)
+                    .padding(.horizontal, 28)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .scrollBounceBehavior(.basedOnSize)
+
+            // E a barra fica colada no pé, sempre: ela é estado do dia, e
+            // estado que some quando o dia enche não é estado nenhum.
+            barraInferior(modelo)
+        }
+    }
+
+    // MARK: - O corpo Vidro
+
+    /// Um painel só, na ordem do protótipo: cabeçalho, "Comece por aqui", a
+    /// linha do tempo, uma hairline e "Depois disso" em três frentes.
+    ///
+    /// O que saiu daqui saiu porque já existe em outro lugar: os chips de
+    /// negócio estão na coluna de contexto, o assistente está no trilho e no
+    /// ⌘J, e a barra de estado do pé era a repetição escrita do que o anel de
+    /// progresso e os três azulejos mostram.
+    private func corpoVidro(_ modelo: PainelDoDiaModelo) -> some View {
+        let account = store.selectedAccountID.flatMap { store.account($0) }
+            ?? store.accounts.first
+        let frentes = frentesDeVidro(modelo)
+        return VStack(alignment: .leading, spacing: 24) {
+            PainelVidroCabecalho(
+                data: DashboardMetrics.headerDateLabel(today),
+                saudacao: DashboardFocus.greeting(
+                    nowMinute: now,
+                    displayName: account?.displayName,
+                    address: account?.address
+                ),
+                progresso: modelo.progresso,
+                progressoEscrito: modelo.progressoEscrito
+            )
+
+            destaqueDeVidro(modelo)
+
+            PainelLinhaDoTempo(
+                blocos: modelo.blocos,
+                nowMinute: now,
+                onTapCompromisso: { bloco in
+                    if let item = store.agenda.first(where: { $0.id == bloco.id }) {
+                        onOpenEvent(item)
+                    }
+                },
+                onTapProposto: { _ in ajustando = true },
+                temLink: { bloco in
+                    store.agenda.first { $0.id == bloco.id }?.detail?.hasLink ?? false
+                }
+            )
+
+            if !frentes.isEmpty {
+                Rectangle()
+                    .fill(theme.line.color)
+                    .frame(height: Hairline.thickness(displayScale))
+
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Text(L10n.tr("Depois disso"))
+                            .font(theme.sans.font(size: 17, weight: .semibold))
+                            .foregroundStyle(theme.ink.color)
+                        Text(L10n.tr("o resto do dia, em \(frentes.count) frentes"))
+                            .font(theme.sans.font(size: 13))
+                            .foregroundStyle(theme.ink3.color)
+                    }
+                    HStack(alignment: .top, spacing: 12) {
+                        ForEach(frentes) { frente in
+                            PainelVidroAzulejoDaFrente(frente: frente)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            } else {
+                Text(L10n.tr("Nada mais esperando você hoje."))
+                    .font(theme.sans.font(size: 13))
+                    .foregroundStyle(theme.ink3.color)
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(.horizontal, 32)
+        .padding(.top, 28)
+        .padding(.bottom, 24)
+    }
+
+    /// "Comece por aqui": o primeiro que espera, ou o próximo compromisso, ou
+    /// uma linha calma. Nunca um cartão vazio.
+    @ViewBuilder
+    private func destaqueDeVidro(_ modelo: PainelDoDiaModelo) -> some View {
+        if let espera = modelo.espera.first {
+            let mensagem = store.message(espera.id)
+            PainelVidroDestaque(
+                iniciais: espera.iniciais,
+                tint: accountTint(espera.accountID).color,
+                rotulo: L10n.tr("Comece por aqui"),
+                titulo: mensagem.map { PainelDoDiaModelo.titulo(de: $0.subject) } ?? espera.nome,
+                porque: espera.porque,
+                numero: "\(espera.numero)\(espera.sufixo)",
+                legenda: espera.alerta ? L10n.tr("até o prazo") : espera.palavra,
+                acao: espera.temRascunho
+                    ? L10n.tr("Revisar e enviar")
+                    : L10n.tr("Abrir e responder"),
+                executar: { abrirEspera(espera) }
+            )
+        } else if let evento = proximoCompromisso {
+            PainelVidroDestaque(
+                iniciais: PainelDoDiaModelo.iniciais(de: evento.title),
+                tint: accountTint(evento.accountID).color,
+                rotulo: evento.startMinute <= now
+                    ? L10n.tr("Em andamento")
+                    : L10n.tr("Comece por aqui"),
+                titulo: evento.title,
+                porque: "\(hora(evento.startMinute)) – \(hora(evento.endMinute))",
+                numero: minutosAte(evento.startMinute),
+                legenda: evento.startMinute <= now
+                    ? L10n.tr("já começou")
+                    : L10n.tr("até começar"),
+                acao: L10n.tr("Abrir compromisso"),
+                executar: { onOpenEvent(evento) }
+            )
+        } else {
+            Text(L10n.tr("Nenhuma reunião restante hoje, e ninguém esperando resposta."))
+                .font(theme.sans.font(size: 14))
+                .foregroundStyle(theme.ink3.color)
+        }
+    }
+
+    /// "2h" ou "35m" até o compromisso começar.
+    private func minutosAte(_ minuto: Int) -> String {
+        let falta = max(0, minuto - now)
+        return falta >= 60 ? "\(falta / 60)h" : "\(falta)m"
+    }
+
+    /// As três frentes do "Depois disso". Uma frente sem dado nenhum **não
+    /// entra**: um azulejo escrito "0" é a tela ocupando espaço para dizer
+    /// que não tem nada a dizer.
+    private func frentesDeVidro(_ modelo: PainelDoDiaModelo) -> [PainelVidroFrente] {
+        var frentes: [PainelVidroFrente] = []
+
+        if !modelo.espera.isEmpty {
+            let prontas = modelo.espera.filter(\.temRascunho)
+            let primeira = prontas.first ?? modelo.espera[0]
+            frentes.append(PainelVidroFrente(
+                id: "responder",
+                titulo: L10n.tr("Responder"),
+                icone: "arrowshape.turn.up.left",
+                cor: theme.accentInk.color,
+                numero: "\(prontas.isEmpty ? modelo.espera.count : prontas.count)",
+                unidade: prontas.isEmpty
+                    ? L10n.tr("esperando você")
+                    : L10n.tr("respostas prontas"),
+                avatares: modelo.espera.prefix(3).map {
+                    PainelVidroFrente.Avatar(
+                        id: $0.id, iniciais: $0.iniciais,
+                        tint: accountTint($0.accountID).color
+                    )
+                },
+                linhas: modelo.espera.prefix(3).map {
+                    PainelVidroFrente.Linha(
+                        id: $0.id, quem: $0.nome, oQue: $0.palavra,
+                        quando: "\($0.numero)\($0.sufixo)", urgente: $0.alerta
+                    )
+                },
+                acao: prontas.isEmpty
+                    ? L10n.tr("Ver a primeira")
+                    : L10n.tr("Revisar as \(prontas.count)"),
+                acaoPrimaria: true,
+                executar: { abrirEspera(primeira) }
+            ))
+        }
+
+        if !modelo.promessas.isEmpty {
+            let reservavel = modelo.promessas.first { $0.rotuloDaReserva != nil }
+            frentes.append(PainelVidroFrente(
+                id: "prometeu",
+                titulo: L10n.tr("Você prometeu"),
+                icone: "checkmark.circle",
+                cor: theme.nowLine.color,
+                numero: "\(modelo.promessas.count)",
+                unidade: L10n.tr("promessas abertas"),
+                avatares: modelo.promessas.prefix(3).map {
+                    PainelVidroFrente.Avatar(
+                        id: $0.id, iniciais: $0.iniciais,
+                        tint: accountTint($0.item.accountID).color
+                    )
+                },
+                linhas: modelo.promessas.prefix(3).map {
+                    PainelVidroFrente.Linha(
+                        id: $0.id, quem: $0.titulo, oQue: "",
+                        quando: $0.quando, urgente: $0.alerta
+                    )
+                },
+                acao: reservavel?.rotuloDaReserva,
+                acaoPrimaria: false,
+                executar: { if let reservavel { reservar(reservavel) } }
+            ))
+        }
+
+        if !modelo.dinheiro.isEmpty {
+            let destaque = modelo.frenteDeDinheiro
+            frentes.append(PainelVidroFrente(
+                id: "dinheiro",
+                titulo: L10n.tr("Dinheiro"),
+                icone: "dollarsign.circle",
+                cor: theme.success.color,
+                numero: destaque?.numero ?? "\(modelo.dinheiro.count)",
+                unidade: destaque?.unidade ?? L10n.tr("prazos no radar"),
+                avatares: [],
+                linhas: modelo.dinheiro.prefix(3).map {
+                    PainelVidroFrente.Linha(
+                        id: $0.id, quem: $0.titulo,
+                        oQue: $0.aReceber ? L10n.tr("a receber") : L10n.tr("a pagar"),
+                        quando: Self.quandoCurto($0.quando), urgente: $0.urgente
+                    )
+                },
+                acao: L10n.tr("Ver contas"),
+                acaoPrimaria: false,
+                executar: {
+                    if let primeira = modelo.dinheiro.first {
+                        onCommand(.revealMessage(messageID: primeira.id))
+                    }
+                }
+            ))
+        }
+
+        return frentes
+    }
+
+    /// "vence 05/09 · vantion" → "05/09"; "vence hoje · vantion" → "hoje".
+    ///
+    /// A coluna da direita do azulejo é mono e estreita: a conta e o verbo
+    /// cabem na linha de cima, e o que precisa estar à direita é a data.
+    static func quandoCurto(_ texto: String) -> String {
+        let semConta = texto.split(separator: "·").first
+            .map { $0.trimmingCharacters(in: .whitespaces) } ?? texto
+        for verbo in [L10n.tr("vence "), L10n.tr("venceu ")] where semConta.hasPrefix(verbo) {
+            return String(semConta.dropFirst(verbo.count))
+        }
+        return semConta
+    }
+
+    /// O mesmo caminho do azulejo clássico: com rascunho abre o cartão, sem
+    /// rascunho abre a leitura. Nada é enviado por conta própria.
+    private func abrirEspera(_ espera: PainelDoDiaModelo.Espera) {
+        selectedMailID = espera.id
+        if espera.temRascunho {
+            cartaoDoRascunho = espera.id
+        } else {
+            readingMailID = espera.id
+        }
     }
 
     // MARK: - Cabeçalho
