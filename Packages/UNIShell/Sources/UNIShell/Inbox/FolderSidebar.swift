@@ -370,6 +370,16 @@ public struct FolderSidebar: View {
     }
 
     public var body: some View {
+        // O Vidro embutido desenha a lista do protótipo; `standalone` e os 26
+        // temas opacos continuam com a barra de sempre, intocada.
+        if theme.isGlass, chrome == .embedded {
+            glassBody
+        } else {
+            classicBody
+        }
+    }
+
+    private var classicBody: some View {
         VStack(alignment: .leading, spacing: 0) {
             if onCompose != nil, chrome == .standalone {
                 composeButton
@@ -438,6 +448,236 @@ public struct FolderSidebar: View {
         // dentro poria uma segunda camada opaca sobre o gradiente.
         .background(chrome == .standalone ? theme.surface2.color : Color.clear)
         .hairline(chrome == .standalone ? theme.line : TokenColor(red: 0, green: 0, blue: 0, opacity: 0), edges: .trailing)
+    }
+
+    // MARK: - A lista de vidro
+
+    /// As sete caixas com ícone, o recado da IA e as contas em árvore.
+    /// Protótipo: `Sidebar.dc.html`, `sets.caixa`.
+    private var glassBody: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 1) {
+                ForEach(GlassFolderList.buckets, id: \.self) { bucket in
+                    glassBucketRow(bucket)
+                }
+
+                if let recado = GlassFolderList.misplaced(
+                    messages: store.messages, folders: store.folders
+                ) {
+                    glassNote(recado)
+                }
+
+                if !store.accounts.isEmpty {
+                    Text(L10n.tr("Contas"))
+                        .capsLabel(size: 9.5)
+                        .padding(EdgeInsets(top: 14, leading: 8, bottom: 4, trailing: 8))
+                    ForEach(store.accounts) { account in
+                        glassAccountRow(account)
+                        if store.foldersExpanded(account.id) {
+                            ForEach(GlassFolderList.tree(store.folders(of: account.id)), id: \.self) { row in
+                                glassFolderRow(row, account: account)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(width: width, alignment: .leading)
+        .frame(maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func glassBucketRow(_ bucket: TriageBucket) -> some View {
+        let active = bucket == store.bucket
+        let count = Self.counter(for: bucket, store: store)
+        return Button { store.select(bucket: bucket) } label: {
+            HStack(spacing: 9) {
+                Image(systemName: GlassFolderList.symbol(for: bucket))
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle((active ? theme.accentInk : theme.ink3).color)
+                    .frame(width: 16)
+                    .accessibilityHidden(true)
+                Text(bucket.label)
+                    .font(theme.sans.font(size: 13, weight: active ? .semibold : .regular))
+                    .foregroundStyle((active ? theme.ink : theme.ink2).color)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                // Zero não é número útil numa coluna de sete caixas.
+                if count > 0 {
+                    Text("\(count)")
+                        .font(theme.mono.font(size: 10.5))
+                        .foregroundStyle(glassCountColor(bucket, active: active).color)
+                }
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 32)
+            .contentShape(Rectangle())
+            .background {
+                RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous)
+                    .fill(active ? theme.accentSoft.color : Color.clear)
+            }
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
+        .uniContextMenu(
+            ContextMenus.bucketRow(
+                bucket,
+                unread: store.unreadCount(in: bucket, accountID: store.selectedAccountID),
+                accountID: store.selectedAccountID,
+                trash: store.trashCount(accountID: store.selectedAccountID)
+            ),
+            store: store,
+            intercept: { command in
+                guard case .emptyTrash = command else { return false }
+                confirmingEmptyTrash = true
+                return true
+            }
+        )
+        .modifier(EmptyTrashConfirmation(store: store, isPresented: $confirmingEmptyTrash))
+    }
+
+    private func glassCountColor(_ bucket: TriageBucket, active: Bool) -> TokenColor {
+        if GlassFolderList.countIsWarning(bucket) { return theme.danger }
+        return active ? theme.accentInk : theme.ink3
+    }
+
+    /// O cartão de acento com o que a IA notou e o botão que conserta.
+    ///
+    /// "Trazer" move as mensagens para **Hoje** pela mesma porta de sempre
+    /// (`MailStore.move`), que é a porta do arraste, do menu e da barra do
+    /// leitor. Nenhuma rota nova de escrita nasce aqui.
+    private func glassNote(_ recado: GlassFolderList.Misplaced) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(theme.accentInk.color)
+                .padding(.top, 1)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(recado.sentence)
+                    .font(theme.sans.font(size: 11.5))
+                    .foregroundStyle(theme.ink.color)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button(GlassFolderList.Misplaced.cta) {
+                    for id in recado.messageIDs {
+                        guard let mensagem = store.message(id) else { continue }
+                        store.move(mensagem, to: .today)
+                    }
+                }
+                .buttonStyle(.plain)
+                .font(theme.sans.font(size: 11.5, weight: .semibold))
+                .foregroundStyle(theme.accentInk.color)
+                .focusRing(cornerRadius: 4)
+                .help(L10n.tr("Move estas mensagens para Hoje"))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .background(theme.accentSoft.color)
+        .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous))
+        .padding(.vertical, 6)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(recado.sentence)
+    }
+
+    /// A conta: seta, ponto da cor dela, endereço e contador. Sem o chip do
+    /// host — na coluna de 216pt ele comia o endereço, e a cor já é o ponto.
+    private func glassAccountRow(_ account: Account) -> some View {
+        let active = account.id == store.selectedAccountID
+        let tint = TokenColor(css: account.tint(isDark: theme.isDark)) ?? theme.ink4
+        let aberta = store.foldersExpanded(account.id)
+        let pastas = store.folders(of: account.id)
+        let count = store.unreadCount(in: .all, accountID: account.id)
+        return Button { store.select(account: account.id) } label: {
+            HStack(spacing: 7) {
+                Group {
+                    if pastas.isEmpty {
+                        Color.clear
+                    } else {
+                        Image(systemName: aberta ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(theme.ink3.color)
+                            .contentShape(Rectangle())
+                            .onTapGesture { store.toggleFolders(of: account.id) }
+                            .accessibilityLabel(
+                                aberta
+                                    ? L10n.tr("Recolher as pastas de \(account.address)")
+                                    : L10n.tr("Mostrar as pastas de \(account.address)")
+                            )
+                    }
+                }
+                .frame(width: 12, height: 20)
+
+                Circle().fill(tint.color).frame(width: 8, height: 8)
+                    .accessibilityHidden(true)
+
+                Text(account.address)
+                    .font(theme.sans.font(size: 12.5, weight: active ? .semibold : .regular))
+                    .foregroundStyle((active ? theme.ink : theme.ink2).color)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(account.address)
+
+                Spacer(minLength: 0)
+
+                if count > 0 {
+                    Text("\(count)")
+                        .font(theme.mono.font(size: 10.5))
+                        .foregroundStyle(theme.ink3.color)
+                }
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 32)
+            .contentShape(Rectangle())
+            .background {
+                RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous)
+                    .fill(active ? theme.accentSoft.color : Color.clear)
+            }
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
+        .uniContextMenu(
+            ContextMenus.accountRow(account, isFiltered: active, unread: count),
+            store: store
+        )
+    }
+
+    private func glassFolderRow(_ row: GlassFolderList.Row, account: Account) -> some View {
+        let active = row.folder.id == store.selectedFolderID
+        return Button { store.select(folder: row.folder.id) } label: {
+            HStack(spacing: 7) {
+                Image(systemName: row.folder.symbol ?? "folder")
+                    .font(.system(size: 10.5))
+                    .foregroundStyle((active ? theme.accentInk : theme.ink4).color)
+                    .frame(width: 13)
+                    .accessibilityHidden(true)
+                Text(row.label)
+                    .font(theme.sans.font(size: 12))
+                    .foregroundStyle((active ? theme.ink : theme.ink2).color)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(row.folder.serverName)
+                Spacer(minLength: 0)
+                if row.folder.unreadCount > 0 {
+                    Text("\(row.folder.unreadCount)")
+                        .font(theme.mono.font(size: 10.5))
+                        .foregroundStyle(theme.ink3.color)
+                }
+            }
+            .padding(.leading, 27 + CGFloat(row.depth) * 14)
+            .padding(.trailing, 8)
+            .frame(height: 29)
+            .contentShape(Rectangle())
+            .background {
+                RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous)
+                    .fill(active ? theme.accentSoft.color : Color.clear)
+            }
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
+        .accessibilityLabel(row.folder.displayName)
     }
 
     @ViewBuilder
