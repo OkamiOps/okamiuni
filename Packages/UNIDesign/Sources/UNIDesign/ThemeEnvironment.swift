@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 extension EnvironmentValues {
@@ -66,14 +67,38 @@ extension View {
 public final class ThemeStore {
     private static let key = "okamiuni.theme"
     private static let typographyKey = "okamiuni.typography-preset"
+    private static let followsSystemKey = "okamiuni.theme-follows-system"
 
     private var baseTheme: Theme
     public private(set) var typographyPreset: TypographyPreset
 
+    /// **Automático**: o Vidro que combina com o claro/escuro do Mac.
+    ///
+    /// O cartão "Automático · segue o Mac" do desenho de Configurações pede um
+    /// terceiro estado que não é um tema: é a ausência de escolha entre os dois
+    /// Vidros. Guardá-lo como um `Bool` ao lado do tema — e não como um id de
+    /// tema inventado — mantém os 28 temas como eles são e deixa a volta para
+    /// um tema fixo sem perder qual era.
+    public private(set) var followsSystemAppearance: Bool
+
     /// O tema exposto para todas as janelas já incorpora a preferência de
     /// leitura. Manter a base separada evita que a escala se acumule ao trocar
     /// de cor ou reiniciar o aplicativo.
-    public var theme: Theme { baseTheme.applyingTypography(typographyPreset) }
+    public var theme: Theme { resolvedBase.applyingTypography(typographyPreset) }
+
+    /// O tema antes da escala de leitura: o escolhido, ou o Vidro que segue a
+    /// aparência do sistema.
+    private var resolvedBase: Theme {
+        guard followsSystemAppearance else { return baseTheme }
+        return Self.systemIsDark ? .vidroNoite : .vidro
+    }
+
+    /// A aparência efetiva do app, lida do AppKit. Fora de um app com
+    /// `NSApplication` (testes, previews) ela cai no claro, que é o padrão do
+    /// sistema e o que o desenho mostra primeiro.
+    private static var systemIsDark: Bool {
+        NSApp?.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    }
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -81,6 +106,7 @@ public final class ThemeStore {
         self.baseTheme = saved.flatMap(Theme.named) ?? .default
         self.typographyPreset = defaults.string(forKey: Self.typographyKey)
             .flatMap(TypographyPreset.init(rawValue:)) ?? .standard
+        self.followsSystemAppearance = defaults.bool(forKey: Self.followsSystemKey)
     }
 
     private let defaults: UserDefaults
@@ -89,17 +115,38 @@ public final class ThemeStore {
         let selected = Theme.named(theme.id) ?? theme
         self.baseTheme = selected
         defaults.set(selected.id, forKey: Self.key)
+        // Escolher um tema é dizer qual: sai do automático sozinho, sem a
+        // pessoa ter de desligar um interruptor que ela não viu.
+        if followsSystemAppearance { setFollowsSystemAppearance(false) }
     }
+
+    /// Liga ou desliga o "Automático". Ao desligar, o tema volta a ser o que
+    /// está resolvido agora — ninguém salta de aparência por desligá-lo.
+    public func setFollowsSystemAppearance(_ follows: Bool) {
+        if follows {
+            followsSystemAppearance = true
+        } else {
+            let atual = resolvedBase
+            followsSystemAppearance = false
+            baseTheme = atual
+            defaults.set(atual.id, forKey: Self.key)
+        }
+        defaults.set(followsSystemAppearance, forKey: Self.followsSystemKey)
+    }
+
+    /// O id do tema **escolhido**, para o seletor acender a opção certa.
+    /// `nil` quando o automático está no comando.
+    public var selectedThemeID: String? { followsSystemAppearance ? nil : baseTheme.id }
 
     /// O interruptor sol/lua do trilho. Troca para o par do tema atual — ver
     /// `Theme.appearanceCounterpart`, que é quem sabe a regra — e grava, como
     /// qualquer outra escolha de tema.
     public func toggleAppearance() {
-        select(baseTheme.appearanceCounterpart)
+        select(resolvedBase.appearanceCounterpart)
     }
 
     /// Para o interruptor desenhar o estado certo sem perguntar duas coisas.
-    public var isDark: Bool { baseTheme.isDark }
+    public var isDark: Bool { resolvedBase.isDark }
 
     public func selectTypography(_ preset: TypographyPreset) {
         typographyPreset = preset
