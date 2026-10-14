@@ -39,6 +39,12 @@ struct ComposerToolbar: View {
     let intelligenceSourceContext: AssistantMailContext?
     let intelligenceContext: ComposerIntelligenceContext?
     let applyIntelligence: (ComposerIntelligenceProposal) -> ComposerIntelligenceApplyResult
+    /// Só a barra `.vidro` tem estes dois: no mock do compositor de vidro o
+    /// clipe e a assinatura estão **na barra**, e não no rodapé. Nulos deixam
+    /// o botão apagado com o motivo no `help` — controle mudo é defeito.
+    var onAttach: (() -> Void)?
+    var onInsertSignature: (() -> Void)?
+    var signatureHelp: String = ""
 
     @State private var openPanel: Panel?
     @State private var moreOpen: Bool
@@ -63,11 +69,17 @@ struct ComposerToolbar: View {
         intelligenceSourceContext: AssistantMailContext? = nil,
         intelligenceContext: ComposerIntelligenceContext? = nil,
         applyIntelligence: @escaping (ComposerIntelligenceProposal) -> ComposerIntelligenceApplyResult = { _ in .sourceChanged },
+        onAttach: (() -> Void)? = nil,
+        onInsertSignature: (() -> Void)? = nil,
+        signatureHelp: String = "",
         perform: @escaping (ComposerCommand) -> Void
     ) {
         self.reading = reading
         self.density = density
         self.perform = perform
+        self.onAttach = onAttach
+        self.onInsertSignature = onInsertSignature
+        self.signatureHelp = signatureHelp
         self.intelligence = intelligence
         self.intelligenceSourceMessage = intelligenceSourceMessage
         self.intelligenceSourceContext = intelligenceSourceContext
@@ -77,7 +89,7 @@ struct ComposerToolbar: View {
         _moreOpen = State(initialValue: moreOpen)
     }
 
-    enum Panel { case color, highlight, link, table, intelligence }
+    enum Panel { case color, highlight, link, table, align, intelligence }
 
     /// Onde a barra está desenhada.
     ///
@@ -105,29 +117,335 @@ struct ComposerToolbar: View {
         }
     }
 
-    /// Protótipo: `flex-wrap: wrap; gap: 7px; row-gap: 7px`. A quebra existe
-    /// como rede de segurança para quem arrasta a janela abaixo dos 820 do
-    /// protótipo. Nos dois tamanhos de janela deste marco os sete grupos
-    /// somam ~695pt e cabem numa linha — o que os empurrava para a segunda
-    /// era o carimbo do rascunho, que saiu daqui.
+    /// A barra do mock `Compositor.dc.html`, linha 47: `display: flex;
+    /// gap: 2px; padding: 8px 16px; border-bottom: 1px solid line`, com os dois
+    /// seletores em pastilha `soft`, os ícones **sem moldura** em três grupos
+    /// separados por divisórias de 1×20, e "Melhorar com IA" empurrado para a
+    /// direita.
+    ///
+    /// Era uma fileira de nove cápsulas com borda e sombra, uma por grupo — a
+    /// "caixa dentro de caixa" que o dono do projeto recusou. O estado agora
+    /// mora no fundo do próprio ícone (ver `ComposerIconButton`), não numa
+    /// moldura em volta de um grupo.
     private var windowBar: some View {
-        FlowLayout(spacing: 7, rowSpacing: 7) {
-            fontGroup
-            marksGroup
-            colorGroup
-            listGroup
-            alignGroup
-            linkButton
-            clearFormattingButton
-            tableButton
-            intelligenceButton
+        HStack(alignment: .center, spacing: 8) {
+            // `flex-wrap: wrap` do mock: numa janela estreitada à mão os
+            // grupos quebram em vez de espremer o "Melhorar com IA" para fora.
+            FlowLayout(spacing: 2, rowSpacing: 6) {
+            selectPill(
+                ComposerSelect(
+                    title: L10n.tr("Fonte"),
+                    selected: reading.family,
+                    groups: ComposerFormatting.familyGroups,
+                    pick: { perform(.family($0)) },
+                    labelSize: 13,
+                    leadingPadding: 10
+                )
+            )
+
+            selectPill(
+                ComposerSelect(
+                    title: L10n.tr("Tamanho"),
+                    selected: reading.size.map { String(Int($0)) },
+                    groups: ComposerFormatting.sizeGroups,
+                    pick: { perform(.size(Double($0) ?? BodyStyle.defaultSize)) },
+                    labelSize: 13,
+                    leadingPadding: 10
+                )
+            )
+            // Mock: `margin: 0 6px 0 4px` nesta pastilha.
+            .padding(.leading, 4)
+            .padding(.trailing, 6)
+
+            ComposerIconButton(
+                symbol: "bold", on: reading.bold, help: L10n.tr("Negrito")
+            ) { perform(.bold) }
+            ComposerIconButton(
+                symbol: "italic", on: reading.italic, help: L10n.tr("Itálico")
+            ) { perform(.italic) }
+            ComposerIconButton(
+                symbol: "underline", on: reading.underline, help: L10n.tr("Sublinhado")
+            ) { perform(.underline) }
+            ComposerIconButton(
+                symbol: "strikethrough", on: reading.strike, help: L10n.tr("Riscado")
+            ) { perform(.strike) }
+            colorButton
+
+            ComposerToolbarSeparator()
+
+            ComposerIconButton(
+                symbol: "list.bullet", on: reading.list == .bulleted,
+                help: L10n.tr("Lista com marcadores")
+            ) { perform(.list(reading.list == .bulleted ? nil : .bulleted)) }
+            ComposerIconButton(
+                symbol: "list.number", on: reading.list == .numbered,
+                help: L10n.tr("Lista numerada")
+            ) { perform(.list(reading.list == .numbered ? nil : .numbered)) }
+            alignButton
+            ComposerIconButton(
+                symbol: "text.quote", enabled: false,
+                help: L10n.tr("Citação — indisponível: este editor não tem bloco de citação")
+            ) {}
+
+            ComposerToolbarSeparator()
+
+            ComposerIconButton(
+                symbol: "link", on: openPanel == .link,
+                help: reading.hasLink
+                    ? L10n.tr("Editar ou remover o hyperlink")
+                    : L10n.tr("Inserir hyperlink")
+            ) { openPanel = openPanel == .link ? nil : .link }
+            .overlay(alignment: .topLeading) { linkPanelLayer }
+            .zIndex(29)
+
+            ComposerIconButton(
+                symbol: "photo", enabled: false,
+                help: L10n.tr("Imagem — indisponível: inserir imagem ainda não existe nesta janela")
+            ) {}
+            ComposerIconButton(
+                symbol: "paperclip", enabled: onAttach != nil, help: L10n.tr("Anexar arquivo")
+            ) { onAttach?() }
+            ComposerIconButton(
+                symbol: "signature", enabled: onInsertSignature != nil,
+                help: signatureHelp.isEmpty ? L10n.tr("Inserir assinatura") : signatureHelp
+            ) { onInsertSignature?() }
+            ComposerIconButton(
+                symbol: "face.smiling", enabled: false,
+                help: L10n.tr("Emoji — indisponível: use o seletor do sistema (⌃⌘Espaço)")
+            ) {}
+            }
+
+            Spacer(minLength: 8)
+
+            intelligencePill
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 9)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.surface2.color)
-        .hairline(theme.line2, edges: .bottom)
+        .hairline(theme.line, edges: .bottom)
         .releasesColorPanel(colorPanelOwner)
+    }
+
+    /// A pastilha dos dois seletores. Mock: `background: soft; border-radius:
+    /// 8px; padding: 6px 10px; font-size: 13px` — sem borda e sem sombra.
+    private func selectPill(_ select: ComposerSelect) -> some View {
+        select
+            .frame(height: 30)
+            .background(ComposerTone.soft(theme))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .fixedSize()
+    }
+
+    /// O "Cor do texto" do mock, que abre as amostras. O realce não está
+    /// desenhado lá e por isso mora na mesma folha, embaixo das cores: a barra
+    /// perdeu a moldura, não a função.
+    private var colorButton: some View {
+        ComposerIconButton(
+            symbol: "character", on: colorSheetOpen,
+            help: L10n.tr("Cor do texto e realce")
+        ) {
+            openPanel = colorSheetOpen ? nil : .color
+        }
+        .overlay(alignment: .topLeading) {
+            if colorSheetOpen {
+                colorSheet.offset(y: 32)
+            }
+        }
+        .zIndex(30)
+    }
+
+    /// O mock desenha **um** botão de cor, e a barra tinha dois (`A` e `▨`).
+    /// Juntá-los não podia custar o realce: ele desceu para a segunda seção da
+    /// mesma folha. A porta `.highlight` do harness abre a mesma folha, porque
+    /// agora é a mesma folha.
+    private var colorSheetOpen: Bool {
+        openPanel == .color || openPanel == .highlight
+    }
+
+    private var colorSheet: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            swatchSection(
+                title: L10n.tr("Cor"),
+                list: ComposerFormatting.textColors,
+                selected: reading.colorHex,
+                freeTitle: L10n.tr("Outra cor…"),
+                pickFree: { perform(.color($0)) },
+                pick: {
+                    perform(.color($0))
+                    openPanel = nil
+                }
+            )
+
+            Rectangle()
+                .fill(theme.line.color)
+                .frame(height: Hairline.thickness(displayScale))
+
+            swatchSection(
+                title: L10n.tr("Realce"),
+                list: ComposerFormatting.highlights,
+                selected: reading.highlightHex,
+                freeTitle: L10n.tr("Outro realce…"),
+                pickFree: { perform(.highlight($0)) },
+                pick: {
+                    perform(.highlight($0))
+                    openPanel = nil
+                }
+            )
+        }
+        .padding(6)
+        .frame(width: 6 * 22 + 5 * 4 + 12)
+        .background(theme.glassElevated.color)
+        .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+        .overlay {
+            RoundedRectangle(cornerRadius: theme.radiusSmall)
+                .strokeBorder(
+                    theme.glassElevatedEdge.color, lineWidth: Hairline.thickness(displayScale)
+                )
+        }
+        .shadow(color: .black.opacity(theme.isDark ? 0.45 : 0.20), radius: 12, x: 0, y: 10)
+        .fixedSize()
+    }
+
+    private func swatchSection(
+        title: String,
+        list: [(hex: String, name: String)],
+        selected: String?,
+        freeTitle: String,
+        pickFree: @escaping (String) -> Void,
+        pick: @escaping (String) -> Void
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).capsLabel()
+            swatchRow(list, selected: selected, pick: pick)
+            FreeColorRow(
+                title: freeTitle,
+                current: selected.flatMap { ComposerFormatting.highlight($0) },
+                isActive: ColorHex.isCustom(selected ?? "", among: list.map(\.hex))
+            ) {
+                FreeColorPanel.shared.present(
+                    current: selected ?? BodyStyle.defaultColorHex,
+                    owner: colorPanelOwner,
+                    deliver: pickFree
+                )
+                openPanel = nil
+            }
+        }
+    }
+
+    /// Mock: um ícone "Alinhar" só. Os quatro alinhamentos continuam todos
+    /// alcançáveis — eles abrem numa folha, como as cores.
+    private var alignButton: some View {
+        ComposerIconButton(
+            symbol: alignSymbol, on: openPanel == .align, help: L10n.tr("Alinhamento")
+        ) {
+            openPanel = openPanel == .align ? nil : .align
+        }
+        .overlay(alignment: .topLeading) {
+            if openPanel == .align {
+                HStack(spacing: 2) {
+                    ComposerIconButton(
+                        symbol: "text.alignleft", on: reading.alignment == .left,
+                        help: L10n.tr("Alinhar à esquerda")
+                    ) { perform(.align(.left)); openPanel = nil }
+                    ComposerIconButton(
+                        symbol: "text.aligncenter", on: reading.alignment == .center,
+                        help: L10n.tr("Centralizar")
+                    ) { perform(.align(.center)); openPanel = nil }
+                    ComposerIconButton(
+                        symbol: "text.alignright", on: reading.alignment == .right,
+                        help: L10n.tr("Alinhar à direita")
+                    ) { perform(.align(.right)); openPanel = nil }
+                    ComposerIconButton(
+                        symbol: "text.justify", on: reading.alignment == .justified,
+                        help: L10n.tr("Justificar")
+                    ) { perform(.align(.justified)); openPanel = nil }
+                }
+                .padding(6)
+                .background(theme.glassElevated.color)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 10)
+                        .strokeBorder(
+                            theme.glassElevatedEdge.color,
+                            lineWidth: Hairline.thickness(displayScale)
+                        )
+                }
+                .shadow(color: .black.opacity(theme.isDark ? 0.45 : 0.20), radius: 12, x: 0, y: 10)
+                .offset(y: 32)
+                .fixedSize()
+            }
+        }
+        .zIndex(31)
+    }
+
+    private var alignSymbol: String {
+        switch reading.alignment {
+        case .center: "text.aligncenter"
+        case .right: "text.alignright"
+        case .justified: "text.justify"
+        default: "text.alignleft"
+        }
+    }
+
+    @ViewBuilder
+    private var linkPanelLayer: some View {
+        if openPanel == .link {
+            ComposerLinkPanel(
+                current: reading.link,
+                hasSelection: reading.hasSelection,
+                canRemove: reading.hasLink,
+                apply: { url, label in
+                    perform(.link(url: url, label: label))
+                    openPanel = nil
+                },
+                cancel: { openPanel = nil }
+            )
+            .offset(y: 32)
+        }
+    }
+
+    /// Mock, linha 57: `background: accentSoft; color: accentInk;
+    /// border-radius: 9px; padding: 7px 12px; 13px/600`, com a estrela à
+    /// esquerda e o `▾` à direita.
+    private var intelligencePill: some View {
+        Button {
+            openPanel = openPanel == .intelligence ? nil : .intelligence
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: "apple.intelligence")
+                    .font(.system(size: 13, weight: .medium))
+                Text(L10n.tr("Melhorar com IA"))
+                    .font(theme.sans.font(size: 13, weight: .semibold))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+            }
+            .foregroundStyle(
+                intelligenceIsEnabled ? theme.accentInk.color : theme.ink4.color.opacity(0.55)
+            )
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(theme.accentSoft.color)
+            .clipShape(RoundedRectangle(cornerRadius: 9))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: 9)
+        .disabled(!intelligenceIsEnabled)
+        .help(intelligenceHelp)
+        .overlay(alignment: .topTrailing) {
+            if openPanel == .intelligence {
+                intelligencePanel(
+                    context: intelligenceContext,
+                    phase: intelligencePhase,
+                    instruction: $intelligenceInstruction,
+                    generate: generateIntelligence,
+                    apply: applyIntelligenceProposal,
+                    cancel: cancelIntelligence
+                )
+                .offset(y: 34)
+            }
+        }
+        .zIndex(40)
     }
 
     /// Protótipo, tela 01: primeira linha `padding: 6px 10px; gap: 7px;
@@ -560,13 +878,17 @@ struct ComposerToolbar: View {
         }
         .padding(6)
         .frame(width: 6 * 22 + 5 * 4 + 12)
-        .background(theme.surface.color)
+        // Opaco: ver `Theme.glassElevated`. Uma folha translúcida por cima do
+        // editor deixava o texto atravessar as amostras no Vidro.
+        .background(theme.glassElevated.color)
         .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
         .overlay {
             RoundedRectangle(cornerRadius: theme.radiusSmall)
-                .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
+                .strokeBorder(
+                    theme.glassElevatedEdge.color, lineWidth: Hairline.thickness(displayScale)
+                )
         }
-        .shadow(color: .black.opacity(0.20), radius: 12, x: 0, y: 10)
+        .shadow(color: .black.opacity(theme.isDark ? 0.45 : 0.20), radius: 12, x: 0, y: 10)
         .fixedSize()
     }
 

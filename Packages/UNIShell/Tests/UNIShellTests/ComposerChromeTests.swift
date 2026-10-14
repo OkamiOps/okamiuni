@@ -163,21 +163,25 @@ struct ComposerGlyphTests {
 @MainActor
 struct ComposerToolbarCapsuleTests {
 
-    /// Larguras das cápsulas da barra, em pontos, na ordem em que aparecem.
+    /// Larguras dos blocos pintados da barra, em pontos, na ordem em que
+    /// aparecem.
     private func capsuleWidths() throws -> [Double] {
         let theme = Theme.tinta
         let scale = 1
         let bar = ComposerToolbar(reading: .blank) { _ in }
         // Aqui é a `NSWindow` fora da tela, não o `ImageRenderer`: a barra tem
-        // dois `Picker`, e o `ImageRenderer` desenha controle nativo como um
-        // bloco de "não suportado" — a primeira cápsula sairia com 201pt.
+        // dois seletores, e o `ImageRenderer` desenha controle nativo como um
+        // bloco de "não suportado".
         let rep = try #require(
-            Render.bitmap(bar, size: CGSize(width: 820, height: 44), theme: theme)
+            Render.bitmap(
+                bar,
+                size: CGSize(width: UNIWindow.Size.composer.width, height: 52),
+                theme: theme
+            )
         )
-        // A faixa tem 9pt de folga em cima e a cápsula 26pt: a linha média cai
-        // em y = 22. Mede-se ali, onde toda cápsula tem fundo e nenhuma tem
-        // borda horizontal.
-        let row = Int(22.0 * Double(scale))
+        // Mock: 8pt de folga em cima de uma pastilha de 30 — a linha média cai
+        // em y = 23.
+        let row = Int(23.0 * Double(scale))
         var luma = [Double](repeating: 1, count: rep.pixelsWide)
         for x in 0..<rep.pixelsWide {
             guard let color = rep.colorAt(x: x, y: row) else { continue }
@@ -185,10 +189,8 @@ struct ComposerToolbarCapsuleTests {
                 + 0.587 * color.greenComponent
                 + 0.114 * color.blueComponent
         }
-        // O fundo da faixa (`--surface2`) é o que está na folga de 18pt à
-        // esquerda da primeira cápsula. Tirar a moda da linha não serve: as
-        // cápsulas cobrem mais linha que as folgas, e o tom mais frequente
-        // acaba sendo o **fundo do botão**.
+        // O fundo da faixa é o que está na folga de 16pt à esquerda da
+        // primeira pastilha.
         let background = luma[2]
 
         var runs: [(from: Int, to: Int)] = []
@@ -203,24 +205,12 @@ struct ComposerToolbarCapsuleTests {
         }
         if let from = start { runs.append((from, rep.pixelsWide)) }
 
-        // O interior do `Picker` nativo tem trechos exatamente da cor da faixa,
-        // então a primeira cápsula sai picada. Esses buracos são de **1px**; os
-        // de entre cápsulas são bem maiores. O corte fica no meio.
-        //
-        // O corte era 5px e passou a 2px na Task AC, e não por gosto: a folga
-        // do protótipo é de 7pt, mas o que sobra dela na medição é 7 menos a
-        // saia de sombra dos dois vizinhos (`--btn-shadow`, blur 1.5) menos o
-        // antialias da borda. Com a borda desenhada a meio ponto o pixel mais
-        // externo dela saía pela metade, ficava **debaixo** do limiar de
-        // detecção, e o buraco medido era de 5px. Com a borda em um pixel do
-        // dispositivo esse pixel passa a contar, e o mesmo buraco mede 3px.
-        //
-        // Os dois números que importam não se aproximaram: buraco dentro de
-        // cápsula continua 1px e entre cápsulas 3px. Só o corte estava
-        // encostado no valor errado dos dois.
+        // O interior do seletor tem trechos exatamente da cor da faixa, então
+        // a pastilha sai picada. Esses buracos são de 1 ou 2px; os de entre
+        // blocos são bem maiores.
         var merged: [(from: Int, to: Int)] = []
         for run in runs {
-            if let last = merged.last, Double(run.from - last.to) / Double(scale) < 2 {
+            if let last = merged.last, Double(run.from - last.to) / Double(scale) < 3 {
                 merged[merged.count - 1].to = run.to
             } else {
                 merged.append(run)
@@ -229,42 +219,40 @@ struct ComposerToolbarCapsuleTests {
         return merged.map { Double($0.to - $0.from) / Double(scale) }.filter { $0 >= 4 }
     }
 
-    /// O defeito: `⌫` funciona, mas dividia cápsula com o `↗`, que está
-    /// desabilitado neste marco. Uma moldura só em volta de um item apagado e
-    /// um vivo lê como grupo inteiro morto — o dono do projeto relatou que o
-    /// botão "parece desabilitado".
+    /// O defeito que o dono do projeto recusou: **caixa dentro de caixa**. A
+    /// barra antiga era uma fileira de nove cápsulas com borda e sombra, uma
+    /// por grupo, dentro da caixa da janela.
     ///
-    /// A barra passa a terminar em **três cápsulas soltas** de 30pt — `↗`, `⌫`
-    /// e `⊞` (protótipo `tablePick.btnStyle`: `width: 30px`) — em vez de um
-    /// grupo de dois seguido do `⊞`. Antes desta mudança as três últimas
-    /// mediam 114, 59 e 32.
-    ///
-    /// A medida inclui a saia de sombra dos dois lados (`--btn-shadow`) mais o
-    /// antialias da borda, daí a folga. Ela era de 3pt enquanto a borda saía a
-    /// meio ponto; na Task AC, com a borda em um pixel do dispositivo, o pixel
-    /// mais externo dela passou a contar e cada cápsula mede ~2pt a mais.
-    ///
-    /// A folga é grande o bastante para a medida caber e pequena o bastante
-    /// para o teste continuar valendo: o que ele precisa separar é uma cápsula
-    /// solta de 30pt do grupo de dois, que media 57. Com 4pt de folga o teto é
-    /// 34 — bem longe de 57, que é o número que reprovaria. A segunda asserção
-    /// trava isso explicitamente, para que afrouxar a primeira um dia não
-    /// deixe o defeito original passar.
-    @Test("o botão de limpar formatação tem cápsula própria")
-    func clearFormattingStandsAlone() throws {
+    /// O mock pinta exatamente **três** blocos: a pastilha da fonte, a do
+    /// corpo e o "Melhorar com IA" no fim. Entre eles só há ícone — tinta
+    /// solta, sem moldura —, e é isso que a medida separa: nenhum bloco do
+    /// meio pode ter largura de cápsula.
+    @Test("entre as duas pastilhas e a IA a barra não tem cápsula nenhuma")
+    func iconsHaveNoCapsules() throws {
         let widths = try capsuleWidths()
-        let solos = Array(widths.suffix(3))
-        #expect(solos.count == 3, "cápsulas medidas: \(widths)")
+        #expect(widths.count >= 3, "blocos medidos: \(widths)")
+
+        let fonte = try #require(widths.first)
         #expect(
-            solos.allSatisfy { abs($0 - 30) <= 4 },
-            "as três últimas cápsulas deviam ter 30pt cada; medidas \(solos) de \(widths)"
+            fonte > 70 && fonte < 150,
+            "a pastilha da fonte mede \(fonte)pt, fora do que o mock desenha: \(widths)"
         )
+
+        let ia = try #require(widths.last)
         #expect(
-            solos.allSatisfy { $0 < 45 },
+            ia > 100,
+            "o 'Melhorar com IA' mede \(ia)pt: ele é o último bloco pintado da barra"
+        )
+
+        // O corpo da barra: tudo que está entre a segunda pastilha e a IA é
+        // glifo, e glifo não chega perto de uma cápsula de grupo (a antiga,
+        // com quatro itens, media 114).
+        let meio = widths.dropFirst(2).dropLast()
+        #expect(
+            meio.allSatisfy { $0 < 45 },
             """
-            uma das três últimas cápsulas tem largura de grupo, não de botão \
-            solto: \(solos) de \(widths). O defeito era o `⌫` dividindo moldura \
-            com o `↗`, que está desabilitado — o grupo media 57pt.
+            um bloco do meio tem largura de cápsula, não de glifo: \(Array(meio)) \
+            de \(widths). A barra voltou a ter moldura por grupo.
             """
         )
     }

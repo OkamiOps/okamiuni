@@ -239,18 +239,21 @@ struct ComposerToolbarLayoutTests {
         return host.fittingSize.height
     }
 
-    /// Uma linha: 26 de botão + 9 de folga em cima e embaixo + o fio de 0.5.
-    /// Duas linhas passariam dos 70.
-    private let oneRowCeiling: CGFloat = 46
+    /// Uma linha: 31 do botão de ícone do mock (7 + 17 + 7) + 8 de folga em
+    /// cima e embaixo + o fio. Duas linhas passariam dos 70.
+    private let oneRowCeiling: CGFloat = 52
 
-    @Test("na janela de resposta (820) a barra fica em uma linha")
+    /// A largura das duas janelas é a do mock, 980 — ver `UNIWindow.Size`.
+    private let windowWidth: CGFloat = UNIWindow.Size.composer.width
+
+    @Test("na janela de resposta a barra fica em uma linha")
     func replyWindowOneRow() {
-        #expect(toolbarHeight(width: 820) <= oneRowCeiling)
+        #expect(toolbarHeight(width: windowWidth) <= oneRowCeiling)
     }
 
-    @Test("na janela de mensagem nova (820) a barra fica em uma linha")
+    @Test("na janela de mensagem nova a barra fica em uma linha")
     func newWindowOneRow() {
-        #expect(toolbarHeight(width: 820) <= oneRowCeiling)
+        #expect(toolbarHeight(width: windowWidth) <= oneRowCeiling)
     }
 
     @Test("em larguras maiores continua em uma linha")

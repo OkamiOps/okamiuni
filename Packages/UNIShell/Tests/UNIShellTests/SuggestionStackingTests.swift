@@ -26,9 +26,16 @@ enum ToolbarBand {
     /// vai de 18 a 185, o rótulo acaba em ~91 e o `▼` começa em 119); na faixa
     /// do leitor, x = 120.
     static func capsuleRows(
-        in image: NSBitmapImageRep, probeX: Int, theme: Theme, searching range: Range<Int>
+        in image: NSBitmapImageRep,
+        probeX: Int,
+        theme: Theme,
+        /// Qual token a âncora pinta. A barra da janela foi redesenhada e a
+        /// pastilha dela é `soft`; a barra compacta do leitor continua com a
+        /// cápsula em `btn`.
+        token wanted: TokenColor? = nil,
+        searching range: Range<Int>
     ) -> ClosedRange<Int>? {
-        guard let token = theme.btn.nsColor.usingColorSpace(.deviceRGB) else { return nil }
+        guard let token = (wanted ?? theme.btn).nsColor.usingColorSpace(.deviceRGB) else { return nil }
         var run: [Int] = []
         var best: [Int] = []
         for y in range {
@@ -98,12 +105,13 @@ enum ToolbarBand {
 @MainActor
 struct SuggestionStackingTests {
 
-    private static let size = CGSize(width: 820, height: 620)
+    private static let size = UNIWindow.Size.composer
     /// No Tinta redesenhado `btn` e `surface` são brancos; Papel mantém a
-    /// cápsula mensurável sem mudar a estrutura do composer.
+    /// pastilha mensurável sem mudar a estrutura do composer.
     private static let theme = Theme.papel
-    /// Dentro da cápsula de fonte e corpo, fora dos glifos. Ver `ToolbarBand`.
-    private static let probeX = 100
+    /// Dentro da pastilha da fonte, na folga à esquerda do rótulo — fora dos
+    /// glifos, que mudam de largura com a fonte do tema. Ver `ToolbarBand`.
+    private static let probeX = 20
 
     /// A janela com a linha do campo aberta. `query` nula abre a linha **sem**
     /// a lista — é a referência certa, porque abrir Cc empurra tudo que vem
@@ -134,14 +142,15 @@ struct SuggestionStackingTests {
 
         let capsule = try #require(
             ToolbarBand.capsuleRows(
-                in: closed, probeX: Self.probeX, theme: Self.theme, searching: 120..<400
+                in: closed, probeX: Self.probeX, theme: Self.theme,
+                token: Self.theme.glassSoft, searching: 120..<400
             ),
-            "a cápsula de fonte e corpo não foi encontrada: a âncora da medida saiu do lugar"
+            "a pastilha de fonte não foi encontrada: a âncora da medida saiu do lugar"
         )
-        // 26pt de cápsula, menos a borda de cada lado. Se a busca tivesse
-        // pegado o editor ou o rodapé, a altura denunciaria.
+        // 30pt de pastilha. Se a busca tivesse pegado o editor ou o rodapé, a
+        // altura denunciaria.
         let height = capsule.upperBound - capsule.lowerBound + 1
-        #expect(height > 16 && height < 32, "a âncora mede \(height)pt: não é a cápsula da barra")
+        #expect(height > 20 && height < 38, "a âncora mede \(height)pt: não é a pastilha da barra")
 
         let changed = ToolbarBand.differingPixels(closed, open, capsule: capsule)
         let complaint = "só \(changed) pixels mudaram na faixa da barra (\(capsule)): "

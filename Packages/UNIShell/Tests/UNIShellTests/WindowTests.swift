@@ -11,8 +11,10 @@ struct WindowTests {
     /// citada no brief; se alguém "arredondar" um deles, isto acusa.
     @Test("os tamanhos são os do protótipo")
     func sizes() {
-        #expect(UNIWindow.Size.composer == CGSize(width: 820, height: 660))    // 03, linha 790
-        #expect(UNIWindow.Size.newMessage == CGSize(width: 820, height: 620))  // 06, linha 368
+        // A medida do mock `Compositor.dc.html`, linha 18: as duas janelas do
+        // compositor têm o mesmo desenho e a mesma medida.
+        #expect(UNIWindow.Size.composer == CGSize(width: 980, height: 700))
+        #expect(UNIWindow.Size.newMessage == CGSize(width: 980, height: 700))
         #expect(UNIWindow.Size.message == CGSize(width: 800, height: 600))     // 05, linha 745
         #expect(UNIWindow.Size.event.width == 560)                             // 04, linha 590
     }

@@ -29,8 +29,14 @@ public enum UNIWindow {
 
     /// Tamanhos do protótipo, na linha citada no brief.
     public enum Size {
-        public static let composer = CGSize(width: 820, height: 660)   // linha 790
-        public static let newMessage = CGSize(width: 820, height: 620) // linha 368
+        /// **980×700, a medida do mock `Compositor.dc.html`** (linha 18) —
+        /// e não os 820×660 do protótipo antigo. O cabeçalho do mock põe De,
+        /// Para e Assunto em linhas de texto com ações à direita, e a barra de
+        /// formatação mostra os catorze ícones numa linha só: em 820 ela
+        /// quebrava em duas. As duas janelas passam a ter a mesma medida,
+        /// porque passaram a ter o mesmo desenho.
+        public static let composer = CGSize(width: 980, height: 700)
+        public static let newMessage = CGSize(width: 980, height: 700)
         public static let message = CGSize(width: 800, height: 600)    // linha 745
         /// O protótipo diz `width: 560px; max-height: 86%` — 86% da janela
         /// principal, que não existe como conceito para uma janela de verdade.
