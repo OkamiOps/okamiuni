@@ -22,7 +22,7 @@ struct ToolbarPanelTests {
         await store.load()
         return Render.bitmap(
             ComposerWindow(store: store, mode: .new(accountID: nil), debugOpenPanel: panel),
-            size: CGSize(width: 820, height: 620),
+            size: UNIWindow.Size.composer,
             theme: .tinta
         )
     }
@@ -52,19 +52,30 @@ struct ToolbarPanelTests {
         #expect(changed > 8_000, "só \(changed) pixels mudaram: o painel está sendo decepado")
     }
 
-    @Test("o painel de realce também aparece inteiro")
+    /// O mock tem **um** botão de cor, e a barra tinha dois. O realce não
+    /// podia sumir junto com o `▨`: ele é a segunda seção da mesma folha, e a
+    /// porta `.highlight` do harness abre essa mesma folha.
+    @Test("o realce continua alcançável, na mesma folha da cor")
     func highlightPanelIsVisible() async throws {
         let closed = try #require(await window(nil))
         let open = try #require(await window(.highlight))
-        let changed = differingPixels(closed, open, belowY: 200, height: 120)
-        #expect(changed > 8_000, "só \(changed) pixels mudaram: o painel está sendo decepado")
+        let changed = differingPixels(closed, open, belowY: 200, height: 160)
+        #expect(changed > 8_000, "só \(changed) pixels mudaram: a folha está sendo decepada")
     }
 
-    @Test("os dois painéis caem em lugares diferentes da barra")
-    func panelsDoNotOverlap() async throws {
-        let color = try #require(await window(.color))
-        let highlight = try #require(await window(.highlight))
-        let changed = differingPixels(color, highlight, belowY: 200, height: 120)
-        #expect(changed > 2_000, "cor e realce estão desenhando no mesmo lugar")
+    /// E a folha mostra as duas paletas: um amarelo de realce (`#FBEFA6`) só
+    /// existe na seção de baixo, e um vermelho de texto (`#B3261E`) só na de
+    /// cima. Sem as duas, uma das seções não desenhou.
+    @Test("a folha mostra as amostras de cor e as de realce")
+    func sheetShowsBothPalettes() async throws {
+        let open = try #require(await window(.color))
+        #expect(
+            open.pixels(matching: ComposerFormatting.highlights[1].hex) > 100,
+            "a seção de realce não desenhou"
+        )
+        #expect(
+            open.pixels(matching: ComposerFormatting.textColors[1].hex) > 100,
+            "a seção de cor do texto não desenhou"
+        )
     }
 }

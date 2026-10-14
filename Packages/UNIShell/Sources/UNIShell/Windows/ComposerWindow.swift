@@ -101,7 +101,8 @@ public struct ComposerWindow: View {
     @State private var draftMessageID: String?
     @State private var savedPlain: String?
     @State private var savedSubject: String?
-    @State private var historyOpen = true
+    /// Mock: a mensagem citada nasce **fechada**, numa pastilha.
+    @State private var historyOpen = false
     @State private var seeded = false
     @State private var leaveConfirm = false
     @State private var savedFingerprint = DraftFingerprint()
@@ -383,10 +384,11 @@ public struct ComposerWindow: View {
         return (account.displayName, account.address)
     }
 
-    private var showsFromRow: Bool {
-        if !isReply { return true }
-        return store.accounts.contains { $0.sendIdentities.count > 1 }
-    }
+    /// O mock escreve a linha "De" nas duas janelas — e com o seletor de conta
+    /// reduzido a "trocar ▾" ela custa uma linha de texto, não uma pastilha
+    /// com moldura. Quem responde passa a ver de que endereço a resposta sai
+    /// sem abrir nada.
+    private var showsFromRow: Bool { true }
 
     private var accountTint: Color {
         account.flatMap { TokenColor(css: $0.tint(isDark: theme.isDark))?.color } ?? theme.accent.color
@@ -482,23 +484,31 @@ public struct ComposerWindow: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            WindowTitleBar(title: title) { WindowBarNote(text: draftCount) }
+            ComposerHeaderBar(title: title, leave: requestLeave)
 
-            if showsFromRow { fromRow }
-            toRow
-            if ccOpen {
-                copyRow(
-                    label: "Cc", placeholder: L10n.tr("quem mais acompanha; "),
-                    chips: $cc, slot: .cc, depth: Depth.cc
-                )
+            // Mock: os campos vivem numa calha de 22pt, separados por um fio
+            // cada — e **não** cada um na sua caixa com fundo próprio.
+            VStack(spacing: 0) {
+                if showsFromRow { fromRow }
+                toRow
+                if ccOpen {
+                    copyRow(
+                        label: "Cc", placeholder: L10n.tr("quem mais acompanha; "),
+                        chips: $cc, slot: .cc, depth: Depth.cc
+                    )
+                }
+                if bccOpen {
+                    copyRow(
+                        label: L10n.tr("Cco"), placeholder: L10n.tr("cópia oculta; "),
+                        chips: $bcc, slot: .bcc, depth: Depth.bcc
+                    )
+                }
+                subjectRow
             }
-            if bccOpen {
-                copyRow(
-                    label: L10n.tr("Cco"), placeholder: L10n.tr("cópia oculta; "),
-                    chips: $bcc, slot: .bcc, depth: Depth.bcc
-                )
-            }
-            subjectRow
+            .padding(.horizontal, 22)
+            // A calha inteira desenha **por cima** da barra de formatação: é o
+            // que deixa a lista de sugestões descer por cima dela. Ver `Depth`.
+            .zIndex(Depth.to)
 
             ComposerToolbar(
                 reading: ComposerEditor.reading(of: draft, selection: selection),
@@ -512,6 +522,10 @@ public struct ComposerWindow: View {
                 applyIntelligence: { proposal in
                     applyIntelligence(proposal)
                 },
+                // Mock: o clipe e a assinatura estão na barra, não no rodapé.
+                onAttach: attachmentsHydrated ? { addAttachment() } : nil,
+                onInsertSignature: canInsertSignature ? { insertSignature() } : nil,
+                signatureHelp: signatureHelp,
                 perform: { command in
                     performComposerCommand(command)
                 }
@@ -532,7 +546,14 @@ public struct ComposerWindow: View {
             footer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(theme.surface.color)
+        // O vidro da janela do mock por cima do gradiente nos dois temas Vidro;
+        // `surface` opaco nos outros 26. Ver `Theme.glassWindow`.
+        .background {
+            ZStack {
+                if theme.isGlass { Backdrop() }
+                theme.glassWindow.color
+            }
+        }
         // O título vai também para a `NSWindow`, embora a barra escondida não o
         // desenhe: é o que o menu Janela ▸ e o Mission Control mostram, e sem
         // ele três janelas 03 abertas aparecem lá como três "OkamiUNI" iguais.
@@ -851,54 +872,39 @@ public struct ComposerWindow: View {
 
     // MARK: - Linhas de cabeçalho
 
-    /// Só na 06. Protótipo: `padding: 11px 18px; background: var(--surface2)`.
+    /// Mock, linha 121: a linha "De" escreve `Ricardo · ricardo@empresa.com` em
+    /// texto corrido e põe **"trocar ▾"** no fim da linha, no acento. O seletor
+    /// de conta não é mais uma pastilha com moldura no meio da linha, e a
+    /// pastilha do host saiu: ela era a "sujeira de chip" que o dono do projeto
+    /// recusou, e o endereço já diz de que conta a mensagem sai.
     private var fromRow: some View {
-        HStack(spacing: 10) {
-            Text(L10n.tr("De"))
-                .capsLabel()
-                .frame(width: 52, alignment: .leading)
-
-            // Protótipo `fromSelect`: `height: 26px; border-radius: var(--r2);
-            // border: 0.5px solid var(--btn-line); background: var(--btn);
-            // box-shadow: var(--btn-shadow); sans 12.5px/550;
-            // padding: 0 26px 0 10px`. Era um `Picker(.menu)`, e por isso
-            // desenhava a moldura do macOS em cima dessa — o mesmo desencontro
-            // dos menus de fonte e corpo.
+        ComposerFieldRow(label: L10n.tr("De")) {
+            Text(fromLine)
+                .font(theme.sans.font(size: 14))
+                .foregroundStyle(theme.ink.color)
+                .lineLimit(1)
+                .padding(.top, 3)
+        } accessory: {
             ComposerSelect(
                 title: L10n.tr("Conta que envia"),
                 selected: fromPickerValue,
                 groups: fromPickerGroups,
                 pick: applyFromPicker,
-                labelSize: 12.5,
-                leadingPadding: 10
+                labelSize: 13,
+                leadingPadding: 0,
+                labelOverride: L10n.tr("trocar"),
+                labelTint: theme.accentInk
             )
-            .frame(height: 26)
-            .background(theme.btn.color)
-            .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-            .overlay {
-                RoundedRectangle(cornerRadius: theme.radiusSmall)
-                    .strokeBorder(theme.btnLine.color, lineWidth: Hairline.thickness(displayScale))
-            }
-            .shadow(theme.btnShadow)
             .fixedSize()
-
-            TintChip(label: account?.host ?? "", tint: accountTint, emphasized: true)
-
-            Spacer(minLength: 8)
-
-            // Protótipo, linha 389. A legenda deixou de ser só uma promessa: a
-            // assinatura é campo de `Account`, e o botão do rodapé insere a
-            // desta conta. Ver `Signature`.
-            Text(signatureNote)
-                .font(theme.sans.font(size: 11.5))
-                .foregroundStyle(theme.ink4.color)
-                .lineLimit(1)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 11)
-        .background(theme.surface2.color)
-        .hairline(theme.line2, edges: .bottom)
         .zIndex(Depth.from)
+    }
+
+    /// `Nome · email`, como o mock escreve.
+    private var fromLine: String {
+        let identity = sendingFrom
+        guard !identity.name.isEmpty else { return identity.address }
+        return "\(identity.name) · \(identity.address)"
     }
 
     private var fromPickerValue: String? {
@@ -927,10 +933,13 @@ public struct ComposerWindow: View {
         fromAddress = decoded.address
     }
 
+    /// Mock, linha 122: a linha "Para" tem as etiquetas e, no fim dela,
+    /// **"Cc  Cco"** em texto no acento. Eram duas pastilhas `MiniToggle` mais
+    /// a pastilha do host — três caixas numa linha que já tem etiquetas dentro.
     private var toRow: some View {
-        HStack(alignment: .top, spacing: 10) {
+        ComposerFieldRow(label: L10n.tr("Para")) {
             RecipientField(
-                label: L10n.tr("Para"),
+                label: nil,
                 placeholder: isReply ? L10n.tr("nome ou email; ") : L10n.tr("comece a digitar um nome; "),
                 inputMinWidth: isReply ? 140 : 160,
                 menuWidth: 340,
@@ -939,22 +948,18 @@ public struct ComposerWindow: View {
                 typed: $toQuery,
                 seededQuery: seededQuery(.to)
             )
-
-            MiniToggle(label: "Cc", on: ccOpen) { ccOpen.toggle() }
-                .padding(.top, 1)
-            MiniToggle(label: L10n.tr("Cco"), on: bccOpen) { bccOpen.toggle() }
-                .padding(.top, 1)
-
-            // Protótipo: só a 03 mostra o chip da conta aqui — na 06 ele está
-            // na linha "De".
-            if isReply {
-                TintChip(label: account?.host ?? "", tint: accountTint, emphasized: true)
-                    .padding(.top, 2)
+        } accessory: {
+            HStack(spacing: 10) {
+                ComposerRowAction(
+                    label: "Cc",
+                    help: ccOpen ? L10n.tr("Fechar a linha Cc") : L10n.tr("Abrir a linha Cc")
+                ) { ccOpen.toggle() }
+                ComposerRowAction(
+                    label: L10n.tr("Cco"),
+                    help: bccOpen ? L10n.tr("Fechar a linha Cco") : L10n.tr("Abrir a linha Cco")
+                ) { bccOpen.toggle() }
             }
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 9)
-        .hairline(theme.line2, edges: .bottom)
         .zIndex(Depth.to)
     }
 
@@ -965,36 +970,31 @@ public struct ComposerWindow: View {
         slot: RecipientSlot,
         depth: Double
     ) -> some View {
-        RecipientField(
-            label: label,
-            placeholder: placeholder,
-            inputMinWidth: 140,
-            menuWidth: 330,
-            pool: store.contactPool,
-            chips: chips,
-            typed: slot == .cc ? $ccQuery : $bccQuery,
-            seededQuery: seededQuery(slot)
-        )
-        .padding(.horizontal, 18)
-        .padding(.vertical, 9)
-        .hairline(theme.line2, edges: .bottom)
+        ComposerFieldRow(label: label) {
+            RecipientField(
+                label: nil,
+                placeholder: placeholder,
+                inputMinWidth: 140,
+                menuWidth: 330,
+                pool: store.contactPool,
+                chips: chips,
+                typed: slot == .cc ? $ccQuery : $bccQuery,
+                seededQuery: seededQuery(slot)
+            )
+        }
         .zIndex(depth)
     }
 
-    /// Protótipo: `padding: 10px 18px`, com o assunto no serifado de 15pt.
+    /// Mock, linha 123: o assunto é a mesma linha das outras — 14pt, peso 500,
+    /// sem fio embaixo (quem fecha o bloco é o fio da barra de formatação).
     private var subjectRow: some View {
-        HStack(spacing: 10) {
-            Text(L10n.tr("Assunto"))
-                .capsLabel()
-                .frame(width: 52, alignment: .leading)
+        ComposerFieldRow(label: L10n.tr("Assunto"), showsLine: false) {
             TextField(isReply ? L10n.tr("Assunto") : L10n.tr("Sobre o quê?"), text: $subject)
                 .textFieldStyle(.plain)
-                .font(theme.serif.font(size: 15))
+                .font(theme.sans.font(size: 14, weight: .medium))
                 .foregroundStyle(theme.ink.color)
+                .padding(.top, 1)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 10)
-        .hairline(theme.line2, edges: .bottom)
         .zIndex(Depth.subject)
     }
 
@@ -1016,30 +1016,34 @@ public struct ComposerWindow: View {
                 editor(minHeight: 200, placeholder: L10n.tr("Escreva a resposta… selecione o texto para formatar"))
 
                 if showsQuotedHistory {
+                    // Mock, linha 74: a mensagem citada é **uma pastilha
+                    // fechada** com `··· mensagem de <quem>, <quando>`, e não
+                    // o histórico aberto com um botão "Ocultar histórico" em
+                    // cima dele. A pastilha é o botão.
                     VStack(alignment: .leading, spacing: 12) {
-                        ChromeButton(
-                            appearance: .outlined, height: 26, horizontalPadding: 11,
-                            labelSize: 11.5, labelWeight: .medium,
-                            action: { historyOpen.toggle() }
-                        ) {
-                            HStack(spacing: 7) {
-                                Text("⋯").font(theme.mono.font(size: 10))
-                                Text(historyOpen ? L10n.tr("Ocultar histórico") : L10n.tr("Mostrar histórico (1 mensagem)"))
-                            }
-                        }
+                        ComposerHistoryPill(
+                            label: historyPillLabel, open: historyOpen
+                        ) { historyOpen.toggle() }
 
                         if historyOpen, let original = repliedMessage {
                             history(original)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 22)
+                    .padding(.horizontal, 28)
                     .padding(.top, 4)
                     .padding(.bottom, 24)
                 }
             }
         }
         .frame(maxHeight: .infinity)
+    }
+
+    /// `mensagem de Marina Duarte, hoje 09:42` — o texto da pastilha do mock.
+    private var historyPillLabel: String {
+        guard let original = repliedMessage else { return L10n.tr("mensagem citada") }
+        let who = original.from.name.isEmpty ? original.from.address : original.from.name
+        return L10n.tr("mensagem de \(who), \(DateLabels.eventDate(original.receivedAt))")
     }
 
     /// 06: o editor ocupa toda a altura livre.
@@ -1065,7 +1069,7 @@ public struct ComposerWindow: View {
             ComposerSignatureBlock(signature: signature) {
                 removeSignature()
             }
-            .padding(.horizontal, 22)
+            .padding(.horizontal, 28)
             .padding(.bottom, 16)
             .transition(.opacity.combined(with: .move(edge: .bottom)))
         }
@@ -1079,7 +1083,7 @@ public struct ComposerWindow: View {
             VStack(alignment: .leading, spacing: 0) {
                 editableEditor(minHeight: minHeight, placeholder: placeholder)
                 ComposerPreservedHTMLBlock(html: preservedHTML.html)
-                    .padding(.horizontal, 22)
+                    .padding(.horizontal, 28)
                     .padding(.bottom, 16)
             }
         } else {
@@ -1131,7 +1135,7 @@ public struct ComposerWindow: View {
                 // texto, não um `.padding` por fora: clicar na margem tem de
                 // pôr o cursor, e um `.padding` do SwiftUI deixaria essa faixa
                 // morta.
-                insets: CGSize(width: 22, height: 20),
+                insets: CGSize(width: 28, height: 22),
                 scrolls: scrolls,
                 selectionProjection: selectionProjection
             )
@@ -1139,15 +1143,14 @@ public struct ComposerWindow: View {
 
             if showsPlaceholder {
                 Text(placeholder)
-                    .font(theme.serif.font(size: 16))
+                    .font(theme.body.font(size: BodyStyle.defaultSize))
                     .foregroundStyle(theme.ink4.color)
-                    .padding(.horizontal, 22)
-                    .padding(.top, 20)
+                    .padding(.horizontal, 28)
+                    .padding(.top, 22)
                     .allowsHitTesting(false)
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(theme.surface.color)
         .onChange(of: draft) { _, novo in
             if String(novo.characters) != (savedPlain ?? "") { savedStamp = nil }
         }
@@ -1376,18 +1379,21 @@ public struct ComposerWindow: View {
 
     // MARK: - Anexos e rodapé
 
+    /// Mock, linha 79: `padding: 0 22px 12px; gap: 10px` — a faixa de anexos
+    /// não tem fio nem fundo próprio, ela é o fim do corpo.
     private var attachmentRow: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 10) {
             ForEach(attachments) { attachment in
-                AttachmentChip(name: attachment.filename, size: attachment.metadata.sizeLabel) {
+                ComposerAttachmentChip(
+                    name: attachment.filename, size: attachment.metadata.sizeLabel
+                ) {
                     attachments.removeAll { $0.id == attachment.id }
                 }
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 10)
-        .hairline(theme.line2, edges: .top)
+        .padding(.horizontal, 22)
+        .padding(.bottom, 12)
     }
 
     private var footer: some View {
@@ -1398,60 +1404,72 @@ public struct ComposerWindow: View {
                     .foregroundStyle(theme.accent.color)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            HStack(spacing: 8) {
-                AttachButton { addAttachment() }
-                    .disabled(!attachmentsHydrated)
+            // Mock, linha 87: `gap: 14px; padding: 12px 18px; border-top: 1px
+            // solid line; background: foot`. À esquerda o carimbo do rascunho;
+            // à direita o lixo, as pastilhas `soft` e o Enviar no acento.
+            HStack(spacing: 14) {
+                Text(DraftMeta.savedLabel(savedStamp))
+                    .font(theme.sans.font(size: 12))
+                    .foregroundStyle(theme.ink3.color)
+                    .lineLimit(1)
 
-                SignatureButton(enabled: canInsertSignature, reason: signatureHelp) {
-                    insertSignature()
+                Spacer(minLength: 8)
+
+                ComposerIconButton(
+                    symbol: "trash", help: L10n.tr("Descartar rascunho")
+                ) { requestLeave() }
+
+                if isReply {
+                    ComposerPillButton(
+                        kind: .soft,
+                        help: L10n.tr("Enviar e arquivar a original"),
+                        enabled: !sendAccepted && attachmentsHydrated,
+                        action: { send(archiving: true) }
+                    ) {
+                        HStack(spacing: 7) {
+                            Image(systemName: "archivebox")
+                                .font(.system(size: 14, weight: .regular))
+                            Text(L10n.tr("Enviar e arquivar"))
+                                .font(theme.sans.font(size: 14, weight: .medium))
+                        }
+                    }
                 }
 
-                ChromeButton(
-                    appearance: .accent, horizontalPadding: 18,
-                    labelSize: nil, action: { send(archiving: false) }
+                ComposerPillButton(
+                    kind: .soft,
+                    help: L10n.tr("Salvar rascunho"),
+                    enabled: attachmentsHydrated,
+                    action: { saveDraft() }
+                ) {
+                    HStack(spacing: 7) {
+                        Image(systemName: "tray.and.arrow.down")
+                            .font(.system(size: 14, weight: .regular))
+                        Text(L10n.tr("Salvar"))
+                            .font(theme.sans.font(size: 14, weight: .medium))
+                    }
+                }
+
+                ComposerPillButton(
+                    kind: .accent,
+                    help: L10n.tr("Enviar"),
+                    enabled: !sendAccepted && attachmentsHydrated,
+                    action: { send(archiving: false) }
                 ) {
                     HStack(spacing: 8) {
                         Text(L10n.tr("Enviar"))
-                            .font(theme.sans.font(size: 13, weight: .semibold))
+                            .font(theme.sans.font(size: 14, weight: .semibold))
                         Text("⌘⏎")
-                            .font(theme.mono.font(size: 10))
+                            .font(theme.mono.font(size: 11))
                             .opacity(0.75)
                     }
                 }
                 .keyboardShortcut(.return, modifiers: .command)
-                .disabled(sendAccepted || !attachmentsHydrated)
-
-                if isReply {
-                    ChromeButton(L10n.tr("Enviar e arquivar"), appearance: .outlined, size: 13) {
-                        send(archiving: true)
-                    }
-                    .disabled(sendAccepted || !attachmentsHydrated)
-                }
-
-                ChromeButton(L10n.tr("Salvar rascunho"), appearance: .outlined) { saveDraft() }
-                    .disabled(!attachmentsHydrated)
-
-                // O carimbo de salvamento mora no rodapé nas **duas** janelas. Na
-                // 03 ele ficava no fim da barra de formatação e a quebrava em duas
-                // linhas; ver a nota no topo deste arquivo.
-                Spacer(minLength: 8)
-                Text(DraftMeta.savedLabel(savedStamp))
-                    .capsLabel(size: 9.5)
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-
-                if isReply {
-                    ChromeButton(L10n.tr("Voltar ao painel"), appearance: .outlined) { requestLeave() }
-                } else {
-                    ChromeButton(L10n.tr("Descartar"), appearance: .outlined) { requestLeave() }
-                }
             }
         }
         .padding(.horizontal, 18)
-        .padding(.top, 12)
-        .padding(.bottom, 14)
-        .background(theme.surface2.color)
-        .hairline(theme.line2, edges: .top)
+        .padding(.vertical, 12)
+        .background(ComposerTone.foot(theme))
+        .hairline(theme.line, edges: .top)
     }
 
     // MARK: - Ações
@@ -2003,129 +2021,6 @@ private enum ComposerPreservedHTMLPreview {
             return result
         }
         return "<!doctype html><html><head>\(csp)</head><body>\(html)</body></html>"
-    }
-}
-
-/// O botão de assinatura.
-///
-/// **Divergência do protótipo, a pedido do dono do projeto.** O `.dc.html` não
-/// tem este botão: a única coisa que ele diz sobre assinatura é a legenda da
-/// linha "De" da tela 06, *"a assinatura muda com a conta"* (linha 389). O dono
-/// relatou "falta um botao para adicionar a assinatura", e é isto. Está
-/// registrado no relatório da tarefa, como já foi feito com o botão da agenda
-/// na barra.
-///
-/// O desenho **não** é invenção: é o mesmo do 📎 ao lado, a outra ação que
-/// mexe no rascunho a partir do rodapé — 32×32, `--btn`, borda `--btn-line`,
-/// raio `--r2`. Um botão novo com desenho novo leria como enxerto.
-private struct SignatureButton: View {
-    @Environment(\.theme) private var theme
-    @Environment(\.displayScale) private var displayScale
-    @State private var hovering = false
-    let enabled: Bool
-    /// O que o `help` diz — inclusive quando o botão está apagado, que é
-    /// quando a pessoa mais precisa saber por quê.
-    let reason: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: "signature")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(foreground)
-                .frame(width: 32, height: 32)
-                .background(theme.btn.color)
-                .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-                .overlay {
-                    RoundedRectangle(cornerRadius: theme.radiusSmall)
-                        .strokeBorder(
-                            hovering && enabled ? theme.accent.color : theme.btnLine.color,
-                            lineWidth: Hairline.thickness(displayScale)
-                        )
-                }
-                .shadow(theme.btnShadow)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .focusRing(cornerRadius: theme.radiusSmall)
-        .disabled(!enabled)
-        .onHover { hovering = $0 }
-        .help(reason)
-    }
-
-    private var foreground: Color {
-        if !enabled { return theme.ink4.color.opacity(0.55) }
-        return hovering ? theme.accentInk.color : theme.ink2.color
-    }
-}
-
-/// Protótipo: `width: 32px; height: 32px`, com o clipe em SVG.
-private struct AttachButton: View {
-    @Environment(\.theme) private var theme
-    @Environment(\.displayScale) private var displayScale
-    @State private var hovering = false
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: "paperclip")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(hovering ? theme.accentInk.color : theme.ink2.color)
-                .frame(width: 32, height: 32)
-                .background(theme.btn.color)
-                .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-                .overlay {
-                    RoundedRectangle(cornerRadius: theme.radiusSmall)
-                        .strokeBorder(
-                            hovering ? theme.accent.color : theme.btnLine.color,
-                            lineWidth: Hairline.thickness(displayScale)
-                        )
-                }
-                .shadow(theme.btnShadow)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .focusRing(cornerRadius: theme.radiusSmall)
-        .onHover { hovering = $0 }
-        .help(L10n.tr("Anexar arquivo"))
-    }
-}
-
-/// Protótipo: `height: 28px; padding: 0 6px 0 11px; border-radius: var(--r2)`.
-private struct AttachmentChip: View {
-    @Environment(\.theme) private var theme
-    @Environment(\.displayScale) private var displayScale
-    let name: String
-    let size: String
-    let onRemove: () -> Void
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Text(name)
-                .font(theme.sans.font(size: 12))
-                .foregroundStyle(theme.ink.color)
-            Text(size)
-                .font(theme.mono.font(size: 9.5))
-                .foregroundStyle(theme.ink4.color)
-            Button(action: onRemove) {
-                Text("×")
-                    .font(theme.sans.font(size: 12))
-                    .foregroundStyle(theme.ink3.color)
-                    .frame(width: 16, height: 16)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .focusRing(in: Rectangle())
-        }
-        .frame(height: 28)
-        .padding(.leading, 11)
-        .padding(.trailing, 6)
-        .background(theme.surface.color)
-        .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-        .overlay {
-            RoundedRectangle(cornerRadius: theme.radiusSmall)
-                .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
-        }
     }
 }
 

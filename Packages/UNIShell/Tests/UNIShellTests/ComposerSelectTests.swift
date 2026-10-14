@@ -61,9 +61,10 @@ struct ComposerSelectTests {
         return total > 0 ? Double(hit) / Double(total) : 0
     }
 
-    /// A cápsula de fonte e corpo da barra: `padding: 9px 18px` em volta de um
-    /// `segWrap` de 26pt de altura e 112 + 54 de largura. O retângulo medido é o
-    /// interior dela, um ponto para dentro da borda em cada lado.
+    /// A pastilha de fonte da barra. No mock ela é `background: soft;
+    /// border-radius: 8px; padding: 6px 10px` — sem borda e sem sombra —, e o
+    /// token que ela pinta passou a ser o `soft` (`glassSoft`), não o `btn` da
+    /// cápsula antiga. O retângulo medido é o interior dela.
     @Test("a cápsula de fonte e corpo é chapada no token, sem moldura do sistema", arguments: [
         "tinta", "noite",
     ])
@@ -73,14 +74,14 @@ struct ComposerSelectTests {
             Render.snapshot(
                 ComposerToolbar(reading: .blank) { _ in },
                 named: "select-barra-\(themeID)",
-                size: CGSize(width: 820, height: 44),
+                size: CGSize(width: UNIWindow.Size.composer.width, height: 52),
                 theme: theme
             )
         )
-        let flat = tokenFraction(bar, x: 20..<183, y: 11..<34, token: theme.btn)
+        let flat = tokenFraction(bar, x: 20..<112, y: 12..<34, token: theme.glassSoft)
         #expect(
             flat > 0.5,
-            "só \(flat) da cápsula está no token `btn`: voltou a moldura do sistema"
+            "só \(flat) da pastilha está no token `soft`: voltou a moldura do sistema"
         )
     }
 
@@ -100,14 +101,18 @@ struct ComposerSelectTests {
             Render.snapshot(
                 ComposerWindow(store: store, mode: .new(accountID: nil)),
                 named: "select-de-tinta",
-                size: CGSize(width: 820, height: 620),
+                size: UNIWindow.Size.composer,
                 theme: .tinta
             )
         )
-        let flat = tokenFraction(window, x: 85..<196, y: 53..<76, token: Theme.tinta.btn)
+        // No mock a linha "De" escreve o endereço e põe **"trocar ▾"** no fim
+        // dela: o gatilho não tem cápsula nenhuma, então o que se mede é que
+        // ele é o fundo da janela com o texto por cima. Um `NSPopUpButton` no
+        // lugar pintaria o degradê dele e derrubaria a fração.
+        let flat = tokenFraction(window, x: 896..<956, y: 56..<78, token: Theme.tinta.glassWindow)
         #expect(
             flat > 0.5,
-            "só \(flat) do seletor de conta está no token `btn`: voltou a moldura do sistema"
+            "só \(flat) do seletor de conta está no fundo da linha: voltou a moldura do sistema"
         )
     }
 

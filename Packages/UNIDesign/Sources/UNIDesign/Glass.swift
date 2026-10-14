@@ -158,6 +158,44 @@ extension Theme {
             : TokenColor(red: 1, green: 1, blue: 1, opacity: 0.80)
     }
 
+    /// O fundo de uma janela solta — o compositor, por exemplo.
+    ///
+    /// No Vidro é o vidro do mock `Compositor.dc.html`:
+    /// `rgba(255,255,255,0.96)` no claro e `rgba(26,26,36,0.94)` no escuro, por
+    /// cima do gradiente. Translúcido o bastante para o gradiente aparecer nas
+    /// bordas e fechado o bastante para texto longo ficar legível — é o mesmo
+    /// critério do `readerFill` do painel.
+    ///
+    /// Nos 26 temas opacos é `surface`, que é o que a janela sempre pintou:
+    /// mesma estrutura, sem vidro.
+    public var glassWindow: TokenColor {
+        guard isGlass else { return surface }
+        return isDark
+            ? TokenColor(red: 26 / 255, green: 26 / 255, blue: 36 / 255, opacity: 0.94)
+            : TokenColor(red: 1, green: 1, blue: 1, opacity: 0.96)
+    }
+
+    /// A superfície de uma lista ou menu que **flutua** por cima do conteúdo.
+    ///
+    /// O defeito que isto conserta: a lista de sugestões de contato do
+    /// compositor pintava o fundo com `surface`, e no Vidro `surface` é
+    /// `rgba(28,28,40,0.55)` — translúcido de propósito, porque é a parede do
+    /// painel. Por cima da linha do Assunto e da barra de formatação, essa
+    /// parede deixa o texto de baixo atravessar os nomes: foi o print do dono
+    /// do projeto, com "MAIS USADOS" ilegível sobre o assunto.
+    ///
+    /// Um menu não é parede: é um objeto elevado, e objeto elevado é **opaco**.
+    /// Fora do Vidro os dois tokens caem em `surface`/`line`, que é o que os
+    /// 26 temas antigos já pintavam ali.
+    public var glassElevated: TokenColor { glassCard }
+
+    public var glassElevatedEdge: TokenColor {
+        guard isGlass else { return line }
+        return isDark
+            ? TokenColor(red: 1, green: 1, blue: 1, opacity: 0.12)
+            : TokenColor(red: 20 / 255, green: 20 / 255, blue: 50 / 255, opacity: 0.12)
+    }
+
     /// `ring`: o que está atrás dos avatares sobrepostos.
     public var glassRing: TokenColor {
         guard isGlass else { return paper }

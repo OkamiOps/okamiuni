@@ -460,7 +460,7 @@ struct ComposerRichRenderTests {
         var linked: [NSRange] = []
         EditorProbe.withHostedView(
             ComposerWindow(store: store, mode: .reply(messageID: id)),
-            size: CGSize(width: 820, height: 660), theme: .tinta
+            size: UNIWindow.Size.composer, theme: .tinta
         ) { content in
             guard let editor = EditorProbe.textView(in: content, containing: "Contrato assinado"),
                   let layout = editor.layoutManager, let container = editor.textContainer,
@@ -495,7 +495,7 @@ struct ComposerRichRenderTests {
                 ComposerWindow(store: store, mode: .reply(messageID: id))
                     .environment(ThemeStore()),
                 named: "composer-tabela-link-justificado",
-                size: CGSize(width: 820, height: 660),
+                size: UNIWindow.Size.composer,
                 theme: .tinta
             )
         )
@@ -509,10 +509,14 @@ struct ComposerRichRenderTests {
         )
     }
 
-    /// A barra com o painel de tabela aberto e com o de link aberto — as duas
-    /// portas do harness. Sem elas não há como provar, fora da tela, que os
+    /// A barra com o painel de link aberto e com as amostras de cor abertas —
+    /// as portas do harness. Sem elas não há como provar, fora da tela, que os
     /// painéis aparecem **inteiros** em vez de ficarem decepados, que foi o
     /// defeito das amostras de cor.
+    ///
+    /// O painel de **tabela** saiu desta lista com o redesenho: o mock da
+    /// barra não tem o `⊞`, e inserir tabela continua pelo menu de contexto
+    /// (ver `ComposerTableCommand`) e pela barra compacta do leitor.
     @Test("os painéis novos aparecem inteiros por cima do editor")
     func panelsClearTheEditor() async throws {
         let store = MailStore(source: InMemoryMailSource.fixtures)
@@ -529,13 +533,22 @@ struct ComposerRichRenderTests {
                 ComposerWindow(store: store, mode: .reply(messageID: id))
                     .environment(ThemeStore()),
                 named: "composer-sem-painel",
-                size: CGSize(width: 820, height: 660),
+                size: UNIWindow.Size.composer,
                 theme: .tinta
             )
         )
 
+        // O realce do corpo é o que prova que o estilo de trecho chegou ao
+        // desenho. Ele é medido na janela **sem** painel: um painel aberto
+        // pode legitimamente cair por cima da palavra realçada, e aí a medida
+        // acusaria o painel de ter apagado o corpo.
+        #expect(
+            semPainel.pixels(matching: "#FBEFA6") > 100,
+            "o corpo perdeu o realce no desenho da janela"
+        )
+
         for (panel, name) in [
-            (ComposerToolbar.Panel.table, "composer-painel-tabela"),
+            (ComposerToolbar.Panel.color, "composer-painel-cor"),
             (ComposerToolbar.Panel.link, "composer-painel-link"),
         ] {
             let rep = try #require(
@@ -543,18 +556,11 @@ struct ComposerRichRenderTests {
                     ComposerWindow(store: store, mode: .reply(messageID: id), debugOpenPanel: panel)
                         .environment(ThemeStore()),
                     named: name,
-                    size: CGSize(width: 820, height: 660),
+                    size: UNIWindow.Size.composer,
                     theme: .tinta
                 )
             )
-            // A asserção era `rep.pixelsWide == 820` — o número da linha de
-            // cima —, e com todo o estilo de trecho apagado ela continuava
-            // verdadeira. O realce do corpo é o que cai junto com o estilo.
-            #expect(
-                rep.pixels(matching: "#FBEFA6") > 100,
-                "\(name): o corpo perdeu o realce por trás do painel"
-            )
-            // E o painel de fato aparece: ele pinta uma área que a janela sem
+            // O painel de fato aparece: ele pinta uma área que a janela sem
             // painel não tem.
             #expect(
                 rep.pixelsDiffering(from: semPainel) > 2_000,
@@ -594,7 +600,7 @@ struct ComposerRichRenderTests {
                     store: store, mode: .reply(messageID: id), debugOpenPanel: .link
                 ).environment(ThemeStore()),
                 named: "composer-painel-link",
-                size: CGSize(width: 820, height: 660),
+                size: UNIWindow.Size.composer,
                 theme: .tinta
             )
         )
@@ -618,7 +624,10 @@ struct ComposerRichRenderTests {
         // A faixa do painel: abaixo da barra de formatação, acima do histórico.
         var rightmost = -1
         var rows = 0
-        for y in 170..<300 {
+        // Abaixo da barra de formatação: o fio que fecha a barra atravessa a
+        // janela inteira e cai dentro da tolerância de `btn-line`, o que faria
+        // a medida responder "x = 979" sem o painel ter saído do lugar.
+        for y in 230..<340 {
             var found = -1
             for x in 0..<rep.pixelsWide where isFieldBorder(x, y) { found = x }
             if found >= 0 { rows += 1; rightmost = max(rightmost, found) }

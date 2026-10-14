@@ -89,8 +89,15 @@ struct ComposerSelect: View {
     /// é a folga que o `▼` ocupa, e aqui o `▼` é um item de verdade da linha, a
     /// 6pt da borda. Repetir o número seria somá-lo duas vezes.
     var leadingPadding: CGFloat = 9
+    /// Texto fixo no gatilho, em vez do valor escolhido. É o "trocar ▾" do
+    /// mock do compositor: ali o valor já está escrito na linha, e o controle
+    /// é só a porta para trocá-lo.
+    var labelOverride: String?
+    /// A tinta do gatilho. Nula usa `ink`, que é o do protótipo.
+    var labelTint: TokenColor?
 
     private var currentLabel: String {
+        if let labelOverride { return labelOverride }
         guard let selected else { return "—" }
         for group in groups {
             if let hit = group.options.first(where: { $0.value == selected }) { return hit.label }
@@ -105,7 +112,7 @@ struct ComposerSelect: View {
             HStack(spacing: 0) {
                 Text(currentLabel)
                     .font(theme.sans.font(size: labelSize, weight: .medium))  // CSS 550
-                    .foregroundStyle(theme.ink.color)
+                    .foregroundStyle((labelTint ?? theme.ink).color)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 // Num controle de largura fixa a folga cede ao rótulo, que
@@ -164,7 +171,10 @@ struct ComposerSelect: View {
         }
         .frame(width: 232)
         .frame(maxHeight: 420)
-        .background(theme.surface.color)
+        // Opaco: um `popover` é uma janela própria, e no Vidro `surface` é
+        // translúcido — o menu sairia deixando a mesa de trabalho atravessar a
+        // lista de fontes. Ver `Theme.glassElevated`.
+        .background(theme.glassElevated.color)
     }
 
     private func row(_ option: Option) -> some View {
