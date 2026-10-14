@@ -146,6 +146,13 @@ struct ReaderIntelligencePopover: View {
 
     private var context: AssistantContext { conversation.context }
 
+    /// O preenchimento do painel: `surface` nos temas opacos, e a cor que o
+    /// `surface` do Vidro de fato pinta sobre o fundo da janela nos dois
+    /// temas de vidro.
+    private var painel: TokenColor {
+        theme.isGlass ? theme.flattened(\.surface) : theme.surface
+    }
+
     var body: some View {
         let size = Self.clampedSize(panelSize)
 
@@ -168,7 +175,12 @@ struct ReaderIntelligencePopover: View {
             }
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
-        .background(theme.surface.color)
+        // `flattened` e não `surface`: no Vidro os tokens de superfície são
+        // translúcidos de propósito, e um menu translúcido deixava o email
+        // aparecer por baixo da lista de ações. O protótipo pede um painel
+        // praticamente opaco (`rgba(255,255,255,0.97)`); a cor **pintada** do
+        // `surface` sobre o fundo da janela é exatamente ela.
+        .background(painel.color)
         .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
         .overlay {
             RoundedRectangle(cornerRadius: theme.radiusLarge)
@@ -267,7 +279,7 @@ struct ReaderIntelligencePopover: View {
                 .padding(14)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(theme.surface.color)
+            .background(painel.color)
             .onChange(of: conversation.messages.count) {
                 scrollToEnd(using: proxy)
             }
@@ -534,7 +546,7 @@ struct ReaderIntelligencePopover: View {
         .padding(.leading, 14)
         .padding(.trailing, 28)
         .padding(.vertical, 11)
-        .background(theme.surface.color)
+        .background(painel.color)
         .overlay(alignment: .top) { hairline }
     }
 

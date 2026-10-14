@@ -68,6 +68,110 @@ struct VidroRenderTests {
         #expect(rep.pixelsWide == Int(estreita))
     }
 
+    /// O motor mínimo que acende a superfície da IA no retrato — ele não é
+    /// perguntado nada aqui; é a existência dele que faz o painel nascer com
+    /// as ações habilitadas em vez de apagadas.
+    private struct EnsaioDeTexto: TextAssisting {
+        let modelVersion = "ensaio-vidro"
+        func availability() async -> AppleIntelligenceAvailability { .available }
+        func answer(
+            question: String, in conversation: AssistantConversationSnapshot
+        ) async throws -> String { "" }
+        func transform(
+            _ text: String, using action: WritingAction, context: AssistantMailContext?
+        ) async throws -> String { "" }
+    }
+
+    /// O painel da IA aberto sobre o leitor, com a lista de ações do
+    /// protótipo — "Traduzir" e "Explicar termos" entre elas.
+    @Test("o painel da IA abre no leitor de vidro")
+    func glassAssistantPanelRenders() async throws {
+        let store = await loja()
+        let rep = try #require(Render.snapshot(
+            InboxScreen(
+                store: store,
+                textAssistant: EnsaioDeTexto(),
+                debugAssistantOpen: false,
+                debugReaderAssistantOpen: true
+            ).environment(ThemeStore()),
+            named: "vidro-caixa-ia",
+            size: CGSize(width: 1440, height: 916),
+            theme: .vidro
+        ))
+        #expect(rep.pixelsWide == 1440)
+    }
+
+    /// A conta aberta com uma subpasta: o protótipo pede **Faturas** recuada
+    /// sob **Clientes**, e não "Clientes/Faturas" escrita por inteiro.
+    @Test("a coluna de contexto desenha as pastas em árvore")
+    func glassFolderTreeRenders() async throws {
+        let store = await lojaComPastas()
+        store.toggleFolders(of: "c1")
+        let rep = try #require(Render.snapshot(
+            FolderSidebar(store: store, width: ContextSidebar.width, chrome: .embedded)
+                .frame(maxHeight: .infinity, alignment: .top),
+            named: "vidro-pastas-arvore",
+            size: CGSize(width: ContextSidebar.width, height: 560),
+            theme: .vidro
+        ))
+        #expect(rep.pixelsWide == Int(ContextSidebar.width))
+        // A árvore existe de fato: três pastas, a terceira recuada.
+        #expect(GlassFolderList.tree(store.folders(of: "c1")).map(\.depth) == [0, 0, 1])
+    }
+
+    /// Uma fonte com pastas. `InMemoryMailSource` não tem servidor nenhum e
+    /// devolve `[]` — que é o que mantém os retratos sem conta como estavam.
+    private struct FonteComPastas: MailSource {
+        var contas: [Account]
+        var mensagens: [Message]
+        var pastas: [MailFolder]
+
+        func accounts() async throws -> [Account] { contas }
+        func messages() async throws -> [Message] { mensagens }
+        func agenda() async throws -> [AgendaItem] { [] }
+        func pendingItems() async throws -> [PendingItem] { [] }
+        func folders() async throws -> [MailFolder] { pastas }
+    }
+
+    private func lojaComPastas() async -> MailStore {
+        let conta = Account(
+            id: "c1", address: "ricardo@empresa.com", displayName: "Trabalho",
+            provider: .imap, host: "empresa",
+            tintLightHex: "#3E6FA8", tintDarkHex: "#7BA8D9"
+        )
+        let pastas = [
+            MailFolder(
+                id: "c1/INBOX", accountID: "c1", serverName: "INBOX",
+                displayName: "Caixa de entrada", role: .inbox, unreadCount: 1
+            ),
+            MailFolder(
+                id: "c1/Clientes", accountID: "c1", serverName: "Clientes",
+                displayName: "Clientes", role: .other
+            ),
+            MailFolder(
+                id: "c1/Clientes/Faturas", accountID: "c1", serverName: "Clientes/Faturas",
+                displayName: "Clientes/Faturas", role: .other, unreadCount: 3
+            ),
+        ]
+        let store = MailStore(source: FonteComPastas(
+            contas: [conta],
+            mensagens: [
+                Message(
+                    id: "m1", accountID: "c1",
+                    from: Contact(name: "Marina", address: "marina@cliente.com"),
+                    receivedAt: Fixtures.today,
+                    subject: "Fatura de agosto", snippet: "Segue a fatura", body: [],
+                    tags: [Tag(name: InboxWaitingLine.legacyNeedsReplyTag, tintHex: nil)],
+                    bucket: .today, isRead: false, summary: nil, detectedEvent: nil,
+                    folderIDs: ["c1/Clientes/Faturas"]
+                )
+            ],
+            pastas: pastas
+        ))
+        await store.load()
+        return store
+    }
+
     @Test("o Painel e a Agenda de vidro desenham", arguments: [
         Workspace.dashboard, Workspace.calendar,
     ])
