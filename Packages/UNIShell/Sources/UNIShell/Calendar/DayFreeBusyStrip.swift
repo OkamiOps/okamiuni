@@ -102,6 +102,10 @@ struct DayFreeBusyStrip: View {
                 ForEach(model.bands) { band in
                     bandView(band)
                         .frame(width: max(2, width * band.width), height: Self.trackHeight)
+                        // O corte é **aqui**, depois da largura da faixa: o
+                        // `clipped` de dentro ainda vê largura livre, e por
+                        // isso "Odette" entrava por cima de "Aitherion Labs".
+                        .clipped()
                         .offset(x: width * band.start)
                 }
                 if let proposal = model.proposal {
@@ -121,13 +125,28 @@ struct DayFreeBusyStrip: View {
 
     private func bandView(_ band: DayFreeBusy.Band) -> some View {
         let tint = tint(for: band)
-        return Text(band.title)
-            .font(theme.sans.font(size: 11.5, weight: .semibold))
-            .foregroundStyle(theme.glassEventInk(tint).color)
-            .lineLimit(1)
-            .truncationMode(.tail)
-            .padding(.horizontal, 9)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        // `overflow: hidden`, e não reticências: numa faixa de meia hora o
+        // `truncationMode` reduz "Odette" a "O…", que não é nome nenhum.
+        // Cortado na borda direita, as primeiras letras ainda se leem.
+        //
+        // O `Spacer` é o que faz o corte ser **só** à direita: com o texto
+        // sozinho num `frame` menor que ele, o SwiftUI o centra e o recorte
+        // come as duas pontas — "Odette" saía "dett".
+        return Color.clear
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // `overlay(alignment: .leading)` e não um `HStack`: o que
+            // transborda num `HStack` sai **centrado**, e o recorte comia as
+            // duas pontas — "Odette" saía "dett". Aqui o texto nasce colado na
+            // borda esquerda e só a direita é cortada.
+            .overlay(alignment: .leading) {
+                Text(band.title)
+                    .font(theme.sans.font(size: 11.5, weight: .semibold))
+                    .foregroundStyle(theme.glassEventInk(tint).color)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .padding(.leading, 9)
+            }
+            .clipped()
             .background(
                 theme.glassEventFill(tint).color,
                 in: RoundedRectangle(cornerRadius: theme.modalButtonRadius, style: .continuous)

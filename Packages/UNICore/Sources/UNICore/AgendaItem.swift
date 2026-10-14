@@ -208,9 +208,12 @@ public enum DateLabels {
         let formatter = DateFormatter()
         formatter.locale = locale
         formatter.setLocalizedDateFormatFromTemplate("EEEE d")
-        let text = formatter.string(from: date)
-        return locale.language.languageCode?.identifier == "pt"
-            ? text.replacingOccurrences(of: "-feira", with: "")
-            : text
+        var text = formatter.string(from: date)
+        if locale.language.languageCode?.identifier == "pt" {
+            text = text.replacingOccurrences(of: "-feira", with: "")
+        }
+        // "terça, 25" → "terça 25". O gabarito do sistema insere a vírgula; o
+        // desenho escreve "QUINTA 15", e o rótulo tem duas palavras só.
+        return text.replacingOccurrences(of: ",", with: "")
     }
 }

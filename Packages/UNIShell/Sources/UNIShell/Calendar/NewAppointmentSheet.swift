@@ -74,6 +74,20 @@ struct NewAppointmentSheet: View {
     @State private var errorMessage: String?
     @FocusState private var phraseFocused: Bool
 
+    /// A folha com a frase já digitada. **Só para verificação fora da tela**,
+    /// como o `debugSections` da janela do compromisso: o harness não digita, e
+    /// sem este caminho o estado que o desenho mostra — a frase e o cartão
+    /// "Entendi assim" — seria um estado que nenhum PNG jamais fotografaria.
+    init(
+        store: MailStore, anchor: Date, initialDayOffset: Int,
+        debugPhrase: String, onClose: @escaping () -> Void
+    ) {
+        self.init(
+            store: store, anchor: anchor, initialDayOffset: initialDayOffset, onClose: onClose
+        )
+        _phrase = State(initialValue: debugPhrase)
+    }
+
     init(
         store: MailStore,
         anchor: Date,
@@ -341,7 +355,10 @@ struct NewAppointmentSheet: View {
         DayFreeBusyStrip(
             store: store,
             dayOffset: dayOffsetOfSelection,
-            day: day,
+            // O dia **da proposta**, e não o do campo: enquanto a frase é a
+            // porta de entrada, quem manda é o que ela disse. Com `day` aqui,
+            // o rótulo dizia "terça 25" e a faixa tracejada caía na quinta.
+            day: Calendar.current.startOfDay(for: effectiveStart),
             startMinute: minutes(effectiveStart),
             endMinute: minutes(effectiveEnd)
         )

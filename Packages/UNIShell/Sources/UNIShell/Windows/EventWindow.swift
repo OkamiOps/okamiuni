@@ -1334,6 +1334,10 @@ public struct EventWindow: View {
         Button(action: action) {
             Text(destructiveText(title, note: note))
                 .lineLimit(1)
+                // O destrutivo não cede: cortado, "Remover do calendário ·
+                // ninguém é avi…" esconde justamente a consequência, que é a
+                // razão de a frase existir.
+                .fixedSize()
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

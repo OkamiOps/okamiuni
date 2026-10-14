@@ -165,15 +165,19 @@ struct UpdatePanel: View {
                 ModalPrimaryButton(
                     title: L10n.tr("Instalar e reabrir"),
                     horizontalPadding: 11,
+                    fills: true,
                     action: { controller.installAndRelaunch() }
                 )
-                .frame(maxWidth: .infinity)
                 .accessibilityIdentifier("update-install-now")
                 Button { controller.installOnQuit() } label: {
                     Text(L10n.tr("Ao fechar o app"))
                         .font(theme.sans.font(size: 14))
                         .foregroundStyle(theme.ink.color)
                         .lineLimit(1)
+                        // Ver `ModalPrimaryButton`: rótulo de botão não cede.
+                        // Em alemão esta frase é bem mais longa que em
+                        // português, e cortada ela deixa de ser uma escolha.
+                        .fixedSize()
                         .padding(.horizontal, 14)
                         .padding(.vertical, 11)
                         .background(

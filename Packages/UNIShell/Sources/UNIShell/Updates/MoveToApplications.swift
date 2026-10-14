@@ -101,9 +101,9 @@ struct MoveToApplicationsSheet: View {
                 ModalSecondaryButton(L10n.tr("Agora não")) { onDismiss() }
                     .keyboardShortcut(.cancelAction)
                 ModalPrimaryButton(
-                    title: L10n.tr("Mover e reabrir"), horizontalPadding: 0, action: onMove
+                    title: L10n.tr("Mover e reabrir"), horizontalPadding: 0,
+                    fills: true, action: onMove
                 )
-                .frame(maxWidth: .infinity)
                 .keyboardShortcut(.defaultAction)
                 .accessibilityIdentifier("move-to-applications")
             }

@@ -192,6 +192,11 @@ struct ModalPrimaryButton: View {
     /// `padding` horizontal do protótipo: 20 no compromisso, 18 nas contas.
     var horizontalPadding: CGFloat = 20
     var icon: String?
+    /// `true` quando o botão divide a largura com outro numa grade de duas
+    /// colunas iguais — o "Mover e reabrir" e o "Instalar e reabrir" do
+    /// protótipo. `false` (o normal) é o botão do rodapé, que tem a largura do
+    /// próprio rótulo.
+    var fills = false
     let action: () -> Void
 
     var body: some View {
@@ -206,8 +211,13 @@ struct ModalPrimaryButton: View {
             }
             .font(theme.sans.font(size: 14, weight: .semibold))
             .lineLimit(1)
+            // O primário **não cede**. Sem isto a frase de contexto do rodapé,
+            // que cresce para preencher, espremia o botão até "Testar e
+            // recon…" — e quem cede sob aperto tem de ser a frase.
+            .fixedSize()
             .foregroundStyle(enabled ? theme.onAccent.color : theme.ink4.color)
             .padding(.horizontal, horizontalPadding)
+            .frame(maxWidth: fills ? .infinity : nil)
             .padding(.vertical, 11)
             .background(
                 (enabled ? theme.accent : theme.modalSoft).color,

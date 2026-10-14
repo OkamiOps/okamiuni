@@ -61,9 +61,12 @@ enum EventPrep {
             guard let quem = participantes.first(where: { procurados.contains($0) }) else { continue }
             guard !message.subject.isEmpty else { continue }
             if let existente = porPessoa[quem], existente.date >= message.receivedAt { continue }
-            let nome = ([message.from] + message.to)
-                .first { $0.address.lowercased() == quem }?
-                .display ?? quem
+            // O **nome**, e não o `display`: `display` traz nome e endereço
+            // juntos, e a linha do preparo já é longa — ela termina no
+            // assunto, que é o que diz do que se trata.
+            let contato = ([message.from] + message.to)
+                .first { $0.address.lowercased() == quem }
+            let nome = contato.map { $0.name.isEmpty ? $0.address : $0.name } ?? quem
             porPessoa[quem] = Line(
                 id: message.id,
                 who: L10n.tr("Último e-mail de \(nome)"),

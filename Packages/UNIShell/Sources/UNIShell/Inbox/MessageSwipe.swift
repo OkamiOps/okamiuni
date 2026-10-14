@@ -493,10 +493,12 @@ struct SwipeUndoBand: View {
     let receipt: SwipeReceipt
     let onUndo: () -> Void
 
-    /// Quanto da barra de tempo ainda falta, 1 → 0. Ela anda em `onAppear`
-    /// pela vida útil do recibo, que é a mesma `MessageList.receiptLifetime`
-    /// que o remove.
-    @State private var remaining: CGFloat = 1
+    /// Quando esta faixa apareceu. A barra de tempo é desenhada contra o
+    /// relógio, e não por uma animação de 1 → 0: uma animação só existe
+    /// enquanto alguém a anima, e o retrato fora da tela fotografava a barra
+    /// já no fim: largura zero, barra invisível. Contra o relógio, qualquer
+    /// quadro — o do app ou o do harness — mostra o que de fato falta.
+    @State private var nascida = Date()
 
     /// `height: 2px` e `opacity: 0.6`, do protótipo.
     static let timeBarHeight: CGFloat = 2
@@ -533,10 +535,7 @@ struct SwipeUndoBand: View {
                 )
         }
         .shadow(theme.modalShadow)
-        .onAppear {
-            remaining = 1
-            withAnimation(.linear(duration: Self.lifetimeSeconds)) { remaining = 0 }
-        }
+        .onAppear { nascida = Date() }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(receipt.note)
     }
@@ -598,14 +597,26 @@ struct SwipeUndoBand: View {
     /// por um aviso com prazo visível.
     private var barraDoTempo: some View {
         GeometryReader { proxy in
-            Rectangle()
-                .fill(theme.accentInk.color)
-                .opacity(0.6)
-                .frame(width: proxy.size.width * remaining, height: Self.timeBarHeight)
-                .frame(height: proxy.size.height, alignment: .bottom)
+            TimelineView(.periodic(from: .now, by: 0.1)) { contexto in
+                Rectangle()
+                    .fill(theme.accentInk.color)
+                    .opacity(0.6)
+                    .frame(
+                        width: proxy.size.width * Self.restante(desde: nascida, agora: contexto.date),
+                        height: Self.timeBarHeight
+                    )
+                    .frame(height: proxy.size.height, alignment: .bottom)
+            }
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+
+    /// Quanto da vida útil ainda falta, 1 → 0.
+    static func restante(desde nascimento: Date, agora: Date) -> CGFloat {
+        let passou = agora.timeIntervalSince(nascimento)
+        guard lifetimeSeconds > 0 else { return 0 }
+        return CGFloat(max(0, min(1, 1 - passou / lifetimeSeconds)))
     }
 
     /// A vida útil em segundos, para a animação. `Duration` não entrega
