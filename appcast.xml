@@ -6,6 +6,16 @@
     <description>Atualizações do OkamiUNI</description>
     <language>pt-BR</language>
     <item>
+      <title>Version 0.5.9</title>
+      <pubDate>Wed, 14 Oct 2026 00:59:06 GMT</pubDate>
+      <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.5.9</sparkle:fullReleaseNotesLink>
+      <sparkle:version>14</sparkle:version>
+      <sparkle:shortVersionString>0.5.9</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<ul lang="pt-BR"><li>Instalador para quem baixa pela primeira vez: cada release agora traz o <code>OkamiUNI.dmg</code>, assinado e notarizado pela Apple. Ele abre uma janela com o app, uma seta e a pasta Aplicativos; é só arrastar um para o outro. Link fixo para a versão mais nova: https://github.com/OkamiOps/okamiuni/releases/latest/download/OkamiUNI.dmg</li><li>Se o OkamiUNI for aberto direto da janela do instalador, ou de Downloads sem ser movido, o app oferece <strong>Mover para Aplicativos</strong>. É lá que a atualização automática funciona.</li><li>Versão do app 0.5.9, build 14. <a href="docs/releases/v0.5.9.pt-BR.md">Notas da versão</a>.</li></ul><ul lang="en"><li>Installer for new users: each release now includes <code>OkamiUNI.dmg</code>, signed and notarized by Apple. It opens a window with the app, an arrow and the Applications folder; drag one onto the other. Fixed link to the latest version: https://github.com/OkamiOps/okamiuni/releases/latest/download/OkamiUNI.dmg</li><li>If OkamiUNI is opened straight from the installer window, or from Downloads without moving it, the app offers <strong>Move to Applications</strong>. That is where automatic updates work.</li><li>App version 0.5.9, build 14. <a href="docs/releases/v0.5.9.md">Release notes</a>.</li></ul>]]></description>
+      <enclosure url="https://github.com/OkamiOps/okamiuni/releases/download/v0.5.9/OkamiUNI-0.5.9.zip" length="34549884" type="application/octet-stream" sparkle:edSignature="hE4vzhRy1d5oHNpgTbmb3izMrQUq4Ognb3H4fpHWGodML548xzL86SsHqwsMnB/x2g/wZ4N13GkuERHuoaOqBA==" />
+    </item>
+    <item>
       <title>Version 0.5.8</title>
       <pubDate>Tue, 13 Oct 2026 22:51:00 GMT</pubDate>
       <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.5.8</sparkle:fullReleaseNotesLink>
@@ -15,7 +25,7 @@
       <description><![CDATA[<ul lang="pt-BR"><li>Versão nova pronta agora aparece na barra lateral como uma faixa com "Nova versão", o número e o botão <strong>Instalar</strong>, acima de "Contas e providers". Sem versão nova, fica o ícone de atualização na ponta da mesma linha; um clique procura na hora.</li><li>Em Configurações → Geral → Atualizações, a versão pronta ganha o botão <strong>Instalar X e reabrir</strong>, com "O que mudou" ao lado. Antes era um texto que não parecia clicável.</li><li>Versão do app 0.5.8, build 13. <a href="docs/releases/v0.5.8.pt-BR.md">Notas da versão</a>.</li></ul><ul lang="en"><li>A ready update now shows in the sidebar as a strip with "New version", the version number and an <strong>Install</strong> button, above "Accounts and providers". With nothing new, the update icon stays at the end of that row; one click checks right away.</li><li>In Settings → General → Updates, a ready update gets an <strong>Install X and reopen</strong> button, with "What changed" next to it. Before, it was a line of text that did not look clickable.</li><li>App version 0.5.8, build 13. <a href="docs/releases/v0.5.8.md">Release notes</a>.</li></ul>]]></description>
       <enclosure url="https://github.com/OkamiOps/okamiuni/releases/download/v0.5.8/OkamiUNI-0.5.8.zip" length="34525968" type="application/octet-stream" sparkle:edSignature="WHf1Gqq27Itp4aXWppvkBF3oTGImJG1jODX4NRovObb5T4lVQEpKxn6frO0h6SGRRDrnp8b5MHwO+tqAcR+bCw==" />
     </item>
-    <item>
+<item>
       <title>Version 0.5.7</title>
       <pubDate>Tue, 13 Oct 2026 21:30:23 GMT</pubDate>
       <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.5.7</sparkle:fullReleaseNotesLink>
