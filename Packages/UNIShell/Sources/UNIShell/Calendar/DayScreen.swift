@@ -165,7 +165,7 @@ public struct DayScreen: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .background(theme.surface.color)
+        .background(theme.isGlass ? Color.clear : theme.surface.color)
     }
 
     /// Ver `WeekScreen.scrollAnchor`: o alvo precisa ser altura de verdade, não
@@ -224,30 +224,46 @@ public struct DayScreen: View {
     private func eventCard(_ item: AgendaItem) -> some View {
         let swatch = CalendarTint.token(of: item, in: store, theme: theme)
         let tight = layout.isTight(for: item)
+        // No Vidro o cartão é arredondado nos quatro cantos e não tem barra:
+        // a cor do calendário está no fundo translúcido e na tinta do texto.
+        let vidro = theme.isGlass
         let shape = UnevenRoundedRectangle(
-            topLeadingRadius: 0,
-            bottomLeadingRadius: 0,
-            bottomTrailingRadius: theme.radiusSmall,
-            topTrailingRadius: theme.radiusSmall
+            topLeadingRadius: vidro ? VidroEvento.radius : 0,
+            bottomLeadingRadius: vidro ? VidroEvento.radius : 0,
+            bottomTrailingRadius: vidro ? VidroEvento.radius : theme.radiusSmall,
+            topTrailingRadius: vidro ? VidroEvento.radius : theme.radiusSmall
         )
 
         let cancelled = item.isCancelled
         return Button { onOpenEvent(item) } label: {
             HStack(spacing: 0) {
-                Rectangle().fill(CalendarEventChrome.bar(swatch, cancelled: cancelled, theme: theme)).frame(width: 3)
+                if !vidro {
+                    Rectangle()
+                        .fill(CalendarEventChrome.bar(swatch, cancelled: cancelled, theme: theme))
+                        .frame(width: 3)
+                }
                 VStack(alignment: .leading, spacing: tight ? 0 : 3) {
                     CalendarEventChrome.title(
                         tight ? "\(item.title) · \(item.rangeLabel)" : item.title,
                         cancelled: cancelled
                     )
                         .font(theme.sans.font(size: 13, weight: .semibold))
-                        .foregroundStyle(CalendarEventChrome.ink(swatch, cancelled: cancelled, theme: theme))
+                        .foregroundStyle(
+                            vidro
+                                ? VidroEvento.ink(item, in: store, theme: theme)
+                                : CalendarEventChrome.ink(swatch, cancelled: cancelled, theme: theme)
+                        )
                         .lineLimit(1)
                         .truncationMode(.tail)
                     if !tight {
                         Text("\(item.startLabel)–\(item.endLabel) · \(hostLabel(item))")
                             .font(theme.mono.font(size: 10))
-                            .foregroundStyle(CalendarEventChrome.ink(swatch, cancelled: cancelled, theme: theme).opacity(0.85))
+                            .foregroundStyle(
+                                (vidro
+                                    ? VidroEvento.ink(item, in: store, theme: theme)
+                                    : CalendarEventChrome.ink(swatch, cancelled: cancelled, theme: theme)
+                                ).opacity(0.85)
+                            )
                             .lineLimit(1)
                     }
                 }
@@ -257,7 +273,11 @@ public struct DayScreen: View {
                 .padding(.vertical, tight ? 0 : 9)
             }
             .frame(maxHeight: .infinity, alignment: .center)
-            .background(CalendarEventChrome.fill(swatch, cancelled: cancelled, theme: theme))
+            .background(
+                vidro
+                    ? VidroEvento.fill(item, in: store, theme: theme)
+                    : CalendarEventChrome.fill(swatch, cancelled: cancelled, theme: theme)
+            )
             .clipShape(shape)
             .overlay {
                 shape.strokeBorder(CalendarEventChrome.border(cancelled: cancelled, theme: theme), lineWidth: 1)
@@ -293,27 +313,37 @@ public struct DayScreen: View {
 
     /// Protótipo: `nowDayStyle` e `nowDayPillStyle` (linhas 2324–2325).
     private var nowMarker: some View {
-        ZStack(alignment: .topLeading) {
+        // No Vidro o traço é laranja, e a calha ganha um ponto no lugar da
+        // pastilha — ver `WeekScreen.nowMarker`.
+        let cor = theme.nowLine
+        return ZStack(alignment: .topLeading) {
             HStack(spacing: 0) {
                 Color.clear.frame(width: layout.labelGutter, height: 0)
                 Rectangle()
-                    .fill(theme.live.color)
+                    .fill(cor.color)
                     .frame(height: 2)
                     .padding(.trailing, layout.trailingInset)
             }
             .frame(height: 0, alignment: .center)
             .offset(y: layout.offset(minuteOfDay: now))
 
-            Text(MinuteFormat.clock(now))
-                .font(theme.mono.font(size: 9.5, weight: .medium))
-                .foregroundStyle(theme.onAccent.color)
-                .padding(.horizontal, 6)
-                .frame(height: 18)
-                .background(theme.live.color)
-                .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-                // Protótipo: `left: 0; top: now * 0.95 - 9` — os 9 são metade
-                // da pastilha, que a deixa centrada no traço.
-                .offset(y: layout.offset(minuteOfDay: now) - 9)
+            if theme.isGlass {
+                Circle()
+                    .fill(cor.color)
+                    .frame(width: 12, height: 12)
+                    .offset(x: layout.labelGutter - 10, y: layout.offset(minuteOfDay: now) - 6)
+            } else {
+                Text(MinuteFormat.clock(now))
+                    .font(theme.mono.font(size: 9.5, weight: .medium))
+                    .foregroundStyle(theme.onAccent.color)
+                    .padding(.horizontal, 6)
+                    .frame(height: 18)
+                    .background(cor.color)
+                    .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+                    // Protótipo: `left: 0; top: now * 0.95 - 9` — os 9 são
+                    // metade da pastilha, que a deixa centrada no traço.
+                    .offset(y: layout.offset(minuteOfDay: now) - 9)
+            }
         }
         .allowsHitTesting(false)
         .zIndex(50)

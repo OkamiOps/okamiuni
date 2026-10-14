@@ -188,25 +188,71 @@ public struct CalendarScreen: View {
         }
     }
 
-    private var calendarColumn: some View {
-        VStack(spacing: 0) {
-            CalendarHeader(
-                store: store,
-                anchor: anchor,
-                mode: mode,
-                selectedDayOffset: selectedDayOffset,
-                pickerOpen: pickerOpen,
-                onPick: pick(_:),
-                onStepDay: step(_:),
-                onGoToday: goToday,
-                onTogglePicker: { pickerOpen.toggle() },
-                onPickDay: pickDay(_:)
+    /// Os blocos que a IA propõe para hoje.
+    ///
+    /// É o mesmo `PlanoDoDia` do Painel, com as promessas que vencem hoje: a
+    /// Agenda e o Painel não podem discordar sobre o que está proposto. O
+    /// bloco de respostas fica de fora porque ele é do recorte da Caixa, que a
+    /// Agenda não tem — e por isso a frase do topo conta o que ela de fato
+    /// desenha na grade.
+    private var propostos: [PlanoDoDia.Bloco] {
+        guard theme.isGlass else { return [] }
+        let calendario = Calendar.current
+        let promessas = store.visiblePendingItems.compactMap { item -> PlanoDoDia.Promessa? in
+            guard let vence = item.dueDate,
+                  calendario.isDate(vence, inSameDayAs: anchor) else { return nil }
+            let partes = calendario.dateComponents([.hour, .minute], from: vence)
+            return PlanoDoDia.Promessa(
+                id: item.id,
+                title: PainelDoDiaModelo.titulo(de: item.text),
+                dueMinute: (partes.hour ?? 0) * 60 + (partes.minute ?? 0)
             )
+        }
+        guard !promessas.isEmpty else { return [] }
+        return PlanoDoDia.make(
+            agenda: store.visibleAgenda, replyBlock: nil, replyTitle: "",
+            promessas: promessas, prazos: [], now: anchor, nowMinute: now
+        )
+        .filter { $0.tipo == .proposto }
+    }
+
+    private var calendarColumn: some View {
+        let propostos = propostos
+        return VStack(spacing: 0) {
+            if theme.isGlass {
+                VidroAgendaCabecalho(
+                    store: store,
+                    anchor: anchor,
+                    mode: mode,
+                    selectedDayOffset: selectedDayOffset,
+                    pickerOpen: pickerOpen,
+                    blocosPropostos: propostos.count,
+                    onPick: pick(_:),
+                    onStepDay: step(_:),
+                    onGoToday: goToday,
+                    onTogglePicker: { pickerOpen.toggle() },
+                    onPickDay: pickDay(_:)
+                )
+                .zIndex(30)
+            } else {
+                CalendarHeader(
+                    store: store,
+                    anchor: anchor,
+                    mode: mode,
+                    selectedDayOffset: selectedDayOffset,
+                    pickerOpen: pickerOpen,
+                    onPick: pick(_:),
+                    onStepDay: step(_:),
+                    onGoToday: goToday,
+                    onTogglePicker: { pickerOpen.toggle() },
+                    onPickDay: pickDay(_:)
+                )
             // A faixa vem por cima da grade: o seletor de data é desenhado
-            // dentro dela e passa 231pt abaixo do seu limite. Sem o `zIndex`,
-            // o `VStack` empilha o irmão seguinte por cima e o popover fica
-            // metade escondido atrás da grade.
-            .zIndex(30)
+                // dentro dela e passa 231pt abaixo do seu limite. Sem o
+                // `zIndex`, o `VStack` empilha o irmão seguinte por cima e o
+                // popover fica metade escondido atrás da grade.
+                .zIndex(30)
+            }
 
             if let state = store.calendarAvailability {
                 CalendarStatusBand(state: state) {
@@ -214,14 +260,16 @@ public struct CalendarScreen: View {
                 }
             }
 
-            content
+            content(propostos: propostos)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(theme.surface.color)
+        // No Vidro quem pinta o fundo é o painel: uma segunda camada de
+        // `surface` por cima dele apagava o gradiente.
+        .background(theme.isGlass ? Color.clear : theme.surface.color)
     }
 
     @ViewBuilder
-    private var content: some View {
+    private func content(propostos: [PlanoDoDia.Bloco]) -> some View {
         switch mode {
         case .day:
             DayScreen(
@@ -232,7 +280,8 @@ public struct CalendarScreen: View {
         case .week:
             WeekScreen(
                 store: store, now: now, anchor: anchor,
-                focusOffset: selectedDayOffset, onOpenEvent: onOpenEvent,
+                focusOffset: selectedDayOffset, propostos: propostos,
+                onOpenEvent: onOpenEvent,
                 onRevealMessage: onRevealMessage
             )
         case .month:

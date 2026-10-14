@@ -59,7 +59,7 @@ public struct MonthScreen: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(theme.surface.color)
+        .background(theme.isGlass ? Color.clear : theme.surface.color)
     }
 
     /// Protótipo: `padding: 7px 10px` por célula, mono 9,5 em versalete.
@@ -109,8 +109,21 @@ public struct MonthScreen: View {
         VStack(alignment: .leading, spacing: 0) {
             Button { onOpenDay(day.dayOffset) } label: {
                 Text("\(day.dayNumber)")
-                    .font(theme.serif.font(size: 15, weight: .medium))
+                    .font(
+                        theme.isGlass
+                            ? theme.sans.font(size: 14, weight: .semibold)
+                            : theme.serif.font(size: 15, weight: .medium)
+                    )
                     .foregroundStyle(numberColor(day))
+                    // No Vidro hoje é um disco cheio em accent com o número
+                    // branco — a mesma marca da faixa dos dias da semana.
+                    .frame(
+                        width: theme.isGlass ? 24 : nil,
+                        height: theme.isGlass ? 24 : nil
+                    )
+                    .background {
+                        if theme.isGlass, day.isToday { Circle().fill(theme.accent.color) }
+                    }
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -140,27 +153,36 @@ public struct MonthScreen: View {
     /// Protótipo: `e.style` (linhas 2415–2416).
     private func eventChip(_ event: AgendaItem) -> some View {
         let swatch = CalendarTint.token(of: event, in: store, theme: theme)
+        let vidro = theme.isGlass
         let shape = UnevenRoundedRectangle(
-            topLeadingRadius: 0,
-            bottomLeadingRadius: 0,
-            bottomTrailingRadius: theme.radiusSmall,
-            topTrailingRadius: theme.radiusSmall
+            topLeadingRadius: vidro ? VidroEvento.radius : 0,
+            bottomLeadingRadius: vidro ? VidroEvento.radius : 0,
+            bottomTrailingRadius: vidro ? VidroEvento.radius : theme.radiusSmall,
+            topTrailingRadius: vidro ? VidroEvento.radius : theme.radiusSmall
         )
 
         let cancelled = event.isCancelled
         return Button { onOpenEvent(event) } label: {
             CalendarEventChrome.title(event.title, cancelled: cancelled)
                 .font(theme.sans.font(size: 10.5, weight: .medium))
-                .foregroundStyle(CalendarEventChrome.ink(swatch, cancelled: cancelled, theme: theme))
+                .foregroundStyle(
+                    vidro
+                        ? VidroEvento.ink(event, in: store, theme: theme)
+                        : CalendarEventChrome.ink(swatch, cancelled: cancelled, theme: theme)
+                )
                 .lineLimit(1)
                 .truncationMode(.tail)
                 // Protótipo: `padding: 2px 6px`, e o 6 conta a partir da faixa
                 // de cor — `border-left` do CSS fica fora do padding.
-                .padding(.leading, 8)
+                .padding(.leading, vidro ? 6 : 8)
                 .padding(.trailing, 6)
                 .padding(.vertical, 2)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(CalendarEventChrome.fill(swatch, cancelled: cancelled, theme: theme))
+                .background(
+                    vidro
+                        ? VidroEvento.fill(event, in: store, theme: theme)
+                        : CalendarEventChrome.fill(swatch, cancelled: cancelled, theme: theme)
+                )
                 // A faixa de 2pt vem por **sobreposição**, não como irmã num
                 // `HStack`. Uma `Rectangle` irmã não tem altura própria e pede
                 // o máximo disponível: dentro de uma célula do mês, que tem
@@ -169,7 +191,11 @@ public struct MonthScreen: View {
                 // semana e do dia o mesmo `HStack` funciona porque lá a altura
                 // do cartão é imposta por fora.
                 .overlay(alignment: .leading) {
-                    Rectangle().fill(CalendarEventChrome.bar(swatch, cancelled: cancelled, theme: theme)).frame(width: 2)
+                    if !vidro {
+                        Rectangle()
+                            .fill(CalendarEventChrome.bar(swatch, cancelled: cancelled, theme: theme))
+                            .frame(width: 2)
+                    }
                 }
                 .clipShape(shape)
                 .overlay {
@@ -197,12 +223,20 @@ public struct MonthScreen: View {
     }
 
     private func numberColor(_ day: MonthAgenda.Day) -> Color {
-        if day.isToday { return theme.accent.color }
+        if day.isToday { return theme.isGlass ? theme.onAccent.color : theme.accent.color }
         if day.isOutsideMonth { return theme.ink4.color }
         return theme.ink2.color
     }
 
     private func cellBackground(_ day: MonthAgenda.Day) -> Color {
+        if theme.isGlass {
+            // `accentSoft` e `surface2` são opacos e apagariam o gradiente: no
+            // Vidro a célula de hoje é o acento a 5%, e a de fora do mês é um
+            // véu discreto.
+            if day.isToday { return theme.accent.color.opacity(theme.isDark ? 0.07 : 0.05) }
+            if day.isOutsideMonth { return theme.glassPast.color }
+            return .clear
+        }
         if day.isToday { return theme.accentSoft.color }
         if day.isOutsideMonth { return theme.surface2.color }
         return .clear

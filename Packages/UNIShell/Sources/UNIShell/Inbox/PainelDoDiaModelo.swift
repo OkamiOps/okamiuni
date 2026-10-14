@@ -58,6 +58,21 @@ struct PainelDoDiaModelo {
         let quantia: DinheiroNoTexto.Valor?
     }
 
+    /// O número grande da frente "Dinheiro" no painel de vidro.
+    ///
+    /// O azulejo do protótipo escreve "6.000" e, embaixo, "créditos a pagar":
+    /// um número em mono e uma unidade em texto. A barra de estado antiga dizia
+    /// a mesma coisa em uma linha ("a pagar 6.000 créditos"), e no desenho novo
+    /// essa barra não existe mais — então a soma passa a ser apurada aqui, com
+    /// a mesma regra de `emJogo`: só o que o texto afirma, e só somando o que
+    /// está na mesma moeda.
+    struct FrenteDeDinheiro: Equatable {
+        /// "6.000", "R$ 4.200".
+        let numero: String
+        /// "créditos a pagar", "a receber".
+        let unidade: String
+    }
+
     /// Por que não há nenhuma resposta pronta. `nil` quando há.
     enum MotivoSemProntas: Equatable {
         /// A rota remota está configurada, mas a análise automática está
@@ -99,6 +114,9 @@ struct PainelDoDiaModelo {
     let progressoEscrito: String
     let composicao: String
     let emJogo: [(rotulo: String, valor: String, aReceber: Bool)]
+    /// `nil` quando nenhum texto afirmou valor: aí o azulejo mostra a contagem
+    /// de prazos, e não um zero inventado.
+    let frenteDeDinheiro: FrenteDeDinheiro?
 
     var legendaDoPlano: String {
         let n = propostos.count
@@ -410,6 +428,7 @@ struct PainelDoDiaModelo {
 
         // Em jogo: só o que tem valor lido do texto.
         emJogo = Self.emJogo(dinheiro)
+        frenteDeDinheiro = Self.frenteDeDinheiro(dinheiro)
     }
 
     // MARK: - Peças
@@ -498,6 +517,29 @@ struct PainelDoDiaModelo {
             partes.append((L10n.tr("a pagar"), pagar, false))
         }
         return partes
+    }
+
+    /// O número grande do azulejo "Dinheiro".
+    ///
+    /// A pagar vem primeiro: é a obrigação, e é o que o protótipo mostra. Sem
+    /// nada a pagar vale o que há a receber; sem nenhum valor afirmado, `nil`.
+    static func frenteDeDinheiro(_ linhas: [LinhaDeDinheiro]) -> FrenteDeDinheiro? {
+        func parte(_ lado: [LinhaDeDinheiro], aReceber: Bool) -> FrenteDeDinheiro? {
+            let valores = lado.compactMap(\.quantia)
+            guard let moeda = valores.first?.currency else { return nil }
+            let total = valores.filter { $0.currency == moeda }.reduce(0) { $0 + $1.amount }
+            guard total > 0 else { return nil }
+            let verbo = aReceber ? L10n.tr("a receber") : L10n.tr("a pagar")
+            // "créditos" é unidade, e cabe embaixo do número; "R$" é prefixo, e
+            // fica junto do número para não virar a frase torta "R$ a pagar".
+            return moeda == "créditos"
+                ? FrenteDeDinheiro(
+                    numero: escrito(total), unidade: L10n.tr("créditos \(verbo)")
+                )
+                : FrenteDeDinheiro(numero: "\(moeda) \(escrito(total))", unidade: verbo)
+        }
+        return parte(linhas.filter { !$0.aReceber }, aReceber: false)
+            ?? parte(linhas.filter(\.aReceber), aReceber: true)
     }
 
     /// 4200 → "4.200"; 250.5 → "250,50".

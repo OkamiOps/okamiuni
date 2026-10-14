@@ -26,16 +26,22 @@ struct PainelLinhaDoTempo: View {
     let onTapCompromisso: (PlanoDoDia.Bloco) -> Void
     /// Clique num bloco proposto — "Ajustar" abre o seletor de hora.
     let onTapProposto: (PlanoDoDia.Bloco) -> Void
+    /// O compromisso tem link de reunião? Só no shell Vidro, e só para a
+    /// pastilha "Entrar" aparecer no bloco que está acontecendo agora.
+    var temLink: (PlanoDoDia.Bloco) -> Bool = { _ in false }
 
     @State private var retornoAoAgora = 0
 
-    private let alturaDoBloco: CGFloat = 28
+    /// O protótipo do Vidro desenha blocos de 34pt com canto de 9; o clássico
+    /// continua com os 28 e o `radiusSmall` do tema.
+    private var alturaDoBloco: CGFloat { theme.isGlass ? 34 : 28 }
+    private var cantoDoBloco: CGFloat { theme.isGlass ? 9 : theme.radiusSmall }
     /// A folga entre a trilha da agenda e a trilha "você".
-    private let entreTrilhas: CGFloat = 10
+    private var entreTrilhas: CGFloat { theme.isGlass ? 8 : 10 }
     private let topoDaAgenda: CGFloat = 12
     /// Quanto sobra abaixo da última trilha para a linha do eixo e as horas.
     private let rodapeDoEixo: CGFloat = 40
-    private let larguraDosRotulos: CGFloat = 46
+    private var larguraDosRotulos: CGFloat { theme.isGlass ? 58 : 46 }
     /// O esmaecimento das bordas: 24 pt dizendo que o eixo continua.
     private let esmaecimento: CGFloat = 24
 
@@ -127,14 +133,32 @@ struct PainelLinhaDoTempo: View {
     /// quem é a linha, e uma legenda que sai da tela ao rolar não diz nada.
     private func rotulos(_ desenho: Desenho) -> some View {
         ZStack(alignment: .topLeading) {
-            Text(L10n.tr("agenda"))
-                .capsLabel(size: 9)
-                .foregroundStyle(theme.ink3.color)
-                .offset(y: desenho.topoDaAgenda + 8)
-            Text(L10n.tr("você"))
-                .capsLabel(size: 9)
-                .foregroundStyle(theme.accentInk.color)
-                .offset(y: desenho.topoDoVoce + 8)
+            // No Vidro os nomes das trilhas são texto comum em 12pt, como no
+            // protótipo; nos 26 temas antigos continuam em versalete.
+            Group {
+                if theme.isGlass {
+                    Text(L10n.tr("Agenda"))
+                        .font(theme.sans.font(size: 12))
+                        .foregroundStyle(theme.ink3.color)
+                } else {
+                    Text(L10n.tr("agenda"))
+                        .capsLabel(size: 9)
+                        .foregroundStyle(theme.ink3.color)
+                }
+            }
+            .offset(y: desenho.topoDaAgenda + (theme.isGlass ? 9 : 8))
+            Group {
+                if theme.isGlass {
+                    Text(L10n.tr("Você"))
+                        .font(theme.sans.font(size: 12))
+                        .foregroundStyle(theme.ink3.color)
+                } else {
+                    Text(L10n.tr("você"))
+                        .capsLabel(size: 9)
+                        .foregroundStyle(theme.accentInk.color)
+                }
+            }
+            .offset(y: desenho.topoDoVoce + (theme.isGlass ? 9 : 8))
             Button { retornoAoAgora += 1 } label: {
                 Text(L10n.tr("Agora"))
                     .font(theme.sans.font(size: Self.tamanhoDoTitulo, weight: .semibold))
@@ -165,6 +189,7 @@ struct PainelLinhaDoTempo: View {
         ScrollViewReader { leitor in
             ScrollView(.horizontal) {
                 ZStack(alignment: .topLeading) {
+                    if theme.isGlass { faixasDoPassado(desenho) }
                     Rectangle()
                         .fill(theme.line.color)
                         .frame(height: Hairline.thickness(displayScale))
@@ -198,6 +223,19 @@ struct PainelLinhaDoTempo: View {
 
     private static let ancoraDoAgora = "linha-do-tempo-agora"
 
+    /// O que já passou, sombreado de leve até o agora — uma faixa por trilha.
+    /// Protótipo: `pastBand`, um gradiente que corta exatamente em `nowPct`.
+    private func faixasDoPassado(_ desenho: Desenho) -> some View {
+        let largura = CGFloat(PlanoDoDia.x(nowMinute))
+        return ForEach([desenho.topoDaAgenda, desenho.topoDoVoce], id: \.self) { topo in
+            RoundedRectangle(cornerRadius: cantoDoBloco, style: .continuous)
+                .fill(theme.glassPast.color)
+                .frame(width: max(0, largura), height: alturaDoBloco)
+                .offset(y: topo)
+                .allowsHitTesting(false)
+        }
+    }
+
     /// A âncora da rolagem. É uma view de verdade no fluxo — `offset` moveria o
     /// desenho sem mover o quadro, e `scrollTo` rolaria para o lugar errado.
     private var marcaDoAgora: some View {
@@ -212,8 +250,12 @@ struct PainelLinhaDoTempo: View {
     /// O esmaecimento das bordas reforça a continuação do eixo, junto da
     /// barra de rolagem horizontal nativa.
     private func veu(_ borda: HorizontalAlignment) -> some View {
-        LinearGradient(
-            colors: [theme.surface.color, theme.surface.color.opacity(0)],
+        // No Vidro o véu é da cor do **painel**, e não de `surface`: o painel é
+        // quem está atrás do eixo, e um véu branco translúcido sobre o
+        // gradiente aparecia como uma mancha clara.
+        let base = (theme.isGlass ? theme.panel?.fill : nil) ?? theme.surface
+        return LinearGradient(
+            colors: [base.color, base.color.opacity(0)],
             startPoint: borda == .leading ? .leading : .trailing,
             endPoint: borda == .leading ? .trailing : .leading
         )
@@ -267,8 +309,20 @@ struct PainelLinhaDoTempo: View {
         .accessibilityLabel(rotulo(bloco))
     }
 
+    /// Está acontecendo agora? Só compromisso: uma proposta não "acontece".
+    private func estaAgora(_ bloco: PlanoDoDia.Bloco) -> Bool {
+        bloco.tipo == .compromisso
+            && bloco.startMinute <= nowMinute
+            && nowMinute < bloco.startMinute + bloco.minutes
+    }
+
+    private func jaPassou(_ bloco: PlanoDoDia.Bloco) -> Bool {
+        bloco.startMinute + bloco.minutes <= nowMinute
+    }
+
     private func conteudo(_ bloco: PlanoDoDia.Bloco, posto: PlanoDoDia.Posto) -> some View {
-        HStack(spacing: Self.entreTituloEDuracao) {
+        let agora = estaAgora(bloco)
+        return HStack(spacing: Self.entreTituloEDuracao) {
             // Sempre o título, inteiro: a largura foi calculada para ele caber.
             // "Te…", ou um chip escrito "01:00", não dizem o que está agendado.
             Text(bloco.title)
@@ -276,7 +330,9 @@ struct PainelLinhaDoTempo: View {
                 .foregroundStyle(cor(bloco))
                 .lineLimit(1)
                 .fixedSize()
-            if !bloco.duration.isEmpty {
+            // No Vidro o bloco escreve o título e nada mais: o eixo abaixo já
+            // diz a hora, e o protótipo não repete a duração dentro do bloco.
+            if !theme.isGlass, !bloco.duration.isEmpty {
                 Text(bloco.duration)
                     .font(theme.mono.font(size: Self.tamanhoDaDuracao))
                     .foregroundStyle(
@@ -285,12 +341,32 @@ struct PainelLinhaDoTempo: View {
                     .lineLimit(1)
                     .fixedSize()
             }
+            if theme.isGlass, agora, temLink(bloco) {
+                Spacer(minLength: 0)
+                Text(L10n.tr("Entrar"))
+                    .font(theme.sans.font(size: 11, weight: .semibold))
+                    .foregroundStyle(theme.liveMeeting.color)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color.white)
+                    )
+                    .fixedSize()
+            }
         }
         .padding(.horizontal, CGFloat(PlanoDoDia.respiroDoBloco) / 2)
         .frame(width: CGFloat(posto.largura), height: alturaDoBloco, alignment: .leading)
         .background(fundo(bloco))
-        .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+        .clipShape(RoundedRectangle(cornerRadius: cantoDoBloco, style: .continuous))
         .overlay { borda(bloco) }
+        // O que já passou desbota: continua legível, deixa de competir.
+        .opacity(theme.isGlass && jaPassou(bloco) ? 0.45 : 1)
+        .shadow(
+            color: theme.isGlass && agora
+                ? theme.liveMeeting.color.opacity(0.35) : .clear,
+            radius: 6, x: 0, y: 4
+        )
         .contentShape(Rectangle())
     }
 
@@ -307,6 +383,12 @@ struct PainelLinhaDoTempo: View {
             bloco.title, familia: theme.sans,
             tamanho: Self.tamanhoDoTitulo, peso: .semibold
         )
+        if theme.isGlass {
+            // A pastilha "Entrar" entra na conta da largura: sem isto ela
+            // empurraria o título para fora do bloco que a mostra.
+            if estaAgora(bloco), temLink(bloco) { largura += 52 }
+            return largura
+        }
         if !bloco.duration.isEmpty {
             largura += Self.entreTituloEDuracao + Self.medida(
                 bloco.duration, familia: theme.mono,
@@ -346,36 +428,61 @@ struct PainelLinhaDoTempo: View {
     }
 
     private func cor(_ bloco: PlanoDoDia.Bloco) -> Color {
+        if theme.isGlass {
+            if estaAgora(bloco) { return .white }
+            switch bloco.tipo {
+            case .compromisso: return theme.glassEventInk(theme.liveMeeting).color
+            case .proposto: return theme.accentInk.color
+            case .prazo: return theme.nowLine.color
+            }
+        }
         switch bloco.tipo {
-        case .compromisso: theme.ink.color
-        case .proposto: theme.accentInk.color
-        case .prazo: theme.warning.color
+        case .compromisso: return theme.ink.color
+        case .proposto: return theme.accentInk.color
+        case .prazo: return theme.warning.color
         }
     }
 
     private func fundo(_ bloco: PlanoDoDia.Bloco) -> Color {
+        if theme.isGlass {
+            // A reunião em curso é azul cheio; as outras, o azul translúcido
+            // do protótipo. A proposta continua tracejada sobre `accentSoft`.
+            if estaAgora(bloco) { return theme.liveMeeting.color }
+            switch bloco.tipo {
+            case .compromisso: return theme.glassEventFill(theme.liveMeeting).color
+            case .proposto: return theme.accentSoft.color
+            case .prazo: return .clear
+            }
+        }
         switch bloco.tipo {
-        case .compromisso: theme.btn.color
-        case .proposto: theme.accentSoft.color
+        case .compromisso: return theme.btn.color
+        case .proposto: return theme.accentSoft.color
         // O prazo é vazado: ele não ocupa tempo, ele acaba.
-        case .prazo: .clear
+        case .prazo: return .clear
         }
     }
 
     @ViewBuilder
     private func borda(_ bloco: PlanoDoDia.Bloco) -> some View {
-        let forma = RoundedRectangle(cornerRadius: theme.radiusSmall)
+        let forma = RoundedRectangle(cornerRadius: cantoDoBloco, style: .continuous)
         let espessura = Hairline.thickness(displayScale)
         switch bloco.tipo {
         case .compromisso:
-            forma.strokeBorder(theme.btnLine.color, lineWidth: espessura)
+            // No Vidro o bloco de compromisso não tem contorno: o fundo
+            // translúcido já o separa do painel.
+            forma.strokeBorder(
+                theme.isGlass ? .clear : theme.btnLine.color, lineWidth: espessura
+            )
         case .proposto:
             forma.strokeBorder(
-                theme.accentLine.color,
-                style: StrokeStyle(lineWidth: espessura, dash: [3, 3])
+                theme.isGlass ? theme.accentInk.color : theme.accentLine.color,
+                style: StrokeStyle(lineWidth: theme.isGlass ? 1.5 : espessura, dash: [3, 3])
             )
         case .prazo:
-            forma.strokeBorder(theme.warning.color.opacity(0.4), lineWidth: espessura)
+            forma.strokeBorder(
+                (theme.isGlass ? theme.nowLine : theme.warning).color.opacity(0.4),
+                lineWidth: espessura
+            )
         }
     }
 
@@ -389,17 +496,46 @@ struct PainelLinhaDoTempo: View {
     }
 
     /// O marcador do agora: linha de 1.5 em accent com o ponto de 7 em cima.
+    ///
+    /// No Vidro ele é laranja e troca o ponto por uma pastilha "HH:MM" sentada
+    /// no eixo das horas — é onde o protótipo a põe, e é lá que ela não cobre
+    /// nenhum bloco.
+    @ViewBuilder
     private func agora(_ desenho: Desenho) -> some View {
-        ZStack(alignment: .top) {
-            Rectangle()
-                .fill(theme.accent.color)
-                .frame(width: 1.5, height: desenho.linhaDoEixo - 4)
-            Circle()
-                .fill(theme.accent.color)
-                .frame(width: 7, height: 7)
-                .offset(y: -4)
+        if theme.isGlass {
+            ZStack(alignment: .top) {
+                Rectangle()
+                    .fill(theme.nowLine.color)
+                    .frame(width: 2, height: desenho.linhaDoEixo - 4)
+                    .clipShape(RoundedRectangle(cornerRadius: 1))
+            }
+            .offset(x: CGFloat(PlanoDoDia.x(nowMinute)) - 1, y: 4)
+            .accessibilityLabel(L10n.tr("Agora"))
+
+            Text(MinuteFormat.clock(nowMinute))
+                .font(theme.mono.font(size: 10, weight: .semibold))
+                .foregroundStyle(Color.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(theme.nowLine.color)
+                )
+                .fixedSize()
+                .offset(x: CGFloat(PlanoDoDia.x(nowMinute)) - 18, y: desenho.linhaDoEixo + 4)
+                .accessibilityHidden(true)
+        } else {
+            ZStack(alignment: .top) {
+                Rectangle()
+                    .fill(theme.accent.color)
+                    .frame(width: 1.5, height: desenho.linhaDoEixo - 4)
+                Circle()
+                    .fill(theme.accent.color)
+                    .frame(width: 7, height: 7)
+                    .offset(y: -4)
+            }
+            .offset(x: CGFloat(PlanoDoDia.x(nowMinute)) - 0.75, y: 4)
+            .accessibilityLabel(L10n.tr("Agora"))
         }
-        .offset(x: CGFloat(PlanoDoDia.x(nowMinute)) - 0.75, y: 4)
-        .accessibilityLabel(L10n.tr("Agora"))
     }
 }

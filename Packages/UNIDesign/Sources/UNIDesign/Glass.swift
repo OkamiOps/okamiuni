@@ -113,6 +113,117 @@ extension Theme {
         )
     }
 
+    // MARK: - As superfícies de dentro do painel
+    //
+    // O painel de vidro já é a caixa da tela. O que mora **dentro** dele tem
+    // três alturas, e elas vêm literais dos protótipos `Painel-Vidro.dc.html`
+    // e `Agenda-Vidro.dc.html`:
+    //
+    // - `glassCard`: o único cartão elevado do claro (`#ffffff`), o cartão
+    //   levemente levantado do escuro (`#20202c`). É o "Comece por aqui".
+    // - `glassTile`: o azulejo translúcido das três frentes.
+    // - `glassRing`: o anel dos avatares sobrepostos, que é a cor do que está
+    //   atrás deles.
+    //
+    // Fora do Vidro eles caem nos tokens de sempre, e nenhum dos 26 temas
+    // antigos muda de aparência por existir isto aqui.
+
+    /// `card` / `cardEdge` do protótipo: a única caixa elevada do painel.
+    public var glassCard: TokenColor {
+        guard isGlass else { return surface }
+        return isDark
+            ? TokenColor(red: 32 / 255, green: 32 / 255, blue: 44 / 255)
+            : TokenColor(red: 1, green: 1, blue: 1)
+    }
+
+    public var glassCardEdge: TokenColor {
+        guard isGlass else { return line }
+        return isDark
+            ? TokenColor(red: 1, green: 1, blue: 1, opacity: 0.08)
+            : TokenColor(red: 1, green: 1, blue: 1, opacity: 0)
+    }
+
+    /// `tile` / `tileEdge`: o azulejo das frentes e dos cartões rasos.
+    public var glassTile: TokenColor {
+        guard isGlass else { return surface2 }
+        return isDark
+            ? TokenColor(red: 1, green: 1, blue: 1, opacity: 0.05)
+            : TokenColor(red: 1, green: 1, blue: 1, opacity: 0.62)
+    }
+
+    public var glassTileEdge: TokenColor {
+        guard isGlass else { return line2 }
+        return isDark
+            ? TokenColor(red: 1, green: 1, blue: 1, opacity: 0.06)
+            : TokenColor(red: 1, green: 1, blue: 1, opacity: 0.80)
+    }
+
+    /// `ring`: o que está atrás dos avatares sobrepostos.
+    public var glassRing: TokenColor {
+        guard isGlass else { return paper }
+        return isDark
+            ? TokenColor(red: 35 / 255, green: 35 / 255, blue: 47 / 255)
+            : TokenColor(red: 1, green: 1, blue: 1)
+    }
+
+    /// `soft` / `active` do protótipo: a calha do segmentado e o segmento
+    /// escolhido, dentro do painel.
+    public var glassSoft: TokenColor {
+        guard isGlass else { return surface3 }
+        return isDark
+            ? TokenColor(red: 1, green: 1, blue: 1, opacity: 0.07)
+            : TokenColor(red: 20 / 255, green: 20 / 255, blue: 50 / 255, opacity: 0.06)
+    }
+
+    public var glassActive: TokenColor {
+        guard isGlass else { return surface }
+        return isDark
+            ? TokenColor(red: 1, green: 1, blue: 1, opacity: 0.14)
+            : TokenColor(red: 1, green: 1, blue: 1)
+    }
+
+    /// O traço do "agora". O Vidro o quer laranja (`#f97316` do protótipo), e
+    /// não no vermelho semântico que os outros temas usam: aqui o vermelho
+    /// brigaria com o rosa do gradiente.
+    public var nowLine: TokenColor {
+        isGlass
+            ? TokenColor(red: 249 / 255, green: 115 / 255, blue: 22 / 255)
+            : live
+    }
+
+    /// A faixa do que já passou, dentro de uma trilha ou de uma coluna.
+    public var glassPast: TokenColor {
+        isDark
+            ? TokenColor(red: 1, green: 1, blue: 1, opacity: 0.04)
+            : TokenColor(red: 20 / 255, green: 20 / 255, blue: 50 / 255, opacity: 0.05)
+    }
+
+    /// A reunião em curso: azul cheio, com texto branco, como no protótipo.
+    public var liveMeeting: TokenColor {
+        TokenColor(red: 59 / 255, green: 130 / 255, blue: 246 / 255)
+    }
+
+    /// O par fundo/tinta de um compromisso pintado pela cor do calendário.
+    ///
+    /// No claro o fundo é a tinta a 18% e o texto é a **mesma** tinta
+    /// escurecida — azul sobre azul-claro, verde sobre verde-claro. No escuro
+    /// é a tinta a 25% com o texto clareado. É o que o protótipo escreve
+    /// (`rgba(59,130,246,0.16)` com `#1e3a8a`; `0.26` com `#bfdbfe`), com uma
+    /// vantagem: vale para qualquer cor que o calendário do sistema devolva, e
+    /// não só para as três do desenho.
+    public func glassEventFill(_ tint: TokenColor) -> TokenColor {
+        TokenColor(
+            red: tint.red, green: tint.green, blue: tint.blue,
+            opacity: isDark ? 0.26 : 0.22
+        )
+    }
+
+    public func glassEventInk(_ tint: TokenColor) -> TokenColor {
+        isDark
+            ? tint.mixing(with: TokenColor(red: 1, green: 1, blue: 1), amount: 0.62)
+            : tint.mixing(with: TokenColor(red: 0, green: 0, blue: 0), amount: 0.55)
+    }
+
     /// O par claro/escuro deste tema.
     ///
     /// A regra é curta de propósito: o Vidro tem par de verdade (`vidro` ↔
