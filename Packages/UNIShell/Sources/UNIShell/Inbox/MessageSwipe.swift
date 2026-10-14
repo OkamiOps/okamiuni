@@ -137,11 +137,24 @@ struct SwipeRow<Content: View>: View {
 
     private var isBlocked: Bool { machine.isBlocked }
 
+    /// A folha opaca atrás da linha.
+    ///
+    /// Nos 26 temas opacos é `surface`, como sempre foi. No Vidro o fundo da
+    /// lista é o próprio painel de vidro: pintar `surface` em cada linha punha
+    /// uma faixa lavada sobre o gradiente, e a linha deixava de flutuar. Lá a
+    /// folha só aparece **enquanto o arraste está em curso**, que é o único
+    /// momento em que há painel atrás para esconder.
+    private var rowBackdrop: Color {
+        guard theme.isGlass else { return theme.surface.color }
+        guard resolution.side != nil else { return .clear }
+        return (theme.panel?.readerFill ?? theme.surface).color
+    }
+
     var body: some View {
         content(SwipeRowContext(isBlocked: isBlocked, dismiss: dismiss))
             // O painel fica atrás; sem fundo opaco ele apareceria através da
             // linha, que só pinta fundo quando está selecionada.
-            .background(theme.surface.color)
+            .background(rowBackdrop)
             .offset(x: resolution.offset)
             // **`background`, não `ZStack`.** Num `ZStack` o painel é irmão do
             // conteúdo, e `maxHeight: .infinity` faz dele um irmão guloso: ele

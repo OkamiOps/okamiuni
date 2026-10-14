@@ -526,7 +526,10 @@ public struct InboxScreen: View {
                 gapCaption: mailboxPortrait?.gapCaption,
                 onPullMissing: mailboxPortrait?.gapCaption == nil ? nil : { [accountsModel] in
                     Task { await accountsModel?.syncNow() }
-                }
+                },
+                // Só a linha de vidro escreve "· resposta pronta"; sem fila
+                // de rascunho antecipado o dicionário é vazio e ela cala.
+                readyDrafts: readyDrafts?.drafts ?? [:]
             )
             .glassPanel(theme)
 

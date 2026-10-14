@@ -199,6 +199,11 @@ public struct MessageList: View {
     var gapCaption: String?
     var onPullMissing: (() -> Void)?
 
+    /// Os rascunhos antecipados, por `messageID`. A linha de vidro os usa para
+    /// escrever "· resposta pronta" — e só isso. Vazio em preview, no harness
+    /// e em todo tema opaco, onde a linha não tem essa frase.
+    var readyDrafts: [String: ReadyDraft] = [:]
+
     public init(
         store: MailStore,
         width: CGFloat = MessageList.width,
@@ -206,7 +211,8 @@ public struct MessageList: View {
         onOpenWindow: @escaping (Message) -> Void = { _ in },
         portraitCaption: String? = nil,
         gapCaption: String? = nil,
-        onPullMissing: (() -> Void)? = nil
+        onPullMissing: (() -> Void)? = nil,
+        readyDrafts: [String: ReadyDraft] = [:]
     ) {
         self.store = store
         self.listWidth = width
@@ -215,6 +221,7 @@ public struct MessageList: View {
         self.portraitCaption = portraitCaption
         self.gapCaption = gapCaption
         self.onPullMissing = onPullMissing
+        self.readyDrafts = readyDrafts
     }
 
     /// Formata o rótulo de contagem de mensagens com plural correto.
@@ -272,8 +279,15 @@ public struct MessageList: View {
         .frame(width: listWidth)
         .frame(maxHeight: .infinity, alignment: .top)
         .clipped()
-        .background(theme.surface.color)
-        .hairline(theme.line, edges: .trailing)
+        // No Vidro o fundo é o painel de vidro, e a borda é a aresta dele.
+        // Pintar `surface` aqui dentro punha uma folha opaca sobre o gradiente
+        // — era o que fazia a coluna da lista parecer branca no retrato da
+        // fase 1.
+        .background(theme.isGlass ? Color.clear : theme.surface.color)
+        .hairline(
+            theme.isGlass ? TokenColor(red: 0, green: 0, blue: 0, opacity: 0) : theme.line,
+            edges: .trailing
+        )
         // O ⌫ e as setas. Não é `keyboardShortcut` porque tecla sem
         // modificador seria roubada do campo de busca e do editor do
         // composer — ver `BareKeyMonitor`.
@@ -341,19 +355,22 @@ public struct MessageList: View {
             if isSelecting {
                 batchActionRail
             } else if showsCategoryFilters {
-                categoryFilterRail
+                if theme.isGlass { categoryTabRail } else { categoryFilterRail }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 18)
+        .padding(.horizontal, theme.isGlass ? 16 : 18)
         .frame(height: Self.headerHeight(
             for: store.bucket,
             selecting: isSelecting,
             searchingEverywhere: store.searchesEverywhereNow
         ))
         .clipped()
-        .background(theme.surface.color)
-        .hairline(theme.line2, edges: .bottom)
+        .background(theme.isGlass ? Color.clear : theme.surface.color)
+        .hairline(
+            theme.isGlass ? TokenColor(red: 0, green: 0, blue: 0, opacity: 0) : theme.line2,
+            edges: .bottom
+        )
     }
 
     @ViewBuilder
@@ -461,6 +478,72 @@ public struct MessageList: View {
         .mask(railFadeMask)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L10n.tr("Categorias de Hoje"))
+    }
+
+    /// As mesmas categorias, no idioma do Vidro: **abas sublinhadas**, sem
+    /// cápsula, sem moldura e sem ícone.
+    ///
+    /// O protótipo desenha três abas ("Importantes", "Tudo", "Notícias"),
+    /// e "Notícias" ali é Atualizações + Promoções + Social somadas. Somá-las
+    /// de verdade exigiria um filtro de **conjunto** no `MailStore`, que hoje
+    /// guarda uma `MailCategory?` e a repassa à consulta do banco — mudança de
+    /// modelo, não de aparência. As seis categorias continuam, portanto, com o
+    /// significado que já tinham; o que muda é o desenho, e o desenho mais
+    /// enxuto é o que conserta o estouro: no chip, "Atualizações" era cortada
+    /// ao meio em 400pt.
+    private var categoryTabRail: some View {
+        DragScrollRail {
+            HStack(spacing: 16) {
+                ForEach(InboxCategoryFilter.allCases) { filter in
+                    categoryTab(filter)
+                }
+            }
+            .padding(.trailing, 16)
+        }
+        .frame(height: 30)
+        .mask(railFadeMask)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(theme.line.color)
+                .frame(height: Hairline.thickness(displayScale))
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(L10n.tr("Categorias de Hoje"))
+    }
+
+    private func categoryTab(_ filter: InboxCategoryFilter) -> some View {
+        let active = store.categoryFilter == filter.category
+        let count = store.categoryCount(filter.category)
+        return Button {
+            store.select(category: filter.category)
+        } label: {
+            VStack(spacing: 0) {
+                HStack(spacing: 5) {
+                    Text(filter.label)
+                        .font(theme.sans.font(size: 12.5, weight: active ? .semibold : .medium))
+                        .lineLimit(1)
+                        .fixedSize()
+                    if let label = Self.categoryCountLabel(count) {
+                        Text(label)
+                            .font(theme.mono.font(size: 10, weight: .medium))
+                            .monospacedDigit()
+                    }
+                }
+                .foregroundStyle((active ? theme.accentInk : theme.ink3).color)
+                .frame(maxHeight: .infinity)
+                Rectangle()
+                    .fill(active ? theme.accentInk.color : Color.clear)
+                    .frame(height: 2)
+            }
+            .frame(height: 30)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: 4)
+        .help(L10n.tr("Filtrar Hoje por \(filter.label)"))
+        .accessibilityLabel(L10n.tr("Filtrar por \(filter.label)"))
+        .accessibilityValue(active ? L10n.tr("Selecionado, \(count) mensagens") : L10n.tr("\(count) mensagens"))
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 
     /// O corte duro no último chip parecia texto quebrado. O fade diz que a
@@ -768,23 +851,35 @@ public struct MessageList: View {
                 // O rodapé entra **dentro** do LazyVStack. Como irmão, o
                 // ScrollView precisava da altura de todas as linhas para
                 // posicioná-lo — Tudo deixava de ser preguiçoso.
-                LazyVStack(spacing: 0) {
-                    ForEach(conversations) { conversation in
-                        row(
-                            conversation,
-                            folders: foldersByAccount[conversation.latest.accountID] ?? []
-                        )
-                        .id(conversation.key)
-                        .onAppear {
-                            if hasMore, conversation.key == conversations.last?.key {
-                                rowLimit += Self.rowPageSize
+                LazyVStack(spacing: theme.isGlass ? 2 : 0) {
+                    if theme.isGlass {
+                        // As duas seções do protótipo. Quem espera resposta
+                        // sobe; o resto fica na ordem em que veio.
+                        let partes = InboxWaitingLine.split(conversations)
+                        if !partes.waiting.isEmpty {
+                            sectionLabel(InboxWaitingLine.waitingHeader, accent: true)
+                            ForEach(partes.waiting) { conversa in
+                                rowCell(conversa, foldersByAccount, last: conversations.last?.key, hasMore: hasMore)
                             }
+                        }
+                        if !partes.rest.isEmpty {
+                            if !partes.waiting.isEmpty {
+                                sectionLabel(InboxWaitingLine.restHeader, accent: false)
+                            }
+                            ForEach(partes.rest) { conversa in
+                                rowCell(conversa, foldersByAccount, last: conversations.last?.key, hasMore: hasMore)
+                            }
+                        }
+                    } else {
+                        ForEach(conversations) { conversation in
+                            rowCell(conversation, foldersByAccount, last: conversations.last?.key, hasMore: hasMore)
                         }
                     }
                     if !hasMore {
                         footer(isEmpty: isEmpty)
                     }
                 }
+                .padding(.horizontal, theme.isGlass ? 8 : 0)
             }
             .onChange(of: store.selectedMessageID) { _, id in
                 guard let id, let key = store.conversation(of: id)?.key else { return }
@@ -792,6 +887,35 @@ public struct MessageList: View {
             }
             .overlay(alignment: .bottom) { undoBand }
         }
+    }
+
+    /// Uma linha com a `id` e o gancho de paginação — o que estava escrito
+    /// dentro do `ForEach` antes de a lista ter duas seções.
+    private func rowCell(
+        _ conversation: Conversation,
+        _ foldersByAccount: [String: [MailFolder]],
+        last: String?,
+        hasMore: Bool
+    ) -> some View {
+        row(conversation, folders: foldersByAccount[conversation.latest.accountID] ?? [])
+            .id(conversation.key)
+            .onAppear {
+                if hasMore, conversation.key == last { rowLimit += Self.rowPageSize }
+            }
+    }
+
+    /// "ESPERANDO VOCÊ" / "MAIS CEDO". A primeira em acento, como no
+    /// protótipo: ela é a promessa da tela, não um rótulo de arquivo.
+    private func sectionLabel(_ text: String, accent: Bool) -> some View {
+        Text(text)
+            .font(theme.sans.font(size: 10, weight: .semibold))
+            .tracking(theme.capsTracking(at: 10))
+            .foregroundStyle((accent ? theme.accentInk : theme.ink3).color)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.top, accent ? 8 : 14)
+            .padding(.bottom, 4)
+            .accessibilityAddTraits(.isHeader)
     }
 
     /// Uma linha da lista, com os quatro gestos que ela responde.
@@ -834,6 +958,23 @@ public struct MessageList: View {
                     if message.bucket == .drafts { onOpenWindow(message) }
                 }
             } label: {
+                if theme.isGlass {
+                    GlassMessageRow(
+                        message: message,
+                        accountTint: accountTint(account),
+                        isSelected: conversation.contains(store.selectedMessageID),
+                        conversationCount: conversation.count,
+                        unread: conversation.hasUnread,
+                        today: today,
+                        isChecked: store.isChecked(conversation.key),
+                        onToggleCheck: { store.toggleChecked(conversation.key) },
+                        aiLine: InboxWaitingLine.phrase(
+                            for: message,
+                            hasReadyDraft: readyDrafts[message.id] != nil,
+                            today: today
+                        )
+                    )
+                } else {
                 MessageRow(
                     message: message,
                     accountHost: account?.host ?? "",
@@ -852,6 +993,7 @@ public struct MessageList: View {
                     isChecked: store.isChecked(conversation.key),
                     onToggleCheck: { store.toggleChecked(conversation.key) }
                 )
+                }
             }
             .buttonStyle(.plain)
             .focusRing(in: Rectangle())
