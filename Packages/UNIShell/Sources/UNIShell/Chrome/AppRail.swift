@@ -21,6 +21,13 @@ struct AppRail: View {
     static let actionSize: CGFloat = 40
     static let actionRadius: CGFloat = 12
 
+    /// Quanto o selo de não lidas recua da aresta do quadrado do ícone.
+    ///
+    /// Positivo: ele mora **dentro** do quadrado. O valor negativo que estava
+    /// aqui o punha acima dele, onde a legenda da tela anterior já estava
+    /// escrita. Ver `navigationButton`.
+    nonisolated static let badgeInset: CGFloat = 2
+
     @Environment(\.theme) private var theme
     @Environment(ThemeStore.self) private var themeStore
 
@@ -96,8 +103,14 @@ struct AppRail: View {
                                 .fill(active ? theme.surface.color : Color.clear)
                         }
                     if badge > 0, !active {
+                        // **Dentro** do quadrado de 40pt, no canto superior
+                        // direito dele. Ele saía 4pt acima do quadrado e
+                        // encostava na legenda da tela de cima — na janela de
+                        // verdade o "2" da Caixa ficava em cima da palavra
+                        // "Painel". O selo mede 16: encostá-lo na aresta
+                        // interna o deixa visível sem invadir o vizinho.
                         BadgeDot(count: badge)
-                            .offset(x: 5, y: -4)
+                            .offset(x: AppRail.badgeInset, y: AppRail.badgeInset)
                     }
                 }
                 Text(tab.label)
