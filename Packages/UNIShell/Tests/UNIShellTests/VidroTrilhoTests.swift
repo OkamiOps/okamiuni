@@ -27,7 +27,9 @@ struct VidroTrilhoTests {
 
     @Test("o trilho tem as medidas do protótipo")
     func railMetrics() {
-        #expect(AppRail.width == 64, "`<nav aria-label=\"Telas\">`: width 64px")
+        // 72, e não os 64 do desenho: ver `PaneLayout.appRailWidth`. A fila
+        // de semáforos do macOS não cabe em 64 com a folga do protótipo.
+        #expect(AppRail.width == 72)
         #expect(AppRail.itemWidth == 52, "o `<a>` de uma tela: width 52px")
         #expect(AppRail.actionSize == 40, "o quadrado do ícone: 40×40")
         #expect(AppRail.actionRadius == 12, "border-radius 12px")

@@ -34,14 +34,23 @@ struct TrilhoJanelaRealTests {
     @MainActor
     enum Mock {
         static let painelX = PanelStyle.vidroGap                       // 10
-        static let trilhoLargura = AppRail.width                       // 64
-        static var trilhoCentroX: CGFloat { painelX + trilhoLargura / 2 }  // 42
+
+        /// A largura que o **desenho** dá ao trilho. O app usa 72: ver
+        /// `PaneLayout.appRailWidth`, e `folgaLateralDoDesenho` abaixo, que é
+        /// o motivo.
+        static let trilhoDoDesenho: CGFloat = 64
+        /// A largura que o **app** usa, e contra a qual tudo é medido.
+        static var trilhoLargura: CGFloat { AppRail.width }            // 72
+        static var trilhoCentroX: CGFloat { painelX + trilhoLargura / 2 }  // 46
 
         static let bolinha: CGFloat = 11
         static let entreBolinhas: CGFloat = 5
         static var grupoLargura: CGFloat { 3 * bolinha + 2 * entreBolinhas }  // 43
-        /// A folga de cada lado do grupo dentro do trilho: (64 − 43) / 2.
-        static var grupoFolgaLateral: CGFloat { (trilhoLargura - grupoLargura) / 2 }  // 10,5
+        /// A folga de cada lado da fila no desenho: (64 − 43) / 2. É **esta**
+        /// a medida que o trilho de 72 existe para preservar.
+        static var folgaLateralDoDesenho: CGFloat {
+            (trilhoDoDesenho - grupoLargura) / 2                       // 10,5
+        }
 
         /// O que o protótipo de fato fixa: a folga acima da fila. É ela que
         /// atravessa para os botões do sistema, que são maiores que as
@@ -54,11 +63,11 @@ struct TrilhoJanelaRealTests {
         static var botaoCentroY: CGFloat { filaTopo + botao / 2 }      // 33
         /// Onde a fila acaba de ocupar espaço.
         static var filaFim: CGFloat { filaTopo + botao + filaFolgaAbaixo }  // 56
-        /// A folga lateral que três botões de 14 conseguem dentro de 64 sem se
-        /// encostarem. Os 10,5 do desenho são geometricamente impossíveis aqui:
-        /// 3 × 14 = 42 já são quase os 43 que as bolinhas inteiras ocupam.
+        /// A folga lateral que os três botões de 14 têm de fato: (72 − 52) / 2.
+        /// Com o trilho de 64 do desenho ela caía para 6, que é o que o dono
+        /// recusou — daí os 72.
         static var botaoFolgaLateral: CGFloat {
-            (trilhoLargura - TrafficLightLayout.railRowWidth) / 2       // 7
+            (trilhoLargura - TrafficLightLayout.railRowWidth) / 2       // 10
         }
 
         // Uma tela do trilho: `padding: 2px 0 4px`, quadrado 40, `gap: 4px`,
@@ -114,14 +123,14 @@ struct TrilhoJanelaRealTests {
             abs(grupo.midY - Mock.botaoCentroY) <= 0.5,
             "\(tema): o grupo centra em y=\(grupo.midY), esperado \(Mock.botaoCentroY)"
         )
-        // E com folga de sobra nos dois lados, igual nos dois. Os 10,5 do
-        // desenho não cabem com botões de 14 (ver `Mock.botaoFolgaLateral`),
-        // mas 6pt — o que havia — era o que o dono recusou.
+        // E com a folga do desenho nos dois lados, igual nos dois. É o que o
+        // trilho de 72 compra: com os 64 do desenho, a mesma fila de botões
+        // de 14 ficava a 6pt das arestas.
         let folgaEsquerda = grupo.minX - Mock.painelX
         let folgaDireita = (Mock.painelX + Mock.trilhoLargura) - grupo.maxX
         #expect(
-            folgaEsquerda >= Mock.botaoFolgaLateral - 0.5,
-            "\(tema): o grupo começa a \(folgaEsquerda)pt da aresta do trilho; o mínimo é \(Mock.botaoFolgaLateral)"
+            folgaEsquerda >= Mock.folgaLateralDoDesenho - 0.5,
+            "\(tema): o grupo começa a \(folgaEsquerda)pt da aresta do trilho; o desenho pede \(Mock.folgaLateralDoDesenho)"
         )
         #expect(
             abs(folgaEsquerda - folgaDireita) <= 0.5,

@@ -79,19 +79,18 @@ enum TrafficLightLayout {
     /// trilho, que é o que o `align-items: center` do `<nav>` faz com a fila do
     /// protótipo.
     ///
-    /// **A folga lateral não dá para igualar.** O protótipo deixa 10,5pt de
-    /// cada lado porque as bolinhas dele somam 43; três botões de 14 somam 42
-    /// só de botão, e com 10,5 de cada lado eles ficariam encostados uns nos
-    /// outros. O vão entre botões foi então fechado de 5 para 4 — o mínimo que
-    /// ainda os separa à vista —, o que dá 50 de fileira e **7pt** de folga de
-    /// cada lado, contra os 6 que o dono recusou. Mais do que isso só
-    /// desenhando bolinhas nossas no lugar das do sistema, que é decisão dele.
-    static let railGap: CGFloat = 4
-    static var railRowWidth: CGFloat { 3 * nativeButtonSide + 2 * railGap }  // 50
+    /// **A folga lateral vem da largura do trilho, não do vão entre botões.**
+    /// O protótipo deixa 10,5pt de cada lado porque as bolinhas dele somam 43
+    /// dentro de 64; três botões de 14 com o mesmo vão de 5 somam 52 e, nos
+    /// mesmos 64, sobrariam 6 — o que o dono recusou. O trilho foi então
+    /// alargado para 72 (ver `PaneLayout.appRailWidth`), o que devolve **10pt**
+    /// de cada lado com o vão de 5 do desenho intacto.
+    static let railGap: CGFloat = 5
+    static var railRowWidth: CGFloat { 3 * nativeButtonSide + 2 * railGap }  // 52
     static var railLeading: CGFloat {
-        PanelStyle.vidroGap + (PaneLayout.appRailWidth - railRowWidth) / 2    // 17
+        PanelStyle.vidroGap + (PaneLayout.appRailWidth - railRowWidth) / 2    // 20
     }
-    static var railSpacing: CGFloat { nativeButtonSide + railGap }            // 18
+    static var railSpacing: CGFloat { nativeButtonSide + railGap }            // 19
 
     /// Altura que o container da barra de título precisa ter para a fileira do
     /// trilho caber **clicável** dentro dele. Uma `NSView` desenha fora dos
