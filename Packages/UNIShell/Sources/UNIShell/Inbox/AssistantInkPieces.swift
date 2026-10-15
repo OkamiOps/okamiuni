@@ -112,6 +112,7 @@ struct AssistantShimmerText: View {
     }
 }
 
+// MARK: - O recibo dos passos
 
 /// Um passo cumprido, com o ✓ do desenho.
 struct AssistantStepCheck: View {
