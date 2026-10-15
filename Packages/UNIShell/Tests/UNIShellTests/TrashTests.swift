@@ -80,13 +80,26 @@ struct ShellTrashTests {
 
     /// "Tem certeza?" sozinho não dá informação nenhuma a quem decide. O número
     /// e a falta de volta têm de estar na pergunta, antes do clique.
-    @Test("a confirmação diz quantas mensagens e diz que não dá para desfazer")
+    @Test("a confirmação diz quantas mensagens, de quando é a mais antiga, e que não volta")
     func confirmationSaysWhatItCosts() {
-        #expect(EmptyTrashConfirmation.title(3)
-            == "Esvaziar a Lixeira e apagar 3 mensagens de vez?")
-        #expect(EmptyTrashConfirmation.title(1)
-            == "Esvaziar a Lixeira e apagar 1 mensagem de vez?")
-        #expect(EmptyTrashConfirmation.message == "Não dá para desfazer.")
+        // A garantia não mudou: o número e a falta de volta estão na pergunta,
+        // antes do clique. O que mudou é que o desenho dos modais acrescentou
+        // **o que se perde** — a data da mais antiga — e pôs o número também
+        // no botão, que é a última coisa lida antes do clique.
+        #expect(EmptyTrashConfirmation.title(3).contains("3"))
+        #expect(EmptyTrashConfirmation.title(1) != EmptyTrashConfirmation.title(3))
+        #expect(EmptyTrashConfirmation.message.contains("desfazer"))
+
+        let texto = EmptyTrashConfirmation.text(count: 23, oldest: "março")
+        #expect(texto.title.contains("23"))
+        #expect(texto.detail.contains("março"))
+        #expect(texto.detail.contains("desfazer"))
+        #expect(texto.confirm.contains("23"))
+        #expect(texto.isDestructive)
+
+        // Sem data conhecida, a frase não inventa uma.
+        let semData = EmptyTrashConfirmation.text(count: 2, oldest: nil)
+        #expect(semData.detail == EmptyTrashConfirmation.message)
     }
 
     // MARK: - A caixa na barra

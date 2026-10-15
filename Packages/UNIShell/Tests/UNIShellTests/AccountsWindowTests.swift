@@ -636,30 +636,31 @@ struct AccountsWindowTests {
     @Test("O formulário desenha no token e só abre os campos com rota")
     func formularioNoToken() throws {
         // O Tinta redesenhado usa caixas brancas sobre superfície branca; este
-        // ensaio estrutural usa Papel para a área dos campos continuar mensurável.
+        // ensaio estrutural usa Papel para a área dos campos continuar
+        // mensurável. A folha tem a largura do desenho (500) e cresce em
+        // altura com a rota, então o quadro é o da folha, não um retângulo
+        // qualquer.
         let tema = try #require(Theme.named("papel"))
         let modelo = AccountsModel(director: try Self.diretorDeTeste())
+        let medida = CGSize(width: Theme.ModalWidth.accountSheet, height: 700)
         let vazio = try #require(Render.bitmap(
-            AddAccountForm(model: modelo),
-            size: CGSize(width: 720, height: 260), theme: tema
+            AddAccountForm(model: modelo), size: medida, theme: tema
         ))
-        // No meio da altura, dentro dos 20pt de recuo: fundo puro do
-        // formulário. O topo do bitmap não serve — o formulário mede o que
-        // precisa e o quadro do harness é maior que ele.
-        let cor = try #require(vazio.colorAt(x: 3, y: 130))
-        #expect(proximo(cor, tema.surface), "o formulário pintou cor literal no fundo")
+        // Dentro da folha, abaixo do cabeçalho: o corpo dela é `modalSheet`.
+        let cor = try #require(vazio.colorAt(x: 8, y: Int(medida.height / 2)))
+        #expect(proximo(cor, tema.modalSheet), "o formulário pintou cor literal no fundo")
 
         let comRota = try #require(Render.bitmap(
             AddAccountForm(model: modelo, initialAddress: "eu@icloud.com"),
-            size: CGSize(width: 720, height: 260), theme: tema
+            size: medida, theme: tema
         ))
-        // Os campos são caixas de `--surface2`. Sem endereço há **uma** (a do
-        // próprio endereço); com a rota do iCloud há quatro — senha, host e
-        // porta entram. Medir a área dessas caixas é o que separa "mudou
+        // Os campos são caixas de `modalField`. Sem endereço há **uma** (a do
+        // próprio endereço); com a rota do iCloud entram servidor, porta e
+        // senha de app. Medir a área dessas caixas é o que separa "mudou
         // alguma coisa" de "os campos apareceram": um formulário que abrisse
         // host e porta antes de saber a rota pinta a mesma área nos dois.
-        let caixasVazio = vazio.pixels(matching: tema.surface2)
-        let caixasComRota = comRota.pixels(matching: tema.surface2)
+        let caixasVazio = vazio.pixels(matching: tema.modalField)
+        let caixasComRota = comRota.pixels(matching: tema.modalField)
         #expect(
             caixasComRota > caixasVazio * 2,
             "os campos não seguiram a rota: \(caixasVazio) contra \(caixasComRota)"
@@ -682,7 +683,9 @@ struct AccountsWindowTests {
         // do formulário iguala os dois desenhos.
         let tema = try #require(Theme.named("tinta"))
         let modelo = AccountsModel(director: try Self.diretorDeTeste())
-        let medida = CGSize(width: 720, height: 300)
+        // A folha do desenho: 500 de largura, e alta o bastante para a nota
+        // caber abaixo dos campos.
+        let medida = CGSize(width: Theme.ModalWidth.accountSheet, height: 760)
 
         let comNome = try #require(Render.bitmap(
             AddAccountForm(

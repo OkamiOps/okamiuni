@@ -1270,6 +1270,17 @@ public struct EventWindow: View {
     /// voltou a ser o semáforo vermelho da janela, que é onde o macOS o põe.
     private var footer: some View {
         HStack(spacing: 18) {
+            // **Entrar fica no rodapé quando não há contagem.** O desenho só
+            // mostra a janela a doze minutos da reunião, e ali o Entrar grande
+            // do bloco da contagem é a ação do momento. Numa reunião de
+            // quinta-feira esse bloco não existe — e sem esta linha a janela
+            // deixaria de ter qualquer jeito de entrar, que é o defeito mais
+            // caro que esta tela já teve (ver `abreLink`).
+            if contagem == nil, let destino = MeetingLink.destino(detail.meetingLink) {
+                footerLink(L10n.tr("Entrar")) { abreLink(destino) }
+                    .help(L10n.tr("Abrir a reunião no navegador"))
+                    .accessibilityIdentifier("event-join")
+            }
             if detail.hasThread || originMessageID != nil {
                 footerLink(L10n.tr("Abrir o e-mail que gerou"), enabled: originMessageID != nil) {
                     revealOriginMessage()

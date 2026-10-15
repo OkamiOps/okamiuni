@@ -50,8 +50,11 @@ struct MoveFolderPanelTests {
         )
         let manyHeight = Self.fittingHeight(many)
         let fewHeight = Self.fittingHeight(few)
+        // A folga cobre o que o painel tem **além** da lista: a busca do topo
+        // (26 + 6), a linha de atalhos do pé (~30) e os 8 de recuo em volta.
+        // O desenho dos modais acrescentou a linha de atalhos — antes eram 80.
         #expect(
-            manyHeight <= MoveFolderPanel.listMaxHeight + 80,
+            manyHeight <= MoveFolderPanel.listMaxHeight + 130,
             "o painel cresceu com as 40 pastas: \(manyHeight)pt"
         )
         #expect(fewHeight < manyHeight)

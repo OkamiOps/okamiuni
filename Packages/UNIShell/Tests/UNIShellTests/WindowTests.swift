@@ -286,25 +286,33 @@ struct EventWindowFooterTests {
         #expect(store.revealCount == before)
     }
 
-    /// "Reagendar" saiu. O rodapé da 04 desenha **cinco** pastilhas — Entrar,
-    /// Encaminhar, Remover, Email e o × de fechar —, e o sexto, mudo, não está
-    /// mais lá.
+    /// "Reagendar" saiu, e com o desenho dos modais o rodapé deixou de ser uma
+    /// barra de pastilhas: são links, e fechar voltou a ser o semáforo
+    /// vermelho da janela.
     ///
-    /// Contado no desenho: numa varredura horizontal na altura dos botões, cada
-    /// pastilha é um trecho de cor diferente do fundo do rodapé. Com o botão
-    /// mudo de volta a mesma varredura dá seis.
-    @Test("o rodapé desenha cinco botões, sem o «Reagendar» mudo")
+    /// A contagem de pastilhas que este caso fazia não sobrevive a isso — e
+    /// nunca foi a garantia. A garantia é **quais ações o rodapé oferece**, e
+    /// ela se pergunta direto: um compromisso que não nasceu aqui pode sair do
+    /// calendário e não pode ser cancelado para os convidados, e o botão mudo
+    /// não existe em caminho nenhum.
+    ///
+    /// Cai por mutação: devolver "Reagendar" (que não leva a tela nenhuma)
+    /// exige um caso novo, porque não há propriedade que o autorize.
+    @Test("o rodapé oferece as ações que existem, e nenhuma muda")
     func footerHasFourButtons() async throws {
         let store = await loaded()
-        let rep = try #require(
-            Render.snapshot(
-                EventWindow(store: store, itemID: "e2").environment(ThemeStore()),
-                named: "evento-04-rodape",
-                size: CGSize(width: 560, height: 700),
-                theme: .tinta
-            )
-        )
-        #expect(Self.pills(in: rep, y: 660, width: 560) == 5)
+        let janela = EventWindow(store: store, itemID: "e2")
+        // Compromisso da agenda de exemplo: não tem o prefixo `manual-`, então
+        // cancelar a reunião não é nosso papel e remover do calendário é.
+        #expect(!janela.canCancelMeeting)
+        #expect(janela.canRemoveFromCalendar)
+        // E o desenho continua sendo desenhado — o retrato fica para o olho.
+        #expect(Render.snapshot(
+            janela.environment(ThemeStore()),
+            named: "evento-04-rodape",
+            size: CGSize(width: 560, height: 700),
+            theme: .tinta
+        ) != nil)
     }
 
     // MARK: - "Entrar", que não fazia nada
@@ -402,13 +410,12 @@ struct EventWindowFooterTests {
         var janela = EventWindow(store: store, itemID: "email-m1")
         janela.abreLink = { caixa.abertos.append($0) }
 
-        let rep = try #require(Render.snapshot(
+        #expect(Render.snapshot(
             janela.environment(ThemeStore()),
             named: "evento-04-meet-da-descricao",
             size: CGSize(width: 560, height: 700),
             theme: .tinta
-        ))
-        #expect(Self.pills(in: rep, y: 660, width: 560) == 5)
+        ) != nil)
 
         CliqueDeEnsaio.em(
             janela,
@@ -426,28 +433,33 @@ struct EventWindowFooterTests {
     /// Email e o ×.
     @Test("sem link de reunião o «Entrar» não existe")
     func semLinkSemEntrar() async throws {
-        let store = await Self.loja(Self.detalheDeConvite(link: nil))
-        let rep = try #require(
-            Render.bitmap(
-                EventWindow(store: store, itemID: "email-m1"),
-                size: CGSize(width: 560, height: 700), theme: .tinta
-            )
+        #expect(try await Self.abreAoClicarNoRodape(link: nil).isEmpty)
+    }
+
+    /// O clique no lugar do "Entrar", e o que ele abriu.
+    ///
+    /// Era uma contagem de pastilhas no rodapé; com o rodapé em links essa
+    /// contagem mede o desenho das palavras, não a presença do controle. O
+    /// clique mede o que importa: **existe ali algo que abre a reunião?**
+    ///
+    /// Cai por mutação: acender o "Entrar" sem `MeetingLink.destino` põe um
+    /// endereço na caixa onde o caso espera nada.
+    static func abreAoClicarNoRodape(link: String?) async throws -> [URL] {
+        let store = await Self.loja(Self.detalheDeConvite(link: link))
+        let caixa = CaixaDeLinks()
+        var janela = EventWindow(store: store, itemID: "email-m1")
+        janela.abreLink = { caixa.abertos.append($0) }
+        CliqueDeEnsaio.em(
+            janela, size: CGSize(width: 560, height: 700), aY: Self.yDoRodape, x: 40
         )
-        #expect(Self.pills(in: rep, y: 660, width: 560) == 4)
+        return caixa.abertos
     }
 
     /// E um "link" que não se abre no navegador é a mesma coisa que não ter:
     /// um botão que promete o navegador e entrega nada é o defeito de volta.
     @Test("um «link» que não é endereço também não acende o botão")
     func linkQueNaoAbreNaoAcende() async throws {
-        let store = await Self.loja(Self.detalheDeConvite(link: "Sala 3, 4º andar"))
-        let rep = try #require(
-            Render.bitmap(
-                EventWindow(store: store, itemID: "email-m1"),
-                size: CGSize(width: 560, height: 700), theme: .tinta
-            )
-        )
-        #expect(Self.pills(in: rep, y: 660, width: 560) == 4)
+        #expect(try await Self.abreAoClicarNoRodape(link: "Sala 3, 4º andar").isEmpty)
     }
 
     // MARK: - As seções que nascem recolhidas
