@@ -1409,8 +1409,6 @@ public struct ComposerWindow: View {
                     paragrafos: original.body,
                     remetente: original.from.address,
                     confiavel: store.trustsSender(original.from.address),
-                    aoConfiar: { store.trustSender(original.from.address) },
-                    aoRevogar: { store.revokeSenderTrust(original.from.address) },
                     folga: 0
                 )
                 // A permissão de imagem remota é **por mensagem**, como no

@@ -32,8 +32,15 @@ struct ReaderHTMLSection: View {
     /// Este remetente já foi confiado? Vem de fora (do `MailStore`) porque a
     /// resposta sobrevive ao fechar o app, e esta `View` não.
     var confiavel: Bool = false
-    var aoConfiar: () -> Void = {}
-    var aoRevogar: () -> Void = {}
+    /// O "Carregar" **desta abertura**, decidido lá em cima, no cabeçalho.
+    ///
+    /// Era `@State` daqui, quando a faixa que o oferecia também morava aqui.
+    /// No `Leitor5` as quatro decisões passaram para o ícone de confiança ao
+    /// lado do remetente, e o estado foi junto: uma `View` não pode guardar o
+    /// estado de um controle que não desenha.
+    var carregaRemotas: Bool = false
+    /// `nil` segue o HTML. Quem força papel ou tema é o mesmo menu.
+    var paletaForcada: ReaderHTMLPolicy.Paleta?
     /// Clique em Sim/Não/Talvez no HTML do convite.
     var aoRSVP: (InviteRSVPResponse) -> Void = { _ in }
     /// A folga lateral do bloco. 28 é a coluna do leitor; a citação do
@@ -46,12 +53,9 @@ struct ReaderHTMLSection: View {
     /// interruptor que só existe no teste e muda o caminho do código.
     var debugPintou: Bool?
 
-    @State private var carregaRemotas = false
     @State private var altura: CGFloat = 1
     /// A mensagem já está desenhada na `WebView`?
     @State private var pintou = false
-    /// `nil` segue o HTML. A pessoa pode forçar papel ou o tema nesta abertura.
-    @State private var paletaForcada: ReaderHTMLPolicy.Paleta?
 
     private var jaPintou: Bool { debugPintou ?? pintou }
 
@@ -73,20 +77,14 @@ struct ReaderHTMLSection: View {
     /// fica guardado em lugar nenhum) e a confiança no remetente (que fica).
     private var permiteRemotas: Bool { carregaRemotas || confiavel }
 
-    private var paletaEfetiva: ReaderHTMLPolicy.Paleta {
-        ReaderHTMLPolicy.paleta(para: html, forçada: paletaForcada)
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // **A faixa quieta, nos 28 temas.** Duas pastilhas com moldura
-            // logo acima do email gritavam mais que o email, e o dono as viu
-            // antes do assunto; só os dois temas de vidro tinham sido
-            // consertados. As quatro decisões continuam todas alcançáveis.
-            faixaQuieta
-                .padding(.horizontal, folga)
-            .padding(.bottom, 12)
-
+            // **Sem faixa própria.** Ela era mais uma linha de cabeçalho entre
+            // o assunto e o e-mail, e o dono contou todas elas: as quatro
+            // decisões (carregar, confiar, rever, trocar a paleta) moram no
+            // ícone de confiança ao lado do remetente — ver
+            // `ReaderImagesPopover`.
+            //
             // **O vazio que parecia defeito.** A `WebView` nasce com um ponto
             // de altura e só cresce quando a régua responde; até lá o leitor
             // mostrava uma coluna em branco, e o dono achou que o email tinha
@@ -160,64 +158,6 @@ struct ReaderHTMLSection: View {
         let podado = remetente.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !podado.isEmpty else { return nil }
         return L10n.tr("Sempre carregar de \(podado)")
-    }
-
-    /// A mesma faixa, calada.
-    ///
-    /// Ela é **uma linha de 11pt em `ink4`**: duas
-    /// pastilhas com moldura logo acima do email gritavam mais que o email, e
-    /// o dono as viu antes do assunto. As quatro decisões continuam todas
-    /// alcançáveis — carregar, confiar, rever, trocar a paleta —, agora como
-    /// palavras ligadas em vez de controles desenhados.
-    private var faixaQuieta: some View {
-        HStack(spacing: 7) {
-            if ReaderHTMLPolicy.pedeRecursoRemoto(html) {
-                if confiavel {
-                    nota(Self.imagensCarregadas)
-                    elo(Self.rever, action: aoRevogar)
-                } else if !carregaRemotas {
-                    nota(Self.imagensBloqueadas)
-                    elo(Self.carregar) { carregaRemotas = true }
-                    if let sempre = Self.sempreCarregar(de: remetente) {
-                        elo(sempre, action: aoConfiar)
-                    }
-                }
-            }
-            Spacer(minLength: 8)
-            elo(
-                paletaEfetiva == .papel ? Self.comoOTema : Self.comoEnviado,
-                help: L10n.tr("Como enviado guarda as cores do remetente. Como o tema pinta com as cores do app.")
-            ) {
-                paletaForcada = paletaEfetiva == .papel ? .doTema : .papel
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func nota(_ texto: String) -> some View {
-        Text(texto)
-            .font(theme.sans.font(size: 11))
-            .foregroundStyle(theme.ink4.color)
-            .lineLimit(1)
-    }
-
-    /// Uma palavra que faz alguma coisa. Sem moldura, sem fundo: o acento é a
-    /// única marca de que é clicável.
-    private func elo(
-        _ rotulo: String, help: String? = nil, action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Text(rotulo)
-                .font(theme.sans.font(size: 11, weight: .semibold))
-                .foregroundStyle(theme.accentInk.color)
-                .lineLimit(1)
-                .fixedSize()
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .focusRing(cornerRadius: 4)
-        .help(help ?? rotulo)
-        .accessibilityLabel(rotulo)
     }
 
     /// O token do tema virando cor de CSS.

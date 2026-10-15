@@ -526,10 +526,9 @@ struct ReaderInviteTests {
         #expect(ReaderPane.conviteComecaAberto(responded: true, cancelled: true))
         #expect(ReaderPane.recolherConvite == "Recolher")
         #expect(ReaderPane.mostrarConvite == "Detalhes")
-        // A tinta da IA nasce escrita — ver `ReaderTests.tldrRowToggles`.
-        #expect(ReaderPane.resumoComecaAberto)
-        #expect(ReaderPane.recolherResumo == "Recolher resumo")
-        #expect(ReaderPane.mostrarResumo == "Mostrar resumo")
+        // O resumo recolhe e volta — ver `ReaderTests.tldrRowToggles`.
+        #expect(ReaderSummaryToggle.recolher == "Recolher o resumo")
+        #expect(ReaderSummaryToggle.abrir == "Abrir o resumo")
     }
 
     @Test("As frases do cartão")
@@ -540,7 +539,7 @@ struct ReaderInviteTests {
         #expect(ReaderPane.conviteCanceladoFora == "Este compromisso não está na sua agenda.")
         #expect(ReaderPane.conviteCanceladoNaAgenda == "Na agenda como cancelado.")
         #expect(ReaderPane.conviteNaAgenda == "Na agenda")
-        #expect(ReaderPane.identityCaption(name: "Marina", subject: "Contrato") == "Marina · Contrato")
+        #expect(ReaderSenderDetails.copiado == "Copiado")
     }
 
     /// O botão do cartão fala os três estados. Ele dizia sempre "Colocar na

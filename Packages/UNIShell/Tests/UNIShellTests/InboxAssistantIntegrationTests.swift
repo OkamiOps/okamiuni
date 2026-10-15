@@ -170,11 +170,14 @@ struct InboxAssistantIntegrationTests {
         ))
 
         #expect(
+            // A pastilha mudou de linha com o `Leitor5`: era a faixa de
+            // procedência no alto do cabeçalho, e agora fica ao lado de quem
+            // mandou — a linha do remetente, logo abaixo do assunto.
             marked.pixelsDiffering(
                 from: plain,
-                inColumns: 85..<310,
-                rows: 18..<80
-            ) > 400
+                inColumns: 85..<480,
+                rows: 80..<130
+            ) > 200
         )
     }
 

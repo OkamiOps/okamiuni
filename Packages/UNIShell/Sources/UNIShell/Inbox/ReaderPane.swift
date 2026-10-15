@@ -82,6 +82,11 @@ public struct ReaderPane: View {
     let debugEmailAssistantOpen: Bool
     /// Força o TL;DR aberto — o harness que prova o cartão de compromisso.
     let debugResumoAberto: Bool
+    /// Força o resumo **recolhido** — o harness que prova a linha de uma
+    /// altura só. Porta exclusiva dele, pelo mesmo motivo de `debugIADraft`.
+    var debugResumoRecolhido = false
+    /// Abre os detalhes do remetente sem clique — o harness de novo.
+    var debugRemetenteExpandido = false
     /// Trata o rascunho guardado como se a IA o tivesse escrito. Porta
     /// exclusiva do harness: a barra de resposta com o rascunho da IA é um
     /// desenho a conferir, e sintetizar uma ida ao provedor fora da tela não
@@ -128,8 +133,24 @@ public struct ReaderPane: View {
     /// A conversa do popover: nasce ao abrir, é cancelada ao fechar. Uma só
     /// máquina de estado, a mesma do painel e do dashboard.
     @State private var readerConversation: AssistantConversation?
-    /// O "Mais" da linha de ações, debaixo do assunto.
-    @State private var aiMoreOpen = false
+    /// Os detalhes do remetente, abertos pelo botão do nome.
+    @State private var detalhesAbertos = false
+    /// O popover do ícone de confiança: imagens remotas e paleta.
+    @State private var imagensAbertas = false
+    /// A folha dos cabeçalhos.
+    @State private var cabecalhosAbertos = false
+    /// O menu de contexto do remetente (botão direito).
+    @State private var menuRemetenteAberto = false
+    /// O "Carregar" **desta abertura**: não fica guardado em lugar nenhum.
+    /// Mora aqui, e não na `ReaderHTMLSection`, porque quem o oferece agora é
+    /// o cabeçalho — ver `ReaderImagesPopover`.
+    @State private var carregaRemotas = false
+    /// Papel ou tema, forçado nesta abertura.
+    @State private var paletaForcada: ReaderHTMLPolicy.Paleta?
+    /// **O resumo nasce recolhido ou aberto?** É escolha de quem lê, e ela
+    /// atravessa mensagens e sessões: quem recolheu uma vez não quer o cartão
+    /// de volta na mensagem seguinte.
+    @AppStorage("okamiuni.leitor.resumoRecolhido") private var resumoRecolhido = false
     /// O evento que a IA propôs e ainda não foi aceito nem descartado.
     @State private var eventProposal: ReaderEventProposal?
     /// A proposta que "Ajustar" abriu na folha de compromisso.
@@ -163,9 +184,11 @@ public struct ReaderPane: View {
     /// Convite aberto ou recolhido, por mensagem. Sem entrada: aberto se
     /// ainda não respondeu, recolhido depois de Aceitar/Talvez/Recusar.
     @State private var conviteAbertoPorID: [String: Bool] = [:]
-    /// Resumo de IA aberto ou recolhido. Sem entrada: recolhido — o email
-    /// cabe na tela; quem quiser o TL;DR expande.
+    /// Resumo de IA aberto ou recolhido **nesta mensagem**, quando alguém
+    /// mexeu no chevron aqui. Sem entrada vale a preferência `resumoRecolhido`.
     @State private var resumoAbertoPorID: [String: Bool] = [:]
+    /// O × do cartão: o resumo **desta** mensagem sai da tela de vez.
+    @State private var resumoDispensadoPorID: [String: Bool] = [:]
     /// Cabeçalho compacto vs. expandido, por mensagem. Sem entrada: compacto.
     /// O clique na linha revela email do remetente, destinatários e o assunto
     /// inteiro — o que a faixa de uma linha esconde.
@@ -350,7 +373,7 @@ public struct ReaderPane: View {
                     // bloco que sempre esteve aqui.
                     if let conversa, conversa.count > 1 {
                         ConversationStackView(store: store, conversa: conversa, opened: $stackState) {
-                            cardsAndBody($0, inStack: true)
+                            cardsAndBody($0)
                         }
                     } else {
                         cardsAndBody(message)
@@ -400,6 +423,7 @@ public struct ReaderPane: View {
                 .id("\(message.id)-\(quickReplyRevision)")
             }
         }
+        .coordinateSpace(name: Self.readerSpace)
         // **Nenhum painel por cima do e-mail.** O ✦ IA abre um menu de ações
         // (ver `ReaderInkMenu`) e o resultado é escrito no próprio e-mail ou
         // vai para a barra de resposta — é a direção Tinta. O painel
@@ -472,24 +496,20 @@ public struct ReaderPane: View {
     /// Uma segunda cópia para o segundo caso divergiria da primeira no próximo
     /// conserto de espaçamento.
     @ViewBuilder
-    private func cardsAndBody(_ message: Message, inStack: Bool = false) -> some View {
-        // A ordem é a do desenho `Leitor-IA2`: o remetente, o cartão do que a
-        // IA escreveu, o evento que ela tirou do texto, o e-mail, e o rascunho
-        // atracado no fim. A **oferta** da IA não está aqui: ela é uma linha
-        // debaixo do assunto, no cabeçalho — ver `readerHeader`.
+    private func cardsAndBody(_ message: Message) -> some View {
+        // A ordem é a do desenho `Leitor5`: o cartão do que a IA escreveu, o
+        // evento que ela tirou do texto, o e-mail, e o rascunho atracado no
+        // fim.
         //
-        // Dentro de uma pilha de conversa a linha de cada mensagem já é o
-        // remetente dela, e repeti-la seria o nome duas vezes seguidas.
-        if !inStack {
-            identityRow(message)
-                .padding(.horizontal, 28)
-                .padding(.top, ReaderAIMetrics.flowGap)
-        }
-
+        // **O remetente não está mais aqui.** Ele subiu para o cabeçalho, como
+        // uma linha só com avatar, nome, chevron e, na direita, a data e a
+        // procedência — ver `senderRow`. Era este bloco, somado à linha de
+        // ações e à faixa das imagens, que fazia o cabeçalho comer metade da
+        // janela.
         if mostraResultado(message) {
-            resultSection(message)
-                .padding(.horizontal, 28)
-                .padding(.top, ReaderAIMetrics.flowGap)
+            resumoSection(message)
+                .padding(.horizontal, Leitor5Metrics.headerSide)
+                .padding(.top, Leitor5Metrics.cardMarginTop)
         }
 
         if let proposta = propostaVisivel(message) {
@@ -518,7 +538,20 @@ public struct ReaderPane: View {
         }
 
         body(message)
-            .padding(.top, ReaderAIMetrics.flowGap)
+            // A régua do harness. Ver `ReaderBodyTopKey`: o corpo HTML não
+            // pinta fora da tela, e contar pixels de texto confundiria o
+            // e-mail com o cabeçalho.
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(
+                        key: ReaderBodyTopKey.self,
+                        value: geo.frame(in: .named(ReaderPane.readerSpace)).minY
+                    )
+                }
+            )
+            // 12, e não 14: é o espaçador que o desenho põe entre o cabeçalho
+            // (ou o cartão) e o e-mail.
+            .padding(.top, 12)
             .padding(.bottom, 28)
 
         if let rascunho = aiDraft(for: message) {
@@ -544,7 +577,7 @@ public struct ReaderPane: View {
     /// guardada, a resposta ao vivo, ou a ida em voo. Sem nada disso o leitor
     /// fica em **repouso** — só a linha de ações debaixo do assunto.
     private func mostraResultado(_ message: Message) -> Bool {
-        guard resumoEstaAberto(message) else { return false }
+        guard resumoDispensadoPorID[message.id] != true else { return false }
         if readerConversation?.isLoading == true { return true }
         return aiProse(message) != nil
     }
@@ -668,8 +701,29 @@ public struct ReaderPane: View {
         return passos
     }
 
+    /// O resumo: o cartão inteiro, ou a linha recolhida — e, debaixo dos
+    /// dois, a falha e o recibo da agenda.
+    @ViewBuilder
+    private func resumoSection(_ message: Message) -> some View {
+        if resumoEstaAberto(message) {
+            resumoAberto(message)
+        } else {
+            resumoRecolhidoRow(message)
+        }
+    }
+
+    /// A linha de uma altura só: o começo da frase, os mesmos dois botões em
+    /// tamanho menor, e o chevron que reabre.
+    private func resumoRecolhidoRow(_ message: Message) -> some View {
+        ReaderSummaryCollapsed(
+            prose: aiProse(message) ?? L10n.tr("lendo este e-mail…"),
+            steps: Array(aiNextSteps(message).prefix(2)),
+            onExpand: { abrirResumo(message) }
+        )
+    }
+
     /// O cartão do resultado, com a falha e o recibo da agenda debaixo dele.
-    private func resultSection(_ message: Message) -> some View {
+    private func resumoAberto(_ message: Message) -> some View {
         VStack(alignment: .leading, spacing: ReaderAIMetrics.stepsGap) {
             ReaderAIResultCard(
                 caps: L10n.tr("RESUMO · ESCRITO PELA IA"),
@@ -683,7 +737,8 @@ public struct ReaderPane: View {
                 tasks: aiTasks(message),
                 foundDate: aiFoundDate(message),
                 nextSteps: aiNextSteps(message),
-                onDismiss: { toggleResumo(message, aberto: true) }
+                onDismiss: { resumoDispensadoPorID[message.id] = true },
+                onCollapse: { recolherResumoAgora(message) }
             )
             if let falha = readerConversation?.failure {
                 AssistantFailureBand(
@@ -865,22 +920,6 @@ public struct ReaderPane: View {
             )
     }
 
-    private func identityStamp(_ message: Message) -> some View {
-        Text(message.receivedAt, format: .dateTime.day().month(.abbreviated).hour().minute())
-            .font(theme.mono.font(size: 10.5))
-            .foregroundStyle(theme.ink4.color)
-            .fixedSize()
-    }
-
-    /// "Marina Duarte · Revisão do contrato"
-    nonisolated static func identityCaption(name: String, subject: String) -> String {
-        let quem = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let oQue = subject.trimmingCharacters(in: .whitespacesAndNewlines)
-        if quem.isEmpty { return oQue }
-        if oQue.isEmpty { return quem }
-        return "\(quem) · \(oQue)"
-    }
-
     nonisolated static var expandirCabecalho: String { L10n.tr("Mostra o email do remetente e o assunto completo") }
     nonisolated static var recolherCabecalho: String { L10n.tr("Recolhe remetente e assunto") }
 
@@ -1006,6 +1045,27 @@ public struct ReaderPane: View {
             .frame(width: 0, height: 0)
             .accessibilityHidden(true)
 
+            // **Os atalhos do menu da IA, fora do menu.** Um
+            // `.keyboardShortcut` dentro do popover só vale enquanto ele está
+            // aberto, e o desenho escreve ⌥⌘S ao lado de "Resumir" para quem
+            // **não** quer abrir menu nenhum. Estes botões invisíveis são o que
+            // põe cada tecla no `performKeyEquivalent` da janela — o mesmo
+            // truque do ⇧⌘R logo acima.
+            //
+            // Nenhuma delas colide: o app reivindica ⌘R, ⇧⌘R, ⇧⌘F, ⌘E, ⇧⌘U,
+            // ⇧⌘L, ⇧⌘D, ⌘J, ⌘K, ⌘N e ⌘, — ver `MenuShortcut` —, e ⌥ por cima
+            // do ⌘ deixa este conjunto inteiro livre.
+            ForEach(ReaderAIAction.allCases) { acao in
+                Button(acao.title) { runAI(acao, for: message) }
+                    .keyboardShortcut(
+                        KeyEquivalent(acao.key), modifiers: [.command, .option]
+                    )
+                    .disabled(!aiEnabled(acao, for: message))
+                    .hidden()
+                    .frame(width: 0, height: 0)
+                    .accessibilityHidden(true)
+            }
+
             Spacer(minLength: 8)
 
             glassIcon("chevron.up", L10n.tr("Mensagem anterior"), L10n.tr("Abre a conversa acima na lista")) {
@@ -1117,14 +1177,17 @@ public struct ReaderPane: View {
     /// O menu do ✦ IA: as **sete** ações, porque da pastilha do cabeçalho não
     /// há linha de oferta ao lado para completar o resto.
     private func inkMenu(for message: Message) -> some View {
-        ReaderAIMenu(
-            actions: ReaderAIAction.allCases,
+        ReaderAIGroupedMenu(
             provider: aiProviderLabel,
             isEnabled: { aiEnabled($0, for: message) },
             reason: { aiReason($0, for: message) },
             run: { acao in
                 setEmailAssistantOpen(false)
                 runAI(acao, for: message)
+            },
+            onSwitchProvider: {
+                setEmailAssistantOpen(false)
+                openWindow(id: UNIWindow.accounts)
             }
         )
     }
@@ -1147,6 +1210,10 @@ public struct ReaderPane: View {
         switch acao {
         case .rascunhar, .tom:
             return podeRascunhar
+        case .perguntar:
+            // Abrir o assistente não depende de motor nenhum: o painel sabe
+            // dizer sozinho que não há provedor configurado.
+            return true
         case .evento:
             // Com compromisso detectado não há ida ao motor nenhuma: a
             // proposta nasce do que a mensagem já trouxe. Sem ele, quem acha
@@ -1183,6 +1250,8 @@ public struct ReaderPane: View {
             criarEvento(for: message)
         case .tom:
             mudarTom(for: message)
+        case .perguntar:
+            onOpenAssistant()
         default:
             if let pergunta = acao.question { perguntar(pergunta, for: message) }
         }
@@ -1283,7 +1352,9 @@ public struct ReaderPane: View {
     /// resposta volta para **dentro do e-mail**.
     private func perguntar(_ question: String, for message: Message) {
         ensureConversation(for: message.id)
+        resumoDispensadoPorID[message.id] = false
         resumoAbertoPorID[message.id] = true
+        resumoRecolhido = false
         readerConversation?.ask(question)
     }
 
@@ -1322,62 +1393,46 @@ public struct ReaderPane: View {
         return texto.isEmpty ? nil : texto
     }
 
-    /// O cabeçalho do protótipo: a linha fina da conta e da pasta, o assunto
-    /// grande, e o remetente com avatar, endereço e hora.
+    /// **O cabeçalho do `Leitor5`: duas linhas, e nada mais.**
     ///
-    /// Sem a faixa opaca de `surface` que o cabeçalho clássico pinta: no Vidro
-    /// o leitor é **um** preenchimento só, o do painel.
+    /// O assunto numa linha só (com o título inteiro no `help`) e a linha do
+    /// remetente — avatar, nome e e-mail num botão com chevron, o ícone das
+    /// imagens ao lado, e, na direita, a data sobre "● conta · pasta · N
+    /// mensagens". Os detalhes abrem **no mesmo bloco**, sob um fio, sem caixa
+    /// dentro de caixa.
+    ///
+    /// O que saiu daqui: a linha de procedência (virou a coluna da direita), a
+    /// linha de ações da IA (foi para o menu do ✦ IA) e a faixa das imagens
+    /// remotas (virou o ícone de confiança). Eram elas que faziam o corpo
+    /// começar em y≈485 numa janela de 916.
     private func readerHeader(_ message: Message) -> some View {
-        let tint = accountTint(message)
-        let count = store.conversation(of: message.id)?.count ?? 1
-        return VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: Leitor5Metrics.headerGap) {
             if let nextEvent {
                 nextEventCapsule(nextEvent)
             }
-            HStack(spacing: 8) {
-                Circle().fill(tint).frame(width: 7, height: 7).accessibilityHidden(true)
-                Text(Self.glassOrigin(
-                    account: store.account(message.accountID)?.address ?? "",
-                    folder: store.selectedFolderID.flatMap { id in
-                        store.folders(of: message.accountID).first { $0.id == id }?.displayName
-                    } ?? store.bucket.label
-                ))
-                .font(theme.sans.font(size: 11.5))
-                .foregroundStyle(theme.ink3.color)
-                .lineLimit(1)
-                .layoutPriority(-1)
-
-                // **Os marcadores aplicados continuam visíveis.** Eles
-                // moravam na fila de triagem, que saiu com o cabeçalho
-                // antigo; aqui ficam na linha da procedência, que é a linha
-                // de onde esta mensagem veio — e um marcador do Gmail é
-                // exatamente isso.
-                let marcadores = Self.appliedMarkers(for: message, in: store.folders)
-                ForEach(Array(marcadores.prefix(1))) { marcador in
-                    TintChip(
-                        label: Self.markerChipLabel(marcador.displayName),
-                        tint: theme.ink3.color
-                    )
-                    .help(L10n.tr("Marcador aplicado: \(marcador.displayName)"))
-                }
-                if marcadores.count > 1 {
-                    TintChip(label: "+\(marcadores.count - 1)", tint: theme.ink3.color)
-                        .help(marcadores.dropFirst().map(\.displayName).joined(separator: " · "))
-                }
-
-                Spacer(minLength: 8)
-                Text(MessageList.messageCountLabel(count))
-                    .font(theme.sans.font(size: 11.5))
-                    .foregroundStyle(theme.ink3.color)
-            }
 
             Text(message.subject)
-                .font(theme.serif.font(size: 24, weight: .bold))
-                .tracking(-0.02 * 24)
+                .font(theme.sans.font(size: Leitor5Metrics.subjectSize, weight: .bold))
+                .tracking(-0.02 * Leitor5Metrics.subjectSize)
                 .foregroundStyle(theme.ink.color)
-                .fixedSize(horizontal: false, vertical: true)
+                // **Uma linha.** O assunto de uma newsletter tem oitenta
+                // caracteres e dobrava em três linhas de 24pt — eram sessenta
+                // pontos de cabeçalho antes de o e-mail começar.
+                .lineLimit(1)
+                .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .help(message.subject)
                 .textSelection(.enabled)
+
+            senderRow(message)
+
+            if detalhesAbertos || debugRemetenteExpandido {
+                ReaderSenderDetails(
+                    fields: detailFields(message),
+                    onHeaders: { cabecalhosAbertos = true },
+                    onAllFromSender: { buscarRemetente(message) }
+                )
+            }
 
             if !message.attachments.isEmpty {
                 attachmentChips(message)
@@ -1387,57 +1442,327 @@ public struct ReaderPane: View {
                     .font(theme.sans.font(size: 11))
                     .foregroundStyle(theme.danger.color)
             }
-
-            // **A oferta da IA, debaixo do assunto.** Uma linha de ações e um
-            // fio — sem faixa colorida, sem brilho e sem caixa. É o estado de
-            // repouso do desenho `Leitor-IA2`, e é o que fecha o cabeçalho.
-            ReaderAIOfferRow(
-                isEnabled: { aiEnabled($0, for: message) },
-                reason: { aiReason($0, for: message) },
-                run: { runAI($0, for: message) },
-                provider: aiProviderLabel,
-                moreOpen: $aiMoreOpen
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, Leitor5Metrics.headerSide)
+        .padding(.top, Leitor5Metrics.headerTop)
+        .allowsHitTesting(!emailAssistantOpen)
+        .onChange(of: message.id) { _, _ in
+            detalhesAbertos = false
+            imagensAbertas = false
+            cabecalhosAbertos = false
+            carregaRemotas = false
+            paletaForcada = nil
+        }
+        .sheet(isPresented: $cabecalhosAbertos) {
+            ReaderHeadersSheet(
+                lines: ReaderHeadersSheet.lines(
+                    of: message,
+                    accountAddress: store.account(message.accountID)?.address ?? "",
+                    folder: pastaVisivel(message)
+                ),
+                onClose: { cabecalhosAbertos = false }
             )
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 28)
-        .padding(.top, 18)
-        .padding(.bottom, 14)
-        .allowsHitTesting(!emailAssistantOpen)
-        .onChange(of: message.id) { _, _ in aiMoreOpen = false }
     }
 
-    /// O remetente como o desenho `IA-Tinta` o escreve: avatar de 36, nome em
-    /// 14,5 semibold, "marina@cliente.com · para você" em 12,5, e a hora em
-    /// mono de 12 na ponta direita.
-    ///
-    /// Mora no fluxo de leitura, abaixo da tinta da IA — ver `cardsAndBody`.
-    private func identityRow(_ message: Message) -> some View {
-        let tint = accountTint(message)
-        return HStack(alignment: .center, spacing: 12) {
-            senderAvatar(message.from.initials, tint: tint, size: 36, font: 13)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(message.from.name.isEmpty ? message.from.address : message.from.name)
-                    .font(theme.sans.font(size: 14.5, weight: .semibold))
-                    .foregroundStyle(theme.ink.color)
-                    .lineLimit(1)
-                Text(Self.glassSenderCaption(message))
-                    .font(theme.sans.font(size: 12.5))
-                    .foregroundStyle(theme.ink3.color)
-                    .lineLimit(1)
-                    .textSelection(.enabled)
+    /// A linha do remetente: avatar, o botão que abre os detalhes, o ícone das
+    /// imagens, e a data com a procedência embaixo.
+    private func senderRow(_ message: Message) -> some View {
+        HStack(spacing: Leitor5Metrics.rowGap) {
+            senderAvatar(
+                message.from.initials, tint: accountTint(message),
+                size: Leitor5Metrics.avatar, font: 12
+            )
+            senderButton(message)
+            imagesButton(message)
+
+            // **Os marcadores aplicados continuam visíveis.** Eles moravam na
+            // linha de procedência, que virou a coluna da direita e não tem
+            // onde os pôr; aqui ficam ao lado de quem mandou, que é de onde o
+            // marcador do Gmail fala.
+            let marcadores = Self.appliedMarkers(for: message, in: store.folders)
+            ForEach(Array(marcadores.prefix(1))) { marcador in
+                TintChip(
+                    label: Self.markerChipLabel(marcador.displayName),
+                    tint: theme.ink3.color
+                )
+                .help(L10n.tr("Marcador aplicado: \(marcador.displayName)"))
             }
+            if marcadores.count > 1 {
+                TintChip(label: "+\(marcadores.count - 1)", tint: theme.ink3.color)
+                    .help(marcadores.dropFirst().map(\.displayName).joined(separator: " · "))
+            }
+
             Spacer(minLength: 8)
-            identityStamp(message)
+            senderStamp(message)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// "ricardo@empresa.com · Caixa de entrada"
-    nonisolated static func glassOrigin(account: String, folder: String) -> String {
-        let conta = account.trimmingCharacters(in: .whitespaces)
-        if conta.isEmpty { return folder }
-        return "\(conta) · \(folder)"
+    /// **O remetente inteiro é um botão** — nome, e-mail e chevron. Um alvo
+    /// só, com moldura quando está aberto: não há palavra sublinhada fingindo
+    /// ser controle.
+    private func senderButton(_ message: Message) -> some View {
+        let aberto = detalhesAbertos || debugRemetenteExpandido
+        return Button { detalhesAbertos.toggle() } label: {
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(message.from.name.isEmpty ? message.from.address : message.from.name)
+                        .font(theme.sans.font(size: Leitor5Metrics.nameSize, weight: .semibold))
+                        .foregroundStyle(theme.ink.color)
+                        .lineLimit(1)
+                    Text(Self.glassSenderCaption(message))
+                        .font(theme.sans.font(size: Leitor5Metrics.mailSize))
+                        .foregroundStyle(theme.ink3.color)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                Image(systemName: aberto ? "chevron.up" : "chevron.down")
+                    .font(.system(size: Leitor5Metrics.chevron, weight: .semibold))
+                    .foregroundStyle((aberto ? theme.ink2 : theme.ink4).color)
+            }
+            .padding(.horizontal, Leitor5Metrics.senderPadH)
+            .padding(.vertical, Leitor5Metrics.senderPadV)
+            .background(
+                (aberto ? theme.glassSoft : TokenColor(red: 0, green: 0, blue: 0, opacity: 0)).color
+            )
+            .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+            .overlay {
+                RoundedRectangle(cornerRadius: theme.radiusSmall)
+                    .strokeBorder(
+                        (aberto ? theme.line2 : TokenColor(red: 0, green: 0, blue: 0, opacity: 0)).color,
+                        lineWidth: Hairline.thickness(displayScale)
+                    )
+            }
+            .contentShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
+        .padding(.leading, -Leitor5Metrics.senderPadH)
+        .padding(.vertical, -Leitor5Metrics.senderPadV)
+        .help(aberto ? Self.recolherCabecalho : Self.expandirCabecalho)
+        .accessibilityLabel(L10n.tr("Detalhes do e-mail"))
+        .accessibilityValue(aberto ? L10n.tr("Aberto") : L10n.tr("Fechado"))
+        .uniContextMenu(
+            Self.senderMenu(message),
+            store: store,
+            intercept: { comando in senderCommand(comando, for: message) }
+        )
+    }
+
+    /// O ícone das imagens e da confiança: verde quando elas carregam, quieto
+    /// quando estão bloqueadas. Abre o popover com as quatro decisões.
+    private func imagesButton(_ message: Message) -> some View {
+        let html = message.bodyHTML ?? ""
+        let pede = !html.isEmpty && ReaderHTMLPolicy.pedeRecursoRemoto(html)
+        let carrega = carregaRemotas || store.trustsSender(message.from.address)
+        return Button { imagensAbertas.toggle() } label: {
+            HStack(spacing: 5) {
+                Image(systemName: pede && !carrega ? "photo.badge.exclamationmark" : "photo")
+                    .font(.system(size: 12, weight: .medium))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+            }
+            .foregroundStyle((pede && !carrega ? theme.ink3 : theme.success).color)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 5)
+            .background(theme.surface3.color)
+            .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+            .overlay {
+                RoundedRectangle(cornerRadius: theme.radiusSmall)
+                    .strokeBorder(theme.line2.color, lineWidth: Hairline.thickness(displayScale))
+            }
+            .contentShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.radiusSmall)
+        .help(
+            pede && !carrega
+                ? ReaderHTMLSection.imagensBloqueadas
+                : ReaderHTMLSection.imagensCarregadas
+        )
+        .accessibilityLabel(L10n.tr("Imagens e aparência deste e-mail"))
+        .popover(isPresented: $imagensAbertas, arrowEdge: .bottom) {
+            ReaderImagesPopover(
+                pedeRemotas: pede,
+                confiavel: store.trustsSender(message.from.address),
+                carregou: carregaRemotas,
+                remetente: message.from.address,
+                paletaEhPapel: ReaderHTMLPolicy.paleta(
+                    para: html, forçada: paletaForcada
+                ) == .papel,
+                onCarregar: {
+                    carregaRemotas = true
+                    imagensAbertas = false
+                },
+                onConfiar: {
+                    store.trustSender(message.from.address)
+                    imagensAbertas = false
+                },
+                onRevogar: {
+                    store.revokeSenderTrust(message.from.address)
+                    carregaRemotas = false
+                    imagensAbertas = false
+                },
+                onTrocarPaleta: {
+                    paletaForcada = ReaderHTMLPolicy.paleta(
+                        para: html, forçada: paletaForcada
+                    ) == .papel ? .doTema : .papel
+                    imagensAbertas = false
+                }
+            )
+        }
+    }
+
+    /// A data em cima, e "● conta · pasta · N mensagens" embaixo. Era a linha
+    /// de procedência do cabeçalho antigo, que ocupava uma faixa inteira.
+    private func senderStamp(_ message: Message) -> some View {
+        let count = store.conversation(of: message.id)?.count ?? 1
+        return VStack(alignment: .trailing, spacing: 1) {
+            Text(
+                message.receivedAt,
+                format: .dateTime.day().month(.abbreviated).hour().minute()
+            )
+            .font(theme.mono.font(size: Leitor5Metrics.stampSize))
+            .foregroundStyle(theme.ink3.color)
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(accountTint(message))
+                    .frame(width: Leitor5Metrics.originDot, height: Leitor5Metrics.originDot)
+                    .accessibilityHidden(true)
+                Text(Self.senderOrigin(
+                    account: store.account(message.accountID)?.address ?? "",
+                    folder: pastaVisivel(message),
+                    messages: MessageList.messageCountLabel(count)
+                ))
+                .font(theme.sans.font(size: Leitor5Metrics.stampSize))
+                .foregroundStyle(theme.ink4.color)
+                .lineLimit(1)
+            }
+        }
+        .fixedSize()
+    }
+
+    /// A pasta aberta, ou a caixa, para a procedência e para os cabeçalhos.
+    private func pastaVisivel(_ message: Message) -> String {
+        store.selectedFolderID.flatMap { id in
+            store.folders(of: message.accountID).first { $0.id == id }?.displayName
+        } ?? store.bucket.label
+    }
+
+    /// Os campos dos detalhes. **Sem "Assinado"**: o app não guarda
+    /// `Authentication-Results`, e nenhuma parte dele confere SPF ou DKIM (ver
+    /// `UNICore.SenderTrust`, que existe justamente porque essa informação não
+    /// existe aqui). Uma linha verde dizendo "SPF e DKIM conferem" seria uma
+    /// garantia inventada — a pior espécie de texto num cabeçalho de e-mail.
+    private func detailFields(_ message: Message) -> [ReaderDetailField] {
+        func junta(_ lista: [Contact]) -> String {
+            lista.map { $0.name.isEmpty ? $0.address : "\($0.name) <\($0.address)>" }
+                .joined(separator: ", ")
+        }
+        var campos: [ReaderDetailField] = [
+            ReaderDetailField(
+                id: "de", label: L10n.tr("De"), value: junta([message.from]),
+                copyable: message.from.address
+            )
+        ]
+        if !message.to.isEmpty {
+            campos.append(ReaderDetailField(
+                id: "para", label: L10n.tr("Para"), value: junta(message.to),
+                copyable: message.to.map(\.address).joined(separator: ", ")
+            ))
+        }
+        if !message.cc.isEmpty {
+            campos.append(ReaderDetailField(
+                id: "cc", label: L10n.tr("Cc"), value: junta(message.cc),
+                copyable: message.cc.map(\.address).joined(separator: ", "), dim: true
+            ))
+        }
+        // **Sem "Responder para".** `Message` não tem `Reply-To`: o
+        // decodificador lê `From`, `To`, `Cc` e joga o resto fora. Uma linha
+        // que repetisse o `From` sob outro rótulo mentiria sobre para onde a
+        // resposta vai.
+        campos.append(ReaderDetailField(
+            id: "data", label: L10n.tr("Data"),
+            // `L10n.locale`, e não `Locale.current`: o idioma do app é uma
+            // preferência dele, e a data por extenso é a linha mais visível
+            // dos detalhes.
+            value: message.receivedAt.formatted(
+                Date.FormatStyle(date: .complete, time: .shortened).locale(L10n.locale)
+            ),
+            dim: true
+        ))
+        campos.append(ReaderDetailField(
+            id: "conta", label: L10n.tr("Conta"),
+            value: store.account(message.accountID)?.address ?? "",
+            copyable: store.account(message.accountID)?.address,
+            dim: true, accountTint: accountTint(message)
+        ))
+        campos.append(ReaderDetailField(
+            id: "pasta", label: L10n.tr("Pasta"), value: pastaVisivel(message), dim: true
+        ))
+        return campos
+    }
+
+    /// "Todos deste remetente": a busca que o app já tem, com o endereço no
+    /// campo e o recorte aberto para fora da caixa atual.
+    private func buscarRemetente(_ message: Message) {
+        store.query = message.from.address
+        store.searchEverywhere = true
+        detalhesAbertos = false
+    }
+
+    /// "ricardo@empresa.com · Caixa de entrada · 3 mensagens"
+    nonisolated static func senderOrigin(
+        account: String, folder: String, messages: String
+    ) -> String {
+        [account.trimmingCharacters(in: .whitespaces), folder, messages]
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
+    }
+
+    /// O menu de contexto do remetente — botão direito no nome.
+    ///
+    /// **Três itens, e não seis.** "Nova mensagem" precisaria de uma rota de
+    /// compositor que carregasse um destinatário, e ela não existe (ver
+    /// `ComposerRoute`, que só sabe responder, encaminhar e continuar
+    /// rascunho); "Adicionar aos contatos" precisaria de escrita no catálogo,
+    /// e `ContactDirectoryPort` só lê; "Bloquear" precisaria de uma regra de
+    /// remetente alcançável daqui, e `EmailRuleStore` é privado do
+    /// `MailStore`. Item morto não entra — é a regra do marco.
+    nonisolated static func senderMenu(_ message: Message) -> [ContextMenuEntry] {
+        let endereco = message.from.address
+        let nome = message.from.name.trimmingCharacters(in: .whitespaces)
+        var entradas: [ContextMenuEntry] = [
+            .item(ContextMenuItem(L10n.tr("Copiar endereço"), .copy(endereco)))
+        ]
+        if !nome.isEmpty {
+            entradas.append(.item(ContextMenuItem(
+                L10n.tr("Copiar nome e endereço"), .copy("\(nome) <\(endereco)>")
+            )))
+        }
+        entradas.append(.separator)
+        entradas.append(.item(ContextMenuItem(
+            L10n.tr("Ver todos os e-mails deste remetente"),
+            .copy(Self.buscaDoRemetente),
+            help: L10n.tr("Busca todas as mensagens de \(endereco)")
+        )))
+        return entradas.tidied
+    }
+
+    /// A marca que o item de busca carrega no lugar de um comando próprio: o
+    /// `ContextCommand` não tem "buscar", e inventar um caso novo em `UNICore`
+    /// por causa de um item de menu seria caro. O leitor intercepta.
+    nonisolated static let buscaDoRemetente = "okamiuni://buscar-remetente"
+
+    /// Intercepta o item de busca; o resto segue pelo caminho de sempre.
+    private func senderCommand(_ command: ContextCommand, for message: Message) -> Bool {
+        if case .copy(let texto) = command, texto == Self.buscaDoRemetente {
+            buscarRemetente(message)
+            return true
+        }
+        return false
     }
 
     /// "marina@cliente.com · para você"
@@ -1522,28 +1847,27 @@ public struct ReaderPane: View {
         destination.isLocal ? L10n.tr("TL;DR · neste Mac") : "TL;DR · \(destination.label)"
     }
 
-    /// A mesma condição da legenda. A dica do cartão recolhido afirmava
-    /// "neste Mac" sem olhar para o destino, vinte linhas acima da função que
-    /// olha — e era ela que a pessoa lia ao passar o mouse.
-    static func summaryHelp(for destination: AssistantDestination) -> String {
-        destination.isLocal
-            ? L10n.tr("Mostra o resumo gerado neste Mac")
-            : L10n.tr("Mostra o resumo gerado por \(destination.label)")
-    }
-
     /// **Um desenho só para os 28 temas.** A tinta nasce escrita em todos:
     /// não havia razão para o vidro ler a frase inteira e os 26 opacos
     /// receberem uma linha dobrada, e o `isGlass` que decidia isto aqui
     /// voltou a ser o que ele deve ser — tratamento de superfície, não layout.
     private func resumoEstaAberto(_ message: Message) -> Bool {
+        if debugResumoRecolhido { return false }
         if debugResumoAberto { return true }
-        return resumoAbertoPorID[message.id] ?? Self.resumoComecaAberto
+        return resumoAbertoPorID[message.id] ?? !resumoRecolhido
     }
 
-    /// "OCULTAR" / "Mostrar resumo": a escolha é por mensagem e não
-    /// sobrevive a nada — é estado de leitura desta janela.
-    private func toggleResumo(_ message: Message, aberto: Bool) {
-        resumoAbertoPorID[message.id] = !aberto
+    /// **Recolher é uma preferência, não um gesto perdido.** O chevron grava a
+    /// escolha para as próximas mensagens (`@AppStorage`) e a aplica a esta —
+    /// quem recolheu uma vez não quer o cartão de volta na seguinte.
+    private func recolherResumoAgora(_ message: Message) {
+        resumoRecolhido = true
+        resumoAbertoPorID[message.id] = false
+    }
+
+    private func abrirResumo(_ message: Message) {
+        resumoRecolhido = false
+        resumoAbertoPorID[message.id] = true
     }
 
     // MARK: - O convite de agenda
@@ -1570,13 +1894,6 @@ public struct ReaderPane: View {
     nonisolated static var removerDaAgenda: String { L10n.tr("Remover da agenda") }
     nonisolated static var recolherConvite: String { L10n.tr("Recolher") }
     nonisolated static var mostrarConvite: String { L10n.tr("Detalhes") }
-    nonisolated static var recolherResumo: String { L10n.tr("Recolher resumo") }
-    nonisolated static var mostrarResumo: String { L10n.tr("Mostrar resumo") }
-    /// **A tinta nasce escrita.** Na direção Tinta o que a IA diz não é uma
-    /// gaveta a abrir: é texto no fluxo, entre o assunto e o remetente, com um
-    /// "OCULTAR" para quem não quiser. Era `false` quando aquilo era um cartão
-    /// dobrado — e um cartão que começa dobrado é uma frase que ninguém lê.
-    nonisolated static let resumoComecaAberto = true
 
     /// O que a faixa escreve depois do resumo: "Precisa resposta" e
     /// "Prazo: qui 15h", nesta ordem, quando existirem.
@@ -2168,8 +2485,8 @@ public struct ReaderPane: View {
                 paragrafos: Self.paragrafos(de: message),
                 remetente: message.from.address,
                 confiavel: store.trustsSender(message.from.address),
-                aoConfiar: { store.trustSender(message.from.address) },
-                aoRevogar: { store.revokeSenderTrust(message.from.address) },
+                carregaRemotas: carregaRemotas,
+                paletaForcada: paletaForcada,
                 aoRSVP: { aplicarRSVP($0, convite: Self.convite(de: message), message: message) }
             )
             .id(message.id)
@@ -2233,6 +2550,9 @@ public struct ReaderPane: View {
     /// `ReaderHTMLPolicy.documento`), e três cópias divergiriam na primeira vez
     /// que alguém mexesse numa.
     nonisolated static let readingWidth: CGFloat = 500
+
+    /// O espaço do leitor inteiro, para a régua do corpo.
+    nonisolated static let readerSpace = "reader-pane"
 
     /// O espaço em que o sparkle reporta o canto dele para o painel da IA
     /// nascer **fora** do cabeçalho — senão a hairline de baixo corta o modal.
@@ -2313,6 +2633,20 @@ public struct ReaderPane: View {
         .frame(width: 600, height: 600)
 }
 #endif
+
+/// **Onde o corpo do e-mail começa**, medido no espaço do leitor.
+///
+/// Existe por causa da conferência: o corpo HTML não pinta no harness fora da
+/// tela, e contar pixels de texto confundiria a primeira linha do e-mail com a
+/// última do cabeçalho. O dono reclamou de um número — "o corpo começa em
+/// y≈485 numa janela de 916" —, e um número só se defende com outro número.
+struct ReaderBodyTopKey: PreferenceKey {
+    static let defaultValue: CGFloat? = nil
+
+    static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) {
+        value = value ?? nextValue()
+    }
+}
 
 /// A frase em itálico que o leitor põe no lugar do corpo enquanto ele não está
 /// lá: "Carregando corpo…" da M3-3, "Esta mensagem não tem texto." e, desde a
