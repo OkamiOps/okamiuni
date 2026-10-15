@@ -4,6 +4,12 @@
 
 Versions correspond to [GitHub releases](https://github.com/OkamiOps/okamiuni/releases). All dates below are in 2026.
 
+## 0.6.3 — October 15
+
+- New **Calendars** tab in Settings: choose which calendars show, the default calendar for new events and the default meeting room.
+- Meeting rooms with no setup: Google Meet creates a new room for each event with your Google account. The old screen that asked for a client ID and secret is gone.
+- App version 0.6.3, build 18. [Release notes](docs/releases/v0.6.3.md).
+
 ## 0.6.2 — October 15
 
 - The update icon is always in the rail, above ✦, with the installed version and "Check now".

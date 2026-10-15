@@ -4,6 +4,11 @@
 
 Todas as versões seguem o [release no GitHub](https://github.com/OkamiOps/okamiuni/releases). Datas em 2026.
 
+## 0.6.3 — 15 de outubro
+- Aba **Agendas** nova nas Configurações: escolha quais calendários aparecem, a agenda padrão dos eventos novos e a sala de reunião padrão.
+- Salas de reunião sem configuração: o Google Meet cria uma sala nova para cada evento usando a sua conta Google. A tela antiga que pedia client ID e secret saiu.
+- Versão do app 0.6.3, build 18. [Notas da versão](docs/releases/v0.6.3.pt-BR.md).
+
 ## 0.6.2 — 15 de outubro
 - O ícone de atualização fica sempre no trilho, acima do ✦, com a versão instalada e "Procurar agora".
 - Nas Configurações, Atualizações saiu de Aparência e foi para a Visão geral.
