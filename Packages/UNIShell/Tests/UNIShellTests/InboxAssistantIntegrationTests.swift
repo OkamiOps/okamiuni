@@ -5,12 +5,11 @@ import UNIDesign
 @testable import UNIShell
 
 /// Conversa de ensaio: motor com as duas rotas separadas, sem rede e sem
-/// FoundationModels. É por ela que o popover passa desde a Task 9.
+/// FoundationModels. É por ela que a IA do leitor passa.
 @MainActor
 private func rehearsalConversation(
     subject: String = "Ensaio",
     sender: String? = nil,
-    phase: ReaderIntelligencePopover.Phase = .ready,
     answer: @escaping (AssistantRequest) async throws -> String = { _ in "" },
     draftReply: @escaping (AssistantRequest) async throws -> String = { _ in "" }
 ) -> AssistantConversation {
@@ -22,8 +21,7 @@ private func rehearsalConversation(
             supportsDraftReply: true,
             answer: answer,
             draftReply: draftReply
-        ),
-        debugState: ReaderIntelligencePopover.debugState(for: phase)
+        )
     )
 }
 
@@ -196,27 +194,14 @@ struct InboxAssistantIntegrationTests {
                 return "Hi Max, thank you for the details."
             }
         )
-        let popover = ReaderIntelligencePopover(
-            conversation: conversation,
-            isAvailable: true,
-            onUseReply: { _ in },
-            onClose: {}
-        )
-        _ = Render.snapshot(
-            popover,
-            named: "reader-intelligence-popover",
-            size: ReaderIntelligencePopover.defaultSize,
-            theme: .tinta
-        )
-
-        // **A garantia é a rota, não o pixel.** Este caso clicava na linha
-        // "Rascunhar resposta" para provar que ela não caía na pergunta
-        // analítica; a coordenada era escrita à mão e passou a mentir quando
-        // a lista de ações virou a mesma nos 28 temas. O que ele guarda —
+        // **A garantia é a rota, não o pixel.** O que este caso guarda —
         // rascunho sai por `draftReply`, e `answer` não é tocado — é afirmado
-        // aqui pela rota, que é onde o defeito morava. O clique em si está
-        // coberto por `AssistantDrawerRenderTests`, na gaveta.
-        #expect(ReaderIntelligencePopover.Action.reply.question.isEmpty)
+        // pela rota, que é onde o defeito morava. E "Rascunhar resposta" não
+        // tem pergunta analítica nenhuma: ela é `nil` em `ReaderAIAction`,
+        // que é o que a manda pelo caminho do rascunho.
+        #expect(ReaderAIAction.rascunhar.question == nil)
+        #expect(ReaderAIAction.evento.question == nil)
+        #expect(ReaderAIAction.resumir.question?.isEmpty == false)
         conversation.draftReply()
         await conversation.waitForIdle()
 
@@ -243,191 +228,6 @@ struct InboxAssistantIntegrationTests {
             .numbered(marker: "1.", text: "Revisar o anexo"),
             .numbered(marker: "2)", text: "Enviar a versão final"),
         ])
-    }
-
-    @Test("mini-chat mantém histórico e campo visíveis nos tamanhos mínimo e padrão")
-    func readerMiniChatRendersTranscriptAndComposer() throws {
-        let answer = """
-        ## Situação
-
-        O cliente aprovou a proposta e aguarda a versão final.
-
-        - Confirmar a pauta com Produto
-        - Revisar o anexo financeiro
-        - Responder até segunda-feira
-        """
-
-        for (name, size, theme) in [
-            ("minimum", ReaderIntelligencePopover.minimumSize, Theme.tinta),
-            ("default-dark", ReaderIntelligencePopover.defaultSize, Theme.noite),
-        ] {
-            let bitmap = try #require(Render.snapshot(
-                ReaderIntelligencePopover(
-                    conversation: rehearsalConversation(
-                        subject: "Re: planejamento do lançamento",
-                        sender: "Fernanda Lima",
-                        phase: .preview(.keyPoints, answer)
-                    ),
-                    isAvailable: true,
-                    panelSize: .constant(size),
-                    onUseReply: { _ in },
-                    onClose: {}
-                ),
-                named: "reader-intelligence-mini-chat-\(name)",
-                size: size,
-                theme: theme
-            ))
-            #expect(bitmap.pixelsWide == Int(size.width))
-            #expect(bitmap.pixelsHigh == Int(size.height))
-        }
-    }
-
-    @Test("painel maior redimensiona dentro dos limites e preserva a âncora")
-    func readerPanelResizeContract() {
-        #expect(ReaderIntelligencePopover.defaultSize == CGSize(width: 520, height: 400))
-        #expect(ReaderIntelligencePopover.minimumSize == CGSize(width: 420, height: 300))
-        #expect(ReaderIntelligencePopover.maximumSize == CGSize(width: 720, height: 500))
-
-        #expect(
-            ReaderIntelligencePopover.resizedSize(
-                from: ReaderIntelligencePopover.defaultSize,
-                translation: CGSize(width: 100, height: 80)
-            ) == CGSize(width: 620, height: 480)
-        )
-        #expect(
-            ReaderIntelligencePopover.resizedSize(
-                from: ReaderIntelligencePopover.defaultSize,
-                translation: CGSize(width: 1_000, height: 1_000)
-            ) == ReaderIntelligencePopover.maximumSize
-        )
-        #expect(
-            ReaderIntelligencePopover.resizedSize(
-                from: ReaderIntelligencePopover.defaultSize,
-                translation: CGSize(width: -1_000, height: -1_000)
-            ) == ReaderIntelligencePopover.minimumSize
-        )
-
-        // O painel maior cresce para a direita sem invadir ainda mais a lista
-        // de mensagens à esquerda do ponto onde o cartão antigo começava.
-        let anchorX: CGFloat = 600
-        let oldLeftEdge = anchorX - ReaderIntelligencePopover.anchorWidth
-        let newLeftEdge = anchorX
-            + ReaderIntelligencePopover.anchorOffset(
-                for: ReaderIntelligencePopover.defaultSize.width
-            )
-            - ReaderIntelligencePopover.defaultSize.width
-        #expect(oldLeftEdge == newLeftEdge)
-    }
-
-    @Test("controle de expansão aumenta o painel sem automação do desktop")
-    func readerPanelExpandControlIsClickable() {
-        var size = ReaderIntelligencePopover.defaultSize
-        let popover = ReaderIntelligencePopover(
-            conversation: rehearsalConversation(
-                subject: "Quota Increase",
-                sender: "Amazon Web Services"
-            ),
-            isAvailable: true,
-            panelSize: Binding(
-                get: { size },
-                set: { size = $0 }
-            ),
-            onUseReply: { _ in },
-            onClose: {}
-        )
-
-        CliqueDeEnsaio.em(
-            popover,
-            size: ReaderIntelligencePopover.defaultSize,
-            aY: 27,
-            x: 460
-        )
-
-        #expect(size == ReaderIntelligencePopover.maximumSize)
-    }
-
-    @Test("resposta longa usa a nova área de leitura")
-    func longReaderAnswerUsesExpandedViewport() throws {
-        let text = """
-        A solicitação aumentou o limite de uso excedente para a conta Kiro.
-
-        A Amazon Web Services recusou a primeira tentativa porque os requisitos necessários não estavam completos. O time precisa revisar a configuração, confirmar o responsável e reenviar a solicitação.
-
-        Próximos passos:
-        • revisar os requisitos da conta;
-        • validar o novo limite com Finanças;
-        • reenviar a solicitação até sexta-feira;
-        • acompanhar a confirmação da AWS.
-
-        Risco: sem a aprovação, o ambiente pode atingir o teto atual durante a migração.
-        """
-        let popover = ReaderIntelligencePopover(
-            conversation: rehearsalConversation(
-                subject: "Quota Increase",
-                sender: "Amazon Web Services",
-                phase: .preview(.keyPoints, text)
-            ),
-            isAvailable: true,
-            panelSize: .constant(ReaderIntelligencePopover.defaultSize),
-            onUseReply: { _ in },
-            onClose: {}
-        )
-
-        _ = try #require(Render.snapshot(
-            popover,
-            named: "reader-intelligence-long-answer",
-            size: ReaderIntelligencePopover.defaultSize,
-            theme: .tinta
-        ))
-    }
-
-    @Test("a resposta da IA continua visível quando o painel nasce no botão")
-    func readerAnswerDoesNotCollapseInsideButtonOverlay() throws {
-        let size = CGSize(width: 620, height: 480)
-
-        func preview(_ text: String, name: String) throws -> NSBitmapImageRep {
-            let popover = ReaderIntelligencePopover(
-                conversation: rehearsalConversation(
-                    subject: "Migração do workspace",
-                    sender: "Paulo Silva",
-                    phase: .preview(.summary, text)
-                ),
-                isAvailable: true,
-                onUseReply: { _ in },
-                onClose: {}
-            )
-
-            // Reproduz a âncora real: o overlay recebe a proposta de tamanho
-            // do botão de 32×30 pt. O painel pode transbordar; a área interna
-            // da resposta não pode aceitar altura zero por causa disso.
-            let anchored = Color.clear
-                .frame(width: 32, height: 30)
-                .overlay(alignment: .topTrailing) {
-                    popover.offset(y: 34)
-                }
-                .frame(width: size.width, height: size.height, alignment: .topTrailing)
-
-            return try #require(Render.snapshot(
-                anchored,
-                named: name,
-                size: size,
-                theme: .tinta
-            ))
-        }
-
-        let first = try preview(
-            "RESPOSTA ALFA: prazo confirmado para sexta-feira.",
-            name: "reader-intelligence-answer-alpha"
-        )
-        let second = try preview(
-            "RESPOSTA BRAVO: reunião confirmada para quarta-feira.",
-            name: "reader-intelligence-answer-bravo"
-        )
-
-        #expect(
-            first.pixelsDiffering(from: second) > 150,
-            "duas respostas diferentes renderizaram como o mesmo painel vazio"
-        )
     }
 
     /// **A direção Tinta tira o painel do caminho.**

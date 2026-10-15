@@ -87,6 +87,11 @@ public struct ReaderPane: View {
     /// desenho a conferir, e sintetizar uma ida ao provedor fora da tela não
     /// é verificação de aparência.
     var debugIADraft = false
+    /// Mostra o cartão do evento proposto a partir do compromisso que a
+    /// mensagem já trouxe. Porta exclusiva do harness, pelo mesmo motivo que
+    /// `debugIADraft`: o cartão do evento é um desenho a conferir, e sintetizar
+    /// uma ida ao motor fora da tela não é verificação de aparência.
+    var debugEventProposal = false
     /// Os passos que o motor já deu nesta ida — a lista de ✓ e o brilho do
     /// passo atual. Vem da `AssistantSession`, que é quem ouve o `onActivity`.
     var assistantSteps: [String] = []
@@ -123,6 +128,17 @@ public struct ReaderPane: View {
     /// A conversa do popover: nasce ao abrir, é cancelada ao fechar. Uma só
     /// máquina de estado, a mesma do painel e do dashboard.
     @State private var readerConversation: AssistantConversation?
+    /// O "Mais" da linha de ações, debaixo do assunto.
+    @State private var aiMoreOpen = false
+    /// O evento que a IA propôs e ainda não foi aceito nem descartado.
+    @State private var eventProposal: ReaderEventProposal?
+    /// A proposta que "Ajustar" abriu na folha de compromisso.
+    @State private var eventSheet: ReaderEventProposal?
+    /// A IA está lendo o e-mail em busca de dia e hora.
+    @State private var extractingEvent = false
+    /// O que a IA respondeu quando não deu para propor evento — uma nota no
+    /// fluxo, e não um botão que recusa calado.
+    @State private var aiNote: String?
 
     /// O mesmo retorno com "Desfazer" que a lista desenha. O leitor **posta**
     /// nele e não o desenha: apagar daqui tira a mensagem do leitor, e uma
@@ -379,7 +395,7 @@ public struct ReaderPane: View {
                     onPromote: { onCompose(.reply(messageID: $0.id)) },
                     expandRequest: pedidoDeResposta,
                     intelligence: intelligence,
-                    iaDraft: iaDraft(for: message)
+                    aiDraftPending: aiDraft(for: message) != nil
                 )
                 .id("\(message.id)-\(quickReplyRevision)")
             }
@@ -405,8 +421,31 @@ public struct ReaderPane: View {
         // não faz nada — `loadBodyIfNeeded` sai na primeira guarda.
         .task(id: message.id) {
             setEmailAssistantOpen(debugEmailAssistantOpen, for: message.id)
+            // A proposta e a nota são **desta** mensagem: trocar de mensagem
+            // as leva embora, em vez de deixá-las coladas na seguinte.
+            if eventProposal?.messageID != message.id { eventProposal = nil }
+            aiNote = nil
             messageDidAppear(message.id)
             await store.loadBodyIfNeeded(message.id)
+        }
+        // "Ajustar": a folha de novo compromisso, com a frase da IA já dentro.
+        // O editor é o que já existe — nada de um segundo editor de evento.
+        .topHangingSheet(
+            isPresented: eventSheet != nil,
+            onDismiss: { eventSheet = nil }
+        ) {
+            if let proposta = eventSheet {
+                NewAppointmentSheet(
+                    store: store,
+                    anchor: Fixtures.today,
+                    initialDayOffset: Self.aiDayOffset(proposta.event),
+                    initialPhrase: proposta.phrase,
+                    onClose: {
+                        eventSheet = nil
+                        eventProposal = nil
+                    }
+                )
+            }
         }
         // Voltar a uma conversa é abri-la de novo, com a mais recente aberta.
         // Sem isto o estado ficava guardado com a chave da conversa de origem e
@@ -434,52 +473,85 @@ public struct ReaderPane: View {
     /// conserto de espaçamento.
     @ViewBuilder
     private func cardsAndBody(_ message: Message, inStack: Bool = false) -> some View {
-        // A ordem é a do desenho `IA-Tinta`: a tinta da IA logo abaixo do
-        // assunto, depois o remetente, depois o e-mail. Quem abre a mensagem
-        // decide se vai ler o resto **depois** de saber o que ela pede dele —
-        // e por isso a tinta vem antes do avatar, não depois.
-        if temTinta(message) {
-            inkSection(message)
-                .padding(.horizontal, 28)
-                .padding(.top, TintaMetrics.flowGap)
-        }
-
-        // O remetente saiu do cabeçalho fixo e entrou no fluxo, que é onde o
-        // desenho o põe. Dentro de uma pilha de conversa a linha de cada
-        // mensagem já é o remetente dela, e repeti-la seria o nome duas vezes
-        // seguidas.
+        // A ordem é a do desenho `Leitor-IA2`: o remetente, o cartão do que a
+        // IA escreveu, o evento que ela tirou do texto, o e-mail, e o rascunho
+        // atracado no fim. A **oferta** da IA não está aqui: ela é uma linha
+        // debaixo do assunto, no cabeçalho — ver `readerHeader`.
+        //
+        // Dentro de uma pilha de conversa a linha de cada mensagem já é o
+        // remetente dela, e repeti-la seria o nome duas vezes seguidas.
         if !inStack {
             identityRow(message)
                 .padding(.horizontal, 28)
-                .padding(.top, TintaMetrics.flowGap)
+                .padding(.top, ReaderAIMetrics.flowGap)
+        }
+
+        if mostraResultado(message) {
+            resultSection(message)
+                .padding(.horizontal, 28)
+                .padding(.top, ReaderAIMetrics.flowGap)
+        }
+
+        if let proposta = propostaVisivel(message) {
+            eventSection(proposta, message: message)
+                .padding(.horizontal, 28)
+                .padding(.top, ReaderAIMetrics.flowGap)
+        }
+
+        if extractingEvent {
+            ReaderNote(L10n.tr("procurando dia e hora neste e-mail…"))
+                .padding(.horizontal, 28)
+                .padding(.top, ReaderAIMetrics.flowGap)
+        }
+
+        if let aiNote {
+            ReaderNote(aiNote)
+                .padding(.horizontal, 28)
+                .padding(.top, ReaderAIMetrics.flowGap)
         }
 
         if let convite = Self.convite(de: message) {
             inviteCard(convite, message: message)
                 .padding(.horizontal, 28)
-                .padding(.top, TintaMetrics.flowGap)
+                .padding(.top, ReaderAIMetrics.flowGap)
                 .padding(.bottom, 16)
         }
 
         body(message)
-            .padding(.top, TintaMetrics.flowGap)
+            .padding(.top, ReaderAIMetrics.flowGap)
             .padding(.bottom, 28)
+
+        if let rascunho = aiDraft(for: message) {
+            draftSection(rascunho, message: message)
+                .padding(.horizontal, 28)
+                .padding(.bottom, 28)
+        }
     }
 
-    /// Há tinta para escrever nesta mensagem? Resumo guardado, resposta ao
-    /// vivo, tarefa com lastro ou um pedido em voo. Sem nada disso o leitor
-    /// não escreve versalete nenhum — um "RESUMO E TAREFAS" sobre o vazio é
-    /// pior do que silêncio.
-    private func temTinta(_ message: Message) -> Bool {
+    /// A proposta de evento **desta** mensagem, se houver uma.
+    private func propostaVisivel(_ message: Message) -> ReaderEventProposal? {
+        if let proposta = eventProposal, proposta.messageID == message.id { return proposta }
+        guard debugEventProposal, let evento = message.detectedEvent else { return nil }
+        return ReaderEventProposal(
+            messageID: message.id,
+            event: evento,
+            provenance: L10n.tr("do que este e-mail diz"),
+            phrase: evento.label
+        )
+    }
+
+    /// O cartão do resultado aparece quando há o que mostrar: a prosa já
+    /// guardada, a resposta ao vivo, ou a ida em voo. Sem nada disso o leitor
+    /// fica em **repouso** — só a linha de ações debaixo do assunto.
+    private func mostraResultado(_ message: Message) -> Bool {
         guard resumoEstaAberto(message) else { return false }
         if readerConversation?.isLoading == true { return true }
-        if inkProse(message) != nil { return true }
-        return !inkTasks(message).isEmpty
+        return aiProse(message) != nil
     }
 
     /// A prosa da IA: a última resposta ao vivo desta sessão, ou o resumo que
     /// a fila já gravou na mensagem.
-    private func inkProse(_ message: Message) -> String? {
+    private func aiProse(_ message: Message) -> String? {
         if let ultima = readerConversation?.messages.last(
             where: { $0.speaker == .assistant && $0.kind == .message }
         ) {
@@ -488,49 +560,130 @@ public struct ReaderPane: View {
         return message.summary
     }
 
-    /// As tarefas que a IA escreve em linha.
+    /// As tarefas que o cartão lista em "O QUE SOBRA PARA VOCÊ".
     ///
     /// **Duas fontes, as duas com lastro**: o pedido que a análise já
     /// persistida afirmou (com prazo e evidência) e o compromisso detectado na
     /// mensagem. Nada é lido do texto na hora de desenhar.
-    private func inkTasks(_ message: Message) -> [ReaderInkTask] {
-        var tarefas: [ReaderInkTask] = []
+    private func aiTasks(_ message: Message) -> [ReaderAITask] {
+        var tarefas: [ReaderAITask] = []
         if let pedido = PedidoDoEmail.de(triagem: message.triage, agora: Date()) {
-            tarefas.append(ReaderInkTask(
+            tarefas.append(ReaderAITask(
                 id: "pedido",
                 text: pedido.chamada,
-                deadline: pedido.prazo,
-                urgent: pedido.urgente,
-                action: podeRascunhar ? L10n.tr("Rascunhar") : nil,
-                run: podeRascunhar ? { pedirRascunho(for: message, tone: .direto) } : nil
+                origin: pedido.prazo,
+                urgent: pedido.urgente
             ))
         }
         // Com `text/calendar` o cartão do convite já diz o compromisso: a
         // tarefa seria a mesma reunião duas vezes.
         if let evento = message.detectedEvent, Self.convite(de: message) == nil,
            !isOnAgenda(message) {
-            tarefas.append(ReaderInkTask(
+            tarefas.append(ReaderAITask(
                 id: "evento",
                 text: evento.label,
-                action: L10n.tr("Criar evento"),
-                run: { addEvent(evento, for: message) }
+                origin: L10n.tr("uma data no texto")
             ))
         }
         return tarefas
     }
 
-    /// A tinta inteira — ver `ReaderInkSection`.
-    private func inkSection(_ message: Message) -> some View {
-        VStack(alignment: .leading, spacing: TintaMetrics.blockGap) {
-            ReaderInkSection(
-                prose: inkProse(message),
+    /// **O e-mail sem nada a fazer diz isso.** É o estado "raso" do desenho:
+    /// nem pedido na triagem, nem compromisso no texto, nem tarefa com lastro.
+    private func aiShallowNote(_ message: Message) -> String? {
+        guard aiTasks(message).isEmpty, message.detectedEvent == nil,
+              message.triage?.needsReply != true else { return nil }
+        return L10n.tr("procurei prazos, tarefas e eventos — não há nenhum neste e-mail")
+    }
+
+    /// A data que o texto trouxe, com o veredito da agenda ao lado. `nil`
+    /// quando não há compromisso detectado ou ele já está na agenda.
+    private func aiFoundDate(
+        _ message: Message
+    ) -> (text: String, note: String, free: String?)? {
+        guard let evento = message.detectedEvent, !isOnAgenda(message) else { return nil }
+        return (
+            // Curta como no desenho ("quinta, 16 de outubro · 15:00"): a data
+            // por extenso dobrava a linha e empurrava o veredito para fora.
+            text: evento.start.formatted(date: .abbreviated, time: .shortened),
+            note: L10n.tr("— uma data encontrada neste e-mail"),
+            free: aiFreeVerdict(evento)
+        )
+    }
+
+    /// "você está livre" — ou `nil` quando algo bate com a hora. A conta é a
+    /// mesma da folha de novo compromisso (`DayFreeBusy`), com a agenda real.
+    private func aiFreeVerdict(_ event: DetectedEvent) -> String? {
+        let modelo = DayFreeBusy.build(
+            items: store.calendarAgenda,
+            dayOffset: Self.aiDayOffset(event),
+            proposalStart: ReaderAIEventCard.minute(event.start),
+            proposalEnd: ReaderAIEventCard.minute(event.end),
+            proposalLabel: event.label
+        )
+        return modelo.isFree ? L10n.tr("você está livre") : nil
+    }
+
+    /// O dia do compromisso, contado como `AgendaItem.dayOffset` — a mesma
+    /// referência que o `MailStore` usa para a agenda.
+    nonisolated static func aiDayOffset(
+        _ event: DetectedEvent, reference: Date = Fixtures.today
+    ) -> Int {
+        let calendario = Calendar.current
+        return calendario.dateComponents(
+            [.day],
+            from: calendario.startOfDay(for: reference),
+            to: calendario.startOfDay(for: event.start)
+        ).day ?? 0
+    }
+
+    /// **Sempre há próximo passo.** Um resultado que não oferece o que fazer
+    /// em seguida foi exatamente o que o dono reprovou na Tinta: a prosa
+    /// aparecia e Rascunhar e Criar evento desapareciam.
+    private func aiNextSteps(_ message: Message) -> [ReaderAIStep] {
+        var passos: [ReaderAIStep] = []
+        if let evento = message.detectedEvent, !isOnAgenda(message),
+           propostaVisivel(message) == nil {
+            passos.append(ReaderAIStep(
+                id: "evento",
+                title: L10n.tr("Criar o evento"),
+                strong: true,
+                run: { propose(evento, for: message, provenance: L10n.tr("do que este e-mail diz"), phrase: evento.label) }
+            ))
+        }
+        if podeRascunhar {
+            passos.append(ReaderAIStep(
+                id: "rascunho",
+                title: L10n.tr("Rascunhar resposta"),
+                strong: passos.isEmpty,
+                run: { pedirRascunho(for: message, tone: inkTone) }
+            ))
+        }
+        passos.append(ReaderAIStep(
+            id: "perguntar",
+            title: L10n.tr("Perguntar sobre este e-mail"),
+            strong: passos.isEmpty,
+            run: onOpenAssistant
+        ))
+        return passos
+    }
+
+    /// O cartão do resultado, com a falha e o recibo da agenda debaixo dele.
+    private func resultSection(_ message: Message) -> some View {
+        VStack(alignment: .leading, spacing: ReaderAIMetrics.stepsGap) {
+            ReaderAIResultCard(
+                caps: L10n.tr("RESUMO · ESCRITO PELA IA"),
+                prose: aiProse(message),
                 provenance: Self.inkProvenance(
                     for: analysisDestination(message.summaryModelVersion)
                 ),
-                tasks: inkTasks(message),
                 isWorking: readerConversation?.isLoading == true,
                 steps: assistantSteps,
-                onHide: { toggleResumo(message, aberto: true) }
+                shallowNote: aiShallowNote(message),
+                tasks: aiTasks(message),
+                foundDate: aiFoundDate(message),
+                nextSteps: aiNextSteps(message),
+                onDismiss: { toggleResumo(message, aberto: true) }
             )
             if let falha = readerConversation?.failure {
                 AssistantFailureBand(
@@ -543,6 +696,78 @@ public struct ReaderPane: View {
                 agendaConfirmation(receipt)
             }
         }
+    }
+
+    /// O cartão do evento proposto, com o recibo da agenda debaixo dele.
+    private func eventSection(
+        _ proposta: ReaderEventProposal, message: Message
+    ) -> some View {
+        VStack(alignment: .leading, spacing: ReaderAIMetrics.stepsGap) {
+            ReaderAIEventCard(
+                store: store,
+                event: proposta.event,
+                provenance: proposta.provenance,
+                weekday: Self.aiWeekday(proposta.event.start),
+                dayNumber: Self.aiDayNumber(proposta.event.start),
+                timeRange: Self.aiTimeRange(proposta.event),
+                dayOffset: Self.aiDayOffset(proposta.event),
+                onAdjust: { eventSheet = proposta },
+                onAdd: {
+                    addEvent(proposta.event, for: message)
+                    eventProposal = nil
+                },
+                notifyTitle: podeRascunhar
+                    ? L10n.tr("Avisar \(Self.aiFirstName(message))") : nil,
+                onNotify: podeRascunhar
+                    ? { pedirRascunho(for: message, tone: inkTone) } : nil,
+                onDiscard: { eventProposal = nil }
+            )
+            if let receipt = agendaReceipt, receipt.messageID == message.id {
+                agendaConfirmation(receipt)
+            }
+        }
+    }
+
+    /// O cartão do rascunho, atracado no fim do e-mail.
+    private func draftSection(_ texto: String, message: Message) -> some View {
+        ReaderAIDraftCard(
+            caps: L10n.tr("RASCUNHO · PARA \(Self.aiFirstName(message).uppercased(with: L10n.locale))"),
+            draft: texto,
+            tone: inkTone,
+            onTone: podeRascunhar ? { pedirRascunho(for: message, tone: $0) } : nil,
+            hint: L10n.tr("clique no texto para editar"),
+            onReview: { pedidoDeResposta += 1 },
+            onPromote: { onCompose(.reply(messageID: message.id)) },
+            onDiscard: { descartarIADraft(message) }
+        )
+    }
+
+    /// "QUI" — o dia da semana em versalete curto, para a pastilha do evento.
+    nonisolated static func aiWeekday(_ date: Date) -> String {
+        date.formatted(.dateTime.weekday(.abbreviated).locale(L10n.locale))
+            .replacingOccurrences(of: ".", with: "")
+            .uppercased(with: L10n.locale)
+    }
+
+    nonisolated static func aiDayNumber(_ date: Date) -> String {
+        "\(Calendar.current.component(.day, from: date))"
+    }
+
+    /// "15:00 às 15:30".
+    nonisolated static func aiTimeRange(_ event: DetectedEvent) -> String {
+        let inicio = event.start.formatted(date: .omitted, time: .shortened)
+        let fim = event.end.formatted(date: .omitted, time: .shortened)
+        return L10n.tr("\(inicio) às \(fim)")
+    }
+
+    /// O primeiro nome de quem escreveu — "Avisar Marina", "RASCUNHO · PARA
+    /// MARINA". Sem nome, o endereço.
+    nonisolated static func aiFirstName(_ message: Message) -> String {
+        let nome = message.from.name.trimmingCharacters(in: .whitespaces)
+        if let primeiro = nome.split(separator: " ").first, !primeiro.isEmpty {
+            return String(primeiro)
+        }
+        return message.from.address
     }
 
     /// "neste Mac", "Codex · ChatGPT" — a procedência que a nota da tinta
@@ -889,31 +1114,17 @@ public struct ReaderPane: View {
         }
     }
 
-    /// O menu do ✦ IA, com cada entrada ligada ao que o app de fato sabe
-    /// fazer. Entrada sem ação é entrada desabilitada, com o motivo no `help`
-    /// — nunca um botão mudo.
+    /// O menu do ✦ IA: as **sete** ações, porque da pastilha do cabeçalho não
+    /// há linha de oferta ao lado para completar o resto.
     private func inkMenu(for message: Message) -> some View {
-        ReaderInkMenu(
-            isEnabled: { entrada in
-                switch entrada {
-                case .rascunhar: return podeRascunhar
-                case .tom: return podeRascunhar && iaDraftMessageID == message.id
-                case .evento: return message.detectedEvent != nil && !isOnAgenda(message)
-                default: return podeRascunhar
-                }
-            },
-            run: { entrada in
+        ReaderAIMenu(
+            actions: ReaderAIAction.allCases,
+            provider: aiProviderLabel,
+            isEnabled: { aiEnabled($0, for: message) },
+            reason: { aiReason($0, for: message) },
+            run: { acao in
                 setEmailAssistantOpen(false)
-                switch entrada {
-                case .rascunhar:
-                    pedirRascunho(for: message, tone: .direto)
-                case .tom:
-                    tonePickerOpen = true
-                case .evento:
-                    if let evento = message.detectedEvent { addEvent(evento, for: message) }
-                default:
-                    if let pergunta = entrada.question { perguntar(pergunta, for: message) }
-                }
+                runAI(acao, for: message)
             }
         )
     }
@@ -923,6 +1134,138 @@ public struct ReaderPane: View {
             get: { emailAssistantOpen },
             set: { setEmailAssistantOpen($0, for: message.id) }
         )
+    }
+
+    /// "ChatGPT · GPT-5.1" — quem responde, no pé do menu.
+    private var aiProviderLabel: String {
+        intelligencePresentation.destination?.label ?? L10n.tr("Sem provedor")
+    }
+
+    /// A ação está disponível agora? Indisponível desenha apagada, com o
+    /// motivo no `help` — nunca um botão mudo.
+    private func aiEnabled(_ acao: ReaderAIAction, for message: Message) -> Bool {
+        switch acao {
+        case .rascunhar, .tom:
+            return podeRascunhar
+        case .evento:
+            // Com compromisso detectado não há ida ao motor nenhuma: a
+            // proposta nasce do que a mensagem já trouxe. Sem ele, quem acha
+            // dia e hora é a IA, e aí ela precisa existir.
+            if let evento = message.detectedEvent {
+                return !isOnAgenda(message) || eventProposal?.event != evento
+            }
+            return intelligence != nil && !extractingEvent
+        default:
+            return podeRascunhar
+        }
+    }
+
+    private func aiReason(_ acao: ReaderAIAction, for message: Message) -> String {
+        if acao == .evento, message.detectedEvent != nil, isOnAgenda(message) {
+            return L10n.tr("Criar evento — indisponível: este compromisso já está na agenda")
+        }
+        if acao == .evento, message.detectedEvent == nil, intelligence == nil {
+            return L10n.tr("Criar evento — indisponível: sem motor de IA para achar dia e hora")
+        }
+        return intelligencePresentation.isAvailable
+            ? L10n.tr("Aguarde: a IA está trabalhando neste e-mail")
+            : intelligencePresentation.detail
+    }
+
+    /// O que cada ação faz de verdade. As que não têm caminho próprio saem
+    /// pela rota de pergunta do assistente, e a resposta volta para **dentro
+    /// do cartão** — não para um painel por cima do e-mail.
+    private func runAI(_ acao: ReaderAIAction, for message: Message) {
+        switch acao {
+        case .rascunhar:
+            pedirRascunho(for: message, tone: inkTone)
+        case .evento:
+            criarEvento(for: message)
+        case .tom:
+            mudarTom(for: message)
+        default:
+            if let pergunta = acao.question { perguntar(pergunta, for: message) }
+        }
+    }
+
+    /// "Mudar o tom" sem rascunho na mesa pede o rascunho **no tom seguinte**:
+    /// o botão age das duas vezes, em vez de ficar aceso e mudo até existir
+    /// texto para reescrever.
+    private func mudarTom(for message: Message) {
+        let tons = AssistantDraftTone.allCases
+        let indice = tons.firstIndex(of: inkTone) ?? 0
+        pedirRascunho(for: message, tone: tons[(indice + 1) % tons.count])
+    }
+
+    /// **"Criar evento".** Dois caminhos, nesta ordem:
+    ///
+    /// 1. A mensagem já trouxe compromisso detectado — a proposta nasce dele,
+    ///    sem rede nenhuma.
+    /// 2. Não trouxe: a IA responde **uma linha** ("Call de revisão quinta
+    ///    15h") e quem lê dia, hora e duração dessa linha é o
+    ///    `AppointmentPhrase`, o mesmo leitor determinístico da folha de novo
+    ///    compromisso. A IA acha a frase; a gramática local acha a data.
+    private func criarEvento(for message: Message) {
+        if let evento = message.detectedEvent {
+            propose(
+                evento, for: message,
+                provenance: L10n.tr("do que este e-mail diz"),
+                phrase: evento.label
+            )
+            return
+        }
+        guard let intelligence, !extractingEvent else { return }
+        aiNote = nil
+        extractingEvent = true
+        Task { @MainActor in
+            defer { extractingEvent = false }
+            do {
+                let resposta = try await intelligence(ComposerIntelligenceRequest(
+                    action: .custom,
+                    target: .draft,
+                    source: Self.paragrafos(de: message).joined(separator: "\n\n"),
+                    instruction: ReaderAIAction.eventExtraction,
+                    sourceMessage: message
+                ))
+                let frase = resposta.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !frase.isEmpty,
+                      frase.lowercased(with: L10n.locale) != ReaderAIAction.noEvent,
+                      case let lida = AppointmentPhrase.interpret(frase),
+                      let inicio = lida.start
+                else {
+                    aiNote = L10n.tr("A IA não achou dia e hora neste e-mail.")
+                    return
+                }
+                let titulo = lida.title.isEmpty ? message.subject : lida.title
+                propose(
+                    DetectedEvent(
+                        label: titulo,
+                        start: inicio,
+                        duration: TimeInterval((lida.duration ?? 60) * 60)
+                    ),
+                    for: message,
+                    provenance: L10n.tr("tirado de “\(frase)”"),
+                    phrase: frase
+                )
+            } catch {
+                aiNote = error.localizedDescription
+            }
+        }
+    }
+
+    private func propose(
+        _ event: DetectedEvent, for message: Message,
+        provenance: String, phrase: String
+    ) {
+        aiNote = nil
+        withAnimation(SwipeMotion.transition) {
+            eventProposal = ReaderEventProposal(
+                messageID: message.id,
+                event: event,
+                provenance: provenance,
+                phrase: phrase
+            )
+        }
     }
 
     /// Há motor de IA ligado a este leitor?
@@ -969,19 +1312,14 @@ public struct ReaderPane: View {
         quickReplyRevision += 1
     }
 
-    /// O rascunho da IA desta mensagem, para a barra de resposta desenhá-lo.
-    private func iaDraft(for message: Message) -> QuickReplyIADraft? {
+    /// O rascunho da IA desta mensagem, para o cartão atracado no fim do
+    /// e-mail desenhá-lo. `nil` quando o que está guardado foi escrito à mão:
+    /// o cartão só se diz "da IA" quando foi a IA que o escreveu.
+    private func aiDraft(for message: Message) -> String? {
         guard debugIADraft || iaDraftMessageID == message.id else { return nil }
         let texto = store.replyDraft(for: message.id)?.text
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !texto.isEmpty else { return nil }
-        return QuickReplyIADraft(
-            text: texto,
-            tone: inkTone,
-            tonePickerOpen: Binding(get: { tonePickerOpen }, set: { tonePickerOpen = $0 }),
-            onTone: podeRascunhar ? { pedirRascunho(for: message, tone: $0) } : nil,
-            onDiscard: { descartarIADraft(message) }
-        )
+        return texto.isEmpty ? nil : texto
     }
 
     /// O cabeçalho do protótipo: a linha fina da conta e da pasta, o assunto
@@ -1049,12 +1387,24 @@ public struct ReaderPane: View {
                     .font(theme.sans.font(size: 11))
                     .foregroundStyle(theme.danger.color)
             }
+
+            // **A oferta da IA, debaixo do assunto.** Uma linha de ações e um
+            // fio — sem faixa colorida, sem brilho e sem caixa. É o estado de
+            // repouso do desenho `Leitor-IA2`, e é o que fecha o cabeçalho.
+            ReaderAIOfferRow(
+                isEnabled: { aiEnabled($0, for: message) },
+                reason: { aiReason($0, for: message) },
+                run: { runAI($0, for: message) },
+                provider: aiProviderLabel,
+                moreOpen: $aiMoreOpen
+            )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 28)
         .padding(.top, 18)
         .padding(.bottom, 14)
         .allowsHitTesting(!emailAssistantOpen)
+        .onChange(of: message.id) { _, _ in aiMoreOpen = false }
     }
 
     /// O remetente como o desenho `IA-Tinta` o escreve: avatar de 36, nome em

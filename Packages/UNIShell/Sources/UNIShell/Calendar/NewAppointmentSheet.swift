@@ -95,18 +95,21 @@ struct NewAppointmentSheet: View {
         _seededGuestMenu = State(initialValue: true)
     }
 
-    /// A folha com a frase já digitada. **Só para verificação fora da tela**,
-    /// como o `debugSections` da janela do compromisso: o harness não digita, e
-    /// sem este caminho o estado que o desenho mostra — a frase e o cartão
-    /// "Entendi assim" — seria um estado que nenhum PNG jamais fotografaria.
+    /// A folha com a frase **já escrita**.
+    ///
+    /// Dois donos. O harness de renderização, que não digita e sem este
+    /// caminho jamais fotografaria o estado do desenho (a frase e o cartão
+    /// "Entendi assim"). E o "Ajustar" do cartão de evento do leitor: a IA
+    /// achou a frase, o `AppointmentPhrase` leu a data dela, e quem ajusta é
+    /// este editor — não um segundo editor de evento escrito só para o leitor.
     init(
         store: MailStore, anchor: Date, initialDayOffset: Int,
-        debugPhrase: String, onClose: @escaping () -> Void
+        initialPhrase: String, onClose: @escaping () -> Void
     ) {
         self.init(
             store: store, anchor: anchor, initialDayOffset: initialDayOffset, onClose: onClose
         )
-        _phrase = State(initialValue: debugPhrase)
+        _phrase = State(initialValue: initialPhrase)
     }
 
     init(

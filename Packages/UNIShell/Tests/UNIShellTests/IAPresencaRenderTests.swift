@@ -6,27 +6,25 @@ import UNICore
 import UNIDesign
 @testable import UNIShell
 
-/// **As duas direções aprovadas, desenhadas e medidas.**
+/// **A Presença do assistente, desenhada e medida.**
 ///
-/// `IA-Presenca.dc.html` (assistente) e `IA-Tinta.dc.html` (IA dentro do
-/// e-mail), nos três temas que o dono olha: `vidro`, `vidro-noite` e `okami` —
-/// os dois de vidro e um dos 26 opacos, que é onde o mesmo desenho tem de
-/// aparecer **sem** o vidro.
+/// `IA-Presenca.dc.html` — o assistente —, nos três temas que o dono olha:
+/// `vidro`, `vidro-noite` e `okami`, os dois de vidro e um dos 26 opacos, que
+/// é onde o mesmo desenho tem de aparecer **sem** o vidro.
+///
+/// A IA **dentro do e-mail** mudou de direção e mora em
+/// `LeitorIARenderTests`: ver `Leitor-IA2.dc.html`.
 ///
 /// O que esta suíte afirma não é "renderizou": é **posição e ordem**, que é o
 /// que o dono reprovou três vezes. A régua sai do bitmap, nunca de uma
 /// coordenada escrita à mão.
 ///
 /// Os PNGs saem em `UNI_RENDER_DIR`.
-@Suite("IA · Presença e Tinta · desenho")
+@Suite("IA · Presença · desenho")
 @MainActor
-struct IAPresencaTintaRenderTests {
+struct IAPresencaRenderTests {
 
     private static let temas: [Theme] = [.vidro, .vidroNoite, .okami]
-
-    /// O leitor do desenho mede 900 × 756 de janela; o painel dentro do shell
-    /// é mais estreito, e 760 é a largura real dele numa janela de 1440.
-    private static let leitor = CGSize(width: 760, height: 756)
 
     // MARK: - Réguas
 
@@ -155,94 +153,6 @@ struct IAPresencaTintaRenderTests {
         }
         return s
     }
-
-    /// O e-mail do desenho da Tinta: resumo guardado, um pedido com prazo e um
-    /// compromisso detectado — as duas tarefas que a Tinta escreve em linha.
-    private func lojaDoLeitor(comRascunho: Bool = false) async -> MailStore {
-        let conta = Account(
-            id: "a", address: "ricardo@empresa.com", displayName: "Ricardo",
-            provider: .imap, host: "EMPRESA",
-            tintLightHex: "#3b82f6", tintDarkHex: "#3b82f6"
-        )
-        let quinta = Date(timeIntervalSince1970: 1_767_279_600)
-        let mensagem = Message(
-            id: "marina", accountID: "a",
-            from: Contact(name: "Marina Duarte", address: "marina@cliente.com"),
-            receivedAt: Date(timeIntervalSince1970: 1_767_173_720),
-            subject: "Revisão do contrato — podemos fechar quinta?",
-            snippet: "Revisei as cláusulas 4 e 7",
-            body: [
-                "Ricardo, tudo bem? Revisei as cláusulas 4 e 7 com o jurídico. A única "
-                    + "pendência real é o escopo de suporte — queremos deixar claro o SLA "
-                    + "de resposta.",
-                "Consigo assinar ainda esta semana se fizermos uma call na quinta às 15h. "
-                    + "Sexta já entro em viagem e só volto no dia 15.",
-                "Se puder, já leve uma proposta de SLA — assim fechamos tudo na mesma call.",
-            ],
-            tags: [], bucket: .today, isRead: true,
-            summary: "Fecha com 2 ajustes, se houver call quinta às 15h — você está livre. "
-                + "A pendência real é o SLA de suporte; sexta ela viaja e o contrato "
-                + "escorrega para o dia 15.",
-            detectedEvent: DetectedEvent(
-                label: "Call quinta às 15h — você está livre",
-                start: quinta, duration: 3_600
-            ),
-            triage: MessageTriage(
-                needsReply: true, intent: .request, urgency: .high,
-                deadline: DetectedDeadline(date: quinta, evidence: "fechar quinta")
-            ),
-            to: [Contact(name: "Ricardo", address: "ricardo@empresa.com")]
-        )
-        let store = MailStore(
-            source: InMemoryMailSource(accounts: [conta], messages: [mensagem], agenda: [])
-        )
-        await store.load()
-        store.select(message: "marina")
-        if comRascunho {
-            store.setReplyDraft(
-                ReplyDraft(
-                    to: [mensagem.from],
-                    body: AttributedString(
-                        "Marina, perfeito — quinta às 15h está de pé, já te mando o convite. "
-                            + "Levo a proposta de SLA pronta: primeira resposta em 4h úteis, "
-                            + "resolução em 2 dias úteis."
-                    )
-                ),
-                for: "marina"
-            )
-        }
-        return store
-    }
-
-    private func leitorView(_ store: MailStore, comRascunho: Bool) -> some View {
-        ReaderPane(
-            store: store,
-            debugEmailAssistantOpen: false,
-            debugResumoAberto: false,
-            presentation: .pane,
-            intelligence: { _ in "ok" },
-            intelligencePresentation: .onThisMac,
-            makeAssistantConversation: { _ in
-                AssistantConversation(
-                    scope: .email, context: .init(subject: "Revisão do contrato"),
-                    destination: .onThisMac,
-                    engine: AssistantEngine(supportsDraftReply: true) { _ in "" }
-                )
-            }
-        )
-        .iaDraftParaDesenho(comRascunho)
-    }
-
-    /// O leitor **dentro do painel**, que é como o shell o desenha: desde que
-    /// todo tema tem `resolvedPanel`, o preenchimento é do painel e não do
-    /// próprio leitor. Sem isto o retrato sai sobre o nada.
-    private func leitorNoPainel(
-        _ store: MailStore, comRascunho: Bool, tema: Theme
-    ) -> some View {
-        leitorView(store, comRascunho: comRascunho)
-            .glassPanel(tema, kind: .reader)
-    }
-
     // MARK: - Presença · os semáforos de verdade
 
     /// O `Render` fotografa só a `contentView`: os semáforos nativos ficam de
@@ -368,77 +278,5 @@ struct IAPresencaTintaRenderTests {
         }
     }
 
-    // MARK: - Tinta · o resumo e as tarefas no corpo
-
-    @Test("a tinta da IA é escrita entre o assunto e o remetente")
-    func tintaRenderiza() async throws {
-        for tema in Self.temas {
-            let store = await lojaDoLeitor()
-            let rep = try #require(Render.snapshot(
-                leitorNoPainel(store, comRascunho: false, tema: tema),
-                named: "ia-tinta-leitor-\(tema.id)",
-                size: Self.leitor, theme: tema
-            ))
-
-            // O versalete "✦ RESUMO E TAREFAS" é a primeira tinta de acento
-            // depois do cabeçalho; o avatar do remetente é o azul da conta.
-            let tinta = try #require(
-                primeiraLinha(rep, de: tema.accentInk, x: 28..<400, y: 60..<700),
-                "\(tema.id): a IA não escreveu nada no corpo do e-mail"
-            )
-            // E ela vem **antes** do remetente: é a ordem do desenho, e é a
-            // razão de o remetente ter saído do cabeçalho fixo e entrado no
-            // fluxo. O avatar é o azul da conta.
-            //
-            // E ela vem **antes** do remetente, nos 28 temas: é a ordem do
-            // desenho, e é a razão de o remetente ter saído do cabeçalho fixo
-            // e entrado no fluxo. O avatar é o azul da conta.
-            let avatar = try #require(
-                primeiraLinha(
-                    rep, de: TokenColor(css: "#3b82f6")!, x: 28..<80, y: 60..<700,
-                    tol: 0.10, minimo: 8
-                ),
-                "\(tema.id): não achei o avatar do remetente"
-            )
-            #expect(
-                tinta < avatar,
-                "\(tema.id): a tinta (y \(tinta)) caiu depois do remetente (y \(avatar))"
-            )
-        }
-    }
-
-    // MARK: - Tinta · o rascunho na barra de resposta
-
-    @Test("o rascunho da IA mora na barra de resposta, com Revisar e enviar")
-    func rascunhoNaBarraRenderiza() async throws {
-        for tema in Self.temas {
-            let store = await lojaDoLeitor(comRascunho: true)
-            let rep = try #require(Render.snapshot(
-                leitorNoPainel(store, comRascunho: true, tema: tema),
-                named: "ia-tinta-rascunho-\(tema.id)",
-                size: Self.leitor, theme: tema
-            ))
-
-            // "Revisar e enviar" é acento cheio, e mora **no pé** — é a barra
-            // de resposta, não um cartão no meio do e-mail.
-            let botao = pixels(rep, de: tema.accent, x: 0..<760, y: 600..<756)
-            #expect(
-                botao > 500,
-                "\(tema.id): a barra de resposta não recebeu o rascunho da IA"
-            )
-            #expect(
-                pixels(rep, de: tema.accentInk, x: 0..<760, y: 600..<756) > 80,
-                "\(tema.id): o versalete RASCUNHO DA IA · TOM … não apareceu"
-            )
-        }
-    }
 }
 
-private extension ReaderPane {
-    /// A porta do harness para a barra de resposta com o rascunho da IA.
-    func iaDraftParaDesenho(_ liga: Bool) -> Self {
-        var copia = self
-        copia.debugIADraft = liga
-        return copia
-    }
-}

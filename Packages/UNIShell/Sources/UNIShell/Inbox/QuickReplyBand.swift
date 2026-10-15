@@ -83,11 +83,14 @@ struct QuickReplyBand: View {
     /// a implementação nativa abre o painel por ação direta da pessoa.
     var attachmentSelector: (any AttachmentSelecting)? = NativeAttachmentSelector()
 
-    /// O rascunho que a IA escreveu para esta mensagem. Com ele, a faixa
-    /// recolhida é o cartão do desenho `IA-Tinta`: versalete com o tom, a
-    /// prosa do rascunho e "Revisar e enviar". Sem ele, a faixa recolhida é a
-    /// de sempre.
-    var iaDraft: QuickReplyIADraft?
+    /// A IA escreveu um rascunho para esta mensagem, e o **cartão dele está
+    /// logo acima**, atracado no fim do e-mail (ver `ReaderAIDraftCard`).
+    ///
+    /// A faixa só precisa saber disto para não abrir sozinha: o rascunho está
+    /// guardado em `store.replyDraft`, e sem esta bandeira `opensExpanded` o
+    /// leria como "há resposta em curso" e abriria o editor por cima do
+    /// desenho, mostrando o mesmo texto duas vezes.
+    var aiDraftPending = false
 
     /// A faixa nasce **recolhida** — ver `opensExpanded(for:)`.
     @State private var open = false
@@ -175,19 +178,6 @@ struct QuickReplyBand: View {
         VStack(spacing: 0) {
             if open {
                 card
-            } else if let ia = iaDraft {
-                ReaderInkDraftBar(
-                    draft: ia.text,
-                    tone: ia.tone,
-                    tonesOpen: ia.tonePickerOpen,
-                    onTone: ia.onTone,
-                    onDiscard: ia.onDiscard,
-                    onPromote: { onPromote(message) },
-                    onReview: {
-                        open = true
-                        focusToken += 1
-                    }
-                )
             } else {
                 closedCard
             }
@@ -234,10 +224,10 @@ struct QuickReplyBand: View {
         // `expandRequest` já contado antes da primeira semeadura é o "⌘R
         // enquanto a mensagem ainda abria": o pedido não pode se perder no
         // meio, porque o `onChange` só ouve o que muda **depois**.
-        // Com o rascunho da IA, a faixa nasce **recolhida**: ela é o cartão do
-        // desenho `IA-Tinta`, com a prosa e "Revisar e enviar". Abrir o editor
-        // por conta própria enterraria o desenho e o e-mail junto.
-        open = (iaDraft == nil && Self.opensExpanded(for: stored)) || expandRequest > 0
+        // Com o rascunho da IA, a faixa nasce **recolhida**: o cartão dele
+        // está acima, no fim do e-mail. Abrir o editor por conta própria
+        // mostraria o mesmo texto duas vezes.
+        open = (!aiDraftPending && Self.opensExpanded(for: stored)) || expandRequest > 0
         seeded = true
         if debugInsertSignature, canInsertSignature { insertSignature() }
     }
@@ -689,8 +679,13 @@ struct QuickReplyBand: View {
 
     /// Há texto guardado para esta mensagem? É o que separa "a resposta já
     /// está escrita, confira" de "ainda não há nada".
+    /// Há rascunho **para esta faixa anunciar**.
+    ///
+    /// O da IA não conta: o cartão dele está logo acima, no fim do e-mail, com
+    /// o texto inteiro e os botões. A faixa repetindo "Resposta pronta para
+    /// Jack" embaixo seria o mesmo rascunho escrito duas vezes na mesma tela.
     private var temRascunho: Bool {
-        !plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !aiDraftPending && !plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var remetente: String {
@@ -1404,15 +1399,3 @@ private struct SuggestedDraftPicker: View {
     }
 }
 
-
-/// O rascunho da IA que a barra de resposta recebe — ver `ReaderInkDraftBar`.
-///
-/// Não é `Sendable` nem `Hashable` de propósito: carrega os fechamentos que
-/// ligam os botões ao leitor, que é quem tem o store e a conversa.
-struct QuickReplyIADraft {
-    let text: String
-    let tone: AssistantDraftTone
-    let tonePickerOpen: Binding<Bool>
-    let onTone: ((AssistantDraftTone) -> Void)?
-    let onDiscard: () -> Void
-}
