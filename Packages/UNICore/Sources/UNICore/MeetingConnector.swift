@@ -236,6 +236,29 @@ public final class StubMeetingConnector: MeetingConnector {
     public func currentAccount() async -> String? { account }
 }
 
+/// O que a linha de um serviço oferece, dado o estado.
+///
+/// É um tipo, e não um `switch` dentro do corpo da `View`, porque a regra que
+/// importa aqui — **sem client ID, sem botão Conectar** — precisa ser
+/// verificável sem contar pixels. A linha desenha o que este enum disser.
+public enum MeetingRoomAction: Sendable, Hashable {
+    /// Nenhum botão. É o caso de um serviço que este build não tem.
+    case none
+    case connect
+    case disconnect
+    /// "Cancelar" e "Abrir de novo", lado a lado.
+    case waiting
+
+    public init(_ state: MeetingConnectionState) {
+        switch state {
+        case .unavailable: self = .none
+        case .connected: self = .disconnect
+        case .waitingInBrowser: self = .waiting
+        case .disconnected, .failed: self = .connect
+        }
+    }
+}
+
 public enum MeetingConnectorError: LocalizedError {
     case missingClientID(MeetingService)
     case refused(String)

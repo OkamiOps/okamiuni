@@ -134,6 +134,30 @@ public struct WorkingHours: Sendable, Hashable {
     }
 }
 
+/// O estado inicial de um compromisso novo, já com os padrões aplicados.
+public struct AppointmentDefaults: Sendable, Hashable {
+    public let start: Date
+    public let end: Date
+    public let calendarID: String?
+    public let alert: CalendarAlert
+    public let room: MeetingService?
+
+    public init(
+        start: Date, end: Date, calendarID: String?,
+        alert: CalendarAlert, room: MeetingService?
+    ) {
+        self.start = start
+        self.end = end
+        self.calendarID = calendarID
+        self.alert = alert
+        self.room = room
+    }
+
+    public var durationMinutes: Int {
+        Int(end.timeIntervalSince(start) / 60)
+    }
+}
+
 /// Os padrões da Agenda: com o que um evento novo nasce, e como a grade da
 /// semana é desenhada.
 ///
@@ -182,8 +206,12 @@ public final class CalendarPreferences {
     }
 
     /// `nil` = sem realce na grade.
+    ///
+    /// Guarda **texto vazio** para "sem realce", e não a ausência da chave:
+    /// ausência é "nunca escolheu", que vale 9–18. Sem essa diferença, quem
+    /// desliga o realce o veria voltar na reabertura.
     public var workingHours: WorkingHours? {
-        didSet { write(workingHours?.storage, Key.workingHours) }
+        didSet { defaults.set(workingHours?.storage ?? "", forKey: Key.workingHours) }
     }
 
     /// A sala que entra em todo evento novo, agora **global**.
@@ -235,6 +263,21 @@ public final class CalendarPreferences {
         var calendar = Calendar.current
         calendar.firstWeekday = weekStart.rawValue
         return calendar
+    }
+
+    /// Com o que o editor de compromisso **novo** abre.
+    ///
+    /// Uma função pura, fora da `View`: é o que torna verificável a frase "os
+    /// padrões chegam ao editor" sem sintetizar clique nem contar pixel. O
+    /// `NewAppointmentSheet` lê exatamente isto no `onAppear`.
+    public func newAppointment(startingAt start: Date) -> AppointmentDefaults {
+        AppointmentDefaults(
+            start: start,
+            end: start.addingTimeInterval(duration),
+            calendarID: defaultCalendarID,
+            alert: alert,
+            room: defaultRoom
+        )
     }
 
     private func write(_ value: String?, _ key: String) {

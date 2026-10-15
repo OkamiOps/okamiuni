@@ -459,19 +459,19 @@ struct ConfigAgendas: View {
 
     @ViewBuilder
     private func roomActions(_ service: MeetingService, state: MeetingConnectionState) -> some View {
-        switch state {
-        case .unavailable:
+        switch MeetingRoomAction(state) {
+        case .none:
             // **Sem botão.** Faltando o client ID, "Conectar" só poderia
             // falhar; a frase ao lado já diz o que está faltando.
             EmptyView()
-        case .connected:
+        case .disconnect:
             Button(L10n.tr("Desconectar")) { connections?.disconnect(service) }
                 .buttonStyle(.plain)
                 .configQuietButton(
                     palette, font: theme.sans.font(size: 12.5, weight: .semibold),
                     radius: 10, horizontal: 13, vertical: 7
                 )
-        case .waitingInBrowser:
+        case .waiting:
             HStack(spacing: 7) {
                 Button(L10n.tr("Cancelar")) { connections?.cancel(service) }
                     .buttonStyle(.plain)
@@ -484,7 +484,7 @@ struct ConfigAgendas: View {
                         radius: 10, horizontal: 13, vertical: 7
                     )
             }
-        case .disconnected, .failed:
+        case .connect:
             Button(L10n.tr("Conectar")) { connections?.connect(service) }
                 .buttonStyle(.plain)
                 .configPrimaryButton(
@@ -607,7 +607,7 @@ struct ConnectCalendarSheet: View {
                     subtitle: L10n.tr("Fastmail, Yahoo, Zoho ou um endereço seu"),
                     note: L10n.tr("você digita o endereço"),
                     highlighted: false,
-                    help: L10n.tr("Ainda não: por enquanto a agenda vem junto com a caixa de correio em Adicionar conta."),
+                    help: L10n.tr("Ainda não: a agenda vem junto com a caixa, em Adicionar conta."),
                     run: nil
                 )
             }
@@ -650,6 +650,7 @@ struct ConnectCalendarSheet: View {
                 Text(L10n.tr("Você entra na sua conta no navegador. Nada de client ID nem segredo."))
                     .font(theme.sans.font(size: 12.5))
                     .foregroundStyle(palette.ink3.color)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
             Button(action: close) {

@@ -874,10 +874,9 @@ struct NewAppointmentSheet: View {
     /// que trouxe — o padrão é para um compromisso que nasce vazio.
     private func applyDefaults() {
         guard let preferences else { return }
-        if mode == .phrase {
-            endsAt = startsAt.addingTimeInterval(preferences.duration)
-        }
-        if calendarID == nil { calendarID = preferences.defaultCalendarID }
+        let defaults = preferences.newAppointment(startingAt: startsAt)
+        if mode == .phrase { endsAt = defaults.end }
+        if calendarID == nil { calendarID = defaults.calendarID }
     }
 
     /// A sala padrão é **global** agora (`CalendarPreferences.defaultRoom`).

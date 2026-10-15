@@ -2488,3 +2488,5 @@
 "Nenhuma agenda conectada ainda" = "No calendar connected yet";
 "{0}, uma sala nova por reunião" = "{0}, a new room for each meeting";
 "Conecte uma caixa Google em Contas — o Meet nasce do OAuth dela." = "Connect a Google mailbox in Accounts — Meet is born from its OAuth.";
+"contas sem servidor de agenda" = "accounts with no calendar server";
+"Ainda não: a agenda vem junto com a caixa, em Adicionar conta." = "Not yet: the calendar comes along with the mailbox, in Add account.";

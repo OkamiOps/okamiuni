@@ -2488,3 +2488,5 @@
 "Nenhuma agenda conectada ainda" = "Noch kein Kalender verbunden";
 "{0}, uma sala nova por reunião" = "{0}, ein neuer Raum pro Besprechung";
 "Conecte uma caixa Google em Contas — o Meet nasce do OAuth dela." = "Verbinden Sie ein Google-Postfach unter Konten — Meet entsteht aus dessen OAuth.";
+"contas sem servidor de agenda" = "Konten ohne Kalenderserver";
+"Ainda não: a agenda vem junto com a caixa, em Adicionar conta." = "Noch nicht: der Kalender kommt mit dem Postfach, unter Konto hinzufügen.";

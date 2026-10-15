@@ -109,7 +109,7 @@ enum AgendaSources {
                 kind: .local,
                 monogram: "O",
                 title: L10n.tr("Neste app"),
-                subtitle: L10n.tr("contas sem servidor de agenda · fica só neste Mac"),
+                subtitle: L10n.tr("contas sem servidor de agenda"),
                 state: L10n.tr("Só neste Mac"),
                 tone: .quiet,
                 calendars: local

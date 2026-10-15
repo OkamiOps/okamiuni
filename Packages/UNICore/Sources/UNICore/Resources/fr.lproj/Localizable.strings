@@ -2488,3 +2488,5 @@
 "Nenhuma agenda conectada ainda" = "Aucun agenda connecté pour l’instant";
 "{0}, uma sala nova por reunião" = "{0}, une nouvelle salle par réunion";
 "Conecte uma caixa Google em Contas — o Meet nasce do OAuth dela." = "Connectez une boîte Google dans Comptes — Meet naît de son OAuth.";
+"contas sem servidor de agenda" = "comptes sans serveur d’agenda";
+"Ainda não: a agenda vem junto com a caixa, em Adicionar conta." = "Pas encore : l’agenda arrive avec la boîte, dans Ajouter un compte.";
