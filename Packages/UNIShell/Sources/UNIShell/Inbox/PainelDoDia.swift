@@ -277,7 +277,8 @@ struct PainelDoDia: View {
                 ),
                 progresso: modelo.progresso,
                 progressoEscrito: modelo.progressoEscrito,
-                onExpandSidebar: onExpandSidebar
+                onExpandSidebar: onExpandSidebar,
+                onAskAssistant: onAskAssistant
             )
 
             destaqueDeVidro(modelo)
@@ -293,7 +294,14 @@ struct PainelDoDia: View {
                 onTapProposto: { _ in ajustando = true },
                 temLink: { bloco in
                     store.agenda.first { $0.id == bloco.id }?.detail?.hasLink ?? false
-                }
+                },
+                // "Aceitar o plano", de volta ao Painel (15/10/2026). Ele
+                // mora na trilha "Você" porque é dela que ele fala: os blocos
+                // tracejados ali são a proposta, e aceitar é transformá-los em
+                // compromisso. Sem proposta o botão não existe.
+                aceitarPropostos: modelo.propostos.isEmpty
+                    ? nil
+                    : (contagem: modelo.propostos.count, acao: { aceitarOPlano(modelo) })
             )
 
             if !frentes.isEmpty {

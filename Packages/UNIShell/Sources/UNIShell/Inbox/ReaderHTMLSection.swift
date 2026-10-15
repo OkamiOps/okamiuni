@@ -36,6 +36,9 @@ struct ReaderHTMLSection: View {
     var aoRevogar: () -> Void = {}
     /// Clique em Sim/Não/Talvez no HTML do convite.
     var aoRSVP: (InviteRSVPResponse) -> Void = { _ in }
+    /// A folga lateral do bloco. 28 é a coluna do leitor; a citação do
+    /// compositor pede 0, porque a indentação dela já é o fio da esquerda.
+    var folga: CGFloat = 28
 
     /// O estado de "já pintou" forçado, para o retrato conseguir medir os dois
     /// lados da espera. Mesmo idioma do `debugSections` da janela 04: a `View`
@@ -81,7 +84,7 @@ struct ReaderHTMLSection: View {
             // antes do assunto; só os dois temas de vidro tinham sido
             // consertados. As quatro decisões continuam todas alcançáveis.
             faixaQuieta
-                .padding(.horizontal, 28)
+                .padding(.horizontal, folga)
             .padding(.bottom, 12)
 
             // **O vazio que parecia defeito.** A `WebView` nasce com um ponto
@@ -103,7 +106,7 @@ struct ReaderHTMLSection: View {
                     aoRSVP: aoRSVP
                 )
                 .frame(height: max(1, altura))
-                .padding(.horizontal, 28)
+                .padding(.horizontal, folga)
                 // Escondida, e não ausente: tirá-la da hierarquia enquanto
                 // espera seria destruí-la e recomeçar a carga a cada redesenho.
                 .opacity(jaPintou ? 1 : 0)

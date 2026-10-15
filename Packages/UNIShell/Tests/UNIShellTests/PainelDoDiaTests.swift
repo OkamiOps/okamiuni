@@ -403,36 +403,54 @@ struct PainelDoDiaTests {
         )
     }
 
-    /// **Esta ação não tem mais botão.** O "Aceitar o plano" morava no
-    /// `planoDeHoje`, que era do corpo clássico do Painel; o desenho novo
-    /// (`corpoVidro`, o do protótipo) não o desenha — os blocos propostos
-    /// aparecem tracejados na linha do tempo e clicá-los abre o "Ajustar".
-    /// `aceitarOPlano` continua escrito e correto, só não é alcançável.
+    /// **O aceite voltou ao Painel** (15/10/2026, a pedido do dono).
     ///
-    /// O caso fica desativado, e não apagado, porque a garantia que ele
-    /// guarda — "a IA nunca executa sozinha; aceitar é um clique da pessoa, e
-    /// esse clique cria os compromissos" — é do produto, não do layout. Quando
-    /// o aceite voltar a ter superfície no desenho novo, é só reapontar o
-    /// recorte e tirar o `.disabled`.
-    @Test(
-        "Aceitar o plano cria os blocos propostos como compromissos",
-        .disabled("o desenho novo do Painel não oferece o botão; ver o comentário acima")
-    )
+    /// Ele tinha sumido com o `planoDeHoje`, o corpo clássico; o desenho novo
+    /// (`corpoVidro`) não o desenhava, e o caso ficou `.disabled` guardando a
+    /// garantia de produto — "a IA nunca executa sozinha; aceitar é um clique
+    /// da pessoa, e esse clique cria os compromissos". Agora o clique existe
+    /// de novo, na faixa acima da linha do tempo, e o caso volta a rodar.
+    ///
+    /// O recorte é o da faixa do aceite, acima da trilha "Agenda": é o único
+    /// `accentInk` naquela altura.
+    @Test("Aceitar o plano cria os blocos propostos como compromissos")
     func acceptingThePlanCreatesTheEvents() async throws {
         let store = await DiaDoDono.loja()
         let antes = store.agenda.count
         let rep = try #require(
             Render.bitmap(tela(store, tema: .tinta), size: Self.size, theme: .tinta)
         )
-        // O botão primário do cartão "Comece por aqui" é o único bloco sólido
-        // de accent no alto do painel. No desenho novo ele desceu do topo para
-        // dentro do cartão, e é por isso que o recorte mudou.
         let alvo = try #require(
-            centro(de: Theme.tinta.accent, em: rep, x: 900..<1_420, y: 100..<260),
-            "não achei a ação do \"Comece por aqui\""
+            centro(de: Theme.tinta.accentInk, em: rep, x: 1_200..<1_420, y: 215..<252),
+            "não achei o \"Aceitar os N blocos\" da linha do tempo"
         )
         CliqueDeEnsaio.em(tela(store, tema: .tinta), size: Self.size, aY: alvo.y, x: alvo.x)
         #expect(store.agenda.count > antes, "Aceitar o plano não criou compromisso nenhum")
+    }
+
+    /// O retrato das duas voltas: a pastilha "✦ Perguntar ⌘J" no cabeçalho e
+    /// o "Aceitar os N blocos" acima da linha do tempo, nos dois temas que o
+    /// dono usa.
+    @Test("o Painel mostra o Perguntar e o Aceitar o plano", arguments: ["vidro", "okami"])
+    func theGlassPanelShowsBothButtonsBack(id: String) async throws {
+        let theme = try #require(Theme.named(id))
+        let store = await DiaDoDono.loja()
+        let rep = try #require(Render.snapshot(
+            tela(store, tema: theme),
+            named: "painel-perguntar-e-aceitar-\(id)",
+            size: Self.size, theme: theme
+        ))
+        #expect(rep.pixelsWide == Int(Self.size.width))
+        // A pastilha do "Perguntar": um bloco de `accentSoft` no cabeçalho,
+        // à esquerda do anel de progresso. Sem ela o recorte fica limpo.
+        #expect(
+            rep.pixels(matching: theme.accentSoft, tolerance: 0.04) > 300,
+            "\(id): a pastilha do Perguntar sumiu do cabeçalho"
+        )
+        #expect(
+            centro(de: theme.accentInk, em: rep, x: 1_200..<1_420, y: 215..<252) != nil,
+            "\(id): o \"Aceitar os N blocos\" sumiu da linha do tempo"
+        )
     }
 
     /// A régua de sempre: onde está o aglomerado desta cor no recorte dado.
