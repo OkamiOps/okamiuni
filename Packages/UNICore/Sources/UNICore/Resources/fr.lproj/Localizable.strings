@@ -21,6 +21,8 @@
 "1 promessa" = "1 engagement";
 "1 resposta pronta" = "1 réponse prête";
 "1 selecionada" = "1 sélectionné";
+"A IA propôs 1 bloco para você" = "L’IA a proposé 1 bloc pour vous";
+"A IA propôs {0} blocos para você" = "L’IA a proposé {0} blocs pour vous";
 "A agenda ainda está sendo preparada. Tente novamente em instantes." = "Le calendrier est encore en préparation. Réessayez dans un instant.";
 "A análise no dispositivo não está disponível neste momento." = "L’analyse sur l’appareil n’est pas disponible pour le moment.";
 "A API xAI exige uma versão mais nova do OkamiUNI. Atualize o app e tente novamente." = "L’API xAI exige une version plus récente d’OkamiUNI. Mettez à jour l’application et réessayez.";
@@ -63,7 +65,11 @@
 "A mensagem saiu da caixa" = "Le message a quitté la boîte";
 "A original já está arquivada; a resposta fica pronta para envio." = "L’original est déjà archivé ; la réponse est prête à envoyer.";
 "A original já está arquivada; a resposta vai para a fila de saída." = "L’original est déjà archivé ; la réponse va dans la boîte d’envoi.";
+"Aceitar o bloco" = "Accepter le bloc";
+"Aceitar os {0} blocos" = "Accepter les {0} blocs";
+"Cria os compromissos propostos, com desfazer" = "Crée les événements proposés, avec annulation";
 "Fóruns" = "Forums";
+"Perguntar ao assistente (⌘J)" = "Interroger l’assistant (⌘J)";
 "a pagar" = "à payer";
 "A primeira ação dispara no gesto longo" = "Un balayage long déclenche la première action";
 "A primeira ação é disparada quando o arraste passa do limite" = "La première action se déclenche lorsque le balayage dépasse le seuil";

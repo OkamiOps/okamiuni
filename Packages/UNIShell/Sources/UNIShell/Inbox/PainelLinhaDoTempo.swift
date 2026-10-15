@@ -29,6 +29,14 @@ struct PainelLinhaDoTempo: View {
     /// O compromisso tem link de reunião? Só para a pastilha "Entrar"
     /// aparecer no bloco que está acontecendo agora.
     var temLink: (PlanoDoDia.Bloco) -> Bool = { _ in false }
+    /// "Aceitar os 3 blocos": quantos blocos a IA propôs e o que fazer quando
+    /// a pessoa aceita. `nil` — o caso comum — não desenha nada.
+    ///
+    /// **A IA nunca executa sozinha.** Este é o clique que transforma a
+    /// proposta tracejada em compromisso de verdade, com desfazer. Ele mora
+    /// aqui, na linha do tempo, porque é a única superfície que mostra o que
+    /// está sendo aceito.
+    var aceitarPropostos: (contagem: Int, acao: () -> Void)?
 
     @State private var retornoAoAgora = 0
 
@@ -50,13 +58,50 @@ struct PainelLinhaDoTempo: View {
             alturaDoBloco: alturaDoBloco, topoDaAgenda: topoDaAgenda,
             entreTrilhas: entreTrilhas, rodapeDoEixo: rodapeDoEixo
         )
-        HStack(alignment: .top, spacing: 0) {
-            rotulos(desenho)
-            eixo(desenho)
+        VStack(alignment: .leading, spacing: 6) {
+            if let aceitar = aceitarPropostos { faixaDoAceite(aceitar) }
+            HStack(alignment: .top, spacing: 0) {
+                rotulos(desenho)
+                eixo(desenho)
+            }
+            .frame(height: desenho.altura)
         }
-        .frame(height: desenho.altura)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L10n.tr("Linha do tempo de hoje"))
+    }
+
+    /// A linha do aceite, logo acima das duas trilhas: à esquerda o que a
+    /// trilha "Você" está propondo, à direita o botão de texto que aceita.
+    ///
+    /// Botão de **texto**, em `accentInk`, e não um botão sólido: o Painel de
+    /// vidro já tem uma ação primária na tela (a do "Comece por aqui"), e
+    /// duas caixas de acento no mesmo quadro disputariam o olho.
+    private func faixaDoAceite(_ aceitar: (contagem: Int, acao: () -> Void)) -> some View {
+        HStack(spacing: 8) {
+            Text(aceitar.contagem == 1
+                 ? L10n.tr("A IA propôs 1 bloco para você")
+                 : L10n.tr("A IA propôs \(aceitar.contagem) blocos para você"))
+                .font(theme.sans.font(size: 12))
+                .foregroundStyle(theme.ink3.color)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            Button(action: aceitar.acao) {
+                Text(aceitar.contagem == 1
+                     ? L10n.tr("Aceitar o bloco")
+                     : L10n.tr("Aceitar os \(aceitar.contagem) blocos"))
+                    .font(theme.sans.font(size: 12.5, weight: .semibold))
+                    .foregroundStyle(theme.accentInk.color)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .focusRing(cornerRadius: 4)
+            .help(L10n.tr("Cria os compromissos propostos, com desfazer"))
+            .accessibilityIdentifier("painel-vidro-aceitar-o-plano")
+        }
+        .padding(.leading, larguraDosRotulos)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - As medidas do quadro

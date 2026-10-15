@@ -21,6 +21,8 @@
 "1 promessa" = "1 Zusage";
 "1 resposta pronta" = "1 Antwort bereit";
 "1 selecionada" = "1 ausgewählt";
+"A IA propôs 1 bloco para você" = "Die KI hat 1 Block für Sie vorgeschlagen";
+"A IA propôs {0} blocos para você" = "Die KI hat {0} Blöcke für Sie vorgeschlagen";
 "A agenda ainda está sendo preparada. Tente novamente em instantes." = "Der Kalender wird noch vorbereitet. Versuchen Sie es in Kürze erneut.";
 "A análise no dispositivo não está disponível neste momento." = "Analyse auf dem Gerät ist derzeit nicht verfügbar.";
 "A API xAI exige uma versão mais nova do OkamiUNI. Atualize o app e tente novamente." = "Die xAI-API erfordert eine neuere OkamiUNI-Version. Aktualisieren Sie die App.";
@@ -63,7 +65,11 @@
 "A mensagem saiu da caixa" = "Die Nachricht wurde aus dem Postfach entfernt";
 "A original já está arquivada; a resposta fica pronta para envio." = "Das Original ist bereits archiviert; die Antwort ist sendebereit.";
 "A original já está arquivada; a resposta vai para a fila de saída." = "Das Original ist bereits archiviert; die Antwort kommt in den Postausgang.";
+"Aceitar o bloco" = "Block annehmen";
+"Aceitar os {0} blocos" = "Die {0} Blöcke annehmen";
+"Cria os compromissos propostos, com desfazer" = "Erstellt die vorgeschlagenen Termine, mit Rückgängig";
 "Fóruns" = "Foren";
+"Perguntar ao assistente (⌘J)" = "Assistenten fragen (⌘J)";
 "a pagar" = "zu zahlen";
 "A primeira ação dispara no gesto longo" = "Langes Wischen löst die erste Aktion aus";
 "A primeira ação é disparada quando o arraste passa do limite" = "Die erste Aktion wird beim Überschreiten der Wischschwelle ausgelöst";

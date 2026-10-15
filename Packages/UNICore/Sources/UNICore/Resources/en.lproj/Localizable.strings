@@ -21,6 +21,8 @@
 "1 promessa" = "1 commitment";
 "1 resposta pronta" = "1 reply ready";
 "1 selecionada" = "1 selected";
+"A IA propôs 1 bloco para você" = "The AI proposed 1 block for you";
+"A IA propôs {0} blocos para você" = "The AI proposed {0} blocks for you";
 "A agenda ainda está sendo preparada. Tente novamente em instantes." = "The calendar is still being prepared. Try again shortly.";
 "A análise no dispositivo não está disponível neste momento." = "On-device analysis is not available right now.";
 "A API xAI exige uma versão mais nova do OkamiUNI. Atualize o app e tente novamente." = "The xAI API requires a newer OkamiUNI version. Update the app and try again.";
@@ -63,7 +65,11 @@
 "A mensagem saiu da caixa" = "The message left the mailbox";
 "A original já está arquivada; a resposta fica pronta para envio." = "The original is already archived; the reply is ready to send.";
 "A original já está arquivada; a resposta vai para a fila de saída." = "The original is already archived; the reply goes to the outbox.";
+"Aceitar o bloco" = "Accept the block";
+"Aceitar os {0} blocos" = "Accept the {0} blocks";
+"Cria os compromissos propostos, com desfazer" = "Creates the proposed events, with undo";
 "Fóruns" = "Forums";
+"Perguntar ao assistente (⌘J)" = "Ask the assistant (⌘J)";
 "a pagar" = "payable";
 "A primeira ação dispara no gesto longo" = "A long swipe triggers the first action";
 "A primeira ação é disparada quando o arraste passa do limite" = "The first action triggers when the swipe passes the threshold";

@@ -21,6 +21,8 @@
 "1 promessa" = "1 promessa";
 "1 resposta pronta" = "1 resposta pronta";
 "1 selecionada" = "1 selecionada";
+"A IA propôs 1 bloco para você" = "A IA propôs 1 bloco para você";
+"A IA propôs {0} blocos para você" = "A IA propôs {0} blocos para você";
 "A agenda ainda está sendo preparada. Tente novamente em instantes." = "A agenda ainda está sendo preparada. Tente novamente em instantes.";
 "A análise no dispositivo não está disponível neste momento." = "A análise no dispositivo não está disponível neste momento.";
 "A API xAI exige uma versão mais nova do OkamiUNI. Atualize o app e tente novamente." = "A API xAI exige uma versão mais nova do OkamiUNI. Atualize o app e tente novamente.";
@@ -63,7 +65,11 @@
 "A mensagem saiu da caixa" = "A mensagem saiu da caixa";
 "A original já está arquivada; a resposta fica pronta para envio." = "A original já está arquivada; a resposta fica pronta para envio.";
 "A original já está arquivada; a resposta vai para a fila de saída." = "A original já está arquivada; a resposta vai para a fila de saída.";
+"Aceitar o bloco" = "Aceitar o bloco";
+"Aceitar os {0} blocos" = "Aceitar os {0} blocos";
+"Cria os compromissos propostos, com desfazer" = "Cria os compromissos propostos, com desfazer";
 "Fóruns" = "Fóruns";
+"Perguntar ao assistente (⌘J)" = "Perguntar ao assistente (⌘J)";
 "a pagar" = "a pagar";
 "A primeira ação dispara no gesto longo" = "A primeira ação dispara no gesto longo";
 "A primeira ação é disparada quando o arraste passa do limite" = "A primeira ação é disparada quando o arraste passa do limite";

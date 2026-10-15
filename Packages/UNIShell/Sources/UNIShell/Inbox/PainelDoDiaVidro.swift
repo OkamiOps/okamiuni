@@ -6,9 +6,14 @@ import UNIDesign
 ///
 /// O painel de vidro é **um** painel: um cabeçalho, um cartão elevado ("Comece
 /// por aqui"), a linha do tempo, uma hairline e três azulejos translúcidos.
-/// Não há mais os chips de negócio no topo (eles moram na coluna de contexto),
-/// nem o "Perguntar ⌘J" (o trilho e o atalho já cobrem o assistente), nem a
-/// barra de estado do pé.
+/// Não há mais os chips de negócio no topo (eles moram na coluna de contexto)
+/// nem a barra de estado do pé.
+///
+/// **O "Perguntar ⌘J" voltou** (15/10/2026, a pedido do dono). Ele tinha saído
+/// porque "o trilho e o atalho já cobrem o assistente" — e cobrem, para quem
+/// sabe que o atalho existe. O dono não tinha de onde saber: o Painel é a
+/// primeira tela do dia e era a única superfície que dizia o nome do atalho em
+/// voz alta. Ele volta quieto, na pastilha do ✦ IA do leitor.
 ///
 /// Estas `View`s não leem `MailStore` nem relógio: a `PainelDoDia` monta os
 /// modelos abaixo com o que o `PainelDoDiaModelo` já decidiu, e passa as ações
@@ -28,6 +33,9 @@ struct PainelVidroCabecalho: View {
     /// Presente só com a coluna de contexto recolhida: o `sidebar.left` que a
     /// traz de volta, antes da data e da saudação.
     var onExpandSidebar: (() -> Void)?
+    /// Abre a gaveta do assistente. `nil` esconde a pastilha — um "Perguntar"
+    /// que não pergunta é pior que nenhum.
+    var onAskAssistant: (() -> Void)?
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 16) {
@@ -50,6 +58,7 @@ struct PainelVidroCabecalho: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 10) {
+                if let onAskAssistant { perguntar(onAskAssistant) }
                 Text(L10n.tr("\(progressoEscrito) feitas"))
                     .font(theme.sans.font(size: 13))
                     .foregroundStyle(theme.ink2.color)
@@ -61,6 +70,38 @@ struct PainelVidroCabecalho: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L10n.tr("\(saudacao). \(progressoEscrito) feitas"))
+    }
+
+    /// "✦ Perguntar ⌘J", à esquerda do anel.
+    ///
+    /// Mesma gramática da pastilha do ✦ IA do leitor (`ReaderPane.inkPill`):
+    /// fundo `accentSoft`, tinta `accentInk`, o atalho em mono e meio
+    /// apagado. É a mesma porta, dita do mesmo jeito em duas telas — e é por
+    /// isso que ela não precisa de moldura para ser reconhecida.
+    private func perguntar(_ acao: @escaping () -> Void) -> some View {
+        Button(action: acao) {
+            HStack(spacing: 6) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 12, weight: .semibold))
+                Text(L10n.tr("Perguntar"))
+                    .font(theme.sans.font(size: 12.5, weight: .semibold))
+                Text("⌘J")
+                    .font(theme.mono.font(size: 10))
+                    .opacity(0.75)
+            }
+            .foregroundStyle(theme.accentInk.color)
+            .padding(.horizontal, 11)
+            .frame(height: 30)
+            .background(theme.accentSoft.color)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: 10)
+        .keyboardShortcut("j", modifiers: .command)
+        .help(L10n.tr("Perguntar ao assistente (⌘J)"))
+        .accessibilityLabel(L10n.tr("Perguntar ao assistente, comando J"))
+        .accessibilityIdentifier("painel-vidro-perguntar")
     }
 
     /// O anel de 40pt do protótipo: a trilha em `line`, o arco em `accent`.
