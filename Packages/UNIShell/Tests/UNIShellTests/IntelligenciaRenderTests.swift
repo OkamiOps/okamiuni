@@ -335,6 +335,31 @@ struct IntelligenciaRenderTests {
         }
     }
 
+    // MARK: 9 — a janela de verdade, com os semáforos
+
+    /// `Render` não desenha os botões nativos da janela; `JanelaReal` desenha.
+    ///
+    /// A Inteligência agora desenha o **próprio** cabeçalho, e é essa a razão
+    /// deste caso: os semáforos moram na navegação, e um cabeçalho novo no
+    /// painel ao lado não pode empurrá-los nem ser empurrado por eles.
+    @Test("a Inteligência numa janela titulada não mexe nos semáforos")
+    func janelaComSemaforos() async throws {
+        let cena = try await scene()
+        let foto = try #require(JanelaReal.fotografar(
+            window(cena),
+            size: artboard,
+            theme: .vidroNoite,
+            named: "IA2-janela-real-escuro"
+        ))
+        #expect(foto.bitmap.pixelsWide == Int(artboard.width))
+        // As três bolinhas são do sistema e caem no vão que a navegação
+        // reserva, no alto à esquerda — longe do cabeçalho do painel, que
+        // começa depois dos 264pt da coluna.
+        #expect(foto.semaforos.count == 3)
+        #expect(foto.grupo.minX > 0)
+        #expect(foto.grupo.maxX < ConfigMetrics.navWidth)
+    }
+
     // MARK: A cena
 
     private struct Scene {

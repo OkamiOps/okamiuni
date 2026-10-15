@@ -116,7 +116,6 @@ public struct AccountsWindow: View {
     @State private var lastTest: String?
     @State private var lastTestFailed = false
     @State private var testing = false
-    @State private var connectingIntelligence = false
     /// A folha da Inteligência mora aqui, e não dentro da página, porque o véu
     /// do desenho cobre a navegação também.
     @State private var intelligenceSheet: ConfigIntelligenceSheet?
@@ -642,18 +641,13 @@ public struct AccountsWindow: View {
         }
     }
 
-    private var intelligenceSubtitle: String {
-        isConnected
-            ? L10n.tr("Pronta — em \(AssistantDestination(settings: draft).label), e só quando você pede")
-            : L10n.tr("Falta conectar onde ela vai rodar")
-    }
-
     private func loadAssistant() async {
         guard let assistantSettings else { return }
         draft = assistantSettings.snapshot()
-        connectingIntelligence = !isConnected
+        // Só a presença: `containsAPIKey` consulta atributos do Keychain e
+        // nunca materializa o segredo.
         apiKeyPresent = (try? assistantCredentials?
-            .containsAPIKey(for: draft.openAICompatible.credentialID)) ?? false ?? false
+            .containsAPIKey(for: draft.openAICompatible.credentialID)) == true
         if let providerOAuthAuthorizer, draft.provider == .providerOAuth {
             await providerOAuthAuthorizer.refreshStatus(configuration: draft.providerOAuth)
             oauthStatus = providerOAuthAuthorizer.sessionState.status
@@ -661,7 +655,6 @@ public struct AccountsWindow: View {
                 models = (try? await providerOAuthAuthorizer
                     .availableModels(configuration: draft.providerOAuth)) ?? []
             }
-            connectingIntelligence = oauthStatus != .signedIn
         }
     }
 
@@ -712,7 +705,6 @@ public struct AccountsWindow: View {
             while !Task.isCancelled {
                 oauthStatus = providerOAuthAuthorizer.sessionState.status
                 if oauthStatus == .signedIn {
-                    connectingIntelligence = false
                     models = (try? await providerOAuthAuthorizer
                         .availableModels(configuration: configuration)) ?? []
                     return
