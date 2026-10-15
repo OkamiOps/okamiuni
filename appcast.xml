@@ -6,6 +6,16 @@
     <description>Atualizações do OkamiUNI</description>
     <language>pt-BR</language>
     <item>
+      <title>Version 0.6.1</title>
+      <pubDate>Thu, 15 Oct 2026 12:50:14 GMT</pubDate>
+      <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.6.1</sparkle:fullReleaseNotesLink>
+      <sparkle:version>16</sparkle:version>
+      <sparkle:shortVersionString>0.6.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<ul lang="pt-BR"><li>Não lidas fáceis de ver: só o e-mail não lido tem o ponto roxo, com remetente e assunto em negrito; o lido fica mais claro.</li><li>"Tudo" volta à lateral, logo abaixo de Depois.</li><li>Versão do app 0.6.1, build 16. <a href="docs/releases/v0.6.1.pt-BR.md">Notas da versão</a>.</li></ul><ul lang="en"><li>Unread is easy to spot: only an unread email has the purple dot, with sender and subject in bold; read email is lighter.</li><li>"All" is back in the sidebar, right below Later.</li><li>App version 0.6.1, build 16. <a href="docs/releases/v0.6.1.md">Release notes</a>.</li></ul>]]></description>
+      <enclosure url="https://github.com/OkamiOps/okamiuni/releases/download/v0.6.1/OkamiUNI-0.6.1.zip" length="37302100" type="application/octet-stream" sparkle:edSignature="pmz9H0V1xOhIN2t+g4+El4HEgqi6SorPUYLaUfYTyPwW/D9qxEoS88GA6zc3L36jBpbm9xhYUJjBpDZDOgFJCg==" />
+    </item>
+    <item>
       <title>Version 0.6.0</title>
       <pubDate>Thu, 15 Oct 2026 12:09:15 GMT</pubDate>
       <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.6.0</sparkle:fullReleaseNotesLink>
@@ -15,7 +25,7 @@
       <description><![CDATA[<ul lang="pt-BR"><li>Visual novo, <strong>Vidro</strong>: trilho à esquerda, coluna de pastas e painéis flutuantes, nos temas Vidro claro e Vidro noite, com a opção <strong>Automático</strong> que segue o Mac. Os 26 temas clássicos ganham o mesmo layout, sem o vidro.</li><li>Painel do dia, Caixa, Agenda, Configurações, compositor e todas as janelas redesenhados. As caixas de todas as contas ficam unificadas, e as contas aparecem em árvore.</li><li>Leitor que cabe na tela: o cabeçalho tem duas linhas, a IA mora no botão <strong>✦ IA</strong> (⌥⌘J, com atalhos ⌥⌘S, ⌥⌘R e ⌥⌘E), o resumo recolhe e o remetente abre os detalhes com um botão para copiar cada endereço.</li><li>Assistente <strong>Mesa</strong> e tela <strong>Inteligência</strong> nova, com todos os provedores num lugar só. O Grok entra por login oficial.</li><li>Ao responder, a citação mostra o e-mail original formatado.</li><li>Versão do app 0.6.0, build 15. <a href="docs/releases/v0.6.0.pt-BR.md">Notas da versão</a>.</li></ul><ul lang="en"><li>New <strong>Glass</strong> look: a rail on the left, a folder column and floating panels, in the Glass light and Glass night themes, plus an <strong>Automatic</strong> option that follows the Mac. All 26 classic themes get the same layout, without the glass.</li><li>Day panel, Inbox, Calendar, Settings, the composer and every window redesigned. Inboxes from every account are unified, and accounts show as a tree.</li><li>A reader that fits: the header is two lines, AI lives in the <strong>✦ AI</strong> button (⌥⌘J, with ⌥⌘S, ⌥⌘R and ⌥⌘E shortcuts), the summary collapses and the sender expands into the details, with a button to copy each address.</li><li><strong>Desk</strong> assistant and new <strong>Intelligence</strong> settings, with every provider in one place. Grok signs in through its official login.</li><li>When you reply, the quote shows the original email formatted.</li><li>App version 0.6.0, build 15. <a href="docs/releases/v0.6.0.md">Release notes</a>.</li></ul>]]></description>
       <enclosure url="https://github.com/OkamiOps/okamiuni/releases/download/v0.6.0/OkamiUNI-0.6.0.zip" length="37301516" type="application/octet-stream" sparkle:edSignature="d/jbXmQVx5JsVkLeQjfae5of5jv3T9lPmOC/l7KfQ8WwA++xS3K7/w8/iCEHxmbl1pcenVqTDtRbFNo9727gCg==" />
     </item>
-    <item>
+<item>
       <title>Version 0.5.9</title>
       <pubDate>Wed, 14 Oct 2026 00:59:06 GMT</pubDate>
       <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.5.9</sparkle:fullReleaseNotesLink>
