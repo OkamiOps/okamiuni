@@ -70,6 +70,13 @@ public struct EventWindow: View {
     /// fechamento, por uma razão só: nenhum teste deste projeto abre navegador.
     /// O ensaio injeta um abridor que anota o endereço e devolve — e é assim que
     /// o clique se prova sem tirar a máquina de quem está usando.
+    /// Que horas são, para a contagem.
+    ///
+    /// Entra pela porta pelo mesmo motivo que `abreLink`: um retrato não pode
+    /// depender da hora em que a suíte roda, e "faltam doze minutos" é um
+    /// estado da tela como qualquer outro. No app é o relógio.
+    var agora: @MainActor () -> Date = { Date() }
+
     var abreLink: @MainActor (URL) -> Void = { url in
         #if canImport(AppKit)
         NSWorkspace.shared.open(url)
@@ -216,6 +223,13 @@ public struct EventWindow: View {
                             withAnimation { scroll.scrollTo(Self.bottomAnchor, anchor: .bottom) }
                         }
                 }
+                // **Preso no pé da janela.** Dentro do conteúdo ele parava no
+                // meio da janela quando o compromisso era curto, com 270pt de
+                // nada embaixo — pior que o vazio que a mudança queria
+                // resolver. Uma janela redimensionável não tem como ter a
+                // altura do cartão; o que ela tem é um rodapé que é sempre o
+                // pé dela.
+                footer
             } else {
                 Text(L10n.tr("Este compromisso não está mais na agenda."))
                     .font(theme.serif.font(size: 16))
@@ -346,11 +360,6 @@ public struct EventWindow: View {
             }
             if forwardSent { forwardConfirmation }
             if !detail.hasThread { originNote }
-            // O rodapé é a **última faixa do cartão**, como no desenho — e não
-            // uma barra presa no pé da janela. Presa, ela flutuava sobre um
-            // vazio de 250pt quando o compromisso era curto; é o buraco que
-            // fazia a janela parecer inacabada.
-            footer
             Color.clear
                 .frame(height: 0)
                 .id(Self.bottomAnchor)
@@ -364,9 +373,15 @@ public struct EventWindow: View {
     /// Ver `EventPrep.countdown`.
     private var contagem: String? {
         guard let item, !item.isCancelled else { return nil }
-        let inicio = store.agendaDate(for: item)
-        let fim = inicio.addingTimeInterval(TimeInterval(item.endMinute - item.startMinute) * 60)
-        return EventPrep.countdown(start: inicio, end: fim)
+        // `agendaDate` devolve a **meia-noite** do dia do compromisso: os
+        // minutos vêm do item, como em toda a agenda deste app. Sem somá-los a
+        // contagem comparava o relógio com a meia-noite e nunca acendia na
+        // hora certa — um bloco inteiro do desenho que nenhum retrato pegava,
+        // porque o retrato também não tinha como escolher que horas são.
+        let meiaNoite = store.agendaDate(for: item)
+        let inicio = meiaNoite.addingTimeInterval(TimeInterval(item.startMinute) * 60)
+        let fim = meiaNoite.addingTimeInterval(TimeInterval(item.endMinute) * 60)
+        return EventPrep.countdown(start: inicio, end: fim, now: agora())
     }
 
     /// O bloco da contagem: `background: accentSoft; border-radius: 12;
@@ -436,7 +451,7 @@ public struct EventWindow: View {
             }
         }
         .padding(.vertical, 16)
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Theme.modalSide)
         .background(
             theme.accentSoft.color,
             in: RoundedRectangle(cornerRadius: theme.modalFieldRadius, style: .continuous)
@@ -768,7 +783,7 @@ public struct EventWindow: View {
             RoundedRectangle(cornerRadius: theme.radiusLarge)
                 .strokeBorder(theme.accentLine.color, lineWidth: Hairline.thickness(displayScale))
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Theme.modalSide)
         .padding(.top, 14)
     }
 
@@ -786,7 +801,7 @@ public struct EventWindow: View {
                 ink3: theme.ink3.color
             ))
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Theme.modalSide)
         .padding(.top, 16)
     }
 
@@ -870,7 +885,12 @@ public struct EventWindow: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, Theme.modalSide)
-        .padding(.top, 6)
+        // O protótipo escreve `padding: 6px 28px 0` nos convidados porque
+        // logo acima deles está a linha do "Você vai?", que termina numa
+        // borda — 6 depois de uma borda é o respiro certo. Sem a linha (um
+        // compromisso que não aceita resposta), 6 cola a seção no horário: aí
+        // vale o 14 que separa todas as outras.
+        .padding(.top, rsvp == nil ? 14 : 6)
     }
 
     /// "organiza · vai", "vai", "sem resposta" — o papel e a resposta na mesma
@@ -937,8 +957,8 @@ public struct EventWindow: View {
                 .textSelection(.enabled)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 20)
-        .padding(.top, 18)
+        .padding(.horizontal, Theme.modalSide)
+        .padding(.top, 14)
     }
 
     /// Protótipo: `border-left: 0.5px solid var(--line); padding-left: 14px`.
@@ -975,8 +995,8 @@ public struct EventWindow: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 20)
-        .padding(.top, 18)
+        .padding(.horizontal, Theme.modalSide)
+        .padding(.top, 14)
         .padding(.bottom, 20)
     }
 
@@ -1231,8 +1251,8 @@ public struct EventWindow: View {
                 .strokeBorder(theme.accent.color, lineWidth: Hairline.thickness(displayScale))
         }
         .shadow(color: .black.opacity(0.10), radius: 9, x: 0, y: 6)
-        .padding(.horizontal, 20)
-        .padding(.top, 18)
+        .padding(.horizontal, Theme.modalSide)
+        .padding(.top, 14)
     }
 
     private var forwardConfirmation: some View {
@@ -1253,13 +1273,17 @@ public struct EventWindow: View {
             RoundedRectangle(cornerRadius: theme.radiusLarge)
                 .strokeBorder(theme.accentLine.color, lineWidth: Hairline.thickness(displayScale))
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Theme.modalSide)
         .padding(.top, 18)
     }
 
     /// Protótipo: `padding: 16px 20px 20px`, cartão em `surface2`.
+    @ViewBuilder
     private var originNote: some View {
-        Text(detail.note)
+        // Sem nota não há cartão: com `detail.note` vazio ele saía como um
+        // retângulo de borda arredondada e nada dentro, embaixo da pauta.
+        if !detail.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            Text(detail.note)
             .font(theme.sans.font(size: 12.5))
             .lineSpacing(0.5 * 12.5)   // line-height: 1.5
             .foregroundStyle(theme.ink2.color)
@@ -1273,9 +1297,10 @@ public struct EventWindow: View {
                 RoundedRectangle(cornerRadius: theme.radiusLarge)
                     .strokeBorder(theme.line2.color, lineWidth: Hairline.thickness(displayScale))
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
+            .padding(.horizontal, Theme.modalSide)
+            .padding(.top, 14)
             .padding(.bottom, 20)
+        }
     }
 
     /// O rodapé: **links**, não botões.
@@ -1293,6 +1318,9 @@ public struct EventWindow: View {
         // `FlowLayout`, e não `HStack`: em alemão e francês os três rótulos não
         // cabem em 640 numa linha só, e cortar um deles é o que o desenho
         // proíbe. Eles descem para a segunda linha e continuam legíveis.
+        // `frame(maxWidth: .infinity)` antes da linha: o `FlowLayout` mede o
+        // que os links ocupam, e a hairline desenhada sobre ele parava em
+        // x=565 em vez de atravessar a janela.
         FlowLayout(spacing: 18, rowSpacing: 10) {
             if detail.hasThread || originMessageID != nil {
                 footerLink(L10n.tr("Abrir o e-mail"), enabled: originMessageID != nil) {
@@ -1324,11 +1352,12 @@ public struct EventWindow: View {
                 .help(L10n.tr("Tirar este compromisso do calendário"))
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 14)
         .padding(.horizontal, Theme.modalSide)
         .padding(.bottom, 18)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .hairline(theme.modalLine, edges: .top)
-        .padding(.top, 14)
     }
 
     private func footerLink(

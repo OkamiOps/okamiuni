@@ -49,6 +49,47 @@ struct ModaisJanelaRenderTests {
         }
     }
 
+    /// O estado que o desenho desenha: a reunião começa em doze minutos, a
+    /// contagem está lá e **Entrar** é a única coisa grande da janela.
+    ///
+    /// O "agora" entra pelo `agendaReferenceDay` da loja, e o compromisso é
+    /// montado em cima dele — nada aqui depende da hora em que a suíte roda.
+    @Test("a janela do compromisso perto da hora: contagem e Entrar")
+    func compromissoPertoDaHora() async throws {
+        let store = await Self.lojaComContagem()
+        for (nome, tema) in ModaisRenderTests.temas {
+            var janela = EventWindow(store: store, itemID: "manual-agora")
+            // O relógio do retrato: meio-dia de 25 de agosto, o mesmo "agora"
+            // que a loja usa de referência. O compromisso começa 12 minutos
+            // depois dele.
+            janela.agora = { Fixtures.today }
+            let foto = try #require(JanelaReal.fotografar(
+                janela,
+                size: CGSize(width: UNIWindow.Size.event.width, height: 640),
+                theme: tema, named: "janela-compromisso-contagem-\(nome)"
+            ))
+            Self.afirmaSemaforos(foto, tema: nome)
+        }
+    }
+
+    /// Oito participantes: a seção nasce recolhida, e aberta ela não empurra o
+    /// rodapé para fora — ele é o pé da janela.
+    @Test("a janela do compromisso com oito participantes")
+    func compromissoCheio() async throws {
+        let store = await Self.lojaCheia()
+        for (nome, tema) in ModaisRenderTests.temas {
+            let foto = try #require(JanelaReal.fotografar(
+                EventWindow(
+                    store: store, itemID: "manual-cheio",
+                    debugSections: EventSections(participants: true, origin: false)
+                ),
+                size: CGSize(width: UNIWindow.Size.event.width, height: 640),
+                theme: tema, named: "janela-compromisso-oito-\(nome)"
+            ))
+            Self.afirmaSemaforos(foto, tema: nome)
+        }
+    }
+
     @Test("a janela da mensagem: 880×720, semáforos com respiro")
     func mensagem() async throws {
         let store = await Self.store()
@@ -66,6 +107,82 @@ struct ModaisJanelaRenderTests {
             ))
             Self.afirmaSemaforos(foto, tema: nome)
         }
+    }
+
+    /// Um compromisso que começa **em doze minutos**, contado do "agora" que
+    /// a loja usa como referência.
+    private static func lojaComContagem() async -> MailStore {
+        let agora = Fixtures.today
+        let minuto = Calendar.current.component(.hour, from: agora) * 60
+            + Calendar.current.component(.minute, from: agora)
+        let item = AgendaItem(
+            id: "manual-agora", title: "Revisão da proposta",
+            startMinute: minuto + 12, endMinute: minuto + 72,
+            accountID: Fixtures.accounts[0].id, dayOffset: 0,
+            detail: EventDetail(
+                place: "Online", link: "https://meet.google.com/abc-defg-hij",
+                organizer: EventPerson(
+                    name: "Marina Costa", address: "marina@aitherion.com",
+                    role: "organizador", status: .yes
+                ),
+                people: [
+                    EventPerson(
+                        name: "Jayden Park", address: "jayden@aitherion.com",
+                        role: "convidado", status: .maybe
+                    ),
+                    EventPerson(
+                        name: "Rafa Lima", address: "rafa@aitherion.com",
+                        role: "convidado", status: .pending
+                    ),
+                ],
+                note: "", recurrence: "Evento único", notice: "Time",
+                agenda: ["Fechar escopo da fase 2, valores e prazo."],
+                thread: [], descricao: nil
+            )
+        )
+        let store = MailStore(
+            source: InMemoryMailSource(
+                accounts: Fixtures.accounts, messages: Fixtures.messages, agenda: [item]
+            ),
+            agendaReferenceDay: { agora }
+        )
+        await store.load()
+        return store
+    }
+
+    /// Oito pessoas no mesmo compromisso.
+    private static func lojaCheia() async -> MailStore {
+        let nomes = [
+            "Marina Costa", "Jayden Park", "Rafa Lima", "Odette Silva",
+            "Caio Prado", "Helena Braga", "Tomás Reis", "Nina Alves",
+        ]
+        let pessoas = nomes.enumerated().map { indice, nome in
+            EventPerson(
+                name: nome,
+                address: nome.split(separator: " ")[0].lowercased() + "@aitherion.com",
+                role: indice == 0 ? "organizador" : "convidado",
+                status: indice % 3 == 0 ? .yes : (indice % 3 == 1 ? .maybe : .pending)
+            )
+        }
+        let item = AgendaItem(
+            id: "manual-cheio", title: "Planejamento do trimestre",
+            startMinute: 15 * 60, endMinute: 16 * 60,
+            accountID: Fixtures.accounts[0].id, dayOffset: 1,
+            detail: EventDetail(
+                place: "Sala 3", link: nil,
+                organizer: pessoas[0], people: Array(pessoas.dropFirst()),
+                note: "", recurrence: "Toda semana", notice: "Time",
+                agenda: ["Metas, orçamento e contratações do trimestre."],
+                thread: [], descricao: nil
+            )
+        )
+        let store = MailStore(
+            source: InMemoryMailSource(
+                accounts: Fixtures.accounts, messages: Fixtures.messages, agenda: [item]
+            )
+        )
+        await store.load()
+        return store
     }
 
     /// O que "não espremidos no canto" quer dizer, em números.
