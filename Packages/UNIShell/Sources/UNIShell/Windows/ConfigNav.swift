@@ -115,7 +115,7 @@ struct ConfigNav: View {
             .tracking(0.05 * 11)
             .foregroundStyle(palette.ink3.color)
             .padding(.horizontal, 10)
-            .padding(.top, first ? 0 : 14)
+            .padding(.top, 14)
             .padding(.bottom, 6)
     }
 
