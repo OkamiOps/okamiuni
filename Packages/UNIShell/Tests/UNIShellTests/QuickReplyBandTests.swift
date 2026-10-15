@@ -847,10 +847,14 @@ struct QuickReplyBandRenderTests {
         )
         #expect(rep.pixelsWide == 760)
         #expect(rep.pixelsHigh == 780)
-        // O corpo continua desenhando texto no mesmo lugar de antes…
+        // O corpo continua desenhando texto…
         #expect(Self.inkPixels(rep, top: 0.28, bottom: 0.50) > 500)
-        // …e o parágrafo que a faixa aberta empurrava para fora agora aparece.
-        #expect(Self.inkPixels(rep, top: 0.57, bottom: 0.67) > 200)
+        // …e o parágrafo que a faixa aberta empurrava para fora aparece. A
+        // janela desceu uma linha: a IA do leitor ganhou a linha de ações
+        // debaixo do assunto (ver `ReaderAIOfferRow`), e tudo o que vem
+        // depois dela começa mais embaixo. O que o caso guarda — com a faixa
+        // fechada sobra corpo — é o mesmo.
+        #expect(Self.inkPixels(rep, top: 0.64, bottom: 0.78) > 200)
     }
 
     @Test("a faixa vive no rodapé: abrir e fechar não mexe no corpo da mensagem")

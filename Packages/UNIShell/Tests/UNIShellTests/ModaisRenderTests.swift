@@ -115,7 +115,7 @@ struct ModaisRenderTests {
                     store: store, anchor: Fixtures.today, initialDayOffset: 0,
                     // A frase do desenho, e o que ela produz: o cartão
                     // "Entendi assim" citando "amanhã" e "15h".
-                    debugPhrase: "amanhã 15h com a Marina sobre a proposta",
+                    initialPhrase: "amanhã 15h com a Marina sobre a proposta",
                     onClose: {}
                 ),
                 named: "modal-compromisso-frase-\(nome)",
