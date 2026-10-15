@@ -88,7 +88,17 @@ struct OkamiUNIApp: App {
         _emailRules = State(initialValue: regras)
         let rooms = MeetingRoomSettingsStore()
         _meetingRooms = State(initialValue: rooms)
-        let factory = MeetingRoomFactory(google: composicao.googleAuth, rooms: rooms)
+        // Os três conectores de OAuth de usuário. O cofre é o mesmo Keychain
+        // das contas de e-mail — `KeychainSecretStore` é um valor que aponta
+        // para o serviço `com.okamiops.okamiuni`, não uma conexão.
+        let cofreDeReuniao = MeetingTokenVault(secrets: KeychainSecretStore())
+        let zoom = ZoomConnector(vault: cofreDeReuniao)
+        let teams = TeamsConnector(vault: cofreDeReuniao)
+        let zoho = ZohoConnector(vault: cofreDeReuniao)
+        let factory = MeetingRoomFactory(
+            google: composicao.googleAuth,
+            tokens: [zoom.tokenSource, teams.tokenSource, zoho.tokenSource]
+        )
         _meetingFactory = State(initialValue: factory)
         let store = MailStore(
             source: composicao.source, commandPort: composicao.commandPort,
@@ -109,17 +119,20 @@ struct OkamiUNIApp: App {
             calendarDefaults: .standard
         )
         _mailStore = State(initialValue: store)
-        // O Meet é o único conector real hoje: ele usa o OAuth Google que a
-        // caixa de correio já usa, e a conta que aparece na linha é a caixa
-        // Google que vai assinar as salas. Zoom, Teams e Zoho entram nesta
-        // lista quando o OAuth de cada um existir — sem eles, a aba Agendas
-        // mostra "ainda não disponível neste build" e nenhum botão.
+        // Os quatro conectores. O Meet usa o OAuth Google que a caixa de
+        // correio já usa, e a conta que aparece na linha é a caixa Google que
+        // vai assinar as salas. Zoom, Teams e Zoho têm o OAuth de usuário
+        // deles; cada um fica `unavailable` — linha explicando, sem botão —
+        // enquanto faltar o client ID no `Info.plist` deste build.
         _meetingConnections = State(initialValue: MeetingConnections(connectors: [
             GoogleMeetConnector(
                 auth: composicao.googleAuth,
                 factory: factory,
                 googleAccounts: { store.accounts.filter { $0.provider == .gmail } }
-            )
+            ),
+            zoom,
+            teams,
+            zoho,
         ]))
         // A ressalva 1 da Tarefa 2: a fila de rascunho antecipado só enxerga
         // a agenda do banco. Com esta troca ela passa a olhar a agenda que o

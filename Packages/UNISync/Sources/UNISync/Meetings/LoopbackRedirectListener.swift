@@ -139,7 +139,7 @@ public final class LoopbackRedirectListener: @unchecked Sendable {
             self?.finish(.failure(LoopbackRedirectError.timedOut))
         }
         arm(item)
-        queue.asyncAfter(deadline: .now() + max(10, timeout), execute: item)
+        queue.asyncAfter(deadline: .now() + max(1, timeout), execute: item)
 
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { cont in

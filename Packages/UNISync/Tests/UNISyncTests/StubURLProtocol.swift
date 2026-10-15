@@ -77,6 +77,11 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     /// refresh pós-401 existe para não ter.
     struct Recorded: Sendable {
         var path: String
+        /// O host a que a requisição foi. O roteiro é por caminho, e sem o
+        /// host um teste não consegue afirmar que a troca de token do Zoho
+        /// foi para `accounts.zoho.eu` e não para o `.com` — que é exatamente
+        /// o defeito que o suporte a multi data center existe para não ter.
+        var host: String = ""
         var body: String
         var query: String
         var authorization: String?
@@ -174,7 +179,9 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         Self.lock.lock()
         if let sessaoID {
             Self.recordedByID[sessaoID, default: []].append(Recorded(
-                path: caminho, body: corpo,
+                path: caminho,
+                host: request.url?.host ?? "",
+                body: corpo,
                 query: request.url?.query ?? "",
                 authorization: request.value(forHTTPHeaderField: "Authorization"),
                 headers: request.allHTTPHeaderFields ?? [:],

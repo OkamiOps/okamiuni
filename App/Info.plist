@@ -25,8 +25,6 @@
        botão Conectar. Ver Config/Meetings.example.xcconfig. -->
   <key>OkamiUNIZoomClientID</key>
   <string>$(OKAMIUNI_ZOOM_CLIENT_ID)</string>
-  <key>OkamiUNIZoomClientSecret</key>
-  <string>$(OKAMIUNI_ZOOM_CLIENT_SECRET)</string>
   <key>OkamiUNIMicrosoftClientID</key>
   <string>$(OKAMIUNI_MICROSOFT_CLIENT_ID)</string>
   <key>OkamiUNIZohoClientID</key>
