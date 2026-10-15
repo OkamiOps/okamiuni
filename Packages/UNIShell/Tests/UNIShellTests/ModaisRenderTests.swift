@@ -53,6 +53,56 @@ struct ModaisRenderTests {
         return store
     }
 
+    // MARK: - A anatomia
+
+    /// Os números do protótipo, nos três temas.
+    ///
+    /// Eles não se medem no PNG: um retrato em que a folha ocupa a largura do
+    /// quadro não tem canto nenhum à vista, e o halo do acento é uma sombra,
+    /// que não pinta pixel de cor sólida. O que se afirma é o token — que é o
+    /// que o desenho escreve e o que toda superfície lê.
+    @Test("raios e halo: 20/16/12 no Vidro, o raio do tema no clássico, halo só no Vidro")
+    func anatomia() {
+        for tema in [Theme.vidro, .vidroNoite] {
+            #expect(tema.modalSheetRadius == 20, "\(tema.id)")
+            #expect(tema.modalPopoverRadius == 16, "\(tema.id)")
+            #expect(tema.modalFieldRadius == 12, "\(tema.id)")
+            #expect(tema.modalButtonRadius == 10, "\(tema.id)")
+            // `box-shadow: 0 6px 16px rgba(accent, 0.30)`.
+            let halo = tema.modalAccentGlow
+            #expect(halo.count == 1, "\(tema.id)")
+            #expect(halo.first?.y == 6, "\(tema.id)")
+            #expect(halo.first?.blur == 16, "\(tema.id)")
+            #expect(halo.first?.color.opacity == 0.30, "\(tema.id)")
+        }
+        // Clássico: o raio é o do tema (2 no Okami) e o halo **não existe** —
+        // o protótipo escreve `accentGlow: 'none'` nele.
+        for tema in Theme.all where !tema.isGlass {
+            #expect(tema.modalSheetRadius == tema.radiusLarge, "\(tema.id)")
+            #expect(tema.modalPopoverRadius == tema.radiusLarge, "\(tema.id)")
+            #expect(tema.modalFieldRadius == tema.radiusSmall, "\(tema.id)")
+            #expect(tema.modalButtonRadius == tema.radiusSmall, "\(tema.id)")
+            #expect(tema.modalAccentGlow.isEmpty, "\(tema.id)")
+        }
+        // E a folha é **opaca** nos 28: um modal é objeto elevado, e objeto
+        // elevado não deixa o de baixo atravessar.
+        for tema in Theme.all {
+            #expect(tema.modalSheet.opacity == 1, "\(tema.id)")
+        }
+    }
+
+    /// As medidas de posição e recuo que o desenho fixa.
+    @Test("a folha pende de 56 do topo, e os recuos do cabeçalho e do rodapé")
+    func medidas() {
+        #expect(Theme.modalSheetTop == 56)
+        #expect(Theme.modalHeaderTop == 26)
+        #expect(Theme.modalSide == 28)
+        #expect(Theme.modalFooterTop == 16)
+        #expect(Theme.modalFooterBottom == 20)
+        // `letter-spacing: -0.02em`, em pontos para o tamanho dado.
+        #expect(Theme.vidro.modalTitleTracking(at: 24) == -0.48)
+    }
+
     // MARK: - Novo compromisso
 
     @Test("a folha de novo compromisso tem os 620 do desenho, nos três temas")
