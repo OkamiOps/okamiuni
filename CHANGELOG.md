@@ -4,6 +4,12 @@
 
 Versions correspond to [GitHub releases](https://github.com/OkamiOps/okamiuni/releases). All dates below are in 2026.
 
+## 0.6.2 — October 15
+
+- The update icon is always in the rail, above ✦, with the installed version and "Check now".
+- In Settings, Updates moved from Appearance to Overview.
+- App version 0.6.2, build 17. [Release notes](docs/releases/v0.6.2.md).
+
 ## 0.6.1 — October 15
 
 - Unread is easy to spot: only an unread email has the purple dot, with sender and subject in bold; read email is lighter.
