@@ -77,6 +77,22 @@ struct NewAppointmentSheetTests {
         var closes = 0
         let size = NewAppointmentSheet.size
 
+        // Onde "Adicionar" fica no rodapé do desenho: `padding: 16px 28px
+        // 20px` e o botão com 11 de folga vertical em cima de um rótulo de 14
+        // — centro a ~40pt do pé da folha. O `x` conta da direita, onde o
+        // primário mora.
+        //
+        // A folha **não ocupa a tela inteira**: ela tem a altura do conteúdo e
+        // o harness a centra no quadro. O clique vai ao pé dela, não ao pé do
+        // quadro, e é por isso que a janela do ensaio tem a altura medida.
+        let alturaDaFolha = Self.alturaDaFolha(
+            NewAppointmentSheet(
+                store: store, anchor: Fixtures.today, initialDayOffset: 0,
+                initialTitle: "Revisão semanal",
+                initialMeetingLink: "https://teams.microsoft.com/l/meetup-join/19%3ameeting",
+                onClose: {}
+            )
+        )
         CliqueDeEnsaio.em(
             NewAppointmentSheet(
                 store: store, anchor: Fixtures.today, initialDayOffset: 0,
@@ -84,11 +100,25 @@ struct NewAppointmentSheetTests {
                 initialMeetingLink: "https://teams.microsoft.com/l/meetup-join/19%3ameeting",
                 onClose: { closes += 1 }
             ),
-            size: size, aY: size.height - 28, x: size.width - 50
+            size: CGSize(width: size.width, height: alturaDaFolha),
+            aY: alturaDaFolha - 40, x: size.width - 70
         )
 
         #expect(closes == 1)
         let created = try #require(store.agenda.first { $0.title == "Revisão semanal" })
         #expect(created.detail?.link == "https://teams.microsoft.com/l/meetup-join/19%3ameeting")
+    }
+
+    /// Quanto a folha mede de alto com este conteúdo. A altura é do conteúdo
+    /// (o desenho não a fixa), e o clique precisa saber onde o rodapé caiu.
+    private static func alturaDaFolha(_ folha: some View) -> CGFloat {
+        let host = NSHostingView(
+            rootView: folha
+                .theme(.tinta)
+                .environment(\.locale, Locale(identifier: "pt_BR"))
+                .environment(\.displayScale, 1)
+        )
+        host.layoutSubtreeIfNeeded()
+        return host.fittingSize.height
     }
 }

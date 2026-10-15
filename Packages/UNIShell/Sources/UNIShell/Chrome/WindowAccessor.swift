@@ -113,6 +113,30 @@ enum TrafficLightLayout {
     /// próprios limites mas não recebe clique fora deles.
     static let railBarHeight: CGFloat = 48
 
+    // MARK: - A fileira das janelas próprias (compromisso e mensagem)
+    //
+    // O macOS deixa a fileira em x=8, encostada na quina. Numa janela sem
+    // barra de título desenhada isso lê como "espremida no canto" — a queixa
+    // que o dono já fez duas vezes. O protótipo dos modais
+    // (`ModalAgenda.dc.html`, `ModalJanelas.dc.html`) desenha as bolinhas com
+    // `padding: 14px 16px` numa faixa de cabeçalho alta, com o mesmo respiro
+    // que o trilho da janela principal tem: ali o grupo começa em
+    // `railLeading` = 20.
+    //
+    // Aqui vale o mesmo número, pela mesma razão, e o vão de 5 do desenho
+    // continua intacto (`railSpacing` = 19).
+
+    /// Onde a primeira bolinha começa numa janela própria. **20**, como no
+    /// trilho — e não os 8 da plataforma.
+    static var windowRowLeading: CGFloat { railLeading }
+    static var windowRowSpacing: CGFloat { railSpacing }
+
+    /// A faixa de cabeçalho das janelas próprias: 52pt, a mesma altura
+    /// clicável que a navegação de Configurações reserva para a fileira dela.
+    /// A fileira centra no meio dela.
+    static let windowBarHeight: CGFloat = 52
+    static var windowCenterFromTop: CGFloat { windowBarHeight / 2 }
+
     static func buttonOriginY(barHeight: CGFloat, buttonHeight: CGFloat) -> CGFloat {
         buttonOriginY(barHeight: barHeight, buttonHeight: buttonHeight, centerFromTop: contentCenterFromTop)
     }
@@ -448,6 +472,26 @@ extension View {
             TrafficLightAlignment(barHeight: barHeight)
                 .frame(width: 0, height: 0)
                 .allowsHitTesting(false)
+        }
+    }
+
+    /// A fileira de uma **janela própria**: na linha do cabeçalho e com o
+    /// respiro lateral do trilho, em vez dos 8pt da plataforma.
+    ///
+    /// Ver `TrafficLightLayout.windowRowLeading`: deixar o x nativo põe as
+    /// três bolinhas encostadas na quina, que é o defeito que o dono já
+    /// recusou duas vezes.
+    func trafficLightsInWindowHeader() -> some View {
+        overlay(alignment: .topLeading) {
+            TrafficLightAlignment(
+                barHeight: TrafficLightLayout.windowBarHeight,
+                centerFromTop: TrafficLightLayout.windowCenterFromTop,
+                compactRow: true,
+                rowLeading: TrafficLightLayout.windowRowLeading,
+                rowSpacing: TrafficLightLayout.windowRowSpacing
+            )
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
         }
     }
 

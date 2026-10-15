@@ -5,29 +5,6 @@ import UNICore
 // HTML-only na hora de exibir. Nenhuma segunda cópia da regra.
 import UNISync
 
-/// As cores semânticas do protótipo (`semC`), já convertidas de oklch para
-/// sRGB — `TokenColor` lê hex. A mesma conversão que produziu o `#D73337` /
-/// `#FF7972` do marcador de "agora" na trilha de agenda.
-///
-/// Em tema escuro elas sobem de luminosidade, como o protótipo faz: L 0.52 não
-/// passa em fundo escuro.
-enum SemanticColor {
-    static func ok(isDark: Bool) -> Color {
-        TokenColor(css: isDark ? "#89D298" : "#317A45")?.color ?? .green
-    }
-
-    static func warn(isDark: Bool) -> Color {
-        TokenColor(css: isDark ? "#F6B669" : "#945500")?.color ?? .orange
-    }
-
-    /// O vermelho do marcador de "agora" — `semC('live')` do protótipo. Uma
-    /// definição só, usada pela trilha diária e pela grade da semana: eram duas
-    /// cópias do mesmo par de hex.
-    static func live(isDark: Bool) -> Color {
-        TokenColor(css: isDark ? "#FF7972" : "#D73337")?.color ?? .red
-    }
-}
-
 /// O aviso de cancelar/remover, no idioma da janela — não o diálogo do macOS.
 enum EventConfirmKind: Equatable {
     case cancelMeeting
@@ -55,48 +32,21 @@ enum EventConfirmKind: Equatable {
         case .removeFromCalendar: L10n.tr("Remover")
         }
     }
-}
 
-private struct EventConfirmCard: View {
-    @Environment(\.theme) private var theme
-    @Environment(\.displayScale) private var displayScale
-    let kind: EventConfirmKind
-    let onConfirm: () -> Void
-    let onCancel: () -> Void
+    /// O ícone do quadrado vermelho: cancelar uma reunião avisa gente (um
+    /// envelope sai), remover do calendário só tira do calendário.
+    var icon: String {
+        switch self {
+        case .cancelMeeting: "envelope.badge"
+        case .removeFromCalendar: "calendar.badge.minus"
+        }
+    }
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(kind.title)
-                .font(theme.serif.font(size: 18, weight: .semibold))
-                .foregroundStyle(theme.ink.color)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(kind.message)
-                .font(theme.sans.font(size: 13))
-                .foregroundStyle(theme.ink3.color)
-                .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 8) {
-                Spacer(minLength: 0)
-                ChromeButton(L10n.tr("Voltar"), appearance: .outlined, height: 30) {
-                    onCancel()
-                }
-                ChromeButton(kind.actionTitle, appearance: .remove, height: 30) {
-                    onConfirm()
-                }
-            }
-            .padding(.top, 6)
-        }
-        .padding(20)
-        .frame(width: 340, alignment: .leading)
-        .background(theme.surface.color)
-        .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
-        .overlay {
-            RoundedRectangle(cornerRadius: theme.radiusLarge)
-                .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
-        }
-        .shadow(theme.shadow)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(kind.title)
-        .accessibilityHint(kind.message)
+    /// O mesmo aviso, no formato que `UNIConfirmation` desenha.
+    var confirmationText: UNIConfirmationText {
+        UNIConfirmationText(
+            title: title, detail: message, confirm: actionTitle, icon: icon
+        )
     }
 }
 
@@ -120,6 +70,13 @@ public struct EventWindow: View {
     /// fechamento, por uma razão só: nenhum teste deste projeto abre navegador.
     /// O ensaio injeta um abridor que anota o endereço e devolve — e é assim que
     /// o clique se prova sem tirar a máquina de quem está usando.
+    /// Que horas são, para a contagem.
+    ///
+    /// Entra pela porta pelo mesmo motivo que `abreLink`: um retrato não pode
+    /// depender da hora em que a suíte roda, e "faltam doze minutos" é um
+    /// estado da tela como qualquer outro. No app é o relógio.
+    var agora: @MainActor () -> Date = { Date() }
+
     var abreLink: @MainActor (URL) -> Void = { url in
         #if canImport(AppKit)
         NSWorkspace.shared.open(url)
@@ -257,7 +214,7 @@ public struct EventWindow: View {
             if let item {
                 ScrollViewReader { scroll in
                     ScrollView { content(item) }
-                        .frame(maxHeight: .infinity)
+                        .frame(maxHeight: .infinity, alignment: .top)
                         // Protótipo: abrir o painel rola o modal até o fim
                         // (`_modalScroll.scrollTop = scrollHeight`) — senão ele
                         // nasce fora da vista, embaixo da pauta e do histórico.
@@ -266,6 +223,12 @@ public struct EventWindow: View {
                             withAnimation { scroll.scrollTo(Self.bottomAnchor, anchor: .bottom) }
                         }
                 }
+                // **Preso no pé da janela.** Dentro do conteúdo ele parava no
+                // meio da janela quando o compromisso era curto, com 270pt de
+                // nada embaixo — pior que o vazio que a mudança queria
+                // resolver. Uma janela redimensionável não tem como ter a
+                // altura do cartão; o que ela tem é um rodapé que é sempre o
+                // pé dela.
                 footer
             } else {
                 Text(L10n.tr("Este compromisso não está mais na agenda."))
@@ -276,22 +239,24 @@ public struct EventWindow: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(theme.surface.color)
+        // `glassWindow`: o fundo de uma janela **solta** — fechado o bastante
+        // para texto no Vidro, `surface` nos 26 opacos. Mesmo token da janela
+        // da mensagem e do compositor.
+        .background(theme.glassWindow.color)
         .overlay { if let confirm { confirmLayer(confirm) } }
         .onExitCommand { confirm = nil }
         .task { if store.agenda.isEmpty { await store.load() } }
     }
 
-    /// Cartão nosso por cima da janela — o `confirmationDialog` do sistema
-    /// não segue o tema, e o magenta do Remover sumia nele.
+    /// A confirmação é a **do app** — `UNIConfirmation`, a mesma peça que a
+    /// Lixeira usa. Era um cartão próprio desta janela (`EventConfirmCard`),
+    /// com outra largura, outro raio e outros botões: dois desenhos de
+    /// pergunta no mesmo app.
     private func confirmLayer(_ kind: EventConfirmKind) -> some View {
         ZStack {
-            theme.ink.color.opacity(theme.isDark ? 0.55 : 0.28)
-                .ignoresSafeArea()
-                .contentShape(Rectangle())
-                .onTapGesture { confirm = nil }
-            EventConfirmCard(
-                kind: kind,
+            ModalScrim(onTap: { confirm = nil })
+            UNIConfirmation(
+                text: kind.confirmationText,
                 onConfirm: {
                     confirm = nil
                     switch kind {
@@ -327,35 +292,61 @@ public struct EventWindow: View {
     /// principal põe o primeiro elemento em x=84, sem parecer grudado nele.
     static let headerLeadingInset: CGFloat = WindowChrome.trafficLightInset + 14
 
+    /// A barra da janela: os semáforos nativos na linha da plataforma e, na
+    /// outra ponta, editar e encaminhar.
+    ///
+    /// Protótipo: `padding: 14px 16px 0`, **sem fundo e sem linha** — o
+    /// desenho dos modais tirou a barra de `surface2` que havia aqui. A janela
+    /// do compromisso começa pela contagem ou pelo título, e uma faixa cinza
+    /// antes deles só adiava a informação.
     private var header: some View {
-        HStack(spacing: 10) {
-            TintChip(label: account?.host ?? "", tint: tint, emphasized: true)
-            Text(L10n.tr("Compromisso"))
-                .capsLabel(size: 9.5)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        HStack(spacing: 6) {
+            Spacer(minLength: 0)
+            iconButton("pencil", label: L10n.tr("Editar compromisso")) {
+                // Editar agenda é do Marco 4 (EventKit). Até lá o botão abre o
+                // que existe: o email que gerou o compromisso.
+                revealOriginMessage()
+            }
+            .disabled(originMessageID == nil)
+            iconButton("arrowshape.turn.up.right", label: L10n.tr("Encaminhar convite")) {
+                forwardOpen.toggle()
+                if forwardOpen { forwardSent = false }
+            }
         }
-        // A 04 não tem a barra de 42pt das outras três: o cabeçalho dela **é** a
-        // barra. Como a janela é de verdade, os semáforos nativos moram aqui
-        // dentro, e o conteúdo começa depois deles — a mesma medida da barra da
-        // janela principal.
         .padding(.leading, Self.headerLeadingInset)
-        .padding(.trailing, 18)
-        // **Altura fixa, e não folga vertical.** Com `padding(.vertical, 13)` a
-        // linha média do cabeçalho saía da altura do texto — e caía onde caísse,
-        // longe dos semáforos, que ninguém alinhava nesta janela. Agora a barra
-        // mede duas vezes a linha da plataforma, e o que ela desenha cai
-        // exatamente em cima dela.
-        .frame(height: TrafficLightLayout.contentCenterFromTop * 2)
-        .background(theme.surface2.color)
-        .hairline(theme.line2, edges: .bottom)
-        .trafficLightsOnTheLine(barHeight: TrafficLightLayout.contentCenterFromTop * 2)
+        .padding(.trailing, 16)
+        // A faixa de 52 do desenho, e os dois ícones **na linha dos
+        // semáforos** — não numa segunda fileira embaixo deles.
+        .frame(height: TrafficLightLayout.windowBarHeight)
+        .trafficLightsInWindowHeader()
+    }
+
+    private func iconButton(
+        _ symbol: String, label: String, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(theme.ink2.color)
+                .frame(width: 28, height: 28)
+                .contentShape(RoundedRectangle(cornerRadius: theme.modalButtonRadius))
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.modalButtonRadius)
+        .accessibilityLabel(label)
+        .help(label)
     }
 
     private func content(_ item: AgendaItem) -> some View {
         VStack(alignment: .leading, spacing: 0) {
+            // A ordem é a do desenho, e ela é um argumento: primeiro o que
+            // está a ponto de acontecer (a contagem e o Entrar), depois o que
+            // é (título e quando), depois o que levar, depois quem vai.
+            if let contagem { countdown(contagem, item: item) }
             title(item)
-            if let link = detail.meetingLink { linkCard(link) }
-            fields
+            if contagem == nil, let link = detail.meetingLink { linkCard(link) }
+            if !prepLines.isEmpty { prep }
+            if let rsvp { rsvpRow(rsvp) }
             people
             if detail.hasAgenda { agenda }
             if let texto = detail.visibleDescription { descricao(texto) }
@@ -368,12 +359,6 @@ public struct EventWindow: View {
                 forwardPanel.zIndex(100)
             }
             if forwardSent { forwardConfirmation }
-            // A nota de origem tinha cartão próprio no fim da janela, embaixo
-            // da seção que fala da mesma coisa — duas caixas dizendo de onde o
-            // compromisso veio, uma logo abaixo da outra. Com histórico, ela
-            // passa a ser a última linha **de dentro** da seção; sem histórico
-            // (o compromisso da agenda de exemplo) o cartão continua sendo o
-            // único lugar onde essa frase cabe.
             if !detail.hasThread { originNote }
             Color.clear
                 .frame(height: 0)
@@ -382,44 +367,323 @@ public struct EventWindow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    // MARK: - A contagem, e entrar
+
+    /// "COMEÇA EM / 12 min" — e `nil` quando não é hora de contar.
+    /// Ver `EventPrep.countdown`.
+    private var contagem: String? {
+        guard let item, !item.isCancelled else { return nil }
+        // `agendaDate` devolve a **meia-noite** do dia do compromisso: os
+        // minutos vêm do item, como em toda a agenda deste app. Sem somá-los a
+        // contagem comparava o relógio com a meia-noite e nunca acendia na
+        // hora certa — um bloco inteiro do desenho que nenhum retrato pegava,
+        // porque o retrato também não tinha como escolher que horas são.
+        let meiaNoite = store.agendaDate(for: item)
+        let inicio = meiaNoite.addingTimeInterval(TimeInterval(item.startMinute) * 60)
+        let fim = meiaNoite.addingTimeInterval(TimeInterval(item.endMinute) * 60)
+        return EventPrep.countdown(start: inicio, end: fim, now: agora())
+    }
+
+    /// O bloco da contagem: `background: accentSoft; border-radius: 12;
+    /// margin: 12px 28px 0; padding: 16px 20px`, com "COMEÇA EM" em 11/0.08em,
+    /// o número em mono 32 e **Entrar** grande à direita.
+    ///
+    /// Entrar é a única coisa grande da janela nesse momento, e é de propósito:
+    /// a doze minutos da reunião não há segunda coisa a fazer.
+    private func countdown(_ texto: String, item: AgendaItem) -> some View {
+        HStack(spacing: 18) {
+            VStack(alignment: .leading, spacing: 2) {
+                ModalEyebrow(
+                    text: texto == L10n.tr("agora") ? L10n.tr("Em curso") : L10n.tr("Começa em"),
+                    size: 11, accented: true, tracking: 0.08
+                )
+                Text(texto)
+                    .font(theme.mono.font(size: 32, weight: .semibold))
+                    .tracking(-0.02 * 32)
+                    .foregroundStyle(theme.ink.color)
+                    .lineLimit(1)
+                if let link = detail.meetingLink {
+                    HStack(spacing: 6) {
+                        Text(link)
+                            .font(theme.mono.font(size: 12))
+                            .foregroundStyle(theme.ink3.color)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                        Button { copy(link) } label: {
+                            Text(copied ? L10n.tr("copiado") : L10n.tr("copiar"))
+                                .font(theme.sans.font(size: 12, weight: .medium))
+                                .foregroundStyle(theme.accentInk.color)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .focusRing(cornerRadius: theme.modalButtonRadius)
+                    }
+                    .padding(.top, 4)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let destino = MeetingLink.destino(detail.meetingLink) {
+                Button { abreLink(destino) } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "video.fill")
+                            .font(.system(size: 15, weight: .semibold))
+                            .accessibilityHidden(true)
+                        Text(L10n.tr("Entrar"))
+                    }
+                    .font(theme.sans.font(size: 16, weight: .bold))
+                    .foregroundStyle(theme.onAccent.color)
+                    .padding(.horizontal, 26)
+                    .padding(.vertical, 15)
+                    .background(
+                        theme.accent.color,
+                        in: RoundedRectangle(
+                            cornerRadius: theme.modalButtonRadius, style: .continuous
+                        )
+                    )
+                    .shadow(theme.modalAccentGlow)
+                    .contentShape(RoundedRectangle(cornerRadius: theme.modalButtonRadius))
+                }
+                .buttonStyle(.plain)
+                .focusRing(cornerRadius: theme.modalButtonRadius, tint: \.onAccent)
+                .help(L10n.tr("Abrir a reunião no navegador"))
+                .accessibilityIdentifier("event-join")
+            }
+        }
+        .padding(.vertical, 16)
+        .padding(.horizontal, Theme.modalSide)
+        .background(
+            theme.accentSoft.color,
+            in: RoundedRectangle(cornerRadius: theme.modalFieldRadius, style: .continuous)
+        )
+        .padding(.horizontal, Theme.modalSide)
+        .padding(.top, 12)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(L10n.tr("Começa em \(texto)"))
+    }
+
+    // MARK: - Para chegar pronto
+
+    private var prepLines: [EventPrep.Line] {
+        EventPrep.lines(
+            guests: guests, messages: store.messages, me: account?.address ?? ""
+        )
+    }
+
+    /// `border: 1px solid line; border-radius: 12; margin: 14px 28px 0;
+    /// padding: 14px 16px`, com o rótulo no acento e um ponto por linha.
+    ///
+    /// Só com e-mail de verdade destas pessoas — ver `EventPrep`.
+    private var prep: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(theme.accentInk.color)
+                    .accessibilityHidden(true)
+                ModalEyebrow(text: L10n.tr("Para chegar pronto"), accented: true)
+            }
+            ForEach(prepLines) { line in
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    ModalBullet(size: 6, color: theme.liveMeeting)
+                    Text("\(line.who): \(line.what)")
+                        .font(theme.sans.font(size: 13.5))
+                        .lineSpacing(0.45 * 13.5)
+                        .foregroundStyle(theme.ink.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button { store.reveal(line.id) } label: {
+                        Text(L10n.tr("Ler"))
+                            .font(theme.sans.font(size: 13, weight: .medium))
+                            .foregroundStyle(theme.accentInk.color)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .focusRing(cornerRadius: theme.modalButtonRadius)
+                }
+            }
+        }
+        .padding(.vertical, 14)
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .overlay {
+            RoundedRectangle(cornerRadius: theme.modalFieldRadius, style: .continuous)
+                .strokeBorder(theme.modalLine.color, lineWidth: Hairline.thickness(displayScale))
+        }
+        .padding(.horizontal, Theme.modalSide)
+        .padding(.top, 14)
+    }
+
+    // MARK: - Você vai?
+
+    /// O convite ao qual se pode responder, e a resposta já dada.
+    ///
+    /// Existe **só** quando o compromisso nasceu de um convite que ainda está
+    /// na caixa: é de lá que sai o `text/calendar` com `UID` e `ORGANIZER`, e
+    /// sem eles não há `METHOD:REPLY` a enviar. Compromisso criado aqui ou
+    /// vindo do Calendário do sistema não mostra a linha — o brief pede
+    /// exatamente isso.
+    private var rsvp: (invite: CalendarInvite, message: Message, response: InviteRSVPResponse?)? {
+        guard let id = originMessageID, let message = store.message(id),
+              let invite = ReaderPane.convite(de: message),
+              store.inviteRSVPUnavailableReason(for: invite, from: message) == nil
+        else { return nil }
+        return (invite, message, store.inviteRSVPState(for: invite, from: message))
+    }
+
+    /// `border-top` e `border-bottom` de um pixel, `padding: 10px 0`, com
+    /// "Você vai?" à esquerda e os três botões à direita. O escolhido fica em
+    /// verde com borda; os outros dois, contornados.
+    private func rsvpRow(
+        _ rsvp: (invite: CalendarInvite, message: Message, response: InviteRSVPResponse?)
+    ) -> some View {
+        HStack(spacing: 12) {
+            Text(L10n.tr("Você vai?"))
+                .font(theme.sans.font(size: 13.5))
+                .foregroundStyle(theme.ink3.color)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 6) {
+                ForEach(InviteRSVPResponse.allCases, id: \.self) { response in
+                    rsvpButton(response, rsvp: rsvp)
+                }
+            }
+        }
+        .padding(.vertical, 10)
+        .hairline(theme.modalLine, edges: .top)
+        .hairline(theme.modalLine, edges: .bottom)
+        .padding(.horizontal, Theme.modalSide)
+        .padding(.top, 14)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(L10n.tr("Sua resposta ao convite"))
+    }
+
+    private func rsvpButton(
+        _ response: InviteRSVPResponse,
+        rsvp: (invite: CalendarInvite, message: Message, response: InviteRSVPResponse?)
+    ) -> some View {
+        let chosen = rsvp.response == response
+        let accepted = response == .accepted
+        return Button {
+            _ = store.respondToInvite(rsvp.invite, from: rsvp.message, response: response)
+        } label: {
+            HStack(spacing: 6) {
+                if chosen {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10, weight: .bold))
+                        .accessibilityHidden(true)
+                }
+                Text(Self.rsvpLabel(response))
+            }
+            .font(theme.sans.font(size: 13, weight: chosen ? .semibold : .medium))
+            .foregroundStyle(
+                (chosen ? (accepted ? theme.modalGreen : theme.accentInk) : theme.ink2).color
+            )
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .background(
+                chosen
+                    ? (accepted ? theme.modalGreen : theme.accent).color.opacity(0.12)
+                    : Color.clear,
+                in: RoundedRectangle(cornerRadius: theme.modalButtonRadius, style: .continuous)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: theme.modalButtonRadius, style: .continuous)
+                    .strokeBorder(
+                        chosen
+                            ? (accepted ? theme.modalGreen : theme.accent).color
+                            : theme.modalLine.color,
+                        lineWidth: Hairline.thickness(displayScale)
+                    )
+            }
+            .contentShape(RoundedRectangle(cornerRadius: theme.modalButtonRadius))
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.modalButtonRadius)
+        .accessibilityAddTraits(chosen ? [.isSelected] : [])
+    }
+
+    /// "Vou · Talvez · Não vou", como o desenho escreve — e não o "Aceitar ·
+    /// Talvez · Recusar" do cartão da Caixa. Ali a pessoa está decidindo sobre
+    /// um convite que chegou; aqui ela está olhando o compromisso dela, e a
+    /// pergunta é "você vai?".
+    nonisolated static func rsvpLabel(_ response: InviteRSVPResponse) -> String {
+        switch response {
+        case .accepted: L10n.tr("Vou")
+        case .tentative: L10n.tr("Talvez")
+        case .declined: L10n.tr("Não vou")
+        }
+    }
+
     /// Âncora do fim do modal, para o painel de encaminhar entrar na vista.
     private static let bottomAnchor = "uni.event.bottom"
 
-    /// Protótipo: `padding: 18px 20px 4px`, com a barra da conta de 3pt à esquerda.
+    /// O título: a linha do calendário, o nome em 25 e o quando.
+    ///
+    /// Protótipo: `padding: 18px 28px 0; gap: 5px`. A barra de 3pt à esquerda
+    /// saiu — no desenho dos modais a cor do calendário é o **quadradinho de
+    /// 9pt** da primeira linha, junto do nome do calendário e de quem organiza.
+    /// A barra vertical dizia a mesma coisa sem dizer de quem era.
     private func title(_ item: AgendaItem) -> some View {
-        HStack(alignment: .top, spacing: 14) {
-            RoundedRectangle(cornerRadius: 2)
-                .fill(CalendarEventChrome.bar(swatch, cancelled: item.isCancelled, theme: theme))
-                .frame(width: 3)
-            VStack(alignment: .leading, spacing: 0) {
-                if item.isCancelled {
-                    Text(L10n.tr("Cancelado"))
-                        .font(theme.mono.font(size: 8.5, weight: .medium))
-                        .tracking(theme.capsTracking(at: 8.5))
-                        .textCase(.uppercase)
-                        .foregroundStyle(theme.ink4.color)
-                        .padding(.bottom, 6)
-                }
-                CalendarEventChrome.title(item.title, cancelled: item.isCancelled)
-                    .font(theme.serif.font(size: 22, weight: .semibold))
-                    .lineSpacing(0.25 * 22)   // line-height: 1.25
-                    .foregroundStyle(item.isCancelled ? theme.ink4.color : theme.ink.color)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(DateLabels.eventDate(store.agendaDate(for: item)))
-                    .font(theme.sans.font(size: 13))
-                    .foregroundStyle(item.isCancelled ? theme.ink4.color : theme.ink.color)
-                    .padding(.top, 7)
-                Text("\(item.rangeLabel) · \(item.durationLabel) · \(RecurrenceRule.display(detail.recurrence))")
-                    .font(theme.mono.font(size: 11))
-                    .foregroundStyle(item.isCancelled ? theme.ink4.color : theme.ink3.color)
-                    .padding(.top, 3)
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(CalendarEventChrome.bar(swatch, cancelled: item.isCancelled, theme: theme))
+                    .frame(width: 9, height: 9)
+                    .accessibilityHidden(true)
+                Text(calendarLine)
+                    .font(theme.sans.font(size: 12.5))
+                    .foregroundStyle(theme.ink3.color)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            if item.isCancelled {
+                Text(L10n.tr("Cancelado"))
+                    .font(theme.mono.font(size: 8.5, weight: .medium))
+                    .tracking(theme.capsTracking(at: 8.5))
+                    .textCase(.uppercase)
+                    .foregroundStyle(theme.ink4.color)
+            }
+            CalendarEventChrome.title(item.title, cancelled: item.isCancelled)
+                .font(theme.sans.font(size: 25, weight: .bold))
+                .tracking(theme.modalTitleTracking(at: 25))
+                .foregroundStyle((item.isCancelled ? theme.ink4 : theme.ink).color)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(whenLine(item))
+                .font(theme.sans.font(size: 14.5))
+                .foregroundStyle((item.isCancelled ? theme.ink4 : theme.ink2).color)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .fixedSize(horizontal: false, vertical: true)
-        .padding(.horizontal, 20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, Theme.modalSide)
         .padding(.top, 18)
-        .padding(.bottom, 4)
+    }
+
+    /// "Aitherion · Time · organiza Marina Costa" — a conta, o aviso de
+    /// sincronia e quem organiza, numa linha.
+    private var calendarLine: String {
+        var partes: [String] = []
+        if let host = account?.host, !host.isEmpty { partes.append(host) }
+        if !detail.notice.isEmpty { partes.append(detail.notice) }
+        let organizador = detail.organizer.name
+        if !organizador.isEmpty { partes.append(L10n.tr("organiza \(organizador)")) }
+        return partes.joined(separator: " · ")
+    }
+
+    /// "Hoje · 15:00 – 16:00 · Online", com a hora em mono semibold na tinta
+    /// cheia — ela é o que se procura nesta linha.
+    private func whenLine(_ item: AgendaItem) -> AttributedString {
+        var linha = AttributedString(DateLabels.eventDate(store.agendaDate(for: item)) + " · ")
+        linha.foregroundColor = theme.ink2.color
+        var hora = AttributedString(item.rangeLabel)
+        hora.font = theme.mono.font(size: 14.5, weight: .semibold)
+        hora.foregroundColor = theme.ink.color
+        linha.append(hora)
+        var cauda = AttributedString(
+            " · " + detail.place + " · " + RecurrenceRule.display(detail.recurrence)
+        )
+        cauda.foregroundColor = theme.ink2.color
+        linha.append(cauda)
+        return linha
     }
 
     /// Protótipo: `margin: 14px 20px 0; padding: 12px 14px; background:
@@ -463,14 +727,52 @@ public struct EventWindow: View {
                         .truncationMode(.tail)
                 }
             }
-            ChromeButton(
-                copied ? L10n.tr("Link copiado ✓") : L10n.tr("Copiar link"),
-                appearance: .outlined, size: 11.5, weight: .semibold,
-                height: 28, horizontalPadding: 12
-            ) {
-                copy(link)
+            Button { copy(link) } label: {
+                Text(copied ? L10n.tr("copiado") : L10n.tr("copiar"))
+                    .font(theme.sans.font(size: 12.5, weight: .medium))
+                    .foregroundStyle(theme.accentInk.color)
+                    .fixedSize()
+                    .contentShape(Rectangle())
             }
-            .fixedSize()
+            .buttonStyle(.plain)
+            .focusRing(cornerRadius: theme.modalButtonRadius)
+
+            // **Entrar fica aqui quando não há contagem.** O desenho só mostra
+            // a janela a doze minutos da reunião, e ali o Entrar grande do
+            // bloco da contagem é a ação do momento. Numa reunião de
+            // quinta-feira esse bloco não existe — e sem este botão a janela
+            // deixaria de ter qualquer jeito de entrar, que é o defeito mais
+            // caro que esta tela já teve (ver `abreLink`).
+            //
+            // Junto do link, e não no rodapé: a ação fica onde está o endereço
+            // dela, e o rodapé continua sendo só o que abre e o que desfaz.
+            if let destino = MeetingLink.destino(link) {
+                Button { abreLink(destino) } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: "video.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                            .accessibilityHidden(true)
+                        Text(L10n.tr("Entrar"))
+                    }
+                    .font(theme.sans.font(size: 13, weight: .semibold))
+                    .foregroundStyle(theme.onAccent.color)
+                    .fixedSize()
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 9)
+                    .background(
+                        theme.accent.color,
+                        in: RoundedRectangle(
+                            cornerRadius: theme.modalButtonRadius, style: .continuous
+                        )
+                    )
+                    .shadow(theme.modalAccentGlow)
+                    .contentShape(RoundedRectangle(cornerRadius: theme.modalButtonRadius))
+                }
+                .buttonStyle(.plain)
+                .focusRing(cornerRadius: theme.modalButtonRadius, tint: \.onAccent)
+                .help(L10n.tr("Abrir a reunião no navegador"))
+                .accessibilityIdentifier("event-join")
+            }
         }
         .padding(.vertical, 12)
         .padding(.horizontal, 14)
@@ -481,7 +783,7 @@ public struct EventWindow: View {
             RoundedRectangle(cornerRadius: theme.radiusLarge)
                 .strokeBorder(theme.accentLine.color, lineWidth: Hairline.thickness(displayScale))
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Theme.modalSide)
         .padding(.top, 14)
     }
 
@@ -499,7 +801,7 @@ public struct EventWindow: View {
                 ink3: theme.ink3.color
             ))
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Theme.modalSide)
         .padding(.top, 16)
     }
 
@@ -536,12 +838,16 @@ public struct EventWindow: View {
         }
     }
 
-    /// Protótipo: `padding: 18px 20px 0`, com "Participantes · N" no topo.
+    /// Quem vai: avatar de 24, nome em 13,5 e o estado em 12,5 na cor dele.
     ///
-    /// **Nasce recolhida** — pedido do dono: oito participantes tomavam a
-    /// janela inteira e empurravam para fora da vista o quando, o onde e o
-    /// link. Recolhida, o cabeçalho conta quantos são e a lista mostra o
-    /// organizador; o clique no cabeçalho abre o resto. Ver `EventSections`.
+    /// Protótipo: `padding: 6px 28px 0`, linhas de `padding: 8px 0`. O endereço
+    /// saiu da linha — o desenho mostra nome e estado, e o endereço inteiro de
+    /// quatro pessoas era a parte que empurrava a pauta para fora da vista.
+    /// Ele continua no `help` de cada linha.
+    ///
+    /// **Nasce recolhida** — pedido do dono, de antes deste desenho: oito
+    /// participantes tomavam a janela e empurravam para fora o quando, o onde e
+    /// o link. O cabeçalho conta quantos são; o clique abre o resto.
     private var people: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionHeader(
@@ -553,83 +859,84 @@ public struct EventWindow: View {
             ) {
                 sections.toggleParticipants()
             }
-            .padding(.bottom, 9)
+            .padding(.bottom, 6)
 
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(EventSections.visibleGuests(guests, expanded: sections.participants)) { guest in
-                    HStack(spacing: 10) {
-                        Text(guest.initials)
-                            .font(theme.sans.font(size: 9.5, weight: .bold))  // 650
-                            .foregroundStyle(theme.ink2.color)
-                            .frame(width: 26, height: 26)
-                            .background(theme.surface3.color)
-                            .clipShape(Circle())
-
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(guest.name)
-                                .font(theme.sans.font(size: 12.5, weight: .medium))  // 550
-                                .foregroundStyle(theme.ink.color)
-                                .lineLimit(1)
-                            Text("\(guest.address) · \(guest.role)")
-                                .font(theme.sans.font(size: 11))
-                                .foregroundStyle(theme.ink3.color)
-                                .lineLimit(1)
-                        }
-                        Spacer(minLength: 8)
-                        statusBadge(guest.status)
-                    }
-                    .padding(.vertical, 5)
+            ForEach(EventSections.visibleGuests(guests, expanded: sections.participants)) { guest in
+                HStack(spacing: 10) {
+                    Text(guest.initials)
+                        .font(theme.sans.font(size: 10, weight: .semibold))
+                        .foregroundStyle(theme.onAccent.color)
+                        .frame(width: 24, height: 24)
+                        .background(theme.liveMeeting.color, in: Circle())
+                        .accessibilityHidden(true)
+                    Text(guest.name)
+                        .font(theme.sans.font(size: 13.5))
+                        .foregroundStyle(theme.ink.color)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text(Self.guestStatusLine(guest))
+                        .font(theme.sans.font(size: 12.5))
+                        .foregroundStyle(statusTint(guest.status).color)
+                        .lineLimit(1)
                 }
+                .padding(.vertical, 8)
+                .help("\(guest.name) · \(guest.address) · \(guest.role)")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 20)
-        .padding(.top, 18)
+        .padding(.horizontal, Theme.modalSide)
+        // O protótipo escreve `padding: 6px 28px 0` nos convidados porque
+        // logo acima deles está a linha do "Você vai?", que termina numa
+        // borda — 6 depois de uma borda é o respiro certo. Sem a linha (um
+        // compromisso que não aceita resposta), 6 cola a seção no horário: aí
+        // vale o 14 que separa todas as outras.
+        .padding(.top, rsvp == nil ? 14 : 6)
     }
 
-    private func statusBadge(_ status: EventPerson.Status) -> some View {
-        let color: Color? = switch status {
-        case .yes: SemanticColor.ok(isDark: theme.isDark)
-        case .maybe: SemanticColor.warn(isDark: theme.isDark)
-        case .pending: nil
+    /// "organiza · vai", "vai", "sem resposta" — o papel e a resposta na mesma
+    /// frase, como o desenho escreve.
+    nonisolated static func guestStatusLine(_ guest: EventPerson) -> String {
+        let resposta: String = switch guest.status {
+        case .yes: L10n.tr("vai")
+        case .maybe: L10n.tr("talvez")
+        case .pending: L10n.tr("sem resposta")
         }
-        return Text(status.label)
-            .font(theme.mono.font(size: 8.5, weight: .medium))
-            .tracking(0.08 * 8.5)   // 0.08em literal no protótipo
-            .textCase(.uppercase)
-            .foregroundStyle(color ?? theme.ink3.color)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(color.map { $0.opacity(0.14) } ?? theme.surface3.color)
-            .clipShape(RoundedRectangle(cornerRadius: 3))
-            .fixedSize()
+        let papel = guest.role.trimmingCharacters(in: .whitespaces)
+        guard !papel.isEmpty, papel.lowercased().contains("organiz") else { return resposta }
+        return L10n.tr("organiza · \(resposta)")
     }
 
+    private func statusTint(_ status: EventPerson.Status) -> TokenColor {
+        switch status {
+        case .yes: theme.modalGreen
+        case .maybe: theme.warning
+        case .pending: theme.ink3
+        }
+    }
+
+    /// A pauta, numa linha: o rótulo em `ink3` e o texto em `ink2`.
+    ///
+    /// Protótipo: `border-top` de um pixel, `padding: 10px 0 0`, 13,5 com
+    /// `line-height: 1.5`. Era uma seção com marcadores e um cabeçalho
+    /// próprio; o desenho a põe como a última linha da lista de participantes,
+    /// que é onde ela é lida — depois de saber quem vai.
     private var agenda: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            SectionHeader(title: L10n.tr("Pauta"))
-                .padding(.bottom, 8)
-
-            VStack(alignment: .leading, spacing: 6) {
-                ForEach(Array(detail.agenda.enumerated()), id: \.offset) { _, line in
-                    HStack(alignment: .top, spacing: 9) {
-                        Circle()
-                            .fill(theme.ink4.color)
-                            .frame(width: 4, height: 4)
-                            .padding(.top, 7)
-                        Text(line)
-                            .font(theme.sans.font(size: 13))
-                            .lineSpacing(0.45 * 13)   // line-height: 1.45
-                            .foregroundStyle(theme.ink.color)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: 0)
-                    }
-                }
-            }
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(L10n.tr("Pauta"))
+                .font(theme.sans.font(size: 13.5))
+                .foregroundStyle(theme.ink3.color)
+                .fixedSize()
+            Text(detail.agenda.joined(separator: " "))
+                .font(theme.sans.font(size: 13.5))
+                .lineSpacing(0.5 * 13.5)
+                .foregroundStyle(theme.ink2.color)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 20)
-        .padding(.top, 18)
+        .padding(.top, 10)
+        .hairline(theme.modalLine, edges: .top)
+        .padding(.horizontal, Theme.modalSide)
+        .padding(.top, 4)
     }
 
     /// A `DESCRIPTION` do convite, inteira, no mesmo bloco da pauta.
@@ -650,8 +957,8 @@ public struct EventWindow: View {
                 .textSelection(.enabled)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 20)
-        .padding(.top, 18)
+        .padding(.horizontal, Theme.modalSide)
+        .padding(.top, 14)
     }
 
     /// Protótipo: `border-left: 0.5px solid var(--line); padding-left: 14px`.
@@ -688,8 +995,8 @@ public struct EventWindow: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 20)
-        .padding(.top, 18)
+        .padding(.horizontal, Theme.modalSide)
+        .padding(.top, 14)
         .padding(.bottom, 20)
     }
 
@@ -944,8 +1251,8 @@ public struct EventWindow: View {
                 .strokeBorder(theme.accent.color, lineWidth: Hairline.thickness(displayScale))
         }
         .shadow(color: .black.opacity(0.10), radius: 9, x: 0, y: 6)
-        .padding(.horizontal, 20)
-        .padding(.top, 18)
+        .padding(.horizontal, Theme.modalSide)
+        .padding(.top, 14)
     }
 
     private var forwardConfirmation: some View {
@@ -966,13 +1273,17 @@ public struct EventWindow: View {
             RoundedRectangle(cornerRadius: theme.radiusLarge)
                 .strokeBorder(theme.accentLine.color, lineWidth: Hairline.thickness(displayScale))
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, Theme.modalSide)
         .padding(.top, 18)
     }
 
     /// Protótipo: `padding: 16px 20px 20px`, cartão em `surface2`.
+    @ViewBuilder
     private var originNote: some View {
-        Text(detail.note)
+        // Sem nota não há cartão: com `detail.note` vazio ele saía como um
+        // retângulo de borda arredondada e nada dentro, embaixo da pauta.
+        if !detail.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            Text(detail.note)
             .font(theme.sans.font(size: 12.5))
             .lineSpacing(0.5 * 12.5)   // line-height: 1.5
             .foregroundStyle(theme.ink2.color)
@@ -986,109 +1297,119 @@ public struct EventWindow: View {
                 RoundedRectangle(cornerRadius: theme.radiusLarge)
                     .strokeBorder(theme.line2.color, lineWidth: Hairline.thickness(displayScale))
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
+            .padding(.horizontal, Theme.modalSide)
+            .padding(.top, 14)
             .padding(.bottom, 20)
+        }
     }
 
-    /// Protótipo: `padding: 12px 18px 15px`, botões de 30pt.
+    /// O rodapé: **links**, não botões.
+    ///
+    /// Protótipo: `padding: 14px 28px 18px`, a linha de um pixel em cima,
+    /// `font-size: 13`. À esquerda o que abre coisas ("Abrir o e-mail que
+    /// gerou", "Encaminhar convite"), à direita o destrutivo em vermelho com a
+    /// consequência escrita ao lado: "Cancelar reunião · avisa todos".
+    ///
+    /// Eram seis pastilhas numa barra de `surface2`, "Entrar" entre elas, e um
+    /// `×` no canto. Duas coisas mudaram de lugar e ficaram melhores: **Entrar**
+    /// subiu para o bloco da contagem, onde é a ação do momento, e **fechar**
+    /// voltou a ser o semáforo vermelho da janela, que é onde o macOS o põe.
     private var footer: some View {
-        HStack(spacing: 8) {
-            // **"Entrar" abre a reunião.** Ele chamava `UNIWindow.logSend` —
-            // uma linha no console e nada na tela —, e era o controle mudo mais
-            // caro do app: o botão em destaque da janela, apertado em cima da
-            // hora, sem nada acontecendo.
-            //
-            // Sem link de sala o botão **não existe**, como o protótipo desenha
-            // (`sc-if ev.hasLink`) e como o resto do app faz quando não há para
-            // onde ir. Quem decide é `MeetingLink.destino`, o mesmo do cartão
-            // acima: um "link" que não se abre no navegador não acende botão.
-            if let destino = MeetingLink.destino(detail.meetingLink) {
-                ChromeButton(
-                    L10n.tr("Entrar"), appearance: .enter, size: 12.5, weight: .semibold,
-                    height: 30, horizontalPadding: 16
-                ) {
-                    abreLink(destino)
-                }
-                .help(L10n.tr("Abrir a reunião no navegador"))
-            }
-            ChromeButton(
-                L10n.tr("Encaminhar"),
-                appearance: forwardOpen ? .outlinedOn : .outlined,
-                height: 30
-            ) {
-                forwardOpen.toggle()
-                if forwardOpen { forwardSent = false }
-            }
-            .help(L10n.tr("Encaminhar o convite para outras pessoas"))
-
-            if canCancelMeeting {
-                ChromeButton(
-                    cancelling ? L10n.tr("Cancelando…") : L10n.tr("Cancelar"),
-                    appearance: .remove,
-                    height: 30
-                ) {
-                    confirm = .cancelMeeting
-                }
-                .disabled(cancelling)
-                .help(L10n.tr("Cancelar a reunião, avisar os convidados e tirar da agenda"))
-            } else if canRemoveFromCalendar {
-                ChromeButton(
-                    L10n.tr("Remover"),
-                    appearance: .remove,
-                    height: 30
-                ) {
-                    confirm = .removeFromCalendar
-                }
-                .help(L10n.tr("Tirar este compromisso do calendário"))
-            }
-
-            // "Email" leva ao mesmo lugar que "Ir para o email de origem" dos
-            // menus de contexto: `MailStore.reveal` desfaz o filtro, a caixa e
-            // a busca que escondem a mensagem e a seleciona na janela
-            // principal. Sem mensagem casada o botão apaga com o motivo no
-            // `help` — controle que existe faz alguma coisa, e recusa muda é o
-            // mesmo defeito de outra cor.
-            //
-            // O botão "Reagendar" **foi removido**: não há edição de agenda
-            // neste marco, e um botão que abre uma tela inexistente é pior que
-            // a ausência dele. Volta no Marco 4, com o EventKit.
-            if detail.hasThread {
-                ChromeButton(
-                    "Email",
-                    appearance: originMessageID == nil ? .muted : .outlined,
-                    height: 30, horizontalPadding: 13
-                ) {
+        // `FlowLayout`, e não `HStack`: em alemão e francês os três rótulos não
+        // cabem em 640 numa linha só, e cortar um deles é o que o desenho
+        // proíbe. Eles descem para a segunda linha e continuam legíveis.
+        // `frame(maxWidth: .infinity)` antes da linha: o `FlowLayout` mede o
+        // que os links ocupam, e a hairline desenhada sobre ele parava em
+        // x=565 em vez de atravessar a janela.
+        FlowLayout(spacing: 18, rowSpacing: 10) {
+            if detail.hasThread || originMessageID != nil {
+                footerLink(L10n.tr("Abrir o e-mail"), enabled: originMessageID != nil) {
                     revealOriginMessage()
                 }
-                .disabled(originMessageID == nil)
                 .help(
                     originMessageID == nil
                         ? L10n.tr("O email que gerou este compromisso não está mais na caixa")
                         : L10n.tr("Mostrar na janela principal o email que gerou este compromisso")
                 )
             }
+            footerLink(L10n.tr("Encaminhar convite"), accented: !forwardOpen) {
+                forwardOpen.toggle()
+                if forwardOpen { forwardSent = false }
+            }
+            .help(L10n.tr("Encaminhar o convite para outras pessoas"))
 
-            Spacer(minLength: 8)
-            // Só o ×, mas com a mesma pastilha dos vizinhos: o glifo solto
-            // no fundo do rodapé sumia. "Fechar" escrito ao lado de "Cancelar"
-            // lia como fechar o modal — o ícone não.
-            ChromeButton(
-                "×",
-                appearance: .outlined,
-                size: 16,
-                weight: .medium,
-                height: 30,
-                horizontalPadding: 9
-            ) { dismiss() }
-            .help(L10n.tr("Fechar esta janela"))
-            .accessibilityLabel(L10n.tr("Fechar"))
+            if canCancelMeeting {
+                destructiveLink(
+                    cancelling ? L10n.tr("Cancelando…") : L10n.tr("Cancelar reunião"),
+                    note: L10n.tr("avisa todos")
+                ) { confirm = .cancelMeeting }
+                .disabled(cancelling)
+                .help(L10n.tr("Cancelar a reunião, avisar os convidados e tirar da agenda"))
+            } else if canRemoveFromCalendar {
+                destructiveLink(
+                    L10n.tr("Remover do calendário"), note: L10n.tr("ninguém é avisado")
+                ) { confirm = .removeFromCalendar }
+                .help(L10n.tr("Tirar este compromisso do calendário"))
+            }
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 12)
-        .padding(.bottom, 15)
-        .background(theme.surface2.color)
-        .hairline(theme.line2, edges: .top)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 14)
+        .padding(.horizontal, Theme.modalSide)
+        .padding(.bottom, 18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .hairline(theme.modalLine, edges: .top)
+    }
+
+    private func footerLink(
+        _ title: String, enabled: Bool = true, accented: Bool = true,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(theme.sans.font(size: 13, weight: .medium))
+                .foregroundStyle((enabled ? (accented ? theme.accentInk : theme.ink2) : theme.ink4).color)
+                .lineLimit(1)
+                // Rótulo de ação **não corta**: "Abrir o e-mail que g…" não é
+                // uma ação, é um enigma. Quem cede sob aperto é a folga entre
+                // os links, e por isso o rodapé quebra em duas linhas em vez
+                // de encolher qualquer um deles.
+                .fixedSize()
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .focusRing(cornerRadius: theme.modalButtonRadius)
+    }
+
+    /// O destrutivo com a consequência ao lado, em `ink3` e peso normal: o que
+    /// o clique faz **aos outros** não cabe num rótulo de botão, e sem isso
+    /// "Cancelar" num rodapé lê como fechar a janela.
+    private func destructiveLink(
+        _ title: String, note: String, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(destructiveText(title, note: note))
+                .lineLimit(1)
+                // O destrutivo não cede: cortado, "Remover do calendário ·
+                // ninguém é avi…" esconde justamente a consequência, que é a
+                // razão de a frase existir.
+                .fixedSize()
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .focusRing(cornerRadius: theme.modalButtonRadius)
+        .accessibilityLabel("\(title) — \(note)")
+    }
+
+    private func destructiveText(_ title: String, note: String) -> AttributedString {
+        var linha = AttributedString(title)
+        linha.font = theme.sans.font(size: 13, weight: .medium)
+        linha.foregroundColor = theme.modalRed.color
+        var cauda = AttributedString(" · " + note)
+        cauda.font = theme.sans.font(size: 13)
+        cauda.foregroundColor = theme.ink3.color
+        linha.append(cauda)
+        return linha
     }
 
     // MARK: - Encaminhar o convite
@@ -1294,17 +1615,20 @@ private struct SectionHeader: View {
         }
     }
 
+    /// O mesmo rótulo de "PARA CHEGAR PRONTO": sans de 12 em semibold, caixa
+    /// alta, `letter-spacing: 0.04em`.
+    ///
+    /// Era mono de 8,5 em `ink4` — o idioma dos 26 temas opacos, de antes
+    /// deste desenho. Ao lado do bloco de preparo ele lia como legenda de
+    /// rodapé, não como título de seção, e foi assim que "PARTICIPANTES · 1"
+    /// virou um detalhe miúdo no meio da janela.
     private func row(expanded: Bool?) -> some View {
         HStack(spacing: 7) {
-            Text(title)
-                .font(theme.mono.font(size: 8.5, weight: .medium))
-                .tracking(theme.capsTracking(at: 8.5))
-                .textCase(.uppercase)
-                .foregroundStyle(hovering ? theme.ink3.color : theme.ink4.color)
+            ModalEyebrow(text: title)
             if let expanded {
-                Text(expanded ? "▾" : "▸")
-                    .font(theme.mono.font(size: 8.5))
-                    .foregroundStyle(hovering ? theme.ink3.color : theme.ink4.color)
+                Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle((hovering ? theme.ink2 : theme.ink3).color)
             }
             Spacer(minLength: 0)
         }

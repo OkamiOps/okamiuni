@@ -295,10 +295,24 @@ public struct InboxScreen: View {
         // opacos sobre o `paper` deles (ver `PanelStyle.opaque(for:)`).
         shell
         .environment(receipts)
-        .alert(L10n.tr("Não foi possível preparar a resposta"), isPresented: Binding(
-            get: { assistantActionFailure != nil }, set: { if !$0 { assistantActionFailure = nil } }
-        )) { Button(L10n.tr("OK")) { assistantActionFailure = nil } }
-        message: { Text(assistantActionFailure ?? "") }
+        // O aviso é a peça do app (`UNIConfirmation`), e não o `.alert` do
+        // sistema: ele não vira com o tema e punha um terceiro idioma de
+        // diálogo nesta tela. Uma ação só — não há o que escolher aqui —, e
+        // por isso ela sai no acento em vez do vermelho.
+        .uniConfirmation(
+            assistantActionFailure.map {
+                UNIConfirmationText(
+                    title: L10n.tr("Não foi possível preparar a resposta"),
+                    detail: $0,
+                    confirm: L10n.tr("Entendi"),
+                    cancel: L10n.tr("Fechar"),
+                    icon: "exclamationmark.triangle",
+                    isDestructive: false
+                )
+            },
+            onConfirm: { assistantActionFailure = nil },
+            onCancel: { assistantActionFailure = nil }
+        )
         // A janela destacada clica no **mesmo** executor da gaveta: ela não
         // tem store nem fila, e um segundo caminho lá divergiria daqui.
         .task {

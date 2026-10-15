@@ -44,30 +44,31 @@ public enum AccountsDocs {
     }
 }
 
-/// Endereço → rota → OAuth ou formulário IMAP.
+/// Endereço → rota → OAuth ou formulário IMAP, na anatomia dos modais.
 ///
-/// ## De onde vêm os números
+/// ## O desenho
 ///
-/// Como a lista, **este formulário não tem protótipo**, e o design não tem
-/// campo de formulário nenhum para copiar: o que a 06 chama de campo é uma
-/// calha de 24pt dentro de uma linha de texto (`RecipientField`), não uma caixa
-/// que se preenche.
+/// Protótipo: `ModalContas.dc.html`, bloco "ADICIONAR CONTA". Folha de 500,
+/// cabeçalho "Adicionar conta" com **uma** linha de apoio que muda com a rota,
+/// o endereço num campo de 15 com o provedor detectado à direita, e logo
+/// abaixo **os três passos do caminho**, à vista antes do primeiro clique.
 ///
-/// O que é herdado: o `padding(20)` da caixa e o `spacing: 12` entre os blocos
-/// são o recuo de corpo da 04 (`EventWindow`, linha 176) e o respiro entre os
-/// blocos dela; os corpos 12,5pt sans (valor) e 11,5pt (apoio) são os mesmos da
-/// lista de contas e da 04; o `ComposerSelect` é o dropdown do design, e não um
-/// `Picker` do sistema.
+/// A rota decide o resto: no Google, um botão só e a frase de que a senha
+/// nunca passa pelo OkamiUNI; no IMAP, servidor/porta/senha e a trilha do
+/// teste acontecendo dentro da folha, com "nada fica salvo se falhar" dito no
+/// rodapé e não depois do erro.
 ///
-/// O que é **desta tela, e não veio de lugar nenhum**: os 32pt de altura do
-/// campo e os 10pt de recuo interno dele. Uma caixa de formulário precisa ser
-/// maior que a calha de 24 da 06, que vive apertada dentro de uma linha; 32 é o
-/// menor valor em que o campo e o `ComposerSelect` ao lado ficam da mesma
-/// altura. Fica registrado como escolha, não como medida do design.
+/// O formulário antigo tinha os mesmos campos numa pilha rotulada em
+/// versalete, sem caminho e sem trilha: ele dizia **o que** preencher e nunca
+/// **onde a pessoa estava**.
 public struct AddAccountForm: View {
     @Environment(\.theme) private var theme
 
     private let model: AccountsModel
+    /// Quem fecha a folha. Nulo quando ela está embutida numa coluna que já
+    /// tem a própria saída — é o caso da janela de Contas, que a desenha
+    /// inteira no detalhe. Sem isto, "Cancelar" seria um botão sem resposta.
+    private let onClose: (() -> Void)?
 
     @State private var address: String
     @State private var password = ""
@@ -75,6 +76,7 @@ public struct AddAccountForm: View {
     @State private var port: String
     @State private var security: ImapEndpoint.Security
     @State private var testado: Bool?
+    @State private var testando = false
 
     /// `initialAddress` existe para o formulário ser **dirigível**: o harness
     /// desenha fora da tela e não digita, e o ensaio do app (`--ensaiar-contas`)
@@ -83,13 +85,16 @@ public struct AddAccountForm: View {
     ///
     /// `initialHost` é a mesma porta, pela mesma razão, para o único estado que
     /// o endereço não alcança: a nota do endereço numérico depende do que está
-    /// no campo de **host**, e a rota nunca sugere um IP. Nulo — o caso normal,
-    /// e o que a janela usa — deixa o palpite da rota falar.
-    public init(model: AccountsModel, initialAddress: String = "", initialHost: String? = nil) {
+    /// no campo de **host**, e a rota nunca sugere um IP.
+    public init(
+        model: AccountsModel,
+        initialAddress: String = "",
+        initialHost: String? = nil,
+        onClose: (() -> Void)? = nil
+    ) {
         self.model = model
+        self.onClose = onClose
         _address = State(initialValue: initialAddress)
-        // Os campos nascem já preenchidos pela rota, pela mesma razão que
-        // `preenche(_:)` os preenche a cada tecla: palpite, não veredito.
         let palpite = Self.route(for: initialAddress)
         _host = State(initialValue: initialHost ?? Self.host(of: palpite))
         _port = State(initialValue: Self.port(of: palpite))
@@ -130,177 +135,212 @@ public struct AddAccountForm: View {
         security = .tls
     }
 
+    private var isGoogle: Bool {
+        if case .google = route { return true }
+        return false
+    }
+
+    private var isImap: Bool {
+        switch route {
+        case .imap, .manual: true
+        case .google, .none: false
+        }
+    }
+
     public var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(L10n.tr("ADICIONAR CONTA")).capsLabel()
+        VStack(alignment: .leading, spacing: 0) {
+            ModalHeader(
+                title: L10n.tr("Adicionar conta"),
+                subtitle: subtitle
+            )
+            body(of: route)
+            footer
+        }
+        .frame(width: Theme.ModalWidth.accountSheet)
+        .modalSurface()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(L10n.tr("Adicionar conta"))
+    }
 
-            TextField(L10n.tr("endereço@qualquerdominio.com"), text: $address)
-                .textFieldStyle(.plain)
-                .font(theme.sans.font(size: 12.5))
-                .foregroundStyle(theme.ink.color)
-                .padding(.horizontal, 10)
-                .frame(height: 32)
-                .background(theme.surface2.color, in: RoundedRectangle(cornerRadius: theme.radiusSmall))
-                .onChange(of: address) { _, novo in preenche(novo) }
+    /// A frase de apoio do cabeçalho — uma só, e ela muda com a rota, que é o
+    /// que o protótipo faz (`subtitulo`).
+    private var subtitle: String {
+        if isGoogle { return L10n.tr("Digite o endereço. O caminho aparece aqui embaixo.") }
+        if isImap { return L10n.tr("Servidor próprio: três campos e um teste.") }
+        return L10n.tr("Digite o endereço. O caminho aparece aqui embaixo.")
+    }
 
-            switch route {
-            case .none:
-                Text(L10n.tr("Digite o endereço da conta."))
-                    .font(theme.sans.font(size: 11.5))
-                    .foregroundStyle(theme.ink4.color)
-
-            case .google:
-                Text(L10n.tr("Conta do Google: a autorização abre no navegador."))
-                    .font(theme.sans.font(size: 11.5))
-                    .foregroundStyle(theme.ink3.color)
-                Button(L10n.tr("Autorizar no Google")) {
-                    Task { await model.addGoogle(address: address) }
-                }
-                .buttonStyle(.plain)
-                .font(theme.sans.font(size: 12, weight: .medium))
-                .foregroundStyle(theme.accent.color)
-                .disabled(model.isBusy)
-                // Desabilitado diz por quê — a regra do Marco 1, inteira.
-                .help(model.isBusy
-                    ? L10n.tr("Há outra ação em curso; ela termina em instantes.")
-                    : L10n.tr("Abrir o consentimento do Google para \(address)"))
-                .focusRing(cornerRadius: theme.radiusSmall)
-
-                // A saída sem console: o Gmail também fala IMAP com senha de
-                // app (verificação em duas etapas ligada). É o caminho de quem
-                // não quer registrar um OAuth Client — dois minutos em
-                // myaccount.google.com/apppasswords, nenhum projeto no Google
-                // Cloud. O OAuth continua sendo o melhor sync (histórico
-                // incremental); a escolha é da pessoa, não nossa.
-                Button(L10n.tr("Ou conectar por IMAP com senha de app")) {
-                    forceImapForGoogle()
-                }
-                .buttonStyle(.plain)
-                .font(theme.sans.font(size: 11.5))
-                .foregroundStyle(theme.ink3.color)
-                .help("""
-                    Sem registro no Google Cloud: crie uma senha de app em \
-                    myaccount.google.com/apppasswords (exige verificação em \
-                    duas etapas) e conecte como qualquer conta IMAP.
-                    """)
-                .focusRing(cornerRadius: theme.radiusSmall)
-
-            case .imap, .manual:
-                imapFields
-            }
-
-            if let erro = model.lastError {
-                // Erro nunca engolido: a causa e a ação, sempre.
-                HStack(spacing: 8) {
-                    Text(erro.mensagem)
-                        .font(theme.sans.font(size: 11.5))
-                        .foregroundStyle(theme.accent.color)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if case .semClientID = erro {
-                        Button(L10n.tr("Ver o roteiro")) {
-                            AccountsDocs.open(AccountsDocs.oauthGoogle)
-                        }
-                        .buttonStyle(.plain)
-                        .font(theme.sans.font(size: 11.5, weight: .medium))
-                        .foregroundStyle(theme.accent.color)
-                        .disabled(AccountsDocs.url(AccountsDocs.oauthGoogle) == nil)
-                        .help(AccountsDocs.url(AccountsDocs.oauthGoogle) == nil
-                            ? L10n.tr("Este aplicativo não trouxe o roteiro; ele está em docs/oauth-google.md, no repositório.")
-                            : L10n.tr("Abrir docs/oauth-google.md, que diz o que falta"))
-                        .focusRing(cornerRadius: theme.radiusSmall)
-                    }
-                }
-            } else if testado == true {
-                Text(L10n.tr("Conexão testada com sucesso."))
-                    .font(theme.sans.font(size: 11.5))
-                    .foregroundStyle(theme.ink3.color)
-            }
-
-            // A nota do endereço numérico, no bloco de recado — junto do erro e
-            // do "testada com sucesso", que é onde já mora tudo o que a janela
-            // tem a dizer **sobre esta tentativa**. É disso que ela fala: do que
-            // vai acontecer quando o botão for apertado.
+    /// `padding: 18px 28px 0; gap: 16px`.
+    @ViewBuilder
+    private func body(of route: ProviderRoute?) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            addressField
+            AccountPathSteps(steps: pathSteps)
+            if isGoogle { googleRoute }
+            if isImap { imapRoute }
+            if let erro = model.lastError { errorLine(erro) }
             if mostraNotaDoEnderecoNumerico { notaDoEnderecoNumerico }
         }
-        .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(theme.surface.color)
+        .padding(.top, 18)
+        .padding(.horizontal, Theme.modalSide)
     }
 
-    /// A nota só faz sentido na rota que tem campo de host: na rota Google não
-    /// há host nenhum para ser numérico.
-    private var mostraNotaDoEnderecoNumerico: Bool {
+    /// O endereço, com o provedor detectado à direita: ponto de 7 e o nome em
+    /// 12. Em foco (a rota Google, que é onde o desenho o mostra) com a borda
+    /// de 1,5 e o anel de 4.
+    private var addressField: some View {
+        HStack(spacing: 10) {
+            TextField(L10n.tr("endereço@qualquerdominio.com"), text: $address)
+                .textFieldStyle(.plain)
+                .font(theme.sans.font(size: 15))
+                .foregroundStyle(theme.ink.color)
+                .onChange(of: address) { _, novo in preenche(novo) }
+                .accessibilityLabel(L10n.tr("Endereço da conta"))
+            if let provider = providerLabel {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(providerTint.color)
+                        .frame(width: 7, height: 7)
+                        .accessibilityHidden(true)
+                    Text(provider)
+                        .font(theme.sans.font(size: 12))
+                        .foregroundStyle(providerTint.color)
+                        .lineLimit(1)
+                }
+            }
+        }
+        .modalFieldBox(focused: isGoogle)
+    }
+
+    private var providerLabel: String? {
         switch route {
-        case .imap, .manual: ImapEndpoint.ehIPLiteral(host)
-        case .none, .google: false
+        case .google: L10n.tr("Google Workspace")
+        case .imap(let preset): preset.name
+        case .manual: L10n.tr("IMAP")
+        case .none: nil
         }
     }
 
-    /// Ela **não** impede nada. Servidor interno acessível só por endereço
-    /// existe, e recusá-lo trocaria um enfraquecimento por uma impossibilidade.
-    /// O que ela impede é o enfraquecimento acontecer em silêncio: o SNI do TLS
-    /// não aceita IP, e sem SNI o NIOSSL valida a cadeia mas não confere se o
-    /// certificado é **deste** servidor.
-    ///
-    /// Quem decide se o host é literal é a mesma função que a sessão usa
-    /// (`ImapEndpoint.ehIPLiteral`): escritas em dois lugares, as duas
-    /// divergiriam, e a nota apareceria onde não há perda ou — pior — faltaria
-    /// onde há.
-    private var notaDoEnderecoNumerico: some View {
-        Text(L10n.tr("Endereço numérico: o certificado do servidor não é conferido pelo nome."))
-            .font(theme.sans.font(size: 11))
-            .foregroundStyle(theme.ink3.color)
-            .fixedSize(horizontal: false, vertical: true)
-            .help("""
-                O SNI do TLS não aceita endereço numérico, então o app não tem \
-                contra que nome conferir o certificado. A cadeia continua validada. \
-                Prefira o nome do servidor quando ele existir.
-                """)
+    private var providerTint: TokenColor { isGoogle ? theme.modalGreen : theme.ink3 }
+
+    /// Os três passos, pela rota e pelo estado do teste.
+    private var pathSteps: [AccountPathSteps.Step] {
+        if isGoogle {
+            return [
+                .init(id: 1, label: L10n.tr("Autorizar no navegador"), state: .now),
+                .init(id: 2, label: L10n.tr("De volta ao app"), state: .waiting),
+                .init(id: 3, label: L10n.tr("Sincronizando"), state: .waiting),
+            ]
+        }
+        let preenchido = isImap && !password.isEmpty && endpoint != nil
+        return [
+            .init(id: 1, label: L10n.tr("Preencher IMAP"), state: preenchido ? .done : .now),
+            .init(
+                id: 2, label: L10n.tr("Testar conexão"),
+                state: testando ? .now : (testado == true ? .done : (preenchido ? .now : .waiting))
+            ),
+            .init(
+                id: 3, label: L10n.tr("Sincronizando"),
+                state: testado == true ? .now : .waiting
+            ),
+        ]
     }
+
+    // MARK: - Google: um botão
+
+    private var googleRoute: some View {
+        VStack(spacing: 16) {
+            Button {
+                Task { await model.addGoogle(address: address) }
+            } label: {
+                HStack(spacing: 10) {
+                    Text(L10n.tr("Autorizar no Google"))
+                    Image(systemName: "arrow.up.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .accessibilityHidden(true)
+                }
+                .font(theme.sans.font(size: 14.5, weight: .semibold))
+                .foregroundStyle(theme.onAccent.color)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 13)
+                .background(
+                    theme.accent.color,
+                    in: RoundedRectangle(cornerRadius: theme.modalFieldRadius, style: .continuous)
+                )
+                .shadow(theme.modalAccentGlow)
+                .contentShape(RoundedRectangle(cornerRadius: theme.modalFieldRadius))
+            }
+            .buttonStyle(.plain)
+            .disabled(model.isBusy)
+            .focusRing(cornerRadius: theme.modalFieldRadius, tint: \.onAccent)
+            .help(model.isBusy
+                ? L10n.tr("Há outra ação em curso; ela termina em instantes.")
+                : L10n.tr("Abrir o consentimento do Google para \(address)"))
+
+            Text(L10n.tr("A autorização abre no navegador e você volta sozinho para cá. A senha nunca passa pelo OkamiUNI."))
+                .font(theme.sans.font(size: 13))
+                .lineSpacing(0.5 * 13)
+                .foregroundStyle(theme.ink3.color)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    // MARK: - IMAP: três campos e o teste
 
     @ViewBuilder
-    private var imapFields: some View {
-        SecureField(L10n.tr("senha de app"), text: $password)
-            .textFieldStyle(.plain)
-            .font(theme.sans.font(size: 12.5))
-            .foregroundStyle(theme.ink.color)
-            .padding(.horizontal, 10)
-            .frame(height: 32)
-            .background(theme.surface2.color, in: RoundedRectangle(cornerRadius: theme.radiusSmall))
-
-        Button(L10n.tr("O que é uma senha de app?")) {
-            AccountsDocs.open(AccountsDocs.senhaDeApp)
+    private var imapRoute: some View {
+        HStack(alignment: .bottom, spacing: 10) {
+            labelledField(L10n.tr("Servidor IMAP")) {
+                TextField("imap.servidor.com", text: $host)
+                    .textFieldStyle(.plain)
+                    .font(theme.mono.font(size: 13.5))
+                    .foregroundStyle(theme.ink.color)
+                    .accessibilityLabel(L10n.tr("Servidor IMAP"))
+            }
+            labelledField(L10n.tr("Porta · TLS")) {
+                TextField("993", text: $port)
+                    .textFieldStyle(.plain)
+                    .font(theme.mono.font(size: 13.5))
+                    .foregroundStyle(theme.ink.color)
+                    .accessibilityLabel(L10n.tr("Porta"))
+            }
+            .frame(width: 96)
         }
-        .buttonStyle(.plain)
-        .font(theme.sans.font(size: 11))
-        .foregroundStyle(theme.ink4.color)
-        .disabled(AccountsDocs.url(AccountsDocs.senhaDeApp) == nil)
-        .help(AccountsDocs.url(AccountsDocs.senhaDeApp) == nil
-            ? L10n.tr("Este aplicativo não trouxe a explicação; ela está em docs/senha-de-app.md, no repositório.")
-            : L10n.tr("Provedores com verificação em duas etapas recusam a senha da conta; a senha de app é a que o IMAP aceita."))
-        .focusRing(cornerRadius: theme.radiusSmall)
 
-        HStack(spacing: 8) {
-            TextField("imap.servidor.com", text: $host)
-                .textFieldStyle(.plain)
+        labelledField(L10n.tr("Senha de app")) {
+            HStack(spacing: 10) {
+                SecureField(L10n.tr("senha de app"), text: $password)
+                    .textFieldStyle(.plain)
+                    .font(theme.mono.font(size: 13.5))
+                    .foregroundStyle(theme.ink.color)
+                    .accessibilityLabel(L10n.tr("Senha de app"))
+                whatIsThis
+            }
+        }
+
+        if testando || testado != nil || model.lastError != nil {
+            ImapTestTrailView(
+                steps: ImapTestTrail.steps(
+                    running: testando, passed: testado, error: model.lastError
+                )
+            )
+            Text(L10n.tr("Se o teste falhar, nada fica salvo."))
                 .font(theme.sans.font(size: 12.5))
-                .foregroundStyle(theme.ink.color)
-                .padding(.horizontal, 10)
-                .frame(height: 32)
-                .background(theme.surface2.color, in: RoundedRectangle(cornerRadius: theme.radiusSmall))
-            TextField("993", text: $port)
-                .textFieldStyle(.plain)
-                .font(theme.mono.font(size: 12))
-                .foregroundStyle(theme.ink.color)
-                .frame(width: 64, height: 32)
-                .padding(.horizontal, 8)
-                .background(theme.surface2.color, in: RoundedRectangle(cornerRadius: theme.radiusSmall))
-            // O mesmo dropdown do design, e não um `Picker` do sistema — a
-            // regra que `ComposerSelect` existe para cumprir.
+                .foregroundStyle(theme.ink3.color)
+                .frame(maxWidth: .infinity)
+        }
+
+        // A escolha de TLS não cabe na linha do desenho (ele escreve "Porta ·
+        // TLS" e mostra 993), e some se ficar implícita: STARTTLS em 143 é
+        // caminho real de servidor próprio. Fica como linha discreta embaixo.
+        HStack(spacing: 8) {
             ComposerSelect(
                 title: L10n.tr("Forma de TLS"),
                 selected: security.rawValue,
-                width: 108,
+                width: 150,
                 groups: [.init(title: nil, options: [
                     .init(value: ImapEndpoint.Security.tls.rawValue, label: "TLS (993)"),
                     .init(value: ImapEndpoint.Security.startTLS.rawValue, label: "STARTTLS (143)"),
@@ -310,28 +350,147 @@ public struct AddAccountForm: View {
                     port = security == .tls ? "993" : "143"
                 }
             )
+            Spacer(minLength: 0)
         }
+    }
 
-        HStack(spacing: 10) {
-            Button(L10n.tr("Testar e adicionar")) {
-                Task {
-                    guard let endpoint else { return }
-                    testado = await model.testImap(address: address, password: password, endpoint: endpoint)
-                    guard testado == true else { return }
-                    await model.addImap(
-                        address: address, password: password, endpoint: endpoint,
-                        hostMark: marca, displayName: address
-                    )
+    /// `label` de 12 semibold em `ink3` com o campo embaixo — o par do
+    /// protótipo (`<label>` com `flex-direction: column; gap: 5px`).
+    private func labelledField(
+        _ label: String, @ViewBuilder content: () -> some View
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(label)
+                .font(theme.sans.font(size: 12, weight: .semibold))
+                .foregroundStyle(theme.ink3.color)
+            content()
+                .modalFieldBox(verticalPadding: 10, horizontalPadding: 12)
+        }
+    }
+
+    private var whatIsThis: some View {
+        Button { AccountsDocs.open(AccountsDocs.senhaDeApp) } label: {
+            Text(L10n.tr("O que é isso?"))
+                .font(theme.sans.font(size: 12, weight: .medium))
+                .foregroundStyle(theme.accentInk.color)
+                .lineLimit(1)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(AccountsDocs.url(AccountsDocs.senhaDeApp) == nil)
+        .help(AccountsDocs.url(AccountsDocs.senhaDeApp) == nil
+            ? L10n.tr("Este aplicativo não trouxe a explicação; ela está em docs/senha-de-app.md, no repositório.")
+            : L10n.tr("Provedores com verificação em duas etapas recusam a senha da conta; a senha de app é a que o IMAP aceita."))
+        .focusRing(cornerRadius: theme.modalButtonRadius)
+    }
+
+    // MARK: - Recados
+
+    private func errorLine(_ erro: SyncError) -> some View {
+        HStack(spacing: 8) {
+            Text(erro.mensagem)
+                .font(theme.sans.font(size: 12.5))
+                .foregroundStyle(theme.danger.color)
+                .fixedSize(horizontal: false, vertical: true)
+            if case .semClientID = erro {
+                Button { AccountsDocs.open(AccountsDocs.oauthGoogle) } label: {
+                    Text(L10n.tr("Ver o roteiro"))
+                        .font(theme.sans.font(size: 12.5, weight: .medium))
+                        .foregroundStyle(theme.accentInk.color)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .disabled(AccountsDocs.url(AccountsDocs.oauthGoogle) == nil)
+                .focusRing(cornerRadius: theme.modalButtonRadius)
             }
-            .buttonStyle(.plain)
-            .font(theme.sans.font(size: 12, weight: .medium))
-            .foregroundStyle(theme.accent.color)
-            .disabled(model.isBusy || password.isEmpty || endpoint == nil)
-            .help(ajudaDoTestar)
-            .focusRing(cornerRadius: theme.radiusSmall)
+        }
+    }
 
-            if model.isBusy { ProgressView().controlSize(.small) }
+    /// A nota só faz sentido na rota que tem campo de host: na rota Google não
+    /// há host nenhum para ser numérico.
+    private var mostraNotaDoEnderecoNumerico: Bool {
+        isImap && ImapEndpoint.ehIPLiteral(host)
+    }
+
+    /// Ela **não** impede nada. Servidor interno acessível só por endereço
+    /// existe, e recusá-lo trocaria um enfraquecimento por uma impossibilidade.
+    /// O que ela impede é o enfraquecimento acontecer em silêncio: o SNI do TLS
+    /// não aceita IP, e sem SNI o NIOSSL valida a cadeia mas não confere se o
+    /// certificado é **deste** servidor.
+    private var notaDoEnderecoNumerico: some View {
+        Text(L10n.tr("Endereço numérico: o certificado do servidor não é conferido pelo nome."))
+            .font(theme.sans.font(size: 12))
+            .foregroundStyle(theme.ink3.color)
+            .fixedSize(horizontal: false, vertical: true)
+            .help("""
+                O SNI do TLS não aceita endereço numérico, então o app não tem \
+                contra que nome conferir o certificado. A cadeia continua validada. \
+                Prefira o nome do servidor quando ele existir.
+                """)
+    }
+
+    // MARK: - Rodapé
+
+    @ViewBuilder
+    private var footer: some View {
+        HStack(spacing: 12) {
+            if isGoogle {
+                Button { forceImapForGoogle() } label: {
+                    Text(L10n.tr("Usar IMAP com senha de app"))
+                        .font(theme.sans.font(size: 13.5, weight: .medium))
+                        .foregroundStyle(theme.accentInk.color)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .focusRing(cornerRadius: theme.modalButtonRadius)
+                .help("""
+                    Sem registro no Google Cloud: crie uma senha de app em \
+                    myaccount.google.com/apppasswords (exige verificação em \
+                    duas etapas) e conecte como qualquer conta IMAP.
+                    """)
+                Spacer(minLength: 0)
+            } else {
+                Text(L10n.tr("Nada é salvo antes do teste passar."))
+                    .font(theme.sans.font(size: 12.5))
+                    .foregroundStyle(theme.ink3.color)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if let onClose {
+                ModalTextButton(L10n.tr("Cancelar"), action: onClose)
+                    .keyboardShortcut(.cancelAction)
+            }
+            if isImap {
+                ModalPrimaryButton(
+                    title: testando ? L10n.tr("Testando…") : L10n.tr("Testar e adicionar"),
+                    enabled: !testando && !model.isBusy && !password.isEmpty && endpoint != nil,
+                    horizontalPadding: 18,
+                    action: testAndAdd
+                )
+                .accessibilityIdentifier("add-account-primary")
+                .help(ajudaDoTestar)
+            }
+        }
+        .padding(.top, Theme.modalFooterTop)
+        .padding(.horizontal, Theme.modalSide)
+        .padding(.bottom, Theme.modalFooterBottom)
+        .hairline(theme.modalLine, edges: .top)
+        .padding(.top, 18)
+    }
+
+    private func testAndAdd() {
+        guard let endpoint else { return }
+        testando = true
+        Task {
+            defer { testando = false }
+            testado = await model.testImap(
+                address: address, password: password, endpoint: endpoint
+            )
+            guard testado == true else { return }
+            await model.addImap(
+                address: address, password: password, endpoint: endpoint,
+                hostMark: marca, displayName: address
+            )
+            onClose?()
         }
     }
 
@@ -390,5 +549,4 @@ public struct AddAccountForm: View {
         case .google, .none: .tls
         }
     }
-
 }

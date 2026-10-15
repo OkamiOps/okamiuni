@@ -3727,6 +3727,26 @@ public final class MailStore {
         return n
     }
 
+    /// A data da **mais antiga** mensagem da Lixeira, com o mesmo recorte de
+    /// conta de `emptyTrash`. Nula com a lixeira vazia.
+    ///
+    /// Existe para a pergunta de esvaziar poder dizer o que se perde: "23
+    /// mensagens, a mais antiga é de março" é uma frase que se responde, e
+    /// "tem certeza?" não é. O desenho dos modais põe essa linha no lugar onde
+    /// antes estava só "não dá para desfazer".
+    public func oldestTrashDate(accountID: String? = nil) -> Date? {
+        let index = messageListIndex()
+        var oldest: Date?
+        for i in 0..<index.buckets.count {
+            guard index.buckets[i] == .trash else { continue }
+            if let accountID, index.accountIDs[i] != accountID { continue }
+            let date = index.dates[i]
+            if let atual = oldest, date >= atual { continue }
+            oldest = date
+        }
+        return oldest
+    }
+
     /// Quantas mensagens esta conta tem, em qualquer caixa. É o número da
     /// linha da conta na barra — e não pode copiar Tudo só para contar.
     public func count(forAccount accountID: String) -> Int {

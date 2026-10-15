@@ -15,8 +15,12 @@ struct WindowTests {
         // compositor têm o mesmo desenho e a mesma medida.
         #expect(UNIWindow.Size.composer == CGSize(width: 980, height: 700))
         #expect(UNIWindow.Size.newMessage == CGSize(width: 980, height: 700))
-        #expect(UNIWindow.Size.message == CGSize(width: 800, height: 600))     // 05, linha 745
-        #expect(UNIWindow.Size.event.width == 560)                             // 04, linha 590
+        // As duas janelas soltas passaram para a medida do desenho dos
+        // modais: `ModalJanelas.dc.html` escreve 880×720 para a mensagem e
+        // `ModalAgenda.dc.html` escreve 640 para o compromisso. A garantia do
+        // caso é a mesma — ninguém arredonda um destes sem isto acusar.
+        #expect(UNIWindow.Size.message == CGSize(width: 880, height: 720))
+        #expect(UNIWindow.Size.event.width == 640)
     }
 
     @Test("cada janela tem seu identificador de cena")
@@ -282,25 +286,33 @@ struct EventWindowFooterTests {
         #expect(store.revealCount == before)
     }
 
-    /// "Reagendar" saiu. O rodapé da 04 desenha **cinco** pastilhas — Entrar,
-    /// Encaminhar, Remover, Email e o × de fechar —, e o sexto, mudo, não está
-    /// mais lá.
+    /// "Reagendar" saiu, e com o desenho dos modais o rodapé deixou de ser uma
+    /// barra de pastilhas: são links, e fechar voltou a ser o semáforo
+    /// vermelho da janela.
     ///
-    /// Contado no desenho: numa varredura horizontal na altura dos botões, cada
-    /// pastilha é um trecho de cor diferente do fundo do rodapé. Com o botão
-    /// mudo de volta a mesma varredura dá seis.
-    @Test("o rodapé desenha cinco botões, sem o «Reagendar» mudo")
+    /// A contagem de pastilhas que este caso fazia não sobrevive a isso — e
+    /// nunca foi a garantia. A garantia é **quais ações o rodapé oferece**, e
+    /// ela se pergunta direto: um compromisso que não nasceu aqui pode sair do
+    /// calendário e não pode ser cancelado para os convidados, e o botão mudo
+    /// não existe em caminho nenhum.
+    ///
+    /// Cai por mutação: devolver "Reagendar" (que não leva a tela nenhuma)
+    /// exige um caso novo, porque não há propriedade que o autorize.
+    @Test("o rodapé oferece as ações que existem, e nenhuma muda")
     func footerHasFourButtons() async throws {
         let store = await loaded()
-        let rep = try #require(
-            Render.snapshot(
-                EventWindow(store: store, itemID: "e2").environment(ThemeStore()),
-                named: "evento-04-rodape",
-                size: CGSize(width: 560, height: 700),
-                theme: .tinta
-            )
-        )
-        #expect(Self.pills(in: rep, y: 660, width: 560) == 5)
+        let janela = EventWindow(store: store, itemID: "e2")
+        // Compromisso da agenda de exemplo: não tem o prefixo `manual-`, então
+        // cancelar a reunião não é nosso papel e remover do calendário é.
+        #expect(!janela.canCancelMeeting)
+        #expect(janela.canRemoveFromCalendar)
+        // E o desenho continua sendo desenhado — o retrato fica para o olho.
+        #expect(Render.snapshot(
+            janela.environment(ThemeStore()),
+            named: "evento-04-rodape",
+            size: CGSize(width: 560, height: 700),
+            theme: .tinta
+        ) != nil)
     }
 
     // MARK: - "Entrar", que não fazia nada
@@ -347,9 +359,55 @@ struct EventWindowFooterTests {
         return store
     }
 
-    /// Onde o rodapé desenha os botões, num render de 700 de altura: recuo de
-    /// baixo 15 + metade dos 30pt do botão.
-    private static let yDoRodape: CGFloat = 700 - 30
+    /// Onde o botão "Entrar" está, **achado no desenho** em vez de adivinhado.
+    ///
+    /// Era uma constante (`700 - 30`: o recuo do rodapé mais metade da
+    /// pastilha). Ela morreu quando o desenho dos modais tirou o Entrar do
+    /// rodapé e o pôs junto do link da reunião, que é onde está o endereço
+    /// dele — e uma constante que precisa ser reescrita a cada mudança de
+    /// layout não prova o botão, prova a constante.
+    ///
+    /// Aqui o caso procura a **mancha de acento cheio** do botão: nenhuma
+    /// outra coisa da janela pinta uma área sólida dessa cor. Devolve o centro
+    /// dela, em coordenadas do `CliqueDeEnsaio` (y do topo).
+    static func centroDoEntrar(
+        in rep: NSBitmapImageRep, theme: Theme = .tinta
+    ) -> (x: CGFloat, y: CGFloat)? {
+        guard let alvo = theme.accent.nsColor.usingColorSpace(.sRGB) else { return nil }
+        func ehAcento(_ x: Int, _ y: Int) -> Bool {
+            guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return false }
+            return abs(c.redComponent - alvo.redComponent) < 0.02
+                && abs(c.greenComponent - alvo.greenComponent) < 0.02
+                && abs(c.blueComponent - alvo.blueComponent) < 0.02
+        }
+        // A **maior sequência contínua** de pixels da cor do acento numa
+        // linha. O botão é uma pastilha cheia e dá uma corrida longa; o texto
+        // em `accentInk` — que no Tinta é a mesma cor — dá corridas de poucos
+        // pixels por letra. Somar tudo num retângulo, como a primeira versão
+        // fazia, devolvia a união de todos eles: 400pt de largura e um centro
+        // que não era botão nenhum.
+        var melhor: (comprimento: Int, x: Int, y: Int)?
+        for y in 0..<rep.pixelsHigh {
+            var corrida = 0
+            for x in 0..<rep.pixelsWide {
+                if ehAcento(x, y) {
+                    corrida += 1
+                    if corrida > (melhor?.comprimento ?? 0) {
+                        melhor = (corrida, x - corrida / 2, y)
+                    }
+                } else {
+                    corrida = 0
+                }
+            }
+        }
+        guard let melhor, melhor.comprimento > 40 else { return nil }
+        // O y achado é uma linha qualquer dentro da pastilha; o centro dela é
+        // o que recebe o clique com folga.
+        var topo = melhor.y, base = melhor.y
+        while topo > 0, ehAcento(melhor.x, topo - 1) { topo -= 1 }
+        while base < rep.pixelsHigh - 1, ehAcento(melhor.x, base + 1) { base += 1 }
+        return (CGFloat(melhor.x), CGFloat(topo + base) / 2)
+    }
 
     /// **O defeito mais caro da tela do dono.** O botão em destaque da janela
     /// chamava `UNIWindow.logSend("Abriria …")`: uma linha no `stderr`, nada na
@@ -370,10 +428,14 @@ struct EventWindowFooterTests {
         var janela = EventWindow(store: store, itemID: "email-m1")
         janela.abreLink = { caixa.abertos.append($0) }
 
+        let rep = try #require(Render.bitmap(
+            janela, size: CGSize(width: 560, height: 700), theme: .tinta
+        ))
+        let onde = try #require(
+            Self.centroDoEntrar(in: rep), "o botão Entrar não foi achado no desenho"
+        )
         CliqueDeEnsaio.em(
-            janela,
-            size: CGSize(width: 560, height: 700),
-            aY: Self.yDoRodape, x: 40
+            janela, size: CGSize(width: 560, height: 700), aY: onde.y, x: onde.x
         )
 
         #expect(caixa.abertos.map(\.absoluteString) == ["https://meet.google.com/abc-defg-hij"])
@@ -404,13 +466,11 @@ struct EventWindowFooterTests {
             size: CGSize(width: 560, height: 700),
             theme: .tinta
         ))
-        #expect(Self.pills(in: rep, y: 660, width: 560) == 5)
-
+        let onde = try #require(
+            Self.centroDoEntrar(in: rep), "o botão Entrar não foi achado no desenho"
+        )
         CliqueDeEnsaio.em(
-            janela,
-            size: CGSize(width: 560, height: 700),
-            aY: Self.yDoRodape,
-            x: 40
+            janela, size: CGSize(width: 560, height: 700), aY: onde.y, x: onde.x
         )
 
         #expect(caixa.abertos.map(\.absoluteString) == ["https://meet.google.com/us-qnjh-suq"])
@@ -422,28 +482,38 @@ struct EventWindowFooterTests {
     /// Email e o ×.
     @Test("sem link de reunião o «Entrar» não existe")
     func semLinkSemEntrar() async throws {
-        let store = await Self.loja(Self.detalheDeConvite(link: nil))
-        let rep = try #require(
-            Render.bitmap(
-                EventWindow(store: store, itemID: "email-m1"),
-                size: CGSize(width: 560, height: 700), theme: .tinta
-            )
-        )
-        #expect(Self.pills(in: rep, y: 660, width: 560) == 4)
+        #expect(try await Self.abreAoClicarNoRodape(link: nil).isEmpty)
+    }
+
+    /// O clique no lugar do "Entrar", e o que ele abriu.
+    ///
+    /// Era uma contagem de pastilhas no rodapé; com o rodapé em links essa
+    /// contagem mede o desenho das palavras, não a presença do controle. O
+    /// clique mede o que importa: **existe ali algo que abre a reunião?**
+    ///
+    /// Cai por mutação: acender o "Entrar" sem `MeetingLink.destino` põe um
+    /// endereço na caixa onde o caso espera nada.
+    static func abreAoClicarNoRodape(link: String?) async throws -> [URL] {
+        let store = await Self.loja(Self.detalheDeConvite(link: link))
+        let caixa = CaixaDeLinks()
+        var janela = EventWindow(store: store, itemID: "email-m1")
+        janela.abreLink = { caixa.abertos.append($0) }
+        let medida = CGSize(width: 560, height: 700)
+        let rep = try #require(Render.bitmap(janela, size: medida, theme: .tinta))
+        // Sem sala reconhecida não há mancha de acento nenhuma — o botão não
+        // existe, que é o que o caso quer provar. Mesmo assim o clique é
+        // entregue no lugar onde ele estaria, para a prova não depender só da
+        // ausência de pixels.
+        let onde = Self.centroDoEntrar(in: rep) ?? (x: 470, y: 200)
+        CliqueDeEnsaio.em(janela, size: medida, aY: onde.y, x: onde.x)
+        return caixa.abertos
     }
 
     /// E um "link" que não se abre no navegador é a mesma coisa que não ter:
     /// um botão que promete o navegador e entrega nada é o defeito de volta.
     @Test("um «link» que não é endereço também não acende o botão")
     func linkQueNaoAbreNaoAcende() async throws {
-        let store = await Self.loja(Self.detalheDeConvite(link: "Sala 3, 4º andar"))
-        let rep = try #require(
-            Render.bitmap(
-                EventWindow(store: store, itemID: "email-m1"),
-                size: CGSize(width: 560, height: 700), theme: .tinta
-            )
-        )
-        #expect(Self.pills(in: rep, y: 660, width: 560) == 4)
+        #expect(try await Self.abreAoClicarNoRodape(link: "Sala 3, 4º andar").isEmpty)
     }
 
     // MARK: - As seções que nascem recolhidas

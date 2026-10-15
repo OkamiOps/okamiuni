@@ -24,7 +24,15 @@ struct WindowTitleBar<Accessory: View>: View {
     /// Onde a medida do protótipo briga com a convenção do macOS, a plataforma
     /// vence — é a mesma decisão que pôs os semáforos em 22 (ver
     /// `TrafficLightLayout.contentCenterFromTop`).
-    static var height: CGFloat { TrafficLightLayout.contentCenterFromTop * 2 }
+    /// **52**, a faixa de cabeçalho das janelas próprias.
+    ///
+    /// Eram 44 (duas vezes a linha da plataforma). O desenho dos modais pede
+    /// uma faixa mais alta e, sobretudo, pede que os semáforos tenham o mesmo
+    /// respiro lateral do trilho da janela principal — ver
+    /// `TrafficLightLayout.windowBarHeight` e `windowRowLeading`. Com a faixa
+    /// de 52 a fileira centra em 26, e o título e o acessório caem na mesma
+    /// linha que ela.
+    static var height: CGFloat { TrafficLightLayout.windowBarHeight }
 
     @Environment(\.theme) private var theme
     let title: String
@@ -52,7 +60,7 @@ struct WindowTitleBar<Accessory: View>: View {
         // E os semáforos desta janela sobem para a mesma linha. Sem isto o
         // título ia para o meio da barra e os botões do sistema ficavam onde
         // o macOS os deixa — a queixa do dono na janela de resposta.
-        .trafficLightsOnTheLine(barHeight: Self.height)
+        .trafficLightsInWindowHeader()
     }
 }
 

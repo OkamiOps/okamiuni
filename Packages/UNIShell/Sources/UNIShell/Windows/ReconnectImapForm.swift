@@ -3,7 +3,7 @@ import UNICore
 import UNIDesign
 import UNISync
 
-/// A reconexão de uma conta IMAP: a senha nova, com o resto já preenchido.
+/// A reconexão de uma conta IMAP: **um campo**, com o resto já no lugar.
 ///
 /// **Não é o `AddAccountForm` com outro título.** Aquele existe para descobrir
 /// uma conta que o app ainda não conhece — rota, host, porta, TLS — e termina
@@ -13,63 +13,170 @@ import UNISync
 /// pediu para redigitar a identidade da conta, e redigitá-la errado é
 /// exatamente como se acaba com duas contas onde havia uma.
 ///
-/// O endereço continua editável — teclado erra, e travá-lo esconderia um erro
-/// em vez de o corrigir —, mas ele é **conferido**: voltar com outro endereço é
-/// recusa explicada (`SyncError.contaDiferente`), não uma conta nova.
+/// ## O desenho
+///
+/// Protótipo: `ModalContas.dc.html`, bloco "RECONECTAR CONTA". Folha de 460,
+/// cabeçalho com o avatar de 44 na cor da conta, "Reconectar" em 20 e o
+/// endereço em mono logo abaixo; o recado de que nada se perde num bloco
+/// `soft`; **um** campo, em foco, com "O que é isso?" dentro dele; e o
+/// servidor atual numa linha mono com "mudar" ao lado.
+///
+/// O endereço deixou de ser campo. Ele é a identidade desta folha — é o que o
+/// avatar e a linha mono do cabeçalho dizem —, e um campo editável ali
+/// convidava justamente ao erro que `SyncError.contaDiferente` tem de recusar.
+/// Quem precisa mudar endereço está adicionando outra conta, não reconectando
+/// esta. "mudar" abre host, porta e TLS, que é o que a reconexão de fato às
+/// vezes precisa.
 struct ReconnectImapForm: View {
     @Environment(\.theme) private var theme
-    @Environment(\.displayScale) private var displayScale
 
     private let model: AccountsModel
     private let status: AccountStatus
     private let onClose: () -> Void
 
-    @State private var address: String
     @State private var password = ""
     @State private var host: String
     @State private var port: String
     @State private var security: ImapEndpoint.Security
+    @State private var mudandoServidor = false
 
     init(model: AccountsModel, status: AccountStatus, onClose: @escaping () -> Void) {
         self.model = model
         self.status = status
         self.onClose = onClose
-        _address = State(initialValue: status.address)
         _host = State(initialValue: status.imap?.host ?? "")
         _port = State(initialValue: status.imap.map { "\($0.port)" } ?? "993")
         _security = State(initialValue: status.imap?.security ?? .tls)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(L10n.tr("RECONECTAR CONTA")).capsLabel()
-            Text(L10n.tr("A conta, as mensagens já baixadas e a fila de saída continuam onde estão. O que muda é a senha guardada."))
-                .font(theme.sans.font(size: 11.5))
-                .foregroundStyle(theme.ink3.color)
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            fields
+            footer
+        }
+        .frame(width: Theme.ModalWidth.smallSheet)
+        .modalSurface()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(L10n.tr("Reconectar \(status.address)"))
+    }
+
+    /// `padding: 26px 28px 0`, avatar de 44 e o par título/endereço.
+    private var header: some View {
+        HStack(spacing: 14) {
+            Text(initial)
+                .font(theme.sans.font(size: 16, weight: .semibold))
+                .foregroundStyle(theme.onAccent.color)
+                .frame(width: 44, height: 44)
+                .background(accountTint.color, in: Circle())
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(L10n.tr("Reconectar"))
+                    .font(theme.sans.font(size: 20, weight: .bold))
+                    .tracking(theme.modalTitleTracking(at: 20) * 0.75)   // -0.015em
+                    .foregroundStyle(theme.ink.color)
+                Text(status.address)
+                    .font(theme.mono.font(size: 13))
+                    .foregroundStyle(theme.ink3.color)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.top, Theme.modalHeaderTop)
+        .padding(.horizontal, Theme.modalSide)
+    }
+
+    private var initial: String {
+        status.address.first.map { String($0).uppercased() } ?? "?"
+    }
+
+    /// O azul do avatar no protótipo (`#0ea5e9`), que é o `liveMeeting` do
+    /// tema.
+    ///
+    /// **Não é a cor da conta**, e é de propósito: `AccountStatus` não carrega
+    /// a tinta escolhida para ela (`AccountTint` mora na `Account`, e a lista
+    /// de Contas pinta o chip em `ink4`). Derivar uma aqui — por hash do id,
+    /// por posição na lista — daria um avatar de cor diferente da que **esta**
+    /// conta mostra na barra lateral, que é pior do que uma cor neutra. Quando
+    /// o status passar a trazer a tinta, esta linha troca por ela.
+    private var accountTint: TokenColor { theme.liveMeeting }
+
+    /// `padding: 16px 28px 0; gap: 14px`.
+    private var fields: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(L10n.tr("A conta, as mensagens e a fila de saída continuam como estão. Só a senha muda."))
+                .font(theme.sans.font(size: 13.5))
+                .lineSpacing(0.5 * 13.5)
+                .foregroundStyle(theme.ink2.color)
                 .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 11)
+                .padding(.horizontal, 14)
+                .background(
+                    theme.modalSoft.color,
+                    in: RoundedRectangle(cornerRadius: theme.modalFieldRadius, style: .continuous)
+                )
 
-            campo(texto: $address, dica: L10n.tr("endereço@qualquerdominio.com"))
-            SecureField(L10n.tr("senha de app"), text: $password)
-                .textFieldStyle(.plain)
-                .font(theme.sans.font(size: 12.5))
-                .foregroundStyle(theme.ink.color)
-                .padding(.horizontal, 10)
-                .frame(height: 32)
-                .background(theme.surface2.color, in: RoundedRectangle(cornerRadius: theme.radiusSmall))
+            VStack(alignment: .leading, spacing: 5) {
+                Text(L10n.tr("Nova senha de app"))
+                    .font(theme.sans.font(size: 12, weight: .semibold))
+                    .foregroundStyle(theme.ink3.color)
+                HStack(spacing: 10) {
+                    SecureField(L10n.tr("senha de app"), text: $password)
+                        .textFieldStyle(.plain)
+                        .font(theme.mono.font(size: 13.5))
+                        .foregroundStyle(theme.ink.color)
+                        .accessibilityLabel(L10n.tr("Nova senha de app"))
+                    Button { AccountsDocs.open(AccountsDocs.senhaDeApp) } label: {
+                        Text(L10n.tr("O que é isso?"))
+                            .font(theme.sans.font(size: 12, weight: .medium))
+                            .foregroundStyle(theme.accentInk.color)
+                            .lineLimit(1)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(AccountsDocs.url(AccountsDocs.senhaDeApp) == nil)
+                    .focusRing(cornerRadius: theme.modalButtonRadius)
+                }
+                .modalFieldBox(focused: true, verticalPadding: 11, horizontalPadding: 12)
+            }
 
-            HStack(spacing: 8) {
-                campo(texto: $host, dica: "imap.servidor.com")
+            serverLine
+            if let erro = model.lastError {
+                Text(erro.mensagem)
+                    .font(theme.sans.font(size: 12.5))
+                    .foregroundStyle(theme.danger.color)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.top, 16)
+        .padding(.horizontal, Theme.modalSide)
+    }
+
+    /// `imap.empresa.com.br · 993 · TLS` numa linha mono, com "mudar" ao lado.
+    /// Endereço se confere letra a letra, e é por isso que ele é mono.
+    @ViewBuilder
+    private var serverLine: some View {
+        if mudandoServidor {
+            HStack(alignment: .bottom, spacing: 10) {
+                TextField("imap.servidor.com", text: $host)
+                    .textFieldStyle(.plain)
+                    .font(theme.mono.font(size: 13))
+                    .foregroundStyle(theme.ink.color)
+                    .modalFieldBox(verticalPadding: 9, horizontalPadding: 12)
+                    .accessibilityLabel(L10n.tr("Servidor IMAP"))
                 TextField("993", text: $port)
                     .textFieldStyle(.plain)
-                    .font(theme.mono.font(size: 12))
+                    .font(theme.mono.font(size: 13))
                     .foregroundStyle(theme.ink.color)
-                    .frame(width: 64, height: 32)
-                    .padding(.horizontal, 8)
-                    .background(theme.surface2.color, in: RoundedRectangle(cornerRadius: theme.radiusSmall))
+                    .modalFieldBox(verticalPadding: 9, horizontalPadding: 12)
+                    .frame(width: 72)
+                    .accessibilityLabel(L10n.tr("Porta"))
                 ComposerSelect(
                     title: L10n.tr("Forma de TLS"),
                     selected: security.rawValue,
-                    width: 108,
+                    width: 128,
                     groups: [.init(title: nil, options: [
                         .init(value: ImapEndpoint.Security.tls.rawValue, label: "TLS (993)"),
                         .init(value: ImapEndpoint.Security.startTLS.rawValue, label: "STARTTLS (143)"),
@@ -80,58 +187,50 @@ struct ReconnectImapForm: View {
                     }
                 )
             }
-
-            if let erro = model.lastError {
-                Text(erro.mensagem)
-                    .font(theme.sans.font(size: 11.5))
-                    .foregroundStyle(theme.danger.color)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            HStack(spacing: 10) {
-                Button(L10n.tr("Reconectar")) {
-                    guard let endpoint else { return }
-                    Task {
-                        let passou = await model.reconnectImap(
-                            accountID: status.accountID, address: address,
-                            password: password, endpoint: endpoint
-                        )
-                        if passou { onClose() }
-                    }
+        } else {
+            HStack(spacing: 8) {
+                Text("\(host) · \(port) · \(security == .tls ? "TLS" : "STARTTLS")")
+                    .font(theme.mono.font(size: 12))
+                    .foregroundStyle(theme.ink3.color)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Button { mudandoServidor = true } label: {
+                    Text(L10n.tr("mudar"))
+                        .font(theme.sans.font(size: 12.5, weight: .medium))
+                        .foregroundStyle(theme.accentInk.color)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .font(theme.sans.font(size: 12, weight: .semibold))
-                .foregroundStyle(theme.onAccent.color)
-                .padding(.horizontal, 13)
-                .frame(height: 30)
-                .background(theme.accent.color, in: RoundedRectangle(cornerRadius: 8))
-                .disabled(model.isBusy || password.isEmpty || endpoint == nil)
-                .help(ajuda)
-                .focusRing(cornerRadius: 8)
-
-                Button(L10n.tr("Cancelar")) { onClose() }
-                    .buttonStyle(.plain)
-                    .font(theme.sans.font(size: 12))
-                    .foregroundStyle(theme.ink3.color)
-                    .focusRing(cornerRadius: theme.radiusSmall)
-
-                if model.isBusy { ProgressView().controlSize(.small) }
+                .focusRing(cornerRadius: theme.modalButtonRadius)
                 Spacer(minLength: 0)
             }
         }
-        .padding(20)
-        .frame(width: 420, alignment: .leading)
-        .background(theme.surface.color)
     }
 
-    private func campo(texto: Binding<String>, dica: String) -> some View {
-        TextField(dica, text: texto)
-            .textFieldStyle(.plain)
-            .font(theme.sans.font(size: 12.5))
-            .foregroundStyle(theme.ink.color)
-            .padding(.horizontal, 10)
-            .frame(height: 32)
-            .background(theme.surface2.color, in: RoundedRectangle(cornerRadius: theme.radiusSmall))
+    private var footer: some View {
+        ModalFooter(context: L10n.tr("Testa antes de salvar."), onCancel: onClose) {
+            ModalPrimaryButton(
+                title: L10n.tr("Testar e reconectar"),
+                enabled: !model.isBusy && !password.isEmpty && endpoint != nil,
+                horizontalPadding: 18,
+                action: reconnect
+            )
+            .keyboardShortcut(.defaultAction)
+            .accessibilityIdentifier("reconnect-primary")
+            .help(ajuda)
+        }
+        .padding(.top, 18)
+    }
+
+    private func reconnect() {
+        guard let endpoint else { return }
+        Task {
+            let passou = await model.reconnectImap(
+                accountID: status.accountID, address: status.address,
+                password: password, endpoint: endpoint
+            )
+            if passou { onClose() }
+        }
     }
 
     /// Por que o botão está apagado — uma frase por motivo, como no formulário

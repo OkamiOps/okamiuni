@@ -44,8 +44,9 @@ struct TitleBarAlignmentTests {
     }
 
     /// **A prova por bitmap, lado do título.** O título da janela 03/05/06 cai
-    /// na linha da plataforma, e não no meio de uma barra de 42.
-    @Test("o título da barra das janelas cai na linha 22")
+    /// na linha em que a fileira de semáforos centra — a faixa de 52 do desenho
+    /// dos modais, e não o meio de uma barra de 42.
+    @Test("o título da barra das janelas cai na linha da fileira")
     func tituloNaLinha() throws {
         let rep = try #require(
             Render.bitmap(
@@ -58,7 +59,7 @@ struct TitleBarAlignmentTests {
             Self.linhaMedia(rep, papel: Theme.tinta.surface2, x: 200..<620)
         )
         // O título em y=\(centro); o semáforo, na mesma linha.
-        #expect(abs(centro - Double(TrafficLightLayout.contentCenterFromTop)) <= 1)
+        #expect(abs(centro - Double(TrafficLightLayout.windowCenterFromTop)) <= 1)
     }
 
     /// **A prova por bitmap, lado da janela principal.** O recolhe ao lado
@@ -80,6 +81,9 @@ struct TitleBarAlignmentTests {
         let centro = try #require(
             Self.linhaMedia(rep, papel: Theme.tinta.surface2, x: 82..<107)
         )
+        // A janela **principal** segue a linha da plataforma (22) na barra de
+        // 64. Quem mudou para a faixa de 52 foram as janelas próprias, e o
+        // caso delas é o de cima.
         #expect(abs(centro - Double(TrafficLightLayout.contentCenterFromTop)) <= 1)
     }
 
@@ -87,8 +91,14 @@ struct TitleBarAlignmentTests {
     /// dela **ser** a linha, sem conta pelo caminho.
     @Test("a barra das janelas mede duas vezes a linha da plataforma")
     func alturaDaBarra() {
-        #expect(WindowTitleBar<EmptyView>.height == TrafficLightLayout.contentCenterFromTop * 2)
-        #expect(WindowTitleBar<EmptyView>.height == 44)
+        // **52, e não mais 44.** A garantia do caso não mudou — a barra existe
+        // para o título e os semáforos caírem na *mesma* linha —, mas a linha
+        // deixou de ser a da plataforma: o desenho dos modais pede uma faixa
+        // de cabeçalho de 52 nas janelas próprias, com a fileira centrada nela
+        // e com o respiro lateral do trilho. Ver
+        // `TrafficLightLayout.windowBarHeight`.
+        #expect(WindowTitleBar<EmptyView>.height == TrafficLightLayout.windowBarHeight)
+        #expect(WindowTitleBar<EmptyView>.height == 52)
     }
 
     /// O semáforo cabe: com centro em 22 e 14pt de lado, ele termina em 29 —
