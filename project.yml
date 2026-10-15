@@ -34,8 +34,8 @@ packages:
     from: 2.10.0
 
 configFiles:
-  Debug: Config/Google.xcconfig
-  Release: Config/Google.xcconfig
+  Debug: Config/Base.xcconfig
+  Release: Config/Base.xcconfig
 
 targets:
   OkamiUNI:

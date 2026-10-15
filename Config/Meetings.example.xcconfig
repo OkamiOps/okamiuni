@@ -1,0 +1,22 @@
+// Copie para Config/Meetings.xcconfig (que está no .gitignore) e cole os
+// client IDs de cada serviço de reunião.
+//
+// Vazio é legítimo, e é o padrão: sem client ID a linha do serviço em
+// Configurações ▸ Agendas diz "ainda não disponível neste build" e **não**
+// mostra o botão Conectar. Um botão que só pode falhar não é um botão.
+//
+// Nada daqui é segredo de servidor: são credenciais de aplicativo instalado,
+// como o client ID do Google. Mesmo assim o arquivo fica fora do repositório
+// — o valor é de quem publica o app, não do código.
+
+// Zoom · "General App" (OAuth de usuário) no App Marketplace.
+OKAMIUNI_ZOOM_CLIENT_ID =
+OKAMIUNI_ZOOM_CLIENT_SECRET =
+
+// Microsoft · registro de aplicativo no Entra ID. Cliente público (PKCE),
+// sem segredo.
+OKAMIUNI_MICROSOFT_CLIENT_ID =
+
+// Zoho · "Self Client" ou aplicativo do Zoho API Console.
+OKAMIUNI_ZOHO_CLIENT_ID =
+OKAMIUNI_ZOHO_CLIENT_SECRET =

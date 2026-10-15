@@ -1,0 +1,8 @@
+// O arquivo de configuração que o projeto aponta. Ele não tem valor nenhum:
+// só puxa os dois que **ficam fora do repositório**.
+//
+// `#include?` (com a interrogação) não falha quando o arquivo não existe, que
+// é o caso de todo clone novo. Sem valor, cada recurso explica o que falta em
+// vez de quebrar o build — ver docs/oauth-google.md e Config/Meetings.example.xcconfig.
+#include? "Google.xcconfig"
+#include? "Meetings.xcconfig"

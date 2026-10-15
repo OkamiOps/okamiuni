@@ -411,6 +411,7 @@ public struct AccountsWindow: View {
                 mailStore: mailStore,
                 preferences: calendarPreferences,
                 connections: meetingConnections,
+                legacyRooms: meetingRooms,
                 accounts: model.statuses,
                 addAccount: { addingAccount = true }
             )

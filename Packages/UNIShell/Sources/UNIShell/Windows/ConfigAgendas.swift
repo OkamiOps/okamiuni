@@ -32,6 +32,9 @@ struct ConfigAgendas: View {
     let mailStore: MailStore?
     let preferences: CalendarPreferences?
     let connections: MeetingConnections?
+    /// Só para a **migração**: o serviço padrão que era por conta sobe uma vez
+    /// para `CalendarPreferences.defaultRoom` e depois ninguém mais o lê.
+    let legacyRooms: MeetingRoomSettingsStore?
     let accounts: [AccountStatus]
     /// Abre a folha de adicionar conta da janela — é por onde Google e
     /// CalDAV entram, porque uma agenda nova é sempre uma conta nova.
@@ -52,7 +55,14 @@ struct ConfigAgendas: View {
             .padding(.bottom, 4)
         }
         .scrollBounceBehavior(.basedOnSize)
-        .task { await connections?.refresh() }
+        .task {
+            if let preferences, let legacyRooms {
+                preferences.migrateRoom(
+                    from: legacyRooms, accountIDs: accounts.map(\.accountID)
+                )
+            }
+            await connections?.refresh()
+        }
         .sheet(isPresented: $connecting) {
             ConnectCalendarSheet(
                 close: { connecting = false },

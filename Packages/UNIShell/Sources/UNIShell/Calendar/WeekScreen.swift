@@ -88,6 +88,11 @@ public struct WeekScreen: View {
     /// O recibo com "Desfazer" de "Tirar da agenda". Opcional no ambiente,
     /// como em toda superfície: harness e preview não precisam prover nada.
     @Environment(ActionReceipts.self) private var receipts: ActionReceipts?
+    /// Os padrões da Agenda. Dois deles desenham **esta** grade: em que dia a
+    /// semana começa e qual faixa do dia é horário de trabalho. Ausente (nos
+    /// ensaios e em quem ainda não os injeta), vale o de sempre: segunda a
+    /// domingo, sem realce.
+    @Environment(CalendarPreferences.self) private var preferences: CalendarPreferences?
     @Environment(\.displayScale) private var displayScale
 
     let store: MailStore
@@ -134,7 +139,10 @@ public struct WeekScreen: View {
     }
 
     private var days: [WeekAgenda.Day] {
-        WeekAgenda.days(from: store.calendarAgenda, anchor: anchor, focusOffset: focusOffset)
+        WeekAgenda.days(
+            from: store.calendarAgenda, anchor: anchor, focusOffset: focusOffset,
+            firstWeekday: preferences?.weekStart.rawValue ?? 2
+        )
     }
 
     /// Só desenha o traço de "agora" quando hoje está dentro da semana em
@@ -257,6 +265,28 @@ public struct WeekScreen: View {
             }
         }
         .frame(height: layout.totalHeight, alignment: .top)
+        .overlay(alignment: .top) { workingHoursBand(columnWidth: columnWidth) }
+    }
+
+    /// A faixa de horário de trabalho, de Configurações ▸ Agendas.
+    ///
+    /// Uma lâmina só, atrás das linhas de hora e dos compromissos: o que ela
+    /// faz é separar o dia útil das 23h da noite, e um retângulo por coluna
+    /// desenharia sete vezes a mesma informação. Fora da calha de rótulos,
+    /// para a hora continuar legível.
+    @ViewBuilder
+    private func workingHoursBand(columnWidth: CGFloat) -> some View {
+        if let hours = preferences?.workingHours {
+            let top = CGFloat(hours.startMinute) * layout.pointsPerMinute
+            let height = CGFloat(hours.endMinute - hours.startMinute) * layout.pointsPerMinute
+            Rectangle()
+                .fill(theme.ink.color.opacity(theme.isDark ? 0.045 : 0.035))
+                .frame(height: height)
+                .padding(.leading, layout.labelGutter)
+                .offset(y: top)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
     }
 
     /// 25 linhas, uma por hora cheia, de 00:00 a 24:00. Protótipo:

@@ -48,6 +48,12 @@ struct NewAppointmentSheet: View {
     @Environment(\.displayScale) private var displayScale
     @Environment(MeetingRoomSettingsStore.self) private var rooms: MeetingRoomSettingsStore?
     @Environment(MeetingRoomFactory.self) private var factory: MeetingRoomFactory?
+    /// Os padrões de Configurações ▸ Agendas. Eles chegam **aqui**, e não no
+    /// `init`: o `init` roda antes do ambiente existir, e o padrão de duração
+    /// precisa valer já no primeiro quadro — por isso `applyDefaults()` no
+    /// `onAppear` ajusta o fim e a agenda, e o `init` continua com a hora
+    /// cheia de sempre.
+    @Environment(CalendarPreferences.self) private var preferences: CalendarPreferences?
 
     let store: MailStore
     let anchor: Date
@@ -67,6 +73,8 @@ struct NewAppointmentSheet: View {
     @State private var guests: [Contact] = []
     @State private var guestDraft = ""
     @State private var service: MeetingService?
+    /// O calendário em que o compromisso nasce, vindo da preferência.
+    @State private var calendarID: String?
     @State private var useExistingLink = false
     @State private var recurrence = RecurrenceRule.none
     @State private var creating = false
@@ -167,6 +175,7 @@ struct NewAppointmentSheet: View {
         // pessoa está digitando um nome.
         .zIndex(10)
         .onAppear {
+            applyDefaults()
             applyDefaultService(for: accountID)
             refreshMeetAccess()
             phraseFocused = mode == .phrase
@@ -860,7 +869,25 @@ struct NewAppointmentSheet: View {
             && !meetingLinkIsInvalid
     }
 
+    /// A duração e a agenda padrão, antes de a pessoa tocar em qualquer
+    /// coisa. Quem já veio com título e hora do leitor ("ajustar") mantém o
+    /// que trouxe — o padrão é para um compromisso que nasce vazio.
+    private func applyDefaults() {
+        guard let preferences else { return }
+        if mode == .phrase {
+            endsAt = startsAt.addingTimeInterval(preferences.duration)
+        }
+        if calendarID == nil { calendarID = preferences.defaultCalendarID }
+    }
+
+    /// A sala padrão é **global** agora (`CalendarPreferences.defaultRoom`).
+    /// O perfil por conta continua sendo lido só quando a global está vazia,
+    /// para ninguém perder a escolha antiga antes da migração rodar.
     private func applyDefaultService(for accountID: String) {
+        if let preferences, let global = preferences.defaultRoom {
+            service = global
+            return
+        }
         guard let rooms else { return }
         service = rooms.profile(for: accountID).defaultService
     }
@@ -928,7 +955,9 @@ struct NewAppointmentSheet: View {
             guests: guests,
             syncToSystemCalendar: !hostedOnGoogle,
             sendInvites: !hostedOnGoogle,
-            calendarUID: googleEventID
+            calendarUID: googleEventID,
+            calendarID: calendarID,
+            alert: preferences?.alert ?? .none
         ) != nil else { return }
         onClose()
     }

@@ -2676,7 +2676,13 @@ public final class MailStore {
         guests: [Contact] = [],
         syncToSystemCalendar: Bool = true,
         sendInvites: Bool = true,
-        calendarUID: String? = nil
+        calendarUID: String? = nil,
+        /// O calendário em que o compromisso nasce. `nil` deixa o sistema (ou
+        /// o calendário da caixa) decidir, que é o de sempre.
+        calendarID: String? = nil,
+        /// Quanto antes ele avisa. Vira `EventDetail.notice` e, no EventKit,
+        /// um `EKAlarm` de verdade.
+        alert: CalendarAlert = .none
     ) -> AgendaItem? {
         let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let cleanPlace = place.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2718,23 +2724,31 @@ public final class MailStore {
             people: people,
             note: "Criado manualmente",
             recurrence: recurrence.storage,
-            notice: "Sem lembrete",
+            notice: alert.notice,
             agenda: [],
             thread: [],
             descricao: cleanNote.isEmpty ? nil : cleanNote
         )
-        let item = stampedForMailbox(
-            AgendaItem(
-                id: "manual-\(UUID().uuidString)",
-                title: cleanTitle,
-                startMinute: startMinute,
-                endMinute: endMinute,
-                accountID: accountID,
-                dayOffset: dayOffset,
-                calendarUID: calendarUID,
-                detail: detail
-            )
+        var born = AgendaItem(
+            id: "manual-\(UUID().uuidString)",
+            title: cleanTitle,
+            startMinute: startMinute,
+            endMinute: endMinute,
+            accountID: accountID,
+            dayOffset: dayOffset,
+            calendarUID: calendarUID,
+            detail: detail
         )
+        // O calendário escolhido entra com nome e cor, e não só com o id: é o
+        // que a grade lê para pintar o bloco. Um id que não existe mais na
+        // lista é ignorado — a preferência não pode criar um compromisso
+        // órfão.
+        if let calendarID,
+           let chosen = calendarsForSidebar.first(where: { $0.id == calendarID })
+        {
+            born = born.withCalendar(chosen)
+        }
+        let item = stampedForMailbox(born)
         agenda.append(item)
         agenda.sort {
             $0.dayOffset == $1.dayOffset

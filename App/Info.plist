@@ -19,6 +19,20 @@
   <string>$(OKAMIUNI_GOOGLE_CLIENT_ID)</string>
   <key>OkamiUNIGoogleClientSecret</key>
   <string>$(OKAMIUNI_GOOGLE_CLIENT_SECRET)</string>
+  <!-- As salas de reunião. Vêm de Config/Meetings.xcconfig, que fica fora do
+       repositório; sem valor, a linha do serviço em Configurações ▸ Agendas
+       diz que ele ainda não está disponível neste build e não oferece o
+       botão Conectar. Ver Config/Meetings.example.xcconfig. -->
+  <key>OkamiUNIZoomClientID</key>
+  <string>$(OKAMIUNI_ZOOM_CLIENT_ID)</string>
+  <key>OkamiUNIZoomClientSecret</key>
+  <string>$(OKAMIUNI_ZOOM_CLIENT_SECRET)</string>
+  <key>OkamiUNIMicrosoftClientID</key>
+  <string>$(OKAMIUNI_MICROSOFT_CLIENT_ID)</string>
+  <key>OkamiUNIZohoClientID</key>
+  <string>$(OKAMIUNI_ZOHO_CLIENT_ID)</string>
+  <key>OkamiUNIZohoClientSecret</key>
+  <string>$(OKAMIUNI_ZOHO_CLIENT_SECRET)</string>
   <!-- O atualizador (Sparkle 2). Em Debug ele nunca sobe — ver
        UpdaterComposition — mas as chaves ficam aqui de todo jeito: o
        Info.plist é um só, e o SPUUpdater lê o feed e a chave pública daqui em

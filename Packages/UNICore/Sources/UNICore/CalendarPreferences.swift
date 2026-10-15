@@ -48,21 +48,18 @@ public enum CalendarAlert: Sendable, Hashable, CaseIterable {
         }
     }
 
-    /// A volta: lê o `notice` de um compromisso já guardado.
+    /// A volta: lê o `notice` de um compromisso **que o OkamiUNI escreveu**.
     ///
-    /// Aceita o texto em qualquer idioma porque o número é o que importa —
-    /// procura o primeiro inteiro da frase. Sem número e sem "alerta", é
-    /// `.none`.
-    public static func fromNotice(_ notice: String?) -> CalendarAlert {
-        guard let notice, !notice.isEmpty else { return .none }
-        let lowered = notice.lowercased()
-        let digits = lowered.split(whereSeparator: { !$0.isNumber })
-        if let first = digits.first, let value = Int(first) {
-            return value == 0 ? .atStart : .minutes(value)
-        }
-        // "Alerta na hora" / "Alert at start" não têm número.
-        let marks = ["alerta", "alert", "alarme", "erinnerung", "alerte"]
-        return marks.contains(where: lowered.contains) ? .atStart : .none
+    /// Devolve `nil` para qualquer outra frase, e isso é o ponto. O EventKit
+    /// devolve "Consulte o Calendário para alertas" nos eventos importados, e
+    /// um palpite em cima dessa frase apagaria ou inventaria alarme num
+    /// compromisso que não é nosso a cada regravação. Só o que saiu de
+    /// `notice` volta por aqui.
+    public static func fromNotice(_ notice: String?) -> CalendarAlert? {
+        guard let notice else { return nil }
+        let trimmed = notice.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return allCases.first { $0.notice.caseInsensitiveCompare(trimmed) == .orderedSame }
     }
 
     /// A forma guardada no `UserDefaults`: `-1` sem aviso, senão os minutos.

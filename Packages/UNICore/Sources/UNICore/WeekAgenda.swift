@@ -31,14 +31,20 @@ public enum WeekAgenda {
     /// −7 a anterior. Os offsets continuam contados do `anchor` porque é assim
     /// que `AgendaItem.dayOffset` é medido — deslocar o próprio `anchor` faria
     /// os compromissos escorregarem junto com a grade.
+    /// `firstWeekday` segue a convenção do `Calendar` (1 = domingo), e o
+    /// padrão continua sendo **segunda**, que é o que o protótipo desenha e o
+    /// que o app sempre mostrou. Quem passa outro valor é a preferência "A
+    /// semana começa" de Configurações ▸ Agendas — é ela que move as colunas
+    /// de verdade. Ler `Calendar.current.firstWeekday` aqui mudaria a grade de
+    /// todo mundo em pt-BR (domingo) sem ninguém ter pedido.
     public static func weekOffsets(
-        for date: Date, focusOffset: Int = 0, calendar: Calendar = .current
+        for date: Date, focusOffset: Int = 0, calendar: Calendar = .current,
+        firstWeekday: Int = 2
     ) -> [Int] {
         let focused = calendar.date(byAdding: .day, value: focusOffset, to: date) ?? date
         // `weekday` do Calendar: 1 = domingo … 7 = sábado.
-        // A grade começa na segunda, então segunda precisa virar 0 e domingo 6.
         let weekday = calendar.component(.weekday, from: focused)
-        let indexInWeek = (weekday + 5) % 7
+        let indexInWeek = (weekday - firstWeekday + 7) % 7
         return (0..<7).map { focusOffset + $0 - indexInWeek }
     }
 
@@ -181,9 +187,12 @@ public enum WeekAgenda {
     /// sete dias sem que a grade precise saber disso.
     public static func days(
         from items: [AgendaItem], anchor: Date, focusOffset: Int = 0,
-        calendar: Calendar = .current
+        calendar: Calendar = .current, firstWeekday: Int = 2
     ) -> [Day] {
-        let offsets = weekOffsets(for: anchor, focusOffset: focusOffset, calendar: calendar)
+        let offsets = weekOffsets(
+            for: anchor, focusOffset: focusOffset,
+            calendar: calendar, firstWeekday: firstWeekday
+        )
         let visiveis = Set(offsets)
         var byDay: [Int: [AgendaItem]] = [:]
         byDay.reserveCapacity(7)
