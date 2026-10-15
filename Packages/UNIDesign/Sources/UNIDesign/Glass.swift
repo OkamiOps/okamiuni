@@ -277,8 +277,14 @@ extension Theme {
     }
 
     /// A faixa do que já passou, dentro de uma trilha ou de uma coluna.
+    ///
+    /// Fora do Vidro ela é `surface2` — a superfície recuada que os 26 temas
+    /// já usavam para "isto está mais atrás". O véu translúcido não serve lá:
+    /// 5% de tinta sobre um painel opaco fica perto demais das hairlines do
+    /// tema, e a divisória da grade do mês desaparecia contra a célula.
     public var glassPast: TokenColor {
-        isDark
+        guard isTranslucent else { return surface2 }
+        return isDark
             ? TokenColor(red: 1, green: 1, blue: 1, opacity: 0.04)
             : TokenColor(red: 20 / 255, green: 20 / 255, blue: 50 / 255, opacity: 0.05)
     }

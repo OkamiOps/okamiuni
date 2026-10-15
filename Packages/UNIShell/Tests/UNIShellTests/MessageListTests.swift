@@ -239,11 +239,19 @@ struct MessageListTests {
     /// `MessageList.swift` continua batendo com essa asserção porque as duas
     /// propriedades existem, ambas em `Account`; só o texto na tela muda.
     ///
+    /// **Onde a pastilha mora agora.** No desenho novo a linha da lista não
+    /// escreve mais o host: ela traz o ponto da cor da conta, e a pastilha com
+    /// o nome do provedor subiu para o cabeçalho do leitor
+    /// (`ReaderPane`, `TintChip(label: account?.host)`). A garantia é a mesma
+    /// de antes — a tela lê `account.host`, e não `account.id` — e por isso o
+    /// caso continua, mirando a superfície que a carrega hoje.
+    ///
     /// Prova de verdade: uma conta com `id` ≠ `host`, renderizada duas vezes —
     /// uma vez com o `host` real, outra com um `host` diferente mas o mesmo
-    /// `id`. Se a linha lê `account.host`, os dois desenhos do chip divergem;
-    /// se lê `account.id` (a mutação), o `id` não mudou entre as duas rodadas
-    /// e o desenho sai idêntico — pixel a pixel — mesmo o `host` tendo mudado.
+    /// `id`. Se a tela lê `account.host`, os dois desenhos da pastilha
+    /// divergem; se lê `account.id` (a mutação), o `id` não mudou entre as
+    /// duas rodadas e o desenho sai idêntico — pixel a pixel — mesmo o `host`
+    /// tendo mudado.
     @MainActor
     private func renderChip(host: String) async -> NSBitmapImageRep? {
         let account = Account(
@@ -255,13 +263,15 @@ struct MessageListTests {
         let store = MailStore(source: source)
         await store.load()
         store.select(bucket: .all)
+        store.select(message: "m1")
         return Render.bitmap(
-            MessageList(store: store), size: CGSize(width: MessageList.width, height: 200),
+            ReaderPane(store: store).environment(ThemeStore()),
+            size: CGSize(width: 760, height: 300),
             theme: .tinta
         )
     }
 
-    @Test("o chip da linha escreve o host da conta, e muda se o host mudar")
+    @Test("a pastilha do leitor escreve o host da conta, e muda se o host mudar")
     @MainActor
     func rowChipShowsProviderName() async throws {
         let a = try #require(await renderChip(host: "hostinger"))
@@ -271,7 +281,7 @@ struct MessageListTests {
         #expect(a.pixelsHigh == b.pixelsHigh)
         #expect(
             a.pixelsDiffering(from: b) > 0,
-            "o chip não mudou quando só o host da conta mudou — a linha não está lendo account.host"
+            "a pastilha não mudou quando só o host da conta mudou — a tela não está lendo account.host"
         )
     }
 

@@ -45,7 +45,11 @@ struct AgendaHojeTests {
             size: CGSize(width: 1200, height: 900), theme: .tinta
         ))
         let expected = try #require(Render.bitmap(
-            CalendarScreen(store: store, now: 195, anchor: monday, onCompose: {}, onOpenAccounts: {}),
+            CalendarScreen(
+                store: store, now: 195, anchor: monday,
+                wantsSidebar: false, onCompose: {}, onOpenAccounts: {},
+                showsSidebar: false
+            ),
             size: CGSize(width: 1200, height: 900), theme: .tinta
         ))
         #expect(actual.pixelsDiffering(from: expected) == 0)
@@ -98,7 +102,8 @@ struct AgendaHojeTests {
             Render.bitmap(
                 CalendarScreen(
                     store: store, now: agora, anchor: Fixtures.today,
-                    onCompose: {}, onOpenAccounts: {}
+                    wantsSidebar: false, onCompose: {}, onOpenAccounts: {},
+                    showsSidebar: false
                 ),
                 size: tamanho, theme: .tinta
             )
@@ -112,7 +117,8 @@ struct AgendaHojeTests {
             Render.bitmap(
                 CalendarScreen(
                     store: store, now: agora, anchor: Date(),
-                    onCompose: {}, onOpenAccounts: {}
+                    wantsSidebar: false, onCompose: {}, onOpenAccounts: {},
+                    showsSidebar: false
                 ),
                 size: tamanho, theme: .tinta
             )
