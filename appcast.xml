@@ -6,6 +6,16 @@
     <description>Atualizações do OkamiUNI</description>
     <language>pt-BR</language>
     <item>
+      <title>Version 0.6.5</title>
+      <pubDate>Thu, 15 Oct 2026 18:44:13 GMT</pubDate>
+      <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.6.5</sparkle:fullReleaseNotesLink>
+      <sparkle:version>20</sparkle:version>
+      <sparkle:shortVersionString>0.6.5</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<ul lang="pt-BR"><li>Zoom pronto para clientes: o app passa a usar a identificação de produção do OkamiUNI no Zoom. Quem conecta continua só clicando em <strong>Conectar</strong>.</li><li>Versão do app 0.6.5, build 20. <a href="docs/releases/v0.6.5.pt-BR.md">Notas da versão</a>.</li></ul><ul lang="en"><li>Zoom ready for everyone: the app now uses OkamiUNI's production Zoom app. Connecting is still a single click on <strong>Connect</strong>.</li><li>App version 0.6.5, build 20. <a href="docs/releases/v0.6.5.md">Release notes</a>.</li></ul>]]></description>
+      <enclosure url="https://github.com/OkamiOps/okamiuni/releases/download/v0.6.5/OkamiUNI-0.6.5.zip" length="37882405" type="application/octet-stream" sparkle:edSignature="K3XCied5ZfhPN9/0DwEad7vo+Mp7o7TBj2hjn11NnHO3Y3gUgVYcEGgkixgdNaEfqXHLKojGrKrAWks3dxMhCw==" />
+    </item>
+    <item>
       <title>Version 0.6.4</title>
       <pubDate>Thu, 15 Oct 2026 16:42:35 GMT</pubDate>
       <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.6.4</sparkle:fullReleaseNotesLink>
@@ -15,7 +25,7 @@
       <description><![CDATA[<ul lang="pt-BR"><li>Salas do Zoom, Microsoft Teams e Zoho Meeting: conecte uma vez em Configurações › Agendas e cada evento novo ganha a própria sala, como o Google Meet.</li><li>Versão do app 0.6.4, build 19. <a href="docs/releases/v0.6.4.pt-BR.md">Notas da versão</a>.</li></ul><ul lang="en"><li>Zoom, Microsoft Teams and Zoho Meeting rooms: connect them once in Settings › Calendars and each new event gets its own room, like Google Meet.</li><li>App version 0.6.4, build 19. <a href="docs/releases/v0.6.4.md">Release notes</a>.</li></ul>]]></description>
       <enclosure url="https://github.com/OkamiOps/okamiuni/releases/download/v0.6.4/OkamiUNI-0.6.4.zip" length="37882392" type="application/octet-stream" sparkle:edSignature="t1HvnLb0sDfP4ZsHY7pEMg6a59GZt6tjHOfxmLTO/MEzG5h0c/WJqnWeJM95hy4E6SHtFcb7ml+5j3uHBaWNDQ==" />
     </item>
-    <item>
+<item>
       <title>Version 0.6.3</title>
       <pubDate>Thu, 15 Oct 2026 15:37:03 GMT</pubDate>
       <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.6.3</sparkle:fullReleaseNotesLink>
