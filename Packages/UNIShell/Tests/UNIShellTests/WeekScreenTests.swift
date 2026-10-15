@@ -157,6 +157,43 @@ struct WeekScreenTests {
     /// regresso poderia manter `showsNow` correto e ainda desenhar
     /// `nowMarker` incondicionalmente. Renderiza a tela de verdade e procura
     /// pelo vermelho exato de `SemanticColor.live` (`#D73337` em tema claro,
+    /// Os dois padrões de Configurações ▸ Agendas que desenham **esta** grade.
+    ///
+    /// O início da semana move as colunas, e o horário de trabalho pinta a
+    /// faixa. Comparar os dois quadros é o que prova que a preferência chega
+    /// aqui — um valor guardado que não muda um pixel seria controle mudo.
+    @Test("o horário de trabalho da preferência pinta a faixa da grade")
+    @MainActor
+    func workingHoursBandIsDrawn() async throws {
+        let store = await loadedStore()
+        let suite = "okamiuni.week-prefs.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.removePersistentDomain(forName: suite)
+        let preferences = CalendarPreferences(defaults: defaults)
+
+        let size = CGSize(width: 900, height: 700)
+        func quadro() throws -> Data {
+            let screen = WeekScreen(
+                store: store, now: Fixtures.nowMinute, anchor: Fixtures.today
+            )
+            .environment(preferences)
+            let rep = try #require(Render.bitmap(screen, size: size, theme: .tinta, scale: 1))
+            return try #require(rep.representation(using: .png, properties: [:]))
+        }
+
+        preferences.workingHours = WorkingHours(startMinute: 9 * 60, endMinute: 18 * 60)
+        let comRealce = try quadro()
+        preferences.workingHours = nil
+        let semRealce = try quadro()
+        #expect(comRealce != semRealce, "a faixa de horário de trabalho não mudou a grade")
+
+        // E o início da semana troca a ordem das colunas.
+        preferences.weekStart = .sunday
+        let comDomingo = try quadro()
+        #expect(comDomingo != semRealce, "o início da semana não moveu as colunas")
+    }
+
     /// `EventWindow.swift:22`) em qualquer pixel — sem depender de saber onde
     /// a linha cairia.
     @Test("navegar uma semana para a frente tira a linha vermelha de 'agora' da tela")

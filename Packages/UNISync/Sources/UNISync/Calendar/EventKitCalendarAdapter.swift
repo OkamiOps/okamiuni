@@ -125,6 +125,14 @@ private actor EventKitCalendarGateway: SystemCalendarGateway {
 
     func save(_ item: AgendaItem, referenceDay: Date) throws {
         let event = existingEvent(id: item.id, referenceDay: referenceDay) ?? EKEvent(eventStore: store)
+        // O calendário que a pessoa escolheu em Configurações ▸ Agendas, e só
+        // então o padrão do sistema. Antes daqui, **todo** compromisso novo
+        // caía no calendário padrão do Mac e a preferência era decoração.
+        // Um compromisso que já existe não muda de calendário sozinho.
+        if event.calendar == nil, let chosen = item.calendarID {
+            event.calendar = store.calendars(for: .event)
+                .first { $0.calendarIdentifier == chosen && $0.allowsContentModifications }
+        }
         event.calendar = event.calendar ?? store.defaultCalendarForNewEvents
         guard event.calendar != nil else {
             throw CalendarAdapterError(.unavailable("Nenhum calendário editável está configurado neste Mac."))
@@ -141,6 +149,15 @@ private actor EventKitCalendarGateway: SystemCalendarGateway {
             event.recurrenceRules = [ekRule]
         } else {
             event.recurrenceRules = []
+        }
+        // O aviso. `EventDetail.notice` é a coluna que o banco já tem; aqui
+        // ela vira o alarme de verdade do macOS. Só mexemos nos alarmes
+        // quando a frase diz alguma coisa — um evento importado de fora
+        // mantém os dele.
+        if let alert = CalendarAlert.fromNotice(item.detail?.notice) {
+            event.alarms = alert.minutesBefore.map {
+                [EKAlarm(relativeOffset: TimeInterval(-$0 * 60))]
+            } ?? []
         }
         let span: EKSpan = event.hasRecurrenceRules ? .futureEvents : .thisEvent
         try store.save(event, span: span, commit: true)

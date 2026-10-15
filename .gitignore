@@ -20,6 +20,8 @@ xcuserdata/
 
 # O client ID do OAuth do Google. Ver docs/oauth-google.md.
 Config/Google.xcconfig
+# Os client IDs das salas de reunião. Ver Config/Meetings.example.xcconfig.
+Config/Meetings.xcconfig
 Packages/*/Package.resolved
 
 # Credenciais de assinatura nunca entram neste repositório público.

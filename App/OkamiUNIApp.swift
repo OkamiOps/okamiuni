@@ -33,6 +33,13 @@ struct OkamiUNIApp: App {
     /// a mesma instância; a fábrica cria a sala nova a cada compromisso.
     @State private var meetingRooms: MeetingRoomSettingsStore
     @State private var meetingFactory: MeetingRoomFactory
+    /// Os padrões da Agenda (agenda, duração, aviso, início da semana,
+    /// horário de trabalho) e a sala global. A grade da semana e o editor de
+    /// compromisso novo leem esta mesma instância.
+    @State private var calendarPreferences = CalendarPreferences()
+    /// As ligações das salas de reunião. Só o Meet tem conector de verdade
+    /// hoje; Zoom, Teams e Zoho entram aqui quando o OAuth de cada um existir.
+    @State private var meetingConnections: MeetingConnections
     /// Regras globais, persistidas fora das contas para continuarem valendo
     /// quando a pessoa alternar entre caixas. A mesma instância entra no
     /// `MailStore`, que aplica as regras em mensagens novas, e na janela de
@@ -81,9 +88,8 @@ struct OkamiUNIApp: App {
         _emailRules = State(initialValue: regras)
         let rooms = MeetingRoomSettingsStore()
         _meetingRooms = State(initialValue: rooms)
-        _meetingFactory = State(initialValue: MeetingRoomFactory(
-            google: composicao.googleAuth, rooms: rooms
-        ))
+        let factory = MeetingRoomFactory(google: composicao.googleAuth, rooms: rooms)
+        _meetingFactory = State(initialValue: factory)
         let store = MailStore(
             source: composicao.source, commandPort: composicao.commandPort,
             bodyPort: composicao.bodyPort, attachmentPort: composicao.attachmentPort,
@@ -103,6 +109,18 @@ struct OkamiUNIApp: App {
             calendarDefaults: .standard
         )
         _mailStore = State(initialValue: store)
+        // O Meet é o único conector real hoje: ele usa o OAuth Google que a
+        // caixa de correio já usa, e a conta que aparece na linha é a caixa
+        // Google que vai assinar as salas. Zoom, Teams e Zoho entram nesta
+        // lista quando o OAuth de cada um existir — sem eles, a aba Agendas
+        // mostra "ainda não disponível neste build" e nenhum botão.
+        _meetingConnections = State(initialValue: MeetingConnections(connectors: [
+            GoogleMeetConnector(
+                auth: composicao.googleAuth,
+                factory: factory,
+                googleAccounts: { store.accounts.filter { $0.provider == .gmail } }
+            )
+        ]))
         // A ressalva 1 da Tarefa 2: a fila de rascunho antecipado só enxerga
         // a agenda do banco. Com esta troca ela passa a olhar a agenda que o
         // `MailStore` de fato mostra — EventKit incluído — antes de propor
@@ -239,6 +257,7 @@ struct OkamiUNIApp: App {
                 .environment(swipes)
                 .environment(meetingRooms)
                 .environment(meetingFactory)
+                .environment(calendarPreferences)
                 .theme(themes.theme)
                 .environment(\.locale, L10n.locale)
                 .barraColadaNoTopo()
@@ -403,6 +422,8 @@ struct OkamiUNIApp: App {
                         swipes: swipes,
                         mailStore: mailStore,
                         meetingRooms: meetingRooms,
+                        calendarPreferences: calendarPreferences,
+                        meetingConnections: meetingConnections,
                         updates: updates
                     )
                 } else {

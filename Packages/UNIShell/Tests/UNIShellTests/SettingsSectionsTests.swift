@@ -199,7 +199,7 @@ struct SettingsSectionsTests {
         }
     }
 
-    @Test("Agenda apresenta o serviço padrão de cada conta")
+    @Test("O link profundo de Agenda chega à aba Agendas")
     func agendaRenderizaSalas() async throws {
         let model = try await model(with: [account(
             id: "trabalho", address: "marcos@trabalho.example", host: "trabalho"
@@ -214,7 +214,8 @@ struct SettingsSectionsTests {
                 model: model,
                 initialSection: .agenda,
                 themes: ThemeStore(defaults: suite.defaults),
-                meetingRooms: rooms
+                meetingRooms: rooms,
+                calendarPreferences: CalendarPreferences(defaults: suite.defaults)
             ),
             named: "settings-agenda-salas",
             size: renderSize,
@@ -222,13 +223,13 @@ struct SettingsSectionsTests {
         ))
 
         #expect(image.pixelsWide == Int(renderSize.width))
-        // A Agenda deixou de ser uma seção: o link profundo cai na página da
-        // conta, que é onde a sala de reunião dela passou a morar — junto do
-        // que sincroniza, dos aliases e da assinatura. O que se mede é a ação
-        // primária dessa página, "Sincronizar agora", no acento do tema.
+        // "agenda" era uma seção, depois virou a página da conta, e agora é a
+        // aba Agendas — que é onde os calendários e as salas moram. A palavra
+        // do link profundo continua valendo; o que se mede é o destino dela:
+        // os dois cartões da direita, Padrões e Salas de reunião.
         #expect(
-            image.pixels(matching: Theme.tinta.accent) > 800,
-            "a página da conta não foi desenhada"
+            image.pixels(matching: Theme.tinta.glassCard) > 20_000,
+            "os cartões da aba Agendas não foram desenhados"
         )
     }
 

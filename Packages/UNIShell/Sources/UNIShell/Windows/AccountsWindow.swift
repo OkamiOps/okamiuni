@@ -52,7 +52,8 @@ public enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
         case .intelligence: .intelligence
         case .gestures: .gestures
         case .rules: .rules
-        case .agenda, .accounts, .signatures, .aliases:
+        case .agenda: .agendas
+        case .accounts, .signatures, .aliases:
             accounts.first.map { ConfigPage.account($0.accountID) } ?? .overview
         }
     }
@@ -81,6 +82,8 @@ public struct AccountsWindow: View {
     private let swipes: SwipeSettingsStore?
     private let mailStore: MailStore?
     private let meetingRooms: MeetingRoomSettingsStore?
+    private let calendarPreferences: CalendarPreferences?
+    private let meetingConnections: MeetingConnections?
     private let updates: UpdateController?
 
     private let initialSection: SettingsSection
@@ -149,6 +152,8 @@ public struct AccountsWindow: View {
         swipes: SwipeSettingsStore? = nil,
         mailStore: MailStore? = nil,
         meetingRooms: MeetingRoomSettingsStore? = nil,
+        calendarPreferences: CalendarPreferences? = nil,
+        meetingConnections: MeetingConnections? = nil,
         updates: UpdateController? = nil
     ) {
         self.model = model
@@ -170,6 +175,8 @@ public struct AccountsWindow: View {
         self.swipes = swipes
         self.mailStore = mailStore
         self.meetingRooms = meetingRooms
+        self.calendarPreferences = calendarPreferences
+        self.meetingConnections = meetingConnections
         self.updates = updates
         _oauthStatus = State(initialValue: providerOAuthAuthorizer?.sessionState.status ?? .idle)
         _composingRule = State(initialValue: startsNewRule)
@@ -188,6 +195,9 @@ public struct AccountsWindow: View {
                 ConfigNav(
                     accounts: model.statuses,
                     pendingCount: alerts.count,
+                    agendaBadge: AgendaSources.needsCalendarPermission(
+                        mailStore?.calendarAvailability
+                    ) ? 1 : 0,
                     versionLine: versionLine,
                     readyUpdate: readyUpdate,
                     page: Binding(get: { currentPage }, set: { page = $0 }),
@@ -321,6 +331,16 @@ public struct AccountsWindow: View {
                     )
                 )
             }
+        case .agendas:
+            ConfigPageHeader(
+                title: L10n.tr("Agendas"),
+                subtitle: agendasSubtitle,
+                quietAction: (
+                    label: L10n.tr("Sincronizar agora"),
+                    symbol: "arrow.clockwise",
+                    run: { Task { await mailStore?.refreshCalendar(requestAuthorization: true) } }
+                )
+            )
         case .gestures:
             ConfigPageHeader(
                 title: L10n.tr("Gestos"),
@@ -381,11 +401,20 @@ public struct AccountsWindow: View {
                     model: model,
                     status: status,
                     mailStore: mailStore,
-                    meetingRooms: meetingRooms,
+                    openAgendas: { page = .agendas },
                     remove: { removendo = status.accountID }
                 )
                 .id(status.accountID)
             }
+        case .agendas:
+            ConfigAgendas(
+                mailStore: mailStore,
+                preferences: calendarPreferences,
+                connections: meetingConnections,
+                legacyRooms: meetingRooms,
+                accounts: model.statuses,
+                addAccount: { addingAccount = true }
+            )
         case .gestures:
             ConfigGestures(store: swipes, moveDestinations: swipeMoveDestinations)
         case .rules:
@@ -398,6 +427,23 @@ public struct AccountsWindow: View {
                 composing: $composingRule
             )
         }
+    }
+
+    /// "Quatro fontes, oito agendas, uma sala nova por reunião" — ou, sem a
+    /// permissão do macOS, a frase que diz o que está faltando.
+    private var agendasSubtitle: String {
+        if AgendaSources.needsCalendarPermission(mailStore?.calendarAvailability) {
+            return L10n.tr("O Mac negou o Calendário — as agendas deste Mac não aparecem")
+        }
+        let sources = AgendaSources.build(
+            calendars: mailStore?.calendarsForSidebar ?? [],
+            accounts: model.statuses,
+            availability: mailStore?.calendarAvailability,
+            now: Date()
+        )
+        let count = sources.reduce(0) { $0 + $1.calendars.count }
+        if count == 0 { return L10n.tr("Nenhuma agenda conectada ainda") }
+        return L10n.tr("\(AgendaSources.countNote(sources)), uma sala nova por reunião")
     }
 
     // MARK: A visão geral

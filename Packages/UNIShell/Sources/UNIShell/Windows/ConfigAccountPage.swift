@@ -19,14 +19,13 @@ struct ConfigAccountPage: View {
     let model: AccountsModel
     let status: AccountStatus
     let mailStore: MailStore?
-    let meetingRooms: MeetingRoomSettingsStore?
+    /// Leva à aba Agendas, que é onde os calendários e as salas moram agora.
+    let openAgendas: () -> Void
     let remove: () -> Void
     @State private var editingSignature = false
-    /// As conexões das salas de reunião (cliente e segredo de Zoom, Teams e
-    /// Zoho) e o gerenciador completo de remetentes continuam existindo: o
-    /// desenho não lhes deu um lugar na página, e escondê-los seria perder
-    /// função. Cada um abre da linha a que pertence.
-    @State private var editingRooms = false
+    /// O gerenciador completo de remetentes continua existindo: o desenho não
+    /// lhe deu um lugar na página, e escondê-lo seria perder função. Ele abre
+    /// da linha a que pertence.
     @State private var editingAliases = false
     @State private var addingAlias = false
     @State private var newAliasName = ""
@@ -52,11 +51,6 @@ struct ConfigAccountPage: View {
                 editingSignature = false
             }
         }
-        .sheet(isPresented: $editingRooms) {
-            ConfigSheet(title: L10n.tr("Salas de reunião")) { editingRooms = false } content: {
-                AgendaSettingsView(rooms: meetingRooms, accounts: [status])
-            }
-        }
         .sheet(isPresented: $editingAliases) {
             ConfigSheet(title: L10n.tr("Quem envia por esta conta")) { editingAliases = false } content: {
                 AliasSettingsView(model: model)
@@ -80,20 +74,7 @@ struct ConfigAccountPage: View {
                 note: calendarNote
             )
 
-            ConfigBlockTitle(text: L10n.tr("Calendários desta conta"))
-                .padding(.top, 22)
-                .padding(.bottom, 4)
-            if accountCalendars.isEmpty {
-                Text(L10n.tr("Nenhum calendário desta conta está visível no Mac."))
-                    .font(theme.sans.font(size: 12.5))
-                    .foregroundStyle(palette.ink3.color)
-                    .padding(.vertical, 10)
-            } else {
-                ForEach(accountCalendars) { calendarRow($0) }
-            }
-
-            meetingRoomRow
-                .padding(.top, 22)
+            agendasLink
 
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 ConfigBlockTitle(text: L10n.tr("Quem envia por esta conta"))
@@ -134,81 +115,32 @@ struct ConfigAccountPage: View {
         .overlay(alignment: .top) { divider }
     }
 
-    private func calendarRow(_ calendar: ConnectedCalendar) -> some View {
-        let on = mailStore?.isCalendarEnabled(calendar.id) ?? true
-        let tint = TokenColor(css: calendar.colorHex) ?? palette.accent
-        return Button { mailStore?.toggleCalendar(calendar.id) } label: {
-            HStack(spacing: 12) {
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(on ? tint.color : Color.clear)
-                    .frame(width: 16, height: 16)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 5, style: .continuous)
-                            .strokeBorder(tint.color, lineWidth: 1.5)
-                    }
-                    .overlay {
-                        if on {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 8, weight: .heavy))
-                                .foregroundStyle(Color.white)
-                        }
-                    }
-                Text(calendar.title)
-                    .font(theme.sans.font(size: 14))
-                    .foregroundStyle((on ? palette.ink : palette.ink3).color)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                Text(calendar.allowsModifications ? "" : L10n.tr("só leitura"))
-                    .font(theme.sans.font(size: 12.5))
-                    .foregroundStyle(palette.ink3.color)
+    /// Os calendários desta conta e a sala de reunião **saíram** daqui.
+    ///
+    /// Eram duas listas por conta para um ajuste que é um só: a mesma
+    /// preferência de mostrar ou ocultar vale em qualquer tela, e a sala
+    /// passou a ser global. Repetir as duas aqui dava ao mesmo botão dois
+    /// donos. O que fica é o caminho até elas.
+    private var agendasLink: some View {
+        Button(action: openAgendas) {
+            ConfigRow(
+                label: L10n.tr("Agendas e salas de reunião"),
+                note: L10n.tr("mostrar ou ocultar uma agenda, e a sala que entra num evento novo"),
+                verticalPadding: 12
+            ) {
+                HStack(spacing: 6) {
+                    Text(L10n.tr("Abrir Agendas"))
+                        .font(theme.sans.font(size: 13, weight: .medium))
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                }
+                .foregroundStyle(palette.accentInk.color)
             }
-            .padding(.vertical, 10)
-            .overlay(alignment: .top) { divider }
+            .padding(.top, 22)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(calendar.title)
-        .accessibilityAddTraits(on ? [.isSelected] : [])
-    }
-
-    private var meetingRoomRow: some View {
-        ConfigRow(
-            label: L10n.tr("Sala de reunião"),
-            note: needsRoomConnection
-                ? L10n.tr("este serviço precisa da API dele — toque em Conectar")
-                : L10n.tr("entra em todo compromisso novo desta conta"),
-            verticalPadding: 12
-        ) {
-            if needsRoomConnection {
-                Button(L10n.tr("Conectar")) { editingRooms = true }
-                    .buttonStyle(.plain)
-                    .font(theme.sans.font(size: 13, weight: .medium))
-                    .foregroundStyle(palette.accentInk.color)
-            }
-            if let meetingRooms {
-                ConfigPicker(
-                    options: [(nil as MeetingService?, L10n.tr("Nenhuma"))]
-                        + MeetingService.allCases.map { (Optional($0), $0.label) },
-                    selection: Binding(
-                        get: { meetingRooms.profile(for: status.accountID).defaultService },
-                        set: { meetingRooms.setDefault($0, for: status.accountID) }
-                    ),
-                    accessibilityTitle: L10n.tr("Sala de reunião")
-                ) {
-                    let service = meetingRooms.profile(for: status.accountID).defaultService
-                    HStack(spacing: 8) {
-                        RoundedRectangle(cornerRadius: 2)
-                            .fill((service == nil ? palette.ink3 : palette.green).color)
-                            .frame(width: 8, height: 8)
-                        Text(service?.label ?? L10n.tr("Nenhuma"))
-                    }
-                }
-            } else {
-                Text(L10n.tr("indisponível nesta janela"))
-                    .font(theme.sans.font(size: 13))
-                    .foregroundStyle(palette.ink3.color)
-            }
-        }
+        .focusRing(cornerRadius: 10)
     }
 
     private func aliasRow(_ alias: SendAlias) -> some View {
@@ -503,15 +435,6 @@ struct ConfigAccountPage: View {
     private var serverLine: String {
         let auth = status.provider == .imap ? L10n.tr("senha") : "OAuth"
         return "\(status.imap?.host ?? status.hostMark) · \(auth)"
-    }
-
-    /// O serviço escolhido fala por API e ainda não tem cliente e segredo.
-    private var needsRoomConnection: Bool {
-        guard let meetingRooms,
-              let service = meetingRooms.profile(for: status.accountID).defaultService,
-              service.needsAPIConnection
-        else { return false }
-        return !meetingRooms.isConnected(service)
     }
 
     private var canCommitAlias: Bool {

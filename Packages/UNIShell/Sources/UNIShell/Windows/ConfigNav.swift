@@ -13,6 +13,8 @@ enum ConfigPage: Hashable, Sendable {
     case overview
     case appearance
     case intelligence
+    /// A aba Agendas: as fontes, os padrões de um evento novo e as salas.
+    case agendas
     case account(String)
     case gestures
     case rules
@@ -30,6 +32,9 @@ struct ConfigNav: View {
 
     let accounts: [AccountStatus]
     let pendingCount: Int
+    /// `1` quando o macOS negou o Calendário — é o aviso que a aba Agendas
+    /// mostra, contado na navegação como o desenho pede.
+    var agendaBadge: Int = 0
     let versionLine: String
     let readyUpdate: String?
     @Binding var page: ConfigPage
@@ -53,6 +58,7 @@ struct ConfigNav: View {
                     header(L10n.tr("VOCÊ"))
                     item(.appearance, L10n.tr("Aparência"), symbol: "paintpalette")
                     item(.intelligence, L10n.tr("Inteligência"), symbol: "sparkles")
+                    item(.agendas, L10n.tr("Agendas"), symbol: "calendar", badge: agendaBadge)
                     header(L10n.tr("SUAS CONTAS"))
                     ForEach(visibleAccounts) { accountRow($0) }
                     addAccountRow
