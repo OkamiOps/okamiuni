@@ -4,6 +4,10 @@
 
 Todas as versões seguem o [release no GitHub](https://github.com/OkamiOps/okamiuni/releases). Datas em 2026.
 
+## 0.6.5 — 15 de outubro
+- Zoom pronto para clientes: o app passa a usar a identificação de produção do OkamiUNI no Zoom. Quem conecta continua só clicando em **Conectar**.
+- Versão do app 0.6.5, build 20. [Notas da versão](docs/releases/v0.6.5.pt-BR.md).
+
 ## 0.6.4 — 15 de outubro
 - Salas do Zoom, Microsoft Teams e Zoho Meeting: conecte uma vez em Configurações › Agendas e cada evento novo ganha a própria sala, como o Google Meet.
 - Versão do app 0.6.4, build 19. [Notas da versão](docs/releases/v0.6.4.pt-BR.md).
