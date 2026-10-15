@@ -15,7 +15,7 @@ import UNICore
 ///
 /// **Redirect por esquema próprio.** Aqui, diferente do Zoom e do Zoho, o
 /// `ASWebAuthenticationSession` serve: o Entra aceita
-/// `com.okamiops.okamiuni:/oauth2redirect`, o esquema já está registrado em
+/// `com.okamiops.okamiuni://oauth2redirect`, o esquema já está registrado em
 /// `CFBundleURLTypes`, e a sessão do sistema mostra o domínio real na barra —
 /// que é o que impede o app de ver a senha digitada.
 @MainActor
@@ -33,9 +33,11 @@ public final class TeamsConnector: MeetingConnector {
         "User.Read",
     ]
 
-    /// `com.okamiops.okamiuni:/oauth2redirect`. Um só `/` depois dos dois
-    /// pontos, como o redirect do Google deste mesmo app.
-    public static let redirectURI = "com.okamiops.okamiuni:/oauth2redirect"
+    /// `com.okamiops.okamiuni://oauth2redirect`. Duas barras: o portal do
+    /// Entra recusa o cliente público com esquema próprio em outra forma
+    /// ("Must start with … 'customScheme://'"), e o valor tem de bater
+    /// exatamente com o registrado lá.
+    public static let redirectURI = "com.okamiops.okamiuni://oauth2redirect"
     public static let callbackScheme = "com.okamiops.okamiuni"
 
     private let clientID: String?

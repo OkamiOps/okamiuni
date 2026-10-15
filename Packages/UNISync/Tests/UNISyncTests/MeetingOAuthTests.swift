@@ -503,7 +503,7 @@ struct TeamsConnectorTests {
             "/v1.0/me": [.json(#"{"mail":"marcos@okamiops.com"}"#)],
         ])
         let apresentador = RecordingPresenter { url in
-            URL(string: "com.okamiops.okamiuni:/oauth2redirect?code=c0de&state=\(query(url)["state"]!)")!
+            URL(string: "com.okamiops.okamiuni://oauth2redirect?code=c0de&state=\(query(url)["state"]!)")!
         }
         let conector = TeamsConnector(
             clientID: "ms-client",
@@ -524,7 +524,7 @@ struct TeamsConnectorTests {
         let itens = query(autorizacao)
         #expect(itens["client_id"] == "ms-client")
         #expect(itens["code_challenge_method"] == "S256")
-        #expect(itens["redirect_uri"] == "com.okamiops.okamiuni:/oauth2redirect")
+        #expect(itens["redirect_uri"] == "com.okamiops.okamiuni://oauth2redirect")
         #expect(
             itens["scope"]
                 == "offline_access Calendars.ReadWrite OnlineMeetings.ReadWrite User.Read"
@@ -548,7 +548,7 @@ struct TeamsConnectorTests {
         let conector = TeamsConnector(
             clientID: "ms-client", session: session, vault: vault(),
             presenter: RecordingPresenter { url in
-                URL(string: "com.okamiops.okamiuni:/oauth2redirect?code=c&state=\(query(url)["state"]!)")!
+                URL(string: "com.okamiops.okamiuni://oauth2redirect?code=c&state=\(query(url)["state"]!)")!
             },
             graphBase: URL(string: "https://graph.example/v1.0/")!,
             authorizationEndpoint: URL(string: "https://login.example/common/oauth2/v2.0/authorize")!,
