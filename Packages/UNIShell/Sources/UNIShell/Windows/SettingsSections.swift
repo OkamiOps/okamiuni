@@ -907,8 +907,8 @@ struct GeneralSettingsView: View {
         case .xAI:
             SettingsNotice(
                 symbol: "flask",
-                title: L10n.tr("OAuth Grok/xAI experimental"),
-                text: L10n.tr("O fluxo usa a conta xAI diretamente, sem CLI. A elegibilidade depende do provedor e algumas assinaturas podem receber 403; nesse caso use a opção API com uma chave xAI.")
+                title: L10n.tr("Conta Grok · xAI"),
+                text: L10n.tr("Conecta sua conta xAI diretamente pelo login oficial com código no navegador. A sessão fica no Keychain deste Mac e os modelos são carregados da sua conta. Esta conexão é independente da opção CLI.")
             )
         }
 

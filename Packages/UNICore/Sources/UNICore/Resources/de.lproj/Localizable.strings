@@ -1363,7 +1363,7 @@
 "O executável escolhido não pertence à allowlist do OkamiUNI." = "Die gewählte Programmdatei steht nicht auf der Zulassungsliste von OkamiUNI.";
 "O executável foi encontrado, mas o status não trouxe evidência inequívoca. Isso também ocorre quando o sandbox bloqueia o acesso da ferramenta à própria sessão. Conclua OAuth/device no CLI e teste a configuração quando o estado mudar." = "Die ausführbare Datei wurde gefunden, aber der Status war unklar. Die Sandbox kann den Sitzungszugriff blockieren. Schließe OAuth/Geräteauthentifizierung im CLI ab und teste die Einstellungen bei einer Statusänderung.";
 "O fluxo OAuth ainda não está disponível nesta composição. Configure o serviço LiteLLM no app para habilitar o login seguro." = "OAuth ist in dieser Konfiguration noch nicht verfügbar. Konfiguriere LiteLLM in der App für eine sichere Anmeldung.";
-"O fluxo usa a conta xAI diretamente, sem CLI. A elegibilidade depende do provedor e algumas assinaturas podem receber 403; nesse caso use a opção API com uma chave xAI." = "Dieser Ablauf verwendet dein xAI-Konto direkt, ohne CLI. Die Berechtigung hängt vom Anbieter ab; manche Abonnements erhalten 403. Verwende dann die API-Option mit einem xAI-Schlüssel.";
+"Conecta sua conta xAI diretamente pelo login oficial com código no navegador. A sessão fica no Keychain deste Mac e os modelos são carregados da sua conta. Esta conexão é independente da opção CLI." = "Verbindet Ihr xAI-Konto direkt über die offizielle Anmeldung mit einem Code im Browser. Die Sitzung bleibt im Schlüsselbund dieses Mac, und die Modelle werden aus Ihrem Konto geladen. Diese Verbindung ist unabhängig von der CLI-Option.";
 "O Gmail não devolveu aliases para esta conta." = "Gmail hat keine Aliasse für dieses Konto zurückgegeben.";
 "O Google Meet precisa autorizar esta sessão. Use Reconectar o Google, ou cole um link existente." = "Google Meet muss diese Sitzung autorisieren. Verwende Google neu verbinden oder füge einen vorhandenen Link ein.";
 "O Google precisa autorizar o Calendar nesta caixa (é assim que o Meet nasce no Gmail). Reconecte uma vez." = "Google benötigt die Kalenderberechtigung für dieses Postfach, um Meet in Gmail zu erstellen. Verbinde es einmal erneut.";
@@ -1467,7 +1467,7 @@
 "OAuth do seu proxy LiteLLM" = "OAuth für deinen LiteLLM-Proxy";
 "OCULTAR" = "AUSBLENDEN";
 "ORIENTAÇÕES PARA ESTA AJUDA" = "ANWEISUNGEN FÜR DIESE HILFE";
-"OAuth Grok/xAI experimental" = "Experimentelles Grok/xAI-OAuth";
+"Conta Grok · xAI" = "Grok-Konto · xAI";
 "Oculta o {0}" = "{0} ausblenden";
 "Ocultar a mensagem citada" = "Zitierte Nachricht ausblenden";
 "Ocultar calendário" = "Kalender ausblenden";
