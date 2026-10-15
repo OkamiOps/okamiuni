@@ -252,6 +252,10 @@ struct ConfigPageHeader: View {
     var avatarInitial: String?
     var avatarTint: TokenColor?
     var action: (label: String, run: () -> Void)?
+    /// A ação **calma**, com um ícone à esquerda: o "Sincronizar agora" da
+    /// aba Agendas é assim no desenho, e não o botão de acento cheio que as
+    /// outras páginas usam.
+    var quietAction: (label: String, symbol: String, run: () -> Void)?
 
     var body: some View {
         HStack(alignment: .center, spacing: 16) {
@@ -279,6 +283,20 @@ struct ConfigPageHeader: View {
                 Button(action.label, action: action.run)
                     .buttonStyle(.plain)
                     .configPrimaryButton(palette, font: theme.sans.font(size: 13, weight: .semibold))
+            }
+            if let quietAction {
+                Button(action: quietAction.run) {
+                    HStack(spacing: 8) {
+                        Image(systemName: quietAction.symbol)
+                            .font(.system(size: 12, weight: .semibold))
+                        Text(quietAction.label)
+                    }
+                }
+                .buttonStyle(.plain)
+                .configQuietButton(
+                    palette, font: theme.sans.font(size: 13, weight: .semibold),
+                    radius: 10, horizontal: 14, vertical: 8
+                )
             }
         }
         .padding(.bottom, 20)

@@ -263,7 +263,7 @@ public enum AccountsCopy {
 
     /// "às 14:32". O `Calendar` vem de fora: hora de parede é da máquina de
     /// quem lê, e não do modelo — a mesma regra que mantém `dayOffset` inteiro.
-    private static func horario(_ data: Date, calendar: Calendar) -> String {
+    static func horario(_ data: Date, calendar: Calendar) -> String {
         let partes = calendar.dateComponents([.hour, .minute], from: data)
         return String(format: L10n.tr("às %02d:%02d"), partes.hour ?? 0, partes.minute ?? 0)
     }
