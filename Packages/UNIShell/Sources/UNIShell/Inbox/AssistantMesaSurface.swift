@@ -14,6 +14,14 @@ import UNIDesign
 /// corpo e as ações que valem para ela. A sessão, os provedores, as
 /// ferramentas e o histórico são os mesmos — isto é apresentação.
 ///
+/// ## A mesa já posta
+///
+/// Ao abrir sem conversa nenhuma, a mesa **já tem o dia em cima dela**: o
+/// e-mail que espera há mais tempo, o próximo compromisso e uma promessa em
+/// aberto, do mesmo `DayPlan` que alimenta o Painel. Sem nenhum deles a mesa
+/// não finge: a segunda linha deixa de dizer que separou alguma coisa e as
+/// sugestões sobem para logo abaixo da saudação, em vez de deixarem um vão.
+///
 /// ## Onde ela difere do desenho, e por quê
 ///
 /// O desenho espalha os objetos em posições absolutas, com rotações de um
@@ -46,6 +54,17 @@ struct AssistantMesa: View {
         compact ? MesaMetrics.drawerHeaderPadding.leading : MesaMetrics.greetingPadding.leading
     }
 
+    /// A mesa está vazia de conversa — é a hora de mostrar o dia.
+    private var isEmpty: Bool {
+        conversation.messages.isEmpty && !conversation.isLoading
+    }
+
+    private var dayItems: [MesaDayItem] { session.dayItems }
+
+    private var suggestions: [String] {
+        AssistantDrawerCopy.chips(heroName: heroName)
+    }
+
     private var objects: [MesaObject] {
         MesaObject.table(
             for: conversation.messages, lastReceipt: session.lastReceipt
@@ -64,7 +83,7 @@ struct AssistantMesa: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if conversation.messages.isEmpty, !conversation.isLoading {
+            if isEmpty {
                 greeting
             } else if let lastAsked {
                 MesaObjectView(
@@ -82,17 +101,17 @@ struct AssistantMesa: View {
             }
 
             mesa
-
-            if conversation.messages.isEmpty, !conversation.isLoading {
-                suggestions
-            }
         }
     }
 
     // MARK: O vazio
 
-    /// "Boa tarde, Marcos." e o convite. A segunda linha **não** é a do
-    /// desenho: ver `MesaCopy.emptyInvitation`.
+    /// "Boa tarde, Marcos." e a segunda linha.
+    ///
+    /// A segunda linha **só diz que separou alguma coisa quando há alguma
+    /// coisa**: com a mesa limpa ela vira o convite, porque "separei o que não
+    /// pode esperar" sobre o nada é a tela mentindo sobre o trabalho — a mesma
+    /// regra do recibo de passos.
     private var greeting: some View {
         VStack(alignment: .leading, spacing: MesaMetrics.greetingGap) {
             Text(DashboardFocus.greeting(
@@ -101,7 +120,7 @@ struct AssistantMesa: View {
             .font(theme.sans.font(size: MesaMetrics.greetingSize, weight: .bold))
             .tracking(MesaMetrics.greetingSize * MesaMetrics.greetingTracking)
             .foregroundStyle(theme.ink.color)
-            Text(MesaCopy.emptyInvitation)
+            Text(dayItems.isEmpty ? MesaCopy.emptyInvitation : MesaCopy.separated)
                 .font(theme.sans.font(size: MesaMetrics.greetingSubSize))
                 .foregroundStyle(theme.ink3.color)
                 .fixedSize(horizontal: false, vertical: true)
@@ -112,48 +131,33 @@ struct AssistantMesa: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// As perguntas de partida, em linha com a seta do desenho.
-    private var suggestions: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(AssistantDrawerCopy.chips(heroName: heroName), id: \.self) { texto in
-                Button { conversation.ask(texto) } label: {
-                    HStack(spacing: MesaMetrics.suggestionGap) {
-                        Image(systemName: "arrow.right")
-                            .font(.system(
-                                size: MesaMetrics.suggestionGlyph, weight: .semibold
-                            ))
-                            .foregroundStyle(theme.accentInk.color)
-                        Text(texto)
-                            .font(theme.sans.font(size: MesaMetrics.suggestionSize))
-                            .foregroundStyle(theme.ink2.color)
-                            .multilineTextAlignment(.leading)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(MesaMetrics.suggestionRowPadding)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .focusRing(cornerRadius: theme.radiusSmall)
-                .disabled(conversation.isLoading)
-            }
-        }
-        .padding(.horizontal, gutter - MesaMetrics.suggestionRowPadding.leading)
-        .padding(.top, MesaMetrics.suggestionPadding.top)
-        .padding(.bottom, MesaMetrics.suggestionPadding.bottom)
-    }
-
     // MARK: A mesa
 
     /// A superfície pontilhada com os objetos em cima dela.
+    ///
+    /// As sugestões moram **dentro** dela, e não embaixo: pendurá-las no pé
+    /// deixava um vão enorme entre a saudação e elas sempre que não havia o
+    /// que mostrar.
     private var mesa: some View {
         ScrollView {
             VStack(alignment: .center, spacing: MesaMetrics.objectGap) {
-                ForEach(onTable) { objeto in
-                    MesaObjectView(
-                        object: objeto, session: session,
-                        onRun: onRun, onReveal: onReveal
-                    )
-                    .frame(maxWidth: MesaMetrics.objectMaxWidth)
+                if isEmpty {
+                    ForEach(dayItems) { item in
+                        MesaDayItemView(
+                            item: item,
+                            onAsk: { conversation.ask($0) },
+                            onReveal: onReveal
+                        )
+                        .frame(maxWidth: MesaMetrics.objectMaxWidth)
+                    }
+                } else {
+                    ForEach(onTable) { objeto in
+                        MesaObjectView(
+                            object: objeto, session: session,
+                            onRun: onRun, onReveal: onReveal
+                        )
+                        .frame(maxWidth: MesaMetrics.objectMaxWidth)
+                    }
                 }
                 if conversation.isLoading {
                     MesaBirthingObject(caps: MesaCopy.draftWriting)
@@ -171,50 +175,32 @@ struct AssistantMesa: View {
                     )
                     .frame(maxWidth: MesaMetrics.objectMaxWidth)
                 }
-                if !conversation.isLoading, !conversation.messages.isEmpty {
-                    followUps
+                if !conversation.isLoading {
+                    // As mesmas linhas com seta nos dois lugares, alinhadas
+                    // pela borda esquerda dos objetos.
+                    MesaSuggestionRows(
+                        suggestions: suggestions,
+                        isDisabled: conversation.isLoading,
+                        onAsk: { conversation.ask($0) }
+                    )
+                    .frame(maxWidth: MesaMetrics.objectMaxWidth, alignment: .leading)
+                    .padding(.top, isEmpty && dayItems.isEmpty ? 0 : 6)
                 }
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, alignment: .top)
             .padding(compact ? MesaMetrics.objectGap : MesaMetrics.mesaInset)
         }
         .scrollIndicators(.never)
         .scrollBounceBehavior(.basedOnSize)
+        // **Sem fundo do sistema.** Uma `ScrollView` do AppKit pinta a própria
+        // parede, e ela cobria o pontilhado numa faixa no alto da mesa.
+        .scrollContentBackground(.hidden)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(MesaDots())
         .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
         .padding(.horizontal, MesaMetrics.mesaMargin.leading)
         .padding(.top, MesaMetrics.mesaMargin.top)
         .accessibilityIdentifier("assistant-mesa")
-    }
-
-    /// As perguntas seguintes, no pé da mesa: pastilha de campo com moldura,
-    /// como no desenho (`field` / `fieldLine`, `padding: 8px 13px`).
-    private var followUps: some View {
-        FlowLayout(spacing: MesaMetrics.followUpGap, rowSpacing: MesaMetrics.followUpGap) {
-            ForEach(AssistantDrawerCopy.chips(heroName: heroName), id: \.self) { texto in
-                Button { conversation.ask(texto) } label: {
-                    Text(texto)
-                        .font(theme.sans.font(
-                            size: MesaMetrics.followUpSize, weight: .medium
-                        ))
-                        .foregroundStyle(theme.ink2.color)
-                        .lineLimit(1)
-                        .padding(MesaMetrics.followUpPadding)
-                        .background(theme.surface2.color)
-                        .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: theme.radiusSmall)
-                                .strokeBorder(theme.btnLine.color, lineWidth: 1)
-                        }
-                        .contentShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-                }
-                .buttonStyle(.plain)
-                .focusRing(cornerRadius: theme.radiusSmall)
-                .disabled(conversation.isLoading)
-            }
-        }
-        .frame(maxWidth: MesaMetrics.objectMaxWidth)
-        .padding(.top, 8)
     }
 }

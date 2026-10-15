@@ -317,9 +317,16 @@ public struct InboxScreen: View {
         // tem store nem fila, e um segundo caminho lá divergiria daqui.
         .task {
             assistantSession.install(runner: runProposalCard, reveal: { reveal($0) })
-            // Quem sabe quem é o dono da conta é esta tela; a janela
-            // destacada é cena própria e não alcança o store.
+            // Quem sabe quem é o dono da conta, e o que o dia tem, é esta
+            // tela; a janela destacada é cena própria e não alcança o store.
             assistantSession.ownerName = ownerFirstName
+            assistantSession.dayItems = mesaDayItems
+        }
+        // A mesa vazia é o dia **de agora**: arquivar o e-mail que ela mostra,
+        // ou a reunião começar, muda o que ela deve mostrar. Recalcular só ao
+        // abrir a tela deixaria um objeto fantasma em cima dela.
+        .onChange(of: store.dashboardContentRevision) { _, _ in
+            assistantSession.dayItems = mesaDayItems
         }
         // O "Desfazer" do cartão vale enquanto **o recibo da leva dele**
         // estiver de pé. Um recibo de outra origem não serve, e por isso a
@@ -1137,6 +1144,24 @@ public struct InboxScreen: View {
         guard let heroi = plano.hero,
               let mensagem = store.message(heroi.messageID) else { return nil }
         return mensagem.from.display
+    }
+
+    /// O dia que a mesa vazia mostra: o mesmo `DayPlan` do Painel, a mesma
+    /// agenda e as mesmas promessas. Sem dado, vem vazio — e a mesa diz outra
+    /// coisa em vez de inventar item.
+    private var mesaDayItems: [MesaDayItem] {
+        let plano = DashboardPlanInput.plan(
+            store: store, drafts: readyDrafts?.drafts ?? [:],
+            filter: dashboardFilter, today: agendaAnchor,
+            nowMinute: dashboardNowMinute
+        )
+        return MesaDayItem.items(
+            plan: plano,
+            agenda: store.dashboardAgenda(accountIDs: dashboardFilter.accounts),
+            pending: store.visiblePendingItems,
+            today: agendaAnchor,
+            nowMinute: dashboardNowMinute
+        )
     }
 
     /// O minuto que a aba Dashboard está desenhando agora.

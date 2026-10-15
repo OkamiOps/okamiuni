@@ -65,8 +65,9 @@ enum MesaMetrics {
     // MARK: As sugestões do vazio — `padding: 12px 28px 4px`
 
     static let suggestionPadding = EdgeInsets(top: 12, leading: 28, bottom: 4, trailing: 28)
-    /// `padding: 7px 4px; gap: 10px; font-size: 13px`.
-    static let suggestionRowPadding = EdgeInsets(top: 7, leading: 4, bottom: 7, trailing: 4)
+    /// `padding: 7px 4px; gap: 10px; font-size: 13px` — sem o recuo da
+    /// esquerda, para a seta nascer na **mesma** coluna da borda do objeto.
+    static let suggestionRowPadding = EdgeInsets(top: 7, leading: 0, bottom: 7, trailing: 4)
     static let suggestionGap: CGFloat = 10
     static let suggestionSize: CGFloat = 13
     static let suggestionGlyph: CGFloat = 13
@@ -172,6 +173,12 @@ public enum MesaCopy {
         L10n.tr("Pergunte, ou mande fazer. O que eu fizer aparece aqui na mesa.")
     }
 
+    /// A segunda linha quando a mesa **tem** o que mostrar. Só então ela pode
+    /// dizer que separou alguma coisa.
+    public static var separated: String {
+        L10n.tr("Separei o que não pode esperar.")
+    }
+
     public static var note: String { L10n.tr("NOTA") }
     public static var draft: String { L10n.tr("RASCUNHO") }
     public static var draftWriting: String { L10n.tr("RASCUNHO · ESCREVENDO") }
@@ -182,6 +189,166 @@ public enum MesaCopy {
     public static var addToAgenda: String { L10n.tr("Adicionar à agenda") }
     public static var copy: String { L10n.tr("Copiar") }
     public static var stopHere: String { L10n.tr("Parar aqui") }
+}
+
+// MARK: - O dia, em cima da mesa
+
+/// **Um objeto do dia na mesa vazia** — `Mesa-vazio-escuro`: o e-mail que
+/// espera há mais tempo, o próximo compromisso e uma promessa em aberto.
+///
+/// Os três saem do **mesmo** `DayPlan` que alimenta o Painel do Dia, da mesma
+/// agenda e das mesmas promessas. Nada aqui é inventado: sem dado, o item não
+/// existe, e a mesa diz outra coisa.
+///
+/// É um valor, e não um `switch` dentro da `View`, porque "o que entra na
+/// mesa, e em que ordem" é decisão de produto — e porque a janela destacada
+/// não alcança o `MailStore` e precisa receber isto pronto.
+struct MesaDayItem: Identifiable, Hashable, Sendable {
+
+    enum Kind: String, Sendable { case email, meeting, promise }
+
+    let id: String
+    let kind: Kind
+    /// O versalete: "E-MAIL · ESPERANDO HÁ 2 DIAS".
+    let caps: String
+    let title: String
+    let detail: String
+    /// O rótulo do botão — o verbo do desenho.
+    let verb: String
+    /// A pergunta que o botão manda ao assistente. É o único efeito dele:
+    /// a mesa vazia **propõe**, e quem executa continua sendo o cartão que
+    /// voltar da resposta.
+    let ask: String
+    /// A mensagem que o "Ver" abre, quando o item tem uma.
+    let messageID: String?
+
+    /// A cor do ponto do versalete, por família de objeto.
+    @MainActor
+    func dot(_ theme: Theme) -> TokenColor {
+        switch kind {
+        case .email: theme.info
+        case .meeting: theme.warning
+        case .promise: theme.accentInk
+        }
+    }
+
+    /// **Os itens do dia, no máximo três.**
+    ///
+    /// A ordem é a do desenho: primeiro quem espera, depois o que está perto
+    /// no relógio, depois a promessa. `nowMinute` e `today` entram pela porta
+    /// — nenhuma consulta ao relógio acontece aqui dentro, como no `DayPlan`.
+    nonisolated static func items(
+        plan: DayPlan,
+        agenda: [AgendaItem],
+        pending: [PendingItem],
+        today: Date,
+        nowMinute: Int,
+        limit: Int = 3,
+        calendar: Calendar = .current
+    ) -> [MesaDayItem] {
+        var itens: [MesaDayItem] = []
+        if let email = emailItem(plan: plan, today: today, calendar: calendar) {
+            itens.append(email)
+        }
+        if let reuniao = meetingItem(agenda: agenda, nowMinute: nowMinute) {
+            itens.append(reuniao)
+        }
+        if let promessa = promiseItem(pending: pending, today: today, calendar: calendar) {
+            itens.append(promessa)
+        }
+        return Array(itens.prefix(limit))
+    }
+
+    /// Quem espera há mais tempo. O herói do dia quando há um; sem herói, a
+    /// primeira linha de "Esperando você".
+    private nonisolated static func emailItem(
+        plan: DayPlan, today: Date, calendar: Calendar
+    ) -> MesaDayItem? {
+        let linhas = plan.sections.first { $0.kind == .waitingOnYou }?.rows ?? []
+        let escolhida = plan.hero.flatMap { heroi in
+            linhas.first { $0.item.message.id == heroi.messageID }
+        } ?? linhas.first
+        guard let linha = escolhida else { return nil }
+        let mensagem = linha.item.message
+        let nome = DashboardFocus.personName(
+            displayName: mensagem.from.name, address: mensagem.from.address
+        ) ?? mensagem.from.display
+        // Nunca negativo: um e-mail que chegou "amanhã" (relógio torto) não
+        // espera há menos zero dias — a mesma guarda do Painel.
+        let dias = max(0, calendar.dateComponents(
+            [.day],
+            from: calendar.startOfDay(for: mensagem.receivedAt),
+            to: calendar.startOfDay(for: today)
+        ).day ?? 0)
+        let caps: String = switch dias {
+        case 0: L10n.tr("E-MAIL · DE HOJE")
+        case 1: L10n.tr("E-MAIL · ESPERANDO DESDE ONTEM")
+        default: L10n.tr("E-MAIL · ESPERANDO HÁ \(dias) DIAS")
+        }
+        return MesaDayItem(
+            id: "email:\(mensagem.id)",
+            kind: .email,
+            caps: caps,
+            title: nome,
+            detail: mensagem.subject,
+            verb: L10n.tr("Rascunhar a resposta"),
+            ask: L10n.tr("Responde o \(nome) por mim"),
+            messageID: mensagem.id
+        )
+    }
+
+    /// O próximo compromisso de hoje que ainda não acabou.
+    private nonisolated static func meetingItem(
+        agenda: [AgendaItem], nowMinute: Int
+    ) -> MesaDayItem? {
+        let proximo = agenda
+            .filter { $0.dayOffset == 0 && $0.endMinute > nowMinute }
+            .min { $0.startMinute < $1.startMinute }
+        guard let item = proximo else { return nil }
+        let faltam = item.startMinute - nowMinute
+        let caps = faltam > 0 && faltam < 60
+            ? L10n.tr("AGENDA · DAQUI A \(faltam) MIN")
+            : L10n.tr("AGENDA · ÀS \(MinuteFormat.clock(item.startMinute))")
+        return MesaDayItem(
+            id: "meeting:\(item.id)",
+            kind: .meeting,
+            caps: caps,
+            title: item.title,
+            detail: "\(MinuteFormat.clock(item.startMinute))–\(MinuteFormat.clock(item.endMinute))",
+            verb: L10n.tr("Preparar a pauta"),
+            ask: L10n.tr("Prepara a pauta de \(item.title)"),
+            messageID: nil
+        )
+    }
+
+    /// A promessa que vence primeiro. As sem prazo vão para o fim: o e-mail
+    /// não disse quando, e ordená-las como "hoje" seria inventar o prazo.
+    private nonisolated static func promiseItem(
+        pending: [PendingItem], today: Date, calendar: Calendar
+    ) -> MesaDayItem? {
+        let ordenadas = pending.sorted { a, b in
+            switch (a.dueDate, b.dueDate) {
+            case let (x?, y?): return x < y
+            case (_?, nil): return true
+            case (nil, _?): return false
+            case (nil, nil): return a.id < b.id
+            }
+        }
+        guard let promessa = ordenadas.first else { return nil }
+        let quando = promessa.dueDate.map {
+            PainelDoDiaModelo.dataCurta($0)
+        } ?? ""
+        return MesaDayItem(
+            id: "promise:\(promessa.id)",
+            kind: .promise,
+            caps: L10n.tr("PROMESSA · SUA"),
+            title: PainelDoDiaModelo.titulo(de: promessa.text),
+            detail: quando,
+            verb: L10n.tr("Começar"),
+            ask: L10n.tr("Me ajuda com: \(PainelDoDiaModelo.titulo(de: promessa.text))"),
+            messageID: nil
+        )
+    }
 }
 
 // MARK: - Os objetos da mesa
@@ -750,6 +917,118 @@ struct MesaObjectView: View {
     private func copie(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+}
+
+// MARK: - Um objeto do dia
+
+/// O item do dia desenhado como objeto da mesa: versalete com o ponto da
+/// família, quem/o quê, e o verbo do desenho.
+///
+/// O botão **não executa nada**: ele manda a pergunta ao assistente, que é o
+/// que o desenho promete ("Rascunhar a resposta" abre a conversa que escreve
+/// o rascunho). Quem executa continua sendo o objeto que voltar da resposta.
+struct MesaDayItemView: View {
+
+    @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
+
+    let item: MesaDayItem
+    let onAsk: (String) -> Void
+    let onReveal: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            MesaCaps(text: item.caps, sparkle: false, tint: theme.ink3, dot: item.dot(theme))
+                .padding(MesaMetrics.objectHeaderPadding)
+                .hairline(theme.line, edges: .bottom)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.title)
+                    .font(theme.sans.font(
+                        size: MesaMetrics.objectTitleSize, weight: .semibold
+                    ))
+                    .foregroundStyle(theme.ink.color)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !item.detail.isEmpty {
+                    Text(item.detail)
+                        .font(theme.sans.font(size: MesaMetrics.objectSubSize))
+                        .foregroundStyle(theme.ink3.color)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(MesaMetrics.objectBodyPadding)
+            HStack(spacing: MesaMetrics.objectActionGap) {
+                MesaSoftButton(title: item.verb) { onAsk(item.ask) }
+                if let id = item.messageID {
+                    MesaOutlineButton(title: L10n.tr("Ver")) { onReveal(id) }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(MesaMetrics.objectActionPadding)
+            .hairline(theme.line, edges: .top)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(theme.glassCard.color)
+        .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
+        .overlay {
+            RoundedRectangle(cornerRadius: theme.radiusLarge)
+                .strokeBorder(
+                    theme.glassCardEdge.color, lineWidth: Hairline.thickness(displayScale)
+                )
+        }
+        .shadow(
+            color: theme.isTranslucent ? .black.opacity(theme.isDark ? 0.40 : 0.10) : .clear,
+            radius: 15, y: 6
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("\(item.caps). \(item.title). \(item.detail)")
+    }
+}
+
+// MARK: - As sugestões, em linha
+
+/// As perguntas de partida, no idioma do desenho: **linha com seta, sem
+/// caixa**.
+///
+/// Uma peça só, usada pela mesa vazia e pelo pé de uma resposta. Elas eram
+/// pastilhas com moldura depois da resposta — ou seja, chips, que a casa não
+/// usa; o desenho desenha as duas no mesmo formato, e agora elas são a mesma
+/// view.
+struct MesaSuggestionRows: View {
+
+    @Environment(\.theme) private var theme
+
+    let suggestions: [String]
+    let isDisabled: Bool
+    let onAsk: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(suggestions, id: \.self) { texto in
+                Button { onAsk(texto) } label: {
+                    HStack(spacing: MesaMetrics.suggestionGap) {
+                        Image(systemName: "arrow.right")
+                            .font(.system(
+                                size: MesaMetrics.suggestionGlyph, weight: .semibold
+                            ))
+                            .foregroundStyle(theme.accentInk.color)
+                        Text(texto)
+                            .font(theme.sans.font(size: MesaMetrics.suggestionSize))
+                            .foregroundStyle(theme.ink2.color)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(MesaMetrics.suggestionRowPadding)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .focusRing(cornerRadius: theme.radiusSmall)
+                .disabled(isDisabled)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

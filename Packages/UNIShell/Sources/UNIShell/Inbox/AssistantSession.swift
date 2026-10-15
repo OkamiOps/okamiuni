@@ -179,6 +179,13 @@ public final class AssistantSession {
     /// ela que grava o nome. `nil` deixa a saudação sem nome — inventar um
     /// seria a tela mentindo sobre a conta.
     public var ownerName: String?
+    /// O dia já posto na mesa vazia — o e-mail que espera, o próximo
+    /// compromisso, a promessa em aberto. Vazio quando não há nada: a mesa
+    /// não inventa item nenhum.
+    ///
+    /// Mora aqui pelo mesmo motivo do nome: a janela destacada é cena própria
+    /// e não alcança o `MailStore`.
+    var dayItems: [MesaDayItem] = []
     /// Os cartões já executados nesta sessão.
     public private(set) var doneCards: Set<String> = []
     /// O "Desfazer" **desta leva** ainda está de pé na barra?

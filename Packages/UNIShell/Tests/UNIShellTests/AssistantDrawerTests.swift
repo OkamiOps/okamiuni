@@ -293,6 +293,104 @@ struct MesaObjectTests {
         #expect(comRecibo == ["segunda"])
     }
 
+    /// **Sem dia, a mesa não inventa dia.** É o caso que separa "a mesa está
+    /// limpa" de "a mesa mente": o construtor devolve vazio, e é a tela que
+    /// troca a segunda linha e sobe as sugestões.
+    @Test("sem nada no dia, a mesa não monta objeto nenhum")
+    func anEmptyDayBuildsNoObjects() {
+        let itens = MesaDayItem.items(
+            plan: DayPlan(
+                hero: nil, sections: [], counts: [:], removed: [], replyBlock: nil
+            ),
+            agenda: [], pending: [],
+            today: Date(timeIntervalSince1970: 1_767_196_920), nowMinute: 600
+        )
+        #expect(itens.isEmpty)
+    }
+
+    /// A promessa sem prazo vai para o fim: o e-mail não disse quando, e
+    /// ordená-la como "hoje" seria inventar o prazo dela.
+    @Test("a promessa que vence primeiro ganha, e a sem prazo fica por último")
+    func theSoonestPromiseWins() throws {
+        let hoje = Date(timeIntervalSince1970: 1_767_196_920)
+        let itens = MesaDayItem.items(
+            plan: DayPlan(
+                hero: nil, sections: [], counts: [:], removed: [], replyBlock: nil
+            ),
+            agenda: [],
+            pending: [
+                PendingItem(id: "sem", text: "Sem prazo nenhum", accountID: "a"),
+                PendingItem(
+                    id: "perto", text: "Mandar a proposta para o Rafa",
+                    accountID: "a", dueDate: hoje.addingTimeInterval(3_600)
+                ),
+                PendingItem(
+                    id: "longe", text: "Liberar o Tally público",
+                    accountID: "a", dueDate: hoje.addingTimeInterval(400_000)
+                ),
+            ],
+            today: hoje, nowMinute: 600
+        )
+        let promessa = try #require(itens.first)
+        #expect(promessa.kind == .promise)
+        #expect(promessa.id == "promise:perto")
+        #expect(promessa.messageID == nil, "promessa não tem e-mail para o Ver abrir")
+    }
+
+    /// Um compromisso que já acabou não é "o próximo".
+    @Test("o compromisso do dia é o próximo que ainda não acabou")
+    func theMeetingIsTheNextOneStillRunning() throws {
+        let hoje = Date(timeIntervalSince1970: 1_767_196_920)
+        let itens = MesaDayItem.items(
+            plan: DayPlan(
+                hero: nil, sections: [], counts: [:], removed: [], replyBlock: nil
+            ),
+            agenda: [
+                AgendaItem(
+                    id: "passado", title: "Daily", startMinute: 540,
+                    endMinute: 560, accountID: "a"
+                ),
+                AgendaItem(
+                    id: "proximo", title: "Call com Jayden", startMinute: 900,
+                    endMinute: 930, accountID: "a"
+                ),
+                AgendaItem(
+                    id: "amanha", title: "Retro", startMinute: 600,
+                    endMinute: 630, accountID: "a", dayOffset: 1
+                ),
+            ],
+            pending: [], today: hoje, nowMinute: 860
+        )
+        let reuniao = try #require(itens.first)
+        #expect(reuniao.kind == .meeting)
+        #expect(reuniao.id == "meeting:proximo")
+        // 900 − 860 = 40 minutos, que é o que o desenho escreve.
+        #expect(reuniao.caps.contains("40"), "o versalete não contou os minutos: \(reuniao.caps)")
+    }
+
+    /// Nunca mais de três: o desenho tem três objetos, e uma mesa com sete
+    /// deixa de ser "o que não pode esperar".
+    @Test("a mesa posta para em três objetos")
+    func theTableStopsAtThree() {
+        let hoje = Date(timeIntervalSince1970: 1_767_196_920)
+        let itens = MesaDayItem.items(
+            plan: DayPlan(
+                hero: nil, sections: [], counts: [:], removed: [], replyBlock: nil
+            ),
+            agenda: [AgendaItem(
+                id: "m", title: "Call", startMinute: 900, endMinute: 930, accountID: "a"
+            )],
+            pending: (0..<9).map {
+                PendingItem(
+                    id: "p\($0)", text: "Promessa \($0)", accountID: "a",
+                    dueDate: hoje.addingTimeInterval(Double($0) * 3_600)
+                )
+            },
+            today: hoje, nowMinute: 860
+        )
+        #expect(itens.count <= 3)
+    }
+
     /// Um turno de `draftReply` não tem cartão — e por isso não promete
     /// compositor nenhum. Sobra o texto e o "Copiar".
     @Test("um turno de rascunho sem cartão não promete compositor")

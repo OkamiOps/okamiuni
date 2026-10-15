@@ -69,9 +69,16 @@
 "Aceitar o bloco" = "Accept the block";
 "Aceitar os {0} blocos" = "Accept the {0} blocks";
 "Adicionar à agenda" = "Add to calendar";
+"AGENDA · DAQUI A {0} MIN" = "CALENDAR · IN {0} MIN";
+"AGENDA · ÀS {0}" = "CALENDAR · AT {0}";
+"Começar" = "Start";
 "Cria os compromissos propostos, com desfazer" = "Creates the proposed events, with undo";
+"E-MAIL · DE HOJE" = "E-MAIL · FROM TODAY";
+"E-MAIL · ESPERANDO DESDE ONTEM" = "E-MAIL · WAITING SINCE YESTERDAY";
+"E-MAIL · ESPERANDO HÁ {0} DIAS" = "E-MAIL · WAITING {0} DAYS";
 "EVENTO · PROPOSTO" = "EVENT · PROPOSED";
 "Fóruns" = "Forums";
+"Me ajuda com: {0}" = "Help me with: {0}";
 "NOTA" = "NOTE";
 "Parar aqui" = "Stop here";
 "Perguntar ao assistente (⌘J)" = "Ask the assistant (⌘J)";
@@ -1512,6 +1519,9 @@
 "pergunte mais:" = "ask more:";
 "Pergunte, ou mande fazer. O que eu fizer aparece aqui na mesa." = "Ask, or tell me to do it. Whatever I make shows up here on the desk.";
 "PREFERÊNCIAS RÁPIDAS" = "QUICK PREFERENCES";
+"Prepara a pauta de {0}" = "Prepare the agenda for {0}";
+"Preparar a pauta" = "Prepare the agenda";
+"PROMESSA · SUA" = "PROMISE · YOURS";
 "PROPOSTA" = "PROPOSAL";
 "PRÉVIA DA ASSINATURA" = "SIGNATURE PREVIEW";
 "PRÉVIA TÉCNICA · {0}" = "TECHNICAL PREVIEW · {0}";
@@ -1648,6 +1658,7 @@
 "Quando chegar e-mail" = "When an email arrives";
 "Quando o armazenamento estiver disponível, você poderá configurar cada lado e restaurar o padrão aqui." = "When storage is available, you can configure each side and restore defaults here.";
 "Rascunhar" = "Draft";
+"Rascunhar a resposta" = "Draft the reply";
 "Rascunhar resposta" = "Draft a reply";
 "RASCUNHO" = "DRAFT";
 "RASCUNHO DA IA · TOM {0}" = "AI DRAFT · {0} TONE";
@@ -1863,6 +1874,7 @@
 "senha de app" = "app password";
 "Senha de app" = "App password";
 "Senhas e chaves ficam no Keychain deste Mac. Nada daqui sobe para servidor nenhum." = "Passwords and keys stay in this Mac’s Keychain. Nothing here goes up to any server.";
+"Separei o que não pode esperar." = "I set aside what can’t wait.";
 "serif, espaçoso" = "serif, spacious";
 "Servidor" = "Server";
 "Servidor encontrado" = "Server found";

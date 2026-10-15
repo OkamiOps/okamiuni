@@ -60,6 +60,23 @@ struct MesaRenderTests {
         return n
     }
 
+    /// A última linha em que esta cor aparece, dentro de um recorte.
+    private func ultimaLinha(
+        _ rep: NSBitmapImageRep, de token: TokenColor,
+        x: Range<Int>, y: Range<Int>, tol: Double = 0.05, minimo: Int = 6
+    ) -> Int? {
+        guard let alvo = token.nsColor.usingColorSpace(.sRGB) else { return nil }
+        var ultima: Int?
+        for py in y where py < rep.pixelsHigh {
+            var n = 0
+            for px in x where px < rep.pixelsWide {
+                if casa(rep, px, py, alvo, tol) { n += 1 }
+            }
+            if n >= minimo { ultima = py }
+        }
+        return ultima
+    }
+
     /// O centro do aglomerado desta cor no recorte.
     private func centro(
         _ rep: NSBitmapImageRep, de token: TokenColor,
@@ -84,6 +101,7 @@ struct MesaRenderTests {
     /// mínima tem uma conversa só com um cartão sem título.
     enum EstadoDaMesa: String, CaseIterable {
         case vazio
+        case vazioComDia
         case nota
         case notaLonga
         case trabalhando
@@ -111,7 +129,7 @@ struct MesaRenderTests {
 
         let turnos: [AssistantMessage]
         switch estado {
-        case .vazio:
+        case .vazio, .vazioComDia:
             turnos = []
         case .trabalhando:
             turnos = [pergunta("Responde a Marina confirmando quinta e já prepara o convite")]
@@ -193,14 +211,36 @@ struct MesaRenderTests {
         )
     }
 
+    /// **O dia de verdade do dono**, pela mesma porta que a tela usa: o
+    /// `DayPlan` do Painel, a agenda do dia e as promessas visíveis. Nada é
+    /// montado à mão — se o construtor parar de achar o e-mail que espera, o
+    /// retrato fica sem objeto e o caso acusa.
+    private func diaDoDono() async -> [MesaDayItem] {
+        let store = await DiaDoDono.loja()
+        let plano = DashboardPlanInput.plan(
+            store: store, drafts: [:], filter: .standard,
+            today: DiaDoDono.agora, nowMinute: DiaDoDono.agoraMinuto
+        )
+        return MesaDayItem.items(
+            plan: plano,
+            agenda: store.dashboardAgenda(),
+            pending: store.visiblePendingItems,
+            today: DiaDoDono.agora,
+            nowMinute: DiaDoDono.agoraMinuto
+        )
+    }
+
     /// A sessão com os passos reais de uma ida ao motor — dois cumpridos e um
     /// em curso, que é o que o desenho do "trabalhando" mostra.
     private func sessao(
-        _ estado: EstadoDaMesa = .notaLonga, destacada: Bool = false
+        _ estado: EstadoDaMesa = .notaLonga,
+        destacada: Bool = false,
+        dia: [MesaDayItem] = []
     ) -> AssistantSession {
         let s = AssistantSession(debugOpen: !destacada, debugDetached: destacada)
         s.adopt(conversaDaMesa(estado))
         s.ownerName = "Marcos"
+        s.dayItems = estado == .vazioComDia ? dia : []
         let inicio = Self.hora
         s.noteActivity("li 12 e-mails de hoje", at: inicio)
         s.noteActivity("olhando a agenda de quinta…", at: inicio.addingTimeInterval(1.2))
@@ -224,12 +264,13 @@ struct MesaRenderTests {
     /// quebraria.
     @Test(
         "na janela real, os semáforos respiram e cabem no cabeçalho",
-        arguments: [EstadoDaMesa.vazio, .notaLonga, .trabalhando]
+        arguments: [EstadoDaMesa.vazio, .vazioComDia, .notaLonga, .trabalhando]
     )
-    func semaforosDaJanelaReal(_ estado: EstadoDaMesa) throws {
+    func semaforosDaJanelaReal(_ estado: EstadoDaMesa) async throws {
+        let dia = await diaDoDono()
         for tema in Self.temas {
             let foto = try #require(JanelaReal.fotografar(
-                AssistantWindow(session: sessao(estado, destacada: true))
+                AssistantWindow(session: sessao(estado, destacada: true, dia: dia))
                     .environment(ThemeStore()),
                 size: MesaMetrics.windowSize, theme: tema,
                 named: "mesa-janela-real-\(estado.rawValue)-\(tema.id)"
@@ -262,9 +303,10 @@ struct MesaRenderTests {
         "os estados da Mesa desenham o que o desenho promete",
         arguments: EstadoDaMesa.allCases
     )
-    func mesaRenderiza(_ estado: EstadoDaMesa) throws {
+    func mesaRenderiza(_ estado: EstadoDaMesa) async throws {
+        let dia = await diaDoDono()
         for tema in Self.temas {
-            let s = sessao(estado, destacada: true)
+            let s = sessao(estado, destacada: true, dia: dia)
             let rep = try #require(Render.snapshot(
                 AssistantWindow(session: s).environment(ThemeStore()),
                 named: "mesa-\(estado.rawValue)-\(tema.id)",
@@ -284,10 +326,29 @@ struct MesaRenderTests {
 
             switch estado {
             case .vazio:
-                // A mesa vazia tem as setas das sugestões em acento e **nenhum
-                // objeto**: nada de botão cheio em cima dela.
+                // A mesa limpa tem as setas das sugestões em acento e
+                // **nenhum objeto**: nada de botão cheio em cima dela.
                 #expect(tinta > 40, "\(marca): as sugestões não desenharam as setas")
-                #expect(cheio < 200, "\(marca): a mesa vazia desenhou um botão de objeto")
+                #expect(cheio < 200, "\(marca): a mesa limpa desenhou um botão de objeto")
+                // E as sugestões sobem para junto da saudação: sem objeto, a
+                // última delas não pode estar lá embaixo.
+                let ultima = try #require(
+                    ultimaLinha(rep, de: tema.accentInk, x: 0..<880, y: 0..<620, tol: 0.08),
+                    "\(marca): não achei as setas das sugestões"
+                )
+                #expect(
+                    ultima < 260,
+                    "\(marca): a mesa limpa deixou um vão antes das sugestões (y = \(ultima))"
+                )
+            case .vazioComDia:
+                // O dia do dono tem os três objetos, e eles são reais: três
+                // versaletes e três botões macios.
+                #expect(
+                    s.dayItems.count == 3,
+                    "\(marca): o dia do dono não rendeu três objetos (\(s.dayItems.count))"
+                )
+                #expect(macio > 400, "\(marca): os objetos do dia perderam os botões")
+                #expect(tinta > 40, "\(marca): as sugestões sumiram da mesa posta")
             case .nota, .notaLonga, .gavetaMinima:
                 // O versalete ✦ NOTA e a moldura de acento do objeto.
                 #expect(tinta > 60, "\(marca): o objeto da nota perdeu o versalete")
@@ -321,11 +382,12 @@ struct MesaRenderTests {
     /// cartão sem frase nenhuma.
     @Test(
         "a gaveta usa a mesma anatomia, em 400",
-        arguments: [EstadoDaMesa.gavetaMinima, .semTitulo, .notaLonga, .vazio]
+        arguments: [EstadoDaMesa.gavetaMinima, .semTitulo, .notaLonga, .vazio, .vazioComDia]
     )
-    func gavetaRenderiza(_ estado: EstadoDaMesa) throws {
+    func gavetaRenderiza(_ estado: EstadoDaMesa) async throws {
+        let dia = await diaDoDono()
         for tema in Self.temas {
-            let s = sessao(estado)
+            let s = sessao(estado, dia: dia)
             let conversa = try #require(s.conversation)
             let rep = try #require(Render.snapshot(
                 AssistantDrawer(

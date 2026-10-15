@@ -69,9 +69,16 @@
 "Aceitar o bloco" = "Accepter le bloc";
 "Aceitar os {0} blocos" = "Accepter les {0} blocs";
 "Adicionar à agenda" = "Ajouter à l’agenda";
+"AGENDA · DAQUI A {0} MIN" = "AGENDA · DANS {0} MIN";
+"AGENDA · ÀS {0}" = "AGENDA · À {0}";
+"Começar" = "Commencer";
 "Cria os compromissos propostos, com desfazer" = "Crée les événements proposés, avec annulation";
+"E-MAIL · DE HOJE" = "E-MAIL · D’AUJOURD’HUI";
+"E-MAIL · ESPERANDO DESDE ONTEM" = "E-MAIL · EN ATTENTE DEPUIS HIER";
+"E-MAIL · ESPERANDO HÁ {0} DIAS" = "E-MAIL · EN ATTENTE DEPUIS {0} JOURS";
 "EVENTO · PROPOSTO" = "ÉVÉNEMENT · PROPOSÉ";
 "Fóruns" = "Forums";
+"Me ajuda com: {0}" = "Aide-moi avec : {0}";
 "NOTA" = "NOTE";
 "Parar aqui" = "Arrêter ici";
 "Perguntar ao assistente (⌘J)" = "Interroger l’assistant (⌘J)";
@@ -1512,6 +1519,9 @@
 "pergunte mais:" = "demandez plus :";
 "Pergunte, ou mande fazer. O que eu fizer aparece aqui na mesa." = "Posez une question, ou demandez-moi d’agir. Ce que je produis apparaît ici, sur le bureau.";
 "PREFERÊNCIAS RÁPIDAS" = "PRÉFÉRENCES RAPIDES";
+"Prepara a pauta de {0}" = "Prépare l’ordre du jour de {0}";
+"Preparar a pauta" = "Préparer l’ordre du jour";
+"PROMESSA · SUA" = "PROMESSE · LA VÔTRE";
 "PROPOSTA" = "PROPOSITION";
 "PRÉVIA DA ASSINATURA" = "APERÇU DE LA SIGNATURE";
 "PRÉVIA TÉCNICA · {0}" = "APERÇU TECHNIQUE · {0}";
@@ -1648,6 +1658,7 @@
 "Quando chegar e-mail" = "Quand un e-mail arrive";
 "Quando o armazenamento estiver disponível, você poderá configurar cada lado e restaurar o padrão aqui." = "Lorsque le stockage sera disponible, vous pourrez configurer chaque côté et rétablir les valeurs par défaut ici.";
 "Rascunhar" = "Rédiger";
+"Rascunhar a resposta" = "Rédiger la réponse";
 "Rascunhar resposta" = "Rédiger une réponse";
 "RASCUNHO" = "BROUILLON";
 "RASCUNHO DA IA · TOM {0}" = "BROUILLON DE L'IA · TON {0}";
@@ -1863,6 +1874,7 @@
 "senha de app" = "mot de passe d’application";
 "Senha de app" = "Mot de passe d'app";
 "Senhas e chaves ficam no Keychain deste Mac. Nada daqui sobe para servidor nenhum." = "Mots de passe et clés restent dans le trousseau de ce Mac. Rien d’ici ne part vers un serveur.";
+"Separei o que não pode esperar." = "J’ai mis de côté ce qui ne peut pas attendre.";
 "serif, espaçoso" = "serif, aéré";
 "Servidor" = "Serveur";
 "Servidor encontrado" = "Serveur trouvé";

@@ -69,9 +69,16 @@
 "Aceitar o bloco" = "Aceitar o bloco";
 "Aceitar os {0} blocos" = "Aceitar os {0} blocos";
 "Adicionar à agenda" = "Adicionar à agenda";
+"AGENDA · DAQUI A {0} MIN" = "AGENDA · DAQUI A {0} MIN";
+"AGENDA · ÀS {0}" = "AGENDA · ÀS {0}";
+"Começar" = "Começar";
 "Cria os compromissos propostos, com desfazer" = "Cria os compromissos propostos, com desfazer";
+"E-MAIL · DE HOJE" = "E-MAIL · DE HOJE";
+"E-MAIL · ESPERANDO DESDE ONTEM" = "E-MAIL · ESPERANDO DESDE ONTEM";
+"E-MAIL · ESPERANDO HÁ {0} DIAS" = "E-MAIL · ESPERANDO HÁ {0} DIAS";
 "EVENTO · PROPOSTO" = "EVENTO · PROPOSTO";
 "Fóruns" = "Fóruns";
+"Me ajuda com: {0}" = "Me ajuda com: {0}";
 "NOTA" = "NOTA";
 "Parar aqui" = "Parar aqui";
 "Perguntar ao assistente (⌘J)" = "Perguntar ao assistente (⌘J)";
@@ -1512,6 +1519,9 @@
 "pergunte mais:" = "pergunte mais:";
 "Pergunte, ou mande fazer. O que eu fizer aparece aqui na mesa." = "Pergunte, ou mande fazer. O que eu fizer aparece aqui na mesa.";
 "PREFERÊNCIAS RÁPIDAS" = "PREFERÊNCIAS RÁPIDAS";
+"Prepara a pauta de {0}" = "Prepara a pauta de {0}";
+"Preparar a pauta" = "Preparar a pauta";
+"PROMESSA · SUA" = "PROMESSA · SUA";
 "PROPOSTA" = "PROPOSTA";
 "PRÉVIA DA ASSINATURA" = "PRÉVIA DA ASSINATURA";
 "PRÉVIA TÉCNICA · {0}" = "PRÉVIA TÉCNICA · {0}";
@@ -1648,6 +1658,7 @@
 "Quando chegar e-mail" = "Quando chegar e-mail";
 "Quando o armazenamento estiver disponível, você poderá configurar cada lado e restaurar o padrão aqui." = "Quando o armazenamento estiver disponível, você poderá configurar cada lado e restaurar o padrão aqui.";
 "Rascunhar" = "Rascunhar";
+"Rascunhar a resposta" = "Rascunhar a resposta";
 "Rascunhar resposta" = "Rascunhar resposta";
 "RASCUNHO" = "RASCUNHO";
 "RASCUNHO DA IA · TOM {0}" = "RASCUNHO DA IA · TOM {0}";
@@ -1863,6 +1874,7 @@
 "senha de app" = "senha de app";
 "Senha de app" = "Senha de app";
 "Senhas e chaves ficam no Keychain deste Mac. Nada daqui sobe para servidor nenhum." = "Senhas e chaves ficam no Keychain deste Mac. Nada daqui sobe para servidor nenhum.";
+"Separei o que não pode esperar." = "Separei o que não pode esperar.";
 "serif, espaçoso" = "serif, espaçoso";
 "Servidor" = "Servidor";
 "Servidor encontrado" = "Servidor encontrado";

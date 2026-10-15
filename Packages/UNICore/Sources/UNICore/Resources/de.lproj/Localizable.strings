@@ -69,9 +69,16 @@
 "Aceitar o bloco" = "Block annehmen";
 "Aceitar os {0} blocos" = "Die {0} Blöcke annehmen";
 "Adicionar à agenda" = "Zum Kalender hinzufügen";
+"AGENDA · DAQUI A {0} MIN" = "KALENDER · IN {0} MIN";
+"AGENDA · ÀS {0}" = "KALENDER · UM {0}";
+"Começar" = "Anfangen";
 "Cria os compromissos propostos, com desfazer" = "Erstellt die vorgeschlagenen Termine, mit Rückgängig";
+"E-MAIL · DE HOJE" = "E-MAIL · VON HEUTE";
+"E-MAIL · ESPERANDO DESDE ONTEM" = "E-MAIL · WARTET SEIT GESTERN";
+"E-MAIL · ESPERANDO HÁ {0} DIAS" = "E-MAIL · WARTET SEIT {0} TAGEN";
 "EVENTO · PROPOSTO" = "TERMIN · VORGESCHLAGEN";
 "Fóruns" = "Foren";
+"Me ajuda com: {0}" = "Hilf mir bei: {0}";
 "NOTA" = "NOTIZ";
 "Parar aqui" = "Hier anhalten";
 "Perguntar ao assistente (⌘J)" = "Assistenten fragen (⌘J)";
@@ -1512,6 +1519,9 @@
 "pergunte mais:" = "mehr fragen:";
 "Pergunte, ou mande fazer. O que eu fizer aparece aqui na mesa." = "Fragen Sie, oder geben Sie mir einen Auftrag. Was ich erledige, erscheint hier auf dem Tisch.";
 "PREFERÊNCIAS RÁPIDAS" = "SCHNELLEINSTELLUNGEN";
+"Prepara a pauta de {0}" = "Bereite die Agenda für {0} vor";
+"Preparar a pauta" = "Agenda vorbereiten";
+"PROMESSA · SUA" = "VERSPRECHEN · IHRES";
 "PROPOSTA" = "VORSCHLAG";
 "PRÉVIA DA ASSINATURA" = "SIGNATURVORSCHAU";
 "PRÉVIA TÉCNICA · {0}" = "TECHNISCHE VORSCHAU · {0}";
@@ -1648,6 +1658,7 @@
 "Quando chegar e-mail" = "Wenn eine E-Mail ankommt";
 "Quando o armazenamento estiver disponível, você poderá configurar cada lado e restaurar o padrão aqui." = "Sobald der Speicher verfügbar ist, kannst du hier beide Seiten konfigurieren und die Standardwerte wiederherstellen.";
 "Rascunhar" = "Entwerfen";
+"Rascunhar a resposta" = "Antwort entwerfen";
 "Rascunhar resposta" = "Antwort entwerfen";
 "RASCUNHO" = "ENTWURF";
 "RASCUNHO DA IA · TOM {0}" = "KI-ENTWURF · TON {0}";
@@ -1863,6 +1874,7 @@
 "senha de app" = "App-Passwort";
 "Senha de app" = "App-Passwort";
 "Senhas e chaves ficam no Keychain deste Mac. Nada daqui sobe para servidor nenhum." = "Passwörter und Schlüssel bleiben im Schlüsselbund dieses Macs. Nichts davon geht an einen Server.";
+"Separei o que não pode esperar." = "Ich habe herausgesucht, was nicht warten kann.";
 "serif, espaçoso" = "Serifen, großzügig";
 "Servidor" = "Server";
 "Servidor encontrado" = "Server gefunden";
