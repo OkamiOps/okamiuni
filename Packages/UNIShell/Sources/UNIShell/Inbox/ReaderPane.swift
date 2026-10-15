@@ -311,25 +311,19 @@ public struct ReaderPane: View {
         let conversa = store.conversation(of: message.id)
 
         return VStack(spacing: 0) {
-            if theme.isGlass {
-                // No Vidro a linha fica **sob a barra de ferramentas**, como no
-                // protótipo: o cabeçalho e o corpo são o mesmo papel, e um fio
-                // entre eles partiria o leitor em dois.
-                glassToolbar(message)
-                Rectangle()
-                    .fill(theme.line.color)
-                    .frame(height: Hairline.thickness(displayScale))
-                glassHeader(message)
-            } else {
-                header(message)
-
-                // A divisória dados/corpo é irmã, não overlay do cabeçalho. Como
-                // overlay ela atravessava o painel da IA na borda de baixo — o
-                // mesmo defeito da faixa da conta, que já saiu do overlay.
-                Rectangle()
-                    .fill(theme.line2.color)
-                    .frame(height: Hairline.thickness(displayScale))
-            }
+            // **Um cabeçalho só, nos 28 temas.** A linha fica sob a barra de
+            // ferramentas, como no desenho: o cabeçalho e o corpo são o mesmo
+            // papel, e um fio entre eles partiria o leitor em dois.
+            //
+            // Havia dois — este e uma barra de triagem com pastilhas, que só
+            // os 26 opacos viam. O dono: os temas clássicos perdem o vidro e
+            // mantêm o desenho. O que muda de tema para tema é material, não
+            // estrutura.
+            readerToolbar(message)
+            Rectangle()
+                .fill(theme.line.color)
+                .frame(height: Hairline.thickness(displayScale))
+            readerHeader(message)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
@@ -449,11 +443,11 @@ public struct ReaderPane: View {
                 .padding(.top, TintaMetrics.flowGap)
         }
 
-        // No Vidro o remetente saiu do cabeçalho fixo e entrou no fluxo, que é
-        // onde o desenho o põe. Dentro de uma pilha de conversa a linha de
-        // cada mensagem já é o remetente dela, e repeti-la seria o nome duas
-        // vezes seguidas.
-        if theme.isGlass, !inStack {
+        // O remetente saiu do cabeçalho fixo e entrou no fluxo, que é onde o
+        // desenho o põe. Dentro de uma pilha de conversa a linha de cada
+        // mensagem já é o remetente dela, e repeti-la seria o nome duas vezes
+        // seguidas.
+        if !inStack {
             identityRow(message)
                 .padding(.horizontal, 28)
                 .padding(.top, TintaMetrics.flowGap)
@@ -611,48 +605,6 @@ public struct ReaderPane: View {
             .trimmingCharacters(in: .whitespaces) ?? ""
     }
 
-    /// Fila de triagem em cima; remetente, assunto, hora e anexos numa linha
-    /// só. O corpo passa a ser o centro da coluna — o bloco de 22pt de assunto
-    /// mais o avatar de 26pt empurravam o email para fora da primeira tela.
-    private func header(_ message: Message) -> some View {
-        let accentColor = accountTint(message)
-
-        return VStack(alignment: .leading, spacing: 0) {
-            if let nextEvent {
-                nextEventCapsule(nextEvent)
-                    .padding(.bottom, 10)
-            }
-            triageBar(message)
-                // O painel da IA é overlay do botão, irmão **anterior** do
-                // assunto. Sem isto o VStack pinta o título por cima e o
-                // clique cai no texto, não no modal.
-                .zIndex(emailAssistantOpen ? 2 : 0)
-            identityBlock(message)
-                .padding(.top, 28)
-                .allowsHitTesting(!emailAssistantOpen)
-            if let attachmentError {
-                Text(attachmentError)
-                    .font(theme.sans.font(size: 11))
-                    .foregroundStyle(theme.danger.color)
-                    .padding(.top, 6)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 28)
-        .padding(.vertical, 12)
-        // A faixa da conta é fundo do cabeçalho, não overlay. Como overlay ela
-        // atravessava o popover que nasce dentro deste conteúdo e desenhava a
-        // linha verde/azul por cima do modal.
-        .background {
-            ZStack(alignment: .leading) {
-                theme.surface.color
-                Rectangle()
-                    .fill(accentColor)
-                    .frame(width: 3)
-            }
-        }
-    }
-
     /// A cápsula do próximo compromisso, no alto do leitor.
     private func nextEventCapsule(_ label: String) -> some View {
         HStack(spacing: 6) {
@@ -669,111 +621,6 @@ public struct ReaderPane: View {
         .clipShape(Capsule())
         .accessibilityIdentifier("reader-next-event")
         .accessibilityLabel(label)
-    }
-
-    /// Remetente · assunto numa linha. O clique expande: email, destinatários
-    /// e o assunto inteiro. Os anexos ficam **fora** do botão para o clique
-    /// no clipe continuar baixando, e não abrir o cabeçalho.
-    private func identityBlock(_ message: Message) -> some View {
-        let aberto = cabecalhoEstaAberto(message)
-        return VStack(alignment: .leading, spacing: aberto ? 10 : 0) {
-            if aberto {
-                identityExpanded(message)
-            } else {
-                HStack(alignment: .center, spacing: 8) {
-                    Button {
-                        abrirCabecalho(message)
-                    } label: {
-                        identityCollapsed(message)
-                    }
-                    .buttonStyle(.plain)
-                    .help(Self.expandirCabecalho)
-                    .accessibilityLabel(Self.expandirCabecalho)
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityValue(L10n.tr("Recolhido"))
-
-                }
-            }
-            if !message.attachments.isEmpty {
-                attachmentChips(message).padding(.top, 10)
-            }
-        }
-    }
-
-    private func abrirCabecalho(_ message: Message) {
-        withAnimation(.easeOut(duration: 0.15)) {
-            cabecalhoAbertoPorID[message.id] = true
-        }
-    }
-
-    private func recolherCabecalho(_ message: Message) {
-        withAnimation(.easeOut(duration: 0.15)) {
-            cabecalhoAbertoPorID[message.id] = false
-        }
-    }
-
-    private func cabecalhoEstaAberto(_ message: Message) -> Bool {
-        cabecalhoAbertoPorID[message.id] ?? false
-    }
-
-    private func identityCollapsed(_ message: Message) -> some View {
-        let tint = accountTint(message)
-        return HStack(alignment: .center, spacing: 8) {
-            senderAvatar(message.from.initials, tint: tint, size: 20, font: 9)
-            Text(Self.identityCaption(name: message.from.name, subject: message.subject))
-                .font(theme.sans.font(size: 13, weight: .semibold))
-                .foregroundStyle(theme.ink.color)
-                .lineLimit(1)
-            Spacer(minLength: 8)
-            identityStamp(message)
-            identityChevron(aberto: false)
-        }
-        .contentShape(Rectangle())
-    }
-
-    private func identityExpanded(_ message: Message) -> some View {
-        let tint = accountTint(message)
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 10) {
-                senderAvatar(message.from.initials, tint: tint, size: 26, font: 10)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(message.from.name.isEmpty ? message.from.address : message.from.name)
-                        .font(theme.sans.font(size: 13, weight: .semibold))
-                        .foregroundStyle(theme.ink.color)
-                    if !message.from.address.isEmpty, !message.from.name.isEmpty {
-                        Text(message.from.address)
-                            .font(theme.sans.font(size: 12))
-                            .foregroundStyle(theme.ink3.color)
-                            .textSelection(.enabled)
-                    }
-                    if let para = Self.destinatarios(message) {
-                        Text(para)
-                            .font(theme.sans.font(size: 12))
-                            .foregroundStyle(theme.ink3.color)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .textSelection(.enabled)
-                    }
-                }
-                Spacer(minLength: 8)
-                identityStamp(message)
-                Button {
-                    recolherCabecalho(message)
-                } label: {
-                    identityChevron(aberto: true)
-                }
-                .buttonStyle(.plain)
-                .help(Self.recolherCabecalho)
-                .accessibilityLabel(Self.recolherCabecalho)
-            }
-            Text(message.subject)
-                .font(theme.serif.font(size: 17, weight: .semibold))
-                .tracking(-0.01 * 17)
-                .foregroundStyle(theme.ink.color)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
-        }
-        .contentShape(Rectangle())
     }
 
     private func senderAvatar(_ initials: String, tint: Color, size: CGFloat, font: CGFloat) -> some View {
@@ -797,13 +644,6 @@ public struct ReaderPane: View {
             .font(theme.mono.font(size: 10.5))
             .foregroundStyle(theme.ink4.color)
             .fixedSize()
-    }
-
-    private func identityChevron(aberto: Bool) -> some View {
-        Image(systemName: aberto ? "chevron.up" : "chevron.down")
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(theme.ink3.color)
-            .frame(width: 18, height: 18)
     }
 
     /// "Marina Duarte · Revisão do contrato"
@@ -968,7 +808,7 @@ public struct ReaderPane: View {
     /// principal ganha e o botão fica mudo. O que a IA deste e-mail ganha é
     /// ⌥⌘J, irmão do ⌘J que abre a gaveta do ambiente inteiro — e o botão
     /// escreve o atalho que de fato existe.
-    private func glassToolbar(_ message: Message) -> some View {
+    private func readerToolbar(_ message: Message) -> some View {
         HStack(spacing: 2) {
             inkPill(message)
 
@@ -1227,7 +1067,7 @@ public struct ReaderPane: View {
     ///
     /// Sem a faixa opaca de `surface` que o cabeçalho clássico pinta: no Vidro
     /// o leitor é **um** preenchimento só, o do painel.
-    private func glassHeader(_ message: Message) -> some View {
+    private func readerHeader(_ message: Message) -> some View {
         let tint = accountTint(message)
         let count = store.conversation(of: message.id)?.count ?? 1
         return VStack(alignment: .leading, spacing: 14) {
