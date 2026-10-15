@@ -6,6 +6,16 @@
     <description>Atualizações do OkamiUNI</description>
     <language>pt-BR</language>
     <item>
+      <title>Version 0.6.0</title>
+      <pubDate>Thu, 15 Oct 2026 12:09:15 GMT</pubDate>
+      <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.6.0</sparkle:fullReleaseNotesLink>
+      <sparkle:version>15</sparkle:version>
+      <sparkle:shortVersionString>0.6.0</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<ul lang="pt-BR"><li>Visual novo, <strong>Vidro</strong>: trilho à esquerda, coluna de pastas e painéis flutuantes, nos temas Vidro claro e Vidro noite, com a opção <strong>Automático</strong> que segue o Mac. Os 26 temas clássicos ganham o mesmo layout, sem o vidro.</li><li>Painel do dia, Caixa, Agenda, Configurações, compositor e todas as janelas redesenhados. As caixas de todas as contas ficam unificadas, e as contas aparecem em árvore.</li><li>Leitor que cabe na tela: o cabeçalho tem duas linhas, a IA mora no botão <strong>✦ IA</strong> (⌥⌘J, com atalhos ⌥⌘S, ⌥⌘R e ⌥⌘E), o resumo recolhe e o remetente abre os detalhes com um botão para copiar cada endereço.</li><li>Assistente <strong>Mesa</strong> e tela <strong>Inteligência</strong> nova, com todos os provedores num lugar só. O Grok entra por login oficial.</li><li>Ao responder, a citação mostra o e-mail original formatado.</li><li>Versão do app 0.6.0, build 15. <a href="docs/releases/v0.6.0.pt-BR.md">Notas da versão</a>.</li></ul><ul lang="en"><li>New <strong>Glass</strong> look: a rail on the left, a folder column and floating panels, in the Glass light and Glass night themes, plus an <strong>Automatic</strong> option that follows the Mac. All 26 classic themes get the same layout, without the glass.</li><li>Day panel, Inbox, Calendar, Settings, the composer and every window redesigned. Inboxes from every account are unified, and accounts show as a tree.</li><li>A reader that fits: the header is two lines, AI lives in the <strong>✦ AI</strong> button (⌥⌘J, with ⌥⌘S, ⌥⌘R and ⌥⌘E shortcuts), the summary collapses and the sender expands into the details, with a button to copy each address.</li><li><strong>Desk</strong> assistant and new <strong>Intelligence</strong> settings, with every provider in one place. Grok signs in through its official login.</li><li>When you reply, the quote shows the original email formatted.</li><li>App version 0.6.0, build 15. <a href="docs/releases/v0.6.0.md">Release notes</a>.</li></ul>]]></description>
+      <enclosure url="https://github.com/OkamiOps/okamiuni/releases/download/v0.6.0/OkamiUNI-0.6.0.zip" length="37301516" type="application/octet-stream" sparkle:edSignature="d/jbXmQVx5JsVkLeQjfae5of5jv3T9lPmOC/l7KfQ8WwA++xS3K7/w8/iCEHxmbl1pcenVqTDtRbFNo9727gCg==" />
+    </item>
+    <item>
       <title>Version 0.5.9</title>
       <pubDate>Wed, 14 Oct 2026 00:59:06 GMT</pubDate>
       <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.5.9</sparkle:fullReleaseNotesLink>
@@ -15,7 +25,7 @@
       <description><![CDATA[<ul lang="pt-BR"><li>Instalador para quem baixa pela primeira vez: cada release agora traz o <code>OkamiUNI.dmg</code>, assinado e notarizado pela Apple. Ele abre uma janela com o app, uma seta e a pasta Aplicativos; é só arrastar um para o outro. Link fixo para a versão mais nova: https://github.com/OkamiOps/okamiuni/releases/latest/download/OkamiUNI.dmg</li><li>Se o OkamiUNI for aberto direto da janela do instalador, ou de Downloads sem ser movido, o app oferece <strong>Mover para Aplicativos</strong>. É lá que a atualização automática funciona.</li><li>Versão do app 0.5.9, build 14. <a href="docs/releases/v0.5.9.pt-BR.md">Notas da versão</a>.</li></ul><ul lang="en"><li>Installer for new users: each release now includes <code>OkamiUNI.dmg</code>, signed and notarized by Apple. It opens a window with the app, an arrow and the Applications folder; drag one onto the other. Fixed link to the latest version: https://github.com/OkamiOps/okamiuni/releases/latest/download/OkamiUNI.dmg</li><li>If OkamiUNI is opened straight from the installer window, or from Downloads without moving it, the app offers <strong>Move to Applications</strong>. That is where automatic updates work.</li><li>App version 0.5.9, build 14. <a href="docs/releases/v0.5.9.md">Release notes</a>.</li></ul>]]></description>
       <enclosure url="https://github.com/OkamiOps/okamiuni/releases/download/v0.5.9/OkamiUNI-0.5.9.zip" length="34549884" type="application/octet-stream" sparkle:edSignature="hE4vzhRy1d5oHNpgTbmb3izMrQUq4Ognb3H4fpHWGodML548xzL86SsHqwsMnB/x2g/wZ4N13GkuERHuoaOqBA==" />
     </item>
-    <item>
+<item>
       <title>Version 0.5.8</title>
       <pubDate>Tue, 13 Oct 2026 22:51:00 GMT</pubDate>
       <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.5.8</sparkle:fullReleaseNotesLink>
