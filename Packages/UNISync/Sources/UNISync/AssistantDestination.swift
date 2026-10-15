@@ -83,7 +83,7 @@ public struct AssistantDestination: Sendable, Hashable {
 
     /// Só o host: porta, caminho e query não dizem nada à pessoa e podem
     /// carregar identificador de time num proxy compartilhado.
-    static func host(of endpoint: String) -> String? {
+    public static func host(of endpoint: String) -> String? {
         let trimmed = endpoint.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty,
               let host = URLComponents(string: trimmed)?.host?.lowercased(),
