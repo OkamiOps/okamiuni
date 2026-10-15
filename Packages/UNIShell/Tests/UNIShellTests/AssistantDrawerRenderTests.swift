@@ -172,6 +172,22 @@ struct AssistantDrawerRenderTests {
         return inicio..<(inicio + 120)
     }
 
+    /// O botão **cheio** do objeto — o "Abrir no compositor" do rascunho, que
+    /// é o único que tira a pessoa da mesa e por isso leva acento inteiro.
+    /// Mesma coluna estreita; o ↑ do campo fica fora dela.
+    private func botaoCheioDoObjeto(
+        _ rep: NSBitmapImageRep, _ theme: Theme, xInicio: Int
+    ) -> CGPoint? {
+        let coluna = Self.colunaDoBotao(xInicio)
+        guard let banda = faixas(
+            rep, de: theme.accent, x: coluna, y: 60..<820, minimo: 40
+        ).last else { return nil }
+        return CGPoint(
+            x: Double(coluna.lowerBound + 24),
+            y: Double(banda.lowerBound + banda.upperBound) / 2
+        )
+    }
+
     private static func faixaDoBotao(
         _ suite: AssistantDrawerRenderTests,
         _ rep: NSBitmapImageRep, _ theme: Theme, xInicio: Int
@@ -369,6 +385,77 @@ struct AssistantDrawerRenderTests {
         }
         #expect(session.hasUndo, "a leva de três não deixou Desfazer")
         #expect(store.message("jack")?.bucket == .today, "a leva mexeu em quem não estava nela")
+    }
+
+    /// **O rascunho leva ao compositor, e não a lugar nenhum.**
+    ///
+    /// "Abrir no compositor" grava o rascunho pela mesma fila da Caixa
+    /// (`MailAgentTools.saveReplyDraft`) e abre a janela da resposta. A prova
+    /// é o rascunho na caixa de saída — e a porta de envio vazia, porque nada
+    /// sai sem revisão.
+    @Test("o rascunho abre o compositor e nunca envia")
+    func theDraftObjectOpensTheComposer() async throws {
+        let porta = Envios()
+        let store = await DiaDoDono.loja(sendPort: porta)
+        let session = AssistantSession(debugOpen: true)
+        session.adopt(conversaComCartao([.reply(
+            messageID: "jack",
+            draft: "Jack, a página não exige login — te mando o link direto."
+        )]))
+
+        let antes = store.messages.filter { $0.bucket == .drafts }.count
+
+        let theme = Theme.tinta
+        let rep = try #require(Render.bitmap(
+            tela(store, session: session), size: Self.size, theme: theme
+        ))
+        let alvo = try #require(
+            botaoCheioDoObjeto(rep, theme, xInicio: Self.drawerX),
+            "não achei o botão do rascunho"
+        )
+        CliqueDeEnsaio.em(
+            tela(store, session: session), size: Self.size, aY: alvo.y, x: alvo.x
+        )
+
+        let depois = store.messages.filter { $0.bucket == .drafts }
+        #expect(depois.count == antes + 1, "o rascunho não foi gravado")
+        #expect(
+            depois.contains { $0.body.joined().contains("não exige login") },
+            "o rascunho gravado não é o que a Mesa mostrava"
+        )
+        #expect(porta.sent.isEmpty, "o rascunho encostou na porta de envio")
+    }
+
+    /// **O evento escreve na agenda.** O objeto de evento é o único cuja leva
+    /// não volta atrás — e por isso ele diz "Feito" e nada mais.
+    @Test("o evento proposto escreve na agenda")
+    func theEventObjectWritesToTheAgenda() async throws {
+        let store = await DiaDoDono.loja()
+        let session = AssistantSession(debugOpen: true)
+        session.adopt(conversaComCartao([
+            .reserveBlock(day: 0, startMinute: 900, minutes: 30, title: "Call de revisão"),
+        ]))
+
+        let antes = store.agenda.count
+
+        let theme = Theme.tinta
+        let rep = try #require(Render.bitmap(
+            tela(store, session: session), size: Self.size, theme: theme
+        ))
+        let alvo = try #require(
+            botaoDoObjeto(rep, theme, xInicio: Self.drawerX, xFim: 1_440),
+            "não achei o botão do evento"
+        )
+        CliqueDeEnsaio.em(
+            tela(store, session: session), size: Self.size, aY: alvo.y, x: alvo.x
+        )
+
+        #expect(store.agenda.count == antes + 1, "o evento não entrou na agenda")
+        #expect(
+            store.agenda.contains { $0.title == "Call de revisão" },
+            "entrou outra coisa na agenda"
+        )
+        #expect(!session.hasUndo, "a escrita de agenda prometeu um Desfazer que não existe")
     }
 
     /// Uma leva **sem volta** (a reserva de bloco) diz "Feito" e não promete
