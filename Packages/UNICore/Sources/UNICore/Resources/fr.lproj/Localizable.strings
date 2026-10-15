@@ -65,10 +65,15 @@
 "A mensagem saiu da caixa" = "Le message a quitté la boîte";
 "A original já está arquivada; a resposta fica pronta para envio." = "L’original est déjà archivé ; la réponse est prête à envoyer.";
 "A original já está arquivada; a resposta vai para a fila de saída." = "L’original est déjà archivé ; la réponse va dans la boîte d’envoi.";
+"Abrir no compositor" = "Ouvrir dans l’éditeur";
 "Aceitar o bloco" = "Accepter le bloc";
 "Aceitar os {0} blocos" = "Accepter les {0} blocs";
+"Adicionar à agenda" = "Ajouter à l’agenda";
 "Cria os compromissos propostos, com desfazer" = "Crée les événements proposés, avec annulation";
+"EVENTO · PROPOSTO" = "ÉVÉNEMENT · PROPOSÉ";
 "Fóruns" = "Forums";
+"NOTA" = "NOTE";
+"Parar aqui" = "Arrêter ici";
 "Perguntar ao assistente (⌘J)" = "Interroger l’assistant (⌘J)";
 "a pagar" = "à payer";
 "A primeira ação dispara no gesto longo" = "Un balayage long déclenche la première action";
@@ -1505,7 +1510,9 @@
 "Outra cor…" = "Autre couleur…";
 "Outro realce…" = "Autre surlignage…";
 "pergunte mais:" = "demandez plus :";
+"Pergunte, ou mande fazer. O que eu fizer aparece aqui na mesa." = "Posez une question, ou demandez-moi d’agir. Ce que je produis apparaît ici, sur le bureau.";
 "PREFERÊNCIAS RÁPIDAS" = "PRÉFÉRENCES RAPIDES";
+"PROPOSTA" = "PROPOSITION";
 "PRÉVIA DA ASSINATURA" = "APERÇU DE LA SIGNATURE";
 "PRÉVIA TÉCNICA · {0}" = "APERÇU TECHNIQUE · {0}";
 "Padrão" = "Par défaut";
@@ -1642,9 +1649,11 @@
 "Quando o armazenamento estiver disponível, você poderá configurar cada lado e restaurar o padrão aqui." = "Lorsque le stockage sera disponible, vous pourrez configurer chaque côté et rétablir les valeurs par défaut ici.";
 "Rascunhar" = "Rédiger";
 "Rascunhar resposta" = "Rédiger une réponse";
+"RASCUNHO" = "BROUILLON";
 "RASCUNHO DA IA · TOM {0}" = "BROUILLON DE L'IA · TON {0}";
 "Rascunho da IA, tom {0}" = "Brouillon de l'IA, ton {0}";
 "RASCUNHO PRONTO" = "BROUILLON PRÊT";
+"RASCUNHO · ESCREVENDO" = "BROUILLON · EN COURS";
 "RECONECTAR CONTA" = "RECONNECTER LE COMPTE";
 "REMETENTES" = "EXPÉDITEURS";
 "RESULTADO AO VIVO" = "RÉSULTAT EN DIRECT";

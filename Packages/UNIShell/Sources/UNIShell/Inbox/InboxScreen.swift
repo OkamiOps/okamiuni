@@ -317,6 +317,9 @@ public struct InboxScreen: View {
         // tem store nem fila, e um segundo caminho lá divergiria daqui.
         .task {
             assistantSession.install(runner: runProposalCard, reveal: { reveal($0) })
+            // Quem sabe quem é o dono da conta é esta tela; a janela
+            // destacada é cena própria e não alcança o store.
+            assistantSession.ownerName = ownerFirstName
         }
         // O "Desfazer" do cartão vale enquanto **o recibo da leva dele**
         // estiver de pé. Um recibo de outra origem não serve, e por isso a
@@ -1108,6 +1111,19 @@ public struct InboxScreen: View {
         return AssistantDrawerCopy.context(
             chosen: assistantSession.chosenContext,
             hasSelection: selecionado != nil
+        )
+    }
+
+    /// O primeiro nome de quem usa o app — a saudação da mesa vazia o diz.
+    /// `nil` quando a conta não tem nome que sirva (um endereço cru não vira
+    /// "Boa tarde, no-reply").
+    private var ownerFirstName: String? {
+        let conta = store.selectedAccountID.flatMap { id in
+            store.accounts.first { $0.id == id }
+        } ?? store.accounts.first
+        guard let conta else { return nil }
+        return DashboardFocus.personName(
+            displayName: conta.displayName, address: conta.address
         )
     }
 

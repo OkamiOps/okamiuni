@@ -172,6 +172,13 @@ public final class AssistantSession {
     public private(set) var isDetached = false
     /// A escolha explícita do "trocar", quando houve uma.
     public var chosenContext: AssistantDrawerContext?
+    /// O nome de quem usa o app, para a saudação da mesa vazia.
+    ///
+    /// Mora aqui porque a janela destacada é cena própria e não alcança o
+    /// `MailStore`: quem sabe quem é o dono da conta é a janela principal, e é
+    /// ela que grava o nome. `nil` deixa a saudação sem nome — inventar um
+    /// seria a tela mentindo sobre a conta.
+    public var ownerName: String?
     /// Os cartões já executados nesta sessão.
     public private(set) var doneCards: Set<String> = []
     /// O "Desfazer" **desta leva** ainda está de pé na barra?

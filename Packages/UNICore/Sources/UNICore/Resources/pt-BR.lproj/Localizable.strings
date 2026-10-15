@@ -65,10 +65,15 @@
 "A mensagem saiu da caixa" = "A mensagem saiu da caixa";
 "A original já está arquivada; a resposta fica pronta para envio." = "A original já está arquivada; a resposta fica pronta para envio.";
 "A original já está arquivada; a resposta vai para a fila de saída." = "A original já está arquivada; a resposta vai para a fila de saída.";
+"Abrir no compositor" = "Abrir no compositor";
 "Aceitar o bloco" = "Aceitar o bloco";
 "Aceitar os {0} blocos" = "Aceitar os {0} blocos";
+"Adicionar à agenda" = "Adicionar à agenda";
 "Cria os compromissos propostos, com desfazer" = "Cria os compromissos propostos, com desfazer";
+"EVENTO · PROPOSTO" = "EVENTO · PROPOSTO";
 "Fóruns" = "Fóruns";
+"NOTA" = "NOTA";
+"Parar aqui" = "Parar aqui";
 "Perguntar ao assistente (⌘J)" = "Perguntar ao assistente (⌘J)";
 "a pagar" = "a pagar";
 "A primeira ação dispara no gesto longo" = "A primeira ação dispara no gesto longo";
@@ -1505,7 +1510,9 @@
 "Outra cor…" = "Outra cor…";
 "Outro realce…" = "Outro realce…";
 "pergunte mais:" = "pergunte mais:";
+"Pergunte, ou mande fazer. O que eu fizer aparece aqui na mesa." = "Pergunte, ou mande fazer. O que eu fizer aparece aqui na mesa.";
 "PREFERÊNCIAS RÁPIDAS" = "PREFERÊNCIAS RÁPIDAS";
+"PROPOSTA" = "PROPOSTA";
 "PRÉVIA DA ASSINATURA" = "PRÉVIA DA ASSINATURA";
 "PRÉVIA TÉCNICA · {0}" = "PRÉVIA TÉCNICA · {0}";
 "Padrão" = "Padrão";
@@ -1642,9 +1649,11 @@
 "Quando o armazenamento estiver disponível, você poderá configurar cada lado e restaurar o padrão aqui." = "Quando o armazenamento estiver disponível, você poderá configurar cada lado e restaurar o padrão aqui.";
 "Rascunhar" = "Rascunhar";
 "Rascunhar resposta" = "Rascunhar resposta";
+"RASCUNHO" = "RASCUNHO";
 "RASCUNHO DA IA · TOM {0}" = "RASCUNHO DA IA · TOM {0}";
 "Rascunho da IA, tom {0}" = "Rascunho da IA, tom {0}";
 "RASCUNHO PRONTO" = "RASCUNHO PRONTO";
+"RASCUNHO · ESCREVENDO" = "RASCUNHO · ESCREVENDO";
 "RECONECTAR CONTA" = "RECONECTAR CONTA";
 "REMETENTES" = "REMETENTES";
 "RESULTADO AO VIVO" = "RESULTADO AO VIVO";

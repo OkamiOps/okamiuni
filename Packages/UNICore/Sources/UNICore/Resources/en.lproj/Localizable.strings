@@ -65,10 +65,15 @@
 "A mensagem saiu da caixa" = "The message left the mailbox";
 "A original já está arquivada; a resposta fica pronta para envio." = "The original is already archived; the reply is ready to send.";
 "A original já está arquivada; a resposta vai para a fila de saída." = "The original is already archived; the reply goes to the outbox.";
+"Abrir no compositor" = "Open in composer";
 "Aceitar o bloco" = "Accept the block";
 "Aceitar os {0} blocos" = "Accept the {0} blocks";
+"Adicionar à agenda" = "Add to calendar";
 "Cria os compromissos propostos, com desfazer" = "Creates the proposed events, with undo";
+"EVENTO · PROPOSTO" = "EVENT · PROPOSED";
 "Fóruns" = "Forums";
+"NOTA" = "NOTE";
+"Parar aqui" = "Stop here";
 "Perguntar ao assistente (⌘J)" = "Ask the assistant (⌘J)";
 "a pagar" = "payable";
 "A primeira ação dispara no gesto longo" = "A long swipe triggers the first action";
@@ -1505,7 +1510,9 @@
 "Outra cor…" = "Other color…";
 "Outro realce…" = "Other highlight…";
 "pergunte mais:" = "ask more:";
+"Pergunte, ou mande fazer. O que eu fizer aparece aqui na mesa." = "Ask, or tell me to do it. Whatever I make shows up here on the desk.";
 "PREFERÊNCIAS RÁPIDAS" = "QUICK PREFERENCES";
+"PROPOSTA" = "PROPOSAL";
 "PRÉVIA DA ASSINATURA" = "SIGNATURE PREVIEW";
 "PRÉVIA TÉCNICA · {0}" = "TECHNICAL PREVIEW · {0}";
 "Padrão" = "Default";
@@ -1642,9 +1649,11 @@
 "Quando o armazenamento estiver disponível, você poderá configurar cada lado e restaurar o padrão aqui." = "When storage is available, you can configure each side and restore defaults here.";
 "Rascunhar" = "Draft";
 "Rascunhar resposta" = "Draft a reply";
+"RASCUNHO" = "DRAFT";
 "RASCUNHO DA IA · TOM {0}" = "AI DRAFT · {0} TONE";
 "Rascunho da IA, tom {0}" = "AI draft, {0} tone";
 "RASCUNHO PRONTO" = "DRAFT READY";
+"RASCUNHO · ESCREVENDO" = "DRAFT · WRITING";
 "RECONECTAR CONTA" = "RECONNECT ACCOUNT";
 "REMETENTES" = "SENDERS";
 "RESULTADO AO VIVO" = "LIVE RESULT";

@@ -65,10 +65,15 @@
 "A mensagem saiu da caixa" = "Die Nachricht wurde aus dem Postfach entfernt";
 "A original já está arquivada; a resposta fica pronta para envio." = "Das Original ist bereits archiviert; die Antwort ist sendebereit.";
 "A original já está arquivada; a resposta vai para a fila de saída." = "Das Original ist bereits archiviert; die Antwort kommt in den Postausgang.";
+"Abrir no compositor" = "Im Verfassen-Fenster öffnen";
 "Aceitar o bloco" = "Block annehmen";
 "Aceitar os {0} blocos" = "Die {0} Blöcke annehmen";
+"Adicionar à agenda" = "Zum Kalender hinzufügen";
 "Cria os compromissos propostos, com desfazer" = "Erstellt die vorgeschlagenen Termine, mit Rückgängig";
+"EVENTO · PROPOSTO" = "TERMIN · VORGESCHLAGEN";
 "Fóruns" = "Foren";
+"NOTA" = "NOTIZ";
+"Parar aqui" = "Hier anhalten";
 "Perguntar ao assistente (⌘J)" = "Assistenten fragen (⌘J)";
 "a pagar" = "zu zahlen";
 "A primeira ação dispara no gesto longo" = "Langes Wischen löst die erste Aktion aus";
@@ -1505,7 +1510,9 @@
 "Outra cor…" = "Andere Farbe…";
 "Outro realce…" = "Andere Hervorhebung…";
 "pergunte mais:" = "mehr fragen:";
+"Pergunte, ou mande fazer. O que eu fizer aparece aqui na mesa." = "Fragen Sie, oder geben Sie mir einen Auftrag. Was ich erledige, erscheint hier auf dem Tisch.";
 "PREFERÊNCIAS RÁPIDAS" = "SCHNELLEINSTELLUNGEN";
+"PROPOSTA" = "VORSCHLAG";
 "PRÉVIA DA ASSINATURA" = "SIGNATURVORSCHAU";
 "PRÉVIA TÉCNICA · {0}" = "TECHNISCHE VORSCHAU · {0}";
 "Padrão" = "Standard";
@@ -1642,9 +1649,11 @@
 "Quando o armazenamento estiver disponível, você poderá configurar cada lado e restaurar o padrão aqui." = "Sobald der Speicher verfügbar ist, kannst du hier beide Seiten konfigurieren und die Standardwerte wiederherstellen.";
 "Rascunhar" = "Entwerfen";
 "Rascunhar resposta" = "Antwort entwerfen";
+"RASCUNHO" = "ENTWURF";
 "RASCUNHO DA IA · TOM {0}" = "KI-ENTWURF · TON {0}";
 "Rascunho da IA, tom {0}" = "KI-Entwurf, Ton {0}";
 "RASCUNHO PRONTO" = "ENTWURF FERTIG";
+"RASCUNHO · ESCREVENDO" = "ENTWURF · WIRD GESCHRIEBEN";
 "RECONECTAR CONTA" = "KONTO ERNEUT VERBINDEN";
 "REMETENTES" = "ABSENDER";
 "RESULTADO AO VIVO" = "LIVE-ERGEBNIS";
