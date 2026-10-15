@@ -163,6 +163,9 @@ public struct ComposerWindow: View {
     let debugSendAttempts: Int
     /// Porta do harness: abre o aviso de sair com o cartão já visível.
     let debugLeaveConfirm: Bool
+    /// Porta do harness: a pastilha da citação já aberta, para o retrato
+    /// mostrar o original desenhado sem fabricar um clique.
+    let debugHistoryOpen: Bool
     /// Porta injetável: o app usa o seletor nativo, e o harness pode escolher
     /// arquivos sem abrir painel nem controlar mouse/teclado.
     let attachmentSelector: (any AttachmentSelecting)?
@@ -197,6 +200,7 @@ public struct ComposerWindow: View {
         self.debugBody = nil
         self.debugSendAttempts = 0
         self.debugLeaveConfirm = false
+        self.debugHistoryOpen = false
         self.attachmentSelector = NativeAttachmentSelector()
         if case .draft(let id) = mode { _draftMessageID = State(initialValue: id) }
         switch mode {
@@ -218,6 +222,7 @@ public struct ComposerWindow: View {
         debugSaveDraft: Bool = false,
         debugBody: String? = nil,
         debugLeaveConfirm: Bool = false,
+        debugHistoryOpen: Bool = false,
         attachmentSelector: (any AttachmentSelecting)? = nil,
         intelligence: ComposerIntelligenceGenerator? = nil
     ) {
@@ -234,6 +239,7 @@ public struct ComposerWindow: View {
         self.debugSaveDraft = debugSaveDraft
         self.debugBody = debugBody
         self.debugLeaveConfirm = debugLeaveConfirm
+        self.debugHistoryOpen = debugHistoryOpen
         self.attachmentSelector = attachmentSelector
         if case .draft(let id) = mode { _draftMessageID = State(initialValue: id) }
         switch mode {
@@ -241,6 +247,7 @@ public struct ComposerWindow: View {
         case .reply, .replyAll, .new: break
         }
         _leaveConfirm = State(initialValue: debugLeaveConfirm)
+        _historyOpen = State(initialValue: debugHistoryOpen)
         // As linhas Cc e Cco nascem fechadas; para desenhar a lista de uma
         // delas o harness precisa da linha aberta desde o primeiro passe.
         _ccOpen = State(initialValue: debugSuggestion?.slot == .cc)
@@ -1343,6 +1350,21 @@ public struct ComposerWindow: View {
 
     /// O histórico citado da 03. Protótipo: `border-left: 2px solid var(--line);
     /// padding-left: 16px`, com o corpo original em `--ink3`.
+    ///
+    /// **O original é desenhado, e não cuspido como texto cru** (15/10/2026).
+    /// O dono abriu uma resposta a um digest do Todoist e viu o que o
+    /// compositor mostrava: parágrafos de `Message.body`, que num e-mail de
+    /// tabela e botão viram buracos em branco e URLs de rastreio de duzentos
+    /// caracteres. Sem contexto não há o que responder.
+    ///
+    /// Agora o bloco aberto usa **o mesmo renderizador do leitor**
+    /// (`ReaderHTMLSection` → `ReaderHTMLBody`), com o mesmo HTML já
+    /// sanitizado, a mesma política de imagem remota (bloqueada até a pessoa
+    /// carregar, ou o remetente ser confiável) e a mesma confirmação de link.
+    /// Só leitura: nada aqui é editável.
+    ///
+    /// **Nada disso muda o que sai.** O que é enviado continua sendo o que
+    /// `ComposerOutgoing` monta a partir de `original` — esta peça é a tela.
     private func history(_ original: Message) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -1360,20 +1382,56 @@ public struct ComposerWindow: View {
             Text(original.subject)
                 .font(theme.serif.font(size: 14, weight: .semibold))
                 .foregroundStyle(theme.ink2.color)
-            ForEach(Array(original.body.enumerated()), id: \.offset) { _, paragraph in
-                Text(paragraph)
-                    .font(theme.serif.font(size: 14.5))
-                    .lineSpacing(0.62 * 14.5)  // line-height 1.62
-                    .foregroundStyle(theme.ink3.color)
-                    .frame(maxWidth: 480, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            historyBody(original)
         }
         .padding(.leading, 16)
         .padding(.vertical, 2)
         .frame(maxWidth: .infinity, alignment: .leading)
         .overlay(alignment: .leading) {
             Rectangle().fill(theme.line.color).frame(width: 2)
+        }
+        .linkConfirmation()
+    }
+
+    /// A altura máxima da citação.
+    ///
+    /// Uma newsletter de mil pixels empurraria o campo da resposta para fora
+    /// da janela; a citação rola por dentro, e o fio da esquerda diz onde ela
+    /// começa e onde acaba.
+    private static let alturaDaCitacao: CGFloat = 420
+
+    @ViewBuilder
+    private func historyBody(_ original: Message) -> some View {
+        if let html = original.bodyHTML, !html.isEmpty {
+            ScrollView {
+                ReaderHTMLSection(
+                    html: html,
+                    paragrafos: original.body,
+                    remetente: original.from.address,
+                    confiavel: store.trustsSender(original.from.address),
+                    aoConfiar: { store.trustSender(original.from.address) },
+                    aoRevogar: { store.revokeSenderTrust(original.from.address) },
+                    folga: 0
+                )
+                // A permissão de imagem remota é **por mensagem**, como no
+                // leitor: trocar de original joga fora o "Carregar" anterior.
+                .id(original.id)
+            }
+            .frame(maxHeight: Self.alturaDaCitacao)
+            .accessibilityIdentifier("composer-quote-html")
+        } else {
+            ForEach(Array(original.body.enumerated()), id: \.offset) { _, paragraph in
+                Text(ComposerQuotedText.atribuido(
+                    paragraph, link: theme.accentInk.color, tinta: theme.ink3.color
+                ))
+                .font(theme.serif.font(size: 14.5))
+                .lineSpacing(0.62 * 14.5)  // line-height 1.62
+                .foregroundStyle(theme.ink3.color)
+                .tint(theme.accentInk.color)
+                .textSelection(.enabled)
+                .frame(maxWidth: 480, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
