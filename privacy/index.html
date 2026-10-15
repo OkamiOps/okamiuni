@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Privacy Policy – OkamiUNI</title><style>:root{--bg:#fff;--fg:#1b2030;--muted:#5b6275;--line:#e3e6ee;--accent:#2b5bd7}
+@media (prefers-color-scheme:dark){:root{--bg:#11151f;--fg:#e8ebf2;--muted:#9aa2b5;--line:#262c3a;--accent:#7aa2ff}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+main{max-width:760px;margin:0 auto;padding:40px 20px 64px}nav{font-size:14px;margin-bottom:28px;color:var(--muted)}
+nav a{margin-right:14px}a{color:var(--accent)}h1{font-size:30px;line-height:1.2;margin:0 0 6px}h2{font-size:20px;margin:32px 0 8px}
+.meta{color:var(--muted);font-size:14px;margin:0 0 24px}code{font-size:14px;background:var(--line);padding:1px 5px;border-radius:4px}
+li{margin:4px 0}footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:14px}</style></head>
+<body><main><nav><a href="../">OkamiUNI</a><a href="../zoom/">Zoom guide</a><a href="../support/">Support</a><a href="../privacy/">Privacy</a><a href="../terms/">Terms</a></nav>
+<h1>Privacy Policy</h1><p class="meta">Last updated: October 15, 2026</p>
+<p>OkamiUNI is a macOS email and calendar app developed by OkamiOps (“we”). This policy explains what data the app handles, including data from Zoom when you connect a Zoom account.</p>
+<h2>The short version</h2>
+<ul><li>OkamiUNI runs on your Mac. We do not operate a server that receives your email, calendar or Zoom data.</li>
+<li>We do not sell, rent or share your data, and the app contains no advertising, analytics or tracking SDKs.</li>
+<li>Credentials and tokens are stored in the macOS Keychain on your Mac.</li></ul>
+<h2>Data the app handles on your Mac</h2>
+<ul><li><strong>Email accounts:</strong> messages, folders and account settings are downloaded from your provider and cached locally in a database on your Mac so the app can work offline. Passwords and OAuth tokens are stored in the macOS Keychain.</li>
+<li><strong>Calendars:</strong> the app reads and writes events in the calendars configured on your Mac through Apple’s EventKit, only with your permission.</li>
+<li><strong>AI features (optional):</strong> if you connect a remote AI provider, the content you ask it to process is sent to that provider under its own terms. You can keep AI processing on your Mac in Settings.</li></ul>
+<h2>Zoom data</h2>
+<p>When you connect a Zoom account in <em>Settings › Calendars › Meeting rooms</em>, OkamiUNI requests two permissions:</p>
+<ul><li><code>meeting:write:meeting</code> — used only when you choose Zoom as the meeting room of an event you are creating. The app creates one scheduled meeting in your Zoom account with the event’s title, start time and duration, and puts the returned join link in the event.</li>
+<li><code>user:read:user</code> — used once after you connect, to read your Zoom account email so Settings can show which account is connected.</li></ul>
+<p>The app stores the Zoom access token, refresh token, token expiry and your Zoom account email in the macOS Keychain on your Mac. It does not read your meetings, recordings, chats, contacts or participants. Zoom data is sent only to Zoom (zoom.us and api.zoom.us) over TLS, and is never sent to us or to third parties. The join link of a meeting you create is part of your calendar event, and it is shared with the guests you invite.</p>
+<h2>Retention and deletion</h2>
+<p>Data stays on your Mac until you remove it. Clicking <em>Disconnect</em> next to Zoom deletes the Zoom tokens and account email from the Keychain immediately. You can also remove OkamiUNI’s access in the Zoom App Marketplace (<em>Manage › Added Apps › Remove</em>). Meetings already created remain in your Zoom account and can be deleted in Zoom. Removing an account from OkamiUNI or deleting the app removes its local data.</p>
+<h2>Your rights</h2>
+<p>Depending on where you live (for example under the LGPD in Brazil, the GDPR in Europe or the CCPA in California) you have the right to access, correct, delete or port your personal data, to object to or restrict its processing and to withdraw consent. Because we do not hold your data on our systems, you can exercise most of these rights directly in the app (view, disconnect, delete). For any request or question, email <a href="mailto:msant262@gmail.com">msant262@gmail.com</a>; we answer within 30 days. You may also complain to your local data protection authority.</p>
+<h2>Children</h2><p>OkamiUNI is not directed to children under 16.</p>
+<h2>Changes</h2><p>We will update this page when the app’s data handling changes, and note the date above.</p>
+<h2>Contact</h2><p>OkamiOps — <a href="mailto:msant262@gmail.com">msant262@gmail.com</a></p>
+<footer>OkamiUNI is developed by OkamiOps. Zoom is a trademark of Zoom Communications, Inc.; OkamiUNI is not affiliated with or endorsed by Zoom.</footer></main></body></html>
