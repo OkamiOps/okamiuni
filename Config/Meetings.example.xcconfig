@@ -9,14 +9,22 @@
 // como o client ID do Google. Mesmo assim o arquivo fica fora do repositório
 // — o valor é de quem publica o app, não do código.
 
-// Zoom · "General App" (OAuth de usuário) no App Marketplace.
+// Zoom · "General App" user-managed no App Marketplace, marcado como
+// **Public Client OAuth**: PKCE S256 e nenhum segredo. Cadastre
+// `http://127.0.0.1:53720/oauth2redirect` como OAuth Redirect URL **e** na
+// allow list, caractere por caractere. Escopo: `meeting:write:meeting`.
 OKAMIUNI_ZOOM_CLIENT_ID =
-OKAMIUNI_ZOOM_CLIENT_SECRET =
 
-// Microsoft · registro de aplicativo no Entra ID. Cliente público (PKCE),
-// sem segredo.
+// Microsoft · registro de aplicativo no Entra ID, plataforma "Mobile and
+// desktop applications". Cliente público (PKCE), sem segredo. Redirect:
+// `com.okamiops.okamiuni:/oauth2redirect`. Escopos: offline_access,
+// Calendars.ReadWrite, OnlineMeetings.ReadWrite, User.Read.
 OKAMIUNI_MICROSOFT_CLIENT_ID =
 
-// Zoho · "Self Client" ou aplicativo do Zoho API Console.
+// Zoho · aplicativo do tipo "Server-based" no Zoho API Console. É o único dos
+// três que pede **os dois**, PKCE e segredo: a documentação do Zoho exige
+// `client_secret` na troca do código mesmo com PKCE. Redirect:
+// `http://127.0.0.1:53720/oauth2redirect`. Escopos:
+// `ZohoMeeting.meeting.CREATE,ZohoMeeting.manageOrg.READ`.
 OKAMIUNI_ZOHO_CLIENT_ID =
 OKAMIUNI_ZOHO_CLIENT_SECRET =

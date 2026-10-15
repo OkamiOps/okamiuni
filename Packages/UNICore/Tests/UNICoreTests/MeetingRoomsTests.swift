@@ -18,24 +18,25 @@ struct MeetingRoomsTests {
         #expect(store.profile(for: "conta").rooms.isEmpty)
     }
 
-    @Test("Zoom, Teams e Zoho conectam por credencial de API, não por link")
-    func storesAPIConnection() {
+    /// A credencial de servidor digitada à mão saiu, e o que ela deixou nas
+    /// preferências **não pode ficar**: eram client secret do Zoom e refresh
+    /// token do Zoho em texto plano num plist que qualquer processo do usuário
+    /// lê. Abrir a loja apaga a chave; sem esta afirmação, o segredo antigo
+    /// sobreviveria à atualização sem ninguém notar.
+    @Test("Abrir a loja apaga a credencial de API em texto plano da versão antiga")
+    func erasesLegacyPlaintextConnection() {
         let name = "okamiuni.meeting.api.\(UUID().uuidString)"
         let suite = UserDefaults(suiteName: name)!
         defer { suite.removePersistentDomain(forName: name) }
-        let store = MeetingRoomSettingsStore(defaults: suite)
+        let antigo = try! JSONEncoder().encode([
+            "zoom": ["clientID": "id", "clientSecret": "segredo", "extra": "acct"]
+        ])
+        suite.set(antigo, forKey: "okamiuni.meeting.api")
+        #expect(suite.object(forKey: "okamiuni.meeting.api") != nil)
 
-        #expect(store.isConnected(.zoom) == false)
-        store.setConnection(
-            MeetingServiceConnection(clientID: "id", clientSecret: "secret", extra: "acct"),
-            for: .zoom
-        )
-        #expect(store.isConnected(.zoom))
-        #expect(store.connection(for: .zoom).extra == "acct")
+        _ = MeetingRoomSettingsStore(defaults: suite)
 
-        let reopened = MeetingRoomSettingsStore(defaults: suite)
-        #expect(reopened.isConnected(.zoom))
-        #expect(reopened.connection(for: .zoom).clientID == "id")
+        #expect(suite.object(forKey: "okamiuni.meeting.api") == nil)
     }
 
     @Test("Meet usa a conta Google mesmo quando o compromisso é de outra caixa")

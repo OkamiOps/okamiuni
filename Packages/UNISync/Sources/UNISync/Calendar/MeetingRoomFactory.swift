@@ -2,15 +2,31 @@ import Foundation
 import Observation
 import UNICore
 
-/// Cria uma sala **nova** por compromisso. Meet usa o OAuth Google da caixa;
-/// Zoom, Teams e Zoho usam a API de cada um quando a pessoa conectou em
-/// Ajustes. Nunca devolve um link permanente.
+/// Cria uma sala **nova** por compromisso. Nunca devolve um link permanente:
+/// uma sala reaproveitada vira reunião eterna, com o título errado.
+///
+/// Os quatro serviços usam o **token da pessoa**, não credencial de servidor.
+/// O Meet vem do OAuth Google da caixa de correio; Zoom, Teams e Zoho vêm do
+/// login que a pessoa fez em Configurações ▸ Agendas, e quem entrega o token
+/// é o `MeetingTokenSource` de cada conector.
+///
+/// **O que saiu daqui.** Até a versão anterior, Zoom, Teams e Zoho nasciam de
+/// credencial digitada à mão numa tela de Ajustes: `account_credentials` do
+/// Zoom, `client_credentials` do Teams e um refresh token colado do Zoho. Três
+/// problemas, nessa ordem: a pessoa tinha de ir ao painel de desenvolvedor de
+/// cada serviço para usar um aplicativo de e-mail; a sala nascia da conta de
+/// *serviço* e não dela, então o convite vinha de um estranho; e os três
+/// campos ficavam em `UserDefaults`, em texto plano. Agora é OAuth de usuário,
+/// e o token mora no Keychain.
 @MainActor
 @Observable
 public final class MeetingRoomFactory: @unchecked Sendable {
     private let google: GoogleAuth?
     private let session: URLSession
-    private let rooms: MeetingRoomSettingsStore
+    /// Um por serviço conectável (Zoom, Teams, Zoho). Ausente = este build não
+    /// tem o conector, e `canMint` devolve `false`.
+    @ObservationIgnored
+    private let tokens: [MeetingService: MeetingTokenSource]
     /// `true` = Meet já autorizado nesta caixa; `false` = falta consentimento.
     /// Ausente = ainda não consultou. O botão de reconectar só aparece no `false`.
     public private(set) var meetAccess: [String: Bool] = [:]
@@ -18,11 +34,13 @@ public final class MeetingRoomFactory: @unchecked Sendable {
     public init(
         google: GoogleAuth? = nil,
         session: URLSession = .shared,
-        rooms: MeetingRoomSettingsStore = MeetingRoomSettingsStore()
+        tokens: [MeetingTokenSource] = []
     ) {
         self.google = google
         self.session = session
-        self.rooms = rooms
+        self.tokens = Dictionary(
+            tokens.map { ($0.service, $0) }, uniquingKeysWith: { primeiro, _ in primeiro }
+        )
     }
 
     public func canMint(
@@ -30,10 +48,18 @@ public final class MeetingRoomFactory: @unchecked Sendable {
     ) -> Bool {
         switch service {
         case .meet:
-            google != nil && MeetingGoogleAccount.resolve(for: account, among: accounts) != nil
+            return google != nil && MeetingGoogleAccount.resolve(for: account, among: accounts) != nil
         case .zoom, .teams, .zoho:
-            rooms.isConnected(service)
+            // Leitura síncrona do cofre: `SecretStore` é síncrono de
+            // propósito, e a tela pergunta isto antes de desenhar o botão.
+            return tokens[service]?.isConnected == true
         }
+    }
+
+    /// A conta conectada de um serviço, para a tela mostrar de quem a sala
+    /// vai nascer. `nil` quando não há conexão.
+    public func connectedAccount(_ service: MeetingService) -> String? {
+        tokens[service]?.account
     }
 
     public func hasMeetAccess(accountID: String) -> Bool? {
@@ -71,17 +97,19 @@ public final class MeetingRoomFactory: @unchecked Sendable {
         case .meet:
             return try await mintMeet(request)
         case .zoom:
-            let link = try await ZoomMeetingClient(session: session, connection: connected(.zoom))
-                .create(request)
+            let fonte = try source(.zoom)
+            let link = try await ZoomMeetingClient(
+                session: session, accessToken: { try await fonte.accessToken() }
+            ).create(request)
             return MeetingMint(link: link)
         case .teams:
-            let link = try await TeamsMeetingClient(session: session, connection: connected(.teams))
-                .create(request)
+            let fonte = try source(.teams)
+            let link = try await TeamsMeetingClient(
+                session: session, accessToken: { try await fonte.accessToken() }
+            ).create(request)
             return MeetingMint(link: link)
         case .zoho:
-            let link = try await ZohoMeetingClient(session: session, connection: connected(.zoho))
-                .create(request)
-            return MeetingMint(link: link)
+            return MeetingMint(link: try await mintZoho(request))
         }
     }
 
@@ -104,10 +132,42 @@ public final class MeetingRoomFactory: @unchecked Sendable {
         }
     }
 
-    private func connected(_ service: MeetingService) throws -> MeetingServiceConnection {
-        let connection = rooms.connection(for: service)
-        guard connection.isComplete else { throw MeetingRoomError.notConnected(service) }
-        return connection
+    private func source(_ service: MeetingService) throws -> MeetingTokenSource {
+        guard let fonte = tokens[service], fonte.isConnected else {
+            throw MeetingRoomError.notConnected(service)
+        }
+        return fonte
+    }
+
+    /// O Zoho precisa de duas coisas que os outros não pedem: o data center
+    /// onde a conta mora e o `zsoid` da organização, que entra no caminho.
+    /// Os dois foram gravados no login; o `zsoid` é buscado aqui quando
+    /// faltar, para uma conexão antiga não ficar inútil.
+    private func mintZoho(_ request: MeetingRoomRequest) async throws -> String {
+        let fonte = try source(.zoho)
+        guard let guardados = fonte.tokens,
+              let servidor = guardados.accountsServer,
+              let base = ZohoDataCenter.meetingAPIBase(accountsServer: servidor)
+        else { throw MeetingRoomError.notConnected(.zoho) }
+
+        var zsoid = guardados.zsoid
+        if zsoid == nil {
+            let token = try await fonte.accessToken()
+            let usuario = try await ZohoUserClient(session: session, apiBase: base)
+                .me(accessToken: token)
+            zsoid = usuario.zsoid
+            var atualizados = guardados
+            atualizados.zsoid = usuario.zsoid
+            atualizados.account = atualizados.account ?? usuario.email
+            try? fonte.save(atualizados)
+        }
+        guard let zsoid else { throw MeetingRoomError.notConnected(.zoho) }
+        return try await ZohoMeetingClient(
+            session: session,
+            apiBase: base,
+            zsoid: zsoid,
+            accessToken: { try await fonte.accessToken() }
+        ).create(request)
     }
 
     private func mintMeet(_ request: MeetingRoomRequest) async throws -> MeetingMint {
@@ -312,170 +372,6 @@ struct GoogleMeetClient: Sendable {
     }
 }
 
-struct ZoomMeetingClient: Sendable {
-    let session: URLSession
-    let connection: MeetingServiceConnection
-
-    func create(_ request: MeetingRoomRequest) async throws -> String {
-        let token = try await accessToken()
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withColonSeparatorInTime]
-        let start = formatter.string(from: request.start)
-        let payload: [String: Any] = [
-            "topic": request.title,
-            "type": 2,
-            "start_time": start,
-            "duration": request.durationMinutes,
-            "timezone": TimeZone.current.identifier,
-            "settings": ["join_before_host": true],
-        ]
-        let body = try JSONSerialization.data(withJSONObject: payload)
-        var http = URLRequest(url: URL(string: "https://api.zoom.us/v2/users/me/meetings")!)
-        http.httpMethod = "POST"
-        http.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        http.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        http.httpBody = body
-        struct Wire: Decodable { let joinUrl: String?; let join_url: String? }
-        let wire: Wire = try await decode(http, as: Wire.self, service: .zoom)
-        let url = wire.joinUrl ?? wire.join_url
-        guard let url, let link = MeetingLink.normalizado(url) else {
-            throw MeetingRoomError.failed("O Zoom não devolveu o link da reunião.")
-        }
-        return link
-    }
-
-    private func accessToken() async throws -> String {
-        var http = URLRequest(
-            url: URL(string: "https://zoom.us/oauth/token?grant_type=account_credentials&account_id=\(connection.extra)")!
-        )
-        http.httpMethod = "POST"
-        let basic = Data("\(connection.clientID):\(connection.clientSecret)".utf8).base64EncodedString()
-        http.setValue("Basic \(basic)", forHTTPHeaderField: "Authorization")
-        struct Wire: Decodable { let access_token: String }
-        return try await decode(http, as: Wire.self, service: .zoom).access_token
-    }
-}
-
-struct TeamsMeetingClient: Sendable {
-    let session: URLSession
-    let connection: MeetingServiceConnection
-
-    func create(_ request: MeetingRoomRequest) async throws -> String {
-        let token = try await accessToken()
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        let payload: [String: Any] = [
-            "subject": request.title,
-            "startDateTime": formatter.string(from: request.start),
-            "endDateTime": formatter.string(from: request.end),
-        ]
-        let body = try JSONSerialization.data(withJSONObject: payload)
-        var http = URLRequest(url: URL(string: "https://graph.microsoft.com/v1.0/me/onlineMeetings")!)
-        http.httpMethod = "POST"
-        http.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        http.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        http.httpBody = body
-        struct Wire: Decodable { let joinWebUrl: String? }
-        let url = try await decode(http, as: Wire.self, service: .teams).joinWebUrl
-        guard let url, let link = MeetingLink.normalizado(url) else {
-            throw MeetingRoomError.failed("O Teams não devolveu o link da reunião.")
-        }
-        return link
-    }
-
-    private func accessToken() async throws -> String {
-        var http = URLRequest(
-            url: URL(string: "https://login.microsoftonline.com/\(connection.extra)/oauth2/v2.0/token")!
-        )
-        http.httpMethod = "POST"
-        http.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        http.httpBody = [
-            "client_id": connection.clientID,
-            "client_secret": connection.clientSecret,
-            "grant_type": "client_credentials",
-            "scope": "https://graph.microsoft.com/.default",
-        ].map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0.value)" }
-            .joined(separator: "&")
-            .data(using: .utf8)
-        struct Wire: Decodable { let access_token: String }
-        return try await decode(http, as: Wire.self, service: .teams).access_token
-    }
-}
-
-struct ZohoMeetingClient: Sendable {
-    let session: URLSession
-    let connection: MeetingServiceConnection
-
-    func create(_ request: MeetingRoomRequest) async throws -> String {
-        let token = try await accessToken()
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        let payload: [String: Any] = [
-            "session": [
-                "topic": request.title,
-                "agenda": request.title,
-                "presenter": 1,
-                "startTime": formatter.string(from: request.start),
-                "duration": request.durationMinutes,
-                "timezone": TimeZone.current.identifier,
-            ]
-        ]
-        let body = try JSONSerialization.data(withJSONObject: payload)
-        var http = URLRequest(url: URL(string: "https://meeting.zoho.com/api/v2/meetings")!)
-        http.httpMethod = "POST"
-        http.setValue("Zoho-oauthtoken \(token)", forHTTPHeaderField: "Authorization")
-        http.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        http.httpBody = body
-        struct Wire: Decodable {
-            struct Session: Decodable {
-                let joinLink: String?
-                let startLink: String?
-            }
-            let session: Session?
-        }
-        let session = try await decode(http, as: Wire.self, service: .zoho).session
-        let url = session?.joinLink ?? session?.startLink
-        guard let url, let link = MeetingLink.normalizado(url) else {
-            throw MeetingRoomError.failed("O Zoho Meeting não devolveu o link da reunião.")
-        }
-        return link
-    }
-
-    private func accessToken() async throws -> String {
-        var http = URLRequest(url: URL(string: "https://accounts.zoho.com/oauth/v2/token")!)
-        http.httpMethod = "POST"
-        http.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        http.httpBody = [
-            "refresh_token": connection.extra,
-            "client_id": connection.clientID,
-            "client_secret": connection.clientSecret,
-            "grant_type": "refresh_token",
-        ].map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0.value)" }
-            .joined(separator: "&")
-            .data(using: .utf8)
-        struct Wire: Decodable { let access_token: String }
-        return try await decode(http, as: Wire.self, service: .zoho).access_token
-    }
-}
-
-private extension ZoomMeetingClient {
-    func decode<T: Decodable>(_ request: URLRequest, as: T.Type, service: MeetingService) async throws -> T {
-        try await MeetingHTTP.decode(request, session: session, as: T.self, service: service)
-    }
-}
-
-private extension TeamsMeetingClient {
-    func decode<T: Decodable>(_ request: URLRequest, as: T.Type, service: MeetingService) async throws -> T {
-        try await MeetingHTTP.decode(request, session: session, as: T.self, service: service)
-    }
-}
-
-private extension ZohoMeetingClient {
-    func decode<T: Decodable>(_ request: URLRequest, as: T.Type, service: MeetingService) async throws -> T {
-        try await MeetingHTTP.decode(request, session: session, as: T.self, service: service)
-    }
-}
-
 enum MeetingHTTP {
     static func decode<T: Decodable>(
         _ request: URLRequest, session: URLSession, as: T.Type, service: MeetingService
@@ -487,19 +383,37 @@ enum MeetingHTTP {
             throw MeetingRoomError.failed(erro.localizedDescription)
         }
         guard let http = resposta as? HTTPURLResponse else {
-            throw MeetingRoomError.failed("\(service.label) respondeu sem HTTP.")
+            throw MeetingRoomError.failed(
+                L10n.tr("O \(service.label) respondeu sem HTTP.")
+            )
         }
         guard (200..<300).contains(http.statusCode) else {
-            if http.statusCode == 401 || http.statusCode == 403 {
+            if http.statusCode == 401 {
+                // Token morto ou revogado: só reconectar resolve.
                 throw MeetingRoomError.notConnected(service)
             }
-            let mensagem = String(data: dados, encoding: .utf8) ?? "sem detalhe"
-            throw MeetingRoomError.failed("\(service.label) respondeu \(http.statusCode): \(mensagem)")
+            let mensagem = String(data: dados, encoding: .utf8)?.nonEmptyDetail
+                ?? L10n.tr("sem detalhe")
+            throw MeetingRoomError.failed(
+                L10n.tr("O \(service.label) respondeu \(String(http.statusCode)): \(mensagem)")
+            )
         }
         do {
             return try JSONDecoder().decode(T.self, from: dados)
         } catch {
-            throw MeetingRoomError.failed("\(service.label) devolveu um JSON que não reconhecemos.")
+            throw MeetingRoomError.failed(
+                L10n.tr("O \(service.label) devolveu um JSON que não reconhecemos.")
+            )
         }
+    }
+}
+
+extension String {
+    /// O corpo de erro do servidor, cortado: um HTML de 40 kB numa caixa de
+    /// alerta não ajuda ninguém, e o começo dele já diz o que houve.
+    var nonEmptyDetail: String? {
+        let limpo = trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !limpo.isEmpty else { return nil }
+        return limpo.count > 400 ? String(limpo.prefix(400)) + "…" : limpo
     }
 }

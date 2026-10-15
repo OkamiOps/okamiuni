@@ -63,12 +63,20 @@ public struct OAuthTokens: Sendable, Hashable, Codable {
 
 /// O que uma conta guarda no Keychain.
 ///
-/// Duas formas porque são dois protocolos: IMAP autentica com senha de app,
-/// Google com um par de tokens que se renova. Um `String` só serviria aos dois
-/// e obrigaria quem lê a adivinhar qual é qual.
+/// Três formas porque são três protocolos: IMAP autentica com senha de app,
+/// Google com um par de tokens que se renova, e os serviços de reunião (Zoom,
+/// Teams, Zoho) com um par parecido mas que carrega o que o Google não tem —
+/// o data center do Zoho e o identificador da organização. Um `String` só
+/// serviria aos três e obrigaria quem lê a adivinhar qual é qual.
+///
+/// `meeting` entrou depois das outras duas. Acrescentar caso a um enum
+/// `Codable` é aditivo: o que já está gravado no Keychain continua
+/// decodificando, porque o discriminador do JSON sintetizado é o nome do
+/// caso e nenhum nome antigo mudou.
 public enum Secret: Sendable, Hashable, Codable {
     case password(String)
     case oauth(OAuthTokens)
+    case meeting(MeetingTokens)
 }
 
 /// O cofre de segredos, por conta.

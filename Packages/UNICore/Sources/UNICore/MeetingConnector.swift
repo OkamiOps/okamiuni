@@ -83,11 +83,19 @@ public enum MeetingClientIDs {
         }
     }
 
+    /// Quem **de fato** precisa de segredo.
+    ///
+    /// Só dois dos quatro. O Google exige `client_secret` no client de app
+    /// desktop (sem ele o token endpoint responde `400 client_secret is
+    /// missing`, PKCE ou não) e o Zoho exige na troca do código, por
+    /// documentação. Zoom e Teams são clientes **públicos**: o PKCE S256
+    /// ocupa o lugar do segredo, e pedir um segredo que não é usado só
+    /// daria à pessoa que publica o app a impressão de que ele guarda
+    /// confidência — o que um `.app` instalado nunca faz.
     public static func secretKey(for service: MeetingService) -> String? {
         switch service {
         case .meet: "OkamiUNIGoogleClientSecret"
-        case .zoom: "OkamiUNIZoomClientSecret"
-        case .teams: nil
+        case .zoom, .teams: nil
         case .zoho: "OkamiUNIZohoClientSecret"
         }
     }
@@ -259,7 +267,7 @@ public enum MeetingRoomAction: Sendable, Hashable {
     }
 }
 
-public enum MeetingConnectorError: LocalizedError {
+public enum MeetingConnectorError: LocalizedError, Sendable, Hashable {
     case missingClientID(MeetingService)
     case refused(String)
 

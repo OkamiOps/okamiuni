@@ -66,35 +66,6 @@ struct MeetingRoomFactoryTests {
         }
     }
 
-    @Test("Zoom pede token S2S e cria reunião com join_url")
-    func zoomMintsJoinURL() async throws {
-        let session = StubURLProtocol.session(routes: [
-            "/oauth/token": [.json(#"{"access_token":"zoom-token"}"#)],
-            "/v2/users/me/meetings": [.json(#"{"join_url":"https://zoom.us/j/987654321"}"#)],
-        ])
-        let client = ZoomMeetingClient(
-            session: session,
-            connection: MeetingServiceConnection(
-                clientID: "id", clientSecret: "secret", extra: "acct"
-            )
-        )
-        let start = Date(timeIntervalSince1970: 1_788_163_200)
-        let link = try await client.create(
-            MeetingRoomRequest(
-                service: .zoom,
-                account: Account(
-                    id: "a", address: "a@x.com", displayName: "A",
-                    provider: .imap, host: "x",
-                    tintLightHex: "#000", tintDarkHex: "#fff"
-                ),
-                title: "Revisão",
-                start: start,
-                end: start.addingTimeInterval(1800)
-            )
-        )
-        #expect(link == "https://zoom.us/j/987654321")
-    }
-
     @Test("EventKit traduz diário, úteis e semanal")
     func eventKitRules() throws {
         let daily = RecurrenceRule(frequency: .daily, interval: 2)
