@@ -297,7 +297,7 @@ struct ZoomConnectorTests {
         #expect(itens["response_type"] == "code")
         #expect(itens["code_challenge_method"] == "S256")
         #expect(itens["code_challenge"]?.isEmpty == false)
-        #expect(itens["scope"] == "meeting:write:meeting")
+        #expect(itens["scope"] == "meeting:write:meeting user:read:user")
         #expect(itens["redirect_uri"] == "http://127.0.0.1:\(porta)/oauth2redirect")
         #expect(itens["state"]?.isEmpty == false)
     }

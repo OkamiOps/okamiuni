@@ -12,7 +12,7 @@
 // Zoom · "General App" user-managed no App Marketplace, marcado como
 // **Public Client OAuth**: PKCE S256 e nenhum segredo. Cadastre
 // `http://127.0.0.1:53720/oauth2redirect` como OAuth Redirect URL **e** na
-// allow list, caractere por caractere. Escopo: `meeting:write:meeting`.
+// allow list, caractere por caractere. Escopos: `meeting:write:meeting` e `user:read:user` (este só para mostrar o e-mail da conta).
 OKAMIUNI_ZOOM_CLIENT_ID =
 
 // Microsoft · registro de aplicativo no Entra ID, plataforma "Mobile and

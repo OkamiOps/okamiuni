@@ -21,9 +21,9 @@ import UNICore
 public final class ZoomConnector: MeetingConnector {
     public let service: MeetingService = .zoom
 
-    /// Um escopo só: criar reunião. Pedir mais do que se usa é pedir à pessoa
-    /// que confie no app para algo que ele não faz.
-    public static let scopes = ["meeting:write:meeting"]
+    /// Criar reunião, e ler a própria conta para a linha mostrar o e-mail em
+    /// vez de "conta Zoom". Nada além disso.
+    public static let scopes = ["meeting:write:meeting", "user:read:user"]
 
     private let clientID: String?
     private let session: URLSession
