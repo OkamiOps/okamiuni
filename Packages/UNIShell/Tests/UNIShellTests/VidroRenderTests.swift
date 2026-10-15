@@ -70,6 +70,26 @@ struct VidroRenderTests {
         #expect(rep.pixelsWide == 1440)
     }
 
+    /// O dono não achava onde procurar atualização: o ícone do trilho só
+    /// aparecia com versão pronta e a coluna recolhida. Agora ele fica sempre
+    /// acima do ✦.
+    @Test("o trilho sempre mostra o ícone de atualização")
+    func railAlwaysShowsUpdate() async throws {
+        let suite = "render-vidro-trilho-atualizacao"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defaults.removePersistentDomain(forName: suite)
+        let controller = UpdateController(engine: MotorDeMentira(), defaults: defaults)
+        let store = await loja()
+        let theme = try #require(Theme.named("vidro-noite"))
+        let rep = try #require(Render.snapshot(
+            InboxScreen(store: store, updates: controller).environment(ThemeStore()),
+            named: "vidro-trilho-atualizacao",
+            size: CGSize(width: 1440, height: 916),
+            theme: theme
+        ))
+        #expect(rep.pixelsWide == 1440)
+    }
+
     @Test("o trilho recolhido deixa só a navegação")
     func collapsedRailRenders() async throws {
         let store = await loja()

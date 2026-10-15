@@ -96,10 +96,12 @@ struct AppRail: View {
 
             Spacer(minLength: 0)
 
-            // Protótipo: com a coluna recolhida o ícone da atualização entra
-            // **acima** do ✦. Com a coluna aberta quem avisa é o cartão do pé
-            // dela, e dois avisos da mesma coisa na mesma tela é um a mais.
-            if contextCollapsed, let updates, updates.showsReadyButton {
+            // O ícone da atualização mora **acima** do ✦, sempre: é onde a
+            // pessoa olha para saber "estou na última?" e procurar de novo.
+            // A única vez que ele sai é com versão pronta e a coluna aberta —
+            // aí quem avisa é o cartão do pé dela, e os dois abririam o mesmo
+            // painel ao mesmo tempo.
+            if let updates, contextCollapsed || !updates.showsReadyButton {
                 updateButton(updates)
             }
 
@@ -198,23 +200,39 @@ struct AppRail: View {
     /// Protótipo: `sc-if value="{{closed}}"`, 40×40, seta em `accentInk` e o
     /// ponto de 8pt em `top: 7px; right: 7px`.
     private func updateButton(_ updates: UpdateController) -> some View {
-        Button { updates.openPanel() } label: {
+        let pronta = updates.showsReadyButton
+        let rotulo = pronta
+            ? L10n.tr("Atualização pronta")
+            : L10n.tr("Procurar atualizações…")
+        return Button { updates.openPanel() } label: {
             Image(systemName: "arrow.down.circle")
                 .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(theme.accentInk.color)
+                .foregroundStyle((pronta ? theme.accentInk : theme.ink2).color)
                 .frame(width: AppRail.actionSize, height: AppRail.actionSize)
                 .overlay(alignment: .topTrailing) {
-                    Circle()
-                        .fill(theme.accent.color)
-                        .frame(width: 8, height: 8)
-                        .padding(7)
+                    if pronta {
+                        Circle()
+                            .fill(theme.accent.color)
+                            .frame(width: 8, height: 8)
+                            .padding(7)
+                    }
                 }
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .focusRing(cornerRadius: AppRail.actionRadius)
-        .help(L10n.tr("Atualização pronta"))
-        .accessibilityLabel(L10n.tr("Atualização pronta"))
+        .help(rotulo)
+        .accessibilityLabel(rotulo)
+        .accessibilityIdentifier("rail-update-button")
+        .popover(
+            isPresented: Binding(
+                get: { updates.isShowingChangelog },
+                set: { $0 ? updates.openPanel() : updates.dismiss() }
+            ),
+            arrowEdge: .trailing
+        ) {
+            UpdatePanel(controller: updates)
+        }
     }
 
     private func symbol(for tab: Workspace) -> String {

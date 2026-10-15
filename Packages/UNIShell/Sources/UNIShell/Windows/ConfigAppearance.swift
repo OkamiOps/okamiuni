@@ -3,19 +3,17 @@ import UNICore
 import UNIDesign
 
 /// Aparência: os três cartões grandes do Vidro, os clássicos em miniatura, e
-/// as três linhas de ajuste — tamanho do texto, idioma e atualizações.
+/// as linhas de ajuste — tamanho do texto e idioma.
 ///
-/// Idioma e Atualizações moram aqui porque é aqui que o desenho os põe: a
-/// última linha de Aparência mostra "2.4.2 pronta · Notas · Instalar e
-/// reabrir", e a anterior, "Idioma do app". Eram dois cartões de "Geral", uma
-/// seção que o desenho novo não tem.
+/// Atualizações moravam aqui, como no desenho, e o dono não as achava:
+/// aparência não é lugar de versão. Foram para a Visão geral
+/// (`ConfigUpdatesRow`).
 struct ConfigAppearance: View {
     @Environment(\.theme) private var theme
     @Environment(\.configPalette) private var palette
     @Environment(\.displayScale) private var displayScale
 
     let themes: ThemeStore?
-    let updates: UpdateController?
     @Binding var language: String
     let languageAtOpening: String
     @State private var showingAllClassics = false
@@ -40,7 +38,6 @@ struct ConfigAppearance: View {
                         .padding(.bottom, 16)
                 }
                 languageRow
-                updatesRow
             }
             .frame(maxWidth: ConfigMetrics.contentMaxWidth, alignment: .leading)
             .padding(.bottom, 4)
@@ -244,50 +241,6 @@ struct ConfigAppearance: View {
                     .font(theme.sans.font(size: 12.5))
                     .foregroundStyle(palette.accentInk.color)
                     .padding(.top, 8)
-            }
-        }
-    }
-
-    private var updatesRow: some View {
-        ConfigRow(
-            label: L10n.tr("Atualizações"),
-            note: L10n.tr("procura sozinha uma vez por dia; instala só quando você mandar"),
-            divider: .bottom
-        ) {
-            HStack(spacing: 12) {
-                if let updates {
-                    if let ready = updates.readyVersion, updates.showsReadyButton {
-                        Text(L10n.tr("\(ready) pronta"))
-                            .font(theme.sans.font(size: 13, weight: .medium))
-                            .foregroundStyle(palette.accentInk.color)
-                        Button(L10n.tr("Notas")) { updates.showChangelog() }
-                            .buttonStyle(.plain)
-                            .font(theme.sans.font(size: 13))
-                            .foregroundStyle(palette.ink3.color)
-                        Button(L10n.tr("Instalar e reabrir")) { updates.installAndRelaunch() }
-                            .buttonStyle(.plain)
-                            .configPrimaryButton(
-                                palette, font: theme.sans.font(size: 13, weight: .semibold),
-                                radius: 9, horizontal: 13, vertical: 8
-                            )
-                            .accessibilityIdentifier("settings-install-update")
-                    } else {
-                        Text(updates.versionLine)
-                            .font(theme.mono.font(size: 12))
-                            .foregroundStyle(palette.ink3.color)
-                        Button(L10n.tr("Procurar agora")) { updates.checkNow() }
-                            .buttonStyle(.plain)
-                            .configQuietButton(palette, font: theme.sans.font(size: 13, weight: .medium))
-                            .disabled(updates.isChecking)
-                    }
-                } else {
-                    // Build de desenvolvimento: o atualizador está desligado de
-                    // propósito, e dizer isso é melhor do que oferecer um botão
-                    // que não procura nada.
-                    Text(L10n.tr("desligadas neste build"))
-                        .font(theme.sans.font(size: 13))
-                        .foregroundStyle(palette.ink3.color)
-                }
             }
         }
     }

@@ -29,6 +29,7 @@ struct ConfigOverview: View {
     let alerts: [ConfigAlert]
     let tiles: [ConfigOverviewTile]
     let checkedNote: String
+    var updates: UpdateController? = nil
 
     var body: some View {
         ScrollView {
@@ -50,6 +51,9 @@ struct ConfigOverview: View {
                 .padding(.top, 14)
                 .padding(.horizontal, 2)
                 .padding(.bottom, 2)
+
+                ConfigUpdatesRow(updates: updates)
+                    .padding(.horizontal, 2)
 
                 LazyVGrid(
                     columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],

@@ -301,7 +301,7 @@ public struct AccountsWindow: View {
         case .appearance:
             ConfigPageHeader(
                 title: L10n.tr("Aparência"),
-                subtitle: L10n.tr("Tema, tamanho do texto, idioma e atualizações")
+                subtitle: L10n.tr("Tema, tamanho do texto e idioma")
             )
         case .intelligence:
             // A Inteligência desenha o próprio cabeçalho: ele tem as duas abas
@@ -346,11 +346,10 @@ public struct AccountsWindow: View {
     private var content: some View {
         switch currentPage {
         case .overview:
-            ConfigOverview(alerts: alerts, tiles: tiles, checkedNote: L10n.tr("conferido agora há pouco"))
+            ConfigOverview(alerts: alerts, tiles: tiles, checkedNote: L10n.tr("conferido agora há pouco"), updates: updates)
         case .appearance:
             ConfigAppearance(
                 themes: themes,
-                updates: updates,
                 language: $interfaceLanguage,
                 languageAtOpening: languageAtOpening
             )
