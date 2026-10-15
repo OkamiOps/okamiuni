@@ -255,6 +255,30 @@ struct ModaisRenderTests {
         }
     }
 
+    /// O estado "testando" do desenho (`Modal-conta-testando-escuro`), que o
+    /// formulário inteiro não alcança sem rede: a trilha é fotografada
+    /// sozinha, nos três estados que ela sabe desenhar.
+    @Test("a trilha do teste IMAP, nos três temas e nos três estados")
+    func trilhaDesenhada() throws {
+        let estados: [(String, [ImapTestTrail.Step])] = [
+            ("testando", ImapTestTrail.steps(running: true, passed: nil, error: nil)),
+            ("passou", ImapTestTrail.steps(running: false, passed: true, error: nil)),
+            ("falhou", ImapTestTrail.steps(running: false, passed: nil, error: .autenticacao)),
+        ]
+        for (nome, tema) in Self.temas {
+            for (estado, passos) in estados {
+                #expect(Render.snapshot(
+                    ImapTestTrailView(steps: passos)
+                        .padding(Theme.modalSide)
+                        .frame(width: Theme.ModalWidth.accountSheet)
+                        .background(tema.modalSheet.color),
+                    named: "modal-conta-teste-\(estado)-\(nome)",
+                    size: CGSize(width: Theme.ModalWidth.accountSheet, height: 170), theme: tema
+                ) != nil, "\(nome)/\(estado)")
+            }
+        }
+    }
+
     /// A trilha do teste IMAP conta o que **o resultado permite** contar: a
     /// classe do erro diz onde parou. Ver `ImapTestTrail`.
     @Test("a trilha do teste para no passo que o erro nomeia")

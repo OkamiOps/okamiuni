@@ -5,29 +5,6 @@ import UNICore
 // HTML-only na hora de exibir. Nenhuma segunda cópia da regra.
 import UNISync
 
-/// As cores semânticas do protótipo (`semC`), já convertidas de oklch para
-/// sRGB — `TokenColor` lê hex. A mesma conversão que produziu o `#D73337` /
-/// `#FF7972` do marcador de "agora" na trilha de agenda.
-///
-/// Em tema escuro elas sobem de luminosidade, como o protótipo faz: L 0.52 não
-/// passa em fundo escuro.
-enum SemanticColor {
-    static func ok(isDark: Bool) -> Color {
-        TokenColor(css: isDark ? "#89D298" : "#317A45")?.color ?? .green
-    }
-
-    static func warn(isDark: Bool) -> Color {
-        TokenColor(css: isDark ? "#F6B669" : "#945500")?.color ?? .orange
-    }
-
-    /// O vermelho do marcador de "agora" — `semC('live')` do protótipo. Uma
-    /// definição só, usada pela trilha diária e pela grade da semana: eram duas
-    /// cópias do mesmo par de hex.
-    static func live(isDark: Bool) -> Color {
-        TokenColor(css: isDark ? "#FF7972" : "#D73337")?.color ?? .red
-    }
-}
-
 /// O aviso de cancelar/remover, no idioma da janela — não o diálogo do macOS.
 enum EventConfirmKind: Equatable {
     case cancelMeeting
