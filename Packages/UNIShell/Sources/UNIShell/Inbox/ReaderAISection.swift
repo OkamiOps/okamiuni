@@ -20,38 +20,6 @@ enum ReaderAIMetrics {
     /// cartões, corpo. Era `TintaMetrics.flowGap`, e é o mesmo valor.
     static let flowGap: CGFloat = 14
 
-    // MARK: A linha de ações, em repouso
-
-    /// `gap: 2px` entre os botões; `padding: 0 0 11px` e um fio embaixo.
-    static let offerGap: CGFloat = 2
-    static let offerBottom: CGFloat = 11
-    /// A estrela: 14, com `padding: 0 9px 0 1px`.
-    static let sparkle: CGFloat = 14
-    static let sparkleLeading: CGFloat = 1
-    static let sparkleTrailing: CGFloat = 9
-    /// Cada ação: `gap: 7px; padding: 6px 10px; font-size: 13px`.
-    static let actionGap: CGFloat = 7
-    static let actionPaddingH: CGFloat = 10
-    static let actionPaddingV: CGFloat = 6
-    static let actionSize: CGFloat = 13
-    static let actionIcon: CGFloat = 14
-    /// "Mais": `gap: 5px; padding: 6px 9px; font-size: 12.5px`.
-    static let moreGap: CGFloat = 5
-    static let morePaddingH: CGFloat = 9
-    static let moreSize: CGFloat = 12.5
-    static let moreChevron: CGFloat = 12
-
-    /// O menu do "Mais": `width: 234px; padding: 6px`.
-    static let menuWidth: CGFloat = 234
-    static let menuPadding: CGFloat = 6
-    static let menuRowGap: CGFloat = 10
-    static let menuRowPaddingH: CGFloat = 10
-    static let menuRowHeight: CGFloat = 32
-    static let menuRowSize: CGFloat = 13
-    static let menuIcon: CGFloat = 15
-    static let menuFootSize: CGFloat = 11.5
-    static let menuDot: CGFloat = 6
-
     // MARK: O cartão do resultado
 
     /// `border-left: 3px solid accent` — o fio de destaque.
@@ -102,8 +70,8 @@ enum ReaderAIMetrics {
     /// leve `8px 13px`.
     static let stepsGap: CGFloat = 8
     static let buttonSize: CGFloat = 12.5
-    static let buttonPaddingV: CGFloat = 8
-    static let buttonPaddingStrong: CGFloat = 14
+    static let buttonPaddingV: CGFloat = 7
+    static let buttonPaddingStrong: CGFloat = 13
     static let buttonPaddingLight: CGFloat = 13
 
     // MARK: O cartão do evento
@@ -155,13 +123,11 @@ enum ReaderAIMetrics {
 enum ReaderAIAction: String, CaseIterable, Identifiable {
     case resumir, rascunhar, evento
     case tarefas, traduzir, tom, termos
+    /// "Perguntar sobre este e-mail" — era o último botão do cartão e não
+    /// tinha lugar no menu. No `Leitor5` ele é o grupo solto do fim.
+    case perguntar
 
     var id: String { rawValue }
-
-    /// As três da linha de repouso, na ordem do desenho.
-    static let offer: [ReaderAIAction] = [.resumir, .rascunhar, .evento]
-    /// As quatro do "Mais", na ordem do desenho.
-    static let more: [ReaderAIAction] = [.tarefas, .traduzir, .tom, .termos]
 
     var title: String {
         switch self {
@@ -172,6 +138,7 @@ enum ReaderAIAction: String, CaseIterable, Identifiable {
         case .traduzir: L10n.tr("Traduzir")
         case .tom: L10n.tr("Mudar o tom")
         case .termos: L10n.tr("Explicar os termos")
+        case .perguntar: L10n.tr("Perguntar sobre este e-mail")
         }
     }
 
@@ -184,8 +151,31 @@ enum ReaderAIAction: String, CaseIterable, Identifiable {
         case .traduzir: "character.bubble"
         case .tom: "slider.horizontal.3"
         case .termos: "questionmark.circle"
+        case .perguntar: "bubble.left.and.text.bubble.right"
         }
     }
+
+    /// A tecla de cada ação, com ⌥⌘ — a família do ⌥⌘J que abre o menu.
+    ///
+    /// **Nenhuma delas colide com o que o app já reivindica.** ⌘R, ⇧⌘R, ⇧⌘F,
+    /// ⌘E, ⇧⌘U, ⇧⌘L, ⇧⌘D, ⌘J, ⌘K, ⌘N e ⌘, já têm dono (ver `MenuShortcut` e
+    /// `MessageCommands`); o modificador ⌥ por cima do ⌘ deixa este conjunto
+    /// inteiro livre, e é por isso que ele existe.
+    var key: Character {
+        switch self {
+        case .resumir: "s"
+        case .rascunhar: "r"
+        case .evento: "e"
+        case .tarefas: "t"
+        case .traduzir: "l"
+        case .tom: "m"
+        case .termos: "x"
+        case .perguntar: "p"
+        }
+    }
+
+    /// "⌥⌘S" — o que o menu escreve à direita da linha.
+    var shortcutLabel: String { "⌥⌘" + String(key).uppercased() }
 
     /// A dica da direita — o idioma para quem traduz, vazio no resto.
     var hint: String {
@@ -210,7 +200,9 @@ enum ReaderAIAction: String, CaseIterable, Identifiable {
         case .termos:
             "Explique, em uma linha cada, os termos técnicos, siglas e jargões "
                 + "deste e-mail que alguém de fora da área não entenderia."
-        case .rascunhar, .evento, .tom:
+        case .rascunhar, .evento, .tom, .perguntar:
+            // "Perguntar" não é uma pergunta pronta: ela abre o assistente
+            // para quem lê escrever a dele.
             nil
         }
     }
@@ -246,196 +238,6 @@ struct ReaderEventProposal: Identifiable {
     /// A frase que a folha de compromisso recebe ao "Ajustar" — a mesma que o
     /// `AppointmentPhrase` leu para chegar aqui.
     let phrase: String
-}
-
-// MARK: - A oferta em repouso
-
-/// **A linha de ações debaixo do assunto** — o estado de repouso do desenho.
-///
-/// Sem faixa colorida, sem brilho e sem caixa: a estrela do acento, três
-/// verbos e o "Mais", fechados por um fio. É o que a IA oferece antes de
-/// alguém pedir nada — e, por não ter superfície própria, ela não disputa a
-/// leitura com o e-mail.
-///
-/// Um desenho só para os 28 temas: o que muda é o acento e a linha do tema,
-/// nunca a estrutura.
-struct ReaderAIOfferRow: View {
-
-    @Environment(\.theme) private var theme
-    @Environment(\.displayScale) private var displayScale
-
-    /// A ação está disponível agora? Indisponível desenha apagada, com o
-    /// motivo no `help` — nunca um botão que recusa em silêncio.
-    let isEnabled: (ReaderAIAction) -> Bool
-    /// Por que a ação está indisponível, para o `help`.
-    let reason: (ReaderAIAction) -> String
-    let run: (ReaderAIAction) -> Void
-    /// "ChatGPT · GPT-5.1" — quem responde, no pé do menu.
-    let provider: String
-    @Binding var moreOpen: Bool
-
-    var body: some View {
-        HStack(spacing: ReaderAIMetrics.offerGap) {
-            Image(systemName: "sparkles")
-                .font(.system(size: ReaderAIMetrics.sparkle, weight: .regular))
-                .foregroundStyle(theme.accentInk.color)
-                .padding(.leading, ReaderAIMetrics.sparkleLeading)
-                .padding(.trailing, ReaderAIMetrics.sparkleTrailing)
-                .accessibilityHidden(true)
-
-            ForEach(Array(ReaderAIAction.offer.enumerated()), id: \.element.id) { indice, acao in
-                action(acao, strong: indice == 0)
-            }
-
-            Spacer(minLength: ReaderAIMetrics.offerGap)
-
-            moreButton
-        }
-        .padding(.bottom, ReaderAIMetrics.offerBottom)
-        .hairline(theme.line, edges: .bottom)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(L10n.tr("A IA neste e-mail"))
-    }
-
-    /// `font-weight: 600` e tinta cheia na primeira; 500 e `ink2` nas outras.
-    /// É assim que o desenho diz qual é a ação óbvia sem pintar fundo nenhum.
-    private func action(_ acao: ReaderAIAction, strong: Bool) -> some View {
-        let habilitada = isEnabled(acao)
-        return Button { run(acao) } label: {
-            HStack(spacing: ReaderAIMetrics.actionGap) {
-                Image(systemName: acao.symbol)
-                    .font(.system(size: ReaderAIMetrics.actionIcon, weight: .medium))
-                Text(acao.title)
-                    .font(theme.sans.font(
-                        size: ReaderAIMetrics.actionSize,
-                        weight: strong ? .semibold : .medium
-                    ))
-            }
-            .foregroundStyle(
-                (!habilitada ? theme.ink4 : (strong ? theme.ink : theme.ink2)).color
-            )
-            .padding(.horizontal, ReaderAIMetrics.actionPaddingH)
-            .padding(.vertical, ReaderAIMetrics.actionPaddingV)
-            .contentShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-        }
-        .buttonStyle(.plain)
-        .focusRing(cornerRadius: theme.radiusSmall)
-        .disabled(!habilitada)
-        .help(habilitada ? acao.title : reason(acao))
-        .accessibilityLabel(acao.title)
-    }
-
-    private var moreButton: some View {
-        Button { moreOpen.toggle() } label: {
-            HStack(spacing: ReaderAIMetrics.moreGap) {
-                Text(L10n.tr("Mais"))
-                    .font(theme.sans.font(size: ReaderAIMetrics.moreSize, weight: .medium))
-                Image(systemName: "chevron.down")
-                    .font(.system(size: ReaderAIMetrics.moreChevron, weight: .semibold))
-            }
-            .foregroundStyle(theme.ink3.color)
-            .padding(.horizontal, ReaderAIMetrics.morePaddingH)
-            .padding(.vertical, ReaderAIMetrics.actionPaddingV)
-            .background(
-                (moreOpen ? theme.accentSoft : TokenColor(red: 0, green: 0, blue: 0, opacity: 0)).color
-            )
-            .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-            .contentShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-        }
-        .buttonStyle(.plain)
-        .focusRing(cornerRadius: theme.radiusSmall)
-        .help(L10n.tr("Mais ações de IA neste e-mail"))
-        .accessibilityLabel(L10n.tr("Mais ações de IA"))
-        .popover(isPresented: $moreOpen, arrowEdge: .bottom) {
-            ReaderAIMenu(
-                actions: ReaderAIAction.more,
-                provider: provider,
-                isEnabled: isEnabled,
-                reason: reason,
-                run: { acao in
-                    moreOpen = false
-                    run(acao)
-                }
-            )
-        }
-    }
-}
-
-/// O menu de ações da IA: uma por linha, e quem responde no pé.
-///
-/// Dois donos, mesma lista: o "Mais" da linha de repouso mostra as quatro de
-/// baixo, e a pastilha "✦ IA ⌥⌘J" do cabeçalho mostra as sete — de lá não há
-/// linha de oferta ao lado para completar o resto.
-struct ReaderAIMenu: View {
-
-    @Environment(\.theme) private var theme
-    @Environment(\.displayScale) private var displayScale
-
-    let actions: [ReaderAIAction]
-    let provider: String
-    let isEnabled: (ReaderAIAction) -> Bool
-    let reason: (ReaderAIAction) -> String
-    let run: (ReaderAIAction) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            ForEach(actions) { acao in
-                menuRow(acao)
-            }
-            Rectangle()
-                .fill(theme.line.color)
-                .frame(height: Hairline.thickness(displayScale))
-                .padding(.vertical, 5)
-                .padding(.horizontal, 4)
-            HStack(spacing: ReaderAIMetrics.capsGap) {
-                Circle()
-                    .fill(theme.success.color)
-                    .frame(width: ReaderAIMetrics.menuDot, height: ReaderAIMetrics.menuDot)
-                    .accessibilityHidden(true)
-                Text(provider)
-                    .font(theme.sans.font(size: ReaderAIMetrics.menuFootSize))
-                    .foregroundStyle(theme.ink3.color)
-                    .lineLimit(1)
-            }
-            .padding(.horizontal, ReaderAIMetrics.menuRowPaddingH)
-            .padding(.bottom, 4)
-        }
-        .padding(ReaderAIMetrics.menuPadding)
-        .frame(width: ReaderAIMetrics.menuWidth)
-        .background(theme.glassElevated.color)
-        .accessibilityIdentifier("reader-ai-more-menu")
-    }
-
-    private func menuRow(_ acao: ReaderAIAction) -> some View {
-        let habilitada = isEnabled(acao)
-        return Button { run(acao) } label: {
-            HStack(spacing: ReaderAIMetrics.menuRowGap) {
-                Image(systemName: acao.symbol)
-                    .font(.system(size: ReaderAIMetrics.menuIcon - 2, weight: .medium))
-                    .foregroundStyle((habilitada ? theme.ink3 : theme.ink4).color)
-                    .frame(width: ReaderAIMetrics.menuIcon)
-                Text(acao.title)
-                    .font(theme.sans.font(size: ReaderAIMetrics.menuRowSize))
-                    .foregroundStyle((habilitada ? theme.ink : theme.ink4).color)
-                Spacer(minLength: ReaderAIMetrics.stepsGap)
-                if !acao.hint.isEmpty {
-                    Text(acao.hint)
-                        .font(theme.sans.font(size: ReaderAIMetrics.menuFootSize))
-                        .foregroundStyle(theme.ink3.color)
-                        .lineLimit(1)
-                }
-            }
-            .padding(.horizontal, ReaderAIMetrics.menuRowPaddingH)
-            .frame(height: ReaderAIMetrics.menuRowHeight)
-            .contentShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-        }
-        .buttonStyle(.plain)
-        .focusRing(cornerRadius: theme.radiusSmall)
-        .disabled(!habilitada)
-        .help(habilitada ? acao.title : reason(acao))
-        .accessibilityLabel(acao.title)
-    }
 }
 
 // MARK: - A casca dos cartões
@@ -482,6 +284,8 @@ struct ReaderAICaps: View {
     /// `nil` desenha o cartão sem o × — é o caso do evento proposto, que tem
     /// "Descartar" no pé.
     let onDismiss: (() -> Void)?
+    /// O chevron que recolhe o cartão. `nil` nos cartões que não recolhem.
+    var onCollapse: (() -> Void)?
 
     var body: some View {
         HStack(spacing: ReaderAIMetrics.capsGap) {
@@ -500,6 +304,9 @@ struct ReaderAICaps: View {
                     .font(theme.sans.font(size: ReaderAIMetrics.provenanceSize))
                     .foregroundStyle(theme.ink4.color)
                     .lineLimit(1)
+            }
+            if let onCollapse {
+                ReaderSummaryToggle(aberto: true, action: onCollapse)
             }
             if let onDismiss {
                 Button(action: onDismiss) {
@@ -649,10 +456,16 @@ struct ReaderAIResultCard: View {
     let foundDate: (text: String, note: String, free: String?)?
     let nextSteps: [ReaderAIStep]
     let onDismiss: () -> Void
+    /// O chevron que recolhe o cartão numa linha. `nil` deixa o cartão sem
+    /// recolher — o leitor sempre passa um.
+    var onCollapse: (() -> Void)?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: ReaderAIMetrics.cardGap) {
-            ReaderAICaps(caps: caps, provenance: provenance, onDismiss: onDismiss)
+        VStack(alignment: .leading, spacing: Leitor5Metrics.cardGap) {
+            ReaderAICaps(
+                caps: caps, provenance: provenance,
+                onDismiss: onDismiss, onCollapse: onCollapse
+            )
 
             if isWorking {
                 working
@@ -660,11 +473,11 @@ struct ReaderAIResultCard: View {
 
             if let prose, !prose.isEmpty {
                 Text(prose)
-                    .font(theme.sans.font(size: ReaderAIMetrics.proseSize, weight: .medium))
+                    .font(theme.sans.font(size: Leitor5Metrics.proseSize, weight: .medium))
                     .lineSpacing(
-                        ReaderAIMetrics.proseSize * (ReaderAIMetrics.proseLineHeight - 1.2)
+                        Leitor5Metrics.proseSize * (Leitor5Metrics.proseLineHeight - 1.2)
                     )
-                    .tracking(ReaderAIMetrics.proseSize * -0.005)
+                    .tracking(Leitor5Metrics.proseSize * -0.005)
                     // **Tinta cheia.** `ink`, e não `ink2`, `ink3` nem
                     // `opacity`: o texto da IA é para ler.
                     .foregroundStyle(theme.ink.color)
@@ -707,10 +520,10 @@ struct ReaderAIResultCard: View {
                 .padding(.top, 2)
             }
         }
-        .padding(.top, ReaderAIMetrics.cardTop)
-        .padding(.bottom, ReaderAIMetrics.cardBottom)
-        .padding(.leading, ReaderAIMetrics.cardSide + ReaderAIMetrics.rail)
-        .padding(.trailing, ReaderAIMetrics.cardSide)
+        .padding(.top, Leitor5Metrics.cardTop)
+        .padding(.bottom, Leitor5Metrics.cardBottom)
+        .padding(.leading, Leitor5Metrics.cardSide + ReaderAIMetrics.rail)
+        .padding(.trailing, Leitor5Metrics.cardSide)
         .readerAICard()
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L10n.tr("Resumo escrito pela IA"))
