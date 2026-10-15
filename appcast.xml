@@ -6,6 +6,16 @@
     <description>Atualizações do OkamiUNI</description>
     <language>pt-BR</language>
     <item>
+      <title>Version 0.6.4</title>
+      <pubDate>Thu, 15 Oct 2026 16:42:35 GMT</pubDate>
+      <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.6.4</sparkle:fullReleaseNotesLink>
+      <sparkle:version>19</sparkle:version>
+      <sparkle:shortVersionString>0.6.4</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<ul lang="pt-BR"><li>Salas do Zoom, Microsoft Teams e Zoho Meeting: conecte uma vez em Configurações › Agendas e cada evento novo ganha a própria sala, como o Google Meet.</li><li>Versão do app 0.6.4, build 19. <a href="docs/releases/v0.6.4.pt-BR.md">Notas da versão</a>.</li></ul><ul lang="en"><li>Zoom, Microsoft Teams and Zoho Meeting rooms: connect them once in Settings › Calendars and each new event gets its own room, like Google Meet.</li><li>App version 0.6.4, build 19. <a href="docs/releases/v0.6.4.md">Release notes</a>.</li></ul>]]></description>
+      <enclosure url="https://github.com/OkamiOps/okamiuni/releases/download/v0.6.4/OkamiUNI-0.6.4.zip" length="37882392" type="application/octet-stream" sparkle:edSignature="t1HvnLb0sDfP4ZsHY7pEMg6a59GZt6tjHOfxmLTO/MEzG5h0c/WJqnWeJM95hy4E6SHtFcb7ml+5j3uHBaWNDQ==" />
+    </item>
+    <item>
       <title>Version 0.6.3</title>
       <pubDate>Thu, 15 Oct 2026 15:37:03 GMT</pubDate>
       <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.6.3</sparkle:fullReleaseNotesLink>
@@ -15,7 +25,7 @@
       <description><![CDATA[<ul lang="pt-BR"><li>Aba <strong>Agendas</strong> nova nas Configurações: escolha quais calendários aparecem, a agenda padrão dos eventos novos e a sala de reunião padrão.</li><li>Salas de reunião sem configuração: o Google Meet cria uma sala nova para cada evento usando a sua conta Google. A tela antiga que pedia client ID e secret saiu.</li><li>Versão do app 0.6.3, build 18. <a href="docs/releases/v0.6.3.pt-BR.md">Notas da versão</a>.</li></ul><ul lang="en"><li>New <strong>Calendars</strong> tab in Settings: choose which calendars show, the default calendar for new events and the default meeting room.</li><li>Meeting rooms with no setup: Google Meet creates a new room for each event with your Google account. The old screen that asked for a client ID and secret is gone.</li><li>App version 0.6.3, build 18. <a href="docs/releases/v0.6.3.md">Release notes</a>.</li></ul>]]></description>
       <enclosure url="https://github.com/OkamiOps/okamiuni/releases/download/v0.6.3/OkamiUNI-0.6.3.zip" length="37882339" type="application/octet-stream" sparkle:edSignature="6z4BaTLjCfHOnRxnYPu7yR0iQH3rJyBDUV50A8npMlYlK5+2msOUDQ/pkkt0P00dK3zR8u9HN9pbQIqHDqX2AQ==" />
     </item>
-    <item>
+<item>
       <title>Version 0.6.2</title>
       <pubDate>Thu, 15 Oct 2026 13:10:07 GMT</pubDate>
       <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.6.2</sparkle:fullReleaseNotesLink>
