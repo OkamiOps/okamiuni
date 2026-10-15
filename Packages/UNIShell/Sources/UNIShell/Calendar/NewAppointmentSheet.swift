@@ -850,7 +850,15 @@ struct NewAppointmentSheet: View {
     /// "trocar" passa pela lista inteira, e `nil` ("sem reunião") faz parte
     /// dela: é como o desenho oferece as quatro opções do brief numa linha só.
     private func cycleService() {
-        let order: [MeetingService?] = [nil] + MeetingService.allCases.map { Optional($0) }
+        // Só o que dá para criar daqui: o Meet com uma caixa Google, e Zoom,
+        // Teams ou Zoho só quando conectados. Oferecer um serviço que não cria
+        // sala é um botão que termina em erro.
+        let account = store.accounts.first(where: { $0.id == accountID })
+        let usable = MeetingService.allCases.filter { candidate in
+            guard let factory, let account else { return false }
+            return factory.canMint(candidate, account: account, accounts: store.accounts)
+        }
+        let order: [MeetingService?] = [nil] + usable.map { Optional($0) }
         let index = order.firstIndex(of: service) ?? 0
         service = order[(index + 1) % order.count]
         errorMessage = nil

@@ -2516,3 +2516,4 @@
 "O {0} respondeu sem HTTP." = "{0} antwortete ohne HTTP.";
 "O {0} respondeu {1}: {2}" = "{0} antwortete {1}: {2}";
 "O {0} devolveu um JSON que não reconhecemos." = "{0} lieferte JSON, das wir nicht erkennen.";
+"O Meet usa a sua conta Google e cria uma sala nova para cada evento." = "Meet nutzt Ihr Google-Konto und erstellt für jeden Termin einen neuen Raum.";

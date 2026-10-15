@@ -385,7 +385,8 @@ struct ConfigAgendas: View {
 
     @ViewBuilder
     private var roomsSection: some View {
-        if let preferences {
+        // Sem nenhuma sala que este build saiba criar, a seção não aparece.
+        if let preferences, !offeredRooms.isEmpty {
             VStack(alignment: .leading, spacing: 9) {
                 ConfigBlockTitle(
                     text: L10n.tr("Salas de reunião"),
@@ -400,9 +401,11 @@ struct ConfigAgendas: View {
                         Spacer(minLength: 8)
                         ConfigPicker(
                             options: [(nil as MeetingService?, L10n.tr("Nenhuma"))]
-                                + MeetingService.allCases.map { (Optional($0), $0.label) },
+                                + offeredRooms.map { (Optional($0), $0.label) },
                             selection: Binding(
-                                get: { preferences.defaultRoom },
+                                // Uma sala padrão que este build não oferece
+                                // aparece como "Nenhuma", e não em branco.
+                                get: { preferences.defaultRoom.flatMap { offeredRooms.contains($0) ? $0 : nil } },
                                 set: { preferences.defaultRoom = $0 }
                             ),
                             accessibilityTitle: L10n.tr("Sala padrão em eventos novos")
@@ -410,16 +413,28 @@ struct ConfigAgendas: View {
                     }
                     .padding(.horizontal, 15)
                     .padding(.vertical, 8)
-                    ForEach(MeetingService.allCases) { roomRow($0) }
+                    ForEach(offeredRooms) { roomRow($0) }
                 }
                 .configCard(palette, radius: 14, shadow: palette.sectionShadow)
-                Text(L10n.tr("Cada um abre o login da sua conta no navegador — nada de client ID, segredo nem tenant."))
+                Text(offeredRooms == [.meet]
+                     ? L10n.tr("O Meet usa a sua conta Google e cria uma sala nova para cada evento.")
+                     : L10n.tr("Cada um abre o login da sua conta no navegador — nada de client ID, segredo nem tenant."))
                     .font(theme.sans.font(size: 12))
                     .lineSpacing(12 * 0.5)
                     .foregroundStyle(palette.ink3.color)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.top, 2)
             }
+        }
+    }
+
+    /// Só as salas que este build sabe criar. Zoom, Teams e Zoho dependem de
+    /// o OkamiUNI estar registrado em cada serviço; sem o ID no build a linha
+    /// some, em vez de mostrar um serviço que o cliente não consegue usar.
+    private var offeredRooms: [MeetingService] {
+        MeetingService.allCases.filter { service in
+            if case .unavailable = connections?.state(of: service) ?? .unavailable { return false }
+            return true
         }
     }
 

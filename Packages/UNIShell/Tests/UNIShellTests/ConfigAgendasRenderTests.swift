@@ -100,6 +100,31 @@ struct ConfigAgendasRenderTests {
         )
     }
 
+    /// O build que vai para os clientes: o Meet existe (o app é registrado no
+    /// Google) e Zoom, Teams e Zoho não. Só o Meet aparece — nem linha, nem
+    /// opção de sala padrão para os outros.
+    @Test("Só o Meet aparece quando os outros serviços não estão no build")
+    func soMeet() async throws {
+        let cena = try await scene(authorized: true)
+        let connections = MeetingConnections(connectors: [
+            StubMeetingConnector(service: .meet, account: "marcos@gmail.com"),
+            StubMeetingConnector(service: .zoom, isAvailable: false),
+            StubMeetingConnector(service: .teams, isAvailable: false),
+            StubMeetingConnector(service: .zoho, isAvailable: false),
+        ])
+        await connections.refresh()
+        #expect(connections.state(of: .meet).isConnected)
+        for service in [MeetingService.zoom, .teams, .zoho] {
+            #expect(connections.state(of: service) == .unavailable)
+        }
+        _ = try #require(Render.snapshot(
+            window(cena, connections: connections),
+            named: "Agendas-so-meet-escuro",
+            size: artboard,
+            theme: .vidroNoite
+        ))
+    }
+
     @Test("Sem permissão do macOS, o aviso toma o lugar das agendas do Mac")
     func semPermissao() async throws {
         let cena = try await scene(authorized: false)
@@ -224,14 +249,14 @@ struct ConfigAgendasRenderTests {
         )
     }
 
-    private func window(_ scene: Scene) -> some View {
+    private func window(_ scene: Scene, connections: MeetingConnections? = nil) -> some View {
         AccountsWindow(
             model: scene.model,
             initialSection: .agenda,
             mailStore: scene.mail,
             meetingRooms: scene.rooms,
             calendarPreferences: scene.preferences,
-            meetingConnections: nil
+            meetingConnections: connections
         )
     }
 
