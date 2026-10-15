@@ -261,7 +261,30 @@ struct ReaderTests {
     func iaADireitaDoResponder() async throws {
         let bitmap = try #require(await renderReader(event: nil))
         let cabeca = 0..<130
-        let ia = try #require(bitmap.columns(matching: Theme.tinta.info, tolerance: 0.08, inRows: cabeca))
+        // A pastilha ✦ IA é de acento (`accentSoft` preenchido, verbo em
+        // `accentInk`) desde a direção Tinta: era um ícone redondo em `info`,
+        // e a cor mudou junto com a porta. A garantia é a mesma — ela fica à
+        // direita do Apagar, com folga, no canto da barra.
+        //
+        // A busca começa na metade direita porque `accentSoft` também pinta o
+        // destino escolhido do segmentado, lá na ponta esquerda da mesma
+        // linha.
+        let alvo = try #require(Theme.tinta.accentSoft.nsColor.usingColorSpace(.sRGB))
+        var primeira: Int?
+        var ultima: Int?
+        for x in 400..<bitmap.pixelsWide {
+            for y in cabeca {
+                guard let c = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
+                      c.alphaComponent > 0.9,
+                      abs(c.redComponent - alvo.redComponent) < 0.02,
+                      abs(c.greenComponent - alvo.greenComponent) < 0.02,
+                      abs(c.blueComponent - alvo.blueComponent) < 0.02 else { continue }
+                if primeira == nil { primeira = x }
+                ultima = x
+                break
+            }
+        }
+        let ia = try #require(primeira)...(try #require(ultima))
         let apagar = ReaderPane.apagarPalette(isDark: Theme.tinta.isDark)
         let lixeira = try #require(
             bitmap.columns(matching: apagar.ink, tolerance: 0.08, inRows: cabeca)
