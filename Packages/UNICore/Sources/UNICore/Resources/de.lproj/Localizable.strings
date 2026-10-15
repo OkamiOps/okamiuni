@@ -152,6 +152,7 @@
 "Abra o {0} e deixe o servidor dele no ar; aí a lista de modelos aparece aqui." = "Öffnen Sie {0} und lassen Sie dessen Server laufen; dann erscheint die Modellliste hier.";
 "Abre Configurações para entrar de novo na assinatura" = "Einstellungen öffnen, um dich erneut beim Abonnement anzumelden";
 "Abre Configurações para escolher ou corrigir o provedor" = "Einstellungen öffnen, um den Anbieter auszuwählen oder zu korrigieren";
+"Abre Configurações › Inteligência para trocar de provedor" = "Öffnet Einstellungen › Intelligenz, um den Anbieter zu wechseln";
 "Abre ações rápidas e perguntas sobre este email." = "Öffnet Schnellaktionen und Fragen zu dieser E-Mail.";
 "Abre este dia" = "Diesen Tag öffnen";
 "Abre o assistente global para suas caixas, emails e agenda." = "Globalen Assistenten für deine Postfächer, E-Mails und Termine öffnen.";
@@ -189,6 +190,7 @@
 "Abrir o e-mail" = "E-Mail öffnen";
 "Abrir o e-mail que gerou" = "Die auslösende E-Mail öffnen";
 "Abrir o navegador e conectar" = "Browser öffnen und verbinden";
+"Abrir o resumo" = "Zusammenfassung öffnen";
 "Abrir página" = "Seite öffnen";
 "Account ID" = "Konto-ID";
 "Aceitar" = "Annehmen";
@@ -391,6 +393,8 @@
 "Builds de desenvolvimento não se atualizam: um release instalado por cima apagaria o trabalho em andamento." = "Entwicklungs-Builds aktualisieren sich nicht: Ein darüber installiertes Release würde laufende Arbeit löschen.";
 "Busca nesta caixa. Clique para procurar em todas as pastas." = "Dieses Postfach durchsuchen. Klicken, um alle Ordner zu durchsuchen.";
 "Busca o corpo desta mensagem no servidor outra vez" = "Nachrichteninhalt erneut vom Server abrufen";
+"Busca todas as mensagens de {0}" = "Alle Nachrichten von {0} suchen";
+"Busca todas as mensagens deste remetente" = "Alle Nachrichten dieses Absenders suchen";
 "Buscando aliases no Gmail…" = "Gmail-Aliasse werden geladen…";
 "Buscando em todas as pastas. Clique para voltar a esta caixa." = "Alle Ordner werden durchsucht. Klicken, um zu diesem Postfach zurückzukehren.";
 "Buscando no aplicativo…" = "App wird durchsucht…";
@@ -418,6 +422,7 @@
 "CONTEXTO DO EMAIL" = "E-MAIL-KONTEXT";
 "CONTINUE NO NAVEGADOR" = "IM BROWSER FORTFAHREN";
 "CONVERSA" = "GESPRÄCH";
+"Cabeçalhos desta mensagem" = "Kopfzeilen dieser Nachricht";
 "Cada conta pode ter uma assinatura própria." = "Jedes Konto kann eine eigene Signatur haben.";
 "Cada imagem da assinatura precisa de um Content-ID único." = "Jedes Bild in der Signatur benötigt eine eindeutige Content-ID.";
 "Cada mensagem recebida sai deste Mac" = "Jede eingehende Nachricht verlässt diesen Mac";
@@ -449,6 +454,7 @@
 "Carregar" = "Laden";
 "Categorias de Hoje" = "Kategorien für Heute";
 "Cc {0}" = "Cc {0}";
+"Cc" = "Cc";
 "Cco" = "Bcc";
 "Centralizar" = "Zentrieren";
 "ChatGPT" = "ChatGPT";
@@ -570,6 +576,7 @@
 "Convite cancelado" = "Abgesagte Einladung";
 "Convite de agenda" = "Kalendereinladung";
 "Convite encaminhado para {0} {1}" = "Einladung an {0} {1} weitergeleitet";
+"Copiado" = "Kopiert";
 "Copiar" = "Kopieren";
 "Copiar assunto" = "Betreff kopieren";
 "Copiar convite" = "Einladung kopieren";
@@ -577,10 +584,12 @@
 "Copiar endereço do remetente" = "Absenderadresse kopieren";
 "Copiar link" = "Link kopieren";
 "Copiar link da reunião" = "Besprechungslink kopieren";
+"Copiar nome e endereço" = "Name und Adresse kopieren";
 "Copiar o código" = "Code kopieren";
 "Copiar o texto do trecho" = "Textauszug kopieren";
 "Copiar resumo" = "Zusammenfassung kopieren";
 "Copiar texto da mensagem" = "Nachrichtentext kopieren";
+"Copiar {0}" = "{0} kopieren";
 "Cor" = "Farbe";
 "Cor da caixa" = "Postfachfarbe";
 "Cor da caixa {0}" = "Postfachfarbe {0}";
@@ -614,6 +623,7 @@
 "DETECTADO · SESSÃO NÃO CONFIRMADA" = "ERKANNT · SITZUNG UNBESTÄTIGT";
 "DETECTADO · VERIFICANDO" = "ERKANNT · WIRD GEPRÜFT";
 "DETECTADO · VERIFICANDO SESSÃO" = "ERKANNT · SITZUNG WIRD GEPRÜFT";
+"Data" = "Datum";
 "De" = "Von";
 "De lá o OkamiUNI atualiza sozinho e o macOS guarda as permissões de Calendários e notificações." = "Von dort aktualisiert sich OkamiUNI selbst, und macOS behält die Kalender- und Mitteilungsrechte.";
 "De volta ao app" = "Zurück zur App";
@@ -640,6 +650,7 @@
 "Destacar em janela" = "In Fenster öffnen";
 "Destino" = "Ziel";
 "Detalhado" = "Ausführlich";
+"Detalhes do e-mail" = "E-Mail-Details";
 "Detalhes" = "Details";
 "Detecção e estado de sessão sem importar tokens, sessões ou arquivos de credencial" = "Erkennung und Sitzungsstatus ohne Import von Tokens, Sitzungen oder Zugangsdaten";
 "Devem a você" = "Andere sind dran";
@@ -805,6 +816,7 @@
 "Esta mensagem já está em Arquivado" = "Diese Nachricht ist bereits archiviert";
 "Esta mensagem já está em {0}" = "Diese Nachricht ist bereits in {0}";
 "Esta mensagem não está mais na caixa." = "Diese Nachricht ist nicht mehr im Postfach.";
+"Esta mensagem não pede imagens remotas." = "Diese Nachricht fordert keine entfernten Bilder an.";
 "Esta mensagem não tem mais ninguém além do remetente" = "Diese Nachricht hat außer dem Absender keine weiteren Empfänger";
 "Esta mensagem não tem texto." = "Diese Nachricht enthält keinen Text.";
 "Estado" = "Status";
@@ -938,6 +950,7 @@
 "Imagem removida da assinatura." = "Bild aus der Signatur entfernt.";
 "Imagem — indisponível: inserir imagem ainda não existe nesta janela" = "Bild – nicht verfügbar: Bild einfügen gibt es in diesem Fenster noch nicht";
 "Imagens carregadas · remetente confiável" = "Bilder geladen · vertrauenswürdiger Absender";
+"Imagens e aparência deste e-mail" = "Bilder und Darstellung dieser E-Mail";
 "Imagens remotas bloqueadas" = "Externe Bilder blockiert";
 "Importando…" = "Importieren…";
 "Importar" = "Importieren";
@@ -1091,6 +1104,7 @@
 "Mostra o resumo gerado neste Mac" = "Auf diesem Mac erstellte Zusammenfassung anzeigen";
 "Mostra o resumo gerado por {0}" = "Von {0} erstellte Zusammenfassung anzeigen";
 "Mostra o {0}, com {1} linhas" = "{0} mit {1} Zeilen anzeigen";
+"Mostra os cabeçalhos desta mensagem" = "Zeigt die Kopfzeilen dieser Nachricht";
 "Mostra os detalhes do convite" = "Einladungsdetails anzeigen";
 "Mostra somente mensagens desta categoria" = "Nur Nachrichten dieser Kategorie anzeigen";
 "Mostrar a barra lateral" = "Seitenleiste einblenden";
@@ -1142,6 +1156,7 @@
 "Método de autenticação" = "Authentifizierungsmethode";
 "Mês" = "Monat";
 "Mês anterior" = "Vorheriger Monat";
+"NESTE E-MAIL" = "IN DIESER E-MAIL";
 "NESTE MAC · NADA SAI DAQUI" = "AUF DIESEM MAC · NICHTS VERLÄSST IHN";
 "NOVA AUTOMAÇÃO" = "NEUE AUTOMATISIERUNG";
 "Na agenda" = "Im Kalender";
@@ -1310,6 +1325,7 @@
 "O anexo baixado não tem o tamanho anunciado pela mensagem." = "Der heruntergeladene Anhang entspricht nicht der in der Nachricht angegebenen Größe.";
 "O anexo passa do limite de {0}." = "Der Anhang überschreitet das Limit von {0}.";
 "O app está aberto de dentro do instalador. Na pasta Aplicativos ele recebe as atualizações sozinho." = "Die App wurde direkt aus dem Installationsprogramm geöffnet. Im Programme-Ordner aktualisiert sie sich selbst.";
+"O app guarda estes campos; o bloco cru do servidor não é armazenado." = "Die App speichert diese Felder; der Rohblock vom Server wird nicht gespeichert.";
 "O armazenamento de preferências de arraste ainda não foi conectado." = "Der Speicher für Wischeinstellungen ist noch nicht verbunden.";
 "O armazenamento de regras não foi conectado a esta janela." = "Der Regelspeicher ist nicht mit diesem Fenster verbunden.";
 "O arquivo HTML passa do limite de 8 MB para importação." = "Die HTML-Datei überschreitet das Importlimit von 8 MB.";
@@ -1486,6 +1502,7 @@
 "Pasta ou marcador" = "Ordner oder Label";
 "Pasta ou marcador de destino" = "Zielordner oder Label";
 "Pasta ou marcador de {0}" = "Ordner oder Label für {0}";
+"Pasta" = "Ordner";
 "Pastas e marcadores aparecem depois da primeira sincronização" = "Ordner und Labels erscheinen nach der ersten Synchronisierung";
 "Pauta" = "Tagesordnung";
 "Pauta, contexto…" = "Tagesordnung, Kontext…";
@@ -1621,6 +1638,7 @@
 "Recolhe o convite para ler o email" = "Einladung einklappen, um die E-Mail zu lesen";
 "Recolhe o resumo para ler o email" = "Zusammenfassung einklappen, um die E-Mail zu lesen";
 "Recolhe remetente e assunto" = "Absender und Betreff einklappen";
+"Recolher o resumo" = "Zusammenfassung einklappen";
 "Recolher" = "Einklappen";
 "Recolher a barra lateral" = "Seitenleiste einklappen";
 "Recolher a faixa de resposta" = "Antwortleiste einklappen";
@@ -1713,6 +1731,7 @@
 "Restaurar padrão" = "Standard wiederherstellen";
 "Resume o dia em 3 linhas" = "Fasse den Tag in 3 Zeilen zusammen";
 "Resumir" = "Zusammenfassen";
+"Resumo escrito pela IA, recolhido" = "Von der KI geschriebene Zusammenfassung, eingeklappt";
 "Resumo" = "Zusammenfassung";
 "Resumo executivo" = "Kurzfassung";
 "Resumo geral" = "Gesamtübersicht";
@@ -1831,6 +1850,7 @@
 "Só o endereço principal" = "Nur Hauptadresse";
 "TABELA" = "TABELLE";
 "TL;DR · neste Mac" = "TL;DR · auf diesem Mac";
+"TRABALHAR O TEXTO" = "DEN TEXT BEARBEITEN";
 "TUDO O QUE ESTE APP FALA" = "ALLES, WAS DIESE APP SPRICHT";
 "Tabela de {0} por {1}" = "Tabelle mit {0} Zeilen und {1} Spalten";
 "Talvez" = "Vielleicht";
@@ -1887,6 +1907,7 @@
 "Todo mês" = "Jeden Monat";
 "Todo o OkamiUNI" = "Ganz OkamiUNI";
 "Todo o OkamiUNI · {0}" = "Ganz OkamiUNI · {0}";
+"Todos deste remetente" = "Alles von diesem Absender";
 "Todos" = "Alle";
 "Todos os dias" = "Jeden Tag";
 "Token opcional · guardado no Keychain" = "Optionales Token · im Schlüsselbund gespeichert";
@@ -1899,7 +1920,9 @@
 "Trazer para hoje" = "Für heute holen";
 "Trazida para hoje" = "Für heute eingeplant";
 "Trocar a IA de {0}" = "Die KI für {0} wechseln";
+"Trocar de provedor de IA" = "KI-Anbieter wechseln";
 "Trocar o contexto da conversa" = "Gesprächskontext ändern";
+"Trocar" = "Wechseln";
 "Tudo" = "Alles";
 "Tudo em ordem" = "Alles in Ordnung";
 "Tudo em ordem?" = "Alles in Ordnung?";
@@ -1947,9 +1970,11 @@
 "Ver" = "Ansehen";
 "Ver a lista" = "Liste anzeigen";
 "Ver a release no GitHub" = "Release auf GitHub ansehen";
+"Ver cabeçalhos originais" = "Originalkopfzeilen anzeigen";
 "Ver o roteiro" = "Anleitung ansehen";
 "Ver os {0} temas" = "Alle {0} Themes ansehen";
 "Ver release no GitHub" = "Release auf GitHub ansehen";
+"Ver todos os e-mails deste remetente" = "Alle E-Mails dieses Absenders anzeigen";
 "Verde" = "Grün";
 "Verificando a sessão do CLI" = "CLI-Sitzung wird geprüft";
 "Verificando o Keychain…" = "Schlüsselbund wird geprüft…";

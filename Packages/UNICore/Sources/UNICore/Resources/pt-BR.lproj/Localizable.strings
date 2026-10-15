@@ -152,6 +152,7 @@
 "Abra o {0} e deixe o servidor dele no ar; aí a lista de modelos aparece aqui." = "Abra o {0} e deixe o servidor dele no ar; aí a lista de modelos aparece aqui.";
 "Abre Configurações para entrar de novo na assinatura" = "Abre Configurações para entrar de novo na assinatura";
 "Abre Configurações para escolher ou corrigir o provedor" = "Abre Configurações para escolher ou corrigir o provedor";
+"Abre Configurações › Inteligência para trocar de provedor" = "Abre Configurações › Inteligência para trocar de provedor";
 "Abre ações rápidas e perguntas sobre este email." = "Abre ações rápidas e perguntas sobre este email.";
 "Abre este dia" = "Abre este dia";
 "Abre o assistente global para suas caixas, emails e agenda." = "Abre o assistente global para suas caixas, emails e agenda.";
@@ -189,6 +190,7 @@
 "Abrir o e-mail" = "Abrir o e-mail";
 "Abrir o e-mail que gerou" = "Abrir o e-mail que gerou";
 "Abrir o navegador e conectar" = "Abrir o navegador e conectar";
+"Abrir o resumo" = "Abrir o resumo";
 "Abrir página" = "Abrir página";
 "Account ID" = "Account ID";
 "Aceitar" = "Aceitar";
@@ -391,6 +393,8 @@
 "Builds de desenvolvimento não se atualizam: um release instalado por cima apagaria o trabalho em andamento." = "Builds de desenvolvimento não se atualizam: um release instalado por cima apagaria o trabalho em andamento.";
 "Busca nesta caixa. Clique para procurar em todas as pastas." = "Busca nesta caixa. Clique para procurar em todas as pastas.";
 "Busca o corpo desta mensagem no servidor outra vez" = "Busca o corpo desta mensagem no servidor outra vez";
+"Busca todas as mensagens de {0}" = "Busca todas as mensagens de {0}";
+"Busca todas as mensagens deste remetente" = "Busca todas as mensagens deste remetente";
 "Buscando aliases no Gmail…" = "Buscando aliases no Gmail…";
 "Buscando em todas as pastas. Clique para voltar a esta caixa." = "Buscando em todas as pastas. Clique para voltar a esta caixa.";
 "Buscando no aplicativo…" = "Buscando no aplicativo…";
@@ -418,6 +422,7 @@
 "CONTEXTO DO EMAIL" = "CONTEXTO DO EMAIL";
 "CONTINUE NO NAVEGADOR" = "CONTINUE NO NAVEGADOR";
 "CONVERSA" = "CONVERSA";
+"Cabeçalhos desta mensagem" = "Cabeçalhos desta mensagem";
 "Cada conta pode ter uma assinatura própria." = "Cada conta pode ter uma assinatura própria.";
 "Cada imagem da assinatura precisa de um Content-ID único." = "Cada imagem da assinatura precisa de um Content-ID único.";
 "Cada mensagem recebida sai deste Mac" = "Cada mensagem recebida sai deste Mac";
@@ -449,6 +454,7 @@
 "Carregar" = "Carregar";
 "Categorias de Hoje" = "Categorias de Hoje";
 "Cc {0}" = "Cc {0}";
+"Cc" = "Cc";
 "Cco" = "Cco";
 "Centralizar" = "Centralizar";
 "ChatGPT" = "ChatGPT";
@@ -570,6 +576,7 @@
 "Convite cancelado" = "Convite cancelado";
 "Convite de agenda" = "Convite de agenda";
 "Convite encaminhado para {0} {1}" = "Convite encaminhado para {0} {1}";
+"Copiado" = "Copiado";
 "Copiar" = "Copiar";
 "Copiar assunto" = "Copiar assunto";
 "Copiar convite" = "Copiar convite";
@@ -577,10 +584,12 @@
 "Copiar endereço do remetente" = "Copiar endereço do remetente";
 "Copiar link" = "Copiar link";
 "Copiar link da reunião" = "Copiar link da reunião";
+"Copiar nome e endereço" = "Copiar nome e endereço";
 "Copiar o código" = "Copiar o código";
 "Copiar o texto do trecho" = "Copiar o texto do trecho";
 "Copiar resumo" = "Copiar resumo";
 "Copiar texto da mensagem" = "Copiar texto da mensagem";
+"Copiar {0}" = "Copiar {0}";
 "Cor" = "Cor";
 "Cor da caixa" = "Cor da caixa";
 "Cor da caixa {0}" = "Cor da caixa {0}";
@@ -614,6 +623,7 @@
 "DETECTADO · SESSÃO NÃO CONFIRMADA" = "DETECTADO · SESSÃO NÃO CONFIRMADA";
 "DETECTADO · VERIFICANDO" = "DETECTADO · VERIFICANDO";
 "DETECTADO · VERIFICANDO SESSÃO" = "DETECTADO · VERIFICANDO SESSÃO";
+"Data" = "Data";
 "De" = "De";
 "De lá o OkamiUNI atualiza sozinho e o macOS guarda as permissões de Calendários e notificações." = "De lá o OkamiUNI atualiza sozinho e o macOS guarda as permissões de Calendários e notificações.";
 "De volta ao app" = "De volta ao app";
@@ -640,6 +650,7 @@
 "Destacar em janela" = "Destacar em janela";
 "Destino" = "Destino";
 "Detalhado" = "Detalhado";
+"Detalhes do e-mail" = "Detalhes do e-mail";
 "Detalhes" = "Detalhes";
 "Detecção e estado de sessão sem importar tokens, sessões ou arquivos de credencial" = "Detecção e estado de sessão sem importar tokens, sessões ou arquivos de credencial";
 "Devem a você" = "Devem a você";
@@ -805,6 +816,7 @@
 "Esta mensagem já está em Arquivado" = "Esta mensagem já está em Arquivado";
 "Esta mensagem já está em {0}" = "Esta mensagem já está em {0}";
 "Esta mensagem não está mais na caixa." = "Esta mensagem não está mais na caixa.";
+"Esta mensagem não pede imagens remotas." = "Esta mensagem não pede imagens remotas.";
 "Esta mensagem não tem mais ninguém além do remetente" = "Esta mensagem não tem mais ninguém além do remetente";
 "Esta mensagem não tem texto." = "Esta mensagem não tem texto.";
 "Estado" = "Estado";
@@ -938,6 +950,7 @@
 "Imagem removida da assinatura." = "Imagem removida da assinatura.";
 "Imagem — indisponível: inserir imagem ainda não existe nesta janela" = "Imagem — indisponível: inserir imagem ainda não existe nesta janela";
 "Imagens carregadas · remetente confiável" = "Imagens carregadas · remetente confiável";
+"Imagens e aparência deste e-mail" = "Imagens e aparência deste e-mail";
 "Imagens remotas bloqueadas" = "Imagens remotas bloqueadas";
 "Importando…" = "Importando…";
 "Importar" = "Importar";
@@ -1091,6 +1104,7 @@
 "Mostra o resumo gerado neste Mac" = "Mostra o resumo gerado neste Mac";
 "Mostra o resumo gerado por {0}" = "Mostra o resumo gerado por {0}";
 "Mostra o {0}, com {1} linhas" = "Mostra o {0}, com {1} linhas";
+"Mostra os cabeçalhos desta mensagem" = "Mostra os cabeçalhos desta mensagem";
 "Mostra os detalhes do convite" = "Mostra os detalhes do convite";
 "Mostra somente mensagens desta categoria" = "Mostra somente mensagens desta categoria";
 "Mostrar a barra lateral" = "Mostrar a barra lateral";
@@ -1142,6 +1156,7 @@
 "Método de autenticação" = "Método de autenticação";
 "Mês" = "Mês";
 "Mês anterior" = "Mês anterior";
+"NESTE E-MAIL" = "NESTE E-MAIL";
 "NESTE MAC · NADA SAI DAQUI" = "NESTE MAC · NADA SAI DAQUI";
 "NOVA AUTOMAÇÃO" = "NOVA AUTOMAÇÃO";
 "Na agenda" = "Na agenda";
@@ -1310,6 +1325,7 @@
 "O anexo baixado não tem o tamanho anunciado pela mensagem." = "O anexo baixado não tem o tamanho anunciado pela mensagem.";
 "O anexo passa do limite de {0}." = "O anexo passa do limite de {0}.";
 "O app está aberto de dentro do instalador. Na pasta Aplicativos ele recebe as atualizações sozinho." = "O app está aberto de dentro do instalador. Na pasta Aplicativos ele recebe as atualizações sozinho.";
+"O app guarda estes campos; o bloco cru do servidor não é armazenado." = "O app guarda estes campos; o bloco cru do servidor não é armazenado.";
 "O armazenamento de preferências de arraste ainda não foi conectado." = "O armazenamento de preferências de arraste ainda não foi conectado.";
 "O armazenamento de regras não foi conectado a esta janela." = "O armazenamento de regras não foi conectado a esta janela.";
 "O arquivo HTML passa do limite de 8 MB para importação." = "O arquivo HTML passa do limite de 8 MB para importação.";
@@ -1486,6 +1502,7 @@
 "Pasta ou marcador" = "Pasta ou marcador";
 "Pasta ou marcador de destino" = "Pasta ou marcador de destino";
 "Pasta ou marcador de {0}" = "Pasta ou marcador de {0}";
+"Pasta" = "Pasta";
 "Pastas e marcadores aparecem depois da primeira sincronização" = "Pastas e marcadores aparecem depois da primeira sincronização";
 "Pauta" = "Pauta";
 "Pauta, contexto…" = "Pauta, contexto…";
@@ -1621,6 +1638,7 @@
 "Recolhe o convite para ler o email" = "Recolhe o convite para ler o email";
 "Recolhe o resumo para ler o email" = "Recolhe o resumo para ler o email";
 "Recolhe remetente e assunto" = "Recolhe remetente e assunto";
+"Recolher o resumo" = "Recolher o resumo";
 "Recolher" = "Recolher";
 "Recolher a barra lateral" = "Recolher a barra lateral";
 "Recolher a faixa de resposta" = "Recolher a faixa de resposta";
@@ -1713,6 +1731,7 @@
 "Restaurar padrão" = "Restaurar padrão";
 "Resume o dia em 3 linhas" = "Resume o dia em 3 linhas";
 "Resumir" = "Resumir";
+"Resumo escrito pela IA, recolhido" = "Resumo escrito pela IA, recolhido";
 "Resumo" = "Resumo";
 "Resumo executivo" = "Resumo executivo";
 "Resumo geral" = "Resumo geral";
@@ -1831,6 +1850,7 @@
 "Só o endereço principal" = "Só o endereço principal";
 "TABELA" = "TABELA";
 "TL;DR · neste Mac" = "TL;DR · neste Mac";
+"TRABALHAR O TEXTO" = "TRABALHAR O TEXTO";
 "TUDO O QUE ESTE APP FALA" = "TUDO O QUE ESTE APP FALA";
 "Tabela de {0} por {1}" = "Tabela de {0} por {1}";
 "Talvez" = "Talvez";
@@ -1887,6 +1907,7 @@
 "Todo mês" = "Todo mês";
 "Todo o OkamiUNI" = "Todo o OkamiUNI";
 "Todo o OkamiUNI · {0}" = "Todo o OkamiUNI · {0}";
+"Todos deste remetente" = "Todos deste remetente";
 "Todos" = "Todos";
 "Todos os dias" = "Todos os dias";
 "Token opcional · guardado no Keychain" = "Token opcional · guardado no Keychain";
@@ -1899,7 +1920,9 @@
 "Trazer para hoje" = "Trazer para hoje";
 "Trazida para hoje" = "Trazida para hoje";
 "Trocar a IA de {0}" = "Trocar a IA de {0}";
+"Trocar de provedor de IA" = "Trocar de provedor de IA";
 "Trocar o contexto da conversa" = "Trocar o contexto da conversa";
+"Trocar" = "Trocar";
 "Tudo" = "Tudo";
 "Tudo em ordem" = "Tudo em ordem";
 "Tudo em ordem?" = "Tudo em ordem?";
@@ -1947,9 +1970,11 @@
 "Ver" = "Ver";
 "Ver a lista" = "Ver a lista";
 "Ver a release no GitHub" = "Ver a release no GitHub";
+"Ver cabeçalhos originais" = "Ver cabeçalhos originais";
 "Ver o roteiro" = "Ver o roteiro";
 "Ver os {0} temas" = "Ver os {0} temas";
 "Ver release no GitHub" = "Ver release no GitHub";
+"Ver todos os e-mails deste remetente" = "Ver todos os e-mails deste remetente";
 "Verde" = "Verde";
 "Verificando a sessão do CLI" = "Verificando a sessão do CLI";
 "Verificando o Keychain…" = "Verificando o Keychain…";

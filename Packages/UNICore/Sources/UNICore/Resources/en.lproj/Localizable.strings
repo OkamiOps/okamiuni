@@ -152,6 +152,7 @@
 "Abra o {0} e deixe o servidor dele no ar; aí a lista de modelos aparece aqui." = "Open {0} and leave its server running; the model list then shows up here.";
 "Abre Configurações para entrar de novo na assinatura" = "Open Settings to sign in to the subscription again";
 "Abre Configurações para escolher ou corrigir o provedor" = "Open Settings to choose or fix the provider";
+"Abre Configurações › Inteligência para trocar de provedor" = "Opens Settings › Intelligence to switch provider";
 "Abre ações rápidas e perguntas sobre este email." = "Opens quick actions and questions about this email.";
 "Abre este dia" = "Open this day";
 "Abre o assistente global para suas caixas, emails e agenda." = "Open the global assistant for your mailboxes, emails, and calendar.";
@@ -189,6 +190,7 @@
 "Abrir o e-mail" = "Open the email";
 "Abrir o e-mail que gerou" = "Open the email behind it";
 "Abrir o navegador e conectar" = "Open the browser and connect";
+"Abrir o resumo" = "Show the summary";
 "Abrir página" = "Open page";
 "Account ID" = "Account ID";
 "Aceitar" = "Accept";
@@ -391,6 +393,8 @@
 "Builds de desenvolvimento não se atualizam: um release instalado por cima apagaria o trabalho em andamento." = "Development builds don't update themselves: a release installed over one would erase work in progress.";
 "Busca nesta caixa. Clique para procurar em todas as pastas." = "Search this mailbox. Click to search all folders.";
 "Busca o corpo desta mensagem no servidor outra vez" = "Fetch this message’s body from the server again";
+"Busca todas as mensagens de {0}" = "Search every message from {0}";
+"Busca todas as mensagens deste remetente" = "Search every message from this sender";
 "Buscando aliases no Gmail…" = "Fetching Gmail aliases…";
 "Buscando em todas as pastas. Clique para voltar a esta caixa." = "Searching all folders. Click to return to this mailbox.";
 "Buscando no aplicativo…" = "Searching the app…";
@@ -418,6 +422,7 @@
 "CONTEXTO DO EMAIL" = "EMAIL CONTEXT";
 "CONTINUE NO NAVEGADOR" = "CONTINUE IN YOUR BROWSER";
 "CONVERSA" = "CONVERSATION";
+"Cabeçalhos desta mensagem" = "Headers of this message";
 "Cada conta pode ter uma assinatura própria." = "Each account can have its own signature.";
 "Cada imagem da assinatura precisa de um Content-ID único." = "Each signature image needs a unique Content-ID.";
 "Cada mensagem recebida sai deste Mac" = "Every incoming message leaves this Mac";
@@ -449,6 +454,7 @@
 "Carregar" = "Load";
 "Categorias de Hoje" = "Today categories";
 "Cc {0}" = "Cc {0}";
+"Cc" = "Cc";
 "Cco" = "Bcc";
 "Centralizar" = "Center";
 "ChatGPT" = "ChatGPT";
@@ -570,6 +576,7 @@
 "Convite cancelado" = "Canceled invitation";
 "Convite de agenda" = "Calendar invitation";
 "Convite encaminhado para {0} {1}" = "Invitation forwarded to {0} {1}";
+"Copiado" = "Copied";
 "Copiar" = "Copy";
 "Copiar assunto" = "Copy subject";
 "Copiar convite" = "Copy invitation";
@@ -577,10 +584,12 @@
 "Copiar endereço do remetente" = "Copy sender address";
 "Copiar link" = "Copy link";
 "Copiar link da reunião" = "Copy meeting link";
+"Copiar nome e endereço" = "Copy name and address";
 "Copiar o código" = "Copy the code";
 "Copiar o texto do trecho" = "Copy excerpt text";
 "Copiar resumo" = "Copy summary";
 "Copiar texto da mensagem" = "Copy message text";
+"Copiar {0}" = "Copy {0}";
 "Cor" = "Colour";
 "Cor da caixa" = "Mailbox color";
 "Cor da caixa {0}" = "Mailbox color {0}";
@@ -614,6 +623,7 @@
 "DETECTADO · SESSÃO NÃO CONFIRMADA" = "DETECTED · SESSION UNCONFIRMED";
 "DETECTADO · VERIFICANDO" = "DETECTED · CHECKING";
 "DETECTADO · VERIFICANDO SESSÃO" = "DETECTED · CHECKING SESSION";
+"Data" = "Date";
 "De" = "From";
 "De lá o OkamiUNI atualiza sozinho e o macOS guarda as permissões de Calendários e notificações." = "From there OkamiUNI updates itself and macOS keeps the Calendars and notification permissions.";
 "De volta ao app" = "Back to the app";
@@ -640,6 +650,7 @@
 "Destacar em janela" = "Open in window";
 "Destino" = "Destination";
 "Detalhado" = "Detailed";
+"Detalhes do e-mail" = "Email details";
 "Detalhes" = "Details";
 "Detecção e estado de sessão sem importar tokens, sessões ou arquivos de credencial" = "Detection and session status without importing tokens, sessions or credential files";
 "Devem a você" = "Owed to you";
@@ -805,6 +816,7 @@
 "Esta mensagem já está em Arquivado" = "This message is already archived";
 "Esta mensagem já está em {0}" = "This message is already in {0}";
 "Esta mensagem não está mais na caixa." = "This message is no longer in the mailbox.";
+"Esta mensagem não pede imagens remotas." = "This message asks for no remote images.";
 "Esta mensagem não tem mais ninguém além do remetente" = "There is no one else on this message besides the sender";
 "Esta mensagem não tem texto." = "This message has no text.";
 "Estado" = "Status";
@@ -938,6 +950,7 @@
 "Imagem removida da assinatura." = "Image removed from the signature.";
 "Imagem — indisponível: inserir imagem ainda não existe nesta janela" = "Image — unavailable: inserting an image does not exist in this window yet";
 "Imagens carregadas · remetente confiável" = "Images loaded · trusted sender";
+"Imagens e aparência deste e-mail" = "Images and appearance of this email";
 "Imagens remotas bloqueadas" = "Remote images blocked";
 "Importando…" = "Importing…";
 "Importar" = "Import";
@@ -1091,6 +1104,7 @@
 "Mostra o resumo gerado neste Mac" = "Show the summary generated on this Mac";
 "Mostra o resumo gerado por {0}" = "Show the summary generated by {0}";
 "Mostra o {0}, com {1} linhas" = "Show {0}, with {1} lines";
+"Mostra os cabeçalhos desta mensagem" = "Shows the headers of this message";
 "Mostra os detalhes do convite" = "Show invitation details";
 "Mostra somente mensagens desta categoria" = "Show only messages in this category";
 "Mostrar a barra lateral" = "Show the sidebar";
@@ -1142,6 +1156,7 @@
 "Método de autenticação" = "Authentication method";
 "Mês" = "Month";
 "Mês anterior" = "Previous month";
+"NESTE E-MAIL" = "IN THIS EMAIL";
 "NESTE MAC · NADA SAI DAQUI" = "ON THIS MAC · NOTHING LEAVES IT";
 "NOVA AUTOMAÇÃO" = "NEW AUTOMATION";
 "Na agenda" = "In calendar";
@@ -1310,6 +1325,7 @@
 "O anexo baixado não tem o tamanho anunciado pela mensagem." = "The downloaded attachment does not match the size declared in the message.";
 "O anexo passa do limite de {0}." = "The attachment exceeds the {0} limit.";
 "O app está aberto de dentro do instalador. Na pasta Aplicativos ele recebe as atualizações sozinho." = "The app is open from inside the installer. In the Applications folder it updates itself.";
+"O app guarda estes campos; o bloco cru do servidor não é armazenado." = "The app keeps these fields; the raw block from the server is not stored.";
 "O armazenamento de preferências de arraste ainda não foi conectado." = "Swipe preference storage is not connected yet.";
 "O armazenamento de regras não foi conectado a esta janela." = "Rule storage is not connected to this window.";
 "O arquivo HTML passa do limite de 8 MB para importação." = "The HTML file exceeds the 8 MB import limit.";
@@ -1486,6 +1502,7 @@
 "Pasta ou marcador" = "Folder or label";
 "Pasta ou marcador de destino" = "Destination folder or label";
 "Pasta ou marcador de {0}" = "Folder or label for {0}";
+"Pasta" = "Folder";
 "Pastas e marcadores aparecem depois da primeira sincronização" = "Folders and labels appear after the first sync";
 "Pauta" = "Agenda";
 "Pauta, contexto…" = "Agenda, context…";
@@ -1621,6 +1638,7 @@
 "Recolhe o convite para ler o email" = "Collapse the invitation to read the email";
 "Recolhe o resumo para ler o email" = "Collapse the summary to read the email";
 "Recolhe remetente e assunto" = "Collapse sender and subject";
+"Recolher o resumo" = "Collapse the summary";
 "Recolher" = "Collapse";
 "Recolher a barra lateral" = "Collapse the sidebar";
 "Recolher a faixa de resposta" = "Collapse reply bar";
@@ -1713,6 +1731,7 @@
 "Restaurar padrão" = "Restore defaults";
 "Resume o dia em 3 linhas" = "Summarize the day in 3 lines";
 "Resumir" = "Summarize";
+"Resumo escrito pela IA, recolhido" = "Summary written by AI, collapsed";
 "Resumo" = "Summary";
 "Resumo executivo" = "Executive summary";
 "Resumo geral" = "Overall summary";
@@ -1831,6 +1850,7 @@
 "Só o endereço principal" = "Primary address only";
 "TABELA" = "TABLE";
 "TL;DR · neste Mac" = "TL;DR · on this Mac";
+"TRABALHAR O TEXTO" = "WORK THE TEXT";
 "TUDO O QUE ESTE APP FALA" = "EVERYTHING THIS APP SPEAKS";
 "Tabela de {0} por {1}" = "Table with {0} rows and {1} columns";
 "Talvez" = "Maybe";
@@ -1887,6 +1907,7 @@
 "Todo mês" = "Every month";
 "Todo o OkamiUNI" = "All of OkamiUNI";
 "Todo o OkamiUNI · {0}" = "All of OkamiUNI · {0}";
+"Todos deste remetente" = "All from this sender";
 "Todos" = "All";
 "Todos os dias" = "Every day";
 "Token opcional · guardado no Keychain" = "Optional token · stored in Keychain";
@@ -1899,7 +1920,9 @@
 "Trazer para hoje" = "Move to today";
 "Trazida para hoje" = "Moved to today";
 "Trocar a IA de {0}" = "Change the AI for {0}";
+"Trocar de provedor de IA" = "Switch AI provider";
 "Trocar o contexto da conversa" = "Change conversation context";
+"Trocar" = "Switch";
 "Tudo" = "All";
 "Tudo em ordem" = "All in order";
 "Tudo em ordem?" = "All in order?";
@@ -1947,9 +1970,11 @@
 "Ver" = "View";
 "Ver a lista" = "View list";
 "Ver a release no GitHub" = "See the release on GitHub";
+"Ver cabeçalhos originais" = "View original headers";
 "Ver o roteiro" = "View the guide";
 "Ver os {0} temas" = "See all {0} themes";
 "Ver release no GitHub" = "View release on GitHub";
+"Ver todos os e-mails deste remetente" = "View every email from this sender";
 "Verde" = "Green";
 "Verificando a sessão do CLI" = "Checking CLI session";
 "Verificando o Keychain…" = "Checking Keychain…";
