@@ -139,15 +139,14 @@ struct SwipeRow<Content: View>: View {
 
     /// A folha opaca atrás da linha.
     ///
-    /// Nos 26 temas opacos é `surface`, como sempre foi. No Vidro o fundo da
-    /// lista é o próprio painel de vidro: pintar `surface` em cada linha punha
-    /// uma faixa lavada sobre o gradiente, e a linha deixava de flutuar. Lá a
-    /// folha só aparece **enquanto o arraste está em curso**, que é o único
-    /// momento em que há painel atrás para esconder.
+    /// O fundo da lista é o próprio painel: pintar `surface` em cada linha
+    /// punha uma segunda folha por cima dele — no Vidro uma faixa lavada sobre
+    /// o gradiente, nos opacos uma faixa fora do tom do painel — e a linha
+    /// deixava de flutuar. A folha só aparece **enquanto o arraste está em
+    /// curso**, que é o único momento em que há painel atrás para esconder.
     private var rowBackdrop: Color {
-        guard theme.isGlass else { return theme.surface.color }
         guard resolution.side != nil else { return .clear }
-        return (theme.panel?.readerFill ?? theme.surface).color
+        return theme.resolvedPanel.readerFill.color
     }
 
     var body: some View {

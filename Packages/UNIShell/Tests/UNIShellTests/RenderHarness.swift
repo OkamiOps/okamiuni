@@ -296,7 +296,7 @@ struct RenderHarnessTests {
     @Test("os catorze temas escuros preservam hierarquia na caixa real")
     func everyDarkThemeRendersTheInbox() async throws {
         #expect(Theme.all.filter(\.isDark).count == 15)
-        let darkThemes = Theme.all.filter { $0.isDark && !$0.isGlass }
+        let darkThemes = Theme.all.filter { $0.isDark && !$0.isTranslucent }
         #expect(darkThemes.count == 14)
 
         let store = MailStore(source: InMemoryMailSource.fixtures)

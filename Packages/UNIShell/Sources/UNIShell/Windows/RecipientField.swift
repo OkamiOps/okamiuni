@@ -110,7 +110,7 @@ struct RecipientField: View {
             TextField(placeholder, text: queryBinding)
                 .textFieldStyle(.plain)
                 // Mock: as linhas do cabeçalho são de 14px no Vidro.
-                .font(theme.sans.font(size: theme.isGlass ? 14 : 13))
+                .font(theme.sans.font(size: theme.isTranslucent ? 14 : 13))
                 .foregroundStyle(theme.ink.color)
                 .frame(minWidth: inputMinWidth, maxWidth: .infinity)
                 .frame(height: 24)
