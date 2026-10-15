@@ -12,6 +12,7 @@
 "1 bloco" = "1 bloco";
 "1 bloco no seu dia" = "1 bloco no seu dia";
 "1 bloco proposto" = "1 bloco proposto";
+"1 e-mail importante caiu em {0}" = "1 e-mail importante caiu em {0}";
 "1 email" = "1 email";
 "1 h" = "1 h";
 "1 hora" = "1 hora";
@@ -62,6 +63,7 @@
 "A mensagem saiu da caixa" = "A mensagem saiu da caixa";
 "A original já está arquivada; a resposta fica pronta para envio." = "A original já está arquivada; a resposta fica pronta para envio.";
 "A original já está arquivada; a resposta vai para a fila de saída." = "A original já está arquivada; a resposta vai para a fila de saída.";
+"Fóruns" = "Fóruns";
 "a pagar" = "a pagar";
 "A primeira ação dispara no gesto longo" = "A primeira ação dispara no gesto longo";
 "A primeira ação é disparada quando o arraste passa do limite" = "A primeira ação é disparada quando o arraste passa do limite";
@@ -2093,6 +2095,8 @@
 "{0} de {1} em dia" = "{0} de {1} em dia";
 "{0} e enviar ao organizador pela fila de saída" = "{0} e enviar ao organizador pela fila de saída";
 "{0} e mais {1}" = "{0} e mais {1}";
+"{0} e {1}" = "{0} e {1}";
+"{0} e-mails importantes caíram em {1}" = "{0} e-mails importantes caíram em {1}";
 "{0} emails" = "{0} emails";
 "{0} escreveu:" = "{0} escreveu:";
 "{0} está em uso" = "{0} está em uso";
