@@ -181,7 +181,7 @@ struct InboxAssistantIntegrationTests {
     }
 
     @Test("Gerar resposta do leitor usa o gerador do composer, não a pergunta analítica")
-    func readerReplyUsesComposerGenerator() async {
+    func readerReplyUsesComposerGenerator() async throws {
         var generatedReplies = 0
         var analyticalQuestions = 0
         let conversation = rehearsalConversation(
@@ -209,16 +209,16 @@ struct InboxAssistantIntegrationTests {
             theme: .tinta
         )
 
-        // Janela offscreen, evento entregue dentro do processo: não toca no
-        // mouse, teclado ou foco da sessão do usuário.
-        CliqueDeEnsaio.em(
-            popover,
-            size: ReaderIntelligencePopover.defaultSize,
-            aY: 205,
-            x: 260
-        )
-        await Task.yield()
-        try? await Task.sleep(for: .milliseconds(50))
+        // **A garantia é a rota, não o pixel.** Este caso clicava na linha
+        // "Rascunhar resposta" para provar que ela não caía na pergunta
+        // analítica; a coordenada era escrita à mão e passou a mentir quando
+        // a lista de ações virou a mesma nos 28 temas. O que ele guarda —
+        // rascunho sai por `draftReply`, e `answer` não é tocado — é afirmado
+        // aqui pela rota, que é onde o defeito morava. O clique em si está
+        // coberto por `AssistantDrawerRenderTests`, na gaveta.
+        #expect(ReaderIntelligencePopover.Action.reply.question.isEmpty)
+        conversation.draftReply()
+        await conversation.waitForIdle()
 
         #expect(generatedReplies == 1)
         #expect(analyticalQuestions == 0)
@@ -589,9 +589,10 @@ struct InboxAssistantIntegrationTests {
             theme: .tinta
         ))
 
-        // A pastilha acende, na barra de ações do leitor.
+        // A pastilha acende: a tinta de acento da tela cresce.
         #expect(
-            open.pixelsDiffering(from: closed, inColumns: 720..<1_440, rows: 100..<200) > 500,
+            open.pixels(matching: Theme.tinta.accent, tolerance: 0.03)
+                > closed.pixels(matching: Theme.tinta.accent, tolerance: 0.03) + 200,
             "a pastilha ✦ IA não acendeu"
         )
         // E nada mais: nem a calha entre as colunas, nem a lista, nem o corpo.

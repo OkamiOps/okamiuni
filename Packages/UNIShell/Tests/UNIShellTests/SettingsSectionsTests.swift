@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import NIOPosix
 import SwiftUI
@@ -155,7 +156,14 @@ struct SettingsSectionsTests {
 
         #expect(authorizer.modelRequestCount == 0)
         #expect(image.pixelsWide == Int(renderSize.width))
-        #expect(image.pixels(matching: Theme.tinta.accentSoft) > 500)
+        // A primeira página passou a ser "Tudo em ordem?": o ambiente aparece
+        // nos quatro azulejos de atalho, e é a superfície deles que se mede.
+        // A garantia do caso continua sendo a de cima — abrir Configurações
+        // não começa login de IA nenhum.
+        #expect(
+            image.pixels(matching: Theme.tinta.glassTile) > 5_000,
+            "a visão geral não desenhou os atalhos do ambiente"
+        )
     }
 
     @Test("Geral permanece legível nos tamanhos menor e maior")
@@ -184,7 +192,10 @@ struct SettingsSectionsTests {
 
             #expect(image.pixelsWide == Int(compactRenderSize.width))
             #expect(image.pixelsHigh == Int(compactRenderSize.height))
-            #expect(image.pixels(matching: Theme.reboot.accentSoft) > 500)
+            #expect(
+                image.pixels(matching: Theme.reboot.glassTile) > 5_000,
+                "os atalhos sumiram no tamanho \(preset.rawValue)"
+            )
         }
     }
 
@@ -211,7 +222,14 @@ struct SettingsSectionsTests {
         ))
 
         #expect(image.pixelsWide == Int(renderSize.width))
-        #expect(image.pixels(matching: Theme.tinta.accentSoft) > 400)
+        // A Agenda deixou de ser uma seção: o link profundo cai na página da
+        // conta, que é onde a sala de reunião dela passou a morar — junto do
+        // que sincroniza, dos aliases e da assinatura. O que se mede é a ação
+        // primária dessa página, "Sincronizar agora", no acento do tema.
+        #expect(
+            image.pixels(matching: Theme.tinta.accent) > 800,
+            "a página da conta não foi desenhada"
+        )
     }
 
     @Test("Remetentes mostra o endereço principal da conta")
@@ -707,10 +725,16 @@ struct SettingsSectionsTests {
         #expect(swipes.configuration.destination(on: .leading, for: "trabalho") == destination)
         #expect(swipes.configuration.destination(on: .leading, for: "pessoal") == personalDestination)
         #expect(image.pixelsWide == Int(renderSize.width))
-        #expect(
-            image.pixels(matching: Theme.tinta.accent) > 900,
-            "Gestos não desenhou as ações fortes no ensaio visual"
-        )
+        // As prévias de arrasto são pintadas nas cores de **significado** das
+        // ações — verde arquiva, vermelho apaga —, e não no acento do tema:
+        // num tema roxo a Lixeira roxa mentiria sobre o que o gesto faz.
+        // A garantia é a mesma de antes: as faixas fortes estão desenhadas.
+        for acao in [SwipeAction.archive, .trash] {
+            #expect(
+                image.pixels(matching: cor(de: acao)) > 1_200,
+                "Gestos não desenhou a faixa de \(acao.settingsLabel)"
+            )
+        }
 
         let compactImage = try #require(Render.snapshot(
             AccountsWindow(
@@ -968,6 +992,13 @@ struct SettingsSectionsTests {
         }
         #expect(model.statuses.count == accounts.count, "o banco temporário não publicou as contas")
         return model
+    }
+
+    /// A cor desenhada de uma ação de arrasto, no formato que o contador de
+    /// pixels entende.
+    private func cor(de action: SwipeAction) -> TokenColor {
+        let ns = NSColor(ConfigSwipePalette.color(for: action)).usingColorSpace(.sRGB) ?? .black
+        return TokenColor(red: ns.redComponent, green: ns.greenComponent, blue: ns.blueComponent)
     }
 
     private func isolatedDefaults() throws -> (name: String, defaults: UserDefaults) {

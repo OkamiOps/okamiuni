@@ -91,8 +91,8 @@ struct ReaderInkTask: Identifiable {
 /// que alguém lê antes de decidir se vai ler o resto.
 ///
 /// Um desenho só para os 28 temas: o que o vidro tem de diferente é o halo do
-/// orbe e o brilho do botão, e isso sai de `theme.isGlass`. Estrutura, tipos,
-/// pesos e folgas são os mesmos em todos.
+/// orbe e o brilho do botão, e isso sai de `theme.isTranslucent`. Estrutura,
+/// tipos, pesos e folgas são os mesmos em todos.
 struct ReaderInkSection: View {
 
     @Environment(\.theme) private var theme

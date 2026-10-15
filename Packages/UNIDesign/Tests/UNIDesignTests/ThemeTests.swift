@@ -75,15 +75,55 @@ struct ThemeCatalogueTests {
         #expect(Theme.all.count == 28)
     }
 
-    @Test("só o par Vidro flutua, e ele traz fundo e painel juntos")
-    func onlyVidroIsGlass() {
+    @Test("só o par Vidro é translúcido, e ele traz fundo e painel juntos")
+    func onlyVidroIsTranslucent() {
         for theme in Theme.all {
             let esperado = theme.id == "vidro" || theme.id == "vidro-noite"
-            #expect(theme.isGlass == esperado, "\(theme.id)")
+            #expect(theme.isTranslucent == esperado, "\(theme.id)")
             // Meio vidro não existe: um fundo sem painel deixaria o conteúdo
             // solto sobre o gradiente, e um painel sem fundo flutuaria sobre
             // nada.
             #expect((theme.backdrop == nil) == (theme.panel == nil), "\(theme.id)")
+        }
+    }
+
+    /// O shell novo é de todos, e por isso **todo** tema tem painel: é a caixa
+    /// flutuante que o `glassPanel` desenha. Nos 26 clássicos ela é montada dos
+    /// tokens do próprio tema, e nada nela pode ser translúcido — era isso que
+    /// o dono pediu: perder o vidro, manter o desenho.
+    @Test("todo tema tem painel, e só o Vidro o tem translúcido")
+    func everyThemeHasAPanel() {
+        for theme in Theme.all {
+            let painel = theme.resolvedPanel
+            #expect(theme.usesFloatingPanels, "\(theme.id)")
+            // A folga é medida do desenho, não da paleta: ela é a mesma em
+            // todos os temas, e é dela que saem os semáforos no trilho.
+            #expect(painel.gap == PanelStyle.vidroGap, "\(theme.id)")
+            guard !theme.isTranslucent else { continue }
+            #expect(painel.fill == theme.surface, "\(theme.id)")
+            #expect(painel.readerFill == theme.surface2, "\(theme.id)")
+            #expect(painel.edge == theme.line, "\(theme.id)")
+            #expect(painel.radius == theme.radiusLarge, "\(theme.id)")
+            #expect(painel.fill.opacity == 1, "\(theme.id)")
+            #expect(painel.readerFill.opacity == 1, "\(theme.id)")
+            // E sem gradiente atrás: o fundo da janela é `paper` liso.
+            #expect(theme.backdrop == nil, "\(theme.id)")
+        }
+    }
+
+    /// Os tokens `glass*` existem para o protótipo do Vidro. Fora dele eles
+    /// **têm** de cair em cor opaca: um azulejo a 5% de branco sobre `surface`
+    /// opaca não se distingue dela, e era esse o risco de reusá-los nos 26.
+    @Test("os tokens de vidro caem em cor opaca fora do Vidro")
+    func glassTokensFallBackOpaque() {
+        for theme in Theme.all where !theme.isTranslucent {
+            for token in [
+                theme.glassCard, theme.glassTile, theme.glassElevated,
+                theme.glassRing, theme.glassSoft, theme.glassActive,
+                theme.glassWindow,
+            ] {
+                #expect(token.opacity == 1, "\(theme.id)")
+            }
         }
     }
 
@@ -93,10 +133,10 @@ struct ThemeCatalogueTests {
         #expect(Theme.vidroNoite.appearanceCounterpart.id == "vidro")
         // Os 26 temas sem par caem no Vidro do lado oposto, e nunca em si
         // mesmos — um interruptor que não muda nada é um botão mudo.
-        for theme in Theme.all where !theme.isGlass {
+        for theme in Theme.all where !theme.isTranslucent {
             let outro = theme.appearanceCounterpart
             #expect(outro.isDark != theme.isDark, "\(theme.id)")
-            #expect(outro.isGlass, "\(theme.id)")
+            #expect(outro.isTranslucent, "\(theme.id)")
         }
     }
 
@@ -230,7 +270,7 @@ struct ThemeCatalogueTests {
         // vidro elas são translucidez sobre um gradiente — a mesma faixa
         // numérica diria a coisa errada. O contrato dele está em
         // `vidroNoiteKeepsItsOwnHierarchy`, logo abaixo.
-        let darkThemes = Theme.all.filter { $0.isDark && !$0.isGlass }
+        let darkThemes = Theme.all.filter { $0.isDark && !$0.isTranslucent }
         #expect(Set(darkThemes.map(\.id)) == expectedDark)
         #expect(Theme.all.filter(\.isDark).count == 15)
 

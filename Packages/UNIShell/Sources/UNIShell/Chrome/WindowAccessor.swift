@@ -1,5 +1,7 @@
 import AppKit
 import SwiftUI
+import UNICore
+import UNIDesign
 
 /// A conta que põe os semáforos nativos no meio de uma barra mais alta que a
 /// barra de título do sistema.
@@ -50,24 +52,61 @@ enum TrafficLightLayout {
     /// fica embaixo, como nesses apps.
     static let contentCenterFromTop: CGFloat = 22
 
+    /// O botão do sistema mede isto de lado. Não é escolha nossa: é o que o
+    /// AppKit desenha, e é a diferença com os 11 do protótipo que obriga as
+    /// contas abaixo a traduzir o desenho em vez de copiá-lo.
+    static let nativeButtonSide: CGFloat = 14
+
     /// Onde a fileira fica no shell Vidro, contada do topo da janela.
     ///
-    /// O trilho não começa no topo: o painel flutuante dele é afastado da
-    /// borda por `PanelStyle.vidroGap` (10) e o trilho acrescenta 12pt de
-    /// folga antes do primeiro conteúdo. Centrar as bolinhas na faixa que o
-    /// trilho reserva para elas dá 10 + 12 + 9 = **31**. Os 22 da plataforma
-    /// as poriam acima do vidro, metade fora do painel.
-    static let railCenterFromTop: CGFloat = 31
-
-    /// Onde a primeira bolinha começa, e de quanto em quanto elas andam.
+    /// **O protótipo manda as folgas, não a posição.** Ele desenha a fila com
+    /// `padding: 2px 0 16px` dentro de um `<nav>` com `padding-top: 14px`,
+    /// num painel afastado `PanelStyle.vidroGap` da borda. Com as bolinhas de
+    /// 11 do desenho isso põe o centro em 31,5; com os botões de 14 do macOS,
+    /// no mesmo lugar, o que sobra acima deles cai de 16pt para 14 e eles
+    /// encostam na quina arredondada do vidro — a queixa do dono de
+    /// 14/10/2026 ("os semáforos não ficavam tão colados nas bordas da barra").
     ///
-    /// O macOS as põe em x=8, 31 e 54, com 14pt cada: a última termina em 68,
-    /// mais largo do que o trilho de 64 **e** deslocado para a esquerda do
-    /// painel, que começa em x=10. Aqui elas são reposicionadas para caber
-    /// dentro do trilho: 16, 35, 54, terminando em 68 — 6pt antes da borda
-    /// direita do trilho, em 74. Mesma ordem, mesmo tamanho, só mais juntas.
-    static let railLeading: CGFloat = 16
-    static let railSpacing: CGFloat = 19
+    /// Então o que é preservado é a folga: 10 do painel + 14 do `<nav>` + 2 da
+    /// fila = 26 até o **topo** do botão, e o centro cai 7 abaixo disso.
+    static let railCenterFromTop: CGFloat = 10 + 14 + 2 + nativeButtonSide / 2  // 33
+
+    /// A fileira dentro do trilho de 64: onde o primeiro botão começa e de
+    /// quanto em quanto eles andam.
+    ///
+    /// O macOS os põe em x=8, 31 e 54 — 52pt de fileira deslocada para a
+    /// esquerda do painel, que só começa em x=10. Aqui eles são recentrados no
+    /// trilho, que é o que o `align-items: center` do `<nav>` faz com a fila do
+    /// protótipo.
+    ///
+    /// **A folga lateral vem da largura do trilho, não do vão entre botões.**
+    /// O protótipo deixa 10,5pt de cada lado porque as bolinhas dele somam 43
+    /// dentro de 64; três botões de 14 com o mesmo vão de 5 somam 52 e, nos
+    /// mesmos 64, sobrariam 6 — o que o dono recusou. O trilho foi então
+    /// alargado para 72 (ver `PaneLayout.appRailWidth`), o que devolve **10pt**
+    /// de cada lado com o vão de 5 do desenho intacto.
+    static let railGap: CGFloat = 5
+    static var railRowWidth: CGFloat { 3 * nativeButtonSide + 2 * railGap }  // 52
+    static var railLeading: CGFloat {
+        PanelStyle.vidroGap + (PaneLayout.appRailWidth - railRowWidth) / 2    // 20
+    }
+    static var railSpacing: CGFloat { nativeButtonSide + railGap }            // 19
+
+    /// A fileira da janela de Configurações.
+    ///
+    /// O mock `Config.dc.html` desenha três bolinhas de 11 com 5 de folga
+    /// dentro da navegação: `padding: 14px 12px` no painel, `2px 6px 16px` na
+    /// fileira, e o painel 10 abaixo da borda. Isso põe o centro delas em
+    /// 10 + 14 + 2 + 5,5 = **31,5** e a faixa em x 28..71. Os botões nativos
+    /// têm 14, não 11: com a mesma folga de 5 a fileira mede 52 e, centrada na
+    /// mesma faixa, começa em 23,5.
+    static let configCenterFromTop: CGFloat = 31.5
+    static let configLeading: CGFloat = 23.5
+    static let configSpacing: CGFloat = 19
+
+    /// Altura que o container precisa ter para a fileira de Configurações
+    /// caber clicável dentro dele.
+    static let configBarHeight: CGFloat = 52
 
     /// Altura que o container da barra de título precisa ter para a fileira do
     /// trilho caber **clicável** dentro dele. Uma `NSView` desenha fora dos
@@ -87,6 +126,10 @@ enum TrafficLightLayout {
     /// x da bolinha de índice `index` (0 = fechar) na fileira do trilho.
     static func railButtonOriginX(index: Int) -> CGFloat {
         railLeading + CGFloat(index) * railSpacing
+    }
+
+    static func rowButtonOriginX(index: Int, leading: CGFloat, spacing: CGFloat) -> CGFloat {
+        leading + CGFloat(index) * spacing
     }
 
     /// Onde o centro do botão cai, contado do topo da janela — a mesma
@@ -122,14 +165,22 @@ final class TrafficLightAligner: NSObject {
     /// dentro do trilho de 64pt. `false` deixa o x da plataforma intacto, que
     /// é o que as outras cinco janelas querem.
     private let compactRow: Bool
+    /// Onde a fileira começa e de quanto em quanto ela anda, quando
+    /// `compactRow` está ligado. O padrão é o do trilho do Vidro.
+    private let rowLeading: CGFloat
+    private let rowSpacing: CGFloat
     private weak var window: NSWindow?
     private var observing = false
 
     init(
         barHeight: CGFloat,
         centerFromTop: CGFloat = TrafficLightLayout.contentCenterFromTop,
-        compactRow: Bool = false
+        compactRow: Bool = false,
+        rowLeading: CGFloat = TrafficLightLayout.railLeading,
+        rowSpacing: CGFloat = TrafficLightLayout.railSpacing
     ) {
+        self.rowLeading = rowLeading
+        self.rowSpacing = rowSpacing
         self.barHeight = barHeight
         self.centerFromTop = centerFromTop
         self.compactRow = compactRow
@@ -221,7 +272,9 @@ final class TrafficLightAligner: NSObject {
                 centerFromTop: centerFromTop
             )
                 && (!compactRow
-                    || button.frame.origin.x == TrafficLightLayout.railButtonOriginX(index: index))
+                    || button.frame.origin.x == TrafficLightLayout.rowButtonOriginX(
+                        index: index, leading: rowLeading, spacing: rowSpacing
+                    ))
         }
         guard container.frame != wanted || !aligned, !aligning else { return }
         aligning = true
@@ -235,7 +288,9 @@ final class TrafficLightAligner: NSObject {
                 centerFromTop: centerFromTop
             )
             if compactRow {
-                button.frame.origin.x = TrafficLightLayout.railButtonOriginX(index: index)
+                button.frame.origin.x = TrafficLightLayout.rowButtonOriginX(
+                    index: index, leading: rowLeading, spacing: rowSpacing
+                )
             }
         }
     }
@@ -252,10 +307,13 @@ struct TrafficLightAlignment: NSViewRepresentable {
     let barHeight: CGFloat
     var centerFromTop: CGFloat = TrafficLightLayout.contentCenterFromTop
     var compactRow: Bool = false
+    var rowLeading: CGFloat = TrafficLightLayout.railLeading
+    var rowSpacing: CGFloat = TrafficLightLayout.railSpacing
 
     func makeCoordinator() -> TrafficLightAligner {
         TrafficLightAligner(
-            barHeight: barHeight, centerFromTop: centerFromTop, compactRow: compactRow
+            barHeight: barHeight, centerFromTop: centerFromTop, compactRow: compactRow,
+            rowLeading: rowLeading, rowSpacing: rowSpacing
         )
     }
 
@@ -399,6 +457,22 @@ extension View {
     /// O trilho reserva o lugar deles (`AppRail.trafficLightReserve`) e esta
     /// linha os move para lá — mais baixos, porque o painel começa 10pt abaixo
     /// da borda, e mais juntos, porque 64pt não cabem os 68 da fileira nativa.
+    /// Põe os três botões do sistema na fileira que a navegação de
+    /// Configurações reserva para eles — ver `TrafficLightLayout.configLeading`.
+    func trafficLightsInConfigNav() -> some View {
+        overlay(alignment: .topLeading) {
+            TrafficLightAlignment(
+                barHeight: TrafficLightLayout.configBarHeight,
+                centerFromTop: TrafficLightLayout.configCenterFromTop,
+                compactRow: true,
+                rowLeading: TrafficLightLayout.configLeading,
+                rowSpacing: TrafficLightLayout.configSpacing
+            )
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
+        }
+    }
+
     func trafficLightsInRail() -> some View {
         overlay(alignment: .topLeading) {
             TrafficLightAlignment(

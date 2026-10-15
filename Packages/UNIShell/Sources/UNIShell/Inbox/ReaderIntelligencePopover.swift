@@ -150,7 +150,7 @@ struct ReaderIntelligencePopover: View {
     /// `surface` do Vidro de fato pinta sobre o fundo da janela nos dois
     /// temas de vidro.
     private var painel: TokenColor {
-        theme.isGlass ? theme.flattened(\.surface) : theme.surface
+        theme.isTranslucent ? theme.flattened(\.surface) : theme.surface
     }
 
     var body: some View {
@@ -161,18 +161,13 @@ struct ReaderIntelligencePopover: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
             hairline
-            // No Vidro o campo vem **antes** da lista, como no protótipo: o
-            // menu da IA começa com "Peça algo sobre este e-mail…" e as ações
-            // prontas vêm por baixo dele. Nos temas opacos ele continua no pé,
-            // onde o transcrito o empurra.
-            if theme.isGlass {
-                composer
-                hairline
-                conversationArea
-            } else {
-                conversationArea
-                composer
-            }
+            // O campo vem **antes** da lista, como no desenho: o menu da IA
+            // começa com "Peça algo sobre este e-mail…" e as ações prontas
+            // vêm por baixo dele. Era `isGlass`, e só os dois temas de vidro
+            // tinham a ordem do desenho.
+            composer
+            hairline
+            conversationArea
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         // `flattened` e não `surface`: no Vidro os tokens de superfície são
@@ -301,12 +296,10 @@ struct ReaderIntelligencePopover: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            if theme.isGlass {
-                actionList
-            } else {
-                actionGrid
-                replyButton
-            }
+            // Uma ação por linha, com ícone e dica — o desenho. A grade de
+            // pastilhas que os temas opacos viam saiu junto com o resto do
+            // layout antigo.
+            actionList
 
             if !isAvailable {
                 Text(L10n.tr("Conecte um provedor de IA nas Configurações para usar estas ações."))
@@ -371,28 +364,6 @@ struct ReaderIntelligencePopover: View {
         .focusRing(cornerRadius: 9)
         .disabled(!habilitada)
         .accessibilityLabel(action.title)
-    }
-
-    private var actionGrid: some View {
-        LazyVGrid(
-            columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)],
-            spacing: 6
-        ) {
-            ForEach([Action.summary, .keyPoints, .insights, .pending], id: \.self) { action in
-                panelButton(action.title, enabled: canInteract) {
-                    run(action)
-                }
-            }
-        }
-    }
-
-    private var replyButton: some View {
-        // "Gerar resposta" é rascunho, não pergunta: sai pelo
-        // `transform(.draftReply)` da conversa e volta como turno `.draft`.
-        panelButton(Action.reply.title, enabled: canInteract && conversation.canDraftReply, emphasized: true) {
-            guard canInteract else { return }
-            conversation.draftReply()
-        }
     }
 
     private var transcript: some View {
@@ -654,32 +625,6 @@ struct ReaderIntelligencePopover: View {
         .disabled(disabled)
         .help(help)
         .accessibilityLabel(accessibilityLabel)
-    }
-
-    private func panelButton(
-        _ title: String,
-        enabled: Bool,
-        emphasized: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(theme.sans.font(size: 11, weight: .medium))
-                .foregroundStyle(emphasized ? theme.info.color : theme.ink2.color)
-                .frame(maxWidth: .infinity)
-                .frame(height: 29)
-                .background(theme.surface2.color, in: RoundedRectangle(cornerRadius: 8))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 8)
-                        .strokeBorder(
-                            emphasized ? theme.infoLine.color : theme.line2.color,
-                            lineWidth: Hairline.thickness(displayScale)
-                        )
-                }
-        }
-        .buttonStyle(.plain)
-        .focusRing(cornerRadius: 8)
-        .disabled(!enabled)
     }
 
     private func run(_ action: Action) {

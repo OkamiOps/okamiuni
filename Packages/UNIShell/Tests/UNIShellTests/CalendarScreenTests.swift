@@ -117,11 +117,19 @@ struct CalendarRenderTests {
         return store
     }
 
+    /// A tela da Agenda com o fundo que, no app, vem do **painel** do shell.
+    ///
+    /// As telas deixaram de pintar `surface` por baixo quando o shell passou a
+    /// ser um só: quem pinta é `glassPanel`, com o vidro dos dois temas Vidro
+    /// ou a caixa opaca de tokens dos outros 26. Fotografada solta, a tela não
+    /// tem painel — então o teste põe a superfície que ele poria, e tudo que
+    /// estes casos medem continua sendo medido contra ela.
     private func screen(_ store: MailStore) -> some View {
         CalendarScreen(
             store: store, now: Fixtures.nowMinute, anchor: Fixtures.today
         )
         .environment(ThemeStore())
+        .background(Theme.tinta.surface.color)
     }
 
     // MARK: Leitura de pixel
@@ -253,6 +261,8 @@ struct CalendarRenderTests {
             store: store, now: Fixtures.nowMinute, anchor: Fixtures.today, dayOffset: 0
         )
         .environment(ThemeStore())
+        // O fundo que o painel do shell põe por baixo da tela.
+        .background(Theme.tinta.surface.color)
 
         let size = CGSize(width: 1100, height: 700)
         let rep = try #require(
@@ -319,7 +329,10 @@ struct CalendarRenderTests {
         let size = CGSize(width: 1100, height: 700)
         let rep = try #require(
             Render.snapshot(
-                MonthScreen(store: store, anchor: Fixtures.today).environment(ThemeStore()),
+                MonthScreen(store: store, anchor: Fixtures.today)
+                    .environment(ThemeStore())
+                    // O fundo que o painel do shell põe por baixo da tela.
+                    .background(Theme.tinta.surface.color),
                 named: "agenda-mes-tinta", size: size, theme: .tinta
             )
         )
@@ -486,36 +499,41 @@ struct CalendarRenderTests {
         #expect(levels(inside, sidebar) < 8, "x=8 no escuro veio \(inside)")
     }
 
-    /// O seletor aberto, sobre a grade. Duas coisas que só um desenho mostra:
-    /// que ele não é recortado pela faixa de 46pt em que nasce, e que pousa
-    /// alinhado ao botão que o abriu.
+    /// O seletor aberto, sobre a grade.
+    ///
+    /// A garantia é a de sempre: ele **não é recortado** pela faixa em que
+    /// nasce. O que mudou com o shell único é onde ele pousa — o cabeçalho
+    /// novo (`VidroAgendaCabecalho`) ancora o seletor no botão da data, que
+    /// fica à direita, e o interior dele é da mesma cor da grade em `tinta`.
+    /// Procurar "colunas que não são grade" numa linha, como a versão antiga
+    /// fazia, passou a medir a cor do popover em vez da presença dele.
+    ///
+    /// A prova aqui é por diferença: o mesmo desenho com o seletor fechado e
+    /// com ele aberto, e os pixels que mudam têm de estar **abaixo** da faixa
+    /// do cabeçalho. Se ele fosse recortado por ela, nada mudaria lá embaixo.
     @Test("o seletor de data abre por cima da grade, alinhado ao botão")
     func pickerFloatsOverTheGrid() async throws {
         let store = await loadedStore()
-        let rep = try #require(
+        func desenho(aberto: Bool, nome: String) -> NSBitmapImageRep? {
             Render.snapshot(
                 CalendarScreen(
                     store: store, now: Fixtures.nowMinute, anchor: Fixtures.today,
-                    initialMode: .day, initialPickerOpen: true
-                ).environment(ThemeStore()),
-                named: "agenda-dia-seletor-aberto-tinta",
-                size: Self.windowSize, theme: .tinta
+                    initialMode: .day, initialPickerOpen: aberto
+                )
+                .environment(ThemeStore())
+                .background(Theme.tinta.surface.color),
+                named: nome, size: Self.windowSize, theme: .tinta
             )
-        )
-        let pixels = Pixels(rep: rep)
-
-        // 200pt abaixo do topo já é território da grade. Se o popover estivesse
-        // recortado pela faixa do cabeçalho, esta linha inteira seria grade;
-        // procuramos por 268 colunas seguidas que **não** são o fundo da grade.
-        let canvas = token(Theme.tinta.surface)
-        var run = 0
-        var longest = 0
-        for x in Int(PaneLayout.expandedSidebarWidth)..<pixels.width {
-            let isCanvas = pixels.color(x, 200).map { levels($0, canvas) < 4 } ?? true
-            run = isCanvas ? 0 : run + 1
-            longest = max(longest, run)
         }
-        #expect(longest >= 240,
-                "a faixa não-grade em y=200 mediu \(longest)pt; o popover tem 268")
+        let aberto = try #require(desenho(aberto: true, nome: "agenda-dia-seletor-aberto-tinta"))
+        let fechado = try #require(desenho(aberto: false, nome: "agenda-dia-seletor-fechado-tinta"))
+
+        // A faixa onde o seletor nasce. Abaixo dela é grade.
+        let faixa = Int(VidroAgendaCabecalho.height)
+        let abaixo = faixa + 60..<Int(Self.windowSize.height)
+        #expect(
+            aberto.pixelsDiffering(from: fechado, inColumns: 0..<aberto.pixelsWide, rows: abaixo) > 5_000,
+            "o seletor foi recortado pela faixa do cabeçalho: nada mudou abaixo de y=\(faixa + 60)"
+        )
     }
 }

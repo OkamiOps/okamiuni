@@ -54,7 +54,7 @@ public struct Backdrop: View {
 
     /// Converte o ângulo do `linear-gradient` do CSS nos dois `UnitPoint` que
     /// o SwiftUI pede.
-    static func unitPoint(degrees: Double, start: Bool) -> UnitPoint {
+    public static func unitPoint(degrees: Double, start: Bool) -> UnitPoint {
         let radians = (degrees - 90) * .pi / 180
         let dx = cos(radians) / 2
         let dy = sin(radians) / 2
@@ -73,11 +73,13 @@ public enum GlassPanelKind: Sendable, Hashable {
 }
 
 extension View {
-    /// Transforma esta `View` num painel flutuante quando o tema é de vidro.
+    /// Transforma esta `View` num painel flutuante. Em **todos** os temas.
     ///
-    /// Num tema sem `panel` **não faz nada** — e é esse o contrato que mantém
-    /// os 26 temas antigos exatamente como estavam: eles continuam encostados,
-    /// opacos e com as suas próprias hairlines.
+    /// Antes era só no Vidro: sem `panel` o modificador não fazia nada e os 26
+    /// temas antigos ficavam encostados. Agora o painel é a estrutura do shell
+    /// — a mesma dos dois Vidros — e o que o tema decide é só com o que ele é
+    /// pintado: `theme.resolvedPanel` devolve o vidro translúcido dos dois
+    /// temas que o declaram e a caixa opaca de tokens dos outros 26.
     public func glassPanel(
         _ theme: Theme, kind: GlassPanelKind = .pane, fill: Bool = true
     ) -> some View {
@@ -93,20 +95,17 @@ struct GlassPanelModifier: ViewModifier {
     let fill: Bool
 
     func body(content: Content) -> some View {
-        if let panel = theme.panel {
-            let shape = RoundedRectangle(cornerRadius: panel.radius, style: .continuous)
-            content
-                .background(fill ? (kind == .reader ? panel.readerFill : panel.fill).color : .clear)
-                .clipShape(shape)
-                .overlay {
-                    // `strokeBorder` desenha para dentro: o fio de luz do
-                    // protótipo é a aresta interna do vidro, e `stroke` o
-                    // montaria metade fora do recorte, onde ele desaparece.
-                    shape.strokeBorder(panel.edge.color, lineWidth: 1)
-                }
-                .shadow(panel.shadow)
-        } else {
-            content
-        }
+        let panel = theme.resolvedPanel
+        let shape = RoundedRectangle(cornerRadius: panel.radius, style: .continuous)
+        return content
+            .background(fill ? (kind == .reader ? panel.readerFill : panel.fill).color : .clear)
+            .clipShape(shape)
+            .overlay {
+                // `strokeBorder` desenha para dentro: o fio de luz do
+                // protótipo é a aresta interna do vidro, e `stroke` o
+                // montaria metade fora do recorte, onde ele desaparece.
+                shape.strokeBorder(panel.edge.color, lineWidth: 1)
+            }
+            .shadow(panel.shadow)
     }
 }

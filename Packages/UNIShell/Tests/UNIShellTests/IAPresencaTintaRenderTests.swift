@@ -233,6 +233,16 @@ struct IAPresencaTintaRenderTests {
         .iaDraftParaDesenho(comRascunho)
     }
 
+    /// O leitor **dentro do painel**, que é como o shell o desenha: desde que
+    /// todo tema tem `resolvedPanel`, o preenchimento é do painel e não do
+    /// próprio leitor. Sem isto o retrato sai sobre o nada.
+    private func leitorNoPainel(
+        _ store: MailStore, comRascunho: Bool, tema: Theme
+    ) -> some View {
+        leitorView(store, comRascunho: comRascunho)
+            .glassPanel(tema, kind: .reader)
+    }
+
     // MARK: - Presença · a resposta
 
     @Test("a resposta é um briefing numerado, e a janela tem as medidas do desenho")
@@ -345,7 +355,7 @@ struct IAPresencaTintaRenderTests {
         for tema in Self.temas {
             let store = await lojaDoLeitor()
             let rep = try #require(Render.snapshot(
-                leitorView(store, comRascunho: false),
+                leitorNoPainel(store, comRascunho: false, tema: tema),
                 named: "ia-tinta-leitor-\(tema.id)",
                 size: Self.leitor, theme: tema
             ))
@@ -360,24 +370,20 @@ struct IAPresencaTintaRenderTests {
             // razão de o remetente ter saído do cabeçalho fixo e entrado no
             // fluxo. O avatar é o azul da conta.
             //
-            // A comparação só existe onde o cabeçalho tem assunto grande e
-            // avatar no fluxo — os dois temas de vidro. Os 26 opacos têm o
-            // cabeçalho compacto de uma linha (remetente · assunto), de outra
-            // tarefa: lá a tinta é a primeira coisa do corpo, e é o que a
-            // linha de cima afirma.
-            if tema.isGlass {
-                let avatar = try #require(
-                    primeiraLinha(
-                        rep, de: TokenColor(css: "#3b82f6")!, x: 28..<80, y: 60..<700,
-                        tol: 0.10, minimo: 8
-                    ),
-                    "\(tema.id): não achei o avatar do remetente"
-                )
-                #expect(
-                    tinta < avatar,
-                    "\(tema.id): a tinta (y \(tinta)) caiu depois do remetente (y \(avatar))"
-                )
-            }
+            // E ela vem **antes** do remetente, nos 28 temas: é a ordem do
+            // desenho, e é a razão de o remetente ter saído do cabeçalho fixo
+            // e entrado no fluxo. O avatar é o azul da conta.
+            let avatar = try #require(
+                primeiraLinha(
+                    rep, de: TokenColor(css: "#3b82f6")!, x: 28..<80, y: 60..<700,
+                    tol: 0.10, minimo: 8
+                ),
+                "\(tema.id): não achei o avatar do remetente"
+            )
+            #expect(
+                tinta < avatar,
+                "\(tema.id): a tinta (y \(tinta)) caiu depois do remetente (y \(avatar))"
+            )
         }
     }
 
@@ -388,7 +394,7 @@ struct IAPresencaTintaRenderTests {
         for tema in Self.temas {
             let store = await lojaDoLeitor(comRascunho: true)
             let rep = try #require(Render.snapshot(
-                leitorView(store, comRascunho: true),
+                leitorNoPainel(store, comRascunho: true, tema: tema),
                 named: "ia-tinta-rascunho-\(tema.id)",
                 size: Self.leitor, theme: tema
             ))

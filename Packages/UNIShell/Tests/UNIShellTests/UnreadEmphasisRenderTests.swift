@@ -38,81 +38,45 @@ struct UnreadEmphasisRenderTests {
         return store
     }
 
-    private func stagedList(_ emphasis: UnreadEmphasis, store: MailStore) -> some View {
-        var list = MessageList(store: store, width: MessageList.width)
-        list.unreadEmphasis = emphasis
-        return list
+    /// A lista do desenho novo. O botão `unreadEmphasis` saiu com o shell
+    /// clássico: a linha do protótipo (`GlassMessageRow`) tem **uma** marca de
+    /// não-lida, o ponto antes do remetente, e é a mesma nos 28 temas.
+    private func lista(store: MailStore) -> some View {
+        MessageList(store: store, width: MessageList.width)
     }
 
-    @Test("as três variantes desenham a mesma lista, com lidas e não lidas")
-    func renderTheThreeVariants() async throws {
-        let store = await mixedStore()
-
-        let unread = store.visibleMessages.filter { !$0.isRead }.count
-        let read = store.visibleMessages.count - unread
+    /// A escolha das três variantes foi feita e está no desenho; o que precisa
+    /// continuar provado é o **motivo** de ela ter existido: não-lida tem de
+    /// ser visível sem esforço, e as duas rodadas que o dono recusou falhavam
+    /// exatamente aí. O caso agora mede isso de frente — a mesma lista com e
+    /// sem mensagens lidas não pode sair igual.
+    @Test("a lista marca a não-lida, e a marca some quando ela é lida")
+    func unreadIsVisible() async throws {
+        let misturada = await mixedStore()
+        let unread = misturada.visibleMessages.filter { !$0.isRead }.count
+        let read = misturada.visibleMessages.count - unread
         #expect(unread > 0 && read > 0, "a lista de comparação precisa das duas")
 
-        var counts: [UnreadEmphasis: Int] = [:]
-        for emphasis in UnreadEmphasis.allCases {
-            let rep = try #require(
-                Render.snapshot(
-                    stagedList(emphasis, store: store),
-                    named: "nao-lida-\(emphasis.fileTag)",
-                    size: CGSize(width: MessageList.width, height: 700),
-                    theme: .tinta
-                )
+        let tamanho = CGSize(width: MessageList.width, height: 700)
+        let comNaoLidas = try #require(
+            Render.snapshot(
+                lista(store: misturada), named: "nao-lida-mista",
+                size: tamanho, theme: .tinta
             )
-            #expect(rep.pixelsWide == Int(MessageList.width))
-            counts[emphasis] = rep.pixels(matching: Theme.tinta.accent)
+        )
+        #expect(comNaoLidas.pixelsWide == Int(MessageList.width))
+
+        // A mesma lista, tudo lido: a marca tem de sumir.
+        let todasLidas = await mixedStore()
+        for message in todasLidas.visibleMessages where !message.isRead {
+            _ = StoreCommand.run(.setRead(messageID: message.id, isRead: true), on: todasLidas)
         }
-
-        // As três são de fato diferentes: a do ponto pinta `accent` e a do
-        // campo não, e a combinada pinta como a do ponto. Sem esta conta o
-        // teste seria "renderizou sem trapar" — verdadeiro por construção.
-        let dotOnly = try #require(counts[.dot])
-        let fieldOnly = try #require(counts[.field])
-        let both = try #require(counts[.both])
-        #expect(dotOnly > 0, "a variante A não pintou ponto nenhum")
-        #expect(fieldOnly == 0, "a variante B pintou accent — ela não tem ponto")
-        #expect(both == dotOnly, "a variante C perdeu os pontos da A")
-    }
-
-    /// A variante do campo muda a lista **inteira**, não uma coluna dela: é o
-    /// que a distingue de A aos olhos, e o que um teste de ponto não veria.
-    @Test("a variante do campo pinta fundo onde a do ponto não pinta nada")
-    func fieldVariantPaintsTheRows() async throws {
-        let store = await mixedStore()
-
-        func softPixels(_ emphasis: UnreadEmphasis) throws -> Int {
-            let rep = try #require(
-                Render.bitmap(
-                    stagedList(emphasis, store: store),
-                    size: CGSize(width: MessageList.width, height: 700),
-                    theme: .tinta
-                )
-            )
-            return rep.pixels(matching: Theme.tinta.surface2, tolerance: 0.008)
-        }
-
-        let dot = try softPixels(.dot)
-        let field = try softPixels(.field)
-        let both = try softPixels(.both)
-        // A conta é a **diferença**, não o número absoluto: a lista já tem
-        // pixels nessa vizinhança de cor sem nenhuma variante de campo — o
-        // cabeçalho e outras superfícies neutras já usam `surface2`.
-        #expect(
-            field - dot > 50_000,
-            "a variante B acrescentou só \(field - dot)px de fundo sobre a base de \(dot)"
+        let semNaoLidas = try #require(
+            Render.bitmap(lista(store: todasLidas), size: tamanho, theme: .tinta)
         )
         #expect(
-            both - dot > 50_000,
-            "a variante C acrescentou só \(both - dot)px de fundo sobre a base de \(dot)"
-        )
-        // C e B pintam o mesmo campo; a diferença é só a área que os pontos
-        // cobrem — quatro pontos de 9pt, ~250px.
-        #expect(
-            field - both > 0 && field - both < 1_000,
-            "C e B divergem em \(field - both)px de campo — não é só o ponto"
+            comNaoLidas.pixelsDiffering(from: semNaoLidas) > 500,
+            "ler as mensagens não mudou nada na lista — a marca de não-lida sumiu do desenho"
         )
     }
 }

@@ -190,7 +190,7 @@ struct AssistantOrb: View {
     @State private var spin = false
 
     private var stops: [Gradient.Stop] {
-        if theme.isGlass {
+        if theme.isTranslucent {
             // `radial-gradient(circle at 32% 30%, #ffffff 0, #a9a3ff 28%,
             //  #6d63ff 58%, #d6498f 100%)`
             return [
@@ -211,7 +211,7 @@ struct AssistantOrb: View {
     }
 
     private var halo: CGFloat {
-        glow ?? (theme.isGlass ? side * 0.6 : 0)
+        glow ?? (theme.isTranslucent ? side * 0.6 : 0)
     }
 
     var body: some View {
@@ -567,7 +567,7 @@ struct PresencaPrimaryButton: View {
         .focusRing(cornerRadius: theme.radiusSmall)
         // `box-shadow: 0 4px 14px rgba(…,0.28)` — e `none` no tema clássico.
         .shadow(
-            color: theme.isGlass ? theme.accent.color.opacity(0.28) : .clear,
+            color: theme.isTranslucent ? theme.accent.color.opacity(0.28) : .clear,
             radius: 7, y: 4
         )
     }

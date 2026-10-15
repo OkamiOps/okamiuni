@@ -156,17 +156,23 @@ struct VidroPainelAgendaTests {
 
     // MARK: - Os 26 temas de sempre
 
-    /// O redesenho vale onde `theme.isGlass`. O clássico não muda — e é este
-    /// par de retratos que prova que ninguém mexeu nele por acidente.
-    @Test("o Painel e a Agenda da Tinta continuam como eram")
-    func theClassicShellIsUntouched() async throws {
+    /// O redesenho vale para os 28 temas: o clássico **perde o vidro e mantém
+    /// o desenho**, que é a regra do dono. Este par de retratos prova as duas
+    /// metades ao mesmo tempo — o Painel e a Agenda da Tinta desenham o layout
+    /// novo, e o fazem nas cores da Tinta, sem gradiente atrás.
+    @Test("o Painel e a Agenda da Tinta usam o layout novo nas cores delas")
+    func theClassicShellUsesTheNewLayout() async throws {
+        #expect(!Theme.tinta.isTranslucent)
+        #expect(Theme.tinta.usesFloatingPanels)
+        #expect(Theme.tinta.backdrop == nil, "clássico não tem gradiente")
+
         let store = await DiaDoDono.loja()
         let doPainel = try #require(Render.snapshot(
             painel(store), named: "tinta-painel", size: Self.tamanho, theme: .tinta
         ))
         #expect(
-            doPainel.pixels(matching: Theme.tinta.paper, tolerance: 0.02) > 1_000,
-            "o papel da Tinta sumiu do painel clássico"
+            doPainel.pixels(matching: Theme.tinta.surface, tolerance: 0.02) > 1_000,
+            "a superfície da Tinta sumiu do painel"
         )
         let daAgenda = try #require(Render.snapshot(
             agenda(store, mode: .week), named: "tinta-agenda",
@@ -174,7 +180,7 @@ struct VidroPainelAgendaTests {
         ))
         #expect(
             daAgenda.pixels(matching: Theme.tinta.surface, tolerance: 0.02) > 1_000,
-            "a superfície da Tinta sumiu da agenda clássica"
+            "a superfície da Tinta sumiu da agenda"
         )
     }
 }

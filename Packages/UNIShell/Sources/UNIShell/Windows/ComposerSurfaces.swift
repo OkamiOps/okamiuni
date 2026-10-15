@@ -7,7 +7,7 @@ import UNIDesign
 ///
 /// **Um layout só, para os 28 temas.** Não há fork de vidro e de clássico aqui:
 /// a estrutura, as medidas e os componentes são os mesmos em qualquer tema, e o
-/// que `theme.isGlass` decide é apenas o **tratamento de superfície** — nos dois
+/// que `theme.isTranslucent` decide é apenas o **tratamento de superfície** — nos dois
 /// temas Vidro a janela é translúcida sobre o gradiente; nos outros 26 ela é
 /// opaca, nas cores de `surface` e `line` do próprio tema. Ver
 /// `ComposerTone` e `Theme.glassWindow`.
@@ -37,7 +37,7 @@ enum ComposerTone {
     /// se distingue da calha; lá o aceso é o `accentSoft` que a barra desses
     /// temas sempre usou, e o estado continua legível.
     static func on(_ theme: Theme) -> Color {
-        guard theme.isGlass else { return theme.accentSoft.color }
+        guard theme.isTranslucent else { return theme.accentSoft.color }
         return theme.isDark
             ? Color.white.opacity(0.12)
             : Color(red: 20 / 255, green: 20 / 255, blue: 50 / 255).opacity(0.08)
@@ -46,14 +46,14 @@ enum ComposerTone {
     /// A tinta do botão aceso: no Vidro é `ink` (relevo neutro); nos opacos
     /// acompanha o `accentSoft` que ficou atrás dele.
     static func onInk(_ theme: Theme) -> Color {
-        theme.isGlass ? theme.ink.color : theme.accentInk.color
+        theme.isTranslucent ? theme.ink.color : theme.accentInk.color
     }
 
     /// `t.foot` do mock: o rodapé é um tom **mais** que a janela —
     /// `rgba(255,255,255,0.03)` no escuro, `rgba(20,20,50,0.02)` no claro. Nos
     /// temas opacos é `surface2`, a mesma altura que o rodapé já tinha.
     static func foot(_ theme: Theme) -> Color {
-        guard theme.isGlass else { return theme.surface2.color }
+        guard theme.isTranslucent else { return theme.surface2.color }
         return theme.isDark
             ? Color.white.opacity(0.03)
             : Color(red: 20 / 255, green: 20 / 255, blue: 50 / 255).opacity(0.02)

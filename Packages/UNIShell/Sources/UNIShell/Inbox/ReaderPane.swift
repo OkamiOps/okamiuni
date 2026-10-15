@@ -271,9 +271,10 @@ public struct ReaderPane: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // No Vidro o preenchimento é o do painel (`readerFill`), e ele é um
-        // só: pintar `surface` aqui poria uma segunda folha opaca por baixo.
-        .background(theme.isGlass ? Color.clear : theme.surface.color)
+        // **O preenchimento é o do painel** (`readerFill`), e ele é um só, nos
+        // 28 temas: pintar `surface` aqui poria uma segunda folha por baixo.
+        // Era `isGlass`, de quando só o Vidro tinha painel; hoje
+        // `resolvedPanel` dá um a todo tema (`glassPanel(_:kind:)`).
         // A pergunta antes de abrir link vale para o leitor inteiro: o HTML da
         // `WebView` e o texto desenhado passam os dois por aqui. Pendurada no
         // topo do painel para o cartão ter a largura dele, e não a da coluna.
@@ -717,86 +718,7 @@ public struct ReaderPane: View {
             ?? theme.accent.color
     }
 
-    private func triageBar(_ message: Message) -> some View {
-        let account = store.account(message.accountID)
-        let accentColor = accountTint(message)
-        let markers = Self.appliedMarkers(for: message, in: store.folders)
-        let buckets: [(String, TriageBucket)] = [
-            (L10n.tr("Hoje"), .today),
-            (L10n.tr("Depois"), .later),
-            (L10n.tr("Arquivar"), .archived),
-        ]
-
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 7) {
-                TintChip(label: account?.host ?? "", tint: accentColor, emphasized: true)
-                ForEach(Array(markers.prefix(1))) { marker in
-                    TintChip(
-                        label: Self.markerChipLabel(marker.displayName),
-                        tint: theme.ink3.color
-                    )
-                    .help(L10n.tr("Marcador aplicado: \(marker.displayName)"))
-                }
-                if markers.count > 1 {
-                    TintChip(label: "+\(markers.count - 1)", tint: theme.ink3.color)
-                        .help(markers.dropFirst().map(\.displayName).joined(separator: " · "))
-                }
-                Spacer(minLength: 0)
-            }
-
-            HStack(spacing: 8) {
-                if message.bucket == .drafts {
-                    triageAction(
-                        L10n.tr("Editar rascunho"),
-                        symbol: "square.and.pencil",
-                        help: L10n.tr("Continua o que já estava escrito"),
-                        tone: .primary
-                    ) {
-                        onCompose(ComposerRoute.editor(for: message))
-                    }
-                    .keyboardShortcut("r", modifiers: .command)
-
-                    triageAction(
-                        L10n.tr("Apagar"),
-                        symbol: SwipeAction.trash.symbol(for: message),
-                        help: L10n.tr("Joga o rascunho fora"),
-                        tone: .danger,
-                        showsLabel: false
-                    ) {
-                        _ = receipts.delete(message, on: store)
-                        mensagemSaiuDaLista()
-                    }
-                } else {
-                    bucketSegment(buckets, current: message.bucket) { bucket in
-                        store.move(message, to: bucket)
-                        mensagemSaiuDaLista()
-                    }
-
-                    triageAction(
-                        Self.apagarLabel(message),
-                        symbol: SwipeAction.trash.symbol(for: message),
-                        help: ContextMenus.deleteItem(message).help,
-                        tone: .danger,
-                        showsLabel: false
-                    ) {
-                        _ = receipts.delete(message, on: store)
-                        mensagemSaiuDaLista()
-                    }
-
-                    moveFolderButton(for: message)
-
-                    composeIconRow(for: message)
-                }
-
-                Spacer(minLength: 16)
-
-                inkPill(message)
-            }
-            .zIndex(emailAssistantOpen ? 90 : 0)
-        }
-    }
-
-    // MARK: - O leitor de vidro
+    // MARK: - A barra e o cabeçalho do leitor
 
     /// A barra do protótipo: o botão de acento da IA na ponta esquerda, um
     /// fio, os ícones de ação, e as setas de anterior/próxima na direita.
@@ -1085,6 +1007,26 @@ public struct ReaderPane: View {
                 .font(theme.sans.font(size: 11.5))
                 .foregroundStyle(theme.ink3.color)
                 .lineLimit(1)
+                .layoutPriority(-1)
+
+                // **Os marcadores aplicados continuam visíveis.** Eles
+                // moravam na fila de triagem, que saiu com o cabeçalho
+                // antigo; aqui ficam na linha da procedência, que é a linha
+                // de onde esta mensagem veio — e um marcador do Gmail é
+                // exatamente isso.
+                let marcadores = Self.appliedMarkers(for: message, in: store.folders)
+                ForEach(Array(marcadores.prefix(1))) { marcador in
+                    TintChip(
+                        label: Self.markerChipLabel(marcador.displayName),
+                        tint: theme.ink3.color
+                    )
+                    .help(L10n.tr("Marcador aplicado: \(marcador.displayName)"))
+                }
+                if marcadores.count > 1 {
+                    TintChip(label: "+\(marcadores.count - 1)", tint: theme.ink3.color)
+                        .help(marcadores.dropFirst().map(\.displayName).joined(separator: " · "))
+                }
+
                 Spacer(minLength: 8)
                 Text(MessageList.messageCountLabel(count))
                     .font(theme.sans.font(size: 11.5))
@@ -1160,46 +1102,6 @@ public struct ReaderPane: View {
         }
     }
 
-    /// Destinos da conversa num **trilho só**. Cada rótulo tem largura própria
-    /// (`.fixedSize`) — espremer o HStack pai quebrava "Hoje" no meio.
-    private func bucketSegment(
-        _ buckets: [(String, TriageBucket)],
-        current: TriageBucket,
-        action: @escaping (TriageBucket) -> Void
-    ) -> some View {
-        HStack(spacing: 0) {
-            ForEach(Array(buckets.enumerated()), id: \.offset) { index, item in
-                let (label, bucket) = item
-                let ativo = current == bucket
-                if index > 0 {
-                    Rectangle()
-                        .fill(theme.line.color)
-                        .frame(width: Hairline.thickness(displayScale), height: 14)
-                }
-                Button { action(bucket) } label: {
-                    Text(label)
-                        .font(theme.sans.font(size: 11.5, weight: ativo ? .semibold : .medium))
-                        .foregroundStyle(ativo ? theme.accentInk.color : theme.ink2.color)
-                        .lineLimit(1)
-                        .fixedSize()
-                        .padding(.horizontal, 11)
-                        .frame(height: 28)
-                        .background(ativo ? theme.accentSoft.color : Color.clear)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .focusRing(cornerRadius: 6)
-            }
-        }
-        .fixedSize(horizontal: true, vertical: true)
-        .background(theme.surface2.color)
-        .clipShape(RoundedRectangle(cornerRadius: 7))
-        .overlay {
-            RoundedRectangle(cornerRadius: 7)
-                .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
-        }
-    }
-
     nonisolated static func appliedMarkers(
         for message: Message,
         in folders: [MailFolder]
@@ -1247,155 +1149,6 @@ public struct ReaderPane: View {
         message.bucket == .trash ? L10n.tr("Apagar de vez") : L10n.tr("Apagar")
     }
 
-    /// A ação continua reversível fora da Lixeira, mas não pode parecer igual a
-    /// "Arquivar": magenta suave deixa explícito que ela tira a conversa da
-    /// caixa atual sem transformar uma ida para a Lixeira em botão alarmista.
-    ///
-    /// Estes três tokens vivem juntos porque a cor é semântica da ação, não do
-    /// tema/conta que recebeu a mensagem. O teste renderiza a pastilha com a
-    /// paleta real para impedir que ela volte a ser um botão neutro.
-    nonisolated static func apagarPalette(isDark: Bool) -> ReaderDangerPalette {
-        if isDark {
-            ReaderDangerPalette(
-                ink: TokenColor(css: "#FE39D1")!,
-                fill: TokenColor(css: "#3A0828")!,
-                line: TokenColor(css: "#C41A8A")!
-            )
-        } else {
-            ReaderDangerPalette(
-                ink: TokenColor(css: "#A3135A")!,
-                fill: TokenColor(css: "#FDE7F2")!,
-                line: TokenColor(css: "#E580B5")!
-            )
-        }
-    }
-
-    /// Três ícones no lugar do antigo "Responder" com texto: responder,
-    /// responder a todos, encaminhar. Hover pinta o acento; o rótulo vive no
-    /// `help`.
-    private func composeIconRow(for message: Message) -> some View {
-        let conta = store.account(message.accountID)?.address ?? ""
-        let podeTodos = ComposerSeed.replyAllExtras(message, accountAddress: conta) > 0
-        return HStack(spacing: 4) {
-            ReaderChromeIcon(
-                symbol: "arrowshape.turn.up.left.fill",
-                label: L10n.tr("Responder"),
-                help: L10n.tr("Responder a este email")
-            ) {
-                pedidoDeResposta += 1
-            }
-            .keyboardShortcut("r", modifiers: .command)
-
-            ReaderChromeIcon(
-                symbol: "arrowshape.turn.up.left.2.fill",
-                label: L10n.tr("Responder a todos"),
-                help: podeTodos
-                    ? L10n.tr("Responder ao remetente e a todos que estavam na mensagem")
-                    : L10n.tr("Não há mais ninguém além do remetente para incluir"),
-                enabled: podeTodos
-            ) {
-                onCompose(.replyAll(messageID: message.id))
-            }
-            .keyboardShortcut("r", modifiers: [.command, .shift])
-
-            ReaderChromeIcon(
-                symbol: "arrowshape.turn.up.right.fill",
-                label: L10n.tr("Encaminhar"),
-                help: L10n.tr("Encaminhar este email")
-            ) {
-                onCompose(.forward(messageID: message.id))
-            }
-            .keyboardShortcut("f", modifiers: [.command, .shift])
-        }
-    }
-
-    /// Ação solta da barra: Apagar (só o ícone) e Editar rascunho.
-    private func triageAction(
-        _ label: String,
-        symbol: String,
-        help: String?,
-        tone: TriageChipTone,
-        showsLabel: Bool = true,
-        action: @escaping () -> Void
-    ) -> some View {
-        let danger = Self.apagarPalette(isDark: theme.isDark)
-        let isDanger = tone == .danger
-        let isPrimary = tone == .primary
-        return Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: symbol)
-                    .font(.system(size: 11, weight: .semibold))
-                if showsLabel {
-                    Text(label)
-                        .font(theme.sans.font(size: 11.5, weight: .semibold))
-                        .lineLimit(1)
-                        .fixedSize()
-                }
-            }
-            .foregroundStyle(
-                isDanger ? danger.ink.color
-                    : (isPrimary ? theme.accentInk.color : theme.ink.color)
-            )
-            .padding(.horizontal, showsLabel ? 11 : 0)
-            .frame(width: showsLabel ? nil : 28, height: 28)
-            .fixedSize(horizontal: showsLabel, vertical: true)
-            .background(
-                isDanger ? danger.fill.color
-                    : (isPrimary ? theme.accentSoft.color : Color.clear)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 7))
-            .overlay {
-                RoundedRectangle(cornerRadius: 7)
-                    .strokeBorder(
-                        isDanger ? danger.line.color
-                            : (isPrimary ? theme.accentLine.color : Color.clear),
-                        lineWidth: Hairline.thickness(displayScale)
-                    )
-            }
-            .contentShape(RoundedRectangle(cornerRadius: 7))
-        }
-        .buttonStyle(.plain)
-        .focusRing(cornerRadius: 7, tint: \.accent)
-        .help(help ?? "")
-        .accessibilityLabel(label)
-    }
-
-    /// Pasta com seta. Abre o painel nosso — o `Menu` do sistema estourava
-    /// a tela com a lista de marcadores do Gmail.
-    private func moveFolderButton(for message: Message) -> some View {
-        let entries = Self.folderMenuEntries(for: message, store: store)
-        return Button {
-            folderPickerOpen.toggle()
-        } label: {
-            MoveToFolderGlyph()
-                .foregroundStyle(folderPickerOpen ? theme.accentInk.color : theme.ink2.color)
-                .frame(width: 28, height: 28)
-                .background(folderPickerOpen ? theme.accentSoft.color : theme.btn.color)
-                .clipShape(RoundedRectangle(cornerRadius: 7))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 7)
-                        .strokeBorder(
-                            folderPickerOpen ? theme.accent.color : theme.btnLine.color,
-                            lineWidth: Hairline.thickness(displayScale)
-                        )
-                }
-                .contentShape(RoundedRectangle(cornerRadius: 7))
-        }
-        .buttonStyle(.plain)
-        .help(L10n.tr("Mover para pasta ou marcador"))
-        .accessibilityLabel(L10n.tr("Mover para pasta ou marcador"))
-        .popover(isPresented: $folderPickerOpen, arrowEdge: .bottom) {
-            MoveFolderPanel(
-                groups: MoveFolderPanel.groups(from: entries),
-                onPick: { command in
-                    runFolderCommand(command)
-                    folderPickerOpen = false
-                }
-            )
-        }
-        .onChange(of: message.id) { _, _ in folderPickerOpen = false }
-    }
-
     private func runFolderCommand(_ command: ContextCommand) {
         defer { mensagemSaiuDaLista() }
         if receipts.intercept(command, on: store, stamp: ActionReceipts.stamp) { return }
@@ -1430,7 +1183,7 @@ public struct ReaderPane: View {
 
     /// **Um desenho só para os 28 temas.** A tinta nasce escrita em todos:
     /// não havia razão para o vidro ler a frase inteira e os 26 opacos
-    /// receberem uma linha dobrada, e o `theme.isGlass` que decidia isto aqui
+    /// receberem uma linha dobrada, e o `isGlass` que decidia isto aqui
     /// voltou a ser o que ele deve ser — tratamento de superfície, não layout.
     private func resumoEstaAberto(_ message: Message) -> Bool {
         if debugResumoAberto { return true }
@@ -2280,50 +2033,6 @@ private enum TriageChipTone {
 /// só reporta onde está; quem desenha o painel é a coluna inteira.
 
 /// Ícone 28×28 da barra do leitor: quieto, acende no hover.
-private struct ReaderChromeIcon: View {
-    @Environment(\.theme) private var theme
-    @Environment(\.displayScale) private var displayScale
-    @State private var hovering = false
-
-    let symbol: String
-    let label: String
-    let help: String
-    var enabled = true
-    let action: () -> Void
-
-    var body: some View {
-        let aceso = hovering && enabled
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(
-                    enabled
-                        ? (aceso ? theme.accentInk.color : theme.ink2.color)
-                        : theme.ink4.color
-                )
-                .frame(width: 28, height: 28)
-                .background(aceso ? theme.accentSoft.color : theme.btn.color)
-                .clipShape(RoundedRectangle(cornerRadius: 7))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 7)
-                        .strokeBorder(
-                            aceso ? theme.accent.color : theme.btnLine.color,
-                            lineWidth: Hairline.thickness(displayScale)
-                        )
-                }
-                .contentShape(RoundedRectangle(cornerRadius: 7))
-        }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
-        .onHover { hovering = $0 }
-        .help(help)
-        .accessibilityLabel(label)
-        .accessibilityHint(help)
-    }
-}
-
-/// Pasta com seta para dentro — o "Mover para" da barra, no desenho que o
-/// dono mandou: um folder e a seta caindo nele.
 private struct MoveToFolderGlyph: View {
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -2342,19 +2051,6 @@ private struct MoveToFolderGlyph: View {
 /// Tokens da ação destrutiva do leitor. Não entram em `Theme`: são semântica
 /// local de uma ação, enquanto o tema continua responsável pela identidade da
 /// conta e pelos controles normais.
-struct ReaderDangerPalette: Sendable, Hashable {
-    let ink: TokenColor
-    let fill: TokenColor
-    let line: TokenColor
-}
-
-/// A coluna de texto plano do leitor.
-///
-/// Era um `VStack` dentro do `ReaderPane.body(_:)`. Virou peça porque agora ela
-/// é desenhada em **dois** momentos: quando a mensagem não tem HTML (sempre foi
-/// assim) e enquanto o HTML ainda não pintou — o texto que já está no banco no
-/// lugar dos vinte segundos de nada. Duas cópias divergiriam na primeira vez
-/// que alguém mexesse no espaçamento de uma.
 struct ReaderPlainText: View {
     @Environment(\.theme) private var theme
     let paragrafos: [String]

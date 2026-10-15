@@ -76,27 +76,12 @@ struct ReaderHTMLSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Group {
-                if theme.isGlass {
-                    faixaDeVidro
-                } else {
-                    HStack(alignment: .center, spacing: 12) {
-                        if ReaderHTMLPolicy.pedeRecursoRemoto(html) {
-                            if confiavel {
-                                faixaConfiavel
-                            } else if !carregaRemotas {
-                                faixa
-                            } else {
-                                Spacer(minLength: 0)
-                            }
-                        } else {
-                            Spacer(minLength: 0)
-                        }
-                        paletaToggle
-                    }
-                }
-            }
-            .padding(.horizontal, 28)
+            // **A faixa quieta, nos 28 temas.** Duas pastilhas com moldura
+            // logo acima do email gritavam mais que o email, e o dono as viu
+            // antes do assunto; só os dois temas de vidro tinham sido
+            // consertados. As quatro decisões continuam todas alcançáveis.
+            faixaQuieta
+                .padding(.horizontal, 28)
             .padding(.bottom, 12)
 
             // **O vazio que parecia defeito.** A `WebView` nasce com um ponto
@@ -176,12 +161,12 @@ struct ReaderHTMLSection: View {
 
     /// A mesma faixa, calada.
     ///
-    /// No shell Vidro ela virou **uma linha de 11pt em `ink4`**: duas
+    /// Ela é **uma linha de 11pt em `ink4`**: duas
     /// pastilhas com moldura logo acima do email gritavam mais que o email, e
     /// o dono as viu antes do assunto. As quatro decisões continuam todas
     /// alcançáveis — carregar, confiar, rever, trocar a paleta —, agora como
     /// palavras ligadas em vez de controles desenhados.
-    private var faixaDeVidro: some View {
+    private var faixaQuieta: some View {
         HStack(spacing: 7) {
             if ReaderHTMLPolicy.pedeRecursoRemoto(html) {
                 if confiavel {
@@ -230,109 +215,6 @@ struct ReaderHTMLSection: View {
         .focusRing(cornerRadius: 4)
         .help(help ?? rotulo)
         .accessibilityLabel(rotulo)
-    }
-
-    private var paletaToggle: some View {
-        HStack(spacing: 0) {
-            paletaBotao(.papel, Self.comoEnviado)
-            Rectangle()
-                .fill(theme.line.color)
-                .frame(width: Hairline.thickness(displayScale), height: 14)
-            paletaBotao(.doTema, Self.comoOTema)
-        }
-        .fixedSize(horizontal: true, vertical: true)
-        .background(theme.surface2.color)
-        .clipShape(RoundedRectangle(cornerRadius: 7))
-        .overlay {
-            RoundedRectangle(cornerRadius: 7)
-                .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
-        }
-        .help(L10n.tr("Como enviado guarda as cores do remetente. Como o tema pinta com as cores do app."))
-        .accessibilityLabel(L10n.tr("Cores da mensagem"))
-        .accessibilityValue(paletaEfetiva == .papel ? Self.comoEnviado : Self.comoOTema)
-    }
-
-    private func paletaBotao(_ alvo: ReaderHTMLPolicy.Paleta, _ rotulo: String) -> some View {
-        let ativo = paletaEfetiva == alvo
-        return Button {
-            paletaForcada = alvo
-        } label: {
-            Text(rotulo)
-                .font(theme.sans.font(size: 11.5, weight: ativo ? .semibold : .medium))
-                .foregroundStyle(ativo ? theme.accentInk.color : theme.ink2.color)
-                .lineLimit(1)
-                .fixedSize()
-                .padding(.horizontal, 10)
-                .frame(height: 26)
-                .background(ativo ? theme.accentSoft.color : Color.clear)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .focusRing(cornerRadius: 6)
-        .accessibilityAddTraits(ativo ? .isSelected : [])
-    }
-
-    private var faixa: some View {
-        HStack(spacing: 8) {
-            Text(Self.imagensBloqueadas)
-                .font(theme.sans.font(size: 11.5))
-                .foregroundStyle(theme.ink3.color)
-            Text("·")
-                .font(theme.sans.font(size: 11.5))
-                .foregroundStyle(theme.ink4.color)
-            ChromeButton(
-                Self.carregar, appearance: .outlined,
-                size: 11.5, height: 26, horizontalPadding: 12
-            ) {
-                carregaRemotas = true
-            }
-            .help(
-                L10n.tr("Carrega as imagens que esta mensagem busca na internet. ")
-                + L10n.tr("Vale só para ela — carregar avisa o remetente de que você a abriu.")
-            )
-            // A segunda ação, no mesmo idioma da primeira e ao lado dela: o
-            // "uma vez" e o "sempre" são a mesma decisão em duas durações.
-            if let sempre = Self.sempreCarregar(de: remetente) {
-                ChromeButton(
-                    sempre, appearance: .outlined,
-                    size: 11.5, height: 26, horizontalPadding: 12
-                ) {
-                    aoConfiar()
-                }
-                .help(
-                    L10n.tr("Passa a carregar as imagens deste endereço sozinho, em toda ")
-                    + L10n.tr("mensagem dele. Vale só para este endereço, e pode ser desfeito.")
-                )
-            }
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    /// A linha mínima da mensagem de um remetente confiável.
-    ///
-    /// Ela existe por uma razão só: **a saída**. Sem ela, a confiança dada num
-    /// clique não teria onde ser desfeita, e uma decisão de mão única sobre
-    /// privacidade é um beco. Diz o que aconteceu (as imagens carregaram, e
-    /// por quê) e traz o "Rever" que revoga.
-    private var faixaConfiavel: some View {
-        HStack(spacing: 8) {
-            Text(Self.imagensCarregadas)
-                .font(theme.sans.font(size: 11.5))
-                .foregroundStyle(theme.ink4.color)
-            ChromeButton(
-                Self.rever, appearance: .outlined,
-                size: 11.5, height: 26, horizontalPadding: 12
-            ) {
-                aoRevogar()
-            }
-            .help(
-                L10n.tr("Deixa de confiar neste endereço: as imagens dele voltam a ser ")
-                + L10n.tr("bloqueadas, aqui e nas próximas mensagens.")
-            )
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// O token do tema virando cor de CSS.

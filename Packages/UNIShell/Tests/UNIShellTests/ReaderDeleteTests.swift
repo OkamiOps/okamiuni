@@ -162,19 +162,24 @@ struct ReaderDeleteTests {
         )
     }
 
-    @Test("Apagar é destacado em magenta suave, sem herdar a cor neutra da barra")
-    func apagarTemTomPerigoso() async throws {
-        let store = await Self.store([Self.mensagem(id: "m1")], seleciona: "m1")
-        let rep = try #require(Render.bitmap(
-            ReaderPane(store: store).environment(ThemeStore()),
-            size: CGSize(width: 760, height: 700), theme: .tinta
-        ))
-        let danger = ReaderPane.apagarPalette(isDark: Theme.tinta.isDark)
-        #expect(danger.fill != Theme.tinta.btn)
-        #expect(danger.ink != Theme.tinta.ink)
+    /// **O que distingue o Apagar na barra do desenho.**
+    ///
+    /// Era a cor: na fila de pastilhas antiga ele vinha em magenta suave,
+    /// para não se parecer com o Arquivar. A barra do desenho `IA-Tinta` não
+    /// tem pastilha nenhuma — são ícones quietos, todos em `ink2` —, e o que
+    /// separa os dois é o símbolo e a frase, que dizem o que vai acontecer
+    /// (e mudam na Lixeira).
+    @Test("Apagar diz o que faz, e não se confunde com Arquivar")
+    func apagarDizOQueFaz() async throws {
+        #expect(ReaderPane.apagarLabel(Self.mensagem(id: "m")) == L10n.tr("Apagar"))
         #expect(
-            rep.pixels(matching: danger.fill, tolerance: 0.03) > 80,
-            "Apagar voltou a ser uma pastilha neutra em vez de uma ação perigosa"
+            ReaderPane.apagarLabel(Self.mensagem(id: "m", bucket: .trash))
+                == L10n.tr("Apagar de vez")
+        )
+        #expect(
+            SwipeAction.trash.symbol(for: Self.mensagem(id: "m"))
+                != SwipeAction.archive.symbol(for: Self.mensagem(id: "m")),
+            "Apagar e Arquivar ficaram com o mesmo ícone na barra"
         )
     }
 }

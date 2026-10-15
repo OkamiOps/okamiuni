@@ -176,13 +176,14 @@ struct ReaderTests {
         return Render.bitmap(reader, size: size, theme: .tinta)
     }
 
-    /// A fila de triagem mora **acima** do assunto. Assunto curto e assunto
+    /// A barra de ações mora **acima** do assunto. Assunto curto e assunto
     /// de várias linhas não podem empurrá-la: é o defeito da tela do dono, os
     /// botões subindo e descendo conforme o título.
     ///
-    /// A régua é o magenta do "Apagar": ele mora na mesma fileira e não
-    /// depende do assunto. `btn` no tema Tinta é branco, o mesmo do papel.
-    @Test("assunto longo não move a fila de triagem")
+    /// A régua mudou de cor com o desenho: a fila de pastilhas (com o magenta
+    /// do "Apagar") virou a barra quieta do desenho, e o que a ancora é a
+    /// pastilha ✦ IA, em `accentSoft`, na ponta esquerda dela.
+    @Test("assunto longo não move a barra de ações")
     @MainActor
     func assuntoNaoMoveAFila() async throws {
         let curto = try #require(await renderReader(event: nil, subject: "Oi"))
@@ -198,43 +199,39 @@ struct ReaderTests {
         #expect(curto.pixelsDiffering(from: longo) > 0)
 
         let recorte = 0..<260
-        let apagar = ReaderPane.apagarPalette(isDark: Theme.tinta.isDark)
         let filaCurta = try #require(
-            curto.rows(matching: apagar.fill, inRows: recorte)
+            curto.rows(matching: Theme.tinta.accentSoft, inRows: recorte)
         )
         let filaLonga = try #require(
-            longo.rows(matching: apagar.fill, inRows: recorte)
+            longo.rows(matching: Theme.tinta.accentSoft, inRows: recorte)
         )
         #expect(
             filaCurta == filaLonga,
-            "a fila de triagem andou quando o assunto quebrou linha: curto \(filaCurta) vs longo \(filaLonga)"
+            "a barra andou quando o assunto quebrou linha: curto \(filaCurta) vs longo \(filaLonga)"
         )
     }
 
-    /// No ponto de fidelidade o leitor tem 516pt. Uma fileira só com ícone +
-    /// rótulo espreme o trilho e o "Hoje" vira "Hoj e". A régua é a altura do
-    /// preenchimento `accentSoft` da caixa ativa: uma linha tem 28pt. O recorte
-    /// é só a barra — o cabeçalho ficou mais baixo, e o TL;DR aberto logo
-    /// abaixo pintava `accentSoft` no recorte antigo de 140pt.
-    @Test("no leitor estreito os rótulos da fila cabem numa linha")
+    /// No ponto de fidelidade o leitor tem 516pt, e a barra de ações tem de
+    /// continuar **numa linha só** — a altura dela é 46 no desenho, e nada
+    /// ali pode quebrar e empurrar o e-mail para baixo.
+    ///
+    /// A régua é a pastilha ✦ IA: ela tem 30 de altura dentro da barra, e se
+    /// alguma coisa quebrasse linha a mancha dela desceria junto.
+    @Test("no leitor estreito a barra de ações cabe numa linha")
     @MainActor
     func filaNaoQuebraRotulo() async throws {
         let bitmap = try #require(await renderReader(event: nil, width: 516))
         let barra = 0..<90
-        let ativo = try #require(
+        let pastilha = try #require(
             bitmap.rows(matching: Theme.tinta.accentSoft, inRows: barra)
         )
         #expect(
-            ativo.upperBound - ativo.lowerBound <= 36,
-            "Hoje quebrou linha no trilho: \(ativo)"
-        )
-        let apagar = ReaderPane.apagarPalette(isDark: Theme.tinta.isDark)
-        let responder = try #require(
-            bitmap.rows(matching: apagar.fill, inRows: barra)
+            pastilha.upperBound - pastilha.lowerBound <= 36,
+            "a barra de ações quebrou linha: \(pastilha)"
         )
         #expect(
-            responder.upperBound - responder.lowerBound <= 36,
-            "a fila de ações quebrou linha: \(responder)"
+            pastilha.upperBound <= 46,
+            "a barra passou dos 46 do desenho: \(pastilha)"
         )
     }
 
@@ -256,50 +253,38 @@ struct ReaderTests {
         #expect(rep.pixels(matching: Theme.tinta.btnLine, tolerance: 0.02) > 700)
     }
 
-    @Test("o botão da IA fica à direita do Responder, com folga")
+    /// **A pastilha ✦ IA abre a barra** — é a ponta esquerda dela, antes do
+    /// fio e dos ícones de ação, como o desenho `IA-Tinta` escreve.
+    ///
+    /// Era o contrário: um ícone redondo no fim da fila de triagem, à direita
+    /// do Apagar, e este caso media aquela folga. A garantia que sobrevive é
+    /// a mesma em espírito — a porta da IA tem lugar próprio na barra e não
+    /// encosta nos ícones de ação.
+    @Test("a pastilha ✦ IA abre a barra, antes dos ícones de ação")
     @MainActor
-    func iaADireitaDoResponder() async throws {
+    func iaAbreABarra() async throws {
         let bitmap = try #require(await renderReader(event: nil))
-        let cabeca = 0..<130
-        // A pastilha ✦ IA é de acento (`accentSoft` preenchido, verbo em
-        // `accentInk`) desde a direção Tinta: era um ícone redondo em `info`,
-        // e a cor mudou junto com a porta. A garantia é a mesma — ela fica à
-        // direita do Apagar, com folga, no canto da barra.
-        //
-        // A busca começa na metade direita porque `accentSoft` também pinta o
-        // destino escolhido do segmentado, lá na ponta esquerda da mesma
-        // linha.
-        let alvo = try #require(Theme.tinta.accentSoft.nsColor.usingColorSpace(.sRGB))
-        var primeira: Int?
-        var ultima: Int?
-        for x in 400..<bitmap.pixelsWide {
-            for y in cabeca {
-                guard let c = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
-                      c.alphaComponent > 0.9,
-                      abs(c.redComponent - alvo.redComponent) < 0.02,
-                      abs(c.greenComponent - alvo.greenComponent) < 0.02,
-                      abs(c.blueComponent - alvo.blueComponent) < 0.02 else { continue }
-                if primeira == nil { primeira = x }
-                ultima = x
-                break
-            }
-        }
-        let ia = try #require(primeira)...(try #require(ultima))
-        let apagar = ReaderPane.apagarPalette(isDark: Theme.tinta.isDark)
-        let lixeira = try #require(
-            bitmap.columns(matching: apagar.ink, tolerance: 0.08, inRows: cabeca)
+        let barra = 0..<46
+        let ia = try #require(
+            bitmap.columns(matching: Theme.tinta.accentSoft, tolerance: 0.02, inRows: barra),
+            "não achei a pastilha ✦ IA na barra"
+        )
+        // Os ícones de ação são `ink2`, depois do fio.
+        let acoes = try #require(
+            bitmap.columns(matching: Theme.tinta.ink2, tolerance: 0.10, inRows: barra),
+            "não achei os ícones de ação"
         )
         #expect(
-            ia.lowerBound > lixeira.upperBound,
-            "a IA ficou à esquerda ou por cima do Apagar: IA \(ia) vs Apagar \(lixeira)"
+            ia.lowerBound < 24,
+            "a pastilha não está na ponta esquerda da barra: \(ia)"
         )
         #expect(
-            ia.lowerBound - lixeira.upperBound >= 12,
-            "a IA colou no Apagar: folga \(ia.lowerBound - lixeira.upperBound)pt"
+            acoes.lowerBound > ia.upperBound,
+            "os ícones de ação ficaram antes da pastilha: IA \(ia) vs ações \(acoes)"
         )
         #expect(
-            ia.lowerBound > 600,
-            "a IA saiu do canto direito da barra: \(ia)"
+            acoes.lowerBound - ia.upperBound >= 8,
+            "os ícones colaram na pastilha: folga \(acoes.lowerBound - ia.upperBound)pt"
         )
     }
 
