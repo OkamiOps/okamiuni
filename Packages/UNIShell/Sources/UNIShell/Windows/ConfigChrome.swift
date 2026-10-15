@@ -28,11 +28,11 @@ struct ConfigPalette {
     var tileEdge: TokenColor { theme.glassTileEdge }
 
     /// `field`: a calha de um campo, de um segmentado ou de um seletor.
-    var field: TokenColor { theme.isGlass ? theme.glassTile : theme.surface2 }
+    var field: TokenColor { theme.isTranslucent ? theme.glassTile : theme.surface2 }
 
     /// `navOn` / `segOn`: o item escolhido, dentro do painel.
-    var navOn: TokenColor { theme.isGlass ? theme.glassActive : theme.surface3 }
-    var segOn: TokenColor { theme.isGlass ? theme.glassActive : theme.surface }
+    var navOn: TokenColor { theme.isTranslucent ? theme.glassActive : theme.surface3 }
+    var segOn: TokenColor { theme.isTranslucent ? theme.glassActive : theme.surface }
     /// O relevo do segmento escolhido no claro do mock
     /// (`0 1px 3px rgba(30,30,80,0.14)`). Nos temas escuros o mock não o pinta.
     var segShadow: [ShadowToken] {
@@ -42,7 +42,7 @@ struct ConfigPalette {
     }
 
     /// `btn2`: o botão secundário — borda de linha e fundo de superfície.
-    var btn2: TokenColor { theme.isGlass ? theme.glassCard : theme.surface }
+    var btn2: TokenColor { theme.isTranslucent ? theme.glassCard : theme.surface }
     var btnGlow: [ShadowToken] { theme.btnShadow }
 
     /// `ring`: o que está atrás dos avatares sobrepostos.
@@ -110,7 +110,7 @@ struct ConfigPanel: ViewModifier {
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: ConfigMetrics.panelRadius, style: .continuous)
-        if theme.isGlass {
+        if theme.isTranslucent {
             content.glassPanel(theme)
         } else {
             content

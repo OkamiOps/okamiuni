@@ -123,7 +123,7 @@ struct ConfigAppearance: View {
 
     // MARK: Os clássicos
 
-    private var classicThemes: [Theme] { Theme.all.filter { !$0.isGlass } }
+    private var classicThemes: [Theme] { Theme.all.filter { !$0.isTranslucent } }
 
     private func classics(_ themes: ThemeStore) -> some View {
         let all = classicThemes
