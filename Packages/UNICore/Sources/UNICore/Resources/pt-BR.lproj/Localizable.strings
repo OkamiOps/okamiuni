@@ -1933,6 +1933,7 @@
 "Xiaomi MiMo" = "Xiaomi MiMo";
 "a Mesa e o assistente, quando você pergunta alguma coisa" = "a Mesa e o assistente, quando você pergunta alguma coisa";
 "a assinatura que você já paga" = "a assinatura que você já paga";
+"a mesma IA faz as duas coisas por enquanto" = "a mesma IA faz as duas coisas por enquanto";
 "a pagar" = "a pagar";
 "a receber" = "a receber";
 "a resposta já pronta" = "a resposta já pronta";
@@ -1992,6 +1993,7 @@
 "conta" = "conta";
 "contas" = "contas";
 "continua sendo feito pelo Foundation Models deste Mac." = "continua sendo feito pelo Foundation Models deste Mac.";
+"conversa" = "conversa";
 "convidada — {0}" = "convidada — {0}";
 "convidado" = "convidado";
 "copiado" = "copiado";
@@ -2035,6 +2037,8 @@
 "esc fecha" = "esc fecha";
 "escolher dia" = "escolher dia";
 "escondido" = "escondido";
+"escreve" = "escreve";
+"escreve e conversa" = "escreve e conversa";
 "escrito pela IA ({0}) · não faz parte do e-mail · some quando você responder" = "escrito pela IA ({0}) · não faz parte do e-mail · some quando você responder";
 "escuro frio" = "escuro frio";
 "escuro quente" = "escuro quente";

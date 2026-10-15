@@ -1933,6 +1933,7 @@
 "Xiaomi MiMo" = "Xiaomi MiMo";
 "a Mesa e o assistente, quando você pergunta alguma coisa" = "the Desk and the assistant, when you ask something";
 "a assinatura que você já paga" = "the subscription you already pay for";
+"a mesma IA faz as duas coisas por enquanto" = "the same AI does both for now";
 "a pagar" = "payable";
 "a receber" = "receivable";
 "a resposta já pronta" = "the reply already prepared";
@@ -1992,6 +1993,7 @@
 "conta" = "account";
 "contas" = "accounts";
 "continua sendo feito pelo Foundation Models deste Mac." = "continue to use Foundation Models on this Mac.";
+"conversa" = "talks";
 "convidada — {0}" = "invited — {0}";
 "convidado" = "guest";
 "copiado" = "copied";
@@ -2035,6 +2037,8 @@
 "esc fecha" = "esc closes";
 "escolher dia" = "choose day";
 "escondido" = "hidden";
+"escreve" = "writes";
+"escreve e conversa" = "writes and talks";
 "escrito pela IA ({0}) · não faz parte do e-mail · some quando você responder" = "written by the AI ({0}) · not part of the email · disappears when you reply";
 "escuro frio" = "cool dark";
 "escuro quente" = "warm dark";

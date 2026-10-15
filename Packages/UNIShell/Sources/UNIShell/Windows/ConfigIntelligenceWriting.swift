@@ -97,7 +97,7 @@ struct ConfigIntelligenceWriting: View {
                         )
                     }
                 }
-                .configCard(palette, radius: 14)
+                .configCard(palette, radius: 14, shadow: palette.sectionShadow, shadowOnlyBelow: true)
 
                 instructions
             }

@@ -1933,6 +1933,7 @@
 "Xiaomi MiMo" = "Xiaomi MiMo";
 "a Mesa e o assistente, quando você pergunta alguma coisa" = "der Tisch und der Assistent, wenn Sie etwas fragen";
 "a assinatura que você já paga" = "das Abo, das Sie schon zahlen";
+"a mesma IA faz as duas coisas por enquanto" = "dieselbe KI macht vorerst beides";
 "a pagar" = "zu zahlen";
 "a receber" = "zu erhalten";
 "a resposta já pronta" = "Antwort bereits vorbereitet";
@@ -1992,6 +1993,7 @@
 "conta" = "Konto";
 "contas" = "Konten";
 "continua sendo feito pelo Foundation Models deste Mac." = "weiterhin mit Foundation Models auf diesem Mac erstellt.";
+"conversa" = "spricht";
 "convidada — {0}" = "eingeladen — {0}";
 "convidado" = "Gast";
 "copiado" = "kopiert";
@@ -2035,6 +2037,8 @@
 "esc fecha" = "esc schließt";
 "escolher dia" = "Tag auswählen";
 "escondido" = "ausgeblendet";
+"escreve" = "schreibt";
+"escreve e conversa" = "schreibt und spricht";
 "escrito pela IA ({0}) · não faz parte do e-mail · some quando você responder" = "von der KI geschrieben ({0}) · nicht Teil der E-Mail · verschwindet, sobald Sie antworten";
 "escuro frio" = "kühles Dunkel";
 "escuro quente" = "warmes Dunkel";

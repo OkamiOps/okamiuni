@@ -95,13 +95,11 @@ struct IntelligenciaRenderTests {
             ))
             #expect(image.pixelsWide == Int(artboard.width))
 
-            // As etiquetas de papel ("Escrita", "Conversas") e os quadrados dos
-            // papéis são `accentSoft`; com duas conexões em uso há mais acento
-            // aqui do que no quadro esparso.
+            // Os dois quadrados de 34pt dos papéis são `accentSoft`.
             let conteudo = CGRect(x: 300, y: 130, width: 820, height: 560)
             #expect(
-                pixels(image, matching: tema.accentSoft, in: conteudo, tolerance: 0.04) > 900,
-                "\(sufixo): as etiquetas de papel não apareceram na lista"
+                pixels(image, matching: tema.accentSoft, in: conteudo, tolerance: 0.04) > 600,
+                "\(sufixo): o cartão “Quem faz o quê” não desenhou os dois papéis"
             )
             // E o verde de "Conectada" nos pontos de estado da coluna direita.
             #expect(
@@ -222,7 +220,7 @@ struct IntelligenciaRenderTests {
             textos += [categoria.label, categoria.listHeading]
         }
         for papel in ConfigAIRole.allCases {
-            textos += [papel.title, papel.subtitle, papel.badge]
+            textos += [papel.title, papel.subtitle, papel.verb]
         }
         for texto in textos {
             #expect(

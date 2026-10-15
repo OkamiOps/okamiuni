@@ -85,7 +85,7 @@ struct ConfigIntelligenceAPIKeyForm: View {
                     modelRow
                     purposeRow
                 }
-                .configCard(palette, radius: 14)
+                .configCard(palette, radius: 14, shadow: palette.sectionShadow, shadowOnlyBelow: true)
 
                 actions
                 if let lastTest {
@@ -547,7 +547,7 @@ struct ConfigIntelligenceLocalPage: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 15)
         .frame(maxWidth: .infinity)
-        .configCard(palette, radius: 14)
+        .configCard(palette, radius: 14, shadow: palette.sectionShadow, shadowOnlyBelow: true)
     }
 
     // MARK: O servidor em destaque
@@ -596,7 +596,7 @@ struct ConfigIntelligenceLocalPage: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .configCard(palette, radius: 14)
+        .configCard(palette, radius: 14, shadow: palette.sectionShadow, shadowOnlyBelow: true)
     }
 
     private func modelPicker(_ server: ConfigAIPreset, models: [LocalModel]) -> some View {

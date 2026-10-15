@@ -254,17 +254,26 @@ struct ConfigIntelligence: View {
 
     private var rolesSection: some View {
         VStack(alignment: .leading, spacing: 9) {
-            sectionTitle(
-                L10n.tr("Quem faz o quê"),
-                note: L10n.tr("duas funções, uma IA em cada")
-            )
+            sectionTitle(L10n.tr("Quem faz o quê"), note: rolesNote)
             VStack(spacing: 0) {
                 ForEach(Array(ConfigAIRole.allCases.enumerated()), id: \.element) { index, role in
                     roleRow(role, first: index == 0)
                 }
             }
-            .configCard(palette, radius: 14)
+            .configCard(palette, radius: 14, shadow: palette.sectionShadow, shadowOnlyBelow: true)
         }
+    }
+
+    /// A nota ao lado de "Quem faz o quê".
+    ///
+    /// O desenho escreve "duas funções, uma IA em cada". Enquanto houver um
+    /// motor ativo só, isso é uma promessa que o roteador não cumpre: a mesma
+    /// conexão atende as duas. A linha só diz "uma em cada" quando as duas
+    /// realmente diferem — hoje, quando um agente atende as conversas.
+    private var rolesNote: String {
+        inventory.connection(for: .escrita).kind == inventory.connection(for: .conversas).kind
+            ? L10n.tr("a mesma IA faz as duas coisas por enquanto")
+            : L10n.tr("duas funções, uma IA em cada")
     }
 
     /// `grid-template-columns: 34px minmax(0, 1fr) auto; padding: 14px 18px`.
@@ -395,7 +404,7 @@ struct ConfigIntelligence: View {
                 }
                 connectButton
             }
-            .configCard(palette, radius: 14)
+            .configCard(palette, radius: 14, shadow: palette.sectionShadow, shadowOnlyBelow: true)
         }
     }
 
@@ -408,28 +417,27 @@ struct ConfigIntelligence: View {
             HStack(spacing: 14) {
                 ConfigAIMonogram(letter: connection.monogram, hue: connection.hue)
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 8) {
-                        Text(connection.name)
-                            .font(theme.sans.font(size: 14.5, weight: .semibold))
-                            .foregroundStyle(palette.ink.color)
-                            .lineLimit(1)
-                        ForEach(connection.roles, id: \.self) { role in
-                            Text(role)
-                                .font(theme.sans.font(size: 11, weight: .semibold))
-                                .foregroundStyle(palette.accentInk.color)
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 2)
-                                .background(
-                                    palette.accentSoft.color,
-                                    in: RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                )
-                        }
-                    }
-                    Text(connection.detail)
-                        .font(theme.sans.font(size: 12.5))
-                        .foregroundStyle(palette.ink3.color)
+                    Text(connection.name)
+                        .font(theme.sans.font(size: 14.5, weight: .semibold))
+                        .foregroundStyle(palette.ink.color)
                         .lineLimit(1)
-                        .truncationMode(.tail)
+                    // O papel entra na frase de baixo, e não numa pastilha ao
+                    // lado do nome: é a mesma informação sem um enfeite.
+                    HStack(spacing: 0) {
+                        if let roleLine = connection.roleLine {
+                            Text(roleLine)
+                                .font(theme.sans.font(size: 12.5, weight: .medium))
+                                .foregroundStyle(palette.accentInk.color)
+                            Text(verbatim: " · ")
+                                .font(theme.sans.font(size: 12.5))
+                                .foregroundStyle(palette.ink3.color)
+                        }
+                        Text(connection.detail)
+                            .font(theme.sans.font(size: 12.5))
+                            .foregroundStyle(palette.ink3.color)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 HStack(spacing: 7) {
@@ -620,7 +628,7 @@ struct ConfigIntelligence: View {
         .padding(.horizontal, 18)
         .padding(.vertical, 15)
         .frame(maxWidth: .infinity)
-        .configCard(palette, radius: 14)
+        .configCard(palette, radius: 14, shadow: palette.sectionShadow, shadowOnlyBelow: true)
     }
 
     private func automaticAnalysisDetail(

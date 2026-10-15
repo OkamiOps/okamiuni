@@ -89,8 +89,18 @@ struct ConfigAIConnection: Identifiable, Hashable {
     let monogram: String
     let hue: Double
     let state: ConfigAIConnectionState
-    /// Os papéis que esta conexão serve agora. É a etiqueta ao lado do nome.
-    var roles: [String]
+    /// Os papéis que esta conexão serve agora, na frase de baixo.
+    var roles: [ConfigAIRole]
+
+    /// "escreve", "conversa", "escreve e conversa" — ou nada, quando esta
+    /// conexão está aqui mas não está servindo papel nenhum.
+    var roleLine: String? {
+        guard !roles.isEmpty else { return nil }
+        if roles.count == ConfigAIRole.allCases.count {
+            return L10n.tr("escreve e conversa")
+        }
+        return roles.map(\.verb).joined(separator: ", ")
+    }
 
     /// Esta conexão roda sem sair do Mac?
     var isLocal: Bool {
@@ -140,11 +150,14 @@ enum ConfigAIRole: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    /// A etiqueta curta que aparece ao lado do nome da conexão na lista.
-    var badge: String {
+    /// O verbo que a linha da conexão usa.
+    ///
+    /// Era uma pastilha ao lado do nome. Pastilha é enfeite: a mesma
+    /// informação cabe na frase de baixo, que a pessoa já lê.
+    var verb: String {
         switch self {
-        case .escrita: L10n.tr("Escrita")
-        case .conversas: L10n.tr("Conversas")
+        case .escrita: L10n.tr("escreve")
+        case .conversas: L10n.tr("conversa")
         }
     }
 }
@@ -188,9 +201,9 @@ struct ConfigAIInventory {
     /// primeiro, o que está aqui depois.
     func connections() -> [ConfigAIConnection] {
         var list: [ConfigAIConnection] = []
-        var roles: [ConfigAIConnection.Kind: [String]] = [:]
+        var roles: [ConfigAIConnection.Kind: [ConfigAIRole]] = [:]
         for role in ConfigAIRole.allCases {
-            roles[connection(for: role).kind, default: []].append(role.badge)
+            roles[connection(for: role).kind, default: []].append(role)
         }
 
         func append(_ connection: ConfigAIConnection) {
