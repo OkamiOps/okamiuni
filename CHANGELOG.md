@@ -4,6 +4,12 @@
 
 Versions correspond to [GitHub releases](https://github.com/OkamiOps/okamiuni/releases). All dates below are in 2026.
 
+## 0.6.1 — October 15
+
+- Unread is easy to spot: only an unread email has the purple dot, with sender and subject in bold; read email is lighter.
+- "All" is back in the sidebar, right below Later.
+- App version 0.6.1, build 16. [Release notes](docs/releases/v0.6.1.md).
+
 ## 0.6.0 — October 15
 
 - New **Glass** look: a rail on the left, a folder column and floating panels, in the Glass light and Glass night themes, plus an **Automatic** option that follows the Mac. All 26 classic themes get the same layout, without the glass.

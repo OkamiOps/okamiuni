@@ -4,6 +4,11 @@
 
 Todas as versões seguem o [release no GitHub](https://github.com/OkamiOps/okamiuni/releases). Datas em 2026.
 
+## 0.6.1 — 15 de outubro
+- Não lidas fáceis de ver: só o e-mail não lido tem o ponto roxo, com remetente e assunto em negrito; o lido fica mais claro.
+- "Tudo" volta à lateral, logo abaixo de Depois.
+- Versão do app 0.6.1, build 16. [Notas da versão](docs/releases/v0.6.1.pt-BR.md).
+
 ## 0.6.0 — 15 de outubro
 - Visual novo, **Vidro**: trilho à esquerda, coluna de pastas e painéis flutuantes, nos temas Vidro claro e Vidro noite, com a opção **Automático** que segue o Mac. Os 26 temas clássicos ganham o mesmo layout, sem o vidro.
 - Painel do dia, Caixa, Agenda, Configurações, compositor e todas as janelas redesenhados. As caixas de todas as contas ficam unificadas, e as contas aparecem em árvore.
