@@ -21,22 +21,28 @@ struct ReaderTests {
         #expect(rendered != nil)
     }
 
-    @Test("o cabeçalho junta remetente e assunto numa linha")
-    func identityCaptionIsOneLine() {
-        #expect(ReaderPane.identityCaption(name: "Marina Duarte", subject: "Contrato") == "Marina Duarte · Contrato")
-        #expect(ReaderPane.identityCaption(name: "", subject: "Contrato") == "Contrato")
-        #expect(ReaderPane.identityCaption(name: "Marina", subject: "") == "Marina")
+    /// A procedência que o `Leitor5` escreve na ponta direita da linha do
+    /// remetente — era a faixa "conta · pasta" que ocupava uma linha inteira
+    /// do cabeçalho.
+    @Test("a procedência cabe na ponta direita da linha do remetente")
+    func senderOriginIsOneLine() {
+        #expect(
+            ReaderPane.senderOrigin(
+                account: "ricardo@empresa.com", folder: "Hoje", messages: "1 mensagem"
+            ) == "ricardo@empresa.com · Hoje · 1 mensagem"
+        )
+        #expect(
+            ReaderPane.senderOrigin(account: "", folder: "Hoje", messages: "1 mensagem")
+                == "Hoje · 1 mensagem"
+        )
     }
 
-    /// A garantia é a mesma de antes — a escolha de nascer aberta ou recolhida
-    /// é uma constante nomeada, e não um `if` perdido numa `View` — só que o
-    /// desenho aprovado (`IA-Tinta`) a inverteu: a tinta da IA é texto no
-    /// fluxo, com "OCULTAR" para quem não quiser, e não um cartão dobrado.
-    @Test("a tinta da IA nasce escrita, e tem como ocultar")
+    /// O chevron do resumo fala os dois lados, e o cartão recolhido é uma
+    /// linha de verdade — ver `ReaderSummaryCollapsed`.
+    @Test("o resumo recolhe e volta, e o botão diz qual dos dois")
     func tldrRowToggles() {
-        #expect(ReaderPane.mostrarResumo == "Mostrar resumo")
-        #expect(ReaderPane.recolherResumo == "Recolher resumo")
-        #expect(ReaderPane.resumoComecaAberto)
+        #expect(ReaderSummaryToggle.recolher == "Recolher o resumo")
+        #expect(ReaderSummaryToggle.abrir == "Abrir o resumo")
     }
 
     @Test("o clique na linha revela o email do remetente")

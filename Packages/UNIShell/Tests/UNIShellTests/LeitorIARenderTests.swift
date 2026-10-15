@@ -6,35 +6,56 @@ import UNICore
 import UNIDesign
 @testable import UNIShell
 
-/// **Os cinco estados da IA no leitor, medidos contra o desenho.**
+/// **Os estados do `Leitor5`, medidos contra o desenho.**
 ///
-/// `Leitor-IA2.dc.html`: repouso, raso, resumo, rascunho e evento, nos três
-/// temas que o dono olha — `vidro`, `vidro-noite` e `okami`, os dois de vidro e
-/// um dos 26 opacos, que é onde o mesmo desenho tem de aparecer **sem** vidro.
+/// `Leitor5.dc.html`: repouso, menu da IA, resumo aberto, resumo recolhido,
+/// remetente expandido e o menu do remetente — nos três temas que o dono olha:
+/// `vidro`, `vidro-noite` e `okami`, os dois de vidro e um dos 26 opacos, que é
+/// onde o mesmo desenho tem de aparecer **sem** vidro.
 ///
-/// O que esta suíte afirma não é "renderizou": é que em repouso **não existe
-/// cartão nenhum** e que, com resultado, o cartão existe, tem o fio de acento,
-/// o versalete da IA e um botão de próximo passo — que é exatamente o que
-/// faltava na Tinta e o que o dono reprovou.
+/// O que esta suíte afirma não é "renderizou". É o número de que o dono
+/// reclamou: **onde o corpo do e-mail começa**. Ele começava em y≈485 numa
+/// janela de 916, porque o cabeçalho tinha a linha de procedência, o assunto em
+/// três linhas, o remetente, a linha de ações da IA e a faixa das imagens
+/// remotas, uma embaixo da outra. O desenho põe o corpo em ~157 em repouso.
 ///
 /// **Dado real, não fixture ideal.** Dois e-mails: uma newsletter HTML pesada,
-/// com tabelas, imagens e estilo embutido, e um e-mail de uma linha. E a
-/// resposta da IA é a realista: às vezes só um resumo, sem tarefa nem data.
+/// com tabelas, imagens e estilo embutido, e um e-mail de uma linha.
 ///
-/// `WKWebView` não pinta no harness fora da tela: o corpo HTML sai em branco,
-/// e é de propósito que a régua mede os cartões, que estão **fora** da webview.
+/// `WKWebView` não pinta no harness fora da tela — por isso a régua do corpo é
+/// `ReaderBodyTopKey`, e não uma contagem de pixels.
 ///
 /// Os PNGs saem em `UNI_RENDER_DIR`.
-@Suite("Leitor · a IA dentro do e-mail")
+@Suite("Leitor 5 · o cabeçalho que cabe")
 @MainActor
 struct LeitorIARenderTests {
 
     private static let temas: [Theme] = [.vidro, .vidroNoite, .okami]
 
-    /// 760 é a largura real do painel do leitor numa janela de 1440.
-    private static let leitor = CGSize(width: 760, height: 900)
+    /// 760 é a largura real do painel do leitor numa janela de 1440. A altura
+    /// é a do desenho menos a folga da página.
+    private static let leitor = CGSize(width: 760, height: 896)
 
     // MARK: - Réguas
+
+    /// Onde o corpo do e-mail começa, em pontos, no espaço do leitor.
+    ///
+    /// Uma caixa compartilhada e não um retorno direto: o valor nasce de uma
+    /// `PreferenceKey`, que só existe durante o desenho.
+    private final class CorpoY: @unchecked Sendable {
+        var value: CGFloat?
+    }
+
+    private struct ComRegua<Conteudo: View>: View {
+        let caixa: CorpoY
+        let conteudo: Conteudo
+
+        var body: some View {
+            conteudo.onPreferenceChange(ReaderBodyTopKey.self) { y in
+                MainActor.assumeIsolated { caixa.value = y }
+            }
+        }
+    }
 
     private func casa(
         _ rep: NSBitmapImageRep, _ x: Int, _ y: Int, _ alvo: NSColor, _ tol: Double
@@ -117,22 +138,22 @@ struct LeitorIARenderTests {
         """
 
     /// A resposta realista da IA: **só um resumo**. Nenhuma tarefa, nenhuma
-    /// data, nenhuma lista — é o que o motor devolve na maior parte das vezes,
-    /// e é com isso que o cartão tem de ficar de pé.
+    /// data, nenhuma lista — é o que o motor devolve na maior parte das vezes.
     private static let resumoRealista =
         "O contrato padrão mudou o SLA de primeira resposta de 8h para 4h úteis e "
         + "fixou 1h para incidente crítico. Nada aqui pede resposta sua hoje — mas "
         + "vale conferir se os seus contratos em aberto citam o número antigo."
 
-    /// A newsletter pesada, com pedido na triagem: é o estado **resumo** do
-    /// desenho, o que tem o que sobra para você.
+    /// **O assunto é comprido de propósito.** Era ele que dobrava em três
+    /// linhas de 24pt e levava sessenta pontos do cabeçalho.
     private static func newsletter(comResumo: Bool) -> Message {
         let quinta = Date(timeIntervalSince1970: 1_767_279_600)
         return Message(
             id: "boletim", accountID: "a",
             from: Contact(name: "Beatriz Nunes", address: "beatriz@aitherion.com"),
             receivedAt: Date(timeIntervalSince1970: 1_767_173_720),
-            subject: "O que mudou no contrato padrão — boletim de outubro",
+            subject: "O que mudou no contrato padrão — boletim de outubro da Aitherion, "
+                + "com o novo SLA de primeira resposta",
             snippet: "Revisamos as cláusulas de suporte e o SLA",
             body: ["Olá Ricardo, este é o resumo de outubro."],
             tags: [], bucket: .today, isRead: true,
@@ -143,6 +164,7 @@ struct LeitorIARenderTests {
                 deadline: DetectedDeadline(date: quinta, evidence: "conferir até quinta")
             ),
             to: [Contact(name: "Ricardo", address: "ricardo@empresa.com")],
+            cc: [Contact(name: "Jurídico", address: "juridico@empresa.com")],
             bodyHTML: newsletterHTML
         )
     }
@@ -222,12 +244,15 @@ struct LeitorIARenderTests {
         _ store: MailStore,
         comRascunho: Bool = false,
         comEvento: Bool = false,
+        resumoAberto: Bool = false,
+        resumoRecolhido: Bool = false,
+        remetenteExpandido: Bool = false,
         tema: Theme
     ) -> some View {
         var pane = ReaderPane(
             store: store,
             debugEmailAssistantOpen: false,
-            debugResumoAberto: false,
+            debugResumoAberto: resumoAberto,
             presentation: .pane,
             intelligence: { _ in "ok" },
             intelligencePresentation: .onThisMac,
@@ -241,40 +266,52 @@ struct LeitorIARenderTests {
         )
         pane.debugIADraft = comRascunho
         pane.debugEventProposal = comEvento
+        pane.debugResumoRecolhido = resumoRecolhido
+        pane.debugRemetenteExpandido = remetenteExpandido
         return pane.glassPanel(tema, kind: .reader)
+    }
+
+    /// Renderiza e devolve o bitmap **e** o y em que o corpo começa.
+    private func retrato(
+        _ view: some View, named nome: String, tema: Theme
+    ) -> (rep: NSBitmapImageRep, corpoY: CGFloat)? {
+        let caixa = CorpoY()
+        guard let rep = Render.snapshot(
+            ComRegua(caixa: caixa, conteudo: view),
+            named: nome, size: Self.leitor, theme: tema
+        ) else { return nil }
+        guard let y = caixa.value else { return nil }
+        return (rep, y)
     }
 
     /// A área de leitura: abaixo da barra de ferramentas e **acima** da faixa
     /// de resposta, cujo "Responder" é acento cheio e não é desta régua.
-    private let corpo = 60..<820
+    private let corpo = 60..<816
 
-    /// A coluna do **fio de acento** do cartão: ele nasce no recuo de 28 e tem
-    /// 3 de largura. É a régua que separa "há cartão" de "não há": os links do
-    /// aviso de imagens remotas também são acento, mas não moram aqui.
-    private let fio = 26..<36
+    /// A coluna do **fio de acento** do cartão: ele nasce no recuo de 26 e tem
+    /// 3 de largura.
+    private let fio = 24..<34
 
     // MARK: - Repouso
 
-    /// **Em repouso não há cartão.** A IA é uma linha de ações debaixo do
-    /// assunto: tinta de acento existe (a estrela e o fio), mas acento **cheio**
-    /// — o fio do cartão, o botão forte — não aparece em lugar nenhum.
-    @Test("em repouso a IA é uma linha de ações, sem cartão e sem faixa")
+    /// **O cabeçalho cabe.** Em repouso não há cartão, não há linha de ações e
+    /// não há faixa de imagens: duas linhas — assunto e remetente — e o e-mail
+    /// começa. O alvo é o do desenho; a folga de 24 cobre a diferença de
+    /// métrica entre o Geist do protótipo e a face do tema.
+    @Test("em repouso o corpo começa onde o desenho manda, e não há cartão")
     func repousoRenderiza() async throws {
         for tema in Self.temas {
             let store = await loja(Self.newsletter(comResumo: false))
-            let rep = try #require(Render.snapshot(
+            let (rep, y) = try #require(retrato(
                 leitor(store, tema: tema),
-                named: "leitor-ia-repouso-\(tema.id)",
-                size: Self.leitor, theme: tema
+                named: "leitor5-repouso-\(tema.id)", tema: tema
             ))
 
-            // A estrela e os verbos: tinta de acento no cabeçalho.
             #expect(
-                primeiraLinha(rep, de: tema.accentInk, x: 28..<400, y: 40..<300) != nil,
-                "\(tema.id): a linha de ações da IA não apareceu debaixo do assunto"
+                abs(y - Self.corpoRepouso) <= Self.folga,
+                "\(tema.id): em repouso o corpo começa em y=\(y); o desenho põe em \(Self.corpoRepouso)"
             )
-            // E nenhum cartão: o fio de acento não existe em lugar nenhum da
-            // área de leitura.
+            // E nenhum cartão: o fio de acento não existe na área de leitura.
             let rail = pixels(rep, de: tema.accent, x: fio, y: corpo)
             #expect(
                 rail < 40,
@@ -283,74 +320,36 @@ struct LeitorIARenderTests {
         }
     }
 
-    // MARK: - Resumo
-
-    /// **O cartão tem presença**: o fio de acento à esquerda, o versalete da
-    /// IA e um botão de próximo passo. E a prosa é escrita em tinta cheia — a
-    /// `ink` do tema, nunca `ink3` nem opacidade baixa.
-    @Test("o resultado é um cartão com fio de acento, versalete e próximo passo")
-    func resumoRenderiza() async throws {
+    /// **O e-mail de uma linha paga o mesmo cabeçalho.** Com assunto curto,
+    /// sem Cc e sem triagem, o corpo tem de começar no mesmo lugar: o
+    /// cabeçalho é de altura fixa, e não "o que sobrar do assunto".
+    @Test("o e-mail curto tem o mesmo cabeçalho do pesado")
+    func curtoRenderiza() async throws {
         for tema in Self.temas {
-            let store = await loja(Self.newsletter(comResumo: true))
-            let rep = try #require(Render.snapshot(
+            let store = await loja(Self.curto(comResumo: false))
+            let (_, y) = try #require(retrato(
                 leitor(store, tema: tema),
-                named: "leitor-ia-resumo-\(tema.id)",
-                size: Self.leitor, theme: tema
+                named: "leitor5-repouso-curto-\(tema.id)", tema: tema
             ))
-
-            // O fio de 3px à esquerda, e o botão forte do próximo passo.
-            let rail = pixels(rep, de: tema.accent, x: fio, y: corpo)
-            #expect(rail > 120, "\(tema.id): o cartão da IA não tem fio de acento (\(rail) px)")
-            let cheio = pixels(rep, de: tema.accent, x: 60..<760, y: corpo)
             #expect(
-                cheio > 400,
-                "\(tema.id): o cartão da IA não tem botão de próximo passo (\(cheio) px)"
-            )
-            // O versalete "RESUMO · ESCRITO PELA IA".
-            let caps = try #require(
-                primeiraLinha(rep, de: tema.accentInk, x: 40..<420, y: corpo),
-                "\(tema.id): o versalete da IA não apareceu no cartão"
-            )
-            // E ele vem **depois** do remetente: é a ordem do desenho.
-            let avatar = try #require(
-                primeiraLinha(
-                    rep, de: TokenColor(css: "#3b82f6")!, x: 28..<80, y: corpo,
-                    tol: 0.10, minimo: 8
-                ),
-                "\(tema.id): não achei o avatar do remetente"
-            )
-            #expect(
-                avatar < caps,
-                "\(tema.id): o cartão (y \(caps)) subiu acima do remetente (y \(avatar))"
-            )
-            // A prosa em tinta cheia: `ink` tem massa dentro do cartão.
-            let tinta = pixels(rep, de: tema.ink, x: 40..<720, y: caps..<(caps + 120), tol: 0.10)
-            #expect(
-                tinta > 300,
-                "\(tema.id): a prosa da IA saiu apagada (\(tinta) px de tinta cheia)"
+                abs(y - Self.corpoRepouso) <= Self.folga,
+                "\(tema.id): no e-mail curto o corpo começa em y=\(y); o desenho põe em \(Self.corpoRepouso)"
             )
         }
     }
 
-    // MARK: - Raso
-
-    /// **O e-mail sem nada a fazer diz isso** — e ainda oferece o que fazer.
-    @Test("no e-mail raso a IA diz que não há nada, e ainda oferece ação")
-    func rasoRenderiza() async throws {
+    /// O mesmo e-mail curto com o resumo aberto: o cartão raso ("procurei
+    /// prazos, tarefas e eventos — não há nenhum") e os dois botões.
+    @Test("o e-mail curto com resumo mostra o cartão raso e o próximo passo")
+    func curtoComResumoRenderiza() async throws {
         for tema in Self.temas {
             let store = await loja(Self.curto(comResumo: true))
-            let rep = try #require(Render.snapshot(
-                leitor(store, tema: tema),
-                named: "leitor-ia-raso-\(tema.id)",
-                size: Self.leitor, theme: tema
+            let (rep, _) = try #require(retrato(
+                leitor(store, resumoAberto: true, tema: tema),
+                named: "leitor5-resumo-aberto-curto-\(tema.id)", tema: tema
             ))
-
-            let mensagem = try #require(store.message("curto"))
-            #expect(mensagem.triage == nil, "a fixture do raso não pode ter triagem")
-
-            // Mesmo sem tarefa e sem data, o cartão existe e tem botão forte.
             let rail = pixels(rep, de: tema.accent, x: fio, y: corpo)
-            #expect(rail > 120, "\(tema.id): o e-mail raso perdeu o cartão (\(rail) px)")
+            #expect(rail > 80, "\(tema.id): o e-mail raso perdeu o cartão (\(rail) px)")
             let cheio = pixels(rep, de: tema.accent, x: 60..<760, y: corpo)
             #expect(
                 cheio > 400,
@@ -359,77 +358,151 @@ struct LeitorIARenderTests {
         }
     }
 
-    // MARK: - Rascunho
+    // MARK: - Resumo aberto
 
-    /// **O rascunho é um cartão atracado no fim do e-mail**, com o segmentado
-    /// do tom, "Enviar revisando" e "Abrir no compositor".
-    @Test("o rascunho da IA é um cartão no fim do e-mail, com tom e duas saídas")
-    func rascunhoRenderiza() async throws {
+    /// **O cartão tem presença**: o fio de acento à esquerda, o versalete da
+    /// IA e dois botões. E ele é mais justo que o anterior — o corpo desce o
+    /// tanto do cartão, e nada mais.
+    @Test("o resumo aberto é um cartão com fio, versalete e dois botões")
+    func resumoAbertoRenderiza() async throws {
         for tema in Self.temas {
-            let store = await loja(Self.curto(comResumo: true), comRascunho: true)
-            let rep = try #require(Render.snapshot(
-                leitor(store, comRascunho: true, tema: tema),
-                named: "leitor-ia-rascunho-\(tema.id)",
-                size: Self.leitor, theme: tema
+            let store = await loja(Self.newsletter(comResumo: true))
+            let (rep, y) = try #require(retrato(
+                leitor(store, resumoAberto: true, tema: tema),
+                named: "leitor5-resumo-aberto-\(tema.id)", tema: tema
             ))
 
-            // Dois versaletes de acento: o do resumo e o do rascunho.
-            let primeiro = try #require(
-                primeiraLinha(rep, de: tema.accentInk, x: 40..<420, y: corpo),
-                "\(tema.id): nenhum versalete apareceu"
+            #expect(
+                abs(y - Self.corpoResumoAberto) <= Self.folga,
+                "\(tema.id): com resumo aberto o corpo começa em y=\(y); o desenho põe em \(Self.corpoResumoAberto)"
             )
-            let segundo = primeiraLinha(
-                rep, de: tema.accentInk, x: 40..<420, y: (primeiro + 60)..<820
+            let rail = pixels(rep, de: tema.accent, x: fio, y: corpo)
+            #expect(rail > 80, "\(tema.id): o cartão da IA não tem fio de acento (\(rail) px)")
+            let cheio = pixels(rep, de: tema.accent, x: 60..<760, y: corpo)
+            #expect(
+                cheio > 400,
+                "\(tema.id): o cartão da IA não tem botão de próximo passo (\(cheio) px)"
             )
             #expect(
-                segundo != nil,
-                "\(tema.id): o versalete RASCUNHO · PARA … não apareceu abaixo do e-mail"
-            )
-            // E o acento cheio de "Enviar revisando" está na metade de baixo.
-            let botao = pixels(rep, de: tema.accent, x: 0..<760, y: 450..<820)
-            #expect(
-                botao > 300,
-                "\(tema.id): o cartão do rascunho perdeu Enviar revisando (\(botao) px)"
+                primeiraLinha(rep, de: tema.accentInk, x: 40..<420, y: corpo) != nil,
+                "\(tema.id): o versalete da IA não apareceu no cartão"
             )
         }
     }
 
-    // MARK: - Evento
+    // MARK: - Resumo recolhido
 
-    /// **O evento tirado do e-mail**: a pastilha do dia em acento, o título, a
-    /// trilha do dia e "Adicionar à agenda".
-    @Test("o evento proposto mostra a pastilha do dia, a trilha e o botão da agenda")
-    func eventoRenderiza() async throws {
+    /// **Recolhido, o resumo é uma linha.** O começo da frase, os dois botões
+    /// menores e o chevron — e o corpo sobe quase até onde estava em repouso.
+    @Test("o resumo recolhido é uma linha, e o corpo quase não desce")
+    func resumoRecolhidoRenderiza() async throws {
         for tema in Self.temas {
-            let store = await loja(Self.comEvento())
-            let rep = try #require(Render.snapshot(
-                leitor(store, comEvento: true, tema: tema),
-                named: "leitor-ia-evento-\(tema.id)",
-                size: Self.leitor, theme: tema
+            let store = await loja(Self.newsletter(comResumo: true))
+            let (rep, y) = try #require(retrato(
+                leitor(store, resumoRecolhido: true, tema: tema),
+                named: "leitor5-resumo-recolhido-\(tema.id)", tema: tema
             ))
 
-            // A pastilha "QUI" é uma mancha de acento cheio de 46 de largura,
-            // e o botão "Adicionar à agenda" é outra: há acento de sobra.
-            let cheio = pixels(rep, de: tema.accent, x: 0..<760, y: corpo)
             #expect(
-                cheio > 900,
-                "\(tema.id): o cartão do evento perdeu a pastilha do dia ou o botão (\(cheio) px)"
+                abs(y - Self.corpoResumoRecolhido) <= Self.folga,
+                "\(tema.id): recolhido o corpo começa em y=\(y); o desenho põe em \(Self.corpoResumoRecolhido)"
             )
+            // O fio do cartão continua lá — recolhido não é dispensado.
+            let rail = pixels(rep, de: tema.accent, x: fio, y: corpo)
+            #expect(rail > 20, "\(tema.id): a linha recolhida perdeu o fio de acento (\(rail) px)")
+        }
+    }
+
+    // MARK: - O remetente expandido
+
+    /// **Os detalhes abrem no mesmo bloco**, sob um fio — sem caixa dentro de
+    /// caixa. E a linha "Assinado" **não** existe: o app não confere SPF nem
+    /// DKIM, e um selo verde inventado é pior que selo nenhum.
+    @Test("os detalhes do remetente abrem no mesmo bloco, sem SPF inventado")
+    func remetenteExpandidoRenderiza() async throws {
+        for tema in Self.temas {
+            let store = await loja(Self.newsletter(comResumo: true))
+            let (_, y) = try #require(retrato(
+                leitor(store, resumoRecolhido: true, remetenteExpandido: true, tema: tema),
+                named: "leitor5-remetente-expandido-\(tema.id)", tema: tema
+            ))
+
             #expect(
-                primeiraLinha(rep, de: tema.accentInk, x: 40..<460, y: corpo) != nil,
-                "\(tema.id): o versalete EVENTO · TIRADO DESTE E-MAIL não apareceu"
+                y > Self.corpoResumoRecolhido,
+                "\(tema.id): os detalhes não empurraram o corpo (y=\(y))"
             )
         }
     }
+
+    // MARK: - Os menus
+
+    /// O menu da IA, desenhado sozinho: o `NSPopover` não nasce numa janela
+    /// fora da tela, e o que esta régua verifica é o painel, não o popover.
+    @Test("o menu da IA tem os grupos, os atalhos e o provedor no pé")
+    func menuDaIARenderiza() throws {
+        for tema in Self.temas {
+            let rep = try #require(Render.snapshot(
+                ReaderAIGroupedMenu(
+                    provider: "Codex · ChatGPT",
+                    isEnabled: { _ in true },
+                    reason: { _ in "" },
+                    run: { _ in },
+                    onSwitchProvider: {}
+                )
+                .padding(20)
+                .background(tema.surface.color),
+                named: "leitor5-ia-menu-\(tema.id)",
+                size: CGSize(width: 332, height: 420), theme: tema
+            ))
+            // A rubrica e os atalhos saem em `ink4`; o pé tem o ponto verde.
+            #expect(
+                pixels(rep, de: tema.success, x: 0..<332, y: 0..<420) > 10,
+                "\(tema.id): o pé do menu perdeu o ponto do provedor"
+            )
+        }
+    }
+
+    /// O menu de contexto do remetente, pelo painel que o app já desenha.
+    @Test("o menu do remetente tem copiar, copiar com nome e buscar")
+    func menuDoRemetenteRenderiza() throws {
+        let message = Self.newsletter(comResumo: false)
+        let entradas = ReaderPane.senderMenu(message)
+        #expect(entradas.count >= 4, "o menu do remetente ficou curto demais: \(entradas.count)")
+        for tema in Self.temas {
+            #expect(Render.snapshot(
+                ContextMenuPanel(level: MenuLevel(entries: entradas))
+                    .padding(20)
+                    .background(tema.surface.color),
+                named: "leitor5-remetente-menu-\(tema.id)",
+                size: CGSize(width: 372, height: 220), theme: tema
+            ) != nil)
+        }
+    }
+
+    // MARK: - Os alvos do desenho
+
+    /// Onde o corpo começa em cada estado, no espaço do leitor.
+    ///
+    /// O desenho é uma janela de 916 com 10 de folga de página; aqui o painel
+    /// é a raiz, então o alvo é o do desenho menos essa folga.
+    private static let corpoRepouso: CGFloat = 154
+    private static let corpoResumoAberto: CGFloat = 319
+    private static let corpoResumoRecolhido: CGFloat = 205
+    /// A folga: o protótipo usa Geist e o app usa a face do tema, e uma
+    /// diferença de métrica de fonte não é um defeito de layout.
+    private static let folga: CGFloat = 30
 
     // MARK: - O que a IA escreve, sem desenhar
 
-    @Test("as sete ações existem, e só as que têm caminho próprio não têm pergunta")
+    @Test("as oito ações estão no menu, e cada uma tem atalho e rota")
     func acoesTemRota() {
-        #expect(ReaderAIAction.offer == [.resumir, .rascunhar, .evento])
-        #expect(ReaderAIAction.more == [.tarefas, .traduzir, .tom, .termos])
+        #expect(
+            Set(ReaderAIGroup.listed) == Set(ReaderAIAction.allCases),
+            "alguma ação ficou fora do menu: \(Set(ReaderAIAction.allCases).subtracting(ReaderAIGroup.listed))"
+        )
+        #expect(ReaderAIGroup.listed.count == ReaderAIAction.allCases.count, "ação repetida no menu")
         for acao in ReaderAIAction.allCases {
-            if [.rascunhar, .evento, .tom].contains(acao) {
+            if [.rascunhar, .evento, .tom, .perguntar].contains(acao) {
                 #expect(acao.question == nil, "\(acao.rawValue) não tem caminho próprio")
             } else {
                 #expect(
@@ -439,6 +512,26 @@ struct LeitorIARenderTests {
             }
             #expect(!acao.title.isEmpty)
             #expect(!acao.symbol.isEmpty)
+            #expect(acao.shortcutLabel.hasPrefix("⌥⌘"))
+        }
+    }
+
+    /// **Nenhum atalho da IA colide com o que o app já reivindica.** ⌘E é
+    /// Arquivar, ⌘R é Responder, ⌘J é o assistente — e é por isso que este
+    /// conjunto inteiro mora em ⌥⌘.
+    @Test("os atalhos da IA não colidem com os do app")
+    func atalhosNaoColidem() {
+        let teclas = ReaderAIAction.allCases.map(\.key)
+        #expect(Set(teclas).count == teclas.count, "dois itens do menu pedem a mesma tecla")
+        // Os do app vivem em ⌘, ⇧⌘ ou ⌃⌘ — nunca em ⌥⌘.
+        let doApp: [MenuShortcut] = [
+            .reply, .replyAll, .forward, .archive, .readToggle, .flag, .later,
+        ]
+        for atalho in doApp {
+            #expect(
+                !atalho.modifiers.contains(.option),
+                "\(atalho.label) passou a usar ⌥ e agora disputa com o menu da IA"
+            )
         }
     }
 
@@ -447,7 +540,6 @@ struct LeitorIARenderTests {
         #expect(ReaderAIAction.eventExtraction.contains("uma linha"))
         #expect(ReaderAIAction.noEvent == "nenhum")
 
-        // O que a IA devolve é frase; quem lê dia e hora é o `AppointmentPhrase`.
         let agora = Date(timeIntervalSince1970: 1_767_193_200)
         let lida = AppointmentPhrase.interpret(
             "Call de revisão do contrato amanhã 15h", now: agora
@@ -464,5 +556,20 @@ struct LeitorIARenderTests {
         #expect(!ReaderPane.aiTimeRange(evento).isEmpty)
         #expect(!ReaderPane.aiWeekday(evento.start).isEmpty)
         #expect(ReaderPane.aiDayNumber(evento.start) != "0")
+    }
+
+    /// Os cabeçalhos da folha saem da mensagem, e a folha **diz** que o bloco
+    /// cru não é guardado. Inventar um `Received:` seria pior que não ter.
+    @Test("a folha de cabeçalhos escreve o que o banco tem, e avisa o que não tem")
+    func cabecalhosSaemDoBanco() {
+        let linhas = ReaderHeadersSheet.lines(
+            of: Self.newsletter(comResumo: false),
+            accountAddress: "ricardo@empresa.com", folder: "Hoje"
+        )
+        #expect(linhas.contains { $0.hasPrefix("From: ") })
+        #expect(linhas.contains { $0.hasPrefix("Cc: ") })
+        #expect(linhas.contains { $0.hasPrefix("Subject: ") })
+        #expect(!linhas.contains { $0.hasPrefix("Received:") })
+        #expect(ReaderHeadersSheet.aviso.contains("não é armazenado"))
     }
 }
