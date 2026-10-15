@@ -350,7 +350,11 @@ struct QuickReplyBand: View {
             }
             metaRow
         }
-        .background(theme.surface2.color, in: RoundedRectangle(cornerRadius: theme.radiusLarge))
+        // **O cartão é elevado, não é a parede.** Era `surface2`, que é
+        // exatamente o preenchimento do painel do leitor nos temas opacos
+        // (`PanelStyle.opaque`): a faixa aberta sumia dentro da página. O
+        // cartão do desenho é a superfície levantada do tema.
+        .background(theme.glassCard.color, in: RoundedRectangle(cornerRadius: theme.radiusLarge))
         .overlay {
             RoundedRectangle(cornerRadius: theme.radiusLarge)
                 .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
@@ -669,7 +673,7 @@ struct QuickReplyBand: View {
         .padding(.trailing, 8)
         .padding(.vertical, 8)
         .background(
-            (sentAt == nil ? theme.surface2 : theme.accentSoft).color,
+            (sentAt == nil ? theme.glassCard : theme.accentSoft).color,
             in: RoundedRectangle(cornerRadius: theme.radiusLarge)
         )
         .overlay {

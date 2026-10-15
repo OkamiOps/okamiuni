@@ -688,25 +688,61 @@ struct QuickReplyBandRenderTests {
     /// Como: numa coluna à direita do texto do corpo (que é limitado a 500pt),
     /// o cartão pinta `surface2` e a página pinta `surface`. Sobe-se do rodapé
     /// até a cor voltar a ser a da página.
+    /// A altura do cartão da faixa aberta.
+    ///
+    /// Medida pelo **preenchimento dele** (`surface2`), na metade de baixo do
+    /// leitor, e não mais subindo do rodapé até achar uma cor "de página"
+    /// colhida em `y = 140`: aquele ponto deixou de ser página quando a tinta
+    /// da IA passou a ser escrita logo abaixo do assunto, e a conta subia
+    /// até o que não era o cartão.
     private static func bandCardHeight(_ rep: NSBitmapImageRep) -> Int {
-        let column = rep.pixelsWide - 36
-        // Uma linha que é página nos dois estados: abaixo do cabeçalho e acima
-        // do cartão de resumo.
-        guard let page = rep.colorAt(x: column, y: 140) else { return 0 }
-        // 16pt de `padding` embaixo do cartão são página; começa acima deles.
+        // **O cartão é o que está pintado com a cor dele.**
+        //
+        // A conta subia do rodapé até achar "a cor da página", colhida num
+        // ponto do cabeçalho. Duas coisas a enganavam: a pastilha "MAIS
+        // ABAIXO ↓" na coluna medida, e o esmaecimento que o corpo rolável
+        // desenha logo acima da faixa — nenhum dos dois é página, e a subida
+        // passava direto pela folga e seguia.
+        //
+        // A régua agora pergunta pelo **preenchimento do cartão**
+        // (`glassCard`), que é a superfície levantada do tema: o esmaecimento
+        // é quase ele, mas não é, e a folga acima do cartão não é nem perto.
+        // Quatro linhas seguidas fora do cartão fecham a conta — um fio de
+        // 1pt dentro dele (a divisória acima dos botões) não para a subida.
+        guard let fill = Theme.tinta.glassCard.nsColor.usingColorSpace(.sRGB) else { return 0 }
+        func doCartao(_ y: Int) -> Bool {
+            var iguais = 0
+            var total = 0
+            for x in stride(from: 40, to: rep.pixelsWide - 40, by: 4) {
+                guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                total += 1
+                if abs(c.redComponent - fill.redComponent) < 0.002,
+                   abs(c.greenComponent - fill.greenComponent) < 0.002,
+                   abs(c.blueComponent - fill.blueComponent) < 0.002 {
+                    iguais += 1
+                }
+            }
+            return total > 0 && Double(iguais) / Double(total) > 0.5
+        }
         let bottom = rep.pixelsHigh - 20
         var y = bottom
-        while y > 0,
-              let color = rep.colorAt(x: column, y: y),
-              abs(color.brightnessComponent - page.brightnessComponent) > 0.004 {
+        var folga = 0
+        while y > 0, folga < 4 {
+            folga = doCartao(y) ? 0 : folga + 1
             y -= 1
         }
-        return bottom - y
+        return bottom - (y + folga)
     }
 
+    /// O leitor **dentro do painel**, que é como o shell o desenha.
+    ///
+    /// Desde que todo tema tem `resolvedPanel`, quem pinta o fundo do leitor
+    /// é o painel, e não o próprio leitor: sem `glassPanel` aqui o retrato
+    /// sai sobre o nada, e a régua do cartão colhe preto como "página".
     private func reader(_ store: MailStore) -> some View {
         ReaderPane(store: store, onCompose: { _ in })
             .environment(ThemeStore())
+            .glassPanel(.tinta, kind: .reader)
     }
 
     /// A altura que a faixa **pede** com a largura dada. Mede o layout de

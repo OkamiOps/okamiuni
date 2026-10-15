@@ -244,10 +244,15 @@ struct DashboardMailSheetTests {
     // MARK: - Pontos medidos no recorte
 
     /// Medidos sobre o PNG do harness (1200×820, tema `okami`), com a folha
-    /// centrada e recuada em 28: a barra da folha em cima, o leitor logo
-    /// abaixo com a fila de triagem na primeira linha de botões.
-    private static let arquivarPonto = CGPoint(x: 333, y: 128)
-    private static let responderPonto = CGPoint(x: 463, y: 128)
+    /// centrada e recuada em 28: a barra da folha em cima e, logo abaixo, a
+    /// barra de ações do leitor.
+    ///
+    /// Eles mudaram com o desenho `IA-Tinta`: a fila de triagem com pastilhas
+    /// virou a barra de ícones quietos, e os alvos saíram das pastilhas para
+    /// os ícones — responder, encaminhar, **arquivar**, depois, pasta,
+    /// lixeira, nessa ordem, a partir do fio que segue a pastilha ✦ IA.
+    private static let arquivarPonto = CGPoint(x: 346, y: 110)
+    private static let responderPonto = CGPoint(x: 281, y: 110)
     private static let rascunhoPonto = CGPoint(x: 925, y: 54)
     private static let fecharPonto = CGPoint(x: 1_007, y: 54)
 }
