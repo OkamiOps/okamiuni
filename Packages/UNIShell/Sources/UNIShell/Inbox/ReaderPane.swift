@@ -1151,8 +1151,8 @@ public struct ReaderPane: View {
             // Com compromisso detectado não há ida ao motor nenhuma: a
             // proposta nasce do que a mensagem já trouxe. Sem ele, quem acha
             // dia e hora é a IA, e aí ela precisa existir.
-            if let evento = message.detectedEvent {
-                return !isOnAgenda(message) || eventProposal?.event != evento
+            if message.detectedEvent != nil {
+                return !isOnAgenda(message)
             }
             return intelligence != nil && !extractingEvent
         default:
