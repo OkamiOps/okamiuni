@@ -3,8 +3,18 @@ import UNICore
 import UNIDesign
 import UNISync
 
+/// O vocabulário de **links profundos** para Configurações.
+///
+/// Ele sobreviveu ao redesenho de propósito: o menu do app, o item de contexto
+/// da linha da conta e os testes mandam abrir "assinaturas" ou "agenda", e
+/// essas palavras continuam valendo. O que mudou é onde elas **chegam** — ver
+/// `SettingsSection.page(in:)`: o que era uma seção de assinaturas agora é a
+/// página da conta, porque é lá que a assinatura mora.
 public enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
     case general
+    /// Aparência ganhou nome próprio no redesenho: tema, tamanho do texto,
+    /// idioma e atualizações moram nela, e eram o conteúdo de "Geral".
+    case appearance
     case agenda
     case accounts
     case intelligence
@@ -17,7 +27,8 @@ public enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
 
     var label: String {
         switch self {
-        case .general: L10n.tr("Geral")
+        case .general: L10n.tr("Visão geral")
+        case .appearance: L10n.tr("Aparência")
         case .agenda: L10n.tr("Agenda")
         case .accounts: L10n.tr("Contas")
         case .intelligence: L10n.tr("Inteligência")
@@ -28,50 +39,35 @@ public enum SettingsSection: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    var symbol: String {
+    /// Para onde este link leva na janela nova.
+    ///
+    /// Agenda, Assinaturas, Remetentes e Contas caem todos na página da
+    /// **primeira conta** (ou na Visão geral quando não há conta nenhuma):
+    /// as três primeiras eram, cada uma, uma pergunta sobre uma conta, e agora
+    /// elas vivem juntas lá.
+    func page(in accounts: [AccountStatus]) -> ConfigPage {
         switch self {
-        case .general: "rectangle.3.group"
-        case .agenda: "calendar"
-        case .accounts: "at"
-        case .intelligence: "sparkles"
-        case .gestures: "hand.draw"
-        case .signatures: "signature"
-        case .aliases: "paperplane"
-        case .rules: "arrow.triangle.branch"
-        }
-    }
-
-    /// A barra lateral organiza decisões pela tarefa da pessoa, e não por
-    /// como o app implementa cada uma delas. Isso deixa seis seções fáceis de
-    /// percorrer sem recorrer a uma busca que esconderia opções importantes.
-    var navigationGroup: String {
-        switch self {
-        case .general, .agenda, .accounts: L10n.tr("ESTE MAC")
-        case .intelligence, .gestures: L10n.tr("COMO O OKAMIUNI TRABALHA")
-        case .signatures, .aliases, .rules: L10n.tr("SEU E-MAIL")
-        }
-    }
-
-    var summary: String {
-        switch self {
-        case .general: L10n.tr("Ambiente e preferências")
-        case .agenda: L10n.tr("Reuniões por conta")
-        case .accounts: L10n.tr("Caixas conectadas")
-        case .intelligence: L10n.tr("Assistente e instruções")
-        case .gestures: L10n.tr("Arrastar mensagens")
-        case .signatures: L10n.tr("Identidade por conta")
-        case .aliases: L10n.tr("Enviar por um alias")
-        case .rules: L10n.tr("Organização automática")
+        case .general: .overview
+        case .appearance: .appearance
+        case .intelligence: .intelligence
+        case .gestures: .gestures
+        case .rules: .rules
+        case .agenda, .accounts, .signatures, .aliases:
+            accounts.first.map { ConfigPage.account($0.accountID) } ?? .overview
         }
     }
 }
 
-/// Configurações de contas em duas colunas: a conta continua visível enquanto
-/// a pessoa lê o estado e age sobre ela. É a organização do Mail do macOS,
-/// aplicada aos componentes e tokens do OkamiUNI.
+/// A janela de Configurações, redesenhada em cima de `Config.dc.html`.
+///
+/// Dois painéis flutuantes com 10pt de folga: a navegação de 244 agrupada por
+/// quem decide o quê (COMEÇO, VOCÊ, SUAS CONTAS, AUTOMAÇÃO) e a página. A
+/// primeira página é "Tudo em ordem?", que põe os problemas antes dos ajustes.
+///
+/// Nos 26 temas clássicos o desenho é o **mesmo**: os painéis perdem o vidro e
+/// viram superfícies opacas dos tokens do tema — ver `ConfigPanel`.
 public struct AccountsWindow: View {
     @Environment(\.theme) private var theme
-    @Environment(\.displayScale) private var displayScale
 
     private let model: AccountsModel
     private let assistantSettings: AssistantSettingsStore?
@@ -79,31 +75,47 @@ public struct AccountsWindow: View {
     private let textAssistant: (any TextAssisting)?
     private let liteLLMOAuthAuthorizer: (any LiteLLMOAuthAuthorizing)?
     private let providerOAuthAuthorizer: (any AssistantProviderOAuthAuthorizing)?
-    /// A ação de analisar o acervo já guardado, oferecida no cartão do
-    /// provedor. `nil` quando não há banco.
     private let backlogAnalysis: BacklogAnalysisController?
     private let emailRules: EmailRuleStore?
     private let themes: ThemeStore?
     private let swipes: SwipeSettingsStore?
-    /// A mesma lista de pastas que a caixa de entrada já conhece. Ela é
-    /// opcional para manter os ensaios e consumidores antigos da janela sem
-    /// uma fonte de mensagens; quando existe, Gestos consegue oferecer
-    /// destinos concretos em vez de pedir que a pessoa digite um nome.
     private let mailStore: MailStore?
     private let meetingRooms: MeetingRoomSettingsStore?
-    /// O estado das atualizações, lido pelo cartão de Geral. `nil` em Debug e
-    /// nos testes — ver `GeneralSettingsView.updatesCard`.
     private let updates: UpdateController?
-    @State private var selectedSection: SettingsSection
-    @State private var selectedAccountID: String?
+
+    private let initialSection: SettingsSection
+    /// Abre a página de Regras já em "Nova regra". É por aqui que o retrato de
+    /// `Config-regra-nova` entra, e também o caminho de um link futuro que
+    /// queira levar direto à montagem.
+    private let startsNewRule: Bool
+
+    @State private var page: ConfigPage?
+    @State private var query = ""
     @State private var addingAccount = false
     @State private var removendo: String?
-    /// A conta cujo formulário de reconexão IMAP está aberto. `nil` fechado.
     @State private var reconectandoImap: AccountStatus?
+    /// O painel de conexão existente, aberto numa rota escolhida. É ele que
+    /// guarda os formulários de OAuth, chave de API, LiteLLM e CLI.
+    @State private var connectionRoute: AssistantProvider?
+    @State private var composingRule = false
+
+    // Inteligência
+    @State private var draft = AssistantSettings.default
+    @State private var oauthStatus: AssistantProviderOAuthStatus = .idle
+    @State private var oauthMonitor: Task<Void, Never>?
+    @State private var models: [AssistantProviderModel] = []
+    @State private var lastTest: String?
+    @State private var lastTestFailed = false
+    @State private var testing = false
+    @State private var connectingIntelligence = false
+
+    @AppStorage(AppLanguage.defaultsKey) private var interfaceLanguage = AppLanguage.portugueseBrazil.rawValue
+    @State private var languageAtOpening = AppLanguage.selected.rawValue
 
     public init(
         model: AccountsModel,
         initialSection: SettingsSection = .accounts,
+        startsNewRule: Bool = false,
         assistantSettings: AssistantSettingsStore? = nil,
         assistantCredentials: (any AssistantCredentialStore)? = nil,
         textAssistant: (any TextAssisting)? = nil,
@@ -118,6 +130,8 @@ public struct AccountsWindow: View {
         updates: UpdateController? = nil
     ) {
         self.model = model
+        self.initialSection = initialSection
+        self.startsNewRule = startsNewRule
         self.assistantSettings = assistantSettings
         self.assistantCredentials = assistantCredentials
         self.textAssistant = textAssistant
@@ -130,29 +144,70 @@ public struct AccountsWindow: View {
         self.mailStore = mailStore
         self.meetingRooms = meetingRooms
         self.updates = updates
-        _selectedSection = State(initialValue: initialSection)
-        _selectedAccountID = State(initialValue: model.statuses.first?.accountID)
+        _oauthStatus = State(initialValue: providerOAuthAuthorizer?.sessionState.status ?? .idle)
+        _composingRule = State(initialValue: startsNewRule)
     }
 
     public var body: some View {
-        VStack(spacing: 0) {
-            WindowTitleBar(title: L10n.tr("Configurações"))
-            HStack(spacing: 0) {
-                settingsSidebar.frame(width: 218)
-                Rectangle()
-                    .fill(theme.line.color)
-                    .frame(width: Hairline.thickness(displayScale))
-                settingsContent
+        ZStack {
+            Backdrop()
+            HStack(alignment: .top, spacing: ConfigMetrics.panelGap) {
+                ConfigNav(
+                    accounts: model.statuses,
+                    pendingCount: alerts.count,
+                    versionLine: versionLine,
+                    readyUpdate: readyUpdate,
+                    page: Binding(get: { currentPage }, set: { page = $0 }),
+                    query: $query,
+                    addAccount: { addingAccount = true }
+                )
+                main
+            }
+            .padding(ConfigMetrics.windowPadding)
+        }
+        .environment(\.configPalette, ConfigPalette(theme))
+        .tint(theme.accent.color)
+        .trafficLightsInConfigNav()
+        .task { await model.start() }
+        .task { await loadAssistant() }
+        .onDisappear {
+            oauthMonitor?.cancel()
+            oauthMonitor = nil
+        }
+        .onChange(of: model.statuses) { _, statuses in
+            // A conta aberta saiu da lista: a janela volta para a visão geral
+            // em vez de desenhar uma página sem dono.
+            if case .account(let id) = currentPage,
+               !statuses.contains(where: { $0.accountID == id }) {
+                page = .overview
             }
         }
-        .background(theme.paper.color)
-        .tint(theme.accent.color)
-        .task { await model.start() }
-        .onChange(of: model.statuses) { _, statuses in
-            guard !addingAccount else { return }
-            if selectedAccountID == nil
-                || !statuses.contains(where: { $0.accountID == selectedAccountID }) {
-                selectedAccountID = statuses.first?.accountID
+        .sheet(isPresented: $addingAccount) {
+            ConfigSheet(title: L10n.tr("Adicionar conta")) { addingAccount = false } content: {
+                AddAccountForm(model: model)
+            }
+        }
+        .sheet(item: $reconectandoImap) { status in
+            ReconnectImapForm(model: model, status: status) { reconectandoImap = nil }
+        }
+        .sheet(item: $connectionRoute) { route in
+            ConfigSheet(title: L10n.tr("Conectar a inteligência")) {
+                connectionRoute = nil
+                Task { await loadAssistant() }
+            } content: {
+                GeneralSettingsView(
+                    scope: .intelligence,
+                    settingsStore: assistantSettings,
+                    credentialStore: assistantCredentials,
+                    textAssistant: textAssistant,
+                    liteLLMOAuthAuthorizer: liteLLMOAuthAuthorizer,
+                    providerOAuthAuthorizer: providerOAuthAuthorizer,
+                    backlogAnalysis: backlogAnalysis,
+                    themes: themes,
+                    swipes: swipes,
+                    moveDestinations: swipeMoveDestinations
+                )
+                .id(route)
             }
         }
         .confirmationDialog(
@@ -167,207 +222,349 @@ public struct AccountsWindow: View {
         } message: {
             Text(L10n.tr("As mensagens já baixadas e a senha guardada no Keychain serão apagadas. A conta no servidor não é tocada."))
         }
-        .sheet(item: $reconectandoImap) { status in
-            ReconnectImapForm(model: model, status: status) { reconectandoImap = nil }
-        }
     }
 
-    private var settingsSidebar: some View {
+    /// A página aberta. `initialSection` decide a primeira, e é aqui que o
+    /// link profundo antigo é traduzido — depois que as contas carregaram.
+    private var currentPage: ConfigPage {
+        page ?? initialSection.page(in: model.statuses)
+    }
+
+    // MARK: O painel de conteúdo
+
+    private var main: some View {
         VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text(L10n.tr("CENTRAL DE CONTROLE"))
-                    .capsLabel(size: 9.5)
-                Text(L10n.tr("Seu e-mail,\ndo seu jeito."))
-                    .font(theme.sans.font(size: 17, weight: .semibold))
-                    .foregroundStyle(theme.ink.color)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(L10n.tr("Escolha o que quer ajustar. As mudanças ficam neste Mac até você salvá-las."))
-                    .font(theme.sans.font(size: 10.5))
-                    .foregroundStyle(theme.ink3.color)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.horizontal, 16)
-            .padding(.top, 19)
-            .padding(.bottom, 17)
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 15) {
-                    ForEach([L10n.tr("ESTE MAC"), L10n.tr("COMO O OKAMIUNI TRABALHA"), L10n.tr("SEU E-MAIL")], id: \.self) { group in
-                        settingsNavigationGroup(group)
-                    }
-                }
-                .padding(.horizontal, 9)
-                .padding(.bottom, 16)
-            }
-
-            Spacer(minLength: 0)
+            header
+            content
         }
-        .background(theme.surface2.color)
-    }
-
-    private func settingsNavigationGroup(_ group: String) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(group)
-                .capsLabel(size: 8.5)
-                .padding(.horizontal, 8)
-                .padding(.bottom, 3)
-
-            ForEach(SettingsSection.allCases.filter { $0.navigationGroup == group }) { section in
-                settingsNavigationButton(section)
-            }
-        }
-    }
-
-    private func settingsNavigationButton(_ section: SettingsSection) -> some View {
-        let isSelected = selectedSection == section
-        return Button {
-            selectedSection = section
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: section.symbol)
-                    .font(.system(size: 12.5, weight: .medium))
-                    .frame(width: 19, height: 19)
-                    .foregroundStyle(isSelected ? theme.accent.color : theme.ink3.color)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(section.label)
-                        .font(theme.sans.font(size: 12, weight: .semibold))
-                    Text(section.summary)
-                        .font(theme.sans.font(size: 9.5))
-                        .foregroundStyle(isSelected ? theme.ink3.color : theme.ink4.color)
-                        .lineLimit(1)
-                }
-                Spacer(minLength: 0)
-                if isSelected {
-                    Circle()
-                        .fill(theme.accent.color)
-                        .frame(width: 5, height: 5)
-                }
-            }
-            .foregroundStyle(isSelected ? theme.ink.color : theme.ink2.color)
-            .padding(.horizontal, 9)
-            .frame(minHeight: 47)
-            .background(
-                isSelected ? theme.surface3.color : Color.clear,
-                in: RoundedRectangle(cornerRadius: theme.radiusSmall)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-        }
-        .buttonStyle(.plain)
-        .focusRing(cornerRadius: theme.radiusSmall)
-        .accessibilityHint(section.summary)
+        .padding(.top, ConfigMetrics.mainTop)
+        .padding(.horizontal, ConfigMetrics.mainSide)
+        .padding(.bottom, ConfigMetrics.mainBottom)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .configPanel(theme)
     }
 
     @ViewBuilder
-    private var settingsContent: some View {
-        switch selectedSection {
-        case .accounts:
-            HStack(spacing: 0) {
-                accountsSidebar.frame(width: 218)
-                Rectangle()
-                    .fill(theme.line.color)
-                    .frame(width: Hairline.thickness(displayScale))
-                accountsDetail
-            }
-        case .agenda:
-            sectionPane(
-                title: L10n.tr("Agenda"),
-                subtitle: L10n.tr("Uma sala nova a cada compromisso — Meet, Zoom, Teams ou Zoho")
-            ) {
-                AgendaSettingsView(rooms: meetingRooms, accounts: model.statuses)
-            }
-        case .general:
-            sectionPane(
-                title: L10n.tr("Geral"),
-                subtitle: L10n.tr("O espaço de trabalho deste Mac")
-            ) {
-                GeneralSettingsView(
-                    scope: .general,
-                    settingsStore: assistantSettings,
-                    credentialStore: assistantCredentials,
-                    textAssistant: textAssistant,
-                    liteLLMOAuthAuthorizer: liteLLMOAuthAuthorizer,
-                    providerOAuthAuthorizer: providerOAuthAuthorizer,
-                    backlogAnalysis: backlogAnalysis,
-                    updates: updates,
-                    themes: themes,
-                    swipes: swipes,
-                    moveDestinations: swipeMoveDestinations
-                )
-            }
+    private var header: some View {
+        switch currentPage {
+        case .overview:
+            ConfigPageHeader(
+                title: alerts.isEmpty ? L10n.tr("Tudo em ordem") : L10n.tr("Tudo em ordem?"),
+                subtitle: alerts.isEmpty
+                    ? L10n.tr("Nada pede a sua atenção agora")
+                    : (alerts.count == 1
+                        ? L10n.tr("Quase — uma coisa pede um minuto seu")
+                        : L10n.tr("Quase — \(alerts.count) coisas pedem um minuto seu"))
+            )
+        case .appearance:
+            ConfigPageHeader(
+                title: L10n.tr("Aparência"),
+                subtitle: L10n.tr("Tema, tamanho do texto, idioma e atualizações")
+            )
         case .intelligence:
-            sectionPane(
+            ConfigPageHeader(
                 title: L10n.tr("Inteligência"),
-                subtitle: L10n.tr("Conexão, modelo e modo de escrever")
-            ) {
-                GeneralSettingsView(
-                    scope: .intelligence,
-                    settingsStore: assistantSettings,
-                    credentialStore: assistantCredentials,
-                    textAssistant: textAssistant,
-                    liteLLMOAuthAuthorizer: liteLLMOAuthAuthorizer,
-                    providerOAuthAuthorizer: providerOAuthAuthorizer,
-                    backlogAnalysis: backlogAnalysis,
-                    themes: themes,
-                    swipes: swipes,
-                    moveDestinations: swipeMoveDestinations
+                subtitle: connectingIntelligence
+                    ? L10n.tr("Passo 2 de 3 — conectar onde ela vai rodar")
+                    : intelligenceSubtitle
+            )
+        case .account(let id):
+            if let status = model.statuses.first(where: { $0.accountID == id }) {
+                ConfigPageHeader(
+                    title: status.address,
+                    subtitle: AccountsCopy.status(status, now: Date(), calendar: .current),
+                    avatarInitial: ConfigAccountTint.initial(for: status),
+                    avatarTint: nil,
+                    action: (
+                        label: L10n.tr("Sincronizar agora"),
+                        run: { Task { await model.loadInitial(status.accountID) } }
+                    )
                 )
             }
         case .gestures:
-            sectionPane(
+            ConfigPageHeader(
                 title: L10n.tr("Gestos"),
-                subtitle: L10n.tr("Ações rápidas para manter a caixa de entrada limpa")
-            ) {
-                GeneralSettingsView(
-                    scope: .gestures,
-                    settingsStore: assistantSettings,
-                    credentialStore: assistantCredentials,
-                    textAssistant: textAssistant,
-                    liteLLMOAuthAuthorizer: liteLLMOAuthAuthorizer,
-                    providerOAuthAuthorizer: providerOAuthAuthorizer,
-                    backlogAnalysis: backlogAnalysis,
-                    themes: themes,
-                    swipes: swipes,
-                    moveDestinations: swipeMoveDestinations
-                )
-            }
-        case .signatures:
-            sectionPane(
-                title: L10n.tr("Assinaturas"),
-                subtitle: L10n.tr("Assinaturas de e-mail por conta")
-            ) { SignatureSettingsView(model: model) }
-        case .aliases:
-            sectionPane(
-                title: L10n.tr("Remetentes"),
-                subtitle: L10n.tr("Aliases pelos quais cada conta pode enviar")
-            ) { AliasSettingsView(model: model) }
+                subtitle: L10n.tr("O que acontece quando você arrasta um e-mail")
+            )
         case .rules:
-            sectionPane(
-                title: L10n.tr("Regras"),
-                subtitle: L10n.tr("Automatize a organização das mensagens recebidas")
-            ) {
-                RulesSettingsView(
-                    store: emailRules,
-                    accounts: model.statuses,
-                    moveDestinations: swipeMoveDestinations
+            if composingRule {
+                ConfigPageHeader(
+                    title: L10n.tr("Nova regra"),
+                    subtitle: L10n.tr("Descreva, confira o que ela pegaria, e pronto")
+                )
+            } else {
+                ConfigPageHeader(
+                    title: L10n.tr("Regras"),
+                    subtitle: L10n.tr("Cuidam dos e-mails novos antes de você ver"),
+                    action: (label: L10n.tr("+ Nova regra"), run: { composingRule = true })
                 )
             }
         }
     }
 
-    private func sectionPane<Content: View>(
-        title: String,
-        subtitle: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            detailHeader(title: title, subtitle: subtitle)
-            Rectangle()
-                .fill(theme.line.color)
-                .frame(height: Hairline.thickness(displayScale))
-            content()
+    @ViewBuilder
+    private var content: some View {
+        switch currentPage {
+        case .overview:
+            ConfigOverview(alerts: alerts, tiles: tiles, checkedNote: L10n.tr("conferido agora há pouco"))
+        case .appearance:
+            ConfigAppearance(
+                themes: themes,
+                updates: updates,
+                language: $interfaceLanguage,
+                languageAtOpening: languageAtOpening
+            )
+        case .intelligence:
+            ConfigIntelligence(
+                draft: $draft,
+                connecting: connectingIntelligence,
+                connected: isConnected,
+                oauthStatus: oauthStatus,
+                lastTest: lastTest,
+                lastTestFailed: lastTestFailed,
+                testing: testing,
+                availableModels: models,
+                save: saveAssistant,
+                test: testAssistant,
+                connect: startProviderOAuth,
+                openRoute: { connectionRoute = $0 }
+            )
+        case .account(let id):
+            if let status = model.statuses.first(where: { $0.accountID == id }) {
+                ConfigAccountPage(
+                    model: model,
+                    status: status,
+                    mailStore: mailStore,
+                    meetingRooms: meetingRooms,
+                    remove: { removendo = status.accountID }
+                )
+                .id(status.accountID)
+            }
+        case .gestures:
+            ConfigGestures(store: swipes, moveDestinations: swipeMoveDestinations)
+        case .rules:
+            ConfigRules(
+                store: emailRules,
+                accounts: model.statuses,
+                moveDestinations: swipeMoveDestinations,
+                messages: mailStore?.messages ?? [],
+                textAssistant: textAssistant,
+                composing: $composingRule
+            )
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(theme.paper.color)
+    }
+
+    // MARK: A visão geral
+
+    /// Os problemas pendentes, cada um com **uma** saída.
+    private var alerts: [ConfigAlert] {
+        var list: [ConfigAlert] = []
+        for status in model.statuses where AccountsCopy.isFailing(status) {
+            list.append(ConfigAlert(
+                id: "conta-\(status.accountID)",
+                tone: .needsYou,
+                symbol: "lock",
+                tag: L10n.tr("PRECISA DE VOCÊ"),
+                title: L10n.tr("\(status.address) pede a senha de novo"),
+                detail: AccountsCopy.status(status, now: Date(), calendar: .current),
+                action: L10n.tr("Reconectar"),
+                run: { reconnect(status) }
+            ))
+        }
+        if let updates, updates.showsReadyButton, let version = updates.readyVersion {
+            list.append(ConfigAlert(
+                id: "atualizacao",
+                tone: .whenever,
+                symbol: "arrow.down",
+                tag: L10n.tr("QUANDO QUISER"),
+                title: L10n.tr("A \(version) está pronta"),
+                detail: L10n.tr("Baixada em segundo plano. Instala em segundos e reabre onde você estava."),
+                action: L10n.tr("Instalar e reabrir"),
+                link: (label: L10n.tr("Notas da versão"), run: { updates.showChangelog() }),
+                run: { updates.installAndRelaunch() }
+            ))
+        }
+        return list
+    }
+
+    /// Os azulejos: cada um é um fato e um atalho para onde mudá-lo.
+    private var tiles: [ConfigOverviewTile] {
+        let palette = ConfigPalette(theme)
+        var list: [ConfigOverviewTile] = []
+
+        list.append(ConfigOverviewTile(
+            id: "aparencia",
+            area: L10n.tr("Aparência"),
+            symbol: "paintpalette",
+            tint: palette.ink2,
+            headline: themeHeadline,
+            detail: L10n.tr("\(ConfigAppearance.typographyLabel(themes?.typographyPreset ?? .standard)) no tamanho do texto"),
+            ornament: .swatch(AnyView(ConfigThemePreview(theme: theme))),
+            open: { page = .appearance }
+        ))
+
+        list.append(ConfigOverviewTile(
+            id: "ia",
+            area: L10n.tr("Inteligência"),
+            symbol: "sparkles",
+            tint: palette.accentInk,
+            headline: isConnected
+                ? L10n.tr("\(AssistantDestination(settings: draft).label) conectada")
+                : L10n.tr("ainda não conectada"),
+            detail: draft.automaticAnalysis == .configuredProvider
+                ? L10n.tr("analisando e-mails novos sozinha")
+                : L10n.tr("nada sai deste Mac sem você pedir"),
+            open: { page = .intelligence }
+        ))
+
+        let healthy = model.statuses.count { !AccountsCopy.isFailing($0) }
+        list.append(ConfigOverviewTile(
+            id: "contas",
+            area: L10n.tr("Suas contas"),
+            symbol: "person.crop.circle",
+            tint: palette.ink2,
+            headline: L10n.tr("\(healthy) de \(model.statuses.count) em dia"),
+            detail: model.statuses.map(\.hostMark).joined(separator: " · "),
+            ornament: .faces(model.statuses.prefix(3).map {
+                (initial: ConfigAccountTint.initial(for: $0),
+                 tint: ConfigAccountTint.color(for: $0, theme: theme))
+            }),
+            open: { if let first = model.statuses.first { page = .account(first.accountID) } }
+        ))
+
+        let activeRules = emailRules?.rules.count { $0.enabled } ?? 0
+        list.append(ConfigOverviewTile(
+            id: "automacao",
+            area: L10n.tr("Automação"),
+            symbol: "arrow.triangle.branch",
+            tint: palette.green,
+            headline: L10n.tr("\(activeRules) regras ativas"),
+            detail: L10n.tr("e os gestos de arrastar"),
+            open: { page = .rules }
+        ))
+
+        return list
+    }
+
+    private var themeHeadline: String {
+        if themes?.followsSystemAppearance == true { return L10n.tr("Automático") }
+        return theme.name
+    }
+
+    // MARK: Inteligência — a mecânica
+
+    private var isConnected: Bool {
+        switch draft.provider {
+        case .foundationModels: true
+        case .providerOAuth: oauthStatus == .signedIn
+        case .openAICompatible: !draft.openAICompatible.endpoint.isEmpty
+        case .cli: true
+        }
+    }
+
+    private var intelligenceSubtitle: String {
+        isConnected
+            ? L10n.tr("Pronta — em \(AssistantDestination(settings: draft).label), e só quando você pede")
+            : L10n.tr("Falta conectar onde ela vai rodar")
+    }
+
+    private func loadAssistant() async {
+        guard let assistantSettings else { return }
+        draft = assistantSettings.snapshot()
+        connectingIntelligence = !isConnected
+        if let providerOAuthAuthorizer, draft.provider == .providerOAuth {
+            await providerOAuthAuthorizer.refreshStatus(configuration: draft.providerOAuth)
+            oauthStatus = providerOAuthAuthorizer.sessionState.status
+            if oauthStatus == .signedIn {
+                models = (try? await providerOAuthAuthorizer
+                    .availableModels(configuration: draft.providerOAuth)) ?? []
+            }
+            connectingIntelligence = oauthStatus != .signedIn
+        }
+    }
+
+    private func saveAssistant() {
+        guard let assistantSettings else { return }
+        if let saved = try? assistantSettings.save(draft) { draft = saved }
+    }
+
+    private func testAssistant() {
+        guard let textAssistant else { return }
+        testing = true
+        Task {
+            let started = Date()
+            do {
+                _ = try await textAssistant.answer(
+                    question: L10n.tr("Responda somente: pronto."),
+                    in: AssistantConversationSnapshot(mailContext: Self.emptyMailContext)
+                )
+                let seconds = Date().timeIntervalSince(started)
+                lastTest = L10n.tr("respondeu em \(String(format: "%.1f", seconds)) s")
+                lastTestFailed = false
+            } catch {
+                lastTest = error.localizedDescription
+                lastTestFailed = true
+            }
+            testing = false
+        }
+    }
+
+    /// "Conectar agora": começa a autorização de verdade. Sem autorizador
+    /// montado neste build, abre o painel de conexão — que é onde as outras
+    /// rotas moram — em vez de um botão que não faz nada.
+    private func startProviderOAuth() {
+        guard let providerOAuthAuthorizer else {
+            connectionRoute = .providerOAuth
+            return
+        }
+        draft.provider = .providerOAuth
+        saveAssistant()
+        oauthMonitor?.cancel()
+        let configuration = draft.providerOAuth
+        Task {
+            try? await providerOAuthAuthorizer.start(configuration: configuration)
+        }
+        oauthMonitor = Task { @MainActor in
+            // O ator publica; a tela observa. Sem este laço o código do
+            // dispositivo aparecia e nunca sumia depois do login.
+            while !Task.isCancelled {
+                oauthStatus = providerOAuthAuthorizer.sessionState.status
+                if oauthStatus == .signedIn {
+                    connectingIntelligence = false
+                    models = (try? await providerOAuthAuthorizer
+                        .availableModels(configuration: configuration)) ?? []
+                    return
+                }
+                if case .failed = oauthStatus { return }
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
+    }
+
+    private static let emptyMailContext = AssistantMailContext.workspace(
+        AssistantWorkspaceContext(
+            accounts: [], emailCount: 0, unreadCount: 0,
+            mailboxes: [], emails: [], agenda: []
+        )
+    )
+
+    // MARK: Os fatos da moldura
+
+    private var versionLine: String {
+        updates?.versionLine ?? GeneralSettingsView.bundleVersionLine
+    }
+
+    private var readyUpdate: String? {
+        guard let updates, updates.showsReadyButton else { return nil }
+        return updates.readyVersion
+    }
+
+    private func reconnect(_ status: AccountStatus) {
+        switch AccountsCopy.reconnectRoute(for: status) {
+        case .google: Task { await model.reconnectGoogle(status.accountID) }
+        case .imapForm: reconectandoImap = status
+        case nil: page = .account(status.accountID)
+        }
     }
 
     /// Os destinos são construídos a partir das pastas reais já sincronizadas.
@@ -406,348 +603,41 @@ public struct AccountsWindow: View {
             return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
         }
     }
-
-    private var accountsSidebar: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 7) {
-                    Text(L10n.tr("CONTAS CONECTADAS"))
-                        .capsLabel(size: 8.5)
-                    Text("\(model.statuses.count)")
-                        .font(theme.mono.font(size: 9, weight: .semibold))
-                        .foregroundStyle(theme.accent.color)
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 2)
-                        .background(theme.accentSoft.color, in: Capsule())
-                }
-                Text(L10n.tr("Escolha uma conta para ver o estado e as ações disponíveis."))
-                    .font(theme.sans.font(size: 10))
-                    .foregroundStyle(theme.ink3.color)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(.horizontal, 14)
-            .padding(.top, 16)
-            .padding(.bottom, 12)
-
-            ScrollView {
-                LazyVStack(spacing: 3) {
-                    ForEach(model.statuses) { status in accountButton(status) }
-                }
-                .padding(.horizontal, 8)
-            }
-
-            Rectangle()
-                .fill(theme.line.color)
-                .frame(height: Hairline.thickness(displayScale))
-
-            HStack(spacing: 7) {
-                Button {
-                    addingAccount = true
-                    selectedAccountID = nil
-                } label: {
-                    Label(L10n.tr("Adicionar"), systemImage: "plus")
-                        .frame(maxWidth: .infinity, minHeight: 30)
-                }
-                .settingsSidebarAction(primary: true)
-                .help(L10n.tr("Adicionar conta"))
-
-                Button {
-                    if let id = selectedAccountID { removendo = id }
-                } label: {
-                    Image(systemName: "trash")
-                        .frame(width: 30, height: 30)
-                }
-                .disabled(selectedAccountID == nil || addingAccount)
-                .help(L10n.tr("Remover a conta selecionada"))
-                .settingsSidebarAction(primary: false)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-        }
-        .background(theme.surface2.color)
-    }
-
-    private func accountButton(_ status: AccountStatus) -> some View {
-        let selected = !addingAccount && selectedAccountID == status.accountID
-        return Button {
-            addingAccount = false
-            selectedAccountID = status.accountID
-        } label: {
-            HStack(spacing: 9) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 7)
-                        .fill(selected ? theme.accent.color : theme.surface3.color)
-                    Text(String(status.hostMark.prefix(1)).uppercased())
-                        .font(theme.sans.font(size: 12, weight: .semibold))
-                        .foregroundStyle(selected ? theme.onAccent.color : theme.ink2.color)
-                }
-                .frame(width: 30, height: 30)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(status.hostMark.uppercased())
-                        .font(theme.sans.font(size: 12, weight: .semibold))
-                        .foregroundStyle(theme.ink.color)
-                    Text(status.address)
-                        .font(theme.sans.font(size: 10.5))
-                        .foregroundStyle(theme.ink3.color)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                }
-                Spacer(minLength: 0)
-                Circle()
-                    .fill(statusColor(status))
-                    .frame(width: 7, height: 7)
-                    .help(AccountsCopy.status(status, now: Date(), calendar: .current))
-            }
-            .padding(.horizontal, 9)
-            .frame(height: 52)
-            .background(
-                selected ? theme.surface3.color : Color.clear,
-                in: RoundedRectangle(cornerRadius: 9)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 9))
-        }
-        .buttonStyle(.plain)
-        .focusRing(cornerRadius: 9)
-    }
-
-    @ViewBuilder
-    private var accountsDetail: some View {
-        if addingAccount || selectedStatus == nil {
-            VStack(alignment: .leading, spacing: 0) {
-                detailHeader(
-                    title: L10n.tr("Adicionar conta"),
-                    subtitle: L10n.tr("Google, Gmail por senha de app ou qualquer servidor IMAP")
-                )
-                Rectangle()
-                    .fill(theme.line.color)
-                    .frame(height: Hairline.thickness(displayScale))
-                ScrollView { AddAccountForm(model: model) }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        } else if let status = selectedStatus {
-            accountDetail(status)
-        }
-    }
-
-    private var selectedStatus: AccountStatus? {
-        model.statuses.first { $0.accountID == selectedAccountID }
-    }
-
-    private func accountDetail(_ status: AccountStatus) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            detailHeader(title: status.address, subtitle: status.hostMark.uppercased())
-            Rectangle()
-                .fill(theme.line.color)
-                .frame(height: Hairline.thickness(displayScale))
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    accountState(status)
-                    informationCard(status)
-
-                    Rectangle()
-                        .fill(theme.line.color)
-                        .frame(height: Hairline.thickness(displayScale))
-
-                    Button(L10n.tr("Remover conta…")) { removendo = status.accountID }
-                        .buttonStyle(.plain)
-                        .font(theme.sans.font(size: 12, weight: .medium))
-                        .foregroundStyle(theme.danger.color)
-                        .help(L10n.tr("Apagar esta conta, as mensagens baixadas e a senha guardada"))
-                }
-                .padding(24)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(theme.paper.color)
-    }
-
-    private func detailHeader(title: String, subtitle: String) -> some View {
-        HStack(alignment: .center, spacing: 13) {
-            RoundedRectangle(cornerRadius: 4)
-                .fill(theme.accent.color)
-                .frame(width: 4, height: 31)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(theme.sans.font(size: 18, weight: .semibold))
-                    .foregroundStyle(theme.ink.color)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Text(subtitle)
-                    .font(theme.sans.font(size: 11))
-                    .foregroundStyle(theme.ink3.color)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 25)
-        .frame(maxWidth: .infinity, minHeight: 78, alignment: .leading)
-        .background(theme.surface.color)
-    }
-
-    private func accountState(_ status: AccountStatus) -> some View {
-        HStack(alignment: .top, spacing: 11) {
-            Circle()
-                .fill(statusColor(status))
-                .frame(width: 10, height: 10)
-                .padding(.top, 3)
-            VStack(alignment: .leading, spacing: 5) {
-                Text(AccountsCopy.isFailing(status) ? L10n.tr("A conta precisa de atenção") : L10n.tr("Conta conectada"))
-                    .font(theme.sans.font(size: 13, weight: .semibold))
-                    .foregroundStyle(theme.ink.color)
-                Text(AccountsCopy.status(status, now: Date(), calendar: .current))
-                    .font(theme.sans.font(size: 11.5))
-                    .foregroundStyle(AccountsCopy.isFailing(status) ? theme.danger.color : theme.ink3.color)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let nota = AccountsCopy.reconnectBlockedNote(for: status) {
-                    // O botão que não pode funcionar não aparece — mas a razão
-                    // de ele não aparecer, sim. Sem esta frase, a faixa que o
-                    // dono viu oferecia "Ver o roteiro" e "Remover conta…" e
-                    // deixava a pessoa concluir que a saída era apagar tudo.
-                    Text(nota)
-                        .font(theme.sans.font(size: 11.5))
-                        .foregroundStyle(theme.ink3.color)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                if let progress = status.progress, progress.total > 0 {
-                    ProgressView(value: progress.fraction)
-                        .tint(theme.accent.color)
-                        .frame(maxWidth: 300)
-                }
-                if AccountsCopy.isFailing(status) { bandActions(status) }
-            }
-        }
-    }
-
-    /// As ações da faixa, com a primeira em destaque.
-    ///
-    /// A hierarquia é o conserto: a faixa antiga desenhava as ações de conserto
-    /// numa fileira apagada lá embaixo e o "Remover conta…" em vermelho no pé,
-    /// e o vermelho era a única coisa que se via. Aqui a ação que resolve é a
-    /// que tem peso, e a destrutiva continua existindo — no pé, onde já mora.
-    private func bandActions(_ status: AccountStatus) -> some View {
-        let acoes = AccountsCopy.actions(for: status).filter { $0 != .remove }
-        return HStack(spacing: 8) {
-            ForEach(Array(acoes.enumerated()), id: \.element) { indice, acao in
-                Button(acao.label) { execute(acao, on: status) }
-                    .buttonStyle(.plain)
-                    .font(theme.sans.font(size: 12, weight: .semibold))
-                    .foregroundStyle(indice == 0 ? theme.onAccent.color : theme.accent.color)
-                    .padding(.horizontal, 13)
-                    .frame(height: 28)
-                    .background(
-                        indice == 0 ? theme.accent.color : theme.surface2.color,
-                        in: RoundedRectangle(cornerRadius: 8)
-                    )
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 8)
-                            .strokeBorder(
-                                indice == 0 ? theme.accent.color : theme.line2.color,
-                                lineWidth: Hairline.thickness(displayScale)
-                            )
-                    }
-                    .help(acao.help)
-                    .focusRing(cornerRadius: 8)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.top, 4)
-    }
-
-    private func informationCard(_ status: AccountStatus) -> some View {
-        VStack(spacing: 0) {
-            informationRow(L10n.tr("Endereço"), value: status.address)
-            cardDivider
-            informationRow(L10n.tr("Servidor"), value: status.hostMark)
-            cardDivider
-            informationRow(L10n.tr("Mensagens locais"), value: "\(status.messageCount)")
-            cardDivider
-            informationRow(
-                L10n.tr("Fila de saída"),
-                value: status.pendingOperations == 0
-                    ? L10n.tr("Nenhuma operação pendente")
-                    : L10n.tr("\(status.pendingOperations) aguardando")
-            )
-        }
-        .background(theme.surface2.color, in: RoundedRectangle(cornerRadius: 11))
-        .overlay {
-            RoundedRectangle(cornerRadius: 11)
-                .strokeBorder(theme.line.color, lineWidth: Hairline.thickness(displayScale))
-        }
-    }
-
-    private func informationRow(_ label: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 16) {
-            Text(label)
-                .font(theme.sans.font(size: 11.5, weight: .medium))
-                .foregroundStyle(theme.ink3.color)
-                .frame(width: 118, alignment: .trailing)
-            Text(value)
-                .font(theme.sans.font(size: 12))
-                .foregroundStyle(theme.ink.color)
-                .textSelection(.enabled)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 15)
-        .frame(minHeight: 42)
-    }
-
-    private var cardDivider: some View {
-        Rectangle()
-            .fill(theme.line.color)
-            .frame(height: Hairline.thickness(displayScale))
-            .padding(.leading, 148)
-    }
-
-    private func statusColor(_ status: AccountStatus) -> Color {
-        if AccountsCopy.isFailing(status) { return theme.danger.color }
-        if status.state == .carregando { return theme.accent.color }
-        return theme.success.color
-    }
-
-    /// **Reconectar não é recarregar.** Era: `.reconnect` caía no mesmo
-    /// `loadInitial` do "Tentar de novo", que baixa mensagens com a credencial
-    /// que já foi recusada e volta com o mesmo erro. Agora ele refaz a
-    /// autorização da conta que existe — OAuth no Google, formulário de senha
-    /// no IMAP —, preservando id, banco, fila e preferências.
-    private func execute(_ action: AccountRowAction, on status: AccountStatus) {
-        switch action {
-        case .reconnect:
-            switch AccountsCopy.reconnectRoute(for: status) {
-            case .google: Task { await model.reconnectGoogle(status.accountID) }
-            case .imapForm: reconectandoImap = status
-            case nil: break
-            }
-        case .retry: Task { await model.loadInitial(status.accountID) }
-        case .retryQueue: Task { await model.retryQueue(status.accountID) }
-        case .openRoteiro: AccountsDocs.open(AccountsDocs.oauthGoogle)
-        case .remove: removendo = status.accountID
-        }
-    }
 }
 
-private extension View {
-    func settingsSidebarAction(primary: Bool) -> some View {
-        modifier(SettingsSidebarActionStyle(primary: primary))
-    }
-}
-
-private struct SettingsSidebarActionStyle: ViewModifier {
+/// A moldura das folhas que a janela abre: um título, um "Pronto" e o
+/// conteúdo. Os formulários de dentro são de outra mão — esta é só a borda.
+struct ConfigSheet<Content: View>: View {
     @Environment(\.theme) private var theme
-    @Environment(\.displayScale) private var displayScale
-    let primary: Bool
+    @Environment(\.configPalette) private var palette
+    let title: String
+    let close: () -> Void
+    @ViewBuilder var content: Content
 
-    func body(content: Content) -> some View {
-        content
-            .buttonStyle(.plain)
-            .font(theme.sans.font(size: 10.5, weight: .semibold))
-            .foregroundStyle(primary ? theme.onAccent.color : theme.ink3.color)
-            .background(primary ? theme.accent.color : theme.surface.color, in: RoundedRectangle(cornerRadius: 8))
-            .overlay {
-                RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(primary ? theme.accent.color : theme.line2.color, lineWidth: Hairline.thickness(displayScale))
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(title)
+                    .font(theme.sans.font(size: 15, weight: .semibold))
+                    .foregroundStyle(palette.ink.color)
+                Spacer(minLength: 0)
+                Button(L10n.tr("Pronto"), action: close)
+                    .buttonStyle(.plain)
+                    .configPrimaryButton(
+                        palette, font: theme.sans.font(size: 13, weight: .semibold),
+                        radius: 9, horizontal: 14, vertical: 7
+                    )
+                    .keyboardShortcut(.defaultAction)
             }
-            .focusRing(cornerRadius: 8)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 14)
+            ScrollView { content }
+        }
+        .frame(width: 820, height: 640)
+        .background(theme.glassWindow.color)
     }
+}
+
+extension AssistantProvider: Identifiable {
+    public var id: String { rawValue }
 }
