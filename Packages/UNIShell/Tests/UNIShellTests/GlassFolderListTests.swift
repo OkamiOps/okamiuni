@@ -16,12 +16,13 @@ struct GlassFolderListTests {
         )
     }
 
-    @Test("as sete caixas do protótipo, nesta ordem e sem 'Tudo'")
+    /// "Tudo" voltou a pedido do dono: sem ela não há onde ver a caixa
+    /// inteira, só o recorte de Hoje e Depois.
+    @Test("as oito caixas, com 'Tudo' logo abaixo de Depois")
     func bucketOrder() {
         #expect(GlassFolderList.buckets == [
-            .today, .later, .sent, .drafts, .archived, .junk, .trash,
+            .today, .later, .all, .sent, .drafts, .archived, .junk, .trash,
         ])
-        #expect(!GlassFolderList.buckets.contains(.all))
     }
 
     @Test("só o Spam escreve o número como aviso")

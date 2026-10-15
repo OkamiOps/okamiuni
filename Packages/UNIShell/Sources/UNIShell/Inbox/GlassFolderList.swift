@@ -13,7 +13,7 @@ enum GlassFolderList {
     /// sendo alcançada pela busca ("Tudo" do campo), que é de onde ela é
     /// realmente usada.
     static let buckets: [TriageBucket] = [
-        .today, .later, .sent, .drafts, .archived, .junk, .trash,
+        .today, .later, .all, .sent, .drafts, .archived, .junk, .trash,
     ]
 
     /// O ícone de cada caixa. Todas têm um aqui — a lista do protótipo é uma

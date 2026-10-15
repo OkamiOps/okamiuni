@@ -50,6 +50,26 @@ struct VidroRenderTests {
         )
     }
 
+    /// O dono não distinguia lidas de não lidas: o ponto colorido era o da
+    /// conta em todas as linhas. Agora o ponto é de acento e só a não lida o
+    /// tem, com nome e assunto mais fortes.
+    @Test("a lida e a não lida se distinguem na lista de vidro", arguments: [
+        "vidro", "vidro-noite",
+    ])
+    func readAndUnreadDiffer(id: String) async throws {
+        let theme = try #require(Theme.named(id))
+        let store = await loja()
+        let primeira = try #require(store.visibleMessages.first)
+        store.setRead(true, for: primeira.id)
+        let rep = try #require(Render.snapshot(
+            InboxScreen(store: store).environment(ThemeStore()),
+            named: "vidro-lida-naolida-\(id)",
+            size: CGSize(width: 1440, height: 916),
+            theme: theme
+        ))
+        #expect(rep.pixelsWide == 1440)
+    }
+
     @Test("o trilho recolhido deixa só a navegação")
     func collapsedRailRenders() async throws {
         let store = await loja()

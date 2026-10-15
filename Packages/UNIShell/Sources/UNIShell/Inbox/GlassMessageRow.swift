@@ -45,13 +45,16 @@ struct GlassMessageRow: View {
             avatar
             VStack(alignment: .leading, spacing: 3) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    // O ponto é o de "não lida", na cor de acento — a cor da
+                    // conta já está no avatar. Na lida o lugar fica vazio,
+                    // para o nome não pular de coluna ao abrir a mensagem.
                     Circle()
-                        .fill(accountTint)
-                        .frame(width: 7, height: 7)
+                        .fill(unread ? theme.accent.color : Color.clear)
+                        .frame(width: 8, height: 8)
                         .accessibilityHidden(true)
                     Text(message.listHeadline)
                         .font(theme.sans.font(size: 13.5, weight: unread ? .bold : .medium))
-                        .foregroundStyle(theme.ink.color)
+                        .foregroundStyle(unread ? theme.ink.color : theme.ink2.color)
                         .lineLimit(1)
                     countBadge
                     Spacer(minLength: 4)
@@ -67,8 +70,8 @@ struct GlassMessageRow: View {
                 }
 
                 Text(message.subject)
-                    .font(theme.sans.font(size: 13, weight: .medium))
-                    .foregroundStyle(theme.ink.color)
+                    .font(theme.sans.font(size: 13, weight: unread ? .semibold : .regular))
+                    .foregroundStyle(unread ? theme.ink.color : theme.ink2.color)
                     .lineLimit(1)
 
                 if !compact {
