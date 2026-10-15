@@ -107,10 +107,40 @@ struct AssistantDrawerRenderTests {
         return n
     }
 
+    /// **O botão do item do briefing.**
+    ///
+    /// No desenho da Presença o item fechado (02, 03) tem botão de superfície
+    /// com o verbo em `accentInk`; só o item **com rascunho** tem o acento
+    /// cheio. A régua, então, é a tinta do verbo na metade direita da gaveta:
+    /// lá não há outra coisa em `accentInk` naquela altura.
+    private func botaoDoItem(
+        _ rep: NSBitmapImageRep, _ theme: Theme, xInicio: Int, xFim: Int
+    ) -> CGPoint? {
+        // **A coluna do botão sai do desenho; a linha, do bitmap.**
+        //
+        // O item fechado alinha o botão à direita, dentro do recuo de 20 da
+        // gaveta: a 40 da borda está sempre dentro dele. A altura é a única
+        // coisa que depende de quantas linhas o título ocupou, e é a tinta do
+        // verbo (`accentInk`) naquela coluna estreita que a entrega — as
+        // perguntas de "pergunte mais", que também são acento, começam no
+        // recuo esquerdo e nunca chegam lá.
+        let coluna = xFim - 40
+        guard let tinta = theme.accentInk.nsColor.usingColorSpace(.sRGB) else { return nil }
+        var linhas: [Int] = []
+        for py in 100..<620 {
+            for px in (coluna - 10)..<(coluna + 10) where casa(rep, px, py, tinta, 0.10) {
+                linhas.append(py)
+                break
+            }
+        }
+        guard let primeira = linhas.first, let ultima = linhas.last else { return nil }
+        return CGPoint(x: Double(coluna), y: Double(primeira + ultima) / 2)
+    }
+
     /// O centro do maior aglomerado desta cor no recorte — o botão do cartão.
     private func centro(
         _ rep: NSBitmapImageRep, de token: TokenColor,
-        x: Range<Int>, y: Range<Int>, tol: Double = 0.04
+        x: Range<Int>, y: Range<Int>, tol: Double = 0.04, minimo: Int = 40
     ) -> CGPoint? {
         guard let alvo = token.nsColor.usingColorSpace(.sRGB) else { return nil }
         var somaX = 0, somaY = 0, n = 0
@@ -120,7 +150,7 @@ struct AssistantDrawerRenderTests {
                 somaX += px; somaY += py; n += 1
             }
         }
-        guard n > 40 else { return nil }
+        guard n >= minimo else { return nil }
         return CGPoint(x: Double(somaX) / Double(n), y: Double(somaY) / Double(n))
     }
 
@@ -147,11 +177,12 @@ struct AssistantDrawerRenderTests {
             )
             #expect(fundo > 40_000, "\(theme.id): a gaveta não pintou surface")
 
-            // E o botão do cartão é a mancha de accent dentro dela.
+            // E o item do briefing traz o verbo em tinta de acento.
             let botao = pixels(
-                rep, de: theme.accent, x: Self.drawerX..<1_440, y: 100..<600, tol: 0.03
+                rep, de: theme.accentInk,
+                x: (Self.drawerX + 190)..<1_440, y: 100..<620, tol: 0.08
             )
-            #expect(botao > 400, "\(theme.id): o cartão de ação não desenhou o botão")
+            #expect(botao > 60, "\(theme.id): o item do briefing não desenhou o botão")
         }
     }
 
@@ -179,17 +210,30 @@ struct AssistantDrawerRenderTests {
             named: "gaveta-cartao-feito-\(theme.id)", size: Self.size, theme: theme
         ))
 
-        let cheio = pixels(
-            repAntes, de: theme.accent, x: Self.drawerX..<1_440, y: 100..<600, tol: 0.03
+        // **O botão sai, e o que fica é texto.** No desenho da Presença o item
+        // fechado tem um botão com moldura em `line`; executado, ele vira
+        // "Feito · Desfazer", que é tinta e mais nada. A régua é a moldura:
+        // a tinta de acento não serve, porque o "Desfazer" também é acento.
+        //
+        // A faixa inclui o fio sob o recibo, que está nos dois desenhos e por
+        // isso se cancela na diferença.
+        let faixa = (1_440 - 130)..<(1_440 - 20)
+        let comBotao = pixels(
+            repAntes, de: theme.line, x: faixa, y: 100..<620, tol: 0.02
         )
-        let feito = pixels(
-            repDepois, de: theme.accent, x: Self.drawerX..<1_440, y: 100..<600, tol: 0.03
+        let semBotao = pixels(
+            repDepois, de: theme.line, x: faixa, y: 100..<620, tol: 0.02
         )
-        #expect(cheio > 400)
-        #expect(feito < cheio / 2, "o botão cheio continuou depois de executar")
+        #expect(comBotao > 60, "o item fechado não desenhou a moldura do botão")
+        #expect(
+            semBotao < comBotao - 40,
+            "a moldura do botão continuou depois de executar (\(comBotao) → \(semBotao))"
+        )
     }
 
-    @Test("a janela destacada desenha a mesma conversa, em 460 × 620")
+    /// A mesma garantia de antes — a janela destacada mostra a mesma conversa,
+    /// com os mesmos itens — nas medidas do desenho aprovado: 880 × 744.
+    @Test("a janela destacada desenha a mesma conversa, em 880 × 744")
     func detachedWindowRenders() async throws {
         for theme in [Theme.okami, Theme.tinta] {
             let session = AssistantSession(debugDetached: true)
@@ -199,12 +243,12 @@ struct AssistantDrawerRenderTests {
                 named: "janela-assistente-\(theme.id)",
                 size: AssistantDrawerMetrics.windowSize, theme: theme
             ))
-            #expect(rep.pixelsWide == 460)
-            #expect(rep.pixelsHigh == 620)
+            #expect(rep.pixelsWide == 880)
+            #expect(rep.pixelsHigh == 744)
             let botao = pixels(
-                rep, de: theme.accent, x: 0..<460, y: 0..<620, tol: 0.03
+                rep, de: theme.accentInk, x: 200..<880, y: 100..<700, tol: 0.08
             )
-            #expect(botao > 400, "\(theme.id): a janela perdeu o cartão de ação")
+            #expect(botao > 60, "\(theme.id): a janela perdeu o item do briefing")
         }
     }
 
@@ -227,10 +271,9 @@ struct AssistantDrawerRenderTests {
             tela(store, session: session), size: Self.size, theme: theme
         ))
         let alvo = try #require(
-            centro(rep, de: theme.accent, x: Self.drawerX..<1_440, y: 100..<600),
-            "não achei o botão do cartão no desenho"
+            botaoDoItem(rep, theme, xInicio: Self.drawerX, xFim: 1_440),
+            "não achei o botão do item no desenho"
         )
-
         CliqueDeEnsaio.em(
             tela(store, session: session), size: Self.size,
             aY: alvo.y, x: alvo.x
@@ -265,7 +308,7 @@ struct AssistantDrawerRenderTests {
             tela(store, session: session), size: Self.size, theme: theme
         ))
         let alvo = try #require(
-            centro(rep, de: theme.accent, x: Self.drawerX..<1_440, y: 100..<600)
+            botaoDoItem(rep, theme, xInicio: Self.drawerX, xFim: 1_440)
         )
         CliqueDeEnsaio.em(
             tela(store, session: session), size: Self.size, aY: alvo.y, x: alvo.x
@@ -294,7 +337,7 @@ struct AssistantDrawerRenderTests {
             tela(store, session: session), size: Self.size, theme: theme
         ))
         let alvo = try #require(
-            centro(rep, de: theme.accent, x: Self.drawerX..<1_440, y: 100..<600)
+            botaoDoItem(rep, theme, xInicio: Self.drawerX, xFim: 1_440)
         )
         CliqueDeEnsaio.em(
             tela(store, session: session), size: Self.size, aY: alvo.y, x: alvo.x
@@ -375,36 +418,35 @@ struct AssistantDrawerRenderTests {
         let rep = try #require(Render.bitmap(
             tela(store, session: session), size: Self.size, theme: theme
         ))
-        // Onde o cabeçalho da gaveta está: o ícone accent dele é a única
-        // coisa em accent na coluna de entrada da gaveta. A gaveta começa
-        // abaixo do chrome, então a altura não pode ser escrita à mão.
-        let icone = try #require(
-            centro(
-                rep, de: theme.accent,
-                x: (Self.drawerX + 12)..<(Self.drawerX + 44), y: 0..<400, tol: 0.06
-            ),
-            "não achei o ícone do cabeçalho da gaveta"
-        )
-
-        // Os dois ícones de ação são `ink3`, encostados na borda direita; o
-        // da esquerda é o ↗.
-        var colunas: [Int] = []
-        let linhas = Int(icone.y - 10)..<Int(icone.y + 10)
-        guard let alvo = theme.ink3.nsColor.usingColorSpace(.sRGB) else { return }
-        for px in (1_440 - 120)..<1_440 {
-            for py in linhas where casa(rep, px, py, alvo, 0.10) {
-                colunas.append(px)
-                break
+        // **Onde o cabeçalho acaba.** O fio sob ele é a primeira linha cheia
+        // de `line` dentro da gaveta: a gaveta começa abaixo do chrome, e a
+        // altura não pode ser escrita à mão.
+        var fio: Int?
+        guard let corDoFio = theme.line.nsColor.usingColorSpace(.sRGB) else { return }
+        for py in 0..<400 {
+            var n = 0
+            for px in (Self.drawerX + 40)..<(1_440 - 40) where casa(rep, px, py, corDoFio, 0.03) {
+                n += 1
             }
+            if n > 300 { fio = py; break }
         }
-        let esquerda = try #require(colunas.first, "não achei os ícones do cabeçalho")
-        let direita = try #require(colunas.last)
-        #expect(direita - esquerda > 10, "os dois ícones do cabeçalho viraram um")
-        let alvoX = Double(esquerda) + Double(AssistantDrawerMetrics.headerActionSize) / 2
+        let base = try #require(fio, "não achei o fio sob o cabeçalho da gaveta")
+
+        // E os dois botões saem das medidas do desenho: `padding: 13px 18px`,
+        // ícones de 15 com `gap: 10`. O ✕ encosta na borda; o ↗ vem antes.
+        let recuo = Double(PresencaMetrics.headerPadding.trailing)
+        let icone = Double(AssistantDrawerMetrics.headerActionSize)
+        let fechar = 1_440 - recuo - icone / 2
+        let destacar = fechar - icone - Double(PresencaMetrics.headerGap)
+        // O centro vertical do cabeçalho: metade da altura dele, acima do fio.
+        let alturaDoCabecalho = Double(PresencaMetrics.headerPadding.top)
+            + Double(PresencaMetrics.headerOrb)
+            + Double(PresencaMetrics.headerPadding.bottom)
+        let meio = Double(base) - alturaDoCabecalho / 2
 
         CliqueDeEnsaio.em(
             tela(store, session: session), size: Self.size,
-            aY: icone.y, x: alvoX
+            aY: meio, x: destacar
         )
         #expect(session.isDetached, "o ↗ não destacou")
         #expect(!session.isDrawerOpen, "a gaveta ficou aberta com a conversa destacada")

@@ -154,6 +154,11 @@ struct AssistantPresencaHeader<Trailing: View>: View {
     let conversation: AssistantConversation
     let context: AssistantDrawerContext
     let width: CGFloat
+    /// Este cabeçalho **é** a barra de título da janela? Então ele reserva o
+    /// vão dos semáforos nativos e põe o conteúdo na linha deles. O desenho
+    /// pinta as três bolinhas à esquerda porque lá não existe janela de
+    /// verdade; aqui existe, e a regra da casa é a de `WindowTitleBar`.
+    var reservaSemaforos = false
     let onSwapContext: () -> Void
     @ViewBuilder let trailing: () -> Trailing
 
@@ -167,6 +172,17 @@ struct AssistantPresencaHeader<Trailing: View>: View {
     }
 
     var body: some View {
+        // O alinhador dos semáforos **só** entra quando este cabeçalho é a
+        // barra da janela: na gaveta ele moveria os botões da janela
+        // principal, que não é dele.
+        if reservaSemaforos {
+            linha.trafficLightsOnTheLine(barHeight: PresencaMetrics.headerHeight)
+        } else {
+            linha
+        }
+    }
+
+    private var linha: some View {
         HStack(spacing: PresencaMetrics.headerGap) {
             AssistantOrb(side: PresencaMetrics.headerOrb)
             Text(AssistantDrawerCopy.title)
@@ -202,6 +218,13 @@ struct AssistantPresencaHeader<Trailing: View>: View {
             trailing()
         }
         .padding(PresencaMetrics.headerPadding)
+        .padding(
+            .leading,
+            reservaSemaforos
+                ? WindowChrome.trafficLightInset - PresencaMetrics.headerPadding.leading
+                : 0
+        )
+        .frame(height: reservaSemaforos ? PresencaMetrics.headerHeight : nil)
         .hairline(theme.line, edges: .bottom)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L10n.tr("Falando sobre \(context.label)"))
@@ -302,18 +325,37 @@ struct AssistantTranscript: View {
     private var gutter: CGFloat { PresencaMetrics.gutter(forWidth: width) }
 
     var body: some View {
+        // A altura livre é o que faz o estado "trabalhando" ficar **no meio**,
+        // como no desenho: ele cresce até o que sobra entre a pergunta e o
+        // campo, e se centra ali.
+        GeometryReader { proxy in
+            corpo(alturaLivre: proxy.size.height)
+        }
+    }
+
+    private func corpo(alturaLivre: CGFloat) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: PresencaMetrics.briefingGap) {
                 ForEach(conversation.messages) { turno in
                     turnView(turno)
                 }
                 if conversation.isLoading {
+                    // O título é a legenda do trabalho inteiro ("Lendo o seu
+                    // dia…"); os passos são o que já foi feito. Pôr o passo
+                    // atual nos dois lugares escrevia a mesma frase duas vezes.
                     AssistantWorkingState(
                         steps: session.steps,
-                        title: session.activity
-                            ?? conversation.scope.loadingLabel(for: conversation.destination)
+                        title: conversation.scope.loadingLabel(
+                            for: conversation.destination
+                        )
                     )
-                    .frame(minHeight: 220)
+                    .frame(
+                        minHeight: max(
+                            220,
+                            alturaLivre - CGFloat(conversation.messages.count) * 44
+                                - PresencaMetrics.questionTop * 2
+                        )
+                    )
                 }
                 if let falha = conversation.failure {
                     AssistantFailureBand(
@@ -353,24 +395,25 @@ struct AssistantTranscript: View {
     /// "pergunte mais: …" — as perguntas de partida do 09, agora em linha, no
     /// idioma do desenho (texto de acento, sem pastilha).
     private var followUps: some View {
-        VStack(alignment: .leading, spacing: PresencaMetrics.itemGap) {
+        // O rótulo entra **dentro** do mesmo fluxo das perguntas: na janela
+        // larga tudo cabe numa linha, como no desenho, e na gaveta de 440 o
+        // excedente desce sozinho em vez de ser cortado.
+        FlowLayout(spacing: PresencaMetrics.followUpGap, rowSpacing: 6) {
             Text(L10n.tr("pergunte mais:"))
                 .font(theme.sans.font(size: PresencaMetrics.followUpSize))
                 .foregroundStyle(theme.ink3.color)
-            FlowLayout(spacing: PresencaMetrics.followUpGap, rowSpacing: 6) {
-                ForEach(AssistantDrawerCopy.chips(heroName: heroName), id: \.self) { texto in
-                    Button { conversation.ask(texto) } label: {
-                        Text(texto)
-                            .font(theme.sans.font(
-                                size: PresencaMetrics.followUpSize, weight: .medium
-                            ))
-                            .foregroundStyle(theme.accentInk.color)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .focusRing(cornerRadius: theme.radiusSmall)
-                    .disabled(conversation.isLoading)
+            ForEach(AssistantDrawerCopy.chips(heroName: heroName), id: \.self) { texto in
+                Button { conversation.ask(texto) } label: {
+                    Text(texto)
+                        .font(theme.sans.font(
+                            size: PresencaMetrics.followUpSize, weight: .medium
+                        ))
+                        .foregroundStyle(theme.accentInk.color)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .focusRing(cornerRadius: theme.radiusSmall)
+                .disabled(conversation.isLoading)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

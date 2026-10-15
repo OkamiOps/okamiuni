@@ -51,7 +51,8 @@ public enum UNIWindow {
         public static let accounts = CGSize(width: 960, height: 680)
 
         /// `design/10-assistente-janela.dc.html`: 460 × 620, literal.
-        public static let assistant = CGSize(width: 460, height: 620)
+        /// A janela do desenho `IA-Presenca.dc.html`: 880 × 744.
+        public static let assistant = AssistantDrawerMetrics.windowSize
     }
 
     /// Marco 1 não tem rede. Enviar fecha a janela e registra no console —

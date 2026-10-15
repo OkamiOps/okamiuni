@@ -173,10 +173,15 @@ struct ReaderInkSection: View {
         .accessibilityLabel(L10n.tr("Resumo e tarefas, escrito pela IA"))
     }
 
-    /// "escrito pela IA · neste Mac · some quando você responder" — a frase do
-    /// desenho, com a procedência real no meio dela.
+    /// A frase do desenho, com a procedência real dentro dela: "escrito pela
+    /// IA (neste Mac) · não faz parte do e-mail · some quando você responder".
+    ///
+    /// As duas coisas que ela precisa dizer: isto **não** é texto da mensagem,
+    /// e **quem** escreveu — que com o opt-in remoto ligado não é este Mac.
     private var nota: String {
-        L10n.tr("escrito pela IA · \(provenance) · some quando você responder")
+        L10n.tr(
+            "escrito pela IA (\(provenance)) · não faz parte do e-mail · some quando você responder"
+        )
     }
 
     /// Enquanto a IA escreve: os passos cumpridos com ✓ e o atual com o

@@ -81,11 +81,22 @@ struct ReaderRSVPTests {
         await store.load()
         store.select(message: item.id)
 
-        // Centro do botão «Aceitar» no mesmo quadro de 760×700 usado pela
-        // captura. O evento entra numa NSWindow a −50.000pt, sem tocar na sessão.
+        // **Onde o botão «Aceitar» está, medido no bitmap.** Era coordenada
+        // escrita à mão, e ela passou a mentir no primeiro ajuste de folga do
+        // cartão. O botão é o único preenchimento em `enter` do leitor; a
+        // régua acha a mancha dele e clica no meio.
+        let quadro = CGSize(width: 760, height: 700)
+        let rep = try #require(Render.bitmap(
+            ReaderPane(store: store), size: quadro, theme: .tinta
+        ))
+        let alvo = try #require(
+            rep.rows(matching: Theme.tinta.enter, tolerance: 0.04),
+            "não achei o botão Aceitar no desenho"
+        )
+        // O evento entra numa NSWindow a −50.000pt, sem tocar na sessão.
         CliqueDeEnsaio.em(
-            ReaderPane(store: store), size: CGSize(width: 760, height: 700),
-            aY: 326, x: 75
+            ReaderPane(store: store), size: quadro,
+            aY: CGFloat(alvo.lowerBound + alvo.upperBound) / 2, x: 75
         )
 
         let calendar = try #require(item.calendarICS)

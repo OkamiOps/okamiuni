@@ -38,6 +38,7 @@ public struct AssistantWindow: View {
                     conversation: conversation,
                     context: session.chosenContext ?? .day,
                     width: AssistantDrawerMetrics.windowSize.width,
+                    reservaSemaforos: true,
                     onSwapContext: {
                         session.chosenContext = AssistantDrawerCopy.toggled(
                             session.chosenContext ?? .day

@@ -58,6 +58,7 @@
 "A sessão expirou. Entre novamente para atualizar os modelos." = "The session expired. Sign in again to refresh models.";
 "A sessão não pôde ser confirmada" = "Session could not be confirmed";
 "A sessão é associada a {0} e o app não lê nem exibe tokens." = "The session is associated with {0}; the app does not read or display tokens.";
+"Aberto" = "Open";
 "ABRINDO LOGIN" = "OPENING LOGIN";
 "ADICIONAR CONTA" = "ADD ACCOUNT";
 "AGUARDANDO CONFIGURAÇÃO" = "AWAITING CONFIGURATION";
@@ -256,6 +257,7 @@
 "CENTRAL DE CONTROLE" = "CONTROL CENTER";
 "CLI NÃO ENCONTRADO" = "CLI NOT FOUND";
 "CLI · sessão já instalada" = "CLI · existing session";
+"clique no texto para editar" = "click the text to edit";
 "CLIs OAuth/device" = "OAuth/device CLIs";
 "COMO O OKAMIUNI TRABALHA" = "HOW OKAMIUNI WORKS";
 "CONEXÃO" = "CONNECTION";
@@ -392,6 +394,7 @@
 "Cria uma prévia a partir da mensagem recebida, sem alterar o rascunho" = "Creates a preview from the received message without changing the draft";
 "Criando…" = "Creating…";
 "Criar a primeira" = "Create the first rule";
+"Criar evento" = "Create event";
 "Criar regra" = "Create rule";
 "Criar uma resposta requer contexto de e-mail." = "Creating a reply requires email context.";
 "Curto" = "Concise";
@@ -399,6 +402,7 @@
 "Código HTML da assinatura" = "Signature HTML code";
 "Código copiado." = "Code copied.";
 "Código de dispositivo {0}" = "Device code {0}";
+"DESCARTAR" = "DISCARD";
 "DETECTADO · AUTENTICADO" = "DETECTED · AUTHENTICATED";
 "DETECTADO · NÃO AUTENTICADO" = "DETECTED · NOT AUTHENTICATED";
 "DETECTADO · NÃO CONFIRMADO" = "DETECTED · UNCONFIRMED";
@@ -435,6 +439,7 @@
 "Diminuir indentação — o parágrafo já está na margem" = "Decrease indent — the paragraph is already at the margin";
 "Dinheiro e prazos" = "Money and deadlines";
 "Direto" = "Direct";
+"direto" = "direct";
 "Disparo" = "Broadcast";
 "Disparos" = "Broadcasts";
 "Disponibilize o CLI e tente de novo" = "Make the CLI available and try again";
@@ -450,6 +455,7 @@
 "ENSAIO AO VIVO" = "LIVE PREVIEW";
 "ENTREGAS ADICIONAIS" = "ADDITIONAL DELIVERIES";
 "ERRO DE AUTENTICAÇÃO" = "AUTHENTICATION ERROR";
+"escrito pela IA ({0}) · não faz parte do e-mail · some quando você responder" = "written by the AI ({0}) · not part of the email · disappears when you reply";
 "ESTE MAC" = "THIS MAC";
 "Editar" = "Edit";
 "Editar ou remover o hyperlink" = "Edit or remove hyperlink";
@@ -578,12 +584,15 @@
 "Ex.: preserve nomes próprios, não invente prazo e escreva como se a mensagem fosse sua." = "E.g. keep proper names, do not invent deadlines and write in your own voice.";
 "Execução idempotente" = "Idempotent execution";
 "Expandir painel" = "Expand panel";
+"Explicar termos" = "Explain terms";
+"Extrair tarefas" = "Extract tasks";
 "Falando com {0}…" = "Talking to {0}…";
 "Falando sobre" = "Talking about";
 "Falando sobre {0}" = "Talking about {0}";
 "Falta a senha de app desta conta." = "The app password is missing.";
 "Falta o OAuth Client ID do Google. Siga docs/oauth-google.md e rode xcodegen generate." = "Google OAuth Client ID is missing. Follow docs/oauth-google.md and run xcodegen generate.";
 "Falta o servidor IMAP ou a porta." = "The IMAP server or port is missing.";
+"Fechado" = "Closed";
 "Fechar" = "Close";
 "Fechar a linha {0}" = "Close {0} row";
 "Fechar email" = "Close email";
@@ -613,6 +622,7 @@
 "Fonte" = "Font";
 "Forma de TLS" = "TLS mode";
 "Formal" = "Formal";
+"formal" = "formal";
 "Formato" = "Format";
 "Fúcsia" = "Fuchsia";
 "GESTOS" = "GESTURES";
@@ -693,6 +703,7 @@
 "Lead" = "Lead";
 "Lead esperando retorno" = "Lead awaiting response";
 "Leads" = "Leads";
+"lendo este e-mail…" = "reading this email…";
 "Lendo o contexto neste Mac…" = "Reading context on this Mac…";
 "Lendo os calendários deste Mac…" = "Reading this Mac’s calendars…";
 "Ler o email inteiro · {0} {1}" = "Read full email · {0} {1}";
@@ -725,6 +736,7 @@
 "Local" = "Location";
 "Local (opcional)" = "Location (optional)";
 "Login cancelado. Nenhuma sessão foi salva." = "Login canceled. No session was saved.";
+"mais curto" = "shorter";
 "MOVER PARA" = "MOVE TO";
 "Madrugada" = "Early morning";
 "Magenta" = "Magenta";
@@ -802,12 +814,16 @@
 "Movida" = "Moved";
 "Movida para a Lixeira" = "Moved to Trash";
 "Movida para {0}" = "Moved to {0}";
+"MUDAR O TOM" = "CHANGE TONE";
+"Mudar o tom" = "Change the tone";
 "Mudar para o tema claro" = "Switch to the light theme";
 "Mudar para o tema escuro" = "Switch to the dark theme";
 "Média" = "Medium";
 "Método de autenticação" = "Authentication method";
 "Mês" = "Month";
 "Mês anterior" = "Previous month";
+"nada sai sem você rever" = "nothing goes out without your review";
+"neste Mac" = "on this Mac";
 "NOVA AUTOMAÇÃO" = "NEW AUTOMATION";
 "Na agenda" = "In calendar";
 "Na agenda como cancelado." = "Marked as canceled in your calendar.";
@@ -1015,6 +1031,7 @@
 "OAuth direto · Codex ou Grok" = "Direct OAuth · Codex or Grok";
 "OAuth do LiteLLM exige HTTPS; HTTP é aceito somente em localhost." = "LiteLLM OAuth requires HTTPS; HTTP is only allowed on localhost.";
 "OAuth do seu proxy LiteLLM" = "OAuth for your LiteLLM proxy";
+"OCULTAR" = "HIDE";
 "ORIENTAÇÕES PARA ESTA AJUDA" = "INSTRUCTIONS FOR THIS HELP";
 "Oculta o {0}" = "Hide {0}";
 "Ocultar calendário" = "Hide calendar";
@@ -1034,6 +1051,7 @@
 "Ou conectar por IMAP com senha de app" = "Or connect via IMAP with an app password";
 "Outra cor…" = "Other color…";
 "Outro realce…" = "Other highlight…";
+"pergunte mais:" = "ask more:";
 "PREFERÊNCIAS RÁPIDAS" = "QUICK PREFERENCES";
 "PRÉVIA DA ASSINATURA" = "SIGNATURE PREVIEW";
 "PRÉVIA TÉCNICA · {0}" = "TECHNICAL PREVIEW · {0}";
@@ -1123,9 +1141,16 @@
 "Põe o convite na fila de saída da conta {0}." = "Queue the invitation in account {0}’s outbox.";
 "Quando" = "When";
 "Quando o armazenamento estiver disponível, você poderá configurar cada lado e restaurar o padrão aqui." = "When storage is available, you can configure each side and restore defaults here.";
+"Rascunhar" = "Draft";
+"Rascunhar resposta" = "Draft a reply";
+"RASCUNHO DA IA · TOM {0}" = "AI DRAFT · {0} TONE";
+"Rascunho da IA, tom {0}" = "AI draft, {0} tone";
+"RASCUNHO PRONTO" = "DRAFT READY";
 "RECONECTAR CONTA" = "RECONNECT ACCOUNT";
 "REMETENTES" = "SENDERS";
 "RESULTADO AO VIVO" = "LIVE RESULT";
+"RESUMO E TAREFAS" = "SUMMARY AND TASKS";
+"Resumo e tarefas, escrito pela IA" = "Summary and tasks, written by the AI";
 "REUNIÕES" = "MEETINGS";
 "Rascunho" = "Draft";
 "Rascunho já salvo às {0}." = "Draft already saved at {0}.";
@@ -1223,6 +1248,7 @@
 "Reunião cancelada" = "Meeting canceled";
 "Reuniões por conta" = "Meetings by account";
 "Rever" = "Review";
+"Revisar e enviar" = "Review and send";
 "Riscado" = "Strikethrough";
 "Riscos e pendências" = "Risks and action items";
 "Rosa" = "Pink";
@@ -1347,6 +1373,7 @@
 "Todos os dias" = "Every day";
 "Tokens não são exibidos nem copiados para a configuração." = "Tokens are neither displayed nor copied to settings.";
 "Tom" = "Tone";
+"Traduzir" = "Translate";
 "Transações" = "Transactions";
 "Trazer para hoje" = "Move to today";
 "Trazida para hoje" = "Moved to today";

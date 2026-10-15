@@ -234,7 +234,10 @@ struct QuickReplyBand: View {
         // `expandRequest` já contado antes da primeira semeadura é o "⌘R
         // enquanto a mensagem ainda abria": o pedido não pode se perder no
         // meio, porque o `onChange` só ouve o que muda **depois**.
-        open = Self.opensExpanded(for: stored) || expandRequest > 0
+        // Com o rascunho da IA, a faixa nasce **recolhida**: ela é o cartão do
+        // desenho `IA-Tinta`, com a prosa e "Revisar e enviar". Abrir o editor
+        // por conta própria enterraria o desenho e o e-mail junto.
+        open = (iaDraft == nil && Self.opensExpanded(for: stored)) || expandRequest > 0
         seeded = true
         if debugInsertSignature, canInsertSignature { insertSignature() }
     }

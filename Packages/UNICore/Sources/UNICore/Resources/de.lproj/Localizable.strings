@@ -58,6 +58,7 @@
 "A sessão expirou. Entre novamente para atualizar os modelos." = "Die Sitzung ist abgelaufen. Melden Sie sich erneut an, um Modelle zu aktualisieren.";
 "A sessão não pôde ser confirmada" = "Sitzung konnte nicht bestätigt werden";
 "A sessão é associada a {0} e o app não lê nem exibe tokens." = "Die Sitzung ist mit {0} verknüpft; die App liest oder zeigt keine Tokens.";
+"Aberto" = "Offen";
 "ABRINDO LOGIN" = "ANMELDUNG WIRD GEÖFFNET";
 "ADICIONAR CONTA" = "KONTO HINZUFÜGEN";
 "AGUARDANDO CONFIGURAÇÃO" = "KONFIGURATION AUSSTEHEND";
@@ -256,6 +257,7 @@
 "CENTRAL DE CONTROLE" = "STEUERZENTRALE";
 "CLI NÃO ENCONTRADO" = "CLI NICHT GEFUNDEN";
 "CLI · sessão já instalada" = "CLI · vorhandene Sitzung";
+"clique no texto para editar" = "zum Bearbeiten auf den Text klicken";
 "CLIs OAuth/device" = "OAuth/Device-CLIs";
 "COMO O OKAMIUNI TRABALHA" = "SO ARBEITET OKAMIUNI";
 "CONEXÃO" = "VERBINDUNG";
@@ -392,6 +394,7 @@
 "Cria uma prévia a partir da mensagem recebida, sem alterar o rascunho" = "Erstellt eine Vorschau aus der empfangenen Nachricht, ohne den Entwurf zu ändern";
 "Criando…" = "Wird erstellt…";
 "Criar a primeira" = "Erste Regel erstellen";
+"Criar evento" = "Termin erstellen";
 "Criar regra" = "Regel erstellen";
 "Criar uma resposta requer contexto de e-mail." = "Zum Erstellen einer Antwort wird E-Mail-Kontext benötigt.";
 "Curto" = "Kurz";
@@ -399,6 +402,7 @@
 "Código HTML da assinatura" = "HTML-Code der Signatur";
 "Código copiado." = "Code kopiert.";
 "Código de dispositivo {0}" = "Gerätecode {0}";
+"DESCARTAR" = "VERWERFEN";
 "DETECTADO · AUTENTICADO" = "ERKANNT · AUTHENTIFIZIERT";
 "DETECTADO · NÃO AUTENTICADO" = "ERKANNT · NICHT AUTHENTIFIZIERT";
 "DETECTADO · NÃO CONFIRMADO" = "ERKANNT · UNBESTÄTIGT";
@@ -435,6 +439,7 @@
 "Diminuir indentação — o parágrafo já está na margem" = "Einzug verringern — der Absatz steht bereits am Rand";
 "Dinheiro e prazos" = "Geld und Fristen";
 "Direto" = "Direkt";
+"direto" = "direkt";
 "Disparo" = "Rundmail";
 "Disparos" = "Massenmails";
 "Disponibilize o CLI e tente de novo" = "Stelle das CLI bereit und versuche es erneut";
@@ -450,6 +455,7 @@
 "ENSAIO AO VIVO" = "LIVE-VORSCHAU";
 "ENTREGAS ADICIONAIS" = "ZUSÄTZLICHE ZUSTELLUNGEN";
 "ERRO DE AUTENTICAÇÃO" = "AUTHENTIFIZIERUNGSFEHLER";
+"escrito pela IA ({0}) · não faz parte do e-mail · some quando você responder" = "von der KI geschrieben ({0}) · nicht Teil der E-Mail · verschwindet, sobald Sie antworten";
 "ESTE MAC" = "DIESER MAC";
 "Editar" = "Bearbeiten";
 "Editar ou remover o hyperlink" = "Hyperlink bearbeiten oder entfernen";
@@ -578,12 +584,15 @@
 "Ex.: preserve nomes próprios, não invente prazo e escreva como se a mensagem fosse sua." = "Z. B. Eigennamen beibehalten, keine Fristen erfinden und im eigenen Stil schreiben.";
 "Execução idempotente" = "Idempotente Ausführung";
 "Expandir painel" = "Bereich vergrößern";
+"Explicar termos" = "Begriffe erklären";
+"Extrair tarefas" = "Aufgaben extrahieren";
 "Falando com {0}…" = "Gespräch mit {0}…";
 "Falando sobre" = "Gespräch über";
 "Falando sobre {0}" = "Gespräch über {0}";
 "Falta a senha de app desta conta." = "Das App-Passwort fehlt.";
 "Falta o OAuth Client ID do Google. Siga docs/oauth-google.md e rode xcodegen generate." = "Google OAuth Client ID fehlt. Folgen Sie docs/oauth-google.md und führen Sie xcodegen generate aus.";
 "Falta o servidor IMAP ou a porta." = "IMAP-Server oder Port fehlt.";
+"Fechado" = "Geschlossen";
 "Fechar" = "Schließen";
 "Fechar a linha {0}" = "Zeile {0} schließen";
 "Fechar email" = "E-Mail schließen";
@@ -613,6 +622,7 @@
 "Fonte" = "Schrift";
 "Forma de TLS" = "TLS-Modus";
 "Formal" = "Formell";
+"formal" = "formell";
 "Formato" = "Format";
 "Fúcsia" = "Fuchsia";
 "GESTOS" = "GESTEN";
@@ -693,6 +703,7 @@
 "Lead" = "Lead";
 "Lead esperando retorno" = "Lead wartet auf Antwort";
 "Leads" = "Leads";
+"lendo este e-mail…" = "diese E-Mail wird gelesen…";
 "Lendo o contexto neste Mac…" = "Kontext auf diesem Mac wird gelesen…";
 "Lendo os calendários deste Mac…" = "Kalender dieses Macs werden gelesen…";
 "Ler o email inteiro · {0} {1}" = "Ganze E-Mail lesen · {0} {1}";
@@ -725,6 +736,7 @@
 "Local" = "Ort";
 "Local (opcional)" = "Ort (optional)";
 "Login cancelado. Nenhuma sessão foi salva." = "Anmeldung abgebrochen. Keine Sitzung gespeichert.";
+"mais curto" = "kürzer";
 "MOVER PARA" = "VERSCHIEBEN NACH";
 "Madrugada" = "Früher Morgen";
 "Magenta" = "Magenta";
@@ -802,12 +814,16 @@
 "Movida" = "Verschoben";
 "Movida para a Lixeira" = "In den Papierkorb verschoben";
 "Movida para {0}" = "Nach {0} verschoben";
+"MUDAR O TOM" = "TON ÄNDERN";
+"Mudar o tom" = "Ton ändern";
 "Mudar para o tema claro" = "Zum hellen Thema wechseln";
 "Mudar para o tema escuro" = "Zum dunklen Thema wechseln";
 "Média" = "Mittel";
 "Método de autenticação" = "Authentifizierungsmethode";
 "Mês" = "Monat";
 "Mês anterior" = "Vorheriger Monat";
+"nada sai sem você rever" = "nichts geht ohne Ihre Prüfung raus";
+"neste Mac" = "auf diesem Mac";
 "NOVA AUTOMAÇÃO" = "NEUE AUTOMATISIERUNG";
 "Na agenda" = "Im Kalender";
 "Na agenda como cancelado." = "Im Kalender als abgesagt markiert.";
@@ -1015,6 +1031,7 @@
 "OAuth direto · Codex ou Grok" = "Direktes OAuth · Codex oder Grok";
 "OAuth do LiteLLM exige HTTPS; HTTP é aceito somente em localhost." = "LiteLLM-OAuth erfordert HTTPS; HTTP ist nur auf localhost erlaubt.";
 "OAuth do seu proxy LiteLLM" = "OAuth für deinen LiteLLM-Proxy";
+"OCULTAR" = "AUSBLENDEN";
 "ORIENTAÇÕES PARA ESTA AJUDA" = "ANWEISUNGEN FÜR DIESE HILFE";
 "Oculta o {0}" = "{0} ausblenden";
 "Ocultar calendário" = "Kalender ausblenden";
@@ -1034,6 +1051,7 @@
 "Ou conectar por IMAP com senha de app" = "Oder über IMAP mit App-Passwort verbinden";
 "Outra cor…" = "Andere Farbe…";
 "Outro realce…" = "Andere Hervorhebung…";
+"pergunte mais:" = "mehr fragen:";
 "PREFERÊNCIAS RÁPIDAS" = "SCHNELLEINSTELLUNGEN";
 "PRÉVIA DA ASSINATURA" = "SIGNATURVORSCHAU";
 "PRÉVIA TÉCNICA · {0}" = "TECHNISCHE VORSCHAU · {0}";
@@ -1123,9 +1141,16 @@
 "Põe o convite na fila de saída da conta {0}." = "Die Einladung in den Postausgang von Konto {0} stellen.";
 "Quando" = "Wenn";
 "Quando o armazenamento estiver disponível, você poderá configurar cada lado e restaurar o padrão aqui." = "Sobald der Speicher verfügbar ist, kannst du hier beide Seiten konfigurieren und die Standardwerte wiederherstellen.";
+"Rascunhar" = "Entwerfen";
+"Rascunhar resposta" = "Antwort entwerfen";
+"RASCUNHO DA IA · TOM {0}" = "KI-ENTWURF · TON {0}";
+"Rascunho da IA, tom {0}" = "KI-Entwurf, Ton {0}";
+"RASCUNHO PRONTO" = "ENTWURF FERTIG";
 "RECONECTAR CONTA" = "KONTO ERNEUT VERBINDEN";
 "REMETENTES" = "ABSENDER";
 "RESULTADO AO VIVO" = "LIVE-ERGEBNIS";
+"RESUMO E TAREFAS" = "ZUSAMMENFASSUNG UND AUFGABEN";
+"Resumo e tarefas, escrito pela IA" = "Zusammenfassung und Aufgaben, von der KI geschrieben";
 "REUNIÕES" = "BESPRECHUNGEN";
 "Rascunho" = "Entwurf";
 "Rascunho já salvo às {0}." = "Entwurf bereits um {0} gespeichert.";
@@ -1223,6 +1248,7 @@
 "Reunião cancelada" = "Besprechung abgesagt";
 "Reuniões por conta" = "Besprechungen pro Konto";
 "Rever" = "Überprüfen";
+"Revisar e enviar" = "Prüfen und senden";
 "Riscado" = "Durchgestrichen";
 "Riscos e pendências" = "Risiken und offene Aufgaben";
 "Rosa" = "Rosa";
@@ -1347,6 +1373,7 @@
 "Todos os dias" = "Jeden Tag";
 "Tokens não são exibidos nem copiados para a configuração." = "Tokens werden weder angezeigt noch in die Einstellungen kopiert.";
 "Tom" = "Ton";
+"Traduzir" = "Übersetzen";
 "Transações" = "Transaktionen";
 "Trazer para hoje" = "Für heute holen";
 "Trazida para hoje" = "Für heute eingeplant";

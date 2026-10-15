@@ -16,6 +16,9 @@ enum PresencaMetrics {
     // MARK: Cabeçalho — `padding: 13px 18px; gap: 10px`
 
     static let headerPadding = EdgeInsets(top: 13, leading: 18, bottom: 13, trailing: 18)
+    /// `13 + 20 + 13`: o alto do cabeçalho, que é o que os semáforos nativos
+    /// usam para achar a própria linha quando ele é a barra da janela.
+    static let headerHeight: CGFloat = 46
     static let headerGap: CGFloat = 10
     /// `width: 20px; height: 20px` do orbe do cabeçalho.
     static let headerOrb: CGFloat = 20
@@ -367,8 +370,11 @@ struct AssistantInkLine: View {
                 ],
                 startPoint: .leading, endPoint: .trailing
             )
-            .frame(width: faixa)
-            .offset(x: reduceMotion ? -faixa / 4 : phase * faixa / 2)
+            // Parado, o fio é o gradiente **inteiro** na largura do bloco:
+            // ele desvanece nas duas pontas, como no desenho. Correndo, ele
+            // tem o dobro da largura e desliza por dentro do recorte.
+            .frame(width: reduceMotion ? proxy.size.width : faixa)
+            .offset(x: reduceMotion ? 0 : phase * faixa / 2)
             .frame(width: proxy.size.width, alignment: .leading)
             .clipped()
             .animation(reduceMotion ? nil : PresencaMetrics.shimmer, value: phase)
@@ -522,6 +528,8 @@ struct AssistantInlineDraft: View {
                         .font(theme.sans.font(size: PresencaMetrics.draftNoteSize))
                         .foregroundStyle(theme.ink4.color)
                         .lineLimit(1)
+                        .truncationMode(.tail)
+                        .layoutPriority(-1)
                 }
                 .padding(.top, 2)
             }
@@ -546,6 +554,10 @@ struct PresencaPrimaryButton: View {
             Text(title)
                 .font(theme.sans.font(size: PresencaMetrics.primarySize, weight: .semibold))
                 .foregroundStyle(theme.onAccent.color)
+                // Uma linha, sempre: na gaveta de 440 o rótulo quebrava em
+                // duas e o botão virava um bloco.
+                .lineLimit(1)
+                .fixedSize()
                 .padding(PresencaMetrics.primaryPadding)
                 .background(theme.accent.color)
                 .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
@@ -574,6 +586,8 @@ struct PresencaOutlineButton: View {
             Text(title)
                 .font(theme.sans.font(size: PresencaMetrics.primarySize, weight: .medium))
                 .foregroundStyle(theme.ink2.color)
+                .lineLimit(1)
+                .fixedSize()
                 .padding(PresencaMetrics.secondaryPadding)
                 .overlay {
                     RoundedRectangle(cornerRadius: theme.radiusSmall)
@@ -658,7 +672,11 @@ struct AssistantBriefingItem: View {
                 draft: draft,
                 isDone: isDone,
                 hasUndo: hasUndo,
-                verb: card.verb,
+                // O desenho escreve "Revisar e enviar", e é a verdade sobre o
+                // que o clique faz: ele grava o rascunho e abre a resposta
+                // inteira para a pessoa ver antes de mandar. O verbo cru do
+                // cartão ("Responder") diria menos do que o botão faz.
+                verb: L10n.tr("Revisar e enviar"),
                 onRun: onRun,
                 onEdit: card.secondaryMessageID == nil ? nil : onReveal
             )
