@@ -212,7 +212,6 @@ public struct CalendarScreen: View {
     /// Agenda não tem — e por isso a frase do topo conta o que ela de fato
     /// desenha na grade.
     private var propostos: [PlanoDoDia.Bloco] {
-        guard theme.isGlass else { return [] }
         let calendario = Calendar.current
         let promessas = store.visiblePendingItems.compactMap { item -> PlanoDoDia.Promessa? in
             guard let vence = item.dueDate,
@@ -235,41 +234,25 @@ public struct CalendarScreen: View {
     private var calendarColumn: some View {
         let propostos = propostos
         return VStack(spacing: 0) {
-            if theme.isGlass {
-                VidroAgendaCabecalho(
-                    store: store,
-                    anchor: anchor,
-                    mode: mode,
-                    selectedDayOffset: selectedDayOffset,
-                    pickerOpen: pickerOpen,
-                    blocosPropostos: propostos.count,
-                    onPick: pick(_:),
-                    onStepDay: step(_:),
-                    onGoToday: goToday,
-                    onTogglePicker: { pickerOpen.toggle() },
-                    onPickDay: pickDay(_:),
-                    onExpandSidebar: onExpandSidebar
-                )
-                .zIndex(30)
-            } else {
-                CalendarHeader(
-                    store: store,
-                    anchor: anchor,
-                    mode: mode,
-                    selectedDayOffset: selectedDayOffset,
-                    pickerOpen: pickerOpen,
-                    onPick: pick(_:),
-                    onStepDay: step(_:),
-                    onGoToday: goToday,
-                    onTogglePicker: { pickerOpen.toggle() },
-                    onPickDay: pickDay(_:)
-                )
+            VidroAgendaCabecalho(
+                store: store,
+                anchor: anchor,
+                mode: mode,
+                selectedDayOffset: selectedDayOffset,
+                pickerOpen: pickerOpen,
+                blocosPropostos: propostos.count,
+                onPick: pick(_:),
+                onStepDay: step(_:),
+                onGoToday: goToday,
+                onTogglePicker: { pickerOpen.toggle() },
+                onPickDay: pickDay(_:),
+                onExpandSidebar: onExpandSidebar
+            )
             // A faixa vem por cima da grade: o seletor de data é desenhado
-                // dentro dela e passa 231pt abaixo do seu limite. Sem o
-                // `zIndex`, o `VStack` empilha o irmão seguinte por cima e o
-                // popover fica metade escondido atrás da grade.
-                .zIndex(30)
-            }
+            // dentro dela e passa 231pt abaixo do seu limite. Sem o `zIndex`,
+            // o `VStack` empilha o irmão seguinte por cima e o popover fica
+            // metade escondido atrás da grade.
+            .zIndex(30)
 
             if let state = store.calendarAvailability {
                 CalendarStatusBand(state: state) {
@@ -280,9 +263,8 @@ public struct CalendarScreen: View {
             content(propostos: propostos)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        // No Vidro quem pinta o fundo é o painel: uma segunda camada de
-        // `surface` por cima dele apagava o gradiente.
-        .background(theme.isGlass ? Color.clear : theme.surface.color)
+        // Quem pinta o fundo é o painel: uma segunda camada de `surface` por
+        // cima dele apagava o vidro e desencontrava o tom nos opacos.
     }
 
     @ViewBuilder

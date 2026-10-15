@@ -293,7 +293,7 @@ public struct ReaderPane: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // No Vidro o preenchimento é o do painel (`readerFill`), e ele é um
         // só: pintar `surface` aqui poria uma segunda folha opaca por baixo.
-        .background(theme.isGlass ? Color.clear : theme.surface.color)
+        .background(theme.isTranslucent ? Color.clear : theme.surface.color)
         // A pergunta antes de abrir link vale para o leitor inteiro: o HTML da
         // `WebView` e o texto desenhado passam os dois por aqui. Pendurada no
         // topo do painel para o cartão ter a largura dele, e não a da coluna.
@@ -331,7 +331,7 @@ public struct ReaderPane: View {
         let conversa = store.conversation(of: message.id)
 
         return VStack(spacing: 0) {
-            if theme.isGlass {
+            if theme.isTranslucent {
                 // No Vidro a linha fica **sob a barra de ferramentas**, como no
                 // protótipo: o cabeçalho e o corpo são o mesmo papel, e um fio
                 // entre eles partiria o leitor em dois.
@@ -421,7 +421,7 @@ public struct ReaderPane: View {
                         // para a direita, como no protótipo. Na barra clássica
                         // o botão está à direita e a âncora é o `maxX`, de onde
                         // o painel cresce para a esquerda.
-                        x: theme.isGlass
+                        x: theme.isTranslucent
                             ? assistantAnchor.x
                             : assistantAnchor.x - ReaderIntelligencePopover.clampedSize(
                                 emailAssistantPanelSize
@@ -1470,7 +1470,7 @@ public struct ReaderPane: View {
         // moldura. Os dados são os mesmos — o resumo, a legenda que diz de
         // onde ele veio, a triagem e o compromisso detectado.
         HStack(alignment: .top, spacing: 12) {
-            if theme.isGlass {
+            if theme.isTranslucent {
                 Image(systemName: "sparkles")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(theme.accentInk.color)
@@ -1486,12 +1486,12 @@ public struct ReaderPane: View {
             }
         }
         .padding(.vertical, aberto ? 15 : 8)
-        .padding(.horizontal, theme.isGlass ? 14 : 17)
+        .padding(.horizontal, theme.isTranslucent ? 14 : 17)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background((theme.isGlass ? theme.accentSoft : theme.infoSoft).color)
-        .clipShape(RoundedRectangle(cornerRadius: theme.isGlass ? 12 : theme.radiusLarge))
+        .background((theme.isTranslucent ? theme.accentSoft : theme.infoSoft).color)
+        .clipShape(RoundedRectangle(cornerRadius: theme.isTranslucent ? 12 : theme.radiusLarge))
         .overlay {
-            if !theme.isGlass {
+            if !theme.isTranslucent {
                 RoundedRectangle(cornerRadius: theme.radiusLarge)
                     .strokeBorder(theme.infoLine.color, lineWidth: Hairline.thickness(displayScale))
             }
@@ -1520,7 +1520,7 @@ public struct ReaderPane: View {
         // acento com a frase inteira, e não como uma linha dobrada. Nos 26
         // temas opacos ela continua recolhida, que é o que `ReaderTests`
         // afirma.
-        return resumoAbertoPorID[message.id] ?? (theme.isGlass || Self.resumoComecaAberto)
+        return resumoAbertoPorID[message.id] ?? (theme.isTranslucent || Self.resumoComecaAberto)
     }
 
     private func summaryCardAberto(

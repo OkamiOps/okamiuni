@@ -65,9 +65,9 @@ struct ThemePickerPanel: View {
     /// Os seis clássicos que o protótipo destaca, na ordem dele.
     static let featured = ["okami", "tinta", "linho", "barro", "noite", "grafite"]
 
-    private var glassThemes: [Theme] { Theme.all.filter(\.isGlass) }
+    private var glassThemes: [Theme] { Theme.all.filter(\.isTranslucent) }
 
-    private var classicThemes: [Theme] { Theme.all.filter { !$0.isGlass } }
+    private var classicThemes: [Theme] { Theme.all.filter { !$0.isTranslucent } }
 
     private var shownClassics: [Theme] {
         guard !showingAll else { return classicThemes }
@@ -195,7 +195,7 @@ struct ThemeTile: View {
 
     var body: some View {
         Group {
-            if candidate.isGlass {
+            if candidate.isTranslucent {
                 vidro
             } else {
                 classico
@@ -213,7 +213,7 @@ struct ThemeTile: View {
     }
 
     /// `rXs: 7px` no Vidro, o raio pequeno do tema nos clássicos.
-    private var radius: CGFloat { activeTheme.isGlass ? 7 : max(2, activeTheme.radiusSmall) }
+    private var radius: CGFloat { activeTheme.isTranslucent ? 7 : max(2, activeTheme.radiusSmall) }
 
     private var vidro: some View {
         ZStack {

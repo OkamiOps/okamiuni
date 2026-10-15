@@ -27,12 +27,15 @@ struct VidroTrilhoTests {
 
     @Test("o trilho tem as medidas do protótipo")
     func railMetrics() {
-        #expect(AppRail.width == 64, "`<nav aria-label=\"Telas\">`: width 64px")
+        // 72, e não os 64 do desenho: ver `PaneLayout.appRailWidth`. A fila
+        // de semáforos do macOS não cabe em 64 com a folga do protótipo.
+        #expect(AppRail.width == 72)
         #expect(AppRail.itemWidth == 52, "o `<a>` de uma tela: width 52px")
         #expect(AppRail.actionSize == 40, "o quadrado do ícone: 40×40")
         #expect(AppRail.actionRadius == 12, "border-radius 12px")
-        // 2 de folga em cima + 11 da bolinha + 16 embaixo.
-        #expect(AppRail.trafficLightReserve == 29, "a fila dos semáforos: padding 2px 0 16px")
+        // `padding: 2px 0 16px` do protótipo em volta do que de fato está
+        // ali: o botão de 14 do macOS, não a bolinha de 11 do desenho.
+        #expect(AppRail.trafficLightReserve == 32, "a fila dos semáforos: padding 2px 0 16px")
         #expect(ThemeSwitch.size == CGSize(width: 34, height: 62), "o interruptor: 34×62")
         #expect(ThemeSwitch.knob == 28, "o botão do interruptor: 28×28")
     }
@@ -56,9 +59,10 @@ struct VidroTrilhoTests {
     /// que elas não são `View` nossa.
     @Test("o lugar reservado aos semáforos é onde o sistema os desenha")
     func trafficLightReserveMatchesPlatform() {
-        // 14pt do alto do `<nav>` + 2pt do `padding-top` da fila + metade da
-        // bolinha de 11.
-        let centroNoPainel: CGFloat = 14 + 2 + 5.5
+        // 14pt do alto do `<nav>` + 2pt do `padding-top` da fila + metade do
+        // botão do sistema. Ver `TrafficLightLayout.railCenterFromTop`: o que
+        // o protótipo fixa é a folga, e o tamanho é da plataforma.
+        let centroNoPainel = 14 + 2 + TrafficLightLayout.nativeButtonSide / 2
         let centroNaJanela = PanelStyle.vidroGap + centroNoPainel
         #expect(
             abs(centroNaJanela - TrafficLightLayout.railCenterFromTop) <= 0.5,

@@ -2522,6 +2522,11 @@ struct SignatureSettingsView: View {
     @Environment(\.displayScale) private var displayScale
 
     let model: AccountsModel
+    /// Quando existe, a tela é a assinatura **daquela** conta: a lista lateral
+    /// sai e nada troca de conta por baixo. É assim que a página da conta nas
+    /// Configurações novas abre o editor, sem duplicar as 200 linhas de
+    /// carregar, preparar e salvar que moram aqui.
+    let pinnedAccountID: String?
     @State private var selectedID: String?
     @State private var visualText = AttributedString()
     @State private var visualSelection = AttributedTextSelection()
@@ -2536,19 +2541,37 @@ struct SignatureSettingsView: View {
     @State private var feedback: String?
     @State private var feedbackIsError = false
 
+    init(model: AccountsModel, accountID: String? = nil) {
+        self.model = model
+        self.pinnedAccountID = accountID
+        _selectedID = State(initialValue: accountID)
+    }
+
     var body: some View {
-        HStack(spacing: 0) {
-            accountList
-                .frame(width: 218)
-                .background(theme.surface2.color)
-            Rectangle()
-                .fill(theme.line.color)
-                .frame(width: Hairline.thickness(displayScale))
-            editor
+        Group {
+            if pinnedAccountID == nil {
+                HStack(spacing: 0) {
+                    accountList
+                        .frame(width: 218)
+                        .background(theme.surface2.color)
+                    Rectangle()
+                        .fill(theme.line.color)
+                        .frame(width: Hairline.thickness(displayScale))
+                    editor
+                }
+            } else {
+                editor
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(theme.paper.color)
-        .onAppear { selectFirstIfNeeded() }
+        .onAppear {
+            selectFirstIfNeeded()
+            // Com a conta já fixada no `init`, `selectedID` não muda ao
+            // aparecer — e sem esta linha a folha abria com a assinatura
+            // vazia em vez da que está guardada.
+            loadSelectedSignature()
+        }
         .onChange(of: model.statuses) { _, _ in
             selectFirstIfNeeded()
             refreshSavedValueIfClean()
@@ -2727,6 +2750,10 @@ struct SignatureSettingsView: View {
     }
 
     private func selectFirstIfNeeded() {
+        if let pinnedAccountID {
+            if selectedID != pinnedAccountID { selectedID = pinnedAccountID }
+            return
+        }
         if selectedID == nil || !model.statuses.contains(where: { $0.accountID == selectedID }) {
             selectedID = model.statuses.first?.accountID
         }

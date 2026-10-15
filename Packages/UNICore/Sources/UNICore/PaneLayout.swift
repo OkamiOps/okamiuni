@@ -50,7 +50,19 @@ public struct PaneLayout: Sendable, Hashable {
     // da barra do topo fazia, com outro desenho.
 
     /// O trilho das telas: Painel, Caixa, Agenda.
-    public static let appRailWidth: CGFloat = 64
+    ///
+    /// **72, e o protótipo desenha 64.** O desenho põe na fila do alto três
+    /// bolinhas de 11, que somam 43 e deixam 10,5pt de folga de cada lado
+    /// dentro de 64. Os semáforos de verdade são os do macOS e medem 14: a
+    /// mesma fila soma 52 e, num trilho de 64, encosta a 6pt das arestas — o
+    /// que o dono recusou duas vezes (14/10/2026). Encolher os botões não é
+    /// opção sem desenhar os nossos e perder o comportamento da plataforma.
+    ///
+    /// Então o que cede é a largura: com 72 a fila de 52 volta a ter 10pt de
+    /// cada lado, que é a folga do desenho. É a mesma regra que já governa
+    /// esta fila em `TrafficLightLayout` — o protótipo fixa as folgas, a
+    /// plataforma fixa os tamanhos.
+    public static let appRailWidth: CGFloat = 72
 
     /// A coluna de contexto ao lado do trilho: título, busca, ação principal e
     /// o conteúdo da tela.

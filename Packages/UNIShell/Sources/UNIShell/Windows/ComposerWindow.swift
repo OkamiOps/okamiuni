@@ -550,7 +550,7 @@ public struct ComposerWindow: View {
         // `surface` opaco nos outros 26. Ver `Theme.glassWindow`.
         .background {
             ZStack {
-                if theme.isGlass { Backdrop() }
+                if theme.isTranslucent { Backdrop() }
                 theme.glassWindow.color
             }
         }

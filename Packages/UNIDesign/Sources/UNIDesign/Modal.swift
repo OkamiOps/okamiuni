@@ -12,12 +12,22 @@ import SwiftUI
 ///
 /// ## Um layout para os 28 temas
 ///
-/// `isGlass` decide **só o tratamento da superfície**: no Vidro a folha é o
-/// branco (ou o quase-preto) elevado do protótipo com raio 20 e um halo no
-/// botão primário; nos 26 temas opacos é `surface` com o raio e os tokens do
-/// próprio tema, sem halo e sem desfoque. Estrutura, espaçamento, tamanhos e
-/// posições são os mesmos nos dois casos — é o que o dono pediu quando disse
-/// que os clássicos "mantêm o desenho e só perdem o vidro".
+/// **Nada aqui decide layout por tema.** Largura, posição, recuos, tamanhos de
+/// texto e ordem são os mesmos nos 28: a folha de novo compromisso tem 620 no
+/// Vidro e 620 no Okami, pende de 56 do topo nos dois, e o rodapé tem
+/// `16/28/20` nos dois. É o que o dono pediu quando disse que os clássicos
+/// "mantêm o desenho e só perdem o vidro".
+///
+/// `isTranslucent` responde por **duas** coisas, e só por elas:
+///
+/// - o **material** da superfície: no Vidro a folha é o branco (ou o
+///   quase-preto) elevado do protótipo e o primário tem o halo do acento; nos
+///   26 opacos é o token do próprio tema, sem halo e sem desfoque;
+/// - o **canto**, que é identidade do tema e não posição: o Okami é quadrado
+///   (`radiusLarge` = 2) e continua quadrado aqui, exatamente como o painel do
+///   shell novo já faz em `PanelStyle.opaque(for:)`, que também lê
+///   `theme.radiusLarge`. A caixa fica no mesmo lugar e do mesmo tamanho; o
+///   que muda é o raio do canto dela.
 extension Theme {
 
     // MARK: - Medidas
@@ -58,14 +68,15 @@ extension Theme {
 
     // MARK: - Raios
     //
-    // No Vidro são os literais do protótipo. Nos temas clássicos são os tokens
-    // do próprio tema (no Okami, 2pt), que é o que "sem vidro, mesmo desenho"
-    // quer dizer: a folha continua no mesmo lugar, com o canto do tema.
+    // No Vidro são os literais do protótipo. Nos temas opacos são os tokens do
+    // próprio tema (no Okami, 2pt) — o mesmo que `PanelStyle.opaque(for:)` faz
+    // com os painéis do shell. "Sem vidro, mesmo desenho" quer dizer isto: a
+    // folha continua no mesmo lugar e do mesmo tamanho, com o canto do tema.
 
-    public var modalSheetRadius: CGFloat { isGlass ? 20 : radiusLarge }
-    public var modalPopoverRadius: CGFloat { isGlass ? 16 : radiusLarge }
-    public var modalFieldRadius: CGFloat { isGlass ? 12 : radiusSmall }
-    public var modalButtonRadius: CGFloat { isGlass ? 10 : radiusSmall }
+    public var modalSheetRadius: CGFloat { isTranslucent ? 20 : radiusLarge }
+    public var modalPopoverRadius: CGFloat { isTranslucent ? 16 : radiusLarge }
+    public var modalFieldRadius: CGFloat { isTranslucent ? 12 : radiusSmall }
+    public var modalButtonRadius: CGFloat { isTranslucent ? 10 : radiusSmall }
 
     // MARK: - Superfícies
 
@@ -79,7 +90,7 @@ extension Theme {
 
     /// A aresta da folha. No Vidro é o fio de luz; nos clássicos é a borda de
     /// controle do tema (`#323348` no Okami, o `sheetEdge` do protótipo).
-    public var modalSheetEdge: TokenColor { isGlass ? glassElevatedEdge : btnLine }
+    public var modalSheetEdge: TokenColor { isTranslucent ? glassElevatedEdge : btnLine }
 
     /// O véu por trás de um modal centrado ou de uma folha.
     ///
@@ -87,7 +98,7 @@ extension Theme {
     /// `rgba(6,6,9,0.55)` no clássico escuro: o véu é mais fechado quando não
     /// há desfoque para separar as camadas.
     public var modalScrim: TokenColor {
-        let opacity: Double = isGlass ? (isDark ? 0.45 : 0.22) : (isDark ? 0.55 : 0.30)
+        let opacity: Double = isTranslucent ? (isDark ? 0.45 : 0.22) : (isDark ? 0.55 : 0.30)
         return TokenColor(
             red: isDark ? 5 / 255 : 30 / 255,
             green: isDark ? 5 / 255 : 25 / 255,
@@ -99,14 +110,14 @@ extension Theme {
     /// O campo de um formulário dentro da folha: `#f6f6fa` /
     /// `rgba(255,255,255,0.06)` / `#14141E`.
     public var modalField: TokenColor {
-        guard isGlass else { return btn }
+        guard isTranslucent else { return btn }
         return isDark
             ? TokenColor(red: 1, green: 1, blue: 1, opacity: 0.06)
             : TokenColor(red: 246 / 255, green: 246 / 255, blue: 250 / 255)
     }
 
     public var modalFieldEdge: TokenColor {
-        guard isGlass else { return btnLine }
+        guard isTranslucent else { return btnLine }
         return isDark
             ? TokenColor(red: 1, green: 1, blue: 1, opacity: 0.14)
             : TokenColor(red: 20 / 255, green: 20 / 255, blue: 50 / 255, opacity: 0.12)
@@ -116,7 +127,7 @@ extension Theme {
     /// IMAP, o recado da reconexão. `rgba(20,20,50,0.05)` / `0.05` branco /
     /// `#14141E`.
     public var modalSoft: TokenColor {
-        guard isGlass else { return surface3 }
+        guard isTranslucent else { return surface3 }
         return isDark
             ? TokenColor(red: 1, green: 1, blue: 1, opacity: 0.05)
             : TokenColor(red: 20 / 255, green: 20 / 255, blue: 50 / 255, opacity: 0.05)
@@ -127,9 +138,9 @@ extension Theme {
 
     /// O botão secundário do protótipo (`btn2` / `btn2Line`): "Agora não",
     /// "Ao fechar o app", "Cancelar" de uma confirmação.
-    public var modalButton: TokenColor { isGlass ? (isDark ? TokenColor(red: 1, green: 1, blue: 1, opacity: 0.08) : TokenColor(red: 1, green: 1, blue: 1)) : btn }
+    public var modalButton: TokenColor { isTranslucent ? (isDark ? TokenColor(red: 1, green: 1, blue: 1, opacity: 0.08) : TokenColor(red: 1, green: 1, blue: 1)) : btn }
 
-    public var modalButtonEdge: TokenColor { isGlass ? modalFieldEdge : btnLine }
+    public var modalButtonEdge: TokenColor { isTranslucent ? modalFieldEdge : btnLine }
 
     // MARK: - O halo do primário
 
@@ -137,7 +148,7 @@ extension Theme {
     /// Vidro: o protótipo escreve `accentGlow: 'none'` no clássico, porque um
     /// halo colorido num tema opaco lê como borrão, não como elevação.
     public var modalAccentGlow: [ShadowToken] {
-        guard isGlass else { return [] }
+        guard isTranslucent else { return [] }
         return [
             ShadowToken(
                 x: 0, y: 6, blur: 16,
@@ -153,7 +164,7 @@ extension Theme {
     /// Fora do Vidro é a sombra do próprio tema — no Okami, a que já tem o fio
     /// de 0,5 em volta.
     public var modalShadow: [ShadowToken] {
-        guard isGlass else { return shadow }
+        guard isTranslucent else { return shadow }
         return isDark
             ? [
                 ShadowToken(x: 0, y: 30, blur: 80, color: TokenColor(red: 0, green: 0, blue: 0, opacity: 0.55)),
@@ -183,7 +194,7 @@ extension Theme {
     public var modalRed: TokenColor { remove }
 
     public var modalRedSoft: TokenColor {
-        isGlass
+        isTranslucent
             ? TokenColor(
                 red: remove.red, green: remove.green, blue: remove.blue,
                 opacity: isDark ? 0.14 : 0.10

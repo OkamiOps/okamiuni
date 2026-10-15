@@ -159,7 +159,6 @@ public struct WeekScreen: View {
             grid(days: visibleDays, showsNow: displaysNow)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(theme.isGlass ? Color.clear : theme.surface.color)
     }
 
     // MARK: - Faixa dos dias
@@ -167,47 +166,23 @@ public struct WeekScreen: View {
     /// Protótipo: `padding-left: 54px`, uma coluna por dia com
     /// `padding: 9px 12px 8px` e divisória à esquerda.
     ///
-    /// No Vidro a abreviação e o número ficam lado a lado, e hoje ganha o
-    /// círculo cheio em accent — e a faixa perde as divisórias, que no
-    /// protótipo não existem acima da grade.
+    /// A abreviação e o número ficam lado a lado, e hoje ganha o círculo cheio
+    /// em accent — e a faixa não tem divisórias, que no protótipo não existem
+    /// acima da grade. O número e o círculo saem do accent **do tema**, e por
+    /// isso o mesmo desenho serve aos 28.
     private func dayHeaderStrip(_ days: [WeekAgenda.Day]) -> some View {
         HStack(spacing: 0) {
             Color.clear.frame(width: layout.labelGutter, height: 0)
             ForEach(days) { day in
-                Group {
-                    if theme.isGlass {
-                        VidroNumeroDoDia(
-                            weekday: day.weekdayLabel.lowercased(),
-                            numero: day.dayNumber, hoje: day.isToday
-                        )
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 8)
-                    } else {
-                        VStack(alignment: .leading, spacing: 3) {  // protótipo: margin-top: 3px
-                            Text(day.weekdayLabel)
-                                .font(theme.mono.font(size: 9.5))
-                                // CSS `letter-spacing: 0.1em` a 9.5pt = 0.95pt.
-                                .tracking(0.95)
-                                .textCase(.uppercase)
-                                .foregroundStyle(theme.ink4.color)
-                            Text("\(day.dayNumber)")
-                                .font(theme.serif.font(size: 19, weight: .medium))
-                                .foregroundStyle(day.isToday ? theme.accent.color : theme.ink.color)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 12)
-                        .padding(.top, 9)
-                        .padding(.bottom, 8)
-                        .hairline(theme.line2, edges: .leading)
-                    }
-                }
+                VidroNumeroDoDia(
+                    weekday: day.weekdayLabel.lowercased(),
+                    numero: day.dayNumber, hoje: day.isToday
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
             }
         }
-        .hairline(
-            theme.isGlass ? TokenColor(red: 0, green: 0, blue: 0, opacity: 0) : theme.line2,
-            edges: .bottom
-        )
     }
 
     // MARK: - A grade
@@ -227,7 +202,7 @@ public struct WeekScreen: View {
                         columnBackgrounds(columnWidth: columnWidth, days: days)
                         hourLines
                         events(columnWidth: columnWidth, days: days)
-                        if theme.isGlass, !propostos.isEmpty {
+                        if !propostos.isEmpty {
                             blocosPropostos(columnWidth: columnWidth, days: days)
                         }
                         if showsNow { nowMarker }
@@ -270,13 +245,11 @@ public struct WeekScreen: View {
             Color.clear.frame(width: layout.labelGutter)
             ForEach(days) { day in
                 Rectangle()
-                    // No Vidro `accentSoft` é opaco e apagaria o gradiente: o
-                    // realce de hoje é o acento a 5%, como no protótipo.
+                    // O realce de hoje é o acento a 5%, como no protótipo —
+                    // `accentSoft` é opaco e no Vidro apagaria o gradiente.
                     .fill(
                         day.isToday
-                            ? (theme.isGlass
-                                ? theme.accent.color.opacity(theme.isDark ? 0.07 : 0.05)
-                                : theme.accentSoft.color)
+                            ? theme.accent.color.opacity(theme.isDark ? 0.07 : 0.05)
                             : Color.clear
                     )
                     .frame(width: columnWidth)
@@ -330,19 +303,10 @@ public struct WeekScreen: View {
     @ViewBuilder
     private func eventBlock(_ item: AgendaItem) -> some View {
         Button { onOpenEvent(item) } label: {
-            if theme.isGlass {
-                vidroEventCard(item)
-            } else {
-                eventCard(item)
-            }
+            vidroEventCard(item)
         }
         .buttonStyle(.plain)
-        .focusRing(in: UnevenRoundedRectangle(
-            topLeadingRadius: theme.isGlass ? VidroEvento.radius : 0,
-            bottomLeadingRadius: theme.isGlass ? VidroEvento.radius : 0,
-            bottomTrailingRadius: theme.isGlass ? VidroEvento.radius : theme.radiusSmall,
-            topTrailingRadius: theme.isGlass ? VidroEvento.radius : theme.radiusSmall
-        ))
+        .focusRing(in: RoundedRectangle(cornerRadius: VidroEvento.radius))
         .help(item.isCancelled ? L10n.tr("Compromisso cancelado") : L10n.tr("Abre o compromisso"))
         .uniContextMenu(
             AgendaContextMenu.entries(for: item, store: store, anchor: anchor),
@@ -439,61 +403,12 @@ public struct WeekScreen: View {
         }
     }
 
-    private func eventCard(_ item: AgendaItem) -> some View {
-        let swatch = CalendarTint.token(of: item, in: store, theme: theme)
-        let tight = layout.isTight(for: item)
-
-        let cancelled = item.isCancelled
-        let shape = UnevenRoundedRectangle(
-            topLeadingRadius: 0,
-            bottomLeadingRadius: 0,
-            bottomTrailingRadius: theme.radiusSmall,
-            topTrailingRadius: theme.radiusSmall
-        )
-        return HStack(spacing: 0) {
-            // Protótipo: `border-left: 2px solid c`.
-            Rectangle()
-                .fill(CalendarEventChrome.bar(swatch, cancelled: cancelled, theme: theme))
-                .frame(width: 2)
-            VStack(alignment: .leading, spacing: tight ? 0 : 2) {
-                // O título completo, com reticências quando a coluna aperta —
-                // é o que o protótipo faz com `text-overflow: ellipsis`, e é
-                // por isso que a fixture não guarda um segundo título curto.
-                CalendarEventChrome.title(
-                    tight ? "\(item.title) · \(item.startLabel)" : item.title,
-                    cancelled: cancelled
-                )
-                    .font(theme.sans.font(size: 11, weight: .semibold))
-                    .foregroundStyle(CalendarEventChrome.ink(swatch, cancelled: cancelled, theme: theme))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                if !tight {
-                    Text("\(item.startLabel)–\(item.endLabel)")
-                        .font(theme.mono.font(size: 9))
-                        .foregroundStyle(CalendarEventChrome.ink(swatch, cancelled: cancelled, theme: theme).opacity(0.85))
-                        .lineLimit(1)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            // Protótipo: `padding: tight ? '0 6px' : '5px 7px'`.
-            .padding(.horizontal, tight ? 6 : 7)
-            .padding(.vertical, tight ? 0 : 5)
-        }
-        .frame(maxHeight: .infinity, alignment: .center)
-        .background(CalendarEventChrome.fill(swatch, cancelled: cancelled, theme: theme))
-        .clipShape(shape)
-        .overlay {
-            shape.strokeBorder(CalendarEventChrome.border(cancelled: cancelled, theme: theme), lineWidth: 1)
-        }
-        .contentShape(Rectangle())
-    }
-
     /// O traço de "agora", atravessando as sete colunas, com a pastilha do
     /// horário na calha. Protótipo: `nowWeekStyle` e `nowWeekPillStyle`.
     private var nowMarker: some View {
-        // No Vidro o traço é laranja e a calha ganha um ponto no lugar da
-        // pastilha, como no protótipo; nos outros temas continua o vermelho
-        // semântico com "HH:MM".
+        // O traço é o `nowLine` do tema — laranja no Vidro, o vermelho
+        // semântico nos outros — e a calha ganha o ponto do protótipo no
+        // lugar da pastilha com "HH:MM".
         let cor = theme.nowLine
         return ZStack(alignment: .topLeading) {
             HStack(spacing: 0) {
@@ -505,23 +420,10 @@ public struct WeekScreen: View {
             .frame(height: 0, alignment: .center)
             .offset(y: layout.offset(minuteOfDay: now))
 
-            if theme.isGlass {
-                Circle()
-                    .fill(cor.color)
-                    .frame(width: 12, height: 12)
-                    .offset(x: layout.labelGutter - 10, y: layout.offset(minuteOfDay: now) - 6)
-            } else {
-                Text(Self.hourLabel(minuteOfDay: now))
-                    .font(theme.mono.font(size: 9.5, weight: .medium))
-                    .foregroundStyle(theme.onAccent.color)
-                    .padding(.horizontal, 6)
-                    .frame(height: 18)
-                    .background(cor.color)
-                    .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
-                    // Protótipo: `left: 6px; top: now * 0.9 - 9` — os 9 são
-                    // metade da pastilha, que a deixa centrada no traço.
-                    .offset(x: 6, y: layout.offset(minuteOfDay: now) - 9)
-            }
+            Circle()
+                .fill(cor.color)
+                .frame(width: 12, height: 12)
+                .offset(x: layout.labelGutter - 10, y: layout.offset(minuteOfDay: now) - 6)
         }
         .allowsHitTesting(false)
     }

@@ -27,12 +27,17 @@ struct SidebarToggleButton: View {
         collapse ? L10n.tr("Recolher a barra lateral") : L10n.tr("Mostrar a barra lateral")
     }
 
+    /// Lado do alvo. Protótipo: `padding: 6px` em volta de um ícone de 17 —
+    /// 29, e não os 24 que estavam aqui. Os 5pt que faltavam encolhiam a fila
+    /// do título e subiam a busca, a ação principal e a lista inteira junto.
+    static let side: CGFloat = 29
+
     var body: some View {
         Button(action: action) {
             Image(systemName: "sidebar.left")
-                .font(.system(size: 14, weight: .regular))
+                .font(.system(size: 15, weight: .regular))
                 .foregroundStyle(theme.ink3.color)
-                .frame(width: 24, height: 24)
+                .frame(width: Self.side, height: Self.side)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -80,6 +85,23 @@ struct ContextSidebar: View {
     /// `indent: '30px'`.
     static let childInset: CGFloat = 30
 
+    // As medidas da coluna com nome, pelo mesmo motivo do `AppRail`: o teste
+    // soma estas constantes em vez de repetir números, e um ajuste aqui é
+    // conferido lá em vez de escapar. Protótipo: `padding: 14px 10px 12px` na
+    // coluna, `0 4px 12px 8px` na fila do título, `margin-bottom: 8px` na
+    // busca e `10px` na ação principal.
+    static let topPadding: CGFloat = 14
+    static let horizontalPadding: CGFloat = 10
+    static let bottomPadding: CGFloat = 12
+    static let headerLeading: CGFloat = 8
+    static let headerTrailing: CGFloat = 4
+    static let headerBottom: CGFloat = 12
+    static let searchBottom: CGFloat = 8
+    static let primaryBottom: CGFloat = 10
+    static let primaryHeight: CGFloat = 38
+    /// Altura do campo de busca. Protótipo: `padding: 8px 10px` sobre 13px.
+    static let searchFieldHeight: CGFloat = 32
+
     @Environment(\.theme) private var theme
     @Environment(\.displayScale) private var displayScale
 
@@ -117,11 +139,11 @@ struct ContextSidebar: View {
                 onReload: onReloadMailbox,
                 onFocusChange: onSearchFocusChange
             )
-            .padding(.bottom, 8)
+            .padding(.bottom, Self.searchBottom)
 
             if let action = primaryAction {
                 primaryButton(action)
-                    .padding(.bottom, 10)
+                    .padding(.bottom, Self.primaryBottom)
             }
 
             content
@@ -141,9 +163,9 @@ struct ContextSidebar: View {
         // que soma com os 8 das linhas e põe o rótulo da pasta na mesma coluna
         // do título — era o que faltava, e por isso a lista nascia colada no
         // trilho enquanto o título começava longe dele.
-        .padding(.top, 14)
-        .padding(.horizontal, 10)
-        .padding(.bottom, 12)
+        .padding(.top, Self.topPadding)
+        .padding(.horizontal, Self.horizontalPadding)
+        .padding(.bottom, Self.bottomPadding)
         .frame(width: Self.width, alignment: .leading)
         .frame(maxHeight: .infinity, alignment: .topLeading)
     }
@@ -164,9 +186,9 @@ struct ContextSidebar: View {
             )
         }
         // Protótipo: `padding: 0 4px 12px 8px` na fila do título.
-        .padding(.leading, 8)
-        .padding(.trailing, 4)
-        .padding(.bottom, 12)
+        .padding(.leading, Self.headerLeading)
+        .padding(.trailing, Self.headerTrailing)
+        .padding(.bottom, Self.headerBottom)
     }
 
     private var title: String {
@@ -203,7 +225,7 @@ struct ContextSidebar: View {
                     .lineLimit(1)
             }
             .foregroundStyle(theme.onAccent.color)
-            .frame(maxWidth: .infinity, minHeight: 38)
+            .frame(maxWidth: .infinity, minHeight: Self.primaryHeight)
             .background(theme.accent.color)
             .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous))
             .shadow(color: theme.accent.color.opacity(0.28), radius: 7, x: 0, y: 4)
@@ -365,7 +387,7 @@ struct GlassSearchField: View {
                 }
             }
             .padding(.horizontal, 10)
-            .frame(height: 32)
+            .frame(height: ContextSidebar.searchFieldHeight)
             .background(theme.surface3.color)
             .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall, style: .continuous))
             .overlay {

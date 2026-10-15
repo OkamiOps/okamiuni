@@ -289,18 +289,13 @@ public struct InboxScreen: View {
     }
 
     public var body: some View {
-        // Dois shells, e a escolha é do tema. Com `backdrop` e `panel` — os
-        // dois temas Vidro — a navegação é o trilho da esquerda e os painéis
-        // flutuam sobre o gradiente. Sem eles, os 26 temas antigos continuam
-        // com a barra do topo que sempre tiveram: o redesenho não os reescreve
-        // de lado nenhum.
-        Group {
-            if theme.isGlass {
-                glassShell
-            } else {
-                classicShell
-            }
-        }
+        // Um shell só, para os 28 temas. A navegação é o trilho da esquerda, a
+        // coluna de contexto é a segunda metade do painel da lateral e as
+        // telas flutuam ao lado — era o shell dos dois temas Vidro, e agora é
+        // o shell do app. O que o tema ainda decide é o **material**: o Vidro
+        // flutua translúcido sobre o gradiente, os 26 clássicos flutuam
+        // opacos sobre o `paper` deles (ver `PanelStyle.opaque(for:)`).
+        shell
         .environment(receipts)
         // O aviso é a peça do app (`UNIConfirmation`), e não o `.alert` do
         // sistema: ele não vira com o tema e punha um terceiro idioma de
@@ -372,14 +367,16 @@ public struct InboxScreen: View {
         }
     }
 
-    // MARK: - O shell Vidro
+    // MARK: - O shell
 
-    /// A folga entre painéis e deles para a borda da janela.
-    private var gap: CGFloat { theme.panel?.gap ?? PanelStyle.vidroGap }
+    /// A folga entre painéis e deles para a borda da janela. Ela vem do
+    /// `resolvedPanel`, que todo tema tem — e é a mesma em todos, porque é
+    /// medida do desenho e não da paleta.
+    private var gap: CGFloat { theme.panelGap }
 
-    /// O gradiente, o painel da lateral (trilho + contexto) e os painéis da
-    /// tela que está no ar.
-    private var glassShell: some View {
+    /// O fundo (gradiente no Vidro, `paper` nos outros), o painel da lateral
+    /// (trilho + contexto) e os painéis da tela que está no ar.
+    private var shell: some View {
         GeometryReader { proxy in
             let contextOpen = PaneLayout.contextSidebarOpen(
                 width: proxy.size.width, wantsSidebar: wantsSidebar
@@ -395,7 +392,7 @@ public struct InboxScreen: View {
 
                 HStack(spacing: gap) {
                     sidebarPanel(contextOpen: contextOpen)
-                    glassContent(width: contentWidth)
+                    content(width: contentWidth)
                 }
                 .padding(gap)
                 .opacity(
@@ -511,7 +508,7 @@ public struct InboxScreen: View {
     }
 
     @ViewBuilder
-    private func glassContent(width: CGFloat) -> some View {
+    private func content(width: CGFloat) -> some View {
         switch workspace {
         case .dashboard:
             AgendaClockReader(clock) { now in
@@ -520,10 +517,10 @@ public struct InboxScreen: View {
             .glassPanel(theme)
         case .mail:
             AgendaClockReader(clock) { _ in
-                glassMailContent(width: width)
+                mailContent(width: width)
             }
         case .calendar:
-            glassCalendarContent
+            calendarContent
                 .glassPanel(theme)
         }
     }
@@ -534,7 +531,9 @@ public struct InboxScreen: View {
     /// dela segue inteiro e testado — ela continua montada no shell clássico —
     /// mas no redesenho o que o dono precisa dela cabe numa cápsula no topo do
     /// leitor ("Próximo: … em N min"), e três painéis já ocupam a janela.
-    private func glassMailContent(width: CGFloat) -> some View {
+    /// `internal` (era `private`) para `AgendaHojeTests` fotografar a Caixa
+    /// e provar que o que ela desenha segue o relógio, e não a fixture.
+    func mailContent(width: CGFloat) -> some View {
         let listWidth = PaneLayout.glassListWidth(
             contentWidth: max(0, width - gap), dragged: paneWidths.messageList
         )
@@ -599,7 +598,8 @@ public struct InboxScreen: View {
         .coordinateSpace(.named(PaneDivider.coordinateSpace))
     }
 
-    private var glassCalendarContent: some View {
+    /// `internal` (era `private`) pelo mesmo motivo do `mailContent`.
+    var calendarContent: some View {
         AgendaClockReader(clock) { now in
             CalendarScreen(
                 store: store,
@@ -619,83 +619,6 @@ public struct InboxScreen: View {
         }
     }
 
-    // MARK: - O shell clássico (os 26 temas de sempre)
-
-    private var classicShell: some View {
-        VStack(spacing: 0) {
-            // Barra do topo (58px)
-            WindowChrome(
-                workspace: $workspace,
-                query: $query,
-                searchEverywhere: Binding(
-                    get: { store.searchEverywhere },
-                    set: { store.searchEverywhere = $0 }
-                ),
-                accountCount: store.accounts.count,
-                onToggleSidebar: toggleSidebar,
-                onToggleAgenda: toggleAgenda,
-                onCompose: openNewMessage,
-                accountMonogram: accountMonogram,
-                onOpenAccounts: openAccounts,
-                syncStatus: chromeWorkload.status,
-                syncCaption: MailboxChromeStatus.lastSyncedCaption(from: accountsModel?.statuses ?? []),
-                statusDetail: chromeWorkload.detail,
-                onReloadMailbox: accountsModel == nil ? nil : { [accountsModel] in
-                    Task { await accountsModel?.syncNow() }
-                },
-                onSearchFocusChange: { searchFocused = $0 }
-            )
-
-            ZStack(alignment: .trailing) {
-                // O fundo da tela mora **fora** do esmaecimento. Sem isto, os
-                // 45% deixam a própria janela translúcida e o que aparece
-                // atrás do dashboard é a mesa do macOS — o mockup esmaece o
-                // conteúdo sobre o `paper`, não sobre o vazio.
-                theme.paper.color
-
-                // Conteúdo principal
-                Group {
-                    switch workspace {
-                    case .dashboard:
-                        AgendaClockReader(clock) { now in
-                            dashboardContent(now: now)
-                        }
-                    case .mail:
-                        // A lista depende do mesmo relógio vivo que o MailStore
-                        // recebe. O reader a redesenha a cada minuto; assim, a
-                        // chave temporal do store é relida ao cruzar a meia-noite
-                        // sem criar outro timer nem afetar os retratos `.fixed`.
-                        AgendaClockReader(clock) { _ in
-                            mailContent
-                        }
-                    case .calendar:
-                        calendarContent
-                    }
-                }
-                // A gaveta é **overlay**: o que está atrás esmaece e fica
-                // exatamente onde estava. Empurrar a caixa para o lado faria
-                // a pessoa perder o parágrafo que estava lendo por ter feito
-                // uma pergunta.
-                .opacity(
-                    assistantSession.isDrawerOpen
-                        ? AssistantDrawerMetrics.backdropOpacity : 1
-                )
-
-                if assistantSession.isDrawerOpen {
-                    assistantDrawer
-                        .transition(.move(edge: .trailing))
-                        .zIndex(60)
-                }
-
-                if assistantOpen {
-                    assistantPanel
-                        .padding(12)
-                        .transition(.move(edge: .trailing).combined(with: .opacity))
-                        .zIndex(50)
-                }
-            }
-        }
-    }
 
     // MARK: A fiação com a fonte
     //
@@ -775,190 +698,6 @@ public struct InboxScreen: View {
             store.clearChecked()
             return true
         }
-    }
-
-    /// O `GeometryReader` existe por um motivo só: dar a largura real da janela
-    /// a `PaneLayout`. A decisão em si não mora aqui — este `View` é `@MainActor`
-    /// e a aritmética precisa ser chamável de teste nonisolated.
-    /// `internal` (era `private`) para `AgendaHojeTests` fotografar só a coluna
-    /// da trilha e provar que a data do cabeçalho dela segue o relógio.
-    var mailContent: some View {
-        GeometryReader { proxy in
-            let layout = PaneLayout.resolve(
-                width: proxy.size.width,
-                wantsSidebar: wantsSidebar,
-                wantsAgenda: wantsAgenda,
-                draggedListWidth: paneWidths.messageList,
-                draggedAgendaWidth: paneWidths.agenda
-            )
-
-            HStack(spacing: 0) {
-                // Barra lateral. Ela nunca some por completo: recolhida, é a
-                // trilha de 62pt da Task 7B.
-                if layout.sidebarExpanded {
-                    FolderSidebar(
-                        store: store,
-                        width: layout.sidebarWidth,
-                        intelligencePresentation: intelligencePresentation,
-                        analysisPause: analysisPause,
-                        onOpenAssistant: openWorkspaceAssistant,
-                        onOpenSettings: openAccounts,
-                        onCompose: openNewMessage,
-                        onOpenAccounts: openAccounts,
-                        updates: updates
-                    )
-                        .transition(.move(edge: .leading).combined(with: .opacity))
-                } else {
-                    SidebarRail(
-                        store: store,
-                        width: layout.sidebarWidth,
-                        intelligencePresentation: intelligencePresentation,
-                        onOpenAssistant: openWorkspaceAssistant,
-                        onOpenSettings: openAccounts,
-                        onCompose: openNewMessage,
-                        onOpenAccounts: openAccounts
-                    )
-                        .transition(.move(edge: .leading).combined(with: .opacity))
-                }
-
-                // Lista de mensagens — o único painel cuja largura de fato varia.
-                MessageList(
-                    store: store,
-                    width: layout.messageListWidth,
-                    // O carimbo de horário de cada linha compara a data da
-                    // mensagem com **este** dia: `Fixtures.today` no mundo
-                    // congelado dos retratos, o dia da máquina com conta real.
-                    today: agendaAnchor,
-                    onOpenWindow: openMessageWindow,
-                    portraitCaption: mailboxPortrait?.countCaption,
-                    gapCaption: mailboxPortrait?.gapCaption,
-                    onPullMissing: mailboxPortrait?.gapCaption == nil ? nil : { [accountsModel] in
-                        Task { await accountsModel?.syncNow() }
-                    }
-                )
-
-                // Painel de leitura: fica com tudo o que sobrar.
-                ReaderPane(
-                    store: store,
-                    debugEmailAssistantOpen: debugReaderAssistantOpen,
-                    onCompose: { openWindow(id: UNIWindow.composer, value: $0.value) },
-                    attachmentSaver: NativeAttachmentSaver(),
-                    intelligence: composerIntelligence,
-                    intelligencePresentation: intelligencePresentation,
-                    analysisDestination: analysisDestination,
-                    makeAssistantConversation: readerConversationFactory,
-                    onMessagePresented: onMessagePresented,
-                    onEmailAssistantOpenChange: { open in
-                        readerAssistantOpen = open
-                    }
-                )
-                // O popover sai dos limites do leitor para caber ao lado do
-                // ícone. Elevar só o cabeçalho não o coloca acima da lista.
-                .zIndex(readerAssistantOpen ? 100 : 0)
-
-                // Trilha de agenda — o primeiro painel a sair quando aperta.
-                // A data do cabeçalho e o minuto seguem o **mesmo** relógio:
-                // fixos nos retratos e nas capturas, vivos com conta real.
-                // Escrever `Fixtures.today` aqui era o que fazia a trilha dizer
-                // "Terça-feira, 25 de agosto" em qualquer dia do ano.
-                if layout.agendaVisible {
-                    AgendaClockReader(clock) { now in
-                        AgendaRail(
-                            store: store,
-                            now: now,
-                            headerDate: agendaAnchor,
-                            width: layout.agendaRailWidth,
-                            onOpenEvent: openEventWindow,
-                            onRevealMessage: reveal
-                        )
-                    }
-                    .transition(.move(edge: .trailing).combined(with: .opacity))
-                }
-            }
-            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
-            // Só as duas decisões discretas animam. Animar `messageListWidth`
-            // junto faria a lista arrastar atrás do cursor durante o
-            // redimensionamento, com 0.18s de atraso a cada quadro.
-            .animation(Self.paneTransition, value: layout.sidebarExpanded)
-            .animation(Self.paneTransition, value: layout.agendaVisible)
-            // As divisórias vêm por cima, e não dentro do `HStack`: seis pontos
-            // de alvo entre a lista e o leitor empurrariam a tela inteira em
-            // seis pontos e desalinhariam o marco da Task P. Aqui elas custam
-            // zero ao layout.
-            .overlay(alignment: .topLeading) {
-                dividers(layout: layout, windowWidth: proxy.size.width)
-                    // A calha é um overlay do HStack inteiro; nenhum zIndex de
-                    // um filho passa por ela. Enquanto o popover está aberto,
-                    // a linha some e deixa de roubar clique.
-                    .opacity(readerAssistantOpen ? 0 : 1)
-                    .allowsHitTesting(!readerAssistantOpen)
-            }
-            // O referencial em que o arraste é medido, e o motivo de ele vir
-            // **depois** do `.overlay`: assim as divisórias são descendentes
-            // dele. O retângulo que ele nomeia é o do conteúdo da janela, preso
-            // ao `proxy` — o único ancestral por aqui que não se mexe enquanto a
-            // divisória se mexe. Medir no espaço local da própria calha fazia a
-            // divisória andar metade do cursor; ver `PaneDivider.coordinateSpace`.
-            .coordinateSpace(.named(PaneDivider.coordinateSpace))
-        }
-    }
-
-    // MARK: - As divisórias arrastáveis
-
-    /// As duas calhas de arraste, posicionadas sobre as linhas que os painéis
-    /// já desenham: lista ↔ leitor e leitor ↔ agenda.
-    ///
-    /// A da lateral fica de fora de propósito. A lateral não tem largura
-    /// contínua: ela é aberta (248) ou trilha (72), duas medidas canônicas que
-    /// a `SidebarRail` e a `FolderSidebar` usam para escolher o que desenham em
-    /// cada uma. Torná-la arrastável não é acrescentar um alvo, é trocar o
-    /// modelo dela — e o botão da barra do topo já faz o que ela precisa.
-    @ViewBuilder
-    private func dividers(layout: PaneLayout, windowWidth: CGFloat) -> some View {
-        ZStack(alignment: .topLeading) {
-            divider(
-                at: layout.messageListTrailingEdge,
-                onDrag: { translation in
-                    let origin = listDragOrigin ?? layout.messageListWidth
-                    listDragOrigin = origin
-                    // Puxar para a direita alarga a lista.
-                    paneWidths.setMessageList(origin + translation)
-                },
-                onEnd: { listDragOrigin = nil },
-                onReset: {
-                    withAnimation(Self.paneTransition) { paneWidths.resetMessageList() }
-                }
-            )
-
-            if layout.agendaVisible {
-                divider(
-                    at: layout.agendaLeadingEdge(inWindowOfWidth: windowWidth),
-                    onDrag: { translation in
-                        let origin = agendaDragOrigin ?? layout.agendaRailWidth
-                        agendaDragOrigin = origin
-                        // A agenda cresce para a esquerda: puxar para a direita
-                        // a estreita.
-                        paneWidths.setAgenda(origin - translation)
-                    },
-                    onEnd: { agendaDragOrigin = nil },
-                    onReset: {
-                        withAnimation(Self.paneTransition) { paneWidths.resetAgenda() }
-                    }
-                )
-            }
-        }
-    }
-
-    /// Centra o alvo de 6pt sobre a linha em `x`, para o ponteiro poder chegar
-    /// pelos dois lados.
-    private func divider(
-        at x: CGFloat,
-        onDrag: @escaping (CGFloat) -> Void,
-        onEnd: @escaping () -> Void,
-        onReset: @escaping () -> Void
-    ) -> some View {
-        PaneDivider(onDrag: onDrag, onEnd: onEnd, onReset: onReset)
-            .offset(x: PaneDivider.leadingEdge(centeredOn: x))
     }
 
     /// A mesma curva do toggle manual, para recolher por arraste e por clique
@@ -1080,29 +819,6 @@ public struct InboxScreen: View {
             }
         )
         .run(command)
-    }
-
-    /// A aba Agenda leva a **mesma** barra lateral do email, porque no
-    /// protótipo ela é do shell e não da tela do email — ver `CalendarScreen`.
-    /// Por isso `wantsSidebar` atravessa daqui: é a intenção que o botão da
-    /// barra do topo mexe, e ela tem de valer nas duas abas.
-    ///
-    /// `internal` (era `private`) pelo mesmo motivo do `mailContent`.
-    var calendarContent: some View {
-        AgendaClockReader(clock) { now in
-            CalendarScreen(
-                store: store,
-                now: now,
-                anchor: agendaAnchor,
-                wantsSidebar: wantsSidebar,
-                intelligencePresentation: intelligencePresentation,
-                onOpenAssistant: openWorkspaceAssistant,
-                onCompose: openNewMessage,
-                onOpenAccounts: openAccounts,
-                onOpenEvent: openEventWindow,
-                onRevealMessage: reveal
-            )
-        }
     }
 
     // MARK: - Janelas

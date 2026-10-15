@@ -203,15 +203,11 @@ struct PainelDoDia: View {
             myAddresses: Set(store.accounts.map(\.address)),
             motivoSemProntas: motivoSemProntas
         )
-        return Group {
-            if theme.isGlass {
-                corpoVidro(modelo)
-            } else {
-                corpoClassico(modelo)
-            }
-        }
+        // Um corpo só, para os 28 temas: o desenho do protótipo. Quem pinta o
+        // fundo é o painel que envolve o Painel — vidro nos dois temas que o
+        // declaram, caixa opaca de tokens nos outros 26.
+        return corpoVidro(modelo)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(theme.isGlass ? Color.clear : theme.paper.color)
         .bareKeyShortcuts { key in
             let alvo = DashboardKeys.opens(
                 key: key,
@@ -256,38 +252,6 @@ struct PainelDoDia: View {
         .onDisappear { briefing.cancel() }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L10n.tr("Painel do dia"))
-    }
-
-    // MARK: - O corpo clássico (os 26 temas de sempre)
-
-    private func corpoClassico(_ modelo: PainelDoDiaModelo) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // O topo é fixo: o plano de hoje é a única coisa que a pessoa
-            // precisa ver sem rolar, e ele não pode ser empurrado para fora.
-            VStack(alignment: .leading, spacing: 0) {
-                header(modelo)
-                planoDeHoje(modelo)
-                    .padding(.top, 16)
-            }
-            .padding(.top, 22)
-            .padding(.horizontal, 28)
-
-            // Os três painéis rolam. Com seis azulejos a grade já passava do
-            // pé da janela, e o que saía por baixo era a barra de estado —
-            // então a tela não tinha nem rolagem nem barra.
-            ScrollView(.vertical) {
-                painéis(modelo)
-                    .padding(.top, 22)
-                    .padding(.bottom, 20)
-                    .padding(.horizontal, 28)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .scrollBounceBehavior(.basedOnSize)
-
-            // E a barra fica colada no pé, sempre: ela é estado do dia, e
-            // estado que some quando o dia enche não é estado nenhum.
-            barraInferior(modelo)
-        }
     }
 
     // MARK: - O corpo Vidro

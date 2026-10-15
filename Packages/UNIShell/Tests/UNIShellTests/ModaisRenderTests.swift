@@ -77,7 +77,7 @@ struct ModaisRenderTests {
         }
         // Clássico: o raio é o do tema (2 no Okami) e o halo **não existe** —
         // o protótipo escreve `accentGlow: 'none'` nele.
-        for tema in Theme.all where !tema.isGlass {
+        for tema in Theme.all where !tema.isTranslucent {
             #expect(tema.modalSheetRadius == tema.radiusLarge, "\(tema.id)")
             #expect(tema.modalPopoverRadius == tema.radiusLarge, "\(tema.id)")
             #expect(tema.modalFieldRadius == tema.radiusSmall, "\(tema.id)")
