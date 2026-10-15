@@ -4,6 +4,14 @@
 
 Todas as versões seguem o [release no GitHub](https://github.com/OkamiOps/okamiuni/releases). Datas em 2026.
 
+## 0.6.0 — 15 de outubro
+- Visual novo, **Vidro**: trilho à esquerda, coluna de pastas e painéis flutuantes, nos temas Vidro claro e Vidro noite, com a opção **Automático** que segue o Mac. Os 26 temas clássicos ganham o mesmo layout, sem o vidro.
+- Painel do dia, Caixa, Agenda, Configurações, compositor e todas as janelas redesenhados. As caixas de todas as contas ficam unificadas, e as contas aparecem em árvore.
+- Leitor que cabe na tela: o cabeçalho tem duas linhas, a IA mora no botão **✦ IA** (⌥⌘J, com atalhos ⌥⌘S, ⌥⌘R e ⌥⌘E), o resumo recolhe e o remetente abre os detalhes com um botão para copiar cada endereço.
+- Assistente **Mesa** e tela **Inteligência** nova, com todos os provedores num lugar só. O Grok entra por login oficial.
+- Ao responder, a citação mostra o e-mail original formatado.
+- Versão do app 0.6.0, build 15. [Notas da versão](docs/releases/v0.6.0.pt-BR.md).
+
 ## 0.5.9 — 14 de outubro
 - Instalador para quem baixa pela primeira vez: cada release agora traz o `OkamiUNI.dmg`, assinado e notarizado pela Apple. Ele abre uma janela com o app, uma seta e a pasta Aplicativos; é só arrastar um para o outro. Link fixo para a versão mais nova: https://github.com/OkamiOps/okamiuni/releases/latest/download/OkamiUNI.dmg
 - Se o OkamiUNI for aberto direto da janela do instalador, ou de Downloads sem ser movido, o app oferece **Mover para Aplicativos**. É lá que a atualização automática funciona.

@@ -4,6 +4,15 @@
 
 Versions correspond to [GitHub releases](https://github.com/OkamiOps/okamiuni/releases). All dates below are in 2026.
 
+## 0.6.0 — October 15
+
+- New **Glass** look: a rail on the left, a folder column and floating panels, in the Glass light and Glass night themes, plus an **Automatic** option that follows the Mac. All 26 classic themes get the same layout, without the glass.
+- Day panel, Inbox, Calendar, Settings, the composer and every window redesigned. Inboxes from every account are unified, and accounts show as a tree.
+- A reader that fits: the header is two lines, AI lives in the **✦ AI** button (⌥⌘J, with ⌥⌘S, ⌥⌘R and ⌥⌘E shortcuts), the summary collapses and the sender expands into the details, with a button to copy each address.
+- **Desk** assistant and new **Intelligence** settings, with every provider in one place. Grok signs in through its official login.
+- When you reply, the quote shows the original email formatted.
+- App version 0.6.0, build 15. [Release notes](docs/releases/v0.6.0.md).
+
 ## 0.5.9 — October 14
 
 - Installer for new users: each release now includes `OkamiUNI.dmg`, signed and notarized by Apple. It opens a window with the app, an arrow and the Applications folder; drag one onto the other. Fixed link to the latest version: https://github.com/OkamiOps/okamiuni/releases/latest/download/OkamiUNI.dmg
