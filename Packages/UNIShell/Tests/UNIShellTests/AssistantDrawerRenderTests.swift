@@ -107,34 +107,95 @@ struct AssistantDrawerRenderTests {
         return n
     }
 
-    /// **O botão do item do briefing.**
+    /// **As faixas de linhas em que esta cor aparece**, na ordem — uma por
+    /// aglomerado separado por pelo menos `vao` linhas limpas.
     ///
-    /// No desenho da Presença o item fechado (02, 03) tem botão de superfície
-    /// com o verbo em `accentInk`; só o item **com rascunho** tem o acento
-    /// cheio. A régua, então, é a tinta do verbo na metade direita da gaveta:
-    /// lá não há outra coisa em `accentInk` naquela altura.
-    private func botaoDoItem(
-        _ rep: NSBitmapImageRep, _ theme: Theme, xInicio: Int, xFim: Int
-    ) -> CGPoint? {
-        // **A coluna do botão sai do desenho; a linha, do bitmap.**
-        //
-        // O item fechado alinha o botão à direita, dentro do recuo de 20 da
-        // gaveta: a 40 da borda está sempre dentro dele. A altura é a única
-        // coisa que depende de quantas linhas o título ocupou, e é a tinta do
-        // verbo (`accentInk`) naquela coluna estreita que a entrega — as
-        // perguntas de "pergunte mais", que também são acento, começam no
-        // recuo esquerdo e nunca chegam lá.
-        let coluna = xFim - 40
-        guard let tinta = theme.accentInk.nsColor.usingColorSpace(.sRGB) else { return nil }
-        var linhas: [Int] = []
-        for py in 100..<620 {
-            for px in (coluna - 10)..<(coluna + 10) where casa(rep, px, py, tinta, 0.10) {
-                linhas.append(py)
-                break
+    /// É a régua que a Mesa pede: o `accentSoft` do desenho pinta duas coisas
+    /// na gaveta, a lasca da pergunta no alto e o botão macio do objeto mais
+    /// embaixo. Medir "o aglomerado" sem separá-los daria o ponto do meio, que
+    /// não é nenhum dos dois.
+    private func faixas(
+        _ rep: NSBitmapImageRep, de token: TokenColor,
+        x: Range<Int>, y: Range<Int>, tol: Double = 0.03, minimo: Int = 10, vao: Int = 6
+    ) -> [ClosedRange<Int>] {
+        guard let alvo = token.nsColor.usingColorSpace(.sRGB) else { return [] }
+        var achadas: [ClosedRange<Int>] = []
+        var inicio: Int?
+        var ultima = 0
+        for py in y where py < rep.pixelsHigh {
+            var n = 0
+            for px in x where px < rep.pixelsWide {
+                if casa(rep, px, py, alvo, tol) { n += 1 }
+            }
+            if n >= minimo {
+                if inicio == nil { inicio = py }
+                ultima = py
+            } else if let comeco = inicio, py - ultima > vao {
+                achadas.append(comeco...ultima)
+                inicio = nil
             }
         }
-        guard let primeira = linhas.first, let ultima = linhas.last else { return nil }
-        return CGPoint(x: Double(coluna), y: Double(primeira + ultima) / 2)
+        if let comeco = inicio { achadas.append(comeco...ultima) }
+        return achadas
+    }
+
+    /// **O botão primário do objeto da mesa.**
+    ///
+    /// No desenho da Mesa o objeto de proposta tem botão macio: `accentSoft`
+    /// de fundo, verbo em `accentInk`, alinhado à **esquerda** dentro do
+    /// objeto. A coluna sai do desenho (a margem da mesa mais o recuo do
+    /// objeto); a linha sai do bitmap — é a última faixa de `accentSoft`, já
+    /// que a primeira é a lasca da pergunta no alto.
+    private func botaoDoObjeto(
+        _ rep: NSBitmapImageRep, _ theme: Theme, xInicio: Int, xFim: Int
+    ) -> CGPoint? {
+        let coluna = Double(xInicio)
+            + Double(MesaMetrics.mesaMargin.leading)
+            + Double(MesaMetrics.objectGap)
+            + Double(MesaMetrics.objectActionPadding.leading)
+            + 24
+        guard let banda = Self.faixaDoBotao(self, rep, theme, xInicio: xInicio) else {
+            return nil
+        }
+        return CGPoint(x: coluna, y: Double(banda.lowerBound + banda.upperBound) / 2)
+    }
+
+    /// **A coluna estreita do botão, e não a gaveta inteira.**
+    ///
+    /// A mesa é pontilhada, e um ponto antialiasado sobre a parede cai bem
+    /// perto de `accentSoft`: varrendo a gaveta toda, "a última faixa de
+    /// acento macio" era uma fileira de pontos lá embaixo. Na coluna do botão
+    /// os pontos somam meia dúzia por linha e o botão soma dezenas.
+    private static func colunaDoBotao(_ xInicio: Int) -> Range<Int> {
+        let inicio = xInicio + Int(MesaMetrics.mesaMargin.leading)
+            + Int(MesaMetrics.objectGap) + Int(MesaMetrics.objectActionPadding.leading)
+        return inicio..<(inicio + 120)
+    }
+
+    /// O botão **cheio** do objeto — o "Abrir no compositor" do rascunho, que
+    /// é o único que tira a pessoa da mesa e por isso leva acento inteiro.
+    /// Mesma coluna estreita; o ↑ do campo fica fora dela.
+    private func botaoCheioDoObjeto(
+        _ rep: NSBitmapImageRep, _ theme: Theme, xInicio: Int
+    ) -> CGPoint? {
+        let coluna = Self.colunaDoBotao(xInicio)
+        guard let banda = faixas(
+            rep, de: theme.accent, x: coluna, y: 60..<820, minimo: 40
+        ).last else { return nil }
+        return CGPoint(
+            x: Double(coluna.lowerBound + 24),
+            y: Double(banda.lowerBound + banda.upperBound) / 2
+        )
+    }
+
+    private static func faixaDoBotao(
+        _ suite: AssistantDrawerRenderTests,
+        _ rep: NSBitmapImageRep, _ theme: Theme, xInicio: Int
+    ) -> ClosedRange<Int>? {
+        suite.faixas(
+            rep, de: theme.accentSoft, x: colunaDoBotao(xInicio), y: 60..<820,
+            minimo: 40
+        ).last
     }
 
     /// O centro do maior aglomerado desta cor no recorte — o botão do cartão.
@@ -177,12 +238,12 @@ struct AssistantDrawerRenderTests {
             )
             #expect(fundo > 40_000, "\(theme.id): a gaveta não pintou surface")
 
-            // E o item do briefing traz o verbo em tinta de acento.
+            // E o objeto da mesa traz o verbo em tinta de acento.
             let botao = pixels(
                 rep, de: theme.accentInk,
-                x: (Self.drawerX + 190)..<1_440, y: 100..<620, tol: 0.08
+                x: (Self.drawerX + 20)..<1_440, y: 60..<820, tol: 0.08
             )
-            #expect(botao > 60, "\(theme.id): o item do briefing não desenhou o botão")
+            #expect(botao > 60, "\(theme.id): o objeto da mesa não desenhou o botão")
         }
     }
 
@@ -210,24 +271,29 @@ struct AssistantDrawerRenderTests {
             named: "gaveta-cartao-feito-\(theme.id)", size: Self.size, theme: theme
         ))
 
-        // **O botão sai, e o que fica é texto.** No desenho da Presença o item
-        // fechado tem um botão com moldura em `line`; executado, ele vira
-        // "Feito · Desfazer", que é tinta e mais nada. A régua é a moldura:
-        // a tinta de acento não serve, porque o "Desfazer" também é acento.
+        // **O botão sai, e o que fica é texto.** No desenho da Mesa o objeto
+        // de proposta tem botão macio, `accentSoft` de fundo; executado, ele
+        // vira "Feito · Desfazer", que é tinta e mais nada. A régua é esse
+        // fundo: a tinta de acento não serve, porque o "Desfazer" também é
+        // acento.
         //
-        // A faixa inclui o fio sob o recibo, que está nos dois desenhos e por
-        // isso se cancela na diferença.
-        let faixa = (1_440 - 130)..<(1_440 - 20)
-        let comBotao = pixels(
-            repAntes, de: theme.line, x: faixa, y: 100..<620, tol: 0.02
-        )
-        let semBotao = pixels(
-            repDepois, de: theme.line, x: faixa, y: 100..<620, tol: 0.02
-        )
-        #expect(comBotao > 60, "o item fechado não desenhou a moldura do botão")
+        // A régua corre na coluna do botão — ver `colunaDoBotao`: a lasca da
+        // pergunta é à direita e os pontos da mesa não somam ali.
+        let coluna = Self.colunaDoBotao(Self.drawerX)
+        func fundoDoBotao(_ rep: NSBitmapImageRep) -> Int {
+            guard let banda = Self.faixaDoBotao(self, rep, theme, xInicio: Self.drawerX)
+            else { return 0 }
+            return pixels(
+                rep, de: theme.accentSoft, x: coluna,
+                y: banda.lowerBound..<(banda.upperBound + 1), tol: 0.03
+            )
+        }
+        let comBotao = fundoDoBotao(repAntes)
+        let semBotao = fundoDoBotao(repDepois)
+        #expect(comBotao > 400, "o objeto não desenhou o fundo do botão macio")
         #expect(
-            semBotao < comBotao - 40,
-            "a moldura do botão continuou depois de executar (\(comBotao) → \(semBotao))"
+            semBotao < comBotao / 2,
+            "o fundo do botão continuou depois de executar (\(comBotao) → \(semBotao))"
         )
     }
 
@@ -271,7 +337,7 @@ struct AssistantDrawerRenderTests {
             tela(store, session: session), size: Self.size, theme: theme
         ))
         let alvo = try #require(
-            botaoDoItem(rep, theme, xInicio: Self.drawerX, xFim: 1_440),
+            botaoDoObjeto(rep, theme, xInicio: Self.drawerX, xFim: 1_440),
             "não achei o botão do item no desenho"
         )
         CliqueDeEnsaio.em(
@@ -308,7 +374,7 @@ struct AssistantDrawerRenderTests {
             tela(store, session: session), size: Self.size, theme: theme
         ))
         let alvo = try #require(
-            botaoDoItem(rep, theme, xInicio: Self.drawerX, xFim: 1_440)
+            botaoDoObjeto(rep, theme, xInicio: Self.drawerX, xFim: 1_440)
         )
         CliqueDeEnsaio.em(
             tela(store, session: session), size: Self.size, aY: alvo.y, x: alvo.x
@@ -319,6 +385,77 @@ struct AssistantDrawerRenderTests {
         }
         #expect(session.hasUndo, "a leva de três não deixou Desfazer")
         #expect(store.message("jack")?.bucket == .today, "a leva mexeu em quem não estava nela")
+    }
+
+    /// **O rascunho leva ao compositor, e não a lugar nenhum.**
+    ///
+    /// "Abrir no compositor" grava o rascunho pela mesma fila da Caixa
+    /// (`MailAgentTools.saveReplyDraft`) e abre a janela da resposta. A prova
+    /// é o rascunho na caixa de saída — e a porta de envio vazia, porque nada
+    /// sai sem revisão.
+    @Test("o rascunho abre o compositor e nunca envia")
+    func theDraftObjectOpensTheComposer() async throws {
+        let porta = Envios()
+        let store = await DiaDoDono.loja(sendPort: porta)
+        let session = AssistantSession(debugOpen: true)
+        session.adopt(conversaComCartao([.reply(
+            messageID: "jack",
+            draft: "Jack, a página não exige login — te mando o link direto."
+        )]))
+
+        let antes = store.messages.filter { $0.bucket == .drafts }.count
+
+        let theme = Theme.tinta
+        let rep = try #require(Render.bitmap(
+            tela(store, session: session), size: Self.size, theme: theme
+        ))
+        let alvo = try #require(
+            botaoCheioDoObjeto(rep, theme, xInicio: Self.drawerX),
+            "não achei o botão do rascunho"
+        )
+        CliqueDeEnsaio.em(
+            tela(store, session: session), size: Self.size, aY: alvo.y, x: alvo.x
+        )
+
+        let depois = store.messages.filter { $0.bucket == .drafts }
+        #expect(depois.count == antes + 1, "o rascunho não foi gravado")
+        #expect(
+            depois.contains { $0.body.joined().contains("não exige login") },
+            "o rascunho gravado não é o que a Mesa mostrava"
+        )
+        #expect(porta.sent.isEmpty, "o rascunho encostou na porta de envio")
+    }
+
+    /// **O evento escreve na agenda.** O objeto de evento é o único cuja leva
+    /// não volta atrás — e por isso ele diz "Feito" e nada mais.
+    @Test("o evento proposto escreve na agenda")
+    func theEventObjectWritesToTheAgenda() async throws {
+        let store = await DiaDoDono.loja()
+        let session = AssistantSession(debugOpen: true)
+        session.adopt(conversaComCartao([
+            .reserveBlock(day: 0, startMinute: 900, minutes: 30, title: "Call de revisão"),
+        ]))
+
+        let antes = store.agenda.count
+
+        let theme = Theme.tinta
+        let rep = try #require(Render.bitmap(
+            tela(store, session: session), size: Self.size, theme: theme
+        ))
+        let alvo = try #require(
+            botaoDoObjeto(rep, theme, xInicio: Self.drawerX, xFim: 1_440),
+            "não achei o botão do evento"
+        )
+        CliqueDeEnsaio.em(
+            tela(store, session: session), size: Self.size, aY: alvo.y, x: alvo.x
+        )
+
+        #expect(store.agenda.count == antes + 1, "o evento não entrou na agenda")
+        #expect(
+            store.agenda.contains { $0.title == "Call de revisão" },
+            "entrou outra coisa na agenda"
+        )
+        #expect(!session.hasUndo, "a escrita de agenda prometeu um Desfazer que não existe")
     }
 
     /// Uma leva **sem volta** (a reserva de bloco) diz "Feito" e não promete
@@ -337,7 +474,7 @@ struct AssistantDrawerRenderTests {
             tela(store, session: session), size: Self.size, theme: theme
         ))
         let alvo = try #require(
-            botaoDoItem(rep, theme, xInicio: Self.drawerX, xFim: 1_440)
+            botaoDoObjeto(rep, theme, xInicio: Self.drawerX, xFim: 1_440)
         )
         CliqueDeEnsaio.em(
             tela(store, session: session), size: Self.size, aY: alvo.y, x: alvo.x
@@ -415,35 +552,31 @@ struct AssistantDrawerRenderTests {
         let rep = try #require(Render.bitmap(
             tela(store, session: session), size: Self.size, theme: theme
         ))
-        // **Onde o cabeçalho acaba.** O fio sob ele é a primeira linha cheia
-        // de `line` dentro da gaveta: a gaveta começa abaixo do chrome, e a
-        // altura não pode ser escrita à mão.
-        var fio: Int?
-        guard let corDoFio = theme.line.nsColor.usingColorSpace(.sRGB) else { return }
-        for py in 0..<400 {
-            var n = 0
-            for px in (Self.drawerX + 40)..<(1_440 - 40) where casa(rep, px, py, corDoFio, 0.03) {
-                n += 1
-            }
-            if n > 300 { fio = py; break }
-        }
-        let base = try #require(fio, "não achei o fio sob o cabeçalho da gaveta")
+        // **A linha do cabeçalho sai do bitmap.** O ✦ do cabeçalho da gaveta
+        // é a primeira tinta de acento dentro dela, e o centro dele é a linha
+        // em que os dois botões moram. Uma coordenada escrita à mão passaria a
+        // mentir no primeiro ajuste de folga.
+        let colunaDoSparkle = Self.drawerX + Int(MesaMetrics.drawerHeaderPadding.leading)
+        let sparkle = try #require(
+            centro(
+                rep, de: theme.accentInk,
+                x: colunaDoSparkle..<(Self.drawerX + 40),
+                y: 0..<80, tol: 0.10, minimo: 20
+            ),
+            "não achei o ✦ do cabeçalho da gaveta"
+        )
 
-        // E os dois botões saem das medidas do desenho: `padding: 13px 18px`,
-        // ícones de 15 com `gap: 10`. O ✕ encosta na borda; o ↗ vem antes.
-        let recuo = Double(PresencaMetrics.headerPadding.trailing)
-        let icone = Double(AssistantDrawerMetrics.headerActionSize)
+        // E os dois botões saem das medidas do desenho: `padding: 16px 18px
+        // 10px`, ícones de 14 com `gap: 8`. O ✕ encosta na borda; o ↗ vem
+        // antes.
+        let recuo = Double(MesaMetrics.drawerHeaderPadding.trailing)
+        let icone = Double(MesaMetrics.drawerActionGlyph)
         let fechar = 1_440 - recuo - icone / 2
-        let destacar = fechar - icone - Double(PresencaMetrics.headerGap)
-        // O centro vertical do cabeçalho: metade da altura dele, acima do fio.
-        let alturaDoCabecalho = Double(PresencaMetrics.headerPadding.top)
-            + Double(PresencaMetrics.headerOrb)
-            + Double(PresencaMetrics.headerPadding.bottom)
-        let meio = Double(base) - alturaDoCabecalho / 2
+        let destacar = fechar - icone - Double(MesaMetrics.headerGap)
 
         CliqueDeEnsaio.em(
             tela(store, session: session), size: Self.size,
-            aY: meio, x: destacar
+            aY: sparkle.y, x: destacar
         )
         #expect(session.isDetached, "o ↗ não destacou")
         #expect(!session.isDrawerOpen, "a gaveta ficou aberta com a conversa destacada")

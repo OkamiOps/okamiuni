@@ -2,12 +2,12 @@ import SwiftUI
 import UNICore
 import UNIDesign
 
-/// A janela destacada do assistente — `design/IA-Presenca.dc.html`, a janela
-/// de 880 × 744 dos artboards `resposta` e `trabalhando`.
+/// A janela destacada do assistente — `design/Mesa2.dc.html`, a janela de
+/// 880 × 744 dos artboards `vazio`, `nota` e `trabalhando`.
 ///
 /// **É a mesma conversa da gaveta**, e não uma segunda. Quem a segura é a
 /// `AssistantSession`, que vive acima das duas cenas: destacar fecha a gaveta
-/// e a janela continua o mesmo transcript, com os mesmos itens. Fechar a
+/// e a janela continua o mesmo transcript, com os mesmos objetos. Fechar a
 /// janela não apaga nada — a conversa volta para a gaveta como estava.
 ///
 /// Cena própria, como a 04 e a 05: ⌘W fecha, entra no menu Janela e sobrevive
@@ -17,7 +17,6 @@ import UNIDesign
 public struct AssistantWindow: View {
 
     @Environment(\.theme) private var theme
-    @Environment(\.dismiss) private var dismiss
 
     let session: AssistantSession
 
@@ -30,26 +29,22 @@ public struct AssistantWindow: View {
     public var body: some View {
         VStack(spacing: 0) {
             if let conversation = session.conversation {
-                // O cabeçalho é o **do desenho**, e não o `WindowTitleBar`
-                // genérico: é ele que traz o orbe, o "falando sobre … ·
-                // trocar" e o nome do modelo na ponta direita. A gaveta usa a
-                // mesma peça — ver `AssistantPresencaHeader`.
-                AssistantPresencaHeader(
+                // O cabeçalho é o **da Mesa**, e não o `WindowTitleBar`
+                // genérico: é ele que traz o nome, a rota e o "trocar". Os
+                // semáforos continuam sendo os do sistema, pela regra da casa.
+                MesaWindowHeader(
                     conversation: conversation,
                     context: session.chosenContext ?? .day,
-                    width: AssistantDrawerMetrics.windowSize.width,
-                    reservaSemaforos: true,
                     onSwapContext: {
                         session.chosenContext = AssistantDrawerCopy.toggled(
                             session.chosenContext ?? .day
                         )
-                    },
-                    trailing: { EmptyView() }
+                    }
                 )
-                AssistantTranscript(
+                AssistantMesa(
                     conversation: conversation,
                     session: session,
-                    width: AssistantDrawerMetrics.windowSize.width,
+                    ownerName: session.ownerName,
                     // A execução é a **da janela principal**: a cena destacada
                     // não tem store nem fila, e um segundo caminho aqui
                     // divergiria do da gaveta no primeiro conserto.
@@ -57,9 +52,7 @@ public struct AssistantWindow: View {
                     onReveal: session.reveal
                 )
                 .frame(maxHeight: .infinity)
-                AssistantAskField(
-                    conversation: conversation, focused: $fieldFocused, showsFooter: true
-                )
+                MesaAskField(conversation: conversation, focused: $fieldFocused)
             } else {
                 semConversa
             }
@@ -73,27 +66,32 @@ public struct AssistantWindow: View {
         .accessibilityIdentifier("assistant-window")
     }
 
-    /// O vazio: o orbe em repouso e as duas linhas que dizem como começar.
+    /// A mesa sem conversa nenhuma: as duas linhas que dizem como começar,
+    /// sobre a superfície vazia.
     private var semConversa: some View {
-        VStack(spacing: PresencaMetrics.workingGap) {
-            AssistantOrb(side: PresencaMetrics.bigOrbCore)
-            VStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: MesaMetrics.greetingGap) {
                 Text(L10n.tr("Nenhuma conversa ainda."))
                     .font(theme.sans.font(
-                        size: PresencaMetrics.workingTitleSize, weight: .semibold
+                        size: MesaMetrics.greetingSize, weight: .bold
                     ))
-                    .tracking(
-                        PresencaMetrics.workingTitleSize * PresencaMetrics.workingTitleTracking
-                    )
+                    .tracking(MesaMetrics.greetingSize * MesaMetrics.greetingTracking)
                     .foregroundStyle(theme.ink.color)
                 Text(L10n.tr("Abra o assistente na janela principal com ⌘J e pergunte alguma coisa."))
-                    .font(theme.sans.font(size: PresencaMetrics.proseSize))
+                    .font(theme.sans.font(size: MesaMetrics.greetingSubSize))
                     .foregroundStyle(theme.ink3.color)
-                    .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, MesaMetrics.greetingPadding.leading)
+            .padding(.top, TrafficLightLayout.windowBarHeight)
+            MesaDots()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
+                .padding(.horizontal, MesaMetrics.mesaMargin.leading)
+                .padding(.top, MesaMetrics.mesaMargin.top)
+                .padding(.bottom, MesaMetrics.fieldMargin.bottom)
         }
-        .padding(.horizontal, PresencaMetrics.workingPadding)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }

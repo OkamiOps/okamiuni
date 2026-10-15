@@ -141,23 +141,271 @@ struct AssistantDrawerCopyTests {
     }
 
     /// A mesma garantia de antes — as medidas saem do desenho e não do dedo —
-    /// agora contra `IA-Presenca.dc.html`, que é o desenho aprovado: janela de
-    /// 880 × 744, botão ↑ de 32 e campo com `padding: 10px 10px 10px 14px`.
-    @Test("as medidas da Presença saem do desenho")
+    /// agora contra `Mesa2.dc.html`, que é o desenho aprovado: janela de
+    /// 880 × 744, gaveta de 400, botão ↑ de 30 e campo com
+    /// `padding: 10px 10px 10px 14px` numa margem de `12px 16px 16px`.
+    @Test("as medidas da Mesa saem do desenho")
     func metricsMatchTheDrawings() {
-        #expect(AssistantDrawerMetrics.width == 440)
+        #expect(AssistantDrawerMetrics.width == 400)
         #expect(AssistantDrawerMetrics.backdropOpacity == 0.45)
         #expect(AssistantDrawerMetrics.windowSize == CGSize(width: 880, height: 744))
-        #expect(AssistantDrawerMetrics.sendButtonSide == 32)
-        #expect(PresencaMetrics.headlineSize == 27)
-        #expect(PresencaMetrics.numberColumn == 54)
-        #expect(PresencaMetrics.headerPadding.top == 13)
-        #expect(PresencaMetrics.headerPadding.leading == 18)
-        #expect(PresencaMetrics.fieldPadding.leading == 14)
-        #expect(PresencaMetrics.fieldMargin.leading == 24)
-        #expect(PresencaMetrics.stepListWidth == 340)
-        #expect(PresencaMetrics.gutter(forWidth: 880) == 44)
-        #expect(PresencaMetrics.gutter(forWidth: 440) == 20)
+        #expect(AssistantDrawerMetrics.sendButtonSide == 30)
+        #expect(MesaMetrics.greetingSize == 22)
+        #expect(MesaMetrics.greetingPadding.leading == 28)
+        #expect(MesaMetrics.mesaMargin.leading == 16)
+        #expect(MesaMetrics.dotSpacing == 22)
+        #expect(MesaMetrics.objectMaxWidth == 560)
+        #expect(MesaMetrics.fieldPadding.leading == 14)
+        #expect(MesaMetrics.fieldMargin.leading == 16)
+        #expect(MesaMetrics.askedMaxWidth == 440)
+        #expect(MesaMetrics.capsSize == 10)
+        #expect(MesaMetrics.drawerSendSide == 28)
+        #expect(MesaMetrics.drawerHeaderPadding.leading == 18)
+    }
+
+    /// O cabeçalho da janela da Mesa **não** regride os semáforos: a altura é
+    /// a da casa e o conteúdo começa depois da fileira. Foi o conserto de duas
+    /// rejeições, e um número escrito à mão aqui o desfaria.
+    @Test("o cabeçalho da janela usa a régua dos semáforos, e não a do desenho")
+    func theWindowHeaderKeepsTheTrafficLightRule() {
+        #expect(TrafficLightLayout.windowBarHeight == 52)
+        // O recuo é o fim da fileira mais a folga: a conta é a da casa, e não
+        // um número solto. Se ela mudar, muda para todas as janelas próprias.
+        #expect(
+            TrafficLightLayout.windowContentInset
+                == TrafficLightLayout.windowRowLeading
+                    + TrafficLightLayout.windowRowSpacing * 2 + 14 + 14
+        )
+        #expect(TrafficLightLayout.windowContentInset > TrafficLightLayout.windowRowLeading)
+    }
+}
+
+// MARK: - Os objetos da mesa
+
+@Suite("Os objetos da Mesa")
+struct MesaObjectTests {
+
+    private func card(
+        id: String = "t#0", text: String = "Marina espera o seu ok",
+        verb: String = "Responder",
+        effects: [AssistantProposalCard.Effect]
+    ) -> AssistantProposalCard {
+        AssistantProposalCard(
+            id: id, text: text, rationale: "ela espera desde ontem", verb: verb,
+            secondary: "Ver", secondaryMessageID: "marina", effects: effects
+        )
+    }
+
+    /// **O efeito decide o objeto, não o verbo.** É o efeito que diz o que o
+    /// clique faz, e o botão primário tem de dizer a verdade sobre ele.
+    @Test("um cartão que prepara resposta é um rascunho")
+    func prepareReplyBecomesADraft() throws {
+        let objeto = MesaObject.kind(
+            for: card(effects: [.prepareReply(messageID: "marina", draft: "Marina, fechado.")]),
+            id: "t#0"
+        )
+        guard case let .draft(_, texto, cartao) = objeto else {
+            Issue.record("não virou rascunho: \(objeto)")
+            return
+        }
+        #expect(texto == "Marina, fechado.")
+        #expect(cartao != nil, "o rascunho perdeu o cartão, e com ele o compositor")
+    }
+
+    /// Um rascunho **vazio** não é rascunho: um objeto com corpo em branco e
+    /// um botão "Abrir no compositor" abriria uma janela com nada dentro.
+    @Test("rascunho vazio cai em proposta")
+    func anEmptyDraftIsNotADraft() {
+        let objeto = MesaObject.kind(
+            for: card(effects: [.prepareReply(messageID: "marina", draft: "   ")]),
+            id: "t#0"
+        )
+        if case .proposal = objeto {} else { Issue.record("não virou proposta: \(objeto)") }
+    }
+
+    @Test("agenda e bloco viram evento")
+    func agendaWritesBecomeEvents() {
+        for efeito in [
+            AssistantProposalCard.Effect.addToAgenda(messageID: "marina"),
+            .reserveBlock(day: 0, startMinute: 900, minutes: 30, title: "Responder"),
+        ] {
+            let objeto = MesaObject.kind(for: card(effects: [efeito]), id: "t#0")
+            if case .event = objeto {} else { Issue.record("não virou evento: \(objeto)") }
+        }
+    }
+
+    @Test("arquivar continua sendo proposta")
+    func archivingStaysAProposal() {
+        let objeto = MesaObject.kind(
+            for: card(effects: [.command(.move(messageID: "marina", to: .archived))]),
+            id: "t#0"
+        )
+        if case .proposal = objeto {} else { Issue.record("não virou proposta: \(objeto)") }
+    }
+
+    /// A mesa é a conversa inteira, na ordem: a pergunta, a nota, e os objetos
+    /// que a resposta trouxe.
+    @Test("a mesa monta pergunta, nota e objetos na ordem")
+    func theTableKeepsTheOrder() {
+        let pergunta = AssistantMessage(speaker: .user, text: "e a Marina?")
+        let resposta = AssistantMessage(
+            speaker: .assistant,
+            text: "Ela espera o seu ok.",
+            proposals: [
+                AssistantProposal(
+                    title: "Responder a Marina",
+                    actions: [.reply(messageID: "marina", draft: "Marina, fechado.")],
+                    rationale: "ela espera desde ontem"
+                ),
+                AssistantProposal(
+                    title: "Call com a Marina às 15h",
+                    actions: [.addToAgenda(messageID: "marina")],
+                    rationale: "em 40 minutos"
+                ),
+            ]
+        )
+        let mesa = MesaObject.table(for: [pergunta, resposta], lastReceipt: nil)
+        #expect(mesa.count == 4)
+        if case .asked = mesa[0] {} else { Issue.record("o primeiro não é a pergunta") }
+        if case .note = mesa[1] {} else { Issue.record("o segundo não é a nota") }
+        if case .draft = mesa[2] {} else { Issue.record("o terceiro não é o rascunho") }
+        if case .event = mesa[3] {} else { Issue.record("o quarto não é o evento") }
+    }
+
+    /// O recibo é da **última** ida: pendurá-lo num turno antigo faria a tela
+    /// dizer que aqueles passos aconteceram agora.
+    @Test("o recibo só pendura na última resposta")
+    func theReceiptOnlyHangsOnTheLastAnswer() {
+        let recibo = AssistantRunReceipt(steps: ["li 12 e-mails de hoje"], elapsed: 2.4)
+        let mesa = MesaObject.table(
+            for: [
+                AssistantMessage(speaker: .user, text: "a"),
+                AssistantMessage(speaker: .assistant, text: "primeira"),
+                AssistantMessage(speaker: .user, text: "b"),
+                AssistantMessage(speaker: .assistant, text: "segunda"),
+            ],
+            lastReceipt: recibo
+        )
+        var comRecibo: [String] = []
+        for objeto in mesa {
+            if case let .note(_, texto, r) = objeto, r != nil { comRecibo.append(texto) }
+        }
+        #expect(comRecibo == ["segunda"])
+    }
+
+    /// **Sem dia, a mesa não inventa dia.** É o caso que separa "a mesa está
+    /// limpa" de "a mesa mente": o construtor devolve vazio, e é a tela que
+    /// troca a segunda linha e sobe as sugestões.
+    @Test("sem nada no dia, a mesa não monta objeto nenhum")
+    func anEmptyDayBuildsNoObjects() {
+        let itens = MesaDayItem.items(
+            plan: DayPlan(
+                hero: nil, sections: [], counts: [:], removed: [], replyBlock: nil
+            ),
+            agenda: [], pending: [],
+            today: Date(timeIntervalSince1970: 1_767_196_920), nowMinute: 600
+        )
+        #expect(itens.isEmpty)
+    }
+
+    /// A promessa sem prazo vai para o fim: o e-mail não disse quando, e
+    /// ordená-la como "hoje" seria inventar o prazo dela.
+    @Test("a promessa que vence primeiro ganha, e a sem prazo fica por último")
+    func theSoonestPromiseWins() throws {
+        let hoje = Date(timeIntervalSince1970: 1_767_196_920)
+        let itens = MesaDayItem.items(
+            plan: DayPlan(
+                hero: nil, sections: [], counts: [:], removed: [], replyBlock: nil
+            ),
+            agenda: [],
+            pending: [
+                PendingItem(id: "sem", text: "Sem prazo nenhum", accountID: "a"),
+                PendingItem(
+                    id: "perto", text: "Mandar a proposta para o Rafa",
+                    accountID: "a", dueDate: hoje.addingTimeInterval(3_600)
+                ),
+                PendingItem(
+                    id: "longe", text: "Liberar o Tally público",
+                    accountID: "a", dueDate: hoje.addingTimeInterval(400_000)
+                ),
+            ],
+            today: hoje, nowMinute: 600
+        )
+        let promessa = try #require(itens.first)
+        #expect(promessa.kind == .promise)
+        #expect(promessa.id == "promise:perto")
+        #expect(promessa.messageID == nil, "promessa não tem e-mail para o Ver abrir")
+    }
+
+    /// Um compromisso que já acabou não é "o próximo".
+    @Test("o compromisso do dia é o próximo que ainda não acabou")
+    func theMeetingIsTheNextOneStillRunning() throws {
+        let hoje = Date(timeIntervalSince1970: 1_767_196_920)
+        let itens = MesaDayItem.items(
+            plan: DayPlan(
+                hero: nil, sections: [], counts: [:], removed: [], replyBlock: nil
+            ),
+            agenda: [
+                AgendaItem(
+                    id: "passado", title: "Daily", startMinute: 540,
+                    endMinute: 560, accountID: "a"
+                ),
+                AgendaItem(
+                    id: "proximo", title: "Call com Jayden", startMinute: 900,
+                    endMinute: 930, accountID: "a"
+                ),
+                AgendaItem(
+                    id: "amanha", title: "Retro", startMinute: 600,
+                    endMinute: 630, accountID: "a", dayOffset: 1
+                ),
+            ],
+            pending: [], today: hoje, nowMinute: 860
+        )
+        let reuniao = try #require(itens.first)
+        #expect(reuniao.kind == .meeting)
+        #expect(reuniao.id == "meeting:proximo")
+        // 900 − 860 = 40 minutos, que é o que o desenho escreve.
+        #expect(reuniao.caps.contains("40"), "o versalete não contou os minutos: \(reuniao.caps)")
+    }
+
+    /// Nunca mais de três: o desenho tem três objetos, e uma mesa com sete
+    /// deixa de ser "o que não pode esperar".
+    @Test("a mesa posta para em três objetos")
+    func theTableStopsAtThree() {
+        let hoje = Date(timeIntervalSince1970: 1_767_196_920)
+        let itens = MesaDayItem.items(
+            plan: DayPlan(
+                hero: nil, sections: [], counts: [:], removed: [], replyBlock: nil
+            ),
+            agenda: [AgendaItem(
+                id: "m", title: "Call", startMinute: 900, endMinute: 930, accountID: "a"
+            )],
+            pending: (0..<9).map {
+                PendingItem(
+                    id: "p\($0)", text: "Promessa \($0)", accountID: "a",
+                    dueDate: hoje.addingTimeInterval(Double($0) * 3_600)
+                )
+            },
+            today: hoje, nowMinute: 860
+        )
+        #expect(itens.count <= 3)
+    }
+
+    /// Um turno de `draftReply` não tem cartão — e por isso não promete
+    /// compositor nenhum. Sobra o texto e o "Copiar".
+    @Test("um turno de rascunho sem cartão não promete compositor")
+    func aDraftTurnWithoutACardPromisesNoComposer() {
+        let mesa = MesaObject.table(
+            for: [AssistantMessage(
+                speaker: .assistant, text: "Marina, fechado.", kind: .draft
+            )],
+            lastReceipt: nil
+        )
+        guard case let .draft(_, _, cartao) = mesa[0] else {
+            Issue.record("não virou rascunho")
+            return
+        }
+        #expect(cartao == nil)
     }
 }
 

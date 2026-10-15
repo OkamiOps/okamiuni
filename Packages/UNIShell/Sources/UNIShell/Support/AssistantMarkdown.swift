@@ -143,8 +143,14 @@ struct AssistantMarkdown: View {
                 Circle()
                     .fill(theme.info.color)
                     .frame(width: 4, height: 4)
+                    // **O ponto no meio da primeira linha, e não na linha de
+                    // base dela.** Dizer que a base do ponto é o centro dele
+                    // punha o ponto *sobre* a base — visivelmente abaixo do
+                    // olho da letra, que foi o que o dono viu na lista da
+                    // mesa. Descer a base dentro do ponto o levanta até a
+                    // altura-x, que é onde o olho espera o marcador.
                     .alignmentGuide(.firstTextBaseline) { dimensions in
-                        dimensions[VerticalAlignment.center]
+                        dimensions[VerticalAlignment.center] + markerRise
                     }
                 richText(text)
                     .font(bodyFont())
@@ -164,6 +170,15 @@ struct AssistantMarkdown: View {
                     .lineSpacing(style.lineSpacing)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+        }
+    }
+
+    /// Quanto o marcador sobe da linha de base: metade da altura-x, que para
+    /// as fontes do app fica perto de um quarto do corpo.
+    private var markerRise: CGFloat {
+        switch style {
+        case .compact: 12.5 * 0.25
+        case .prose(let size): size * 0.25
         }
     }
 
