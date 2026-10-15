@@ -60,6 +60,35 @@ struct ConfigPalette {
     var red: TokenColor { theme.danger }
     var orange: TokenColor { theme.warning }
 
+    /// A sombra de um **cartão**, que não é a do painel.
+    ///
+    /// `cardShadow` devolve `theme.shadow` — `0 24px 60px rgba(0,0,0,0.55)` no
+    /// Vidro Noite —, que é a sombra do painel flutuante. Num cartão de seção
+    /// ela sobe uns trinta pontos e escurece a faixa onde mora o título da
+    /// seção logo acima, que no desenho fica direto no fundo. O desenho dá ao
+    /// cartão a sua própria sombra, bem mais curta: `0 12px 32px` com 0,35 no
+    /// escuro, duas camadas claras no Vidro, e **nenhuma** nos clássicos, que
+    /// separam o cartão pela aresta.
+    var sectionShadow: [ShadowToken] {
+        guard theme.isTranslucent else { return [] }
+        if theme.isDark {
+            return [ShadowToken(
+                x: 0, y: 12, blur: 32,
+                color: TokenColor(red: 0, green: 0, blue: 0, opacity: 0.35)
+            )]
+        }
+        return [
+            ShadowToken(
+                x: 0, y: 1, blur: 2,
+                color: TokenColor(red: 30 / 255, green: 30 / 255, blue: 80 / 255, opacity: 0.06)
+            ),
+            ShadowToken(
+                x: 0, y: 12, blur: 32,
+                color: TokenColor(red: 60 / 255, green: 50 / 255, blue: 160 / 255, opacity: 0.12)
+            ),
+        ]
+    }
+
     /// `off`: a calha de um interruptor desligado. O mock escreve
     /// `rgba(20,20,50,0.14)` no claro e `rgba(255,255,255,0.16)` no escuro —
     /// a mesma ideia da `line`, com mais corpo.
@@ -129,13 +158,24 @@ extension View {
 
     /// `background: {{t.card}}; border: 1px solid {{t.cardEdge}}; border-radius: R;
     /// box-shadow: {{t.cardShadow}}` — a caixa elevada do mock.
-    func configCard(_ palette: ConfigPalette, radius: CGFloat = 16) -> some View {
-        modifier(ConfigSurface(palette: palette, radius: radius, elevated: true))
+    func configCard(
+        _ palette: ConfigPalette,
+        radius: CGFloat = 16,
+        shadow: [ShadowToken]? = nil,
+        shadowOnlyBelow: Bool = false
+    ) -> some View {
+        modifier(ConfigSurface(
+            palette: palette, radius: radius, elevated: true,
+            shadow: shadow, shadowOnlyBelow: shadowOnlyBelow
+        ))
     }
 
     /// `background: {{t.tile}}; border: 1px solid {{t.tileEdge}}` — o azulejo raso.
     func configTile(_ palette: ConfigPalette, radius: CGFloat = 14) -> some View {
-        modifier(ConfigSurface(palette: palette, radius: radius, elevated: false))
+        modifier(ConfigSurface(
+            palette: palette, radius: radius, elevated: false,
+            shadow: nil, shadowOnlyBelow: false
+        ))
     }
 }
 
@@ -144,6 +184,16 @@ struct ConfigSurface: ViewModifier {
     let palette: ConfigPalette
     let radius: CGFloat
     let elevated: Bool
+    /// A sombra desta superfície. `nil` usa a do painel, que é a herança desta
+    /// janela; uma lista explícita é para quem precisa de uma mais leve.
+    let shadow: [ShadowToken]?
+    /// A sombra desce, mas não sobe.
+    ///
+    /// Uma sombra do SwiftUI é um borrão em volta da forma inteira, e numa
+    /// pilha de seções ela cai justamente sobre o título da seção de baixo —
+    /// que no desenho está direto no fundo. Recortar o que sobe mantém o
+    /// relevo embaixo e devolve o título ao fundo.
+    let shadowOnlyBelow: Bool
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
@@ -155,7 +205,30 @@ struct ConfigSurface: ViewModifier {
                     lineWidth: Hairline.thickness(displayScale)
                 )
             }
-            .modifier(ConditionalShadow(layers: elevated ? palette.cardShadow : []))
+            .modifier(ConditionalShadow(layers: elevated ? (shadow ?? palette.cardShadow) : []))
+            .modifier(ShadowOnlyBelow(enabled: shadowOnlyBelow))
+    }
+}
+
+/// Guarda a sombra abaixo da forma: `compositingGroup` achata a sombra no
+/// desenho e a máscara, alta o bastante para caber o borrão de baixo, corta
+/// tudo o que passaria da aresta de cima.
+struct ShadowOnlyBelow: ViewModifier {
+    let enabled: Bool
+    /// Folga para a sombra mais longa desta janela caber embaixo sem ser
+    /// cortada: `0 24px 60px` do painel pede uns 90pt.
+    private let reach: CGFloat = 90
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .compositingGroup()
+                .mask(alignment: .top) {
+                    Rectangle().padding(.bottom, -reach)
+                }
+        } else {
+            content
+        }
     }
 }
 

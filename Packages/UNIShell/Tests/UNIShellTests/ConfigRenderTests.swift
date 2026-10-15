@@ -111,57 +111,12 @@ struct ConfigRenderTests {
 
     // MARK: Inteligência
 
-    @Test("Inteligência pronta mostra a faixa de três passos e o diagrama")
-    func inteligenciaPronta() async throws {
-        let cena = try await scene(failing: false, ready: false)
-        let authorizer = ConfigRenderAuthorizer(status: .signedIn, models: [
-            AssistantProviderModel(id: "gpt-5.6-luna"),
-        ])
-        var settings = AssistantSettings.default
-        settings.provider = .providerOAuth
-        settings.providerOAuth.model = "gpt-5.6-luna"
-        _ = try cena.assistant.save(settings)
-
-        let image = try #require(Render.snapshot(
-            window(cena, section: .intelligence, authorizer: authorizer),
-            named: "Config-ia-escuro",
-            size: artboard,
-            theme: .vidroNoite
-        ))
-        #expect(image.pixelsWide == Int(artboard.width))
-        // Os dois passos já cumpridos são círculos verdes de 26pt na faixa do
-        // topo: 2 × π × 13² ≈ 1.060 pontos, e o desenho não tem outro verde ali.
-        let faixa = CGRect(x: 264, y: 108, width: 1_006, height: 64)
-        #expect(
-            pixels(image, matching: Theme.vidroNoite.success, in: faixa) > 300,
-            "a faixa de passos não marcou os passos cumpridos"
-        )
-    }
-
-    @Test("Inteligência sem conexão abre o passo 2 com o convite e o combinado")
-    func inteligenciaConectar() async throws {
-        let cena = try await scene(failing: false, ready: false)
-        let authorizer = ConfigRenderAuthorizer(status: .signedOut)
-        var settings = AssistantSettings.default
-        settings.provider = .providerOAuth
-        settings.providerOAuth.model = "gpt-5.6-luna"
-        _ = try cena.assistant.save(settings)
-
-        let image = try #require(Render.snapshot(
-            window(cena, section: .intelligence, authorizer: authorizer),
-            named: "Config-ia-conectar-escuro",
-            size: artboard,
-            theme: .vidroNoite
-        ))
-        #expect(image.pixelsWide == Int(artboard.width))
-        // O botão "Conectar agora" é a única superfície de acento cheio da
-        // coluna da esquerda: `padding: 12px 20px` em volta de 14pt de texto.
-        let esquerda = CGRect(x: 264, y: 120, width: 560, height: 420)
-        #expect(
-            pixels(image, matching: Theme.vidroNoite.accent, in: esquerda) > 1_000,
-            "o convite não desenhou o botão de conectar"
-        )
-    }
+    // Os quadros da Inteligência moram em `IntelligenciaRenderTests`: são oito
+    // estados (a principal esparsa e cheia, as duas folhas, o código do
+    // aparelho, a chave de API, o servidor local fora do ar e a aba de
+    // escrita), cada um nos três acabamentos, e eles precisam fechar as portas
+    // que tocam disco e rede de loopback. Repetir um deles aqui seria portrait
+    // do mesmo painel com menos controle sobre o que ele desenha.
 
     // MARK: Gestos
 

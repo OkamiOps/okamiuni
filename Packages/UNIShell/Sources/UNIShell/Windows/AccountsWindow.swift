@@ -88,6 +88,15 @@ public struct AccountsWindow: View {
     /// `Config-regra-nova` entra, e também o caminho de um link futuro que
     /// queira levar direto à montagem.
     private let startsNewRule: Bool
+    /// Abre a Inteligência já numa folha ou numa página de detalhe, e fecha as
+    /// portas que tocam disco e rede de loopback. É o caminho dos retratos —
+    /// o mesmo de `startsNewRule`.
+    private let initialIntelligenceSheet: ConfigIntelligenceSheet?
+    private let initialIntelligencePage: ConfigIntelligencePage
+    private let initialIntelligenceTab: ConfigIntelligenceTab
+    /// A busca já digitada na folha de conectar.
+    private let initialIntelligenceSearch: String
+    private let intelligenceProbes: ConfigIntelligenceProbes
 
     @State private var page: ConfigPage?
     @State private var query = ""
@@ -107,7 +116,15 @@ public struct AccountsWindow: View {
     @State private var lastTest: String?
     @State private var lastTestFailed = false
     @State private var testing = false
-    @State private var connectingIntelligence = false
+    /// A folha da Inteligência mora aqui, e não dentro da página, porque o véu
+    /// do desenho cobre a navegação também.
+    @State private var intelligenceSheet: ConfigIntelligenceSheet?
+    /// A página que a folha pediu ao se fechar.
+    @State private var intelligencePage: ConfigIntelligencePage?
+    @State private var cliInstallations: [AssistantCLIInstallation] = []
+    @State private var cliAuthentication: [AssistantCLIKind: AssistantCLIAuthenticationState] = [:]
+    /// Só a **presença** da chave. Esta janela nunca pede o segredo ao cofre.
+    @State private var apiKeyPresent = false
 
     @AppStorage(AppLanguage.defaultsKey) private var interfaceLanguage = AppLanguage.portugueseBrazil.rawValue
     @State private var languageAtOpening = AppLanguage.selected.rawValue
@@ -116,6 +133,11 @@ public struct AccountsWindow: View {
         model: AccountsModel,
         initialSection: SettingsSection = .accounts,
         startsNewRule: Bool = false,
+        initialIntelligenceSheet: ConfigIntelligenceSheet? = nil,
+        initialIntelligencePage: ConfigIntelligencePage = .main,
+        initialIntelligenceTab: ConfigIntelligenceTab = .connections,
+        initialIntelligenceSearch: String = "",
+        intelligenceProbes: ConfigIntelligenceProbes = .live,
         assistantSettings: AssistantSettingsStore? = nil,
         assistantCredentials: (any AssistantCredentialStore)? = nil,
         textAssistant: (any TextAssisting)? = nil,
@@ -132,6 +154,11 @@ public struct AccountsWindow: View {
         self.model = model
         self.initialSection = initialSection
         self.startsNewRule = startsNewRule
+        self.initialIntelligenceSheet = initialIntelligenceSheet
+        self.initialIntelligencePage = initialIntelligencePage
+        self.initialIntelligenceTab = initialIntelligenceTab
+        self.initialIntelligenceSearch = initialIntelligenceSearch
+        self.intelligenceProbes = intelligenceProbes
         self.assistantSettings = assistantSettings
         self.assistantCredentials = assistantCredentials
         self.textAssistant = textAssistant
@@ -146,6 +173,12 @@ public struct AccountsWindow: View {
         self.updates = updates
         _oauthStatus = State(initialValue: providerOAuthAuthorizer?.sessionState.status ?? .idle)
         _composingRule = State(initialValue: startsNewRule)
+        _intelligenceSheet = State(initialValue: initialIntelligenceSheet)
+        // O que a tela já sabe antes de a varredura responder. Vazio na vida
+        // real; é a porta por onde um retrato entra com CLIs no primeiro
+        // quadro, sem depender do que está instalado na máquina da suíte.
+        _cliInstallations = State(initialValue: intelligenceProbes.seededCLIs)
+        _cliAuthentication = State(initialValue: intelligenceProbes.seededAuthentication)
     }
 
     public var body: some View {
@@ -165,11 +198,20 @@ public struct AccountsWindow: View {
             }
             .padding(ConfigMetrics.windowPadding)
         }
+        // Antes do `.environment`: um overlay acrescentado depois dele seria
+        // irmão da janela, não filho, e a folha nasceria sem a paleta.
+        .centeredModal(
+            isPresented: intelligenceSheet != nil,
+            onDismiss: { intelligenceSheet = nil }
+        ) {
+            intelligenceSheetContent
+        }
         .environment(\.configPalette, ConfigPalette(theme))
         .tint(theme.accent.color)
         .trafficLightsInConfigNav()
         .task { await model.start() }
         .task { await loadAssistant() }
+        .task { await loadCLIs() }
         .onDisappear {
             oauthMonitor?.cancel()
             oauthMonitor = nil
@@ -262,12 +304,10 @@ public struct AccountsWindow: View {
                 subtitle: L10n.tr("Tema, tamanho do texto, idioma e atualizações")
             )
         case .intelligence:
-            ConfigPageHeader(
-                title: L10n.tr("Inteligência"),
-                subtitle: connectingIntelligence
-                    ? L10n.tr("Passo 2 de 3 — conectar onde ela vai rodar")
-                    : intelligenceSubtitle
-            )
+            // A Inteligência desenha o próprio cabeçalho: ele tem as duas abas
+            // e o "‹ Inteligência" das páginas de detalhe, que o cabeçalho
+            // comum das outras páginas não conhece.
+            EmptyView()
         case .account(let id):
             if let status = model.statuses.first(where: { $0.accountID == id }) {
                 ConfigPageHeader(
@@ -317,17 +357,24 @@ public struct AccountsWindow: View {
         case .intelligence:
             ConfigIntelligence(
                 draft: $draft,
-                connecting: connectingIntelligence,
-                connected: isConnected,
+                sheet: $intelligenceSheet,
+                requestedPage: $intelligencePage,
                 oauthStatus: oauthStatus,
+                availableModels: models,
+                cliInstallations: cliInstallations,
+                cliAuthentication: cliAuthentication,
+                apiKeyPresent: apiKeyPresent,
                 lastTest: lastTest,
                 lastTestFailed: lastTestFailed,
                 testing: testing,
-                availableModels: models,
                 save: saveAssistant,
                 test: testAssistant,
-                connect: startProviderOAuth,
-                openRoute: { connectionRoute = $0 }
+                storeAPIKey: storeAssistantAPIKey,
+                removeAPIKey: removeAssistantAPIKey,
+                openAdvancedPanel: { connectionRoute = .openAICompatible },
+                probeLocal: intelligenceProbes.localServer,
+                initialPage: initialIntelligencePage,
+                initialTab: initialIntelligenceTab
             )
         case .account(let id):
             if let status = model.statuses.first(where: { $0.accountID == id }) {
@@ -451,6 +498,138 @@ public struct AccountsWindow: View {
         return theme.name
     }
 
+    // MARK: Inteligência — as folhas
+
+    /// A folha aberta sobre a janela: escolher uma IA, ou entrar numa conta.
+    @ViewBuilder
+    private var intelligenceSheetContent: some View {
+        switch intelligenceSheet {
+        case .choose:
+            ConfigIntelligenceChooseSheet(
+                initialQuery: initialIntelligenceSearch,
+                close: { intelligenceSheet = nil },
+                choose: chooseIntelligence
+            )
+        case .login(let kind):
+            ConfigIntelligenceLoginSheet(
+                kind: kind,
+                status: oauthStatus,
+                models: models,
+                connect: { startLogin(kind) },
+                recheck: { recheckLogin(kind) },
+                signOut: { signOutLogin(kind) },
+                close: { intelligenceSheet = nil }
+            )
+        case nil:
+            EmptyView()
+        }
+    }
+
+    /// O que acontece quando a pessoa escolhe uma linha do catálogo.
+    ///
+    /// Nada é conectado aqui: a escolha leva ao lugar onde ela se completa — o
+    /// formulário da chave, a página do Mac, a folha do login, o painel dos
+    /// agentes.
+    private func chooseIntelligence(_ preset: ConfigAIPreset) {
+        switch preset.route {
+        case .appleIntelligence:
+            draft.provider = .foundationModels
+            draft.automaticAnalysis = .onDeviceOnly
+            saveAssistant()
+            intelligenceSheet = nil
+            intelligencePage = .local
+        case .localServer:
+            if let baseURL = preset.baseURL {
+                draft.openAICompatible.endpoint = baseURL
+                draft.openAICompatible.authenticationMode = .none
+            }
+            intelligenceSheet = nil
+            intelligencePage = .local
+        case .apiKey(let presetID):
+            if let baseURL = preset.baseURL {
+                draft.openAICompatible.endpoint = baseURL
+                draft.openAICompatible.authenticationMode = .apiKey
+            } else {
+                draft.openAICompatible.endpoint = ""
+            }
+            intelligenceSheet = nil
+            intelligencePage = .apiKey(presetID: presetID)
+        case .login(let kind):
+            draft.providerOAuth.kind = kind
+            draft.providerOAuth.credentialID = kind.defaultCredentialID
+            intelligenceSheet = .login(kind)
+        case .cli(let kind):
+            draft.provider = .cli
+            draft.cli.kind = kind
+            saveAssistant()
+            intelligenceSheet = nil
+        case .agent:
+            intelligenceSheet = nil
+            connectionRoute = .openAICompatible
+        }
+    }
+
+    private func startLogin(_ kind: AssistantProviderOAuthKind) {
+        draft.providerOAuth.kind = kind
+        draft.providerOAuth.credentialID = kind.defaultCredentialID
+        startProviderOAuth()
+    }
+
+    private func recheckLogin(_ kind: AssistantProviderOAuthKind) {
+        guard let providerOAuthAuthorizer else { return }
+        let configuration = draft.providerOAuth
+        Task {
+            await providerOAuthAuthorizer.refreshStatus(configuration: configuration)
+            oauthStatus = providerOAuthAuthorizer.sessionState.status
+            if oauthStatus == .signedIn {
+                models = (try? await providerOAuthAuthorizer
+                    .availableModels(configuration: configuration)) ?? []
+            }
+        }
+    }
+
+    private func signOutLogin(_ kind: AssistantProviderOAuthKind) {
+        guard let providerOAuthAuthorizer else { return }
+        let configuration = draft.providerOAuth
+        Task {
+            await providerOAuthAuthorizer.signOut(configuration: configuration)
+            oauthStatus = providerOAuthAuthorizer.sessionState.status
+            models = []
+            intelligenceSheet = nil
+        }
+    }
+
+    /// Entrega a chave ao Keychain. O texto não volta para a tela e não entra
+    /// no documento de preferências.
+    private func storeAssistantAPIKey(_ key: String) {
+        guard let assistantCredentials else { return }
+        try? assistantCredentials.storeAPIKey(key, for: draft.openAICompatible.credentialID)
+        apiKeyPresent = (try? assistantCredentials
+            .containsAPIKey(for: draft.openAICompatible.credentialID)) ?? false
+    }
+
+    private func removeAssistantAPIKey() {
+        guard let assistantCredentials else { return }
+        try? assistantCredentials.removeAPIKey(for: draft.openAICompatible.credentialID)
+        draft.openAICompatible.endpoint = ""
+        draft.openAICompatible.model = ""
+        if draft.provider == .openAICompatible {
+            draft.provider = .foundationModels
+            draft.automaticAnalysis = .onDeviceOnly
+        }
+        saveAssistant()
+        apiKeyPresent = false
+    }
+
+    /// Quais CLIs existem e quais estão logados. É uma varredura de disco e uma
+    /// pergunta de estado a cada um — fora da `MainActor`, porque ela espera
+    /// processo.
+    private func loadCLIs() async {
+        let installations = await intelligenceProbes.cliScan()
+        cliInstallations = installations
+        cliAuthentication = await intelligenceProbes.cliAuthentication(installations)
+    }
+
     // MARK: Inteligência — a mecânica
 
     private var isConnected: Bool {
@@ -462,16 +641,13 @@ public struct AccountsWindow: View {
         }
     }
 
-    private var intelligenceSubtitle: String {
-        isConnected
-            ? L10n.tr("Pronta — em \(AssistantDestination(settings: draft).label), e só quando você pede")
-            : L10n.tr("Falta conectar onde ela vai rodar")
-    }
-
     private func loadAssistant() async {
         guard let assistantSettings else { return }
         draft = assistantSettings.snapshot()
-        connectingIntelligence = !isConnected
+        // Só a presença: `containsAPIKey` consulta atributos do Keychain e
+        // nunca materializa o segredo.
+        apiKeyPresent = (try? assistantCredentials?
+            .containsAPIKey(for: draft.openAICompatible.credentialID)) == true
         if let providerOAuthAuthorizer, draft.provider == .providerOAuth {
             await providerOAuthAuthorizer.refreshStatus(configuration: draft.providerOAuth)
             oauthStatus = providerOAuthAuthorizer.sessionState.status
@@ -479,7 +655,6 @@ public struct AccountsWindow: View {
                 models = (try? await providerOAuthAuthorizer
                     .availableModels(configuration: draft.providerOAuth)) ?? []
             }
-            connectingIntelligence = oauthStatus != .signedIn
         }
     }
 
@@ -530,7 +705,6 @@ public struct AccountsWindow: View {
             while !Task.isCancelled {
                 oauthStatus = providerOAuthAuthorizer.sessionState.status
                 if oauthStatus == .signedIn {
-                    connectingIntelligence = false
                     models = (try? await providerOAuthAuthorizer
                         .availableModels(configuration: configuration)) ?? []
                     return
