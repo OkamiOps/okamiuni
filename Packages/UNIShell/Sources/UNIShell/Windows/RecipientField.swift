@@ -182,36 +182,9 @@ struct RecipientField: View {
     }
 
     private var menu: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(ContactDirectory.menuLabel(query: query))
-                .capsLabel()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12)
-                .padding(.top, 7)
-                .padding(.bottom, 5)
-                .hairline(theme.line2, edges: .bottom)
-
-            ForEach(suggestions) { suggestion in
-                SuggestionRow(suggestion: suggestion) { add(suggestion) }
-                    .hairline(theme.line2, edges: .bottom)
-            }
-        }
-        .frame(width: menuWidth)
-        // **Opaco.** `surface` é translúcido nos dois temas Vidro, e um menu
-        // translúcido por cima do Assunto e da barra deixa o texto de baixo
-        // atravessar os nomes — o print do dono do projeto. Ver
-        // `Theme.glassElevated`, que fora do Vidro é o mesmo `surface` de
-        // sempre.
-        .background(theme.glassElevated.color)
-        .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
-        .overlay {
-            RoundedRectangle(cornerRadius: theme.radiusLarge)
-                .strokeBorder(
-                    theme.glassElevatedEdge.color, lineWidth: Hairline.thickness(displayScale)
-                )
-        }
-        // `0 18px 40px rgba(0,0,0,0.24)` — o blur do CSS vale o dobro do raio.
-        .shadow(color: .black.opacity(theme.isDark ? 0.45 : 0.24), radius: 20, x: 0, y: 18)
+        ContactSuggestionsCard(
+            query: query, suggestions: suggestions, width: menuWidth, pick: add
+        )
         .onHover { hoveringMenu = $0 }
     }
 
@@ -244,6 +217,56 @@ struct RecipientField: View {
 }
 
 /// Uma linha do menu: avatar, nome, email e a organização à direita.
+/// A lista de contatos que nasce de um campo de destinatário — **opaca e
+/// elevada**, com a legenda, as linhas e a sombra do protótipo.
+///
+/// Virou peça quando a folha de novo compromisso precisou dela: o campo de
+/// convidados de lá é uma linha de texto, não um `RecipientField` inteiro, e
+/// copiar este bloco para o outro arquivo seria a segunda cópia do mesmo
+/// desenho — exatamente o que `MenuSurface` existe para não deixar acontecer.
+///
+/// **Opaco.** `surface` é translúcido nos dois temas Vidro, e um menu
+/// translúcido por cima do que está embaixo deixa o texto atravessar os nomes
+/// — o print do dono do projeto. `Theme.glassElevated` é o branco (ou o
+/// quase-preto) elevado no Vidro e o `surface` de sempre nos 26 opacos.
+struct ContactSuggestionsCard: View {
+    @Environment(\.theme) private var theme
+    @Environment(\.displayScale) private var displayScale
+
+    let query: String
+    let suggestions: [DirectoryContact]
+    var width: CGFloat = 340
+    let pick: (DirectoryContact) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(ContactDirectory.menuLabel(query: query))
+                .capsLabel()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.top, 7)
+                .padding(.bottom, 5)
+                .hairline(theme.line2, edges: .bottom)
+
+            ForEach(suggestions) { suggestion in
+                SuggestionRow(suggestion: suggestion) { pick(suggestion) }
+                    .hairline(theme.line2, edges: .bottom)
+            }
+        }
+        .frame(width: width)
+        .background(theme.glassElevated.color)
+        .clipShape(RoundedRectangle(cornerRadius: theme.radiusLarge))
+        .overlay {
+            RoundedRectangle(cornerRadius: theme.radiusLarge)
+                .strokeBorder(
+                    theme.glassElevatedEdge.color, lineWidth: Hairline.thickness(displayScale)
+                )
+        }
+        // `0 18px 40px rgba(0,0,0,0.24)` — o blur do CSS vale o dobro do raio.
+        .shadow(color: .black.opacity(theme.isDark ? 0.45 : 0.24), radius: 20, x: 0, y: 18)
+    }
+}
+
 private struct SuggestionRow: View {
     @Environment(\.theme) private var theme
     @State private var hovering = false

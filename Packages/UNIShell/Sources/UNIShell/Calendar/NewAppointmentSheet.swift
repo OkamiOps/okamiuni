@@ -73,6 +73,27 @@ struct NewAppointmentSheet: View {
     @State private var reconnecting = false
     @State private var errorMessage: String?
     @FocusState private var phraseFocused: Bool
+    @FocusState private var guestFieldFocused: Bool
+    @State private var hoveringGuestMenu = false
+    /// Ver o `init` com `debugGuestQuery`.
+    @State private var seededGuestMenu = false
+
+    /// A folha com um nome já digitado no campo de convidados e a lista de
+    /// sugestões aberta. **Só para verificação fora da tela**: o harness não
+    /// digita nem foca, e é a mesma porta que `RecipientField.seededQuery`
+    /// abre no composer.
+    init(
+        store: MailStore, anchor: Date, initialDayOffset: Int,
+        initialTitle: String = "", debugGuestQuery: String,
+        onClose: @escaping () -> Void
+    ) {
+        self.init(
+            store: store, anchor: anchor, initialDayOffset: initialDayOffset,
+            initialTitle: initialTitle, onClose: onClose
+        )
+        _guestDraft = State(initialValue: debugGuestQuery)
+        _seededGuestMenu = State(initialValue: true)
+    }
 
     /// A folha com a frase já digitada. **Só para verificação fora da tela**,
     /// como o `debugSections` da janela do compromisso: o harness não digita, e
@@ -138,6 +159,10 @@ struct NewAppointmentSheet: View {
         }
         .frame(width: Self.width)
         .modalSurface()
+        // O cartão de sugestões sai da folha por desenho — sem isto ele é
+        // recortado pelo `clipShape` da moldura e some justamente quando a
+        // pessoa está digitando um nome.
+        .zIndex(10)
         .onAppear {
             applyDefaultService(for: accountID)
             refreshMeetAccess()
@@ -607,10 +632,53 @@ struct NewAppointmentSheet: View {
                     .textFieldStyle(.plain)
                     .font(theme.sans.font(size: 14))
                     .foregroundStyle(theme.ink.color)
+                    .focused($guestFieldFocused)
                     .onSubmit(commitTypedGuest)
                     .accessibilityLabel(L10n.tr("Convidar por nome ou e-mail"))
             }
         }
+        // A lista de sugestões nasce **da linha**, por cima do que vem
+        // embaixo: o desenho mantém o campo com cara de uma linha de texto, e
+        // a agenda de contatos não pode sumir por causa disso. Mesmo cartão do
+        // composer (`ContactSuggestionsCard`), opaco e elevado.
+        .overlay(alignment: .bottomLeading) {
+            if !guestSuggestions.isEmpty,
+               guestFieldFocused || hoveringGuestMenu || seededGuestMenu {
+                // Uma âncora de altura zero no pé da linha, e o cartão
+                // pendurado no topo dela: assim ele cai **abaixo** da linha em
+                // vez de a cobrir. Com o cartão preso direto ao
+                // `bottomLeading` ele subia a própria altura e escondia o
+                // campo que a pessoa está digitando.
+                Color.clear
+                    .frame(width: 0, height: 0)
+                    .overlay(alignment: .topLeading) {
+                        ContactSuggestionsCard(
+                            query: guestDraft,
+                            suggestions: guestSuggestions,
+                            width: 320,
+                            pick: addGuest
+                        )
+                        .onHover { hoveringGuestMenu = $0 }
+                    }
+                    .offset(x: 26 + 104, y: 6)
+                    .zIndex(50)
+            }
+        }
+        .zIndex(50)
+    }
+
+    /// Os contatos que casam com o que está sendo digitado, tirando quem já
+    /// está convidado. Mesma regra do campo de destinatários do composer.
+    private var guestSuggestions: [DirectoryContact] {
+        ContactDirectory.suggestions(
+            matching: guestDraft, excluding: guests, in: store.contactPool
+        )
+    }
+
+    private func addGuest(_ suggestion: DirectoryContact) {
+        guard !guests.contains(where: { $0.id == suggestion.contact.id }) else { return }
+        guests.append(suggestion.contact)
+        guestDraft = ""
     }
 
     /// O azul do protótipo (`#0ea5e9`) — aqui o `liveMeeting` do tema, que é

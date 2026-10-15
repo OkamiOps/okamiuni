@@ -207,7 +207,7 @@ public struct EventWindow: View {
             if let item {
                 ScrollViewReader { scroll in
                     ScrollView { content(item) }
-                        .frame(maxHeight: .infinity)
+                        .frame(maxHeight: .infinity, alignment: .top)
                         // Protótipo: abrir o painel rola o modal até o fim
                         // (`_modalScroll.scrollTop = scrollHeight`) — senão ele
                         // nasce fora da vista, embaixo da pauta e do histórico.
@@ -216,7 +216,6 @@ public struct EventWindow: View {
                             withAnimation { scroll.scrollTo(Self.bottomAnchor, anchor: .bottom) }
                         }
                 }
-                footer
             } else {
                 Text(L10n.tr("Este compromisso não está mais na agenda."))
                     .font(theme.serif.font(size: 16))
@@ -302,8 +301,10 @@ public struct EventWindow: View {
         }
         .padding(.leading, Self.headerLeadingInset)
         .padding(.trailing, 16)
-        .frame(height: TrafficLightLayout.contentCenterFromTop * 2)
-        .trafficLightsOnTheLine(barHeight: TrafficLightLayout.contentCenterFromTop * 2)
+        // A faixa de 52 do desenho, e os dois ícones **na linha dos
+        // semáforos** — não numa segunda fileira embaixo deles.
+        .frame(height: TrafficLightLayout.windowBarHeight)
+        .trafficLightsInWindowHeader()
     }
 
     private func iconButton(
@@ -345,6 +346,11 @@ public struct EventWindow: View {
             }
             if forwardSent { forwardConfirmation }
             if !detail.hasThread { originNote }
+            // O rodapé é a **última faixa do cartão**, como no desenho — e não
+            // uma barra presa no pé da janela. Presa, ela flutuava sobre um
+            // vazio de 250pt quando o compromisso era curto; é o buraco que
+            // fazia a janela parecer inacabada.
+            footer
             Color.clear
                 .frame(height: 0)
                 .id(Self.bottomAnchor)
@@ -706,14 +712,52 @@ public struct EventWindow: View {
                         .truncationMode(.tail)
                 }
             }
-            ChromeButton(
-                copied ? L10n.tr("Link copiado ✓") : L10n.tr("Copiar link"),
-                appearance: .outlined, size: 11.5, weight: .semibold,
-                height: 28, horizontalPadding: 12
-            ) {
-                copy(link)
+            Button { copy(link) } label: {
+                Text(copied ? L10n.tr("copiado") : L10n.tr("copiar"))
+                    .font(theme.sans.font(size: 12.5, weight: .medium))
+                    .foregroundStyle(theme.accentInk.color)
+                    .fixedSize()
+                    .contentShape(Rectangle())
             }
-            .fixedSize()
+            .buttonStyle(.plain)
+            .focusRing(cornerRadius: theme.modalButtonRadius)
+
+            // **Entrar fica aqui quando não há contagem.** O desenho só mostra
+            // a janela a doze minutos da reunião, e ali o Entrar grande do
+            // bloco da contagem é a ação do momento. Numa reunião de
+            // quinta-feira esse bloco não existe — e sem este botão a janela
+            // deixaria de ter qualquer jeito de entrar, que é o defeito mais
+            // caro que esta tela já teve (ver `abreLink`).
+            //
+            // Junto do link, e não no rodapé: a ação fica onde está o endereço
+            // dela, e o rodapé continua sendo só o que abre e o que desfaz.
+            if let destino = MeetingLink.destino(link) {
+                Button { abreLink(destino) } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: "video.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                            .accessibilityHidden(true)
+                        Text(L10n.tr("Entrar"))
+                    }
+                    .font(theme.sans.font(size: 13, weight: .semibold))
+                    .foregroundStyle(theme.onAccent.color)
+                    .fixedSize()
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 9)
+                    .background(
+                        theme.accent.color,
+                        in: RoundedRectangle(
+                            cornerRadius: theme.modalButtonRadius, style: .continuous
+                        )
+                    )
+                    .shadow(theme.modalAccentGlow)
+                    .contentShape(RoundedRectangle(cornerRadius: theme.modalButtonRadius))
+                }
+                .buttonStyle(.plain)
+                .focusRing(cornerRadius: theme.modalButtonRadius, tint: \.onAccent)
+                .help(L10n.tr("Abrir a reunião no navegador"))
+                .accessibilityIdentifier("event-join")
+            }
         }
         .padding(.vertical, 12)
         .padding(.horizontal, 14)
@@ -1246,20 +1290,12 @@ public struct EventWindow: View {
     /// subiu para o bloco da contagem, onde é a ação do momento, e **fechar**
     /// voltou a ser o semáforo vermelho da janela, que é onde o macOS o põe.
     private var footer: some View {
-        HStack(spacing: 18) {
-            // **Entrar fica no rodapé quando não há contagem.** O desenho só
-            // mostra a janela a doze minutos da reunião, e ali o Entrar grande
-            // do bloco da contagem é a ação do momento. Numa reunião de
-            // quinta-feira esse bloco não existe — e sem esta linha a janela
-            // deixaria de ter qualquer jeito de entrar, que é o defeito mais
-            // caro que esta tela já teve (ver `abreLink`).
-            if contagem == nil, let destino = MeetingLink.destino(detail.meetingLink) {
-                footerLink(L10n.tr("Entrar")) { abreLink(destino) }
-                    .help(L10n.tr("Abrir a reunião no navegador"))
-                    .accessibilityIdentifier("event-join")
-            }
+        // `FlowLayout`, e não `HStack`: em alemão e francês os três rótulos não
+        // cabem em 640 numa linha só, e cortar um deles é o que o desenho
+        // proíbe. Eles descem para a segunda linha e continuam legíveis.
+        FlowLayout(spacing: 18, rowSpacing: 10) {
             if detail.hasThread || originMessageID != nil {
-                footerLink(L10n.tr("Abrir o e-mail que gerou"), enabled: originMessageID != nil) {
+                footerLink(L10n.tr("Abrir o e-mail"), enabled: originMessageID != nil) {
                     revealOriginMessage()
                 }
                 .help(
@@ -1273,8 +1309,6 @@ public struct EventWindow: View {
                 if forwardOpen { forwardSent = false }
             }
             .help(L10n.tr("Encaminhar o convite para outras pessoas"))
-
-            Spacer(minLength: 8)
 
             if canCancelMeeting {
                 destructiveLink(
@@ -1306,6 +1340,11 @@ public struct EventWindow: View {
                 .font(theme.sans.font(size: 13, weight: .medium))
                 .foregroundStyle((enabled ? (accented ? theme.accentInk : theme.ink2) : theme.ink4).color)
                 .lineLimit(1)
+                // Rótulo de ação **não corta**: "Abrir o e-mail que g…" não é
+                // uma ação, é um enigma. Quem cede sob aperto é a folga entre
+                // os links, e por isso o rodapé quebra em duas linhas em vez
+                // de encolher qualquer um deles.
+                .fixedSize()
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1547,17 +1586,20 @@ private struct SectionHeader: View {
         }
     }
 
+    /// O mesmo rótulo de "PARA CHEGAR PRONTO": sans de 12 em semibold, caixa
+    /// alta, `letter-spacing: 0.04em`.
+    ///
+    /// Era mono de 8,5 em `ink4` — o idioma dos 26 temas opacos, de antes
+    /// deste desenho. Ao lado do bloco de preparo ele lia como legenda de
+    /// rodapé, não como título de seção, e foi assim que "PARTICIPANTES · 1"
+    /// virou um detalhe miúdo no meio da janela.
     private func row(expanded: Bool?) -> some View {
         HStack(spacing: 7) {
-            Text(title)
-                .font(theme.mono.font(size: 8.5, weight: .medium))
-                .tracking(theme.capsTracking(at: 8.5))
-                .textCase(.uppercase)
-                .foregroundStyle(hovering ? theme.ink3.color : theme.ink4.color)
+            ModalEyebrow(text: title)
             if let expanded {
-                Text(expanded ? "▾" : "▸")
-                    .font(theme.mono.font(size: 8.5))
-                    .foregroundStyle(hovering ? theme.ink3.color : theme.ink4.color)
+                Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle((hovering ? theme.ink2 : theme.ink3).color)
             }
             Spacer(minLength: 0)
         }

@@ -52,9 +52,13 @@ public enum UNIWindow {
         /// bloco da contagem põe "COMEÇA EM / 12 min" ao lado do botão
         /// Entrar de 26 de recuo, e em 560 os dois disputavam a linha.
         ///
-        /// A altura continua sendo a de abertura, não um limite: 86% de 916
-        /// (a altura padrão da principal) = 788.
-        public static let event = CGSize(width: 640, height: 788)
+        /// A altura de **abertura** passou de 788 para 640, na proporção do
+        /// cartão do desenho (640 de largura por pouco mais de 600 de alto).
+        /// Os 788 vinham de "86% da janela principal", medida de um protótipo
+        /// em que o compromisso era um modal dentro dela; numa janela de
+        /// verdade eles abriam 250pt de fundo vazio abaixo do conteúdo de um
+        /// compromisso comum. Continua redimensionável.
+        public static let event = CGSize(width: 640, height: 640)
 
         /// A navegação de Configurações soma 176pt, e a seção Contas preserva
         /// sua lista lateral de 218pt. 960 deixa detalhe útil para as duas

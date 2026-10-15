@@ -359,9 +359,55 @@ struct EventWindowFooterTests {
         return store
     }
 
-    /// Onde o rodapé desenha os botões, num render de 700 de altura: recuo de
-    /// baixo 15 + metade dos 30pt do botão.
-    private static let yDoRodape: CGFloat = 700 - 30
+    /// Onde o botão "Entrar" está, **achado no desenho** em vez de adivinhado.
+    ///
+    /// Era uma constante (`700 - 30`: o recuo do rodapé mais metade da
+    /// pastilha). Ela morreu quando o desenho dos modais tirou o Entrar do
+    /// rodapé e o pôs junto do link da reunião, que é onde está o endereço
+    /// dele — e uma constante que precisa ser reescrita a cada mudança de
+    /// layout não prova o botão, prova a constante.
+    ///
+    /// Aqui o caso procura a **mancha de acento cheio** do botão: nenhuma
+    /// outra coisa da janela pinta uma área sólida dessa cor. Devolve o centro
+    /// dela, em coordenadas do `CliqueDeEnsaio` (y do topo).
+    static func centroDoEntrar(
+        in rep: NSBitmapImageRep, theme: Theme = .tinta
+    ) -> (x: CGFloat, y: CGFloat)? {
+        guard let alvo = theme.accent.nsColor.usingColorSpace(.sRGB) else { return nil }
+        func ehAcento(_ x: Int, _ y: Int) -> Bool {
+            guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { return false }
+            return abs(c.redComponent - alvo.redComponent) < 0.02
+                && abs(c.greenComponent - alvo.greenComponent) < 0.02
+                && abs(c.blueComponent - alvo.blueComponent) < 0.02
+        }
+        // A **maior sequência contínua** de pixels da cor do acento numa
+        // linha. O botão é uma pastilha cheia e dá uma corrida longa; o texto
+        // em `accentInk` — que no Tinta é a mesma cor — dá corridas de poucos
+        // pixels por letra. Somar tudo num retângulo, como a primeira versão
+        // fazia, devolvia a união de todos eles: 400pt de largura e um centro
+        // que não era botão nenhum.
+        var melhor: (comprimento: Int, x: Int, y: Int)?
+        for y in 0..<rep.pixelsHigh {
+            var corrida = 0
+            for x in 0..<rep.pixelsWide {
+                if ehAcento(x, y) {
+                    corrida += 1
+                    if corrida > (melhor?.comprimento ?? 0) {
+                        melhor = (corrida, x - corrida / 2, y)
+                    }
+                } else {
+                    corrida = 0
+                }
+            }
+        }
+        guard let melhor, melhor.comprimento > 40 else { return nil }
+        // O y achado é uma linha qualquer dentro da pastilha; o centro dela é
+        // o que recebe o clique com folga.
+        var topo = melhor.y, base = melhor.y
+        while topo > 0, ehAcento(melhor.x, topo - 1) { topo -= 1 }
+        while base < rep.pixelsHigh - 1, ehAcento(melhor.x, base + 1) { base += 1 }
+        return (CGFloat(melhor.x), CGFloat(topo + base) / 2)
+    }
 
     /// **O defeito mais caro da tela do dono.** O botão em destaque da janela
     /// chamava `UNIWindow.logSend("Abriria …")`: uma linha no `stderr`, nada na
@@ -382,10 +428,14 @@ struct EventWindowFooterTests {
         var janela = EventWindow(store: store, itemID: "email-m1")
         janela.abreLink = { caixa.abertos.append($0) }
 
+        let rep = try #require(Render.bitmap(
+            janela, size: CGSize(width: 560, height: 700), theme: .tinta
+        ))
+        let onde = try #require(
+            Self.centroDoEntrar(in: rep), "o botão Entrar não foi achado no desenho"
+        )
         CliqueDeEnsaio.em(
-            janela,
-            size: CGSize(width: 560, height: 700),
-            aY: Self.yDoRodape, x: 40
+            janela, size: CGSize(width: 560, height: 700), aY: onde.y, x: onde.x
         )
 
         #expect(caixa.abertos.map(\.absoluteString) == ["https://meet.google.com/abc-defg-hij"])
@@ -410,18 +460,17 @@ struct EventWindowFooterTests {
         var janela = EventWindow(store: store, itemID: "email-m1")
         janela.abreLink = { caixa.abertos.append($0) }
 
-        #expect(Render.snapshot(
+        let rep = try #require(Render.snapshot(
             janela.environment(ThemeStore()),
             named: "evento-04-meet-da-descricao",
             size: CGSize(width: 560, height: 700),
             theme: .tinta
-        ) != nil)
-
+        ))
+        let onde = try #require(
+            Self.centroDoEntrar(in: rep), "o botão Entrar não foi achado no desenho"
+        )
         CliqueDeEnsaio.em(
-            janela,
-            size: CGSize(width: 560, height: 700),
-            aY: Self.yDoRodape,
-            x: 40
+            janela, size: CGSize(width: 560, height: 700), aY: onde.y, x: onde.x
         )
 
         #expect(caixa.abertos.map(\.absoluteString) == ["https://meet.google.com/us-qnjh-suq"])
@@ -449,9 +498,14 @@ struct EventWindowFooterTests {
         let caixa = CaixaDeLinks()
         var janela = EventWindow(store: store, itemID: "email-m1")
         janela.abreLink = { caixa.abertos.append($0) }
-        CliqueDeEnsaio.em(
-            janela, size: CGSize(width: 560, height: 700), aY: Self.yDoRodape, x: 40
-        )
+        let medida = CGSize(width: 560, height: 700)
+        let rep = try #require(Render.bitmap(janela, size: medida, theme: .tinta))
+        // Sem sala reconhecida não há mancha de acento nenhuma — o botão não
+        // existe, que é o que o caso quer provar. Mesmo assim o clique é
+        // entregue no lugar onde ele estaria, para a prova não depender só da
+        // ausência de pixels.
+        let onde = Self.centroDoEntrar(in: rep) ?? (x: 470, y: 200)
+        CliqueDeEnsaio.em(janela, size: medida, aY: onde.y, x: onde.x)
         return caixa.abertos
     }
 

@@ -162,6 +162,54 @@ struct ModaisRenderTests {
         }
     }
 
+    /// O campo de convidados continua **sugerindo contatos**.
+    ///
+    /// O desenho o desenha como uma linha de texto, e foi por isso que a lista
+    /// de sugestões quase ficou de fora. Ela é o mesmo cartão opaco e elevado
+    /// do composer (`ContactSuggestionsCard`): digitar "mar" tem de achar a
+    /// Marina na agenda de contatos de verdade.
+    ///
+    /// Cai por mutação: tirar o `overlay` do campo deixa os dois desenhos
+    /// idênticos.
+    @Test("digitar um nome no campo de convidados abre a lista de contatos")
+    func sugestoesDeConvidado() async throws {
+        let store = MailStore(source: InMemoryMailSource.fixtures)
+        await store.load()
+        let nome = String(try #require(store.contactPool.first).name.prefix(3))
+
+        let semMenu = try #require(Render.bitmap(
+            NewAppointmentSheet(
+                store: store, anchor: Fixtures.today, initialDayOffset: 0,
+                initialTitle: "Revisão da proposta", onClose: {}
+            ),
+            size: NewAppointmentSheet.size, theme: .vidro
+        ))
+        let comMenu = try #require(Render.snapshot(
+            NewAppointmentSheet(
+                store: store, anchor: Fixtures.today, initialDayOffset: 0,
+                initialTitle: "Revisão da proposta", debugGuestQuery: nome, onClose: {}
+            ),
+            named: "modal-compromisso-convidados-vidro",
+            size: NewAppointmentSheet.size, theme: .vidro
+        ))
+        #expect(
+            comMenu.pixelsDiffering(from: semMenu) > 3_000,
+            "a lista de contatos não abriu no campo de convidados"
+        )
+        // E nos outros dois temas, para o cartão opaco ser conferido no escuro
+        // e no clássico.
+        for (tema, valor) in [("vidro-noite", Theme.vidroNoite), ("okami", .okami)] {
+            #expect(Render.snapshot(
+                NewAppointmentSheet(
+                    store: store, anchor: Fixtures.today, initialDayOffset: 0,
+                    initialTitle: "Revisão da proposta", debugGuestQuery: nome, onClose: {}
+                ),
+                named: "modal-compromisso-convidados-\(tema)",
+                size: NewAppointmentSheet.size, theme: valor
+            ) != nil, "\(tema)")
+        }
+    }
+
     // MARK: - A trilha de 8h–19h
 
     @Test("a trilha mede o dia de verdade, e diz que 15h está livre")
