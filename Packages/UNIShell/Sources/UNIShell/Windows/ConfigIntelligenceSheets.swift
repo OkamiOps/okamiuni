@@ -7,11 +7,11 @@ import UNISync
 /// As folhas da Inteligência. Elas abrem sobre a **janela**, não sobre o
 /// painel: o véu do desenho cobre a navegação também, e é por isso que o estado
 /// mora em `AccountsWindow`.
-enum ConfigIntelligenceSheet: Hashable, Identifiable {
+public enum ConfigIntelligenceSheet: Hashable, Identifiable {
     case choose
     case login(AssistantProviderOAuthKind)
 
-    var id: String {
+    public var id: String {
         switch self {
         case .choose: "choose"
         case .login(let kind): "login-\(kind.rawValue)"

@@ -3,6 +3,45 @@ import UNICore
 import UNIDesign
 import UNISync
 
+/// As portas da Inteligência que tocam **o mundo**: a varredura de CLI (disco)
+/// e a pergunta aos servidores locais (rede de loopback).
+///
+/// Elas são injetáveis porque um retrato não pode depender de haver ou não um
+/// Ollama ligado e um `codex` instalado na máquina que roda a suíte — e porque
+/// "servidor fora do ar" é um estado que precisa ser desenhado de propósito,
+/// não por acidente de ambiente.
+public struct ConfigIntelligenceProbes: Sendable {
+    /// `async` de propósito: a varredura real toca disco e sai da `MainActor`
+    /// por dentro, enquanto a injetada responde na mesma volta do laço — é o
+    /// que faz um retrato ver os CLIs no primeiro quadro.
+    public var cliScan: @Sendable () async -> [AssistantCLIInstallation]
+    public var cliAuthentication: @Sendable ([AssistantCLIInstallation]) async
+        -> [AssistantCLIKind: AssistantCLIAuthenticationState]
+    public var localServer: @Sendable (String) async -> LocalServerState
+    /// O que a tela já sabe no primeiro quadro, antes de `cliScan` responder.
+    /// Vazio na vida real.
+    public var seededCLIs: [AssistantCLIInstallation] = []
+    public var seededAuthentication: [AssistantCLIKind: AssistantCLIAuthenticationState] = [:]
+
+    public static let live = ConfigIntelligenceProbes(
+        cliScan: { await Task.detached { AssistantCLIDiscovery().scan() }.value },
+        cliAuthentication: { installations in
+            let statuses = await AssistantCLIAuthenticationProbe().statuses(for: installations)
+            return Dictionary(
+                statuses.map { ($0.kind, $0.state) }, uniquingKeysWith: { first, _ in first }
+            )
+        },
+        localServer: { endpoint in await LocalModelCatalog().probe(endpoint: endpoint) }
+    )
+
+    /// Nada instalado, nada no ar. É o chão de que os retratos partem.
+    public static let silent = ConfigIntelligenceProbes(
+        cliScan: { [] },
+        cliAuthentication: { _ in [:] },
+        localServer: { _ in .notRunning }
+    )
+}
+
 /// Em que pé uma conexão está. São três estados porque são três coisas
 /// diferentes: a que está ligada agora, a que está aqui e pode ser usada a
 /// qualquer momento, e a que pede um minuto da pessoa.
@@ -41,6 +80,9 @@ struct ConfigAIConnection: Identifiable, Hashable {
     let id: String
     let kind: Kind
     let name: String
+    /// O nome curto, que é o que o botão do papel mostra. "ChatGPT · Codex"
+    /// cabe na lista; no botão, ao lado do modelo, ele empurra tudo para fora.
+    let shortName: String
     let detail: String
     /// O que o botão do papel mostra em fonte mono: o modelo escolhido.
     let model: String
@@ -217,8 +259,11 @@ struct ConfigAIInventory {
             id: "apple-intelligence",
             kind: .appleIntelligence,
             name: L10n.tr("Apple Intelligence"),
+            shortName: L10n.tr("Apple Intelligence"),
             detail: L10n.tr("Neste Mac · sem conta e sem chave · nada sai daqui"),
-            model: L10n.tr("no chip"),
+            // Sem modelo: o motor da Apple não tem um para escolher, e um
+            // rótulo ali só encheria o botão do papel.
+            model: "",
             monogram: "A",
             hue: 268,
             state: state,
@@ -242,6 +287,7 @@ struct ConfigAIInventory {
             id: "login-\(kind.rawValue)",
             kind: .login(kind),
             name: kind == .codex ? L10n.tr("ChatGPT · Codex") : L10n.tr("Grok · xAI"),
+            shortName: kind == .codex ? L10n.tr("ChatGPT") : L10n.tr("Grok"),
             detail: detail,
             model: draft.providerOAuth.model.isEmpty
                 ? L10n.tr("sem modelo")
@@ -275,6 +321,7 @@ struct ConfigAIInventory {
             id: "endpoint",
             kind: .endpoint,
             name: name,
+            shortName: name,
             detail: "\(detalhe) · \(host ?? L10n.tr("sem endereço"))",
             model: configuration.model.isEmpty ? L10n.tr("sem modelo") : configuration.model,
             monogram: preset?.monogram ?? "E",
@@ -291,7 +338,10 @@ struct ConfigAIInventory {
         ConfigAIConnection(
             id: "cli-\(kind.rawValue)",
             kind: .cli(kind),
-            name: L10n.tr("\(kind.displayName) · CLI"),
+            // `displayName` já diz CLI em "Codex CLI"; repetir o sufixo
+            // deixava "Codex CLI · CLI" na lista.
+            name: kind.displayName,
+            shortName: kind.displayName,
             detail: L10n.tr("Já logado neste Mac · o app nunca lê o token dele"),
             model: kind.rawValue,
             monogram: String(kind.displayName.prefix(1)),
@@ -315,6 +365,7 @@ struct ConfigAIInventory {
             id: "agent-acp",
             kind: .acpAgent,
             name: draft.agent.destination.label,
+            shortName: L10n.tr("Agente"),
             detail: L10n.tr("Agente ACP, numa pasta que você autorizou"),
             model: L10n.tr("agente"),
             monogram: "P",
@@ -330,6 +381,7 @@ struct ConfigAIInventory {
             id: "agent-a2a",
             kind: .a2aAgent,
             name: L10n.tr("Agentes A2A"),
+            shortName: L10n.tr("A2A"),
             detail: draft.a2a.peers.count == 1
                 ? L10n.tr("1 agente pelo Agent Card dele")
                 : L10n.tr("\(draft.a2a.peers.count) agentes pelo Agent Card deles"),

@@ -88,6 +88,15 @@ public struct AccountsWindow: View {
     /// `Config-regra-nova` entra, e também o caminho de um link futuro que
     /// queira levar direto à montagem.
     private let startsNewRule: Bool
+    /// Abre a Inteligência já numa folha ou numa página de detalhe, e fecha as
+    /// portas que tocam disco e rede de loopback. É o caminho dos retratos —
+    /// o mesmo de `startsNewRule`.
+    private let initialIntelligenceSheet: ConfigIntelligenceSheet?
+    private let initialIntelligencePage: ConfigIntelligencePage
+    private let initialIntelligenceTab: ConfigIntelligenceTab
+    /// A busca já digitada na folha de conectar.
+    private let initialIntelligenceSearch: String
+    private let intelligenceProbes: ConfigIntelligenceProbes
 
     @State private var page: ConfigPage?
     @State private var query = ""
@@ -125,6 +134,11 @@ public struct AccountsWindow: View {
         model: AccountsModel,
         initialSection: SettingsSection = .accounts,
         startsNewRule: Bool = false,
+        initialIntelligenceSheet: ConfigIntelligenceSheet? = nil,
+        initialIntelligencePage: ConfigIntelligencePage = .main,
+        initialIntelligenceTab: ConfigIntelligenceTab = .connections,
+        initialIntelligenceSearch: String = "",
+        intelligenceProbes: ConfigIntelligenceProbes = .live,
         assistantSettings: AssistantSettingsStore? = nil,
         assistantCredentials: (any AssistantCredentialStore)? = nil,
         textAssistant: (any TextAssisting)? = nil,
@@ -141,6 +155,11 @@ public struct AccountsWindow: View {
         self.model = model
         self.initialSection = initialSection
         self.startsNewRule = startsNewRule
+        self.initialIntelligenceSheet = initialIntelligenceSheet
+        self.initialIntelligencePage = initialIntelligencePage
+        self.initialIntelligenceTab = initialIntelligenceTab
+        self.initialIntelligenceSearch = initialIntelligenceSearch
+        self.intelligenceProbes = intelligenceProbes
         self.assistantSettings = assistantSettings
         self.assistantCredentials = assistantCredentials
         self.textAssistant = textAssistant
@@ -155,6 +174,12 @@ public struct AccountsWindow: View {
         self.updates = updates
         _oauthStatus = State(initialValue: providerOAuthAuthorizer?.sessionState.status ?? .idle)
         _composingRule = State(initialValue: startsNewRule)
+        _intelligenceSheet = State(initialValue: initialIntelligenceSheet)
+        // O que a tela já sabe antes de a varredura responder. Vazio na vida
+        // real; é a porta por onde um retrato entra com CLIs no primeiro
+        // quadro, sem depender do que está instalado na máquina da suíte.
+        _cliInstallations = State(initialValue: intelligenceProbes.seededCLIs)
+        _cliAuthentication = State(initialValue: intelligenceProbes.seededAuthentication)
     }
 
     public var body: some View {
@@ -347,7 +372,10 @@ public struct AccountsWindow: View {
                 test: testAssistant,
                 storeAPIKey: storeAssistantAPIKey,
                 removeAPIKey: removeAssistantAPIKey,
-                openAdvancedPanel: { connectionRoute = .openAICompatible }
+                openAdvancedPanel: { connectionRoute = .openAICompatible },
+                probeLocal: intelligenceProbes.localServer,
+                initialPage: initialIntelligencePage,
+                initialTab: initialIntelligenceTab
             )
         case .account(let id):
             if let status = model.statuses.first(where: { $0.accountID == id }) {
@@ -479,6 +507,7 @@ public struct AccountsWindow: View {
         switch intelligenceSheet {
         case .choose:
             ConfigIntelligenceChooseSheet(
+                initialQuery: initialIntelligenceSearch,
                 close: { intelligenceSheet = nil },
                 choose: chooseIntelligence
             )
@@ -597,14 +626,9 @@ public struct AccountsWindow: View {
     /// pergunta de estado a cada um — fora da `MainActor`, porque ela espera
     /// processo.
     private func loadCLIs() async {
-        let discovery = AssistantCLIDiscovery()
-        let installations = await Task.detached { discovery.scan() }.value
+        let installations = await intelligenceProbes.cliScan()
         cliInstallations = installations
-        let probe = AssistantCLIAuthenticationProbe()
-        let statuses = await probe.statuses(for: installations)
-        cliAuthentication = Dictionary(
-            statuses.map { ($0.kind, $0.state) }, uniquingKeysWith: { first, _ in first }
-        )
+        cliAuthentication = await intelligenceProbes.cliAuthentication(installations)
     }
 
     // MARK: Inteligência — a mecânica

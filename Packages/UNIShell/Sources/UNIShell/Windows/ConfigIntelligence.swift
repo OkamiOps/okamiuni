@@ -10,7 +10,7 @@ import UNISync
 /// modais sobre a janela inteira, e por isso vivem em `AccountsWindow` (ver
 /// `ConfigIntelligenceSheet`). Aqui ficam só as páginas que substituem o
 /// conteúdo do painel e ganham o "‹ Inteligência" no cabeçalho.
-enum ConfigIntelligencePage: Hashable {
+public enum ConfigIntelligencePage: Hashable {
     case main
     /// O formulário de chave de API de um preset do catálogo.
     case apiKey(presetID: String)
@@ -19,7 +19,7 @@ enum ConfigIntelligencePage: Hashable {
 }
 
 /// As duas abas do cabeçalho.
-enum ConfigIntelligenceTab: Hashable {
+public enum ConfigIntelligenceTab: Hashable {
     case connections
     case writing
 }
@@ -67,8 +67,16 @@ struct ConfigIntelligence: View {
         await LocalModelCatalog().probe(endpoint: endpoint)
     }
 
-    @State private var page: ConfigIntelligencePage = .main
-    @State private var tab: ConfigIntelligenceTab = .connections
+    /// A página em que a tela abre. `main` na vida real; os retratos entram
+    /// por aqui, no mesmo caminho de `AccountsWindow.startsNewRule`.
+    var initialPage: ConfigIntelligencePage = .main
+    var initialTab: ConfigIntelligenceTab = .connections
+
+    @State private var chosenPage: ConfigIntelligencePage?
+    @State private var chosenTab: ConfigIntelligenceTab?
+
+    private var page: ConfigIntelligencePage { chosenPage ?? initialPage }
+    private var tab: ConfigIntelligenceTab { chosenTab ?? initialTab }
 
     private var inventory: ConfigAIInventory {
         ConfigAIInventory(
@@ -102,7 +110,7 @@ struct ConfigIntelligence: View {
                     save: save,
                     test: test,
                     storeAPIKey: storeAPIKey,
-                    removeAPIKey: { removeAPIKey(); page = .main },
+                    removeAPIKey: { removeAPIKey(); chosenPage = .main },
                     openAdvancedPanel: openAdvancedPanel,
                     probeLocal: probeLocal
                 )
@@ -118,7 +126,7 @@ struct ConfigIntelligence: View {
         // a página nasce embaixo dela, no mesmo painel.
         .onChange(of: requestedPage) { _, pedida in
             guard let pedida else { return }
-            page = pedida
+            chosenPage = pedida
             requestedPage = nil
         }
     }
@@ -132,7 +140,7 @@ struct ConfigIntelligence: View {
             VStack(alignment: .leading, spacing: 3) {
                 if page != .main {
                     Button {
-                        page = .main
+                        chosenPage = .main
                     } label: {
                         HStack(spacing: 5) {
                             Image(systemName: "chevron.left")
@@ -205,7 +213,7 @@ struct ConfigIntelligence: View {
 
     private func tabButton(_ label: String, value: ConfigIntelligenceTab) -> some View {
         let on = tab == value
-        return Button { tab = value } label: {
+        return Button { chosenTab = value } label: {
             Text(label)
                 .font(theme.sans.font(size: 13, weight: on ? .semibold : .medium))
                 .foregroundStyle((on ? palette.ink : palette.ink3).color)
@@ -314,14 +322,16 @@ struct ConfigIntelligence: View {
                     letter: current.monogram, hue: current.hue,
                     side: 22, radius: 7, fontSize: 11
                 )
-                Text(current.name)
+                Text(current.shortName)
                     .font(theme.sans.font(size: 13, weight: .semibold))
                     .foregroundStyle(palette.ink.color)
                     .lineLimit(1)
-                Text(current.model)
-                    .font(theme.mono.font(size: 11.5))
-                    .foregroundStyle(palette.ink3.color)
-                    .lineLimit(1)
+                if !current.model.isEmpty {
+                    Text(current.model)
+                        .font(theme.mono.font(size: 11.5))
+                        .foregroundStyle(palette.ink3.color)
+                        .lineLimit(1)
+                }
                 Image(systemName: "chevron.down")
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(palette.ink3.color)
@@ -470,12 +480,13 @@ struct ConfigIntelligence: View {
                 Text(L10n.tr("Conectar outra IA"))
                     .font(theme.sans.font(size: 14, weight: .semibold))
                     .foregroundStyle(palette.accentInk.color)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize()
+                Spacer(minLength: 12)
                 Text(L10n.tr("\(ConfigAICatalog.all.count) opções — no seu Mac, na sua conta, por chave ou por agente"))
                     .font(theme.sans.font(size: 12.5))
                     .foregroundStyle(palette.ink3.color)
                     .lineLimit(1)
-                    .truncationMode(.tail)
+                    .fixedSize()
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 13)
@@ -494,15 +505,15 @@ struct ConfigIntelligence: View {
     private func open(_ connection: ConfigAIConnection) {
         switch connection.kind {
         case .appleIntelligence:
-            page = .local
+            chosenPage = .local
         case .endpoint:
             if connection.isLocal {
-                page = .local
+                chosenPage = .local
             } else {
                 let preset = ConfigAICatalog.all.first {
                     $0.baseURL?.caseInsensitiveCompare(draft.openAICompatible.endpoint) == .orderedSame
                 }
-                page = .apiKey(presetID: preset?.id ?? "custom")
+                chosenPage = .apiKey(presetID: preset?.id ?? "custom")
             }
         case .login(let kind):
             sheet = .login(kind)
