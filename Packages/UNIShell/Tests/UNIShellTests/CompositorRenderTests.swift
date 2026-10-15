@@ -68,6 +68,23 @@ struct CompositorRenderTests {
     /// trocar o assunto da janela não pode mudar nenhum pixel. Com o fundo
     /// translúcido de `surface`, o texto do assunto atravessa e a contagem
     /// sobe.
+    /// Os semáforos nativos só aparecem numa janela titulada de verdade: o
+    /// `Render` comum fotografa a `contentView` e deixa a fileira de fora.
+    @Test("na janela real, os semáforos respiram e cabem na barra", arguments: [
+        "vidro", "vidro-noite", "okami"
+    ])
+    func semaforosDaJanelaReal(id: String) async throws {
+        let theme = try #require(Theme.all.first { $0.id == id })
+        let store = await loja()
+        let foto = try #require(JanelaReal.fotografar(
+            ComposerWindow(store: store, mode: .reply(messageID: "m1")),
+            size: Self.size, theme: theme, named: "compositor-janela-real-\(id)"
+        ))
+        #expect(foto.grupo.minX >= 18, "\(id): semáforos colados na borda (x=\(foto.grupo.minX))")
+        #expect(foto.grupo.minY >= 10, "\(id): semáforos colados no topo (y=\(foto.grupo.minY))")
+        #expect(foto.grupo.maxY <= TrafficLightLayout.windowBarHeight)
+    }
+
     @Test("a lista de sugestões é opaca sobre o assunto e a barra", arguments: [
         "vidro", "vidro-noite", "okami",
     ])

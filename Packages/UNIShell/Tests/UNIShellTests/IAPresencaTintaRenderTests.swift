@@ -243,6 +243,26 @@ struct IAPresencaTintaRenderTests {
             .glassPanel(tema, kind: .reader)
     }
 
+    // MARK: - Presença · os semáforos de verdade
+
+    /// O `Render` fotografa só a `contentView`: os semáforos nativos ficam de
+    /// fora. Aqui a janela é titulada e eles entram na foto — precisam de
+    /// folga da borda e caber no cabeçalho de 46.
+    @Test("na janela real, os semáforos respiram e cabem no cabeçalho")
+    func semaforosDaJanelaReal() throws {
+        for tema in Self.temas {
+            let foto = try #require(JanelaReal.fotografar(
+                AssistantWindow(session: sessao(destacada: true)).environment(ThemeStore()),
+                size: PresencaMetrics.windowSize, theme: tema,
+                named: "ia-presenca-janela-real-\(tema.id)"
+            ))
+            let grupo = foto.grupo
+            #expect(grupo.minX >= 18, "\(tema.id): semáforos colados na borda (x=\(grupo.minX))")
+            #expect(grupo.minY >= 10, "\(tema.id): semáforos colados no topo (y=\(grupo.minY))")
+            #expect(grupo.maxY <= TrafficLightLayout.windowBarHeight, "\(tema.id): semáforos saem do cabeçalho (y=\(grupo.maxY))")
+        }
+    }
+
     // MARK: - Presença · a resposta
 
     @Test("a resposta é um briefing numerado, e a janela tem as medidas do desenho")

@@ -137,6 +137,11 @@ enum TrafficLightLayout {
     static let windowBarHeight: CGFloat = 52
     static var windowCenterFromTop: CGFloat { windowBarHeight / 2 }
 
+    /// Onde o conteúdo do cabeçalho de uma janela própria pode começar: o fim
+    /// da fileira (três botões de 14 separados por `windowRowSpacing`) mais
+    /// 14 de folga.
+    static var windowContentInset: CGFloat { windowRowLeading + windowRowSpacing * 2 + 14 + 14 }
+
     static func buttonOriginY(barHeight: CGFloat, buttonHeight: CGFloat) -> CGFloat {
         buttonOriginY(barHeight: barHeight, buttonHeight: buttonHeight, centerFromTop: contentCenterFromTop)
     }

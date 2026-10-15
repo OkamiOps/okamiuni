@@ -176,7 +176,7 @@ struct AssistantPresencaHeader<Trailing: View>: View {
         // barra da janela: na gaveta ele moveria os botões da janela
         // principal, que não é dele.
         if reservaSemaforos {
-            linha.trafficLightsOnTheLine(barHeight: PresencaMetrics.headerHeight)
+            linha.trafficLightsInWindowHeader()
         } else {
             linha
         }
@@ -221,10 +221,10 @@ struct AssistantPresencaHeader<Trailing: View>: View {
         .padding(
             .leading,
             reservaSemaforos
-                ? WindowChrome.trafficLightInset - PresencaMetrics.headerPadding.leading
+                ? TrafficLightLayout.windowContentInset - PresencaMetrics.headerPadding.leading
                 : 0
         )
-        .frame(height: reservaSemaforos ? PresencaMetrics.headerHeight : nil)
+        .frame(height: reservaSemaforos ? TrafficLightLayout.windowBarHeight : nil)
         .hairline(theme.line, edges: .bottom)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L10n.tr("Falando sobre \(context.label)"))

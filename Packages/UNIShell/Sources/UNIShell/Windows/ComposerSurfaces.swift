@@ -76,7 +76,7 @@ struct ComposerHeaderBar: View {
     let title: String
     let leave: () -> Void
 
-    static var height: CGFloat { TrafficLightLayout.contentCenterFromTop * 2 }
+    static var height: CGFloat { TrafficLightLayout.windowBarHeight }
 
     var body: some View {
         ZStack {
@@ -85,7 +85,7 @@ struct ComposerHeaderBar: View {
                 .foregroundStyle(theme.ink2.color)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                .padding(.horizontal, WindowChrome.trafficLightInset)
+                .padding(.horizontal, TrafficLightLayout.windowContentInset)
 
             HStack(spacing: 0) {
                 Spacer(minLength: 0)
@@ -101,7 +101,7 @@ struct ComposerHeaderBar: View {
         .frame(height: Self.height)
         .frame(maxWidth: .infinity)
         .hairline(theme.line, edges: .bottom)
-        .trafficLightsOnTheLine(barHeight: Self.height)
+        .trafficLightsInWindowHeader()
     }
 }
 
