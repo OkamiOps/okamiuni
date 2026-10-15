@@ -3,9 +3,10 @@ import Observation
 
 /// O serviço de reunião que o OkamiUNI sabe criar por compromisso.
 ///
-/// Meet usa o OAuth Google da caixa. Zoom, Teams e Zoho usam a API de cada
-/// um — credencial de aplicativo, nunca o link de uma sala permanente. Uma
-/// sala reaproveitada vira reunião eterna, com o título errado.
+/// Os quatro nascem do **login da pessoa**: o Meet do OAuth Google da caixa
+/// de correio, os outros três do OAuth que ela faz em Configurações ▸
+/// Agendas. Nunca do link de uma sala permanente — uma sala reaproveitada
+/// vira reunião eterna, com o título errado.
 public enum MeetingService: String, CaseIterable, Identifiable, Codable, Sendable, Hashable {
     case meet
     case zoom
@@ -41,18 +42,6 @@ public enum MeetingService: String, CaseIterable, Identifiable, Codable, Sendabl
         }
     }
 
-    public var extraFieldLabel: String {
-        switch self {
-        case .meet: ""
-        case .zoom: L10n.tr("Account ID")
-        case .teams: L10n.tr("Tenant ID")
-        case .zoho: L10n.tr("Refresh token")
-        }
-    }
-
-    public var needsAPIConnection: Bool {
-        self != .meet
-    }
 }
 
 /// A caixa Google cujo OAuth cria o Meet. O compromisso pode ser de outra
@@ -76,50 +65,28 @@ public struct MeetingRoomProfile: Sendable, Hashable, Codable {
     }
 }
 
-/// Credencial da API de Zoom, Teams ou Zoho. Não é um link de sala.
-public struct MeetingServiceConnection: Sendable, Hashable, Codable {
-    public var clientID: String
-    public var clientSecret: String
-    public var extra: String
-
-    public init(clientID: String = "", clientSecret: String = "", extra: String = "") {
-        self.clientID = clientID
-        self.clientSecret = clientSecret
-        self.extra = extra
-    }
-
-    public var isComplete: Bool {
-        !clientID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !clientSecret.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !extra.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    public func updating(
-        clientID: String? = nil, clientSecret: String? = nil, extra: String? = nil
-    ) -> MeetingServiceConnection {
-        MeetingServiceConnection(
-            clientID: clientID ?? self.clientID,
-            clientSecret: clientSecret ?? self.clientSecret,
-            extra: extra ?? self.extra
-        )
-    }
-}
-
-/// Serviço padrão por conta e conexões de API por serviço.
+/// O serviço padrão de cada conta, e só isso.
+///
+/// **A credencial de API saiu daqui.** Até a versão anterior esta classe
+/// também guardava client ID, segredo e um terceiro campo por serviço, em
+/// `UserDefaults` — em texto plano, porque `UserDefaults` não é cofre. Agora
+/// quem autoriza Zoom, Teams e Zoho é a pessoa, pelo navegador, e o token
+/// mora no Keychain (`MeetingTokenVault`). A chave antiga é apagada na
+/// abertura: ver `migrateLegacyConnections`.
 @MainActor
 @Observable
 public final class MeetingRoomSettingsStore {
     private static let profileKey = "okamiuni.meeting.rooms"
-    private static let connectionKey = "okamiuni.meeting.api"
+    /// A chave da credencial digitada à mão. Existe só para ser apagada.
+    private static let legacyConnectionKey = "okamiuni.meeting.api"
 
     private var profiles: [String: MeetingRoomProfile]
-    private var connections: [String: MeetingServiceConnection]
     private let defaults: UserDefaults
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         self.profiles = Self.readProfiles(defaults)
-        self.connections = Self.readConnections(defaults)
+        Self.migrateLegacyConnections(defaults)
     }
 
     public func profile(for accountID: String) -> MeetingRoomProfile {
@@ -133,46 +100,23 @@ public final class MeetingRoomSettingsStore {
         persistProfiles()
     }
 
-    public func connection(for service: MeetingService) -> MeetingServiceConnection {
-        connections[service.rawValue] ?? MeetingServiceConnection()
-    }
-
-    public func setConnection(_ connection: MeetingServiceConnection, for service: MeetingService) {
-        let cleaned = MeetingServiceConnection(
-            clientID: connection.clientID.trimmingCharacters(in: .whitespacesAndNewlines),
-            clientSecret: connection.clientSecret.trimmingCharacters(in: .whitespacesAndNewlines),
-            extra: connection.extra.trimmingCharacters(in: .whitespacesAndNewlines)
-        )
-        if cleaned.clientID.isEmpty && cleaned.clientSecret.isEmpty && cleaned.extra.isEmpty {
-            connections.removeValue(forKey: service.rawValue)
-        } else {
-            connections[service.rawValue] = cleaned
-        }
-        persistConnections()
-    }
-
-    public func isConnected(_ service: MeetingService) -> Bool {
-        connection(for: service).isComplete
+    /// Apaga o segredo em texto plano que a versão anterior deixou.
+    ///
+    /// Não é limpeza cosmética: enquanto a chave existir, há client secret de
+    /// Zoom e refresh token de Zoho num plist que qualquer processo do usuário
+    /// lê. Apagar na abertura é o mais cedo possível.
+    public static func migrateLegacyConnections(_ defaults: UserDefaults) {
+        guard defaults.object(forKey: legacyConnectionKey) != nil else { return }
+        defaults.removeObject(forKey: legacyConnectionKey)
     }
 
     private func persistProfiles() {
         defaults.set(Self.encode(profiles), forKey: Self.profileKey)
     }
 
-    private func persistConnections() {
-        defaults.set(Self.encode(connections), forKey: Self.connectionKey)
-    }
-
     private static func readProfiles(_ defaults: UserDefaults) -> [String: MeetingRoomProfile] {
         guard let data = defaults.data(forKey: profileKey),
               let decoded = try? JSONDecoder().decode([String: MeetingRoomProfile].self, from: data)
-        else { return [:] }
-        return decoded
-    }
-
-    private static func readConnections(_ defaults: UserDefaults) -> [String: MeetingServiceConnection] {
-        guard let data = defaults.data(forKey: connectionKey),
-              let decoded = try? JSONDecoder().decode([String: MeetingServiceConnection].self, from: data)
         else { return [:] }
         return decoded
     }
