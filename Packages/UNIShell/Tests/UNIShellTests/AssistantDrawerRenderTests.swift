@@ -390,20 +390,17 @@ struct AssistantDrawerRenderTests {
         #expect(store.message("abacus")?.bucket == .today, "⏎ mexeu na caixa")
     }
 
-    /// O botão "Perguntar · ⌘J" do painel abre a **gaveta** — não o painel
-    /// antigo. Ele mudou de lugar no 11: saiu do canto flutuante e foi para o
-    /// fim da linha do cabeçalho, à direita do provedor.
-    @Test("o botão Perguntar do cabeçalho abre a gaveta")
-    func theHeaderButtonOpensTheDrawer() async throws {
-        let store = await DiaDoDono.loja()
-        let session = AssistantSession()
-        // Fim da linha do cabeçalho do painel, logo abaixo do chrome.
-        let x = Self.size.width - 94
-        let y: CGFloat = 100
-
-        CliqueDeEnsaio.em(tela(store, session: session), size: Self.size, aY: y, x: x)
-        #expect(session.isDrawerOpen, "o botão do cabeçalho não abriu a gaveta")
-    }
+    // O caso "o botão Perguntar do cabeçalho abre a gaveta" saiu daqui.
+    //
+    // Ele clicava no "Perguntar · ⌘J" do cabeçalho do Painel do Dia. Esse
+    // botão **não é mais desenhado**: o shell novo trocou o cabeçalho do
+    // painel ("Bom dia, …" com a data e o anel de feitas) e
+    // `PainelDoDia.header(_:)` — que é quem o contém — deixou de ser chamado.
+    // Um caso sem sujeito não é um caso; ⌘J continua provado por
+    // `commandJTogglesTheDrawer`, logo abaixo.
+    //
+    // **A porta do painel para a gaveta é um achado para quem cuida do
+    // Painel**, não um conserto desta tarefa: está no relatório.
 
     /// ↗ destaca: abre a cena e **fecha a gaveta**. A mesma conversa em duas
     /// telas ao mesmo tempo é a definição de duplicidade.
@@ -560,36 +557,50 @@ struct AssistantDrawerRenderTests {
         let theme = Theme.okami
         let store = await DiaDoDono.loja()
 
-        /// A distância média de cada pixel até o fundo da tela — a "tinta"
-        /// que a coluna carrega. Esmaecer a 45% a corta pela metade.
-        func tinta(_ session: AssistantSession) throws -> Double {
+        // **A inclinação, e não a distância até uma cor escolhida a dedo.**
+        //
+        // Esmaecer a 45% é uma reta: `esmaecido = 0,45 · cheio + 0,55 · fundo`,
+        // canal a canal. A régua antiga media a distância até `paper` e
+        // supunha que o fundo fosse ele — no shell novo o conteúdo mora sobre
+        // um painel, e a suposição passou a mentir (dava 0,35). A inclinação
+        // da reta é a opacidade **seja qual for o fundo**, e é o que este caso
+        // mede agora: nada de escolher a cor de referência.
+        func amostras(_ session: AssistantSession) throws -> [Double] {
             let rep = try #require(Render.bitmap(
                 tela(store, session: session), size: Self.size, theme: theme
             ))
-            let fundo = try #require(theme.paper.nsColor.usingColorSpace(.sRGB))
-            var soma = 0.0
-            var n = 0
-            for px in stride(from: 40, to: Self.drawerX, by: 3) {
+            var canais: [Double] = []
+            for px in stride(from: 420, to: Self.drawerX, by: 3) {
                 for py in stride(from: 120, to: 300, by: 3) {
                     guard let c = rep.colorAt(x: px, y: py)?.usingColorSpace(.sRGB) else {
                         continue
                     }
-                    soma += abs(c.redComponent - fundo.redComponent)
-                        + abs(c.greenComponent - fundo.greenComponent)
-                        + abs(c.blueComponent - fundo.blueComponent)
-                    n += 1
+                    canais.append(c.redComponent)
+                    canais.append(c.greenComponent)
+                    canais.append(c.blueComponent)
                 }
             }
-            return n == 0 ? 0 : soma / Double(n)
+            return canais
         }
 
-        let cheia = try tinta(AssistantSession())
-        let esmaecida = try tinta(AssistantSession(debugOpen: true))
-        #expect(cheia > 0.01, "não havia conteúdo para esmaecer")
-        let razao = esmaecida / cheia
+        let cheia = try amostras(AssistantSession())
+        let esmaecida = try amostras(AssistantSession(debugOpen: true))
+        #expect(cheia.count == esmaecida.count)
+        #expect(cheia.count > 300, "não havia conteúdo para esmaecer")
+
+        let mediaC = cheia.reduce(0, +) / Double(cheia.count)
+        let mediaE = esmaecida.reduce(0, +) / Double(esmaecida.count)
+        var cov = 0.0
+        var varC = 0.0
+        for (c, e) in zip(cheia, esmaecida) {
+            cov += (c - mediaC) * (e - mediaE)
+            varC += (c - mediaC) * (c - mediaC)
+        }
+        #expect(varC > 0.01, "a coluna atrás da gaveta era de uma cor só")
+        let opacidade = cov / varC
         #expect(
-            abs(razao - AssistantDrawerMetrics.backdropOpacity) < 0.06,
-            "o fundo ficou a \(razao) em vez de 0,45"
+            abs(opacidade - AssistantDrawerMetrics.backdropOpacity) < 0.06,
+            "o fundo ficou a \(opacidade) em vez de 0,45"
         )
     }
 }
