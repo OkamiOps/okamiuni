@@ -75,6 +75,10 @@ public struct AddAccountForm: View {
     /// tem a própria saída — é o caso da janela de Contas, que a desenha
     /// inteira no detalhe. Sem isto, "Cancelar" seria um botão sem resposta.
     private let onClose: (() -> Void)?
+    /// Quem descobre o servidor de um domínio. Injetável porque a descoberta
+    /// de verdade fala com DNS e HTTP, e nenhum teste de desenho deve abrir
+    /// soquete — o desenho desta folha não depende de rede.
+    private let descobre: @Sendable (String) async -> ImapSuggestion?
 
     @State private var address: String
     @State private var password = ""
@@ -83,6 +87,12 @@ public struct AddAccountForm: View {
     @State private var security: ImapEndpoint.Security
     @State private var testado: Bool?
     @State private var testando = false
+    /// A descoberta em curso, para a tecla seguinte cancelá-la. Sem isto, uma
+    /// palavra digitada rápido abriria uma consulta por letra e a última a
+    /// responder — que não é a última a ser pedida — escreveria no campo.
+    @State private var descoberta: Task<Void, Never>?
+    /// O que a descoberta achou para o endereço que está no campo agora.
+    @State private var sugestao: ImapSuggestion?
 
     /// `initialAddress` existe para o formulário ser **dirigível**: o harness
     /// desenha fora da tela e não digita, e o ensaio do app (`--ensaiar-contas`)
@@ -96,10 +106,14 @@ public struct AddAccountForm: View {
         model: AccountsModel,
         initialAddress: String = "",
         initialHost: String? = nil,
-        onClose: (() -> Void)? = nil
+        onClose: (() -> Void)? = nil,
+        descobre: @escaping @Sendable (String) async -> ImapSuggestion? = {
+            await ImapDiscovery.suggest(for: $0)
+        }
     ) {
         self.model = model
         self.onClose = onClose
+        self.descobre = descobre
         _address = State(initialValue: initialAddress)
         let palpite = Self.route(for: initialAddress)
         _host = State(initialValue: initialHost ?? Self.host(of: palpite))
@@ -296,6 +310,21 @@ public struct AddAccountForm: View {
         }
     }
 
+    /// De onde veio o servidor que está no campo — uma linha, e só quando há o
+    /// que dizer.
+    ///
+    /// O palpite não ganha frase: dizer "chutamos" embaixo de um campo que a
+    /// pessoa vai testar em seguida é ruído. Fato ganha: quem vê
+    /// `imappro.zoho.com` aparecer sozinho precisa saber que isso saiu do
+    /// domínio dela, e não de uma tabela que pode estar velha.
+    private var frasePelaOrigem: String? {
+        switch sugestao?.origem {
+        case .mx: L10n.tr("O domínio aponta para este servidor. Dá para mudar.")
+        case .autoconfig: L10n.tr("O provedor publica estes dados. Dá para mudar.")
+        case .palpite, nil: nil
+        }
+    }
+
     /// A pergunta e o botão, no domínio que a tabela não conhece.
     ///
     /// Pergunta e botão separados, e não tudo no rótulo: o rótulo de um botão
@@ -303,7 +332,9 @@ public struct AddAccountForm: View {
     /// folha. A pergunta é texto; o botão diz o que ele faz.
     private var ofertaDoGoogle: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(L10n.tr("Este e-mail usa Google (Workspace)?"))
+            Text(sugestao?.usaGoogle == true
+                ? L10n.tr("O domínio é servido pelo Google: o IMAP com senha costuma ser recusado.")
+                : L10n.tr("Este e-mail usa Google (Workspace)?"))
                 .font(theme.sans.font(size: 12.5))
                 .foregroundStyle(theme.ink3.color)
                 .fixedSize(horizontal: false, vertical: true)
@@ -336,6 +367,13 @@ public struct AddAccountForm: View {
                     .accessibilityLabel(L10n.tr("Porta"))
             }
             .frame(width: 96)
+        }
+
+        if let origem = frasePelaOrigem {
+            Text(origem)
+                .font(theme.sans.font(size: 12))
+                .foregroundStyle(theme.ink3.color)
+                .fixedSize(horizontal: false, vertical: true)
         }
 
         // **Senha, e não "senha de app".** A maioria das contas que chega aqui
@@ -526,6 +564,47 @@ public struct AddAccountForm: View {
         host = Self.host(of: rota)
         port = Self.port(of: rota)
         security = Self.security(of: rota)
+        procuraOServidor(de: novo, rota: rota)
+    }
+
+    /// Pergunta ao domínio onde fica o IMAP dele — depois de a pessoa parar de
+    /// digitar.
+    ///
+    /// **Só na rota `.manual`.** Domínio de provedor conhecido já tem resposta
+    /// na tabela, e `gmail.com` tem as duas respostas na tela; gastar DNS e
+    /// HTTP nesses casos seria pagar por uma informação que já está aqui.
+    ///
+    /// Os 600 ms não são estética: sem eles, `onChange` dispara uma consulta
+    /// por tecla, e `contato@meusite.com` sairia como vinte consultas de um
+    /// domínio que ainda não existe. Cada tecla cancela a anterior, e o
+    /// resultado só entra se o endereço no campo ainda for o que foi
+    /// perguntado — a resposta que chega atrasada de um endereço já apagado
+    /// não escreve em campo nenhum.
+    private func procuraOServidor(de endereco: String, rota: ProviderRoute?) {
+        descoberta?.cancel()
+        sugestao = nil
+        guard case .manual = rota else { descoberta = nil; return }
+        descoberta = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(600))
+            guard !Task.isCancelled else { return }
+            guard let achado = await descobre(endereco) else { return }
+            guard !Task.isCancelled, address == endereco else { return }
+            aplica(achado, de: endereco)
+        }
+    }
+
+    /// Escreve o que a descoberta achou — e **só** no que ninguém tocou.
+    ///
+    /// Se o host ou a porta já não são o palpite da rota, a pessoa os editou à
+    /// mão enquanto a consulta corria, e sobrescrevê-los seria apagar debaixo
+    /// do dedo dela o endereço que ela foi buscar no painel do provedor.
+    private func aplica(_ achado: ImapSuggestion, de endereco: String) {
+        sugestao = achado
+        let palpite = Self.route(for: endereco)
+        guard host == Self.host(of: palpite), port == Self.port(of: palpite) else { return }
+        host = achado.imap.host
+        port = String(achado.imap.port)
+        security = achado.imap.security
     }
 
     private static func host(of rota: ProviderRoute?) -> String {
