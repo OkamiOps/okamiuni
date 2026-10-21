@@ -701,7 +701,7 @@ public actor OutboxExecutor {
         // `.contaDiferente` nunca chega aqui — ela nasce na reconexão, não numa
         // operação de saída —, e se chegasse seria permanente pela mesma razão
         // que as outras: repetir não muda de quem é a credencial.
-        case .tls, .autenticacao, .autorizacaoRevogada, .keychain,
+        case .tls, .autenticacao, .loginRecusado, .autorizacaoRevogada, .keychain,
              .semClientID, .resposta, .banco, .recusado, .contaDiferente:
             true
         }

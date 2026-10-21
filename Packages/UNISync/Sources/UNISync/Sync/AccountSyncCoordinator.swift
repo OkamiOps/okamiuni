@@ -410,7 +410,7 @@ public actor AccountSyncCoordinator {
     /// pela mesma razão: a ação que resolve, e não a gravidade.
     static func ehPermanente(_ erro: SyncError) -> Bool {
         switch erro {
-        case .autenticacao, .autorizacaoRevogada, .semClientID: true
+        case .autenticacao, .loginRecusado, .autorizacaoRevogada, .semClientID: true
         default: false
         }
     }

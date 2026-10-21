@@ -522,12 +522,20 @@ public struct AddAccountForm: View {
         testando = true
         Task {
             defer { testando = false }
-            testado = await model.testImap(
+            let passou = await model.testImapEndpoint(
                 address: address, password: password, endpoint: endpoint
             )
-            guard testado == true else { return }
+            testado = passou != nil
+            guard let passou else { return }
+            // O host que passou pode não ser o digitado — o diretor tenta os
+            // vizinhos conhecidos antes de desistir. Mostrar o que funcionou é
+            // o que impede a folha de fechar deixando na tela um campo que
+            // contradiz a conta recém-criada.
+            host = passou.host
+            port = String(passou.port)
+            security = passou.security
             await model.addImap(
-                address: address, password: password, endpoint: endpoint,
+                address: address, password: password, endpoint: passou,
                 hostMark: marca, displayName: address
             )
             onClose?()

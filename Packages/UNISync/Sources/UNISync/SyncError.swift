@@ -26,8 +26,23 @@ public enum SyncError: Error, Sendable, Hashable, Codable, LocalizedError {
     case rede(String)
     /// Chegou, mas o TLS não fechou: certificado, versão, `STARTTLS` recusado.
     case tls(String)
-    /// O servidor entendeu e recusou as credenciais.
+    /// O servidor entendeu e recusou as credenciais, sem dizer mais nada que
+    /// valha a pena repetir — um `401` do HTTP, um `535` do SMTP.
     case autenticacao
+    /// O servidor recusou o login **e disse por quê**, na própria resposta.
+    ///
+    /// Caso à parte de `.autenticacao` porque a frase é a informação. O IMAP
+    /// responde a um `LOGIN` recusado com um texto livre que costuma ser a
+    /// única pista real do que fazer: "Remote IMAP access is disabled for this
+    /// account", "Please log in via your web browser", "Application-specific
+    /// password required", "[ALERT] Account temporarily locked". Trocar
+    /// qualquer uma delas por "o servidor recusou o endereço ou a senha" é
+    /// jogar fora a resposta e mandar a pessoa trocar uma senha que estava
+    /// certa — foi o que esta folha fez durante toda a vida dela.
+    ///
+    /// Para todo o resto do app vale o mesmo que `.autenticacao`: pede
+    /// reconexão, derruba a carga e para a fila.
+    case loginRecusado(resposta: String)
     /// O usuário negou o consentimento, ou revogou o acesso depois.
     case autorizacaoRevogada
     /// O provedor pediu para desacelerar (HTTP 429, `[THROTTLED]` no IMAP).
@@ -93,6 +108,8 @@ public enum SyncError: Error, Sendable, Hashable, Codable, LocalizedError {
             // essa tela, e a frase antiga mandava a pessoa procurar uma coisa
             // que não existe em vez de reler o que digitou.
             L10n.tr("O servidor recusou o endereço ou a senha. Confira a senha da conta.")
+        case .loginRecusado(let resposta):
+            L10n.tr("O servidor recusou o login: \(resposta)")
         case .autorizacaoRevogada:
             // A frase fala em **reconectar para autorizar**, e não em
             // "revogada" e ponto, porque a causa mais provável hoje não é
@@ -138,7 +155,7 @@ public enum SyncError: Error, Sendable, Hashable, Codable, LocalizedError {
     /// divergiria desta no primeiro caso novo.
     public var pedeReconexao: Bool {
         switch self {
-        case .autenticacao, .autorizacaoRevogada: true
+        case .autenticacao, .loginRecusado, .autorizacaoRevogada: true
         default: false
         }
     }

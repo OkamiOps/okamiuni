@@ -399,7 +399,36 @@ public actor AccountDirector {
     /// Separado de `addImapAccount` porque a janela promete "Testar e
     /// adicionar" com o resultado do teste explicado — e um teste que já grava
     /// não é teste, é adição com uma etiqueta errada.
-    public func testImap(address: String, password: String, endpoint: ImapEndpoint) async throws {
+    /// Conecta e autentica uma vez, sem gravar nada. Devolve **o servidor que
+    /// funcionou**, que pode não ser o que entrou.
+    ///
+    /// Quando o primeiro recusa, as alternativas conhecidas daquele host são
+    /// tentadas antes de o erro subir — ver `ImapFallbacks`, e a razão de isto
+    /// existir. Quem chama grava o que voltou daqui, e não o que digitou: a
+    /// conta que entrou por `imappro.zoho.com` tem de sincronizar por
+    /// `imappro.zoho.com` amanhã também.
+    @discardableResult
+    public func testImap(
+        address: String, password: String, endpoint: ImapEndpoint
+    ) async throws -> ImapEndpoint {
+        var primeiro: (any Error)?
+        for candidato in [endpoint] + ImapFallbacks.alternativas(para: endpoint) {
+            do {
+                try await conecta(address: address, password: password, endpoint: candidato)
+                return candidato
+            } catch let erro as SyncError where ImapFallbacks.valePorOutroHost(erro) {
+                // O erro que vale contar é o do host que a pessoa digitou. O
+                // de um palpite nosso que não existe ("não foi possível falar
+                // com mail.exemplo.com") diria respeito a um servidor que ela
+                // nunca mencionou.
+                primeiro = primeiro ?? erro
+                continue
+            }
+        }
+        throw primeiro ?? SyncError.autenticacao
+    }
+
+    private func conecta(address: String, password: String, endpoint: ImapEndpoint) async throws {
         let sessao = try await imapConnect(endpoint, eventLoopGroup)
         do {
             try await sessao.login(user: address, password: password)
@@ -421,13 +450,19 @@ public actor AccountDirector {
             // e só descobre na carga que a senha está errada faz a pessoa
             // remover e adicionar de novo para corrigir o que ela nunca
             // chegou a confirmar.
-            try await testImap(address: address, password: password, endpoint: endpoint)
+            // O que grava é o que **passou**, e não o que foi digitado: o
+            // teste pode ter achado a conta num host vizinho (ver
+            // `ImapFallbacks`), e gravar o digitado faria a primeira
+            // sincronização falhar na mesma recusa que o teste contornou.
+            let funcionou = try await testImap(
+                address: address, password: password, endpoint: endpoint
+            )
             // O segredo primeiro: uma conta no banco sem senha no Keychain
             // nasceria em erro de autenticação sem a pessoa ter feito nada.
             try secrets.store(.password(password), for: id)
             let conta = try await grava(
                 id: id, address: address, displayName: displayName,
-                provider: .imap, hostMark: hostMark, endpoint: endpoint
+                provider: .imap, hostMark: hostMark, endpoint: funcionou
             )
             errors[id] = nil
             await refresh()
@@ -604,9 +639,11 @@ public actor AccountDirector {
         let conta = try await contaExistente(accountID)
         do {
             try confereEndereco(esperado: conta.address, recebido: address)
-            try await testImap(address: address, password: password, endpoint: endpoint)
+            let funcionou = try await testImap(
+                address: address, password: password, endpoint: endpoint
+            )
             try secrets.store(.password(password), for: accountID)
-            let religada = try await religa(conta, endpoint: endpoint)
+            let religada = try await religa(conta, endpoint: funcionou)
             errors[accountID] = nil
             queueErrors[accountID] = nil
             await refresh()

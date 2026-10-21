@@ -71,16 +71,32 @@ public final class AccountsModel {
         }
     }
 
+    /// O servidor em que o último teste passou — que pode **não** ser o que
+    /// foi digitado: o diretor tenta os vizinhos conhecidos do host antes de
+    /// desistir (ver `ImapFallbacks`). A janela lê isto para o campo passar a
+    /// mostrar o host que funcionou em vez de deixar na tela o que não
+    /// funcionou.
+    public private(set) var endpointQuePassou: ImapEndpoint?
+
     /// Testa sem gravar. Devolve `true` quando passou, para a janela mostrar o
     /// resultado — e `lastError` explica quando não.
     @discardableResult
     public func testImap(address: String, password: String, endpoint: ImapEndpoint) async -> Bool {
+        await testImapEndpoint(address: address, password: password, endpoint: endpoint) != nil
+    }
+
+    /// O mesmo teste, devolvendo **onde** ele passou.
+    @discardableResult
+    public func testImapEndpoint(
+        address: String, password: String, endpoint: ImapEndpoint
+    ) async -> ImapEndpoint? {
+        endpointQuePassou = nil
         await roda {
-            try await self.director.testImap(
+            self.endpointQuePassou = try await self.director.testImap(
                 address: address, password: password, endpoint: endpoint
             )
         }
-        return lastError == nil
+        return lastError == nil ? endpointQuePassou : nil
     }
 
     public func addImap(

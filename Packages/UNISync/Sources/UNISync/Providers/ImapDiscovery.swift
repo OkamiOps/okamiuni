@@ -364,6 +364,62 @@ public enum ImapDiscovery {
     }
 }
 
+/// Os outros hosts que valem uma tentativa quando o primeiro recusou.
+///
+/// **Por que tentar sozinho em vez de dar o erro.** O caso que motivou isto é
+/// o Zoho: `imap.zoho.com` é o host das contas pessoais `@zoho.com` e
+/// `imappro.zoho.com` é o das contas de domínio próprio, os dois existem, os
+/// dois atendem na 993 com TLS, e o errado responde à conexão e **recusa o
+/// login**. Para quem está na frente da tela isso é idêntico a senha errada —
+/// e a pessoa passa a tarde trocando uma senha que estava certa. Tentar o
+/// vizinho custa uma conexão e responde a pergunta.
+///
+/// A lista é curta de propósito: cada item é uma conexão a mais antes do erro
+/// aparecer, e um formulário que demora dez segundos para dizer "não deu" é
+/// pior que um que erra rápido.
+public enum ImapFallbacks {
+    /// No máximo três — ver a nota acima.
+    public static let teto = 3
+
+    public static func alternativas(para endpoint: ImapEndpoint) -> [ImapEndpoint] {
+        let host = ImapDiscovery.normaliza(endpoint.host)
+        var hosts: [String] = []
+
+        if let regiao = ImapDiscovery.regiaoDoZoho(host) {
+            // O par da mesma região primeiro: trocar de data center muda a
+            // conta de lugar, trocar `imap`/`imappro` muda só o tipo dela.
+            hosts.append(host.hasPrefix("imappro.") ? "imap.zoho.\(regiao)" : "imappro.zoho.\(regiao)")
+            for outra in ["com", "eu", "in", "com.au"] where outra != regiao {
+                hosts.append("imappro.zoho.\(outra)")
+            }
+        } else if host.hasPrefix("imap.") {
+            // O palpite genérico tem dois vizinhos clássicos em hospedagem
+            // compartilhada: `mail.<domínio>` (cPanel, Plesk) e o domínio
+            // pelado, que muito provedor pequeno usa para tudo.
+            let resto = String(host.dropFirst("imap.".count))
+            hosts.append("mail.\(resto)")
+            hosts.append(resto)
+        }
+
+        return hosts
+            .filter { $0 != host && !$0.isEmpty }
+            .prefix(teto)
+            .map { ImapEndpoint(host: $0, port: endpoint.port, security: endpoint.security) }
+    }
+
+    /// Esta falha vale uma segunda tentativa noutro host?
+    ///
+    /// Credencial recusada e servidor que não respondeu, sim — são as duas
+    /// caras de "é o host que está errado". Erro de Keychain, de banco ou de
+    /// quota, não: trocar de host não muda nada neles, e a espera seria pura.
+    public static func valePorOutroHost(_ erro: SyncError) -> Bool {
+        switch erro {
+        case .autenticacao, .loginRecusado, .rede, .tls: true
+        default: false
+        }
+    }
+}
+
 // MARK: - O leitor do XML
 
 /// O delegado do `XMLParser` que recolhe os dois servidores.

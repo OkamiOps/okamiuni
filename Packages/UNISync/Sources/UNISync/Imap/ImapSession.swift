@@ -290,8 +290,13 @@ public actor ImapSession {
             // pede ação própria: reconectar, não tentar de novo.
             if resultado.text.uppercased().contains("AUTHENTICATIONFAILED")
                 || resultado.text.uppercased().contains("INVALID CREDENTIALS")
-                || comando.contains(" LOGIN ") {
-                throw SyncError.autenticacao
+                || comando.contains(" LOGIN ") || comando.contains(" AUTHENTICATE ") {
+                // **A frase do servidor é a informação.** "Remote IMAP access
+                // is disabled for this account" e "senha errada" pedem coisas
+                // opostas de quem está na frente da tela, e durante toda a
+                // vida desta sessão as duas saíam como a mesma frase genérica.
+                let dito = resultado.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                throw dito.isEmpty ? SyncError.autenticacao : .loginRecusado(resposta: dito)
             }
             if resultado.text.uppercased().contains("THROTTLED")
                 || resultado.text.uppercased().contains("OVERQUOTA") {
@@ -305,9 +310,49 @@ public actor ImapSession {
         }
     }
 
+    /// Autentica — por `LOGIN`, e por `AUTHENTICATE PLAIN` quando o `LOGIN`
+    /// não serve.
+    ///
+    /// Senha com acento vai **direto** pelo SASL: o `LOGIN` carrega a senha
+    /// como `astring`, que fora do ASCII só é legal com `UTF8=ACCEPT` (RFC
+    /// 6855) e na prática volta recusada — e uma senha boa recusada por causa
+    /// de um "ç" é indistinguível, para quem está na frente da tela, de uma
+    /// senha errada.
+    ///
+    /// O resto tenta `LOGIN` primeiro, que é o caminho de sempre, e só cai no
+    /// SASL quando a recusa diz que é o `LOGIN` que está desligado
+    /// (`LOGINDISABLED`, `PRIVACYREQUIRED`). Perguntar `CAPABILITY` antes
+    /// custaria uma ida e volta em toda conexão de toda conta para mudar de
+    /// caminho em quase nenhuma.
     public func login(user: String, password: String) async throws {
-        _ = try await run { ImapWire.login(tag: $0, user: user, password: password) }
+        if password.contains(where: { !$0.isASCII }) {
+            _ = try await run { ImapWire.authenticatePlain(tag: $0, user: user, password: password) }
+        } else {
+            do {
+                _ = try await run { ImapWire.login(tag: $0, user: user, password: password) }
+            } catch let erro as SyncError where Self.pedeSASL(erro) {
+                _ = try await run {
+                    ImapWire.authenticatePlain(tag: $0, user: user, password: password)
+                }
+            }
+        }
         try await discoverPersonalNamespace()
+    }
+
+    /// A recusa foi do **comando**, e não da credencial?
+    ///
+    /// Só os dois códigos que dizem exatamente isso. "Disabled" solto não
+    /// entra de propósito: "Remote IMAP access is disabled for this account"
+    /// é a conta sem IMAP, e repetir a credencial por outro comando não
+    /// mudaria nada além de gastar outra ida ao servidor.
+    static func pedeSASL(_ erro: SyncError) -> Bool {
+        let texto: String
+        switch erro {
+        case .loginRecusado(let resposta): texto = resposta.uppercased()
+        case .resposta(let detalhe): texto = detalhe.uppercased()
+        default: return false
+        }
+        return texto.contains("LOGINDISABLED") || texto.contains("PRIVACYREQUIRED")
     }
 
     /// As pastas do servidor, com o papel já resolvido.

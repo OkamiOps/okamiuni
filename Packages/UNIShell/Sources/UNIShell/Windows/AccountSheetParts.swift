@@ -179,7 +179,7 @@ enum ImapTestTrail {
         switch error {
         case .rede, .transitorio: 0
         case .tls: 1
-        case .autenticacao, .autorizacaoRevogada, .recusado: 2
+        case .autenticacao, .loginRecusado, .autorizacaoRevogada, .recusado: 2
         default: 3
         }
     }

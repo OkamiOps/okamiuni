@@ -46,6 +46,33 @@ public enum ImapWire {
         "\(tag) LOGIN \(quoted(user)) \(quoted(password))"
     }
 
+    /// A resposta inicial do SASL `PLAIN`: `\0usuário\0senha` em base64, do
+    /// RFC 4616. O primeiro campo (a identidade de autorização) vai vazio —
+    /// é o que diz "sou eu mesmo", e é o que todo servidor espera de um
+    /// cliente de correio.
+    ///
+    /// Em UTF-8, e não em ASCII: é justamente a senha com acento que o `LOGIN`
+    /// não sabe carregar.
+    public static func saslPlain(user: String, password: String) -> String {
+        Data("\u{0}\(user)\u{0}\(password)".utf8).base64EncodedString()
+    }
+
+    /// `AUTHENTICATE PLAIN <base64>` numa linha só — a resposta inicial do
+    /// RFC 4959 (`SASL-IR`).
+    ///
+    /// A alternativa ao `LOGIN` quando ele não serve: servidor que anuncia
+    /// `LOGINDISABLED` (e aceita `AUTH=PLAIN`), e senha com caractere fora do
+    /// ASCII, que no `LOGIN` só seria legal com `UTF8=ACCEPT` do RFC 6855 e na
+    /// prática volta recusada.
+    ///
+    /// Numa linha, e não no par comando + continuação: a continuação exigiria
+    /// que o handler de resposta soubesse esperar um `+`, e todo servidor que
+    /// implementa `AUTHENTICATE PLAIN` hoje anuncia `SASL-IR` junto. Quando
+    /// aparecer um que não anuncie, é aqui que a segunda forma entra.
+    public static func authenticatePlain(tag: String, user: String, password: String) -> String {
+        "\(tag) AUTHENTICATE PLAIN \(saslPlain(user: user, password: password))"
+    }
+
     /// O comando que sobe a conexão em claro para TLS, antes de qualquer
     /// credencial. Só existe no caminho `.startTLS`; em `.tls` o TLS já começou
     /// no primeiro byte e este comando seria um erro de protocolo.

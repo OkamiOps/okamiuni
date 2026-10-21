@@ -917,7 +917,7 @@ public struct InitialLoader: Sendable {
     /// de arquivo.
     static func derrubaAConta(_ erro: SyncError) -> Bool {
         switch erro {
-        case .autenticacao, .autorizacaoRevogada, .semClientID, .tls: true
+        case .autenticacao, .loginRecusado, .autorizacaoRevogada, .semClientID, .tls: true
         default: false
         }
     }
@@ -946,7 +946,7 @@ public struct InitialLoader: Sendable {
     /// precisa esperar o wi-fi voltar — a ação errada, com convicção.
     static func estadoPara(_ erro: SyncError) -> Account.State {
         switch erro {
-        case .autenticacao, .autorizacaoRevogada, .semClientID: .erroDeAutenticacao
+        case .autenticacao, .loginRecusado, .autorizacaoRevogada, .semClientID: .erroDeAutenticacao
         default: .ativa
         }
     }
@@ -964,7 +964,7 @@ public struct InitialLoader: Sendable {
         // `.contaDiferente` não sai de carga nenhuma — ela nasce na reconexão —,
         // e se saísse derrubaria: continuar baixando com a credencial de outra
         // pessoa é a única coisa pior do que parar.
-        case .autenticacao, .autorizacaoRevogada, .semClientID, .quota,
+        case .autenticacao, .loginRecusado, .autorizacaoRevogada, .semClientID, .quota,
              .rede, .tls, .keychain, .banco, .contaDiferente:
             true
         case .resposta:
