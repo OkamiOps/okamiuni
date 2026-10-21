@@ -20,6 +20,12 @@ public actor SyncRunner {
     private let database: SyncDatabase
     private let secrets: any SecretStore
     private let auth: GoogleAuth?
+    /// Nulo quando o build não trouxe as credenciais do Zoho. A caixa Zoho
+    /// conectada pelo navegador precisa dele para renovar o token antes de
+    /// cada sessão; a conta com senha de app não o olha.
+    private let zoho: ZohoMailAuth?
+    /// Quem escolhe entre `LOGIN` e `AUTHENTICATE XOAUTH2` ao abrir sessão.
+    private let autenticador: MailboxAuthenticator
     private let urlSession: URLSession
     private let gmailBaseURL: URL
     private let eventLoopGroup: any EventLoopGroup
@@ -37,6 +43,7 @@ public actor SyncRunner {
         database: SyncDatabase,
         secrets: any SecretStore,
         auth: GoogleAuth?,
+        zoho: ZohoMailAuth? = nil,
         session: URLSession,
         gmailBaseURL: URL = URL(string: "https://gmail.googleapis.com/gmail/v1/users/me")!,
         eventLoopGroup: any EventLoopGroup,
@@ -50,6 +57,8 @@ public actor SyncRunner {
         self.database = database
         self.secrets = secrets
         self.auth = auth
+        self.zoho = zoho
+        self.autenticador = MailboxAuthenticator(secrets: secrets, zoho: zoho)
         self.urlSession = session
         self.gmailBaseURL = gmailBaseURL
         self.eventLoopGroup = eventLoopGroup
@@ -93,7 +102,7 @@ public actor SyncRunner {
         }
         for id in devemViver where coordenadores[id] == nil {
             let coordenador = AccountSyncCoordinator(
-                accountID: id, database: database, secrets: secrets, auth: auth,
+                accountID: id, database: database, secrets: secrets, auth: auth, zoho: zoho,
                 session: urlSession, gmailBaseURL: gmailBaseURL,
                 eventLoopGroup: eventLoopGroup, imapConnect: imapConnect, report: report,
                 reportSyncing: reportSyncing, reportRemoteInbox: reportRemoteInbox

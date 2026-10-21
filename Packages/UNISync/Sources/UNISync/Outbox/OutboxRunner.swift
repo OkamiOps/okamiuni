@@ -18,6 +18,13 @@ public actor OutboxRunner {
     private let database: SyncDatabase
     private let secrets: any SecretStore
     private let auth: GoogleAuth?
+    /// Quem escolhe entre `LOGIN` e `AUTHENTICATE XOAUTH2` ao abrir sessão.
+    ///
+    /// O `ZohoMailAuth` do parâmetro entra **nele** e não fica guardado aqui:
+    /// a única coisa que este tipo faz com o Zoho é autenticar, e guardar uma
+    /// segunda referência convidaria o próximo caminho a falar com o OAuth
+    /// por fora da regra que mora no autenticador.
+    private let autenticador: MailboxAuthenticator
     private let session: URLSession
     private let gmailBaseURL: URL
     private let eventLoopGroup: any EventLoopGroup
@@ -38,6 +45,7 @@ public actor OutboxRunner {
         database: SyncDatabase,
         secrets: any SecretStore,
         auth: GoogleAuth?,
+        zoho: ZohoMailAuth? = nil,
         session: URLSession,
         gmailBaseURL: URL = URL(string: "https://gmail.googleapis.com/gmail/v1/users/me")!,
         eventLoopGroup: any EventLoopGroup,
@@ -51,6 +59,7 @@ public actor OutboxRunner {
         self.database = database
         self.secrets = secrets
         self.auth = auth
+        self.autenticador = MailboxAuthenticator(secrets: secrets, zoho: zoho)
         self.session = session
         self.gmailBaseURL = gmailBaseURL
         self.eventLoopGroup = eventLoopGroup
@@ -141,25 +150,24 @@ public actor OutboxRunner {
             ))
         case .imap, .microsoft:
             guard let endpoint = conta.imap else { return nil }
-            let secrets = self.secrets
+            let autenticador = self.autenticador
             let grupo = eventLoopGroup
             let conectar = imapConnect
             let conectarSmtp = smtpConnect
             let id = conta.id
             let endereco = conta.address
             // O servidor de envio é **derivado** do de leitura — ver
-            // `SmtpDiscovery`. Nenhuma tela nova foi pedida à pessoa por
-            // causa disto: a mesma senha que lê a caixa é a que
-            // manda, que é como todo provedor de submissão funciona.
+            // `SmtpDiscovery`, e a exceção do Zoho em
+            // `MailboxAuthenticator.smtp(forImap:)`. Nenhuma tela nova foi
+            // pedida à pessoa por causa disto: a mesma credencial que lê a
+            // caixa é a que manda, seja ela a senha da conta ou um token OAuth.
             var abreSmtp: (@Sendable () async throws -> SmtpSession)?
-            if let destino = SmtpDiscovery.endpoint(forImap: endpoint) {
+            if let destino = MailboxAuthenticator.smtp(forImap: endpoint) {
                 abreSmtp = {
-                    guard case .password(let senha)? = try secrets.secret(for: id) else {
-                        throw SyncError.autenticacao
-                    }
+                    _ = try autenticador.forma(for: id)
                     let sessao = try await conectarSmtp(destino, grupo)
                     do {
-                        try await sessao.login(user: endereco, password: senha)
+                        try await autenticador.login(sessao, accountID: id, address: endereco)
                     } catch {
                         await sessao.quit()
                         throw error
@@ -169,11 +177,9 @@ public actor OutboxRunner {
             }
             return ImapMirror(
                 connect: {
-                    guard case .password(let senha)? = try secrets.secret(for: id) else {
-                        throw SyncError.autenticacao
-                    }
+                    _ = try autenticador.forma(for: id)
                     let sessao = try await conectar(endpoint, grupo)
-                    try await sessao.login(user: endereco, password: senha)
+                    try await autenticador.login(sessao, accountID: id, address: endereco)
                     return sessao
                 },
                 smtp: abreSmtp

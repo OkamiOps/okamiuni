@@ -254,6 +254,17 @@ public struct AppComposition: Sendable {
             log.notice("Rota Google indisponível: \(erro!.mensagem, privacy: .public)")
         }
 
+        // "Entrar com Zoho": o mesmo client do Zoho Meeting, porque é o mesmo
+        // aplicativo no mesmo API Console. Nulo quando o build não trouxe as
+        // credenciais — e aí o botão não aparece, em vez de abrir um
+        // navegador que só pode dar erro.
+        let zoho = ZohoMailAuthConfig.fromBundle(bundle).map {
+            ZohoMailAuth(config: $0, session: .shared, secrets: cofre)
+        }
+        if zoho == nil {
+            log.notice("Rota Zoho indisponível: faltam OkamiUNIZohoClientID/Secret no bundle.")
+        }
+
         // Duas threads: uma carga IMAP por vez é o que o `AccountDirector`
         // permite por conta, e duas contas carregando juntas é o caso real de
         // quem tem trabalho e pessoal. O mesmo grupo serve a fila de saída —
@@ -263,6 +274,7 @@ public struct AppComposition: Sendable {
             database: banco,
             secrets: cofre,
             auth: auth,
+            zoho: zoho,
             session: .shared,
             eventLoopGroup: grupo
         )
@@ -290,7 +302,7 @@ public struct AppComposition: Sendable {
             Task { await director.reportQueue(accountID: conta, error: erro) }
         }
         let fila = OutboxRunner(
-            database: banco, secrets: cofre, auth: auth, session: .shared,
+            database: banco, secrets: cofre, auth: auth, zoho: zoho, session: .shared,
             eventLoopGroup: grupo, signal: sinal, report: relataFila
         )
         // A fila começa a andar ao abrir. `Task` porque ligar os executores lê
@@ -307,7 +319,7 @@ public struct AppComposition: Sendable {
         // própria: assina o diretor, e é ele quem diz quem entrou, quem saiu e
         // quem parou de autenticar.
         let sincronizacao = SyncRunner(
-            database: banco, secrets: cofre, auth: auth, session: .shared,
+            database: banco, secrets: cofre, auth: auth, zoho: zoho, session: .shared,
             eventLoopGroup: grupo, director: director, report: relataCiclo,
             reportSyncing: relataAndamento, reportRemoteInbox: relataEntrada
         )
@@ -402,7 +414,9 @@ public struct AppComposition: Sendable {
         let calendar = CompositeCalendarSync(accounts: DatabaseCalendarAccounts(database: banco), secrets: cofre)
         let agentServices = AgentApplicationServices(
             attachments: DatabaseAgentAttachmentReader(fetcher: attachments),
-            search: DatabaseAgentMailSearch(database: banco, secrets: cofre, auth: auth, eventLoopGroup: grupo),
+            search: DatabaseAgentMailSearch(
+                database: banco, secrets: cofre, auth: auth, zoho: zoho, eventLoopGroup: grupo
+            ),
             calendar: DatabaseAgentCalendarManager(database: banco, agenda: agendaGuardada, calendarSync: calendar)
         )
         return AppComposition(
@@ -414,7 +428,7 @@ public struct AppComposition: Sendable {
             draftPort: porta,
             inviteRSVPPort: porta,
             bodyPort: DatabaseBodyFetcher(
-                database: banco, secrets: cofre, auth: auth,
+                database: banco, secrets: cofre, auth: auth, zoho: zoho,
                 session: .shared, eventLoopGroup: grupo
             ),
             attachmentPort: attachments,

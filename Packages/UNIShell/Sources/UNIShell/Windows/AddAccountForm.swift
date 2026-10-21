@@ -159,8 +159,11 @@ public struct AddAccountForm: View {
     /// mais. `GoogleAuth` manda `login_hint`, então o consentimento abre já no
     /// endereço digitado, em qualquer domínio.
     private var mostraOfertaDoGoogle: Bool {
-        if case .manual = route { return true }
-        return false
+        guard case .manual = route else { return false }
+        // A descoberta já achou outro dono para o domínio (o Zoho, que ganha
+        // o próprio botão logo abaixo): oferecer o Google ali seria dois
+        // convites de login para uma caixa só, e um deles errado.
+        return !ZohoSignInButton.applies(address: address, host: host)
     }
 
     public var body: some View {
@@ -194,6 +197,7 @@ public struct AddAccountForm: View {
             AccountPathSteps(steps: pathSteps)
             if isGoogle { googleRoute }
             if mostraOfertaDoGoogle { ofertaDoGoogle }
+            ZohoSignInButton(model: model, address: address, host: host)
             if isImap { imapRoute }
             if let erro = model.lastError { errorLine(erro) }
             if mostraNotaDoEnderecoNumerico { notaDoEnderecoNumerico }

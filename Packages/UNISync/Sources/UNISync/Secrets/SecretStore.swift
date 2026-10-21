@@ -11,18 +11,26 @@ public struct OAuthTokens: Sendable, Hashable, Codable {
     /// Escopos concedidos neste token. Vazio em tokens antigos — aí
     /// `GoogleAuth.hasMeetAccess` consulta o tokeninfo e completa o cofre.
     public let scopes: [String]
+    /// Em qual servidor de contas o token nasceu. **Só o Zoho preenche**, e
+    /// sem ele a renovação iria para o data center errado: um token nascido em
+    /// `accounts.zoho.eu` renovado no `.com` volta `invalid_code`, sem dizer o
+    /// motivo (ver `ZohoDataCenter`). No Google é `nil` — lá o endpoint de
+    /// token é um só no mundo inteiro.
+    public let accountsServer: String?
 
     enum CodingKeys: String, CodingKey {
-        case accessToken, refreshToken, expiresAt, scopes
+        case accessToken, refreshToken, expiresAt, scopes, accountsServer
     }
 
     public init(
-        accessToken: String, refreshToken: String, expiresAt: Date, scopes: [String] = []
+        accessToken: String, refreshToken: String, expiresAt: Date, scopes: [String] = [],
+        accountsServer: String? = nil
     ) {
         self.accessToken = accessToken
         self.refreshToken = refreshToken
         self.expiresAt = expiresAt
         self.scopes = scopes
+        self.accountsServer = accountsServer
     }
 
     public init(from decoder: Decoder) throws {
@@ -31,6 +39,10 @@ public struct OAuthTokens: Sendable, Hashable, Codable {
         refreshToken = try c.decode(String.self, forKey: .refreshToken)
         expiresAt = try c.decode(Date.self, forKey: .expiresAt)
         scopes = try c.decodeIfPresent([String].self, forKey: .scopes) ?? []
+        // `decodeIfPresent`, como `scopes`: um token gravado por uma versão
+        // anterior não tem a chave, e exigi-la trancaria a conta Google de
+        // quem já estava conectado.
+        accountsServer = try c.decodeIfPresent(String.self, forKey: .accountsServer)
     }
 
     /// Calendar `events` (Gmail pessoal) ou Meet Space (Workspace). Qualquer

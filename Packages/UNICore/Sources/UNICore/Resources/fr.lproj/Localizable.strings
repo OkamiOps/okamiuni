@@ -29,6 +29,9 @@
 "A IA propôs {0} blocos para você" = "L’IA a proposé {0} blocs pour vous";
 "A agenda ainda está sendo preparada. Tente novamente em instantes." = "Le calendrier est encore en préparation. Réessayez dans un instant.";
 "A análise no dispositivo não está disponível neste momento." = "L’analyse sur l’appareil n’est pas disponible pour le moment.";
+"A API do Zoho devolveu a lista de contas num formato que não conhecemos." = "L'API Zoho a renvoyé la liste des comptes dans un format inconnu.";
+"A API do Zoho não disse qual é o endereço desta caixa." = "L'API Zoho n'a pas indiqué l'adresse de cette boîte.";
+"A API do Zoho respondeu sem cabeçalho HTTP." = "L'API Zoho a répondu sans en-tête HTTP.";
 "A API xAI exige uma versão mais nova do OkamiUNI. Atualize o app e tente novamente." = "L’API xAI exige une version plus récente d’OkamiUNI. Mettez à jour l’application et réessayez.";
 "A Apple Intelligence ainda está sendo preparada." = "Apple Intelligence est encore en préparation.";
 "A Apple Intelligence está desativada neste dispositivo." = "Apple Intelligence est désactivée sur cet appareil.";
@@ -203,6 +206,7 @@
 "Abrir o consentimento do Google para {0}" = "Ouvrir le consentement Google pour {0}";
 "Abrir o e-mail" = "Ouvrir l'e-mail";
 "Abrir o e-mail que gerou" = "Ouvrir l'e-mail d'origine";
+"Abrir o login do Zoho no navegador" = "Ouvrir la connexion Zoho dans le navigateur";
 "Abrir o navegador e conectar" = "Ouvrir le navigateur et connecter";
 "Abrir o resumo" = "Ouvrir le résumé";
 "Abrir página" = "Ouvrir la page";
@@ -749,6 +753,7 @@
 "Entrar com OAuth (PKCE)" = "Se connecter avec OAuth (PKCE)";
 "Entrar com a sua conta ChatGPT" = "Se connecter avec votre compte ChatGPT";
 "Entrar com sua conta" = "Se connecter avec votre compte";
+"Entrar com Zoho" = "Se connecter avec Zoho";
 "Entrar na sua conta ChatGPT" = "Se connecter à votre compte ChatGPT";
 "Entrar na sua conta xAI" = "Se connecter à votre compte xAI";
 "Entraria uma vez em cada mensagem e resposta desta conta." = "Elle entrerait une fois dans chaque message et réponse de ce compte.";
@@ -827,6 +832,7 @@
 "Esta configuração de IA foi criada por uma versão mais nova do OkamiUNI (schema {0})." = "Cette configuration d’IA a été créée par une version plus récente d’OkamiUNI (schéma {0}).";
 "Esta conta ainda não tem assinatura." = "Ce compte n’a pas encore de signature.";
 "Esta conta precisa ser reconectada. Abra Configurações…" = "Ce compte doit être reconnecté. Ouvrez les réglages…";
+"Esta conta Zoho foi autorizada sem o escopo de envio por SMTP. Conecte-a de novo pelo botão Entrar com Zoho." = "Ce compte Zoho a été autorisé sans la portée d'envoi SMTP. Reconnectez-le avec le bouton Se connecter avec Zoho.";
 "Esta mensagem já está em Arquivado" = "Ce message est déjà archivé";
 "Esta mensagem já está em {0}" = "Ce message est déjà dans {0}";
 "Esta mensagem não está mais na caixa." = "Ce message n’est plus dans la boîte.";
@@ -1170,6 +1176,8 @@
 "Método de autenticação" = "Méthode d’authentification";
 "Mês" = "Mois";
 "Mês anterior" = "Mois précédent";
+"Não foi possível abrir o navegador para o login do Zoho." = "Impossible d'ouvrir le navigateur pour la connexion Zoho.";
+"Não foi possível descobrir o servidor IMAP desta caixa Zoho." = "Impossible de déterminer le serveur IMAP de cette boîte Zoho.";
 "NESTE E-MAIL" = "DANS CET E-MAIL";
 "NESTE MAC · NADA SAI DAQUI" = "SUR CE MAC · RIEN N’EN SORT";
 "NOVA AUTOMAÇÃO" = "NOUVELLE AUTOMATISATION";
@@ -1377,6 +1385,7 @@
 "O executável escolhido não pertence à allowlist do OkamiUNI." = "L’exécutable choisi ne figure pas dans la liste autorisée d’OkamiUNI.";
 "O executável foi encontrado, mas o status não trouxe evidência inequívoca. Isso também ocorre quando o sandbox bloqueia o acesso da ferramenta à própria sessão. Conclua OAuth/device no CLI e teste a configuração quando o estado mudar." = "L’exécutable a été trouvé, mais son état est incertain. Le bac à sable peut aussi bloquer l’accès à sa session. Terminez l’authentification dans le CLI et testez les réglages lorsque l’état change.";
 "O fluxo OAuth ainda não está disponível nesta composição. Configure o serviço LiteLLM no app para habilitar o login seguro." = "OAuth n’est pas encore disponible dans cette configuration. Configurez LiteLLM dans l’app pour activer la connexion sécurisée.";
+"O login abre no navegador e você volta sozinho para cá. Sem senha de app." = "La connexion s'ouvre dans le navigateur et vous ramène ici tout seul. Sans mot de passe d'application.";
 "O login OAuth demorou demais. Gere um novo código e tente novamente." = "La connexion OAuth a expiré. Générez un nouveau code et réessayez.";
 "O login OAuth demorou demais. Tente novamente." = "La connexion OAuth a expiré. Réessayez.";
 "O login OAuth foi recusado ou a assinatura não é elegível para este acesso." = "La connexion OAuth a été refusée ou l’abonnement n’est pas éligible à cet accès.";
@@ -1433,10 +1442,14 @@
 "O remetente pede que não se responda" = "L’expéditeur demande de ne pas répondre";
 "O resto está em ordem" = "Le reste est en ordre";
 "O resultado ficou grande demais. Restrinja a busca e tente novamente." = "Le résultat est trop volumineux. Précisez la recherche et réessayez.";
+"O retorno do Zoho veio com um `state` que não é o nosso." = "La réponse de Zoho est revenue avec un `state` qui n'est pas le nôtre.";
+"O retorno do Zoho veio sem código de autorização." = "La réponse de Zoho est revenue sans code d'autorisation.";
+"O retorno do Zoho veio sem parâmetros." = "La réponse de Zoho est revenue sans paramètres.";
 "O runtime ACP importado não está mais disponível." = "Le runtime ACP importé n’est plus disponible.";
 "O runtime do Codex não foi encontrado neste Mac." = "Le runtime Codex est introuvable sur ce Mac.";
 "O runtime do Codex não respondeu ao login seguro. Atualize o Codex e tente novamente." = "Le runtime Codex n’a pas répondu à la connexion sécurisée. Mettez à jour Codex et réessayez.";
 "O seletor de aparência aparece quando o app fornece o armazenamento de temas." = "Les réglages d’apparence s’affichent lorsque le stockage des thèmes est disponible.";
+"O servidor de token do Zoho respondeu sem cabeçalho HTTP." = "Le serveur de jetons de Zoho a répondu sans en-tête HTTP.";
 "O servidor está de pé e ainda não tem modelo baixado." = "Le serveur est en marche et n’a encore aucun modèle téléchargé.";
 "O servidor não respondeu neste Mac." = "Le serveur n’a pas répondu sur ce Mac.";
 "O servidor pediu para tentar mais tarde: {0}. A fila tenta sozinha." = "Le serveur demande de réessayer plus tard : {0}. La file réessaie automatiquement.";
@@ -1450,6 +1463,10 @@
 "O texto da assinatura é grande demais." = "Le texte de la signature est trop volumineux.";
 "O texto de origem mudou; gere uma nova prévia antes de substituir." = "Le texte source a changé ; générez un nouvel aperçu avant de le remplacer.";
 "O tipo de imagem {0} não é aceito na assinatura." = "Le type d’image {0} n’est pas accepté dans la signature.";
+"O Zoho não devolveu access token." = "Zoho n'a pas renvoyé de jeton d'accès.";
+"O Zoho não devolveu refresh token. Conecte a conta de novo pedindo o consentimento." = "Zoho n'a pas renvoyé de jeton de rafraîchissement. Reconnectez le compte en accordant le consentement.";
+"O Zoho recusou a autorização: {0}" = "Zoho a refusé l'autorisation : {0}";
+"O Zoho voltou de um data center que não conhecemos: {0}" = "Zoho est revenu d'un centre de données inconnu : {0}";
 "O {0} não foi encontrado neste Mac." = "{0} est introuvable sur ce Mac.";
 "OAuth direto · ChatGPT ou Grok" = "OAuth direct · ChatGPT ou Grok";
 "OAuth direto · Codex ou Grok" = "OAuth direct · Codex ou Grok";

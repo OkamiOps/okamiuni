@@ -78,6 +78,23 @@ public final class AccountsModel {
     /// funcionou.
     public private(set) var endpointQuePassou: ImapEndpoint?
 
+    /// Este build sabe conectar uma caixa Zoho pelo navegador?
+    ///
+    /// Síncrono porque a janela pergunta **enquanto desenha**: um botão que
+    /// aparece meio segundo depois do resto da folha pisca na cara de quem
+    /// está lendo o formulário.
+    public var canAddZoho: Bool { director.canAddZoho }
+
+    /// Conecta uma caixa Zoho pelo login no navegador. O endereço digitado é
+    /// só a dica de login — quem decide qual conta entra é o navegador, e o
+    /// app grava a que de fato autorizou.
+    public func addZoho(address: String) async {
+        await roda {
+            let conta = try await self.director.addZohoAccount(address: address)
+            self.carregaEmSegundoPlano(conta)
+        }
+    }
+
     /// Testa sem gravar. Devolve `true` quando passou, para a janela mostrar o
     /// resultado — e `lastError` explica quando não.
     @discardableResult

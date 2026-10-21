@@ -355,6 +355,33 @@ public actor ImapSession {
         return texto.contains("LOGINDISABLED") || texto.contains("PRIVACYREQUIRED")
     }
 
+    /// Autentica com um access token OAuth, pelo mecanismo SASL `XOAUTH2`.
+    ///
+    /// É o `login` de quem entrou pelo navegador: nenhuma senha existe, e o
+    /// que vai no lugar dela é um token de uma hora que o chamador renova.
+    ///
+    /// ## O `+` da recusa, que é o detalhe que trava a conexão
+    ///
+    /// Quando o token não serve, o servidor **não** responde a linha tagueada
+    /// direto: ele manda uma continuação `+ <json em base64>` descrevendo o
+    /// erro e fica esperando o cliente dizer que desistiu — uma linha vazia. É
+    /// o protocolo do XOAUTH2, e um cliente que não manda a linha vazia fica
+    /// pendurado até o teto de tempo e relata "o servidor não respondeu",
+    /// culpando o servidor por uma senha errada.
+    ///
+    /// Quem responde é o handler, que é quem enxerga a linha chegar (ver
+    /// `armaContinuacaoSASL`). Armar **antes** de escrever o comando não é
+    /// zelo: um servidor rápido manda o `+` antes de esta função voltar do
+    /// `await`.
+    public func authenticateXOAuth2(user: String, accessToken: String) async throws {
+        handler.armaContinuacaoSASL()
+        defer { handler.desarmaContinuacaoSASL() }
+        _ = try await run {
+            ImapWire.authenticateXOAuth2(tag: $0, user: user, accessToken: accessToken)
+        }
+        try await discoverPersonalNamespace()
+    }
+
     /// As pastas do servidor, com o papel já resolvido.
     public func folders() async throws -> [ImapFolder] {
         try await discoverPersonalNamespace()
@@ -1015,6 +1042,12 @@ final class ImapChannelHandler: ChannelInboundHandler, @unchecked Sendable {
     /// Linhas que chegaram sem ninguém ter pedido nada. Fora da saudação, é
     /// exatamente o sintoma de dado injetado antes do TLS.
     private var linhasOrfas = 0
+    /// Há um `AUTHENTICATE` em voo esperando a continuação do SASL?
+    ///
+    /// Só enquanto ele corre, e nunca fora dele: uma continuação `+` chega
+    /// também na abertura do `IDLE` (`+ idling`), e responder uma linha vazia
+    /// ali mandaria o `DONE` antes da hora. A bandeira é o que separa os dois.
+    private var aguardaContinuacaoSASL = false
 
     // O estado do IDLE. Ele vive ao lado do comando, e não no lugar dele: o
     // `IDLE` continua sendo um comando com tag, esperado por `send` como
@@ -1097,6 +1130,24 @@ final class ImapChannelHandler: ChannelInboundHandler, @unchecked Sendable {
         } onCancel: {
             cancela()
         }
+    }
+
+    // MARK: A continuação do SASL
+
+    /// Liga a resposta automática à continuação de um `AUTHENTICATE`.
+    ///
+    /// Chamada **antes** de o comando ser escrito, pela mesma razão que
+    /// `armaIdle`: um servidor rápido manda o `+` antes de o chamador voltar.
+    func armaContinuacaoSASL() {
+        lock.lock()
+        aguardaContinuacaoSASL = true
+        lock.unlock()
+    }
+
+    func desarmaContinuacaoSASL() {
+        lock.lock()
+        aguardaContinuacaoSASL = false
+        lock.unlock()
     }
 
     // MARK: IDLE
@@ -1236,6 +1287,20 @@ final class ImapChannelHandler: ChannelInboundHandler, @unchecked Sendable {
         guard let tag = pendingTag else {
             linhasOrfas += 1
             lock.unlock()
+            return
+        }
+        // A continuação do SASL. Ela só é respondida quando há um
+        // `AUTHENTICATE` em voo — o `+ idling` da abertura do IDLE cai no
+        // caminho de baixo, como sempre caiu, e nada muda para ele.
+        if aguardaContinuacaoSASL, linha.hasPrefix("+") {
+            aguardaContinuacaoSASL = false
+            lock.unlock()
+            // A linha vazia é o "desisto" do mecanismo: sem ela o servidor
+            // fica esperando e o comando morre de teto de tempo, relatando
+            // silêncio do servidor onde houve credencial recusada.
+            var vazia = context.channel.allocator.buffer(capacity: 2)
+            vazia.writeString("\r\n")
+            context.writeAndFlush(wrapOutboundOut(vazia), promise: nil)
             return
         }
         if linha.hasPrefix(tag + " ") {

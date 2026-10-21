@@ -24,7 +24,21 @@ OKAMIUNI_MICROSOFT_CLIENT_ID =
 // Zoho · aplicativo do tipo "Server-based" no Zoho API Console. É o único dos
 // três que pede **os dois**, PKCE e segredo: a documentação do Zoho exige
 // `client_secret` na troca do código mesmo com PKCE. Redirect:
-// `http://127.0.0.1:53720/oauth2redirect`. Escopos:
-// `ZohoMeeting.meeting.CREATE,ZohoMeeting.manageOrg.READ`.
+// `http://127.0.0.1:53720/oauth2redirect`.
+//
+// Este par serve **duas** coisas, e por isso a lista de escopos do console
+// tem de cobrir as duas — é o mesmo aplicativo registrado, e dois cadastros
+// só dariam à pessoa duas telas de consentimento para a mesma empresa:
+//
+//   - sala do Zoho Meeting:
+//     `ZohoMeeting.meeting.CREATE`, `ZohoMeeting.manageOrg.READ`
+//   - "Entrar com Zoho" na caixa de e-mail:
+//     `ZohoMail.accounts.READ`, `ZOHOMAIL.PROTOCOL.IMAP`,
+//     `ZOHOMAIL.PROTOCOL.SMTP`, `ZohoMail.messages.CREATE`
+//
+// O escopo de SMTP é o único que a documentação pública do Zoho não nomeia
+// (a página do SASL XOAUTH2 publica o de IMAP e o de POP e para por aí). Se o
+// console não o aceitar, deixe-o de fora: o app repete o consentimento sem
+// ele sozinho — ver `ZohoMailAuthConfig.fallbackScopes`.
 OKAMIUNI_ZOHO_CLIENT_ID =
 OKAMIUNI_ZOHO_CLIENT_SECRET =

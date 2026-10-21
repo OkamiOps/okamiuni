@@ -74,6 +74,13 @@ public enum SmtpWire {
 
     public static func authLogin() -> String { "AUTH LOGIN" }
 
+    /// `AUTH XOAUTH2`, com a mesma credencial do IMAP — literalmente a mesma
+    /// string, montada por `SASLXOAuth2`. Ver a nota daquele tipo: duas
+    /// montagens seriam duas chances de errar o separador invisível.
+    public static func authXOAuth2(user: String, accessToken: String) -> String {
+        "AUTH XOAUTH2 \(SASLXOAuth2.initialResponse(user: user, accessToken: accessToken))"
+    }
+
     /// Cada metade do `AUTH LOGIN` vai em base64 sozinha, respondendo aos dois
     /// pedidos (`334 VXNlcm5hbWU6` e `334 UGFzc3dvcmQ6`) do servidor.
     public static func base64(_ texto: String) -> String {

@@ -73,6 +73,24 @@ public enum ImapWire {
         "\(tag) AUTHENTICATE PLAIN \(saslPlain(user: user, password: password))"
     }
 
+    /// `AUTHENTICATE XOAUTH2` com a resposta inicial na mesma linha.
+    ///
+    /// A resposta inicial embutida é a extensão `SASL-IR` (RFC 4959), e o Zoho
+    /// a anuncia na lista de capacidades junto com `AUTH=XOAUTH2`. Sem ela
+    /// seriam duas idas e voltas — o servidor manda `+`, o cliente manda a
+    /// credencial — e esta sessão é estritamente "um comando, uma resposta
+    /// tagueada": a ida extra viraria uma espera sem dono.
+    ///
+    /// Nada aqui é citado com aspas: a resposta inicial é base64, que é um
+    /// átomo do IMAP por definição, e aspas em volta dela fariam o servidor
+    /// responder `BAD`.
+    public static func authenticateXOAuth2(
+        tag: String, user: String, accessToken: String
+    ) -> String {
+        "\(tag) AUTHENTICATE XOAUTH2 "
+            + SASLXOAuth2.initialResponse(user: user, accessToken: accessToken)
+    }
+
     /// O comando que sobe a conexão em claro para TLS, antes de qualquer
     /// credencial. Só existe no caminho `.startTLS`; em `.tls` o TLS já começou
     /// no primeiro byte e este comando seria um erro de protocolo.

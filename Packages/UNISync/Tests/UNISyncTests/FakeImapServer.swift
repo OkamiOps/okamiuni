@@ -103,6 +103,15 @@ final class FakeImapServer: @unchecked Sendable {
     /// casamento largo devolveria bandeiras onde se esperava envelope.
     static let chaveDeBandeiras = "UID FETCH FLAGS"
 
+    /// A **linha vazia** com que o cliente desiste de um `AUTHENTICATE`.
+    ///
+    /// Ela não tem verbo nem tag — é literalmente um CRLF —, e por isso não
+    /// cabe no casamento por verbo do roteiro. Sem esta chave, o servidor
+    /// falso a descartaria em silêncio, e o teste que prova "o cliente
+    /// responde a continuação do SASL" não teria como distinguir uma resposta
+    /// de um cliente mudo: nos dois casos a conexão ficaria parada.
+    static let chaveDaLinhaVazia = "SASL CONTINUA"
+
     private let group: MultiThreadedEventLoopGroup
     private var channel: (any Channel)?
     private let script: Script
@@ -241,7 +250,18 @@ final class FakeImapServer: @unchecked Sendable {
             var buffer = unwrapInboundIn(data)
             let linha = (buffer.readString(length: buffer.readableBytes) ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !linha.isEmpty else { return }
+            guard !linha.isEmpty else {
+                // A linha vazia do SASL: ela fecha o `AUTHENTICATE` que está
+                // aberto, e a resposta tagueada leva a tag daquele comando.
+                guard let tag = tagDoAuthenticate else { return }
+                registrar("<linha vazia>")
+                tagDoAuthenticate = nil
+                responde(
+                    context, chave: FakeImapServer.chaveDaLinhaVazia,
+                    verbo: "SASL", tag: tag
+                )
+                return
+            }
             registrar(linha)
 
             // `DONE` é a única linha do protocolo **sem tag**: ela fecha o
@@ -304,6 +324,8 @@ final class FakeImapServer: @unchecked Sendable {
 
             // A tag do `IDLE` fica guardada para o `DONE` que vem depois.
             if verbo == "IDLE" { tagDoIdle = tag }
+            // E a do `AUTHENTICATE`, pela linha vazia que pode vir depois.
+            if verbo == "AUTHENTICATE" { tagDoAuthenticate = tag }
 
             // As caixas que existem, quando o roteiro as encena. Vem **antes**
             // do roteiro por verbo: um `SELECT` de caixa inexistente é recusado
@@ -361,6 +383,10 @@ final class FakeImapServer: @unchecked Sendable {
         /// servidor, porque o `IDLE` é por conexão — e só é tocada na event
         /// loop do canal.
         private var tagDoIdle: String?
+
+        /// A tag do `AUTHENTICATE` em voo, guardada pela mesma razão da do
+        /// `IDLE`: a linha que o fecha não traz tag nenhuma.
+        private var tagDoAuthenticate: String?
 
         private func responde(
             _ context: ChannelHandlerContext, chave: String, verbo: String, tag: String

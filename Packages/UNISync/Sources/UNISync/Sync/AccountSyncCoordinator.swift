@@ -67,6 +67,13 @@ public actor AccountSyncCoordinator {
     private let database: SyncDatabase
     private let secrets: any SecretStore
     private let auth: GoogleAuth?
+    /// Quem escolhe entre `LOGIN` e `AUTHENTICATE XOAUTH2` ao abrir sessão.
+    ///
+    /// O `ZohoMailAuth` do parâmetro entra **nele** e não fica guardado aqui:
+    /// a única coisa que este tipo faz com o Zoho é autenticar, e guardar uma
+    /// segunda referência convidaria o próximo caminho a falar com o OAuth
+    /// por fora da regra que mora no autenticador.
+    private let autenticador: MailboxAuthenticator
     private let urlSession: URLSession
     private let gmailBaseURL: URL
     private let eventLoopGroup: any EventLoopGroup
@@ -96,6 +103,7 @@ public actor AccountSyncCoordinator {
         database: SyncDatabase,
         secrets: any SecretStore,
         auth: GoogleAuth?,
+        zoho: ZohoMailAuth? = nil,
         session: URLSession,
         gmailBaseURL: URL = URL(string: "https://gmail.googleapis.com/gmail/v1/users/me")!,
         eventLoopGroup: any EventLoopGroup,
@@ -114,6 +122,7 @@ public actor AccountSyncCoordinator {
         self.database = database
         self.secrets = secrets
         self.auth = auth
+        self.autenticador = MailboxAuthenticator(secrets: secrets, zoho: zoho)
         self.urlSession = session
         self.gmailBaseURL = gmailBaseURL
         self.eventLoopGroup = eventLoopGroup
@@ -330,11 +339,9 @@ public actor AccountSyncCoordinator {
         guard let endpoint = conta.imap else {
             throw SyncError.resposta("A conta não tem servidor IMAP configurado.")
         }
-        guard case .password(let senha)? = try secrets.secret(for: conta.id) else {
-            throw SyncError.autenticacao
-        }
+        _ = try autenticador.forma(for: conta.id)
         let nova = try await imapConnect(endpoint, eventLoopGroup)
-        try await nova.login(user: conta.address, password: senha)
+        try await autenticador.login(nova, accountID: conta.id, address: conta.address)
         // Depois do `LOGIN`, e não da saudação: o RFC manda reler, e servidor
         // que só oferece `IDLE` a sessão autenticada existe. Falhar aqui não
         // custa o ciclo — sem lista, o caminho é o relógio.
