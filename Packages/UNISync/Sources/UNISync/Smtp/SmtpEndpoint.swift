@@ -44,6 +44,19 @@ public enum SmtpDiscovery {
         "imap.gmail.com": "smtp.gmail.com",
     ]
 
+    /// Os prefixos que viram outro prefixo, quando a troca `imap.` → `smtp.`
+    /// não é a regra do provedor.
+    ///
+    /// O Zoho é o caso que paga esta linha: a conta de domínio próprio lê em
+    /// `imappro.zoho.<região>` e envia por `smtppro.zoho.<região>`, e a
+    /// derivação de sempre daria `smtp.imappro.zoho.com`, que não existe. Por
+    /// prefixo, e não host a host, porque o Zoho tem um data center por
+    /// região e a lista nunca estaria completa — `.eu`, `.in`, `.com.au`,
+    /// `.jp`, `.ca`, `.sa`, e o próximo.
+    private static let prefixos: [(de: String, para: String)] = [
+        ("imappro.", "smtppro."),
+    ]
+
     /// O servidor de envio de uma conta IMAP, ou `nil` quando ela não tem
     /// servidor de leitura para derivar de.
     public static func endpoint(forImap imap: ImapEndpoint?) -> SmtpEndpoint? {
@@ -53,13 +66,17 @@ public enum SmtpDiscovery {
         return .submission(host: excecoes[host] ?? derivaHost(host))
     }
 
-    /// `imap.exemplo.com` → `smtp.exemplo.com`; `mail.exemplo.com` fica como
-    /// está (é o host genérico que serve os dois, e um `smtp.mail.…` não
-    /// existiria); um host qualquer ganha o prefixo `smtp.`.
+    /// `imap.exemplo.com` → `smtp.exemplo.com`; `imappro.zoho.eu` →
+    /// `smtppro.zoho.eu`; `mail.exemplo.com` fica como está (é o host genérico
+    /// que serve os dois, e um `smtp.mail.…` não existiria); um host qualquer
+    /// ganha o prefixo `smtp.`.
     ///
-    /// O terceiro caso é o que atende quem digitou o servidor à mão: o palpite
+    /// O último caso é o que atende quem digitou o servidor à mão: o palpite
     /// é o mesmo que o formulário de conta já dá para o IMAP, do outro lado.
     static func derivaHost(_ host: String) -> String {
+        for (de, para) in prefixos where host.hasPrefix(de) {
+            return para + host.dropFirst(de.count)
+        }
         if host.hasPrefix("imap.") { return "smtp." + host.dropFirst("imap.".count) }
         if host.hasPrefix("mail.") || host.hasPrefix("smtp.") { return host }
         return "smtp." + host

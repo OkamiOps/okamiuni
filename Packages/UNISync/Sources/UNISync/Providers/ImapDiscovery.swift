@@ -16,6 +16,14 @@ public struct ImapSuggestion: Sendable, Hashable {
     public let imap: ImapEndpoint
     /// Onde enviar, quando o autoconfig do provedor disse. `nil` deixa a
     /// derivação de sempre (`SmtpDiscovery`) no comando.
+    ///
+    /// **Ainda não é gravado.** A conta guarda um endpoint só — o de leitura —
+    /// e o de envio é derivado dele a cada carga da fila; guardar este aqui
+    /// pede uma coluna nova e uma migração, que é mudança de banco e não de
+    /// descoberta. Enquanto isso, o que o autoconfig diz serve de conferência:
+    /// `SmtpDiscovery.derivaHost` conhece os mesmos prefixos
+    /// (`imappro.` → `smtppro.`, `imap.` → `smtp.`) e chega no mesmo host para
+    /// todos os provedores da tabela acima.
     public let smtp: SmtpEndpoint?
     /// A marca que vai para `Account.host` e aparece no chip da lateral.
     public let hostMark: String?
