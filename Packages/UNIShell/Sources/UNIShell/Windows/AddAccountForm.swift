@@ -53,10 +53,16 @@ public enum AccountsDocs {
 /// o endereço num campo de 15 com o provedor detectado à direita, e logo
 /// abaixo **os três passos do caminho**, à vista antes do primeiro clique.
 ///
-/// A rota decide o resto: no Google, um botão só e a frase de que a senha
-/// nunca passa pelo OkamiUNI; no IMAP, servidor/porta/senha e a trilha do
-/// teste acontecendo dentro da folha, com "nada fica salvo se falhar" dito no
-/// rodapé e não depois do erro.
+/// **O IMAP é o caminho principal, em toda rota.** Servidor, porta e senha
+/// ficam à vista assim que o endereço vira um endereço, e a trilha do teste
+/// acontece dentro da folha, com "nada fica salvo se falhar" dito no rodapé e
+/// não depois do erro. O protótipo dava ao Google uma folha exclusiva, com um
+/// botão e nada mais: quem tem o domínio no Workspace e não passa pelo
+/// consentimento — ou quem só queria digitar três campos, como sempre fez —
+/// ficava sem saída. Agora o OAuth é **uma opção a mais**: botão de acento em
+/// cima no `gmail.com`, botão secundário com a pergunta "este e-mail usa
+/// Google (Workspace)?" num domínio próprio, e o formulário logo abaixo nos
+/// dois casos.
 ///
 /// O formulário antigo tinha os mesmos campos numa pilha rotulada em
 /// versalete, sem caminho e sem trilha: ele dizia **o que** preencher e nunca
@@ -107,44 +113,40 @@ public struct AddAccountForm: View {
         ProviderDetector.route(for: address)
     }
 
-    /// A pessoa mandou: Gmail por IMAP com senha de app, sem OAuth. Vale só
-    /// para o endereço em que foi pedido — trocar o endereço desfaz a escolha
-    /// (`preenche` zera), senão o clique numa conta contaminaria a próxima.
-    @State private var imapForcadoPara: String?
+    private var route: ProviderRoute? { Self.route(for: address) }
 
-    private var route: ProviderRoute? {
-        let rota = Self.route(for: address)
-        if case .google = rota, imapForcadoPara == address {
-            return .imap(Self.gmailPorImap)
-        }
-        return rota
-    }
-
-    /// O preset que a tabela não tem de propósito (o caminho padrão do Gmail é
-    /// OAuth): só existe para quem escolhe a senha de app explicitamente.
-    static let gmailPorImap = ImapPreset(
-        name: "Gmail (IMAP)", hostMark: "gmail",
-        endpoint: ImapEndpoint(host: "imap.gmail.com", port: 993, security: .tls),
-        domains: []
-    )
-
-    private func forceImapForGoogle() {
-        imapForcadoPara = address
-        host = Self.gmailPorImap.endpoint.host
-        port = "\(Self.gmailPorImap.endpoint.port)"
-        security = .tls
-    }
+    /// O IMAP do Gmail, para a rota do Google abrir o formulário já preenchido.
+    ///
+    /// Ele não está em `ImapPresets` de propósito: a tabela responde "qual é o
+    /// servidor deste domínio?", e para `gmail.com` a resposta continua sendo
+    /// "o Google", com OAuth do lado. O que mudou é que o OAuth deixou de ser
+    /// o **único** caminho — ver `body(of:)`.
+    static let gmailImap = ImapEndpoint(host: "imap.gmail.com", port: 993, security: .tls)
 
     private var isGoogle: Bool {
         if case .google = route { return true }
         return false
     }
 
-    private var isImap: Bool {
-        switch route {
-        case .imap, .manual: true
-        case .google, .none: false
-        }
+    /// Há endereço bom o bastante para abrir os campos do IMAP?
+    ///
+    /// **Toda** rota abre: o IMAP é o caminho principal desta folha, inclusive
+    /// no Gmail. Esconder os campos atrás do OAuth deixava sem saída quem tem
+    /// o domínio no Google e não passa pelo consentimento — e quem só queria
+    /// digitar servidor, endereço e senha, que é como isto sempre funcionou.
+    private var isImap: Bool { route != nil }
+
+    /// A oferta do Google num domínio que não é `gmail.com`.
+    ///
+    /// Um domínio próprio hospedado no Workspace não se distingue de um
+    /// servidor IMAP qualquer sem consultar MX, e o Google recusa senha no
+    /// IMAP de quase toda conta corporativa. Em vez de adivinhar, a folha
+    /// **pergunta**: o formulário IMAP continua na frente e isto é um botão a
+    /// mais. `GoogleAuth` manda `login_hint`, então o consentimento abre já no
+    /// endereço digitado, em qualquer domínio.
+    private var mostraOfertaDoGoogle: Bool {
+        if case .manual = route { return true }
+        return false
     }
 
     public var body: some View {
@@ -165,7 +167,7 @@ public struct AddAccountForm: View {
     /// A frase de apoio do cabeçalho — uma só, e ela muda com a rota, que é o
     /// que o protótipo faz (`subtitulo`).
     private var subtitle: String {
-        if isGoogle { return L10n.tr("Digite o endereço. O caminho aparece aqui embaixo.") }
+        if isGoogle { return L10n.tr("Entre com o Google ou pelo IMAP, como preferir.") }
         if isImap { return L10n.tr("Servidor próprio: três campos e um teste.") }
         return L10n.tr("Digite o endereço. O caminho aparece aqui embaixo.")
     }
@@ -177,6 +179,7 @@ public struct AddAccountForm: View {
             addressField
             AccountPathSteps(steps: pathSteps)
             if isGoogle { googleRoute }
+            if mostraOfertaDoGoogle { ofertaDoGoogle }
             if isImap { imapRoute }
             if let erro = model.lastError { errorLine(erro) }
             if mostraNotaDoEnderecoNumerico { notaDoEnderecoNumerico }
@@ -224,15 +227,13 @@ public struct AddAccountForm: View {
 
     private var providerTint: TokenColor { isGoogle ? theme.modalGreen : theme.ink3 }
 
-    /// Os três passos, pela rota e pelo estado do teste.
+    /// Os três passos do **caminho principal**, que é o IMAP em toda rota.
+    ///
+    /// Não há mais um trio só para o Google: a folha mostra os dois caminhos
+    /// ao mesmo tempo, e uma trilha que falasse de navegador descreveria o
+    /// botão que a pessoa talvez nem use. O que o botão do Google faz está
+    /// escrito embaixo dele, que é onde ele está.
     private var pathSteps: [AccountPathSteps.Step] {
-        if isGoogle {
-            return [
-                .init(id: 1, label: L10n.tr("Autorizar no navegador"), state: .now),
-                .init(id: 2, label: L10n.tr("De volta ao app"), state: .waiting),
-                .init(id: 3, label: L10n.tr("Sincronizando"), state: .waiting),
-            ]
-        }
         let preenchido = isImap && !password.isEmpty && endpoint != nil
         return [
             .init(id: 1, label: L10n.tr("Preencher IMAP"), state: preenchido ? .done : .now),
@@ -247,8 +248,10 @@ public struct AddAccountForm: View {
         ]
     }
 
-    // MARK: - Google: um botão
+    // MARK: - Google: um botão, não um pedágio
 
+    /// O caminho do Google no `gmail.com`: botão de acento em cima, formulário
+    /// IMAP logo abaixo. Os dois valem, e nenhum esconde o outro.
     private var googleRoute: some View {
         VStack(spacing: 16) {
             Button {
@@ -285,7 +288,32 @@ public struct AddAccountForm: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity)
                 .fixedSize(horizontal: false, vertical: true)
+
+            Text(L10n.tr("Ou entre pelo IMAP, com a senha da conta:"))
+                .font(theme.sans.font(size: 12, weight: .semibold))
+                .foregroundStyle(theme.ink3.color)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// A pergunta e o botão, no domínio que a tabela não conhece.
+    ///
+    /// Pergunta e botão separados, e não tudo no rótulo: o rótulo de um botão
+    /// com uma pergunta dentro cresce com a tradução e estoura a largura da
+    /// folha. A pergunta é texto; o botão diz o que ele faz.
+    private var ofertaDoGoogle: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(L10n.tr("Este e-mail usa Google (Workspace)?"))
+                .font(theme.sans.font(size: 12.5))
+                .foregroundStyle(theme.ink3.color)
+                .fixedSize(horizontal: false, vertical: true)
+            ModalSecondaryButton(L10n.tr("Entrar com Google")) {
+                Task { await model.addGoogle(address: address) }
+            }
+            .disabled(model.isBusy)
+            .help(L10n.tr("Abrir o consentimento do Google para \(address)"))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - IMAP: três campos e o teste
@@ -422,27 +450,13 @@ public struct AddAccountForm: View {
     @ViewBuilder
     private var footer: some View {
         HStack(spacing: 12) {
-            if isGoogle {
-                Button { forceImapForGoogle() } label: {
-                    Text(L10n.tr("Usar IMAP com senha de app"))
-                        .font(theme.sans.font(size: 13.5, weight: .medium))
-                        .foregroundStyle(theme.accentInk.color)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .focusRing(cornerRadius: theme.modalButtonRadius)
-                .help("""
-                    Sem registro no Google Cloud: crie uma senha de app em \
-                    myaccount.google.com/apppasswords (exige verificação em \
-                    duas etapas) e conecte como qualquer conta IMAP.
-                    """)
-                Spacer(minLength: 0)
-            } else {
-                Text(L10n.tr("Nada é salvo antes do teste passar."))
-                    .font(theme.sans.font(size: 12.5))
-                    .foregroundStyle(theme.ink3.color)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            // Uma frase só, em toda rota. O atalho "Usar IMAP com senha de
+            // app" que morava aqui sumiu porque não tem mais o que atalhar: o
+            // formulário IMAP está à vista desde o começo.
+            Text(L10n.tr("Nada é salvo antes do teste passar."))
+                .font(theme.sans.font(size: 12.5))
+                .foregroundStyle(theme.ink3.color)
+                .frame(maxWidth: .infinity, alignment: .leading)
             if let onClose {
                 ModalTextButton(L10n.tr("Cancelar"), action: onClose)
                     .keyboardShortcut(.cancelAction)
@@ -500,6 +514,7 @@ public struct AddAccountForm: View {
     /// quando não — nunca vazio, e nunca o id.
     private var marca: String {
         if case .imap(let preset)? = route { return preset.hostMark }
+        if case .google? = route { return "gmail" }
         return ProviderDetector.domain(of: address)?.split(separator: ".").first.map(String.init) ?? "imap"
     }
 
@@ -507,7 +522,6 @@ public struct AddAccountForm: View {
     /// três campos continuam editáveis.
     private func preenche(_ novo: String) {
         testado = nil
-        imapForcadoPara = nil
         let rota = Self.route(for: novo)
         host = Self.host(of: rota)
         port = Self.port(of: rota)
@@ -518,7 +532,8 @@ public struct AddAccountForm: View {
         switch rota {
         case .imap(let preset): preset.endpoint.host
         case .manual(let sugerido): sugerido.host
-        case .google, .none: ""
+        case .google: gmailImap.host
+        case .none: ""
         }
     }
 
@@ -526,7 +541,8 @@ public struct AddAccountForm: View {
         switch rota {
         case .imap(let preset): String(preset.endpoint.port)
         case .manual(let sugerido): String(sugerido.port)
-        case .google, .none: "993"
+        case .google: String(gmailImap.port)
+        case .none: "993"
         }
     }
 
@@ -534,7 +550,8 @@ public struct AddAccountForm: View {
         switch rota {
         case .imap(let preset): preset.endpoint.security
         case .manual(let sugerido): sugerido.security
-        case .google, .none: .tls
+        case .google: gmailImap.security
+        case .none: .tls
         }
     }
 }
