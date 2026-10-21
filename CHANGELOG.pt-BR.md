@@ -4,6 +4,14 @@
 
 Todas as versões seguem o [release no GitHub](https://github.com/OkamiOps/okamiuni/releases). Datas em 2026.
 
+## 0.6.6 — 22 de outubro
+- Adicionar conta pede a senha da conta. Saíram o rótulo "senha de app", o botão "O que é isso?" e o erro que mandava criar uma.
+- Você digita o endereço e o OkamiUNI acha o servidor pelo domínio. Domínio próprio no Zoho já vem com `imappro.zoho.com`; no Google, com `imap.gmail.com`. O servidor continua editável.
+- Se esse servidor recusar o login, o app tenta os vizinhos e mostra a frase que o servidor respondeu. Senha com acento segue pelo método que o servidor aceita.
+- **Entrar com Google** e **Entrar com Zoho** ficam ao lado do formulário quando o endereço é deles. O formulário com senha continua ali, e no Zoho o Google não aparece junto.
+- O envio de domínio próprio no Zoho sai por `smtppro`, o par do `imappro`.
+- Versão do app 0.6.6, build 21. [Notas da versão](docs/releases/v0.6.6.pt-BR.md).
+
 ## 0.6.5 — 15 de outubro
 - Zoom pronto para clientes: o app passa a usar a identificação de produção do OkamiUNI no Zoom. Quem conecta continua só clicando em **Conectar**.
 - Versão do app 0.6.5, build 20. [Notas da versão](docs/releases/v0.6.5.pt-BR.md).

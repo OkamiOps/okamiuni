@@ -4,6 +4,15 @@
 
 Versions correspond to [GitHub releases](https://github.com/OkamiOps/okamiuni/releases). All dates below are in 2026.
 
+## 0.6.6 — October 22
+
+- Adding an account asks for the account password. The "app password" label, the "What is this?" button and the error that told you to create one are gone.
+- Type the address and OkamiUNI finds the mail server from the domain. A custom domain on Zoho comes in as `imappro.zoho.com`; Google Workspace as `imap.gmail.com`. The server stays editable.
+- If that server refuses the login, the app tries the nearby ones and then shows the sentence the server sent back. A password with an accent is sent with the method the server accepts.
+- **Sign in with Google** and **Sign in with Zoho** sit next to the form when the address belongs to them. The password form stays there either way, and a Zoho address does not also offer Google.
+- Mail sent from a custom domain on Zoho goes out through `smtppro`, the pair of `imappro`.
+- App version 0.6.6, build 21. [Release notes](docs/releases/v0.6.6.md).
+
 ## 0.6.5 — October 15
 
 - Zoom ready for everyone: the app now uses OkamiUNI's production Zoom app. Connecting is still a single click on **Connect**.
