@@ -56,6 +56,11 @@ final class FakeSmtpServer: @unchecked Sendable {
     /// depois do ponto sozinho que fecha o `DATA`.
     static let chaveDoCorpo = "CORPO"
 
+    /// A chave do roteiro para a **linha vazia** do SASL — o "desisto" que o
+    /// cliente manda depois de um `334` com o motivo da recusa. Ela não tem
+    /// verbo, e por isso não cabe no casamento por primeira palavra.
+    static let chaveDaLinhaVazia = "SASL CONTINUA"
+
     private let group: MultiThreadedEventLoopGroup
     private var channel: (any Channel)?
     private let script: Script
@@ -194,6 +199,18 @@ final class FakeSmtpServer: @unchecked Sendable {
             // o `DATA` — que é exatamente o defeito que ninguém vê.
             registrar(linha)
             guard !linha.isEmpty else {
+                // A linha vazia com que o cliente desiste de um `AUTH
+                // XOAUTH2`: o servidor mandou `334 <json>` e está esperando
+                // por ela para fechar com `535`. Só vale quando o roteiro a
+                // encena **e** há um `334` em aberto; sem isso, a resposta
+                // continua sendo o `500` de sempre, e nenhum teste antigo
+                // muda de caminho.
+                if esperandoCredencial,
+                   script.replies[FakeSmtpServer.chaveDaLinhaVazia] != nil
+                    || script.rounds[FakeSmtpServer.chaveDaLinhaVazia] != nil {
+                    responde(context, chave: FakeSmtpServer.chaveDaLinhaVazia)
+                    return
+                }
                 escreve(context, "500 5.5.2 linha vazia não é comando")
                 return
             }

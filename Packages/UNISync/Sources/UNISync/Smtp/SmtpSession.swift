@@ -210,6 +210,30 @@ public actor SmtpSession {
         guard fim.code == 235 else { throw SmtpWire.erro(fim) }
     }
 
+    /// Autentica com um access token OAuth, pelo mecanismo `XOAUTH2`.
+    ///
+    /// **A lista de mecanismos não é porteiro aqui**, ao contrário do `login`
+    /// acima: o `AUTH=XOAUTH2` nem sempre aparece no EHLO de submissão do
+    /// Zoho, e recusar antes de tentar deixaria a pessoa sem envio por causa
+    /// de uma linha que o servidor não anunciou. O custo de tentar é uma
+    /// viagem; o custo de recusar é a caixa não mandar e-mail.
+    ///
+    /// O `334` é a recusa com motivo: o servidor devolve um JSON em base64
+    /// descrevendo o erro e **espera uma linha vazia** antes de fechar com
+    /// `535`. Mandá-la é o que transforma a espera num erro de autenticação
+    /// honesto; não mandá-la deixa a conexão pendurada até o teto.
+    public func loginXOAuth2(user: String, accessToken: String) async throws {
+        let resposta = try await manda(
+            SmtpWire.authXOAuth2(user: user, accessToken: accessToken)
+        )
+        if resposta.code == 235 { return }
+        guard resposta.code == 334 else { throw SmtpWire.erro(resposta) }
+        let fim = try await manda("")
+        // O que vier depois da linha vazia é a recusa de verdade; `535` é o
+        // caso normal e `SmtpWire.erro` já o traduz em `.autenticacao`.
+        throw SmtpWire.erro(fim)
+    }
+
     /// O envelope e o corpo: `MAIL FROM`, um `RCPT TO` por destinatário,
     /// `DATA`.
     ///

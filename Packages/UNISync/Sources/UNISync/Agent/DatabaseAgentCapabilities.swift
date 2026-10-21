@@ -151,6 +151,13 @@ public actor DatabaseAgentAttachmentReader: AgentAttachmentReading {
 public actor DatabaseAgentMailSearch: AgentMailSearching {
     private let database: SyncDatabase
     private let auth: GoogleAuth?
+    /// Quem escolhe entre `LOGIN` e `AUTHENTICATE XOAUTH2` ao abrir sessão.
+    ///
+    /// O `ZohoMailAuth` do parâmetro entra **nele** e não fica guardado aqui:
+    /// a única coisa que este tipo faz com o Zoho é autenticar, e guardar uma
+    /// segunda referência convidaria o próximo caminho a falar com o OAuth
+    /// por fora da regra que mora no autenticador.
+    private let autenticador: MailboxAuthenticator
     private let session: URLSession
     private let gmailBaseURL: URL
     private let gmailAccessToken: (@Sendable (String) async throws -> String)?
@@ -162,6 +169,7 @@ public actor DatabaseAgentMailSearch: AgentMailSearching {
         database: SyncDatabase,
         secrets: any SecretStore,
         auth: GoogleAuth?,
+        zoho: ZohoMailAuth? = nil,
         session: URLSession = .shared,
         gmailBaseURL: URL = URL(string: "https://gmail.googleapis.com/gmail/v1/users/me")!,
         eventLoopGroup: any EventLoopGroup,
@@ -172,6 +180,7 @@ public actor DatabaseAgentMailSearch: AgentMailSearching {
         self.database = database
         self.secrets = secrets
         self.auth = auth
+        self.autenticador = MailboxAuthenticator(secrets: secrets, zoho: zoho)
         self.session = session
         self.gmailBaseURL = gmailBaseURL
         self.eventLoopGroup = eventLoopGroup
@@ -266,12 +275,10 @@ public actor DatabaseAgentMailSearch: AgentMailSearching {
         guard let endpoint = account.imap else {
             throw SyncError.resposta("A conta não informou servidor IMAP.")
         }
-        guard case .password(let password)? = try secrets.secret(for: account.id) else {
-            throw SyncError.autenticacao
-        }
+        _ = try autenticador.forma(for: account.id)
         let imap = try await imapConnect(endpoint, eventLoopGroup)
         do {
-            try await imap.login(user: account.address, password: password)
+            try await autenticador.login(imap, accountID: account.id, address: account.address)
             let folders = try await database.pool.read { db in
                 try FolderRecord
                     .filter(Column("accountID") == account.id)

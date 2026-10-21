@@ -17,6 +17,12 @@ public actor AccountDirector {
     /// construção**: o app continua inteiro pela rota IMAP, e a rota Google
     /// explica o que falta.
     private let auth: GoogleAuth?
+    /// Nulo quando o build não trouxe as credenciais do Zoho — e nesse caso o
+    /// botão "Entrar com Zoho" nem aparece no formulário. Pela mesma lógica de
+    /// `auth`: metade de uma credencial só produziria um erro do servidor.
+    private let zoho: ZohoMailAuth?
+    /// Quem decide entre `LOGIN` e `AUTHENTICATE XOAUTH2` ao abrir uma sessão.
+    private let autenticador: MailboxAuthenticator
     private let session: URLSession
     private let gmailBaseURL: URL
     private let eventLoopGroup: any EventLoopGroup
@@ -55,6 +61,7 @@ public actor AccountDirector {
         database: SyncDatabase,
         secrets: any SecretStore,
         auth: GoogleAuth?,
+        zoho: ZohoMailAuth? = nil,
         session: URLSession,
         gmailBaseURL: URL = URL(string: "https://gmail.googleapis.com/gmail/v1/users/me")!,
         eventLoopGroup: any EventLoopGroup,
@@ -65,6 +72,8 @@ public actor AccountDirector {
         self.database = database
         self.secrets = secrets
         self.auth = auth
+        self.zoho = zoho
+        self.autenticador = MailboxAuthenticator(secrets: secrets, zoho: zoho)
         self.session = session
         self.gmailBaseURL = gmailBaseURL
         self.eventLoopGroup = eventLoopGroup
@@ -394,6 +403,118 @@ public actor AccountDirector {
         }
     }
 
+    /// Esta montagem sabe conectar uma caixa Zoho pelo navegador?
+    ///
+    /// A janela pergunta **antes** de desenhar o botão: um "Entrar com Zoho"
+    /// que só pode responder "este build não tem as credenciais" é um botão
+    /// que existe para dar erro.
+    public nonisolated var canAddZoho: Bool { zoho != nil }
+
+    /// Conecta uma caixa Zoho pelo login no navegador. Nenhuma senha.
+    ///
+    /// ## A ordem, e por que ela é esta
+    ///
+    /// 1. **Consentimento**, que devolve os tokens e o data center — e não os
+    ///    guarda. Guardar antes de saber de quem são penduraria a credencial
+    ///    de uma pessoa no id de outra; é a lição que `reconnectGoogle`
+    ///    registrou e que vale igual aqui.
+    /// 2. **Quem é**: `GET /api/accounts` no data center devolve o endereço de
+    ///    verdade. O que a pessoa digitou no campo é palpite para o
+    ///    `login_id`, nada mais — quem entrou com outra conta no navegador
+    ///    entra com a conta em que entrou.
+    /// 3. **Onde**: os dois IMAP candidatos (`imappro` e `imap`), na ordem
+    ///    mais provável para o domínio. O Zoho não publica o plano da
+    ///    organização, que é o que decidiria sozinho — ver
+    ///    `ZohoMailEndpoints`. Tentar é a única resposta honesta, e é barato:
+    ///    uma conexão que falha na autenticação.
+    /// 4. **Gravar**: o token no Keychain e a conta no banco, nessa ordem —
+    ///    uma conta no banco sem credencial nasceria em erro de autenticação
+    ///    sem a pessoa ter feito nada.
+    ///
+    /// ## Isto também é o "reconectar" do Zoho
+    ///
+    /// Não há `reconnectZoho` separado, e não é esquecimento: `grava` já trata
+    /// a re-adição de uma conta que existe como **atualização** — ela troca a
+    /// credencial e preserva estado, carimbo de sincronização, cor,
+    /// assinatura e as mensagens. Entrar de novo pelo mesmo botão é, portanto,
+    /// a reconexão inteira, e com a conferência de identidade que o caminho do
+    /// Google precisou de um rascunho para ter: aqui o id **nasce** do
+    /// endereço que a API devolveu, então entrar com outra conta cria outra
+    /// linha em vez de sobrescrever a primeira.
+    @discardableResult
+    public func addZohoAccount(address: String) async throws -> Account {
+        guard let zoho else { throw SyncError.semClientID }
+
+        // Note que não há `catch` guardando o erro em `errors[id]`, como no
+        // `addGoogleAccount`: aqui o id só existe depois do consentimento e
+        // da conferência, e **a conta ainda não está na lista**. Não há linha
+        // a que pendurar o erro; quem o mostra é o `lastError` da janela, que
+        // o recebe pelo `throw`.
+        let consentimento = try await zoho.connect(loginHint: address.nonEmptyValue)
+        guard let base = ZohoMailEndpoints.apiBase(
+            accountsServer: consentimento.accountsServer
+        ) else {
+            throw SyncError.resposta(
+                L10n.tr("O Zoho voltou de um data center que não conhecemos: \(consentimento.accountsServer)")
+            )
+        }
+        let conta = try await ZohoMailAccountsClient(
+            session: session, apiBase: base,
+            accessToken: consentimento.tokens.accessToken
+        ).primary()
+
+        let id = Self.accountID(for: conta.address)
+        let candidatos = ZohoMailEndpoints.candidates(
+            accountsServer: consentimento.accountsServer, address: conta.address
+        )
+        guard !candidatos.isEmpty else {
+            throw SyncError.resposta(
+                L10n.tr("Não foi possível descobrir o servidor IMAP desta caixa Zoho.")
+            )
+        }
+        // O segredo entra **antes** do teste porque é ele que o teste usa: o
+        // `MailboxAuthenticator` lê o cofre, e não um token solto. Um teste
+        // que falhe deixa o segredo guardado para o id — que é o mesmo estado
+        // de uma re-adição, e a próxima tentativa o sobrescreve.
+        try secrets.store(.oauth(consentimento.tokens), for: id)
+        let endpoint = try await primeiroQueAutentica(
+            candidatos, accountID: id, address: conta.address
+        )
+        let gravada = try await grava(
+            id: id, address: conta.address, displayName: conta.displayName,
+            provider: .imap, hostMark: "zoho", endpoint: endpoint
+        )
+        errors[id] = nil
+        await refresh()
+        return gravada
+    }
+
+    /// O primeiro candidato que o servidor aceita. O erro que sobe é o do
+    /// **último** — o primeiro quase sempre é "credencial recusada" por ser o
+    /// host errado, e relatá-lo mandaria a pessoa trocar uma senha que não
+    /// existe.
+    private func primeiroQueAutentica(
+        _ candidatos: [ImapEndpoint], accountID: String, address: String
+    ) async throws -> ImapEndpoint {
+        var ultimo: (any Error)?
+        for endpoint in candidatos {
+            do {
+                let sessao = try await imapConnect(endpoint, eventLoopGroup)
+                do {
+                    try await autenticador.login(sessao, accountID: accountID, address: address)
+                    await sessao.logout()
+                    return endpoint
+                } catch {
+                    await sessao.logout()
+                    throw error
+                }
+            } catch {
+                ultimo = error
+            }
+        }
+        throw ultimo ?? SyncError.autenticacao
+    }
+
     /// Só testa: conecta, autentica, sai. Não grava nada.
     ///
     /// Separado de `addImapAccount` porque a janela promete "Testar e
@@ -703,6 +824,14 @@ public actor AccountDirector {
                 log.error("Revogação de \(accountID, privacy: .private) falhou: \(erro.mensagem)")
             }
         }
+        // A caixa Zoho conectada pelo navegador também avisa o provedor. O
+        // `revoke` dela já apaga o segredo no fim, e apagar duas vezes é o
+        // mesmo estado — `SecretStore.remove` não lança sobre o que não
+        // existe, por contrato.
+        if let zoho, case .oauth(let tokens)? = try? secrets.secret(for: accountID),
+           tokens.isZohoMail {
+            try? await zoho.revoke(accountID: accountID)
+        }
         // O segredo sai **antes** da linha, e a ordem é escolhida: as duas
         // escritas não estão na mesma transação (uma é o Keychain, a outra é
         // SQLite), então uma delas vai ser a que falha sozinha. Falhar aqui
@@ -799,12 +928,14 @@ public actor AccountDirector {
                 guard let endpoint = conta.imap else {
                     throw SyncError.resposta("A conta não tem servidor IMAP configurado.")
                 }
-                guard case .password(let senha)? = try secrets.secret(for: accountID) else {
-                    throw SyncError.autenticacao
-                }
+                // A pergunta vem **antes** do socket, como sempre veio: sem
+                // credencial no cofre, abrir conexão é trabalho jogado fora.
+                _ = try autenticador.forma(for: accountID)
                 let sessao = try await imapConnect(endpoint, eventLoopGroup)
                 defer { Task { await sessao.logout() } }
-                try await sessao.login(user: conta.address, password: senha)
+                try await autenticador.login(
+                    sessao, accountID: accountID, address: conta.address
+                )
                 try await loader.loadImap(
                     account: conta, session: sessao, now: now(), progress: publica
                 )

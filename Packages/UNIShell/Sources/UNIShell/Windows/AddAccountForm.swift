@@ -177,6 +177,7 @@ public struct AddAccountForm: View {
             addressField
             AccountPathSteps(steps: pathSteps)
             if isGoogle { googleRoute }
+            ZohoSignInButton(model: model, address: address, host: host)
             if isImap { imapRoute }
             if let erro = model.lastError { errorLine(erro) }
             if mostraNotaDoEnderecoNumerico { notaDoEnderecoNumerico }
