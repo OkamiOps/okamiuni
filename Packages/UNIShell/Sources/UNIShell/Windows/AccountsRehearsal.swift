@@ -55,7 +55,10 @@ public struct AccountsRehearsal: Sendable {
     /// de propósito: é o que faz a rota cair no formulário IMAP, que é a rota
     /// que este ensaio percorre até o fim.
     public static let endereco = "contato@meusite.com"
-    public static let senha = "senha-de-app"
+    /// A senha que o ensaio digita. Senha **da conta**, como o formulário
+    /// agora pede: ele deixou de mandar criar uma "senha de app" que a
+    /// maioria das contas não tem.
+    public static let senha = "senha-da-conta"
     /// O endereço da rota Google — a que só vai até a mensagem do client ID.
     public static let enderecoGoogle = "ricardo@gmail.com"
 
@@ -411,7 +414,7 @@ private final class AccountsDriver {
             afirma(false, "a rota IMAP não abriu os quatro campos (vi \(campos.count))")
             return
         }
-        await preenche(campos[1], com: AccountsRehearsal.senha, oque: "senha de app")
+        await preenche(campos[1], com: AccountsRehearsal.senha, oque: "senha")
         await escolheSTARTTLS(aoLadoDe: campos[3])
         // 143 é o que o `pick` do STARTTLS escreve na porta, e mais nada o
         // escreve. Ler isto é a prova de que a linha certa do menu foi clicada

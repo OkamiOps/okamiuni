@@ -270,7 +270,7 @@ struct AccountDirectorTests {
         #expect(try cofre.secret(for: AccountDirector.accountID(for: "contato@meusite.com")) == nil)
     }
 
-    @Test("Testar IMAP com senha errada devolve `autenticacao`, não uma frase genérica")
+    @Test("Testar IMAP com senha errada devolve a recusa do servidor, não uma frase genérica")
     func testarImapSenhaErrada() async throws {
         var script = roteiroImap()
         script.replies["LOGIN"] = ["TAG NO [AUTHENTICATIONFAILED] Invalid credentials"]
@@ -284,12 +284,83 @@ struct AccountDirectorTests {
             db: try SyncDatabase.temporary(), secrets: InMemorySecretStore(),
             grupo: grupo, porta: porta
         )
-        await #expect(throws: SyncError.autenticacao) {
+        await #expect(
+            throws: SyncError.loginRecusado(resposta: "[AUTHENTICATIONFAILED] Invalid credentials")
+        ) {
             try await director.testImap(
                 address: "contato@meusite.com", password: "errada",
                 endpoint: self.endpoint(porta)
             )
         }
+    }
+
+    @Test("Host recusado tenta o vizinho conhecido — e é o que passou que fica gravado")
+    func tentaOVizinhoEGravaOQuePassou() async throws {
+        // O caso real: `imap.zoho.com` é o host das contas pessoais, existe,
+        // atende na 993 e **recusa** a conta de domínio próprio, que lê em
+        // `imappro.zoho.com`. Para quem está na frente da tela isso é igual a
+        // senha errada.
+        let servidor = FakeImapServer(script: roteiroImap())
+        let porta = try servidor.start()
+        defer { servidor.stop() }
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+
+        let tentados = Hosts()
+        let db = try SyncDatabase.temporary()
+        let cofre = InMemorySecretStore()
+        let director = diretor(db: db, secrets: cofre, grupo: grupo, porta: porta) { alvo, grupo in
+            tentados.anota(alvo.host)
+            guard alvo.host != "imap.zoho.com" else {
+                throw SyncError.loginRecusado(resposta: "[AUTHENTICATIONFAILED] Invalid credentials")
+            }
+            // O servidor falso atende em loopback; o que este teste encena é
+            // a **escolha do host**, não a rede até ele.
+            return try await ImapSession.connect(
+                endpoint: ImapEndpoint(host: "127.0.0.1", port: porta, security: .startTLS),
+                group: grupo, allowInsecure: true, teto: .seconds(5)
+            )
+        }
+
+        let digitado = ImapEndpoint(host: "imap.zoho.com", port: 993, security: .tls)
+        let conta = try await director.addImapAccount(
+            address: "financeiro@meusite.com.br", password: "boa",
+            endpoint: digitado, hostMark: "zoho", displayName: "Site"
+        )
+
+        #expect(tentados.lista == ["imap.zoho.com", "imappro.zoho.com"])
+        // Gravar o host digitado faria a primeira sincronização falhar na
+        // mesma recusa que o teste acabou de contornar.
+        #expect(conta.imap?.host == "imappro.zoho.com")
+        let gravada = try await db.pool.read { try AccountRecord.fetchOne($0, key: conta.id) }
+        #expect(gravada?.account.imap?.host == "imappro.zoho.com")
+    }
+
+    @Test("Sem vizinho que aceite, sobe o erro do host que a pessoa digitou")
+    func erroDoHostDigitado() async throws {
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+        let tentados = Hosts()
+        let director = diretor(
+            db: try SyncDatabase.temporary(), secrets: InMemorySecretStore(),
+            grupo: grupo, porta: 1
+        ) { alvo, _ in
+            tentados.anota(alvo.host)
+            throw alvo.host == "imap.meusite.com.br"
+                ? SyncError.loginRecusado(resposta: "Invalid credentials")
+                : SyncError.rede("não foi possível falar com \(alvo.host)")
+        }
+
+        // O erro que vale contar é o do host digitado: "não foi possível falar
+        // com mail.meusite.com.br" diria respeito a um servidor que a pessoa
+        // nunca mencionou.
+        await #expect(throws: SyncError.loginRecusado(resposta: "Invalid credentials")) {
+            try await director.testImap(
+                address: "financeiro@meusite.com.br", password: "boa",
+                endpoint: ImapEndpoint(host: "imap.meusite.com.br", port: 993, security: .tls)
+            )
+        }
+        #expect(tentados.lista.count == 3)
     }
 
     @Test("Adicionar IMAP grava a conta no banco e a senha no cofre — e a senha não vai para o banco")
@@ -994,4 +1065,16 @@ private final class CofreQueRecusaApagar: SecretStore, @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         guardados[accountID] = nil
     }
+}
+
+/// Os hosts que o teste de conexão pediu, na ordem.
+///
+/// Ordem importa: o host que a pessoa digitou tem de ser o **primeiro** — um
+/// formulário que fosse ao palpite nosso antes do que ela escreveu estaria
+/// corrigindo quem não pediu para ser corrigido.
+private final class Hosts: @unchecked Sendable {
+    private let lock = NSLock()
+    private var hosts: [String] = []
+    func anota(_ host: String) { lock.lock(); hosts.append(host); lock.unlock() }
+    var lista: [String] { lock.lock(); defer { lock.unlock() }; return hosts }
 }

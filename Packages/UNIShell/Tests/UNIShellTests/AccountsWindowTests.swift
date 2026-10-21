@@ -667,6 +667,74 @@ struct AccountsWindowTests {
         )
     }
 
+    /// O OAuth deixou de ser pedágio.
+    ///
+    /// A folha antiga dava ao `gmail.com` um botão e **nada mais**: quem não
+    /// passa pelo consentimento — conta de trabalho com o app bloqueado, ou
+    /// quem simplesmente quer digitar três campos — ficava sem saída. O
+    /// formulário IMAP agora abre em toda rota, e isto mede exatamente isso:
+    /// a área de caixa de campo na rota Google tem de ser a mesma de uma rota
+    /// IMAP qualquer, porque são os mesmos quatro campos.
+    ///
+    /// MUTAÇÃO QUE ISTO PEGA: voltar `isImap` a excluir `.google` zera a
+    /// diferença para o desenho vazio.
+    @Test("A rota do Google abre os campos de IMAP, como qualquer outra")
+    func googleTambemAbreOIMAP() throws {
+        let tema = try #require(Theme.named("papel"))
+        let modelo = AccountsModel(director: try Self.diretorDeTeste())
+        let medida = CGSize(width: Theme.ModalWidth.accountSheet, height: 820)
+
+        func caixas(_ endereco: String) throws -> Int {
+            let desenho = try #require(Render.bitmap(
+                AddAccountForm(
+                    model: modelo, initialAddress: endereco, descobre: { _ in nil }
+                ),
+                size: medida, theme: tema
+            ))
+            return desenho.pixels(matching: tema.modalField)
+        }
+
+        let vazio = try caixas("")
+        let google = try caixas("ricardo@gmail.com")
+        let icloud = try caixas("eu@icloud.com")
+
+        #expect(google > vazio * 2, "a rota Google não abriu campo nenhum: \(vazio) contra \(google)")
+        // Os mesmos quatro campos dos dois lados — endereço, servidor, porta e
+        // senha. A folga cobre a diferença de altura do botão de acento, que
+        // empurra o resto para baixo mas não muda a área das caixas.
+        #expect(
+            abs(google - icloud) < icloud / 4,
+            "a rota Google não abriu os mesmos campos da IMAP: \(google) contra \(icloud)"
+        )
+    }
+
+    /// Domínio próprio hospedado no Workspace não se distingue de um servidor
+    /// qualquer sem consultar MX. Em vez de adivinhar, a folha pergunta — e a
+    /// pergunta é um **botão**, com borda, não um link de texto perdido.
+    @Test("Domínio que a tabela não conhece ganha o botão de entrar com Google")
+    func dominioProprioGanhaAOfertaDoGoogle() throws {
+        let tema = try #require(Theme.named("papel"))
+        let modelo = AccountsModel(director: try Self.diretorDeTeste())
+        let medida = CGSize(width: Theme.ModalWidth.accountSheet, height: 820)
+
+        func botaoSecundario(_ endereco: String) throws -> Int {
+            let desenho = try #require(Render.bitmap(
+                AddAccountForm(
+                    model: modelo, initialAddress: endereco, descobre: { _ in nil }
+                ),
+                size: medida, theme: tema
+            ))
+            return desenho.pixels(matching: tema.modalButton)
+        }
+
+        // `icloud.com` está na tabela: ali o provedor é conhecido e a pergunta
+        // seria ruído. O domínio próprio é o caso em que ela vale.
+        #expect(
+            try botaoSecundario("financeiro@dominio-proprio.com.br") > botaoSecundario("eu@icloud.com"),
+            "o botão de entrar com Google não apareceu no domínio próprio"
+        )
+    }
+
     @Test("Host em endereço numérico ganha a nota visível; nome de servidor não")
     func notaDoEnderecoNumerico() throws {
         // Conectar por IP continua permitido — servidor interno acessível só

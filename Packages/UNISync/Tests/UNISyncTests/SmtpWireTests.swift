@@ -136,6 +136,16 @@ struct SmtpWireTests {
         #expect(destino("imap.hostinger.com")?.host == "smtp.hostinger.com")
         // A exceção que a troca de prefixo não pega.
         #expect(destino("outlook.office365.com")?.host == "smtp.office365.com")
+        // Zoho de domínio próprio: lê em `imappro`, envia por `smtppro`. A
+        // derivação de sempre daria `smtp.imappro.zoho.com`, que não existe —
+        // a caixa entrava, sincronizava e nenhuma mensagem saía. Por prefixo,
+        // e não host a host, porque há um data center por região.
+        #expect(destino("imappro.zoho.com")?.host == "smtppro.zoho.com")
+        #expect(destino("imappro.zoho.eu")?.host == "smtppro.zoho.eu")
+        #expect(destino("imappro.zoho.com.au")?.host == "smtppro.zoho.com.au")
+        // A conta pessoal do Zoho continua na regra geral.
+        #expect(destino("imap.zoho.com")?.host == "smtp.zoho.com")
+        #expect(destino("imap.titan.email")?.host == "smtp.titan.email")
         // Host genérico que serve as duas pontas fica como está — um
         // `smtp.mail.…` não existiria.
         #expect(destino("mail.meudominio.com.br")?.host == "mail.meudominio.com.br")

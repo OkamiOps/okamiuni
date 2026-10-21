@@ -59,6 +59,33 @@ struct ImapSessionTests {
         #expect(ImapWire.tag(42) == "A0042")
     }
 
+    @Test("O SASL PLAIN leva `\\0usuário\\0senha` em base64, e em UTF-8")
+    func saslPlain() {
+        // RFC 4616: o primeiro campo (identidade de autorização) vai vazio —
+        // é o "sou eu mesmo" que todo cliente de correio manda.
+        #expect(ImapWire.saslPlain(user: "eu@x.com", password: "abc")
+            == Data("\u{0}eu@x.com\u{0}abc".utf8).base64EncodedString())
+        #expect(ImapWire.authenticatePlain(tag: "A001", user: "eu@x.com", password: "abc")
+            == "A001 AUTHENTICATE PLAIN AGV1QHguY29tAGFiYw==")
+        // Em UTF-8, e não em ASCII: a senha com acento é justamente a que o
+        // `LOGIN` não sabe carregar.
+        let comAcento = ImapWire.saslPlain(user: "eu@x.com", password: "açaí")
+        #expect(Data(base64Encoded: comAcento).map { String(decoding: $0, as: UTF8.self) }
+            == "\u{0}eu@x.com\u{0}açaí")
+    }
+
+    @Test("Só `LOGINDISABLED` e `PRIVACYREQUIRED` pedem a segunda tentativa por SASL")
+    func quandoVaiDeSASL() {
+        #expect(ImapSession.pedeSASL(.loginRecusado(resposta: "[LOGINDISABLED] use TLS")))
+        #expect(ImapSession.pedeSASL(.resposta("[PRIVACYREQUIRED] ...")))
+        // "Disabled" solto **não** entra: "Remote IMAP access is disabled for
+        // this account" é a conta sem IMAP, e repetir a credencial por outro
+        // comando só gastaria mais uma ida ao servidor.
+        #expect(!ImapSession.pedeSASL(.loginRecusado(resposta: "Remote IMAP access is disabled")))
+        #expect(!ImapSession.pedeSASL(.autenticacao))
+        #expect(!ImapSession.pedeSASL(.rede("sem rota")))
+    }
+
     @Test("Os comandos que esta tarefa manda saem literais")
     func comandosLiterais() {
         #expect(ImapWire.list(tag: "A002") == "A002 LIST \"\" \"*\"")
@@ -97,7 +124,56 @@ struct ImapSessionTests {
         #expect(servidor.commands.contains { $0.hasSuffix("LOGOUT") })
     }
 
-    @Test("Login recusado vira `autenticacao`, e não um erro genérico")
+    @Test("`LOGINDISABLED` não é parede: a sessão repete por AUTHENTICATE PLAIN")
+    func loginDesligadoCaiNoSASL() async throws {
+        let servidor = FakeImapServer(script: .init(replies: [
+            "LOGIN": ["TAG NO [LOGINDISABLED] plaintext login is disabled"],
+            "AUTHENTICATE": ["TAG OK authenticated"],
+            "LOGOUT": ["TAG OK LOGOUT completed"],
+        ]))
+        let porta = try servidor.start()
+        defer { servidor.stop() }
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+
+        let sessao = try await ImapSession.connect(
+            endpoint: endpoint(porta: porta), group: grupo, allowInsecure: true, teto: .seconds(5)
+        )
+        try await sessao.login(user: "eu@x.com", password: "boa")
+        await sessao.logout()
+
+        // Tentou o caminho de sempre primeiro, e só então o outro: perguntar
+        // `CAPABILITY` antes custaria uma ida e volta em toda conexão de toda
+        // conta para mudar de caminho em quase nenhuma.
+        #expect(servidor.commands.contains { $0.contains("LOGIN \"eu@x.com\"") })
+        #expect(servidor.commands.contains { $0.contains("AUTHENTICATE PLAIN ") })
+    }
+
+    @Test("Senha com acento vai direto de SASL, sem gastar um LOGIN que seria recusado")
+    func senhaComAcentoNaoPassaPeloLogin() async throws {
+        let servidor = FakeImapServer(script: .init(replies: [
+            "AUTHENTICATE": ["TAG OK authenticated"],
+            "LOGOUT": ["TAG OK LOGOUT completed"],
+        ]))
+        let porta = try servidor.start()
+        defer { servidor.stop() }
+        let grupo = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { encerra(grupo) }
+
+        let sessao = try await ImapSession.connect(
+            endpoint: endpoint(porta: porta), group: grupo, allowInsecure: true, teto: .seconds(5)
+        )
+        // No `LOGIN` a senha é uma `astring`, e fora do ASCII só é legal com
+        // `UTF8=ACCEPT` (RFC 6855) — na prática volta recusada, e uma senha
+        // boa reprovada por um "ç" é indistinguível de uma senha errada.
+        try await sessao.login(user: "eu@x.com", password: "açaí-2026")
+        await sessao.logout()
+
+        #expect(!servidor.commands.contains { $0.contains(" LOGIN ") })
+        #expect(servidor.commands.contains { $0.contains("AUTHENTICATE PLAIN ") })
+    }
+
+    @Test("Login recusado chega com a frase do servidor, e não com uma genérica")
     func loginRecusado() async throws {
         let servidor = FakeImapServer(script: .init(replies: [
             "LOGIN": ["TAG NO [AUTHENTICATIONFAILED] Invalid credentials"],
@@ -112,7 +188,13 @@ struct ImapSessionTests {
         let sessao = try await ImapSession.connect(
             endpoint: endpoint(porta: porta), group: grupo, allowInsecure: true, teto: .seconds(5)
         )
-        await #expect(throws: SyncError.autenticacao) {
+        // A frase do servidor **é** a informação: "[AUTHENTICATIONFAILED]
+        // Invalid credentials" e "Remote IMAP access is disabled for this
+        // account" pedem coisas opostas de quem está na frente da tela, e
+        // durante toda a vida desta sessão as duas saíam iguais.
+        await #expect(
+            throws: SyncError.loginRecusado(resposta: "[AUTHENTICATIONFAILED] Invalid credentials")
+        ) {
             try await sessao.login(user: "eu@x.com", password: "errada")
         }
         await sessao.logout()

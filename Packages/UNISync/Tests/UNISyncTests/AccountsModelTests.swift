@@ -228,7 +228,8 @@ struct AccountsModelTests {
         #expect(await modelo.testImap(
             address: "contato@meusite.com", password: "errada", endpoint: endpoint(porta)
         ) == false)
-        #expect(await modelo.lastError == .autenticacao)
+        #expect(await modelo.lastError
+            == .loginRecusado(resposta: "[AUTHENTICATIONFAILED] Invalid credentials"))
         #expect(await modelo.isBusy == false)
     }
 
