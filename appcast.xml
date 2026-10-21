@@ -6,6 +6,16 @@
     <description>Atualizações do OkamiUNI</description>
     <language>pt-BR</language>
     <item>
+      <title>Version 0.6.6</title>
+      <pubDate>Wed, 21 Oct 2026 23:54:41 GMT</pubDate>
+      <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.6.6</sparkle:fullReleaseNotesLink>
+      <sparkle:version>21</sparkle:version>
+      <sparkle:shortVersionString>0.6.6</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<ul lang="pt-BR"><li>Adicionar conta pede a senha da conta. Saíram o rótulo "senha de app", o botão "O que é isso?" e o erro que mandava criar uma.</li><li>Você digita o endereço e o OkamiUNI acha o servidor pelo domínio. Domínio próprio no Zoho já vem com <code>imappro.zoho.com</code>; no Google, com <code>imap.gmail.com</code>. O servidor continua editável.</li><li>Se esse servidor recusar o login, o app tenta os vizinhos e mostra a frase que o servidor respondeu. Senha com acento segue pelo método que o servidor aceita.</li><li><strong>Entrar com Google</strong> e <strong>Entrar com Zoho</strong> ficam ao lado do formulário quando o endereço é deles. O formulário com senha continua ali, e no Zoho o Google não aparece junto.</li><li>O envio de domínio próprio no Zoho sai por <code>smtppro</code>, o par do <code>imappro</code>.</li><li>Versão do app 0.6.6, build 21. <a href="docs/releases/v0.6.6.pt-BR.md">Notas da versão</a>.</li></ul><ul lang="en"><li>Adding an account asks for the account password. The "app password" label, the "What is this?" button and the error that told you to create one are gone.</li><li>Type the address and OkamiUNI finds the mail server from the domain. A custom domain on Zoho comes in as <code>imappro.zoho.com</code>; Google Workspace as <code>imap.gmail.com</code>. The server stays editable.</li><li>If that server refuses the login, the app tries the nearby ones and then shows the sentence the server sent back. A password with an accent is sent with the method the server accepts.</li><li><strong>Sign in with Google</strong> and <strong>Sign in with Zoho</strong> sit next to the form when the address belongs to them. The password form stays there either way, and a Zoho address does not also offer Google.</li><li>Mail sent from a custom domain on Zoho goes out through <code>smtppro</code>, the pair of <code>imappro</code>.</li><li>App version 0.6.6, build 21. <a href="docs/releases/v0.6.6.md">Release notes</a>.</li></ul>]]></description>
+      <enclosure url="https://github.com/OkamiOps/okamiuni/releases/download/v0.6.6/OkamiUNI-0.6.6.zip" length="38145238" type="application/octet-stream" sparkle:edSignature="tA8P5dIZOn71Yj82noyyoqIqwSLMWnrjBr9oItZ8oWQMa2WCErAF78WZZQHEIDk+3uJ15P6fOEChbfrHkB/wBA==" />
+    </item>
+    <item>
       <title>Version 0.6.5</title>
       <pubDate>Thu, 15 Oct 2026 18:44:13 GMT</pubDate>
       <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.6.5</sparkle:fullReleaseNotesLink>
@@ -15,7 +25,7 @@
       <description><![CDATA[<ul lang="pt-BR"><li>Zoom pronto para clientes: o app passa a usar a identificação de produção do OkamiUNI no Zoom. Quem conecta continua só clicando em <strong>Conectar</strong>.</li><li>Versão do app 0.6.5, build 20. <a href="docs/releases/v0.6.5.pt-BR.md">Notas da versão</a>.</li></ul><ul lang="en"><li>Zoom ready for everyone: the app now uses OkamiUNI's production Zoom app. Connecting is still a single click on <strong>Connect</strong>.</li><li>App version 0.6.5, build 20. <a href="docs/releases/v0.6.5.md">Release notes</a>.</li></ul>]]></description>
       <enclosure url="https://github.com/OkamiOps/okamiuni/releases/download/v0.6.5/OkamiUNI-0.6.5.zip" length="37882405" type="application/octet-stream" sparkle:edSignature="K3XCied5ZfhPN9/0DwEad7vo+Mp7o7TBj2hjn11NnHO3Y3gUgVYcEGgkixgdNaEfqXHLKojGrKrAWks3dxMhCw==" />
     </item>
-    <item>
+<item>
       <title>Version 0.6.4</title>
       <pubDate>Thu, 15 Oct 2026 16:42:35 GMT</pubDate>
       <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.6.4</sparkle:fullReleaseNotesLink>
