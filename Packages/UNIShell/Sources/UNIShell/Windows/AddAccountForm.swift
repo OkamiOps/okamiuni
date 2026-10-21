@@ -310,15 +310,19 @@ public struct AddAccountForm: View {
             .frame(width: 96)
         }
 
-        labelledField(L10n.tr("Senha de app")) {
-            HStack(spacing: 10) {
-                SecureField(L10n.tr("senha de app"), text: $password)
-                    .textFieldStyle(.plain)
-                    .font(theme.mono.font(size: 13.5))
-                    .foregroundStyle(theme.ink.color)
-                    .accessibilityLabel(L10n.tr("Senha de app"))
-                whatIsThis
-            }
+        // **Senha, e não "senha de app".** A maioria das contas que chega aqui
+        // é de servidor próprio ou de hospedagem, e nelas a senha que o IMAP
+        // aceita é a mesma com que a pessoa entra no webmail — não existe
+        // "senha de app" para criar. Pedir uma mandava a pessoa procurar uma
+        // tela que a conta dela não tem, e o campo ficava em branco. Quem usa
+        // provedor com verificação em duas etapas cola aqui a senha que
+        // aquele provedor gerou; para o campo, é só uma senha.
+        labelledField(L10n.tr("Senha")) {
+            SecureField(L10n.tr("senha da conta"), text: $password)
+                .textFieldStyle(.plain)
+                .font(theme.mono.font(size: 13.5))
+                .foregroundStyle(theme.ink.color)
+                .accessibilityLabel(L10n.tr("Senha"))
         }
 
         if testando || testado != nil || model.lastError != nil {
@@ -366,22 +370,6 @@ public struct AddAccountForm: View {
             content()
                 .modalFieldBox(verticalPadding: 10, horizontalPadding: 12)
         }
-    }
-
-    private var whatIsThis: some View {
-        Button { AccountsDocs.open(AccountsDocs.senhaDeApp) } label: {
-            Text(L10n.tr("O que é isso?"))
-                .font(theme.sans.font(size: 12, weight: .medium))
-                .foregroundStyle(theme.accentInk.color)
-                .lineLimit(1)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(AccountsDocs.url(AccountsDocs.senhaDeApp) == nil)
-        .help(AccountsDocs.url(AccountsDocs.senhaDeApp) == nil
-            ? L10n.tr("Este aplicativo não trouxe a explicação; ela está em docs/senha-de-app.md, no repositório.")
-            : L10n.tr("Provedores com verificação em duas etapas recusam a senha da conta; a senha de app é a que o IMAP aceita."))
-        .focusRing(cornerRadius: theme.modalButtonRadius)
     }
 
     // MARK: - Recados
@@ -498,7 +486,7 @@ public struct AddAccountForm: View {
     /// pessoa esbarra neles.
     private var ajudaDoTestar: String {
         if model.isBusy { return L10n.tr("Há outra ação em curso; ela termina em instantes.") }
-        if password.isEmpty { return L10n.tr("Falta a senha de app desta conta.") }
+        if password.isEmpty { return L10n.tr("Falta a senha desta conta.") }
         if endpoint == nil { return L10n.tr("Falta o servidor IMAP ou a porta.") }
         return L10n.tr("Conectar uma vez antes de gravar — nada é salvo se o teste falhar.")
     }

@@ -9,7 +9,7 @@ import UNISync
 /// uma conta que o app ainda não conhece — rota, host, porta, TLS — e termina
 /// gravando uma conta. Este existe para trocar **uma** coisa numa conta que já
 /// está aqui, com id, banco, fila de saída e cor próprios, e é por isso que o
-/// endereço e o servidor chegam prontos: quem só trocou a senha de app não
+/// endereço e o servidor chegam prontos: quem só trocou a senha não
 /// pediu para redigitar a identidade da conta, e redigitá-la errado é
 /// exatamente como se acaba com duas contas onde havia uma.
 ///
@@ -18,8 +18,12 @@ import UNISync
 /// Protótipo: `ModalContas.dc.html`, bloco "RECONECTAR CONTA". Folha de 460,
 /// cabeçalho com o avatar de 44 na cor da conta, "Reconectar" em 20 e o
 /// endereço em mono logo abaixo; o recado de que nada se perde num bloco
-/// `soft`; **um** campo, em foco, com "O que é isso?" dentro dele; e o
-/// servidor atual numa linha mono com "mudar" ao lado.
+/// `soft`; **um** campo, em foco; e o servidor atual numa linha mono com
+/// "mudar" ao lado.
+///
+/// O protótipo punha "O que é isso?" dentro do campo, apontando para o guia
+/// de senha de app. Saiu: o campo pede a senha da conta, que não tem o que
+/// explicar, e o link mandava quem não tem senha de app procurar uma.
 ///
 /// O endereço deixou de ser campo. Ele é a identidade desta folha — é o que o
 /// avatar e a linha mono do cabeçalho dizem —, e um campo editável ali
@@ -118,28 +122,21 @@ struct ReconnectImapForm: View {
                     in: RoundedRectangle(cornerRadius: theme.modalFieldRadius, style: .continuous)
                 )
 
+            // Uma senha, sem adjetivo. Esta folha abre quando o servidor
+            // recusou a credencial que estava guardada, e o que a pessoa tem
+            // em mãos nessa hora é a senha com que ela entra no webmail. O
+            // rótulo antigo dizia "senha de app" e mandava quem não tem uma
+            // atrás de uma tela que a conta dela não oferece.
             VStack(alignment: .leading, spacing: 5) {
-                Text(L10n.tr("Nova senha de app"))
+                Text(L10n.tr("Nova senha"))
                     .font(theme.sans.font(size: 12, weight: .semibold))
                     .foregroundStyle(theme.ink3.color)
-                HStack(spacing: 10) {
-                    SecureField(L10n.tr("senha de app"), text: $password)
-                        .textFieldStyle(.plain)
-                        .font(theme.mono.font(size: 13.5))
-                        .foregroundStyle(theme.ink.color)
-                        .accessibilityLabel(L10n.tr("Nova senha de app"))
-                    Button { AccountsDocs.open(AccountsDocs.senhaDeApp) } label: {
-                        Text(L10n.tr("O que é isso?"))
-                            .font(theme.sans.font(size: 12, weight: .medium))
-                            .foregroundStyle(theme.accentInk.color)
-                            .lineLimit(1)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(AccountsDocs.url(AccountsDocs.senhaDeApp) == nil)
-                    .focusRing(cornerRadius: theme.modalButtonRadius)
-                }
-                .modalFieldBox(focused: true, verticalPadding: 11, horizontalPadding: 12)
+                SecureField(L10n.tr("senha da conta"), text: $password)
+                    .textFieldStyle(.plain)
+                    .font(theme.mono.font(size: 13.5))
+                    .foregroundStyle(theme.ink.color)
+                    .accessibilityLabel(L10n.tr("Nova senha"))
+                    .modalFieldBox(focused: true, verticalPadding: 11, horizontalPadding: 12)
             }
 
             serverLine
@@ -237,7 +234,7 @@ struct ReconnectImapForm: View {
     /// de adicionar. Controle que existe explica o que faz.
     private var ajuda: String {
         if model.isBusy { return L10n.tr("Há outra ação em curso; ela termina em instantes.") }
-        if password.isEmpty { return L10n.tr("Falta a senha de app desta conta.") }
+        if password.isEmpty { return L10n.tr("Falta a senha desta conta.") }
         if endpoint == nil { return L10n.tr("Falta o servidor IMAP ou a porta.") }
         return L10n.tr("Autenticar de novo e gravar a senha por cima — nada é apagado se falhar.")
     }

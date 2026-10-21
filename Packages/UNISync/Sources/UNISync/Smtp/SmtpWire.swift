@@ -132,7 +132,7 @@ public enum SmtpWire {
     ///   todos, e o único jeito de passar por ele é tentar de novo mais
     ///   tarde). Vira `.transitorio`, que o executor da fila recua e repete.
     /// - `535`, `530` e `534` são credencial recusada: `.autenticacao`, que
-    ///   pede à pessoa uma senha de app nova.
+    ///   pede à pessoa a senha de novo.
     /// - O resto de `5yz` é recusa definitiva — endereço que não existe,
     ///   mensagem grande demais, relay negado. `.servidor`, que para a fila e
     ///   mostra a frase do servidor.

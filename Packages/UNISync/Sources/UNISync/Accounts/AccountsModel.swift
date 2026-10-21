@@ -228,7 +228,7 @@ public final class AccountsModel {
     /// operação de minutos.
     ///
     /// Só para conta **nova**: uma re-adição volta com o estado que já tinha
-    /// (`.ativa`, quase sempre), e a pessoa que só trocou a senha de app não
+    /// (`.ativa`, quase sempre), e a pessoa que só trocou a senha não
     /// pediu para baixar tudo de novo.
     private func carregaEmSegundoPlano(_ conta: Account) {
         guard conta.state == .carregando else { return }

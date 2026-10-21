@@ -141,7 +141,7 @@ enum ImapTestTrail {
         [
             L10n.tr("Servidor encontrado"),
             L10n.tr("Conexão segura (TLS)"),
-            L10n.tr("Entrando com a senha de app…"),
+            L10n.tr("Entrando com a senha…"),
             L10n.tr("Listando as pastas"),
         ]
     }

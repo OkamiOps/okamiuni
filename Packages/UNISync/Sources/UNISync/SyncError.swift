@@ -88,7 +88,11 @@ public enum SyncError: Error, Sendable, Hashable, Codable, LocalizedError {
         case .tls(let detalhe):
             L10n.tr("A conexão segura falhou: \(detalhe). Confira a porta e a forma de TLS da conta.")
         case .autenticacao:
-            L10n.tr("O servidor recusou o endereço ou a senha. Em provedores com verificação em duas etapas, use uma senha de app.")
+            // Não mande criar senha de app. A maioria das contas que chega
+            // aqui — servidor próprio, hospedagem, domínio no Zoho — não tem
+            // essa tela, e a frase antiga mandava a pessoa procurar uma coisa
+            // que não existe em vez de reler o que digitou.
+            L10n.tr("O servidor recusou o endereço ou a senha. Confira a senha da conta.")
         case .autorizacaoRevogada:
             // A frase fala em **reconectar para autorizar**, e não em
             // "revogada" e ponto, porque a causa mais provável hoje não é

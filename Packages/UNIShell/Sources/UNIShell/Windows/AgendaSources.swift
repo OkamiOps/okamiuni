@@ -95,8 +95,8 @@ enum AgendaSources {
                 monogram: String(address.prefix(1)).uppercased(),
                 title: address,
                 subtitle: list.count == 1
-                    ? L10n.tr("CalDAV · senha de app · 1 agenda")
-                    : L10n.tr("CalDAV · senha de app · \(list.count) agendas"),
+                    ? L10n.tr("CalDAV · 1 agenda")
+                    : L10n.tr("CalDAV · \(list.count) agendas"),
                 state: calDAVState(status, now: now, calendar: calendar),
                 tone: status.map { AccountsCopy.isFailing($0) ? .orange : .green } ?? .quiet,
                 calendars: list

@@ -63,7 +63,7 @@ public struct OAuthTokens: Sendable, Hashable, Codable {
 
 /// O que uma conta guarda no Keychain.
 ///
-/// Três formas porque são três protocolos: IMAP autentica com senha de app,
+/// Três formas porque são três protocolos: IMAP autentica com senha,
 /// Google com um par de tokens que se renova, e os serviços de reunião (Zoom,
 /// Teams, Zoho) com um par parecido mas que carrega o que o Google não tem —
 /// o data center do Zoho e o identificador da organização. Um `String` só

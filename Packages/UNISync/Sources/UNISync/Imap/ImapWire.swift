@@ -32,7 +32,7 @@ public enum ImapWire {
 
     /// Uma string entre aspas, com `\` e `"` escapados — a regra do RFC 3501.
     ///
-    /// Sem isto, uma senha de app com aspas dentro quebra o comando e o
+    /// Sem isto, uma senha com aspas dentro quebra o comando e o
     /// servidor responde `BAD`, que a pessoa lê como "senha errada" e passa a
     /// tarde trocando a senha certa.
     public static func quoted(_ s: String) -> String {

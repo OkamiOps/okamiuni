@@ -5,7 +5,7 @@ import Security
 /// `com.okamiops.okamiuni`, conta = id da conta.
 ///
 /// **Nenhum segredo passa pelo banco.** A tabela `account` guarda endereço,
-/// host e porta; a senha de app e os tokens moram só aqui. É por isso que
+/// host e porta; a senha e os tokens moram só aqui. É por isso que
 /// remover uma conta são dois passos (banco + Keychain) e a janela de Contas
 /// avisa antes.
 public struct KeychainSecretStore: SecretStore, Sendable {

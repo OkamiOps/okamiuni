@@ -442,7 +442,7 @@ public actor AccountDirector {
     /// Grava a conta — nova, ou **atualizada** se ela já existia.
     ///
     /// Adicionar de novo uma conta que já está na lista não é um engano a
-    /// recusar: é o caminho normal de quem trocou a senha de app ou precisou
+    /// recusar: é o caminho normal de quem trocou a senha ou precisou
     /// reautenticar. Por isso a re-adição atualiza o que veio do formulário
     /// (endereço, nome, marca do host, servidor) e **preserva** o que é
     /// história da conta: estado, último sync, cor e assinatura — e, por

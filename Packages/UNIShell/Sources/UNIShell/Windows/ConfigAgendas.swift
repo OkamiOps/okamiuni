@@ -596,7 +596,7 @@ struct ConnectCalendarSheet: View {
                 option(
                     monogram: "i",
                     title: "iCloud",
-                    subtitle: L10n.tr("seu Apple ID e uma senha de app"),
+                    subtitle: L10n.tr("seu Apple ID e a senha da conta"),
                     note: "CalDAV",
                     highlighted: false,
                     // O `CalDAVClient` aceita qualquer endereço, mas o app só

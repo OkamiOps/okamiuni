@@ -6,7 +6,7 @@ import UNICore
 /// **É a mesma ideia do `ImapPresets`:** conveniência, nunca porteiro.
 /// Hostinger e o IMAP genérico não têm CalDAV público — essas caixas ganham
 /// um calendário OkamiUNI local. Zoho, Yahoo e Fastmail têm servidor de
-/// agenda, e a senha de app do IMAP serve aqui.
+/// agenda, e a mesma senha do IMAP serve aqui.
 public struct CalDAVPreset: Sendable, Hashable {
     public let name: String
     public let baseURL: URL

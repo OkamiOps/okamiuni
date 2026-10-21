@@ -149,7 +149,7 @@ public actor OutboxRunner {
             let endereco = conta.address
             // O servidor de envio é **derivado** do de leitura — ver
             // `SmtpDiscovery`. Nenhuma tela nova foi pedida à pessoa por
-            // causa disto: a mesma senha de app que lê a caixa é a que
+            // causa disto: a mesma senha que lê a caixa é a que
             // manda, que é como todo provedor de submissão funciona.
             var abreSmtp: (@Sendable () async throws -> SmtpSession)?
             if let destino = SmtpDiscovery.endpoint(forImap: endpoint) {
