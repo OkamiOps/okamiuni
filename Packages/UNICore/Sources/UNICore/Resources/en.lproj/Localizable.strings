@@ -812,6 +812,7 @@
 "Escreva a resposta… selecione o texto para formatar · ⌘⏎ envia" = "Write your reply… select text to format · ⌘⏎ sends";
 "Escreva ou selecione algum texto antes de usar a inteligência." = "Write or select text before using intelligence.";
 "Escreva ou selecione texto antes de gerar uma prévia." = "Write or select text before generating a preview.";
+"Escrevendo a resposta…" = "Writing the answer…";
 "Escrevendo o rascunho" = "Writing draft";
 "Escrevendo…" = "Writing…";
 "Escrever" = "Compose";
@@ -960,6 +961,7 @@
 "Há alterações que ainda não foram salvas." = "There are unsaved changes.";
 "Há outra ação em curso; ela termina em instantes." = "Another action is in progress; it will finish shortly.";
 "IA" = "AI";
+"IA · ESCREVENDO" = "AI · WRITING";
 "IMAGENS INCORPORADAS" = "EMBEDDED IMAGES";
 "IMAP" = "IMAP";
 "INTEGRAÇÃO INDISPONÍVEL" = "INTEGRATION UNAVAILABLE";

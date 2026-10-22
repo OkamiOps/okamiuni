@@ -4,6 +4,12 @@
 
 Versions correspond to [GitHub releases](https://github.com/OkamiOps/okamiuni/releases). All dates below are in 2026.
 
+## 0.6.11 — October 23
+
+- On an email, while the AI is writing, the previous answer is hidden. The card says it is writing and names who it is talking to.
+- Summarize, tasks, terms and a question about the email come back with a title on its own line, a list, and a closing line. Titles in the card are larger than the body.
+- App version 0.6.11, build 26. [Release notes](docs/releases/v0.6.11.md).
+
 ## 0.6.10 — October 22
 
 - On an email, the AI answer is formatted. A line that is only a bold title becomes a title. A line that starts with a dash becomes a list. Bold and italic inside a sentence stay in the text.

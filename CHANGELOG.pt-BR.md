@@ -4,6 +4,11 @@
 
 Todas as versões seguem o [release no GitHub](https://github.com/OkamiOps/okamiuni/releases). Datas em 2026.
 
+## 0.6.11 — 23 de outubro
+- No e-mail, enquanto a IA escreve, a resposta anterior some. O cartão mostra que está escrevendo e diz com quem está falando.
+- Resumir, tarefas, termos e uma pergunta sobre o e-mail voltam com título em linha própria, lista e uma linha de fecho. O título no cartão fica maior que o texto.
+- Versão do app 0.6.11, build 26. [Notas da versão](docs/releases/v0.6.11.pt-BR.md).
+
 ## 0.6.10 — 22 de outubro
 - No e-mail, a resposta da IA sai formatada. Uma linha que é só um título em negrito vira título. Uma linha que começa com traço vira lista. Negrito e itálico no meio da frase ficam no texto.
 - O resumo recolhido mostra a primeira frase sem asterisco.

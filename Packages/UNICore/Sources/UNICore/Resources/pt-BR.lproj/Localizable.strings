@@ -812,6 +812,7 @@
 "Escreva a resposta… selecione o texto para formatar · ⌘⏎ envia" = "Escreva a resposta… selecione o texto para formatar · ⌘⏎ envia";
 "Escreva ou selecione algum texto antes de usar a inteligência." = "Escreva ou selecione algum texto antes de usar a inteligência.";
 "Escreva ou selecione texto antes de gerar uma prévia." = "Escreva ou selecione texto antes de gerar uma prévia.";
+"Escrevendo a resposta…" = "Escrevendo a resposta…";
 "Escrevendo o rascunho" = "Escrevendo o rascunho";
 "Escrevendo…" = "Escrevendo…";
 "Escrever" = "Escrever";
@@ -960,6 +961,7 @@
 "Há alterações que ainda não foram salvas." = "Há alterações que ainda não foram salvas.";
 "Há outra ação em curso; ela termina em instantes." = "Há outra ação em curso; ela termina em instantes.";
 "IA" = "IA";
+"IA · ESCREVENDO" = "IA · ESCREVENDO";
 "IMAGENS INCORPORADAS" = "IMAGENS INCORPORADAS";
 "IMAP" = "IMAP";
 "INTEGRAÇÃO INDISPONÍVEL" = "INTEGRAÇÃO INDISPONÍVEL";

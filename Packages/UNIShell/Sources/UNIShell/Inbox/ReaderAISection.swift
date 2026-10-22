@@ -185,26 +185,56 @@ enum ReaderAIAction: String, CaseIterable, Identifiable {
     /// A pergunta que sai pela rota do assistente, ou `nil` quando a ação tem
     /// caminho próprio (rascunho, evento, tom).
     ///
-    /// Vinha do `ReaderIntelligencePopover`, que saiu junto com o painel
-    /// flutuante. O texto é o mesmo: trocá-lo mudaria a resposta de quem já
-    /// usa o app, e o que esta tarefa muda é o desenho, não o prompt.
+    /// Resumir, tarefas e termos pedem título e lista. Um parágrafo corrido
+    /// chega no cartão sem hierarquia, e foi isso que ficou ilegível.
     var question: String? {
         switch self {
         case .resumir:
-            "Resuma esta conversa com foco no que eu preciso saber e decidir."
+            """
+            Resuma esta conversa com foco no que eu preciso saber e decidir.
+
+            \(Self.formatoDeLeitura)
+            """
         case .tarefas:
-            "Liste pendências, responsáveis e prazos confirmados nesta conversa, um item por linha."
+            """
+            Liste pendências, responsáveis e prazos confirmados nesta conversa.
+
+            Cada grupo numa linha **Título**. Cada pendência numa linha "- ".
+            """
         case .traduzir:
             "Traduza este e-mail para \(AppLanguage.selected.resolved.nativeName), "
                 + "mantendo o tom e a formatação. Não resuma: traduza o texto inteiro."
         case .termos:
-            "Explique, em uma linha cada, os termos técnicos, siglas e jargões "
-                + "deste e-mail que alguém de fora da área não entenderia."
+            """
+            Explique os termos técnicos, siglas e jargões deste e-mail que alguém de fora da área não entenderia.
+
+            Cada termo numa linha "- ", com o termo entre ** **.
+            """
         case .rascunhar, .evento, .tom, .perguntar:
-            // "Perguntar" não é uma pergunta pronta: ela abre o assistente
-            // para quem lê escrever a dele.
+            // "Perguntar" não é uma pergunta pronta: ela abre o campo para
+            // quem lê escrever a dele. O formato entra na hora de enviar.
             nil
         }
+    }
+
+    /// O que o cartão sabe desenhar: título numa linha, item de lista, negrito.
+    /// A pergunta livre recebe o mesmo contrato, senão a resposta volta um bloco.
+    static let formatoDeLeitura = """
+    Escreva para leitura de relance, em Markdown, e nada além do texto.
+    Cada assunto fica sozinho numa linha, assim: **Título da seção**
+    O que for lista começa cada item com "- ".
+    Dentro da frase, o fato que decide (pedido, prazo, risco, o que falta) vai entre ** **.
+    A última linha é **Em resumo:** seguida da decisão, numa frase.
+    Não entregue parágrafos corridos sem título e sem lista.
+    """
+
+    /// A pergunta livre, com o contrato de leitura. Se ele já está no texto,
+    /// não entra de novo.
+    static func perguntaParaLeitura(_ text: String) -> String {
+        let base = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !base.isEmpty else { return base }
+        if base.contains("**Título da seção**") { return base }
+        return base + "\n\n" + formatoDeLeitura
     }
 
     /// A pergunta livre que extrai o compromisso, quando a mensagem não trouxe
@@ -449,6 +479,8 @@ struct ReaderAIResultCard: View {
     /// A IA está escrevendo agora: os passos cumpridos e o atual.
     let isWorking: Bool
     let steps: [String]
+    /// A frase grande do estado de trabalho. O passo miúdo fica embaixo dela.
+    var workingLabel: String = ""
     /// A frase do estado raso, ou `nil` quando há o que fazer.
     let shallowNote: String?
     let tasks: [ReaderAITask]
@@ -463,22 +495,24 @@ struct ReaderAIResultCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Leitor5Metrics.cardGap) {
             ReaderAICaps(
-                caps: caps, provenance: provenance,
+                caps: isWorking ? L10n.tr("IA · ESCREVENDO") : caps,
+                provenance: provenance,
                 onDismiss: onDismiss, onCollapse: onCollapse
             )
 
             if isWorking {
+                // O texto anterior ficava no cartão junto com "Preparando a
+                // ação…". A linha era miúda e o resumo velho parecia a
+                // resposta pronta. Enquanto escreve, o cartão é só o trabalho.
                 working
-            }
-
-            if let prose, !prose.isEmpty {
+            } else if let prose, !prose.isEmpty {
                 // O modelo responde em Markdown. Um `Text` cru mostrava
                 // `**título**` e o hífen da lista. Aqui a linha que é só
                 // negrito vira título, e o item vira item.
                 AssistantMarkdown(text: prose, style: .card(size: Leitor5Metrics.proseSize))
             }
 
-            if let shallowNote {
+            if !isWorking, let shallowNote {
                 HStack(spacing: ReaderAIMetrics.capsGap) {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: ReaderAIMetrics.shallowIcon, weight: .medium))
@@ -490,15 +524,15 @@ struct ReaderAIResultCard: View {
                 .foregroundStyle(theme.ink4.color)
             }
 
-            if !tasks.isEmpty {
+            if !isWorking, !tasks.isEmpty {
                 taskList
             }
 
-            if let foundDate {
+            if !isWorking, let foundDate {
                 found(foundDate)
             }
 
-            if !nextSteps.isEmpty {
+            if !isWorking, !nextSteps.isEmpty {
                 HStack(spacing: ReaderAIMetrics.stepsGap) {
                     ForEach(nextSteps) { passo in
                         if passo.strong {
@@ -518,7 +552,11 @@ struct ReaderAIResultCard: View {
         .padding(.trailing, Leitor5Metrics.cardSide)
         .readerAICard()
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(L10n.tr("Resumo escrito pela IA"))
+        .accessibilityLabel(
+            isWorking
+                ? (workingLabel.isEmpty ? L10n.tr("Escrevendo a resposta…") : workingLabel)
+                : L10n.tr("Resumo escrito pela IA")
+        )
     }
 
     private var taskList: some View {
@@ -588,24 +626,46 @@ struct ReaderAIResultCard: View {
         .clipShape(RoundedRectangle(cornerRadius: theme.radiusSmall))
     }
 
-    /// Enquanto a IA escreve: os passos cumpridos com ✓ e o atual com o brilho
-    /// correndo. Nenhuma linha "pendente" — ver `AssistantWorkingState`.
+    /// Enquanto a IA escreve, o cartão diz isso em voz alta: um indicador, a
+    /// frase do destino e o passo atual. O resumo anterior não fica embaixo.
     private var working: some View {
-        HStack(spacing: ReaderAIMetrics.stepGap) {
-            ForEach(Array(steps.enumerated()), id: \.offset) { indice, passo in
-                if indice == steps.count - 1 {
-                    AssistantShimmerText(text: passo, size: ReaderAIMetrics.stepSize)
-                } else {
-                    AssistantStepCheck(text: passo, size: ReaderAIMetrics.stepSize)
-                }
+        let frase = workingLabel.isEmpty ? L10n.tr("Escrevendo a resposta…") : workingLabel
+        let passo = steps.last
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 10) {
+                ProgressView()
+                    .controlSize(.regular)
+                    .tint(theme.accent.color)
+                Text(frase)
+                    .font(theme.sans.font(size: 15, weight: .semibold))
+                    .foregroundStyle(theme.ink.color)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            if steps.isEmpty {
-                AssistantShimmerText(
-                    text: L10n.tr("lendo este e-mail…"), size: ReaderAIMetrics.stepSize
-                )
+            if let passo, !passo.isEmpty, passo != frase {
+                Text(passo)
+                    .font(theme.sans.font(size: 13, weight: .medium))
+                    .foregroundStyle(theme.accentInk.color)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer(minLength: 0)
+            VStack(alignment: .leading, spacing: 8) {
+                workingBar(trailing: 0)
+                workingBar(trailing: 36)
+                workingBar(trailing: 96)
+            }
+            .padding(.top, 2)
+            .accessibilityHidden(true)
         }
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("reader-ai-working")
+    }
+
+    private func workingBar(trailing: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 4, style: .continuous)
+            .fill(theme.surface3.color)
+            .frame(height: 8)
+            .padding(.trailing, trailing)
     }
 }
 

@@ -812,6 +812,7 @@
 "Escreva a resposta… selecione o texto para formatar · ⌘⏎ envia" = "Antwort schreiben… Text zum Formatieren auswählen · ⌘⏎ sendet";
 "Escreva ou selecione algum texto antes de usar a inteligência." = "Schreiben oder wählen Sie Text aus, bevor Sie die Intelligenz nutzen.";
 "Escreva ou selecione texto antes de gerar uma prévia." = "Schreiben oder wählen Sie Text aus, bevor Sie eine Vorschau erstellen.";
+"Escrevendo a resposta…" = "Antwort wird geschrieben…";
 "Escrevendo o rascunho" = "Entwurf wird geschrieben";
 "Escrevendo…" = "Wird geschrieben…";
 "Escrever" = "Verfassen";
@@ -960,6 +961,7 @@
 "Há alterações que ainda não foram salvas." = "Es gibt ungespeicherte Änderungen.";
 "Há outra ação em curso; ela termina em instantes." = "Eine andere Aktion läuft und wird in Kürze beendet.";
 "IA" = "KI";
+"IA · ESCREVENDO" = "KI · SCHREIBT";
 "IMAGENS INCORPORADAS" = "EINGEBETTETE BILDER";
 "IMAP" = "IMAP";
 "INTEGRAÇÃO INDISPONÍVEL" = "INTEGRATION NICHT VERFÜGBAR";

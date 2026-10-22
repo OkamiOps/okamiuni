@@ -186,7 +186,7 @@ struct AssistantMarkdown: View {
         case .paragraph(let text):
             styled(text, weight: bodyWeight)
         case .heading(let text):
-            styled(text, weight: headingWeight)
+            styled(text, weight: headingWeight, size: headingSize)
                 .padding(.top, headingTop)
         case .bullet(let text):
             let rise = markerRise
@@ -218,8 +218,8 @@ struct AssistantMarkdown: View {
         }
     }
 
-    private func styled(_ value: String, weight: Font.Weight) -> some View {
-        Text(inline(value, weight: weight))
+    private func styled(_ value: String, weight: Font.Weight, size: CGFloat? = nil) -> some View {
+        Text(inline(value, weight: weight, size: size))
             .foregroundStyle(bodyInk.color)
             .lineSpacing(style.lineSpacing)
             .tracking(tracking)
@@ -238,7 +238,7 @@ struct AssistantMarkdown: View {
     private var blockSpacing: CGFloat {
         switch style {
         case .compact, .prose: 7
-        case .card: 6
+        case .card: 8
         }
     }
 
@@ -247,7 +247,7 @@ struct AssistantMarkdown: View {
     private var headingTop: CGFloat {
         switch style {
         case .compact, .prose: 2
-        case .card: 10
+        case .card: 14
         }
     }
 
@@ -265,6 +265,15 @@ struct AssistantMarkdown: View {
         }
     }
 
+    /// No cartão o título é claramente maior que o corpo. Dois pontos a mais
+    /// ainda liam como parágrafo em negrito.
+    private var headingSize: CGFloat {
+        switch style {
+        case .compact, .prose: bodySize
+        case .card(let size): size + 4
+        }
+    }
+
     private var tracking: CGFloat {
         switch style {
         case .compact, .prose: 0
@@ -279,12 +288,13 @@ struct AssistantMarkdown: View {
         }
     }
 
-    private func face(weight: Font.Weight) -> Font {
+    private func face(weight: Font.Weight, size: CGFloat? = nil) -> Font {
+        let resolved = size ?? bodySize
         switch style {
         case .compact, .card:
-            theme.sans.font(size: bodySize, weight: weight)
+            return theme.sans.font(size: resolved, weight: weight)
         case .prose:
-            theme.serif.font(size: bodySize, weight: weight)
+            return theme.serif.font(size: resolved, weight: weight)
         }
     }
 
@@ -307,20 +317,20 @@ struct AssistantMarkdown: View {
     /// O negrito e o itálico vão na fonte de cada trecho. Um `.font` no
     /// `Text` inteiro achatava o que o Markdown tinha marcado, e era assim
     /// que `**título**` ou sumia ou voltava com asterisco.
-    private func inline(_ value: String, weight: Font.Weight) -> AttributedString {
+    private func inline(_ value: String, weight: Font.Weight, size: CGFloat? = nil) -> AttributedString {
         let options = AttributedString.MarkdownParsingOptions(
             interpretedSyntax: .inlineOnlyPreservingWhitespace
         )
         guard var parsed = try? AttributedString(markdown: value, options: options) else {
             var plain = AttributedString(value)
-            plain.font = face(weight: weight)
+            plain.font = face(weight: weight, size: size)
             return plain
         }
         for run in parsed.runs {
             let intent = run.inlinePresentationIntent ?? []
             let strong = intent.contains(.stronglyEmphasized)
             let italic = intent.contains(.emphasized)
-            var font = face(weight: strong ? emphasizedWeight(over: weight) : weight)
+            var font = face(weight: strong ? emphasizedWeight(over: weight) : weight, size: size)
             if italic { font = font.italic() }
             if intent.contains(.code) {
                 font = theme.mono.font(size: bodySize * 0.92, weight: .medium)

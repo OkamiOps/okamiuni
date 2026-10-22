@@ -83,7 +83,7 @@ public struct WorkspaceAgentAssistant: TextAssisting {
             await onActivity(L10n.tr("Conectando ao agente…"))
             let result = try await client.answer(
                 configuration: configuration,
-                prompt: AgentToolLoop.safety + "\nUse exclusivamente as ferramentas do servidor MCP okamiuni para agir no aplicativo. Responda em linguagem natural.\n" + AssistantPrompt.answer(question: question, conversation: conversation, budget: .configured),
+                prompt: AgentToolLoop.safety + "\nUse exclusivamente as ferramentas do servidor MCP okamiuni para agir no aplicativo. A resposta final é para a pessoa ler. Se a pergunta pedir Markdown com títulos, listas ou negrito, entregue essa estrutura: não reescreva em parágrafos corridos.\n" + AssistantPrompt.answer(question: question, conversation: conversation, budget: .configured),
                 mcpURL: endpoint.url, bearerToken: endpoint.bearerToken,
                 safeToolNames: Set(tools.definitions.map(\.name))
             )

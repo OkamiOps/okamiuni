@@ -604,6 +604,15 @@ public struct ReaderPane: View {
         return aiProse(message) != nil
     }
 
+    /// O que o cartão diz enquanto a resposta não chegou. Nomeia o destino
+    /// ("Falando com Codex · ChatGPT…") para não parecer um passo interno.
+    private var aiWorkingLabel: String {
+        if let destino = readerConversation?.destination {
+            return AssistantScope.email.loadingLabel(for: destino)
+        }
+        return L10n.tr("Escrevendo a resposta…")
+    }
+
     /// A prosa da IA: a última resposta ao vivo desta sessão, ou o resumo que
     /// a fila já gravou na mensagem.
     private func aiProse(_ message: Message) -> String? {
@@ -738,7 +747,9 @@ public struct ReaderPane: View {
     /// tamanho menor, e o chevron que reabre.
     private func resumoRecolhidoRow(_ message: Message) -> some View {
         ReaderSummaryCollapsed(
-            prose: aiProse(message) ?? L10n.tr("lendo este e-mail…"),
+            prose: readerConversation?.isLoading == true
+                ? aiWorkingLabel
+                : (aiProse(message) ?? L10n.tr("lendo este e-mail…")),
             steps: Array(aiNextSteps(message).prefix(2)),
             onExpand: { abrirResumo(message) }
         )
@@ -755,6 +766,7 @@ public struct ReaderPane: View {
                 ),
                 isWorking: readerConversation?.isLoading == true,
                 steps: assistantSteps,
+                workingLabel: aiWorkingLabel,
                 shallowNote: aiShallowNote(message),
                 tasks: aiTasks(message),
                 foundDate: aiFoundDate(message),
@@ -1389,7 +1401,7 @@ public struct ReaderPane: View {
         let texto = perguntaTexto.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !texto.isEmpty, podeRascunhar else { return }
         perguntaTexto = ""
-        perguntar(texto, for: message)
+        perguntar(ReaderAIAction.perguntaParaLeitura(texto), for: message)
     }
 
     private func perguntaField(_ message: Message) -> some View {
