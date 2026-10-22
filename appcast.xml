@@ -6,6 +6,16 @@
     <description>Atualizações do OkamiUNI</description>
     <language>pt-BR</language>
     <item>
+      <title>Version 0.6.8</title>
+      <pubDate>Thu, 22 Oct 2026 01:44:22 GMT</pubDate>
+      <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.6.8</sparkle:fullReleaseNotesLink>
+      <sparkle:version>23</sparkle:version>
+      <sparkle:shortVersionString>0.6.8</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<ul lang="pt-BR"><li>Quando o login é recusado, a página da conta mostra <strong>Reconectar</strong>. Uma conta Google abre o Google daquela caixa e mantém a conta local e os e-mails. Uma conta IMAP abre o formulário da senha, com endereço e servidor já preenchidos. <strong>Sincronizar agora</strong> fica ao lado.</li><li>Conta Google ou Microsoft não manda mais conferir a senha quando o login foi recusado. A frase diz que a autorização não vale mais. Conta IMAP continua pedindo para conferir a senha.</li><li>Versão do app 0.6.8, build 23. <a href="docs/releases/v0.6.8.pt-BR.md">Notas da versão</a>.</li></ul><ul lang="en"><li>When a sign-in is refused, the account page shows <strong>Reconnect</strong>. A Google account opens Google for that mailbox and keeps the local account and its mail. An IMAP account opens the password form, with the address and server already filled in. <strong>Sync now</strong> stays beside it.</li><li>A Google or Microsoft account no longer tells you to check a password when the sign-in was refused. The line says the authorization is no longer valid. An IMAP account still asks you to check the password.</li><li>App version 0.6.8, build 23. <a href="docs/releases/v0.6.8.md">Release notes</a>.</li></ul>]]></description>
+      <enclosure url="https://github.com/OkamiOps/okamiuni/releases/download/v0.6.8/OkamiUNI-0.6.8.zip" length="38496575" type="application/octet-stream" sparkle:edSignature="rZ+lJlzCj1xTNsYbyH4zTVlDx2gKIHNq8n6bklNXr60e1zu0JbrLLX2pGMQMWaxo7BgTnj2no5XNSVFsaacGDQ==" />
+    </item>
+    <item>
       <title>Version 0.6.7</title>
       <pubDate>Thu, 22 Oct 2026 00:55:34 GMT</pubDate>
       <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.6.7</sparkle:fullReleaseNotesLink>
@@ -15,7 +25,7 @@
       <description><![CDATA[<ul lang="pt-BR"><li>Meet, Zoom, Teams e Zoho aceitam quantas contas você quiser. Em Configurações › Agendas cada uma tem o próprio <strong>Desconectar</strong>, e <strong>Conectar outra conta</strong> continua na lista.</li><li>No compromisso, quando mais de uma conta pode criar a sala, a linha <strong>Conta</strong> tem <strong>trocar</strong>. A sala nasce da conta escolhida.</li><li>Tirar uma conta do Meet deixa o e-mail dela ligado. Conectar outra abre o Google para escolher a conta. No Teams, o login pergunta qual conta da Microsoft. Zoom e Zoho abrem o login no navegador.</li><li>A caixa Google traz a agenda dela. A agenda principal entra com a autorização que você já deu; as outras agendas dessa conta entram ao entrar de novo com o Google.</li><li><strong>Entrar com Google</strong> e <strong>Entrar com Zoho</strong> fecham a folha quando a conta entra. No domínio do Google, com a senha em branco, o botão do navegador é o caminho.</li><li>Versão do app 0.6.7, build 22. <a href="docs/releases/v0.6.7.pt-BR.md">Notas da versão</a>.</li></ul><ul lang="en"><li>Meet, Zoom, Teams and Zoho take as many accounts as you want. In Settings › Calendars each one has its own <strong>Disconnect</strong>, and <strong>Connect another account</strong> stays on the list.</li><li>On a new event, when more than one account can create the room, the <strong>Account</strong> row has <strong>switch</strong>. The room is created by the account you pick.</li><li>Removing one Meet account leaves that mailbox signed in. Connecting another opens Google so you can choose the account. On Teams, sign-in asks which Microsoft account. Zoom and Zoho open sign-in in the browser.</li><li>A Google mailbox brings its calendar. The primary calendar arrives with the permission you already gave; the other calendars on that account arrive the next time you sign in with Google.</li><li><strong>Sign in with Google</strong> and <strong>Sign in with Zoho</strong> close the sheet once the account is in. On a Google domain, with the password left empty, the browser button is the path.</li><li>App version 0.6.7, build 22. <a href="docs/releases/v0.6.7.md">Release notes</a>.</li></ul>]]></description>
       <enclosure url="https://github.com/OkamiOps/okamiuni/releases/download/v0.6.7/OkamiUNI-0.6.7.zip" length="38491123" type="application/octet-stream" sparkle:edSignature="TgNErMqKPKUw9W2K4ytaCO/e5PVRup4/w9tGF7QsegtQl38ro3FTUqBfu19WI3/x7sVcyztlXMIFVuoOQ8r/BA==" />
     </item>
-    <item>
+<item>
       <title>Version 0.6.6</title>
       <pubDate>Wed, 21 Oct 2026 23:54:41 GMT</pubDate>
       <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.6.6</sparkle:fullReleaseNotesLink>
