@@ -4,6 +4,11 @@
 
 Todas as versões seguem o [release no GitHub](https://github.com/OkamiOps/okamiuni/releases). Datas em 2026.
 
+## 0.6.10 — 22 de outubro
+- No e-mail, a resposta da IA sai formatada. Uma linha que é só um título em negrito vira título. Uma linha que começa com traço vira lista. Negrito e itálico no meio da frase ficam no texto.
+- O resumo recolhido mostra a primeira frase sem asterisco.
+- Versão do app 0.6.10, build 25. [Notas da versão](docs/releases/v0.6.10.pt-BR.md).
+
 ## 0.6.9 — 22 de outubro
 - No e-mail, **✦ IA** abre o menu no próprio leitor, embaixo da barra. **Resumir**, **Rascunhar resposta** e as outras linhas são botões que recebem o clique. O resultado entra no e-mail.
 - **Perguntar sobre este e-mail** abre um campo no e-mail. Você escreve a pergunta e aperta **Enviar**. A resposta fica no e-mail.

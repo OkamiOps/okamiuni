@@ -24,6 +24,53 @@ struct AssistantMarkdownTests {
         #expect(blocks[3].kind == .paragraph("Parágrafo final."))
     }
 
+    @Test("uma linha inteira em negrito vira título, e o negrito no meio da frase fica na frase")
+    func boldLineBecomesHeading() {
+        let blocks = AssistantMarkdownBlock.parse("""
+        Claro. **É uma abordagem** (*in-house*) de recrutamento.
+
+        **O que a vaga parece envolver**
+        - Desenvolver soluções
+        **Em resumo:** é um convite inicial.
+        """)
+        #expect(blocks.map(\.kind) == [
+            .paragraph("Claro. **É uma abordagem** (*in-house*) de recrutamento."),
+            .heading("O que a vaga parece envolver"),
+            .bullet("Desenvolver soluções"),
+            .paragraph("**Em resumo:** é um convite inicial."),
+        ])
+    }
+
+    @Test("o cartão do leitor desenha título e lista, sem asterisco cru")
+    func cardRendersSectionHeading() async throws {
+        let image = try #require(Render.snapshot(
+            AssistantMarkdown(text: """
+            Claro. **É uma abordagem** (*in-house*) de recrutamento.
+
+            **O que a vaga parece envolver**
+            - Desenvolver soluções de segurança.
+            - Atuar em vulnerabilidades e firewalls.
+
+            **Em resumo:** é um convite inicial.
+            """, style: .card(size: 14))
+                .padding(16)
+                .frame(width: 520)
+                .environment(ThemeStore()),
+            named: "reader-ai-markdown",
+            size: CGSize(width: 520, height: 280),
+            theme: .vidroNoite
+        ))
+        #expect(image.pixelsWide == 520)
+    }
+
+    @Test("a linha recolhida tira asterisco e crase")
+    func plainPreviewStripsMarkers() {
+        let line = AssistantMarkdownBlock.plainPreview(
+            "Claro. **É uma abordagem** (*in-house*) de segurança."
+        )
+        #expect(line == "Claro. É uma abordagem (in-house) de segurança.")
+    }
+
     @Test("o painel renderiza a resposta do assistente como Markdown")
     func panelRendersMarkdown() async throws {
         let image = try #require(Render.snapshot(

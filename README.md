@@ -10,7 +10,7 @@
 ![macOS](https://img.shields.io/badge/macOS-26-000000?logo=apple&logoColor=white)
 ![SwiftUI](https://img.shields.io/badge/SwiftUI-native-0071e3)
 ![Languages](https://img.shields.io/badge/languages-PT%20%7C%20EN%20%7C%20DE%20%7C%20FR-blue)
-![Release](https://img.shields.io/badge/release-0.6.9-success)
+![Release](https://img.shields.io/badge/release-0.6.10-success)
 
 <img src="docs/capturas/janela-principal.png" width="860" alt="OkamiUNI in Portuguese: account sidebar, message list, reader and daily calendar." />
 
@@ -31,7 +31,7 @@ OkamiUNI combines a unified inbox, calendar and daily planning dashboard in a na
 | Accounts | Google OAuth and IMAP/SMTP for providers accepting the implemented password authentication. Credentials live in Keychain; local data uses SQLite/GRDB. There is no hardcoded account limit. |
 | Sync | IMAP IDLE, incremental Gmail history and network recovery. Reconnecting keeps the local account and its data. When a Google sign-in is refused, the account page shows **Reconnect** and opens Google for that mailbox; an IMAP account opens the password form. **Sync now** stays beside it. |
 | Calendar | Read/write access to macOS calendars through EventKit, including calendars configured in macOS; invitations and RSVP through the outgoing queue. |
-| AI | Summaries, triage, suggested replies, writing tools and an assistant drawer (`⌘J`) or separate window. On an open email, **✦ AI** puts the menu in the reader. **Ask about this email** opens a field there; **Send** writes the answer into the email. On-device Foundation Models and configured remote/CLI providers are supported. |
+| AI | Summaries, triage, suggested replies, writing tools and an assistant drawer (`⌘J`) or separate window. On an open email, **✦ AI** puts the menu in the reader. **Ask about this email** opens a field there; **Send** writes the answer into the email. The answer is formatted: a bold line becomes a title, and a dash line becomes a list. On-device Foundation Models and configured remote/CLI providers are supported. |
 | Appearance | 26 themes, bundled fonts, resizable panes and native window controls. |
 
 Connecting a remote or CLI AI provider intentionally enables automatic analysis and prepared replies through that provider. The AI settings switch restricts automatic work to this Mac. The interface identifies the destination; generated writing appears as a preview for acceptance. The interface language and AI response language are separate preferences.

@@ -659,7 +659,7 @@ struct ReaderSummaryCollapsed: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(theme.accentInk.color)
                 .accessibilityHidden(true)
-            Text(prose)
+            Text(AssistantMarkdownBlock.plainPreview(prose))
                 .font(theme.sans.font(size: Leitor5Metrics.collapsedTextSize, weight: .medium))
                 .foregroundStyle(theme.ink2.color)
                 .lineLimit(1)

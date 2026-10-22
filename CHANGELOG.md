@@ -4,6 +4,12 @@
 
 Versions correspond to [GitHub releases](https://github.com/OkamiOps/okamiuni/releases). All dates below are in 2026.
 
+## 0.6.10 — October 22
+
+- On an email, the AI answer is formatted. A line that is only a bold title becomes a title. A line that starts with a dash becomes a list. Bold and italic inside a sentence stay in the text.
+- The collapsed summary shows the first sentence without asterisks.
+- App version 0.6.10, build 25. [Release notes](docs/releases/v0.6.10.md).
+
 ## 0.6.9 — October 22
 
 - On an email, **✦ AI** opens its menu in the reader, under the toolbar. **Summarize**, **Draft a reply** and the other rows are buttons you can click. The result is written in the email.

@@ -10,7 +10,7 @@
 ![macOS](https://img.shields.io/badge/macOS-26-000000?logo=apple&logoColor=white)
 ![SwiftUI](https://img.shields.io/badge/SwiftUI-nativo-0071e3)
 ![Idiomas](https://img.shields.io/badge/idiomas-PT%20%7C%20EN%20%7C%20DE%20%7C%20FR-blue)
-![Release](https://img.shields.io/badge/release-0.6.9-success)
+![Release](https://img.shields.io/badge/release-0.6.10-success)
 
 <img src="docs/capturas/janela-principal.png" width="860" alt="OkamiUNI em português: barra lateral de contas, lista de mensagens, leitor e agenda do dia." />
 
@@ -31,7 +31,7 @@ O OkamiUNI reúne caixa unificada, agenda e painel de planejamento diário em um
 | Contas | OAuth do Google e IMAP/SMTP para provedores compatíveis com a autenticação por senha implementada. Credenciais no Keychain; dados locais em SQLite/GRDB. Não há limite fixo de contas. |
 | Sincronização | IMAP IDLE, histórico incremental do Gmail e recuperação de rede. Reconectar mantém a conta local e os dados dela. Quando o login do Google é recusado, a página da conta mostra **Reconectar** e abre o Google daquela caixa; uma conta IMAP abre o formulário da senha. **Sincronizar agora** fica ao lado. |
 | Agenda | Leitura e gravação nos calendários do macOS via EventKit, incluindo os configurados no sistema; convites e RSVP pela fila de envio. |
-| IA | Resumos, triagem, respostas sugeridas, ferramentas de escrita e assistente em gaveta (`⌘J`) ou janela. No e-mail aberto, **✦ IA** põe o menu no leitor. **Perguntar sobre este e-mail** abre um campo ali; **Enviar** escreve a resposta no e-mail. Suporta Foundation Models neste Mac e provedores remotos/CLI configurados. |
+| IA | Resumos, triagem, respostas sugeridas, ferramentas de escrita e assistente em gaveta (`⌘J`) ou janela. No e-mail aberto, **✦ IA** põe o menu no leitor. **Perguntar sobre este e-mail** abre um campo ali; **Enviar** escreve a resposta no e-mail. A resposta sai formatada: uma linha em negrito vira título, e uma linha com traço vira lista. Suporta Foundation Models neste Mac e provedores remotos/CLI configurados. |
 | Aparência | 26 temas, fontes embarcadas, painéis redimensionáveis e controles nativos de janela. |
 
 Conectar um provedor de IA remoto ou CLI de propósito habilita análise automática e respostas prontas por esse provedor. O interruptor nas configurações de IA restringe o trabalho automático a este Mac. A interface identifica o destino; a escrita gerada aparece como prévia para aceitação. O idioma da interface e o das respostas da IA são preferências separadas.

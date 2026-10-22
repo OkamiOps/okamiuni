@@ -472,18 +472,10 @@ struct ReaderAIResultCard: View {
             }
 
             if let prose, !prose.isEmpty {
-                Text(prose)
-                    .font(theme.sans.font(size: Leitor5Metrics.proseSize, weight: .medium))
-                    .lineSpacing(
-                        Leitor5Metrics.proseSize * (Leitor5Metrics.proseLineHeight - 1.2)
-                    )
-                    .tracking(Leitor5Metrics.proseSize * -0.005)
-                    // **Tinta cheia.** `ink`, e não `ink2`, `ink3` nem
-                    // `opacity`: o texto da IA é para ler.
-                    .foregroundStyle(theme.ink.color)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
+                // O modelo responde em Markdown. Um `Text` cru mostrava
+                // `**título**` e o hífen da lista. Aqui a linha que é só
+                // negrito vira título, e o item vira item.
+                AssistantMarkdown(text: prose, style: .card(size: Leitor5Metrics.proseSize))
             }
 
             if let shallowNote {
