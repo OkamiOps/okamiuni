@@ -236,7 +236,7 @@ public struct AccountsWindow: View {
         }
         .sheet(isPresented: $addingAccount) {
             ConfigSheet(title: L10n.tr("Adicionar conta")) { addingAccount = false } content: {
-                AddAccountForm(model: model)
+                AddAccountForm(model: model, onClose: { addingAccount = false })
             }
         }
         .sheet(item: $reconectandoImap) { status in

@@ -283,4 +283,58 @@ struct MeetingConnectionsTests {
         connections.cancel(.zoho)
         #expect(connections.state(of: .zoho) == .disconnected)
     }
+
+    @Test("Dá para conectar várias contas e desconectar só uma")
+    func variasContasNoMesmoServico() async {
+        let conector = ContasDeReuniao()
+        let connections = MeetingConnections(connectors: [conector])
+
+        connections.connect(.zoom)
+        for _ in 0..<200 where connections.linking.contains(.zoom) {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        connections.connect(.zoom)
+        for _ in 0..<200 where connections.linking.contains(.zoom) {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+
+        #expect(connections.accounts(of: .zoom) == ["p1@x.com", "p2@x.com"])
+        #expect(connections.state(of: .zoom) == .connected("p1@x.com"))
+
+        connections.disconnect(.zoom, account: "p1@x.com")
+        #expect(connections.accounts(of: .zoom) == ["p2@x.com"])
+        #expect(connections.state(of: .zoom) == .connected("p2@x.com"))
+        for _ in 0..<200 where conector.stored != ["p2@x.com"] {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(conector.stored == ["p2@x.com"])
+    }
+}
+
+/// Guarda cada login, em vez de substituir o anterior.
+@MainActor
+private final class ContasDeReuniao: MeetingConnector {
+    let service: MeetingService = .zoom
+    var isAvailable: Bool = true
+    var stored: [String] = []
+    private var proxima = 0
+
+    func connect() async throws -> String {
+        proxima += 1
+        let email = "p\(proxima)@x.com"
+        stored.append(email)
+        return email
+    }
+
+    func cancel() {}
+
+    func disconnect() async { stored.removeAll() }
+
+    func currentAccount() async -> String? { stored.first }
+
+    func accounts() async -> [String] { stored }
+
+    func disconnect(account: String) async {
+        stored.removeAll { $0.caseInsensitiveCompare(account) == .orderedSame }
+    }
 }

@@ -9,26 +9,33 @@ public protocol CalendarAccountListing: Sendable {
     func calendarAccounts() async -> [Account]
 }
 
-/// EventKit do macOS **mais** CalDAV das caixas IMAP que têm servidor de
-/// agenda. Uma conta que falha não apaga a agenda das outras.
+/// EventKit do macOS, CalDAV das caixas IMAP que têm servidor de agenda, e
+/// a agenda do Google das contas autorizadas aqui. Uma conta que falha não
+/// apaga a agenda das outras.
 public actor CompositeCalendarSync: CalendarSyncing {
     private let eventKit: EventKitCalendarAdapter
     private let accounts: any CalendarAccountListing
     private let secrets: any SecretStore
     private let session: URLSession
+    private let googleToken: (@Sendable (String) async throws -> String)?
     private var lastCalDAVCalendars: [ConnectedCalendar] = []
     private var lastCalDAVEvents: [String: (account: Account, calendar: CalDAVCalendar, event: CalDAVEvent)] = [:]
+    private var lastGoogleCalendars: [ConnectedCalendar] = []
+    private var lastGoogleItemsByAccount: [String: [AgendaItem]] = [:]
+    private var googleIndex: [String: GoogleEventRef] = [:]
 
     public init(
         eventKit: EventKitCalendarAdapter = EventKitCalendarAdapter(),
         accounts: any CalendarAccountListing,
         secrets: any SecretStore,
-        session: URLSession = .shared
+        session: URLSession = .shared,
+        googleToken: (@Sendable (String) async throws -> String)? = nil
     ) {
         self.eventKit = eventKit
         self.accounts = accounts
         self.secrets = secrets
         self.session = session
+        self.googleToken = googleToken
     }
 
     public func availability() async -> CalendarAvailability {
@@ -36,7 +43,7 @@ public actor CompositeCalendarSync: CalendarSyncing {
     }
 
     public func calendars() async -> [ConnectedCalendar] {
-        await eventKit.calendars() + lastCalDAVCalendars
+        await eventKit.calendars() + lastCalDAVCalendars + lastGoogleCalendars
     }
 
     public func synchronize(
@@ -73,10 +80,15 @@ public actor CompositeCalendarSync: CalendarSyncing {
         }
         lastCalDAVCalendars = calDAVCalendars
         lastCalDAVEvents = calDAVEvents
+        items.append(contentsOf: await pullGoogle(referenceDay: referenceDay, alongside: items))
         return items
     }
 
     public func save(_ item: AgendaItem, referenceDay: Date) async throws {
+        if let id = item.calendarID, ConnectedCalendar.googleAccountID(from: id) != nil {
+            try await writeGoogle(item, referenceDay: referenceDay)
+            return
+        }
         if let id = item.calendarID, id.hasPrefix(ConnectedCalendar.calDAVPrefix) {
             try await put(item, referenceDay: referenceDay)
             return
@@ -85,6 +97,11 @@ public actor CompositeCalendarSync: CalendarSyncing {
     }
 
     public func remove(id: String, referenceDay: Date) async throws {
+        if let ref = googleIndex[id] ?? GoogleCalendarItemID.parse(id) {
+            try await deleteGoogle(ref)
+            googleIndex[id] = nil
+            return
+        }
         if let cached = lastCalDAVEvents[id] {
             guard case .password(let senha)? = try? secrets.secret(for: cached.account.id),
                   let preset = CalDAVPresets.preset(for: cached.account)
@@ -204,6 +221,76 @@ public actor CompositeCalendarSync: CalendarSyncing {
             calendarUID: event.uid,
             calendarID: calendar.id, calendarTitle: calendar.title,
             calendarColorHex: calendar.colorHex, calendarSource: calendar.source
+        )
+    }
+
+    /// Contas Google autorizadas neste app. Quem já aparece no Calendário do
+    /// Mac com o mesmo endereço não é puxado de novo. Falha numa conta deixa
+    /// a última agenda dela no lugar.
+    private func pullGoogle(referenceDay: Date, alongside existing: [AgendaItem]) async -> [AgendaItem] {
+        guard let googleToken else {
+            lastGoogleCalendars = []
+            return []
+        }
+        let client = GoogleCalendarSync(session: session, token: googleToken)
+        let ekCalendars = await eventKit.calendars()
+        let occupied = Set(existing.compactMap { item -> String? in
+            guard let uid = item.calendarUID, !uid.isEmpty else { return nil }
+            return "\(uid)|\(item.dayOffset)|\(item.startMinute)"
+        })
+        var calendars: [ConnectedCalendar] = []
+        var produced: [AgendaItem] = []
+        var index: [String: GoogleEventRef] = [:]
+        for account in await accounts.calendarAccounts() where account.provider == .gmail {
+            if GoogleCalendarSync.macAlreadyShows(account, among: ekCalendars) { continue }
+            do {
+                let pull = try await client.pull(account: account, referenceDay: referenceDay)
+                calendars.append(contentsOf: pull.calendars)
+                lastGoogleItemsByAccount[account.id] = pull.items
+                for (key, ref) in pull.index { index[key] = ref }
+                for item in pull.items {
+                    if let uid = item.calendarUID, !uid.isEmpty,
+                       occupied.contains("\(uid)|\(item.dayOffset)|\(item.startMinute)") {
+                        continue
+                    }
+                    produced.append(item)
+                }
+            } catch {
+                calendars.append(contentsOf: lastGoogleCalendars.filter {
+                    ConnectedCalendar.googleAccountID(from: $0.id) == account.id
+                })
+                produced.append(contentsOf: lastGoogleItemsByAccount[account.id] ?? [])
+                for (key, ref) in googleIndex where ref.accountID == account.id {
+                    index[key] = ref
+                }
+            }
+        }
+        lastGoogleCalendars = calendars
+        googleIndex = index
+        return produced
+    }
+
+    private func writeGoogle(_ item: AgendaItem, referenceDay: Date) async throws {
+        guard let googleToken,
+              let calendarID = item.calendarID,
+              let parts = ConnectedCalendar.googleParts(from: calendarID)
+        else { return }
+        let client = GoogleCalendarSync(session: session, token: googleToken)
+        let existing = googleIndex[item.id]?.eventID ?? GoogleCalendarItemID.parse(item.id)?.eventID
+        let eventID = try await client.write(
+            item, accountID: parts.accountID, remoteCalendarID: parts.remoteID,
+            existingEventID: existing, referenceDay: referenceDay
+        )
+        googleIndex[item.id] = GoogleEventRef(
+            accountID: parts.accountID, remoteCalendarID: parts.remoteID, eventID: eventID
+        )
+    }
+
+    private func deleteGoogle(_ ref: GoogleEventRef) async throws {
+        guard let googleToken else { return }
+        let client = GoogleCalendarSync(session: session, token: googleToken)
+        try await client.delete(
+            accountID: ref.accountID, remoteCalendarID: ref.remoteCalendarID, eventID: ref.eventID
         )
     }
 

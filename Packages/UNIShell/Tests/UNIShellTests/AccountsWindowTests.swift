@@ -708,6 +708,33 @@ struct AccountsWindowTests {
         )
     }
 
+    /// Domínio no Google, senha vazia: a trilha não pede IMAP. O avanço é o
+    /// navegador. Sem isto a folha fica no passo 1 com "Testar e adicionar"
+    /// apagado depois que a pessoa já autorizou.
+    @Test("No Google sem senha o passo atual é entrar, e autorizar acende o navegador")
+    func trilhaDoGoogleNaoPedeSenha() {
+        let parado = AddAccountForm.passos(
+            googleSemSenha: true, autorizando: false,
+            imapPreenchido: false, testando: false, testado: nil
+        )
+        #expect(parado.map(\.state) == [.now, .waiting, .waiting])
+        #expect(parado[0].label == L10n.tr("Entrar com Google"))
+
+        let noNavegador = AddAccountForm.passos(
+            googleSemSenha: true, autorizando: true,
+            imapPreenchido: false, testando: false, testado: nil
+        )
+        #expect(noNavegador.map(\.state) == [.done, .now, .waiting])
+        #expect(noNavegador[1].label == L10n.tr("Autorizar no navegador"))
+
+        let imap = AddAccountForm.passos(
+            googleSemSenha: false, autorizando: false,
+            imapPreenchido: false, testando: false, testado: nil
+        )
+        #expect(imap[0].label == L10n.tr("Preencher IMAP"))
+        #expect(imap[0].state == .now)
+    }
+
     /// Domínio próprio hospedado no Workspace não se distingue de um servidor
     /// qualquer sem consultar MX. Em vez de adivinhar, a folha pergunta — e a
     /// pergunta é um **botão**, com borda, não um link de texto perdido.

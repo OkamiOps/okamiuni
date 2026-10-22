@@ -3,7 +3,7 @@ import UNICore
 import UNISync
 
 /// Uma **fonte** de agendas na aba Agendas: o Calendário do Mac, uma caixa que
-/// sincroniza por CalDAV, ou o próprio app.
+/// sincroniza por CalDAV, a agenda do Google da conta autorizada, ou o próprio app.
 ///
 /// O desenho agrupa por quem entrega o calendário, e não por conta de e-mail:
 /// o Calendário do Mac entrega iCloud, Google e Feriados de uma vez só, e
@@ -15,6 +15,8 @@ struct AgendaSource: Identifiable, Hashable {
         case eventKit
         /// Uma caixa com servidor de agenda (Zoho, Yahoo, Fastmail).
         case calDAV(accountID: String)
+        /// A agenda do Google lida com o token da conta, não pelo Calendário do Mac.
+        case google(accountID: String)
         /// O que fica só neste Mac: o calendário "Do email" e os calendários
         /// de caixa sem servidor de agenda.
         case local
@@ -36,9 +38,10 @@ enum AgendaSources {
     /// Separa os calendários conectados nas fontes que a aba desenha.
     ///
     /// A classificação é por **identidade do id**, nunca por nome: o prefixo
-    /// `caldav.` diz a conta, o prefixo `okamiuni.mailbox.` e o id do
-    /// calendário "Do email" dizem que é local, e o que sobra veio do EventKit
-    /// (os ids de lá são os `calendarIdentifier` do macOS).
+    /// `caldav.` diz a conta, o prefixo `gcal.` diz a agenda do Google, o
+    /// prefixo `okamiuni.mailbox.` e o id do calendário "Do email" dizem que
+    /// é local, e o que sobra veio do EventKit (os ids de lá são os
+    /// `calendarIdentifier` do macOS).
     static func build(
         calendars: [ConnectedCalendar],
         accounts: [AccountStatus],
@@ -50,9 +53,14 @@ enum AgendaSources {
         var local: [ConnectedCalendar] = []
         var calDAV: [String: [ConnectedCalendar]] = [:]
         var calDAVOrder: [String] = []
+        var google: [String: [ConnectedCalendar]] = [:]
+        var googleOrder: [String] = []
 
         for connected in calendars {
-            if let accountID = ConnectedCalendar.calDAVAccountID(from: connected.id) {
+            if let accountID = ConnectedCalendar.googleAccountID(from: connected.id) {
+                if google[accountID] == nil { googleOrder.append(accountID) }
+                google[accountID, default: []].append(connected)
+            } else if let accountID = ConnectedCalendar.calDAVAccountID(from: connected.id) {
                 if calDAV[accountID] == nil { calDAVOrder.append(accountID) }
                 calDAV[accountID, default: []].append(connected)
             } else if connected.id == ConnectedCalendar.email.id
@@ -97,6 +105,24 @@ enum AgendaSources {
                 subtitle: list.count == 1
                     ? L10n.tr("CalDAV · 1 agenda")
                     : L10n.tr("CalDAV · \(list.count) agendas"),
+                state: calDAVState(status, now: now, calendar: calendar),
+                tone: status.map { AccountsCopy.isFailing($0) ? .orange : .green } ?? .quiet,
+                calendars: list
+            ))
+        }
+
+        for accountID in googleOrder {
+            let list = google[accountID] ?? []
+            let status = accounts.first { $0.accountID == accountID }
+            let address = status?.address ?? list.first?.source ?? accountID
+            sources.append(AgendaSource(
+                id: "google.\(accountID)",
+                kind: .google(accountID: accountID),
+                monogram: String(address.prefix(1)).uppercased(),
+                title: address,
+                subtitle: list.count == 1
+                    ? L10n.tr("Google · 1 agenda")
+                    : L10n.tr("Google · \(list.count) agendas"),
                 state: calDAVState(status, now: now, calendar: calendar),
                 tone: status.map { AccountsCopy.isFailing($0) ? .orange : .green } ?? .quiet,
                 calendars: list

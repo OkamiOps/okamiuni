@@ -86,6 +86,8 @@
 "Avisar {0}" = "Tell {0}";
 "CalDAV · 1 agenda" = "CalDAV · 1 calendar";
 "CalDAV · {0} agendas" = "CalDAV · {0} calendars";
+"Google · 1 agenda" = "Google · 1 calendar";
+"Google · {0} agendas" = "Google · {0} calendars";
 "Cria os compromissos propostos, com desfazer" = "Creates the proposed events, with undo";
 "Criar evento — indisponível: este compromisso já está na agenda" = "Create event — unavailable: this appointment is already on the calendar";
 "Criar evento — indisponível: sem motor de IA para achar dia e hora" = "Create event — unavailable: no AI engine to find a date and time";
@@ -530,6 +532,7 @@
 "Conectando ao agente…" = "Connecting to the agent…";
 "Conectando…" = "Connecting…";
 "Conectar" = "Connect";
+"Conectar outra conta" = "Connect another account";
 "Conectar IA" = "Connect AI";
 "Conectar a inteligência" = "Connect the intelligence";
 "Conectar agora" = "Connect now";
@@ -2481,7 +2484,7 @@
 "A da conta" = "The account’s own";
 "uma sala nova por evento" = "a new room for each event";
 "Sala padrão em eventos novos" = "Default room in new events";
-"Cada um abre o login da sua conta no navegador — nada de client ID, segredo nem tenant." = "Each one opens your account’s sign-in in the browser — no client ID, secret or tenant.";
+"Cada um abre o login da sua conta no navegador — nada de client ID, segredo nem tenant. Dá para conectar quantas contas quiser." = "Each one opens your account’s sign-in in the browser — no client ID, secret or tenant. You can connect as many accounts as you want.";
 "entra na sua conta Google no navegador" = "signs in to your Google account in the browser";
 "Agenda e Meet" = "Calendar and Meet";
 "seu Apple ID e uma senha de app" = "your Apple ID and an app password";
@@ -2550,4 +2553,4 @@
 "O {0} respondeu sem HTTP." = "{0} replied without HTTP.";
 "O {0} respondeu {1}: {2}" = "{0} replied {1}: {2}";
 "O {0} devolveu um JSON que não reconhecemos." = "{0} returned JSON we do not recognize.";
-"O Meet usa a sua conta Google e cria uma sala nova para cada evento." = "Meet uses your Google account and creates a new room for each event.";
+"O Meet usa as contas Google que você conectar e cria uma sala nova para cada evento." = "Meet uses the Google accounts you connect and creates a new room for each event.";

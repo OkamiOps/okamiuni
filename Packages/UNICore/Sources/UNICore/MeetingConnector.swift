@@ -63,8 +63,26 @@ public protocol MeetingConnector: AnyObject {
     func disconnect() async
 
     /// A conta já conectada, lida do cofre na abertura da janela. `nil`
-    /// quando não há nenhuma.
+    /// quando não há nenhuma. Com várias, é a primeira.
     func currentAccount() async -> String?
+
+    /// Todas as contas conectadas. A padrão devolve a única que
+    /// `currentAccount` já conhece; quem guarda mais de uma sobrescreve.
+    func accounts() async -> [String]
+
+    /// Esquece **esta** conta. A padrão desconecta o serviço inteiro.
+    func disconnect(account: String) async
+}
+
+extension MeetingConnector {
+    public func accounts() async -> [String] {
+        if let account = await currentAccount() { return [account] }
+        return []
+    }
+
+    public func disconnect(account: String) async {
+        await disconnect()
+    }
 }
 
 /// Os client IDs dos serviços de reunião, vindos do `Info.plist`.
@@ -129,6 +147,13 @@ public enum MeetingClientIDs {
 @Observable
 public final class MeetingConnections {
     public private(set) var states: [MeetingService: MeetingConnectionState] = [:]
+    /// As contas ligadas a cada serviço, na ordem em que entraram.
+    public private(set) var accountsByService: [MeetingService: [String]] = [:]
+    /// Um login em andamento. A lista de contas que já existem continua na tela.
+    public private(set) var linking: Set<MeetingService> = []
+    /// A última tentativa de conectar outra conta falhou, e as que já estavam
+    /// continuam. Some na próxima tentativa.
+    public private(set) var linkError: [MeetingService: String] = [:]
 
     @ObservationIgnored
     private var connectors: [MeetingService: any MeetingConnector] = [:]
@@ -149,52 +174,117 @@ public final class MeetingConnections {
         states[service] ?? .unavailable
     }
 
+    public func accounts(of service: MeetingService) -> [String] {
+        accountsByService[service] ?? []
+    }
+
     /// Lê do cofre quem já está conectado. Chamado quando a aba abre.
     public func refresh() async {
         for (service, connector) in connectors {
             guard connector.isAvailable else { continue }
             // Uma conexão em andamento não pode ser atropelada pela leitura.
-            if case .waitingInBrowser = state(of: service) { continue }
-            if let account = await connector.currentAccount() {
-                states[service] = .connected(account)
-            } else if !state(of: service).isConnected {
-                states[service] = .disconnected
-            }
+            if linking.contains(service) { continue }
+            let lista = await connector.accounts()
+            guardar(lista, em: service)
         }
     }
 
     public func connect(_ service: MeetingService) {
         guard let connector = connectors[service], connector.isAvailable else { return }
         guard running[service] == nil else { return }
-        states[service] = .waitingInBrowser
+        var erros = linkError
+        erros[service] = nil
+        linkError = erros
+        var emCurso = linking
+        emCurso.insert(service)
+        linking = emCurso
+        // A primeira conta usa o estado que a linha já desenhava. As
+        // seguintes ficam na lista e o login corre por baixo.
+        if accounts(of: service).isEmpty {
+            states[service] = .waitingInBrowser
+        }
         running[service] = Task { [weak self] in
             do {
                 let account = try await connector.connect()
                 guard !Task.isCancelled else { return }
-                self?.states[service] = .connected(account)
+                var lista = await connector.accounts()
+                if !lista.contains(where: { $0.caseInsensitiveCompare(account) == .orderedSame }) {
+                    lista.append(account)
+                }
+                self?.guardar(lista, em: service)
             } catch is CancellationError {
-                self?.states[service] = .disconnected
+                self?.encerrarEspera(service)
             } catch {
                 guard !Task.isCancelled else { return }
-                self?.states[service] = .failed(error.localizedDescription)
+                self?.falhou(service, error.localizedDescription)
             }
             self?.running[service] = nil
+            if var emCurso = self?.linking {
+                emCurso.remove(service)
+                self?.linking = emCurso
+            }
         }
     }
 
     public func cancel(_ service: MeetingService) {
         running[service]?.cancel()
         running[service] = nil
+        var emCurso = linking
+        emCurso.remove(service)
+        linking = emCurso
         connectors[service]?.cancel()
-        states[service] = connectors[service]?.isAvailable == true ? .disconnected : .unavailable
+        encerrarEspera(service)
     }
 
     public func disconnect(_ service: MeetingService) {
         guard let connector = connectors[service] else { return }
         running[service]?.cancel()
         running[service] = nil
-        states[service] = connector.isAvailable ? .disconnected : .unavailable
+        var emCurso = linking
+        emCurso.remove(service)
+        linking = emCurso
+        guardar([], em: service)
         Task { await connector.disconnect() }
+    }
+
+    /// Tira uma conta e deixa as outras.
+    public func disconnect(_ service: MeetingService, account: String) {
+        guard let connector = connectors[service] else { return }
+        var lista = accounts(of: service)
+        lista.removeAll { $0.caseInsensitiveCompare(account) == .orderedSame }
+        guardar(lista, em: service)
+        Task { await connector.disconnect(account: account) }
+    }
+
+    private func guardar(_ lista: [String], em service: MeetingService) {
+        var mapa = accountsByService
+        mapa[service] = lista
+        accountsByService = mapa
+        if let primeira = lista.first {
+            states[service] = .connected(primeira)
+        } else if connectors[service]?.isAvailable == true {
+            states[service] = .disconnected
+        } else {
+            states[service] = .unavailable
+        }
+    }
+
+    /// O login desta tentativa acabou sem conta nova. Quem já estava ligado
+    /// continua; quem não tinha ninguém volta a "não conectado".
+    private func encerrarEspera(_ service: MeetingService) {
+        if accounts(of: service).isEmpty {
+            states[service] = connectors[service]?.isAvailable == true ? .disconnected : .unavailable
+        }
+    }
+
+    private func falhou(_ service: MeetingService, _ motivo: String) {
+        if accounts(of: service).isEmpty {
+            states[service] = .failed(motivo)
+        } else {
+            var erros = linkError
+            erros[service] = motivo
+            linkError = erros
+        }
     }
 }
 

@@ -56,10 +56,14 @@ public final class MeetingRoomFactory: @unchecked Sendable {
         }
     }
 
-    /// A conta conectada de um serviço, para a tela mostrar de quem a sala
-    /// vai nascer. `nil` quando não há conexão.
+    /// A conta padrão de um serviço. `nil` quando não há conexão.
     public func connectedAccount(_ service: MeetingService) -> String? {
         tokens[service]?.account
+    }
+
+    /// Todas as contas conectadas, na ordem em que entraram.
+    public func connectedAccounts(_ service: MeetingService) -> [String] {
+        tokens[service]?.accounts() ?? []
     }
 
     public func hasMeetAccess(accountID: String) -> Bool? {
@@ -98,14 +102,16 @@ public final class MeetingRoomFactory: @unchecked Sendable {
             return try await mintMeet(request)
         case .zoom:
             let fonte = try source(.zoom)
+            let conta = request.hostAccount
             let link = try await ZoomMeetingClient(
-                session: session, accessToken: { try await fonte.accessToken() }
+                session: session, accessToken: { try await fonte.accessToken(for: conta) }
             ).create(request)
             return MeetingMint(link: link)
         case .teams:
             let fonte = try source(.teams)
+            let conta = request.hostAccount
             let link = try await TeamsMeetingClient(
-                session: session, accessToken: { try await fonte.accessToken() }
+                session: session, accessToken: { try await fonte.accessToken(for: conta) }
             ).create(request)
             return MeetingMint(link: link)
         case .zoho:
@@ -145,14 +151,14 @@ public final class MeetingRoomFactory: @unchecked Sendable {
     /// faltar, para uma conexão antiga não ficar inútil.
     private func mintZoho(_ request: MeetingRoomRequest) async throws -> String {
         let fonte = try source(.zoho)
-        guard let guardados = fonte.tokens,
+        guard let guardados = fonte.tokens(matching: request.hostAccount),
               let servidor = guardados.accountsServer,
               let base = ZohoDataCenter.meetingAPIBase(accountsServer: servidor)
         else { throw MeetingRoomError.notConnected(.zoho) }
 
         var zsoid = guardados.zsoid
         if zsoid == nil {
-            let token = try await fonte.accessToken()
+            let token = try await fonte.accessToken(for: request.hostAccount)
             let usuario = try await ZohoUserClient(session: session, apiBase: base)
                 .me(accessToken: token)
             zsoid = usuario.zsoid
@@ -166,7 +172,7 @@ public final class MeetingRoomFactory: @unchecked Sendable {
             session: session,
             apiBase: base,
             zsoid: zsoid,
-            accessToken: { try await fonte.accessToken() }
+            accessToken: { try await fonte.accessToken(for: request.hostAccount) }
         ).create(request)
     }
 

@@ -92,6 +92,10 @@ public final class ZohoConnector: MeetingConnector {
         vault.load(.zoho)?.account
     }
 
+    public func accounts() async -> [String] {
+        vault.accounts(.zoho).compactMap { $0.account?.nonEmptyValue }
+    }
+
     public func connect() async throws -> String {
         guard clientID != nil, clientSecret != nil else {
             throw MeetingConnectorError.missingClientID(.zoho)
@@ -149,6 +153,10 @@ public final class ZohoConnector: MeetingConnector {
 
     public func disconnect() async {
         vault.clear(.zoho)
+    }
+
+    public func disconnect(account: String) async {
+        vault.remove(.zoho, account: account)
     }
 
     public var tokenSource: MeetingTokenSource {

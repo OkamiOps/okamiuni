@@ -93,6 +93,9 @@ public struct AddAccountForm: View {
     @State private var descoberta: Task<Void, Never>?
     /// O que a descoberta achou para o endereço que está no campo agora.
     @State private var sugestao: ImapSuggestion?
+    /// O login no navegador está em curso. A trilha deixa de falar de senha
+    /// IMAP — quem acabou de autorizar no Google não tem o que preencher.
+    @State private var autorizando = false
 
     /// `initialAddress` existe para o formulário ser **dirigível**: o harness
     /// desenha fora da tela e não digita, e o ensaio do app (`--ensaiar-contas`)
@@ -109,11 +112,13 @@ public struct AddAccountForm: View {
         onClose: (() -> Void)? = nil,
         descobre: @escaping @Sendable (String) async -> ImapSuggestion? = {
             await ImapDiscovery.suggest(for: $0)
-        }
+        },
+        sugestaoInicial: ImapSuggestion? = nil
     ) {
         self.model = model
         self.onClose = onClose
         self.descobre = descobre
+        _sugestao = State(initialValue: sugestaoInicial)
         _address = State(initialValue: initialAddress)
         let palpite = Self.route(for: initialAddress)
         _host = State(initialValue: initialHost ?? Self.host(of: palpite))
@@ -184,7 +189,9 @@ public struct AddAccountForm: View {
     /// A frase de apoio do cabeçalho — uma só, e ela muda com a rota, que é o
     /// que o protótipo faz (`subtitulo`).
     private var subtitle: String {
-        if isGoogle { return L10n.tr("Entre com o Google ou pelo IMAP, como preferir.") }
+        if isGoogle || sugestao?.usaGoogle == true {
+            return L10n.tr("Entre com o Google ou pelo IMAP, como preferir.")
+        }
         if isImap { return L10n.tr("Servidor próprio: três campos e um teste.") }
         return L10n.tr("Digite o endereço. O caminho aparece aqui embaixo.")
     }
@@ -197,7 +204,9 @@ public struct AddAccountForm: View {
             AccountPathSteps(steps: pathSteps)
             if isGoogle { googleRoute }
             if mostraOfertaDoGoogle { ofertaDoGoogle }
-            ZohoSignInButton(model: model, address: address, host: host)
+            ZohoSignInButton(model: model, address: address, host: host) {
+                if model.lastError == nil { onClose?() }
+            }
             if isImap { imapRoute }
             if let erro = model.lastError { errorLine(erro) }
             if mostraNotaDoEnderecoNumerico { notaDoEnderecoNumerico }
@@ -235,15 +244,18 @@ public struct AddAccountForm: View {
     }
 
     private var providerLabel: String? {
+        if isGoogle || sugestao?.usaGoogle == true { return L10n.tr("Google Workspace") }
         switch route {
-        case .google: L10n.tr("Google Workspace")
-        case .imap(let preset): preset.name
-        case .manual: L10n.tr("IMAP")
-        case .none: nil
+        case .google: return L10n.tr("Google Workspace")
+        case .imap(let preset): return preset.name
+        case .manual: return L10n.tr("IMAP")
+        case .none: return nil
         }
     }
 
-    private var providerTint: TokenColor { isGoogle ? theme.modalGreen : theme.ink3 }
+    private var providerTint: TokenColor {
+        isGoogle || sugestao?.usaGoogle == true ? theme.modalGreen : theme.ink3
+    }
 
     /// Os três passos do **caminho principal**, que é o IMAP em toda rota.
     ///
@@ -251,13 +263,50 @@ public struct AddAccountForm: View {
     /// ao mesmo tempo, e uma trilha que falasse de navegador descreveria o
     /// botão que a pessoa talvez nem use. O que o botão do Google faz está
     /// escrito embaixo dele, que é onde ele está.
+    /// Google sem senha digitada: o avanço é o navegador, não o teste IMAP.
+    ///
+    /// Com a senha preenchida a trilha volta a ser a do IMAP — a pessoa
+    /// escolheu esse caminho e o botão do rodapé passa a testá-lo.
+    private var caminhoGoogleSemSenha: Bool {
+        password.isEmpty && (isGoogle || sugestao?.usaGoogle == true)
+    }
+
     private var pathSteps: [AccountPathSteps.Step] {
-        let preenchido = isImap && !password.isEmpty && endpoint != nil
+        Self.passos(
+            googleSemSenha: caminhoGoogleSemSenha,
+            autorizando: autorizando || (caminhoGoogleSemSenha && model.isBusy),
+            imapPreenchido: isImap && !password.isEmpty && endpoint != nil,
+            testando: testando,
+            testado: testado
+        )
+    }
+
+    /// Puro, para o teste afirmar a trilha sem montar a folha.
+    static func passos(
+        googleSemSenha: Bool,
+        autorizando: Bool,
+        imapPreenchido: Bool,
+        testando: Bool,
+        testado: Bool?
+    ) -> [AccountPathSteps.Step] {
+        if googleSemSenha {
+            return [
+                .init(
+                    id: 1, label: L10n.tr("Entrar com Google"),
+                    state: autorizando ? .done : .now
+                ),
+                .init(
+                    id: 2, label: L10n.tr("Autorizar no navegador"),
+                    state: autorizando ? .now : .waiting
+                ),
+                .init(id: 3, label: L10n.tr("Sincronizando"), state: .waiting),
+            ]
+        }
         return [
-            .init(id: 1, label: L10n.tr("Preencher IMAP"), state: preenchido ? .done : .now),
+            .init(id: 1, label: L10n.tr("Preencher IMAP"), state: imapPreenchido ? .done : .now),
             .init(
                 id: 2, label: L10n.tr("Testar conexão"),
-                state: testando ? .now : (testado == true ? .done : (preenchido ? .now : .waiting))
+                state: testando ? .now : (testado == true ? .done : (imapPreenchido ? .now : .waiting))
             ),
             .init(
                 id: 3, label: L10n.tr("Sincronizando"),
@@ -272,9 +321,7 @@ public struct AddAccountForm: View {
     /// IMAP logo abaixo. Os dois valem, e nenhum esconde o outro.
     private var googleRoute: some View {
         VStack(spacing: 16) {
-            Button {
-                Task { await model.addGoogle(address: address) }
-            } label: {
+            Button(action: entrarComGoogle) {
                 HStack(spacing: 10) {
                     Text(L10n.tr("Autorizar no Google"))
                     Image(systemName: "arrow.up.right")
@@ -293,7 +340,7 @@ public struct AddAccountForm: View {
                 .contentShape(RoundedRectangle(cornerRadius: theme.modalFieldRadius))
             }
             .buttonStyle(.plain)
-            .disabled(model.isBusy)
+            .disabled(model.isBusy || autorizando)
             .focusRing(cornerRadius: theme.modalFieldRadius, tint: \.onAccent)
             .help(model.isBusy
                 ? L10n.tr("Há outra ação em curso; ela termina em instantes.")
@@ -342,11 +389,13 @@ public struct AddAccountForm: View {
                 .font(theme.sans.font(size: 12.5))
                 .foregroundStyle(theme.ink3.color)
                 .fixedSize(horizontal: false, vertical: true)
-            ModalSecondaryButton(L10n.tr("Entrar com Google")) {
-                Task { await model.addGoogle(address: address) }
+            if sugestao?.usaGoogle == true {
+                botaoDeAcento(L10n.tr("Entrar com Google"), action: entrarComGoogle)
+            } else {
+                ModalSecondaryButton(L10n.tr("Entrar com Google"), action: entrarComGoogle)
+                    .disabled(model.isBusy || autorizando)
+                    .help(L10n.tr("Abrir o consentimento do Google para \(address)"))
             }
-            .disabled(model.isBusy)
-            .help(L10n.tr("Abrir o consentimento do Google para \(address)"))
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -495,7 +544,9 @@ public struct AddAccountForm: View {
             // Uma frase só, em toda rota. O atalho "Usar IMAP com senha de
             // app" que morava aqui sumiu porque não tem mais o que atalhar: o
             // formulário IMAP está à vista desde o começo.
-            Text(L10n.tr("Nada é salvo antes do teste passar."))
+            Text(caminhoGoogleSemSenha
+                ? L10n.tr("A autorização abre no navegador e você volta sozinho para cá. A senha nunca passa pelo OkamiUNI.")
+                : L10n.tr("Nada é salvo antes do teste passar."))
                 .font(theme.sans.font(size: 12.5))
                 .foregroundStyle(theme.ink3.color)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -503,7 +554,18 @@ public struct AddAccountForm: View {
                 ModalTextButton(L10n.tr("Cancelar"), action: onClose)
                     .keyboardShortcut(.cancelAction)
             }
-            if isImap {
+            if caminhoGoogleSemSenha {
+                ModalPrimaryButton(
+                    title: autorizando || model.isBusy
+                        ? L10n.tr("esperando no navegador")
+                        : L10n.tr("Entrar com Google"),
+                    enabled: !autorizando && !model.isBusy,
+                    horizontalPadding: 18,
+                    action: entrarComGoogle
+                )
+                .accessibilityIdentifier("add-account-primary")
+                .help(L10n.tr("Abrir o consentimento do Google para \(address)"))
+            } else if isImap {
                 ModalPrimaryButton(
                     title: testando ? L10n.tr("Testando…") : L10n.tr("Testar e adicionar"),
                     enabled: !testando && !model.isBusy && !password.isEmpty && endpoint != nil,
@@ -519,6 +581,46 @@ public struct AddAccountForm: View {
         .padding(.bottom, Theme.modalFooterBottom)
         .hairline(theme.modalLine, edges: .top)
         .padding(.top, 18)
+    }
+
+    /// O botão de acento, o mesmo peso do "Autorizar no Google".
+    private func botaoDeAcento(_ titulo: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Text(titulo)
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .accessibilityHidden(true)
+            }
+            .font(theme.sans.font(size: 14.5, weight: .semibold))
+            .foregroundStyle(theme.onAccent.color)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 13)
+            .background(
+                theme.accent.color,
+                in: RoundedRectangle(cornerRadius: theme.modalFieldRadius, style: .continuous)
+            )
+            .shadow(theme.modalAccentGlow)
+            .contentShape(RoundedRectangle(cornerRadius: theme.modalFieldRadius))
+        }
+        .buttonStyle(.plain)
+        .disabled(model.isBusy || autorizando)
+        .focusRing(cornerRadius: theme.modalFieldRadius, tint: \.onAccent)
+        .help(L10n.tr("Abrir o consentimento do Google para \(address)"))
+    }
+
+    /// Abre o consentimento e, se a conta entrou, fecha a folha.
+    ///
+    /// Sem isto o login volta do navegador e a trilha continua no passo
+    /// "Preencher IMAP", com "Testar e adicionar" apagado porque a senha está
+    /// vazia — a pessoa autorizou e não tem para onde ir.
+    private func entrarComGoogle() {
+        autorizando = true
+        Task {
+            await model.addGoogle(address: address)
+            autorizando = false
+            if model.lastError == nil { onClose?() }
+        }
     }
 
     private func testAndAdd() {

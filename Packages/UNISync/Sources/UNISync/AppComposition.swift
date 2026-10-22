@@ -411,7 +411,17 @@ public struct AppComposition: Sendable {
         // mesma fila, e duas instâncias avisariam o executor duas vezes.
         let porta = DatabaseCommandPort(database: banco, signal: sinal)
         let attachments = DatabaseAttachmentFetcher(database: banco, auth: auth, session: .shared)
-        let calendar = CompositeCalendarSync(accounts: DatabaseCalendarAccounts(database: banco), secrets: cofre)
+        let googleToken: (@Sendable (String) async throws -> String)?
+        if let auth {
+            googleToken = { accountID in try await auth.accessToken(for: accountID) }
+        } else {
+            googleToken = nil
+        }
+        let calendar = CompositeCalendarSync(
+            accounts: DatabaseCalendarAccounts(database: banco),
+            secrets: cofre,
+            googleToken: googleToken
+        )
         let agentServices = AgentApplicationServices(
             attachments: DatabaseAgentAttachmentReader(fetcher: attachments),
             search: DatabaseAgentMailSearch(

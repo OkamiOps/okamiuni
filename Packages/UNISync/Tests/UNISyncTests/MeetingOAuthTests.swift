@@ -93,7 +93,7 @@ private func field(_ body: String, _ name: String) -> String? {
 }
 
 private func pedido(
-    service: MeetingService, title: String = "Revisão"
+    service: MeetingService, title: String = "Revisão", hostAccount: String? = nil
 ) -> MeetingRoomRequest {
     let start = Date(timeIntervalSince1970: 1_788_163_200)
     return MeetingRoomRequest(
@@ -105,7 +105,8 @@ private func pedido(
         ),
         title: title,
         start: start,
-        end: start.addingTimeInterval(1_800)
+        end: start.addingTimeInterval(1_800),
+        hostAccount: hostAccount
     )
 }
 
@@ -529,6 +530,7 @@ struct TeamsConnectorTests {
             itens["scope"]
                 == "offline_access Calendars.ReadWrite OnlineMeetings.ReadWrite User.Read"
         )
+        #expect(itens["prompt"] == "select_account")
 
         let troca = try #require(
             StubURLProtocol.requests(for: session).first { $0.path.hasSuffix("/token") }
@@ -871,6 +873,97 @@ struct MeetingRoomFactoryTokenTests {
         )
         #expect(fabrica.canMint(.zoom, account: conta))
         #expect(fabrica.connectedAccount(.zoom) == "m@x.com")
+    }
+
+    @Test("Duas contas do mesmo serviço convivem e a sala nasce da que foi pedida")
+    func duasContasESalaDaContaPedida() async throws {
+        let cofre = MeetingTokenVault(secrets: InMemorySecretStore())
+        try cofre.save(
+            MeetingTokens(accessToken: "token-a", expiresAt: .distantFuture, account: "a@x.com"),
+            for: .zoom
+        )
+        try cofre.save(
+            MeetingTokens(accessToken: "token-b", expiresAt: .distantFuture, account: "b@x.com"),
+            for: .zoom
+        )
+        // A chave antiga continua sendo a última gravação.
+        #expect(cofre.load(.zoom)?.account == "b@x.com")
+        #expect(cofre.load(.zoom)?.accessToken == "token-b")
+
+        let session = StubURLProtocol.session(routes: [
+            "/v2/users/me/meetings": [.json(#"{"join_url":"https://zoom.us/j/1"}"#)],
+        ])
+        let zoom = ZoomConnector(
+            clientID: "c", session: session, vault: cofre,
+            browser: RecordingBrowser { _ in nil },
+            apiBase: URL(string: "https://api.zoom.us/v2/")!
+        )
+        let fabrica = MeetingRoomFactory(session: session, tokens: [zoom.tokenSource])
+        #expect(fabrica.connectedAccounts(.zoom) == ["a@x.com", "b@x.com"])
+
+        _ = try await fabrica.mint(pedido(service: .zoom, hostAccount: "a@x.com"))
+        let criacao = try #require(StubURLProtocol.requests(for: session).first)
+        #expect(criacao.authorization == "Bearer token-a")
+
+        cofre.remove(.zoom, account: "a@x.com")
+        #expect(fabrica.connectedAccounts(.zoom) == ["b@x.com"])
+        #expect(fabrica.connectedAccount(.zoom) == "b@x.com")
+        #expect(cofre.load(.zoom)?.accessToken == "token-b")
+    }
+
+    @Test("Uma conexão antiga, só na chave meeting.zoom, entra na lista")
+    func chaveAntigaEntraNaLista() throws {
+        let segredos = InMemorySecretStore()
+        let cofre = MeetingTokenVault(secrets: segredos)
+        try segredos.store(
+            .meeting(MeetingTokens(
+                accessToken: "velho", expiresAt: .distantFuture, account: "antes@x.com"
+            )),
+            for: "meeting.zoom"
+        )
+        #expect(cofre.accounts(.zoom).compactMap(\.account) == ["antes@x.com"])
+        #expect(cofre.load(.zoom)?.accessToken == "velho")
+        // A segunda leitura não duplica.
+        #expect(cofre.accounts(.zoom).count == 1)
+    }
+
+    @Test("Refresh token morto de uma conta não apaga a outra")
+    func refreshMortoNaoApagaAOutra() async throws {
+        let cofre = MeetingTokenVault(secrets: InMemorySecretStore())
+        let agora = Date(timeIntervalSince1970: 1_800_000_000)
+        try cofre.save(
+            MeetingTokens(
+                accessToken: "viva", refreshToken: "ra",
+                expiresAt: agora.addingTimeInterval(3_600), account: "a@x.com"
+            ),
+            for: .zoom
+        )
+        try cofre.save(
+            MeetingTokens(
+                accessToken: "morta", refreshToken: "rb",
+                expiresAt: agora.addingTimeInterval(-120), account: "b@x.com"
+            ),
+            for: .zoom
+        )
+        let session = StubURLProtocol.session(routes: [
+            "/oauth/token": [.json(#"{"error":"invalid_grant"}"#, status: 400)],
+        ])
+        let motor = MeetingOAuthEngine(
+            config: MeetingOAuthConfig(
+                service: .zoom, clientID: "c",
+                authorizationEndpoint: URL(string: "https://zoom.example/oauth/authorize")!,
+                tokenEndpoint: URL(string: "https://zoom.example/oauth/token")!,
+                redirectURI: "http://127.0.0.1:53720/oauth2redirect",
+                scopes: ZoomConnector.scopes
+            ),
+            session: session, vault: cofre, now: { agora }
+        )
+        await #expect(throws: MeetingRoomError.notConnected(.zoom)) {
+            _ = try await motor.accessToken()
+        }
+        #expect(cofre.load(.zoom)?.account == "a@x.com")
+        #expect(cofre.load(.zoom)?.accessToken == "viva")
+        #expect(cofre.accounts(.zoom).compactMap(\.account) == ["a@x.com"])
     }
 
     @Test("Cada compromisso recebe um link novo, nunca o anterior")

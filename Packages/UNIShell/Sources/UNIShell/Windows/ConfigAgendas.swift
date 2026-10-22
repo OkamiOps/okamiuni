@@ -413,12 +413,12 @@ struct ConfigAgendas: View {
                     }
                     .padding(.horizontal, 15)
                     .padding(.vertical, 8)
-                    ForEach(offeredRooms) { roomRow($0) }
+                    ForEach(offeredRooms) { roomSection($0) }
                 }
                 .configCard(palette, radius: 14, shadow: palette.sectionShadow)
                 Text(offeredRooms == [.meet]
-                     ? L10n.tr("O Meet usa a sua conta Google e cria uma sala nova para cada evento.")
-                     : L10n.tr("Cada um abre o login da sua conta no navegador — nada de client ID, segredo nem tenant."))
+                     ? L10n.tr("O Meet usa as contas Google que você conectar e cria uma sala nova para cada evento.")
+                     : L10n.tr("Cada um abre o login da sua conta no navegador — nada de client ID, segredo nem tenant. Dá para conectar quantas contas quiser."))
                     .font(theme.sans.font(size: 12))
                     .lineSpacing(12 * 0.5)
                     .foregroundStyle(palette.ink3.color)
@@ -436,6 +436,86 @@ struct ConfigAgendas: View {
             if case .unavailable = connections?.state(of: service) ?? .unavailable { return false }
             return true
         }
+    }
+
+    @ViewBuilder
+    private func roomSection(_ service: MeetingService) -> some View {
+        let contas = connections?.accounts(of: service) ?? []
+        if contas.isEmpty {
+            roomRow(service)
+        } else {
+            VStack(spacing: 0) {
+                HStack(spacing: 11) {
+                    monogram(String(service.shortLabel.prefix(1)), size: 30)
+                    Text(service.label)
+                        .font(theme.sans.font(size: 13.5, weight: .semibold))
+                        .foregroundStyle(palette.ink.color)
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                }
+                .padding(.horizontal, 15)
+                .padding(.vertical, 9)
+                .overlay(alignment: .top) { divider }
+                ForEach(contas, id: \.self) { conta in
+                    roomAccountRow(service, account: conta)
+                }
+                if connections?.linking.contains(service) == true {
+                    HStack {
+                        Spacer(minLength: 8)
+                        roomActions(service, state: .waitingInBrowser)
+                    }
+                    .padding(.horizontal, 15)
+                    .padding(.vertical, 8)
+                    .overlay(alignment: .top) { divider }
+                } else {
+                    VStack(alignment: .trailing, spacing: 6) {
+                        if let erro = connections?.linkError[service] {
+                            Text(erro)
+                                .font(theme.sans.font(size: 12))
+                                .foregroundStyle(palette.orange.color)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .lineLimit(2)
+                        }
+                        HStack {
+                            Spacer(minLength: 8)
+                            Button(L10n.tr("Conectar outra conta")) { connections?.connect(service) }
+                                .buttonStyle(.plain)
+                                .configPrimaryButton(
+                                    palette, font: theme.sans.font(size: 12.5, weight: .semibold),
+                                    radius: 10, horizontal: 13, vertical: 7
+                                )
+                        }
+                    }
+                    .padding(.horizontal, 15)
+                    .padding(.vertical, 8)
+                    .overlay(alignment: .top) { divider }
+                }
+            }
+        }
+    }
+
+    private func roomAccountRow(_ service: MeetingService, account: String) -> some View {
+        HStack(spacing: 11) {
+            Circle()
+                .fill(palette.green.color)
+                .frame(width: 6, height: 6)
+                .padding(.leading, 12)
+            Text(account)
+                .font(theme.sans.font(size: 12.5))
+                .foregroundStyle(palette.ink2.color)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 8)
+            Button(L10n.tr("Desconectar")) { connections?.disconnect(service, account: account) }
+                .buttonStyle(.plain)
+                .configQuietButton(
+                    palette, font: theme.sans.font(size: 12.5, weight: .semibold),
+                    radius: 10, horizontal: 13, vertical: 7
+                )
+        }
+        .padding(.horizontal, 15)
+        .padding(.vertical, 7)
+        .overlay(alignment: .top) { divider }
     }
 
     private func roomRow(_ service: MeetingService) -> some View {

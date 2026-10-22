@@ -49,6 +49,24 @@ struct AgendaSourcesTests {
         #expect(fontes[2].state == L10n.tr("Só neste Mac"))
     }
 
+    @Test("Agenda do Google não cai no bloco do Mac")
+    func googleNaoCaiNoMac() {
+        let fontes = AgendaSources.build(
+            calendars: [
+                calendario(
+                    ConnectedCalendar.googleID(accountID: "marco@okamiops.com", calendarID: "primary"),
+                    "Marco"
+                ),
+            ],
+            accounts: [],
+            availability: .available,
+            now: agora
+        )
+        #expect(fontes.map(\.kind) == [.google(accountID: "marco@okamiops.com")])
+        #expect(fontes[0].subtitle == L10n.tr("Google · 1 agenda"))
+        #expect(fontes[0].calendars.map(\.title) == ["Marco"])
+    }
+
     /// Sem permissão, o Mac continua na lista — é o lugar do aviso. Sumir com
     /// ele deixaria a pessoa sem saber por que as agendas não estão ali.
     @Test("Sem permissão, o Mac continua na lista, sem agendas")

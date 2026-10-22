@@ -4,6 +4,15 @@
 
 Versions correspond to [GitHub releases](https://github.com/OkamiOps/okamiuni/releases). All dates below are in 2026.
 
+## 0.6.7 — October 22
+
+- Meet, Zoom, Teams and Zoho take as many accounts as you want. In Settings › Calendars each one has its own **Disconnect**, and **Connect another account** stays on the list.
+- On a new event, when more than one account can create the room, the **Account** row has **switch**. The room is created by the account you pick.
+- Removing one Meet account leaves that mailbox signed in. Connecting another opens Google so you can choose the account. On Teams, sign-in asks which Microsoft account. Zoom and Zoho open sign-in in the browser.
+- A Google mailbox brings its calendar. The primary calendar arrives with the permission you already gave; the other calendars on that account arrive the next time you sign in with Google.
+- **Sign in with Google** and **Sign in with Zoho** close the sheet once the account is in. On a Google domain, with the password left empty, the browser button is the path.
+- App version 0.6.7, build 22. [Release notes](docs/releases/v0.6.7.md).
+
 ## 0.6.6 — October 22
 
 - Adding an account asks for the account password. The "app password" label, the "What is this?" button and the error that told you to create one are gone.

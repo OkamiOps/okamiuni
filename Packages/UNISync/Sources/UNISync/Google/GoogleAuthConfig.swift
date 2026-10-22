@@ -41,6 +41,10 @@ public struct GoogleAuthConfig: Sendable, Hashable {
         // (spaces) é de Workspace e devolve 403 nessa caixa — por isso o
         // Calendar entra aqui. Reconectar uma vez cobre os dois.
         "https://www.googleapis.com/auth/calendar.events",
+        // A lista de agendas não cabe em `calendar.events`. Quem já autorizou
+        // continua vendo a agenda principal; as outras entram no próximo
+        // consentimento.
+        "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
         "https://www.googleapis.com/auth/meetings.space.created",
     ]
 
@@ -99,7 +103,9 @@ public struct GoogleAuthConfig: Sendable, Hashable {
         return GoogleAuthConfig(clientID: limpo, clientSecret: segredoValido)
     }
 
-    public func authorizationURL(pkce: PKCEPair, state: String, loginHint: String?) -> URL {
+    public func authorizationURL(
+        pkce: PKCEPair, state: String, loginHint: String?, selectAccount: Bool = false
+    ) -> URL {
         var components = URLComponents(url: authorizationEndpoint, resolvingAgainstBaseURL: false)!
         var itens = [
             URLQueryItem(name: "client_id", value: clientID),
@@ -115,7 +121,10 @@ public struct GoogleAuthConfig: Sendable, Hashable {
             // `prompt=consent` força o refresh token a vir também quando o
             // usuário já tinha autorizado o app antes — reconectar depois de um
             // erro precisa disso para não voltar sem refresh token.
-            URLQueryItem(name: "prompt", value: "consent"),
+            // `select_account` só quando a pessoa vai ligar **outra** conta.
+            // O login de uma caixa que ela já nomeou continua em `consent`,
+            // que é o que devolve o refresh token sem trocar de usuário.
+            URLQueryItem(name: "prompt", value: selectAccount ? "consent select_account" : "consent"),
         ]
         if let loginHint { itens.append(URLQueryItem(name: "login_hint", value: loginHint)) }
         components.queryItems = itens

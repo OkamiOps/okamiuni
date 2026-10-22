@@ -4,6 +4,14 @@
 
 Todas as versões seguem o [release no GitHub](https://github.com/OkamiOps/okamiuni/releases). Datas em 2026.
 
+## 0.6.7 — 22 de outubro
+- Meet, Zoom, Teams e Zoho aceitam quantas contas você quiser. Em Configurações › Agendas cada uma tem o próprio **Desconectar**, e **Conectar outra conta** continua na lista.
+- No compromisso, quando mais de uma conta pode criar a sala, a linha **Conta** tem **trocar**. A sala nasce da conta escolhida.
+- Tirar uma conta do Meet deixa o e-mail dela ligado. Conectar outra abre o Google para escolher a conta. No Teams, o login pergunta qual conta da Microsoft. Zoom e Zoho abrem o login no navegador.
+- A caixa Google traz a agenda dela. A agenda principal entra com a autorização que você já deu; as outras agendas dessa conta entram ao entrar de novo com o Google.
+- **Entrar com Google** e **Entrar com Zoho** fecham a folha quando a conta entra. No domínio do Google, com a senha em branco, o botão do navegador é o caminho.
+- Versão do app 0.6.7, build 22. [Notas da versão](docs/releases/v0.6.7.pt-BR.md).
+
 ## 0.6.6 — 22 de outubro
 - Adicionar conta pede a senha da conta. Saíram o rótulo "senha de app", o botão "O que é isso?" e o erro que mandava criar uma.
 - Você digita o endereço e o OkamiUNI acha o servidor pelo domínio. Domínio próprio no Zoho já vem com `imappro.zoho.com`; no Google, com `imap.gmail.com`. O servidor continua editável.

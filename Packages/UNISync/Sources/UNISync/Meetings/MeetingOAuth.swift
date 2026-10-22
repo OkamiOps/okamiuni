@@ -127,7 +127,9 @@ public actor MeetingOAuthEngine {
     private let session: URLSession
     private let vault: MeetingTokenVault
     private let now: @Sendable () -> Date
-    private var inFlight: Task<MeetingTokens, any Error>?
+    /// Uma renovação em voo por conta. Duas contas do mesmo serviço não podem
+    /// dividir a mesma corrida: cada uma tem o seu refresh token.
+    private var inFlight: [String: Task<MeetingTokens, any Error>] = [:]
 
     public init(
         config: MeetingOAuthConfig,
@@ -172,9 +174,14 @@ public actor MeetingOAuthEngine {
 
     public func forget() { vault.clear(config.service) }
 
-    /// O access token para usar agora, renovando se preciso.
+    /// O access token da conta padrão, renovando se preciso.
     public func accessToken() async throws -> String {
-        guard let guardados = vault.load(config.service) else {
+        try await accessToken(for: nil)
+    }
+
+    /// O access token de uma conta. `nil` é a padrão — a que `load` já devolvia.
+    public func accessToken(for account: String?) async throws -> String {
+        guard let guardados = vault.tokens(for: config.service, account: account) else {
             throw MeetingRoomError.notConnected(config.service)
         }
         guard guardados.isExpired(at: now()) else { return guardados.accessToken }
@@ -186,7 +193,7 @@ public actor MeetingOAuthEngine {
         return try await renew(guardados, refreshToken: refresh).accessToken
     }
 
-    /// Renova **agora**, com uma corrida só por serviço.
+    /// Renova **agora**, com uma corrida só por conta.
     public func renewedAccessToken() async throws -> String {
         guard let guardados = vault.load(config.service),
               let refresh = guardados.refreshToken
@@ -197,7 +204,8 @@ public actor MeetingOAuthEngine {
     private func renew(
         _ guardados: MeetingTokens, refreshToken: String
     ) async throws -> MeetingTokens {
-        if let emVoo = inFlight { return try await emVoo.value }
+        let chave = MeetingTokenVault.slug(guardados.account ?? "")
+        if let emVoo = inFlight[chave] { return try await emVoo.value }
         let tarefa = Task<MeetingTokens, any Error> { [config, vault] in
             var campos = [
                 "grant_type": "refresh_token",
@@ -216,17 +224,15 @@ public actor MeetingOAuthEngine {
                 return novos
             } catch let erro as MeetingRoomError {
                 if case .notConnected = erro {
-                    // O refresh token morreu no servidor (revogado, senha
-                    // trocada, aplicativo removido pela pessoa). Deixá-lo no
-                    // cofre é lixo que só seria descoberto na próxima
-                    // tentativa — ou nunca.
-                    vault.clear(config.service)
+                    // O refresh token desta conta morreu. As outras contas do
+                    // mesmo serviço ficam: quem revogou foi esta.
+                    vault.remove(config.service, account: guardados.account)
                 }
                 throw erro
             }
         }
-        inFlight = tarefa
-        defer { inFlight = nil }
+        inFlight[chave] = tarefa
+        defer { inFlight[chave] = nil }
         return try await tarefa.value
     }
 
@@ -353,8 +359,21 @@ public struct MeetingTokenSource: Sendable {
 
     public var tokens: MeetingTokens? { vault.load(service) }
 
+    /// Os e-mails conectados, na ordem em que entraram.
+    public func accounts() -> [String] {
+        vault.accounts(service).compactMap { $0.account?.nonEmptyValue }
+    }
+
+    public func tokens(matching account: String?) -> MeetingTokens? {
+        vault.tokens(for: service, account: account)
+    }
+
     public func accessToken() async throws -> String {
         try await engine.accessToken()
+    }
+
+    public func accessToken(for account: String?) async throws -> String {
+        try await engine.accessToken(for: account)
     }
 
     public func save(_ tokens: MeetingTokens) throws {

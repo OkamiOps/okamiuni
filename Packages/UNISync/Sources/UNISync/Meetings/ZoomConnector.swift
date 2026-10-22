@@ -76,6 +76,10 @@ public final class ZoomConnector: MeetingConnector {
         vault.load(.zoom)?.account
     }
 
+    public func accounts() async -> [String] {
+        vault.accounts(.zoom).compactMap { $0.account?.nonEmptyValue }
+    }
+
     public func connect() async throws -> String {
         guard clientID != nil else { throw MeetingConnectorError.missingClientID(.zoom) }
 
@@ -114,6 +118,10 @@ public final class ZoomConnector: MeetingConnector {
 
     public func disconnect() async {
         vault.clear(.zoom)
+    }
+
+    public func disconnect(account: String) async {
+        vault.remove(.zoom, account: account)
     }
 
     /// O que a fábrica de salas usa para mintar. Vale mesmo depois de a janela

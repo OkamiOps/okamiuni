@@ -50,13 +50,16 @@ public struct MeetingTokens: Sendable, Hashable, Codable {
     }
 }
 
-/// O cofre dos tokens de reunião: um item de Keychain por serviço.
+/// O cofre dos tokens de reunião.
 ///
-/// A chave é `meeting.<serviço>` e não o id de uma caixa de correio, porque a
-/// conexão é do **aplicativo com o serviço**, não de um e-mail: a pessoa
-/// conecta o Zoom uma vez e todo compromisso de qualquer caixa nasce com sala
-/// dele. É o mesmo `SecretStore` das contas — o Keychain é o mesmo cofre, e
-/// nenhum token de reunião passa pelo banco nem pelas preferências.
+/// Cada conta de um serviço tem a sua chave, `meeting.<serviço>.<e-mail>`.
+/// A chave antiga `meeting.<serviço>` continua existindo: é a conta padrão
+/// que `load` e `connectedAccount` já liam, e uma instalação que só tem essa
+/// chave entra na lista na primeira leitura. O Keychain não lista chaves, então
+/// os e-mails ficam num índice `meeting.<serviço>.roster`.
+///
+/// É o mesmo `SecretStore` das contas — o Keychain é o mesmo cofre, e nenhum
+/// token de reunião passa pelo banco nem pelas preferências.
 public struct MeetingTokenVault: Sendable {
     private let secrets: any SecretStore
 
@@ -68,6 +71,19 @@ public struct MeetingTokenVault: Sendable {
         "meeting.\(service.rawValue)"
     }
 
+    static func rosterKey(for service: MeetingService) -> String {
+        "meeting.\(service.rawValue).roster"
+    }
+
+    static func accountKey(_ service: MeetingService, slug: String) -> String {
+        "meeting.\(service.rawValue).\(slug)"
+    }
+
+    static func slug(_ account: String) -> String {
+        account.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    /// A conta padrão. Quem já gravava e lia uma conta só continua por aqui.
     public func load(_ service: MeetingService) -> MeetingTokens? {
         guard case .meeting(let tokens)? = try? secrets.secret(for: Self.key(for: service)) else {
             return nil
@@ -75,15 +91,114 @@ public struct MeetingTokenVault: Sendable {
         return tokens
     }
 
+    /// O token da conta pedida. `nil` no argumento é a conta padrão.
+    /// Uma conta que só existe na chave antiga ainda é encontrada.
+    public func tokens(for service: MeetingService, account: String?) -> MeetingTokens? {
+        if let email = account?.nonEmptyValue {
+            let slug = Self.slug(email)
+            if let slot = loadSlug(service, slug) { return slot }
+            if let legacy = load(service), Self.slug(legacy.account ?? "") == slug {
+                return legacy
+            }
+            return nil
+        }
+        return load(service)
+    }
+
+    /// Todas as contas deste serviço, na ordem em que foram conectadas.
+    /// A chave antiga entra na lista se ainda não estiver no índice.
+    public func accounts(_ service: MeetingService) -> [MeetingTokens] {
+        var slugs = readRoster(service)
+        var lista = slugs.compactMap { loadSlug(service, $0) }
+        guard let legacy = load(service) else { return lista }
+        guard let email = legacy.account?.nonEmptyValue else {
+            return lista.isEmpty ? [legacy] : lista
+        }
+        let slug = Self.slug(email)
+        guard !slugs.contains(slug) else { return lista }
+        try? secrets.store(.meeting(legacy), for: Self.accountKey(service, slug: slug))
+        slugs.insert(slug, at: 0)
+        try? writeRoster(slugs, for: service)
+        lista.insert(legacy, at: 0)
+        return lista
+    }
+
     public func save(_ tokens: MeetingTokens, for service: MeetingService) throws {
+        if let email = tokens.account?.nonEmptyValue {
+            let slug = Self.slug(email)
+            try secrets.store(.meeting(tokens), for: Self.accountKey(service, slug: slug))
+            var slugs = readRoster(service)
+            if !slugs.contains(slug) {
+                slugs.append(slug)
+                try writeRoster(slugs, for: service)
+            }
+        }
+        // A chave antiga recebe esta gravação também. `load` e a renovação
+        // sem conta nomeada continuam vendo um token, e as outras contas
+        // ficam nas chaves delas.
         try secrets.store(.meeting(tokens), for: Self.key(for: service))
     }
 
     public func clear(_ service: MeetingService) {
+        for slug in readRoster(service) {
+            try? secrets.remove(for: Self.accountKey(service, slug: slug))
+        }
+        try? secrets.remove(for: Self.rosterKey(for: service))
         try? secrets.remove(for: Self.key(for: service))
     }
 
+    /// Tira uma conta. A padrão, se era esta, passa a ser a que sobrou.
+    /// Sem e-mail, tira só a chave antiga — é o token gravado antes de haver
+    /// conta nomeada.
+    public func remove(_ service: MeetingService, account: String?) {
+        if let email = account?.nonEmptyValue {
+            let slug = Self.slug(email)
+            try? secrets.remove(for: Self.accountKey(service, slug: slug))
+            let slugs = readRoster(service).filter { $0 != slug }
+            try? writeRoster(slugs, for: service)
+            if let legacy = load(service), Self.slug(legacy.account ?? "") == slug {
+                promote(service, slugs: slugs)
+            }
+            return
+        }
+        try? secrets.remove(for: Self.key(for: service))
+        let slugs = readRoster(service)
+        if !slugs.isEmpty {
+            promote(service, slugs: slugs)
+        }
+    }
+
     public func isConnected(_ service: MeetingService) -> Bool {
-        load(service) != nil
+        load(service) != nil || !readRoster(service).isEmpty
+    }
+
+    private func promote(_ service: MeetingService, slugs: [String]) {
+        if let slug = slugs.first, let tokens = loadSlug(service, slug) {
+            try? secrets.store(.meeting(tokens), for: Self.key(for: service))
+        } else {
+            try? secrets.remove(for: Self.key(for: service))
+        }
+    }
+
+    private func loadSlug(_ service: MeetingService, _ slug: String) -> MeetingTokens? {
+        guard case .meeting(let tokens)? = try? secrets.secret(for: Self.accountKey(service, slug: slug)) else {
+            return nil
+        }
+        return tokens
+    }
+
+    private func readRoster(_ service: MeetingService) -> [String] {
+        guard case .meetingRoster(let slugs)? = try? secrets.secret(for: Self.rosterKey(for: service)) else {
+            return []
+        }
+        return slugs
+    }
+
+    private func writeRoster(_ slugs: [String], for service: MeetingService) throws {
+        if slugs.isEmpty {
+            try secrets.remove(for: Self.rosterKey(for: service))
+            return
+        }
+        try secrets.store(.meetingRoster(slugs), for: Self.rosterKey(for: service))
     }
 }

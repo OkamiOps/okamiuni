@@ -74,7 +74,12 @@ public final class TeamsConnector: MeetingConnector {
             authorizationEndpoint: authorizationEndpoint,
             tokenEndpoint: tokenEndpoint,
             redirectURI: TeamsConnector.redirectURI,
-            scopes: TeamsConnector.scopes
+            scopes: TeamsConnector.scopes,
+            // Sem isto o Entra reaproveita a sessão e a segunda conta nunca
+            // aparece: o seletor deixa escolher outra, inclusive "usar outra".
+            extraAuthorizationItems: [
+                URLQueryItem(name: "prompt", value: "select_account"),
+            ]
         )
         self.engine = MeetingOAuthEngine(
             config: self.config, session: session, vault: vault, now: now
@@ -85,6 +90,10 @@ public final class TeamsConnector: MeetingConnector {
 
     public func currentAccount() async -> String? {
         vault.load(.teams)?.account
+    }
+
+    public func accounts() async -> [String] {
+        vault.accounts(.teams).compactMap { $0.account?.nonEmptyValue }
     }
 
     public func connect() async throws -> String {
@@ -124,6 +133,10 @@ public final class TeamsConnector: MeetingConnector {
 
     public func disconnect() async {
         vault.clear(.teams)
+    }
+
+    public func disconnect(account: String) async {
+        vault.remove(.teams, account: account)
     }
 
     public var tokenSource: MeetingTokenSource {

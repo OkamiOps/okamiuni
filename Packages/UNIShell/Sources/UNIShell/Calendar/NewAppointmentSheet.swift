@@ -48,6 +48,7 @@ struct NewAppointmentSheet: View {
     @Environment(\.displayScale) private var displayScale
     @Environment(MeetingRoomSettingsStore.self) private var rooms: MeetingRoomSettingsStore?
     @Environment(MeetingRoomFactory.self) private var factory: MeetingRoomFactory?
+    @Environment(MeetingConnections.self) private var meetingConnections: MeetingConnections?
     /// Os padrões de Configurações ▸ Agendas. Eles chegam **aqui**, e não no
     /// `init`: o `init` roda antes do ambiente existir, e o padrão de duração
     /// precisa valer já no primeiro quadro — por isso `applyDefaults()` no
@@ -73,6 +74,8 @@ struct NewAppointmentSheet: View {
     @State private var guests: [Contact] = []
     @State private var guestDraft = ""
     @State private var service: MeetingService?
+    /// Qual conta do serviço cria a sala, quando há mais de uma.
+    @State private var hostAccount: String?
     /// O calendário em que o compromisso nasce, vindo da preferência.
     @State private var calendarID: String?
     @State private var useExistingLink = false
@@ -185,6 +188,7 @@ struct NewAppointmentSheet: View {
             refreshMeetAccess()
         }
         .onChange(of: service) { _, _ in refreshMeetAccess() }
+        .onChange(of: hostAccount) { _, _ in refreshMeetAccess() }
         .onChange(of: day) { _, newDay in
             startsAt = combining(newDay, startsAt)
             endsAt = combining(newDay, endsAt)
@@ -559,6 +563,20 @@ struct NewAppointmentSheet: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
+        if service != nil, serviceAccounts.count > 1 {
+            sentenceRow(
+                icon: "person.crop.circle",
+                label: L10n.tr("Conta"),
+                actionTitle: L10n.tr("trocar"),
+                action: { cycleHost() }
+            ) {
+                Text(resolvedHost ?? "")
+                    .foregroundStyle(theme.ink.color)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .padding(.vertical, 4)
+        }
         // O que o desenho não mostra porque não cabe numa linha, e que a folha
         // perde se sair: colar um endereço existente, e o aviso de reconectar
         // o Google quando o Meet não pode nascer. Entram como continuação da
@@ -590,7 +608,7 @@ struct NewAppointmentSheet: View {
                         .modalFieldBox(verticalPadding: 9, horizontalPadding: 12)
                 }
 
-                if needsMeetReconnect, let gmail = googleAccount {
+                if needsMeetReconnect, let gmail = selectedMeetAccount {
                     Button { reconnectGoogle(gmail) } label: {
                         Text(reconnecting
                             ? L10n.tr("Abrindo o Google…")
@@ -810,15 +828,71 @@ struct NewAppointmentSheet: View {
     }
 
     private var needsMeetReconnect: Bool {
-        guard service == .meet, !useExistingLink, let gmail = googleAccount, factory != nil else {
+        guard service == .meet, !useExistingLink, let gmail = selectedMeetAccount, factory != nil else {
             return false
         }
         return factory?.hasMeetAccess(accountID: gmail.id) == false
     }
 
     private func refreshMeetAccess() {
-        guard service == .meet, let gmail = googleAccount else { return }
-        Task { await factory?.refreshMeetAccess(accountID: gmail.id) }
+        guard service == .meet else { return }
+        let ids = store.accounts.filter { $0.provider == .gmail }.map(\.id)
+        Task {
+            for id in ids {
+                await factory?.refreshMeetAccess(accountID: id)
+            }
+        }
+    }
+
+    /// As contas que podem criar a sala do serviço escolhido.
+    private var serviceAccounts: [String] {
+        guard let service else { return [] }
+        if service == .meet {
+            let ligadas = meetingConnections?.accounts(of: .meet) ?? []
+            if !ligadas.isEmpty { return ligadas }
+            return store.accounts.filter { $0.provider == .gmail }.map(\.address)
+        }
+        return factory?.connectedAccounts(service) ?? []
+    }
+
+    /// A conta que vai assinar a sala. A escolha da pessoa ganha; sem ela,
+    /// o Meet fica na caixa Google do compromisso e os outros na conta padrão.
+    private var resolvedHost: String? {
+        let choices = serviceAccounts
+        if let hostAccount, let match = choices.first(where: { sameAccount($0, hostAccount) }) {
+            return match
+        }
+        if service == .meet, let address = googleAccount?.address,
+           let match = choices.first(where: { sameAccount($0, address) }) {
+            return match
+        }
+        if let service, let preferida = factory?.connectedAccount(service),
+           let match = choices.first(where: { sameAccount($0, preferida) }) {
+            return match
+        }
+        return choices.first
+    }
+
+    private var selectedMeetAccount: Account? {
+        guard service == .meet else { return googleAccount }
+        if let host = resolvedHost,
+           let match = store.accounts.first(where: {
+               $0.provider == .gmail && sameAccount($0.address, host)
+           }) {
+            return match
+        }
+        return googleAccount
+    }
+
+    private func sameAccount(_ lhs: String, _ rhs: String) -> Bool {
+        lhs.caseInsensitiveCompare(rhs) == .orderedSame
+    }
+
+    private func cycleHost() {
+        let choices = serviceAccounts
+        guard choices.count > 1 else { return }
+        let index = choices.firstIndex(where: { sameAccount($0, resolvedHost ?? "") }) ?? 0
+        hostAccount = choices[(index + 1) % choices.count]
     }
 
     private var googleAccount: Account? {
@@ -979,7 +1053,9 @@ struct NewAppointmentSheet: View {
             return MeetingMint(link: "")
         }
         let oauthID = service == .meet
-            ? (MeetingGoogleAccount.resolve(for: account, among: store.accounts)?.id ?? account.id)
+            ? (selectedMeetAccount?.id
+                ?? MeetingGoogleAccount.resolve(for: account, among: store.accounts)?.id
+                ?? account.id)
             : account.id
         guard factory.canMint(service, account: account, accounts: store.accounts) else {
             errorMessage = (service == .meet
@@ -997,7 +1073,8 @@ struct NewAppointmentSheet: View {
                     start: startsAt, end: endsAt,
                     oauthAccountID: oauthID,
                     attendees: guests,
-                    rrule: rule.rfc5545
+                    rrule: rule.rfc5545,
+                    hostAccount: service == .meet ? nil : resolvedHost
                 )
             )
         } catch {

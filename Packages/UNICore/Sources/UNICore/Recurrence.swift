@@ -221,12 +221,16 @@ public struct MeetingRoomRequest: Sendable, Hashable {
     public let end: Date
     public let attendees: [Contact]
     public let rrule: String?
+    /// Qual conta do Zoom, Teams ou Zoho cria a sala. `nil` é a padrão.
+    /// O Meet não usa isto: a caixa Google é `oauthAccountID`.
+    public let hostAccount: String?
 
     public init(
         service: MeetingService, account: Account, title: String, start: Date, end: Date,
         oauthAccountID: String? = nil,
         attendees: [Contact] = [],
-        rrule: String? = nil
+        rrule: String? = nil,
+        hostAccount: String? = nil
     ) {
         self.service = service
         self.account = account
@@ -236,6 +240,7 @@ public struct MeetingRoomRequest: Sendable, Hashable {
         self.end = end
         self.attendees = attendees
         self.rrule = rrule
+        self.hostAccount = hostAccount
     }
 
     public var durationMinutes: Int {

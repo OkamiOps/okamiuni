@@ -10,13 +10,16 @@ private actor EventKitGatewayDouble: SystemCalendarGateway {
     var items: [AgendaItem] = []
     var saved: [String] = []
     var removed: [String] = []
+    var listedCalendars: [ConnectedCalendar] = []
 
     init(
         state: CalendarAvailability = .authorizationRequired,
-        items: [AgendaItem] = []
+        items: [AgendaItem] = [],
+        calendars: [ConnectedCalendar] = []
     ) {
         self.state = state
         self.items = items
+        self.listedCalendars = calendars
     }
 
     func availability() -> CalendarAvailability { state }
@@ -25,7 +28,7 @@ private actor EventKitGatewayDouble: SystemCalendarGateway {
         state = .available
         return state
     }
-    func calendars() -> [ConnectedCalendar] { [] }
+    func calendars() -> [ConnectedCalendar] { listedCalendars }
     func events(referenceDay _: Date) throws -> [AgendaItem] { items }
     func save(_ item: AgendaItem, referenceDay _: Date) throws { saved.append(item.id) }
     func remove(id: String, referenceDay _: Date) throws { removed.append(id) }
@@ -365,5 +368,151 @@ struct CompositeCalendarSyncTests {
             referenceDay: Fixtures.today, requestAuthorization: false
         )
         #expect(items.isEmpty)
+    }
+
+    @Test("Conta Google traz a agenda e os compromissos, e ignora a lista oculta")
+    func gmailAccountPullsGoogleCalendar() async throws {
+        let account = googleAccount("marco@okamiops.com")
+        let session = StubURLProtocol.session(routes: [
+            "/calendar/v3/users/me/calendarList": [.json(
+                """
+                {"items":[
+                  {"id":"marco@okamiops.com","summary":"Marco","backgroundColor":"#4285f4","accessRole":"owner","selected":true,"primary":true},
+                  {"id":"oculta","summary":"Oculta","accessRole":"reader","selected":false}
+                ]}
+                """
+            )],
+            "/calendar/v3/calendars/marco@okamiops.com/events": [.json(
+                """
+                {"items":[
+                  {"id":"evt-all","status":"confirmed","summary":"Folga","iCalUID":"evt-all@google.com",
+                   "start":{"date":"2026-08-25"},"end":{"date":"2026-08-26"}},
+                  {"id":"evt-meet","status":"confirmed","summary":"Revisão","iCalUID":"evt-meet@google.com",
+                   "hangoutLink":"https://meet.google.com/abc-defg-hij","location":"Sala 2",
+                   "start":{"dateTime":"2026-08-25T15:00:00-03:00"},
+                   "end":{"dateTime":"2026-08-25T16:00:00-03:00"},
+                   "organizer":{"email":"marco@okamiops.com","displayName":"Marco"},
+                   "attendees":[{"email":"ana@okamiops.com","displayName":"Ana","responseStatus":"accepted"}]}
+                ]}
+                """
+            )],
+        ])
+        let composite = googleComposite(accounts: [account], session: session)
+        let items = try await composite.synchronize(referenceDay: Fixtures.today, requestAuthorization: false)
+        let calendars = await composite.calendars()
+        let agenda = try #require(calendars.first { $0.title == "Marco" })
+        #expect(ConnectedCalendar.googleAccountID(from: agenda.id) == account.id)
+        #expect(ConnectedCalendar.googleRemoteID(from: agenda.id) == "marco@okamiops.com")
+        #expect(agenda.colorHex == "#4285F4")
+        #expect(calendars.contains { $0.title == "Oculta" } == false)
+        let folga = try #require(items.first { $0.title == "Folga" })
+        #expect(folga.dayOffset == 0)
+        #expect(folga.startMinute == 0)
+        #expect(folga.endMinute == 1_440)
+        #expect(folga.accountID == account.id)
+        #expect(folga.calendarID == agenda.id)
+        let revisao = try #require(items.first { $0.title == "Revisão" })
+        #expect(revisao.detail?.place == "Sala 2")
+        #expect(revisao.detail?.link == "https://meet.google.com/abc-defg-hij")
+        #expect(revisao.detail?.people.map(\.address) == ["ana@okamiops.com"])
+        let pedidos = StubURLProtocol.requests(for: session)
+        #expect(pedidos.allSatisfy { $0.authorization == "Bearer ya29.test" })
+        #expect(pedidos.contains { $0.path.contains("oculta") } == false)
+
+        let round = ConnectedCalendar.googleID(accountID: "marco@okamiops.com", calendarID: "en.brazilian#holiday@group.v.calendar.google.com")
+        #expect(ConnectedCalendar.googleAccountID(from: round) == "marco@okamiops.com")
+        #expect(ConnectedCalendar.googleRemoteID(from: round) == "en.brazilian#holiday@group.v.calendar.google.com")
+    }
+
+    @Test("Sem a lista, a agenda principal do Google ainda entra")
+    func listDeniedFallsBackToPrimary() async throws {
+        let account = googleAccount("marco@okamiops.com")
+        let session = StubURLProtocol.session(routes: [
+            "/calendar/v3/users/me/calendarList": [.json(
+                #"{"error":{"code":403,"status":"PERMISSION_DENIED","errors":[{"reason":"insufficientPermissions"}]}}"#,
+                status: 403
+            )],
+            "/calendar/v3/calendars/primary/events": [.json(
+                """
+                {"items":[{"id":"p1","status":"confirmed","summary":"Primária",
+                  "start":{"date":"2026-08-25"},"end":{"date":"2026-08-26"}}]}
+                """
+            )],
+        ])
+        let composite = googleComposite(accounts: [account], session: session)
+        let items = try await composite.synchronize(referenceDay: Fixtures.today, requestAuthorization: false)
+        let calendars = await composite.calendars()
+        #expect(calendars.map(\.title) == [account.address])
+        #expect(ConnectedCalendar.googleRemoteID(from: calendars[0].id) == "primary")
+        #expect(items.map(\.title) == ["Primária"])
+    }
+
+    @Test("Agenda que o Mac já tem com o mesmo endereço não é puxada de novo")
+    func skipsGoogleWhenEventKitAlreadyHasTheAddress() async throws {
+        let account = googleAccount("marco@okamiops.com")
+        let session = StubURLProtocol.session(routes: [:])
+        let gateway = EventKitGatewayDouble(
+            state: .available,
+            calendars: [
+                ConnectedCalendar(
+                    id: "ek-google", title: account.address, source: "Google",
+                    colorHex: "#4285F4", allowsModifications: true
+                )
+            ]
+        )
+        let composite = CompositeCalendarSync(
+            eventKit: EventKitCalendarAdapter(gateway: gateway),
+            accounts: StaticCalendarAccounts([account]),
+            secrets: InMemorySecretStore(),
+            session: session,
+            googleToken: { _ in "ya29.test" }
+        )
+        _ = try await composite.synchronize(referenceDay: Fixtures.today, requestAuthorization: false)
+        #expect(StubURLProtocol.requests(for: session).isEmpty)
+    }
+
+    @Test("Gravar na agenda Google fala com o Calendar")
+    func savePostsToGoogleCalendar() async throws {
+        let account = googleAccount("marco@okamiops.com")
+        let session = StubURLProtocol.session(routes: [
+            "/calendar/v3/calendars/primary/events": [.json(#"{"id":"novo"}"#)],
+        ])
+        let gateway = EventKitGatewayDouble(state: .available)
+        let composite = CompositeCalendarSync(
+            eventKit: EventKitCalendarAdapter(gateway: gateway),
+            accounts: StaticCalendarAccounts([account]),
+            secrets: InMemorySecretStore(),
+            session: session,
+            googleToken: { _ in "ya29.test" }
+        )
+        let item = AgendaItem(
+            id: "manual-1", title: "Revisão", startMinute: 600, endMinute: 660,
+            accountID: account.id,
+            calendarID: ConnectedCalendar.googleID(accountID: account.id, calendarID: "primary")
+        )
+        try await composite.save(item, referenceDay: Fixtures.today)
+        let body = try #require(StubURLProtocol.requests(for: session).first?.body)
+        #expect(body.contains("Revisão"))
+        #expect(body.contains("manual-1"))
+        let shot = await gateway.snapshot()
+        #expect(shot.saved.isEmpty)
+    }
+
+    private func googleAccount(_ address: String) -> Account {
+        Account(
+            id: address, address: address, displayName: "Marco",
+            provider: .gmail, host: "gmail",
+            tintLightHex: "#4285F4", tintDarkHex: "#8AB4F8"
+        )
+    }
+
+    private func googleComposite(accounts: [Account], session: URLSession) -> CompositeCalendarSync {
+        CompositeCalendarSync(
+            eventKit: EventKitCalendarAdapter(gateway: EventKitGatewayDouble(state: .authorizationRequired)),
+            accounts: StaticCalendarAccounts(accounts),
+            secrets: InMemorySecretStore(),
+            session: session,
+            googleToken: { _ in "ya29.test" }
+        )
     }
 }

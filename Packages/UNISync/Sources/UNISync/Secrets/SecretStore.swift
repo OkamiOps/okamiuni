@@ -89,6 +89,10 @@ public enum Secret: Sendable, Hashable, Codable {
     case password(String)
     case oauth(OAuthTokens)
     case meeting(MeetingTokens)
+    /// A lista de contas já ligadas a um serviço de reunião. Não é token:
+    /// o Keychain não lista chaves, então o índice mora numa chave própria
+    /// e cada conta continua com o seu `meeting`.
+    case meetingRoster([String])
 }
 
 /// O cofre de segredos, por conta.

@@ -389,6 +389,7 @@ struct ConfigAccountPage: View {
         return mailStore.calendarsForSidebar.filter { calendar in
             if calendar.id == mailboxID { return true }
             if ConnectedCalendar.calDAVAccountID(from: calendar.id) == status.accountID { return true }
+            if ConnectedCalendar.googleAccountID(from: calendar.id) == status.accountID { return true }
             return calendar.source.localizedCaseInsensitiveContains(status.address)
         }
     }

@@ -34,12 +34,16 @@ public actor GoogleAuth {
     // MARK: Primeiro consentimento
 
     /// Abre o consentimento, troca o código por tokens e os guarda.
-    public func connect(accountID: String, loginHint: String?) async throws -> OAuthTokens {
+    public func connect(
+        accountID: String, loginHint: String?, selectAccount: Bool = false
+    ) async throws -> OAuthTokens {
         let pkce = PKCEPair.random()
         // Mesma fonte de aleatoriedade do `verifier` — não `UUID`, que é
         // pensado para unicidade e não para imprevisibilidade criptográfica.
         let state = PKCEPair.randomToken()
-        let url = config.authorizationURL(pkce: pkce, state: state, loginHint: loginHint)
+        let url = config.authorizationURL(
+            pkce: pkce, state: state, loginHint: loginHint, selectAccount: selectAccount
+        )
 
         let callback = try await presenter.authorize(url: url, callbackScheme: config.callbackScheme)
         let code = try OAuthCallback.code(from: callback, expectedState: state)

@@ -403,6 +403,45 @@ public actor AccountDirector {
         }
     }
 
+    /// Liga uma caixa Google **sem** o endereço digitado antes.
+    ///
+    /// É o caminho do Meet quando todas as caixas que já existem já criam
+    /// sala: o navegador deixa a pessoa escolher outra conta Google, o perfil
+    /// diz de quem é, e a caixa nasce — ou é atualizada, se o endereço já
+    /// estava na lista. O token fica num rascunho até o perfil voltar, pelo
+    /// mesmo motivo de `reconnectGoogle`: gravar antes de saber o endereço
+    /// penduraria a credencial de uma pessoa no id de outra.
+    @discardableResult
+    public func addGoogleAccountFromBrowser() async throws -> String {
+        guard let auth else { throw SyncError.semClientID }
+        let rascunho = "meet:\(UUID().uuidString)"
+        do {
+            _ = try await auth.connect(accountID: rascunho, loginHint: nil, selectAccount: true)
+            let cliente = GmailClient(
+                session: session,
+                accessToken: { try await auth.accessToken(for: rascunho) },
+                baseURL: gmailBaseURL
+            )
+            let perfil = try await cliente.profile()
+            let id = Self.accountID(for: perfil.emailAddress)
+            guard let novo = try secrets.secret(for: rascunho) else {
+                throw SyncError.autenticacao
+            }
+            try secrets.store(novo, for: id)
+            try? secrets.remove(for: rascunho)
+            _ = try await grava(
+                id: id, address: perfil.emailAddress, displayName: perfil.emailAddress,
+                provider: .gmail, hostMark: "gmail", endpoint: nil
+            )
+            errors[id] = nil
+            await refresh()
+            return perfil.emailAddress
+        } catch {
+            try? secrets.remove(for: rascunho)
+            throw error
+        }
+    }
+
     /// Esta montagem sabe conectar uma caixa Zoho pelo navegador?
     ///
     /// A janela pergunta **antes** de desenhar o botão: um "Entrar com Zoho"

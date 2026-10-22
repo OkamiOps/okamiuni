@@ -119,16 +119,24 @@ struct OkamiUNIApp: App {
             calendarDefaults: .standard
         )
         _mailStore = State(initialValue: store)
-        // Os quatro conectores. O Meet usa o OAuth Google que a caixa de
-        // correio já usa, e a conta que aparece na linha é a caixa Google que
-        // vai assinar as salas. Zoom, Teams e Zoho têm o OAuth de usuário
-        // deles; cada um fica `unavailable` — linha explicando, sem botão —
-        // enquanto faltar o client ID no `Info.plist` deste build.
+        // Os quatro conectores. Cada serviço aceita quantas contas a pessoa
+        // ligar. O Meet usa o OAuth de cada caixa Google; Zoom, Teams e Zoho
+        // têm o OAuth deles. Sem client ID no build a linha explica e não
+        // oferece botão.
+        let diretor = composicao.director
         _meetingConnections = State(initialValue: MeetingConnections(connectors: [
             GoogleMeetConnector(
                 auth: composicao.googleAuth,
                 factory: factory,
-                googleAccounts: { store.accounts.filter { $0.provider == .gmail } }
+                googleAccounts: { store.accounts.filter { $0.provider == .gmail } },
+                addAccount: {
+                    guard let diretor else {
+                        throw MeetingConnectorError.refused(
+                            L10n.tr("Conecte uma caixa Google em Contas — o Meet nasce do OAuth dela.")
+                        )
+                    }
+                    return try await diretor.addGoogleAccountFromBrowser()
+                }
             ),
             zoom,
             teams,
@@ -150,7 +158,7 @@ struct OkamiUNIApp: App {
             }
             Task { await filaDeRascunho.useAgenda(agendaDoStore) }
         }
-        if let diretor = composicao.director {
+        if let diretor {
             // A fila junto: é por ela que o "Tentar de novo" de uma fila parada
             // chega ao executor daquela conta.
             _accountsModel = State(initialValue: AccountsModel(
@@ -270,7 +278,9 @@ struct OkamiUNIApp: App {
                 .environment(swipes)
                 .environment(meetingRooms)
                 .environment(meetingFactory)
+                .environment(meetingConnections)
                 .environment(calendarPreferences)
+                .task { await meetingConnections.refresh() }
                 .theme(themes.theme)
                 .environment(\.locale, L10n.locale)
                 .barraColadaNoTopo()

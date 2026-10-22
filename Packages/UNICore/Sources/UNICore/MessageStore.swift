@@ -546,6 +546,13 @@ public final class MailStore {
     private let sourceAgendaReferenceDate: Date
     private var synchronizedAgenda: [AgendaItem] = []
 
+    /// Contas da última vez que a lista chegou. `nil` até o primeiro retrato:
+    /// a abertura já sincroniza a agenda lendo o banco, e repetir aqui só
+    /// atrasaria a primeira tela. Uma conta que entra depois — o Google que
+    /// acabou de ser autorizado — dispara outra sincronização. Sem isso o
+    /// e-mail aparece e a agenda fica para o botão "Sincronizar agora".
+    private var calendarRefreshAccountIDs: Set<String>?
+
     /// De quem as imagens remotas carregam sozinhas. `nil` nas fixtures e em
     /// todo teste que não passa uma — e nesse caso ninguém é confiável, que é
     /// o comportamento da M3-8, intacto. Ver `SenderTrusting`.
@@ -1090,6 +1097,9 @@ public final class MailStore {
     /// escolher um filtro *entre* dois retratos de uma sequência já montada, e
     /// um teste que dependesse do tempo entre eles seria intermitente.
     func apply(_ snapshot: MailSnapshot) {
+        let nextAccountIDs = Set(snapshot.accounts.map(\.id))
+        let accountListChanged = calendarRefreshAccountIDs.map { $0 != nextAccountIDs } ?? false
+        calendarRefreshAccountIDs = nextAccountIDs
         accounts = snapshot.accounts
         let incoming = reconcilingPendingRuleActions(in: snapshot.messages)
         let ids = Set(incoming.map(\.id))
@@ -1132,6 +1142,9 @@ public final class MailStore {
         // O estado vazio fica reservado para uma caixa de fato vazia.
         selectDefaultMessage()
         applyRulesToNewMessages()
+        if accountListChanged {
+            Task { await refreshCalendar() }
+        }
     }
 
     /// Publica imediatamente no estado visível mensagens que uma ferramenta

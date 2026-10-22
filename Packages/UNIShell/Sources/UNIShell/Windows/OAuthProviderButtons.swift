@@ -29,6 +29,10 @@ struct ZohoSignInButton: View {
     /// ali (o preset da tabela, ou o fallback `imappro`), e é exatamente essa
     /// pessoa que mais ganha com o login sem senha de app.
     let host: String
+    /// Chamado quando o login terminou sem erro. A folha fecha: a conta já
+    /// está na lista, e deixar o formulário aberto no passo do IMAP parece
+    /// que o login não avançou.
+    var onSignedIn: () -> Void = {}
 
     /// Esta tela deve oferecer o Zoho?
     ///
@@ -59,7 +63,10 @@ struct ZohoSignInButton: View {
         if Self.applies(address: address, host: host), model.canAddZoho {
             VStack(spacing: 10) {
                 Button {
-                    Task { await model.addZoho(address: address) }
+                    Task {
+                        await model.addZoho(address: address)
+                        if model.lastError == nil { onSignedIn() }
+                    }
                 } label: {
                     HStack(spacing: 10) {
                         Text(L10n.tr("Entrar com Zoho"))

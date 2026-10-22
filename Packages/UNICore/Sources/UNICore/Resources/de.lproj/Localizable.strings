@@ -86,6 +86,8 @@
 "Avisar {0}" = "{0} Bescheid geben";
 "CalDAV · 1 agenda" = "CalDAV · 1 Kalender";
 "CalDAV · {0} agendas" = "CalDAV · {0} Kalender";
+"Google · 1 agenda" = "Google · 1 Kalender";
+"Google · {0} agendas" = "Google · {0} Kalender";
 "Cria os compromissos propostos, com desfazer" = "Erstellt die vorgeschlagenen Termine, mit Rückgängig";
 "Criar evento — indisponível: este compromisso já está na agenda" = "Ereignis erstellen — nicht verfügbar: Dieser Termin steht schon im Kalender";
 "Criar evento — indisponível: sem motor de IA para achar dia e hora" = "Ereignis erstellen — nicht verfügbar: Keine KI, die Datum und Uhrzeit findet";
@@ -530,6 +532,7 @@
 "Conectando ao agente…" = "Verbindung zum Agenten…";
 "Conectando…" = "Verbindung wird hergestellt…";
 "Conectar" = "Verbinden";
+"Conectar outra conta" = "Weiteres Konto verbinden";
 "Conectar IA" = "KI verbinden";
 "Conectar a inteligência" = "Die Intelligenz verbinden";
 "Conectar agora" = "Jetzt verbinden";
@@ -2481,7 +2484,7 @@
 "A da conta" = "Der des Kontos";
 "uma sala nova por evento" = "ein neuer Raum pro Termin";
 "Sala padrão em eventos novos" = "Standardraum für neue Termine";
-"Cada um abre o login da sua conta no navegador — nada de client ID, segredo nem tenant." = "Jeder öffnet die Anmeldung Ihres Kontos im Browser — keine Client-ID, kein Secret, kein Tenant.";
+"Cada um abre o login da sua conta no navegador — nada de client ID, segredo nem tenant. Dá para conectar quantas contas quiser." = "Jeder öffnet die Anmeldung Ihres Kontos im Browser — keine Client-ID, kein Secret, kein Tenant. Sie können so viele Konten verbinden, wie Sie möchten.";
 "entra na sua conta Google no navegador" = "meldet sich im Browser bei Ihrem Google-Konto an";
 "Agenda e Meet" = "Kalender und Meet";
 "seu Apple ID e uma senha de app" = "Ihre Apple-ID und ein App-Passwort";
@@ -2550,4 +2553,4 @@
 "O {0} respondeu sem HTTP." = "{0} antwortete ohne HTTP.";
 "O {0} respondeu {1}: {2}" = "{0} antwortete {1}: {2}";
 "O {0} devolveu um JSON que não reconhecemos." = "{0} lieferte JSON, das wir nicht erkennen.";
-"O Meet usa a sua conta Google e cria uma sala nova para cada evento." = "Meet nutzt Ihr Google-Konto und erstellt für jeden Termin einen neuen Raum.";
+"O Meet usa as contas Google que você conectar e cria uma sala nova para cada evento." = "Meet nutzt die Google-Konten, die Sie verbinden, und erstellt für jeden Termin einen neuen Raum.";
