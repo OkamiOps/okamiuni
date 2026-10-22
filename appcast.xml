@@ -6,6 +6,16 @@
     <description>Atualizações do OkamiUNI</description>
     <language>pt-BR</language>
     <item>
+      <title>Version 0.6.10</title>
+      <pubDate>Thu, 22 Oct 2026 20:34:23 GMT</pubDate>
+      <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.6.10</sparkle:fullReleaseNotesLink>
+      <sparkle:version>25</sparkle:version>
+      <sparkle:shortVersionString>0.6.10</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<ul lang="pt-BR"><li>No e-mail, a resposta da IA sai formatada. Uma linha que é só um título em negrito vira título. Uma linha que começa com traço vira lista. Negrito e itálico no meio da frase ficam no texto.</li><li>O resumo recolhido mostra a primeira frase sem asterisco.</li><li>Versão do app 0.6.10, build 25. <a href="docs/releases/v0.6.10.pt-BR.md">Notas da versão</a>.</li></ul><ul lang="en"><li>On an email, the AI answer is formatted. A line that is only a bold title becomes a title. A line that starts with a dash becomes a list. Bold and italic inside a sentence stay in the text.</li><li>The collapsed summary shows the first sentence without asterisks.</li><li>App version 0.6.10, build 25. <a href="docs/releases/v0.6.10.md">Release notes</a>.</li></ul>]]></description>
+      <enclosure url="https://github.com/OkamiOps/okamiuni/releases/download/v0.6.10/OkamiUNI-0.6.10.zip" length="38519994" type="application/octet-stream" sparkle:edSignature="fCg2yxN+gKaN1tsPEOv2JQSnrHv0SGqnHpUuYL5uFXk1iRafOXvm3P6J91QzR2JSSsrAM/TN2Bj/i/BFgTs5DQ==" />
+    </item>
+    <item>
       <title>Version 0.6.9</title>
       <pubDate>Thu, 22 Oct 2026 20:05:44 GMT</pubDate>
       <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.6.9</sparkle:fullReleaseNotesLink>
@@ -15,7 +25,7 @@
       <description><![CDATA[<ul lang="pt-BR"><li>No e-mail, <strong>✦ IA</strong> abre o menu no próprio leitor, embaixo da barra. <strong>Resumir</strong>, <strong>Rascunhar resposta</strong> e as outras linhas são botões que recebem o clique. O resultado entra no e-mail.</li><li><strong>Perguntar sobre este e-mail</strong> abre um campo no e-mail. Você escreve a pergunta e aperta <strong>Enviar</strong>. A resposta fica no e-mail.</li><li>Versão do app 0.6.9, build 24. <a href="docs/releases/v0.6.9.pt-BR.md">Notas da versão</a>.</li></ul><ul lang="en"><li>On an email, <strong>✦ AI</strong> opens its menu in the reader, under the toolbar. <strong>Summarize</strong>, <strong>Draft a reply</strong> and the other rows are buttons you can click. The result is written in the email.</li><li><strong>Ask about this email</strong> opens a field on the email. Type the question and press <strong>Send</strong>. The answer stays in the email.</li><li>App version 0.6.9, build 24. <a href="docs/releases/v0.6.9.md">Release notes</a>.</li></ul>]]></description>
       <enclosure url="https://github.com/OkamiOps/okamiuni/releases/download/v0.6.9/OkamiUNI-0.6.9.zip" length="38515785" type="application/octet-stream" sparkle:edSignature="IJMAl2v0oICTzyCf2pTnhADDk6YGZ6D3Af1Bj2DH40t1PxxMlhxWEx07pw5C/S664k/HmficuO4TugcFAYN8Cw==" />
     </item>
-    <item>
+<item>
       <title>Version 0.6.8</title>
       <pubDate>Thu, 22 Oct 2026 01:44:22 GMT</pubDate>
       <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.6.8</sparkle:fullReleaseNotesLink>
