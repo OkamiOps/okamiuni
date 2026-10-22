@@ -123,6 +123,7 @@
 "Me ajuda com: {0}" = "Aide-moi avec : {0}";
 "NOTA" = "NOTE";
 "O servidor recusou o endereço ou a senha. Confira a senha da conta." = "Le serveur a refusé l’adresse ou le mot de passe. Vérifiez le mot de passe du compte.";
+"A autorização desta conta não vale mais. Reconecte para entrar de novo." = "L’autorisation de ce compte n’est plus valable. Reconnectez-vous.";
 "O servidor recusou o login: {0}" = "Le serveur a refusé la connexion : {0}";
 "Ou entre pelo IMAP, com a senha da conta:" = "Ou connectez-vous en IMAP, avec le mot de passe du compte :";
 "Parar aqui" = "Arrêter ici";
@@ -2403,6 +2404,7 @@
 "{0} palavras" = "{0} mots";
 "{0} pastas, todas sincronizadas" = "{0} dossiers, tous synchronisés";
 "{0} pede a senha de novo" = "{0} redemande le mot de passe";
+"{0} precisa entrar de novo" = "{0} doit se reconnecter";
 "{0} promessas" = "{0} engagements";
 "{0} pronta" = "{0} prête";
 "{0} pronta para instalar" = "{0} prête à installer";

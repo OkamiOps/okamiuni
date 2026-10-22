@@ -123,6 +123,7 @@
 "Me ajuda com: {0}" = "Hilf mir bei: {0}";
 "NOTA" = "NOTIZ";
 "O servidor recusou o endereço ou a senha. Confira a senha da conta." = "Der Server hat Adresse oder Passwort abgelehnt. Prüfen Sie das Kontopasswort.";
+"A autorização desta conta não vale mais. Reconecte para entrar de novo." = "Die Anmeldung dieses Kontos gilt nicht mehr. Verbinden Sie es erneut.";
 "O servidor recusou o login: {0}" = "Der Server hat die Anmeldung abgelehnt: {0}";
 "Ou entre pelo IMAP, com a senha da conta:" = "Oder über IMAP anmelden, mit dem Kontopasswort:";
 "Parar aqui" = "Hier anhalten";
@@ -2403,6 +2404,7 @@
 "{0} palavras" = "{0} Wörter";
 "{0} pastas, todas sincronizadas" = "{0} Ordner, alle synchronisiert";
 "{0} pede a senha de novo" = "{0} fragt wieder nach dem Passwort";
+"{0} precisa entrar de novo" = "{0} muss sich erneut anmelden";
 "{0} promessas" = "{0} Zusagen";
 "{0} pronta" = "{0} bereit";
 "{0} pronta para instalar" = "{0} installationsbereit";

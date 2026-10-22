@@ -10,7 +10,7 @@
 ![macOS](https://img.shields.io/badge/macOS-26-000000?logo=apple&logoColor=white)
 ![SwiftUI](https://img.shields.io/badge/SwiftUI-native-0071e3)
 ![Languages](https://img.shields.io/badge/languages-PT%20%7C%20EN%20%7C%20DE%20%7C%20FR-blue)
-![Release](https://img.shields.io/badge/release-0.5.4-success)
+![Release](https://img.shields.io/badge/release-0.6.8-success)
 
 <img src="docs/capturas/janela-principal.png" width="860" alt="OkamiUNI in Portuguese: account sidebar, message list, reader and daily calendar." />
 
@@ -29,7 +29,7 @@ OkamiUNI combines a unified inbox, calendar and daily planning dashboard in a na
 | Reader | Sanitized HTML, readable text, collapsible quoted history/signatures, attachments on demand and confirmation showing the real destination before opening a link. Remote images are blocked until allowed; tracking pixels stay blocked even then. HTML sent without a `Content-Type`, with a tracker before the doctype or as a bare fragment is still rendered as HTML. |
 | Sending | Gmail API or SMTP with TLS, account aliases from Gmail/Workspace, rich text, attachments, drafts and an offline queue with retry/error states. |
 | Accounts | Google OAuth and IMAP/SMTP for providers accepting the implemented password authentication. Credentials live in Keychain; local data uses SQLite/GRDB. There is no hardcoded account limit. |
-| Sync | IMAP IDLE, incremental Gmail history and network recovery; account reconnection preserves local account identity and data. |
+| Sync | IMAP IDLE, incremental Gmail history and network recovery. Reconnecting keeps the local account and its data. When a Google sign-in is refused, the account page shows **Reconnect** and opens Google for that mailbox; an IMAP account opens the password form. **Sync now** stays beside it. |
 | Calendar | Read/write access to macOS calendars through EventKit, including calendars configured in macOS; invitations and RSVP through the outgoing queue. |
 | AI | Summaries, triage, suggested replies, writing tools and an assistant drawer (`⌘J`) or separate window. On-device Foundation Models and configured remote/CLI providers are supported. |
 | Appearance | 26 themes, bundled fonts, resizable panes and native window controls. |

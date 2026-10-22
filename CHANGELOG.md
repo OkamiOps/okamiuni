@@ -4,6 +4,12 @@
 
 Versions correspond to [GitHub releases](https://github.com/OkamiOps/okamiuni/releases). All dates below are in 2026.
 
+## 0.6.8 — October 22
+
+- When a sign-in is refused, the account page shows **Reconnect**. A Google account opens Google for that mailbox and keeps the local account and its mail. An IMAP account opens the password form, with the address and server already filled in. **Sync now** stays beside it.
+- A Google or Microsoft account no longer tells you to check a password when the sign-in was refused. The line says the authorization is no longer valid. An IMAP account still asks you to check the password.
+- App version 0.6.8, build 23. [Release notes](docs/releases/v0.6.8.md).
+
 ## 0.6.7 — October 22
 
 - Meet, Zoom, Teams and Zoho take as many accounts as you want. In Settings › Calendars each one has its own **Disconnect**, and **Connect another account** stays on the list.

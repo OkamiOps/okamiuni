@@ -493,6 +493,26 @@ struct AccountsWindowTests {
     /// conta que perdeu o token na sessão passada dá exatamente este par —
     /// `state: .erroDeAutenticacao`, `error: nil` — e a versão anterior desta
     /// janela escrevia a causa inteira na tela e não oferecia botão nenhum.
+    @Test("Conta Google em erro de autorização pede Reconectar, e não a senha")
+    func googlePedeReconectarEmVezDeSenha() {
+        let google = AccountStatus(
+            accountID: "g", address: "marco@okamiops.com", hostMark: "gmail",
+            state: .erroDeAutenticacao, messageCount: 51, lastSyncedAt: nil,
+            error: .autenticacao, progress: nil, provider: .gmail
+        )
+        let texto = AccountsCopy.status(google, now: agora, calendar: calendario)
+        #expect(texto.contains("Reconecte para entrar de novo"))
+        #expect(!texto.localizedCaseInsensitiveContains("senha"))
+        #expect(AccountsCopy.reconnectRoute(for: google) == .google)
+        #expect(AccountsCopy.attentionTitle(for: google) == "marco@okamiops.com precisa entrar de novo")
+        #expect(AccountsCopy.actions(for: google).first == .reconnect(.autenticacao))
+
+        let imap = status(state: .erroDeAutenticacao, erro: .autenticacao)
+        #expect(AccountsCopy.status(imap, now: agora, calendar: calendario)
+            .contains(SyncError.autenticacao.mensagem))
+        #expect(AccountsCopy.reconnectRoute(for: imap) == .imapForm)
+    }
+
     @Test("Conta reaberta em erro de autenticação, sem erro em memória, ainda oferece Reconectar")
     func erroPersistidoSemErroEmMemoria() {
         let persistida = status(state: .erroDeAutenticacao, erro: nil)

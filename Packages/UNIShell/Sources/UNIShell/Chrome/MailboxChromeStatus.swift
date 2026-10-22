@@ -67,7 +67,9 @@ public enum MailboxChromeStatus: Equatable, Sendable {
         if let quebrada = statuses.first(where: {
             $0.error != nil || $0.state == .erroDeAutenticacao
         }) {
-            return .failed(quebrada.error?.mensagem ?? SyncError.autenticacao.mensagem)
+            return .failed(AccountsCopy.failurePhrase(
+                quebrada.error ?? .autenticacao, provider: quebrada.provider
+            ))
         }
 
         return .ready

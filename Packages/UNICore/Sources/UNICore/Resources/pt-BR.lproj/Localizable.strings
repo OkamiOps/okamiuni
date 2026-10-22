@@ -123,6 +123,7 @@
 "Me ajuda com: {0}" = "Me ajuda com: {0}";
 "NOTA" = "NOTA";
 "O servidor recusou o endereço ou a senha. Confira a senha da conta." = "O servidor recusou o endereço ou a senha. Confira a senha da conta.";
+"A autorização desta conta não vale mais. Reconecte para entrar de novo." = "A autorização desta conta não vale mais. Reconecte para entrar de novo.";
 "O servidor recusou o login: {0}" = "O servidor recusou o login: {0}";
 "Ou entre pelo IMAP, com a senha da conta:" = "Ou entre pelo IMAP, com a senha da conta:";
 "Parar aqui" = "Parar aqui";
@@ -2403,6 +2404,7 @@
 "{0} palavras" = "{0} palavras";
 "{0} pastas, todas sincronizadas" = "{0} pastas, todas sincronizadas";
 "{0} pede a senha de novo" = "{0} pede a senha de novo";
+"{0} precisa entrar de novo" = "{0} precisa entrar de novo";
 "{0} promessas" = "{0} promessas";
 "{0} pronta" = "{0} pronta";
 "{0} pronta para instalar" = "{0} pronta para instalar";

@@ -123,6 +123,7 @@
 "Me ajuda com: {0}" = "Help me with: {0}";
 "NOTA" = "NOTE";
 "O servidor recusou o endereço ou a senha. Confira a senha da conta." = "The server rejected the address or the password. Check the account password.";
+"A autorização desta conta não vale mais. Reconecte para entrar de novo." = "This account's sign-in is no longer valid. Reconnect to sign in again.";
 "O servidor recusou o login: {0}" = "The server refused the login: {0}";
 "Ou entre pelo IMAP, com a senha da conta:" = "Or sign in over IMAP, with the account password:";
 "Parar aqui" = "Stop here";
@@ -2403,6 +2404,7 @@
 "{0} palavras" = "{0} words";
 "{0} pastas, todas sincronizadas" = "{0} folders, all synced";
 "{0} pede a senha de novo" = "{0} is asking for the password again";
+"{0} precisa entrar de novo" = "{0} needs to sign in again";
 "{0} promessas" = "{0} commitments";
 "{0} pronta" = "{0} ready";
 "{0} pronta para instalar" = "{0} ready to install";

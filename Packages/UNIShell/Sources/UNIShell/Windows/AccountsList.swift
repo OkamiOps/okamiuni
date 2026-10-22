@@ -70,7 +70,7 @@ public enum AccountsCopy {
             + fila(s)
 
         if let erro = s.error {
-            return "\(erro.mensagem) · \(contagem)"
+            return "\(failurePhrase(erro, provider: s.provider)) · \(contagem)"
         }
         switch s.state {
         case .carregando:
@@ -83,7 +83,7 @@ public enum AccountsCopy {
             // do que dizer só "Carregando".
             return L10n.tr("Carregando… · \(contagem)")
         case .erroDeAutenticacao:
-            return "\(SyncError.autenticacao.mensagem) · \(contagem)"
+            return "\(failurePhrase(.autenticacao, provider: s.provider)) · \(contagem)"
         case .ativa:
             guard let quando = s.lastSyncedAt else {
                 return L10n.tr("Ainda não sincronizada · \(contagem)")
@@ -120,6 +120,27 @@ public enum AccountsCopy {
             texto += L10n.tr(" · parada: \(parada.mensagem)")
         }
         return texto
+    }
+
+    /// O que a linha diz quando a credencial falhou.
+    ///
+    /// IMAP pede a senha, porque o formulário de reconectar é onde ela se
+    /// digita. Gmail e Microsoft entram pelo navegador: a frase que manda
+    /// conferir a senha aponta para um campo que essa conta não tem.
+    public static func failurePhrase(_ erro: SyncError, provider: Account.Provider) -> String {
+        if case .autenticacao = erro, provider != .imap {
+            return L10n.tr("A autorização desta conta não vale mais. Reconecte para entrar de novo.")
+        }
+        return erro.mensagem
+    }
+
+    /// O título do alerta da visão geral. A mesma distinção da frase: senha
+    /// só quando a reconexão é um formulário de senha.
+    public static func attentionTitle(for s: AccountStatus) -> String {
+        if s.provider == .imap {
+            return L10n.tr("\(s.address) pede a senha de novo")
+        }
+        return L10n.tr("\(s.address) precisa entrar de novo")
     }
 
     /// A ação que o erro pede. Duas ações diferentes porque são dois problemas

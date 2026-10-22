@@ -325,10 +325,8 @@ public struct AccountsWindow: View {
                     subtitle: AccountsCopy.status(status, now: Date(), calendar: .current),
                     avatarInitial: ConfigAccountTint.initial(for: status),
                     avatarTint: nil,
-                    action: (
-                        label: L10n.tr("Sincronizar agora"),
-                        run: { Task { await model.loadInitial(status.accountID) } }
-                    )
+                    action: accountHeaderAction(status),
+                    quietAction: accountHeaderQuietAction(status)
                 )
             }
         case .agendas:
@@ -457,7 +455,7 @@ public struct AccountsWindow: View {
                 tone: .needsYou,
                 symbol: "lock",
                 tag: L10n.tr("PRECISA DE VOCÊ"),
-                title: L10n.tr("\(status.address) pede a senha de novo"),
+                title: AccountsCopy.attentionTitle(for: status),
                 detail: AccountsCopy.status(status, now: Date(), calendar: .current),
                 action: L10n.tr("Reconectar"),
                 run: { reconnect(status) }
@@ -776,6 +774,31 @@ public struct AccountsWindow: View {
     private var readyUpdate: String? {
         guard let updates, updates.showsReadyButton else { return nil }
         return updates.readyVersion
+    }
+
+    /// Credencial morta: o botão de acento entra de novo. Sincronizar de novo
+    /// com o mesmo token só repete o 401.
+    private func accountHeaderAction(
+        _ status: AccountStatus
+    ) -> (label: String, run: () -> Void) {
+        if AccountsCopy.reconnectRoute(for: status) != nil {
+            return (label: L10n.tr("Reconectar"), run: { reconnect(status) })
+        }
+        return (
+            label: L10n.tr("Sincronizar agora"),
+            run: { Task { await model.loadInitial(status.accountID) } }
+        )
+    }
+
+    private func accountHeaderQuietAction(
+        _ status: AccountStatus
+    ) -> (label: String, symbol: String, run: () -> Void)? {
+        guard AccountsCopy.reconnectRoute(for: status) != nil else { return nil }
+        return (
+            label: L10n.tr("Sincronizar agora"),
+            symbol: "arrow.clockwise",
+            run: { Task { await model.loadInitial(status.accountID) } }
+        )
     }
 
     private func reconnect(_ status: AccountStatus) {

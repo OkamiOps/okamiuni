@@ -4,6 +4,11 @@
 
 Todas as versões seguem o [release no GitHub](https://github.com/OkamiOps/okamiuni/releases). Datas em 2026.
 
+## 0.6.8 — 22 de outubro
+- Quando o login é recusado, a página da conta mostra **Reconectar**. Uma conta Google abre o Google daquela caixa e mantém a conta local e os e-mails. Uma conta IMAP abre o formulário da senha, com endereço e servidor já preenchidos. **Sincronizar agora** fica ao lado.
+- Conta Google ou Microsoft não manda mais conferir a senha quando o login foi recusado. A frase diz que a autorização não vale mais. Conta IMAP continua pedindo para conferir a senha.
+- Versão do app 0.6.8, build 23. [Notas da versão](docs/releases/v0.6.8.pt-BR.md).
+
 ## 0.6.7 — 22 de outubro
 - Meet, Zoom, Teams e Zoho aceitam quantas contas você quiser. Em Configurações › Agendas cada uma tem o próprio **Desconectar**, e **Conectar outra conta** continua na lista.
 - No compromisso, quando mais de uma conta pode criar a sala, a linha **Conta** tem **trocar**. A sala nasce da conta escolhida.
