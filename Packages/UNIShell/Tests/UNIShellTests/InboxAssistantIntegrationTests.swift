@@ -233,23 +233,14 @@ struct InboxAssistantIntegrationTests {
         ])
     }
 
-    /// **A direção Tinta tira o painel do caminho.**
+    /// **O menu fica no fluxo, não por cima do HTML.**
     ///
-    /// Os três casos que viviam aqui — painel por cima do corpo, por cima de
-    /// um assunto de três linhas, por cima da divisória da pilha — eram
-    /// variações de um defeito só: uma superfície da IA desenhada **sobre** o
-    /// e-mail, que o `VStack` do cabeçalho às vezes ganhava. O desenho
-    /// aprovado (`IA-Tinta.dc.html`) não tem essa superfície: o ✦ IA abre um
-    /// menu (popover, fora da árvore do leitor) e o que a IA diz é escrito no
-    /// próprio fluxo de leitura.
-    ///
-    /// A garantia dos três, então, virou esta, e vale para qualquer assunto e
-    /// qualquer pilha: **com o menu aberto, a área de leitura sai idêntica.**
-    /// Nada é coberto, nada é cortado por hairline nenhuma, e não há camada
-    /// para o assunto disputar. Onde a tinta de fato aparece, e em que ordem,
-    /// é o que `IAPresencaTintaRenderTests` mede contra o desenho.
+    /// O popover desenhava por cima da mensagem e o clique não chegava na
+    /// ação. Aberto, o menu empurra o e-mail para baixo — é por isso que o
+    /// corpo muda de lugar — e o ponto verde do provedor aparece no leitor.
+    /// O que não pode voltar é um painel cobrindo a leitura sem o menu.
     @Test(
-        "o menu da IA não pinta nada por cima do e-mail",
+        "o menu da IA entra no fluxo do leitor",
         arguments: [(Theme.vidro, false), (Theme.vidro, true), (Theme.tinta, false)]
     )
     func readerInkNeverCoversTheEmail(tema: Theme, emPilha: Bool) async throws {
@@ -298,17 +289,17 @@ struct InboxAssistantIntegrationTests {
         let fechado = try desenho(menuAberto: false)
         let aberto = try desenho(menuAberto: true)
 
-        // A pastilha acende em acento cheio: é a única coisa que muda.
+        // A pastilha acende em acento cheio.
         #expect(
             aberto.pixels(matching: tema.accent, tolerance: 0.03)
                 > fechado.pixels(matching: tema.accent, tolerance: 0.03) + 200,
             "\(tema.id): o ✦ IA não deu sinal de que o menu abriu"
         )
-        // E no e-mail, nada. Nem o assunto, nem a divisória, nem o corpo:
-        // não há painel para cobrir nada disso.
+        // O menu está desenhado no leitor: o ponto verde do provedor.
         #expect(
-            aberto.pixelsDiffering(from: fechado, inColumns: 0..<760, rows: 320..<700) == 0,
-            "\(tema.id): alguma coisa da IA foi desenhada por cima do e-mail"
+            aberto.pixels(matching: tema.success, tolerance: 0.08)
+                > fechado.pixels(matching: tema.success, tolerance: 0.08),
+            "\(tema.id): o menu não entrou no fluxo — o ponto do provedor sumiu"
         )
     }
 
@@ -357,11 +348,7 @@ struct InboxAssistantIntegrationTests {
 
     /// O caso inverso do que vivia aqui.
     ///
-    /// Antes o painel da IA tinha de **atravessar** o `HStack` das três
-    /// colunas, e este teste media esse atravessamento. Na direção Tinta não
-    /// há painel: o menu é popover do AppKit e o resultado é escrito no fluxo,
-    /// então o shell não precisa elevar nada — e a prova disso é que a tela
-    /// inteira sai igual, tirando a pastilha acesa.
+    /// O menu mora no leitor. A lateral e a lista não se mexem quando ele abre.
     @Test("o shell não precisa elevar nada para a IA do leitor")
     func readerInkNeedsNoShellLayer() async throws {
         let store = MailStore(source: InMemoryMailSource.fixtures)
@@ -398,9 +385,9 @@ struct InboxAssistantIntegrationTests {
                 > closed.pixels(matching: Theme.tinta.accent, tolerance: 0.03) + 200,
             "a pastilha ✦ IA não acendeu"
         )
-        // E nada mais: nem a calha entre as colunas, nem a lista, nem o corpo.
+        // A lateral fica quieta. O menu não atravessa as colunas.
         #expect(
-            open.pixelsDiffering(from: closed, inColumns: 0..<1_440, rows: 300..<820) == 0,
+            open.pixelsDiffering(from: closed, inColumns: 0..<260, rows: 0..<820) == 0,
             "a IA do leitor voltou a cobrir as colunas do shell"
         )
     }

@@ -4,6 +4,11 @@
 
 Todas as versões seguem o [release no GitHub](https://github.com/OkamiOps/okamiuni/releases). Datas em 2026.
 
+## 0.6.9 — 22 de outubro
+- No e-mail, **✦ IA** abre o menu no próprio leitor, embaixo da barra. **Resumir**, **Rascunhar resposta** e as outras linhas são botões que recebem o clique. O resultado entra no e-mail.
+- **Perguntar sobre este e-mail** abre um campo no e-mail. Você escreve a pergunta e aperta **Enviar**. A resposta fica no e-mail.
+- Versão do app 0.6.9, build 24. [Notas da versão](docs/releases/v0.6.9.pt-BR.md).
+
 ## 0.6.8 — 22 de outubro
 - Quando o login é recusado, a página da conta mostra **Reconectar**. Uma conta Google abre o Google daquela caixa e mantém a conta local e os e-mails. Uma conta IMAP abre o formulário da senha, com endereço e servidor já preenchidos. **Sincronizar agora** fica ao lado.
 - Conta Google ou Microsoft não manda mais conferir a senha quando o login foi recusado. A frase diz que a autorização não vale mais. Conta IMAP continua pedindo para conferir a senha.

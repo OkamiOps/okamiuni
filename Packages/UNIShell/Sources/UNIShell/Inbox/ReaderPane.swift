@@ -122,6 +122,13 @@ public struct ReaderPane: View {
     @State private var folderPickerOpen = false
     @State private var quickReplyRevision = 0
     @State private var emailAssistantOpen = false
+    /// O campo "Pergunte sobre este email…". O menu só lista a ação;
+    /// a pergunta em si se escreve aqui, neste e-mail.
+    @State private var perguntaAberta = false
+    @State private var perguntaTexto = ""
+    @FocusState private var perguntaFocada: Bool
+    /// Porta do harness: o campo nasce aberto, sem clique.
+    var debugPerguntaAberta = false
     /// O tom do rascunho da IA que está na barra de resposta.
     @State private var inkTone: AssistantDraftTone = .direto
     /// O seletor de tom, aberto pela barra **ou** pelo menu do ✦ IA.
@@ -360,6 +367,7 @@ public struct ReaderPane: View {
             // mantêm o desenho. O que muda de tema para tema é material, não
             // estrutura.
             readerToolbar(message)
+            menuNoFluxo(message)
             Rectangle()
                 .fill(theme.line.color)
                 .frame(height: Hairline.thickness(displayScale))
@@ -424,10 +432,11 @@ public struct ReaderPane: View {
             }
         }
         .coordinateSpace(name: Self.readerSpace)
-        // **Nenhum painel por cima do e-mail.** O ✦ IA abre um menu de ações
-        // (ver `ReaderInkMenu`) e o resultado é escrito no próprio e-mail ou
-        // vai para a barra de resposta — é a direção Tinta. O painel
-        // flutuante que cobria o texto saiu daqui.
+        // **Nenhum painel por cima do e-mail.** O ✦ IA abre o menu **no
+        // fluxo**, logo abaixo da barra: um popover do AppKit desenhava por
+        // cima do HTML e o clique caía na mensagem, ou fechava o menu e
+        // cancelava o pedido no mesmo instante. O resultado continua no
+        // próprio e-mail, ou na barra de resposta.
         //
         // O rascunho que a IA devolve é adotado pela barra de resposta assim
         // que chega: é lá que ele mora no desenho, e não num cartão à parte.
@@ -444,6 +453,13 @@ public struct ReaderPane: View {
         // Sem porta de corpo (fixtures, e todo teste que não passa uma) isto
         // não faz nada — `loadBodyIfNeeded` sai na primeira guarda.
         .task(id: message.id) {
+            // Trocar de mensagem abandona a conversa da anterior. Fechar o
+            // menu não passa por aqui: esse caminho não pode cancelar o
+            // resumo que o clique acabou de pedir.
+            readerConversation?.cancel()
+            readerConversation = nil
+            perguntaAberta = debugPerguntaAberta
+            perguntaTexto = ""
             setEmailAssistantOpen(debugEmailAssistantOpen, for: message.id)
             // A proposta e a nota são **desta** mensagem: trocar de mensagem
             // as leva embora, em vez de deixá-las coladas na seguinte.
@@ -506,6 +522,12 @@ public struct ReaderPane: View {
         // procedência — ver `senderRow`. Era este bloco, somado à linha de
         // ações e à faixa das imagens, que fazia o cabeçalho comer metade da
         // janela.
+        if mostraCampoDePergunta {
+            perguntaField(message)
+                .padding(.horizontal, Leitor5Metrics.headerSide)
+                .padding(.top, Leitor5Metrics.cardMarginTop)
+        }
+
         if mostraResultado(message) {
             resumoSection(message)
                 .padding(.horizontal, Leitor5Metrics.headerSide)
@@ -696,7 +718,7 @@ public struct ReaderPane: View {
             id: "perguntar",
             title: L10n.tr("Perguntar sobre este e-mail"),
             strong: passos.isEmpty,
-            run: onOpenAssistant
+            run: { abrirPergunta() }
         ))
         return passos
     }
@@ -1077,7 +1099,24 @@ public struct ReaderPane: View {
         }
         .padding(.horizontal, 14)
         .frame(height: 46)
-        .zIndex(emailAssistantOpen ? 90 : 0)
+    }
+
+    /// O menu da IA, **embaixo da barra e dentro do leitor**.
+    ///
+    /// Não é popover. O popover nascia numa janela por cima do HTML: o clique
+    /// ou não chegava na linha, ou chegava e o fechar do popover cancelava a
+    /// conversa no mesmo quadro. Aqui a linha é um botão do próprio leitor.
+    @ViewBuilder
+    private func menuNoFluxo(_ message: Message) -> some View {
+        if emailAssistantOpen {
+            inkMenu(for: message)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .shadow(color: .black.opacity(0.28), radius: 16, y: 8)
+                .padding(.leading, 14)
+                .padding(.top, 4)
+                .padding(.bottom, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     /// Ícone quieto da barra de vidro: sem moldura e sem fundo, como no
@@ -1135,8 +1174,9 @@ public struct ReaderPane: View {
         let aberto = emailAssistantOpen
         let disponivel = intelligencePresentation.isAvailable
         return Button {
-            setEmailAssistantOpen(!emailAssistantOpen, for: message.id)
-            onOpenAssistant()
+            let abrindo = !emailAssistantOpen
+            setEmailAssistantOpen(abrindo, for: message.id)
+            if abrindo { perguntaAberta = false }
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: "sparkles")
@@ -1169,9 +1209,6 @@ public struct ReaderPane: View {
         )
         .accessibilityLabel(L10n.tr("IA neste e-mail"))
         .accessibilityValue(aberto ? L10n.tr("Aberto") : L10n.tr("Fechado"))
-        .popover(isPresented: inkMenuBinding(for: message), arrowEdge: .bottom) {
-            inkMenu(for: message)
-        }
     }
 
     /// O menu do ✦ IA: as **sete** ações, porque da pastilha do cabeçalho não
@@ -1182,20 +1219,16 @@ public struct ReaderPane: View {
             isEnabled: { aiEnabled($0, for: message) },
             reason: { aiReason($0, for: message) },
             run: { acao in
-                setEmailAssistantOpen(false)
+                // Fecha o menu sem cancelar a conversa. O pedido vem na
+                // linha de baixo, na conversa que já existe.
+                emailAssistantOpen = false
+                onEmailAssistantOpenChange(false)
                 runAI(acao, for: message)
             },
             onSwitchProvider: {
                 setEmailAssistantOpen(false)
                 openWindow(id: UNIWindow.accounts)
             }
-        )
-    }
-
-    private func inkMenuBinding(for message: Message) -> Binding<Bool> {
-        Binding(
-            get: { emailAssistantOpen },
-            set: { setEmailAssistantOpen($0, for: message.id) }
         )
     }
 
@@ -1251,7 +1284,7 @@ public struct ReaderPane: View {
         case .tom:
             mudarTom(for: message)
         case .perguntar:
-            onOpenAssistant()
+            abrirPergunta()
         default:
             if let pergunta = acao.question { perguntar(pergunta, for: message) }
         }
@@ -1340,6 +1373,70 @@ public struct ReaderPane: View {
     /// Há motor de IA ligado a este leitor?
     private var podeRascunhar: Bool {
         intelligencePresentation.isAvailable && makeAssistantConversation != nil
+    }
+
+    /// O campo onde a pergunta deste e-mail se escreve. Fica no fluxo, acima
+    /// do cartão, para o HTML não ficar por cima dele.
+    private var mostraCampoDePergunta: Bool { perguntaAberta || debugPerguntaAberta }
+
+    private func abrirPergunta() {
+        perguntaAberta = true
+        perguntaFocada = true
+        onOpenAssistant()
+    }
+
+    private func enviarPergunta(for message: Message) {
+        let texto = perguntaTexto.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !texto.isEmpty, podeRascunhar else { return }
+        perguntaTexto = ""
+        perguntar(texto, for: message)
+    }
+
+    private func perguntaField(_ message: Message) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(theme.accentInk.color)
+                    .accessibilityHidden(true)
+                TextField(L10n.tr("Pergunte sobre este email…"), text: $perguntaTexto)
+                    .textFieldStyle(.plain)
+                    .font(theme.sans.font(size: 13.5))
+                    .foregroundStyle(theme.ink.color)
+                    .focused($perguntaFocada)
+                    .onSubmit { enviarPergunta(for: message) }
+                Button { enviarPergunta(for: message) } label: {
+                    Text(L10n.tr("Enviar"))
+                        .font(theme.sans.font(size: 12.5, weight: .semibold))
+                        .foregroundStyle(theme.onAccent.color)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(theme.accent.color)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(
+                    !podeRascunhar
+                        || perguntaTexto.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                )
+            }
+            if !podeRascunhar {
+                Text(intelligencePresentation.detail)
+                    .font(theme.sans.font(size: 11.5))
+                    .foregroundStyle(theme.ink4.color)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(theme.glassElevated.color)
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(theme.line.color, lineWidth: 1)
+        }
+        .accessibilityIdentifier("reader-ai-ask")
+        .onAppear { perguntaFocada = true }
     }
 
     private func ensureConversation(for messageID: String) {
@@ -1446,7 +1543,6 @@ public struct ReaderPane: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, Leitor5Metrics.headerSide)
         .padding(.top, Leitor5Metrics.headerTop)
-        .allowsHitTesting(!emailAssistantOpen)
         .onChange(of: message.id) { _, _ in
             detalhesAbertos = false
             imagensAbertas = false
@@ -1797,18 +1893,22 @@ public struct ReaderPane: View {
         return String(leaf.prefix(17)) + "…"
     }
 
+    /// Abre ou fecha o menu. **Não mexe na conversa.**
+    ///
+    /// Antes, `false` cancelava e apagava a conversa. O clique numa ação
+    /// fechava o menu e, no mesmo instante, o popover também escrevia
+    /// `false`: o resumo que o clique acabara de pedir morria antes de sair.
     private func setEmailAssistantOpen(_ open: Bool, for messageID: String? = nil) {
-        if open {
-            if readerConversation == nil,
-               let id = messageID ?? presentation.messageID ?? store.selectedMessageID {
-                readerConversation = makeAssistantConversation?(id)
-            }
-        } else {
-            readerConversation?.cancel()
-            readerConversation = nil
-        }
+        if open { garantirConversa(messageID) }
         emailAssistantOpen = open
         onEmailAssistantOpenChange(open)
+    }
+
+    private func garantirConversa(_ messageID: String?) {
+        guard readerConversation == nil,
+              let id = messageID ?? presentation.messageID ?? store.selectedMessageID
+        else { return }
+        readerConversation = makeAssistantConversation?(id)
     }
 
     /// O que o botão escreve — e ele diz a verdade sobre o que vai fazer.
