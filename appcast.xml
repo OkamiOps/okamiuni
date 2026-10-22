@@ -6,6 +6,16 @@
     <description>Atualizações do OkamiUNI</description>
     <language>pt-BR</language>
     <item>
+      <title>Version 0.6.11</title>
+      <pubDate>Thu, 22 Oct 2026 22:53:40 GMT</pubDate>
+      <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.6.11</sparkle:fullReleaseNotesLink>
+      <sparkle:version>26</sparkle:version>
+      <sparkle:shortVersionString>0.6.11</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<ul lang="pt-BR"><li>No e-mail, enquanto a IA escreve, a resposta anterior some. O cartão mostra que está escrevendo e diz com quem está falando.</li><li>Resumir, tarefas, termos e uma pergunta sobre o e-mail voltam com título em linha própria, lista e uma linha de fecho. O título no cartão fica maior que o texto.</li><li>Versão do app 0.6.11, build 26. <a href="docs/releases/v0.6.11.pt-BR.md">Notas da versão</a>.</li></ul><ul lang="en"><li>On an email, while the AI is writing, the previous answer is hidden. The card says it is writing and names who it is talking to.</li><li>Summarize, tasks, terms and a question about the email come back with a title on its own line, a list, and a closing line. Titles in the card are larger than the body.</li><li>App version 0.6.11, build 26. <a href="docs/releases/v0.6.11.md">Release notes</a>.</li></ul>]]></description>
+      <enclosure url="https://github.com/OkamiOps/okamiuni/releases/download/v0.6.11/OkamiUNI-0.6.11.zip" length="38520334" type="application/octet-stream" sparkle:edSignature="IDhiDQ/4Ynsu5y72ByRVxK/GVWAbM5BLvzyqN5UUzegcyGhGRsfb5DgReRTtNF8mmE4WnJH+kgdvyKbyESxHCg==" />
+    </item>
+    <item>
       <title>Version 0.6.10</title>
       <pubDate>Thu, 22 Oct 2026 20:34:23 GMT</pubDate>
       <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.6.10</sparkle:fullReleaseNotesLink>
@@ -15,7 +25,7 @@
       <description><![CDATA[<ul lang="pt-BR"><li>No e-mail, a resposta da IA sai formatada. Uma linha que é só um título em negrito vira título. Uma linha que começa com traço vira lista. Negrito e itálico no meio da frase ficam no texto.</li><li>O resumo recolhido mostra a primeira frase sem asterisco.</li><li>Versão do app 0.6.10, build 25. <a href="docs/releases/v0.6.10.pt-BR.md">Notas da versão</a>.</li></ul><ul lang="en"><li>On an email, the AI answer is formatted. A line that is only a bold title becomes a title. A line that starts with a dash becomes a list. Bold and italic inside a sentence stay in the text.</li><li>The collapsed summary shows the first sentence without asterisks.</li><li>App version 0.6.10, build 25. <a href="docs/releases/v0.6.10.md">Release notes</a>.</li></ul>]]></description>
       <enclosure url="https://github.com/OkamiOps/okamiuni/releases/download/v0.6.10/OkamiUNI-0.6.10.zip" length="38519994" type="application/octet-stream" sparkle:edSignature="fCg2yxN+gKaN1tsPEOv2JQSnrHv0SGqnHpUuYL5uFXk1iRafOXvm3P6J91QzR2JSSsrAM/TN2Bj/i/BFgTs5DQ==" />
     </item>
-    <item>
+<item>
       <title>Version 0.6.9</title>
       <pubDate>Thu, 22 Oct 2026 20:05:44 GMT</pubDate>
       <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.6.9</sparkle:fullReleaseNotesLink>
