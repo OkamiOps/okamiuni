@@ -6,6 +6,16 @@
     <description>Atualizações do OkamiUNI</description>
     <language>pt-BR</language>
     <item>
+      <title>Version 0.6.9</title>
+      <pubDate>Thu, 22 Oct 2026 20:05:44 GMT</pubDate>
+      <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.6.9</sparkle:fullReleaseNotesLink>
+      <sparkle:version>24</sparkle:version>
+      <sparkle:shortVersionString>0.6.9</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>26.0</sparkle:minimumSystemVersion>
+      <description><![CDATA[<ul lang="pt-BR"><li>No e-mail, <strong>✦ IA</strong> abre o menu no próprio leitor, embaixo da barra. <strong>Resumir</strong>, <strong>Rascunhar resposta</strong> e as outras linhas são botões que recebem o clique. O resultado entra no e-mail.</li><li><strong>Perguntar sobre este e-mail</strong> abre um campo no e-mail. Você escreve a pergunta e aperta <strong>Enviar</strong>. A resposta fica no e-mail.</li><li>Versão do app 0.6.9, build 24. <a href="docs/releases/v0.6.9.pt-BR.md">Notas da versão</a>.</li></ul><ul lang="en"><li>On an email, <strong>✦ AI</strong> opens its menu in the reader, under the toolbar. <strong>Summarize</strong>, <strong>Draft a reply</strong> and the other rows are buttons you can click. The result is written in the email.</li><li><strong>Ask about this email</strong> opens a field on the email. Type the question and press <strong>Send</strong>. The answer stays in the email.</li><li>App version 0.6.9, build 24. <a href="docs/releases/v0.6.9.md">Release notes</a>.</li></ul>]]></description>
+      <enclosure url="https://github.com/OkamiOps/okamiuni/releases/download/v0.6.9/OkamiUNI-0.6.9.zip" length="38515785" type="application/octet-stream" sparkle:edSignature="IJMAl2v0oICTzyCf2pTnhADDk6YGZ6D3Af1Bj2DH40t1PxxMlhxWEx07pw5C/S664k/HmficuO4TugcFAYN8Cw==" />
+    </item>
+    <item>
       <title>Version 0.6.8</title>
       <pubDate>Thu, 22 Oct 2026 01:44:22 GMT</pubDate>
       <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.6.8</sparkle:fullReleaseNotesLink>
@@ -15,7 +25,7 @@
       <description><![CDATA[<ul lang="pt-BR"><li>Quando o login é recusado, a página da conta mostra <strong>Reconectar</strong>. Uma conta Google abre o Google daquela caixa e mantém a conta local e os e-mails. Uma conta IMAP abre o formulário da senha, com endereço e servidor já preenchidos. <strong>Sincronizar agora</strong> fica ao lado.</li><li>Conta Google ou Microsoft não manda mais conferir a senha quando o login foi recusado. A frase diz que a autorização não vale mais. Conta IMAP continua pedindo para conferir a senha.</li><li>Versão do app 0.6.8, build 23. <a href="docs/releases/v0.6.8.pt-BR.md">Notas da versão</a>.</li></ul><ul lang="en"><li>When a sign-in is refused, the account page shows <strong>Reconnect</strong>. A Google account opens Google for that mailbox and keeps the local account and its mail. An IMAP account opens the password form, with the address and server already filled in. <strong>Sync now</strong> stays beside it.</li><li>A Google or Microsoft account no longer tells you to check a password when the sign-in was refused. The line says the authorization is no longer valid. An IMAP account still asks you to check the password.</li><li>App version 0.6.8, build 23. <a href="docs/releases/v0.6.8.md">Release notes</a>.</li></ul>]]></description>
       <enclosure url="https://github.com/OkamiOps/okamiuni/releases/download/v0.6.8/OkamiUNI-0.6.8.zip" length="38496575" type="application/octet-stream" sparkle:edSignature="rZ+lJlzCj1xTNsYbyH4zTVlDx2gKIHNq8n6bklNXr60e1zu0JbrLLX2pGMQMWaxo7BgTnj2no5XNSVFsaacGDQ==" />
     </item>
-    <item>
+<item>
       <title>Version 0.6.7</title>
       <pubDate>Thu, 22 Oct 2026 00:55:34 GMT</pubDate>
       <sparkle:fullReleaseNotesLink>https://github.com/OkamiOps/okamiuni/releases/tag/v0.6.7</sparkle:fullReleaseNotesLink>
